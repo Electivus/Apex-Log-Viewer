@@ -133,6 +133,8 @@
     "watch-tests": "tsc -p tsconfig.test.json -w",
     "pretest": "npm run compile && npm run compile-tests && npm run lint",
     "test": "node scripts/run-tests.js",
+    "test:linux-deps": "bash scripts/install-linux-deps.sh",
+    "test:ci": "npm run test:linux-deps && npm test",
     "format": "prettier --write .",
     "prepare": "husky"
   },
