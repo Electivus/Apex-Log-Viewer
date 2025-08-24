@@ -1,0 +1,14 @@
+{
+  "extension.displayName": "Apex Log Viewer",
+  "extension.description": "View Apex logs in a table in the bottom panel.",
+  "salesforce.panel.title": "Apex",
+  "salesforce.tail.panel.title": "Apex Tail",
+  "salesforce.logs.view.name": "Apex Logs",
+  "salesforce.tail.view.name": "Apex Log Tail",
+  "command.refresh.title": "Refresh Logs",
+  "command.selectOrg.title": "Select Org",
+  "command.tail.title": "Tail Logs",
+  "configuration.title": "Apex Logs",
+  "configuration.sfLogs.pageSize.description": "Number of logs to fetch per page (LIMIT).",
+  "configuration.sfLogs.headConcurrency.description": "Maximum number of concurrent requests to fetch log heads."
+}

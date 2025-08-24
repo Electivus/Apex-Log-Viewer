@@ -1,0 +1,14 @@
+{
+  "extension.displayName": "Visualizador de Logs Apex",
+  "extension.description": "Visualize logs Apex em uma tabela no painel inferior.",
+  "salesforce.panel.title": "Apex",
+  "salesforce.tail.panel.title": "Tail Apex",
+  "salesforce.logs.view.name": "Logs Apex",
+  "salesforce.tail.view.name": "Tail de Log Apex",
+  "command.refresh.title": "Atualizar Logs",
+  "command.selectOrg.title": "Selecionar Org",
+  "command.tail.title": "Tail de Logs",
+  "configuration.title": "Logs Apex",
+  "configuration.sfLogs.pageSize.description": "Quantidade de logs por página (LIMIT).",
+  "configuration.sfLogs.headConcurrency.description": "Número máximo de requisições concorrentes para buscar cabeçalhos dos logs."
+}

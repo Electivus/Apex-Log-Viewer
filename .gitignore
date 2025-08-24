@@ -1,0 +1,13 @@
+node_modules
+out
+media/*.js
+*.vsix
+*.zip
+
+src/webview/main.tsx
+*.log
+dist
+.vscode-test/
+sample-workspace/
+.sfdx/
+.sf/

@@ -1,0 +1,191 @@
+{
+  "name": "apex-log-viewer",
+  "displayName": "%extension.displayName%",
+  "description": "%extension.description%",
+  "version": "0.0.1",
+  "publisher": "electivus",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/manoelcalixto/sf-extension-log-reload"
+  },
+  "engines": {
+    "vscode": "^1.87.0"
+  },
+  "icon": "media/icon.png",
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:sfLogViewer",
+    "onView:sfLogTail",
+    "onCommand:sfLogs.refresh",
+    "onCommand:sfLogs.selectOrg"
+  ],
+  "extensionDependencies": [
+    "salesforce.salesforcedx-vscode"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "%configuration.title%",
+      "properties": {
+        "sfLogs.pageSize": {
+          "type": "number",
+          "default": 100,
+          "minimum": 10,
+          "maximum": 200,
+          "markdownDescription": "%configuration.sfLogs.pageSize.description%"
+        },
+        "sfLogs.headConcurrency": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 20,
+          "markdownDescription": "%configuration.sfLogs.headConcurrency.description%"
+        }
+      }
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "salesforceLogsPanel",
+          "title": "%salesforce.panel.title%",
+          "icon": "media/icon.png"
+        },
+        {
+          "id": "salesforceTailPanel",
+          "title": "%salesforce.tail.panel.title%",
+          "icon": "media/icon.png"
+        }
+      ]
+    },
+    "views": {
+      "salesforceLogsPanel": [
+        {
+          "id": "sfLogViewer",
+          "name": "%salesforce.logs.view.name%",
+          "type": "webview"
+        }
+      ],
+      "salesforceTailPanel": [
+        {
+          "id": "sfLogTail",
+          "name": "%salesforce.tail.view.name%",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "sfLogs.refresh",
+        "title": "%command.refresh.title%",
+        "category": "Apex Logs"
+      },
+      {
+        "command": "sfLogs.selectOrg",
+        "title": "%command.selectOrg.title%",
+        "category": "Apex Logs"
+      },
+      {
+        "command": "sfLogs.tail",
+        "title": "%command.tail.title%",
+        "category": "Apex Logs"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "sfLogs.refresh",
+          "when": "view == sfLogViewer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sfLogs.selectOrg",
+          "when": "view == sfLogViewer",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sfLogs.tail",
+          "when": "view == sfLogViewer",
+          "group": "navigation@3"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "watch:webview": "esbuild src/webview/main.tsx src/webview/tail.tsx --bundle --outdir=media --platform=browser --format=iife --sourcemap --watch",
+    "build:webview": "esbuild src/webview/main.tsx src/webview/tail.tsx --bundle --outdir=media --platform=browser --format=iife --minify",
+    "build": "npm run compile && npm run build:webview",
+    "nls:extract": "vscl dist/extension.js",
+    "nls:write": "node scripts/gen-nls.cjs",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production && (npm run -s nls:extract || true) && npm run nls:write && npm run build:webview",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "vsce:package": "vsce package --no-dependencies",
+    "vsce:publish": "vsce publish --no-dependencies",
+    "compile-tests": "node -e \"try{require('fs').rmSync('out/test',{recursive:true,force:true})}catch(e){}\" && tsc -p tsconfig.test.json",
+    "watch-tests": "tsc -p tsconfig.test.json -w",
+    "pretest": "npm run compile && npm run compile-tests && npm run lint",
+    "test": "node scripts/run-tests.js",
+    "format": "prettier --write .",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/react-window": "^1.8.8",
+    "@types/vscode": "^1.87.0",
+    "@typescript-eslint/eslint-plugin": "^8.39.0",
+    "@typescript-eslint/parser": "^8.39.0",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.25.8",
+    "eslint": "^9.32.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.5",
+    "npm-run-all": "^4.1.5",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "vsce": "^2.15.0",
+    "vscode-nls-dev": "^4.0.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-window": "^1.8.11"
+  },
+  "dependencies": {
+    "vscode-nls": "^5.2.0"
+  },
+  "files": [
+    "dist/**",
+    "media/**",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "package.json",
+    "package.nls.json",
+    "package.nls.pt-br.json"
+  ],
+  "lint-staged": {
+    "*.{js,ts,jsx,tsx,json,md,css,scss}": "prettier --write"
+  },
+  "homepage": "https://github.com/manoelcalixto/sf-extension-log-reload#readme",
+  "bugs": {
+    "url": "https://github.com/manoelcalixto/sf-extension-log-reload/issues"
+  },
+  "keywords": [
+    "salesforce",
+    "apex",
+    "logs",
+    "developer",
+    "tooling",
+    "tail"
+  ]
+}
