@@ -4,7 +4,7 @@ media/*.js
 *.vsix
 *.zip
 
-src/webview/main.tsx
+# allow tracking webview entrypoints
 *.log
 dist
 .vscode-test/
