@@ -20,13 +20,7 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onView:sfLogViewer",
-    "onView:sfLogTail",
-    "onCommand:sfLogs.refresh",
-    "onCommand:sfLogs.selectOrg",
-    "onCommand:sfLogs.showOutput"
-  ],
+  "activationEvents": [],
   "extensionDependencies": [
     "salesforce.salesforcedx-vscode"
   ],
