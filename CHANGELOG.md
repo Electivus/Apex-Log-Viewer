@@ -6,6 +6,12 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.0.2] - 2025-08-25
+
+- Fix: Correct repository metadata (repository/homepage/bugs) to Electivus/Apex-Log-Viewer.
+- Docs: Site links updated to the new repository (in separate site PR).
+
+
 - Webview UI: Infinite scroll (remove “Load more” button), client-side filters (User/Operation/Status/Code Unit), and clickable column sorting (Time/Size/Strings/Code Unit) with accessibility hints.
 - Org persistence: Remember last selected org across sessions.
 - Tail logs: New command and view action to run `sf apex tail log` in an integrated terminal.
