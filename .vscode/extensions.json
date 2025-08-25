@@ -9,7 +9,6 @@
     "dbaeumer.vscode-eslint",
     // Formatting
     "esbenp.prettier-vscode",
-    "stkb.rewrap",
     // Testing
     "spoonscen.es6-mocha-snippets"
   ]
