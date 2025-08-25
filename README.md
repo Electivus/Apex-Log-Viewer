@@ -73,6 +73,30 @@ The extension uses `vscode-nls` for extension strings and a lightweight runtime 
 
 Per repository guidelines, changes should pass both build and test before committing or opening a PR.
 
+## Continuous Integration
+
+- Workflow: GitHub Actions at `.github/workflows/ci.yml` runs on `push` (to `main`), `pull_request`, manual `workflow_dispatch`, and tags matching `v*`.
+- Build & Test: Matrix across `ubuntu-latest`, `macos-latest`, and `windows-latest` on Node 20.
+  - Installs deps with `npm ci` (with Node/NPM cache enabled).
+  - On Linux, installs Electron test dependencies via `scripts/install-linux-deps.sh`.
+  - Runs `npm run build` then `npm test` (the test step clears `CI` env to avoid scratch‑org attempts).
+- Packaging: For tags `v*`, a `package` job runs `npm run package` and `npm run vsce:package`, then uploads a VSIX artifact named `apex-log-viewer-${{ github.ref_name }}-vsix`.
+- Optional Publish: If the repository/org secret `VSCE_PAT` is set (Marketplace token), the workflow runs `npm run vsce:publish` and publishes the tagged version to the VS Code Marketplace.
+- Concurrency: The workflow cancels in‑progress runs for the same ref to keep results tidy.
+
+Release flow
+
+- Bump version in `package.json`, update `CHANGELOG.md`.
+- Create and push a tag like `v0.0.4` to trigger packaging (and publish if `VSCE_PAT` is present).
+  - Example: `git tag v0.0.4 && git push origin v0.0.4`.
+- Download the built `.vsix` from the workflow artifacts when needed.
+
+Setup `VSCE_PAT`
+
+- Create a Personal Access Token with publish rights for the Visual Studio Marketplace.
+- Add it as a GitHub secret named `VSCE_PAT` in the repository (Settings → Secrets and variables → Actions → New repository secret).
+- Publishing is optional; without the secret, the workflow still builds, tests, and attaches the VSIX artifact to the run.
+
 ## Integration tests: scratch org setup
 
 To avoid activation errors from Salesforce extensions during tests, the test runner can authenticate a Dev Hub and create a default scratch org automatically using environment variables. This runs before the VS Code test host launches and sets the created scratch org as the default.

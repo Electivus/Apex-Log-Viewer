@@ -134,6 +134,8 @@
     }
   },
   "scripts": {
+    "clean": "node -e \"const fs=require('fs');const p=require('path');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('dist');del('out');for(const f of ['media/main.js','media/main.js.map','media/tail.js','media/tail.js.map']){try{fs.unlinkSync(f)}catch{}}\"",
+    "prebuild": "npm run clean",
     "vscode:prepublish": "npm run package",
     "compile": "npm run check-types && npm run lint && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
@@ -146,6 +148,7 @@
     "build:assets": "node scripts/gen-assets.mjs",
     "nls:extract": "vscl dist/extension.js",
     "nls:write": "node scripts/gen-nls.cjs",
+    "prepackage": "npm run clean",
     "package": "npm run check-types && npm run lint && node esbuild.js --production && (npm run -s nls:extract || true) && npm run nls:write && npm run build:webview",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
@@ -186,7 +189,8 @@
     "vscode-nls-dev": "^4.0.4"
   },
   "dependencies": {
-    "vscode-nls": "^5.2.0"
+    "vscode-nls": "^5.2.0",
+    "cross-spawn": "^7.0.6"
   },
   "files": [
     "dist/**",
