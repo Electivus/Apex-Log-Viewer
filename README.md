@@ -1,3 +1,5 @@
+![Apex Log Viewer banner](media/banner.png)
+
 # Apex Log Viewer
 
 View and work with Salesforce Apex logs directly in VS Code. The extension adds an Apex Logs panel with a fast, searchable table of recent logs from your default or selected org, and integrates with the Apex Replay Debugger.
