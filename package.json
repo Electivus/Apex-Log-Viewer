@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/manoelcalixto/sf-extension-log-reload"
+    "url": "https://github.com/Electivus/Apex-Log-Viewer"
   },
   "engines": {
     "vscode": "^1.87.0"
@@ -185,9 +185,9 @@
   "lint-staged": {
     "*.{js,ts,jsx,tsx,json,md,css,scss}": "prettier --write"
   },
-  "homepage": "https://github.com/manoelcalixto/sf-extension-log-reload#readme",
+  "homepage": "https://github.com/Electivus/Apex-Log-Viewer#readme",
   "bugs": {
-    "url": "https://github.com/manoelcalixto/sf-extension-log-reload/issues"
+    "url": "https://github.com/Electivus/Apex-Log-Viewer/issues"
   },
   "keywords": [
     "salesforce",
