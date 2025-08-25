@@ -2,6 +2,7 @@ import * as cp from 'child_process';
 import * as os from 'os';
 import * as https from 'https';
 import { URL } from 'url';
+import { logTrace } from './utils/logger';
 import type { ApexLogRow as SApexLogRow, OrgItem as SOrgItem } from './shared/types';
 type ApexLogRow = SApexLogRow;
 type OrgItem = SOrgItem;
@@ -52,17 +53,21 @@ export async function resolvePATHFromLoginShell(): Promise<string | undefined> {
   resolvingPATH = new Promise<string | undefined>(resolve => {
     const shell = process.env.SHELL || (os.platform() === 'darwin' ? '/bin/zsh' : '/bin/bash');
     const args = ['-ilc', 'command -v printenv >/dev/null 2>&1 && printenv PATH || echo -n "$PATH"'];
+    try { logTrace('resolvePATHFromLoginShell: spawn', shell, args.join(' ')); } catch {}
     execFileImpl(shell, args, { maxBuffer: 1024 * 1024, encoding: 'utf8' }, (error, stdout, _stderr) => {
       if (error) {
+        try { logTrace('resolvePATHFromLoginShell: failed'); } catch {}
         resolve(undefined);
         return;
       }
       const pathFromShell = String(stdout || '').trim();
       if (!pathFromShell || pathFromShell === process.env.PATH) {
+        try { logTrace('resolvePATHFromLoginShell: no change'); } catch {}
         resolve(undefined);
         return;
       }
       cachedLoginShellPATH = pathFromShell;
+      try { logTrace('resolvePATHFromLoginShell: resolved length', cachedLoginShellPATH.length); } catch {}
       resolve(cachedLoginShellPATH);
     });
   });
@@ -88,6 +93,7 @@ function execCommand(
     if (envOverride) {
       opts.env = envOverride;
     }
+    try { logTrace('execCommand:', program, args.join(' '), envOverride?.PATH ? '(login PATH)' : ''); } catch {}
     execFileImpl(program, args, opts, (error, stdout, stderr) => {
       if (error) {
         // Map ENOENT to a clearer message for missing CLI
@@ -95,12 +101,15 @@ function execCommand(
         if (err && (err.code === 'ENOENT' || /not found|ENOENT/i.test(err.message))) {
           const e = new Error(`CLI not found: ${program}`) as any;
           e.code = 'ENOENT';
+          try { logTrace('execCommand ENOENT for', program); } catch {}
           reject(e);
           return;
         }
+        try { logTrace('execCommand error for', program, '->', (stderr || err.message || '').split('\n')[0]); } catch {}
         reject(new Error(stderr || err.message));
         return;
       }
+      try { logTrace('execCommand success for', program, '(stdout length', String(stdout || '').length, ')'); } catch {}
       resolve({ stdout, stderr });
     });
   });
@@ -120,6 +129,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
   let sawEnoent = false;
   for (const { program, args } of candidates) {
     try {
+      try { logTrace('getOrgAuth: trying', program, args.join(' ')); } catch {}
       const { stdout } = await execCommand(program, args);
       const parsed = JSON.parse(stdout);
       const result = parsed.result || parsed;
@@ -127,6 +137,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
       const instanceUrl: string | undefined = result.instanceUrl || result.instance_url || result.loginUrl;
       const username: string | undefined = result.username;
       if (accessToken && instanceUrl) {
+        try { logTrace('getOrgAuth: success for user', username || '(unknown)', 'at', instanceUrl); } catch {}
         return { accessToken, instanceUrl, username };
       }
     } catch (_e) {
@@ -134,6 +145,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
       if (e && e.code === 'ENOENT') {
         sawEnoent = true;
       }
+      try { logTrace('getOrgAuth: attempt failed for', program); } catch {}
       // try next variation
     }
   }
@@ -144,6 +156,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
       const env2: NodeJS.ProcessEnv = { ...process.env, PATH: loginPath };
       for (const { program, args } of candidates) {
         try {
+          try { logTrace('getOrgAuth(login PATH): trying', program, args.join(' ')); } catch {}
           const { stdout } = await execCommand(program, args, env2);
           const parsed = JSON.parse(stdout);
           const result = parsed.result || parsed;
@@ -151,9 +164,11 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
           const instanceUrl: string | undefined = result.instanceUrl || result.instance_url || result.loginUrl;
           const username: string | undefined = result.username;
           if (accessToken && instanceUrl) {
+            try { logTrace('getOrgAuth(login PATH): success for user', username || '(unknown)', 'at', instanceUrl); } catch {}
             return { accessToken, instanceUrl, username };
           }
         } catch {
+          try { logTrace('getOrgAuth(login PATH): attempt failed for', program); } catch {}
           // try next
         }
       }
@@ -174,6 +189,7 @@ export async function listOrgs(): Promise<OrgItem[]> {
   let sawEnoent = false;
   for (const { program, args } of candidates) {
     try {
+      try { logTrace('listOrgs: trying', program, args.join(' ')); } catch {}
       const { stdout } = await execCommand(program, args);
       const parsed = JSON.parse(stdout);
       const res = parsed.result || parsed;
@@ -248,6 +264,7 @@ export async function listOrgs(): Promise<OrgItem[]> {
       if (e && e.code === 'ENOENT') {
         sawEnoent = true;
       }
+      try { logTrace('listOrgs: attempt failed for', program); } catch {}
       // try next
     }
   }
@@ -257,6 +274,7 @@ export async function listOrgs(): Promise<OrgItem[]> {
       const env2: NodeJS.ProcessEnv = { ...process.env, PATH: loginPath };
       for (const { program, args } of candidates) {
         try {
+          try { logTrace('listOrgs(login PATH): trying', program, args.join(' ')); } catch {}
           const { stdout } = await execCommand(program, args, env2);
           const parsed = JSON.parse(stdout);
           const res = parsed.result || parsed;
@@ -325,6 +343,7 @@ export async function listOrgs(): Promise<OrgItem[]> {
           });
           return arr;
         } catch {
+          try { logTrace('listOrgs(login PATH): attempt failed for', program); } catch {}
           // try next
         }
       }
@@ -337,7 +356,8 @@ export async function listOrgs(): Promise<OrgItem[]> {
 function httpsRequest(
   method: string,
   urlString: string,
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  body?: string
 ): Promise<{ statusCode: number; headers: Record<string, string | string[] | undefined>; body: string }> {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(urlString);
@@ -360,6 +380,12 @@ function httpsRequest(
       }
     );
     req.on('error', reject);
+    if (body && method !== 'GET' && method !== 'HEAD') {
+      try {
+        req.setHeader('Content-Length', Buffer.byteLength(body, 'utf8'));
+      } catch {}
+      req.write(body, 'utf8');
+    }
     req.end();
   });
 }
@@ -379,12 +405,17 @@ async function httpsRequestWith401Retry(
   auth: OrgAuth,
   method: string,
   urlString: string,
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  body?: string
 ): Promise<string> {
-  const first = await httpsRequest(method, urlString, headers);
+  try { logTrace('HTTP', method, urlString); } catch {}
+  const first = await httpsRequest(method, urlString, headers, body);
+  try { logTrace('HTTP <-', first.statusCode, urlString); } catch {}
   if (first.statusCode === 401) {
+    try { logTrace('HTTP 401 -> refreshing auth and retrying'); } catch {}
     await refreshAuthInPlace(auth);
-    const second = await httpsRequest(method, urlString, { ...headers, Authorization: `Bearer ${auth.accessToken}` });
+    const second = await httpsRequest(method, urlString, { ...headers, Authorization: `Bearer ${auth.accessToken}` }, body);
+    try { logTrace('HTTP(retry) <-', second.statusCode, urlString); } catch {}
     if (second.statusCode >= 200 && second.statusCode < 300) {
       return second.body;
     }
@@ -459,14 +490,15 @@ export async function fetchApexLogs(
   });
   const json = JSON.parse(body);
   const records = (json.records || []) as ApexLogRow[];
-  const filtered = debugLevel
-    ? records.filter(r => String((r as any)?.Application || '').includes(debugLevel))
-    : records;
+  // Do not filter by debug level here. ApexLog does not reliably carry
+  // DebugLevel information, and filtering by Application was dropping
+  // valid results causing 0 logs to appear even with a 200 response.
+  // If needed, filtering should be applied client-side based on content.
   // Set a 3-second TTL for the specific page
   if (cacheKey) {
-    listCache.set(cacheKey, { data: filtered, expiresAt: now + 3000 });
+    listCache.set(cacheKey, { data: records, expiresAt: now + 3000 });
   }
-  return filtered;
+  return records;
 }
 
 export async function fetchApexLogBody(auth: OrgAuth, logId: string): Promise<string> {
@@ -490,9 +522,76 @@ export async function listDebugLevels(auth: OrgAuth): Promise<string[]> {
 }
 
 export async function getActiveUserDebugLevel(auth: OrgAuth): Promise<string | undefined> {
-  const soql = encodeURIComponent(
-    `SELECT DebugLevel.DeveloperName FROM TraceFlag WHERE TracedEntityId = '${auth.username ?? ''}' AND IsActive = true ORDER BY CreatedDate DESC LIMIT 1`
+  // Resolve current user's Id from username, then look up the latest TraceFlag.
+  // Query User via standard REST query endpoint.
+  const username = (auth.username || '').trim();
+  if (!username) {
+    return undefined;
+  }
+  const esc = username.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const userSoql = encodeURIComponent(`SELECT Id FROM User WHERE Username = '${esc}' LIMIT 1`);
+  const userUrl = `${auth.instanceUrl}/services/data/v${API_VERSION}/query?q=${userSoql}`;
+  const userBody = await httpsRequestWith401Retry(auth, 'GET', userUrl, {
+    Authorization: `Bearer ${auth.accessToken}`,
+    'Content-Type': 'application/json'
+  });
+  const userJson = JSON.parse(userBody);
+  const userId: string | undefined = Array.isArray(userJson.records) ? userJson.records[0]?.Id : undefined;
+  if (!userId) {
+    return undefined;
+  }
+  // Fetch most recent TraceFlag for the user; avoid IsActive (not present on all orgs)
+  const tfSoql = encodeURIComponent(
+    `SELECT DebugLevel.DeveloperName FROM TraceFlag WHERE TracedEntityId = '${userId}' ORDER BY CreatedDate DESC LIMIT 1`
   );
+  const tfUrl = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/query?q=${tfSoql}`;
+  const tfBody = await httpsRequestWith401Retry(auth, 'GET', tfUrl, {
+    Authorization: `Bearer ${auth.accessToken}`,
+    'Content-Type': 'application/json'
+  });
+  const tfJson = JSON.parse(tfBody);
+  const rec = (tfJson.records || [])[0];
+  return rec?.DebugLevel?.DeveloperName as string | undefined;
+}
+
+// Format date as Salesforce datetime: YYYY-MM-DDTHH:mm:ss.SSS+0000 (UTC)
+function toSfDateTimeUTC(d: Date): string {
+  const pad = (n: number, w: number = 2) => String(n).padStart(w, '0');
+  return (
+    `${d.getUTCFullYear()}-` +
+    `${pad(d.getUTCMonth() + 1)}-` +
+    `${pad(d.getUTCDate())}T` +
+    `${pad(d.getUTCHours())}:` +
+    `${pad(d.getUTCMinutes())}:` +
+    `${pad(d.getUTCSeconds())}.` +
+    `${pad(d.getUTCMilliseconds(), 3)}+0000`
+  );
+}
+
+async function getCurrentUserId(auth: OrgAuth): Promise<string | undefined> {
+  const username = (auth.username || '').trim();
+  if (!username) {
+    return undefined;
+  }
+  const esc = username.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const userSoql = encodeURIComponent(`SELECT Id FROM User WHERE Username = '${esc}' LIMIT 1`);
+  const userUrl = `${auth.instanceUrl}/services/data/v${API_VERSION}/query?q=${userSoql}`;
+  const userBody = await httpsRequestWith401Retry(auth, 'GET', userUrl, {
+    Authorization: `Bearer ${auth.accessToken}`,
+    'Content-Type': 'application/json'
+  });
+  const userJson = JSON.parse(userBody);
+  const userId: string | undefined = Array.isArray(userJson.records) ? userJson.records[0]?.Id : undefined;
+  return userId;
+}
+
+async function getDebugLevelIdByName(auth: OrgAuth, developerName: string): Promise<string | undefined> {
+  const name = (developerName || '').trim();
+  if (!name) {
+    return undefined;
+  }
+  const esc = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const soql = encodeURIComponent(`SELECT Id FROM DebugLevel WHERE DeveloperName = '${esc}' LIMIT 1`);
   const url = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/query?q=${soql}`;
   const body = await httpsRequestWith401Retry(auth, 'GET', url, {
     Authorization: `Bearer ${auth.accessToken}`,
@@ -500,7 +599,77 @@ export async function getActiveUserDebugLevel(auth: OrgAuth): Promise<string | u
   });
   const json = JSON.parse(body);
   const rec = (json.records || [])[0];
-  return rec?.DebugLevel?.DeveloperName as string | undefined;
+  return rec?.Id as string | undefined;
+}
+
+async function hasActiveTraceFlag(auth: OrgAuth, userId: string): Promise<boolean> {
+  const now = toSfDateTimeUTC(new Date());
+  const soql = encodeURIComponent(
+    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'DEVELOPER_LOG' AND StartDate <= ${now} AND ExpirationDate > ${now} ORDER BY CreatedDate DESC LIMIT 1`
+  );
+  const url = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/query?q=${soql}`;
+  const body = await httpsRequestWith401Retry(auth, 'GET', url, {
+    Authorization: `Bearer ${auth.accessToken}`,
+    'Content-Type': 'application/json'
+  });
+  const json = JSON.parse(body);
+  return Array.isArray(json.records) && json.records.length > 0;
+}
+
+export async function ensureUserTraceFlag(
+  auth: OrgAuth,
+  developerName: string,
+  ttlMinutes: number = 30
+): Promise<boolean> {
+  // Returns true if created a new TraceFlag, false if one already active or not possible
+  try {
+    const userId = await getCurrentUserId(auth);
+    if (!userId) {
+      try { logTrace('ensureUserTraceFlag: no user id'); } catch {}
+      return false;
+    }
+    // If already active, do nothing
+    if (await hasActiveTraceFlag(auth, userId)) {
+      try { logTrace('ensureUserTraceFlag: active traceflag exists for user'); } catch {}
+      return false;
+    }
+    // Resolve DebugLevelId
+    const debugLevelId = await getDebugLevelIdByName(auth, developerName);
+    if (!debugLevelId) {
+      try { logTrace('ensureUserTraceFlag: debug level not found for', developerName); } catch {}
+      return false;
+    }
+    const now = new Date();
+    const start = toSfDateTimeUTC(new Date(now.getTime() - 1000));
+    const exp = toSfDateTimeUTC(new Date(now.getTime() + Math.max(1, ttlMinutes) * 60 * 1000));
+    const url = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/sobjects/TraceFlag`;
+    const payload = {
+      TracedEntityId: userId,
+      LogType: 'DEVELOPER_LOG',
+      DebugLevelId: debugLevelId,
+      StartDate: start,
+      ExpirationDate: exp
+    } as any;
+    const resBody = await httpsRequestWith401Retry(
+      auth,
+      'POST',
+      url,
+      {
+        Authorization: `Bearer ${auth.accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      JSON.stringify(payload)
+    );
+    const res = JSON.parse(resBody);
+    if (res && res.success) {
+      try { logTrace('ensureUserTraceFlag: created TraceFlag', res.id || '(unknown id)'); } catch {}
+      return true;
+    }
+    return false;
+  } catch (_e) {
+    // Swallow errors to avoid breaking tail; caller can log a warning
+    return false;
+  }
 }
 
 type RangeResponse = { statusCode: number; headers: Record<string, string | string[] | undefined>; body: string };
@@ -546,9 +715,11 @@ export async function fetchApexLogHead(
   // 1) Attempt Range with Accept-Encoding: identity
   try {
     const stride = typeof logLengthBytes === 'number' ? (logLengthBytes <= 4096 ? logLengthBytes : 8192) : 8192;
+    try { logTrace('HTTP Range GET ApexLog head', logId, 'bytes=0-', Math.max(0, stride - 1)); } catch {}
     const range = await fetchApexLogBytesRange(auth, logId, 0, Math.max(0, stride - 1));
     const contentEncoding = (range.headers['content-encoding'] || '').toString().toLowerCase();
     if (range.statusCode === 206 && (!contentEncoding || contentEncoding === 'identity')) {
+      try { logTrace('HTTP Range <- 206 identity for', logId); } catch {}
       const lines = range.body.split(/\r?\n/);
       const toStore = cached ? (lines.length > cached.length ? lines : cached) : lines;
       headCacheByLog.set(key, toStore.slice(0, HEAD_MAX_LINES));
@@ -569,6 +740,7 @@ export async function fetchApexLogHead(
   return new Promise((resolve, reject) => {
     const urlString = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/sobjects/ApexLog/${logId}/Body`;
     const urlObj = new URL(urlString);
+    try { logTrace('HTTP stream GET ApexLog head', logId, '-> until', maxLines, 'lines'); } catch {}
     let buffer = '';
     let collected: string[] = [];
     const attempt = (token: string) =>
@@ -588,6 +760,7 @@ export async function fetchApexLogHead(
               res.resume();
               refreshAuthInPlace(auth)
                 .then(() => {
+                  try { logTrace('HTTP stream 401; retrying for', logId); } catch {}
                   const req2 = attempt(auth.accessToken);
                   req2.on('error', reject);
                   req2.end();
@@ -610,6 +783,7 @@ export async function fetchApexLogHead(
                 try {
                   req.destroy();
                 } catch {}
+                try { logTrace('HTTP stream: collected max lines for', logId, '->', collected.length); } catch {}
                 // Update cache with the largest collected prefix
                 const toStore = cached ? (collected.length > cached.length ? collected : cached) : collected;
                 headCacheByLog.set(key, toStore.slice(0, HEAD_MAX_LINES));
@@ -628,6 +802,7 @@ export async function fetchApexLogHead(
             if (buffer.length && collected.length < maxLines) {
               collected.push(buffer.replace(/\r$/, ''));
             }
+            try { logTrace('HTTP stream end for', logId, 'collected', collected.length); } catch {}
             const sliced = collected.slice(0, maxLines);
             const toStore = cached ? (sliced.length > cached.length ? sliced : cached) : sliced;
             headCacheByLog.set(key, toStore.slice(0, HEAD_MAX_LINES));

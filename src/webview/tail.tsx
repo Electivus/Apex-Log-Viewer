@@ -15,6 +15,7 @@ const vscode = acquireVsCodeApi<WebviewToExtensionMessage>();
 type TailMessage = ExtensionToWebviewMessage;
 
 function App() {
+  const TAIL_MAX_LINES = 10000; // keep a rolling buffer to avoid memory bloat
   const [locale, setLocale] = useState('en');
   const [orgs, setOrgs] = useState<OrgItem[]>([]);
   const [selectedOrg, setSelectedOrg] = useState<string | undefined>(undefined);
@@ -56,7 +57,17 @@ function App() {
         setRunning(!!msg.running);
       }
       if (msg.type === 'tailData') {
-        setLines(prev => [...prev, ...msg.lines]);
+        const incoming = Array.isArray(msg.lines) ? msg.lines : [];
+        setLines(prev => {
+          const merged = prev.length ? prev.concat(incoming) : [...incoming];
+          const drop = Math.max(0, merged.length - TAIL_MAX_LINES);
+          if (drop > 0) {
+            // Adjust selection to account for trimmed prefix
+            setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
+            return merged.slice(drop);
+          }
+          return merged;
+        });
       }
       if (msg.type === 'tailReset') {
         setLines([]);

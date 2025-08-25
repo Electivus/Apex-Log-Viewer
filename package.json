@@ -2,7 +2,7 @@
   "name": "apex-log-viewer",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "electivus",
   "license": "MIT",
   "repository": {
@@ -24,7 +24,8 @@
     "onView:sfLogViewer",
     "onView:sfLogTail",
     "onCommand:sfLogs.refresh",
-    "onCommand:sfLogs.selectOrg"
+    "onCommand:sfLogs.selectOrg",
+    "onCommand:sfLogs.showOutput"
   ],
   "extensionDependencies": [
     "salesforce.salesforcedx-vscode"
@@ -47,6 +48,11 @@
           "minimum": 1,
           "maximum": 20,
           "markdownDescription": "%configuration.sfLogs.headConcurrency.description%"
+        },
+        "sfLogs.trace": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Enable verbose trace logging for CLI and HTTP calls (Output: Apex Log Viewer)."
         }
       }
     },
@@ -95,6 +101,11 @@
         "command": "sfLogs.tail",
         "title": "%command.tail.title%",
         "category": "Apex Logs"
+      },
+      {
+        "command": "sfLogs.showOutput",
+        "title": "Show Extension Output",
+        "category": "Apex Logs"
       }
     ],
     "menus": {
@@ -113,6 +124,11 @@
           "command": "sfLogs.tail",
           "when": "view == sfLogViewer",
           "group": "navigation@3"
+        },
+        {
+          "command": "sfLogs.showOutput",
+          "when": "view == sfLogViewer || view == sfLogTail",
+          "group": "navigation@99"
         }
       ]
     }

@@ -86,7 +86,7 @@ function App() {
     vscode.postMessage({ type: 'refresh' });
   };
   const onSelectOrg = (v: string) => {
-    setSelectedOrg(v === '__default__' ? undefined : v);
+    setSelectedOrg(v);
     vscode.postMessage({ type: 'selectOrg', target: v });
   };
   const onOpen = (logId: string) => vscode.postMessage({ type: 'openLog', logId });

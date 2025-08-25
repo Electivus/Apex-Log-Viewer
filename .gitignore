@@ -11,3 +11,4 @@ dist
 sample-workspace/
 .sfdx/
 .sf/
+media/*.js.map

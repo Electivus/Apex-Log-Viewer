@@ -90,8 +90,11 @@ export function TailToolbar({
       </button>
       <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ opacity: 0.8 }}>{t.orgLabel}:</span>
-        <select value={selectedOrg ?? '__default__'} onChange={e => onSelectOrg(e.target.value)} style={selectStyle}>
-          <option value="__default__">{t.defaultOrg}</option>
+        <select
+          value={selectedOrg ?? (orgs[0]?.username || '')}
+          onChange={e => onSelectOrg(e.target.value)}
+          style={selectStyle}
+        >
           {orgs.map(o => (
             <option key={o.username} value={o.username}>
               {(o.alias ?? o.username) + (o.isDefaultUsername ? ' *' : '')}
