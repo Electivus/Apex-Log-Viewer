@@ -5,6 +5,7 @@ import type { OrgItem, ApexLogRow } from '../shared/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { Toolbar } from './components/Toolbar';
 import { LogsTable } from './components/LogsTable';
+import { LoadingOverlay } from './components/LoadingOverlay';
 
 declare global {
   // Provided by VS Code webview runtime
@@ -184,7 +185,7 @@ function App() {
   }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead]);
 
   return (
-    <div style={{ padding: 8 }}>
+    <div style={{ padding: 8, position: 'relative', minHeight: 120 }}>
       <Toolbar
         loading={loading}
         error={error}
@@ -224,6 +225,8 @@ function App() {
         sortDir={sortDir}
         onSort={onSort}
       />
+
+      <LoadingOverlay show={loading} label={t.loading} />
 
       {!loading && filteredRows.length === 0 && <div style={{ marginTop: 12, opacity: 0.8 }}>{t.noLogs}</div>}
     </div>

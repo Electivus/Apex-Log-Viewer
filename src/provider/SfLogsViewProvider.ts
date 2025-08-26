@@ -150,6 +150,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
       if (message?.type === 'ready') {
         logInfo('Logs: message ready');
+        // Show loading while fetching orgs and initial logs
+        this.post({ type: 'loading', value: true });
         await this.sendOrgs();
         await this.refresh();
         return;
@@ -159,7 +161,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         await this.refresh();
       } else if (message?.type === 'getOrgs') {
         logInfo('Logs: message getOrgs');
-        await this.sendOrgs();
+        this.post({ type: 'loading', value: true });
+        try {
+          await this.sendOrgs();
+        } finally {
+          this.post({ type: 'loading', value: false });
+        }
       } else if (message?.type === 'selectOrg') {
         const target = typeof message.target === 'string' ? message.target.trim() : undefined;
         const next = target || undefined;

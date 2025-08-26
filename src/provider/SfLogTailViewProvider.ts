@@ -69,15 +69,23 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         logInfo('Tail: received message from webview:', t);
       }
       if (message?.type === 'ready') {
+        // Show loading while bootstrapping orgs and debug levels
+        this.post({ type: 'loading', value: true });
         await this.sendOrgs();
         await this.sendDebugLevels();
         this.post({ type: 'init', locale: vscode.env.language });
         this.post({ type: 'tailStatus', running: this.tailRunning });
+        this.post({ type: 'loading', value: false });
         return;
       }
       if (message?.type === 'getOrgs') {
-        await this.sendOrgs();
-        await this.sendDebugLevels();
+        this.post({ type: 'loading', value: true });
+        try {
+          await this.sendOrgs();
+          await this.sendDebugLevels();
+        } finally {
+          this.post({ type: 'loading', value: false });
+        }
         return;
       }
       if (message?.type === 'selectOrg') {
@@ -85,8 +93,13 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         const next = target || undefined;
         this.setSelectedOrg(next);
         logInfo('Tail: selected org set to', next || '(none)');
-        await this.sendOrgs();
-        await this.sendDebugLevels();
+        this.post({ type: 'loading', value: true });
+        try {
+          await this.sendOrgs();
+          await this.sendDebugLevels();
+        } finally {
+          this.post({ type: 'loading', value: false });
+        }
         return;
       }
       if (message?.type === 'openLog' && (message as any).logId) {
@@ -102,7 +115,13 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       if (message?.type === 'tailStart') {
-        await this.startTail(typeof message.debugLevel === 'string' ? message.debugLevel.trim() : undefined);
+        // Surface loading while ensuring TraceFlag and priming tail
+        this.post({ type: 'loading', value: true });
+        try {
+          await this.startTail(typeof message.debugLevel === 'string' ? message.debugLevel.trim() : undefined);
+        } finally {
+          this.post({ type: 'loading', value: false });
+        }
         return;
       }
       if (message?.type === 'tailStop') {
