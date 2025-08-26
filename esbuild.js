@@ -1,4 +1,3 @@
-// @ts-nocheck
 const esbuild = require('esbuild');
 
 const production = process.argv.includes('--production');

@@ -16,7 +16,6 @@ import {
 import type { ApexLogRow, OrgItem } from '../shared/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { SELECTED_ORG_KEY } from '../shared/constants';
-import { logInfo, logWarn, logError } from '../utils/logger';
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
@@ -24,6 +23,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private pageLimit = 100;
   private currentOffset = 0;
   private selectedOrg: string | undefined;
+  private readonly defaultOrgSentinel = '__default__';
   private headLimiter: Limiter;
   private headConcurrency: number = 5;
   private disposed = false;
@@ -36,7 +36,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       const persisted = (this.context as any)?.globalState?.get?.(SELECTED_ORG_KEY) as string | undefined;
       if (persisted) {
         this.selectedOrg = persisted;
-        logInfo('Logs: restored selected org from globalState:', this.selectedOrg || '(default)');
       }
     } catch {
       // ignore missing globalState in tests
@@ -135,7 +134,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
     };
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
-    logInfo('Logs webview resolved.');
     // Dispose handling: stop posting and bump token to invalidate in-flight work
     this.context.subscriptions.push(
       webviewView.onDidDispose(() => {
@@ -143,44 +141,29 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         this.view = undefined;
         this.refreshToken++;
         this.headLimiter = createLimiter(this.headConcurrency);
-        logInfo('Logs webview disposed.');
       })
     );
 
     webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
       if (message?.type === 'ready') {
-        logInfo('Logs: message ready');
-        // Show loading while fetching orgs and initial logs
-        this.post({ type: 'loading', value: true });
         await this.sendOrgs();
         await this.refresh();
         return;
       }
       if (message?.type === 'refresh') {
-        logInfo('Logs: message refresh');
         await this.refresh();
       } else if (message?.type === 'getOrgs') {
-        logInfo('Logs: message getOrgs');
-        this.post({ type: 'loading', value: true });
-        try {
-          await this.sendOrgs();
-        } finally {
-          this.post({ type: 'loading', value: false });
-        }
+        await this.sendOrgs();
       } else if (message?.type === 'selectOrg') {
-        const target = typeof message.target === 'string' ? message.target.trim() : undefined;
-        const next = target || undefined;
+        const target = typeof message.target === 'string' ? message.target : undefined;
+        const next = target && target !== this.defaultOrgSentinel ? target : undefined;
         this.setSelectedOrg(next);
-        logInfo('Logs: selected org set to', next || '(none)');
         await this.refresh();
       } else if (message?.type === 'openLog' && message.logId) {
-        logInfo('Logs: openLog', message.logId);
         await this.openLog(message.logId);
       } else if (message?.type === 'replay' && message.logId) {
-        logInfo('Logs: replay', message.logId);
         await this.debugLog(message.logId);
       } else if (message?.type === 'loadMore') {
-        logInfo('Logs: loadMore');
         await this.loadMore();
       }
     });
@@ -211,7 +194,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       const auth = await getOrgAuth(this.selectedOrg);
       this.currentOffset = 0;
       const logs: ApexLogRow[] = await fetchApexLogs(auth, this.pageLimit, this.currentOffset);
-      logInfo('Logs: fetched', logs.length, 'rows (pageSize =', this.pageLimit, ')');
       this.currentOffset += logs.length;
       if (token !== this.refreshToken || this.disposed) {
         return;
@@ -239,9 +221,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         });
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      logWarn('Logs: refresh failed ->', msg);
-      this.post({ type: 'error', message: msg });
+      this.post({ type: 'error', message: e instanceof Error ? e.message : String(e) });
     } finally {
       this.post({ type: 'loading', value: false });
     }
@@ -256,7 +236,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     try {
       const auth = await getOrgAuth(this.selectedOrg);
       const logs: ApexLogRow[] = await fetchApexLogs(auth, this.pageLimit, this.currentOffset);
-      logInfo('Logs: loadMore fetched', logs.length);
       this.currentOffset += logs.length;
       if (token !== this.refreshToken || this.disposed) {
         return;
@@ -282,9 +261,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         });
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      logWarn('Logs: loadMore failed ->', msg);
-      this.post({ type: 'error', message: msg });
+      this.post({ type: 'error', message: e instanceof Error ? e.message : String(e) });
     } finally {
       this.post({ type: 'loading', value: false });
     }
@@ -311,7 +288,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       vscode.window.showErrorMessage(
         localize('openError', 'Failed to open log: ') + (e instanceof Error ? e.message : String(e))
       );
-      logWarn('Logs: openLog failed ->', e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -338,7 +314,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         localize('replayError', 'Failed to launch Apex Replay Debugger: ') +
           (e instanceof Error ? e.message : String(e))
       );
-      logWarn('Logs: replay failed ->', e instanceof Error ? e.message : String(e));
     } finally {
       this.post({ type: 'loading', value: false });
     }
@@ -383,11 +358,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public async sendOrgs() {
     try {
       const orgs = await listOrgs();
-      const selected =
-        this.selectedOrg || orgs.find(o => o.isDefaultUsername)?.username || orgs[0]?.username || undefined;
-      this.post({ type: 'orgs', data: orgs, selected });
+      this.post({ type: 'orgs', data: orgs, selected: this.selectedOrg ?? this.defaultOrgSentinel });
     } catch {
-      this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
+      this.post({ type: 'orgs', data: [], selected: this.selectedOrg ?? this.defaultOrgSentinel });
     }
   }
 

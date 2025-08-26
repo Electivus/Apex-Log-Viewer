@@ -5,7 +5,6 @@ import type { OrgItem } from '../shared/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { TailToolbar } from './components/tail/TailToolbar';
 import { TailList } from './components/tail/TailList';
-import { LoadingOverlay } from './components/LoadingOverlay';
 
 declare global {
   var acquireVsCodeApi: <T = unknown>() => { postMessage: (msg: T) => void };
@@ -16,7 +15,6 @@ const vscode = acquireVsCodeApi<WebviewToExtensionMessage>();
 type TailMessage = ExtensionToWebviewMessage;
 
 function App() {
-  const TAIL_MAX_LINES = 10000; // keep a rolling buffer to avoid memory bloat
   const [locale, setLocale] = useState('en');
   const [orgs, setOrgs] = useState<OrgItem[]>([]);
   const [selectedOrg, setSelectedOrg] = useState<string | undefined>(undefined);
@@ -29,7 +27,6 @@ function App() {
   const [debugLevel, setDebugLevel] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
   const [selectedIndex, setSelectedIndex] = useState<number | undefined>(undefined);
-  const [loading, setLoading] = useState(false);
   const t = getMessages(locale) as any;
   const listRef = useRef<HTMLDivElement | null>(null);
   const lineRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -42,9 +39,6 @@ function App() {
       }
       if (msg.type === 'init') {
         setLocale(msg.locale);
-      }
-      if (msg.type === 'loading') {
-        setLoading(!!msg.value);
       }
       if (msg.type === 'orgs') {
         setOrgs(msg.data || []);
@@ -62,17 +56,7 @@ function App() {
         setRunning(!!msg.running);
       }
       if (msg.type === 'tailData') {
-        const incoming = Array.isArray(msg.lines) ? msg.lines : [];
-        setLines(prev => {
-          const merged = prev.length ? prev.concat(incoming) : [...incoming];
-          const drop = Math.max(0, merged.length - TAIL_MAX_LINES);
-          if (drop > 0) {
-            // Adjust selection to account for trimmed prefix
-            setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
-            return merged.slice(drop);
-          }
-          return merged;
-        });
+        setLines(prev => [...prev, ...msg.lines]);
       }
       if (msg.type === 'tailReset') {
         setLines([]);
@@ -169,11 +153,9 @@ function App() {
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
-        position: 'relative'
+        gap: 8
       }}
     >
-      <LoadingOverlay show={loading} label={t.loading} />
       <TailToolbar
         running={running}
         onStart={start}

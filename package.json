@@ -2,25 +2,26 @@
   "name": "apex-log-viewer",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.0.6",
+  "version": "0.0.1",
   "publisher": "electivus",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Electivus/Apex-Log-Viewer"
+    "url": "https://github.com/manoelcalixto/sf-extension-log-reload"
   },
   "engines": {
     "vscode": "^1.87.0"
   },
   "icon": "media/icon.png",
-  "galleryBanner": {
-    "color": "#2563eb",
-    "theme": "dark"
-  },
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:sfLogViewer",
+    "onView:sfLogTail",
+    "onCommand:sfLogs.refresh",
+    "onCommand:sfLogs.selectOrg"
+  ],
   "extensionDependencies": [
     "salesforce.salesforcedx-vscode"
   ],
@@ -42,11 +43,6 @@
           "minimum": 1,
           "maximum": 20,
           "markdownDescription": "%configuration.sfLogs.headConcurrency.description%"
-        },
-        "sfLogs.trace": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "Enable verbose trace logging for CLI and HTTP calls (Output: Apex Log Viewer)."
         }
       }
     },
@@ -95,11 +91,6 @@
         "command": "sfLogs.tail",
         "title": "%command.tail.title%",
         "category": "Apex Logs"
-      },
-      {
-        "command": "sfLogs.showOutput",
-        "title": "Show Extension Output",
-        "category": "Apex Logs"
       }
     ],
     "menus": {
@@ -118,18 +109,11 @@
           "command": "sfLogs.tail",
           "when": "view == sfLogViewer",
           "group": "navigation@3"
-        },
-        {
-          "command": "sfLogs.showOutput",
-          "when": "view == sfLogViewer || view == sfLogTail",
-          "group": "navigation@99"
         }
       ]
     }
   },
   "scripts": {
-    "clean": "node -e \"const fs=require('fs');const p=require('path');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('dist');del('out');for(const f of ['media/main.js','media/main.js.map','media/tail.js','media/tail.js.map']){try{fs.unlinkSync(f)}catch{}}\"",
-    "prebuild": "npm run clean",
     "vscode:prepublish": "npm run package",
     "compile": "npm run check-types && npm run lint && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
@@ -138,11 +122,8 @@
     "watch:webview": "esbuild src/webview/main.tsx src/webview/tail.tsx --bundle --outdir=media --platform=browser --format=iife --sourcemap --watch",
     "build:webview": "esbuild src/webview/main.tsx src/webview/tail.tsx --bundle --outdir=media --platform=browser --format=iife --minify",
     "build": "npm run compile && npm run build:webview",
-    "build:icon": "node scripts/gen-icon.mjs",
-    "build:assets": "node scripts/gen-assets.mjs",
     "nls:extract": "vscl dist/extension.js",
     "nls:write": "node scripts/gen-nls.cjs",
-    "prepackage": "npm run clean",
     "package": "npm run check-types && npm run lint && node esbuild.js --production && (npm run -s nls:extract || true) && npm run nls:write && npm run build:webview",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
@@ -152,8 +133,6 @@
     "watch-tests": "tsc -p tsconfig.test.json -w",
     "pretest": "npm run compile && npm run compile-tests && npm run lint",
     "test": "node scripts/run-tests.js",
-    "test:linux-deps": "bash scripts/install-linux-deps.sh",
-    "test:ci": "npm run test:linux-deps && npm test",
     "format": "prettier --write .",
     "prepare": "husky"
   },
@@ -168,23 +147,21 @@
     "@typescript-eslint/parser": "^8.39.0",
     "@vscode/test-cli": "^0.0.11",
     "@vscode/test-electron": "^2.5.2",
-    "@vscode/vsce": "^3.0.0",
     "esbuild": "^0.25.8",
     "eslint": "^9.32.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.1.5",
     "npm-run-all": "^4.1.5",
     "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "vsce": "^2.15.0",
+    "vscode-nls-dev": "^4.0.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-window": "^1.8.11",
-    "sharp": "^0.33.5",
-    "typescript": "^5.9.2",
-    "vscode-nls-dev": "^4.0.4"
+    "react-window": "^1.8.11"
   },
   "dependencies": {
-    "vscode-nls": "^5.2.0",
-    "cross-spawn": "^7.0.6"
+    "vscode-nls": "^5.2.0"
   },
   "files": [
     "dist/**",
@@ -199,9 +176,9 @@
   "lint-staged": {
     "*.{js,ts,jsx,tsx,json,md,css,scss}": "prettier --write"
   },
-  "homepage": "https://github.com/Electivus/Apex-Log-Viewer#readme",
+  "homepage": "https://github.com/manoelcalixto/sf-extension-log-reload#readme",
   "bugs": {
-    "url": "https://github.com/Electivus/Apex-Log-Viewer/issues"
+    "url": "https://github.com/manoelcalixto/sf-extension-log-reload/issues"
   },
   "keywords": [
     "salesforce",
@@ -209,7 +186,6 @@
     "logs",
     "developer",
     "tooling",
-    "tail",
-    "debug"
+    "tail"
   ]
 }

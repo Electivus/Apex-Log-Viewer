@@ -69,7 +69,7 @@ export function Toolbar({
       <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ opacity: 0.8 }}>{t.orgLabel}:</span>
         <select
-          value={selectedOrg ?? (orgs[0]?.username || '')}
+          value={selectedOrg ?? '__default__'}
           onChange={e => onSelectOrg(e.target.value)}
           style={{
             background: 'var(--vscode-dropdown-background, var(--vscode-input-background))',
@@ -79,6 +79,7 @@ export function Toolbar({
             borderRadius: 4
           }}
         >
+          <option value="__default__">{t.defaultOrg}</option>
           {orgs.map(o => (
             <option key={o.username} value={o.username}>
               {(o.alias ?? o.username) + (o.isDefaultUsername ? ' *' : '')}
