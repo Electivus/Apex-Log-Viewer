@@ -1,2 +1,33 @@
-<?xml version="1.0" encoding="utf-8"?><!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->
-<svg width="800px" height="800px" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M0,0H24V24H0Z" fill="none"/><path d="M18,2H6A2,2,0,0,0,4,4V20a2,2,0,0,0,2,2H17l3-3V4A2,2,0,0,0,18,2ZM12,19c-2.76,0-5-3.13-5-7s2.24-7,5-7,5,3.13,5,7S14.76,19,12,19Z"/></svg>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.2"/>
+    </filter>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="8" y="8" width="112" height="112" rx="18" fill="url(#bg)"/>
+
+  <!-- Log lines -->
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="6" opacity="0.96">
+    <path d="M30 46 H78"/>
+    <path d="M30 64 H86"/>
+    <path d="M30 82 H70"/>
+  </g>
+
+  <!-- Magnifying glass -->
+  <g filter="url(#shadow)">
+    <circle cx="84" cy="84" r="17" fill="#ffffff" opacity="0.2"/>
+    <circle cx="84" cy="84" r="13" fill="none" stroke="#ffffff" stroke-width="5"/>
+    <path d="M95 95 L106 106" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/>
+  </g>
+
+  <!-- Subtle highlight -->
+  <path d="M20 24 Q64 10 108 24" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="8" stroke-linecap="round"/>
+</svg>
+
