@@ -4,10 +4,13 @@ media/*.js
 *.vsix
 *.zip
 
-src/webview/main.tsx
+# allow tracking webview entrypoints
 *.log
 dist
 .vscode-test/
 sample-workspace/
 .sfdx/
 .sf/
+media/*.js.map
+src/**/*.js
+src/**/*.js.map
