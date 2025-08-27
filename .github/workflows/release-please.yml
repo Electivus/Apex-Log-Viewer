@@ -5,21 +5,23 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
-
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    # Principle of least privilege; needs write to open PRs/commits
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Release Please
-        uses: google-github-actions/release-please-action@v4
+        # Pin action by commit SHA for supply-chain safety (tag v4)
+        uses: googleapis/release-please-action@c2a5a2bd6a758a0937f1ddb1e8950609867ed15c # v4
         with:
-          release-type: node
-          package-name: apex-log-viewer
-          changelog-path: CHANGELOG.md
-          default-branch: main
-          bump-minor-pre-major: true
-          bump-patch-for-minor-pre-major: true
+          # Use manifest config for advanced options (v4)
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          target-branch: main
+          # Use a PAT if provided to allow fork-based PRs when org policy blocks bot PRs
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          fork: ${{ secrets.RELEASE_PLEASE_TOKEN != '' }}
 
