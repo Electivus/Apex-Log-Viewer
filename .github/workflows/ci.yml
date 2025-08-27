@@ -82,17 +82,53 @@ jobs:
       - name: Build + generate NLS assets
         run: npm run package
 
+      - name: Determine channel (stable vs pre-release)
+        id: channel
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          MINOR=$(node -p "require('./package.json').version.split('.')[1]")
+          TAG_NAME="${GITHUB_REF_NAME}"
+          # default: even minor => stable, odd minor => pre-release
+          if [ $((MINOR % 2)) -eq 1 ]; then
+            PRE_RELEASE=true
+          else
+            PRE_RELEASE=false
+          fi
+          # allow explicit override via tag suffix (e.g., v0.7.0-pre, v0.7.0-beta.1)
+          if [[ "$TAG_NAME" == *"-pre"* || "$TAG_NAME" == *"-beta"* || "$TAG_NAME" == *"-alpha"* || "$TAG_NAME" == *"-rc"* ]]; then
+            PRE_RELEASE=true
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "pre_release=$PRE_RELEASE" >> $GITHUB_OUTPUT
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "PRE_RELEASE=$PRE_RELEASE" >> $GITHUB_ENV
+          if [ "$PRE_RELEASE" = "true" ]; then echo "CHANNEL_SUFFIX=pre" >> $GITHUB_ENV; else echo "CHANNEL_SUFFIX=stable" >> $GITHUB_ENV; fi
+
       - name: Create VSIX
-        run: npm run vsce:package
+        run: |
+          if [ "${PRE_RELEASE}" = "true" ]; then
+            echo "Packaging pre-release VSIX (${VERSION})"
+            npm run vsce:package:pre
+          else
+            echo "Packaging stable VSIX (${VERSION})"
+            npm run vsce:package
+          fi
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: apex-log-viewer-${{ github.ref_name }}-vsix
+          name: apex-log-viewer-${{ github.ref_name }}-${{ env.CHANNEL_SUFFIX }}-vsix
           path: |
             ./*.vsix
           if-no-files-found: error
 
       - name: Publish to Marketplace (optional)
         if: env.VSCE_PAT != ''
-        run: npm run vsce:publish
+        run: |
+          if [ "${PRE_RELEASE}" = "true" ]; then
+            echo "Publishing pre-release to VS Marketplace"
+            npm run vsce:publish:pre
+          else
+            echo "Publishing stable to VS Marketplace"
+            npm run vsce:publish
+          fi

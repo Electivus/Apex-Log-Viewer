@@ -80,14 +80,17 @@ Per repository guidelines, changes should pass both build and test before commit
   - Installs deps with `npm ci` (with Node/NPM cache enabled).
   - On Linux, installs Electron test dependencies via `scripts/install-linux-deps.sh`.
   - Runs `npm run build` then `npm test` (the test step clears `CI` env to avoid scratch‑org attempts).
-- Packaging: For tags `v*`, a `package` job runs `npm run package` and `npm run vsce:package`, then uploads a VSIX artifact named `apex-log-viewer-${{ github.ref_name }}-vsix`.
-- Optional Publish: If the repository/org secret `VSCE_PAT` is set (Marketplace token), the workflow runs `npm run vsce:publish` and publishes the tagged version to the VS Code Marketplace.
+- Packaging: For tags `v*`, a `package` job runs `npm run package` and creates a VSIX. The job auto-detects release channel:
+  - Odd minor (e.g., 0.7.x) → pre-release → uses `vsce --pre-release`.
+  - Even minor (e.g., 0.6.x) → stable.
+  The uploaded artifact is named `apex-log-viewer-${{ github.ref_name }}-(pre|stable)-vsix`.
+- Optional Publish: If the repository/org secret `VSCE_PAT` is set (Marketplace token), the workflow publishes to the Marketplace using the detected channel (stable or pre-release).
 - Concurrency: The workflow cancels in‑progress runs for the same ref to keep results tidy.
 
 Release flow
 
 - Bump version in `package.json`, update `CHANGELOG.md`.
-- Create and push a tag like `v0.0.4` to trigger packaging (and publish if `VSCE_PAT` is present).
+- Create and push a tag like `v0.0.4` to trigger packaging (and publish if `VSCE_PAT` is present). Use odd minor versions for pre-releases and even minor for stable.
   - Example: `git tag v0.0.4 && git push origin v0.0.4`.
 - Download the built `.vsix` from the workflow artifacts when needed.
 
@@ -119,3 +122,7 @@ npm test
 
 If `sf` is not found, the runner falls back to `sfdx` for compatible commands.
 If neither is present, the test runner attempts to `npm install` a local `@salesforce/cli` and adds `node_modules/.bin` to `PATH` for the session.
+
+## Publishing
+
+See `docs/PUBLISHING.md` for the full Marketplace publishing flow, including pre‑release guidance.
