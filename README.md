@@ -126,3 +126,8 @@ If neither is present, the test runner attempts to `npm install` a local `@sales
 ## Publishing
 
 See `docs/PUBLISHING.md` for the full Marketplace publishing flow, including pre‑release guidance.
+
+
+## Release channels
+- Stable: even minor (0.2.x)
+- Pre-release: odd minor (0.1.x)
