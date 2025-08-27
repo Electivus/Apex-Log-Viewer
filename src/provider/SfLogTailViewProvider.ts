@@ -16,6 +16,7 @@ import {
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { SELECTED_ORG_KEY } from '../shared/constants';
 import { logInfo, logWarn, logError, showOutput } from '../utils/logger';
+import { warmUpReplayDebugger } from '../utils/warmup';
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogTail';
@@ -53,6 +54,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     };
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
     logInfo('Tail webview resolved.');
+    // Fire-and-forget warm-up of Replay Debugger when the Tail view opens
+    try {
+      setTimeout(() => void warmUpReplayDebugger(), 0);
+    } catch {}
 
     this.context.subscriptions.push(
       webviewView.onDidDispose(() => {
@@ -483,11 +488,17 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     try {
       const filePath = await this.ensureLogSaved(logId);
       const uri = vscode.Uri.file(filePath);
-      try {
-        await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
-      } catch {
-        await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
-      }
+      // Keep loading visible and show a notification while launching Replay
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: localize('replayStarting', 'Starting Apex Replay Debugger…') },
+        async () => {
+          try {
+            await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
+          } catch {
+            await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
+          }
+        }
+      );
       logInfo('Tail: replay requested for', logId);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

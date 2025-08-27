@@ -103,6 +103,33 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Removed legacy openTailPanel command to avoid focus changes
 
+  // Warm up Apex Replay Debugger in the background so the first
+  // user-triggered replay opens faster. Fire-and-forget and ignore failures
+  // (e.g., dependency not installed in this environment).
+  try {
+    const warmUp = async () => {
+      const candidates = [
+        'salesforce.salesforcedx-vscode-apex-replay-debugger',
+        // Fallback: meta extension (may indirectly activate dependencies)
+        'salesforce.salesforcedx-vscode'
+      ];
+      for (const id of candidates) {
+        const ext = vscode.extensions.getExtension(id);
+        if (ext) {
+          try {
+            await ext.activate();
+            logInfo('Warmed up extension:', id);
+            break;
+          } catch (e) {
+            logWarn('Warm-up failed for', id, '->', e instanceof Error ? e.message : String(e));
+          }
+        }
+      }
+    };
+    // Defer to avoid impacting our own activation time
+    setTimeout(() => void warmUp(), 0);
+  } catch {}
+
   // Return exports for tests and programmatic use
   return {
     getApiVersion

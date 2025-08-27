@@ -17,6 +17,7 @@ import type { ApexLogRow, OrgItem } from '../shared/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { SELECTED_ORG_KEY } from '../shared/constants';
 import { logInfo, logWarn, logError } from '../utils/logger';
+import { warmUpReplayDebugger } from '../utils/warmup';
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
@@ -136,6 +137,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     };
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
     logInfo('Logs webview resolved.');
+    // Fire-and-forget warm-up of Replay Debugger when the view opens
+    try {
+      setTimeout(() => void warmUpReplayDebugger(), 0);
+    } catch {}
     // Dispose handling: stop posting and bump token to invalidate in-flight work
     this.context.subscriptions.push(
       webviewView.onDidDispose(() => {
@@ -328,11 +333,17 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         targetPath = filePath;
       }
       const uri = vscode.Uri.file(targetPath);
-      try {
-        await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
-      } catch {
-        await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
-      }
+      // Keep loading visible for the user-triggered launch and show a notification
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: localize('replayStarting', 'Starting Apex Replay Debugger…') },
+        async () => {
+          try {
+            await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
+          } catch {
+            await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
+          }
+        }
+      );
     } catch (e) {
       vscode.window.showErrorMessage(
         localize('replayError', 'Failed to launch Apex Replay Debugger: ') +
