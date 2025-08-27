@@ -12,6 +12,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: write
     steps:
       - name: Release Please
         # Pin action by commit SHA for supply-chain safety (tag v4)
@@ -24,4 +25,3 @@ jobs:
           # Use a PAT if provided to allow fork-based PRs when org policy blocks bot PRs
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           fork: ${{ secrets.RELEASE_PLEASE_TOKEN != '' }}
-
