@@ -6,9 +6,10 @@ type Props = {
   onChange: (v: string) => void;
   options: string[];
   allLabel?: string;
+  disabled?: boolean;
 };
 
-export function FilterSelect({ label, value, onChange, options, allLabel = 'All' }: Props) {
+export function FilterSelect({ label, value, onChange, options, allLabel = 'All', disabled = false }: Props) {
   const selectStyle: React.CSSProperties = {
     background: 'var(--vscode-dropdown-background, var(--vscode-input-background))',
     color: 'var(--vscode-dropdown-foreground, var(--vscode-input-foreground))',
@@ -20,7 +21,7 @@ export function FilterSelect({ label, value, onChange, options, allLabel = 'All'
   return (
     <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       <span style={{ opacity: 0.8 }}>{label}:</span>
-      <select value={value} onChange={e => onChange(e.target.value)} style={selectStyle}>
+      <select value={value} onChange={e => onChange(e.target.value)} style={selectStyle} disabled={disabled}>
         <option value="">{allLabel}</option>
         {options.map(o => (
           <option key={o} value={o}>

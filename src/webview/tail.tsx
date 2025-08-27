@@ -179,6 +179,7 @@ function App() {
         onStart={start}
         onStop={stop}
         onClear={clear}
+        disabled={loading}
         onOpenSelected={() => {
           if (selectedLogId) {
             vscode.postMessage({ type: 'openLog', logId: selectedLogId });

@@ -71,6 +71,7 @@ export function Toolbar({
         <select
           value={selectedOrg ?? (orgs[0]?.username || '')}
           onChange={e => onSelectOrg(e.target.value)}
+          disabled={loading}
           style={{
             background: 'var(--vscode-dropdown-background, var(--vscode-input-background))',
             color: 'var(--vscode-dropdown-foreground, var(--vscode-input-foreground))',
@@ -96,6 +97,7 @@ export function Toolbar({
         value={query}
         onChange={e => onQueryChange(e.target.value)}
         placeholder={t.searchPlaceholder ?? 'Search logs…'}
+        disabled={loading}
         style={{
           flex: '1 1 220px',
           minWidth: 160,
@@ -113,6 +115,7 @@ export function Toolbar({
         onChange={onFilterUserChange}
         options={users}
         allLabel={t.filters?.all ?? 'All'}
+        disabled={loading}
       />
       <FilterSelect
         label={t.filters?.operation ?? 'Operation'}
@@ -120,6 +123,7 @@ export function Toolbar({
         onChange={onFilterOperationChange}
         options={operations}
         allLabel={t.filters?.all ?? 'All'}
+        disabled={loading}
       />
       <FilterSelect
         label={t.filters?.status ?? 'Status'}
@@ -127,6 +131,7 @@ export function Toolbar({
         onChange={onFilterStatusChange}
         options={statuses}
         allLabel={t.filters?.all ?? 'All'}
+        disabled={loading}
       />
       <FilterSelect
         label={t.columns?.codeUnitStarted ?? 'Code Unit'}
@@ -134,6 +139,7 @@ export function Toolbar({
         onChange={onFilterCodeUnitChange}
         options={codeUnits}
         allLabel={t.filters?.all ?? 'All'}
+        disabled={loading}
       />
       <button
         onClick={onClearFilters}

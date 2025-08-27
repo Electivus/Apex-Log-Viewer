@@ -11,7 +11,14 @@ const overlayStyle: React.CSSProperties = {
   justifyContent: 'center',
   zIndex: 2,
   color: 'var(--vscode-foreground)',
-  pointerEvents: 'none'
+  // Subtle dim to indicate blocking state
+  background: 'rgba(0, 0, 0, 0.15)',
+  // Slight blur helps convey disabled background without heavy contrast
+  backdropFilter: 'blur(1px)',
+  // Show busy cursor
+  cursor: 'progress',
+  // Block interactions with underlying controls while loading
+  pointerEvents: 'auto'
 };
 
 export function LoadingOverlay({ show, label }: { show: boolean; label?: string }) {

@@ -43,6 +43,11 @@
           "maximum": 20,
           "markdownDescription": "%configuration.sfLogs.headConcurrency.description%"
         },
+        "sfLogs.saveDirName": {
+          "type": "string",
+          "default": "apexlogs",
+          "markdownDescription": "%configuration.sfLogs.saveDirName.description%"
+        },
         "sfLogs.trace": {
           "type": "boolean",
           "default": false,
