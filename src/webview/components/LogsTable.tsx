@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
-import { FixedSizeList, ListOnItemsRenderedProps } from 'react-window';
+import { VariableSizeList, ListOnItemsRenderedProps } from 'react-window';
 import type { ApexLogRow } from '../../shared/types';
 import { LogsHeader } from './table/LogsHeader';
 import { LogRow } from './table/LogRow';
@@ -34,10 +34,12 @@ export function LogsTable({
   onSort: (key: 'user' | 'application' | 'operation' | 'time' | 'status' | 'size' | 'codeUnit') => void;
 }) {
   const listOuterRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<VariableSizeList | null>(null);
   const outerRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
   const [autoPagingActivated, setAutoPagingActivated] = useState(false);
-  const rowHeight = 32;
+  const defaultRowHeight = 32;
+  const rowHeightsRef = useRef<Record<number, number>>({});
   const [measuredListHeight, setMeasuredListHeight] = useState<number>(420);
   const gridTemplate =
     'minmax(160px,1fr) minmax(140px,1fr) minmax(200px,1.2fr) minmax(200px,1fr) minmax(120px,0.8fr) minmax(260px,1.4fr) minmax(90px,0.6fr) 72px';
@@ -65,6 +67,18 @@ export function LogsTable({
     }
   };
 
+  const setRowHeight = (index: number, size: number) => {
+    const current = rowHeightsRef.current[index] ?? defaultRowHeight;
+    const next = Math.max(defaultRowHeight, Math.ceil(size));
+    if (current !== next) {
+      rowHeightsRef.current[index] = next;
+      // Recompute sizes from this index forward
+      listRef.current?.resetAfterIndex(index);
+    }
+  };
+
+  const getItemSize = (index: number) => rowHeightsRef.current[index] ?? defaultRowHeight;
+
   useLayoutEffect(() => {
     const recompute = () => {
       const outerRect = outerRef.current?.getBoundingClientRect();
@@ -91,12 +105,14 @@ export function LogsTable({
   return (
     <div ref={outerRef} style={{ overflow: 'hidden' }}>
       <LogsHeader ref={headerRef} t={t} sortBy={sortBy} sortDir={sortDir} onSort={onSort} gridTemplate={gridTemplate} />
-      <FixedSizeList
+      <VariableSizeList
         height={measuredListHeight}
         width={'100%'}
         itemCount={rows.length}
-        itemSize={rowHeight}
+        estimatedItemSize={defaultRowHeight}
+        itemSize={getItemSize}
         outerRef={listOuterRef}
+        ref={listRef}
         onItemsRendered={handleItemsRendered}
       >
         {({ index, style }) => (
@@ -110,9 +126,11 @@ export function LogsTable({
             onReplay={onReplay}
             gridTemplate={gridTemplate}
             style={style}
+            index={index}
+            setRowHeight={setRowHeight}
           />
         )}
-      </FixedSizeList>
+      </VariableSizeList>
     </div>
   );
 }

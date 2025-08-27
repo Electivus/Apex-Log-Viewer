@@ -17,6 +17,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+- Webview UI: wrap long text in table cells and support variable row heights to prevent columns overlapping.
+
 ## [0.0.2] - 2025-08-25
 
 - Fix: Correct repository metadata (repository/homepage/bugs) to Electivus/Apex-Log-Viewer.
