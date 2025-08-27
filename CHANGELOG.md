@@ -4,6 +4,17 @@ All notable changes to the "apex-log-viewer" extension will be documented in thi
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.0.8-pre.1](https://github.com/Electivus/Apex-Log-Viewer/compare/apex-log-viewer-v0.0.7-pre.1...apex-log-viewer-v0.0.8-pre.1) (2025-08-27)
+
+
+### Features
+
+* Add loading state handling and new configuration options for Apex Log Viewer ([cc2692f](https://github.com/Electivus/Apex-Log-Viewer/commit/cc2692f28305237ef158f5d355e64c32dd524b91))
+* Enhance CI workflow to auto-detect release channel and update packaging process for stable and pre-release versions ([d0780f9](https://github.com/Electivus/Apex-Log-Viewer/commit/d0780f94f81b7f65abc0884749db5e51fa0b81ae))
+* Implement background warm-up for Apex Replay Debugger and enhance log viewing experience ([141b1e3](https://github.com/Electivus/Apex-Log-Viewer/commit/141b1e392c0aa7bd971d956177be5d84f570ddf0))
+* Implement log viewing and tailing features ([896ac6c](https://github.com/Electivus/Apex-Log-Viewer/commit/896ac6c14a2dcf100f9d5201fc90ee43847c9932))
+* Refactor publish job in CI workflow to enhance version handling and differentiate between stable and pre-release publishing ([5f3f601](https://github.com/Electivus/Apex-Log-Viewer/commit/5f3f6018d825e7676229aa77743ab6244e69a605))
+
 ## [Unreleased]
 
 ## [0.0.2] - 2025-08-25
