@@ -2,41 +2,50 @@
 
 # Apex Log Viewer
 
-View and work with Salesforce Apex logs directly in VS Code. The extension adds an Apex Logs panel with a fast, searchable table of recent logs from your default or selected org, and integrates with the Apex Replay Debugger.
+Fast, searchable Salesforce Apex logs — right inside VS Code. Browse, filter, open, tail, and debug logs from your default or selected org with a smooth webview UI and Apex Replay integration.
+
+[Install from Marketplace](https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer) · [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/Electivus/Apex-Log-Viewer/issues)
+
+![CI](https://github.com/Electivus/Apex-Log-Viewer/actions/workflows/ci.yml/badge.svg?branch=main)
+![VS Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/electivus.apex-log-viewer?label=Marketplace)
+![Installs](https://img.shields.io/visual-studio-marketplace/i/electivus.apex-log-viewer)
+![Rating](https://img.shields.io/visual-studio-marketplace/r/electivus.apex-log-viewer)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 
 ## Features
 
-- Webview log list: Paginated table of recent Apex logs with columns for User, Application, Operation, Time, Status, Code Unit (from log head), and Size.
-- Quick search: Client-side search box to filter visible logs.
-- Filters: Filter by User, Operation, Status, and Code Unit.
-- Sorting: Click column headers to sort (Time/Size default descending); includes Code Unit.
-- Open logs: Double-click a row to open the log in an editor.
-- Apex Replay: Launch the Apex Replay Debugger for a log via the row action.
-- Tail Logs: Start real-time tailing with Salesforce CLI from the panel actions.
-- Org selection: Use the toolbar dropdown or the “Select Org” command to switch between authenticated orgs or use the CLI default.
-- Infinite scroll: Scroll to the end to automatically fetch the next page.
-- Configurable: `sfLogs.pageSize` (page size) and `sfLogs.headConcurrency` (log-head fetch parallelism).
-- Localization: Extension strings and webview UI available in English and pt-BR.
+- Webview log list: Paginated table with User, App, Operation, Time, Status, Code Unit, Size.
+- Quick search + filters: Client‑side search plus filters by User, Operation, Status, Code Unit.
+- Sort and scroll: Sort by any column; infinite scroll loads more logs automatically.
+- Open or Replay: Open logs in the editor or launch Apex Replay with one click.
+- Tail logs: Start real‑time tailing via Salesforce CLI from the toolbar.
+- Org selection: Switch between authenticated orgs or use the CLI default.
+- Configurable: `sfLogs.pageSize`, `sfLogs.headConcurrency`, and more.
+- Localized: English and Brazilian Portuguese (pt‑BR).
 
-## Prerequisites
+Why developers like it
+
+- Minimal clicks to find the right log.
+- Fast, responsive UI that scales to large orgs.
+- Works with both `sf` and legacy `sfdx` CLIs.
+
+## Screenshots
+
+![Overview](media/docs/hero.gif)
+
+![Apex Tail Logs](media/docs/apex-tail-log.gif)
+
+## Requirements
 
 - Salesforce CLI: Install either `sf` (recommended) or legacy `sfdx` and authenticate to an org.
   - Login example: `sf org login web` (or `sfdx force:auth:web:login`).
 - VS Code 1.87+.
 - Optional for Replay: “Salesforce Apex Replay Debugger” (part of Salesforce Extensions for VS Code).
 
-## Installation
+## Install
 
-Option A — Development
-
-1. Clone this repo and install dependencies: `npm install`.
-2. Build the extension and webview: `npm run build`.
-3. Press `F5` in VS Code to launch the Extension Development Host.
-
-Option B — VSIX package
-
-1. Package a `.vsix`: `npm run vsce:package`.
-2. In VS Code, run “Extensions: Install from VSIX…” and select the generated file.
+- From VS Code: open Extensions (Ctrl/Cmd+Shift+X), search for “Apex Log Viewer”, and click Install.
+- Or use the Marketplace page: Install from Marketplace.
 
 ## Usage
 
@@ -49,12 +58,21 @@ Option B — VSIX package
 - Infinite scroll: Scroll to the bottom to load the next page.
 - Open or Replay: Double‑click a row to open the log; click the action button to launch Apex Replay Debugger.
 
+## Commands
+
+- Apex Logs: Refresh Logs (`sfLogs.refresh`)
+- Apex Logs: Select Org (`sfLogs.selectOrg`)
+- Apex Logs: Tail Logs (`sfLogs.tail`)
+- Apex Logs: Show Extension Output (`sfLogs.showOutput`)
+
 ## Settings
 
 - `sfLogs.pageSize`: Number of logs fetched per page (10–200; default 100).
 - `sfLogs.headConcurrency`: Max concurrent requests to fetch log headers (1–20; default 5).
 
 API version is automatically taken from your workspace `sfdx-project.json` (`sourceApiVersion`).
+
+ 
 
 ## Localization
 
@@ -66,68 +84,32 @@ The extension uses `vscode-nls` for extension strings and a lightweight runtime 
 - “Failed to launch Apex Replay Debugger”: Install the Salesforce Apex Replay Debugger extension.
 - “No orgs detected”: Ensure you’re authenticated (`sf org login web`) and try `sf org list`.
 
-## Development
+## For Contributors
 
-- Build: `npm run build`
-- Test: `npm test`
+- Development: run `npm run build`, `npm test`. See AGENTS.md and repo guidelines.
+- Development setup: clone, `npm install`, `npm run build`, press `F5` to launch the Extension Development Host.
+- CI details: see docs/CI.md.
+- Testing (scratch orgs): see docs/TESTING.md.
+- Publishing: see docs/PUBLISHING.md.
 
-Per repository guidelines, changes should pass both build and test before committing or opening a PR.
+### Publishing (maintainers)
 
-## Continuous Integration
+- Setup once: create a VS Code Marketplace publisher + PAT, add repo secret `VSCE_PAT`.
+- Stable vs pre‑release: even minor = stable (e.g., 0.2.x); odd minor = pre‑release (0.3.x).
+- CI path:
+  - Bump `package.json` to the desired version.
+  - Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+  - CI builds; with `VSCE_PAT` present, it publishes to the right channel.
+- Local path:
+  - Stable: `npm run vsce:package` then `npm run vsce:publish`.
+  - Pre‑release: `npm run vsce:package:pre` then `npm run vsce:publish:pre`.
+- Assets & screenshots: see docs/ASSETS.md.
 
-- Workflow: GitHub Actions at `.github/workflows/ci.yml` runs on `push` (to `main`), `pull_request`, manual `workflow_dispatch`, and tags matching `v*`.
-- Build & Test: Matrix across `ubuntu-latest`, `macos-latest`, and `windows-latest` on Node 20.
-  - Installs deps with `npm ci` (with Node/NPM cache enabled).
-  - On Linux, installs Electron test dependencies via `scripts/install-linux-deps.sh`.
-  - Runs `npm run build` then `npm test` (the test step clears `CI` env to avoid scratch‑org attempts).
-- Packaging: For tags `v*`, a `package` job runs `npm run package` and creates a VSIX. The job auto-detects release channel:
-  - Odd minor (e.g., 0.7.x) → pre-release → uses `vsce --pre-release`.
-  - Even minor (e.g., 0.6.x) → stable.
-  The uploaded artifact is named `apex-log-viewer-${{ github.ref_name }}-(pre|stable)-vsix`.
-- Optional Publish: If the repository/org secret `VSCE_PAT` is set (Marketplace token), the workflow publishes to the Marketplace using the detected channel (stable or pre-release).
-- Concurrency: The workflow cancels in‑progress runs for the same ref to keep results tidy.
+## Privacy & Security
 
-Release flow
+- No tokens are logged by default. When `sfLogs.trace` is enabled, verbose output is sent to the “Apex Log Viewer” output channel; review logs before sharing.
+- The extension shells out to `sf`/`sfdx` for org access and reads logs locally; it does not transmit your code or logs to third‑party services.
 
-- Bump version in `package.json`, update `CHANGELOG.md`.
-- Create and push a tag like `v0.0.4` to trigger packaging (and publish if `VSCE_PAT` is present). Use odd minor versions for pre-releases and even minor for stable.
-  - Example: `git tag v0.0.4 && git push origin v0.0.4`.
-- Download the built `.vsix` from the workflow artifacts when needed.
+## License
 
-Setup `VSCE_PAT`
-
-- Create a Personal Access Token with publish rights for the Visual Studio Marketplace.
-- Add it as a GitHub secret named `VSCE_PAT` in the repository (Settings → Secrets and variables → Actions → New repository secret).
-- Publishing is optional; without the secret, the workflow still builds, tests, and attaches the VSIX artifact to the run.
-
-## Integration tests: scratch org setup
-
-To avoid activation errors from Salesforce extensions during tests, the test runner can authenticate a Dev Hub and create a default scratch org automatically using environment variables. This runs before the VS Code test host launches and sets the created scratch org as the default.
-
-- `SF_DEVHUB_AUTH_URL`: SFDX auth URL for your Dev Hub (works with `sf` or `sfdx`).
-- `SF_DEVHUB_ALIAS` (optional): Dev Hub alias; default `DevHub`.
-- `SF_SCRATCH_ALIAS` (optional): Scratch org alias; default `ALV_Test_Scratch`.
-- `SF_SCRATCH_DURATION` (optional): Scratch org duration (days); default `1`.
-- `SF_SETUP_SCRATCH` (optional): Set to `1`/`true` to force scratch setup even without an auth URL.
-- `SF_TEST_KEEP_ORG` (optional): Set to `1`/`true` to skip deleting the scratch org after tests.
-
-Example:
-
-```
-export SF_DEVHUB_AUTH_URL="<paste your SFDX auth URL>"
-export SF_DEVHUB_ALIAS=DevHub
-export SF_SCRATCH_ALIAS=ALV_Test_Scratch
-npm test
-```
-
-If `sf` is not found, the runner falls back to `sfdx` for compatible commands.
-If neither is present, the test runner attempts to `npm install` a local `@salesforce/cli` and adds `node_modules/.bin` to `PATH` for the session.
-
-## Publishing
-
-See `docs/PUBLISHING.md` for the full Marketplace publishing flow, including pre‑release guidance.
-
-
-## Release channels
-- Stable: even minor (0.2.x)
-- Pre-release: odd minor (0.1.x)
+MIT © Electivus

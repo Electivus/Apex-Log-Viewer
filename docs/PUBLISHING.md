@@ -1,5 +1,13 @@
 **Publishing**
 
+Maintainer quick start
+
+1. Create a Marketplace publisher and PAT, add secret `VSCE_PAT` in GitHub.
+2. Bump version in `package.json` (choose even minor = stable, odd minor = pre‑release).
+3. Commit and tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. CI builds, attaches the `.vsix`, and—if `VSCE_PAT` exists—publishes automatically.
+5. Alternatively, publish locally with `npm run vsce:publish` (or `:pre`).
+
 This repository includes an automated publish flow for the Visual Studio Code Marketplace with first‑class support for pre‑releases. It uses GitHub Actions and `vsce` and follows a simple semver convention:
 
 - Stable: even minor versions (e.g., 0.6.0, 0.6.1).
@@ -45,4 +53,3 @@ Notes
 - Versions must be unique between stable and pre‑releases; do not re‑use the same `major.minor.patch` for both channels.
 - The Marketplace listing for this extension will show a “Pre‑Release” tab for users who opt in to pre‑releases.
 - This repo also uses Release Please for automated changelog/version PRs for standard releases. For pre‑releases, you can bump `package.json` manually as shown above or use a `Release-As: x.y.z` footer in a commit if desired.
-

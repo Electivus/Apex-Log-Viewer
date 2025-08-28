@@ -1,6 +1,6 @@
 {
   "extension.displayName": "Visualizador de Logs Apex",
-  "extension.description": "Visualize logs Apex em uma tabela no painel inferior.",
+  "extension.description": "Logs Apex rápidos e pesquisáveis no VS Code — navegue, filtre, faça tail e depure.",
   "salesforce.panel.title": "Apex",
   "salesforce.tail.panel.title": "Tail Apex",
   "salesforce.logs.view.name": "Logs Apex",
