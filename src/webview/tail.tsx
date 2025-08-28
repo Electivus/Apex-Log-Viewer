@@ -23,6 +23,7 @@ function App() {
   const [running, setRunning] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
   const [query, setQuery] = useState('');
+  const [onlyUserDebug, setOnlyUserDebug] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [colorize, setColorize] = useState(false);
   const [debugLevels, setDebugLevels] = useState<string[]>([]);
@@ -120,18 +121,23 @@ function App() {
 
   const filteredIndexes = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) {
-      return lines.map((_, idx) => idx);
-    }
     const out: number[] = [];
     for (let i = 0; i < lines.length; i++) {
-      const l = lines[i];
-      if (l.toLowerCase().includes(q)) {
-        out.push(i);
+      const l = lines[i] || '';
+      const upper = l.toUpperCase();
+      const isHeader = upper.startsWith('=== APEXLOG ');
+      // Heurística de USER_DEBUG conforme formato dos logs Apex
+      const isUserDebug = !isHeader && (upper.includes('|USER_DEBUG|') || (upper.includes('|DEBUG|') && upper.includes('USER_DEBUG')));
+      if (onlyUserDebug && !isUserDebug) {
+        continue;
       }
+      if (q && !l.toLowerCase().includes(q)) {
+        continue;
+      }
+      out.push(i);
     }
     return out;
-  }, [lines, query]);
+  }, [lines, query, onlyUserDebug]);
 
   const start = () => {
     setError(undefined);
@@ -199,6 +205,8 @@ function App() {
         }}
         query={query}
         onQueryChange={setQuery}
+        onlyUserDebug={onlyUserDebug}
+        onToggleOnlyUserDebug={setOnlyUserDebug}
         colorize={colorize}
         onToggleColorize={setColorize}
         debugLevels={debugLevels}

@@ -16,6 +16,8 @@ type TailToolbarProps = {
   onSelectOrg: (username: string) => void;
   query: string;
   onQueryChange: (q: string) => void;
+  onlyUserDebug: boolean;
+  onToggleOnlyUserDebug: (v: boolean) => void;
   colorize: boolean;
   onToggleColorize: (v: boolean) => void;
   debugLevels: string[];
@@ -41,6 +43,8 @@ export function TailToolbar({
   onSelectOrg,
   query,
   onQueryChange,
+  onlyUserDebug,
+  onToggleOnlyUserDebug,
   colorize,
   onToggleColorize,
   debugLevels,
@@ -124,6 +128,15 @@ export function TailToolbar({
         disabled={disabled}
         style={{ ...inputStyle, flex: '1 1 220px', minWidth: 160 }}
       />
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <input
+          type="checkbox"
+          checked={onlyUserDebug}
+          onChange={e => onToggleOnlyUserDebug(e.target.checked)}
+          disabled={disabled}
+        />
+        <span>Somente USER_DEBUG</span>
+      </label>
       <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <input
           type="checkbox"

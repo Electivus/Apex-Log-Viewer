@@ -18,6 +18,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [Unreleased]
 
 - Webview UI: wrap long text in table cells and support variable row heights to prevent columns overlapping.
+- Tail: add toggle "Somente USER_DEBUG" to filter live output to only USER_DEBUG lines (System.debug), with optional search stacking.
 
 ## [0.0.2] - 2025-08-25
 
