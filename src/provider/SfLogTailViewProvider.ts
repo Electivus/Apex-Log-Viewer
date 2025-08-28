@@ -1,6 +1,4 @@
 import * as vscode from 'vscode';
-import * as os from 'os';
-import * as path from 'path';
 import { promises as fs } from 'fs';
 import { localize } from '../utils/localize';
 import {
@@ -14,9 +12,15 @@ import {
   type OrgAuth
 } from '../salesforce';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
-import { SELECTED_ORG_KEY } from '../shared/constants';
 import { logInfo, logWarn, logError, showOutput } from '../utils/logger';
 import { warmUpReplayDebugger } from '../utils/warmup';
+import { buildWebviewHtml } from '../utils/webviewHtml';
+import {
+  getWorkspaceRoot as utilGetWorkspaceRoot,
+  ensureApexLogsDir as utilEnsureApexLogsDir,
+  getLogFilePathWithUsername as utilGetLogFilePathWithUsername
+} from '../utils/workspace';
+import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogTail';
@@ -34,14 +38,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   private selectedOrg: string | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
-    try {
-      const persisted = (this.context as any)?.globalState?.get?.(SELECTED_ORG_KEY) as string | undefined;
-      if (persisted) {
-        this.selectedOrg = persisted;
-        logInfo('Tail: restored selected org from globalState:', this.selectedOrg || '(default)');
-      }
-    } catch {
-      // ignore missing globalState in tests
+    const persisted = restoreSelectedOrg(this.context);
+    if (persisted) {
+      this.selectedOrg = persisted;
+      logInfo('Tail: restored selected org from globalState:', this.selectedOrg || '(default)');
     }
   }
 
@@ -141,39 +141,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   }
 
   private getHtmlForWebview(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'tail.js'));
-    const csp = `default-src 'none'; img-src ${webview.cspSource} https:; script-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline';`;
-    return `<!DOCTYPE html>
-      <html lang="en">
-      <head>
-      <meta charset="UTF-8">
-      <meta http-equiv="Content-Security-Policy" content="${csp}">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <style>
-        :root { color-scheme: light dark; }
-        body { color: var(--vscode-foreground); background: transparent; }
-        select {
-          background-color: var(--vscode-dropdown-background, var(--vscode-input-background));
-          color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
-          border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border));
-          outline-color: var(--vscode-focusBorder);
-        }
-        option {
-          background-color: var(--vscode-dropdown-background, var(--vscode-input-background));
-          color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
-        }
-        option:checked, option:hover {
-          background-color: var(--vscode-list-activeSelectionBackground, var(--vscode-dropdown-background));
-          color: var(--vscode-list-activeSelectionForeground, var(--vscode-dropdown-foreground));
-        }
-      </style>
-      <title>Apex Log Tail</title>
-      </head>
-      <body>
-      <div id="root"></div>
-      <script src="${scriptUri}"></script>
-      </body>
-      </html>`;
+    return buildWebviewHtml(webview, this.context.extensionUri, 'tail.js', 'Apex Log Tail');
   }
 
   private post(msg: ExtensionToWebviewMessage): void {
@@ -184,8 +152,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     try {
       const orgs = await listOrgs();
       logInfo('Tail: sendOrgs ->', orgs.length, 'org(s)');
-      const selected =
-        this.selectedOrg || orgs.find(o => o.isDefaultUsername)?.username || orgs[0]?.username || undefined;
+      const selected = pickSelectedOrg(orgs, this.selectedOrg);
       this.post({ type: 'orgs', data: orgs, selected });
     } catch {
       logWarn('Tail: sendOrgs failed; posting empty list');
@@ -195,11 +162,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
 
   private setSelectedOrg(username?: string): void {
     this.selectedOrg = username;
-    try {
-      void (this.context as any)?.globalState?.update?.(SELECTED_ORG_KEY, username);
-    } catch {
-      // ignore missing globalState in tests
-    }
+    persistSelectedOrg(this.context, username);
   }
 
   private async sendDebugLevels(): Promise<void> {
@@ -423,50 +386,18 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   }
 
   private getWorkspaceRoot(): string | undefined {
-    const folders = vscode.workspace.workspaceFolders;
-    if (folders && folders.length > 0) {
-      return folders[0]!.uri.fsPath;
-    }
-    return undefined;
+    return utilGetWorkspaceRoot();
   }
 
   private async ensureApexLogsDir(): Promise<string> {
-    const workspaceRoot = this.getWorkspaceRoot();
-    if (!workspaceRoot) {
-      const tempDir = path.join(os.tmpdir(), 'apexlogs');
-      await fs.mkdir(tempDir, { recursive: true });
-      return tempDir;
-    }
-    const dir = path.join(workspaceRoot, 'apexlogs');
-    await fs.mkdir(dir, { recursive: true });
-    // Try to add to .gitignore (best-effort)
-    try {
-      const gitignorePath = path.join(workspaceRoot, '.gitignore');
-      const stat = await fs.stat(gitignorePath).catch(() => undefined as any);
-      if (stat && stat.isFile()) {
-        const content = await fs.readFile(gitignorePath, 'utf8').catch(() => '');
-        const lines = content.split(/\r?\n/).map(l => l.trim());
-        const hasEntry = lines.some(
-          l => l === 'apexlogs' || l === 'apexlogs/' || l === '/apexlogs' || l === '/apexlogs/'
-        );
-        if (!hasEntry) {
-          await fs.appendFile(gitignorePath, (content.endsWith('\n') ? '' : '\n') + 'apexlogs/\n', 'utf8');
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return dir;
+    return utilEnsureApexLogsDir();
   }
 
   private async getLogFilePathWithUsername(
     username: string | undefined,
     logId: string
   ): Promise<{ dir: string; filePath: string }> {
-    const dir = await this.ensureApexLogsDir();
-    const safeUser = (username || 'default').replace(/[^a-zA-Z0-9_.@-]+/g, '_');
-    const filePath = path.join(dir, `${safeUser}_${logId}.log`);
-    return { dir, filePath };
+    return utilGetLogFilePathWithUsername(username, logId);
   }
 
   // Tail webview actions
