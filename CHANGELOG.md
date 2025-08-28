@@ -4,6 +4,25 @@ All notable changes to the "apex-log-viewer" extension will be documented in thi
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.2.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.1.1...v0.2.0) (2025-08-28)
+
+- Promote the 0.1.1 pre‑release to stable; no functional changes since 0.1.1.
+
+## [0.1.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.1.0...v0.1.1) (2025-08-28) — Pre‑release
+
+### Added
+- Tail: add "Somente USER_DEBUG" filter to live output (System.debug) to focus on user‑level debug lines. (#20 / 2e6fa1c)
+
+### Changed
+- Localization: localize Tail view and backend messages; add/adjust i18n keys and generate NLS assets. (#21 / e47f72b)
+- Providers: refactor to extract shared workspace/org helpers and common webview HTML. (#19 / 47432e9)
+
+### Fixed
+- Webview table: wrap long text and support variable row heights to prevent column overlap. (#18 / 9183bfb)
+
+### Docs
+- Marketplace‑first README and docs with screenshots; CI/publishing documentation updates. (#22, #23, #24)
+
 ## [0.0.8-pre.1](https://github.com/Electivus/Apex-Log-Viewer/compare/apex-log-viewer-v0.0.7-pre.1...apex-log-viewer-v0.0.8-pre.1) (2025-08-27)
 
 
@@ -17,8 +36,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
-- Webview UI: wrap long text in table cells and support variable row heights to prevent columns overlapping.
-- Tail: add toggle "Somente USER_DEBUG" to filter live output to only USER_DEBUG lines (System.debug), with optional search stacking.
+- No notable changes yet.
 
 ## [0.0.2] - 2025-08-25
 
