@@ -84,26 +84,26 @@ export function TailToolbar({
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
       <button onClick={running ? onStop : onStart} style={buttonStyle} disabled={disabled}>
-        {running ? 'Stop' : 'Start'}
+        {running ? t.tail?.stop ?? 'Stop' : t.tail?.start ?? 'Start'}
       </button>
       <button onClick={onClear} style={buttonStyle} disabled={disabled}>
-        {t.filters?.clear ?? 'Clear'}
+        {t.tail?.clear ?? 'Clear'}
       </button>
       <button
         onClick={onOpenSelected}
         style={buttonStyle}
         disabled={disabled || !actionsEnabled}
-        title="Open selected log"
+        title={t.tail?.openSelectedLogTitle ?? 'Open selected log'}
       >
-        Open Log
+        {t.tail?.openLog ?? 'Open Log'}
       </button>
       <button
         onClick={onReplaySelected}
         style={buttonStyle}
         disabled={disabled || !actionsEnabled}
-        title="Apex Replay Debugger"
+        title={t.tail?.replayDebuggerTitle ?? 'Apex Replay Debugger'}
       >
-        Replay Debugger
+        {t.tail?.replayDebugger ?? 'Replay Debugger'}
       </button>
       <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ opacity: 0.8 }}>{t.orgLabel}:</span>
@@ -124,7 +124,7 @@ export function TailToolbar({
         type="search"
         value={query}
         onChange={e => onQueryChange(e.target.value)}
-        placeholder={'Search live logs…'}
+        placeholder={t.tail?.searchLivePlaceholder ?? 'Search live logs…'}
         disabled={disabled}
         style={{ ...inputStyle, flex: '1 1 220px', minWidth: 160 }}
       />
@@ -135,7 +135,7 @@ export function TailToolbar({
           onChange={e => onToggleOnlyUserDebug(e.target.checked)}
           disabled={disabled}
         />
-        <span>Somente USER_DEBUG</span>
+        <span>{t.tail?.debugOnly ?? 'Debug Only'}</span>
       </label>
       <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <input
@@ -144,17 +144,17 @@ export function TailToolbar({
           onChange={e => onToggleColorize(e.target.checked)}
           disabled={disabled}
         />
-        <span>Colorir saída</span>
+        <span>{t.tail?.colorize ?? 'Color'}</span>
       </label>
       <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span>Debug level</span>
+        <span>{t.tail?.debugLevel ?? 'Debug level'}</span>
         <select
           value={debugLevel}
           onChange={e => onDebugLevelChange(e.target.value)}
           disabled={disabled}
           style={{ ...selectStyle, minWidth: 140 }}
         >
-          <option value="">Select</option>
+          <option value="">{t.tail?.select ?? 'Select'}</option>
           {debugLevels.map(level => (
             <option key={level} value={level}>
               {level}
@@ -169,7 +169,7 @@ export function TailToolbar({
           onChange={e => onToggleAutoScroll(e.target.checked)}
           disabled={disabled}
         />
-        <span>Auto-scroll</span>
+        <span>{t.tail?.autoScroll ?? 'Auto-scroll'}</span>
       </label>
       {error && <span style={{ color: 'var(--vscode-errorForeground)' }}>{error}</span>}
     </div>

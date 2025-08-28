@@ -309,7 +309,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   }
 
   private getHtmlForWebview(webview: vscode.Webview): string {
-    return buildWebviewHtml(webview, this.context.extensionUri, 'main.js', 'Apex Logs');
+    return buildWebviewHtml(
+      webview,
+      this.context.extensionUri,
+      'main.js',
+      localize('salesforce.logs.view.name', 'Apex Logs')
+    );
   }
 
   public async sendOrgs() {

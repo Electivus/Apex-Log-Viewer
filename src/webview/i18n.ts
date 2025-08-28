@@ -7,6 +7,26 @@ export type Messages = {
   orgLabel: string;
   defaultOrg: string;
   searchPlaceholder?: string;
+  noOrgsDetected?: string;
+  tail?: {
+    start: string;
+    stop: string;
+    clear: string;
+    openLog: string;
+    openSelectedLogTitle: string;
+    replayDebugger: string;
+    replayDebuggerTitle: string;
+    searchLivePlaceholder: string;
+    debugOnly: string;
+    colorize: string;
+    debugLevel: string;
+    select: string;
+    autoScroll: string;
+    waiting: string;
+    pressStart: string;
+    selectDebugLevel: string;
+    debugTag?: string;
+  };
   filters?: {
     user: string;
     operation: string;
@@ -34,6 +54,26 @@ const en: Messages = {
   orgLabel: 'Org',
   defaultOrg: 'Default Org',
   searchPlaceholder: 'Search logs…',
+  noOrgsDetected: 'No orgs detected. Run "sf org list".',
+  tail: {
+    start: 'Start',
+    stop: 'Stop',
+    clear: 'Clear',
+    openLog: 'Open Log',
+    openSelectedLogTitle: 'Open selected log',
+    replayDebugger: 'Replay Debugger',
+    replayDebuggerTitle: 'Apex Replay Debugger',
+    searchLivePlaceholder: 'Search live logs…',
+    debugOnly: 'Debug Only',
+    colorize: 'Color',
+    debugLevel: 'Debug level',
+    select: 'Select',
+    autoScroll: 'Auto-scroll',
+    waiting: 'Waiting for logs…',
+    pressStart: 'Press Start to tail logs.',
+    selectDebugLevel: 'Select a debug level',
+    debugTag: 'debug'
+  },
   filters: {
     user: 'User',
     operation: 'Operation',
@@ -61,6 +101,26 @@ const ptBR: Messages = {
   orgLabel: 'Org',
   defaultOrg: 'Org Padrão',
   searchPlaceholder: 'Buscar logs…',
+  noOrgsDetected: 'Nenhuma org detectada. Execute "sf org list".',
+  tail: {
+    start: 'Iniciar',
+    stop: 'Parar',
+    clear: 'Limpar',
+    openLog: 'Abrir Log',
+    openSelectedLogTitle: 'Abrir log selecionado',
+    replayDebugger: 'Replay Debugger',
+    replayDebuggerTitle: 'Apex Replay Debugger',
+    searchLivePlaceholder: 'Buscar logs em tempo real…',
+    debugOnly: 'Somente USER_DEBUG',
+    colorize: 'Colorir saída',
+    debugLevel: 'Nível de depuração',
+    select: 'Selecionar',
+    autoScroll: 'Rolagem automática',
+    waiting: 'Aguardando logs…',
+    pressStart: 'Pressione Iniciar para acompanhar os logs.',
+    selectDebugLevel: 'Selecione um nível de depuração',
+    debugTag: 'debug'
+  },
   filters: {
     user: 'Usuário',
     operation: 'Operação',

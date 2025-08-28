@@ -7,6 +7,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { setApiVersion, getApiVersion } from './salesforce';
 import { logInfo, logWarn, logError, showOutput, setTraceEnabled } from './utils/logger';
+import { localize } from './utils/localize';
 
 export async function activate(context: vscode.ExtensionContext) {
   logInfo('Activating Apex Log Viewer extension…');
@@ -70,11 +71,13 @@ export async function activate(context: vscode.ExtensionContext) {
       const orgs: OrgItem[] = await listOrgs();
       const items: (vscode.QuickPickItem & { username: string })[] = orgs.map(o => ({
         label: o.alias ?? o.username,
-        description: o.isDefaultUsername ? 'Default' : undefined,
+        description: o.isDefaultUsername ? localize('selectOrgDefault', 'Default') : undefined,
         detail: o.instanceUrl || undefined,
         username: o.username
       }));
-      const picked = await vscode.window.showQuickPick(items, { placeHolder: 'Select an authenticated org' });
+      const picked = await vscode.window.showQuickPick(items, {
+        placeHolder: localize('selectOrgPlaceholder', 'Select an authenticated org')
+      });
       if (!picked) {
         logInfo('Select org cancelled.');
         return;

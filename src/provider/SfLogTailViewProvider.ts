@@ -141,7 +141,12 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   }
 
   private getHtmlForWebview(webview: vscode.Webview): string {
-    return buildWebviewHtml(webview, this.context.extensionUri, 'tail.js', 'Apex Log Tail');
+    return buildWebviewHtml(
+      webview,
+      this.context.extensionUri,
+      'tail.js',
+      localize('salesforce.tail.view.name', 'Apex Log Tail')
+    );
   }
 
   private post(msg: ExtensionToWebviewMessage): void {
@@ -208,7 +213,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     if (!debugLevel) {
-      this.post({ type: 'error', message: 'Select a debug level' });
+      this.post({ type: 'error', message: localize('tailSelectDebugLevel', 'Select a debug level') });
       logWarn('Tail: start aborted; no debug level selected.');
       return;
     }
@@ -254,7 +259,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       this.tailHardStopTimer = setTimeout(() => {
         if (this.tailRunning && !this.disposed) {
           logInfo('Tail: auto-stopping after 30 minutes.');
-          this.post({ type: 'error', message: 'Tail stopped after 30 minutes.' });
+          this.post({ type: 'error', message: localize('tailHardStop', 'Tail stopped after 30 minutes.') });
           this.stopTail();
         }
       }, 30 * 60 * 1000);
@@ -359,7 +364,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       if (id) {
         this.logIdToPath.set(id, filePath);
       }
-      lines.push(`Saved to ${filePath}`);
+      lines.push(localize('tailSavedTo', 'Saved to {0}', filePath));
       logInfo('Tail: saved log', id, 'to', filePath);
       // Notify webview about new tailed log with quick actions
       if (id) {

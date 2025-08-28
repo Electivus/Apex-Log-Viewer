@@ -142,7 +142,7 @@ function App() {
   const start = () => {
     setError(undefined);
     if (!debugLevel) {
-      setError('Select a debug level');
+      setError(t.tail?.selectDebugLevel ?? 'Select a debug level');
       return;
     }
     vscode.postMessage({ type: 'tailStart', debugLevel });
@@ -236,6 +236,7 @@ function App() {
             lineRefs.current.delete(idx);
           }
         }}
+        t={t}
       />
     </div>
   );

@@ -21,13 +21,29 @@ const ptBrFile = path.join(distDir, 'extension.nls.pt-br.json');
 // Default English messages (keys used in the extension bundle)
 const en = {
   openError: 'Failed to open log: ',
-  replayError: 'Failed to launch Apex Replay Debugger: '
+  replayError: 'Failed to launch Apex Replay Debugger: ',
+  replayStarting: 'Starting Apex Replay Debugger…',
+  tailSelectDebugLevel: 'Select a debug level',
+  tailHardStop: 'Tail stopped after 30 minutes.',
+  tailSavedTo: 'Saved to {0}',
+  selectOrgPlaceholder: 'Select an authenticated org',
+  selectOrgDefault: 'Default',
+  'salesforce.logs.view.name': 'Apex Logs',
+  'salesforce.tail.view.name': 'Apex Log Tail'
 };
 
 // Brazilian Portuguese (fallback translations)
 const ptBr = {
   openError: 'Falha ao abrir o log: ',
-  replayError: 'Falha ao iniciar o Apex Replay Debugger: '
+  replayError: 'Falha ao iniciar o Apex Replay Debugger: ',
+  replayStarting: 'Iniciando o Apex Replay Debugger…',
+  tailSelectDebugLevel: 'Selecione um nível de depuração',
+  tailHardStop: 'Tail parado após 30 minutos.',
+  tailSavedTo: 'Salvo em {0}',
+  selectOrgPlaceholder: 'Selecione uma org autenticada',
+  selectOrgDefault: 'Padrão',
+  'salesforce.logs.view.name': 'Logs Apex',
+  'salesforce.tail.view.name': 'Tail de Log Apex'
 };
 
 if (!fs.existsSync(baseFile)) {

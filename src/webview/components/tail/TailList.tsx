@@ -1,4 +1,5 @@
 import React from 'react';
+import type { Messages } from '../../i18n';
 import { apexLineStyle, categoryStyle, contentHighlightRules, highlightContent, parseApexLine } from '../../utils/tail';
 
 type TailListProps = {
@@ -10,6 +11,7 @@ type TailListProps = {
   running: boolean;
   listRef: React.RefObject<HTMLDivElement>;
   registerLineRef: (idx: number, el: HTMLDivElement | null) => void;
+  t: Messages;
 };
 
 export function TailList({
@@ -20,7 +22,8 @@ export function TailList({
   colorize,
   running,
   listRef,
-  registerLineRef
+  registerLineRef,
+  t
 }: TailListProps) {
   const sepStyle: React.CSSProperties = { opacity: 0.4 };
   const timeStyle: React.CSSProperties = { opacity: 0.6 };
@@ -42,7 +45,7 @@ export function TailList({
       }}
     >
       {filteredIndexes.length === 0 && (
-        <div style={{ opacity: 0.7 }}>{running ? 'Waiting for logs…' : 'Press Start to tail logs.'}</div>
+        <div style={{ opacity: 0.7 }}>{running ? t.tail?.waiting ?? 'Waiting for logs…' : t.tail?.pressStart ?? 'Press Start to tail logs.'}</div>
       )}
       {filteredIndexes.map(fullIdx => {
         const l = lines[fullIdx];
@@ -136,7 +139,7 @@ export function TailList({
             )}
             {cat && cat.toUpperCase().includes('USER_DEBUG') && parsed.debugMessage ? (
               <>
-                <span style={{ opacity: 0.6 }}>[debug]</span>
+                <span style={{ opacity: 0.6 }}>[{t.tail?.debugTag ?? 'debug'}]</span>
                 <span style={sepStyle}> | </span>
                 {highlightContent(parsed.debugMessage, contentHighlightRules).map((s, j) => (
                   <span key={j} style={s.style ?? debugMsgStyle}>

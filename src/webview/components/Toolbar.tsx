@@ -88,9 +88,7 @@ export function Toolbar({
         </select>
       </label>
       {orgs.length === 0 && (
-        <span style={{ opacity: 0.7 }} aria-live="polite">
-          No orgs detected. Run "sf org list".
-        </span>
+        <span style={{ opacity: 0.7 }} aria-live="polite">{t.noOrgsDetected ?? 'No orgs detected. Run "sf org list".'}</span>
       )}
       <input
         type="search"
