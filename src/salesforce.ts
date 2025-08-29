@@ -880,8 +880,8 @@ export async function fetchApexLogHead(
     } catch {}
     let buffer = '';
     let collected: string[] = [];
-    const attempt = (token: string) =>
-      https.request(
+    const attempt = (token: string) => {
+      const req = https.request(
         {
           method: 'GET',
           hostname: urlObj.hostname,
@@ -959,6 +959,8 @@ export async function fetchApexLogHead(
           });
         }
       );
+      return req;
+    };
     const req = attempt(auth.accessToken);
     req.on('error', reject);
     req.end();
