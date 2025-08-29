@@ -6,7 +6,7 @@ import type { OrgItem } from './shared/types';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { setApiVersion, getApiVersion } from './salesforce';
-import { logInfo, logWarn, logError, showOutput, setTraceEnabled } from './utils/logger';
+import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger } from './utils/logger';
 import { localize } from './utils/localize';
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -139,4 +139,6 @@ export async function activate(context: vscode.ExtensionContext) {
   };
 }
 
-export function deactivate() {}
+export function deactivate() {
+  disposeLogger();
+}
