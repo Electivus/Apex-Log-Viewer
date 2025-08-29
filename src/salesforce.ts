@@ -139,6 +139,8 @@ export async function resolvePATHFromLoginShell(): Promise<string | undefined> {
       } catch {}
       resolve(cachedLoginShellPATH);
     });
+  }).finally(() => {
+    resolvingPATH = null;
   });
   resolvingPATH.finally(() => {
     resolvingPATH = null;
