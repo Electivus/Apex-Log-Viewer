@@ -34,6 +34,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   private currentDebugLevel: string | undefined;
   private lastPollErrorAt = 0;
   private logIdToPath = new Map<string, string>();
+  private readonly logIdToPathLimit = 100;
   private disposed = false;
   private selectedOrg: string | undefined;
 
@@ -138,6 +139,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       if (message?.type === 'tailClear') {
+        this.logIdToPath.clear();
         this.post({ type: 'tailReset' });
         return;
       }
@@ -375,7 +377,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       const { filePath } = await this.getLogFilePathWithUsername(auth.username, id ?? String(Date.now()));
       await fs.writeFile(filePath, body, 'utf8');
       if (id) {
-        this.logIdToPath.set(id, filePath);
+        this.addLogPath(id, filePath);
       }
       lines.push(localize('tailSavedTo', 'Saved to {0}', filePath));
       logInfo('Tail: saved log', id, 'to', filePath);
@@ -459,6 +461,16 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private addLogPath(logId: string, filePath: string): void {
+    this.logIdToPath.set(logId, filePath);
+    if (this.logIdToPath.size > this.logIdToPathLimit) {
+      const oldest = this.logIdToPath.keys().next().value;
+      if (oldest) {
+        this.logIdToPath.delete(oldest);
+      }
+    }
+  }
+
   private async ensureLogSaved(logId: string): Promise<string> {
     const existing = this.logIdToPath.get(logId);
     if (existing) {
@@ -469,7 +481,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     const body = await fetchApexLogBody(auth, logId);
     const { filePath } = await this.getLogFilePathWithUsername(auth.username, logId);
     await fs.writeFile(filePath, body, 'utf8');
-    this.logIdToPath.set(logId, filePath);
+    this.addLogPath(logId, filePath);
     logInfo('Tail: ensured log saved at', filePath);
     return filePath;
   }
