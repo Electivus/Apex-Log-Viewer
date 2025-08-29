@@ -96,7 +96,11 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       if (message?.type === 'selectOrg') {
         const target = typeof message.target === 'string' ? message.target.trim() : undefined;
         const next = target || undefined;
+        const prev = this.selectedOrg;
         this.setSelectedOrg(next);
+        if (prev !== next) {
+          this.stopTail();
+        }
         logInfo('Tail: selected org set to', next || '(none)');
         this.post({ type: 'loading', value: true });
         try {
@@ -217,6 +221,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       logWarn('Tail: start aborted; no debug level selected.');
       return;
     }
+    // Reset caches for a fresh session
+    this.seenLogIds.clear();
+    this.logIdToPath.clear();
     this.currentDebugLevel = debugLevel;
     try {
       // Acquire auth once and reuse; salesforce.ts will refresh on 401
@@ -256,13 +263,16 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       if (this.tailHardStopTimer) {
         clearTimeout(this.tailHardStopTimer);
       }
-      this.tailHardStopTimer = setTimeout(() => {
-        if (this.tailRunning && !this.disposed) {
-          logInfo('Tail: auto-stopping after 30 minutes.');
-          this.post({ type: 'error', message: localize('tailHardStop', 'Tail stopped after 30 minutes.') });
-          this.stopTail();
-        }
-      }, 30 * 60 * 1000);
+      this.tailHardStopTimer = setTimeout(
+        () => {
+          if (this.tailRunning && !this.disposed) {
+            logInfo('Tail: auto-stopping after 30 minutes.');
+            this.post({ type: 'error', message: localize('tailHardStop', 'Tail stopped after 30 minutes.') });
+            this.stopTail();
+          }
+        },
+        30 * 60 * 1000
+      );
       // Kick off loop immediately
       void this.pollOnce();
     } catch (e) {
@@ -286,6 +296,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       clearTimeout(this.tailHardStopTimer);
       this.tailHardStopTimer = undefined;
     }
+    // Clear caches so future sessions start clean
+    this.seenLogIds.clear();
+    this.logIdToPath.clear();
     this.post({ type: 'tailStatus', running: false });
     logInfo('Tail: stopped.');
   }
@@ -426,7 +439,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       const uri = vscode.Uri.file(filePath);
       // Keep loading visible and show a notification while launching Replay
       await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: localize('replayStarting', 'Starting Apex Replay Debugger…') },
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: localize('replayStarting', 'Starting Apex Replay Debugger…')
+        },
         async () => {
           try {
             await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
