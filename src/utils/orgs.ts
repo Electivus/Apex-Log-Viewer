@@ -22,8 +22,10 @@ export function persistSelectedOrg(context: vscode.ExtensionContext, username?: 
 
 /** Pick a selected org given the list and an optional current value. */
 export function pickSelectedOrg(orgs: OrgItem[], current?: string): string | undefined {
-  if (current) {return current;}
+  const match = current ? orgs.find(o => o.username === current) : undefined;
+  if (match) {
+    return match.username;
+  }
   const def = orgs.find(o => o.isDefaultUsername)?.username;
   return def || orgs[0]?.username || undefined;
 }
-
