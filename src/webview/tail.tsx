@@ -126,8 +126,9 @@ function App() {
       const l = lines[i] || '';
       const upper = l.toUpperCase();
       const isHeader = upper.startsWith('=== APEXLOG ');
-      // Heurística de USER_DEBUG conforme formato dos logs Apex
-      const isUserDebug = !isHeader && (upper.includes('|USER_DEBUG|') || (upper.includes('|DEBUG|') && upper.includes('USER_DEBUG')));
+      // Heuristic for USER_DEBUG according to Apex log format
+      const isUserDebug =
+        !isHeader && (upper.includes('|USER_DEBUG|') || (upper.includes('|DEBUG|') && upper.includes('USER_DEBUG')));
       if (onlyUserDebug && !isUserDebug) {
         continue;
       }
