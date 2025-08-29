@@ -16,10 +16,14 @@ This repository uses GitHub Actions to build, test, package, and optionally publ
 
 ## Release Flow
 
-1. Bump version in `package.json`, update `CHANGELOG.md`.
-2. Create and push a tag like `v0.0.4` to trigger packaging (and publish if `VSCE_PAT` is present).
-   - Example: `git tag v0.0.4 && git push origin v0.0.4`.
-3. Download the built `.vsix` from the workflow artifacts when needed.
+Standard releases are automated with Release Please — do not edit `CHANGELOG.md` or bump versions manually.
+
+1. Merge feature/fix PRs using Conventional Commits (e.g., `feat:`, `fix:`, `docs:`).
+2. The `Release Please` workflow opens a release PR that updates version and `CHANGELOG.md`.
+3. Review and merge the release PR. On merge, Release Please tags and creates the GitHub Release.
+4. CI on the tag builds and (optionally) publishes to Marketplace if `VSCE_PAT` is configured.
+
+Pre‑releases: see `docs/PUBLISHING.md` for options (including using a `Release-As:` footer or odd‑minor pre‑release flow).
 
 See also: `docs/PUBLISHING.md` for the full Marketplace publishing flow and guidance.
 
@@ -34,3 +38,7 @@ See also: `docs/PUBLISHING.md` for the full Marketplace publishing flow and guid
 - Stable: even minor (e.g., `0.2.x`).
 - Pre‑release: odd minor (e.g., `0.1.x`).
 
+## Changelog Guard
+
+- CI fails pull requests that modify `CHANGELOG.md` unless they originate from the Release Please bot/branch.
+- If your PR needs release notes, express them via Conventional Commits; the changelog will be generated for you.
