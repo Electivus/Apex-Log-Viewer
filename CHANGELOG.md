@@ -6,6 +6,25 @@ All notable changes to the "apex-log-viewer" extension will be documented in thi
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.3.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.3.0...v0.3.0) (2025-08-29)
+
+
+### Features
+
+* Add loading state handling and new configuration options for Apex Log Viewer ([cc2692f](https://github.com/Electivus/Apex-Log-Viewer/commit/cc2692f28305237ef158f5d355e64c32dd524b91))
+* **docs:** document release channels (odd=pre, even=stable)\n\nRelease-As: 0.1.0 ([8fdd722](https://github.com/Electivus/Apex-Log-Viewer/commit/8fdd722102dc8837b007016088b5a19932378ed1))
+* Enhance CI workflow to auto-detect release channel and update packaging process for stable and pre-release versions ([d0780f9](https://github.com/Electivus/Apex-Log-Viewer/commit/d0780f94f81b7f65abc0884749db5e51fa0b81ae))
+* Implement background warm-up for Apex Replay Debugger and enhance log viewing experience ([141b1e3](https://github.com/Electivus/Apex-Log-Viewer/commit/141b1e392c0aa7bd971d956177be5d84f570ddf0))
+* Implement log viewing and tailing features ([896ac6c](https://github.com/Electivus/Apex-Log-Viewer/commit/896ac6c14a2dcf100f9d5201fc90ee43847c9932))
+* Refactor publish job in CI workflow to enhance version handling and differentiate between stable and pre-release publishing ([5f3f601](https://github.com/Electivus/Apex-Log-Viewer/commit/5f3f6018d825e7676229aa77743ab6244e69a605))
+* **tail:** add 'Somente USER_DEBUG' filter to live output ([#20](https://github.com/Electivus/Apex-Log-Viewer/issues/20)) ([2e6fa1c](https://github.com/Electivus/Apex-Log-Viewer/commit/2e6fa1ced333a3eedef36400f804736a6f753a3a))
+
+
+### Miscellaneous Chores
+
+* migrate to numeric pre-release scheme (odd minor) ([ad2c6a0](https://github.com/Electivus/Apex-Log-Viewer/commit/ad2c6a0d579a2743f192e2554d6dcede960a00fb))
+* prepare pre-release 0.3.0 ([#40](https://github.com/Electivus/Apex-Log-Viewer/issues/40)) ([2936e2e](https://github.com/Electivus/Apex-Log-Viewer/commit/2936e2e19f885331c89480e190144f06d45e3f3d))
+
 ## [0.3.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.2.0...v0.3.0) (2025-08-29)
 
 
