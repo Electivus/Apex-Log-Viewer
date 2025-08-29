@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as https from 'https';
 import { URL } from 'url';
 import { logTrace } from './utils/logger';
+import { localize } from './utils/localize';
 const crossSpawn = require('cross-spawn');
 import type { ApexLogRow as SApexLogRow, OrgItem as SOrgItem } from './shared/types';
 type ApexLogRow = SApexLogRow;
@@ -267,10 +268,15 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
         }
       }
     }
-    throw new Error('Salesforce CLI não encontrada. Instale o Salesforce CLI (sf) ou SFDX CLI (sfdx).');
+    throw new Error(
+      localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).')
+    );
   }
   throw new Error(
-    'Não foi possível obter credenciais via sf/sfdx CLI. Verifique a autenticação e tente: sf org display --json --verbose'
+    localize(
+      'cliAuthFailed',
+      'Could not obtain credentials via sf/sfdx CLI. Verify authentication and try: sf org display --json --verbose'
+    )
   );
 }
 
@@ -450,7 +456,9 @@ export async function listOrgs(): Promise<OrgItem[]> {
         }
       }
     }
-    throw new Error('Salesforce CLI não encontrada. Instale o Salesforce CLI (sf) ou SFDX CLI (sfdx).');
+    throw new Error(
+      localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).')
+    );
   }
   return [];
 }

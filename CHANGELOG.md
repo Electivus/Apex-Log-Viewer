@@ -39,12 +39,16 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+### Changed
+
+
 =======
 ### Fixed
 
 - Validate selected org against available list.
 - Release output channel when extension deactivates to free resources.
 - Tail: reset caches on stop or org switch to avoid stale logs.
+- Localize Salesforce CLI error messages for org auth and listing.
 =======
 
 ## [0.0.2] - 2025-08-25
