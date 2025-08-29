@@ -41,7 +41,8 @@
 
 - Commits: imperative, concise subject ≤72 chars (e.g., "Add head concurrency setting"); reference issues in body (e.g., `Closes #123`).
 - PRs: clear description, linked issues, screenshots/GIFs for UI, verification steps, and risk/rollback notes.
-- Ensure `npm run build` and `npm test` pass; update `CHANGELOG.md` for user‑visible changes (Keep a Changelog).
+- Ensure `npm run build` and `npm test` pass.
+- Do not edit `CHANGELOG.md` directly. The changelog is generated via GitHub Actions using Release Please; use Conventional Commits in PR titles/messages so entries are produced automatically.
 
 ## Security & Configuration
 
