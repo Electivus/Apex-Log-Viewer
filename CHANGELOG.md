@@ -39,9 +39,11 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+=======
 ### Fixed
 
 - Validate selected org against available list.
+- Release output channel when extension deactivates to free resources.
 - Tail: reset caches on stop or org switch to avoid stale logs.
 =======
 
