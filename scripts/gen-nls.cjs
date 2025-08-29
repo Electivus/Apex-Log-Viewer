@@ -26,6 +26,9 @@ const en = {
   tailSelectDebugLevel: 'Select a debug level',
   tailHardStop: 'Tail stopped after 30 minutes.',
   tailSavedTo: 'Saved to {0}',
+  cliNotFound: 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).',
+  cliAuthFailed:
+    'Could not obtain credentials via sf/sfdx CLI. Verify authentication and try: sf org display --json --verbose',
   selectOrgPlaceholder: 'Select an authenticated org',
   selectOrgDefault: 'Default',
   'salesforce.logs.view.name': 'Apex Logs',
@@ -40,6 +43,9 @@ const ptBr = {
   tailSelectDebugLevel: 'Selecione um nível de depuração',
   tailHardStop: 'Tail parado após 30 minutos.',
   tailSavedTo: 'Salvo em {0}',
+  cliNotFound: 'Salesforce CLI não encontrada. Instale o Salesforce CLI (sf) ou SFDX CLI (sfdx).',
+  cliAuthFailed:
+    'Não foi possível obter credenciais via sf/sfdx CLI. Verifique a autenticação e tente: sf org display --json --verbose',
   selectOrgPlaceholder: 'Selecione uma org autenticada',
   selectOrgDefault: 'Padrão',
   'salesforce.logs.view.name': 'Logs Apex',
