@@ -42,6 +42,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ### Fixed
 
 - Validate selected org against available list.
+- Tail: reset caches on stop or org switch to avoid stale logs.
+=======
 
 ## [0.0.2] - 2025-08-25
 
