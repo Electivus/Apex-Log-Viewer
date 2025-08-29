@@ -6,6 +6,13 @@ All notable changes to the "apex-log-viewer" extension will be documented in thi
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.3.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.2.0...v0.3.0) (2025-08-29)
+
+
+### Miscellaneous Chores
+
+* prepare pre-release 0.3.0 ([#40](https://github.com/Electivus/Apex-Log-Viewer/issues/40)) ([2936e2e](https://github.com/Electivus/Apex-Log-Viewer/commit/2936e2e19f885331c89480e190144f06d45e3f3d))
+
 ## [0.2.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.1.1...v0.2.0) (2025-08-28)
 
 - Promote the 0.1.1 pre‑release to stable; no functional changes since 0.1.1.
