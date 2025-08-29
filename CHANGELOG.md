@@ -1,5 +1,7 @@
 # Change Log
 
+Note: This file is managed by Release Please and generated via GitHub Actions. Do not edit it manually; use Conventional Commits and the release PR flow.
+
 All notable changes to the "apex-log-viewer" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
