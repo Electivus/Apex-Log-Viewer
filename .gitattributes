@@ -1,0 +1,8 @@
+* text=auto
+
+# Ensure shell scripts use LF on all platforms
+*.sh text eol=lf
+
+# YAML also should be LF (Actions, etc.)
+*.yml text eol=lf
+*.yaml text eol=lf

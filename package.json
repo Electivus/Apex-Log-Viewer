@@ -188,7 +188,7 @@
     "test:integration": "npm run pretest && VSCODE_TEST_SCOPE=integration VSCODE_TEST_INSTALL_DEPS=1 VSCODE_TEST_FAIL_IF_NO_TESTS=1 VSCODE_TEST_TOTAL_TIMEOUT_MS=900000 node scripts/run-tests.js",
     "test:all": "npm run pretest && VSCODE_TEST_SCOPE=all VSCODE_TEST_FAIL_IF_NO_TESTS=1 node scripts/run-tests.js",
     "test:linux-deps": "bash scripts/install-linux-deps.sh",
-    "test:ci": "npm run test:linux-deps && npm run test:unit && npm run test:integration",
+    "test:ci": "npm run test:unit && npm run test:integration",
     "format": "prettier --write .",
     "prepare": "husky"
   },
