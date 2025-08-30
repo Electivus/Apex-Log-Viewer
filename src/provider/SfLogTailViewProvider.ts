@@ -54,7 +54,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     // Fire-and-forget warm-up of Replay Debugger when the Tail view opens
     try {
       setTimeout(() => void warmUpReplayDebugger(), 0);
-    } catch {}
+    } catch (e) {
+      logWarn('Tail: warm-up of Apex Replay Debugger failed ->', e instanceof Error ? e.message : String(e));
+    }
 
     this.context.subscriptions.push(
       webviewView.onDidDispose(() => {
@@ -80,7 +82,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         }
       });
       this.context.subscriptions.push(d);
-    } catch {}
+    } catch (e) {
+      logWarn('Tail: window state tracking failed ->', e instanceof Error ? e.message : String(e));
+    }
 
     webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
       const t = (message as any)?.type;
@@ -178,8 +182,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       logInfo('Tail: sendOrgs ->', orgs.length, 'org(s)');
       const selected = pickSelectedOrg(orgs, this.selectedOrg);
       this.post({ type: 'orgs', data: orgs, selected });
-    } catch {
-      logWarn('Tail: sendOrgs failed; posting empty list');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logWarn('Tail: sendOrgs failed ->', msg);
+      vscode.window.showErrorMessage(localize('sendOrgsFailed', 'Failed to retrieve orgs: {0}', msg));
       this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
     }
   }
@@ -194,8 +200,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     let auth: OrgAuth;
     try {
       auth = await getOrgAuth(this.selectedOrg);
-    } catch {
-      logWarn('Tail: could not load auth for debug levels');
+    } catch (e) {
+      logWarn('Tail: could not load auth for debug levels ->', e instanceof Error ? e.message : String(e));
       this.post({ type: 'debugLevels', data: [] });
       return;
     }
@@ -205,16 +211,16 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     let levels: string[] = [];
     try {
       levels = await listDebugLevels(auth);
-    } catch {
-      logWarn('Tail: listDebugLevels failed');
+    } catch (e) {
+      logWarn('Tail: listDebugLevels failed ->', e instanceof Error ? e.message : String(e));
       levels = [];
     }
 
     let active: string | undefined = undefined;
     try {
       active = await getActiveUserDebugLevel(auth);
-    } catch {
-      logWarn('Tail: getActiveUserDebugLevel failed');
+    } catch (e) {
+      logWarn('Tail: getActiveUserDebugLevel failed ->', e instanceof Error ? e.message : String(e));
       active = undefined;
     }
 
@@ -254,8 +260,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         } else {
           logInfo('Tail: TraceFlag already active or unchanged');
         }
-      } catch {
-        logWarn('Tail: ensure TraceFlag failed (continuing)');
+      } catch (e) {
+        logWarn('Tail: ensure TraceFlag failed (continuing) ->', e instanceof Error ? e.message : String(e));
       }
 
       // Prime seen set with recent logs so we don't spam old entries on start
@@ -267,8 +273,11 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
             this.seenLogIds.add(r.Id);
           }
         }
-      } catch {
-        logWarn('Tail: prime recent logs failed; proceeding with empty seen set');
+      } catch (e) {
+        logWarn(
+          'Tail: prime recent logs failed; proceeding with empty seen set ->',
+          e instanceof Error ? e.message : String(e)
+        );
       }
 
       this.tailRunning = true;
@@ -407,8 +416,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
           savedPath: filePath
         });
       }
-    } catch {
-      logWarn('Tail: failed to save log to workspace (best-effort).');
+    } catch (e) {
+      logWarn('Tail: failed to save log to workspace (best-effort) ->', e instanceof Error ? e.message : String(e));
     }
     // Append body lines
     for (const l of String(body || '').split(/\r?\n/)) {
@@ -466,7 +475,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         async () => {
           try {
             await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
-          } catch {
+          } catch (e) {
+            logWarn('Tail: sf.launch.replay.debugger.logfile failed ->', e instanceof Error ? e.message : String(e));
             await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
           }
         }

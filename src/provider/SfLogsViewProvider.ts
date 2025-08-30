@@ -92,7 +92,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     // Fire-and-forget warm-up of Replay Debugger when the view opens
     try {
       setTimeout(() => void warmUpReplayDebugger(), 0);
-    } catch {}
+    } catch (e) {
+      logWarn('Logs: warm-up of Apex Replay Debugger failed ->', e instanceof Error ? e.message : String(e));
+    }
     // Dispose handling: stop posting and bump token to invalidate in-flight work
     this.context.subscriptions.push(
       webviewView.onDidDispose(() => {
@@ -190,8 +192,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             if (codeUnit && token === this.refreshToken && !this.disposed) {
               this.post({ type: 'logHead', logId: log.Id, codeUnitStarted: codeUnit });
             }
-          } catch {
-            // ignore individual log error
+          } catch (e) {
+            logWarn('Logs: head fetch failed for', log.Id, '->', e instanceof Error ? e.message : String(e));
           }
         });
       }
@@ -233,8 +235,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             if (codeUnit && token === this.refreshToken && !this.disposed) {
               this.post({ type: 'logHead', logId: log.Id, codeUnitStarted: codeUnit });
             }
-          } catch {
-            // ignore per-log error
+          } catch (e) {
+            logWarn('Logs: head fetch failed for', log.Id, '->', e instanceof Error ? e.message : String(e));
           }
         });
       }
@@ -299,7 +301,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         async () => {
           try {
             await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
-          } catch {
+          } catch (e) {
+            logWarn('Logs: sf.launch.replay.debugger.logfile failed ->', e instanceof Error ? e.message : String(e));
             await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
           }
         }
@@ -329,7 +332,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       const orgs = await listOrgs();
       const selected = pickSelectedOrg(orgs, this.selectedOrg);
       this.post({ type: 'orgs', data: orgs, selected });
-    } catch {
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logWarn('Logs: sendOrgs failed ->', msg);
+      vscode.window.showErrorMessage(localize('sendOrgsFailed', 'Failed to retrieve orgs: {0}', msg));
       this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
     }
   }
