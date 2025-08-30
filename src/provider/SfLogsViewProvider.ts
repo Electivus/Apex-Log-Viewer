@@ -11,6 +11,7 @@ import {
   clearListCache
 } from '../salesforce/http';
 import type { ApexLogRow, OrgItem } from '../shared/types';
+import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn, logError } from '../utils/logger';
 import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
@@ -179,24 +180,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       this.post({ type: 'logs', data: logs, hasMore: logs.length === this.pageLimit });
 
       // Limited parallel fetch of log heads
-      for (const log of logs) {
-        void this.headLimiter(async () => {
-          try {
-            const headLines = await fetchApexLogHead(
-              auth,
-              log.Id,
-              10,
-              typeof log.LogLength === 'number' ? log.LogLength : undefined
-            );
-            const codeUnit = extractCodeUnitStartedFromLines(headLines);
-            if (codeUnit && token === this.refreshToken && !this.disposed) {
-              this.post({ type: 'logHead', logId: log.Id, codeUnitStarted: codeUnit });
-            }
-          } catch (e) {
-            logWarn('Logs: head fetch failed for', log.Id, '->', e instanceof Error ? e.message : String(e));
-          }
-        });
-      }
+      this.loadLogHeads(logs, auth, token);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logWarn('Logs: refresh failed ->', msg);
@@ -222,30 +206,34 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       }
       this.post({ type: 'appendLogs', data: logs, hasMore: logs.length === this.pageLimit });
 
-      for (const log of logs) {
-        void this.headLimiter(async () => {
-          try {
-            const headLines = await fetchApexLogHead(
-              auth,
-              log.Id,
-              10,
-              typeof log.LogLength === 'number' ? log.LogLength : undefined
-            );
-            const codeUnit = extractCodeUnitStartedFromLines(headLines);
-            if (codeUnit && token === this.refreshToken && !this.disposed) {
-              this.post({ type: 'logHead', logId: log.Id, codeUnitStarted: codeUnit });
-            }
-          } catch (e) {
-            logWarn('Logs: head fetch failed for', log.Id, '->', e instanceof Error ? e.message : String(e));
-          }
-        });
-      }
+      this.loadLogHeads(logs, auth, token);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logWarn('Logs: loadMore failed ->', msg);
       this.post({ type: 'error', message: msg });
     } finally {
       this.post({ type: 'loading', value: false });
+    }
+  }
+
+  private loadLogHeads(logs: ApexLogRow[], auth: OrgAuth, token: number): void {
+    for (const log of logs) {
+      void this.headLimiter(async () => {
+        try {
+          const headLines = await fetchApexLogHead(
+            auth,
+            log.Id,
+            10,
+            typeof log.LogLength === 'number' ? log.LogLength : undefined
+          );
+          const codeUnit = extractCodeUnitStartedFromLines(headLines);
+          if (codeUnit && token === this.refreshToken && !this.disposed) {
+            this.post({ type: 'logHead', logId: log.Id, codeUnitStarted: codeUnit });
+          }
+        } catch (e) {
+          logWarn('Logs: head fetch failed for', log.Id, '->', e instanceof Error ? e.message : String(e));
+        }
+      });
     }
   }
 
