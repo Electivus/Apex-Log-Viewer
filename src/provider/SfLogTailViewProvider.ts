@@ -178,8 +178,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       logInfo('Tail: sendOrgs ->', orgs.length, 'org(s)');
       const selected = pickSelectedOrg(orgs, this.selectedOrg);
       this.post({ type: 'orgs', data: orgs, selected });
-    } catch {
-      logWarn('Tail: sendOrgs failed; posting empty list');
+    } catch (e) {
+      logWarn('Tail: sendOrgs failed ->', e instanceof Error ? e.message : String(e));
       this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
     }
   }
