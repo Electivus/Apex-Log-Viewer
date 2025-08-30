@@ -7,14 +7,11 @@ suite('integration: dependencies', () => {
     const self = vscode.extensions.getExtension('electivus.apex-log-viewer');
     assert.ok(self, 'apex-log-viewer extension should be found');
 
-    // Only enforce dependency when the test runner opted-in to installs
-    const shouldInstall = /^1|true$/i.test(String(process.env.VSCODE_TEST_INSTALL_DEPS || ''));
+    // Enforce dependency presence; if not installed, fail with guidance
     const dep = vscode.extensions.getExtension('salesforce.salesforcedx-vscode');
-    if (!dep && !shouldInstall) {
-      // Skip gracefully to avoid hanging on Marketplace installs offline
-      this.skip();
-      return;
-    }
-    assert.ok(dep, 'salesforce.salesforcedx-vscode should be installed for tests');
+    assert.ok(
+      dep,
+      'salesforce.salesforcedx-vscode must be installed for integration tests. Use `npm run test:integration` to auto-install.'
+    );
   });
 });

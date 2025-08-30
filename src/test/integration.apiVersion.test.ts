@@ -7,14 +7,6 @@ suite('integration: API version from workspace', () => {
     const ext = vscode.extensions.getExtension('electivus.apex-log-viewer');
     assert.ok(ext, 'extension should be discoverable by id');
 
-    // If dependency install is disabled, our extension won't activate. Skip gracefully.
-    const dep = vscode.extensions.getExtension('salesforce.salesforcedx-vscode');
-    const shouldInstall = /^1|true$/i.test(String(process.env.VSCODE_TEST_INSTALL_DEPS || ''));
-    if (!dep && !shouldInstall) {
-      this.skip();
-      return;
-    }
-
     const exports = await ext!.activate();
     const version = exports && typeof exports.getApiVersion === 'function' ? exports.getApiVersion() : undefined;
     // Expect our activation to have read sample-workspace/sfdx-project.json
