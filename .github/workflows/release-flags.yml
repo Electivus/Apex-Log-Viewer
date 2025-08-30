@@ -53,6 +53,6 @@ jobs:
               release_id: rel.id,
               prerelease
             });
-          env:
-            TAG: ${{ steps.semver.outputs.tag }}
-            PRERELEASE: ${{ steps.semver.outputs.prerelease }}
+        env:
+          TAG: ${{ steps.semver.outputs.tag }}
+          PRERELEASE: ${{ steps.semver.outputs.prerelease }}
