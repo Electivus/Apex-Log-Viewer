@@ -1,5 +1,10 @@
 name: Release Please
 
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
 on:
   push:
     branches: [ main ]
@@ -8,11 +13,6 @@ on:
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    # Principle of least privilege; needs write to open PRs/commits
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
     steps:
       - name: Release Please
         # Pin action by commit SHA for supply-chain safety (tag v4)
@@ -25,3 +25,6 @@ jobs:
           # Use a PAT if provided to allow fork-based PRs when org policy blocks bot PRs
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           fork: ${{ secrets.RELEASE_PLEASE_TOKEN != '' }}
+          # Fallback: if no PAT, skip PR creation to avoid
+          # "Actions not permitted to create or approve PRs" policy errors
+          skip-github-pull-request: ${{ secrets.RELEASE_PLEASE_TOKEN == '' }}
