@@ -88,4 +88,4 @@
 
 ## Changelog
 
-This file is generated automatically by CI from Conventional Commits. Do not edit manually.
+This file is maintained manually. Keep entries concise and follow Semantic Versioning.
