@@ -6,7 +6,7 @@ import { fetchApexLogs, fetchApexLogBody } from '../salesforce/http';
 import { listDebugLevels, getActiveUserDebugLevel, ensureUserTraceFlag } from '../salesforce/traceflags';
 import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
-import { logInfo, logWarn, logError, showOutput } from '../utils/logger';
+import { logInfo, logWarn, logError, logTrace, showOutput } from '../utils/logger';
 import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import {
@@ -323,7 +323,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       const auth = this.currentAuth ?? (await getOrgAuth(this.selectedOrg));
       this.currentAuth = auth;
       const logs = await fetchApexLogs(auth, 20, 0, this.currentDebugLevel);
-      logInfo('Tail: polled logs ->', logs.length);
+      logTrace('Tail: polled logs ->', logs.length);
       // Process newest to oldest so output is chronological
       for (let i = logs.length - 1; i >= 0; i--) {
         const r = logs[i];
@@ -332,7 +332,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
           continue;
         }
         this.seenLogIds.add(id);
-        logInfo('Tail: new log', id, r?.Operation, r?.Status, r?.LogLength);
+        logTrace('Tail: new log', id, r?.Operation, r?.Status, r?.LogLength);
         // Fetch body and emit lines
         try {
           const body = await fetchApexLogBody(auth, id);
@@ -389,7 +389,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         this.addLogPath(id, filePath);
       }
       lines.push(localize('tailSavedTo', 'Saved to {0}', filePath));
-      logInfo('Tail: saved log', id, 'to', filePath);
+      logTrace('Tail: saved log', id, 'to', filePath);
       // Notify webview about new tailed log with quick actions
       if (id) {
         this.post({
