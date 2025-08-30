@@ -38,7 +38,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     // Fire-and-forget warm-up of Replay Debugger when the Tail view opens
     try {
       setTimeout(() => void warmUpReplayDebugger(), 0);
-    } catch {}
+    } catch (e) {
+      logWarn('Tail: warm-up of Apex Replay Debugger failed ->', e instanceof Error ? e.message : String(e));
+    }
 
     this.context.subscriptions.push(
       webviewView.onDidDispose(() => {
@@ -59,7 +61,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         }
       });
       this.context.subscriptions.push(d);
-    } catch {}
+    } catch (e) {
+      logWarn('Tail: window state tracking failed ->', e instanceof Error ? e.message : String(e));
+    }
 
     webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
       const t = (message as any)?.type;
@@ -158,8 +162,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       logInfo('Tail: sendOrgs ->', orgs.length, 'org(s)');
       const selected = pickSelectedOrg(orgs, this.selectedOrg);
       this.post({ type: 'orgs', data: orgs, selected });
-    } catch {
-      logWarn('Tail: sendOrgs failed; posting empty list');
+    } catch (e) {
+      logWarn('Tail: sendOrgs failed ->', e instanceof Error ? e.message : String(e));
       this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
     }
   }
@@ -174,29 +178,24 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     let auth: OrgAuth;
     try {
       auth = await getOrgAuth(this.selectedOrg);
-    } catch {
-      logWarn('Tail: could not load auth for debug levels');
+    } catch (e) {
+      logWarn('Tail: could not load auth for debug levels ->', e instanceof Error ? e.message : String(e));
       this.post({ type: 'debugLevels', data: [] });
       return;
     }
 
-    // Fetch levels and active selection independently so one failure
+    // Fetch levels and active selection concurrently so one failure
     // doesn't block the other and result in an empty combobox.
-    let levels: string[] = [];
-    try {
-      levels = await listDebugLevels(auth);
-    } catch {
-      logWarn('Tail: listDebugLevels failed');
-      levels = [];
-    }
-
-    let active: string | undefined = undefined;
-    try {
-      active = await getActiveUserDebugLevel(auth);
-    } catch {
-      logWarn('Tail: getActiveUserDebugLevel failed');
-      active = undefined;
-    }
+    const [levels, active] = await Promise.all([
+      listDebugLevels(auth).catch(() => {
+        logWarn('Tail: listDebugLevels failed');
+        return [] as string[];
+      }),
+      getActiveUserDebugLevel(auth).catch(() => {
+        logWarn('Tail: getActiveUserDebugLevel failed');
+        return undefined as string | undefined;
+      })
+    ]);
 
     // Ensure the active value appears in the list if present
     const out = Array.isArray(levels) ? [...levels] : [];
@@ -237,7 +236,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         async () => {
           try {
             await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
-          } catch {
+          } catch (e) {
+            logWarn('Tail: sf.launch.replay.debugger.logfile failed ->', e instanceof Error ? e.message : String(e));
             await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
           }
         }

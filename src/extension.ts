@@ -10,6 +10,10 @@ import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger 
 import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';
 
+interface OrgQuickPick extends vscode.QuickPickItem {
+  username: string;
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   logInfo('Activating Apex Log Viewer extension…');
   // Configure trace logging from settings
@@ -25,8 +29,9 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       })
     );
-  } catch {
-    // ignore
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logWarn('Failed to configure trace logging ->', msg);
   }
   // Soft advice: if Apex Replay Debugger (via Salesforce Extension Pack) is missing, log a tip in Output
   try {
@@ -41,7 +46,9 @@ export async function activate(context: vscode.ExtensionContext) {
         );
       }
     }, 0);
-  } catch {}
+  } catch (e) {
+    logWarn('Failed to detect Apex Replay Debugger availability ->', e instanceof Error ? e.message : String(e));
+  }
   // Try to read sourceApiVersion from sfdx-project.json (first workspace folder)
   const folders = vscode.workspace.workspaceFolders;
   if (folders && folders.length > 0) {
@@ -56,11 +63,14 @@ export async function activate(context: vscode.ExtensionContext) {
           setApiVersion(v);
           logInfo('Detected sourceApiVersion from sfdx-project.json:', v);
         }
-      } catch {
-        logWarn('Could not parse sfdx-project.json for sourceApiVersion.');
+      } catch (e) {
+        logWarn(
+          'Could not parse sfdx-project.json for sourceApiVersion ->',
+          e instanceof Error ? e.message : String(e)
+        );
       }
-    } catch {
-      logInfo('No sfdx-project.json found in first workspace folder.');
+    } catch (e) {
+      logInfo('No sfdx-project.json found in first workspace folder ->', e instanceof Error ? e.message : String(e));
     }
   }
   const provider = new SfLogsViewProvider(context);
@@ -84,20 +94,20 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('sfLogs.selectOrg', async () => {
       logInfo('Command sfLogs.selectOrg invoked. Listing orgs…');
       const orgs: OrgItem[] = await listOrgs();
-      const items: (vscode.QuickPickItem & { username: string })[] = orgs.map(o => ({
+      const items: OrgQuickPick[] = orgs.map(o => ({
         label: o.alias ?? o.username,
         description: o.isDefaultUsername ? localize('selectOrgDefault', 'Default') : undefined,
         detail: o.instanceUrl || undefined,
         username: o.username
       }));
-      const picked = await vscode.window.showQuickPick(items, {
+      const picked = await vscode.window.showQuickPick<OrgQuickPick>(items, {
         placeHolder: localize('selectOrgPlaceholder', 'Select an authenticated org')
       });
       if (!picked) {
         logInfo('Select org cancelled.');
         return;
       }
-      const username = (picked as any).username as string;
+      const username = picked.username;
       provider.setSelectedOrg(username);
       logInfo('Selected org:', username);
       await provider.sendOrgs();
@@ -146,7 +156,9 @@ export async function activate(context: vscode.ExtensionContext) {
     };
     // Defer to avoid impacting our own activation time
     setTimeout(() => void warmUp(), 0);
-  } catch {}
+  } catch (e) {
+    logWarn('Failed to warm up Apex Replay Debugger ->', e instanceof Error ? e.message : String(e));
+  }
 
   // Return exports for tests and programmatic use
   return {
