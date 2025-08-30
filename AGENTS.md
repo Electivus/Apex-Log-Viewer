@@ -1,6 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
+
 - `src/extension.ts`: VS Code activation and command registration.
 - `src/provider/`: webview providers and extension↔webview messaging.
 - `src/webview/`: React UI; bundled to `media/main.js`.
@@ -13,6 +14,7 @@
 - Tooling: `esbuild.js`, `eslint.config.mjs`, `tsconfig.json`.
 
 ## Build, Test, and Development Commands
+
 - `npm run watch`: parallel watch for extension, types, and webview; launch with VS Code `F5` for debug.
 - `npm run build`: type-check, lint, and bundle extension + webview.
 - `npm test` / `npm run test:unit`: compile tests and run fast unit tests.
@@ -23,12 +25,14 @@
 - `npm run vsce:package`: create `.vsix` (requires `vsce`).
 
 ## Coding Style & Naming Conventions
+
 - TypeScript strict mode; 2-space indent; include semicolons; English everywhere.
 - ESLint rules enforced: `curly`, `eqeqeq`, `no-throw-literal`; fix warnings before PRs.
 - Naming: PascalCase for React components/classes; camelCase for functions/vars.
 - Files: components `src/webview/components/Name.tsx`; utilities `src/utils/name.ts`.
 
 ## Testing Guidelines
+
 - Framework: `@vscode/test-electron` (Mocha typings).
 - Location: `src/test/**/*.test.ts` → compiled to `out/test/**/*.test.js`.
 - Naming: `*.test.ts`; use `describe`/`it`.
@@ -36,12 +40,13 @@
 - CI safety: `VSCODE_TEST_FAIL_IF_NO_TESTS=1` prevents false greens.
 
 ## Commit & Pull Request Guidelines
+
 - Commits: imperative, concise subject ≤72 chars (e.g., "Add head concurrency setting"); reference issues in body (e.g., `Closes #123`).
 - PRs: clear description, linked issues, UI screenshots/GIFs, verification steps, and risk/rollback notes.
-- Gates: `npm run build` and `npm test` must pass. Do not edit `CHANGELOG.md`; use Conventional Commits so CI generates entries.
+- Gates: `npm run build` and `npm test` must pass. Update `CHANGELOG.md` manually for user‑facing changes (follow SemVer; keep entries concise).
 
 ## Security & Configuration Tips
+
 - Requires Salesforce CLI (`sf` or `sfdx`) with an authenticated org (e.g., `sf org login web`).
 - Never commit or log tokens/org data; review `src/salesforce.ts` for CLI/HTTP usage.
 - Localization via `vscode-nls`; packaging emits `dist/extension.nls.json` and `.pt-br.json`.
-

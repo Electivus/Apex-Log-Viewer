@@ -1,6 +1,6 @@
 # Contributing to Apex Log Viewer
 
-Thanks for taking the time to contribute! This guide covers local setup, coding standards, Conventional Commits, and how releases are automated.
+Thanks for taking the time to contribute! This guide covers local setup, coding standards, Conventional Commits, and our tag‑based release process.
 
 ## Quick Start
 
@@ -26,7 +26,7 @@ Helpful scripts:
 
 ## Conventional Commits
 
-We follow https://www.conventionalcommits.org/en/v1.0.0/ so that releases and the changelog are generated automatically by CI.
+We follow https://www.conventionalcommits.org/en/v1.0.0/ to keep history readable and enable consistent releases. The changelog is maintained manually.
 
 - Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `perf`, `test`, `build`, `ci`, `style`, `revert`.
 - Optional scope: e.g., `feat(logs): add status filter`.
@@ -42,10 +42,10 @@ fix(tail): handle CLI not found with actionable message
 docs: improve README with Marketplace badges and usage
 ```
 
-## Release Automation (Tags + Auto Changelog)
+## Release Process (Tag‑driven; Manual Changelog)
 
-- Do not edit `CHANGELOG.md` directly. It is managed by CI.
 - Merge PRs to `main` using Conventional Commits.
+- Update `CHANGELOG.md` manually for the new version (follow SemVer; include notable changes and any BREAKING CHANGES).
 - Bump `package.json` to the release version and push a tag `vX.Y.Z` pointing to that commit.
 - The Release workflow (on tag push) builds, packages, and publishes automatically to the Marketplace (when `VSCE_PAT` is configured).
 
@@ -59,7 +59,7 @@ Manual packaging (rare):
 - [ ] Uses Conventional Commits in title and commits.
 - [ ] `npm run build` passes locally.
 - [ ] `npm test` passes locally.
-- [ ] No direct edits to `CHANGELOG.md`.
+- [ ] `CHANGELOG.md` updated when the change is user‑facing.
 - [ ] Screenshots/GIFs for UI changes.
 - [ ] Notes on verification steps and risk/rollback if needed.
 
