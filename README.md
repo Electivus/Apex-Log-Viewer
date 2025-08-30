@@ -1,4 +1,4 @@
-![Apex Log Viewer banner](media/banner.png)
+![Apex Log Viewer banner](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/media/banner.png)
 
 # Apex Log Viewer
 
@@ -32,9 +32,9 @@ Why developers like it
 
 ## Screenshots
 
-![Overview](media/docs/hero.gif)
+![Overview](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/media/docs/hero.gif)
 
-![Apex Tail Logs](media/docs/apex-tail-log.gif)
+![Apex Tail Logs](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/media/docs/apex-tail-log.gif)
 
 ## Requirements
 
