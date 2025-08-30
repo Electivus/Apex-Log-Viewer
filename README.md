@@ -75,8 +75,6 @@ Why developers like it
 
 API version is automatically taken from your workspace `sfdx-project.json` (`sourceApiVersion`).
 
- 
-
 ## Localization
 
 The extension uses localized strings for the extension UI and the in‑panel interface. English (en) and Brazilian Portuguese (pt-BR) are included.
@@ -89,7 +87,7 @@ The extension uses localized strings for the extension UI and the in‑panel int
 
 ## Contributing
 
-See CONTRIBUTING.md for development setup, Conventional Commits, and our tag-based release flow with automatic changelog.
+See CONTRIBUTING.md for development setup, Conventional Commits, and our tag‑based release flow. Note: `CHANGELOG.md` is maintained manually.
 
 ### Testing
 
