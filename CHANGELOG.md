@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.2.1...v0.3.1) (2025-08-30)
+
+
+### Miscellaneous Chores
+
+* start pre-release 0.3.1 ([557efc3](https://github.com/Electivus/Apex-Log-Viewer/commit/557efc3ea9fef86617c0bd6edcab965aad8b3b8a))
+
 ## [0.2.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.2.0...v0.2.1) (2025-08-30)
 
 
