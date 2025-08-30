@@ -158,6 +158,7 @@
     }
   },
   "scripts": {
+    "test:clean": "node scripts/clean-vscode-test.js",
     "clean": "node -e \"const fs=require('fs');const p=require('path');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('dist');del('out');for(const f of ['media/main.js','media/main.js.map','media/tail.js','media/tail.js.map']){try{fs.unlinkSync(f)}catch{}}\"",
     "prebuild": "npm run clean",
     "vscode:prepublish": "npm run package",
@@ -182,7 +183,7 @@
     "vsce:publish:pre": "vsce publish --no-dependencies --pre-release",
     "compile-tests": "node -e \"try{require('fs').rmSync('out/test',{recursive:true,force:true})}catch(e){}\" && tsc -p tsconfig.test.json",
     "watch-tests": "tsc -p tsconfig.test.json -w",
-    "pretest": "npm run compile && npm run compile-tests && npm run lint",
+    "pretest": "npm run test:clean && npm run compile && npm run compile-tests && npm run lint",
     "test": "VSCODE_TEST_SCOPE=unit VSCODE_TEST_FAIL_IF_NO_TESTS=1 node scripts/run-tests.js",
     "test:unit": "npm run pretest && VSCODE_TEST_SCOPE=unit VSCODE_TEST_FAIL_IF_NO_TESTS=1 node scripts/run-tests.js",
     "test:integration": "npm run pretest && VSCODE_TEST_SCOPE=integration VSCODE_TEST_INSTALL_DEPS=1 VSCODE_TEST_FAIL_IF_NO_TESTS=1 VSCODE_TEST_TOTAL_TIMEOUT_MS=900000 node scripts/run-tests.js",

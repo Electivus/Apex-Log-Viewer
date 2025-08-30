@@ -301,6 +301,7 @@ async function run() {
   // Global timeout to avoid indefinite hangs (e.g., Marketplace downloads, Electron issues)
   // Defaults: 8m for unit, 15m for integration/all. Override via VSCODE_TEST_TOTAL_TIMEOUT_MS.
   const scope = String(process.env.VSCODE_TEST_SCOPE || 'all');
+  console.log(`[debug] VSCODE_TEST_SCOPE='${scope}', VSCODE_TEST_INSTALL_DEPS='${process.env.VSCODE_TEST_INSTALL_DEPS || ''}', VSCODE_TEST_VERSION='${process.env.VSCODE_TEST_VERSION || ''}'`);
   const defaultMs = scope === 'unit' ? 8 * 60 * 1000 : 15 * 60 * 1000;
   const totalTimeout = Number(process.env.VSCODE_TEST_TOTAL_TIMEOUT_MS || defaultMs);
 
@@ -308,9 +309,12 @@ async function run() {
   const vsVer = String(process.env.VSCODE_TEST_VERSION || 'insiders');
   const vscodeExecutablePath = await downloadAndUnzipVSCode(vsVer);
   const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, { reuseMachineInstall: true });
+  console.log(`[debug] cliPath=${cliPath}`);
+  console.log(`[debug] cliArgs=${JSON.stringify(cliArgs)}`);
 
   // Install dependency extensions directly (docs approach) when running integration
   const shouldInstall = scope === 'integration' || /^1|true$/i.test(String(process.env.VSCODE_TEST_INSTALL_DEPS || ''));
+  console.log(`[debug] shouldInstallDeps=${shouldInstall}`);
   if (shouldInstall) {
     const toInstall = (process.env.VSCODE_TEST_EXTENSIONS || 'salesforce.salesforcedx-vscode')
       .split(',')
@@ -341,6 +345,20 @@ async function run() {
         console.warn(`[deps] Failed to install ${id}. Continuing; tests may skip/fail.`);
       }
     }
+
+    // List extensions to aid debugging
+    try {
+      const list = spawnSync(cliPath, [
+        ...cliArgs,
+        '--list-extensions',
+        '--show-versions',
+        '--user-data-dir',
+        userDataDir,
+        '--extensions-dir',
+        extensionsDir
+      ], { encoding: 'utf8' });
+      console.log('[deps] Extensions installed in test dir:\n' + (list.stdout || '').trim());
+    } catch {}
   }
 
   // Run tests via @vscode/test-electron with our programmatic Mocha runner

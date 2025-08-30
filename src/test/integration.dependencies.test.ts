@@ -8,10 +8,13 @@ suite('integration: dependencies', () => {
     assert.ok(self, 'apex-log-viewer extension should be found');
 
     // Enforce dependency presence; if not installed, fail with guidance
-    const dep = vscode.extensions.getExtension('salesforce.salesforcedx-vscode');
+    // Extension pack ID (older check) or any of the core modules
+    const pack = vscode.extensions.getExtension('salesforce.salesforcedx-vscode');
+    const core = vscode.extensions.getExtension('salesforce.salesforcedx-vscode-core');
+    const apex = vscode.extensions.getExtension('salesforce.salesforcedx-vscode-apex');
     assert.ok(
-      dep,
-      'salesforce.salesforcedx-vscode must be installed for integration tests. Use `npm run test:integration` to auto-install.'
+      pack || core || apex,
+      'Salesforce extension not detected. Ensure the Salesforce extension pack (or core/apex modules) is installed. Use `npm run test:integration` to auto-install.'
     );
   });
 });
