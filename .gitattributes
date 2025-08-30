@@ -6,3 +6,13 @@
 # YAML also should be LF (Actions, etc.)
 *.yml text eol=lf
 *.yaml text eol=lf
+
+# Normalize common source files to LF
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
