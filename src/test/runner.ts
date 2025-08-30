@@ -2,7 +2,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 // Use CommonJS import to align with Mocha's programmatic API
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const Mocha = require('mocha');
 
 function collectTests(dir: string, acc: string[] = []): string[] {
@@ -37,7 +36,9 @@ export async function run(): Promise<void> {
   });
   if (grep) {
     mocha.grep(grep);
-    if (invert) mocha.invert();
+    if (invert) {
+      mocha.invert();
+    }
   }
 
   // Ensure mocha hooks are loaded
@@ -52,8 +53,11 @@ export async function run(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     try {
       mocha.run((failures: number) => {
-        if (failures > 0) reject(new Error(`${failures} test(s) failed.`));
-        else resolve();
+        if (failures > 0) {
+          reject(new Error(`${failures} test(s) failed.`));
+        } else {
+          resolve();
+        }
       });
     } catch (err) {
       reject(err);

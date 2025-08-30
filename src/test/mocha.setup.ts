@@ -10,7 +10,9 @@ export const mochaHooks = {
     const name = this.currentTest?.fullTitle?.() ?? 'unknown';
     const state = this.currentTest?.state ?? 'unknown';
     // Count only tests that actually executed (passed/failed), not pending/skipped
-    if (state === 'passed' || state === 'failed') executedCount++;
+    if (state === 'passed' || state === 'failed') {
+      executedCount++;
+    }
     console.log(`[mocha] finished: ${name} -> ${state}`);
   },
   afterAll() {

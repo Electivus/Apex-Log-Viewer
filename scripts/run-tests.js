@@ -312,11 +312,25 @@ async function run() {
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
+    const userDataDir = join(tmpdir(), 'alv-user-data');
+    const extensionsDir = join(tmpdir(), 'alv-extensions');
     for (const id of toInstall) {
       console.log(`[deps] Installing extension: ${id}`);
-      const res = spawnSync(cliPath, [...cliArgs, '--install-extension', id], {
-        stdio: 'inherit',
-        encoding: 'utf8'
+      // In WSL, code CLI prompts; feed 'y' automatically. Also isolate dirs.
+      const args = [
+        ...cliArgs,
+        '--install-extension',
+        id,
+        '--force',
+        '--user-data-dir',
+        userDataDir,
+        '--extensions-dir',
+        extensionsDir
+      ];
+      const res = spawnSync(cliPath, args, {
+        stdio: ['pipe', 'inherit', 'inherit'],
+        encoding: 'utf8',
+        input: 'y\n'
       });
       if (res.status !== 0) {
         console.warn(`[deps] Failed to install ${id}. Continuing; tests may skip/fail.`);
@@ -344,6 +358,10 @@ async function run() {
         // Use clean profile
         '--user-data-dir',
         join(tmpdir(), 'alv-user-data'),
+        '--extensions-dir',
+        join(tmpdir(), 'alv-extensions'),
+        '--skip-welcome',
+        '--skip-release-notes',
         // Use the prepared workspace (set in pretestSetup)
         ...(process.env.VSCODE_TEST_WORKSPACE ? [process.env.VSCODE_TEST_WORKSPACE] : [])
       ]
