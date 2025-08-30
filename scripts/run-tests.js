@@ -212,7 +212,7 @@ async function pretestSetup() {
     await ensureDevHub(cli, { authUrl: devhubAuthUrl, alias: devhubAlias });
   }
 
-  const toggle = process.env.SF_SETUP_SCRATCH || process.env.CI || devhubAuthUrl;
+  const toggle = process.env.SF_SETUP_SCRATCH || devhubAuthUrl;
   let cleanup = async () => {};
   if (toggle) {
     const res = await ensureDefaultScratch(cli, {
@@ -263,7 +263,19 @@ async function pretestSetup() {
   return { cleanup };
 }
 
+function parseArgs(argv) {
+  const out = { scope: 'all', vscode: 'insiders', installDeps: false, timeoutMs: undefined };
+  for (const a of argv.slice(2)) {
+    if (a.startsWith('--scope=')) out.scope = a.split('=')[1];
+    else if (a.startsWith('--vscode=')) out.vscode = a.split('=')[1];
+    else if (a === '--install-deps') out.installDeps = true;
+    else if (a.startsWith('--timeout=')) out.timeoutMs = Number(a.split('=')[1]) || undefined;
+  }
+  return out;
+}
+
 async function run() {
+  const args = parseArgs(process.argv);
   // Ensure Electron launches as a GUI app, not Node.
   // Some environments leak ELECTRON_RUN_AS_NODE=1 which breaks VS Code when
   // passed common flags like --user-data-dir. Explicitly unset it here.
@@ -299,22 +311,19 @@ async function run() {
   process.env.NO_AT_BRIDGE = process.env.NO_AT_BRIDGE || '1';
 
   // Global timeout to avoid indefinite hangs (e.g., Marketplace downloads, Electron issues)
-  // Defaults: 8m for unit, 15m for integration/all. Override via VSCODE_TEST_TOTAL_TIMEOUT_MS.
-  const scope = String(process.env.VSCODE_TEST_SCOPE || 'all');
-  console.log(`[debug] VSCODE_TEST_SCOPE='${scope}', VSCODE_TEST_INSTALL_DEPS='${process.env.VSCODE_TEST_INSTALL_DEPS || ''}', VSCODE_TEST_VERSION='${process.env.VSCODE_TEST_VERSION || ''}'`);
+  // Defaults: 8m for unit, 15m for integration/all.
+  const scope = String(args.scope || 'all');
   const defaultMs = scope === 'unit' ? 8 * 60 * 1000 : 15 * 60 * 1000;
-  const totalTimeout = Number(process.env.VSCODE_TEST_TOTAL_TIMEOUT_MS || defaultMs);
+  const totalTimeout = Number(args.timeoutMs || defaultMs);
 
-  // Download VS Code (use env override or insiders)
-  const vsVer = String(process.env.VSCODE_TEST_VERSION || 'insiders');
+  // Download VS Code (insiders by default; CI can pass --vscode=stable)
+  const vsVer = String(args.vscode || 'insiders');
   const vscodeExecutablePath = await downloadAndUnzipVSCode(vsVer);
-  const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, { reuseMachineInstall: true });
-  console.log(`[debug] cliPath=${cliPath}`);
-  console.log(`[debug] cliArgs=${JSON.stringify(cliArgs)}`);
+  // Use profile args so install/list target the same cached test profile
+  const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath);
 
   // Install dependency extensions directly (docs approach) when running integration
-  const shouldInstall = scope === 'integration' || /^1|true$/i.test(String(process.env.VSCODE_TEST_INSTALL_DEPS || ''));
-  console.log(`[debug] shouldInstallDeps=${shouldInstall}`);
+  const shouldInstall = scope === 'integration' || !!args.installDeps;
   if (shouldInstall) {
     const toInstall = (process.env.VSCODE_TEST_EXTENSIONS || 'salesforce.salesforcedx-vscode')
       .split(',')
@@ -364,6 +373,18 @@ async function run() {
   // Run tests via @vscode/test-electron with our programmatic Mocha runner
   const extensionDevelopmentPath = resolve(__dirname, '..');
   const extensionTestsPath = resolve(__dirname, '..', 'out', 'test', 'runner.js');
+
+  // Configure Mocha grep via env for the in-host runner
+  if (scope === 'unit') {
+    process.env.VSCODE_TEST_GREP = '^integration:';
+    process.env.VSCODE_TEST_INVERT = '1';
+  } else if (scope === 'integration') {
+    process.env.VSCODE_TEST_GREP = '^integration:';
+    delete process.env.VSCODE_TEST_INVERT;
+  } else {
+    delete process.env.VSCODE_TEST_GREP;
+    delete process.env.VSCODE_TEST_INVERT;
+  }
 
   let timedOut = false;
   const killer = setTimeout(() => {

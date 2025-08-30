@@ -86,10 +86,6 @@ jobs:
         run: npm run build
 
       - name: Run tests (unit + integration)
-        # Override CI env just for tests to avoid scratch-org attempts
-        env:
-          CI: ''
-          VSCODE_TEST_VERSION: stable
         run: npm run test:ci
 
   package:
