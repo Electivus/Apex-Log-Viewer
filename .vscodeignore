@@ -1,0 +1,14 @@
+# Ship only the compiled extension and minimal assets
+**/*
+!README.md
+!CHANGELOG.md
+!LICENSE
+!package.json
+!package.nls.json
+!package.nls.pt-br.json
+!media/icon.png
+!media/main.js
+!media/tail.js
+!dist/extension.js
+!dist/extension.nls.json
+!dist/extension.nls.pt-br.json

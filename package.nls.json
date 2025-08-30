@@ -1,6 +1,6 @@
 {
   "extension.displayName": "Apex Log Viewer",
-  "extension.description": "Fast, searchable Salesforce Apex logs in VS Code — browse, filter, tail, and debug.",
+  "extension.description": "Fast, searchable Salesforce Apex logs in VS Code — browse, filter, tail, and debug with Apex Replay.",
   "salesforce.panel.title": "Apex",
   "salesforce.tail.panel.title": "Apex Tail",
   "salesforce.logs.view.name": "Apex Logs",

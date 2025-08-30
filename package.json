@@ -221,7 +221,9 @@
     "cross-spawn": "^7.0.6"
   },
   "files": [
-    "dist/**",
+    "dist/extension.js",
+    "dist/extension.nls.json",
+    "dist/extension.nls.pt-br.json",
     "media/main.js",
     "media/tail.js",
     "media/icon.png",
