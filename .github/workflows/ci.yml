@@ -7,6 +7,8 @@ on:
       - '**'
     tags:
       - 'v*'
+  release:
+    types: [published]
   pull_request:
   workflow_dispatch:
 
@@ -87,7 +89,8 @@ jobs:
 
   package:
     name: Package VSIX
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Run on tag pushes or on published GitHub Releases
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
     needs: build_and_test
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -97,6 +100,7 @@ jobs:
       actions: write
     env:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || github.event.release.tag_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -118,7 +122,7 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           MINOR=$(node -p "require('./package.json').version.split('.')[1]")
-          TAG_NAME="${GITHUB_REF_NAME}"
+          TAG_NAME="${TAG_NAME}"
           # default: even minor => stable, odd minor => pre-release
           if [ $((MINOR % 2)) -eq 1 ]; then
             PRE_RELEASE=true
@@ -156,7 +160,8 @@ jobs:
 
   publish:
     name: Publish to Marketplace
-    if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'Electivus/Apex-Log-Viewer'
+    # Run on tag pushes or published Releases in this repo
+    if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release') && github.repository == 'Electivus/Apex-Log-Viewer'
     needs: package
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -165,6 +170,7 @@ jobs:
     environment: marketplace
     env:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || github.event.release.tag_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -186,7 +192,7 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           MINOR=$(node -p "require('./package.json').version.split('.')[1]")
-          TAG_NAME="${GITHUB_REF_NAME}"
+          TAG_NAME="${TAG_NAME}"
           if [ $((MINOR % 2)) -eq 1 ]; then PRE_RELEASE=true; else PRE_RELEASE=false; fi
           if [[ "$TAG_NAME" == *"-pre"* || "$TAG_NAME" == *"-beta"* || "$TAG_NAME" == *"-alpha"* || "$TAG_NAME" == *"-rc"* ]]; then PRE_RELEASE=true; fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
