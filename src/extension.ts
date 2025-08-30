@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import { SfLogsViewProvider } from './provider/SfLogsViewProvider';
 import { SfLogTailViewProvider } from './provider/SfLogTailViewProvider';
-import { listOrgs } from './salesforce';
+import { listOrgs } from './salesforce/cli';
 import type { OrgItem } from './shared/types';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { setApiVersion, getApiVersion } from './salesforce';
+import { setApiVersion, getApiVersion } from './salesforce/http';
 import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger } from './utils/logger';
 import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';

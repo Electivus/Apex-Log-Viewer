@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-import { resolvePATHFromLoginShell, __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce';
+import { resolvePATHFromLoginShell, __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce/cli';
 
 suite('resolvePATHFromLoginShell', () => {
   teardown(() => {

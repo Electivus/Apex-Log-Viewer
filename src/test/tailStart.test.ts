@@ -2,7 +2,9 @@ import assert from 'assert/strict';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
-import * as salesforce from '../salesforce';
+import * as cli from '../salesforce/cli';
+import * as http from '../salesforce/http';
+import * as traceflags from '../salesforce/traceflags';
 
 class MockDisposable implements vscode.Disposable {
   dispose(): void {
@@ -56,13 +58,13 @@ suite('SfLogTailViewProvider startTail', () => {
     const provider = new SfLogTailViewProvider(context);
     const posted: any[] = [];
     (provider as any).post = (m: any) => posted.push(m);
-    const original = salesforce.getOrgAuth;
-    (salesforce as any).getOrgAuth = async () => {
+    const original = cli.getOrgAuth;
+    (cli as any).getOrgAuth = async () => {
       throw new Error('getOrgAuth should not be called');
     };
     await (provider as any).startTail(undefined);
     assert.equal(posted[0]?.type, 'error');
-    (salesforce as any).getOrgAuth = original;
+    (cli as any).getOrgAuth = original;
   });
 
   test('startTail clears stale caches', async () => {
@@ -73,19 +75,19 @@ suite('SfLogTailViewProvider startTail', () => {
     const provider = new SfLogTailViewProvider(context);
     (provider as any).seenLogIds.add('old');
     (provider as any).logIdToPath.set('old', '/tmp/old');
-    const origGetAuth = salesforce.getOrgAuth;
-    const origEnsure = salesforce.ensureUserTraceFlag;
-    const origFetch = salesforce.fetchApexLogs;
-    (salesforce as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    (salesforce as any).ensureUserTraceFlag = async () => false;
-    (salesforce as any).fetchApexLogs = async () => [];
+    const origGetAuth = cli.getOrgAuth;
+    const origEnsure = traceflags.ensureUserTraceFlag;
+    const origFetch = http.fetchApexLogs;
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    (traceflags as any).ensureUserTraceFlag = async () => false;
+    (http as any).fetchApexLogs = async () => [];
     (provider as any).pollOnce = async () => {};
     await (provider as any).startTail('DEBUG');
     assert.equal((provider as any).seenLogIds.size, 0);
     assert.equal((provider as any).logIdToPath.size, 0);
-    (salesforce as any).getOrgAuth = origGetAuth;
-    (salesforce as any).ensureUserTraceFlag = origEnsure;
-    (salesforce as any).fetchApexLogs = origFetch;
+    (cli as any).getOrgAuth = origGetAuth;
+    (traceflags as any).ensureUserTraceFlag = origEnsure;
+    (http as any).fetchApexLogs = origFetch;
     (provider as any).stopTail();
   });
 

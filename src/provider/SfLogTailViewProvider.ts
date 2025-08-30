@@ -1,16 +1,10 @@
 import * as vscode from 'vscode';
 import { promises as fs } from 'fs';
 import { localize } from '../utils/localize';
-import {
-  listOrgs,
-  getOrgAuth,
-  fetchApexLogs,
-  fetchApexLogBody,
-  listDebugLevels,
-  getActiveUserDebugLevel,
-  ensureUserTraceFlag,
-  type OrgAuth
-} from '../salesforce';
+import { listOrgs, getOrgAuth } from '../salesforce/cli';
+import { fetchApexLogs, fetchApexLogBody } from '../salesforce/http';
+import { listDebugLevels, getActiveUserDebugLevel, ensureUserTraceFlag } from '../salesforce/traceflags';
+import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn, logError, showOutput } from '../utils/logger';
 import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
