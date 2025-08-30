@@ -16,9 +16,8 @@ export const mochaHooks = {
     console.log(`[mocha] finished: ${name} -> ${state}`);
   },
   afterAll() {
-    const failIfNone = /^1|true$/i.test(String(process.env.VSCODE_TEST_FAIL_IF_NO_TESTS || ''));
-    if (failIfNone && executedCount === 0) {
-      throw new Error('No tests executed. Check grep/scope or missing dependencies.');
+    if (executedCount === 0) {
+      throw new Error('No tests executed. Check scope or missing dependencies.');
     }
   }
 };

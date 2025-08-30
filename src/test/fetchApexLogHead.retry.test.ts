@@ -1,15 +1,19 @@
 import assert from 'assert/strict';
-import * as https from 'https';
 import { EventEmitter } from 'events';
-import { fetchApexLogHead, OrgAuth, __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce';
+import {
+  fetchApexLogHead,
+  OrgAuth,
+  __setExecFileImplForTests,
+  __resetExecFileImplForTests,
+  __setHttpsRequestImplForTests,
+  __resetHttpsRequestImplForTests
+} from '../salesforce';
 
 suite('fetchApexLogHead retry', () => {
   teardown(() => {
-    (https as any).request = originalRequest;
+    __resetHttpsRequestImplForTests();
     __resetExecFileImplForTests();
   });
-
-  const originalRequest = https.request;
 
   test('cancels second request when line limit reached after retry', async () => {
     const auth: OrgAuth = { accessToken: 't1', instanceUrl: 'https://example.com', username: 'user' };
@@ -23,8 +27,9 @@ suite('fetchApexLogHead retry', () => {
     }) as any);
 
     let call = 0;
-    let secondDestroyed = false;
-    (https as any).request = (_opts: any, cb: any) => {
+    let destroyed = false;
+    let destroyedId = 0;
+    const stub: any = (_opts: any, cb: any) => {
       const callId = ++call;
       const req = new EventEmitter() as any;
       req.on = function (event: string, listener: any) {
@@ -33,13 +38,28 @@ suite('fetchApexLogHead retry', () => {
       };
       req.end = () => {
         if (callId === 1) {
+          // First call: Range attempt returns 401 and ends
           const res = new EventEmitter() as any;
           res.statusCode = 401;
           res.setEncoding = () => {};
           res.resume = () => {};
           res.req = req;
-          process.nextTick(() => cb(res));
+          process.nextTick(() => {
+            cb(res);
+            process.nextTick(() => res.emit('end'));
+          });
+        } else if (callId === 2) {
+          // Second call: Range retry returns 200 (not 206) and ends
+          const res = new EventEmitter() as any;
+          res.statusCode = 200;
+          res.setEncoding = () => {};
+          res.req = req;
+          process.nextTick(() => {
+            cb(res);
+            process.nextTick(() => res.emit('end'));
+          });
         } else {
+          // Third call: streaming fallback returns 200 and emits lines
           const res = new EventEmitter() as any;
           res.statusCode = 200;
           res.setEncoding = () => {};
@@ -50,21 +70,22 @@ suite('fetchApexLogHead retry', () => {
               res.emit('data', 'line1\n');
               res.emit('data', 'line2\n');
               res.emit('data', 'line3\n');
+              process.nextTick(() => res.emit('end'));
             });
           });
         }
       };
       req.destroy = () => {
-        if (callId === 2) {
-          secondDestroyed = true;
-        }
+        destroyed = true;
+        destroyedId = callId;
       };
       return req;
     };
+    __setHttpsRequestImplForTests(stub);
 
     const lines = await fetchApexLogHead(auth, 'LOG', 2);
     assert.deepEqual(lines, ['line1', 'line2']);
-    assert.equal(call, 2);
-    assert.ok(secondDestroyed, 'second request should be destroyed');
+    assert.equal(call, 3);
+    assert.ok(destroyed && destroyedId >= 3, 'stream request should be destroyed');
   });
 });

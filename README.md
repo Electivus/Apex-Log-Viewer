@@ -91,6 +91,10 @@ The extension uses localized strings for the extension UI and the in‑panel int
 
 See CONTRIBUTING.md for development setup, Conventional Commits, and our Release Please flow.
 
+### Testing
+
+See docs/TESTING.md for how to run unit and integration tests (`npm run test:unit`, `npm run test:integration`, `npm run test:all`) and for environment variables such as `VSCODE_TEST_VERSION`, `VSCODE_TEST_INSTALL_DEPS`, `VSCODE_TEST_GREP`, and `VSCODE_TEST_TOTAL_TIMEOUT_MS`. Tests open a temporary workspace with an `sfdx-project.json` generated during the run.
+
 ## Privacy & Security
 
 - No tokens are logged by default. When `sfLogs.trace` is enabled, verbose output is sent to the “Apex Log Viewer” output channel; review logs before sharing.

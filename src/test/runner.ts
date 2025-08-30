@@ -27,7 +27,7 @@ export async function run(): Promise<void> {
   const fullTrace = /^1|true$/i.test(String(process.env.VSCODE_TEST_MOCHA_FULLTRACE || ''));
 
   const mocha = new Mocha({
-    ui: 'bdd',
+    ui: 'tdd',
     color: true,
     timeout,
     reporter: 'spec',
