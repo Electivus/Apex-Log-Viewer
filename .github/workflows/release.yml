@@ -191,6 +191,24 @@ jobs:
             npm run vsce:publish
           fi
 
+      - name: Create or update GitHub release (pre-release)
+        if: env.PRE_RELEASE == 'true'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          TITLE="Pre-release $TAG"
+          BODY="Automated pre-release."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Updating existing pre-release $TAG"
+            gh release edit "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
+          else
+            echo "Creating pre-release $TAG"
+            gh release create "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
+          fi
+          # Upload VSIX(es) built in the package job
+          gh release upload "$TAG" ./*.vsix --clobber
+
       - name: Create or update GitHub release (stable)
         if: env.PRE_RELEASE != 'true'
         env:
