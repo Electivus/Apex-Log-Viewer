@@ -32,6 +32,3 @@ jobs:
           # Use a PAT if provided to allow fork-based PRs when org policy blocks bot PRs
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           fork: ${{ secrets.RELEASE_PLEASE_TOKEN != '' }}
-          # Fallback: if no PAT, skip PR creation to avoid
-          # "Actions not permitted to create or approve PRs" policy errors
-          skip-github-pull-request: ${{ secrets.RELEASE_PLEASE_TOKEN == '' }}
