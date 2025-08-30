@@ -66,6 +66,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify tag matches package.json version
+        run: |
+          set -euo pipefail
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME != package.json version $PKG_VERSION" >&2
+            exit 1
+          fi
+
       - name: Build + generate NLS assets
         run: npm run package
 
@@ -134,6 +144,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify tag matches package.json version
+        run: |
+          set -euo pipefail
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME != package.json version $PKG_VERSION" >&2
+            exit 1
+          fi
+
       - name: Build + generate NLS assets
         run: npm run package
 
@@ -149,9 +169,20 @@ jobs:
           echo "pre_release=$PRE_RELEASE" >> $GITHUB_OUTPUT
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "PRE_RELEASE=$PRE_RELEASE" >> $GITHUB_ENV
+          if [ "$PRE_RELEASE" = "true" ]; then echo "CHANNEL_SUFFIX=pre" >> $GITHUB_ENV; else echo "CHANNEL_SUFFIX=stable" >> $GITHUB_ENV; fi
+
+      - name: Download VSIX artifact from package job
+        uses: actions/download-artifact@v4
+        with:
+          name: apex-log-viewer-${{ github.ref_name }}-${{ env.CHANNEL_SUFFIX }}-vsix
+          path: .
 
       - name: Publish
         run: |
+          if [ -z "${VSCE_PAT}" ]; then
+            echo "VSCE_PAT not set; skipping Marketplace publish."
+            exit 0
+          fi
           if [ "${PRE_RELEASE}" = "true" ]; then
             echo "Publishing pre-release ${VERSION}"
             npm run vsce:publish:pre
@@ -159,6 +190,24 @@ jobs:
             echo "Publishing stable ${VERSION}"
             npm run vsce:publish
           fi
+
+      - name: Create or update GitHub release (stable)
+        if: env.PRE_RELEASE != 'true'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          TITLE="Release $TAG"
+          BODY="Automated stable release."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Updating existing release $TAG"
+            gh release edit "$TAG" --title "$TITLE" --notes "$BODY"
+          else
+            echo "Creating release $TAG"
+            gh release create "$TAG" --title "$TITLE" --notes "$BODY"
+          fi
+          # Upload VSIX(es) built in the package job
+          gh release upload "$TAG" ./*.vsix --clobber
 
   changelog:
     name: Update CHANGELOG.md (auto)
