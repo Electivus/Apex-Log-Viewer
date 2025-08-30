@@ -113,3 +113,4 @@ The extension uses `vscode-nls` for extension strings and a lightweight runtime 
 ## License
 
 MIT © Electivus
+
