@@ -77,32 +77,10 @@ jobs:
           if [ $((MINOR % 2)) -eq 0 ]; then MINOR=$((MINOR+1)); fi
           BASE_PATCH=$(node -p "require('./package.json').version.split('.')[2]")
           EXT_ID=$(node -p "require('./package.json').publisher + '.' + require('./package.json').name")
+          # Export for child process (node heredoc reads process.env)
+          export EXT_ID MAJOR MINOR
           echo "Looking up latest pre-release on Marketplace for $EXT_ID (major.minor ${MAJOR}.${MINOR})"
-          LATEST_PATCH=$(node - <<'NODE'
-const {spawnSync} = require('child_process');
-try {
-  const res = spawnSync('./node_modules/.bin/vsce', ['show', process.env.EXT_ID, '--json'], {encoding:'utf8'});
-  if (res.status !== 0) { throw new Error(res.stderr || String(res.status)); }
-  const meta = JSON.parse(res.stdout || '{}');
-  const versions = Array.isArray(meta.versions) ? meta.versions : [];
-  const targetMajor = Number(process.env.MAJOR);
-  const targetMinor = Number(process.env.MINOR);
-  let maxPatch = -1;
-  for (const v of versions) {
-    const pre = (v.properties||[]).some(p=>p.key==='Microsoft.VisualStudio.Code.PreRelease' && String(p.value)==='true');
-    const parts = String(v.version||'').split('.').map(n=>Number(n));
-    if (!pre || parts.length < 3) continue;
-    const [maj, min, pat] = parts;
-    if (maj===targetMajor && min===targetMinor && Number.isFinite(pat)) {
-      if (pat > maxPatch) maxPatch = pat;
-    }
-  }
-  process.stdout.write(maxPatch >= 0 ? String(maxPatch) : '');
-} catch (e) {
-  process.stdout.write('');
-}
-NODE
-          )
+          LATEST_PATCH=$(node -e "const {spawnSync}=require('child_process');const ext=process.env.EXT_ID;const r=spawnSync('./node_modules/.bin/vsce',['show',ext,'--json'],{encoding:'utf8'});try{if(r.status!==0)throw new Error(r.stderr||String(r.status));const meta=JSON.parse(r.stdout||'{}');const versions=Array.isArray(meta.versions)?meta.versions:[];const mj=+process.env.MAJOR,mn=+process.env.MINOR;let max=-1;for(const v of versions){const pre=(v.properties||[]).some(p=>p.key==='Microsoft.VisualStudio.Code.PreRelease'&&String(p.value)==='true');const parts=String(v.version||'').split('.').map(Number);if(!pre||parts.length<3)continue;const [M,m,p]=parts;if(M===mj&&m===mn&&Number.isFinite(p)&&p>max)max=p;}process.stdout.write(max>=0?String(max):'');}catch(e){process.stdout.write('');}")
           if [ -z "${LATEST_PATCH}" ]; then LATEST_PATCH=-1; fi
           echo "Latest published pre-release patch (same MAJOR.MINOR): ${LATEST_PATCH}"
           # next patch is max(latest published, base patch) + 1
@@ -195,31 +173,8 @@ NODE
           if [ $((MINOR % 2)) -eq 0 ]; then MINOR=$((MINOR+1)); fi
           BASE_PATCH=$(node -p "require('./package.json').version.split('.')[2]")
           EXT_ID=$(node -p "require('./package.json').publisher + '.' + require('./package.json').name")
-          LATEST_PATCH=$(node - <<'NODE'
-const {spawnSync} = require('child_process');
-try {
-  const res = spawnSync('./node_modules/.bin/vsce', ['show', process.env.EXT_ID, '--json'], {encoding:'utf8'});
-  if (res.status !== 0) { throw new Error(res.stderr || String(res.status)); }
-  const meta = JSON.parse(res.stdout || '{}');
-  const versions = Array.isArray(meta.versions) ? meta.versions : [];
-  const targetMajor = Number(process.env.MAJOR);
-  const targetMinor = Number(process.env.MINOR);
-  let maxPatch = -1;
-  for (const v of versions) {
-    const pre = (v.properties||[]).some(p=>p.key==='Microsoft.VisualStudio.Code.PreRelease' && String(p.value)==='true');
-    const parts = String(v.version||'').split('.').map(n=>Number(n));
-    if (!pre || parts.length < 3) continue;
-    const [maj, min, pat] = parts;
-    if (maj===targetMajor && min===targetMinor && Number.isFinite(pat)) {
-      if (pat > maxPatch) maxPatch = pat;
-    }
-  }
-  process.stdout.write(maxPatch >= 0 ? String(maxPatch) : '');
-} catch (e) {
-  process.stdout.write('');
-}
-NODE
-          )
+          export EXT_ID MAJOR MINOR
+          LATEST_PATCH=$(node -e "const {spawnSync}=require('child_process');const ext=process.env.EXT_ID;const r=spawnSync('./node_modules/.bin/vsce',['show',ext,'--json'],{encoding:'utf8'});try{if(r.status!==0)throw new Error(r.stderr||String(r.status));const meta=JSON.parse(r.stdout||'{}');const versions=Array.isArray(meta.versions)?meta.versions:[];const mj=+process.env.MAJOR,mn=+process.env.MINOR;let max=-1;for(const v of versions){const pre=(v.properties||[]).some(p=>p.key==='Microsoft.VisualStudio.Code.PreRelease'&&String(p.value)==='true');const parts=String(v.version||'').split('.').map(Number);if(!pre||parts.length<3)continue;const [M,m,p]=parts;if(M===mj&&m===mn&&Number.isFinite(p)&&p>max)max=p;}process.stdout.write(max>=0?String(max):'');}catch(e){process.stdout.write('');}")
           if [ -z "${LATEST_PATCH}" ]; then LATEST_PATCH=-1; fi
           if [ ${LATEST_PATCH} -gt ${BASE_PATCH} ]; then
             NEW_PATCH=$(( LATEST_PATCH + 1 ))
