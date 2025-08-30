@@ -2,26 +2,27 @@
 
 # Apex Log Viewer
 
-Fast, searchable Salesforce Apex logs — right inside VS Code. Browse, filter, open, tail, and debug logs from your default or selected org with a smooth webview UI and Apex Replay integration.
+Fast, searchable Salesforce Apex logs — right inside VS Code. Browse, filter, open, tail, and debug logs from your default or selected org with a streamlined VS Code panel and Apex Replay integration.
 
 [Install from Marketplace](https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer) · [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/Electivus/Apex-Log-Viewer/issues)
 
 ![CI](https://github.com/Electivus/Apex-Log-Viewer/actions/workflows/ci.yml/badge.svg?branch=main)
 ![VS Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/electivus.apex-log-viewer?label=Marketplace)
 ![Installs](https://img.shields.io/visual-studio-marketplace/i/electivus.apex-log-viewer)
+![Downloads](https://img.shields.io/visual-studio-marketplace/d/electivus.apex-log-viewer)
 ![Rating](https://img.shields.io/visual-studio-marketplace/r/electivus.apex-log-viewer)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 
 ## Features
 
-- Webview log list: Paginated table with User, App, Operation, Time, Status, Code Unit, Size.
-- Quick search + filters: Client‑side search plus filters by User, Operation, Status, Code Unit.
-- Sort and scroll: Sort by any column; infinite scroll loads more logs automatically.
-- Open or Replay: Open logs in the editor or launch Apex Replay with one click.
-- Tail logs: Start real‑time tailing via Salesforce CLI from the toolbar.
-- Org selection: Switch between authenticated orgs or use the CLI default.
-- Configurable: `sfLogs.pageSize`, `sfLogs.headConcurrency`, and more.
-- Localized: English and Brazilian Portuguese (pt‑BR).
+- Log explorer: Paginated table of Apex logs with columns for User, App, Operation, Time, Status, Code Unit, and Size.
+- Quick find and filters: Type to filter visible rows and combine with filters by User, Operation, Status, and Code Unit.
+- Sorting and infinite scroll: Click any header to sort; more logs load automatically as you scroll.
+- Open and debug: Open a log in the editor or start Apex Replay Debugger directly from the list.
+- Real‑time tail: Start tailing logs from the toolbar using your Salesforce CLI.
+- Org selector: Quickly switch between your authenticated orgs or use the CLI default.
+- Configurable: Tune `sfLogs.pageSize`, `sfLogs.headConcurrency`, and other options to fit your workflow.
+- Localization: English and Brazilian Portuguese (pt‑BR).
 
 Why developers like it
 
@@ -45,7 +46,8 @@ Why developers like it
 ## Install
 
 - From VS Code: open Extensions (Ctrl/Cmd+Shift+X), search for “Apex Log Viewer”, and click Install.
-- Or use the Marketplace page: Install from Marketplace.
+- From the Marketplace: click “Install from Marketplace” above.
+- From the CLI: `code --install-extension electivus.apex-log-viewer`
 
 ## Usage
 
@@ -76,7 +78,7 @@ API version is automatically taken from your workspace `sfdx-project.json` (`sou
 
 ## Localization
 
-The extension uses `vscode-nls` for extension strings and a lightweight runtime for webview strings. English (en) and Brazilian Portuguese (pt-BR) are included.
+The extension uses localized strings for the extension UI and the in‑panel interface. English (en) and Brazilian Portuguese (pt-BR) are included.
 
 ## Troubleshooting
 
@@ -84,26 +86,44 @@ The extension uses `vscode-nls` for extension strings and a lightweight runtime 
 - “Failed to launch Apex Replay Debugger”: Install the Salesforce Apex Replay Debugger extension.
 - “No orgs detected”: Ensure you’re authenticated (`sf org login web`) and try `sf org list`.
 
-## For Contributors
+## Contributing
 
-- Development: run `npm run build`, `npm test`. See AGENTS.md and repo guidelines.
-- Development setup: clone, `npm install`, `npm run build`, press `F5` to launch the Extension Development Host.
-- CI details: see docs/CI.md.
-- Testing (scratch orgs): see docs/TESTING.md.
-- Publishing: see docs/PUBLISHING.md.
+- Dev setup: clone, `npm install`, `npm run build`, press `F5` to launch the Extension Development Host.
+- Build & test: `npm run build` and `npm test` (runs type‑check and lint via pretest).
+- Lint & format: `npm run lint` and `npm run format`.
+- Please use Conventional Commits for PR titles and commit messages so that releases and the changelog are generated automatically by Release Please.
 
-### Publishing (maintainers)
+### Conventional Commits
 
-- Setup once: create a VS Code Marketplace publisher + PAT, add repo secret `VSCE_PAT`.
-- Stable vs pre‑release: even minor = stable (e.g., 0.2.x); odd minor = pre‑release (0.3.x).
-- CI path:
-  - Bump `package.json` to the desired version.
-  - Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-  - CI builds; with `VSCE_PAT` present, it publishes to the right channel.
-- Local path:
-  - Stable: `npm run vsce:package` then `npm run vsce:publish`.
-  - Pre‑release: `npm run vsce:package:pre` then `npm run vsce:publish:pre`.
-- Assets & screenshots: see docs/ASSETS.md.
+We follow https://www.conventionalcommits.org/en/v1.0.0/.
+
+- Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `perf`, `test`, `build`, `ci`, `style`, `revert`.
+- Scope (optional): e.g., `feat(logs): add status filter`.
+- Breaking changes: use `!` after the type/scope (`feat!: ...`) or add a `BREAKING CHANGE:` footer.
+
+Examples:
+
+```
+feat(logs): add filter by status and code unit
+
+fix(tail): handle CLI not found with actionable message
+
+docs: update README with Marketplace badges and usage
+```
+
+### Releasing
+
+Releases are automated via Google’s Release Please GitHub Action and Conventional Commits:
+
+- Merge PRs to `main` using Conventional Commits. Do not edit `CHANGELOG.md` manually.
+- Release Please opens/updates a release PR with the next version and changelog.
+- When the release PR is merged, a tag and GitHub Release are created automatically.
+- Our CI builds, packages, and (when `VSCE_PAT` is configured) publishes the extension to the Marketplace.
+
+For manual packaging (if needed):
+
+- Stable: `npm run vsce:package` then `npm run vsce:publish`.
+- Pre‑release: `npm run vsce:package:pre` then `npm run vsce:publish:pre`.
 
 ## Privacy & Security
 
@@ -113,4 +133,3 @@ The extension uses `vscode-nls` for extension strings and a lightweight runtime 
 ## License
 
 MIT © Electivus
-
