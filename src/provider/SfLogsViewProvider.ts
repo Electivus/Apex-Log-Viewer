@@ -93,7 +93,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     // Fire-and-forget warm-up of Replay Debugger when the view opens
     try {
       setTimeout(() => void warmUpReplayDebugger(), 0);
-    } catch {}
+    } catch (e) {
+      logWarn('Logs: warm-up of Apex Replay Debugger failed ->', e instanceof Error ? e.message : String(e));
+    }
     // Dispose handling: stop posting and bump token to invalidate in-flight work
     this.context.subscriptions.push(
       webviewView.onDidDispose(() => {
@@ -176,7 +178,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       }
       this.post({ type: 'init', locale: vscode.env.language });
       this.post({ type: 'logs', data: logs, hasMore: logs.length === this.pageLimit });
-      this.fetchLogHeads(auth, logs, token);
+      // Limited parallel fetch of log heads
+      this.loadLogHeads(logs, auth, token);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logWarn('Logs: refresh failed ->', msg);
@@ -201,7 +204,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       this.post({ type: 'appendLogs', data: logs, hasMore: logs.length === this.pageLimit });
-      this.fetchLogHeads(auth, logs, token);
+      this.loadLogHeads(logs, auth, token);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logWarn('Logs: loadMore failed ->', msg);
@@ -211,7 +214,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private fetchLogHeads(auth: OrgAuth, logs: ApexLogRow[], token: number): void {
+  private loadLogHeads(logs: ApexLogRow[], auth: OrgAuth, token: number): void {
     for (const log of logs) {
       void this.headLimiter(async () => {
         try {
@@ -284,7 +287,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         async () => {
           try {
             await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
-          } catch {
+          } catch (e) {
+            logWarn('Logs: sf.launch.replay.debugger.logfile failed ->', e instanceof Error ? e.message : String(e));
             await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
           }
         }
