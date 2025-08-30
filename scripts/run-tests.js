@@ -322,8 +322,8 @@ async function run() {
   // Use profile args so install/list target the same cached test profile
   const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath);
 
-  // Install dependency extensions directly (docs approach) when running integration
-  const shouldInstall = scope === 'integration' || !!args.installDeps;
+  // Install dependency extensions when running integration or all
+  const shouldInstall = scope === 'integration' || scope === 'all' || !!args.installDeps;
   if (shouldInstall) {
     const toInstall = (process.env.VSCODE_TEST_EXTENSIONS || 'salesforce.salesforcedx-vscode')
       .split(',')
