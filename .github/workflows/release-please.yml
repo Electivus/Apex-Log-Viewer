@@ -20,3 +20,6 @@ jobs:
           # Use manifest + config files in repo root
           manifest-file: .release-please-manifest.json
           config-file: release-please-config.json
+          # Let release-please create tag + GitHub Release.
+          # release.yml will edit the release to set pre-release flag
+          # and upload VSIX assets based on odd/even policy.
