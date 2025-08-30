@@ -127,9 +127,6 @@ export async function resolvePATHFromLoginShell(): Promise<string | undefined> {
   }).finally(() => {
     resolvingPATH = null;
   });
-  resolvingPATH.finally(() => {
-    resolvingPATH = null;
-  });
   return resolvingPATH;
 }
 
@@ -258,6 +255,75 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
   );
 }
 
+function parseOrgList(json: string): OrgItem[] {
+  const parsed = JSON.parse(json);
+  const res = parsed.result || parsed;
+  let groups: any[] = [];
+  if (Array.isArray(res.orgs)) {
+    groups = groups.concat(res.orgs);
+  }
+  if (Array.isArray(res.nonScratchOrgs)) {
+    groups = groups.concat(res.nonScratchOrgs);
+  }
+  if (Array.isArray(res.scratchOrgs)) {
+    groups = groups.concat(res.scratchOrgs);
+  }
+  if (Array.isArray(res.sandboxes)) {
+    groups = groups.concat(res.sandboxes);
+  }
+  if (Array.isArray(res.devHubs)) {
+    groups = groups.concat(res.devHubs);
+  }
+  const map = new Map<string, OrgItem>();
+  for (const o of groups) {
+    const username: string | undefined = o.username || o.usernameOrAlias || o.usernameOrEmail;
+    if (!username) {
+      continue;
+    }
+    const item: OrgItem = {
+      username,
+      alias: o.alias,
+      isDefaultUsername: !!(o.isDefaultUsername || o.isDefault),
+      isDefaultDevHubUsername: !!o.isDefaultDevHubUsername,
+      isScratchOrg: !!(o.isScratchOrg || o.isScratch)
+    };
+    if (o.instanceUrl) {
+      item.instanceUrl = o.instanceUrl;
+    }
+    map.set(username, Object.assign(map.get(username) || {}, item));
+  }
+  if (Array.isArray(res.results)) {
+    for (const o of res.results) {
+      const username: string | undefined = o.username;
+      if (!username) {
+        continue;
+      }
+      const prev = map.get(username) || ({ username } as OrgItem);
+      const updated: OrgItem = {
+        ...prev,
+        alias: prev.alias || o.alias,
+        isDefaultUsername: prev.isDefaultUsername || !!o.isDefaultUsername,
+        isDefaultDevHubUsername: prev.isDefaultDevHubUsername || !!o.isDefaultDevHubUsername,
+        isScratchOrg: prev.isScratchOrg || !!o.isScratchOrg,
+        instanceUrl: prev.instanceUrl || o.instanceUrl
+      };
+      map.set(username, updated);
+    }
+  }
+  const arr = Array.from(map.values());
+  arr.sort((a, b) => {
+    const ad = a.isDefaultUsername ? 0 : 1;
+    const bd = b.isDefaultUsername ? 0 : 1;
+    if (ad !== bd) {
+      return ad - bd;
+    }
+    const an = (a.alias || a.username).toLowerCase();
+    const bn = (b.alias || b.username).toLowerCase();
+    return an.localeCompare(bn);
+  });
+  return arr;
+}
+
 export async function listOrgs(): Promise<OrgItem[]> {
   const candidates: Array<{ program: string; args: string[] }> = [
     { program: 'sf', args: ['org', 'list', '--json'] },
@@ -270,72 +336,7 @@ export async function listOrgs(): Promise<OrgItem[]> {
         logTrace('listOrgs: trying', program, args.join(' '));
       } catch {}
       const { stdout } = await execCommand(program, args);
-      const parsed = JSON.parse(stdout);
-      const res = parsed.result || parsed;
-      let groups: any[] = [];
-      if (Array.isArray(res.orgs)) {
-        groups = groups.concat(res.orgs);
-      }
-      if (Array.isArray(res.nonScratchOrgs)) {
-        groups = groups.concat(res.nonScratchOrgs);
-      }
-      if (Array.isArray(res.scratchOrgs)) {
-        groups = groups.concat(res.scratchOrgs);
-      }
-      if (Array.isArray(res.sandboxes)) {
-        groups = groups.concat(res.sandboxes);
-      }
-      if (Array.isArray(res.devHubs)) {
-        groups = groups.concat(res.devHubs);
-      }
-      const map = new Map<string, OrgItem>();
-      for (const o of groups) {
-        const username: string | undefined = o.username || o.usernameOrAlias || o.usernameOrEmail;
-        if (!username) {
-          continue;
-        }
-        const item: OrgItem = {
-          username,
-          alias: o.alias,
-          isDefaultUsername: !!(o.isDefaultUsername || o.isDefault),
-          isDefaultDevHubUsername: !!o.isDefaultDevHubUsername,
-          isScratchOrg: !!(o.isScratchOrg || o.isScratch)
-        };
-        if (o.instanceUrl) {
-          item.instanceUrl = o.instanceUrl;
-        }
-        map.set(username, Object.assign(map.get(username) || {}, item));
-      }
-      if (Array.isArray(res.results)) {
-        for (const o of res.results) {
-          const username: string | undefined = o.username;
-          if (!username) {
-            continue;
-          }
-          const prev = map.get(username) || ({ username } as OrgItem);
-          const updated: OrgItem = {
-            ...prev,
-            alias: prev.alias || o.alias,
-            isDefaultUsername: prev.isDefaultUsername || !!o.isDefaultUsername,
-            isDefaultDevHubUsername: prev.isDefaultDevHubUsername || !!o.isDefaultDevHubUsername,
-            isScratchOrg: prev.isScratchOrg || !!o.isScratchOrg,
-            instanceUrl: prev.instanceUrl || o.instanceUrl
-          };
-          map.set(username, updated);
-        }
-      }
-      const arr = Array.from(map.values());
-      arr.sort((a, b) => {
-        const ad = a.isDefaultUsername ? 0 : 1;
-        const bd = b.isDefaultUsername ? 0 : 1;
-        if (ad !== bd) {
-          return ad - bd;
-        }
-        const an = (a.alias || a.username).toLowerCase();
-        const bn = (b.alias || b.username).toLowerCase();
-        return an.localeCompare(bn);
-      });
-      return arr;
+      return parseOrgList(stdout);
     } catch (_e) {
       const e: any = _e;
       if (e && e.code === 'ENOENT') {
@@ -356,72 +357,7 @@ export async function listOrgs(): Promise<OrgItem[]> {
             logTrace('listOrgs(login PATH): trying', program, args.join(' '));
           } catch {}
           const { stdout } = await execCommand(program, args, env2);
-          const parsed = JSON.parse(stdout);
-          const res = parsed.result || parsed;
-          let groups: any[] = [];
-          if (Array.isArray(res.orgs)) {
-            groups = groups.concat(res.orgs);
-          }
-          if (Array.isArray(res.nonScratchOrgs)) {
-            groups = groups.concat(res.nonScratchOrgs);
-          }
-          if (Array.isArray(res.scratchOrgs)) {
-            groups = groups.concat(res.scratchOrgs);
-          }
-          if (Array.isArray(res.sandboxes)) {
-            groups = groups.concat(res.sandboxes);
-          }
-          if (Array.isArray(res.devHubs)) {
-            groups = groups.concat(res.devHubs);
-          }
-          const map = new Map<string, OrgItem>();
-          for (const o of groups) {
-            const username: string | undefined = o.username || o.usernameOrAlias || o.usernameOrEmail;
-            if (!username) {
-              continue;
-            }
-            const item: OrgItem = {
-              username,
-              alias: o.alias,
-              isDefaultUsername: !!(o.isDefaultUsername || o.isDefault),
-              isDefaultDevHubUsername: !!o.isDefaultDevHubUsername,
-              isScratchOrg: !!(o.isScratchOrg || o.isScratch)
-            };
-            if (o.instanceUrl) {
-              item.instanceUrl = o.instanceUrl;
-            }
-            map.set(username, Object.assign(map.get(username) || {}, item));
-          }
-          if (Array.isArray(res.results)) {
-            for (const o of res.results) {
-              const username: string | undefined = o.username;
-              if (!username) {
-                continue;
-              }
-              const prev = map.get(username) || ({ username } as OrgItem);
-              const updated: OrgItem = {
-                ...prev,
-                alias: prev.alias || o.alias,
-                isDefaultUsername: prev.isDefaultUsername || !!o.isDefaultUsername,
-                isDefaultDevHubUsername: prev.isDefaultDevHubUsername || !!o.isDefaultDevHubUsername,
-                isScratchOrg: prev.isScratchOrg || !!o.isScratchOrg,
-                instanceUrl: prev.instanceUrl || o.instanceUrl
-              };
-              map.set(username, updated);
-            }
-          }
-          const arr = Array.from(map.values());
-          arr.sort((a, b) => {
-            const ad = a.isDefaultUsername ? 0 : 1;
-            const bd = b.isDefaultUsername ? 0 : 1;
-            if (ad !== bd) {
-              return ad - bd;
-            }
-            const an = (a.alias || a.username).toLowerCase();
-            const bn = (b.alias || b.username).toLowerCase();
-            return an.localeCompare(bn);
-          });
-          return arr;
+          return parseOrgList(stdout);
         } catch {
           try {
             logTrace('listOrgs(login PATH): attempt failed for', program);
@@ -435,3 +371,5 @@ export async function listOrgs(): Promise<OrgItem[]> {
   }
   return [];
 }
+
+export { parseOrgList as __parseOrgListForTests };
