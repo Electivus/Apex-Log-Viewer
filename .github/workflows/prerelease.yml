@@ -65,7 +65,7 @@ jobs:
       - name: Build for packaging
         run: npm run package
 
-      - name: Bump version for nightly (date-coded patch/build)
+      - name: Bump version for nightly (incremental patch)
         id: nightly_version
         shell: bash
         run: |
@@ -75,9 +75,11 @@ jobs:
           MINOR=$(node -p "require('./package.json').version.split('.')[1]")
           # ensure odd minor for pre-release track
           if [ $((MINOR % 2)) -eq 0 ]; then MINOR=$((MINOR+1)); fi
-          DATE=$(date -u +%Y%m%d)   # 8 digits, <= 2147483647
-          TIME=$(date -u +%H%M)     # 4 digits
-          NEW_VERSION="${MAJOR}.${MINOR}.${DATE}.${TIME}"
+          BASE_PATCH=$(node -p "require('./package.json').version.split('.')[2]")
+          RUN=${GITHUB_RUN_NUMBER:-0}
+          NEW_PATCH=$(( BASE_PATCH + RUN ))
+          if [ $NEW_PATCH -gt 2147483647 ]; then NEW_PATCH=2147483647; fi
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
           echo "Nightly base=$BASE -> new version=$NEW_VERSION"
           node -e "const fs=require('fs');const p='./package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version='${NEW_VERSION}';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
@@ -149,7 +151,7 @@ jobs:
       - name: Build for publish
         run: npm run package
 
-      - name: Bump version for nightly (date-coded patch/build)
+      - name: Bump version for nightly (incremental patch)
         id: nightly_version_publish
         shell: bash
         run: |
@@ -158,9 +160,11 @@ jobs:
           MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
           MINOR=$(node -p "require('./package.json').version.split('.')[1]")
           if [ $((MINOR % 2)) -eq 0 ]; then MINOR=$((MINOR+1)); fi
-          DATE=$(date -u +%Y%m%d)
-          TIME=$(date -u +%H%M)
-          NEW_VERSION="${MAJOR}.${MINOR}.${DATE}.${TIME}"
+          BASE_PATCH=$(node -p "require('./package.json').version.split('.')[2]")
+          RUN=${GITHUB_RUN_NUMBER:-0}
+          NEW_PATCH=$(( BASE_PATCH + RUN ))
+          if [ $NEW_PATCH -gt 2147483647 ]; then NEW_PATCH=2147483647; fi
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
           echo "Nightly base=$BASE -> new version=$NEW_VERSION"
           node -e "const fs=require('fs');const p='./package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version='${NEW_VERSION}';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
