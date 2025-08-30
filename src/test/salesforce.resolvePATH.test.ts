@@ -1,13 +1,13 @@
 import assert from 'assert/strict';
 
-function freshSalesforce() {
-  delete require.cache[require.resolve('../salesforce')];
-  return require('../salesforce') as typeof import('../salesforce');
+function freshCli() {
+  delete require.cache[require.resolve('../salesforce/cli')];
+  return require('../salesforce/cli') as typeof import('../salesforce/cli');
 }
 
 suite('resolvePATHFromLoginShell', () => {
   test('caches PATH on success', async () => {
-    const sf = freshSalesforce();
+    const sf = freshCli();
     let calls = 0;
     sf.__setExecFileImplForTests(((_file: string, _args: readonly string[] | undefined, _opts: any, cb: any) => {
       calls++;
@@ -31,7 +31,7 @@ suite('resolvePATHFromLoginShell', () => {
   });
 
   test('retries after failure', async () => {
-    const sf = freshSalesforce();
+    const sf = freshCli();
     let calls = 0;
     sf.__setExecFileImplForTests(((_file: string, _args: readonly string[] | undefined, _opts: any, cb: any) => {
       calls++;

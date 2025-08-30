@@ -2,15 +2,14 @@ import * as vscode from 'vscode';
 import { promises as fs } from 'fs';
 import { localize } from '../utils/localize';
 import { createLimiter, type Limiter } from '../utils/limiter';
+import { getOrgAuth, listOrgs } from '../salesforce/cli';
 import {
-  getOrgAuth,
   fetchApexLogs,
   fetchApexLogBody,
   fetchApexLogHead,
   extractCodeUnitStartedFromLines,
-  clearListCache,
-  listOrgs
-} from '../salesforce';
+  clearListCache
+} from '../salesforce/http';
 import type { ApexLogRow, OrgItem } from '../shared/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn, logError } from '../utils/logger';
@@ -293,7 +292,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       const uri = vscode.Uri.file(targetPath);
       // Keep loading visible for the user-triggered launch and show a notification
       await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: localize('replayStarting', 'Starting Apex Replay Debugger…') },
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: localize('replayStarting', 'Starting Apex Replay Debugger…')
+        },
         async () => {
           try {
             await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);

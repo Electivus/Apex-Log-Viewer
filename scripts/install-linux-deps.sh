@@ -54,6 +54,7 @@ STATIC=(
   libxcomposite1
   libpango-1.0-0
   libpangocairo-1.0-0
+  xvfb
 )
 
 # Filter out empty entries (when no variant is available)

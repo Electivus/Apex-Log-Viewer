@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-import { listOrgs, __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce';
+import { listOrgs, __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce/cli';
 
 suite('listOrgs parsing and sorting', () => {
   teardown(() => {

@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-import { extractCodeUnitStartedFromLines } from '../salesforce';
+import { extractCodeUnitStartedFromLines } from '../salesforce/http';
 
 suite('extractCodeUnitStartedFromLines', () => {
   test('extracts the last pipe-separated segment', () => {

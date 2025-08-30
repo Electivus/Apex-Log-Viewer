@@ -3,7 +3,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
-import * as salesforce from '../salesforce';
+import * as cli from '../salesforce/cli';
+import * as http from '../salesforce/http';
 
 class MockDisposable implements vscode.Disposable {
   dispose(): void {
@@ -56,12 +57,12 @@ suite('SfLogTailViewProvider logIdToPath', () => {
     } as unknown as vscode.ExtensionContext;
     const provider = new SfLogTailViewProvider(context);
 
-    const originalGetOrgAuth = salesforce.getOrgAuth;
-    const originalFetchApexLogBody = salesforce.fetchApexLogBody;
+    const originalGetOrgAuth = cli.getOrgAuth;
+    const originalFetchApexLogBody = http.fetchApexLogBody;
     const originalGetPath = (provider as any).getLogFilePathWithUsername;
     const originalWriteFile = fs.writeFile;
-    (salesforce as any).getOrgAuth = async () => ({ username: 'u' }) as any;
-    (salesforce as any).fetchApexLogBody = async () => 'body';
+    (cli as any).getOrgAuth = async () => ({ username: 'u' }) as any;
+    (http as any).fetchApexLogBody = async () => 'body';
     (provider as any).getLogFilePathWithUsername = async (_u: string | undefined, id: string) => ({
       dir: '.',
       filePath: `${id}.log`
@@ -75,8 +76,8 @@ suite('SfLogTailViewProvider logIdToPath', () => {
       assert.ok(!(provider as any).logIdToPath.has('0'));
       assert.ok((provider as any).logIdToPath.has('109'));
     } finally {
-      (salesforce as any).getOrgAuth = originalGetOrgAuth;
-      (salesforce as any).fetchApexLogBody = originalFetchApexLogBody;
+      (cli as any).getOrgAuth = originalGetOrgAuth;
+      (http as any).fetchApexLogBody = originalFetchApexLogBody;
       (provider as any).getLogFilePathWithUsername = originalGetPath;
       (fs as any).writeFile = originalWriteFile;
     }

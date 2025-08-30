@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-import { getOrgAuth, __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce';
+import { getOrgAuth, __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce/cli';
 
 suite('salesforce exec safety', () => {
   teardown(() => {
