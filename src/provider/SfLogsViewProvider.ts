@@ -230,8 +230,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           if (codeUnit && token === this.refreshToken && !this.disposed) {
             this.post({ type: 'logHead', logId: log.Id, codeUnitStarted: codeUnit });
           }
-        } catch (e) {
-          logWarn('Logs: head fetch failed for', log.Id, '->', e instanceof Error ? e.message : String(e));
+        } catch {
+          // ignore per-log error
         }
       });
     }
@@ -320,10 +320,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       const orgs = await listOrgs();
       const selected = pickSelectedOrg(orgs, this.selectedOrg);
       this.post({ type: 'orgs', data: orgs, selected });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      logWarn('Logs: sendOrgs failed ->', msg);
-      vscode.window.showErrorMessage(localize('sendOrgsFailed', 'Failed to retrieve orgs: {0}', msg));
+    } catch {
       this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
     }
   }
