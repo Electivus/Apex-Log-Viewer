@@ -16,10 +16,9 @@ This project packages screenshots with the extension so they render on both GitH
   - GIF for short loops (max ~8–10 MB).
   - Use `pngquant`/`gifski` or export with compression to keep size reasonable.
 - Referencing: use relative Markdown links in `README.md`, e.g. `![Log list](media/docs/log-list.png)`.
-- Packaging: `media/**` is included in the `.vsix` via `package.json#files` so images will show in Marketplace.
+- Packaging: assets included in the `.vsix` are defined in `package.json#files`.
 
 Notes
 
 - Keep raw captures or project files out of the repo. Add only optimized assets.
-- If you need to exclude heavy sources, add them to `.gitignore` or `.vscodeignore` (but keep `media/docs/*.png|gif`).
-
+- If you need to exclude heavy sources, add them to `.gitignore` (but keep `media/docs/*.png|gif`). The VSIX contents are controlled by the allowlist in `package.json#files`. Avoid adding a `.vscodeignore` file because `vsce` does not allow using both `.vscodeignore` and `package.json#files` simultaneously.
