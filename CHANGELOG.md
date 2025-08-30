@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.4.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.3.1...v0.4.0) (2025-08-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* **runner:** harden VS Code tests; docs and CI updates ([#16](https://github.com/Electivus/Apex-Log-Viewer/issues/16))
+
+### Features
+
+* **tail:** reduce polling when window inactive using WindowState API (VS Code 1.90+) ([#14](https://github.com/Electivus/Apex-Log-Viewer/issues/14)) ([9023a88](https://github.com/Electivus/Apex-Log-Viewer/commit/9023a88468357310186dbe7f49a17de3df8da699))
+
+
+### Bug Fixes
+
+* **tests:** improve extension installation and test execution handling ([8c018fe](https://github.com/Electivus/Apex-Log-Viewer/commit/8c018fee9d95835e814c9b5a1bd46b53f27db0f1))
+
+
+### Tests
+
+* **runner:** harden VS Code tests; docs and CI updates ([#16](https://github.com/Electivus/Apex-Log-Viewer/issues/16)) ([c4f92b9](https://github.com/Electivus/Apex-Log-Viewer/commit/c4f92b92dabc9a447a55f95b29dbc5214617d4d6))
+
 ## [0.3.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.2.1...v0.3.1) (2025-08-30)
 
 
