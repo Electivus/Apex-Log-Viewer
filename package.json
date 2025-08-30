@@ -242,7 +242,12 @@
     "package.nls.pt-br.json"
   ],
   "lint-staged": {
-    "*.{js,ts,jsx,tsx,json,md,css,scss}": "prettier --write"
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix"
+    ],
+    "*.{json,md,css,scss}": [
+      "prettier --write"
+    ]
   },
   "homepage": "https://github.com/Electivus/Apex-Log-Viewer#readme",
   "bugs": {
