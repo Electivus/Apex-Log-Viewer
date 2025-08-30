@@ -1,7 +1,12 @@
-const { spawn, execFile } = require('child_process');
+const { spawn, execFile, spawnSync } = require('child_process');
 const { platform, tmpdir } = require('os');
 const { mkdtempSync, writeFileSync, mkdirSync, rmSync } = require('fs');
-const { join } = require('path');
+const { join, resolve } = require('path');
+const {
+  downloadAndUnzipVSCode,
+  resolveCliArgsFromVSCodeExecutablePath,
+  runTests
+} = require('@vscode/test-electron');
 
 function execFileAsync(file, args, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -231,6 +236,19 @@ async function pretestSetup() {
     };
     writeFileSync(join(ws, 'sfdx-project.json'), JSON.stringify(proj, null, 2), 'utf8');
     mkdirSync(join(ws, 'force-app'), { recursive: true });
+    // Optional: enable verbose logs via env. Creates .vscode/settings.json in the temp workspace.
+    try {
+      const vsdir = join(ws, '.vscode');
+      mkdirSync(vsdir, { recursive: true });
+      const settings = {};
+      const wantTrace = /^1|true$/i.test(String(process.env.SF_LOG_TRACE || ''));
+      if (wantTrace) settings['sfLogs.trace'] = true;
+      const logLevel = process.env.VSCODE_TEST_LOG_LEVEL || process.env.VSCODE_LOG_LEVEL;
+      if (logLevel) settings['window.logLevel'] = String(logLevel);
+      if (Object.keys(settings).length > 0) {
+        writeFileSync(join(vsdir, 'settings.json'), JSON.stringify(settings, null, 2), 'utf8');
+      }
+    } catch {}
     process.env.VSCODE_TEST_WORKSPACE = ws;
     const prevCleanup = cleanup;
     cleanup = async () => {
@@ -246,6 +264,27 @@ async function pretestSetup() {
 }
 
 async function run() {
+  // Re-exec under Xvfb when DISPLAY is missing on Linux
+  if (platform() === 'linux' && !process.env.DISPLAY && !process.env.__ALV_XVFB_RAN) {
+    try {
+      await execFileAsync('bash', ['-lc', 'command -v xvfb-run >/dev/null 2>&1']);
+      const re = spawn('xvfb-run', [
+        '-a',
+        '-s',
+        '-screen 0 1280x1024x24',
+        process.execPath,
+        __filename
+      ], {
+        stdio: 'inherit',
+        env: { ...process.env, __ALV_XVFB_RAN: '1' }
+      });
+      re.on('exit', code => process.exit(code ?? 0));
+      return;
+    } catch {
+      // no xvfb-run; continue and let Electron try (may fail)
+    }
+  }
+
   const { cleanup } = await pretestSetup();
 
   // Hint Electron to avoid GPU issues in headless envs
@@ -255,17 +294,65 @@ async function run() {
   process.env.DBUS_SESSION_BUS_ADDRESS = process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null';
   process.env.NO_AT_BRIDGE = process.env.NO_AT_BRIDGE || '1';
 
-  // On Linux without an X server, wrap with Xvfb
-  const needsXvfb = platform() === 'linux' && !process.env.DISPLAY;
-  const cmd = needsXvfb ? `xvfb-run -a -s "-screen 0 1280x1024x24" vscode-test` : 'vscode-test';
+  // Global timeout to avoid indefinite hangs (e.g., Marketplace downloads, Electron issues)
+  // Defaults: 8m for unit, 15m for integration/all. Override via VSCODE_TEST_TOTAL_TIMEOUT_MS.
+  const scope = String(process.env.VSCODE_TEST_SCOPE || 'all');
+  const defaultMs = scope === 'unit' ? 8 * 60 * 1000 : 15 * 60 * 1000;
+  const totalTimeout = Number(process.env.VSCODE_TEST_TOTAL_TIMEOUT_MS || defaultMs);
 
-  const test = spawn(cmd, { stdio: 'inherit', shell: true });
-  test.on('exit', async code => {
-    try {
-      await cleanup();
-    } catch {}
-    process.exit(code ?? 0);
-  });
+  // Download VS Code (use env override or insiders)
+  const vsVer = String(process.env.VSCODE_TEST_VERSION || 'insiders');
+  const vscodeExecutablePath = await downloadAndUnzipVSCode(vsVer);
+  const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath);
+
+  // Install dependency extensions directly (docs approach) when running integration
+  const shouldInstall = scope === 'integration' || /^1|true$/i.test(String(process.env.VSCODE_TEST_INSTALL_DEPS || ''));
+  if (shouldInstall) {
+    const toInstall = (process.env.VSCODE_TEST_EXTENSIONS || 'salesforce.salesforcedx-vscode')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    for (const id of toInstall) {
+      console.log(`[deps] Installing extension: ${id}`);
+      const res = spawnSync(cliPath, [...cliArgs, '--install-extension', id], {
+        stdio: 'inherit',
+        encoding: 'utf8'
+      });
+      if (res.status !== 0) {
+        console.warn(`[deps] Failed to install ${id}. Continuing; tests may skip/fail.`);
+      }
+    }
+  }
+
+  // Run tests via @vscode/test-electron with our programmatic Mocha runner
+  const extensionDevelopmentPath = resolve(__dirname, '..');
+  const extensionTestsPath = resolve(__dirname, '..', 'out', 'test', 'runner.js');
+
+  let timedOut = false;
+  const killer = setTimeout(() => {
+    timedOut = true;
+    console.error(`\n[test-runner] Timed out after ${Math.round(totalTimeout / 1000)}s. Exiting...`);
+    process.exit(124);
+  }, totalTimeout);
+
+  try {
+    await runTests({
+      vscodeExecutablePath,
+      extensionDevelopmentPath,
+      extensionTestsPath,
+      launchArgs: [
+        // Use clean profile
+        '--user-data-dir',
+        join(tmpdir(), 'alv-user-data'),
+        // Use the prepared workspace (set in pretestSetup)
+        ...(process.env.VSCODE_TEST_WORKSPACE ? [process.env.VSCODE_TEST_WORKSPACE] : [])
+      ]
+    });
+  } finally {
+    clearTimeout(killer);
+    try { await cleanup(); } catch {}
+    if (timedOut) return;
+  }
 }
 
 run();

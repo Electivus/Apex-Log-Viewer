@@ -32,18 +32,18 @@
 
 ## Testing Guidelines
 
-- Framework: `@vscode/test-cli` (Mocha typings).
+- Framework: `@vscode/test-electron` com runner programático (Mocha typings).
 - Location: `src/test/**/*.test.ts` compiled to `out/test/**/*.test.js`.
 - Naming: `*.test.ts`; use `describe`/`it`.
 - Scripts:
   - `npm test`: runs unit tests (fast path) with build + lint via `pretest`.
   - `npm run test:unit`: same as above, explicit.
-  - `npm run test:integration`: runs only integration tests; installs Salesforce extension; fails if none executed.
+- `npm run test:integration`: runs only integration tests; instala `salesforce.salesforcedx-vscode` via CLI; falha se nenhum teste executar.
   - `npm run test:all`: runs all tests; fails if none executed.
 
 Notes
 
-- Integration tests are matched by titles starting with `integration` and require the Salesforce extension; they are skipped unless `VSCODE_TEST_INSTALL_DEPS=1` (set by `test:integration`).
+- Integration tests são identificados por títulos iniciando com `integration` e requerem a extensão Salesforce; o runner instala via `code --install-extension` automaticamente em `test:integration`.
 - The runner fails when zero tests execute if `VSCODE_TEST_FAIL_IF_NO_TESTS=1` (enabled in the scripts) to avoid false greens.
 
 ## Commit & Pull Request Guidelines
