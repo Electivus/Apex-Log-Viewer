@@ -65,7 +65,7 @@ jobs:
       - name: Build for packaging
         run: npm run package
 
-      - name: Bump version for nightly (date-coded patch/build)
+      - name: Bump version for nightly (increment from Marketplace)
         id: nightly_version
         shell: bash
         run: |
@@ -75,9 +75,44 @@ jobs:
           MINOR=$(node -p "require('./package.json').version.split('.')[1]")
           # ensure odd minor for pre-release track
           if [ $((MINOR % 2)) -eq 0 ]; then MINOR=$((MINOR+1)); fi
-          DATE=$(date -u +%Y%m%d)   # 8 digits, <= 2147483647
-          TIME=$(date -u +%H%M)     # 4 digits
-          NEW_VERSION="${MAJOR}.${MINOR}.${DATE}.${TIME}"
+          BASE_PATCH=$(node -p "require('./package.json').version.split('.')[2]")
+          EXT_ID=$(node -p "require('./package.json').publisher + '.' + require('./package.json').name")
+          echo "Looking up latest pre-release on Marketplace for $EXT_ID (major.minor ${MAJOR}.${MINOR})"
+          LATEST_PATCH=$(node - <<'NODE'
+const {spawnSync} = require('child_process');
+try {
+  const res = spawnSync('./node_modules/.bin/vsce', ['show', process.env.EXT_ID, '--json'], {encoding:'utf8'});
+  if (res.status !== 0) { throw new Error(res.stderr || String(res.status)); }
+  const meta = JSON.parse(res.stdout || '{}');
+  const versions = Array.isArray(meta.versions) ? meta.versions : [];
+  const targetMajor = Number(process.env.MAJOR);
+  const targetMinor = Number(process.env.MINOR);
+  let maxPatch = -1;
+  for (const v of versions) {
+    const pre = (v.properties||[]).some(p=>p.key==='Microsoft.VisualStudio.Code.PreRelease' && String(p.value)==='true');
+    const parts = String(v.version||'').split('.').map(n=>Number(n));
+    if (!pre || parts.length < 3) continue;
+    const [maj, min, pat] = parts;
+    if (maj===targetMajor && min===targetMinor && Number.isFinite(pat)) {
+      if (pat > maxPatch) maxPatch = pat;
+    }
+  }
+  process.stdout.write(maxPatch >= 0 ? String(maxPatch) : '');
+} catch (e) {
+  process.stdout.write('');
+}
+NODE
+          )
+          if [ -z "${LATEST_PATCH}" ]; then LATEST_PATCH=-1; fi
+          echo "Latest published pre-release patch (same MAJOR.MINOR): ${LATEST_PATCH}"
+          # next patch is max(latest published, base patch) + 1
+          if [ ${LATEST_PATCH} -gt ${BASE_PATCH} ]; then
+            NEW_PATCH=$(( LATEST_PATCH + 1 ))
+          else
+            NEW_PATCH=$(( BASE_PATCH + 1 ))
+          fi
+          if [ $NEW_PATCH -gt 2147483647 ]; then NEW_PATCH=2147483647; fi
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
           echo "Nightly base=$BASE -> new version=$NEW_VERSION"
           node -e "const fs=require('fs');const p='./package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version='${NEW_VERSION}';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
@@ -149,7 +184,7 @@ jobs:
       - name: Build for publish
         run: npm run package
 
-      - name: Bump version for nightly (date-coded patch/build)
+      - name: Bump version for nightly (increment from Marketplace)
         id: nightly_version_publish
         shell: bash
         run: |
@@ -158,9 +193,41 @@ jobs:
           MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
           MINOR=$(node -p "require('./package.json').version.split('.')[1]")
           if [ $((MINOR % 2)) -eq 0 ]; then MINOR=$((MINOR+1)); fi
-          DATE=$(date -u +%Y%m%d)
-          TIME=$(date -u +%H%M)
-          NEW_VERSION="${MAJOR}.${MINOR}.${DATE}.${TIME}"
+          BASE_PATCH=$(node -p "require('./package.json').version.split('.')[2]")
+          EXT_ID=$(node -p "require('./package.json').publisher + '.' + require('./package.json').name")
+          LATEST_PATCH=$(node - <<'NODE'
+const {spawnSync} = require('child_process');
+try {
+  const res = spawnSync('./node_modules/.bin/vsce', ['show', process.env.EXT_ID, '--json'], {encoding:'utf8'});
+  if (res.status !== 0) { throw new Error(res.stderr || String(res.status)); }
+  const meta = JSON.parse(res.stdout || '{}');
+  const versions = Array.isArray(meta.versions) ? meta.versions : [];
+  const targetMajor = Number(process.env.MAJOR);
+  const targetMinor = Number(process.env.MINOR);
+  let maxPatch = -1;
+  for (const v of versions) {
+    const pre = (v.properties||[]).some(p=>p.key==='Microsoft.VisualStudio.Code.PreRelease' && String(p.value)==='true');
+    const parts = String(v.version||'').split('.').map(n=>Number(n));
+    if (!pre || parts.length < 3) continue;
+    const [maj, min, pat] = parts;
+    if (maj===targetMajor && min===targetMinor && Number.isFinite(pat)) {
+      if (pat > maxPatch) maxPatch = pat;
+    }
+  }
+  process.stdout.write(maxPatch >= 0 ? String(maxPatch) : '');
+} catch (e) {
+  process.stdout.write('');
+}
+NODE
+          )
+          if [ -z "${LATEST_PATCH}" ]; then LATEST_PATCH=-1; fi
+          if [ ${LATEST_PATCH} -gt ${BASE_PATCH} ]; then
+            NEW_PATCH=$(( LATEST_PATCH + 1 ))
+          else
+            NEW_PATCH=$(( BASE_PATCH + 1 ))
+          fi
+          if [ $NEW_PATCH -gt 2147483647 ]; then NEW_PATCH=2147483647; fi
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
           echo "Nightly base=$BASE -> new version=$NEW_VERSION"
           node -e "const fs=require('fs');const p='./package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version='${NEW_VERSION}';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
