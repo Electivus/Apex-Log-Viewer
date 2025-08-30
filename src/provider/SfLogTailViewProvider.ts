@@ -46,7 +46,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       webviewView.onDidDispose(() => {
         this.disposed = true;
         this.view = undefined;
-        this.tailService.dispose();
+        // Stop timers and clear caches, but keep TailService reusable when the view reopens
+        this.tailService.stop();
         logInfo('Tail webview disposed; stopped tail.');
       })
     );
