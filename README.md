@@ -88,42 +88,7 @@ The extension uses localized strings for the extension UI and the in‑panel int
 
 ## Contributing
 
-- Dev setup: clone, `npm install`, `npm run build`, press `F5` to launch the Extension Development Host.
-- Build & test: `npm run build` and `npm test` (runs type‑check and lint via pretest).
-- Lint & format: `npm run lint` and `npm run format`.
-- Please use Conventional Commits for PR titles and commit messages so that releases and the changelog are generated automatically by Release Please.
-
-### Conventional Commits
-
-We follow https://www.conventionalcommits.org/en/v1.0.0/.
-
-- Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `perf`, `test`, `build`, `ci`, `style`, `revert`.
-- Scope (optional): e.g., `feat(logs): add status filter`.
-- Breaking changes: use `!` after the type/scope (`feat!: ...`) or add a `BREAKING CHANGE:` footer.
-
-Examples:
-
-```
-feat(logs): add filter by status and code unit
-
-fix(tail): handle CLI not found with actionable message
-
-docs: update README with Marketplace badges and usage
-```
-
-### Releasing
-
-Releases are automated via Google’s Release Please GitHub Action and Conventional Commits:
-
-- Merge PRs to `main` using Conventional Commits. Do not edit `CHANGELOG.md` manually.
-- Release Please opens/updates a release PR with the next version and changelog.
-- When the release PR is merged, a tag and GitHub Release are created automatically.
-- Our CI builds, packages, and (when `VSCE_PAT` is configured) publishes the extension to the Marketplace.
-
-For manual packaging (if needed):
-
-- Stable: `npm run vsce:package` then `npm run vsce:publish`.
-- Pre‑release: `npm run vsce:package:pre` then `npm run vsce:publish:pre`.
+See CONTRIBUTING.md for development setup, Conventional Commits, and our Release Please flow.
 
 ## Privacy & Security
 

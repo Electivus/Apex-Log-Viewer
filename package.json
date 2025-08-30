@@ -17,6 +17,33 @@
     "color": "#2563eb",
     "theme": "dark"
   },
+  "badges": [
+    {
+      "url": "https://img.shields.io/visual-studio-marketplace/v/electivus.apex-log-viewer?label=Marketplace",
+      "href": "https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer",
+      "description": "Marketplace Version"
+    },
+    {
+      "url": "https://img.shields.io/visual-studio-marketplace/i/electivus.apex-log-viewer",
+      "href": "https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer",
+      "description": "Installs"
+    },
+    {
+      "url": "https://img.shields.io/visual-studio-marketplace/d/electivus.apex-log-viewer",
+      "href": "https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer",
+      "description": "Downloads"
+    },
+    {
+      "url": "https://img.shields.io/visual-studio-marketplace/r/electivus.apex-log-viewer",
+      "href": "https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer",
+      "description": "Rating"
+    },
+    {
+      "url": "https://github.com/Electivus/Apex-Log-Viewer/actions/workflows/ci.yml/badge.svg?branch=main",
+      "href": "https://github.com/Electivus/Apex-Log-Viewer/actions/workflows/ci.yml?query=branch%3Amain",
+      "description": "CI"
+    }
+  ],
   "categories": [
     "Other"
   ],
