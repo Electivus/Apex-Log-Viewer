@@ -1,6 +1,7 @@
 import assert from 'assert/strict';
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { TailService } from '../utils/tailService';
 import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
 import * as cli from '../salesforce/cli';
 import * as http from '../salesforce/http';
@@ -49,59 +50,46 @@ class MockWebviewView implements vscode.WebviewView {
   onDidDispose: vscode.Event<void> = () => new MockDisposable();
 }
 
-suite('SfLogTailViewProvider startTail', () => {
+suite('TailService', () => {
   test('requires debug level', async () => {
-    const context = {
-      extensionUri: vscode.Uri.file(path.resolve('.')),
-      subscriptions: [] as vscode.Disposable[]
-    } as unknown as vscode.ExtensionContext;
-    const provider = new SfLogTailViewProvider(context);
     const posted: any[] = [];
-    (provider as any).post = (m: any) => posted.push(m);
+    const service = new TailService(m => posted.push(m));
     const original = cli.getOrgAuth;
     (cli as any).getOrgAuth = async () => {
       throw new Error('getOrgAuth should not be called');
     };
-    await (provider as any).startTail(undefined);
+    await service.start(undefined);
     assert.equal(posted[0]?.type, 'error');
     (cli as any).getOrgAuth = original;
   });
 
-  test('startTail clears stale caches', async () => {
-    const context = {
-      extensionUri: vscode.Uri.file(path.resolve('.')),
-      subscriptions: [] as vscode.Disposable[]
-    } as unknown as vscode.ExtensionContext;
-    const provider = new SfLogTailViewProvider(context);
-    (provider as any).seenLogIds.add('old');
-    (provider as any).logIdToPath.set('old', '/tmp/old');
+  test('start clears stale caches', async () => {
+    const service = new TailService(() => {});
+    (service as any).seenLogIds.add('old');
+    (service as any).logIdToPath.set('old', '/tmp/old');
     const origGetAuth = cli.getOrgAuth;
     const origEnsure = traceflags.ensureUserTraceFlag;
     const origFetch = http.fetchApexLogs;
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     (traceflags as any).ensureUserTraceFlag = async () => false;
     (http as any).fetchApexLogs = async () => [];
-    (provider as any).pollOnce = async () => {};
-    await (provider as any).startTail('DEBUG');
-    assert.equal((provider as any).seenLogIds.size, 0);
-    assert.equal((provider as any).logIdToPath.size, 0);
+    (service as any).pollOnce = async () => {};
+    await service.start('DEBUG');
+    assert.equal((service as any).seenLogIds.size, 0);
+    assert.equal((service as any).logIdToPath.size, 0);
     (cli as any).getOrgAuth = origGetAuth;
     (traceflags as any).ensureUserTraceFlag = origEnsure;
     (http as any).fetchApexLogs = origFetch;
-    (provider as any).stopTail();
+    service.stop();
   });
 
-  test('stopTail clears caches', () => {
-    const context = {
-      extensionUri: vscode.Uri.file(path.resolve('.')),
-      subscriptions: [] as vscode.Disposable[]
-    } as unknown as vscode.ExtensionContext;
-    const provider = new SfLogTailViewProvider(context);
-    (provider as any).seenLogIds.add('a');
-    (provider as any).logIdToPath.set('a', 'b');
-    (provider as any).stopTail();
-    assert.equal((provider as any).seenLogIds.size, 0);
-    assert.equal((provider as any).logIdToPath.size, 0);
+  test('stop clears caches', () => {
+    const service = new TailService(() => {});
+    (service as any).seenLogIds.add('a');
+    (service as any).logIdToPath.set('a', 'b');
+    service.stop();
+    assert.equal((service as any).seenLogIds.size, 0);
+    assert.equal((service as any).logIdToPath.size, 0);
   });
 
   test('selectOrg resets caches and stops tail', async () => {
@@ -115,12 +103,13 @@ suite('SfLogTailViewProvider startTail', () => {
     (provider as any).sendOrgs = async () => {};
     (provider as any).sendDebugLevels = async () => {};
     await provider.resolveWebviewView(view);
-    (provider as any).seenLogIds.add('x');
-    (provider as any).logIdToPath.set('x', 'y');
-    (provider as any).tailRunning = true;
+    const service = (provider as any).tailService;
+    (service as any).seenLogIds.add('x');
+    (service as any).logIdToPath.set('x', 'y');
+    (service as any).tailRunning = true;
     await webview.emit({ type: 'selectOrg', target: 'newOrg' });
-    assert.equal((provider as any).seenLogIds.size, 0);
-    assert.equal((provider as any).logIdToPath.size, 0);
-    assert.equal((provider as any).tailRunning, false);
+    assert.equal((service as any).seenLogIds.size, 0);
+    assert.equal((service as any).logIdToPath.size, 0);
+    assert.equal(service.isRunning(), false);
   });
 });

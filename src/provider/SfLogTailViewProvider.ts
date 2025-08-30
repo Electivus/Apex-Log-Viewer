@@ -1,38 +1,21 @@
 import * as vscode from 'vscode';
-import { promises as fs } from 'fs';
 import { localize } from '../utils/localize';
 import { listOrgs, getOrgAuth } from '../salesforce/cli';
-import { fetchApexLogs, fetchApexLogBody } from '../salesforce/http';
-import { listDebugLevels, getActiveUserDebugLevel, ensureUserTraceFlag } from '../salesforce/traceflags';
+import { listDebugLevels, getActiveUserDebugLevel } from '../salesforce/traceflags';
 import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
-import { logInfo, logWarn, logError, showOutput } from '../utils/logger';
+import { logInfo, logWarn } from '../utils/logger';
 import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { buildWebviewHtml } from '../utils/webviewHtml';
-import {
-  getWorkspaceRoot as utilGetWorkspaceRoot,
-  ensureApexLogsDir as utilEnsureApexLogsDir,
-  getLogFilePathWithUsername as utilGetLogFilePathWithUsername
-} from '../utils/workspace';
+import { TailService } from '../utils/tailService';
 import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogTail';
   private view?: vscode.WebviewView;
-  // Polling tail state
-  private tailRunning = false;
-  private tailTimer: NodeJS.Timeout | undefined;
-  private tailHardStopTimer: NodeJS.Timeout | undefined;
-  private seenLogIds = new Set<string>();
-  private currentAuth: OrgAuth | undefined;
-  private currentDebugLevel: string | undefined;
-  private lastPollErrorAt = 0;
-  private logIdToPath = new Map<string, string>();
-  private readonly logIdToPathLimit = 100;
   private disposed = false;
   private selectedOrg: string | undefined;
-  // VS Code 1.89+ Window Activity API: reduce polling when window inactive
-  private windowActive: boolean = true;
+  private tailService = new TailService(m => this.post(m));
 
   constructor(private readonly context: vscode.ExtensionContext) {
     const persisted = restoreSelectedOrg(this.context);
@@ -40,6 +23,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       this.selectedOrg = persisted;
       logInfo('Tail: restored selected org from globalState:', this.selectedOrg || '(default)');
     }
+    this.tailService.setOrg(this.selectedOrg);
   }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
@@ -60,23 +44,18 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       webviewView.onDidDispose(() => {
         this.disposed = true;
         this.view = undefined;
-        this.stopTail();
+        this.tailService.dispose();
         logInfo('Tail webview disposed; stopped tail.');
       })
     );
 
     // Track window activity to adapt polling cadence (requires VS Code 1.89+; @types 1.90)
     try {
-      // Initialize from current state
-      this.windowActive = vscode.window.state?.active ?? true;
+      this.tailService.setWindowActive(vscode.window.state?.active ?? true);
       const d = vscode.window.onDidChangeWindowState(e => {
-        this.windowActive = e.active;
-        // When the window becomes active and tail is running, do a prompt poll
-        if (this.windowActive && this.tailRunning && !this.disposed) {
-          if (this.tailTimer) {
-            clearTimeout(this.tailTimer);
-          }
-          this.tailTimer = setTimeout(() => void this.pollOnce(), 100);
+        this.tailService.setWindowActive(e.active);
+        if (e.active && this.tailService.isRunning() && !this.disposed) {
+          this.tailService.promptPoll();
         }
       });
       this.context.subscriptions.push(d);
@@ -93,7 +72,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         await this.sendOrgs();
         await this.sendDebugLevels();
         this.post({ type: 'init', locale: vscode.env.language });
-        this.post({ type: 'tailStatus', running: this.tailRunning });
+        this.post({ type: 'tailStatus', running: this.tailService.isRunning() });
         this.post({ type: 'loading', value: false });
         return;
       }
@@ -112,8 +91,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         const next = target || undefined;
         const prev = this.selectedOrg;
         this.setSelectedOrg(next);
+        this.tailService.setOrg(next);
         if (prev !== next) {
-          this.stopTail();
+          this.tailService.stop();
         }
         logInfo('Tail: selected org set to', next || '(none)');
         this.post({ type: 'loading', value: true });
@@ -141,18 +121,18 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         // Surface loading while ensuring TraceFlag and priming tail
         this.post({ type: 'loading', value: true });
         try {
-          await this.startTail(typeof message.debugLevel === 'string' ? message.debugLevel.trim() : undefined);
+          await this.tailService.start(typeof message.debugLevel === 'string' ? message.debugLevel.trim() : undefined);
         } finally {
           this.post({ type: 'loading', value: false });
         }
         return;
       }
       if (message?.type === 'tailStop') {
-        this.stopTail();
+        this.tailService.stop();
         return;
       }
       if (message?.type === 'tailClear') {
-        this.logIdToPath.clear();
+        this.tailService.clearLogPaths();
         this.post({ type: 'tailReset' });
         return;
       }
@@ -225,219 +205,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     }
     this.post({ type: 'debugLevels', data: out, active });
   }
-
-  private async startTail(debugLevel?: string): Promise<void> {
-    if (this.tailRunning) {
-      logInfo('Tail: start requested but already running.');
-      return;
-    }
-    if (!debugLevel) {
-      this.post({ type: 'error', message: localize('tailSelectDebugLevel', 'Select a debug level') });
-      logWarn('Tail: start aborted; no debug level selected.');
-      return;
-    }
-    // Reset caches for a fresh session
-    this.seenLogIds.clear();
-    this.logIdToPath.clear();
-    this.currentDebugLevel = debugLevel;
-    try {
-      // Acquire auth once and reuse; salesforce.ts will refresh on 401
-      const auth = await getOrgAuth(this.selectedOrg);
-      this.currentAuth = auth;
-      logInfo('Tail: acquired auth for', auth.username || '(default)', 'at', auth.instanceUrl);
-
-      // Ensure an active TraceFlag exists for the user; create if missing
-      try {
-        const created = await ensureUserTraceFlag(auth, debugLevel);
-        if (created) {
-          logInfo('Tail: TraceFlag created for user with level', debugLevel);
-        } else {
-          logInfo('Tail: TraceFlag already active or unchanged');
-        }
-      } catch {
-        logWarn('Tail: ensure TraceFlag failed (continuing)');
-      }
-
-      // Prime seen set with recent logs so we don't spam old entries on start
-      try {
-        const recent = await fetchApexLogs(auth, 20, 0, debugLevel);
-        logInfo('Tail: primed seen set with', recent.length, 'recent logs for level', debugLevel);
-        for (const r of recent) {
-          if (r && typeof r.Id === 'string') {
-            this.seenLogIds.add(r.Id);
-          }
-        }
-      } catch {
-        logWarn('Tail: prime recent logs failed; proceeding with empty seen set');
-      }
-
-      this.tailRunning = true;
-      this.post({ type: 'tailStatus', running: true });
-      logInfo('Tail: started; polling…');
-      // Hard stop after 30 minutes to avoid runaway sessions
-      if (this.tailHardStopTimer) {
-        clearTimeout(this.tailHardStopTimer);
-      }
-      this.tailHardStopTimer = setTimeout(
-        () => {
-          if (this.tailRunning && !this.disposed) {
-            logInfo('Tail: auto-stopping after 30 minutes.');
-            this.post({ type: 'error', message: localize('tailHardStop', 'Tail stopped after 30 minutes.') });
-            this.stopTail();
-          }
-        },
-        30 * 60 * 1000
-      );
-      // Kick off loop immediately
-      void this.pollOnce();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      logError('Tail: start failed ->', msg);
-      this.post({ type: 'error', message: msg });
-      // Surface the output channel to help users see internal errors
-      showOutput(true);
-      this.post({ type: 'tailStatus', running: false });
-      this.tailRunning = false;
-    }
-  }
-
-  private stopTail(): void {
-    this.tailRunning = false;
-    if (this.tailTimer) {
-      clearTimeout(this.tailTimer);
-      this.tailTimer = undefined;
-    }
-    if (this.tailHardStopTimer) {
-      clearTimeout(this.tailHardStopTimer);
-      this.tailHardStopTimer = undefined;
-    }
-    // Clear caches so future sessions start clean
-    this.seenLogIds.clear();
-    this.logIdToPath.clear();
-    this.post({ type: 'tailStatus', running: false });
-    logInfo('Tail: stopped.');
-  }
-
-  private async pollOnce(): Promise<void> {
-    if (!this.tailRunning || this.disposed) {
-      return;
-    }
-    // Default cadence; slow down when window inactive to save resources
-    let nextDelay = this.windowActive ? 1500 : 5000;
-    try {
-      const auth = this.currentAuth ?? (await getOrgAuth(this.selectedOrg));
-      this.currentAuth = auth;
-      const logs = await fetchApexLogs(auth, 20, 0, this.currentDebugLevel);
-      logInfo('Tail: polled logs ->', logs.length);
-      // Process newest to oldest so output is chronological
-      for (let i = logs.length - 1; i >= 0; i--) {
-        const r = logs[i];
-        const id = r?.Id as string | undefined;
-        if (!id || this.seenLogIds.has(id)) {
-          continue;
-        }
-        this.seenLogIds.add(id);
-        logInfo('Tail: new log', id, r?.Operation, r?.Status, r?.LogLength);
-        // Fetch body and emit lines
-        try {
-          const body = await fetchApexLogBody(auth, id);
-          await this.emitLogWithHeader(auth, r, body);
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          logWarn('Tail: fetch body failed for', id, '->', msg);
-          this.post({ type: 'error', message: msg });
-        }
-      }
-      // Trim seen set occasionally to avoid unbounded growth
-      if (this.seenLogIds.size > 2000) {
-        const toDelete = this.seenLogIds.size - 1500;
-        let n = 0;
-        for (const k of this.seenLogIds) {
-          this.seenLogIds.delete(k);
-          if (++n >= toDelete) {
-            break;
-          }
-        }
-      }
-      this.lastPollErrorAt = 0;
-      nextDelay = this.windowActive ? 1200 : 4500;
-    } catch (e) {
-      // Surface error but avoid spamming UI every tick
-      const now = Date.now();
-      if (now - this.lastPollErrorAt > 5000) {
-        const msg = e instanceof Error ? e.message : String(e);
-        logWarn('Tail: poll error ->', msg);
-        this.post({ type: 'error', message: msg });
-        this.lastPollErrorAt = now;
-      }
-      nextDelay = this.windowActive ? 3000 : 6000;
-    } finally {
-      if (this.tailRunning && !this.disposed) {
-        this.tailTimer = setTimeout(() => void this.pollOnce(), nextDelay);
-      }
-    }
-  }
-
-  private async emitLogWithHeader(auth: OrgAuth, r: any, body: string): Promise<void> {
-    if (!this.view || this.disposed) {
-      return;
-    }
-    const lines: string[] = [];
-    const id = r?.Id as string | undefined;
-    const header = `=== ApexLog ${id ?? ''} | ${r?.StartTime ?? ''} | ${r?.Operation ?? ''} | ${r?.Status ?? ''} | ${r?.LogLength ?? ''}`;
-    lines.push(header);
-    // Optionally save to workspace apexlogs folder for replay/open
-    try {
-      const { filePath } = await this.getLogFilePathWithUsername(auth.username, id ?? String(Date.now()));
-      await fs.writeFile(filePath, body, 'utf8');
-      if (id) {
-        this.addLogPath(id, filePath);
-      }
-      lines.push(localize('tailSavedTo', 'Saved to {0}', filePath));
-      logInfo('Tail: saved log', id, 'to', filePath);
-      // Notify webview about new tailed log with quick actions
-      if (id) {
-        this.post({
-          type: 'tailNewLog',
-          logId: id,
-          startTime: r?.StartTime,
-          operation: r?.Operation,
-          status: r?.Status,
-          logLength: typeof r?.LogLength === 'number' ? r.LogLength : undefined,
-          savedPath: filePath
-        });
-      }
-    } catch {
-      logWarn('Tail: failed to save log to workspace (best-effort).');
-    }
-    // Append body lines
-    for (const l of String(body || '').split(/\r?\n/)) {
-      if (l) {
-        lines.push(l);
-      }
-    }
-    this.post({ type: 'tailData', lines });
-  }
-
-  private getWorkspaceRoot(): string | undefined {
-    return utilGetWorkspaceRoot();
-  }
-
-  private async ensureApexLogsDir(): Promise<string> {
-    return utilEnsureApexLogsDir();
-  }
-
-  private async getLogFilePathWithUsername(
-    username: string | undefined,
-    logId: string
-  ): Promise<{ dir: string; filePath: string }> {
-    return utilGetLogFilePathWithUsername(username, logId);
-  }
-
   // Tail webview actions
   private async openLog(logId: string): Promise<void> {
     try {
-      const filePath = await this.ensureLogSaved(logId);
+      const filePath = await this.tailService.ensureLogSaved(logId);
       const uri = vscode.Uri.file(filePath);
       const doc = await vscode.workspace.openTextDocument(uri);
       await vscode.window.showTextDocument(doc, { preview: true });
@@ -455,7 +226,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       if (!ok) {
         return;
       }
-      const filePath = await this.ensureLogSaved(logId);
+      const filePath = await this.tailService.ensureLogSaved(logId);
       const uri = vscode.Uri.file(filePath);
       // Keep loading visible and show a notification while launching Replay
       await vscode.window.withProgress(
@@ -477,30 +248,5 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       logWarn('Tail: replay failed ->', msg);
       this.post({ type: 'error', message: msg });
     }
-  }
-
-  private addLogPath(logId: string, filePath: string): void {
-    this.logIdToPath.set(logId, filePath);
-    if (this.logIdToPath.size > this.logIdToPathLimit) {
-      const oldest = this.logIdToPath.keys().next().value;
-      if (oldest) {
-        this.logIdToPath.delete(oldest);
-      }
-    }
-  }
-
-  private async ensureLogSaved(logId: string): Promise<string> {
-    const existing = this.logIdToPath.get(logId);
-    if (existing) {
-      return existing;
-    }
-    const auth = this.currentAuth ?? (await getOrgAuth(this.selectedOrg));
-    this.currentAuth = auth;
-    const body = await fetchApexLogBody(auth, logId);
-    const { filePath } = await this.getLogFilePathWithUsername(auth.username, logId);
-    await fs.writeFile(filePath, body, 'utf8');
-    this.addLogPath(logId, filePath);
-    logInfo('Tail: ensured log saved at', filePath);
-    return filePath;
   }
 }
