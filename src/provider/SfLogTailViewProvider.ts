@@ -200,23 +200,18 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    // Fetch levels and active selection independently so one failure
+    // Fetch levels and active selection concurrently so one failure
     // doesn't block the other and result in an empty combobox.
-    let levels: string[] = [];
-    try {
-      levels = await listDebugLevels(auth);
-    } catch {
-      logWarn('Tail: listDebugLevels failed');
-      levels = [];
-    }
-
-    let active: string | undefined = undefined;
-    try {
-      active = await getActiveUserDebugLevel(auth);
-    } catch {
-      logWarn('Tail: getActiveUserDebugLevel failed');
-      active = undefined;
-    }
+    const [levels, active] = await Promise.all([
+      listDebugLevels(auth).catch(() => {
+        logWarn('Tail: listDebugLevels failed');
+        return [] as string[];
+      }),
+      getActiveUserDebugLevel(auth).catch(() => {
+        logWarn('Tail: getActiveUserDebugLevel failed');
+        return undefined as string | undefined;
+      })
+    ]);
 
     // Ensure the active value appears in the list if present
     const out = Array.isArray(levels) ? [...levels] : [];
