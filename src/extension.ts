@@ -10,6 +10,10 @@ import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger 
 import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';
 
+interface OrgQuickPick extends vscode.QuickPickItem {
+  username: string;
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   logInfo('Activating Apex Log Viewer extension…');
   // Configure trace logging from settings
@@ -84,20 +88,20 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('sfLogs.selectOrg', async () => {
       logInfo('Command sfLogs.selectOrg invoked. Listing orgs…');
       const orgs: OrgItem[] = await listOrgs();
-      const items: (vscode.QuickPickItem & { username: string })[] = orgs.map(o => ({
+      const items: OrgQuickPick[] = orgs.map(o => ({
         label: o.alias ?? o.username,
         description: o.isDefaultUsername ? localize('selectOrgDefault', 'Default') : undefined,
         detail: o.instanceUrl || undefined,
         username: o.username
       }));
-      const picked = await vscode.window.showQuickPick(items, {
+      const picked = await vscode.window.showQuickPick<OrgQuickPick>(items, {
         placeHolder: localize('selectOrgPlaceholder', 'Select an authenticated org')
       });
       if (!picked) {
         logInfo('Select org cancelled.');
         return;
       }
-      const username = (picked as any).username as string;
+      const username = picked.username;
       provider.setSelectedOrg(username);
       logInfo('Selected org:', username);
       await provider.sendOrgs();
