@@ -12,6 +12,20 @@ type OrgItem = SOrgItem;
 // Reuse HTTP(S) connections between calls
 const agent = new https.Agent({ keepAlive: true });
 
+// Allow swapping HTTPS request implementation in tests to avoid
+// interference from instrumentation (e.g., diagnostic-channel) that may
+// redefine getters on the core https module inside the VS Code host.
+type HttpsRequestFn = typeof https.request;
+let httpsRequestImpl: HttpsRequestFn = https.request;
+
+export function __setHttpsRequestImplForTests(fn: HttpsRequestFn): void {
+  httpsRequestImpl = fn;
+}
+
+export function __resetHttpsRequestImplForTests(): void {
+  httpsRequestImpl = https.request;
+}
+
 export type OrgAuth = {
   accessToken: string;
   instanceUrl: string;
@@ -471,7 +485,7 @@ function httpsRequest(
 ): Promise<{ statusCode: number; headers: Record<string, string | string[] | undefined>; body: string }> {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(urlString);
-    const req = https.request(
+    const req = httpsRequestImpl(
       {
         method,
         hostname: urlObj.hostname,
@@ -881,7 +895,7 @@ export async function fetchApexLogHead(
     let buffer = '';
     let collected: string[] = [];
     const attempt = (token: string) => {
-      const req = https.request(
+      const req = httpsRequestImpl(
         {
           method: 'GET',
           hostname: urlObj.hostname,

@@ -41,6 +41,30 @@
       "isBackground": true,
       "group": "test",
       "problemMatcher": ["$tsc-watch"]
+    },
+    {
+      "label": "Test: Integration (Full)",
+      "type": "npm",
+      "script": "test:integration",
+      "group": "test",
+      "problemMatcher": [],
+      "options": {
+        "env": {
+          "VSCODE_TEST_VERSION": "stable"
+        }
+      }
+    },
+    {
+      "label": "Test: All (Full)",
+      "type": "npm",
+      "script": "test:all",
+      "group": "test",
+      "problemMatcher": [],
+      "options": {
+        "env": {
+          "VSCODE_TEST_VERSION": "stable"
+        }
+      }
     }
   ]
 }

@@ -264,6 +264,10 @@ async function pretestSetup() {
 }
 
 async function run() {
+  // Ensure Electron launches as a GUI app, not Node.
+  // Some environments leak ELECTRON_RUN_AS_NODE=1 which breaks VS Code when
+  // passed common flags like --user-data-dir. Explicitly unset it here.
+  try { delete process.env.ELECTRON_RUN_AS_NODE; } catch {}
   // Re-exec under Xvfb when DISPLAY is missing on Linux
   if (platform() === 'linux' && !process.env.DISPLAY && !process.env.__ALV_XVFB_RAN) {
     try {
@@ -303,7 +307,7 @@ async function run() {
   // Download VS Code (use env override or insiders)
   const vsVer = String(process.env.VSCODE_TEST_VERSION || 'insiders');
   const vscodeExecutablePath = await downloadAndUnzipVSCode(vsVer);
-  const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath);
+  const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, { reuseMachineInstall: true });
 
   // Install dependency extensions directly (docs approach) when running integration
   const shouldInstall = scope === 'integration' || /^1|true$/i.test(String(process.env.VSCODE_TEST_INSTALL_DEPS || ''));
@@ -330,7 +334,8 @@ async function run() {
       const res = spawnSync(cliPath, args, {
         stdio: ['pipe', 'inherit', 'inherit'],
         encoding: 'utf8',
-        input: 'y\n'
+        input: 'y\n',
+        env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
       });
       if (res.status !== 0) {
         console.warn(`[deps] Failed to install ${id}. Continuing; tests may skip/fail.`);
