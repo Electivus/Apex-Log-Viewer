@@ -1,9 +1,12 @@
 name: Release Please
 
+# Default to least privilege; job elevates as needed
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
 
 on:
   push:
@@ -13,6 +16,10 @@ on:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     steps:
       - name: Release Please
         # Pin action by commit SHA for supply-chain safety (tag v4)
