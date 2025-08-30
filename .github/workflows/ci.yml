@@ -99,9 +99,9 @@ jobs:
     needs: build_and_test
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Allow uploading artifacts; keep repo contents read-only
+    # Needs contents: write to toggle release flags
     permissions:
-      contents: read
+      contents: write
       actions: write
     env:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
@@ -187,7 +187,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read
+      contents: write
     environment: marketplace
     env:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
