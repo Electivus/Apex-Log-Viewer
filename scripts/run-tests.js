@@ -319,8 +319,8 @@ async function run() {
   // Download VS Code (insiders by default; CI can pass --vscode=stable)
   const vsVer = String(args.vscode || 'insiders');
   const vscodeExecutablePath = await downloadAndUnzipVSCode(vsVer);
-  // Use profile args so install/list target the same cached test profile
-  const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath);
+  // Avoid default profile flags here; we pass our own once below
+  const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, { reuseMachineInstall: true });
 
   // Install dependency extensions when running integration or all
   const shouldInstall = scope === 'integration' || scope === 'all' || !!args.installDeps;
