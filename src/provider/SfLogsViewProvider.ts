@@ -178,7 +178,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       }
       this.post({ type: 'init', locale: vscode.env.language });
       this.post({ type: 'logs', data: logs, hasMore: logs.length === this.pageLimit });
-
       // Limited parallel fetch of log heads
       this.loadLogHeads(logs, auth, token);
     } catch (e) {
@@ -205,7 +204,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       this.post({ type: 'appendLogs', data: logs, hasMore: logs.length === this.pageLimit });
-
       this.loadLogHeads(logs, auth, token);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
