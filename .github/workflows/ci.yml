@@ -139,6 +139,21 @@ jobs:
           echo "PRE_RELEASE=$PRE_RELEASE" >> $GITHUB_ENV
           if [ "$PRE_RELEASE" = "true" ]; then echo "CHANNEL_SUFFIX=pre" >> $GITHUB_ENV; else echo "CHANNEL_SUFFIX=stable" >> $GITHUB_ENV; fi
 
+      - name: Set GitHub Release prerelease flag automatically
+        if: github.event_name == 'release'
+        env:
+          PRE_RELEASE: ${{ steps.channel.outputs.pre_release }}
+          TAG_NAME: ${{ env.TAG_NAME }}
+        run: |
+          echo "Setting prerelease=$PRE_RELEASE for $TAG_NAME"
+          RID=$(gh api -X GET repos/${{ github.repository }}/releases/tags/${TAG_NAME} -q .id)
+          # Use API because gh release edit lacks an explicit --prerelease=false flag
+          if [ "$PRE_RELEASE" = "true" ]; then
+            gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=true
+          else
+            gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=false
+          fi
+
       - name: Create VSIX
         run: |
           if [ "${PRE_RELEASE}" = "true" ]; then
@@ -200,6 +215,19 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "PRE_RELEASE=$PRE_RELEASE" >> $GITHUB_ENV
 
+      - name: Set GitHub Release prerelease flag automatically
+        if: github.event_name == 'release'
+        env:
+          PRE_RELEASE: ${{ steps.channel.outputs.pre_release }}
+          TAG_NAME: ${{ env.TAG_NAME }}
+        run: |
+          echo "Setting prerelease=$PRE_RELEASE for $TAG_NAME"
+          RID=$(gh api -X GET repos/${{ github.repository }}/releases/tags/${TAG_NAME} -q .id)
+          if [ "$PRE_RELEASE" = "true" ]; then
+            gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=true
+          else
+            gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=false
+          fi
       - name: Publish
         run: |
           if [ "${PRE_RELEASE}" = "true" ]; then
