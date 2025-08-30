@@ -106,6 +106,7 @@ jobs:
     env:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
       TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || (github.event_name == 'release' && github.event.release.tag_name) || github.event.inputs.tag_name }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -191,6 +192,7 @@ jobs:
     env:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
       TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || (github.event_name == 'release' && github.event.release.tag_name) || github.event.inputs.tag_name }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
