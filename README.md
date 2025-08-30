@@ -89,7 +89,7 @@ The extension uses localized strings for the extension UI and the in‑panel int
 
 ## Contributing
 
-See CONTRIBUTING.md for development setup, Conventional Commits, and our Release Please flow.
+See CONTRIBUTING.md for development setup, Conventional Commits, and our tag-based release flow with automatic changelog.
 
 ### Testing
 

@@ -26,7 +26,7 @@ Helpful scripts:
 
 ## Conventional Commits
 
-We follow https://www.conventionalcommits.org/en/v1.0.0/ so that releases and the changelog are generated automatically by Release Please.
+We follow https://www.conventionalcommits.org/en/v1.0.0/ so that releases and the changelog are generated automatically by CI.
 
 - Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `perf`, `test`, `build`, `ci`, `style`, `revert`.
 - Optional scope: e.g., `feat(logs): add status filter`.
@@ -42,13 +42,12 @@ fix(tail): handle CLI not found with actionable message
 docs: improve README with Marketplace badges and usage
 ```
 
-## Release Automation (Release Please)
+## Release Automation (Tags + Auto Changelog)
 
-- Do not edit `CHANGELOG.md` directly. Release Please manages it.
+- Do not edit `CHANGELOG.md` directly. It is managed by CI.
 - Merge PRs to `main` using Conventional Commits.
-- Release Please will open/update a release PR with version + changelog.
-- When that PR is merged, a tag and GitHub Release are created.
-- CI then builds, packages, and (when `VSCE_PAT` is configured) publishes to the Marketplace.
+- Bump `package.json` to the release version and push a tag `vX.Y.Z` pointing to that commit.
+- The Release workflow (on tag push) builds, packages, and publishes automatically to the Marketplace (when `VSCE_PAT` is configured).
 
 Manual packaging (rare):
 
@@ -74,4 +73,3 @@ Manual packaging (rare):
 
 - General usage: see `README.md`.
 - Repo guidelines and architecture notes: see `AGENTS.md`.
-
