@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-flags-${{ github.event.release.tag_name }}
+  group: release-flags-${{ github.event_name == 'release' && github.event.release.tag_name || github.run_id }}
   cancel-in-progress: false
 
 jobs:
