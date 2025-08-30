@@ -2,7 +2,7 @@ name: Release Flags
 
 on:
   release:
-    types: [published]
+    types: [published, edited]
 
 permissions:
   contents: write
@@ -56,4 +56,3 @@ jobs:
           env:
             TAG: ${{ steps.semver.outputs.tag }}
             PRERELEASE: ${{ steps.semver.outputs.prerelease }}
-
