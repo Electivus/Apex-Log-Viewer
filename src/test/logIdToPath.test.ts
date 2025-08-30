@@ -2,6 +2,7 @@ import assert from 'assert/strict';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { promises as fs } from 'fs';
+import { TailService } from '../utils/tailService';
 import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
 import * as cli from '../salesforce/cli';
 import * as http from '../salesforce/http';
@@ -49,49 +50,41 @@ class MockWebviewView implements vscode.WebviewView {
   onDidDispose: vscode.Event<void> = () => new MockDisposable();
 }
 
-suite('SfLogTailViewProvider logIdToPath', () => {
+suite('TailService logIdToPath', () => {
   test('evicts oldest entries beyond limit', async () => {
-    const context = {
-      extensionUri: vscode.Uri.file(path.resolve('.')),
-      subscriptions: [] as vscode.Disposable[]
-    } as unknown as vscode.ExtensionContext;
-    const provider = new SfLogTailViewProvider(context);
+    const service = new TailService(() => {});
 
     const originalGetOrgAuth = cli.getOrgAuth;
     const originalFetchApexLogBody = http.fetchApexLogBody;
-    const originalGetPath = (provider as any).getLogFilePathWithUsername;
+    const originalGetPath = (service as any).getLogFilePathWithUsername;
     const originalWriteFile = fs.writeFile;
     (cli as any).getOrgAuth = async () => ({ username: 'u' }) as any;
     (http as any).fetchApexLogBody = async () => 'body';
-    (provider as any).getLogFilePathWithUsername = async (_u: string | undefined, id: string) => ({
+    (service as any).getLogFilePathWithUsername = async (_u: string | undefined, id: string) => ({
       dir: '.',
       filePath: `${id}.log`
     });
     (fs as any).writeFile = async () => {};
     try {
       for (let i = 0; i < 110; i++) {
-        await (provider as any).ensureLogSaved(String(i));
+        await service.ensureLogSaved(String(i));
       }
-      assert.equal((provider as any).logIdToPath.size, 100);
-      assert.ok(!(provider as any).logIdToPath.has('0'));
-      assert.ok((provider as any).logIdToPath.has('109'));
+      assert.equal((service as any).logIdToPath.size, 100);
+      assert.ok(!(service as any).logIdToPath.has('0'));
+      assert.ok((service as any).logIdToPath.has('109'));
     } finally {
       (cli as any).getOrgAuth = originalGetOrgAuth;
       (http as any).fetchApexLogBody = originalFetchApexLogBody;
-      (provider as any).getLogFilePathWithUsername = originalGetPath;
+      (service as any).getLogFilePathWithUsername = originalGetPath;
       (fs as any).writeFile = originalWriteFile;
     }
   });
 
-  test('clears map on stopTail', () => {
-    const context = {
-      extensionUri: vscode.Uri.file(path.resolve('.')),
-      subscriptions: [] as vscode.Disposable[]
-    } as unknown as vscode.ExtensionContext;
-    const provider = new SfLogTailViewProvider(context);
-    (provider as any).logIdToPath.set('a', 'p');
-    (provider as any).stopTail();
-    assert.equal((provider as any).logIdToPath.size, 0);
+  test('clears map on stop', () => {
+    const service = new TailService(() => {});
+    (service as any).logIdToPath.set('a', 'p');
+    service.stop();
+    assert.equal((service as any).logIdToPath.size, 0);
   });
 
   test('clears map on tailClear message', async () => {
@@ -100,11 +93,12 @@ suite('SfLogTailViewProvider logIdToPath', () => {
       subscriptions: [] as vscode.Disposable[]
     } as unknown as vscode.ExtensionContext;
     const provider = new SfLogTailViewProvider(context);
-    (provider as any).logIdToPath.set('a', 'p');
     const webview = new MockWebview();
     const view = new MockWebviewView(webview);
     await provider.resolveWebviewView(view);
+    const service = (provider as any).tailService;
+    (service as any).logIdToPath.set('a', 'p');
     webview.emit({ type: 'tailClear' });
-    assert.equal((provider as any).logIdToPath.size, 0);
+    assert.equal((service as any).logIdToPath.size, 0);
   });
 });
