@@ -1,0 +1,139 @@
+name: Pre-release (nightly)
+
+on:
+  schedule:
+    # Daily at 03:00 UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      label:
+        description: 'Optional label for the nightly tag/title (defaults to date)'
+        required: false
+        type: string
+
+concurrency:
+  group: prerelease-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build_and_test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (type-check + lint + bundle)
+        run: npm run package
+
+      - name: Run unit tests (fast)
+        run: npm run test:unit:ci
+
+  prerelease:
+    name: Create GitHub pre-release + VSIX artifact
+    needs: build_and_test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build for packaging
+        run: npm run package
+
+      - name: Package VSIX (pre-release)
+        run: npm run vsce:package:pre
+
+      - name: Rename VSIX with timestamp
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          DATE=$(date -u +%Y%m%d)
+          SHORTSHA=$(git rev-parse --short HEAD)
+          LABEL=${{ github.event.inputs.label || '' }}
+          if [ -z "$LABEL" ]; then LABEL=$DATE; fi
+          FILE=$(ls *.vsix | head -n1)
+          NEW_NAME="apex-log-viewer-${VERSION}-pre-${LABEL}-${SHORTSHA}.vsix"
+          mv "$FILE" "$NEW_NAME"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "file=$NEW_NAME" >> $GITHUB_OUTPUT
+          echo "tag=pre-${LABEL}" >> $GITHUB_OUTPUT
+
+      - name: Create or update GitHub pre-release
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          TITLE="Nightly pre-release $TAG"
+          BODY="Automated nightly build.\n\nCommit: $GITHUB_SHA\nRun: $GITHUB_RUN_NUMBER"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Updating existing pre-release $TAG"
+            gh release edit "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
+          else
+            echo "Creating pre-release $TAG"
+            gh release create "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
+          fi
+
+      - name: Upload VSIX to GitHub release
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          FILE: ${{ steps.meta.outputs.file }}
+        run: |
+          set -euo pipefail
+          # Remove old asset with same name if exists
+          gh release view "$TAG" --json assets --jq ".assets[].name" | grep -x "$FILE" && gh release delete-asset "$TAG" "$FILE" -y || true
+          gh release upload "$TAG" "$FILE" --clobber
+
+  marketplace:
+    name: Publish to Marketplace (pre-release channel)
+    if: github.repository == 'Electivus/Apex-Log-Viewer'
+    needs: prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: marketplace
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build for publish
+        run: npm run package
+      - name: Publish pre-release to Marketplace
+        run: |
+          if [ -z "${VSCE_PAT}" ]; then
+            echo "VSCE_PAT not set; skipping publish." && exit 0
+          fi
+          npm run vsce:publish:pre
