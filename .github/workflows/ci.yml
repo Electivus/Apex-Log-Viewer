@@ -86,11 +86,11 @@ jobs:
       - name: Build (type-check + lint + bundle)
         run: npm run build
 
-      - name: Run tests (VS Code)
+      - name: Run tests (unit + integration)
         # Override CI env just for tests to avoid scratch-org attempts
         env:
           CI: ''
-        run: npm test
+        run: npm run test:ci
 
   package:
     name: Package VSIX
