@@ -7,6 +7,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { setApiVersion, getApiVersion } from './salesforce';
 import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger } from './utils/logger';
+import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -27,6 +28,20 @@ export async function activate(context: vscode.ExtensionContext) {
   } catch {
     // ignore
   }
+  // Soft advice: if Apex Replay Debugger (via Salesforce Extension Pack) is missing, log a tip in Output
+  try {
+    setTimeout(async () => {
+      const hasReplay = await detectReplayDebuggerAvailable();
+      if (!hasReplay) {
+        logInfo(
+          localize(
+            'replayPackAdvice',
+            'Tip: To use Apex Replay, install the Salesforce Extension Pack (salesforce.salesforcedx-vscode).'
+          )
+        );
+      }
+    }, 0);
+  } catch {}
   // Try to read sourceApiVersion from sfdx-project.json (first workspace folder)
   const folders = vscode.workspace.workspaceFolders;
   if (folders && folders.length > 0) {

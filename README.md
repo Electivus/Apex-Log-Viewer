@@ -39,8 +39,9 @@ Why developers like it
 
 - Salesforce CLI: Install either `sf` (recommended) or legacy `sfdx` and authenticate to an org.
   - Login example: `sf org login web` (or `sfdx force:auth:web:login`).
-- VS Code 1.87+.
-- Optional for Replay: “Salesforce Apex Replay Debugger” (part of Salesforce Extensions for VS Code).
+- VS Code 1.90+.
+- Required for Replay: Salesforce Extension Pack (salesforce.salesforcedx-vscode), which includes Apex Replay Debugger.
+  - A extensão não depende nem instala o pack automaticamente; se você tentar usar Replay sem o pack, abriremos a aba de Extensões apontando para o pacote para você instalar manualmente.
 
 ## Install
 
@@ -113,4 +114,3 @@ The extension uses `vscode-nls` for extension strings and a lightweight runtime 
 ## License
 
 MIT © Electivus
-

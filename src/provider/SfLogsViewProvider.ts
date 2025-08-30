@@ -14,7 +14,7 @@ import {
 import type { ApexLogRow, OrgItem } from '../shared/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn, logError } from '../utils/logger';
-import { warmUpReplayDebugger } from '../utils/warmup';
+import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import {
   getWorkspaceRoot as utilGetWorkspaceRoot,
@@ -275,6 +275,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
 
   private async debugLog(logId: string) {
     try {
+      // Ensure Replay Debugger is available before doing work
+      const ok = await ensureReplayDebuggerAvailable();
+      if (!ok) {
+        return;
+      }
       this.post({ type: 'loading', value: true });
       // Use existing file if present; otherwise fetch and save with username prefix
       let targetPath = await this.findExistingLogFile(logId);

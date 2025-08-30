@@ -13,7 +13,7 @@ import {
 } from '../salesforce';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn, logError, showOutput } from '../utils/logger';
-import { warmUpReplayDebugger } from '../utils/warmup';
+import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import {
   getWorkspaceRoot as utilGetWorkspaceRoot,
@@ -37,6 +37,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   private readonly logIdToPathLimit = 100;
   private disposed = false;
   private selectedOrg: string | undefined;
+  // VS Code 1.89+ Window Activity API: reduce polling when window inactive
+  private windowActive: boolean = true;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     const persisted = restoreSelectedOrg(this.context);
@@ -68,6 +70,23 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         logInfo('Tail webview disposed; stopped tail.');
       })
     );
+
+    // Track window activity to adapt polling cadence (requires VS Code 1.89+; @types 1.90)
+    try {
+      // Initialize from current state
+      this.windowActive = vscode.window.state?.active ?? true;
+      const d = vscode.window.onDidChangeWindowState(e => {
+        this.windowActive = e.active;
+        // When the window becomes active and tail is running, do a prompt poll
+        if (this.windowActive && this.tailRunning && !this.disposed) {
+          if (this.tailTimer) {
+            clearTimeout(this.tailTimer);
+          }
+          this.tailTimer = setTimeout(() => void this.pollOnce(), 100);
+        }
+      });
+      this.context.subscriptions.push(d);
+    } catch {}
 
     webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
       const t = (message as any)?.type;
@@ -309,7 +328,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     if (!this.tailRunning || this.disposed) {
       return;
     }
-    let nextDelay = 1500; // backoff dynamically on errors
+    // Default cadence; slow down when window inactive to save resources
+    let nextDelay = this.windowActive ? 1500 : 5000;
     try {
       const auth = this.currentAuth ?? (await getOrgAuth(this.selectedOrg));
       this.currentAuth = auth;
@@ -346,7 +366,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         }
       }
       this.lastPollErrorAt = 0;
-      nextDelay = 1200;
+      nextDelay = this.windowActive ? 1200 : 4500;
     } catch (e) {
       // Surface error but avoid spamming UI every tick
       const now = Date.now();
@@ -356,7 +376,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         this.post({ type: 'error', message: msg });
         this.lastPollErrorAt = now;
       }
-      nextDelay = 3000;
+      nextDelay = this.windowActive ? 3000 : 6000;
     } finally {
       if (this.tailRunning && !this.disposed) {
         this.tailTimer = setTimeout(() => void this.pollOnce(), nextDelay);
@@ -437,6 +457,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
 
   private async replayLog(logId: string): Promise<void> {
     try {
+      const ok = await ensureReplayDebuggerAvailable();
+      if (!ok) {
+        return;
+      }
       const filePath = await this.ensureLogSaved(logId);
       const uri = vscode.Uri.file(filePath);
       // Keep loading visible and show a notification while launching Replay

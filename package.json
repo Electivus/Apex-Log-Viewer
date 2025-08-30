@@ -10,7 +10,7 @@
     "url": "https://github.com/Electivus/Apex-Log-Viewer"
   },
   "engines": {
-    "vscode": "^1.87.0"
+    "vscode": "^1.90.0"
   },
   "icon": "media/icon.png",
   "galleryBanner": {
@@ -21,9 +21,7 @@
     "Other"
   ],
   "activationEvents": [],
-  "extensionDependencies": [
-    "salesforce.salesforcedx-vscode"
-  ],
+  "extensionDependencies": [],
   "main": "./dist/extension.js",
   "contributes": {
     "configuration": {
@@ -170,7 +168,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@types/react-window": "^1.8.8",
-    "@types/vscode": "^1.87.0",
+    "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^8.39.0",
     "@typescript-eslint/parser": "^8.39.0",
     "@vscode/test-cli": "^0.0.11",
