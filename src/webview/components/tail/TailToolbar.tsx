@@ -1,5 +1,6 @@
 import React from 'react';
 import type { OrgItem } from '../../../shared/types';
+import { commonButtonStyle } from '../styles';
 
 type TailToolbarProps = {
   running: boolean;
@@ -55,15 +56,6 @@ export function TailToolbar({
   error,
   t
 }: TailToolbarProps) {
-  const buttonStyle: React.CSSProperties = {
-    padding: '4px 10px',
-    borderRadius: 4,
-    border: '1px solid var(--vscode-button-border, transparent)',
-    background: 'var(--vscode-button-background)',
-    color: 'var(--vscode-button-foreground)',
-    cursor: 'pointer'
-  };
-
   const selectStyle: React.CSSProperties = {
     background: 'var(--vscode-dropdown-background, var(--vscode-input-background))',
     color: 'var(--vscode-dropdown-foreground, var(--vscode-input-foreground))',
@@ -83,15 +75,15 @@ export function TailToolbar({
 
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-      <button onClick={running ? onStop : onStart} style={buttonStyle} disabled={disabled}>
-        {running ? t.tail?.stop ?? 'Stop' : t.tail?.start ?? 'Start'}
+      <button onClick={running ? onStop : onStart} style={commonButtonStyle} disabled={disabled}>
+        {running ? (t.tail?.stop ?? 'Stop') : (t.tail?.start ?? 'Start')}
       </button>
-      <button onClick={onClear} style={buttonStyle} disabled={disabled}>
+      <button onClick={onClear} style={commonButtonStyle} disabled={disabled}>
         {t.tail?.clear ?? 'Clear'}
       </button>
       <button
         onClick={onOpenSelected}
-        style={buttonStyle}
+        style={commonButtonStyle}
         disabled={disabled || !actionsEnabled}
         title={t.tail?.openSelectedLogTitle ?? 'Open selected log'}
       >
@@ -99,7 +91,7 @@ export function TailToolbar({
       </button>
       <button
         onClick={onReplaySelected}
-        style={buttonStyle}
+        style={commonButtonStyle}
         disabled={disabled || !actionsEnabled}
         title={t.tail?.replayDebuggerTitle ?? 'Apex Replay Debugger'}
       >

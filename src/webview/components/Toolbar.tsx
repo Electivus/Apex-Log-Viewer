@@ -1,15 +1,7 @@
 import React from 'react';
 import type { OrgItem } from '../../shared/types';
 import { FilterSelect } from './FilterSelect';
-
-const buttonStyle: React.CSSProperties = {
-  padding: '4px 10px',
-  borderRadius: 4,
-  border: '1px solid var(--vscode-button-border, transparent)',
-  background: 'var(--vscode-button-background)',
-  color: 'var(--vscode-button-foreground)',
-  cursor: 'pointer'
-};
+import { commonButtonStyle } from './styles';
 
 type ToolbarProps = {
   loading: boolean;
@@ -63,7 +55,7 @@ export function Toolbar({
 }: ToolbarProps) {
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
-      <button onClick={onRefresh} disabled={loading} style={buttonStyle}>
+      <button onClick={onRefresh} disabled={loading} style={commonButtonStyle}>
         {loading ? t.loading : t.refresh}
       </button>
       <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -88,7 +80,9 @@ export function Toolbar({
         </select>
       </label>
       {orgs.length === 0 && (
-        <span style={{ opacity: 0.7 }} aria-live="polite">{t.noOrgsDetected ?? 'No orgs detected. Run "sf org list".'}</span>
+        <span style={{ opacity: 0.7 }} aria-live="polite">
+          {t.noOrgsDetected ?? 'No orgs detected. Run "sf org list".'}
+        </span>
       )}
       <input
         type="search"
@@ -142,7 +136,10 @@ export function Toolbar({
       <button
         onClick={onClearFilters}
         disabled={loading}
-        style={{ ...buttonStyle, opacity: filterUser || filterOperation || filterStatus || filterCodeUnit ? 1 : 0.7 }}
+        style={{
+          ...commonButtonStyle,
+          opacity: filterUser || filterOperation || filterStatus || filterCodeUnit ? 1 : 0.7
+        }}
       >
         {t.filters?.clear ?? 'Clear filters'}
       </button>
