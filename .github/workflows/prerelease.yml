@@ -113,14 +113,16 @@ jobs:
           mv "$FILE" "$NEW_NAME"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "file=$NEW_NAME" >> $GITHUB_OUTPUT
-          echo "tag=pre-${LABEL}" >> $GITHUB_OUTPUT
+          # Use version-based tag so each release is unique and time-correct
+          echo "tag=pre-${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Create or update GitHub pre-release
         env:
           TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          TITLE="Nightly pre-release $TAG"
+          TITLE="Nightly pre-release v${VERSION}"
           BODY="Automated nightly build.\n\nCommit: $GITHUB_SHA\nRun: $GITHUB_RUN_NUMBER"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Updating existing pre-release $TAG"
