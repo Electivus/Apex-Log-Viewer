@@ -38,11 +38,15 @@ export async function warmUpReplayDebugger(): Promise<void> {
 export async function ensureReplayDebuggerAvailable(): Promise<boolean> {
   try {
     const cmds = await vscode.commands.getCommands(true);
-    const hasReplay = cmds.includes('sf.launch.replay.debugger.logfile') || cmds.includes('sfdx.launch.replay.debugger.logfile');
+    const hasReplay =
+      cmds.includes('sf.launch.replay.debugger.logfile') || cmds.includes('sfdx.launch.replay.debugger.logfile');
     if (hasReplay) {
       return true;
     }
-  } catch {}
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logWarn('Failed to check Replay Debugger commands ->', msg);
+  }
   const openExt = localize('replayMissingExtOpen', 'Open Extensions');
   const msg = localize(
     'replayMissingExtMessage',
@@ -51,11 +55,11 @@ export async function ensureReplayDebuggerAvailable(): Promise<boolean> {
   const picked = await vscode.window.showWarningMessage(msg, openExt);
   if (picked === openExt) {
     try {
-      await vscode.commands.executeCommand(
-        'workbench.extensions.search',
-        '@id:salesforce.salesforcedx-vscode'
-      );
-    } catch {}
+      await vscode.commands.executeCommand('workbench.extensions.search', '@id:salesforce.salesforcedx-vscode');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logWarn('Failed to open extensions search ->', msg);
+    }
   }
   return false;
 }

@@ -83,7 +83,9 @@ export function TailList({
     return () => {
       try {
         ro.disconnect();
-      } catch {}
+      } catch (e) {
+        console.warn('TailList: failed to disconnect ResizeObserver', e);
+      }
       window.removeEventListener('resize', recompute);
     };
   }, []);
@@ -98,11 +100,7 @@ export function TailList({
     const fullIdx = filteredIndexes[index]!;
     const l = lines[fullIdx]!;
     return (
-      <div
-        role="row"
-        style={{ ...style, overflow: 'hidden' }}
-        onClick={() => onSelectIndex(fullIdx)}
-      >
+      <div role="row" style={{ ...style, overflow: 'hidden' }} onClick={() => onSelectIndex(fullIdx)}>
         <RowContent
           text={l}
           colorize={colorize}
@@ -194,7 +192,7 @@ export function TailList({
       >
         {showEmpty ? (
           <div style={{ opacity: 0.7, padding: 8 }}>
-            {running ? t.tail?.waiting ?? 'Waiting for logs…' : t.tail?.pressStart ?? 'Press Start to tail logs.'}
+            {running ? (t.tail?.waiting ?? 'Waiting for logs…') : (t.tail?.pressStart ?? 'Press Start to tail logs.')}
           </div>
         ) : (
           <VariableSizeList
@@ -247,7 +245,9 @@ function RowContent({
     return () => {
       try {
         ro.disconnect();
-      } catch {}
+      } catch (e) {
+        console.warn('TailList(RowContent): failed to disconnect ResizeObserver', e);
+      }
     };
   }, [text, onMeasured, colorize, selected]);
 
