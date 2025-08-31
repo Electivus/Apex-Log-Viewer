@@ -318,7 +318,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       const orgs = await listOrgs();
       const selected = pickSelectedOrg(orgs, this.selectedOrg);
       this.post({ type: 'orgs', data: orgs, selected });
-    } catch {
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logError('Logs: list orgs failed ->', msg);
+      void vscode.window.showErrorMessage(localize('sendOrgsFailed', 'Failed to list Salesforce orgs: {0}', msg));
       this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
     }
   }
