@@ -223,7 +223,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
       try {
         logTrace('getOrgAuth: trying', program, args.join(' '));
       } catch {}
-      const { stdout } = await execCommand(program, args);
+      const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS);
       const parsed = JSON.parse(stdout);
       const result = parsed.result || parsed;
       const accessToken: string | undefined = result.accessToken || result.access_token;
@@ -256,7 +256,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
           try {
             logTrace('getOrgAuth(login PATH): trying', program, args.join(' '));
           } catch {}
-          const { stdout } = await execCommand(program, args, env2);
+          const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS);
           const parsed = JSON.parse(stdout);
           const result = parsed.result || parsed;
           const accessToken: string | undefined = result.accessToken || result.access_token;
@@ -393,7 +393,7 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
       try {
         logTrace('listOrgs: trying', program, args.join(' '));
       } catch {}
-      const { stdout } = await execCommand(program, args);
+      const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS);
       const res = parseOrgList(stdout);
       orgsCache = { data: res, expiresAt: now + orgsCacheTtl };
       return res;
@@ -418,7 +418,7 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
           try {
             logTrace('listOrgs(login PATH): trying', program, args.join(' '));
           } catch {}
-          const { stdout } = await execCommand(program, args, env2);
+          const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS);
           const res = parseOrgList(stdout);
           orgsCache = { data: res, expiresAt: now + orgsCacheTtl };
           return res;
