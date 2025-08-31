@@ -11,7 +11,11 @@ import {
   ensureApexLogsDir as utilEnsureApexLogsDir,
   getLogFilePathWithUsername as utilGetLogFilePathWithUsername
 } from './workspace';
-import { createConnectionFromAuth, createLoggingStreamingClient, createOrgFromConnection } from '../salesforce/streaming';
+import {
+  createConnectionFromAuth,
+  createLoggingStreamingClient,
+  createOrgFromConnection
+} from '../salesforce/streaming';
 import { LogService } from '@salesforce/apex-node';
 import type { Connection } from '@salesforce/core';
 import type { JsonMap } from '@salesforce/ts-types';
@@ -330,7 +334,7 @@ export class TailService {
         });
       }
     } catch {
-      logWarn('Tail: failed to save log to workspace (best-effort).');
+      logWarn(localize('tailSaveFailed', 'Tail: failed to save log to workspace (best-effort).'));
     }
     for (const l of String(body || '').split(/\r?\n/)) {
       if (l) {

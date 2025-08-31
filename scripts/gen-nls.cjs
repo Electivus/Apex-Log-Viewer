@@ -30,6 +30,7 @@ const en = {
   tailSelectDebugLevel: 'Select a debug level',
   tailHardStop: 'Tail stopped after 30 minutes.',
   tailSavedTo: 'Saved to {0}',
+  tailSaveFailed: 'Tail: failed to save log to workspace (best-effort).',
   cliNotFound: 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).',
   cliAuthFailed:
     'Could not obtain credentials via sf/sfdx CLI. Verify authentication and try: sf org display --json --verbose',
@@ -51,6 +52,7 @@ const ptBr = {
   tailSelectDebugLevel: 'Selecione um nível de depuração',
   tailHardStop: 'Tail parado após 30 minutos.',
   tailSavedTo: 'Salvo em {0}',
+  tailSaveFailed: 'Tail: falha ao salvar log no workspace (melhor esforço).',
   cliNotFound: 'Salesforce CLI não encontrada. Instale o Salesforce CLI (sf) ou SFDX CLI (sfdx).',
   cliAuthFailed:
     'Não foi possível obter credenciais via sf/sfdx CLI. Verifique a autenticação e tente: sf org display --json --verbose',
