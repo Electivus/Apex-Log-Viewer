@@ -172,7 +172,7 @@ jobs:
           if [ "$PRE_RELEASE" = "true" ]; then echo "CHANNEL_SUFFIX=pre" >> $GITHUB_ENV; else echo "CHANNEL_SUFFIX=stable" >> $GITHUB_ENV; fi
 
       - name: Download VSIX artifact from package job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: apex-log-viewer-${{ github.ref_name }}-${{ env.CHANNEL_SUFFIX }}-vsix
           path: .
