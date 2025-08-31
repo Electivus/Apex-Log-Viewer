@@ -1,3 +1,21 @@
+import { JSDOM } from 'jsdom';
+
+// Basic jsdom environment for React component tests
+const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' });
+(globalThis as any).window = dom.window;
+(globalThis as any).document = dom.window.document;
+Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
+(globalThis as any).HTMLElement = dom.window.HTMLElement;
+(globalThis as any).getComputedStyle = dom.window.getComputedStyle;
+(globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => cb(Date.now()), 0);
+(globalThis as any).cancelAnimationFrame = (id: number) => clearTimeout(id);
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+(globalThis as any).ResizeObserver = ResizeObserverMock;
+
 // Log test start/finish to help diagnose failures in the VS Code host
 let executedCount = 0;
 
