@@ -34,7 +34,7 @@ Why developers like it
 
 ![Overview](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/media/docs/hero.gif)
 
-![Apex Tail Logs](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/media/docs/apex-tail-log.gif)
+![Apex Logs Tail](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/media/docs/apex-tail-log.gif)
 
 ## Requirements
 
@@ -55,7 +55,7 @@ Why developers like it
 ### Open the Apex Logs panel
 
 1. In VS Code, choose `View` > `Appearance` > `Panel`.
-2. Switch to the **Apex** container and select **Apex Logs** to load recent logs.
+2. Switch to the **Apex Logs** container to load recent logs.
 
 ### Refresh logs
 

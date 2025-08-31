@@ -6,6 +6,9 @@ on:
 
 jobs:
   semantic:
+    permissions:
+      contents: read
+      pull-requests: write
     name: Validate PR title (Conventional Commits)
     runs-on: ubuntu-latest
     steps:

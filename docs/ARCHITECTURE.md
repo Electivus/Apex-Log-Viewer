@@ -23,7 +23,7 @@ Key responsibilities:
 
 ## Webview UI
 
-The React-based UI lives under `src/webview/`. It renders the log table, search box, filters, and action buttons. The bundle is produced by `esbuild.js` and emitted to `media/main.js` during builds.
+The React-based UI lives under `src/webview/`. It renders the log table, search box, filters, and action buttons. The bundle is produced by `esbuild` and emitted to `media/main.js` during builds.
 
 Messages from the extension arrive via `onDidReceiveMessage` and are dispatched to React components through a small reducer. User actions (refresh, open, tail) send messages back to the extension.
 
@@ -35,7 +35,7 @@ Messages from the extension arrive via `onDidReceiveMessage` and are dispatched 
 ## Testing and build tooling
 
 - Tests live in `src/test/` and are compiled to `out/test/`. The `scripts/run-tests.js` script orchestrates unit and integration tests.
-- `npm run build` runs type checks, linting, and bundling for the extension and webview.
+- `npm run build` compiles the extension and bundles the webview.
 
 ## Data flow summary
 

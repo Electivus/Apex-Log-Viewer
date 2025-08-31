@@ -16,7 +16,9 @@ suite('extension deactivate', () => {
     });
 
     const modPath = req.resolve('../../dist/extension');
+    const loggerPath = req.resolve('../../dist/utils/logger');
     delete req.cache[modPath];
+    delete req.cache[loggerPath];
     const ext = req('../../dist/extension');
 
     ext.deactivate();

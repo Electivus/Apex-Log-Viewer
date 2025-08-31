@@ -149,7 +149,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       webview,
       this.context.extensionUri,
       'tail.js',
-      localize('salesforce.tail.view.name', 'Apex Log Tail')
+      localize('salesforce.tail.view.name', 'Apex Logs Tail')
     );
   }
 

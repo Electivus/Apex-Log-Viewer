@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- Rename panels to "Apex Logs" and "Apex Logs Tail".
+
 ## [0.3.1](https://github.com/Electivus/Apex-Log-Viewer/compare/apex-log-viewer-v0.3.1...apex-log-viewer-v0.3.1) (2025-08-30)
 
 ### ⚠ BREAKING CHANGES
