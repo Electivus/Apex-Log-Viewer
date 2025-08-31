@@ -363,7 +363,7 @@ export class TailService {
         });
       }
     } catch {
-      logWarn('Tail: failed to save log to workspace (best-effort).');
+      logWarn(localize('tailSaveFailed', 'Tail: failed to save log to workspace (best-effort).'));
     }
     for (const l of String(body || '').split(/\r?\n/)) {
       if (l) {
