@@ -15,6 +15,11 @@ interface OrgQuickPick extends vscode.QuickPickItem {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+  // Avoid @salesforce/core attempting to spawn Pino transports that fail when bundled
+  try {
+    if (!process.env.SF_DISABLE_LOG_FILE) process.env.SF_DISABLE_LOG_FILE = 'true';
+    if (!process.env.SFDX_DISABLE_LOG_FILE) process.env.SFDX_DISABLE_LOG_FILE = 'true';
+  } catch {}
   logInfo('Activating Apex Log Viewer extension…');
   // Configure trace logging from settings
   try {
