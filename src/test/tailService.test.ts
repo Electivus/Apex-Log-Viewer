@@ -92,12 +92,18 @@ suite('TailService', () => {
     assert.equal((service as any).logIdToPath.size, 0);
   });
 
-  test('stop cleans connection and log service', () => {
+  test('stop cleans streaming client, connection and log service', () => {
     const service = new TailService(() => {});
+    let streamDisconnect = false;
     let connLogout = false;
     let connDispose = false;
     let logLogout = false;
     let logDispose = false;
+    (service as any).streamingClient = {
+      disconnect() {
+        streamDisconnect = true;
+      }
+    };
     (service as any).connection = {
       logout() {
         connLogout = true;
@@ -117,10 +123,12 @@ suite('TailService', () => {
     (service as any).currentAuth = { username: 'u' } as any;
     (service as any).lastReplayId = 1;
     service.stop();
+    assert.equal(streamDisconnect, true);
     assert.equal(connLogout, true);
     assert.equal(connDispose, true);
     assert.equal(logLogout, true);
     assert.equal(logDispose, true);
+    assert.equal((service as any).streamingClient, undefined);
     assert.equal((service as any).connection, undefined);
     assert.equal((service as any).logService, undefined);
     assert.equal((service as any).currentAuth, undefined);
