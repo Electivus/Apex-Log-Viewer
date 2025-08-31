@@ -2,14 +2,20 @@ import assert from 'assert/strict';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { SfLogsViewProvider } from '../provider/SfLogsViewProvider';
-import { __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce/cli';
+import {
+  __setExecFileImplForTests,
+  __resetExecFileImplForTests,
+  __resetListOrgsCacheForTests
+} from '../salesforce/cli';
 
 suite('SfLogsViewProvider sendOrgs', () => {
   teardown(() => {
     __resetExecFileImplForTests();
+    __resetListOrgsCacheForTests();
   });
 
   test('shows error message when listOrgs rejects', async () => {
+    __resetListOrgsCacheForTests();
     __setExecFileImplForTests(((file: string, _args: readonly string[] | undefined, _opts: any, cb: any) => {
       const err: any = new Error('ENOENT');
       err.code = 'ENOENT';
