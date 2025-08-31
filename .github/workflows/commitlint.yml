@@ -8,6 +8,9 @@ jobs:
   lint-commits:
     name: Validate commit messages
     runs-on: ubuntu-latest
+    # Skip commitlint for automated bot PRs (e.g., Dependabot), since their bodies
+    # include long lines/links that violate our wrapping rules and are not human-authored.
+    if: ${{ github.actor != 'dependabot[bot]' && github.actor != 'github-actions[bot]' }}
     steps:
       - name: Checkout (full history)
         uses: actions/checkout@v4
