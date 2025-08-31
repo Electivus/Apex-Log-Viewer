@@ -1,6 +1,6 @@
 import * as https from 'https';
 import { URL } from 'url';
-import { logTrace } from '../utils/logger';
+import { logTrace, logWarn } from '../utils/logger';
 import { getOrgAuth } from './cli';
 import type { ApexLogRow, OrgAuth } from './types';
 
@@ -60,7 +60,10 @@ async function refreshAuthInPlace(auth: OrgAuth): Promise<void> {
     auth.accessToken = next.accessToken;
     auth.instanceUrl = next.instanceUrl;
     auth.username = next.username;
-  } catch {
+  } catch (err) {
+    try {
+      logWarn('Auth refresh failed', err);
+    } catch {}
     // surface original 401 if refresh fails
   }
 }
