@@ -26,6 +26,7 @@ function App() {
   const [query, setQuery] = useState('');
   const [onlyUserDebug, setOnlyUserDebug] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
+  const autoScrollPausedByScrollRef = useRef(false);
   const [colorize, setColorize] = useState(false);
   const [debugLevels, setDebugLevels] = useState<string[]>([]);
   const [debugLevel, setDebugLevel] = useState('');
@@ -222,6 +223,7 @@ function App() {
         autoScroll={autoScroll}
         onToggleAutoScroll={v => {
           setAutoScroll(v);
+          autoScrollPausedByScrollRef.current = false; // user action overrides pause reason
           if (v) {
             // Clear selection to allow auto-scroll to take over and jump to end immediately
             setSelectedIndex(undefined);
@@ -239,12 +241,25 @@ function App() {
         onSelectIndex={idx => {
           setSelectedIndex(idx);
           setAutoScroll(false);
+          autoScrollPausedByScrollRef.current = false; // selection is explicit user pause
           scrollToIndex(idx, 'smooth');
         }}
         colorize={colorize}
         running={running}
         listRef={listRef}
         t={t}
+        onAtBottomChange={atBottom => {
+          // Only auto-toggle when current state stems from scroll pause
+          if (!atBottom && autoScroll) {
+            // User scrolled up -> pause
+            setAutoScroll(false);
+            autoScrollPausedByScrollRef.current = true;
+          } else if (atBottom && !autoScroll && autoScrollPausedByScrollRef.current) {
+            // User returned to bottom -> resume
+            setAutoScroll(true);
+            autoScrollPausedByScrollRef.current = false;
+          }
+        }}
       />
     </div>
   );
