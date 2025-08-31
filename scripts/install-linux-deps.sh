@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Only run when explicitly requested
+if [[ "${INSTALL_LINUX_DEPS:-}" != "true" ]]; then
+  echo "[deps] INSTALL_LINUX_DEPS not true; skipping installation." >&2
+  exit 0
+fi
+
 # Installs the required system libraries to run VS Code/Electron in headless Linux.
 # Supports Ubuntu 24.04 (t64 packages) and older variants when available.
 
