@@ -61,7 +61,9 @@ export function LogsTable({
 
   const handleItemsRendered = (props: ListOnItemsRenderedProps) => {
     const { visibleStopIndex } = props;
-    const threshold = Math.max(0, rows.length - 10);
+    // Trigger load more when within ~one screenful from the end
+    const approxVisible = Math.max(5, Math.ceil(measuredListHeight / defaultRowHeight));
+    const threshold = Math.max(0, rows.length - (approxVisible + 5));
     if (autoPagingActivated && hasMore && !loading && visibleStopIndex >= threshold) {
       onLoadMore();
     }

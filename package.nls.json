@@ -11,5 +11,6 @@
   "configuration.title": "Apex Logs",
   "configuration.sfLogs.pageSize.description": "Number of logs to fetch per page (LIMIT).",
   "configuration.sfLogs.headConcurrency.description": "Maximum number of concurrent requests to fetch log heads.",
-  "configuration.sfLogs.saveDirName.description": "Folder under the workspace where Apex logs are saved. If empty, the extension will auto-detect an existing 'apexlog' folder or use 'apexlogs'."
+  "configuration.sfLogs.saveDirName.description": "Folder under the workspace where Apex logs are saved. If empty, the extension will auto-detect an existing 'apexlog' folder or use 'apexlogs'.",
+  "configuration.sfLogs.tailBufferSize.description": "Maximum number of lines kept in the Tail view's rolling buffer. Larger values keep more history but use more memory."
 }

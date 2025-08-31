@@ -24,6 +24,20 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       logInfo('Tail: restored selected org from globalState:', this.selectedOrg || '(default)');
     }
     this.tailService.setOrg(this.selectedOrg);
+
+    // React to tail buffer size changes live
+    this.context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration(e => {
+        if (e.affectsConfiguration('sfLogs.tailBufferSize')) {
+          try {
+            const size = this.getTailBufferSize();
+            this.post({ type: 'tailConfig', tailBufferSize: size });
+          } catch {
+            // ignore
+          }
+        }
+      })
+    );
   }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
@@ -77,6 +91,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         await this.sendOrgs();
         await this.sendDebugLevels();
         this.post({ type: 'init', locale: vscode.env.language });
+        // Send tail buffer size configuration
+        this.post({ type: 'tailConfig', tailBufferSize: this.getTailBufferSize() });
         this.post({ type: 'tailStatus', running: this.tailService.isRunning() });
         this.post({ type: 'loading', value: false });
         return;
@@ -155,6 +171,14 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
 
   private post(msg: ExtensionToWebviewMessage): void {
     this.view?.webview.postMessage(msg);
+  }
+
+  private getTailBufferSize(): number {
+    const cfg = vscode.workspace.getConfiguration();
+    const raw = cfg.get<number>('sfLogs.tailBufferSize');
+    const n = raw && Number.isFinite(raw) ? Math.floor(raw) : 10000;
+    // clamp to a safe range
+    return Math.max(1000, Math.min(200000, n));
   }
 
   public async sendOrgs(): Promise<void> {

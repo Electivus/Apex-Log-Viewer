@@ -11,5 +11,6 @@
   "configuration.title": "Apex Logs",
   "configuration.sfLogs.pageSize.description": "Quantidade de logs por página (LIMIT).",
   "configuration.sfLogs.headConcurrency.description": "Número máximo de requisições concorrentes para buscar cabeçalhos dos logs.",
-  "configuration.sfLogs.saveDirName.description": "Pasta dentro do workspace onde os logs Apex são salvos. Se vazio, a extensão tenta detectar uma pasta existente 'apexlog' ou usa 'apexlogs'."
+  "configuration.sfLogs.saveDirName.description": "Pasta dentro do workspace onde os logs Apex são salvos. Se vazio, a extensão tenta detectar uma pasta existente 'apexlog' ou usa 'apexlogs'.",
+  "configuration.sfLogs.tailBufferSize.description": "Quantidade máxima de linhas mantidas no buffer da visualização de Tail. Valores maiores mantêm mais histórico, mas consomem mais memória."
 }

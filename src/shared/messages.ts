@@ -28,6 +28,7 @@ export type ExtensionToWebviewMessage =
   | { type: 'tailStatus'; running: boolean }
   | { type: 'tailData'; lines: string[] }
   | { type: 'tailReset' }
+  | { type: 'tailConfig'; tailBufferSize: number }
   | {
       type: 'tailNewLog';
       logId: string;
