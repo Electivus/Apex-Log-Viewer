@@ -72,6 +72,10 @@ Why developers like it
 
 - `sfLogs.pageSize`: Number of logs fetched per page (10–200; default 100).
 - `sfLogs.headConcurrency`: Max concurrent requests to fetch log headers (1–20; default 5).
+- `sfLogs.saveDirName`: Folder name used when saving logs to disk (default `apexlogs`).
+- `sfLogs.trace`: Enable verbose trace logging of CLI and HTTP calls.
+
+See [docs/SETTINGS.md](docs/SETTINGS.md) for more details on configuration.
 
 API version is automatically taken from your workspace `sfdx-project.json` (`sourceApiVersion`).
 
