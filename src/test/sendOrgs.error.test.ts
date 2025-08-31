@@ -31,7 +31,8 @@ suite('SfLogsViewProvider sendOrgs', () => {
 
     try {
       const provider = new SfLogsViewProvider(context);
-      await provider.sendOrgs();
+      // Force refresh to bypass any cached orgs from previous tests
+      await provider.sendOrgs(true);
     } finally {
       (vscode.window as any).showErrorMessage = origShowError;
     }
