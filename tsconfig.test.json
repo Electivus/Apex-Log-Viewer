@@ -4,8 +4,10 @@
     "outDir": "out",
     "rootDir": "src",
     "noEmit": false,
-    "sourceMap": true
+    "sourceMap": true,
+    "lib": ["ES2022", "DOM"],
+    "jsx": "react-jsx"
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules", "dist", "media", "out", "src/webview/**", "src/extension.ts"]
+  "exclude": ["node_modules", "dist", "media", "out", "src/extension.ts"]
 }

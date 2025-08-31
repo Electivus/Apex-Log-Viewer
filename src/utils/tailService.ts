@@ -14,11 +14,12 @@ import {
 import {
   createConnectionFromAuth,
   createLoggingStreamingClient,
-  createOrgFromConnection
+  createOrgFromConnection,
+  type StreamProcessor,
+  type StreamingClient
 } from '../salesforce/streaming';
 import { LogService } from '@salesforce/apex-node';
 import type { Connection } from '@salesforce/core';
-import type { JsonMap } from '@salesforce/ts-types';
 
 /**
  * Handles Apex log tailing mechanics independent of the webview.
@@ -36,7 +37,7 @@ export class TailService {
   private disposed = false;
   private selectedOrg: string | undefined;
   private windowActive = true;
-  private streamingClient: any | undefined;
+  private streamingClient: StreamingClient | undefined;
   private connection: Connection | undefined;
   private logService: LogService | undefined;
   private lastReplayId: number | undefined;
@@ -138,7 +139,7 @@ export class TailService {
         30 * 60 * 1000
       );
       // Create StreamingClient (uses API 36.0 for system topics automatically)
-      const processor = (message: JsonMap) => {
+      const processor: StreamProcessor = (message: Parameters<StreamProcessor>[0]) => {
         try {
           const errName = (message as any)?.errorName;
           if (errName === 'streamListenerAborted') {
@@ -259,6 +260,34 @@ export class TailService {
       const msg = e instanceof Error ? e.message : String(e);
       logWarn('Tail: streaming disconnect error ->', msg);
     }
+    try {
+      (this.connection as any)?.logout?.();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logWarn('Tail: connection logout error ->', msg);
+    }
+    try {
+      (this.connection as any)?.dispose?.();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logWarn('Tail: connection dispose error ->', msg);
+    }
+    this.connection = undefined;
+    try {
+      (this.logService as any)?.logout?.();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logWarn('Tail: log service logout error ->', msg);
+    }
+    try {
+      (this.logService as any)?.dispose?.();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logWarn('Tail: log service dispose error ->', msg);
+    }
+    this.logService = undefined;
+    this.currentAuth = undefined;
+    this.lastReplayId = undefined;
     if (this.tailTimer) {
       clearTimeout(this.tailTimer);
       this.tailTimer = undefined;

@@ -98,7 +98,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.selectOrg', async () => {
       logInfo('Command sfLogs.selectOrg invoked. Listing orgs…');
-      const orgs: OrgItem[] = await listOrgs();
+      const orgs: OrgItem[] = await listOrgs(true);
       const items: OrgQuickPick[] = orgs.map(o => ({
         label: o.alias ?? o.username,
         description: o.isDefaultUsername ? localize('selectOrgDefault', 'Default') : undefined,

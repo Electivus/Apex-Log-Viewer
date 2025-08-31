@@ -178,21 +178,27 @@ export function LogsTable({
         onItemsRendered={handleItemsRendered}
         overscanCount={overscanCount}
       >
-        {({ index, style }) => (
-          <LogRow
-            r={rows[index]}
-            logHead={logHead}
-            locale={locale}
-            t={t}
-            loading={loading}
-            onOpen={onOpen}
-            onReplay={onReplay}
-            gridTemplate={gridTemplate}
-            style={style}
-            index={index}
-            setRowHeight={setRowHeight}
-          />
-        )}
+        {({ index, style }) => {
+          const row = rows[index];
+          if (!row) {
+            return null;
+          }
+          return (
+            <LogRow
+              r={row}
+              logHead={logHead}
+              locale={locale}
+              t={t}
+              loading={loading}
+              onOpen={onOpen}
+              onReplay={onReplay}
+              gridTemplate={gridTemplate}
+              style={style}
+              index={index}
+              setRowHeight={setRowHeight}
+            />
+          );
+        }}
       </VariableSizeList>
     </div>
   );
