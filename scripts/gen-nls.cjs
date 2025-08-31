@@ -31,6 +31,7 @@ const en = {
   tailHardStop: 'Tail stopped after 30 minutes.',
   tailSavedTo: 'Saved to {0}',
   cliNotFound: 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).',
+  cliTimeout: 'Salesforce CLI command timed out after {0} seconds.',
   cliAuthFailed:
     'Could not obtain credentials via sf/sfdx CLI. Verify authentication and try: sf org display --json --verbose',
   selectOrgPlaceholder: 'Select an authenticated org',
@@ -52,6 +53,7 @@ const ptBr = {
   tailHardStop: 'Tail parado após 30 minutos.',
   tailSavedTo: 'Salvo em {0}',
   cliNotFound: 'Salesforce CLI não encontrada. Instale o Salesforce CLI (sf) ou SFDX CLI (sfdx).',
+  cliTimeout: 'Comando do Salesforce CLI expirou após {0} segundos.',
   cliAuthFailed:
     'Não foi possível obter credenciais via sf/sfdx CLI. Verifique a autenticação e tente: sf org display --json --verbose',
   selectOrgPlaceholder: 'Selecione uma org autenticada',
