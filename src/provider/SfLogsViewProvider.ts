@@ -313,9 +313,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     );
   }
 
-  public async sendOrgs() {
+  public async sendOrgs(forceRefresh = false) {
     try {
-      const orgs = await listOrgs();
+      const orgs = await listOrgs(forceRefresh);
       const selected = pickSelectedOrg(orgs, this.selectedOrg);
       this.post({ type: 'orgs', data: orgs, selected });
     } catch {

@@ -324,7 +324,29 @@ function parseOrgList(json: string): OrgItem[] {
   return arr;
 }
 
-export async function listOrgs(): Promise<OrgItem[]> {
+// Simple in-memory cache for listOrgs
+interface OrgsCache {
+  data: OrgItem[];
+  expiresAt: number;
+}
+
+let orgsCache: OrgsCache | undefined;
+let orgsCacheTtl = 10000; // 10s default
+
+export function __setListOrgsCacheTTLForTests(ms: number): void {
+  orgsCacheTtl = ms;
+}
+
+export function __resetListOrgsCacheForTests(): void {
+  orgsCache = undefined;
+  orgsCacheTtl = 10000;
+}
+
+export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
+  const now = Date.now();
+  if (!forceRefresh && orgsCache && orgsCache.expiresAt > now) {
+    return orgsCache.data;
+  }
   const candidates: Array<{ program: string; args: string[] }> = [
     { program: 'sf', args: ['org', 'list', '--json'] },
     { program: 'sfdx', args: ['force:org:list', '--json'] }
@@ -336,7 +358,9 @@ export async function listOrgs(): Promise<OrgItem[]> {
         logTrace('listOrgs: trying', program, args.join(' '));
       } catch {}
       const { stdout } = await execCommand(program, args);
-      return parseOrgList(stdout);
+      const res = parseOrgList(stdout);
+      orgsCache = { data: res, expiresAt: now + orgsCacheTtl };
+      return res;
     } catch (_e) {
       const e: any = _e;
       if (e && e.code === 'ENOENT') {
@@ -357,7 +381,9 @@ export async function listOrgs(): Promise<OrgItem[]> {
             logTrace('listOrgs(login PATH): trying', program, args.join(' '));
           } catch {}
           const { stdout } = await execCommand(program, args, env2);
-          return parseOrgList(stdout);
+          const res = parseOrgList(stdout);
+          orgsCache = { data: res, expiresAt: now + orgsCacheTtl };
+          return res;
         } catch {
           try {
             logTrace('listOrgs(login PATH): attempt failed for', program);
@@ -369,7 +395,9 @@ export async function listOrgs(): Promise<OrgItem[]> {
       localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).')
     );
   }
-  return [];
+  const empty: OrgItem[] = [];
+  orgsCache = { data: empty, expiresAt: now + orgsCacheTtl };
+  return empty;
 }
 
 export { parseOrgList as __parseOrgListForTests };
