@@ -1,9 +1,11 @@
 import * as cp from 'child_process';
 import * as os from 'os';
-import { logTrace } from '../utils/logger';
+import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
 const crossSpawn = require('cross-spawn');
 import type { OrgAuth, OrgItem } from './types';
+
+const CLI_TIMEOUT_MS = 30000;
 
 // Allow swapping exec implementation in tests
 export type ExecFileFn = (
@@ -142,17 +144,28 @@ export async function getLoginShellEnv(): Promise<NodeJS.ProcessEnv | undefined>
 function execCommand(
   program: string,
   args: string[],
-  envOverride?: NodeJS.ProcessEnv
+  envOverride?: NodeJS.ProcessEnv,
+  timeoutMs: number = CLI_TIMEOUT_MS
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const opts: cp.ExecFileOptionsWithStringEncoding = { maxBuffer: 1024 * 1024 * 10, encoding: 'utf8' };
+    const opts: cp.ExecFileOptionsWithStringEncoding = {
+      maxBuffer: 1024 * 1024 * 10,
+      encoding: 'utf8'
+    };
     if (envOverride) {
       opts.env = envOverride;
     }
     try {
       logTrace('execCommand:', program, args.join(' '), envOverride?.PATH ? '(login PATH)' : '');
     } catch {}
-    execFileImpl(program, args, opts, (error, stdout, stderr) => {
+    let finished = false;
+    let timer: NodeJS.Timeout;
+    const child = execFileImpl(program, args, opts, (error, stdout, stderr) => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      clearTimeout(timer);
       if (error) {
         const err: any = error;
         if (err && (err.code === 'ENOENT' || /not found|ENOENT/i.test(err.message))) {
@@ -175,6 +188,23 @@ function execCommand(
       } catch {}
       resolve({ stdout, stderr });
     });
+    timer = setTimeout(() => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      try {
+        child.kill();
+      } catch {}
+      try {
+        logWarn('execCommand timeout for', program);
+      } catch {}
+      const err: any = new Error(
+        localize('cliTimeout', 'Salesforce CLI command timed out after {0} seconds.', Math.round(timeoutMs / 1000))
+      );
+      err.code = 'ETIMEDOUT';
+      reject(err);
+    }, timeoutMs);
   });
 }
 
@@ -193,7 +223,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
       try {
         logTrace('getOrgAuth: trying', program, args.join(' '));
       } catch {}
-      const { stdout } = await execCommand(program, args);
+      const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS);
       const parsed = JSON.parse(stdout);
       const result = parsed.result || parsed;
       const accessToken: string | undefined = result.accessToken || result.access_token;
@@ -209,6 +239,8 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
       const e: any = _e;
       if (e && e.code === 'ENOENT') {
         sawEnoent = true;
+      } else if (e && e.code === 'ETIMEDOUT') {
+        throw e;
       }
       try {
         logTrace('getOrgAuth: attempt failed for', program);
@@ -224,7 +256,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
           try {
             logTrace('getOrgAuth(login PATH): trying', program, args.join(' '));
           } catch {}
-          const { stdout } = await execCommand(program, args, env2);
+          const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS);
           const parsed = JSON.parse(stdout);
           const result = parsed.result || parsed;
           const accessToken: string | undefined = result.accessToken || result.access_token;
@@ -236,7 +268,11 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
             } catch {}
             return { accessToken, instanceUrl, username };
           }
-        } catch {
+        } catch (_e) {
+          const e: any = _e;
+          if (e && e.code === 'ETIMEDOUT') {
+            throw e;
+          }
           try {
             logTrace('getOrgAuth(login PATH): attempt failed for', program);
           } catch {}
@@ -357,7 +393,7 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
       try {
         logTrace('listOrgs: trying', program, args.join(' '));
       } catch {}
-      const { stdout } = await execCommand(program, args);
+      const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS);
       const res = parseOrgList(stdout);
       orgsCache = { data: res, expiresAt: now + orgsCacheTtl };
       return res;
@@ -365,6 +401,8 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
       const e: any = _e;
       if (e && e.code === 'ENOENT') {
         sawEnoent = true;
+      } else if (e && e.code === 'ETIMEDOUT') {
+        throw e;
       }
       try {
         logTrace('listOrgs: attempt failed for', program);
@@ -380,11 +418,15 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
           try {
             logTrace('listOrgs(login PATH): trying', program, args.join(' '));
           } catch {}
-          const { stdout } = await execCommand(program, args, env2);
+          const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS);
           const res = parseOrgList(stdout);
           orgsCache = { data: res, expiresAt: now + orgsCacheTtl };
           return res;
-        } catch {
+        } catch (_e) {
+          const e: any = _e;
+          if (e && e.code === 'ETIMEDOUT') {
+            throw e;
+          }
           try {
             logTrace('listOrgs(login PATH): attempt failed for', program);
           } catch {}

@@ -11,6 +11,7 @@ import {
 suite('SfLogsViewProvider sendOrgs', () => {
   teardown(() => {
     __resetExecFileImplForTests();
+    __resetListOrgsCacheForTests();
   });
 
   test('shows error message when listOrgs rejects', async () => {
