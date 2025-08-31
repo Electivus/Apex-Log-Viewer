@@ -1,9 +1,11 @@
 import { AuthInfo, Connection, Org, StreamingClient } from '@salesforce/core';
 import { Duration } from '@salesforce/kit';
-import type { JsonMap } from '@salesforce/ts-types';
+import type { AnyJson, JsonMap } from '@salesforce/ts-types';
 import type { OrgAuth } from './types';
 
-export type StreamProcessor = (message: JsonMap) => { completed: boolean; payload?: any };
+export type { StreamingClient };
+
+export type StreamProcessor = (message: JsonMap) => { completed: boolean; payload?: AnyJson };
 
 export async function createConnectionFromAuth(auth: OrgAuth): Promise<Connection> {
   const authInfo = await AuthInfo.create({
@@ -22,7 +24,7 @@ export async function createLoggingStreamingClient(
   org: Org,
   streamProcessor: StreamProcessor
 ): Promise<StreamingClient> {
-  const options = new StreamingClient.DefaultOptions(org, '/systemTopic/Logging', streamProcessor as any);
+  const options = new StreamingClient.DefaultOptions(org, '/systemTopic/Logging', streamProcessor);
   // Align subscribe timeout to our tail hard-stop (30 minutes) like apex-node does
   try {
     options.setSubscribeTimeout(Duration.minutes(30));
