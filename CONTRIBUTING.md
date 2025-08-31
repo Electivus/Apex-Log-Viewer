@@ -4,7 +4,7 @@ Thanks for taking the time to contribute! This guide covers local setup, coding 
 
 ## Quick Start
 
-- Requirements: Node.js 20+, VS Code 1.87+, Salesforce CLI (`sf` recommended or legacy `sfdx`).
+- Requirements: Node.js 20+ (use `nvm use` to respect `.nvmrc`), VS Code 1.87+, Salesforce CLI (`sf` recommended or legacy `sfdx`).
 - Clone and install: `npm install`
 - Build once: `npm run build`
 - Dev mode: `npm run watch` then press `F5` in VS Code to launch the Extension Development Host.
