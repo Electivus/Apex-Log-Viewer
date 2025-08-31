@@ -19,7 +19,9 @@ export async function activate(context: vscode.ExtensionContext) {
   try {
     if (!process.env.SF_DISABLE_LOG_FILE) process.env.SF_DISABLE_LOG_FILE = 'true';
     if (!process.env.SFDX_DISABLE_LOG_FILE) process.env.SFDX_DISABLE_LOG_FILE = 'true';
-  } catch {}
+  } catch (e) {
+    logWarn('Failed to set Salesforce CLI log env flags ->', e instanceof Error ? e.message : String(e));
+  }
   logInfo('Activating Apex Log Viewer extension…');
   // Configure trace logging from settings
   try {

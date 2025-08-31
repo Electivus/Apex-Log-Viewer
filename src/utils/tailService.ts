@@ -11,7 +11,11 @@ import {
   ensureApexLogsDir as utilEnsureApexLogsDir,
   getLogFilePathWithUsername as utilGetLogFilePathWithUsername
 } from './workspace';
-import { createConnectionFromAuth, createLoggingStreamingClient, createOrgFromConnection } from '../salesforce/streaming';
+import {
+  createConnectionFromAuth,
+  createLoggingStreamingClient,
+  createOrgFromConnection
+} from '../salesforce/streaming';
 import { LogService } from '@salesforce/apex-node';
 import type { Connection } from '@salesforce/core';
 import type { JsonMap } from '@salesforce/ts-types';
@@ -179,7 +183,10 @@ export class TailService {
             this.streamingClient.replay(-1);
             logInfo('Tail: starting fresh with replay -1');
           }
-        } catch {}
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          logWarn('Tail: failed to request replay ->', msg);
+        }
         // Don't await subscribe; it resolves only when the processor returns completed or on timeout.
         void this.streamingClient
           .subscribe()

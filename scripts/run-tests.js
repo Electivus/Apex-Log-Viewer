@@ -2,11 +2,7 @@ const { spawn, execFile, spawnSync } = require('child_process');
 const { platform, tmpdir } = require('os');
 const { mkdtempSync, writeFileSync, mkdirSync, rmSync } = require('fs');
 const { join, resolve } = require('path');
-const {
-  downloadAndUnzipVSCode,
-  resolveCliArgsFromVSCodeExecutablePath,
-  runTests
-} = require('@vscode/test-electron');
+const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } = require('@vscode/test-electron');
 
 function execFileAsync(file, args, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -29,7 +25,9 @@ function addLocalBinToPath() {
     if (!pathNow.split(sep).includes(bin)) {
       process.env.PATH = bin + sep + pathNow;
     }
-  } catch {}
+  } catch (e) {
+    console.warn('[test-setup] Failed to add local node_modules/.bin to PATH:', e && e.message ? e.message : e);
+  }
 }
 
 async function whichSf() {
@@ -57,7 +55,9 @@ async function addGlobalBinToPath() {
         process.env.PATH = bin + sep + pathNow;
       }
     }
-  } catch {}
+  } catch (e) {
+    console.warn('[test-setup] Failed to add global npm bin to PATH:', e && e.message ? e.message : e);
+  }
 }
 
 async function ensureSfCliInstalled() {
@@ -81,7 +81,9 @@ async function ensureSfCliInstalled() {
 }
 
 async function ensureDevHub(cli, { authUrl, alias }) {
-  if (!cli || !authUrl) {return;}
+  if (!cli || !authUrl) {
+    return;
+  }
   try {
     const tmp = mkdtempSync(join(tmpdir(), 'alv-'));
     const file = join(tmp, 'devhub.sfdxurl');
@@ -114,7 +116,9 @@ async function ensureDevHub(cli, { authUrl, alias }) {
 }
 
 async function ensureDefaultScratch(cli, { alias, durationDays, definitionJson, keep }) {
-  if (!cli) {return { cleanup: async () => {} };}
+  if (!cli) {
+    return { cleanup: async () => {} };
+  }
   try {
     // If already exists, set as default and return
     try {
@@ -130,7 +134,9 @@ async function ensureDefaultScratch(cli, { alias, durationDays, definitionJson, 
       }
       console.log(`[test-setup] Using existing scratch org '${alias}' as default.`);
       return { alias, cleanup: async () => {} };
-    } catch {}
+    } catch (e) {
+      console.warn('[test-setup] Scratch org lookup failed:', e && e.message ? e.message : e);
+    }
 
     const tmp = mkdtempSync(join(tmpdir(), 'alv-'));
     const defFile = join(tmp, 'project-scratch-def.json');
@@ -175,7 +181,9 @@ async function ensureDefaultScratch(cli, { alias, durationDays, definitionJson, 
     console.log(`[test-setup] Created scratch org '${alias}' and set as default.`);
 
     const cleanup = async () => {
-      if (keep) {return;}
+      if (keep) {
+        return;
+      }
       try {
         if (cli === 'sf') {
           await execFileAsync('sf', ['org', 'delete', 'scratch', '-o', alias, '--no-prompt', '--json']);
@@ -221,7 +229,9 @@ async function pretestSetup() {
       definitionJson: undefined,
       keep: keepScratch
     });
-    if (res && res.cleanup) {cleanup = res.cleanup;}
+    if (res && res.cleanup) {
+      cleanup = res.cleanup;
+    }
   }
   // Create a temporary VS Code workspace with expected sfdx-project.json
   try {
@@ -242,19 +252,27 @@ async function pretestSetup() {
       mkdirSync(vsdir, { recursive: true });
       const settings = {};
       const wantTrace = /^1|true$/i.test(String(process.env.SF_LOG_TRACE || ''));
-      if (wantTrace) {settings['sfLogs.trace'] = true;}
+      if (wantTrace) {
+        settings['sfLogs.trace'] = true;
+      }
       const logLevel = process.env.VSCODE_TEST_LOG_LEVEL || process.env.VSCODE_LOG_LEVEL;
-      if (logLevel) {settings['window.logLevel'] = String(logLevel);}
+      if (logLevel) {
+        settings['window.logLevel'] = String(logLevel);
+      }
       if (Object.keys(settings).length > 0) {
         writeFileSync(join(vsdir, 'settings.json'), JSON.stringify(settings, null, 2), 'utf8');
       }
-    } catch {}
+    } catch (e) {
+      console.warn('[test-setup] Failed to write test workspace settings:', e && e.message ? e.message : e);
+    }
     process.env.VSCODE_TEST_WORKSPACE = ws;
     const prevCleanup = cleanup;
     cleanup = async () => {
       try {
         rmSync(ws, { recursive: true, force: true });
-      } catch {}
+      } catch (e) {
+        console.warn('[test-setup] Failed to remove test workspace:', e && e.message ? e.message : e);
+      }
       await prevCleanup();
     };
   } catch (e) {
@@ -279,18 +297,16 @@ async function run() {
   // Ensure Electron launches as a GUI app, not Node.
   // Some environments leak ELECTRON_RUN_AS_NODE=1 which breaks VS Code when
   // passed common flags like --user-data-dir. Explicitly unset it here.
-  try { delete process.env.ELECTRON_RUN_AS_NODE; } catch {}
+  try {
+    delete process.env.ELECTRON_RUN_AS_NODE;
+  } catch (e) {
+    console.warn('[test-setup] Failed to unset ELECTRON_RUN_AS_NODE:', e && e.message ? e.message : e);
+  }
   // Re-exec under Xvfb when DISPLAY is missing on Linux
   if (platform() === 'linux' && !process.env.DISPLAY && !process.env.__ALV_XVFB_RAN) {
     try {
       await execFileAsync('bash', ['-lc', 'command -v xvfb-run >/dev/null 2>&1']);
-      const re = spawn('xvfb-run', [
-        '-a',
-        '-s',
-        '-screen 0 1280x1024x24',
-        process.execPath,
-        __filename
-      ], {
+      const re = spawn('xvfb-run', ['-a', '-s', '-screen 0 1280x1024x24', process.execPath, __filename], {
         stdio: 'inherit',
         env: { ...process.env, __ALV_XVFB_RAN: '1' }
       });
@@ -319,7 +335,9 @@ async function run() {
   // Download VS Code (insiders by default; CI can pass --vscode=stable)
   const vsVer = String(args.vscode || 'insiders');
   const vscodeExecutablePath = await downloadAndUnzipVSCode(vsVer);
-  const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, { reuseMachineInstall: true });
+  const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, {
+    reuseMachineInstall: true
+  });
 
   // Install dependency extensions directly (docs approach) when running integration or all
   const shouldInstall = scope === 'integration' || scope === 'all' || !!args.installDeps;
@@ -356,23 +374,31 @@ async function run() {
     }
     // List extensions to aid debugging and flag presence
     try {
-      const list = spawnSync(cliPath, [
-        ...cliArgs,
-        '--list-extensions',
-        '--show-versions',
-        '--user-data-dir',
-        join(tmpdir(), 'alv-user-data'),
-        '--extensions-dir',
-        join(tmpdir(), 'alv-extensions')
-      ], { encoding: 'utf8' });
+      const list = spawnSync(
+        cliPath,
+        [
+          ...cliArgs,
+          '--list-extensions',
+          '--show-versions',
+          '--user-data-dir',
+          join(tmpdir(), 'alv-user-data'),
+          '--extensions-dir',
+          join(tmpdir(), 'alv-extensions')
+        ],
+        { encoding: 'utf8' }
+      );
       const out = (list.stdout || '').trim();
       console.log('[deps] Extensions installed in test dir:\n' + out);
-      if (/^salesforce\.salesforcedx-vscode(?:@|$)/m.test(out) ||
-          /^salesforce\.salesforcedx-vscode-core(?:@|$)/m.test(out) ||
-          /^salesforce\.salesforcedx-vscode-apex(?:@|$)/m.test(out)) {
+      if (
+        /^salesforce\.salesforcedx-vscode(?:@|$)/m.test(out) ||
+        /^salesforce\.salesforcedx-vscode-core(?:@|$)/m.test(out) ||
+        /^salesforce\.salesforcedx-vscode-apex(?:@|$)/m.test(out)
+      ) {
         sfExtPresent = true;
       }
-    } catch {}
+    } catch (e) {
+      console.warn('[deps] Failed to list installed extensions:', e && e.message ? e.message : e);
+    }
   }
 
   // Run tests via @vscode/test-electron with our programmatic Mocha runner
@@ -417,8 +443,14 @@ async function run() {
     });
   } finally {
     clearTimeout(killer);
-    try { await cleanup(); } catch {}
-    if (timedOut) {return;}
+    try {
+      await cleanup();
+    } catch (e) {
+      console.warn('[test-setup] Cleanup failed:', e && e.message ? e.message : e);
+    }
+    if (timedOut) {
+      return;
+    }
   }
 }
 

@@ -124,7 +124,9 @@ export function LogsTable({
     return () => {
       try {
         ro.disconnect();
-      } catch {}
+      } catch (e) {
+        console.warn('LogsTable ResizeObserver disconnect failed', e);
+      }
       window.removeEventListener('resize', recompute);
     };
   }, []);

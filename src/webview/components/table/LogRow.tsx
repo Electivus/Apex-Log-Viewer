@@ -20,7 +20,19 @@ type Props = {
   setRowHeight: (index: number, size: number) => void;
 };
 
-export function LogRow({ r, logHead, locale, t, loading, onOpen, onReplay, gridTemplate, style, index, setRowHeight }: Props) {
+export function LogRow({
+  r,
+  logHead,
+  locale,
+  t,
+  loading,
+  onOpen,
+  onReplay,
+  gridTemplate,
+  style,
+  index,
+  setRowHeight
+}: Props) {
   const contentRef = useRef<HTMLDivElement | null>(null);
 
   useLayoutEffect(() => {
@@ -41,7 +53,9 @@ export function LogRow({ r, logHead, locale, t, loading, onOpen, onReplay, gridT
     return () => {
       try {
         ro.disconnect();
-      } catch {}
+      } catch (e) {
+        console.warn('LogRow ResizeObserver disconnect failed', e);
+      }
     };
   }, [index, setRowHeight, logHead[r.Id]?.codeUnitStarted, r]);
 

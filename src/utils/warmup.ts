@@ -26,8 +26,8 @@ export async function warmUpReplayDebugger(): Promise<void> {
         logWarn('Warm-up failed for', id, '->', e instanceof Error ? e.message : String(e));
       }
     }
-  } catch {
-    // ignore – best effort only
+  } catch (e) {
+    logWarn('Warm-up sequence failed ->', e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -38,11 +38,14 @@ export async function warmUpReplayDebugger(): Promise<void> {
 export async function ensureReplayDebuggerAvailable(): Promise<boolean> {
   try {
     const cmds = await vscode.commands.getCommands(true);
-    const hasReplay = cmds.includes('sf.launch.replay.debugger.logfile') || cmds.includes('sfdx.launch.replay.debugger.logfile');
+    const hasReplay =
+      cmds.includes('sf.launch.replay.debugger.logfile') || cmds.includes('sfdx.launch.replay.debugger.logfile');
     if (hasReplay) {
       return true;
     }
-  } catch {}
+  } catch (e) {
+    logWarn('Failed to list VS Code commands ->', e instanceof Error ? e.message : String(e));
+  }
   const openExt = localize('replayMissingExtOpen', 'Open Extensions');
   const msg = localize(
     'replayMissingExtMessage',
@@ -51,11 +54,10 @@ export async function ensureReplayDebuggerAvailable(): Promise<boolean> {
   const picked = await vscode.window.showWarningMessage(msg, openExt);
   if (picked === openExt) {
     try {
-      await vscode.commands.executeCommand(
-        'workbench.extensions.search',
-        '@id:salesforce.salesforcedx-vscode'
-      );
-    } catch {}
+      await vscode.commands.executeCommand('workbench.extensions.search', '@id:salesforce.salesforcedx-vscode');
+    } catch (e) {
+      logWarn('Failed to open Extensions view ->', e instanceof Error ? e.message : String(e));
+    }
   }
   return false;
 }
@@ -67,7 +69,8 @@ export async function detectReplayDebuggerAvailable(): Promise<boolean> {
   try {
     const cmds = await vscode.commands.getCommands(true);
     return cmds.includes('sf.launch.replay.debugger.logfile') || cmds.includes('sfdx.launch.replay.debugger.logfile');
-  } catch {
+  } catch (e) {
+    logWarn('Failed to detect Apex Replay Debugger ->', e instanceof Error ? e.message : String(e));
     return false;
   }
 }
