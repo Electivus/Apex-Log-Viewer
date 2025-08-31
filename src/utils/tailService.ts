@@ -11,7 +11,11 @@ import {
   ensureApexLogsDir as utilEnsureApexLogsDir,
   getLogFilePathWithUsername as utilGetLogFilePathWithUsername
 } from './workspace';
-import { createConnectionFromAuth, createLoggingStreamingClient, createOrgFromConnection } from '../salesforce/streaming';
+import {
+  createConnectionFromAuth,
+  createLoggingStreamingClient,
+  createOrgFromConnection
+} from '../salesforce/streaming';
 import { LogService } from '@salesforce/apex-node';
 import type { Connection } from '@salesforce/core';
 import type { JsonMap } from '@salesforce/ts-types';
@@ -255,6 +259,34 @@ export class TailService {
       const msg = e instanceof Error ? e.message : String(e);
       logWarn('Tail: streaming disconnect error ->', msg);
     }
+    try {
+      (this.connection as any)?.logout?.();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logWarn('Tail: connection logout error ->', msg);
+    }
+    try {
+      (this.connection as any)?.dispose?.();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logWarn('Tail: connection dispose error ->', msg);
+    }
+    this.connection = undefined;
+    try {
+      (this.logService as any)?.logout?.();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logWarn('Tail: log service logout error ->', msg);
+    }
+    try {
+      (this.logService as any)?.dispose?.();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logWarn('Tail: log service dispose error ->', msg);
+    }
+    this.logService = undefined;
+    this.currentAuth = undefined;
+    this.lastReplayId = undefined;
     if (this.tailTimer) {
       clearTimeout(this.tailTimer);
       this.tailTimer = undefined;

@@ -92,6 +92,41 @@ suite('TailService', () => {
     assert.equal((service as any).logIdToPath.size, 0);
   });
 
+  test('stop cleans connection and log service', () => {
+    const service = new TailService(() => {});
+    let connLogout = false;
+    let connDispose = false;
+    let logLogout = false;
+    let logDispose = false;
+    (service as any).connection = {
+      logout() {
+        connLogout = true;
+      },
+      dispose() {
+        connDispose = true;
+      }
+    };
+    (service as any).logService = {
+      logout() {
+        logLogout = true;
+      },
+      dispose() {
+        logDispose = true;
+      }
+    };
+    (service as any).currentAuth = { username: 'u' } as any;
+    (service as any).lastReplayId = 1;
+    service.stop();
+    assert.equal(connLogout, true);
+    assert.equal(connDispose, true);
+    assert.equal(logLogout, true);
+    assert.equal(logDispose, true);
+    assert.equal((service as any).connection, undefined);
+    assert.equal((service as any).logService, undefined);
+    assert.equal((service as any).currentAuth, undefined);
+    assert.equal((service as any).lastReplayId, undefined);
+  });
+
   test('selectOrg resets caches and stops tail', async () => {
     const context = {
       extensionUri: vscode.Uri.file(path.resolve('.')),
