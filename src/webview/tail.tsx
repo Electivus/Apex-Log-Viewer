@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { VariableSizeList } from 'react-window';
 import { createRoot } from 'react-dom/client';
 import { getMessages } from './i18n';
 import type { OrgItem } from '../shared/types';
@@ -16,12 +17,12 @@ const vscode = acquireVsCodeApi<WebviewToExtensionMessage>();
 type TailMessage = ExtensionToWebviewMessage;
 
 function App() {
-  const TAIL_MAX_LINES = 10000; // keep a rolling buffer to avoid memory bloat
   const [locale, setLocale] = useState('en');
   const [orgs, setOrgs] = useState<OrgItem[]>([]);
   const [selectedOrg, setSelectedOrg] = useState<string | undefined>(undefined);
   const [running, setRunning] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
+  const [tailMaxLines, setTailMaxLines] = useState(10000);
   const [query, setQuery] = useState('');
   const [onlyUserDebug, setOnlyUserDebug] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -32,8 +33,7 @@ function App() {
   const [selectedIndex, setSelectedIndex] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const t = getMessages(locale) as any;
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const lineRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const listRef = useRef<VariableSizeList | null>(null);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -43,6 +43,11 @@ function App() {
       }
       if (msg.type === 'init') {
         setLocale(msg.locale);
+      }
+      if (msg.type === 'tailConfig') {
+        const n = typeof (msg as any).tailBufferSize === 'number' ? Math.floor((msg as any).tailBufferSize) : 10000;
+        const clamped = Math.max(1000, Math.min(200000, n));
+        setTailMaxLines(clamped);
       }
       if (msg.type === 'loading') {
         setLoading(!!msg.value);
@@ -66,7 +71,7 @@ function App() {
         const incoming = Array.isArray(msg.lines) ? msg.lines : [];
         setLines(prev => {
           const merged = prev.length ? prev.concat(incoming) : [...incoming];
-          const drop = Math.max(0, merged.length - TAIL_MAX_LINES);
+          const drop = Math.max(0, merged.length - tailMaxLines);
           if (drop > 0) {
             // Adjust selection to account for trimmed prefix
             setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
@@ -88,37 +93,6 @@ function App() {
     return () => window.removeEventListener('message', handler);
   }, []);
 
-  useEffect(() => {
-    if (!autoScroll) {
-      return;
-    }
-    const el = listRef.current;
-    if (!el) {
-      return;
-    }
-    el.scrollTop = el.scrollHeight;
-  }, [lines, autoScroll]);
-
-  const scrollToIndex = useCallback((idx: number, behavior: ScrollBehavior = 'auto') => {
-    const container = listRef.current;
-    const el = lineRefs.current.get(idx);
-    if (container && el) {
-      try {
-        el.scrollIntoView({ block: 'center', behavior });
-      } catch {
-        const top = el.offsetTop - container.clientHeight / 2;
-        container.scrollTop = Math.max(0, top);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (selectedIndex === undefined) {
-      return;
-    }
-    scrollToIndex(selectedIndex, 'auto');
-  }, [selectedIndex, query, lines.length, scrollToIndex]);
-
   const filteredIndexes = useMemo(() => {
     const q = query.trim().toLowerCase();
     const out: number[] = [];
@@ -139,6 +113,38 @@ function App() {
     }
     return out;
   }, [lines, query, onlyUserDebug]);
+
+  // Auto-scroll to the last visible (filtered) item when enabled
+  useEffect(() => {
+    if (!autoScroll) return;
+    const last = filteredIndexes.length > 0 ? filteredIndexes.length - 1 : 0;
+    listRef.current?.scrollToItem(last, 'end');
+  }, [lines, autoScroll, filteredIndexes.length]);
+
+  // Map full indices to their current position inside filteredIndexes for O(1) lookup
+  const filteredIndexMap = useMemo(() => {
+    const m = new Map<number, number>();
+    for (let i = 0; i < filteredIndexes.length; i++) m.set(filteredIndexes[i]!, i);
+    return m;
+  }, [filteredIndexes]);
+
+  const scrollToIndex = useCallback(
+    (fullIdx: number, behavior: ScrollBehavior = 'auto') => {
+      const filteredPos = filteredIndexMap.get(fullIdx);
+      if (filteredPos === undefined) {
+        return;
+      }
+      listRef.current?.scrollToItem(filteredPos, behavior === 'smooth' ? 'center' : 'auto');
+    },
+    [filteredIndexMap]
+  );
+
+  useEffect(() => {
+    if (selectedIndex === undefined) {
+      return;
+    }
+    scrollToIndex(selectedIndex, 'auto');
+  }, [selectedIndex, query, lines.length, scrollToIndex]);
 
   const start = () => {
     setError(undefined);
@@ -214,7 +220,15 @@ function App() {
         debugLevel={debugLevel}
         onDebugLevelChange={setDebugLevel}
         autoScroll={autoScroll}
-        onToggleAutoScroll={setAutoScroll}
+        onToggleAutoScroll={v => {
+          setAutoScroll(v);
+          if (v) {
+            // Clear selection to allow auto-scroll to take over and jump to end immediately
+            setSelectedIndex(undefined);
+            const last = filteredIndexes.length > 0 ? filteredIndexes.length - 1 : 0;
+            listRef.current?.scrollToItem(last, 'end');
+          }
+        }}
         error={error}
         t={t}
       />
@@ -230,13 +244,6 @@ function App() {
         colorize={colorize}
         running={running}
         listRef={listRef}
-        registerLineRef={(idx, el) => {
-          if (el) {
-            lineRefs.current.set(idx, el);
-          } else {
-            lineRefs.current.delete(idx);
-          }
-        }}
         t={t}
       />
     </div>

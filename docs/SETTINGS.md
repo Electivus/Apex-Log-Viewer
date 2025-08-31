@@ -6,7 +6,8 @@ The Apex Log Viewer extension exposes several settings under the `Apex Logs` sec
 "sfLogs.pageSize": 100,
 "sfLogs.headConcurrency": 5,
 "sfLogs.saveDirName": "apexlogs",
-"sfLogs.trace": false
+"sfLogs.trace": false,
+"sfLogs.tailBufferSize": 10000
 ```
 
 ## `sfLogs.pageSize`
@@ -32,6 +33,13 @@ The Apex Log Viewer extension exposes several settings under the `Apex Logs` sec
 - **Type**: boolean
 - **Default**: `false`
 - Enables verbose trace logging of CLI and HTTP interactions in the **Apex Log Viewer** output channel. Useful for troubleshooting issues with log retrieval or authentication.
+
+## `sfLogs.tailBufferSize`
+
+- Type: number (1000–200000)
+- Default: `10000`
+- Maximum number of lines retained in the Tail view's rolling buffer. Higher values keep more history visible to filters and search, at the cost of additional memory.
+- Changes take effect immediately in an open Tail view; no reload required.
 
 ## Applying changes
 

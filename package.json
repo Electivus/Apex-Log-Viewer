@@ -77,6 +77,13 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "Enable verbose trace logging for CLI and HTTP calls (Output: Apex Log Viewer)."
+        },
+        "sfLogs.tailBufferSize": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1000,
+          "maximum": 200000,
+          "markdownDescription": "%configuration.sfLogs.tailBufferSize.description%"
         }
       }
     },
