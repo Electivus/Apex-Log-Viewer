@@ -21,7 +21,8 @@ function httpsRequest(
   method: string,
   urlString: string,
   headers: Record<string, string>,
-  body?: string
+  body?: string,
+  timeoutMs?: number
 ): Promise<{ statusCode: number; headers: Record<string, string | string[] | undefined>; body: string }> {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(urlString);
@@ -44,6 +45,14 @@ function httpsRequest(
       }
     );
     req.on('error', reject);
+    if (typeof timeoutMs === 'number') {
+      req.setTimeout(timeoutMs, () => {
+        try {
+          req.destroy();
+        } catch {}
+        reject(new Error('Request timed out'));
+      });
+    }
     if (body && method !== 'GET' && method !== 'HEAD') {
       try {
         req.setHeader('Content-Length', Buffer.byteLength(body, 'utf8'));
@@ -70,12 +79,13 @@ export async function httpsRequestWith401Retry(
   method: string,
   urlString: string,
   headers: Record<string, string>,
-  body?: string
+  body?: string,
+  timeoutMs?: number
 ): Promise<string> {
   try {
     logTrace('HTTP', method, urlString);
   } catch {}
-  const first = await httpsRequest(method, urlString, headers, body);
+  const first = await httpsRequest(method, urlString, headers, body, timeoutMs);
   try {
     logTrace('HTTP <-', first.statusCode, urlString);
   } catch {}
@@ -88,7 +98,8 @@ export async function httpsRequestWith401Retry(
       method,
       urlString,
       { ...headers, Authorization: `Bearer ${auth.accessToken}` },
-      body
+      body,
+      timeoutMs
     );
     try {
       logTrace('HTTP(retry) <-', second.statusCode, urlString);
@@ -144,7 +155,8 @@ export async function fetchApexLogs(
   auth: OrgAuth,
   limit: number = 50,
   offset: number = 0,
-  debugLevel?: string
+  debugLevel?: string,
+  timeoutMs?: number
 ): Promise<ApexLogRow[]> {
   const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
   const safeOffset = Math.max(0, Math.floor(offset));
@@ -161,10 +173,17 @@ export async function fetchApexLogs(
     `SELECT Id, StartTime, Operation, Application, DurationMilliseconds, Status, Request, LogLength, LogUser.Name FROM ApexLog ORDER BY StartTime DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`
   );
   const url = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/query?q=${soql}`;
-  const body = await httpsRequestWith401Retry(auth, 'GET', url, {
-    Authorization: `Bearer ${auth.accessToken}`,
-    'Content-Type': 'application/json'
-  });
+  const body = await httpsRequestWith401Retry(
+    auth,
+    'GET',
+    url,
+    {
+      Authorization: `Bearer ${auth.accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    undefined,
+    timeoutMs
+  );
   const json = JSON.parse(body);
   const records = (json.records || []) as ApexLogRow[];
   // Do not filter by debug level here. ApexLog does not reliably carry
@@ -178,12 +197,19 @@ export async function fetchApexLogs(
   return records;
 }
 
-export async function fetchApexLogBody(auth: OrgAuth, logId: string): Promise<string> {
+export async function fetchApexLogBody(auth: OrgAuth, logId: string, timeoutMs?: number): Promise<string> {
   const url = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/sobjects/ApexLog/${logId}/Body`;
-  const text = await httpsRequestWith401Retry(auth, 'GET', url, {
-    Authorization: `Bearer ${auth.accessToken}`,
-    'Content-Type': 'text/plain'
-  });
+  const text = await httpsRequestWith401Retry(
+    auth,
+    'GET',
+    url,
+    {
+      Authorization: `Bearer ${auth.accessToken}`,
+      'Content-Type': 'text/plain'
+    },
+    undefined,
+    timeoutMs
+  );
   return text;
 }
 
@@ -193,23 +219,36 @@ async function fetchApexLogBytesRange(
   auth: OrgAuth,
   logId: string,
   start: number,
-  endInclusive: number
+  endInclusive: number,
+  timeoutMs?: number
 ): Promise<RangeResponse> {
   const urlString = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/sobjects/ApexLog/${logId}/Body`;
-  const first = await httpsRequest('GET', urlString, {
-    Authorization: `Bearer ${auth.accessToken}`,
-    'Content-Type': 'text/plain',
-    'Accept-Encoding': 'identity',
-    Range: `bytes=${start}-${endInclusive}`
-  });
-  if (first.statusCode === 401) {
-    await refreshAuthInPlace(auth);
-    const second = await httpsRequest('GET', urlString, {
+  const first = await httpsRequest(
+    'GET',
+    urlString,
+    {
       Authorization: `Bearer ${auth.accessToken}`,
       'Content-Type': 'text/plain',
       'Accept-Encoding': 'identity',
       Range: `bytes=${start}-${endInclusive}`
-    });
+    },
+    undefined,
+    timeoutMs
+  );
+  if (first.statusCode === 401) {
+    await refreshAuthInPlace(auth);
+    const second = await httpsRequest(
+      'GET',
+      urlString,
+      {
+        Authorization: `Bearer ${auth.accessToken}`,
+        'Content-Type': 'text/plain',
+        'Accept-Encoding': 'identity',
+        Range: `bytes=${start}-${endInclusive}`
+      },
+      undefined,
+      timeoutMs
+    );
     return { statusCode: second.statusCode, headers: second.headers, body: second.body };
   }
   return { statusCode: first.statusCode, headers: first.headers, body: first.body };
@@ -219,7 +258,8 @@ export async function fetchApexLogHead(
   auth: OrgAuth,
   logId: string,
   maxLines: number,
-  logLengthBytes?: number
+  logLengthBytes?: number,
+  timeoutMs?: number
 ): Promise<string[]> {
   const key = makeLogKey(auth, logId);
   const cached = headCacheByLog.get(key);
@@ -233,7 +273,7 @@ export async function fetchApexLogHead(
     try {
       logTrace('HTTP Range GET ApexLog head', logId, 'bytes=0-', Math.max(0, stride - 1));
     } catch {}
-    const range = await fetchApexLogBytesRange(auth, logId, 0, Math.max(0, stride - 1));
+    const range = await fetchApexLogBytesRange(auth, logId, 0, Math.max(0, stride - 1), timeoutMs);
     const contentEncoding = (range.headers['content-encoding'] || '').toString().toLowerCase();
     if (range.statusCode === 206 && (!contentEncoding || contentEncoding === 'identity')) {
       try {
@@ -343,6 +383,14 @@ export async function fetchApexLogHead(
           });
         }
       );
+      if (typeof timeoutMs === 'number') {
+        req.setTimeout(timeoutMs, () => {
+          try {
+            req.destroy();
+          } catch {}
+          reject(new Error('Request timed out'));
+        });
+      }
       return req;
     };
     const req = attempt(auth.accessToken);
