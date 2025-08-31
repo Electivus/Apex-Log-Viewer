@@ -9,6 +9,7 @@ import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/wa
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { TailService } from '../utils/tailService';
 import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
+import { getNumberConfig } from '../utils/config';
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogTail';
@@ -174,11 +175,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   }
 
   private getTailBufferSize(): number {
-    const cfg = vscode.workspace.getConfiguration();
-    const raw = cfg.get<number>('sfLogs.tailBufferSize');
-    const n = raw && Number.isFinite(raw) ? Math.floor(raw) : 10000;
-    // clamp to a safe range
-    return Math.max(1000, Math.min(200000, n));
+    return getNumberConfig('sfLogs.tailBufferSize', 10000, 1000, 200000);
   }
 
   public async sendOrgs(): Promise<void> {
