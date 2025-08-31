@@ -112,6 +112,10 @@ The extension uses localized strings for the extension UI and the in‑panel int
 - “Failed to launch Apex Replay Debugger”: Install the Salesforce Apex Replay Debugger extension.
 - “No orgs detected”: Ensure you’re authenticated (`sf org login web`) and try `sf org list`.
 
+## Architecture
+
+For a deeper dive into how the extension pieces fit together, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## Contributing
 
 See CONTRIBUTING.md for development setup, Conventional Commits, and our tag‑based release flow. Note: `CHANGELOG.md` is maintained manually.
