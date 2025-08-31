@@ -19,10 +19,43 @@ permissions:
   contents: write
 
 jobs:
+  check_changes:
+    name: Check for changes since last pre-release
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changes since last pre-release
+        id: check
+        run: |
+          set -euo pipefail
+          LAST_TAG=$(git tag --list 'pre-*' --sort=-v:refname | head -n 1)
+          if [ -z "$LAST_TAG" ]; then
+            echo "No pre-release tags found; proceeding"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "Latest pre-release tag: $LAST_TAG"
+            TAG_SHA=$(git rev-list -n1 "$LAST_TAG")
+            HEAD_SHA=$(git rev-parse HEAD)
+            if [ "$TAG_SHA" = "$HEAD_SHA" ]; then
+              echo "No changes since last pre-release"
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            else
+              echo "Changes detected since $LAST_TAG"
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+
   build_and_test:
     name: Build and Test
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: check_changes
+    if: needs.check_changes.outputs.has_changes == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,7 +77,8 @@ jobs:
 
   prerelease:
     name: Create GitHub pre-release + VSIX artifact
-    needs: build_and_test
+    needs: [build_and_test, check_changes]
+    if: needs.check_changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -144,8 +178,8 @@ jobs:
 
   marketplace:
     name: Publish to Marketplace (pre-release channel)
-    if: github.repository == 'Electivus/Apex-Log-Viewer'
-    needs: prerelease
+    if: github.repository == 'Electivus/Apex-Log-Viewer' && needs.check_changes.outputs.has_changes == 'true'
+    needs: [prerelease, check_changes]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: marketplace
