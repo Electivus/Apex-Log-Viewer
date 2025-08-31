@@ -170,7 +170,7 @@
     "build": "npm run compile && npm run build:webview",
     "build:icon": "node scripts/gen-icon.mjs",
     "build:assets": "node scripts/gen-assets.mjs",
-    "nls:extract": "vscl dist/extension.js",
+    "nls:extract": "vscl \"dist/**/*.js\"",
     "nls:write": "node scripts/gen-nls.cjs",
     "prepackage": "npm run clean",
     "package": "npm run compile && (npm run -s nls:extract || true) && npm run nls:write && npm run build:webview",
