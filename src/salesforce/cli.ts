@@ -197,7 +197,7 @@ function execCommand(
         child.kill();
       } catch {}
       try {
-        logWarn('execCommand timeout for', program);
+        logWarn('execCommand timeout for', program, args.join(' '));
       } catch {}
       const err: any = new Error(
         localize('cliTimeout', 'Salesforce CLI command timed out after {0} seconds.', Math.round(timeoutMs / 1000))
