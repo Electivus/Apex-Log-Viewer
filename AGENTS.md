@@ -11,12 +11,12 @@
 - `media/`: static assets and the webview bundle.
 - `dist/`: compiled extension entry (`extension.js`) and NLS output.
 - `out/`: compiled tests (`out/test/**/*.js`).
-- Tooling: `esbuild.js`, `eslint.config.mjs`, `tsconfig.json`.
+- Tooling: `tsconfig.extension.json`, `eslint.config.mjs`, `tsconfig.json`.
 
 ## Build, Test, and Development Commands
 
 - `npm run watch`: parallel watch for extension, types, and webview; launch with VS Code `F5` for debug.
-- `npm run build`: type-check, lint, and bundle extension + webview.
+- `npm run build`: compile the extension and bundle the webview.
 - `npm test` / `npm run test:unit`: compile tests and run fast unit tests.
 - `npm run test:integration`: run only integration tests; auto-installs `salesforce.salesforcedx-vscode`; fails if none run.
 - `npm run test:all`: run unit + integration suites; fails if none run.

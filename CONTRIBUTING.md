@@ -14,7 +14,7 @@ Thanks for taking the time to contribute! This guide covers local setup, coding 
 Helpful scripts:
 
 - `npm run watch` – parallel watch for extension, types, and webview; use VS Code `F5`.
-- `npm run build` – type-check, lint, bundle extension + webview.
+- `npm run build` – compile the extension and bundle the webview.
 - `npm test` – compiles tests and runs VS Code tests.
 
 ## Coding Style
