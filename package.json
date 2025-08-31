@@ -223,7 +223,7 @@
     "vscode-nls-dev": "^4.0.4"
   },
   "dependencies": {
-    "@salesforce/apex-node": "^3.0.16",
+    "@salesforce/apex-node": "^8.2.11",
     "@salesforce/core": "^8.7.0",
     "cross-spawn": "^7.0.6",
     "vscode-nls": "^5.2.0"
