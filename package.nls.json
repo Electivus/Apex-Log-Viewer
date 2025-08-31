@@ -1,10 +1,10 @@
 {
   "extension.displayName": "Apex Log Viewer",
   "extension.description": "Fast, searchable Salesforce Apex logs in VS Code — browse, filter, tail, and debug with Apex Replay.",
-  "salesforce.panel.title": "Apex",
-  "salesforce.tail.panel.title": "Apex Tail",
+  "salesforce.panel.title": "Apex Logs",
+  "salesforce.tail.panel.title": "Apex Logs Tail",
   "salesforce.logs.view.name": "Apex Logs",
-  "salesforce.tail.view.name": "Apex Log Tail",
+  "salesforce.tail.view.name": "Apex Logs Tail",
   "command.refresh.title": "Refresh Logs",
   "command.selectOrg.title": "Select Org",
   "command.tail.title": "Tail Logs",
