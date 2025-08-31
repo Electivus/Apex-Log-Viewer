@@ -52,14 +52,37 @@ Why developers like it
 
 ## Usage
 
-- Open the Apex Logs panel: View > Appearance > Panel, then switch to the “Apex” container and the “Apex Logs” view.
-- Refresh logs: Click “Refresh” in the toolbar or run the `Apex Logs: Refresh Logs` command.
-- Select org: Use the toolbar dropdown or run `Apex Logs: Select Org`. Choose an authenticated org or “Default Org”.
-- Search: Type in the search box to filter visible rows; combine with filters.
-- Filters: Filter by User, Operation, Status, and Code Unit; clear quickly with “Clear filters”.
-- Sorting: Click a header to sort (toggle asc/desc).
-- Infinite scroll: Scroll to the bottom to load the next page.
-- Open or Replay: Double‑click a row to open the log; click the action button to launch Apex Replay Debugger.
+### Open the Apex Logs panel
+
+1. In VS Code, choose `View` > `Appearance` > `Panel`.
+2. Switch to the **Apex** container and select **Apex Logs** to load recent logs.
+
+### Refresh logs
+
+- Click **Refresh** in the toolbar or run the command `Apex Logs: Refresh Logs`.
+
+### Search and filter
+
+- Type in the search box to narrow visible rows.
+- Use the filter buttons to limit by User, Operation, Status, or Code Unit. Combine search and filters for precise results.
+
+### Sort and paginate
+
+- Click any column header to toggle ascending or descending.
+- Additional logs load automatically as you scroll.
+
+### Open or debug a log
+
+- Double-click a row to open the log in the editor.
+- Use the action button on a row to launch Apex Replay Debugger.
+
+### Tail logs in real time
+
+- Choose **Tail Logs** from the toolbar to start streaming new logs. Run the command again to stop.
+
+### Select an org
+
+- Use the toolbar dropdown to switch between authenticated orgs or choose **Default Org**.
 
 ## Commands
 
