@@ -23,6 +23,7 @@ import {
   findExistingLogFile as utilFindExistingLogFile
 } from '../utils/workspace';
 import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
+import { getNumberConfig } from '../utils/config';
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
@@ -47,12 +48,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
         if (e.affectsConfiguration('sfLogs.headConcurrency')) {
-          const cfg = vscode.workspace.getConfiguration();
-          const configuredConcurrency = cfg.get<number>('sfLogs.headConcurrency');
-          const nextConc =
-            configuredConcurrency && Number.isFinite(configuredConcurrency)
-              ? Math.max(1, Math.min(20, Math.floor(configuredConcurrency)))
-              : this.headConcurrency;
+          const nextConc = getNumberConfig('sfLogs.headConcurrency', this.headConcurrency, 1, 20);
           if (nextConc !== this.headConcurrency) {
             this.headConcurrency = nextConc;
             this.headLimiter = createLimiter(this.headConcurrency);
@@ -154,16 +150,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'loading', value: true });
     try {
       clearListCache();
-      const cfg = vscode.workspace.getConfiguration();
-      const configuredPageSize = cfg.get<number>('sfLogs.pageSize');
-      if (configuredPageSize && Number.isFinite(configuredPageSize)) {
-        this.pageLimit = Math.max(10, Math.min(200, Math.floor(configuredPageSize)));
-      }
-      const configuredConcurrency = cfg.get<number>('sfLogs.headConcurrency');
-      const nextConc =
-        configuredConcurrency && Number.isFinite(configuredConcurrency)
-          ? Math.max(1, Math.min(20, Math.floor(configuredConcurrency)))
-          : this.headConcurrency;
+      this.pageLimit = getNumberConfig('sfLogs.pageSize', this.pageLimit, 10, 200);
+      const nextConc = getNumberConfig('sfLogs.headConcurrency', this.headConcurrency, 1, 20);
       if (nextConc !== this.headConcurrency) {
         this.headConcurrency = nextConc;
         this.headLimiter = createLimiter(this.headConcurrency);
