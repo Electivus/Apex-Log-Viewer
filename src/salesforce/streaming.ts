@@ -2,6 +2,7 @@ import { AuthInfo, Connection, Org, StreamingClient } from '@salesforce/core';
 import { Duration } from '@salesforce/kit';
 import type { AnyJson, JsonMap } from '@salesforce/ts-types';
 import type { OrgAuth } from './types';
+import { logWarn } from '../utils/logger';
 
 export type { StreamingClient };
 
@@ -28,7 +29,10 @@ export async function createLoggingStreamingClient(
   // Align subscribe timeout to our tail hard-stop (30 minutes) like apex-node does
   try {
     options.setSubscribeTimeout(Duration.minutes(30));
-  } catch {}
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logWarn('Failed to set StreamingClient timeout ->', msg);
+  }
   // For system topics, DefaultOptions will force API 36.0 automatically.
   return StreamingClient.create(options);
 }

@@ -184,7 +184,10 @@ export class TailService {
             this.streamingClient.replay(-1);
             logInfo('Tail: starting fresh with replay -1');
           }
-        } catch {}
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          logWarn('Tail: failed to set replay id ->', msg);
+        }
         // Don't await subscribe; it resolves only when the processor returns completed or on timeout.
         void this.streamingClient
           .subscribe()

@@ -19,7 +19,10 @@ export async function activate(context: vscode.ExtensionContext) {
   try {
     if (!process.env.SF_DISABLE_LOG_FILE) process.env.SF_DISABLE_LOG_FILE = 'true';
     if (!process.env.SFDX_DISABLE_LOG_FILE) process.env.SFDX_DISABLE_LOG_FILE = 'true';
-  } catch {}
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logWarn('Failed to set disable log file env vars ->', msg);
+  }
   logInfo('Activating Apex Log Viewer extension…');
   // Configure trace logging from settings
   try {
