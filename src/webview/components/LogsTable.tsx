@@ -41,6 +41,12 @@ export function LogsTable({
   const defaultRowHeight = 32;
   const rowHeightsRef = useRef<Record<number, number>>({});
   const [measuredListHeight, setMeasuredListHeight] = useState<number>(420);
+  const [overscanCount, setOverscanCount] = useState<number>(8);
+  const overscanBaseRef = useRef<number>(8);
+  const overscanLastTopRef = useRef<number>(0);
+  const overscanLastTsRef = useRef<number>(0);
+  const overscanDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const overscanLastSetRef = useRef<number>(8);
   const gridTemplate =
     'minmax(160px,1fr) minmax(140px,1fr) minmax(200px,1.2fr) minmax(200px,1fr) minmax(120px,0.8fr) minmax(260px,1.4fr) minmax(90px,0.6fr) 72px';
   // Header is rendered by LogsHeader; keep container simple
@@ -69,13 +75,32 @@ export function LogsTable({
     }
   };
 
+  // Batch resetAfterIndex calls to once-per-frame
+  const pendingResetFromRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const flushReset = () => {
+    if (pendingResetFromRef.current === null) return;
+    const from = pendingResetFromRef.current;
+    pendingResetFromRef.current = null;
+    listRef.current?.resetAfterIndex(from);
+    rafRef.current = null;
+  };
+  const scheduleResetFrom = (index: number) => {
+    if (pendingResetFromRef.current === null) {
+      pendingResetFromRef.current = index;
+    } else {
+      pendingResetFromRef.current = Math.min(pendingResetFromRef.current, index);
+    }
+    if (rafRef.current === null) {
+      rafRef.current = requestAnimationFrame(flushReset);
+    }
+  };
   const setRowHeight = (index: number, size: number) => {
     const current = rowHeightsRef.current[index] ?? defaultRowHeight;
     const next = Math.max(defaultRowHeight, Math.ceil(size));
     if (current !== next) {
       rowHeightsRef.current[index] = next;
-      // Recompute sizes from this index forward
-      listRef.current?.resetAfterIndex(index);
+      scheduleResetFrom(index);
     }
   };
 
@@ -104,6 +129,41 @@ export function LogsTable({
     };
   }, []);
 
+  // Adaptive overscan based on scroll velocity
+  useEffect(() => {
+    const el = listOuterRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      if (el.scrollTop > 0 && !autoPagingActivated) setAutoPagingActivated(true);
+      const now = performance.now();
+      const dt = now - (overscanLastTsRef.current || now);
+      const dy = Math.abs(el.scrollTop - (overscanLastTopRef.current || 0));
+      if (dt > 16) {
+        const v = dy / dt; // px per ms
+        let next = overscanBaseRef.current;
+        if (v > 2) next = 22;
+        else if (v > 1) next = 14;
+        else if (v > 0.4) next = 10;
+        else next = overscanBaseRef.current; // idle/slow
+        if (next !== overscanLastSetRef.current) {
+          overscanLastSetRef.current = next;
+          setOverscanCount(next);
+        }
+        if (overscanDecayRef.current) clearTimeout(overscanDecayRef.current);
+        overscanDecayRef.current = setTimeout(() => {
+          if (overscanLastSetRef.current !== overscanBaseRef.current) {
+            overscanLastSetRef.current = overscanBaseRef.current;
+            setOverscanCount(overscanBaseRef.current);
+          }
+        }, 200);
+      }
+      overscanLastTsRef.current = now;
+      overscanLastTopRef.current = el.scrollTop;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [autoPagingActivated]);
+
   return (
     <div ref={outerRef} style={{ overflow: 'hidden' }}>
       <LogsHeader ref={headerRef} t={t} sortBy={sortBy} sortDir={sortDir} onSort={onSort} gridTemplate={gridTemplate} />
@@ -116,6 +176,7 @@ export function LogsTable({
         outerRef={listOuterRef}
         ref={listRef}
         onItemsRendered={handleItemsRendered}
+        overscanCount={overscanCount}
       >
         {({ index, style }) => (
           <LogRow

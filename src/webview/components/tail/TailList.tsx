@@ -12,6 +12,7 @@ type TailListProps = {
   running: boolean;
   listRef: React.RefObject<VariableSizeList>;
   t: Messages;
+  onAtBottomChange?: (atBottom: boolean) => void;
 };
 
 export function TailList({
@@ -22,20 +23,48 @@ export function TailList({
   colorize,
   running,
   listRef,
-  t
+  t,
+  onAtBottomChange
 }: TailListProps) {
   const defaultRowHeight = 18; // close to single-line height at default font
   const rowHeightsRef = useRef<Record<number, number>>({});
   const [height, setHeight] = useState(420);
   const outerRef = useRef<HTMLDivElement | null>(null);
   const listOuterRef = useRef<HTMLDivElement | null>(null);
+  const [overscanCount, setOverscanCount] = useState<number>(8);
+  const overscanBaseRef = useRef<number>(8);
+  const overscanLastTopRef = useRef<number>(0);
+  const overscanLastTsRef = useRef<number>(0);
+  const overscanDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const overscanLastSetRef = useRef<number>(8);
+  const atBottomRef = useRef<boolean | null>(null);
 
   const getItemSize = (index: number) => rowHeightsRef.current[index] ?? defaultRowHeight;
+  // Batch resetAfterIndex calls to once-per-frame
+  const pendingResetFromRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const flushReset = () => {
+    if (pendingResetFromRef.current === null) return;
+    const from = pendingResetFromRef.current;
+    pendingResetFromRef.current = null;
+    listRef.current?.resetAfterIndex(from);
+    rafRef.current = null;
+  };
+  const scheduleResetFrom = (index: number) => {
+    if (pendingResetFromRef.current === null) {
+      pendingResetFromRef.current = index;
+    } else {
+      pendingResetFromRef.current = Math.min(pendingResetFromRef.current, index);
+    }
+    if (rafRef.current === null) {
+      rafRef.current = requestAnimationFrame(flushReset);
+    }
+  };
   const setRowHeight = (index: number, size: number) => {
     const next = Math.max(defaultRowHeight, Math.ceil(size));
     if (rowHeightsRef.current[index] !== next) {
       rowHeightsRef.current[index] = next;
-      listRef.current?.resetAfterIndex(index);
+      scheduleResetFrom(index);
     }
   };
 
@@ -95,6 +124,61 @@ export function TailList({
   // Empty state when nothing matches
   const showEmpty = filteredIndexes.length === 0;
 
+  // Detect whether the list is scrolled to the bottom and notify parent on changes
+  React.useEffect(() => {
+    const el = listOuterRef.current;
+    if (!el) return;
+    const threshold = 4; // px
+    const compute = () => {
+      const atBottom = el.scrollHeight - (el.scrollTop + el.clientHeight) <= threshold;
+      if (atBottomRef.current !== atBottom) {
+        atBottomRef.current = atBottom;
+        onAtBottomChange?.(atBottom);
+      }
+    };
+    compute();
+    const onScroll = () => {
+      // throttle to next frame
+      requestAnimationFrame(compute);
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [onAtBottomChange, height, filteredIndexes.length]);
+
+  // Adaptive overscan based on scroll velocity
+  React.useEffect(() => {
+    const el = listOuterRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const now = performance.now();
+      const dt = now - (overscanLastTsRef.current || now);
+      const dy = Math.abs(el.scrollTop - (overscanLastTopRef.current || 0));
+      if (dt > 16) {
+        const v = dy / dt; // px per ms
+        let next = overscanBaseRef.current;
+        if (v > 2) next = 22;
+        else if (v > 1) next = 14;
+        else if (v > 0.4) next = 10;
+        else next = overscanBaseRef.current; // idle/slow
+        if (next !== overscanLastSetRef.current) {
+          overscanLastSetRef.current = next;
+          setOverscanCount(next);
+        }
+        if (overscanDecayRef.current) clearTimeout(overscanDecayRef.current);
+        overscanDecayRef.current = setTimeout(() => {
+          if (overscanLastSetRef.current !== overscanBaseRef.current) {
+            overscanLastSetRef.current = overscanBaseRef.current;
+            setOverscanCount(overscanBaseRef.current);
+          }
+        }, 200);
+      }
+      overscanLastTsRef.current = now;
+      overscanLastTopRef.current = el.scrollTop;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
   return (
     <div ref={outerRef} style={{ flex: '1 1 auto' }}>
       <div
@@ -105,7 +189,7 @@ export function TailList({
           fontSize: 'var(--vscode-editor-font-size, 12px)',
           lineHeight: 1.4,
           overflow: 'hidden',
-          maxHeight: '70vh'
+          height: height
         }}
       >
         {showEmpty ? (
@@ -122,7 +206,7 @@ export function TailList({
             itemSize={getItemSize}
             estimatedItemSize={defaultRowHeight}
             itemKey={itemKey}
-            overscanCount={8}
+            overscanCount={overscanCount}
             onItemsRendered={onItemsRendered}
           >
             {renderRow}
