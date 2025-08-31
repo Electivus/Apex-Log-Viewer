@@ -1,6 +1,6 @@
 import * as cp from 'child_process';
 import * as os from 'os';
-import { logTrace } from '../utils/logger';
+import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
 const crossSpawn = require('cross-spawn');
 import type { OrgAuth, OrgItem } from './types';
@@ -139,10 +139,13 @@ export async function getLoginShellEnv(): Promise<NodeJS.ProcessEnv | undefined>
   return undefined;
 }
 
+const CLI_TIMEOUT_MS = 30_000;
+
 function execCommand(
   program: string,
   args: string[],
-  envOverride?: NodeJS.ProcessEnv
+  envOverride?: NodeJS.ProcessEnv,
+  timeoutMs: number = CLI_TIMEOUT_MS
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const opts: cp.ExecFileOptionsWithStringEncoding = { maxBuffer: 1024 * 1024 * 10, encoding: 'utf8' };
@@ -152,7 +155,14 @@ function execCommand(
     try {
       logTrace('execCommand:', program, args.join(' '), envOverride?.PATH ? '(login PATH)' : '');
     } catch {}
-    execFileImpl(program, args, opts, (error, stdout, stderr) => {
+    let finished = false;
+    let timer: NodeJS.Timeout;
+    const child = execFileImpl(program, args, opts, (error, stdout, stderr) => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      clearTimeout(timer);
       if (error) {
         const err: any = error;
         if (err && (err.code === 'ENOENT' || /not found|ENOENT/i.test(err.message))) {
@@ -175,6 +185,21 @@ function execCommand(
       } catch {}
       resolve({ stdout, stderr });
     });
+    timer = setTimeout(() => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      try {
+        logWarn('execCommand timeout for', program, args.join(' '));
+      } catch {}
+      try {
+        child.kill();
+      } catch {}
+      const err: any = new Error(localize('cliTimeout', 'Salesforce CLI command timed out.'));
+      err.code = 'ETIMEDOUT';
+      reject(err);
+    }, timeoutMs);
   });
 }
 
@@ -188,12 +213,13 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
     { program: 'sfdx', args: ['force:org:display', '--json', ...(t ? ['-u', t] : [])] }
   ];
   let sawEnoent = false;
+  let timeoutError: Error | undefined;
   for (const { program, args } of candidates) {
     try {
       try {
         logTrace('getOrgAuth: trying', program, args.join(' '));
       } catch {}
-      const { stdout } = await execCommand(program, args);
+      const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS);
       const parsed = JSON.parse(stdout);
       const result = parsed.result || parsed;
       const accessToken: string | undefined = result.accessToken || result.access_token;
@@ -209,6 +235,8 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
       const e: any = _e;
       if (e && e.code === 'ENOENT') {
         sawEnoent = true;
+      } else if (e && e.code === 'ETIMEDOUT') {
+        timeoutError = e;
       }
       try {
         logTrace('getOrgAuth: attempt failed for', program);
@@ -224,7 +252,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
           try {
             logTrace('getOrgAuth(login PATH): trying', program, args.join(' '));
           } catch {}
-          const { stdout } = await execCommand(program, args, env2);
+          const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS);
           const parsed = JSON.parse(stdout);
           const result = parsed.result || parsed;
           const accessToken: string | undefined = result.accessToken || result.access_token;
@@ -236,16 +264,26 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
             } catch {}
             return { accessToken, instanceUrl, username };
           }
-        } catch {
+        } catch (_e) {
+          const e: any = _e;
+          if (e && e.code === 'ETIMEDOUT') {
+            timeoutError = e;
+          }
           try {
             logTrace('getOrgAuth(login PATH): attempt failed for', program);
           } catch {}
         }
       }
     }
+    if (timeoutError) {
+      throw timeoutError;
+    }
     throw new Error(
       localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).')
     );
+  }
+  if (timeoutError) {
+    throw timeoutError;
   }
   throw new Error(
     localize(
@@ -330,17 +368,20 @@ export async function listOrgs(): Promise<OrgItem[]> {
     { program: 'sfdx', args: ['force:org:list', '--json'] }
   ];
   let sawEnoent = false;
+  let timeoutError: Error | undefined;
   for (const { program, args } of candidates) {
     try {
       try {
         logTrace('listOrgs: trying', program, args.join(' '));
       } catch {}
-      const { stdout } = await execCommand(program, args);
+      const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS);
       return parseOrgList(stdout);
     } catch (_e) {
       const e: any = _e;
       if (e && e.code === 'ENOENT') {
         sawEnoent = true;
+      } else if (e && e.code === 'ETIMEDOUT') {
+        timeoutError = e;
       }
       try {
         logTrace('listOrgs: attempt failed for', program);
@@ -356,18 +397,28 @@ export async function listOrgs(): Promise<OrgItem[]> {
           try {
             logTrace('listOrgs(login PATH): trying', program, args.join(' '));
           } catch {}
-          const { stdout } = await execCommand(program, args, env2);
+          const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS);
           return parseOrgList(stdout);
-        } catch {
+        } catch (_e) {
+          const e: any = _e;
+          if (e && e.code === 'ETIMEDOUT') {
+            timeoutError = e;
+          }
           try {
             logTrace('listOrgs(login PATH): attempt failed for', program);
           } catch {}
         }
       }
     }
+    if (timeoutError) {
+      throw timeoutError;
+    }
     throw new Error(
       localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).')
     );
+  }
+  if (timeoutError) {
+    throw timeoutError;
   }
   return [];
 }
