@@ -83,7 +83,12 @@ function nodeId(kind: GraphNode['kind'], name: string): string {
   return `${kind}:${name}`;
 }
 
-function upsertNode(nodesById: Map<string, GraphNode>, kind: GraphNode['kind'], name: string, levels?: LogLevels): GraphNode {
+function upsertNode(
+  nodesById: Map<string, GraphNode>,
+  kind: GraphNode['kind'],
+  name: string,
+  levels?: LogLevels
+): GraphNode {
   const id = nodeId(kind, name);
   const existing = nodesById.get(id);
   if (existing) {
@@ -140,7 +145,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
     const stack = laneStacks.get(actor);
     if (!stack || stack.length === 0) return;
     const span = stack.pop()!;
-    if (span.end == null) span.end = Math.max(span.start + 1, sequence.length);
+    if (span.end === undefined || span.end === null) span.end = Math.max(span.start + 1, sequence.length);
   };
 
   // Global nested frames (single-column view)
@@ -263,7 +268,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
     // Class.MyClass.something => MyClass; Class.MyClass => MyClass
     if (/^Class\./.test(label)) {
       const m = label.match(/^Class\.(.+?)(?:\.|$)/);
-      return (m && m[1]) ? m[1] : label.replace(/^Class\./, '');
+      return m && m[1] ? m[1] : label.replace(/^Class\./, '');
     }
     // Trigger descriptors: "MyTrigger on X trigger event ..." => "MyTrigger"
     if (isTriggerDescriptor(label)) return label.split(' on ')[0]!.trim();
@@ -356,13 +361,13 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
   for (const [actor, stack] of laneStacks) {
     while (stack.length) {
       const span = stack.pop()!;
-      if (span.end == null) span.end = Math.max(span.start + 1, sequence.length);
+      if (span.end === undefined || span.end === null) span.end = Math.max(span.start + 1, sequence.length);
     }
   }
   // Close any nested frames left open
   while (nestedStack.length) {
     const fr = nestedStack.pop()!;
-    if (fr.end == null) fr.end = Math.max(fr.start + 1, sequence.length);
+    if (fr.end === undefined || fr.end === null) fr.end = Math.max(fr.start + 1, sequence.length);
   }
   return { nodes, edges, sequence, flow, nested };
 }
