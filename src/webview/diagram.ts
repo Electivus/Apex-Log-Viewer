@@ -23,7 +23,7 @@ function h(tag: string, attrs?: Record<string, any>, children?: (Node | string |
       else if (v !== undefined && v !== null) (el as any).setAttribute?.(k, String(v));
     }
   }
-  if (children) for (const c of children) { if (c == null) continue; (typeof c === 'string') ? el.appendChild(document.createTextNode(c)) : el.appendChild(c); }
+  if (children) for (const c of children) { if (c === null || c === undefined) continue; (typeof c === 'string') ? el.appendChild(document.createTextNode(c)) : el.appendChild(c); }
   return el;
 }
 
