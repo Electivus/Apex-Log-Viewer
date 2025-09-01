@@ -24,7 +24,7 @@ function h(
     for (const k of Object.keys(attrs)) {
       const v = (attrs as any)[k];
       if (k === 'style' && typeof v === 'object') Object.assign((el as HTMLElement).style, v);
-      else if (k === 'class') (el as any).className = v;
+      else if (k === 'class') (el as Element).setAttribute('class', String(v));
       else if (k.startsWith('on') && typeof v === 'function') (el as any)[k] = v;
       else if (v !== undefined && v !== null) {
         // Allowlist of safe attributes (prevents event/href/src injection and satisfies CodeQL)
