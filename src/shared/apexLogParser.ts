@@ -19,7 +19,29 @@ export type GraphEdge = {
   count: number; // number of times observed
 };
 
-export type LogGraph = { nodes: GraphNode[]; edges: GraphEdge[] };
+export type SequenceEvent = {
+  from?: string; // node id (optional for first event)
+  to: string; // node id
+  label?: string;
+  time?: string; // HH:MM:SS.mmm
+  nanos?: string; // raw nanoseconds field in parentheses
+};
+
+export type FlowSpan = {
+  actor: string; // node id (lane)
+  label: string;
+  start: number; // sequence index where it started
+  end?: number; // sequence index where it finished
+  depth: number; // nesting level within the same actor lane
+  kind: 'unit' | 'method';
+};
+
+export type LogGraph = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  sequence: SequenceEvent[];
+  flow: FlowSpan[];
+};
 
 function normalizeLevel(level: string | undefined): string | undefined {
   const l = (level || '').toUpperCase().trim();
@@ -93,6 +115,23 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
 
   const unitStack: Unit[] = [];
   const methodStack: string[] = []; // class names
+  const sequence: SequenceEvent[] = [];
+  const flow: FlowSpan[] = [];
+  const laneStacks = new Map<string, FlowSpan[]>();
+  const pushSpan = (actor: string, label: string, kind: FlowSpan['kind']) => {
+    const stack = laneStacks.get(actor) || [];
+    const span: FlowSpan = { actor, label, start: sequence.length, depth: stack.length, kind };
+    stack.push(span);
+    laneStacks.set(actor, stack);
+    flow.push(span);
+    return span;
+  };
+  const endSpan = (actor: string) => {
+    const stack = laneStacks.get(actor);
+    if (!stack || stack.length === 0) return;
+    const span = stack.pop()!;
+    if (span.end == null) span.end = Math.max(span.start + 1, sequence.length);
+  };
 
   function currentOwnerId(): string | undefined {
     // Prefer the last method's class; otherwise the current unit
@@ -106,6 +145,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
     return undefined;
   }
 
+  const rePrefixTime = /^(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s*\((\d+)\)\|/;
   const reCodeUnitStart = /\|CODE_UNIT_STARTED\|(.+)$/;
   const reCodeUnitFinish = /\|CODE_UNIT_FINISHED\|(.+)$/;
   const reMethodEntry = /\|METHOD_ENTRY\|(.+)$/;
@@ -190,9 +230,21 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
     const line = lines[i] || '';
     let m: RegExpMatchArray | null;
 
+    const tm = line.match(rePrefixTime);
+    const time = tm?.[1];
+    const nanos = tm?.[2];
+
     if ((m = line.match(reCodeUnitStart))) {
       const unit = getUnit(m[1] || '');
-      if (unit) unitStack.push(unit);
+      if (unit) {
+        // Sequence edge from current owner to new unit
+        const owner = currentOwnerId();
+        if (owner) sequence.push({ from: owner, to: unit.id, label: 'CODE_UNIT_STARTED', time, nanos });
+        else sequence.push({ to: unit.id, label: 'CODE_UNIT_STARTED', time, nanos });
+        // Flow span on the unit's own lane
+        pushSpan(unit.id, unit.name, 'unit');
+        unitStack.push(unit);
+      }
       continue;
     }
     if ((m = line.match(reCodeUnitFinish))) {
@@ -202,6 +254,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         const top = unitStack[unitStack.length - 1]!;
         if (top.name === label || top.id.endsWith(`:${label}`)) {
           unitStack.pop();
+          endSpan(top.id);
           break;
         }
         unitStack.pop();
@@ -218,7 +271,14 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         const targetId = nodeId('Class', cls);
         upsertNode(nodesById, 'Class', cls, defaults);
         const owner = currentOwnerId();
-        if (owner) incEdge(edgesByKey, owner, targetId);
+        if (owner) {
+          incEdge(edgesByKey, owner, targetId);
+          sequence.push({ from: owner, to: targetId, label: payload, time, nanos });
+        } else {
+          sequence.push({ to: targetId, label: payload, time, nanos });
+        }
+        // Flow span on class lane
+        pushSpan(targetId, payload, 'method');
         methodStack.push(cls);
       }
       continue;
@@ -230,6 +290,9 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         // Pop if class matches; otherwise soft-pop to keep stack bounded
         if (methodStack[methodStack.length - 1] === exitClass) methodStack.pop();
         else methodStack.pop();
+        // End the most recent open span for this class actor
+        const actor = nodeId('Class', exitClass);
+        endSpan(actor);
       }
       continue;
     }
@@ -237,5 +300,12 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
 
   const nodes = Array.from(nodesById.values());
   const edges = Array.from(edgesByKey.values());
-  return { nodes, edges };
+  // Any spans left open: close them at final sequence length
+  for (const [actor, stack] of laneStacks) {
+    while (stack.length) {
+      const span = stack.pop()!;
+      if (span.end == null) span.end = Math.max(span.start + 1, sequence.length);
+    }
+  }
+  return { nodes, edges, sequence, flow };
 }
