@@ -36,11 +36,21 @@ export type FlowSpan = {
   kind: 'unit' | 'method';
 };
 
+export type NestedFrame = {
+  actor: string; // node id
+  label: string; // display label
+  start: number; // sequence index at start
+  end?: number; // sequence index at end (exclusive)
+  depth: number; // global stack depth
+  kind: 'unit' | 'method';
+};
+
 export type LogGraph = {
   nodes: GraphNode[];
   edges: GraphEdge[];
   sequence: SequenceEvent[];
   flow: FlowSpan[];
+  nested: NestedFrame[];
 };
 
 function normalizeLevel(level: string | undefined): string | undefined {
@@ -131,6 +141,26 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
     if (!stack || stack.length === 0) return;
     const span = stack.pop()!;
     if (span.end == null) span.end = Math.max(span.start + 1, sequence.length);
+  };
+
+  // Global nested frames (single-column view)
+  const nested: NestedFrame[] = [];
+  const nestedStack: NestedFrame[] = [];
+  const pushNested = (actor: string, label: string, kind: NestedFrame['kind']) => {
+    const frame: NestedFrame = { actor, label, start: sequence.length, depth: nestedStack.length, kind };
+    nested.push(frame);
+    nestedStack.push(frame);
+  };
+  const popNestedByActor = (actor: string, kind?: NestedFrame['kind']) => {
+    for (let i = nestedStack.length - 1; i >= 0; i--) {
+      const fr = nestedStack[i]!;
+      if (fr.actor === actor && (!kind || fr.kind === kind)) {
+        fr.end = Math.max(fr.start + 1, sequence.length);
+        nestedStack.splice(i, 1);
+        return fr;
+      }
+    }
+    return undefined;
   };
 
   function currentOwnerId(): string | undefined {
@@ -243,6 +273,8 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         else sequence.push({ to: unit.id, label: 'CODE_UNIT_STARTED', time, nanos });
         // Flow span on the unit's own lane
         pushSpan(unit.id, unit.name, 'unit');
+        // Global nested frame
+        pushNested(unit.id, unit.name, 'unit');
         unitStack.push(unit);
       }
       continue;
@@ -255,6 +287,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         if (top.name === label || top.id.endsWith(`:${label}`)) {
           unitStack.pop();
           endSpan(top.id);
+          popNestedByActor(top.id, 'unit');
           break;
         }
         unitStack.pop();
@@ -279,6 +312,8 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         }
         // Flow span on class lane
         pushSpan(targetId, payload, 'method');
+        // Global nested frame
+        pushNested(targetId, payload, 'method');
         methodStack.push(cls);
       }
       continue;
@@ -293,6 +328,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         // End the most recent open span for this class actor
         const actor = nodeId('Class', exitClass);
         endSpan(actor);
+        popNestedByActor(actor, 'method');
       }
       continue;
     }
@@ -307,5 +343,10 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
       if (span.end == null) span.end = Math.max(span.start + 1, sequence.length);
     }
   }
-  return { nodes, edges, sequence, flow };
+  // Close any nested frames left open
+  while (nestedStack.length) {
+    const fr = nestedStack.pop()!;
+    if (fr.end == null) fr.end = Math.max(fr.start + 1, sequence.length);
+  }
+  return { nodes, edges, sequence, flow, nested };
 }

@@ -4,7 +4,7 @@ declare function acquireVsCodeApi(): any;
 type Graph = {
   nodes: { id: string; label: string; kind?: string }[];
   sequence: { from?: string; to: string; label?: string }[];
-  flow?: unknown[];
+  nested?: { actor: string; label: string; start: number; end?: number; depth: number; kind: 'unit' | 'method' }[];
 };
 
 const vscode = acquireVsCodeApi();
@@ -27,73 +27,49 @@ function h(tag: string, attrs?: Record<string, any>, children?: (Node | string |
 
 function truncate(s: string, max = 38): string { return s && s.length > max ? s.slice(0, max - 1) + '…' : (s || ''); }
 
-function buildSimplePath(graph: Graph) {
-  const used: string[] = [];
-  let last: string | undefined;
-  for (const ev of graph.sequence || []) {
-    const cur = ev.to;
-    if (!cur) continue;
-    if (cur !== last) {
-      used.push(cur);
-      last = cur;
-    }
-  }
-  return used;
-}
-
 function render(graph: Graph) {
   const root = document.getElementById('root')!;
   root.innerHTML = '';
 
-  const order = buildSimplePath(graph);
-  if (order.length === 0) {
+  const frames = (graph.nested || []).slice();
+  if (frames.length === 0) {
     root.appendChild(h('div', { style: { padding: '8px', opacity: 0.8 } }, ['No flow detected.']));
     return;
   }
-  const nodesById = new Map(graph.nodes.map(n => [n.id, n] as const));
 
-  const W = 240, H = 120, GAP = 36, PAD = 16;
-  const totalW = PAD + order.length * (W + GAP) - GAP + PAD;
-  const totalH = H + PAD * 2;
+  const PAD = 16; // outer padding
+  const ROW = 26; // vertical step per sequence index
+  const IND = 18; // indent per depth (x)
+  const W0 = Math.max(360, (root.clientWidth || 800) - PAD * 2);
+  const MAX_DEPTH = Math.max(0, ...frames.map(f => f.depth));
+  const width = W0; // overall width used by depth=0; inner boxes shrink by depth*IND*2
+  const totalH = PAD + Math.max(...frames.map(f => (f.end ?? f.start + 1))) * ROW + PAD;
 
-  const svg = h('svg', { width: totalW, height: totalH, viewBox: `0 0 ${totalW} ${totalH}` }) as SVGSVGElement;
-  const defs = h('defs');
-  defs.appendChild(h('marker', { id: 'arrow', markerWidth: 10, markerHeight: 8, refX: 10, refY: 4, orient: 'auto', markerUnits: 'strokeWidth' }, [
-    h('path', { d: 'M0,0 L10,4 L0,8 z', fill: 'var(--vscode-editor-foreground, #888)' })
-  ]));
-  svg.appendChild(defs);
+  const svg = h('svg', { width: width + PAD * 2, height: totalH, viewBox: `0 0 ${width + PAD * 2} ${totalH}` }) as SVGSVGElement;
 
-  for (let i = 0; i < order.length; i++) {
-    const id = order[i];
-    const x = PAD + i * (W + GAP);
-    const y = PAD;
-    const n = nodesById.get(id);
-    const label = truncate(n?.label || id.split(':').slice(1).join(':'), 36);
-    // Box
-    svg.appendChild(h('rect', { x, y, rx: 8, ry: 8, width: W, height: H, fill: 'var(--vscode-editorWidget-background, rgba(127,127,127,0.15))', stroke: 'var(--vscode-editorWidget-border, rgba(127,127,127,0.35))' }));
-    // Title
-    const title = h('text', { x: x + 12, y: y + 24, fill: 'var(--vscode-foreground)', 'font-weight': 600, 'font-size': 13 }, [label]);
-    (title as any).style.fontWeight = '600';
-    svg.appendChild(title);
-    // Kind
-    if (n?.kind) svg.appendChild(h('text', { x: x + 12, y: y + 44, fill: 'var(--vscode-foreground)', 'font-size': 11, opacity: 0.75 }, [n.kind]));
-    // Arrow to next
-    if (i < order.length - 1) {
-      const x1 = x + W;
-      const x2 = x + W + GAP;
-      const midY = y + H / 2;
-      svg.appendChild(h('line', { x1, y1: midY, x2, y2: midY, stroke: 'var(--vscode-editor-foreground, #888)', 'stroke-width': 2, 'marker-end': 'url(#arrow)' }));
-    }
+  // Draw frames (outer to inner ensures borders visible): iterate by ascending depth
+  frames.sort((a, b) => a.depth - b.depth || a.start - b.start);
+
+  for (const fr of frames) {
+    const x = PAD + fr.depth * IND;
+    const w = Math.max(40, width - fr.depth * IND * 2);
+    const y1 = PAD + fr.start * ROW + 3;
+    const y2 = PAD + (fr.end ?? fr.start + 1) * ROW - 3;
+    const rectH = Math.max(14, y2 - y1);
+    const stroke = fr.kind === 'unit' ? 'var(--vscode-foreground, #ccc)' : 'var(--vscode-editorWidget-border, rgba(127,127,127,0.35))';
+    const fill = 'var(--vscode-editorWidget-background, rgba(127,127,127,0.12))';
+    svg.appendChild(h('rect', { x, y: y1, width: w, height: rectH, rx: 8, ry: 8, fill, stroke, 'stroke-width': fr.kind === 'unit' ? 1.5 : 1 }));
+    const label = truncate(fr.label.replace(/^Class\./, ''), 80);
+    svg.appendChild(h('text', { x: x + 10, y: y1 + 16, fill: 'var(--vscode-foreground)', 'font-size': 12 }, [label]));
   }
 
-  // Scroll container to fit horizontally
-  const scroller = h('div', { style: { overflowX: 'auto', overflowY: 'hidden' } }, [svg]);
+  const scroller = h('div', { style: { overflowY: 'auto', overflowX: 'hidden' } }, [svg]);
   root.appendChild(scroller);
 }
 
 window.addEventListener('message', e => {
   const msg = e.data || {};
-  if (msg.type === 'graph') render(msg.graph || { nodes: [], sequence: [] });
+  if (msg.type === 'graph') render(msg.graph || { nodes: [], sequence: [], nested: [] });
 });
 
 document.addEventListener('DOMContentLoaded', () => vscode.postMessage({ type: 'ready' }));
