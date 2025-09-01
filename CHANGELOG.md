@@ -2,13 +2,42 @@
 
 ## Unreleased
 
+## [0.4.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.3.1...v0.4.0) (2025-09-01)
+
 ### Features
 
-- Rename panels to "Apex Logs" and "Apex Logs Tail".
+- Add Apex log diagram visualization (no external libs) ([#93](https://github.com/Electivus/Apex-Log-Viewer/pull/93)) ([39290af](https://github.com/Electivus/Apex-Log-Viewer/commit/39290af))
+- Tail Apex Logs via Streaming API (/systemTopic/Logging) ([#43](https://github.com/Electivus/Apex-Log-Viewer/pull/43)) ([a55bfa7](https://github.com/Electivus/Apex-Log-Viewer/commit/a55bfa7))
+- Tail: virtualized list, configurable buffer, viewport-aware paging ([#72](https://github.com/Electivus/Apex-Log-Viewer/pull/72)) ([dc117d3](https://github.com/Electivus/Apex-Log-Viewer/commit/dc117d3))
+- Tail: smart autoscroll and dynamic height ([#73](https://github.com/Electivus/Apex-Log-Viewer/pull/73)) ([3b04179](https://github.com/Electivus/Apex-Log-Viewer/commit/3b04179))
+- Cache org list and support forced refresh ([#79](https://github.com/Electivus/Apex-Log-Viewer/pull/79)) ([f425a32](https://github.com/Electivus/Apex-Log-Viewer/commit/f425a32))
+- Rename panels to "Apex Logs" and "Apex Logs Tail" ([#49](https://github.com/Electivus/Apex-Log-Viewer/pull/49)) ([494c8c8](https://github.com/Electivus/Apex-Log-Viewer/commit/494c8c8))
 
 ### Bug Fixes
 
-- Terminate Salesforce CLI commands after 30s to prevent hanging.
+- Terminate Salesforce CLI commands after ~30s to prevent hanging ([#90](https://github.com/Electivus/Apex-Log-Viewer/pull/90), [#91](https://github.com/Electivus/Apex-Log-Viewer/pull/91)) ([8b8f40d](https://github.com/Electivus/Apex-Log-Viewer/commit/8b8f40d), [4653686](https://github.com/Electivus/Apex-Log-Viewer/commit/4653686))
+- Reset TailService resources on stop ([#75](https://github.com/Electivus/Apex-Log-Viewer/pull/75)) ([01a8496](https://github.com/Electivus/Apex-Log-Viewer/commit/01a8496))
+- Stop TailService on webview dispose; allow tail after reopen ([#42](https://github.com/Electivus/Apex-Log-Viewer/pull/42)) ([7f69818](https://github.com/Electivus/Apex-Log-Viewer/commit/7f69818))
+- Log ignored errors in catch blocks ([#92](https://github.com/Electivus/Apex-Log-Viewer/pull/92)) ([20e3094](https://github.com/Electivus/Apex-Log-Viewer/commit/20e3094))
+- Log failed auth token refresh ([#77](https://github.com/Electivus/Apex-Log-Viewer/pull/77)) ([01c26e5](https://github.com/Electivus/Apex-Log-Viewer/commit/01c26e5))
+- Remove duplicate resolving PATH finalizer ([#32](https://github.com/Electivus/Apex-Log-Viewer/pull/32)) ([3e751e1](https://github.com/Electivus/Apex-Log-Viewer/commit/3e751e1))
+- Log sendOrgs errors in tail view ([#39](https://github.com/Electivus/Apex-Log-Viewer/pull/39)) ([37035bb](https://github.com/Electivus/Apex-Log-Viewer/commit/37035bb))
+
+### Docs
+
+- Add architecture overview ([#45](https://github.com/Electivus/Apex-Log-Viewer/pull/45)) ([40c543b](https://github.com/Electivus/Apex-Log-Viewer/commit/40c543b))
+- Inline usage guide in README ([#44](https://github.com/Electivus/Apex-Log-Viewer/pull/44)) ([007f370](https://github.com/Electivus/Apex-Log-Viewer/commit/007f370))
+- Add settings guide ([#46](https://github.com/Electivus/Apex-Log-Viewer/pull/46)) ([3833fae](https://github.com/Electivus/Apex-Log-Viewer/commit/3833fae))
+
+### Build
+
+- Bundle extension runtime with esbuild; exclude node_modules; stub 'bfj' ([#94](https://github.com/Electivus/Apex-Log-Viewer/pull/94)) ([828c53e](https://github.com/Electivus/Apex-Log-Viewer/commit/828c53e))
+- Specify Node 20 engine and document requirement ([#85](https://github.com/Electivus/Apex-Log-Viewer/pull/85)) ([6d98c3d](https://github.com/Electivus/Apex-Log-Viewer/commit/6d98c3d))
+
+### Refactoring
+
+- Extract TailService and streaming utilities; typed helpers and module splits ([2233539](https://github.com/Electivus/Apex-Log-Viewer/commit/2233539), [73dab59](https://github.com/Electivus/Apex-Log-Viewer/commit/73dab59), [18c2b03](https://github.com/Electivus/Apex-Log-Viewer/commit/18c2b03), [05e7ad4](https://github.com/Electivus/Apex-Log-Viewer/commit/05e7ad4))
+
 
 ## [0.3.1](https://github.com/Electivus/Apex-Log-Viewer/compare/apex-log-viewer-v0.3.1...apex-log-viewer-v0.3.1) (2025-08-30)
 
