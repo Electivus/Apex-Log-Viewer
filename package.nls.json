@@ -8,6 +8,7 @@
   "command.refresh.title": "Refresh Logs",
   "command.selectOrg.title": "Select Org",
   "command.tail.title": "Tail Logs",
+  "command.showDiagram.title": "Show Log Diagram",
   "configuration.title": "Apex Logs",
   "configuration.sfLogs.pageSize.description": "Number of logs to fetch per page (LIMIT).",
   "configuration.sfLogs.headConcurrency.description": "Maximum number of concurrent requests to fetch log heads.",

@@ -8,6 +8,7 @@
   "command.refresh.title": "Atualizar Logs",
   "command.selectOrg.title": "Selecionar Org",
   "command.tail.title": "Tail de Logs",
+  "command.showDiagram.title": "Mostrar Diagrama do Log",
   "configuration.title": "Apex Logs",
   "configuration.sfLogs.pageSize.description": "Quantidade de logs por página (LIMIT).",
   "configuration.sfLogs.headConcurrency.description": "Número máximo de requisições concorrentes para buscar cabeçalhos dos logs.",

@@ -14,3 +14,4 @@ sample-workspace/
 media/*.js.map
 src/**/*.js
 src/**/*.js.map
+apexlogs/
