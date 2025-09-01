@@ -48,7 +48,9 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:sfLogs.showDiagram"
+  ],
   "extensionDependencies": [],
   "main": "./dist/extension.js",
   "contributes": {
@@ -135,6 +137,12 @@
         "category": "Apex Logs"
       },
       {
+        "command": "sfLogs.showDiagram",
+        "title": "%command.showDiagram.title%",
+        "category": "Apex Logs",
+        "icon": "$(graph)"
+      },
+      {
         "command": "sfLogs.showOutput",
         "title": "Show Extension Output",
         "category": "Apex Logs"
@@ -161,6 +169,13 @@
           "command": "sfLogs.showOutput",
           "when": "view == sfLogViewer || view == sfLogTail",
           "group": "navigation@99"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "sfLogs.showDiagram",
+          "when": "resourceExtname == .log",
+          "group": "navigation@100"
         }
       ]
     }
@@ -244,6 +259,7 @@
   "files": [
     "dist/**",
     "media/main.js",
+    "media/diagram.js",
     "media/tail.js",
     "media/icon.png",
     "README.md",

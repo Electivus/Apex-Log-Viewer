@@ -9,6 +9,7 @@ import { setApiVersion, getApiVersion } from './salesforce/http';
 import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger } from './utils/logger';
 import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';
+import { ApexLogDiagramPanelManager } from './provider/ApexLogDiagramPanel';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
   username: string;
@@ -129,6 +130,17 @@ export async function activate(context: vscode.ExtensionContext) {
       await provider.tailLogs();
     })
   );
+
+  // Diagram panel command
+  const diagramPanel = new ApexLogDiagramPanelManager(context);
+  context.subscriptions.push(diagramPanel);
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.showDiagram', async () => {
+      logInfo('Command sfLogs.showDiagram invoked.');
+      await diagramPanel.showForActiveEditor();
+    })
+  );
+  // No auto-overlay; the diagram opens via the editor title button/command.
 
   // Convenience: command to show the output channel
   context.subscriptions.push(

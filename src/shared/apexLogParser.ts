@@ -1,0 +1,241 @@
+// Lightweight Apex Debug Log parser to extract a call graph suitable for
+// a simple diagram overlay. This is not a full log parser — it focuses on
+// CODE_UNIT_* and METHOD_* events to infer relationships between triggers,
+// classes and flows. It also captures the default log levels from the head
+// of the file (e.g., "64.0 APEX_CODE,FINEST;DB,INFO;...").
+
+export type LogLevels = Record<string, string>;
+
+export type GraphNode = {
+  id: string; // stable id (e.g., kind:Name)
+  label: string; // human friendly label
+  kind: 'Trigger' | 'Class' | 'Flow' | 'Other';
+  levels?: LogLevels; // default/inherited levels (best-effort)
+};
+
+export type GraphEdge = {
+  from: string; // node id
+  to: string; // node id
+  count: number; // number of times observed
+};
+
+export type LogGraph = { nodes: GraphNode[]; edges: GraphEdge[] };
+
+function normalizeLevel(level: string | undefined): string | undefined {
+  const l = (level || '').toUpperCase().trim();
+  const allowed = ['FINEST', 'FINER', 'FINE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'NONE'];
+  return allowed.includes(l) ? l : undefined;
+}
+
+// Parse a line like:
+//   "64.0 APEX_CODE,FINEST;APEX_PROFILING,INFO;DB,INFO;SYSTEM,DEBUG;..."
+export function parseDefaultLogLevels(headLines: string[]): LogLevels | undefined {
+  const first = headLines.find(l => /\bAPEX_CODE\b.*[,;]/.test(l));
+  if (!first) return undefined;
+  const map: LogLevels = {};
+  // Take the substring starting at the first category to avoid leading version numbers
+  const start = first.indexOf('APEX_');
+  const payload = start >= 0 ? first.slice(start) : first;
+  for (const part of payload.split(';')) {
+    const m = part.match(/([A-Z_]+)\s*,\s*([A-Z]+)/);
+    if (m) {
+      const [, key, lvl] = m as unknown as [string, string, string];
+      const norm = normalizeLevel(lvl);
+      if (norm) (map as Record<string, string>)[key] = norm;
+    }
+  }
+  return Object.keys(map).length ? map : undefined;
+}
+
+function nodeId(kind: GraphNode['kind'], name: string): string {
+  return `${kind}:${name}`;
+}
+
+function upsertNode(nodesById: Map<string, GraphNode>, kind: GraphNode['kind'], name: string, levels?: LogLevels): GraphNode {
+  const id = nodeId(kind, name);
+  const existing = nodesById.get(id);
+  if (existing) {
+    return existing;
+  }
+  const node: GraphNode = { id, label: name, kind, levels };
+  nodesById.set(id, node);
+  return node;
+}
+
+function incEdge(edgesByKey: Map<string, GraphEdge>, from: string, to: string) {
+  if (from === to) return; // ignore self loops
+  const key = `${from}|${to}`;
+  const existing = edgesByKey.get(key);
+  if (existing) {
+    existing.count++;
+    return existing;
+  }
+  const edge: GraphEdge = { from, to, count: 1 };
+  edgesByKey.set(key, edge);
+  return edge;
+}
+
+type Unit = { kind: GraphNode['kind']; name: string; id: string };
+
+/**
+ * Parse Apex log text into a simple call graph.
+ * - Detects default log levels from the head
+ * - Creates nodes for triggers, classes, and flows
+ * - Adds edges when a class method is entered from a different owner (trigger/class/flow)
+ */
+export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
+  const lines = text.split(/\r?\n/);
+  const head = lines.slice(0, 8);
+  const defaults = parseDefaultLogLevels(head);
+
+  const nodesById = new Map<string, GraphNode>();
+  const edgesByKey = new Map<string, GraphEdge>();
+
+  const unitStack: Unit[] = [];
+  const methodStack: string[] = []; // class names
+
+  function currentOwnerId(): string | undefined {
+    // Prefer the last method's class; otherwise the current unit
+    if (methodStack.length) {
+      const cls = methodStack[methodStack.length - 1]!;
+      return nodeId('Class', cls);
+    }
+    if (unitStack.length) {
+      return unitStack[unitStack.length - 1]!.id;
+    }
+    return undefined;
+  }
+
+  const reCodeUnitStart = /\|CODE_UNIT_STARTED\|(.+)$/;
+  const reCodeUnitFinish = /\|CODE_UNIT_FINISHED\|(.+)$/;
+  const reMethodEntry = /\|METHOD_ENTRY\|(.+)$/;
+  const reMethodExit = /\|METHOD_EXIT\|(.+)$/;
+
+  const isTriggerDescriptor = (s: string) => /\btrigger event\b/i.test(s);
+
+  const getClassNameFromMethodSig = (sig: string): string | undefined => {
+    // Examples:
+    //   "MyClass.myMethod(String)"
+    //   "ns__MyClass.handler(Map<Id,SObject>)"
+    //   "System.List<...>.add(Object)" (ignore System.*)
+    const noArgs = sig.split('(')[0]!.trim();
+    const parts = noArgs.split('.');
+    if (parts.length >= 2) {
+      const method = parts.pop();
+      const cls = parts.join('.');
+      if (cls && method) {
+        // Drop well-known system prefixes to avoid noisy nodes
+        if (/^System(\.|$)/.test(cls)) return undefined;
+        return cls;
+      }
+    }
+    return undefined;
+  };
+
+  const getUnit = (payload: string): Unit | undefined => {
+    // payload is the substring after CODE_UNIT_STARTED| ... we need the right-most human label
+    const parts = payload
+      .split('|')
+      .map(s => s.trim())
+      .filter(Boolean);
+    const last = parts[parts.length - 1] || '';
+    const lastButOne = parts.length >= 2 ? parts[parts.length - 2] || '' : '';
+    let label = last;
+    // For triggers, the last part can be a path like "__sfdc_trigger/Name"; prefer the human label
+    if (/__sfdc_trigger\//.test(last) && lastButOne) {
+      label = lastButOne;
+    }
+    // Normalize some shapes
+    if (/^Flow:/i.test(label)) {
+      const name = label.replace(/^Flow:/i, '').trim() || 'Flow';
+      const id = nodeId('Flow', name);
+      upsertNode(nodesById, 'Flow', name, defaults);
+      return { kind: 'Flow', name, id };
+    }
+    if (/^Class\./.test(label)) {
+      // Class.MyClass.method
+      const m = label.match(/^Class\.(.+?)\./);
+      const name = (m && m[1]) || label.replace(/^Class\./, '');
+      const id = nodeId('Class', name);
+      upsertNode(nodesById, 'Class', name, defaults);
+      return { kind: 'Class', name, id };
+    }
+    if (isTriggerDescriptor(label)) {
+      // e.g., "MyTrigger on Account trigger event BeforeInsert"
+      const name = label.split(' on ')[0]!.trim();
+      const id = nodeId('Trigger', name);
+      upsertNode(nodesById, 'Trigger', name, defaults);
+      return { kind: 'Trigger', name, id };
+    }
+    // Fallback: use best guess and treat as Other
+    const id = nodeId('Other', label || 'CodeUnit');
+    upsertNode(nodesById, 'Other', label || 'CodeUnit', defaults);
+    return { kind: 'Other', name: label || 'CodeUnit', id };
+  };
+
+  const getFinishLabel = (payload: string): string => {
+    const parts = payload
+      .split('|')
+      .map(s => s.trim())
+      .filter(Boolean);
+    // Prefer human label when last is a path
+    const last = parts[parts.length - 1] || '';
+    const lastButOne = parts.length >= 2 ? parts[parts.length - 2] || '' : '';
+    if (/__sfdc_trigger\//.test(last) && lastButOne) return lastButOne;
+    return last;
+  };
+
+  const max = typeof maxLines === 'number' ? Math.max(1, maxLines) : lines.length;
+  for (let i = 0; i < Math.min(lines.length, max); i++) {
+    const line = lines[i] || '';
+    let m: RegExpMatchArray | null;
+
+    if ((m = line.match(reCodeUnitStart))) {
+      const unit = getUnit(m[1] || '');
+      if (unit) unitStack.push(unit);
+      continue;
+    }
+    if ((m = line.match(reCodeUnitFinish))) {
+      const label = getFinishLabel(m[1] || '');
+      // Pop until a matching or any unit, to be resilient to mismatched logs
+      while (unitStack.length) {
+        const top = unitStack[unitStack.length - 1]!;
+        if (top.name === label || top.id.endsWith(`:${label}`)) {
+          unitStack.pop();
+          break;
+        }
+        unitStack.pop();
+      }
+      // Clearing method stack when a unit ends keeps ownership sane
+      methodStack.length = 0;
+      continue;
+    }
+    if ((m = line.match(reMethodEntry))) {
+      const payload = (m[1] || '').split('|').pop() || '';
+      const cls = getClassNameFromMethodSig(payload);
+      if (cls) {
+        // Create node and edge from current owner
+        const targetId = nodeId('Class', cls);
+        upsertNode(nodesById, 'Class', cls, defaults);
+        const owner = currentOwnerId();
+        if (owner) incEdge(edgesByKey, owner, targetId);
+        methodStack.push(cls);
+      }
+      continue;
+    }
+    if ((m = line.match(reMethodExit))) {
+      const payload = (m[1] || '').split('|').pop() || '';
+      const exitClass = payload.trim();
+      if (exitClass && methodStack.length) {
+        // Pop if class matches; otherwise soft-pop to keep stack bounded
+        if (methodStack[methodStack.length - 1] === exitClass) methodStack.pop();
+        else methodStack.pop();
+      }
+      continue;
+    }
+  }
+
+  const nodes = Array.from(nodesById.values());
+  const edges = Array.from(edgesByKey.values());
+  return { nodes, edges };
+}
