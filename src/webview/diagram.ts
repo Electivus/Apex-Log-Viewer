@@ -16,6 +16,7 @@ function h(
   children?: (Node | string | null | undefined)[]
 ): HTMLElement | SVGElement {
   const svgTags = new Set(['svg', 'path', 'defs', 'marker', 'line', 'text', 'rect', 'g', 'title']);
+  const htmlTags = new Set(['div', 'label', 'span', 'input', 'button']);
   const el = svgTags.has(tag)
     ? document.createElementNS('http://www.w3.org/2000/svg', tag)
     : document.createElement(tag);
@@ -45,7 +46,18 @@ function h(
   if (children)
     for (const c of children) {
       if (c === null || c === undefined) continue;
-      typeof c === 'string' ? el.appendChild(document.createTextNode(c)) : el.appendChild(c);
+      if (typeof c === 'string') {
+        el.appendChild(document.createTextNode(c));
+      } else if (c instanceof Node) {
+        // Only allow known-safe node types/tags
+        if (c.nodeType === Node.TEXT_NODE) {
+          el.appendChild(c);
+        } else if (c instanceof SVGElement) {
+          if (svgTags.has((c as Element).tagName.toLowerCase())) el.appendChild(c);
+        } else if (c instanceof HTMLElement) {
+          if (htmlTags.has((c as Element).tagName.toLowerCase())) el.appendChild(c);
+        }
+      }
     }
   return el;
 }
