@@ -10,7 +10,11 @@ type Graph = {
 
 const vscode = acquireVsCodeApi();
 
-function h(tag: string, attrs?: Record<string, any>, children?: (Node | string | null | undefined)[]): HTMLElement | SVGElement {
+function h(
+  tag: string,
+  attrs?: Record<string, any>,
+  children?: (Node | string | null | undefined)[]
+): HTMLElement | SVGElement {
   const svgTags = new Set(['svg', 'path', 'defs', 'marker', 'line', 'text', 'rect', 'g', 'title']);
   const el = svgTags.has(tag)
     ? document.createElementNS('http://www.w3.org/2000/svg', tag)
@@ -23,11 +27,17 @@ function h(tag: string, attrs?: Record<string, any>, children?: (Node | string |
       else if (v !== undefined && v !== null) (el as any).setAttribute?.(k, String(v));
     }
   }
-  if (children) for (const c of children) { if (c === null || c === undefined) continue; (typeof c === 'string') ? el.appendChild(document.createTextNode(c)) : el.appendChild(c); }
+  if (children)
+    for (const c of children) {
+      if (c === null || c === undefined) continue;
+      typeof c === 'string' ? el.appendChild(document.createTextNode(c)) : el.appendChild(c);
+    }
   return el;
 }
 
-function truncate(s: string, max = 38): string { return s && s.length > max ? s.slice(0, max - 1) + '…' : (s || ''); }
+function truncate(s: string, max = 38): string {
+  return s && s.length > max ? s.slice(0, max - 1) + '…' : s || '';
+}
 
 function sanitizeText(s: string): string {
   if (!s) return '';
@@ -54,6 +64,7 @@ function ensureStyles() {
 let currentGraph: Graph | undefined;
 let hideSystem = true;
 let collapseRepeats = true;
+let showMethods = false;
 
 function kindFromActor(actor: string): 'Trigger' | 'Flow' | 'Class' | 'Other' {
   if (actor.startsWith('Trigger:')) return 'Trigger';
@@ -79,13 +90,22 @@ function filterAndCollapse(frames: Nested[] | undefined): (Nested & { count?: nu
   if (hideSystem) {
     list = list.filter(fr => !/^Class:System\b/.test(fr.actor) && !/^System\./.test(fr.label));
   }
+  if (!showMethods) {
+    list = list.filter(fr => fr.kind !== 'method');
+  }
   // Collapse consecutive repeats on same lane, same depth and same label
   list.sort((a, b) => a.start - b.start || a.depth - b.depth);
   if (!collapseRepeats) return list as any;
   const out: (Nested & { count?: number })[] = [];
   for (const f of list) {
     const prev = out[out.length - 1];
-    if (prev && prev.actor === f.actor && prev.depth === f.depth && prev.label === f.label && (prev.end ?? prev.start) <= f.start) {
+    if (
+      prev &&
+      prev.actor === f.actor &&
+      prev.depth === f.depth &&
+      prev.label === f.label &&
+      (prev.end ?? prev.start) <= f.start
+    ) {
       prev.end = f.end ?? f.start + 1;
       prev.count = (prev.count || 1) + 1;
     } else {
@@ -110,18 +130,115 @@ function render(graph: Graph) {
   // Toolbar with toggles + legend
   const toolbar = h('div', { class: 'toolbar' }, [
     h('label', {}, [
-      h('input', { type: 'checkbox', checked: hideSystem ? 'checked' : undefined, onchange: (e: any) => { hideSystem = !!e.target.checked; if (currentGraph) render(currentGraph); } }, []),
+      h(
+        'input',
+        {
+          type: 'checkbox',
+          checked: hideSystem ? 'checked' : undefined,
+          onchange: (e: any) => {
+            hideSystem = !!e.target.checked;
+            if (currentGraph) render(currentGraph);
+          }
+        },
+        []
+      ),
       ' Hide System'
     ]),
     h('label', {}, [
-      h('input', { type: 'checkbox', checked: collapseRepeats ? 'checked' : undefined, onchange: (e: any) => { collapseRepeats = !!e.target.checked; if (currentGraph) render(currentGraph); } }, []),
+      h(
+        'input',
+        {
+          type: 'checkbox',
+          checked: collapseRepeats ? 'checked' : undefined,
+          onchange: (e: any) => {
+            collapseRepeats = !!e.target.checked;
+            if (currentGraph) render(currentGraph);
+          }
+        },
+        []
+      ),
       ' Collapse repeats'
     ]),
+    h('label', {}, [
+      h(
+        'input',
+        {
+          type: 'checkbox',
+          checked: showMethods ? 'checked' : undefined,
+          onchange: (e: any) => {
+            showMethods = !!e.target.checked;
+            if (currentGraph) render(currentGraph);
+          }
+        },
+        []
+      ),
+      ' Show methods'
+    ]),
+    h(
+      'button',
+      {
+        onclick: () => {
+          showMethods = true;
+          if (currentGraph) render(currentGraph);
+        }
+      },
+      ['Expand all']
+    ),
+    h(
+      'button',
+      {
+        onclick: () => {
+          showMethods = false;
+          if (currentGraph) render(currentGraph);
+        }
+      },
+      ['Collapse all']
+    ),
     h('div', { class: 'legend' }, [
-      h('span', { class: 'item' }, [h('span', { class: 'swatch', style: { background: styleByKind('Trigger').fill, border: `1px solid ${styleByKind('Trigger').stroke}` } }, []), 'Trigger']),
-      h('span', { class: 'item' }, [h('span', { class: 'swatch', style: { background: styleByKind('Flow').fill, border: `1px solid ${styleByKind('Flow').stroke}` } }, []), 'Flow']),
-      h('span', { class: 'item' }, [h('span', { class: 'swatch', style: { background: styleByKind('Class').fill, border: `1px solid ${styleByKind('Class').stroke}` } }, []), 'Class']),
-      h('span', { class: 'item' }, [h('span', { class: 'swatch', style: { background: styleByKind('Other').fill, border: `1px solid ${styleByKind('Other').stroke}` } }, []), 'Other'])
+      h('span', { class: 'item' }, [
+        h(
+          'span',
+          {
+            class: 'swatch',
+            style: { background: styleByKind('Trigger').fill, border: `1px solid ${styleByKind('Trigger').stroke}` }
+          },
+          []
+        ),
+        'Trigger'
+      ]),
+      h('span', { class: 'item' }, [
+        h(
+          'span',
+          {
+            class: 'swatch',
+            style: { background: styleByKind('Flow').fill, border: `1px solid ${styleByKind('Flow').stroke}` }
+          },
+          []
+        ),
+        'Flow'
+      ]),
+      h('span', { class: 'item' }, [
+        h(
+          'span',
+          {
+            class: 'swatch',
+            style: { background: styleByKind('Class').fill, border: `1px solid ${styleByKind('Class').stroke}` }
+          },
+          []
+        ),
+        'Class'
+      ]),
+      h('span', { class: 'item' }, [
+        h(
+          'span',
+          {
+            class: 'swatch',
+            style: { background: styleByKind('Other').fill, border: `1px solid ${styleByKind('Other').stroke}` }
+          },
+          []
+        ),
+        'Other'
+      ])
     ])
   ]);
   root.appendChild(toolbar);
@@ -133,7 +250,7 @@ function render(graph: Graph) {
   const W0 = Math.max(360, (root.clientWidth || viewportW) - PAD * 2);
   const MAX_DEPTH = Math.max(0, ...frames.map(f => f.depth));
   const width = W0; // overall width used by depth=0; inner boxes shrink by depth*IND*2
-  const totalH = PAD + Math.max(...frames.map(f => (f.end ?? f.start + 1))) * ROW + PAD;
+  const totalH = PAD + Math.max(...frames.map(f => f.end ?? f.start + 1)) * ROW + PAD;
 
   const svgW = width + PAD * 2 + 12; // right-side breathing room
   const svgH = totalH + 12; // bottom breathing room
@@ -151,7 +268,19 @@ function render(graph: Graph) {
     const kind = kindFromActor(fr.actor);
     const sty = styleByKind(kind);
     const g = h('g');
-    g.appendChild(h('rect', { x, y: y1, width: w, height: rectH, rx: 8, ry: 8, fill: sty.fill, stroke: sty.stroke, 'stroke-width': fr.kind === 'unit' ? 1.6 : 1 }));
+    g.appendChild(
+      h('rect', {
+        x,
+        y: y1,
+        width: w,
+        height: rectH,
+        rx: 8,
+        ry: 8,
+        fill: sty.fill,
+        stroke: sty.stroke,
+        'stroke-width': fr.kind === 'unit' ? 1.6 : 1
+      })
+    );
     const countSuffix = (fr as any).count && (fr as any).count > 1 ? ` ×${(fr as any).count}` : '';
     const label = truncate(fr.label.replace(/^Class\./, ''), 80) + countSuffix;
     g.appendChild(h('text', { x: x + 10, y: y1 + 16, fill: 'var(--vscode-foreground)', 'font-size': 12 }, [label]));
@@ -160,7 +289,21 @@ function render(graph: Graph) {
     svg.appendChild(g);
   }
 
-  const scroller = h('div', { style: { position: 'absolute', top: '36px', left: '0', right: '0', bottom: '0', overflowY: 'auto', overflowX: 'auto' } }, [svg]);
+  const scroller = h(
+    'div',
+    {
+      style: {
+        position: 'absolute',
+        top: '36px',
+        left: '0',
+        right: '0',
+        bottom: '0',
+        overflowY: 'auto',
+        overflowX: 'auto'
+      }
+    },
+    [svg]
+  );
   root.appendChild(scroller);
 }
 
