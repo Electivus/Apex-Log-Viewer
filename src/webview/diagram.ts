@@ -1,10 +1,11 @@
 /* Simple left-to-right flow diagram (no external libs). */
 declare function acquireVsCodeApi(): any;
 
+type Nested = { actor: string; label: string; start: number; end?: number; depth: number; kind: 'unit' | 'method' };
 type Graph = {
   nodes: { id: string; label: string; kind?: string }[];
   sequence: { from?: string; to: string; label?: string }[];
-  nested?: { actor: string; label: string; start: number; end?: number; depth: number; kind: 'unit' | 'method' }[];
+  nested?: Nested[];
 };
 
 const vscode = acquireVsCodeApi();
@@ -67,15 +68,15 @@ function styleByKind(kind: 'Trigger' | 'Flow' | 'Class' | 'Other') {
   }
 }
 
-function filterAndCollapse(frames: Graph['nested']): (Graph['nested'][number] & { count?: number })[] {
-  let list = (frames || []).slice();
+function filterAndCollapse(frames: Nested[] | undefined): (Nested & { count?: number })[] {
+  let list: Nested[] = (frames || []).slice();
   if (hideSystem) {
     list = list.filter(fr => !/^Class:System\b/.test(fr.actor) && !/^System\./.test(fr.label));
   }
   // Collapse consecutive repeats on same lane, same depth and same label
   list.sort((a, b) => a.start - b.start || a.depth - b.depth);
   if (!collapseRepeats) return list as any;
-  const out: (typeof list[number] & { count?: number })[] = [];
+  const out: (Nested & { count?: number })[] = [];
   for (const f of list) {
     const prev = out[out.length - 1];
     if (prev && prev.actor === f.actor && prev.depth === f.depth && prev.label === f.label && (prev.end ?? prev.start) <= f.start) {
