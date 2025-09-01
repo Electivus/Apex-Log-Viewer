@@ -61,6 +61,26 @@ jobs:
             *) npm run test:unit:ci ;;
           esac
 
+  smoke_vsix:
+    name: VSIX Smoke Test
+    needs: build_and_test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build and run VSIX smoke
+        run: node scripts/run-tests.js --scope=unit --smoke-vsix
+
   package:
     name: Package VSIX
     # Run on tag pushes, on published Releases, or manual dispatch with tag_name
