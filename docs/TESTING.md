@@ -26,7 +26,7 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 - `VSCODE_TEST_VERSION`: VS Code build to test against. Defaults to `insiders` locally. In CI we pin to `stable` to avoid flakiness.
 - `VSCODE_TEST_INSTALL_DEPS=1`: Forces installing dependency extensions even in non‑integration scopes.
 - `VSCODE_TEST_GREP`: Mocha grep filter (string or regexp); use with `VSCODE_TEST_INVERT=1` to invert.
-- `VSCODE_TEST_MOCHA_TIMEOUT_MS`: Per‑test timeout (default 30000ms).
+- `VSCODE_TEST_MOCHA_TIMEOUT_MS`: Per‑test timeout (default 120000ms).
 - `VSCODE_TEST_TOTAL_TIMEOUT_MS`: Global hard timeout for the whole run.
 - `VSCODE_TEST_WORKSPACE`: If set, path opened by the test host. Normally the runner creates one for you.
 - `SF_LOG_TRACE=1`: Enables verbose trace logging in the temporary workspace settings.

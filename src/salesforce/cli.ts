@@ -5,7 +5,7 @@ import { localize } from '../utils/localize';
 const crossSpawn = require('cross-spawn');
 import type { OrgAuth, OrgItem } from './types';
 
-const CLI_TIMEOUT_MS = 30000;
+const CLI_TIMEOUT_MS = 120000;
 
 // Allow swapping exec implementation in tests
 export type ExecFileFn = (
