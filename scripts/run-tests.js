@@ -290,6 +290,9 @@ function parseArgs(argv) {
     else if (a.startsWith('--timeout=')) out.timeoutMs = Number(a.split('=')[1]) || undefined;
     else if (a === '--smoke-vsix') out.smokeVsix = true;
   }
+  if (/^1|true$/i.test(String(process.env.ALWAYS_SMOKE_VSIX || ''))) {
+    out.smokeVsix = true;
+  }
   return out;
 }
 

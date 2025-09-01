@@ -80,6 +80,8 @@ jobs:
         run: npm ci
       - name: Build and run VSIX smoke
         run: npm run test:smoke:vsix
+        env:
+          ALWAYS_SMOKE_VSIX: "1"
 
   package:
     name: Package VSIX
