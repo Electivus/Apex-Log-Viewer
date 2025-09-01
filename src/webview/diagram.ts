@@ -10,7 +10,11 @@ type Graph = {
 
 const vscode = acquireVsCodeApi();
 
-function h(tag: string, attrs?: Record<string, any>, children?: (Node | string | null | undefined)[]): HTMLElement | SVGElement {
+function h(
+  tag: string,
+  attrs?: Record<string, any>,
+  children?: (Node | string | null | undefined)[]
+): HTMLElement | SVGElement {
   const svgTags = new Set(['svg', 'path', 'defs', 'marker', 'line', 'text', 'rect', 'g', 'title']);
   const el = svgTags.has(tag)
     ? document.createElementNS('http://www.w3.org/2000/svg', tag)
@@ -20,14 +24,21 @@ function h(tag: string, attrs?: Record<string, any>, children?: (Node | string |
       const v = (attrs as any)[k];
       if (k === 'style' && typeof v === 'object') Object.assign((el as HTMLElement).style, v);
       else if (k === 'class') (el as any).className = v;
+      else if (k.startsWith('on') && typeof v === 'function') (el as any)[k] = v;
       else if (v !== undefined && v !== null) (el as any).setAttribute?.(k, String(v));
     }
   }
-  if (children) for (const c of children) { if (c === null || c === undefined) continue; (typeof c === 'string') ? el.appendChild(document.createTextNode(c)) : el.appendChild(c); }
+  if (children)
+    for (const c of children) {
+      if (c === null || c === undefined) continue;
+      typeof c === 'string' ? el.appendChild(document.createTextNode(c)) : el.appendChild(c);
+    }
   return el;
 }
 
-function truncate(s: string, max = 38): string { return s && s.length > max ? s.slice(0, max - 1) + '…' : (s || ''); }
+function truncate(s: string, max = 38): string {
+  return s && s.length > max ? s.slice(0, max - 1) + '…' : s || '';
+}
 
 function sanitizeText(s: string): string {
   if (!s) return '';
@@ -54,6 +65,7 @@ function ensureStyles() {
 let currentGraph: Graph | undefined;
 let hideSystem = true;
 let collapseRepeats = true;
+const expandedActors = new Set<string>();
 
 function kindFromActor(actor: string): 'Trigger' | 'Flow' | 'Class' | 'Other' {
   if (actor.startsWith('Trigger:')) return 'Trigger';
@@ -85,7 +97,13 @@ function filterAndCollapse(frames: Nested[] | undefined): (Nested & { count?: nu
   const out: (Nested & { count?: number })[] = [];
   for (const f of list) {
     const prev = out[out.length - 1];
-    if (prev && prev.actor === f.actor && prev.depth === f.depth && prev.label === f.label && (prev.end ?? prev.start) <= f.start) {
+    if (
+      prev &&
+      prev.actor === f.actor &&
+      prev.depth === f.depth &&
+      prev.label === f.label &&
+      (prev.end ?? prev.start) <= f.start
+    ) {
       prev.end = f.end ?? f.start + 1;
       prev.count = (prev.count || 1) + 1;
     } else {
@@ -95,13 +113,24 @@ function filterAndCollapse(frames: Nested[] | undefined): (Nested & { count?: nu
   return out;
 }
 
+function getMethodActors(): string[] {
+  const set = new Set<string>();
+  for (const fr of currentGraph?.nested || []) {
+    if (fr.kind === 'method') set.add(fr.actor);
+  }
+  return Array.from(set);
+}
+
 function render(graph: Graph) {
   ensureStyles();
   const root = document.getElementById('root')!;
   root.innerHTML = '';
 
   currentGraph = graph;
-  const frames = filterAndCollapse(graph.nested || []);
+  const rawFrames = filterAndCollapse(graph.nested || []);
+  const methodActorSet = new Set<string>();
+  for (const fr of rawFrames) if (fr.kind === 'method') methodActorSet.add(fr.actor);
+  const frames = rawFrames.filter(fr => fr.kind === 'unit' || expandedActors.has(fr.actor));
   if (frames.length === 0) {
     root.appendChild(h('div', { style: { padding: '8px', opacity: 0.8 } }, ['No flow detected.']));
     return;
@@ -110,18 +139,100 @@ function render(graph: Graph) {
   // Toolbar with toggles + legend
   const toolbar = h('div', { class: 'toolbar' }, [
     h('label', {}, [
-      h('input', { type: 'checkbox', checked: hideSystem ? 'checked' : undefined, onchange: (e: any) => { hideSystem = !!e.target.checked; if (currentGraph) render(currentGraph); } }, []),
+      h(
+        'input',
+        {
+          type: 'checkbox',
+          checked: hideSystem ? 'checked' : undefined,
+          onchange: (e: any) => {
+            hideSystem = !!e.target.checked;
+            if (currentGraph) render(currentGraph);
+          }
+        },
+        []
+      ),
       ' Hide System'
     ]),
     h('label', {}, [
-      h('input', { type: 'checkbox', checked: collapseRepeats ? 'checked' : undefined, onchange: (e: any) => { collapseRepeats = !!e.target.checked; if (currentGraph) render(currentGraph); } }, []),
+      h(
+        'input',
+        {
+          type: 'checkbox',
+          checked: collapseRepeats ? 'checked' : undefined,
+          onchange: (e: any) => {
+            collapseRepeats = !!e.target.checked;
+            if (currentGraph) render(currentGraph);
+          }
+        },
+        []
+      ),
       ' Collapse repeats'
     ]),
+    h(
+      'button',
+      {
+        onclick: () => {
+          for (const a of getMethodActors()) expandedActors.add(a);
+          if (currentGraph) render(currentGraph);
+        }
+      },
+      ['Expand all']
+    ),
+    h(
+      'button',
+      {
+        onclick: () => {
+          expandedActors.clear();
+          if (currentGraph) render(currentGraph);
+        }
+      },
+      ['Collapse all']
+    ),
     h('div', { class: 'legend' }, [
-      h('span', { class: 'item' }, [h('span', { class: 'swatch', style: { background: styleByKind('Trigger').fill, border: `1px solid ${styleByKind('Trigger').stroke}` } }, []), 'Trigger']),
-      h('span', { class: 'item' }, [h('span', { class: 'swatch', style: { background: styleByKind('Flow').fill, border: `1px solid ${styleByKind('Flow').stroke}` } }, []), 'Flow']),
-      h('span', { class: 'item' }, [h('span', { class: 'swatch', style: { background: styleByKind('Class').fill, border: `1px solid ${styleByKind('Class').stroke}` } }, []), 'Class']),
-      h('span', { class: 'item' }, [h('span', { class: 'swatch', style: { background: styleByKind('Other').fill, border: `1px solid ${styleByKind('Other').stroke}` } }, []), 'Other'])
+      h('span', { class: 'item' }, [
+        h(
+          'span',
+          {
+            class: 'swatch',
+            style: { background: styleByKind('Trigger').fill, border: `1px solid ${styleByKind('Trigger').stroke}` }
+          },
+          []
+        ),
+        'Trigger'
+      ]),
+      h('span', { class: 'item' }, [
+        h(
+          'span',
+          {
+            class: 'swatch',
+            style: { background: styleByKind('Flow').fill, border: `1px solid ${styleByKind('Flow').stroke}` }
+          },
+          []
+        ),
+        'Flow'
+      ]),
+      h('span', { class: 'item' }, [
+        h(
+          'span',
+          {
+            class: 'swatch',
+            style: { background: styleByKind('Class').fill, border: `1px solid ${styleByKind('Class').stroke}` }
+          },
+          []
+        ),
+        'Class'
+      ]),
+      h('span', { class: 'item' }, [
+        h(
+          'span',
+          {
+            class: 'swatch',
+            style: { background: styleByKind('Other').fill, border: `1px solid ${styleByKind('Other').stroke}` }
+          },
+          []
+        ),
+        'Other'
+      ])
     ])
   ]);
   root.appendChild(toolbar);
@@ -133,7 +244,7 @@ function render(graph: Graph) {
   const W0 = Math.max(360, (root.clientWidth || viewportW) - PAD * 2);
   const MAX_DEPTH = Math.max(0, ...frames.map(f => f.depth));
   const width = W0; // overall width used by depth=0; inner boxes shrink by depth*IND*2
-  const totalH = PAD + Math.max(...frames.map(f => (f.end ?? f.start + 1))) * ROW + PAD;
+  const totalH = PAD + Math.max(...frames.map(f => f.end ?? f.start + 1)) * ROW + PAD;
 
   const svgW = width + PAD * 2 + 12; // right-side breathing room
   const svgH = totalH + 12; // bottom breathing room
@@ -150,23 +261,65 @@ function render(graph: Graph) {
     const rectH = Math.max(14, y2 - y1);
     const kind = kindFromActor(fr.actor);
     const sty = styleByKind(kind);
-    const g = h('g');
-    g.appendChild(h('rect', { x, y: y1, width: w, height: rectH, rx: 8, ry: 8, fill: sty.fill, stroke: sty.stroke, 'stroke-width': fr.kind === 'unit' ? 1.6 : 1 }));
+    const hasMethods = methodActorSet.has(fr.actor);
+    const isExpanded = expandedActors.has(fr.actor);
+    const g = h('g', {
+      onclick:
+        fr.kind === 'unit' && hasMethods
+          ? () => {
+              if (expandedActors.has(fr.actor)) expandedActors.delete(fr.actor);
+              else expandedActors.add(fr.actor);
+              if (currentGraph) render(currentGraph);
+            }
+          : undefined,
+      style: fr.kind === 'unit' && hasMethods ? { cursor: 'pointer' } : undefined
+    });
+    g.appendChild(
+      h('rect', {
+        x,
+        y: y1,
+        width: w,
+        height: rectH,
+        rx: 8,
+        ry: 8,
+        fill: sty.fill,
+        stroke: sty.stroke,
+        'stroke-width': fr.kind === 'unit' ? 1.6 : 1
+      })
+    );
     const countSuffix = (fr as any).count && (fr as any).count > 1 ? ` ×${(fr as any).count}` : '';
-    const label = truncate(fr.label.replace(/^Class\./, ''), 80) + countSuffix;
+    const prefix = fr.kind === 'unit' && hasMethods ? (isExpanded ? '▾ ' : '▸ ') : '';
+    const label = prefix + truncate(fr.label.replace(/^Class\./, ''), 80) + countSuffix;
     g.appendChild(h('text', { x: x + 10, y: y1 + 16, fill: 'var(--vscode-foreground)', 'font-size': 12 }, [label]));
     // Tooltip with full label (sanitized for control chars)
     g.appendChild(h('title', {}, [sanitizeText(fr.label)]));
     svg.appendChild(g);
   }
 
-  const scroller = h('div', { style: { position: 'absolute', top: '36px', left: '0', right: '0', bottom: '0', overflowY: 'auto', overflowX: 'auto' } }, [svg]);
+  const scroller = h(
+    'div',
+    {
+      style: {
+        position: 'absolute',
+        top: '36px',
+        left: '0',
+        right: '0',
+        bottom: '0',
+        overflowY: 'auto',
+        overflowX: 'auto'
+      }
+    },
+    [svg]
+  );
   root.appendChild(scroller);
 }
 
 window.addEventListener('message', e => {
   const msg = e.data || {};
-  if (msg.type === 'graph') render(msg.graph || { nodes: [], sequence: [], nested: [] });
+  if (msg.type === 'graph') {
+    expandedActors.clear();
+    render(msg.graph || { nodes: [], sequence: [], nested: [] });
+  }
 });
 
 document.addEventListener('DOMContentLoaded', () => vscode.postMessage({ type: 'ready' }));
