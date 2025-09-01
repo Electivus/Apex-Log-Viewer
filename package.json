@@ -188,10 +188,10 @@
     "check-types": "tsc --noEmit",
     "compile": "npm run lint && npm run check-types",
     "watch": "npm-run-all -p watch:*",
-    "watch:extension": "webpack --mode development --watch",
+    "watch:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --sourcemap --external:vscode --alias:bfj=./src/shims/bfj.ts --watch",
     "watch:tsc": "tsc -p tsconfig.extension.json --watch --noEmit",
     "watch:webview": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/diagram.ts --bundle --outdir=media --platform=browser --format=iife --sourcemap --watch",
-    "build:extension": "webpack --mode production",
+    "build:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --minify --external:vscode --alias:bfj=./src/shims/bfj.ts",
     "build:webview": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/diagram.ts --bundle --outdir=media --platform=browser --format=iife --minify",
     "build": "npm run build:extension && npm run build:webview",
     "build:icon": "node scripts/gen-icon.mjs",
@@ -249,11 +249,8 @@
     "react-dom": "^18.3.1",
     "react-window": "^1.8.11",
     "sharp": "^0.33.5",
-    "ts-loader": "^9.5.4",
     "typescript": "^5.9.2",
-    "vscode-nls-dev": "^4.0.4",
-    "webpack": "^5.101.3",
-    "webpack-cli": "^6.0.1"
+    "vscode-nls-dev": "^4.0.4"
   },
   "dependencies": {
     "@salesforce/apex-node": "^8.2.11",
