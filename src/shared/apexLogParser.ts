@@ -255,6 +255,21 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
     return last;
   };
 
+  // Normalize a CODE_UNIT_FINISHED human label to the unit "name" we used on start
+  const normalizeFinishedUnitName = (label: string): string => {
+    if (!label) return label;
+    // Flow:Foo => Foo
+    if (/^Flow:/i.test(label)) return label.replace(/^Flow:/i, '').trim();
+    // Class.MyClass.something => MyClass; Class.MyClass => MyClass
+    if (/^Class\./.test(label)) {
+      const m = label.match(/^Class\.(.+?)(?:\.|$)/);
+      return (m && m[1]) ? m[1] : label.replace(/^Class\./, '');
+    }
+    // Trigger descriptors: "MyTrigger on X trigger event ..." => "MyTrigger"
+    if (isTriggerDescriptor(label)) return label.split(' on ')[0]!.trim();
+    return label;
+  };
+
   const max = typeof maxLines === 'number' ? Math.max(1, maxLines) : lines.length;
   for (let i = 0; i < Math.min(lines.length, max); i++) {
     const line = lines[i] || '';
@@ -280,7 +295,8 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
       continue;
     }
     if ((m = line.match(reCodeUnitFinish))) {
-      const label = getFinishLabel(m[1] || '');
+      const raw = getFinishLabel(m[1] || '');
+      const label = normalizeFinishedUnitName(raw);
       // Pop until a matching or any unit, to be resilient to mismatched logs
       while (unitStack.length) {
         const top = unitStack[unitStack.length - 1]!;
@@ -320,13 +336,13 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
     }
     if ((m = line.match(reMethodExit))) {
       const payload = (m[1] || '').split('|').pop() || '';
-      const exitClass = payload.trim();
-      if (exitClass && methodStack.length) {
-        // Pop if class matches; otherwise soft-pop to keep stack bounded
-        if (methodStack[methodStack.length - 1] === exitClass) methodStack.pop();
+      const cls = getClassNameFromMethodSig(payload);
+      if (cls && methodStack.length) {
+        // Pop the last method frame; prefer matching class if it matches the top
+        if (methodStack[methodStack.length - 1] === cls) methodStack.pop();
         else methodStack.pop();
-        // End the most recent open span for this class actor
-        const actor = nodeId('Class', exitClass);
+        // Close span/nested with the same actor id used on entry
+        const actor = nodeId('Class', cls);
         endSpan(actor);
         popNestedByActor(actor, 'method');
       }
