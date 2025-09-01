@@ -306,12 +306,21 @@ function render(graph: Graph) {
   const maxEnd = Math.max(...frames.map(f => f.end ?? f.start + 1));
   const keep = new Array<boolean>(Math.max(0, maxEnd)).fill(false);
 
-  // Units contribute visibility: collapsed units keep only the header row; expanded keep full span
+  // Helper: whether a span is fully inside any collapsed unit interval
+  function withinCollapsed(start: number, endExclusive: number): boolean {
+    for (const it of collapsedIntervals) {
+      if (it.start <= start && endExclusive <= it.end) return true;
+    }
+    return false;
+  }
+
+  // Units contribute visibility: collapsed units OR units inside a collapsed parent keep only header row; expanded keep full span
   for (const u of unitFrames) {
     const uStart = u.start;
     const uEnd = u.end ?? u.start + 1;
     const isCollapsed = collapsedUnits.has(unitId(u));
-    if (isCollapsed) {
+    const forcedMinimal = withinCollapsed(uStart, uEnd);
+    if (isCollapsed || forcedMinimal) {
       if (uStart >= 0 && uStart < keep.length) keep[uStart] = true; // header row only
     } else {
       for (let t = uStart; t < uEnd; t++) keep[t] = true;
