@@ -156,7 +156,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          TITLE="Nightly pre-release v${VERSION}"
+          TITLE="$TAG"
           BODY="Automated nightly build.\n\nCommit: $GITHUB_SHA\nRun: $GITHUB_RUN_NUMBER"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Updating existing pre-release $TAG"

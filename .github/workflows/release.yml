@@ -197,7 +197,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          TITLE="Pre-release $TAG"
+          TITLE="$TAG"
           BODY="Automated pre-release."
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Updating existing pre-release $TAG"
@@ -215,7 +215,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          TITLE="Release $TAG"
+          TITLE="$TAG"
           BODY="Automated stable release."
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Updating existing release $TAG"
