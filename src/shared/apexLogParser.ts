@@ -346,19 +346,25 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
       if (!cls) {
         const simple = (payload || '').trim();
         // e.g., "MyClass" — treat as class name if it looks sane
-        if (simple && !/[()]/.test(simple)) {
-          cls = simple;
-        }
+        if (simple && !/[()]/.test(simple)) cls = simple;
       }
       if (methodStack.length) {
-        // Prefer to close the top-of-stack frame; fall back to the named class if present in stack
-        let target = methodStack[methodStack.length - 1]!;
-        if (cls && methodStack.includes(cls)) target = cls;
-        // Pop one frame (LIFO). If the named class is not top, still close the top to stay resilient.
-        methodStack.pop();
-        const actor = nodeId('Class', target);
-        endSpan(actor);
-        popNestedByActor(actor, 'method');
+        if (cls && methodStack.includes(cls)) {
+          // Unwind the stack until we close the matching class to keep stack and spans aligned
+          while (methodStack.length) {
+            const top = methodStack.pop()!;
+            const actor = nodeId('Class', top);
+            endSpan(actor);
+            popNestedByActor(actor, 'method');
+            if (top === cls) break;
+          }
+        } else {
+          // Fallback: close the top-most method
+          const top = methodStack.pop()!;
+          const actor = nodeId('Class', top);
+          endSpan(actor);
+          popNestedByActor(actor, 'method');
+        }
       }
       continue;
     }
