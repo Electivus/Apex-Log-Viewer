@@ -282,13 +282,12 @@ async function pretestSetup() {
 }
 
 function parseArgs(argv) {
-  const out = { scope: 'all', vscode: 'insiders', installDeps: false, timeoutMs: undefined, smokeVsix: false };
+  const out = { scope: 'all', vscode: 'insiders', installDeps: false, timeoutMs: undefined };
   for (const a of argv.slice(2)) {
     if (a.startsWith('--scope=')) out.scope = a.split('=')[1];
     else if (a.startsWith('--vscode=')) out.vscode = a.split('=')[1];
     else if (a === '--install-deps') out.installDeps = true;
     else if (a.startsWith('--timeout=')) out.timeoutMs = Number(a.split('=')[1]) || undefined;
-    else if (a === '--smoke-vsix') out.smokeVsix = true;
   }
   return out;
 }
@@ -403,45 +402,8 @@ async function run() {
   }
 
   // Run tests via @vscode/test-electron with our programmatic Mocha runner
-  let extensionDevelopmentPath = resolve(__dirname, '..');
-  let extensionTestsPath = resolve(__dirname, '..', 'out', 'test', 'runner.js');
-
-  // Optional: VSIX smoke mode installs the freshly built VSIX and runs a minimal activation test
-  if (args.smokeVsix) {
-    // Package VSIX
-    console.log('[smoke] Packaging VSIX...');
-    await execFileAsync('npm', ['run', '-s', 'package']);
-    await execFileAsync('npx', ['--no-install', 'vsce', 'package', '--no-yarn']);
-    const vsix = require('fs').readdirSync(process.cwd()).find(f => /\.vsix$/.test(f));
-    if (!vsix) throw new Error('[smoke] VSIX not found');
-    // Install into test profile
-    const userDataDir = join(tmpdir(), 'alv-user-data');
-    const extensionsDir = join(tmpdir(), 'alv-extensions');
-    console.log('[smoke] Installing VSIX into isolated profile...');
-    const inst = spawnSync(cliPath, [...cliArgs, '--install-extension', resolve(vsix), '--force', '--user-data-dir', userDataDir, '--extensions-dir', extensionsDir], {
-      stdio: ['pipe', 'inherit', 'inherit'],
-      encoding: 'utf8',
-      input: 'y\n',
-      env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
-    });
-    if (inst.status !== 0) {
-      throw new Error('[smoke] Failed to install VSIX');
-    }
-    // Create minimal harness extension
-    const dev = mkdtempSync(join(tmpdir(), 'alv-smoke-dev-'));
-    const pkg = { name: 'alv-smoke-harness', version: '0.0.0', engines: { vscode: '*' }, main: './index.js', activationEvents: ['*'] };
-    writeFileSync(join(dev, 'package.json'), JSON.stringify(pkg, null, 2));
-    writeFileSync(join(dev, 'index.js'), "exports.activate=()=>{};exports.deactivate=()=>{};\n");
-    extensionDevelopmentPath = dev;
-    // Write runner that activates installed extension
-    const runner = `"use strict";const assert=require('assert/strict');const vscode=require('vscode');exports.run=async function(){const ext=vscode.extensions.getExtension('electivus.apex-log-viewer');assert.ok(ext,'extension not found');await ext.activate();const cmds=await vscode.commands.getCommands(true);for(const c of ['sfLogs.refresh','sfLogs.selectOrg','sfLogs.tail','sfLogs.showDiagram']){assert.ok(cmds.includes(c),'missing command: '+c);} };\n`;
-    const testsDir = mkdtempSync(join(tmpdir(), 'alv-smoke-tests-'));
-    extensionTestsPath = join(testsDir, 'smoke-runner.js');
-    writeFileSync(extensionTestsPath, runner, 'utf8');
-    // Override launchArgs to reuse the isolated profile with installed VSIX
-    process.env.__ALV_SMOKE_USER_DIR = userDataDir;
-    process.env.__ALV_SMOKE_EXT_DIR = extensionsDir;
-  }
+  const extensionDevelopmentPath = resolve(__dirname, '..');
+  const extensionTestsPath = resolve(__dirname, '..', 'out', 'test', 'runner.js');
   // Configure Mocha grep via env for the in-host runner
   if (scope === 'unit') {
     process.env.VSCODE_TEST_GREP = '^integration:';
@@ -462,20 +424,22 @@ async function run() {
   }, totalTimeout);
 
   try {
-    const launch = [
-      '--user-data-dir', process.env.__ALV_SMOKE_USER_DIR || join(tmpdir(), 'alv-user-data'),
-      '--extensions-dir', process.env.__ALV_SMOKE_EXT_DIR || join(tmpdir(), 'alv-extensions'),
-      '--skip-welcome',
-      '--skip-release-notes',
-      // Use the prepared workspace (set in pretestSetup)
-      ...(process.env.VSCODE_TEST_WORKSPACE ? [process.env.VSCODE_TEST_WORKSPACE] : [])
-    ];
     await runTests({
       vscodeExecutablePath,
       extensionDevelopmentPath,
       extensionTestsPath,
       extensionTestsEnv: sfExtPresent ? { SF_EXT_PRESENT: '1' } : undefined,
-      launchArgs: launch
+      launchArgs: [
+        // Use clean profile
+        '--user-data-dir',
+        join(tmpdir(), 'alv-user-data'),
+        '--extensions-dir',
+        join(tmpdir(), 'alv-extensions'),
+        '--skip-welcome',
+        '--skip-release-notes',
+        // Use the prepared workspace (set in pretestSetup)
+        ...(process.env.VSCODE_TEST_WORKSPACE ? [process.env.VSCODE_TEST_WORKSPACE] : [])
+      ]
     });
   } finally {
     clearTimeout(killer);
