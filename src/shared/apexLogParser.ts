@@ -341,13 +341,22 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
     }
     if ((m = line.match(reMethodExit))) {
       const payload = (m[1] || '').split('|').pop() || '';
-      const cls = getClassNameFromMethodSig(payload);
-      if (cls && methodStack.length) {
-        // Pop the last method frame; prefer matching class if it matches the top
-        if (methodStack[methodStack.length - 1] === cls) methodStack.pop();
-        else methodStack.pop();
-        // Close span/nested with the same actor id used on entry
-        const actor = nodeId('Class', cls);
+      // METHOD_EXIT may log only the class name (no method signature). Try to infer.
+      let cls = getClassNameFromMethodSig(payload);
+      if (!cls) {
+        const simple = (payload || '').trim();
+        // e.g., "MyClass" — treat as class name if it looks sane
+        if (simple && !/[()]/.test(simple)) {
+          cls = simple;
+        }
+      }
+      if (methodStack.length) {
+        // Prefer to close the top-of-stack frame; fall back to the named class if present in stack
+        let target = methodStack[methodStack.length - 1]!;
+        if (cls && methodStack.includes(cls)) target = cls;
+        // Pop one frame (LIFO). If the named class is not top, still close the top to stay resilient.
+        methodStack.pop();
+        const actor = nodeId('Class', target);
         endSpan(actor);
         popNestedByActor(actor, 'method');
       }
