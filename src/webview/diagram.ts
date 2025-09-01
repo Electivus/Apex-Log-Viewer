@@ -29,6 +29,12 @@ function h(tag: string, attrs?: Record<string, any>, children?: (Node | string |
 
 function truncate(s: string, max = 38): string { return s && s.length > max ? s.slice(0, max - 1) + '…' : (s || ''); }
 
+function sanitizeText(s: string): string {
+  if (!s) return '';
+  // Remove control chars except common whitespace; keep visible text intact.
+  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+}
+
 function ensureStyles() {
   if (document.getElementById('apex-diagram-styles')) return;
   const style = document.createElement('style');
@@ -149,8 +155,8 @@ function render(graph: Graph) {
     const countSuffix = (fr as any).count && (fr as any).count > 1 ? ` ×${(fr as any).count}` : '';
     const label = truncate(fr.label.replace(/^Class\./, ''), 80) + countSuffix;
     g.appendChild(h('text', { x: x + 10, y: y1 + 16, fill: 'var(--vscode-foreground)', 'font-size': 12 }, [label]));
-    // Tooltip with full label
-    g.appendChild(h('title', {}, [fr.label]));
+    // Tooltip with full label (sanitized for control chars)
+    g.appendChild(h('title', {}, [sanitizeText(fr.label)]));
     svg.appendChild(g);
   }
 
