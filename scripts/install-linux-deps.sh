@@ -16,7 +16,8 @@ if ! command -v apt-get >/dev/null 2>&1; then
 fi
 
 echo "[deps] Updating APT indexes..."
-sudo apt-get update -y
+# Use quiet mode to avoid spamming the logs with APT index lines
+sudo apt-get update -y -qq
 
 pick_pkg() {
   local a="$1" b="$2"
@@ -70,7 +71,8 @@ for p in "${TO_INSTALL[@]}"; do
 done
 
 echo "[deps] Installing packages: ${FILTERED[*]} ${STATIC[*]}"
-sudo apt-get install -y "${FILTERED[@]}" "${STATIC[@]}" || {
+# Suppress apt progress output; still surfaces errors if installation fails
+sudo apt-get install -y -qq "${FILTERED[@]}" "${STATIC[@]}" || {
   echo "[deps] Failed to install some libraries. Check package names for your distro." >&2
   exit 1
 }

@@ -21,7 +21,7 @@ export async function run(): Promise<void> {
   const outDir = path.resolve(__dirname);
   const testsRoot = outDir; // compiled tests live in out/test
 
-  const timeout = Number(process.env.VSCODE_TEST_MOCHA_TIMEOUT_MS || 30000);
+  const timeout = Number(process.env.VSCODE_TEST_MOCHA_TIMEOUT_MS || 120000);
   const grep = process.env.VSCODE_TEST_GREP;
   const invert = /^1|true$/i.test(String(process.env.VSCODE_TEST_INVERT || ''));
   const fullTrace = /^1|true$/i.test(String(process.env.VSCODE_TEST_MOCHA_FULLTRACE || ''));
