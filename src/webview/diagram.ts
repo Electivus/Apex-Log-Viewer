@@ -267,12 +267,90 @@ function render(graph: Graph) {
   root.appendChild(toolbar);
 
   const PAD = 16; // outer padding
-  const ROW = 26; // vertical step per sequence index
+  const ROW = 26; // vertical step per visible row (after compression)
   const IND = 18; // indent per depth (x)
   const viewportW = (document.documentElement.clientWidth || window.innerWidth || 800) - 24;
   const W0 = Math.max(360, (root.clientWidth || viewportW) - PAD * 2);
   const width = W0; // overall width used by depth=0; inner boxes shrink by depth*IND*2
-  const totalH = PAD + Math.max(...frames.map(f => f.end ?? f.start + 1)) * ROW + PAD;
+
+  // Build visibility map to compress hidden method-only regions and keep nested units visible
+  type UnitFrame = Nested & { kind: 'unit' };
+  type MethodFrame = Nested & { kind: 'method' };
+  const unitFrames = frames.filter(f => f.kind === 'unit') as UnitFrame[];
+  const methodFrames = frames.filter(f => f.kind === 'method') as MethodFrame[];
+
+  // Map actor -> list of collapsed unit intervals [start, end)
+  const collapsedByActor = new Map<string, Array<{ start: number; end: number }>>();
+  for (const u of unitFrames) {
+    const id = unitId(u);
+    if (collapsedUnits.has(id)) {
+      const arr = collapsedByActor.get(u.actor) || [];
+      arr.push({ start: u.start, end: u.end ?? u.start + 1 });
+      collapsedByActor.set(u.actor, arr);
+    }
+  }
+
+  function methodVisible(m: MethodFrame): boolean {
+    const list = collapsedByActor.get(m.actor);
+    if (!list || list.length === 0) return true;
+    const mStart = m.start;
+    const mEnd = m.end ?? m.start + 1;
+    for (const it of list) {
+      if (it.start <= mStart && mEnd <= it.end) return false; // fully within a collapsed unit of same actor
+    }
+    return true;
+  }
+
+  const maxEnd = Math.max(...frames.map(f => f.end ?? f.start + 1));
+  const keep = new Array<boolean>(Math.max(0, maxEnd)).fill(false);
+
+  // Units contribute visibility: collapsed units keep only the header row; expanded keep full span
+  for (const u of unitFrames) {
+    const uStart = u.start;
+    const uEnd = u.end ?? u.start + 1;
+    const isCollapsed = collapsedUnits.has(unitId(u));
+    if (isCollapsed) {
+      if (uStart >= 0 && uStart < keep.length) keep[uStart] = true; // header row only
+    } else {
+      for (let t = uStart; t < uEnd; t++) keep[t] = true;
+    }
+  }
+
+  // Methods contribute visibility only if not hidden by a collapsed unit of the same actor
+  for (const m of methodFrames) {
+    if (!methodVisible(m)) continue;
+    const mStart = m.start;
+    const mEnd = m.end ?? m.start + 1;
+    for (let t = mStart; t < mEnd; t++) keep[t] = true;
+  }
+
+  // Build compressed row index map t -> visibleRowIndex (or -1 if hidden)
+  const rowIndexByT = new Array<number>(keep.length).fill(-1);
+  let rowCount = 0;
+  for (let t = 0; t < keep.length; t++) {
+    if (keep[t]) rowIndexByT[t] = rowCount++;
+  }
+
+  function yTopAt(t: number): number {
+    const idx = rowIndexByT[t];
+    const safe = typeof idx === 'number' && idx >= 0 ? idx : 0;
+    return PAD + safe * ROW + 3;
+  }
+  function lastVisibleRowIn(start: number, endExclusive: number): number {
+    for (let t = Math.min(endExclusive - 1, rowIndexByT.length - 1); t >= start; t--) {
+      const idx = rowIndexByT[t];
+      if (typeof idx === 'number' && idx !== -1) return idx;
+    }
+    const fallback = rowIndexByT[start];
+    return typeof fallback === 'number' ? fallback : -1;
+  }
+  function yBottomAt(start: number, endExclusive: number): number {
+    const lastRow = lastVisibleRowIn(start, endExclusive);
+    const nextRow = (lastRow ?? 0) + 1;
+    return PAD + nextRow * ROW - 3;
+  }
+
+  const totalH = PAD + rowCount * ROW + PAD;
 
   const svgW = width + PAD * 2 + 12; // right-side breathing room
   const svgH = totalH + 12; // bottom breathing room
@@ -280,20 +358,17 @@ function render(graph: Graph) {
 
   // Draw frames with simple collapse support
   frames.sort((a, b) => a.start - b.start || a.depth - b.depth);
-  const stack: { end: number; collapsed: boolean }[] = [];
 
   for (const fr of frames) {
-    while (stack.length > 0 && stack[stack.length - 1]!.end <= fr.start) stack.pop();
-    const parentCollapsed = stack.some(s => s.collapsed);
     const x = PAD + fr.depth * IND;
     const w = Math.max(40, width - fr.depth * IND * 2);
-    const y1 = PAD + fr.start * ROW + 3;
-    const y2 = PAD + (fr.end ?? fr.start + 1) * ROW - 3;
+    const y1 = yTopAt(fr.start);
+    const y2 = yBottomAt(fr.start, fr.end ?? fr.start + 1);
     const rectH = Math.max(14, y2 - y1);
 
     if (fr.kind === 'unit') {
       const id = unitId(fr);
-      const collapsed = collapsedUnits.has(id) || parentCollapsed;
+      const collapsed = collapsedUnits.has(id);
       const sty = styleByKind(kindFromActor(fr.actor));
       const hasMethods = methodActorSet.has(fr.actor);
       const g = h(
@@ -311,12 +386,14 @@ function render(graph: Graph) {
         },
         []
       );
+      // For collapsed units, render a minimal height box tied to the header row
+      const unitRectH = collapsed ? Math.max(14, ROW - 6) : rectH;
       g.appendChild(
         h('rect', {
           x,
           y: y1,
           width: w,
-          height: rectH,
+          height: unitRectH,
           rx: 8,
           ry: 8,
           fill: sty.fill,
@@ -330,10 +407,13 @@ function render(graph: Graph) {
       g.appendChild(h('text', { x: x + 10, y: y1 + 16, fill: 'var(--vscode-foreground)', 'font-size': 12 }, [label]));
       g.appendChild(h('title', {}, [sanitizeText(fr.label)]));
       svg.appendChild(g);
-      stack.push({ end: fr.end ?? fr.start + 1, collapsed });
     } else {
-      const collapsed = parentCollapsed;
-      if (!collapsed) {
+      // Draw method only if visible (not fully within a collapsed unit of the same actor)
+      const visible = (() => {
+        const m = fr as MethodFrame;
+        return methodVisible(m);
+      })();
+      if (visible) {
         const sty = styleByKind(kindFromActor(fr.actor));
         const g = h('g');
         g.appendChild(
@@ -355,7 +435,6 @@ function render(graph: Graph) {
         g.appendChild(h('title', {}, [sanitizeText(fr.label)]));
         svg.appendChild(g);
       }
-      stack.push({ end: fr.end ?? fr.start + 1, collapsed });
     }
   }
 
