@@ -199,10 +199,10 @@
     "package": "npm run compile && (npm run -s nls:extract || true) && npm run nls:write && npm run build:webview",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "vsce:package": "vsce package --no-dependencies",
-    "vsce:package:pre": "vsce package --no-dependencies --pre-release",
-    "vsce:publish": "vsce publish --no-dependencies",
-    "vsce:publish:pre": "vsce publish --no-dependencies --pre-release",
+    "vsce:package": "vsce package",
+    "vsce:package:pre": "vsce package --pre-release",
+    "vsce:publish": "vsce publish",
+    "vsce:publish:pre": "vsce publish --pre-release",
     "compile-tests": "node -e \"try{require('fs').rmSync('out/test',{recursive:true,force:true})}catch(e){}\" && tsc -p tsconfig.test.json",
     "watch-tests": "tsc -p tsconfig.test.json -w",
     "pretest": "npm run test:clean && npm run test:linux-deps && npm run compile && npm run compile-tests",
@@ -267,7 +267,8 @@
     "LICENSE",
     "package.json",
     "package.nls.json",
-    "package.nls.pt-br.json"
+    "package.nls.pt-br.json",
+    "node_modules/**"
   ],
   "lint-staged": {
     "*.{js,ts,jsx,tsx,json,md,css,scss}": "prettier --write"
