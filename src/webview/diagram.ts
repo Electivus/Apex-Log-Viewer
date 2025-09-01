@@ -25,7 +25,21 @@ function h(
       if (k === 'style' && typeof v === 'object') Object.assign((el as HTMLElement).style, v);
       else if (k === 'class') (el as any).className = v;
       else if (k.startsWith('on') && typeof v === 'function') (el as any)[k] = v;
-      else if (v !== undefined && v !== null) (el as any).setAttribute?.(k, String(v));
+      else if (v !== undefined && v !== null) {
+        // Allowlist of safe attributes (prevents event/href/src injection and satisfies CodeQL)
+        const allowed = new Set([
+          'id',
+          'class',
+          'type',
+          'checked',
+          'viewBox',
+          // Position/geometry
+          'x', 'y', 'x1', 'y1', 'x2', 'y2', 'width', 'height', 'rx', 'ry',
+          // Styling
+          'fill', 'stroke', 'stroke-width', 'font-size'
+        ]);
+        if (allowed.has(k)) (el as any).setAttribute?.(k, String(v));
+      }
     }
   }
   if (children)
@@ -122,10 +136,13 @@ function filterAndCollapse(frames: Nested[] | undefined): (Nested & { count?: nu
 function render(graph: Graph) {
   ensureStyles();
   const root = document.getElementById('root')!;
-  root.innerHTML = '';
+  // Avoid innerHTML for clearing to keep CodeQL happy and be safer
+  while (root.firstChild) root.removeChild(root.firstChild);
 
   currentGraph = graph;
   const frames = filterAndCollapse(graph.nested || []);
+  const methodActorSet = new Set<string>();
+  for (const fr of frames) if (fr.kind === 'method') methodActorSet.add(fr.actor);
   if (frames.length === 0) {
     root.appendChild(h('div', { style: { padding: '8px', opacity: 0.8 } }, ['No flow detected.']));
     return;
@@ -266,16 +283,19 @@ function render(graph: Graph) {
       const id = unitId(fr);
       const collapsed = collapsedUnits.has(id) || parentCollapsed;
       const sty = styleByKind(kindFromActor(fr.actor));
+      const hasMethods = methodActorSet.has(fr.actor);
       const g = h(
         'g',
         {
           class: 'unit',
-          style: { cursor: 'pointer' },
-          onclick: () => {
-            if (collapsedUnits.has(id)) collapsedUnits.delete(id);
-            else collapsedUnits.add(id);
-            if (currentGraph) render(currentGraph);
-          }
+          style: hasMethods ? { cursor: 'pointer' } : undefined,
+          onclick: hasMethods
+            ? () => {
+                if (collapsedUnits.has(id)) collapsedUnits.delete(id);
+                else collapsedUnits.add(id);
+                if (currentGraph) render(currentGraph);
+              }
+            : undefined
         },
         []
       );
@@ -293,7 +313,8 @@ function render(graph: Graph) {
         })
       );
       const countSuffix = (fr as any).count && (fr as any).count > 1 ? ` ×${(fr as any).count}` : '';
-      const label = truncate(fr.label.replace(/^Class\./, ''), 80) + countSuffix;
+      const prefix = hasMethods ? (collapsed ? '▸ ' : '▾ ') : '';
+      const label = prefix + truncate(fr.label.replace(/^Class\./, ''), 80) + countSuffix;
       g.appendChild(h('text', { x: x + 10, y: y1 + 16, fill: 'var(--vscode-foreground)', 'font-size': 12 }, [label]));
       g.appendChild(h('title', {}, [sanitizeText(fr.label)]));
       svg.appendChild(g);

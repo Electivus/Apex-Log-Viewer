@@ -5,6 +5,11 @@
 ### Features
 
 - Allow expanding or collapsing methods in Apex log diagram, with default collapsed and expand/collapse all controls.
+- Add visual indicators (▸/▾) on code units and only enable toggle when methods exist.
+
+### Security
+
+- Harden webview DOM helper with a safe attribute allowlist and remove `innerHTML` usage for clearing, addressing CodeQL XSS warning.
 
 ## [0.4.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.3.1...v0.4.0) (2025-09-01)
 
