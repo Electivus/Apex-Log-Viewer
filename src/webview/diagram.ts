@@ -162,8 +162,13 @@ function render(graph: Graph) {
 
   const unitIds = frames.filter(f => f.kind === 'unit').map(unitId);
   allUnitIds = unitIds;
-  collapsedUnits = collapseInitialized ? new Set(unitIds.filter(id => collapsedUnits.has(id))) : new Set(unitIds);
-  collapseInitialized = true;
+  // Initialize with all units expanded by default. On subsequent renders, keep only ids that still exist.
+  if (!collapseInitialized) {
+    collapsedUnits = new Set();
+    collapseInitialized = true;
+  } else {
+    collapsedUnits = new Set(unitIds.filter(id => collapsedUnits.has(id)));
+  }
 
   // Toolbar with toggles + legend
   const toolbar = h('div', { class: 'toolbar' }, [
@@ -279,24 +284,21 @@ function render(graph: Graph) {
   const unitFrames = frames.filter(f => f.kind === 'unit') as UnitFrame[];
   const methodFrames = frames.filter(f => f.kind === 'method') as MethodFrame[];
 
-  // Map actor -> list of collapsed unit intervals [start, end)
-  const collapsedByActor = new Map<string, Array<{ start: number; end: number }>>();
+  // Collect collapsed unit intervals [start, end) regardless of actor
+  const collapsedIntervals: Array<{ start: number; end: number }> = [];
   for (const u of unitFrames) {
     const id = unitId(u);
     if (collapsedUnits.has(id)) {
-      const arr = collapsedByActor.get(u.actor) || [];
-      arr.push({ start: u.start, end: u.end ?? u.start + 1 });
-      collapsedByActor.set(u.actor, arr);
+      collapsedIntervals.push({ start: u.start, end: u.end ?? u.start + 1 });
     }
   }
 
   function methodVisible(m: MethodFrame): boolean {
-    const list = collapsedByActor.get(m.actor);
-    if (!list || list.length === 0) return true;
+    if (collapsedIntervals.length === 0) return true;
     const mStart = m.start;
     const mEnd = m.end ?? m.start + 1;
-    for (const it of list) {
-      if (it.start <= mStart && mEnd <= it.end) return false; // fully within a collapsed unit of same actor
+    for (const it of collapsedIntervals) {
+      if (it.start <= mStart && mEnd <= it.end) return false; // fully within any collapsed unit span
     }
     return true;
   }
