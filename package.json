@@ -216,6 +216,7 @@
     "test:unit:ci": "npm run pretest && bash scripts/run-tests.sh --scope=unit --vscode=stable",
     "test:integration:ci": "npm run pretest && bash scripts/run-tests.sh --scope=integration --vscode=stable --install-deps --timeout=900000",
     "test:ci": "npm run test:unit:ci && npm run test:integration:ci",
+    "test:smoke:vsix": "node scripts/run-tests.js --scope=unit --smoke-vsix",
     "format": "prettier --write .",
     "prepare": "husky"
   },
