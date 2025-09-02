@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { parseApexLogToGraph } from '../shared/apexLogParser';
+import type { DiagramWebviewToExtensionMessage } from '../shared/diagramMessages';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { logInfo, logWarn } from '../utils/logger';
 
@@ -57,7 +58,7 @@ export class ApexLogDiagramPanelManager implements vscode.Disposable {
         'Apex Log Diagram'
       );
       this.panel.onDidDispose(() => this.dispose());
-      this.panel.webview.onDidReceiveMessage((msg: any) => {
+      this.panel.webview.onDidReceiveMessage((msg: DiagramWebviewToExtensionMessage) => {
         if (msg?.type === 'ready') {
           try {
             const graph = parseApexLogToGraph(doc.getText(), 100000);
@@ -91,4 +92,3 @@ export class ApexLogDiagramPanelManager implements vscode.Disposable {
     this.panel.reveal(vscode.ViewColumn.Beside, true);
   }
 }
-

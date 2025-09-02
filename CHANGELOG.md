@@ -11,6 +11,10 @@
 
 - Harden webview DOM helper with a safe attribute allowlist and remove `innerHTML` usage for clearing, addressing CodeQL XSS warning.
 
+### Bug Fixes
+
+- Diagram: fix infinite render loop and reduce unnecessary re-renders in webview.
+
 ## [0.4.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.3.1...v0.4.0) (2025-09-01)
 
 ### Features
