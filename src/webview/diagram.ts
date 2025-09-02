@@ -1,7 +1,15 @@
 /* Simple left-to-right flow diagram (no external libs). */
 declare function acquireVsCodeApi(): any;
 
-type Nested = { actor: string; label: string; start: number; end?: number; depth: number; kind: 'unit' | 'method' };
+type Nested = {
+  actor: string;
+  label: string;
+  start: number;
+  end?: number;
+  depth: number;
+  kind: 'unit' | 'method';
+  profile?: { soql?: number; dml?: number; callout?: number; cpuMs?: number; heapBytes?: number };
+};
 type Graph = {
   nodes: { id: string; label: string; kind?: string }[];
   sequence: { from?: string; to: string; label?: string }[];
@@ -72,6 +80,14 @@ function sanitizeText(s: string): string {
   return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
 }
 
+function humanBytes(n?: number): string {
+  if (!n || n <= 0) return '0 B';
+  const kb = n / 1024;
+  if (kb < 1024) return `${Math.round(kb)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
+}
+
 function ensureStyles() {
   if (document.getElementById('apex-diagram-styles')) return;
   const style = document.createElement('style');
@@ -91,6 +107,8 @@ function ensureStyles() {
 let currentGraph: Graph | undefined;
 let hideSystem = true;
 let collapseRepeats = true;
+let showProfilingChips = false;
+let showProfilingSidebar = true;
 let collapsedUnits = new Set<string>();
 let allUnitIds: string[] = [];
 let collapseInitialized = false;
@@ -138,11 +156,62 @@ function filterAndCollapse(frames: Nested[] | undefined): (Nested & { count?: nu
     ) {
       prev.end = f.end ?? f.start + 1;
       prev.count = (prev.count || 1) + 1;
+      // Sum profiling counters when collapsing repeats
+      if (f.profile) {
+        (prev.profile ||= {} as any);
+        if (f.profile.soql) (prev.profile as any).soql = ((prev.profile as any).soql || 0) + f.profile.soql;
+        if (f.profile.dml) (prev.profile as any).dml = ((prev.profile as any).dml || 0) + f.profile.dml;
+        if (f.profile.callout)
+          (prev.profile as any).callout = ((prev.profile as any).callout || 0) + f.profile.callout;
+        if (f.profile.cpuMs) (prev.profile as any).cpuMs = ((prev.profile as any).cpuMs || 0) + f.profile.cpuMs;
+        if (f.profile.heapBytes)
+          (prev.profile as any).heapBytes = ((prev.profile as any).heapBytes || 0) + f.profile.heapBytes;
+      }
     } else {
       out.push({ ...f });
     }
   }
   return out;
+}
+
+function formatStats(fr: Nested | undefined): string {
+  if (!fr || !fr.profile) return '';
+  const parts: string[] = [];
+  const p = fr.profile || {};
+  if (p.soql && p.soql > 0) parts.push(`S${p.soql}`);
+  if (p.dml && p.dml > 0) parts.push(`D${p.dml}`);
+  if (p.callout && p.callout > 0) parts.push(`C${p.callout}`);
+  return parts.length ? ` [${parts.join(' ')}]` : '';
+}
+
+function tooltipFor(fr: Nested): string {
+  const lines: string[] = [];
+  lines.push(sanitizeText(fr.label));
+  const p = fr.profile || {};
+  const counters: string[] = [];
+  if (p.soql) counters.push(`SOQL: ${p.soql}`);
+  if (p.dml) counters.push(`DML: ${p.dml}`);
+  if (p.callout) counters.push(`Callouts: ${p.callout}`);
+  if (counters.length) lines.push(counters.join(', '));
+  const perf: string[] = [];
+  if (p.cpuMs) perf.push(`CPU: ${p.cpuMs} ms`);
+  if (p.heapBytes) perf.push(`Heap: ${humanBytes(p.heapBytes)}`);
+  if (perf.length) lines.push(perf.join(', '));
+  return lines.join('\n');
+}
+
+function chipTextFor(fr: Nested): string | undefined {
+  const p = fr.profile || {};
+  const cpu = p.cpuMs && p.cpuMs > 0 ? `CPU ${p.cpuMs}ms` : '';
+  const heap = p.heapBytes && p.heapBytes > 0 ? `Heap ${humanBytes(p.heapBytes)}` : '';
+  const both = [cpu, heap].filter(Boolean).join(' • ');
+  return both || undefined;
+}
+
+function estimateChipWidth(text: string, fontSize = 11): number {
+  const avg = fontSize * 0.62; // rough average glyph width
+  const padding = 10; // inner padding
+  return Math.max(28, Math.round(text.length * avg) + padding);
 }
 
 function render(graph: Graph) {
@@ -201,6 +270,21 @@ function render(graph: Graph) {
         []
       ),
       ' Collapse repeats'
+    ]),
+    h('label', {}, [
+      h(
+        'input',
+        {
+          type: 'checkbox',
+          checked: showProfilingChips ? 'checked' : undefined,
+          onchange: (e: any) => {
+            showProfilingChips = !!e.target.checked;
+            if (currentGraph) render(currentGraph);
+          }
+        },
+        []
+      ),
+      ' Show profiling'
     ]),
     h(
       'button',
@@ -266,7 +350,10 @@ function render(graph: Graph) {
           []
         ),
         'Other'
-      ])
+      ]),
+      h('span', { class: 'item', style: { opacity: 0.9 } as any }, ['· S: SOQL']),
+      h('span', { class: 'item', style: { opacity: 0.9 } as any }, ['· D: DML']),
+      h('span', { class: 'item', style: { opacity: 0.9 } as any }, ['· C: Callout'])
     ])
   ]);
   root.appendChild(toolbar);
@@ -414,9 +501,34 @@ function render(graph: Graph) {
       );
       const countSuffix = (fr as any).count && (fr as any).count > 1 ? ` ×${(fr as any).count}` : '';
       const prefix = hasMethods ? (collapsed ? '▸ ' : '▾ ') : '';
-      const label = prefix + truncate(fr.label.replace(/^Class\./, ''), 80) + countSuffix;
+      const stats = formatStats(fr);
+      const label = prefix + truncate(fr.label.replace(/^Class\./, ''), 80) + countSuffix + stats;
       g.appendChild(h('text', { x: x + 10, y: y1 + 16, fill: 'var(--vscode-foreground)', 'font-size': 12 }, [label]));
-      g.appendChild(h('title', {}, [sanitizeText(fr.label)]));
+      g.appendChild(h('title', {}, [tooltipFor(fr)]));
+      // Profiling chip
+      if (showProfilingChips) {
+        const chip = chipTextFor(fr);
+        if (chip) {
+          const ch = 16;
+          const cw = estimateChipWidth(chip, 11);
+          const cy = y1 + 4;
+          const cx = x + w - cw - 8;
+          g.appendChild(
+            h('rect', {
+              x: cx,
+              y: cy,
+              width: cw,
+              height: ch,
+              rx: 8,
+              ry: 8,
+              fill: 'rgba(148,163,184,0.18)',
+              stroke: 'rgba(148,163,184,0.45)',
+              'stroke-width': 1
+            })
+          );
+          g.appendChild(h('text', { x: cx + 6, y: cy + 12, fill: 'var(--vscode-descriptionForeground)', 'font-size': 11 }, [chip]));
+        }
+      }
       svg.appendChild(g);
     } else {
       // Draw method only if visible (not fully within a collapsed unit of the same actor)
@@ -441,9 +553,35 @@ function render(graph: Graph) {
           })
         );
         const countSuffix = (fr as any).count && (fr as any).count > 1 ? ` ×${(fr as any).count}` : '';
-        const label = truncate(fr.label.replace(/^Class\./, ''), 80) + countSuffix;
+        const stats = formatStats(fr);
+        const label = truncate(fr.label.replace(/^Class\./, ''), 80) + countSuffix + stats;
         g.appendChild(h('text', { x: x + 10, y: y1 + 16, fill: 'var(--vscode-foreground)', 'font-size': 12 }, [label]));
-        g.appendChild(h('title', {}, [sanitizeText(fr.label)]));
+        g.appendChild(h('title', {}, [tooltipFor(fr)]));
+        if (showProfilingChips) {
+          const chip = chipTextFor(fr);
+          if (chip) {
+            const ch = 16;
+            const cw = estimateChipWidth(chip, 11);
+            const cy = y1 + 4;
+            const cx = x + w - cw - 8;
+            g.appendChild(
+              h('rect', {
+                x: cx,
+                y: cy,
+                width: cw,
+                height: ch,
+                rx: 8,
+                ry: 8,
+                fill: 'rgba(148,163,184,0.18)',
+                stroke: 'rgba(148,163,184,0.45)',
+                'stroke-width': 1
+              })
+            );
+            g.appendChild(
+              h('text', { x: cx + 6, y: cy + 12, fill: 'var(--vscode-descriptionForeground)', 'font-size': 11 }, [chip])
+            );
+          }
+        }
         svg.appendChild(g);
       }
     }

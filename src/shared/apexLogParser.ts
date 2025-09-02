@@ -43,6 +43,14 @@ export type NestedFrame = {
   end?: number; // sequence index at end (exclusive)
   depth: number; // global stack depth
   kind: 'unit' | 'method';
+  // Lightweight profiling counters captured while the frame is active
+  profile?: {
+    soql?: number;
+    dml?: number;
+    callout?: number;
+    cpuMs?: number;
+    heapBytes?: number;
+  };
 };
 
 export type LogGraph = {
@@ -276,13 +284,137 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
   };
 
   const max = typeof maxLines === 'number' ? Math.max(1, maxLines) : lines.length;
+  // Cumulative snapshot tracking for CPU/heap
+  let lastCpuMs = 0;
+  let lastHeapBytes = 0;
+  let inCumBlock: 'LIMITS' | 'PROF' | undefined;
+  let snapCpuMs: number | undefined;
+  let snapHeapBytes: number | undefined;
   for (let i = 0; i < Math.min(lines.length, max); i++) {
     const line = lines[i] || '';
+    const lineUpper = line.toUpperCase();
     let m: RegExpMatchArray | null;
 
     const tm = line.match(rePrefixTime);
     const time = tm?.[1];
     const nanos = tm?.[2];
+
+    // --- Lightweight profiling counters (best-effort) ---
+    // Attribute counts to the current method frame (if any) and enclosing unit frame.
+    // Heuristics prefer BEGIN markers to avoid double-counting END/content lines.
+    const markProfile = (kind: 'soql' | 'dml' | 'callout') => {
+      // Find the current method frame (top-most for current class actor)
+      const curMethodActor = methodStack.length ? nodeId('Class', methodStack[methodStack.length - 1]!) : undefined;
+      if (curMethodActor) {
+        for (let idx = nestedStack.length - 1; idx >= 0; idx--) {
+          const fr = nestedStack[idx]!;
+          if (fr.actor === curMethodActor && fr.kind === 'method') {
+            (fr.profile ||= {} as any);
+            (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + 1;
+            break;
+          }
+        }
+      }
+      // Also attribute to the current unit frame, if present
+      if (unitStack.length) {
+        const curUnitActor = unitStack[unitStack.length - 1]!.id;
+        for (let idx = nestedStack.length - 1; idx >= 0; idx--) {
+          const fr = nestedStack[idx]!;
+          if (fr.actor === curUnitActor && fr.kind === 'unit') {
+            (fr.profile ||= {} as any);
+            (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + 1;
+            break;
+          }
+        }
+      }
+    };
+
+    // SOQL (count BEGIN and QUERY_MORE only to avoid double-counting)
+    if (/(^|\|)SOQL_EXECUTE_BEGIN(\||$)/.test(lineUpper) || /(^|\|)QUERY_MORE(\||$)/.test(lineUpper)) {
+      markProfile('soql');
+    }
+    // DML
+    if (/(^|\|)DML_BEGIN(\||$)/.test(lineUpper)) {
+      markProfile('dml');
+    }
+    // Callouts / HTTP
+    if (/(^|\|)CALLOUT_REQUEST(\||$)/.test(lineUpper) || /(^|\|)HTTP(\||$)/.test(lineUpper)) {
+      markProfile('callout');
+    }
+
+    // Cumulative snapshot blocks start
+    if (/(^|\|)CUMULATIVE_LIMIT_USAGE(\||$)/.test(lineUpper)) {
+      inCumBlock = 'LIMITS';
+      snapCpuMs = undefined;
+      snapHeapBytes = undefined;
+      continue;
+    }
+    if (/(^|\|)CUMULATIVE_PROFILING(\||$)/.test(lineUpper)) {
+      inCumBlock = 'PROF';
+      snapCpuMs = undefined;
+      snapHeapBytes = undefined;
+      continue;
+    }
+    // Parse values within cumulative blocks
+    if (inCumBlock) {
+      // Maximum CPU time: 127 out of 10000
+      let mm = line.match(/Maximum CPU time:\s*(\d+)\s+out of/i);
+      if (mm) {
+        const v = parseInt(mm[1]!, 10);
+        if (!Number.isNaN(v)) snapCpuMs = v;
+      }
+      // Maximum heap size: 1158 out of 6000000
+      mm = line.match(/Maximum heap size:\s*(\d+)\s+out of/i);
+      if (mm) {
+        const v = parseInt(mm[1]!, 10);
+        if (!Number.isNaN(v)) snapHeapBytes = v;
+      }
+      // End of block => attribute deltas
+      if (/(^|\|)CUMULATIVE_LIMIT_USAGE_END(\||$)/.test(lineUpper) || /(^|\|)CUMULATIVE_PROFILING_END(\||$)/.test(lineUpper)) {
+        const curCpu = typeof snapCpuMs === 'number' ? snapCpuMs : lastCpuMs;
+        const curHeap = typeof snapHeapBytes === 'number' ? snapHeapBytes : lastHeapBytes;
+        let dCpu = Math.max(0, curCpu - lastCpuMs);
+        let dHeap = Math.max(0, curHeap - lastHeapBytes);
+        // Update snapshots for next time
+        lastCpuMs = curCpu;
+        lastHeapBytes = curHeap;
+        if (dCpu || dHeap) {
+          const addAmount = (kind: 'cpuMs' | 'heapBytes', amount: number) => {
+            if (!amount) return;
+            // current method frame
+            const curMethodActor = methodStack.length ? nodeId('Class', methodStack[methodStack.length - 1]!) : undefined;
+            if (curMethodActor) {
+              for (let idx = nestedStack.length - 1; idx >= 0; idx--) {
+                const fr = nestedStack[idx]!;
+                if (fr.actor === curMethodActor && fr.kind === 'method') {
+                  (fr.profile ||= {} as any);
+                  (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + amount;
+                  break;
+                }
+              }
+            }
+            // current unit frame
+            if (unitStack.length) {
+              const curUnitActor = unitStack[unitStack.length - 1]!.id;
+              for (let idx = nestedStack.length - 1; idx >= 0; idx--) {
+                const fr = nestedStack[idx]!;
+                if (fr.actor === curUnitActor && fr.kind === 'unit') {
+                  (fr.profile ||= {} as any);
+                  (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + amount;
+                  break;
+                }
+              }
+            }
+          };
+          if (dCpu) addAmount('cpuMs', dCpu);
+          if (dHeap) addAmount('heapBytes', dHeap);
+        }
+        inCumBlock = undefined;
+        snapCpuMs = undefined;
+        snapHeapBytes = undefined;
+        continue;
+      }
+    }
 
     if ((m = line.match(reCodeUnitStart))) {
       const unit = getUnit(m[1] || '');
