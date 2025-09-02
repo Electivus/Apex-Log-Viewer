@@ -199,6 +199,8 @@ function ProfilingSidebar({
       { kind: 'Trigger' | 'Flow' | 'Class' | 'Other'; name: string; soql: number; dml: number; callout: number; cpuMs: number; heapBytes: number }
     >();
     for (const fr of frames) {
+      // Aggregate only unit frames to avoid double counting (methods share the same actor id)
+      if (fr.kind !== 'unit') continue;
       const p = fr.profile;
       if (!p) continue;
       const has = (p.soql || 0) + (p.dml || 0) + (p.callout || 0) + (p.cpuMs || 0) + (p.heapBytes || 0);
