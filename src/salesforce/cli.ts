@@ -84,6 +84,15 @@ export function __resetExecFileImplForTests(): void {
   execFileImpl = cp.execFile as unknown as ExecFileFn;
 }
 
+/**
+ * Clear the cached login shell PATH, forcing it to be resolved again on next use.
+ * Useful when the user's PATH may have changed during the session.
+ */
+export function invalidateLoginShellPATHCache(): void {
+  cachedLoginShellPATH = undefined;
+  // Don't cancel in-flight resolution to avoid race conditions
+}
+
 // Lazily resolve PATH from the user's login shell (macOS/Linux) to match Terminal/Cursor
 let cachedLoginShellPATH: string | undefined;
 let resolvingPATH: Promise<string | undefined> | null = null;
@@ -159,13 +168,16 @@ function execCommand(
       logTrace('execCommand:', program, args.join(' '), envOverride?.PATH ? '(login PATH)' : '');
     } catch {}
     let finished = false;
-    let timer: NodeJS.Timeout;
+    let timer: NodeJS.Timeout | undefined;
     const child = execFileImpl(program, args, opts, (error, stdout, stderr) => {
       if (finished) {
         return;
       }
       finished = true;
-      clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
       if (error) {
         const err: any = error;
         if (err && (err.code === 'ENOENT' || /not found|ENOENT/i.test(err.message))) {
@@ -193,6 +205,7 @@ function execCommand(
         return;
       }
       finished = true;
+      timer = undefined; // Clear the timer reference
       try {
         child.kill();
       } catch {}

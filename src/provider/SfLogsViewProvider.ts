@@ -98,7 +98,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         this.disposed = true;
         this.view = undefined;
         this.refreshToken++;
-        this.headLimiter = createLimiter(this.headConcurrency);
+        // Don't recreate limiter on dispose to avoid interfering with pending operations
         logInfo('Logs webview disposed.');
       })
     );
@@ -206,6 +206,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     for (const log of logs) {
       void this.headLimiter(async () => {
         try {
+          // Check if we're still valid before making the request
+          if (token !== this.refreshToken || this.disposed) {
+            return;
+          }
           const headLines = await fetchApexLogHead(
             auth,
             log.Id,
@@ -213,11 +217,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             typeof log.LogLength === 'number' ? log.LogLength : undefined
           );
           const codeUnit = extractCodeUnitStartedFromLines(headLines);
+          // Double-check we're still valid before posting the result
           if (codeUnit && token === this.refreshToken && !this.disposed) {
             this.post({ type: 'logHead', logId: log.Id, codeUnitStarted: codeUnit });
           }
         } catch {
-          // ignore per-log error
+          // ignore per-log error - this is expected behavior
         }
       });
     }

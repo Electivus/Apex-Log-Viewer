@@ -285,10 +285,13 @@ export async function fetchApexLogHead(
       const lines = range.body.split(/\r?\n/);
       const toStore = cached ? (lines.length > cached.length ? lines : cached) : lines;
       headCacheByLog.set(key, toStore.slice(0, HEAD_MAX_LINES));
-      if (headCacheByLog.size > HEAD_CACHE_LIMIT) {
+      // Ensure cache doesn't exceed limit by removing oldest entries
+      while (headCacheByLog.size > HEAD_CACHE_LIMIT) {
         const firstKey = headCacheByLog.keys().next().value as string | undefined;
         if (firstKey) {
           headCacheByLog.delete(firstKey);
+        } else {
+          break; // Safety check to prevent infinite loop
         }
       }
       return lines.slice(0, Math.max(0, maxLines));
@@ -355,10 +358,13 @@ export async function fetchApexLogHead(
                 // Update cache with the largest collected prefix
                 const toStore = cached ? (collected.length > cached.length ? collected : cached) : collected;
                 headCacheByLog.set(key, toStore.slice(0, HEAD_MAX_LINES));
-                if (headCacheByLog.size > HEAD_CACHE_LIMIT) {
+                // Ensure cache doesn't exceed limit by removing oldest entries
+                while (headCacheByLog.size > HEAD_CACHE_LIMIT) {
                   const firstKey = headCacheByLog.keys().next().value as string | undefined;
                   if (firstKey) {
                     headCacheByLog.delete(firstKey);
+                  } else {
+                    break; // Safety check to prevent infinite loop
                   }
                 }
                 resolve(collected);
@@ -376,10 +382,13 @@ export async function fetchApexLogHead(
             const sliced = collected.slice(0, maxLines);
             const toStore = cached ? (sliced.length > cached.length ? sliced : cached) : sliced;
             headCacheByLog.set(key, toStore.slice(0, HEAD_MAX_LINES));
-            if (headCacheByLog.size > HEAD_CACHE_LIMIT) {
+            // Ensure cache doesn't exceed limit by removing oldest entries
+            while (headCacheByLog.size > HEAD_CACHE_LIMIT) {
               const firstKey = headCacheByLog.keys().next().value as string | undefined;
               if (firstKey) {
                 headCacheByLog.delete(firstKey);
+              } else {
+                break; // Safety check to prevent infinite loop
               }
             }
             resolve(sliced);

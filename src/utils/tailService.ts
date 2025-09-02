@@ -64,6 +64,9 @@ export class TailService {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return; // Already disposed
+    }
     this.disposed = true;
     this.stop();
   }
