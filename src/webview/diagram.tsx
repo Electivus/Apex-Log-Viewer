@@ -1,4 +1,7 @@
 /* Simple left-to-right flow diagram (no external libs). */
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { DiagramToolbar } from './components/DiagramToolbar';
 declare function acquireVsCodeApi(): any;
 
 type Nested = { actor: string; label: string; start: number; end?: number; depth: number; kind: 'unit' | 'method' };
@@ -35,9 +38,21 @@ function h(
           'checked',
           'viewBox',
           // Position/geometry
-          'x', 'y', 'x1', 'y1', 'x2', 'y2', 'width', 'height', 'rx', 'ry',
+          'x',
+          'y',
+          'x1',
+          'y1',
+          'x2',
+          'y2',
+          'width',
+          'height',
+          'rx',
+          'ry',
           // Styling
-          'fill', 'stroke', 'stroke-width', 'font-size'
+          'fill',
+          'stroke',
+          'stroke-width',
+          'font-size'
         ]);
         if (allowed.has(k)) (el as any).setAttribute?.(k, String(v));
       }
@@ -169,107 +184,37 @@ function render(graph: Graph) {
   } else {
     collapsedUnits = new Set(unitIds.filter(id => collapsedUnits.has(id)));
   }
-
   // Toolbar with toggles + legend
-  const toolbar = h('div', { class: 'toolbar' }, [
-    h('label', {}, [
-      h(
-        'input',
-        {
-          type: 'checkbox',
-          checked: hideSystem ? 'checked' : undefined,
-          onchange: (e: any) => {
-            hideSystem = !!e.target.checked;
-            if (currentGraph) render(currentGraph);
-          }
-        },
-        []
-      ),
-      ' Hide System'
-    ]),
-    h('label', {}, [
-      h(
-        'input',
-        {
-          type: 'checkbox',
-          checked: collapseRepeats ? 'checked' : undefined,
-          onchange: (e: any) => {
-            collapseRepeats = !!e.target.checked;
-            if (currentGraph) render(currentGraph);
-          }
-        },
-        []
-      ),
-      ' Collapse repeats'
-    ]),
-    h(
-      'button',
-      {
-        onclick: () => {
-          collapsedUnits.clear();
-          if (currentGraph) render(currentGraph);
-        }
-      },
-      ['Expand all']
-    ),
-    h(
-      'button',
-      {
-        onclick: () => {
-          collapsedUnits = new Set(allUnitIds);
-          if (currentGraph) render(currentGraph);
-        }
-      },
-      ['Collapse all']
-    ),
-    h('div', { class: 'legend' }, [
-      h('span', { class: 'item' }, [
-        h(
-          'span',
-          {
-            class: 'swatch',
-            style: { background: styleByKind('Trigger').fill, border: `1px solid ${styleByKind('Trigger').stroke}` }
-          },
-          []
-        ),
-        'Trigger'
-      ]),
-      h('span', { class: 'item' }, [
-        h(
-          'span',
-          {
-            class: 'swatch',
-            style: { background: styleByKind('Flow').fill, border: `1px solid ${styleByKind('Flow').stroke}` }
-          },
-          []
-        ),
-        'Flow'
-      ]),
-      h('span', { class: 'item' }, [
-        h(
-          'span',
-          {
-            class: 'swatch',
-            style: { background: styleByKind('Class').fill, border: `1px solid ${styleByKind('Class').stroke}` }
-          },
-          []
-        ),
-        'Class'
-      ]),
-      h('span', { class: 'item' }, [
-        h(
-          'span',
-          {
-            class: 'swatch',
-            style: { background: styleByKind('Other').fill, border: `1px solid ${styleByKind('Other').stroke}` }
-          },
-          []
-        ),
-        'Other'
-      ])
-    ])
-  ]);
-  root.appendChild(toolbar);
+  const toolbarHost = document.createElement('div');
+  root.appendChild(toolbarHost);
+  createRoot(toolbarHost).render(
+    <DiagramToolbar
+      hideSystem={hideSystem}
+      collapseRepeats={collapseRepeats}
+      onToggleHideSystem={checked => {
+        hideSystem = checked;
+        if (currentGraph) render(currentGraph);
+      }}
+      onToggleCollapseRepeats={checked => {
+        collapseRepeats = checked;
+        if (currentGraph) render(currentGraph);
+      }}
+      onExpandAll={() => {
+        collapsedUnits.clear();
+        if (currentGraph) render(currentGraph);
+      }}
+      onCollapseAll={() => {
+        collapsedUnits = new Set(allUnitIds);
+        if (currentGraph) render(currentGraph);
+      }}
+      kindStyles={{
+        Trigger: styleByKind('Trigger'),
+        Flow: styleByKind('Flow'),
+        Class: styleByKind('Class'),
+        Other: styleByKind('Other')
+      }}
+    />
+  );
 
   const PAD = 16; // outer padding
   const ROW = 26; // vertical step per visible row (after compression)
