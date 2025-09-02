@@ -9,7 +9,11 @@ import { TailList } from './components/tail/TailList';
 import { LoadingOverlay } from './components/LoadingOverlay';
 
 declare global {
-  var acquireVsCodeApi: <T = unknown>() => { postMessage: (msg: T) => void };
+  var acquireVsCodeApi: <T = unknown>() => {
+    postMessage: (msg: T) => void;
+    getState: <S = any>() => S | undefined;
+    setState: (state: any) => void;
+  };
 }
 
 const vscode = acquireVsCodeApi<WebviewToExtensionMessage>();
