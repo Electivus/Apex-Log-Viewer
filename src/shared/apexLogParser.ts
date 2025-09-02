@@ -341,15 +341,39 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
     }
     if ((m = line.match(reMethodExit))) {
       const payload = (m[1] || '').split('|').pop() || '';
-      const cls = getClassNameFromMethodSig(payload);
-      if (cls && methodStack.length) {
-        // Pop the last method frame; prefer matching class if it matches the top
-        if (methodStack[methodStack.length - 1] === cls) methodStack.pop();
-        else methodStack.pop();
-        // Close span/nested with the same actor id used on entry
-        const actor = nodeId('Class', cls);
-        endSpan(actor);
-        popNestedByActor(actor, 'method');
+      // METHOD_EXIT may log only the class name (no method signature). Try to infer.
+      let cls = getClassNameFromMethodSig(payload);
+      if (!cls) {
+        const simple = (payload || '').trim();
+        // e.g., "MyClass" — treat as class name if it looks sane
+        if (simple && !/[()]/.test(simple)) cls = simple;
+      }
+      if (methodStack.length) {
+        if (cls && methodStack.includes(cls)) {
+          // Unwind the stack until we close the matching class to keep stack and spans aligned
+          while (methodStack.length) {
+            const top = methodStack.pop()!;
+            const actor = nodeId('Class', top);
+            endSpan(actor);
+            popNestedByActor(actor, 'method');
+            if (top === cls) break;
+          }
+        } else if (!cls) {
+          // If we cannot infer a class, this could be a SYSTEM method exit (we don't track those).
+          // Heuristic: if payload looks like a system signature or generic (contains System or generics/parentheses), ignore.
+          const p = (payload || '').trim();
+          const looksSystemish = /\bSystem\b/i.test(p) || /[()<>]/.test(p);
+          if (!looksSystemish) {
+            // Fallback: close the top-most method conservatively
+            const top = methodStack.pop()!;
+            const actor = nodeId('Class', top);
+            endSpan(actor);
+            popNestedByActor(actor, 'method');
+          }
+          // else: ignore exit as untracked system method
+        } else {
+          // cls present but not in stack: ignore to avoid desynchronizing the stack
+        }
       }
       continue;
     }
