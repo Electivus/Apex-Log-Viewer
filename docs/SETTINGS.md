@@ -26,7 +26,7 @@ The Apex Log Viewer extension exposes several settings under the `Apex Logs` sec
 
 - **Type**: string
 - **Default**: `"apexlogs"`
-- Folder name used when saving logs to disk. Files are placed under `${workspaceFolder}/.sflogs/<saveDirName>`.
+- Folder name used when saving logs to disk. Files are placed under `${workspaceFolder}/<saveDirName>` (or `${TMPDIR}/<saveDirName>` when no workspace is open). The folder is added to your workspace `.gitignore` if present.
 
 ## `sfLogs.trace`
 

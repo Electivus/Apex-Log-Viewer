@@ -49,6 +49,11 @@
     "Other"
   ],
   "activationEvents": [
+    "onView:sfLogViewer",
+    "onView:sfLogTail",
+    "onCommand:sfLogs.refresh",
+    "onCommand:sfLogs.selectOrg",
+    "onCommand:sfLogs.tail",
     "onCommand:sfLogs.showDiagram"
   ],
   "extensionDependencies": [],

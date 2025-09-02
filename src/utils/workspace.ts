@@ -12,16 +12,24 @@ export function getWorkspaceRoot(): string | undefined {
   return undefined;
 }
 
-/** Resolve the `apexlogs` directory path (workspace or temp) without creating it. */
+/** Resolve the logs directory path (workspace or temp) without creating it. */
 export function getApexLogsDir(): string {
   const workspaceRoot = getWorkspaceRoot();
-  if (!workspaceRoot) {
-    return path.join(os.tmpdir(), 'apexlogs');
+  const cfg = vscode.workspace.getConfiguration();
+  // Read configured folder name; fallback to default when empty/invalid
+  let dirName = String(cfg.get<string>('sfLogs.saveDirName') || '').trim();
+  if (!dirName) {
+    dirName = 'apexlogs';
   }
-  return path.join(workspaceRoot, 'apexlogs');
+  // Sanitize directory name to avoid unsafe paths
+  dirName = dirName.replace(/[^a-zA-Z0-9_.@\-]+/g, '_');
+  if (!workspaceRoot) {
+    return path.join(os.tmpdir(), dirName);
+  }
+  return path.join(workspaceRoot, dirName);
 }
 
-/** Ensure an `apexlogs` folder exists (workspace or temp) and return its path. */
+/** Ensure the logs folder exists (workspace or temp) and return its path. */
 export async function ensureApexLogsDir(): Promise<string> {
   const dir = getApexLogsDir();
   const workspaceRoot = getWorkspaceRoot();
@@ -30,15 +38,16 @@ export async function ensureApexLogsDir(): Promise<string> {
   if (workspaceRoot) {
     try {
       const gitignorePath = path.join(workspaceRoot, '.gitignore');
+      const dirName = path.basename(dir);
       const stat = await fs.stat(gitignorePath).catch(() => undefined as any);
       if (stat && stat.isFile()) {
         const content = await fs.readFile(gitignorePath, 'utf8').catch(() => '');
         const lines = content.split(/\r?\n/).map(l => l.trim());
         const hasEntry = lines.some(
-          l => l === 'apexlogs' || l === 'apexlogs/' || l === '/apexlogs' || l === '/apexlogs/'
+          l => l === dirName || l === `${dirName}/` || l === `/${dirName}` || l === `/${dirName}/`
         );
         if (!hasEntry) {
-          await fs.appendFile(gitignorePath, (content.endsWith('\n') ? '' : '\n') + 'apexlogs/\n', 'utf8');
+          await fs.appendFile(gitignorePath, (content.endsWith('\n') ? '' : '\n') + `${dirName}/\n`, 'utf8');
         }
       }
     } catch {
