@@ -1,4 +1,8 @@
 /* Simple left-to-right flow diagram (no external libs). */
+import { h } from './utils/dom';
+import { createToolbar } from './diagram/toolbar';
+import { kindFromActor, styleByKind } from './diagram/styles';
+
 declare function acquireVsCodeApi(): any;
 
 type Nested = { actor: string; label: string; start: number; end?: number; depth: number; kind: 'unit' | 'method' };
@@ -9,58 +13,6 @@ type Graph = {
 };
 
 const vscode = acquireVsCodeApi();
-
-function h(
-  tag: string,
-  attrs?: Record<string, any>,
-  children?: (Node | string | null | undefined)[]
-): HTMLElement | SVGElement {
-  const svgTags = new Set(['svg', 'path', 'defs', 'marker', 'line', 'text', 'rect', 'g', 'title']);
-  const htmlTags = new Set(['div', 'label', 'span', 'input', 'button']);
-  const el = svgTags.has(tag)
-    ? document.createElementNS('http://www.w3.org/2000/svg', tag)
-    : document.createElement(tag);
-  if (attrs) {
-    for (const k of Object.keys(attrs)) {
-      const v = (attrs as any)[k];
-      if (k === 'style' && typeof v === 'object') Object.assign((el as HTMLElement).style, v);
-      else if (k === 'class') (el as Element).setAttribute('class', String(v));
-      else if (k.startsWith('on') && typeof v === 'function') (el as any)[k] = v;
-      else if (v !== undefined && v !== null) {
-        // Allowlist of safe attributes (prevents event/href/src injection and satisfies CodeQL)
-        const allowed = new Set([
-          'id',
-          'class',
-          'type',
-          'checked',
-          'viewBox',
-          // Position/geometry
-          'x', 'y', 'x1', 'y1', 'x2', 'y2', 'width', 'height', 'rx', 'ry',
-          // Styling
-          'fill', 'stroke', 'stroke-width', 'font-size'
-        ]);
-        if (allowed.has(k)) (el as any).setAttribute?.(k, String(v));
-      }
-    }
-  }
-  if (children)
-    for (const c of children) {
-      if (c === null || c === undefined) continue;
-      if (typeof c === 'string') {
-        el.appendChild(document.createTextNode(c));
-      } else if (c instanceof Node) {
-        // Only allow known-safe node types/tags
-        if (c.nodeType === Node.TEXT_NODE) {
-          el.appendChild(c);
-        } else if (c instanceof SVGElement) {
-          if (svgTags.has((c as Element).tagName.toLowerCase())) el.appendChild(c);
-        } else if (c instanceof HTMLElement) {
-          if (htmlTags.has((c as Element).tagName.toLowerCase())) el.appendChild(c);
-        }
-      }
-    }
-  return el;
-}
 
 function truncate(s: string, max = 38): string {
   return s && s.length > max ? s.slice(0, max - 1) + '…' : s || '';
@@ -97,25 +49,6 @@ let collapseInitialized = false;
 
 function unitId(fr: Nested): string {
   return `${fr.actor}:${fr.start}`;
-}
-
-function kindFromActor(actor: string): 'Trigger' | 'Flow' | 'Class' | 'Other' {
-  if (actor.startsWith('Trigger:')) return 'Trigger';
-  if (actor.startsWith('Flow:')) return 'Flow';
-  if (actor.startsWith('Class:')) return 'Class';
-  return 'Other';
-}
-function styleByKind(kind: 'Trigger' | 'Flow' | 'Class' | 'Other') {
-  switch (kind) {
-    case 'Trigger':
-      return { stroke: '#60a5fa', fill: 'rgba(96,165,250,0.14)' };
-    case 'Flow':
-      return { stroke: '#a78bfa', fill: 'rgba(167,139,250,0.14)' };
-    case 'Class':
-      return { stroke: '#34d399', fill: 'rgba(52,211,153,0.14)' };
-    default:
-      return { stroke: 'rgba(148,163,184,0.9)', fill: 'rgba(148,163,184,0.10)' };
-  }
 }
 
 function filterAndCollapse(frames: Nested[] | undefined): (Nested & { count?: number })[] {
@@ -170,106 +103,28 @@ function render(graph: Graph) {
     collapsedUnits = new Set(unitIds.filter(id => collapsedUnits.has(id)));
   }
 
-  // Toolbar with toggles + legend
-  const toolbar = h('div', { class: 'toolbar' }, [
-    h('label', {}, [
-      h(
-        'input',
-        {
-          type: 'checkbox',
-          checked: hideSystem ? 'checked' : undefined,
-          onchange: (e: any) => {
-            hideSystem = !!e.target.checked;
-            if (currentGraph) render(currentGraph);
-          }
-        },
-        []
-      ),
-      ' Hide System'
-    ]),
-    h('label', {}, [
-      h(
-        'input',
-        {
-          type: 'checkbox',
-          checked: collapseRepeats ? 'checked' : undefined,
-          onchange: (e: any) => {
-            collapseRepeats = !!e.target.checked;
-            if (currentGraph) render(currentGraph);
-          }
-        },
-        []
-      ),
-      ' Collapse repeats'
-    ]),
-    h(
-      'button',
-      {
-        onclick: () => {
-          collapsedUnits.clear();
-          if (currentGraph) render(currentGraph);
-        }
+  root.appendChild(
+    createToolbar({
+      hideSystem,
+      collapseRepeats,
+      onHideSystemChange: v => {
+        hideSystem = v;
+        if (currentGraph) render(currentGraph);
       },
-      ['Expand all']
-    ),
-    h(
-      'button',
-      {
-        onclick: () => {
-          collapsedUnits = new Set(allUnitIds);
-          if (currentGraph) render(currentGraph);
-        }
+      onCollapseRepeatsChange: v => {
+        collapseRepeats = v;
+        if (currentGraph) render(currentGraph);
       },
-      ['Collapse all']
-    ),
-    h('div', { class: 'legend' }, [
-      h('span', { class: 'item' }, [
-        h(
-          'span',
-          {
-            class: 'swatch',
-            style: { background: styleByKind('Trigger').fill, border: `1px solid ${styleByKind('Trigger').stroke}` }
-          },
-          []
-        ),
-        'Trigger'
-      ]),
-      h('span', { class: 'item' }, [
-        h(
-          'span',
-          {
-            class: 'swatch',
-            style: { background: styleByKind('Flow').fill, border: `1px solid ${styleByKind('Flow').stroke}` }
-          },
-          []
-        ),
-        'Flow'
-      ]),
-      h('span', { class: 'item' }, [
-        h(
-          'span',
-          {
-            class: 'swatch',
-            style: { background: styleByKind('Class').fill, border: `1px solid ${styleByKind('Class').stroke}` }
-          },
-          []
-        ),
-        'Class'
-      ]),
-      h('span', { class: 'item' }, [
-        h(
-          'span',
-          {
-            class: 'swatch',
-            style: { background: styleByKind('Other').fill, border: `1px solid ${styleByKind('Other').stroke}` }
-          },
-          []
-        ),
-        'Other'
-      ])
-    ])
-  ]);
-  root.appendChild(toolbar);
+      onExpandAll: () => {
+        collapsedUnits.clear();
+        if (currentGraph) render(currentGraph);
+      },
+      onCollapseAll: () => {
+        collapsedUnits = new Set(allUnitIds);
+        if (currentGraph) render(currentGraph);
+      }
+    })
+  );
 
   const PAD = 16; // outer padding
   const ROW = 26; // vertical step per visible row (after compression)
