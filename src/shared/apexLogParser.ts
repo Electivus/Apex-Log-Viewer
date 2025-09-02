@@ -342,8 +342,8 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
     if (/(^|\|)DML_BEGIN(\||$)/.test(lineUpper)) {
       markProfile('dml');
     }
-    // Callouts / HTTP
-    if (/(^|\|)CALLOUT_REQUEST(\||$)/.test(lineUpper) || /(^|\|)HTTP(\||$)/.test(lineUpper)) {
+    // Callouts: count only explicit CALLOUT_REQUEST to avoid overcounting generic HTTP lines
+    if (/(^|\|)CALLOUT_REQUEST(\||$)/.test(lineUpper)) {
       markProfile('callout');
     }
 
