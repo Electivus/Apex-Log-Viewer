@@ -159,6 +159,9 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
   // Global nested frames (single-column view)
   const nested: NestedFrame[] = [];
   const nestedStack: NestedFrame[] = [];
+  // Track most recently closed actors for attribution after stacks are cleared
+  let lastClosedMethodActor: string | undefined;
+  let lastClosedUnitActor: string | undefined;
   const pushNested = (actor: string, label: string, kind: NestedFrame['kind']) => {
     const frame: NestedFrame = { actor, label, start: sequence.length, depth: nestedStack.length, kind };
     nested.push(frame);
@@ -170,6 +173,8 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
       if (fr.actor === actor && (!kind || fr.kind === kind)) {
         fr.end = Math.max(fr.start + 1, sequence.length);
         nestedStack.splice(i, 1);
+        if (fr.kind === 'method') lastClosedMethodActor = fr.actor;
+        else if (fr.kind === 'unit') lastClosedUnitActor = fr.actor;
         return fr;
       }
     }
@@ -379,32 +384,32 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         lastCpuMs = curCpu;
         lastHeapBytes = curHeap;
         if (dCpu || dHeap) {
+          const addToFrame = (actor: string | undefined, k: NestedFrame['kind'], kind: 'cpuMs' | 'heapBytes', amount: number) => {
+            if (!actor || !amount) return false;
+            for (let idx = nestedStack.length - 1; idx >= 0; idx--) {
+              const fr = nestedStack[idx]!;
+              if (fr.actor === actor && fr.kind === k) {
+                (fr.profile ||= {} as any);
+                (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + amount;
+                return true;
+              }
+            }
+            for (let i = nested.length - 1; i >= 0; i--) {
+              const fr = nested[i]!;
+              if (fr.actor === actor && fr.kind === k) {
+                (fr.profile ||= {} as any);
+                (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + amount;
+                return true;
+              }
+            }
+            return false;
+          };
           const addAmount = (kind: 'cpuMs' | 'heapBytes', amount: number) => {
             if (!amount) return;
-            // current method frame
             const curMethodActor = methodStack.length ? nodeId('Class', methodStack[methodStack.length - 1]!) : undefined;
-            if (curMethodActor) {
-              for (let idx = nestedStack.length - 1; idx >= 0; idx--) {
-                const fr = nestedStack[idx]!;
-                if (fr.actor === curMethodActor && fr.kind === 'method') {
-                  (fr.profile ||= {} as any);
-                  (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + amount;
-                  break;
-                }
-              }
-            }
-            // current unit frame
-            if (unitStack.length) {
-              const curUnitActor = unitStack[unitStack.length - 1]!.id;
-              for (let idx = nestedStack.length - 1; idx >= 0; idx--) {
-                const fr = nestedStack[idx]!;
-                if (fr.actor === curUnitActor && fr.kind === 'unit') {
-                  (fr.profile ||= {} as any);
-                  (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + amount;
-                  break;
-                }
-              }
-            }
+            const curUnitActor = unitStack.length ? unitStack[unitStack.length - 1]!.id : undefined;
+            addToFrame(curMethodActor || lastClosedMethodActor, 'method', kind, amount);
+            addToFrame(curUnitActor || lastClosedUnitActor, 'unit', kind, amount);
           };
           if (dCpu) addAmount('cpuMs', dCpu);
           if (dHeap) addAmount('heapBytes', dHeap);
@@ -439,6 +444,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         const top = unitStack[unitStack.length - 1]!;
         if (top.name === label || top.id.endsWith(`:${label}`)) {
           unitStack.pop();
+          lastClosedUnitActor = top.id;
           endSpan(top.id);
           popNestedByActor(top.id, 'unit');
           break;
@@ -446,6 +452,10 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         unitStack.pop();
       }
       // Clearing method stack when a unit ends keeps ownership sane
+      if (methodStack.length) {
+        const last = methodStack[methodStack.length - 1]!;
+        lastClosedMethodActor = nodeId('Class', last);
+      }
       methodStack.length = 0;
       continue;
     }
@@ -490,6 +500,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
             popNestedByActor(actor, 'method');
             if (top === cls) break;
           }
+          lastClosedMethodActor = nodeId('Class', cls);
         } else if (!cls) {
           // If we cannot infer a class, this could be a SYSTEM method exit (we don't track those).
           // Heuristic: if payload looks like a system signature or generic (contains System or generics/parentheses), ignore.
@@ -501,6 +512,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
             const actor = nodeId('Class', top);
             endSpan(actor);
             popNestedByActor(actor, 'method');
+            lastClosedMethodActor = actor;
           }
           // else: ignore exit as untracked system method
         } else {

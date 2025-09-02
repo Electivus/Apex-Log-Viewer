@@ -64,7 +64,8 @@ function filterAndCollapse(
         if (f.profile.heapBytes) prev.profile.heapBytes = (prev.profile.heapBytes || 0) + f.profile.heapBytes;
       }
     } else {
-      out.push({ ...f });
+      // Clone profile to avoid mutating the source graph when we merge repeats
+      out.push({ ...f, profile: f.profile ? { ...f.profile } : undefined });
     }
   }
   return out;
