@@ -358,12 +358,21 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
             popNestedByActor(actor, 'method');
             if (top === cls) break;
           }
+        } else if (!cls) {
+          // If we cannot infer a class, this could be a SYSTEM method exit (we don't track those).
+          // Heuristic: if payload looks like a system signature or generic (contains System or generics/parentheses), ignore.
+          const p = (payload || '').trim();
+          const looksSystemish = /\bSystem\b/i.test(p) || /[()<>]/.test(p);
+          if (!looksSystemish) {
+            // Fallback: close the top-most method conservatively
+            const top = methodStack.pop()!;
+            const actor = nodeId('Class', top);
+            endSpan(actor);
+            popNestedByActor(actor, 'method');
+          }
+          // else: ignore exit as untracked system method
         } else {
-          // Fallback: close the top-most method
-          const top = methodStack.pop()!;
-          const actor = nodeId('Class', top);
-          endSpan(actor);
-          popNestedByActor(actor, 'method');
+          // cls present but not in stack: ignore to avoid desynchronizing the stack
         }
       }
       continue;
