@@ -36,11 +36,13 @@ function styleByKind(kind: Kind) {
 export function DiagramSvg({
   frames,
   collapsedUnits,
-  onToggleUnit
+  onToggleUnit,
+  showProfilingChips
 }: {
   frames: (NestedFrame & { count?: number })[];
   collapsedUnits: Set<string>;
   onToggleUnit: (id: string) => void;
+  showProfilingChips: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState<number>(800);
@@ -147,6 +149,49 @@ export function DiagramSvg({
 
   const framesSorted = useMemo(() => frames.slice().sort((a, b) => a.start - b.start || a.depth - b.depth), [frames]);
 
+  function humanBytes(n?: number): string {
+    if (!n || n <= 0) return '0 B';
+    const kb = n / 1024;
+    if (kb < 1024) return `${Math.round(kb)} KB`;
+    const mb = kb / 1024;
+    return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
+  }
+  function statsSuffix(fr: NestedFrame | undefined): string {
+    const p = fr?.profile || {};
+    const parts: string[] = [];
+    if (p?.soql) parts.push(`S${p.soql}`);
+    if (p?.dml) parts.push(`D${p.dml}`);
+    if (p?.callout) parts.push(`C${p.callout}`);
+    return parts.length ? ` [${parts.join(' ')}]` : '';
+  }
+  function tooltipText(fr: NestedFrame): string {
+    const lines: string[] = [];
+    lines.push(fr.label);
+    const p = fr.profile || {};
+    const counters: string[] = [];
+    if (p.soql) counters.push(`SOQL: ${p.soql}`);
+    if (p.dml) counters.push(`DML: ${p.dml}`);
+    if (p.callout) counters.push(`Callouts: ${p.callout}`);
+    if (counters.length) lines.push(counters.join(', '));
+    const perf: string[] = [];
+    if (p.cpuMs) perf.push(`CPU: ${p.cpuMs} ms`);
+    if (p.heapBytes) perf.push(`Heap: ${humanBytes(p.heapBytes)}`);
+    if (perf.length) lines.push(perf.join(', '));
+    return lines.join('\n');
+  }
+  function chipText(fr: NestedFrame): string | undefined {
+    const p = fr.profile || {};
+    const cpu = p.cpuMs && p.cpuMs > 0 ? `CPU ${p.cpuMs}ms` : '';
+    const heap = p.heapBytes && p.heapBytes > 0 ? `Heap ${humanBytes(p.heapBytes)}` : '';
+    const both = [cpu, heap].filter(Boolean).join(' • ');
+    return both || undefined;
+  }
+  function chipWidth(text: string, fontSize = 11): number {
+    const avg = fontSize * 0.62;
+    const padding = 10;
+    return Math.max(28, Math.round(text.length * avg) + padding);
+  }
+
   return (
     <div ref={containerRef}>
       <svg width={svgW} height={svgH} viewBox={`0 0 ${svgW} ${svgH}`}>
@@ -165,7 +210,7 @@ export function DiagramSvg({
             const unitRectH = collapsed ? Math.max(14, ROW - 6) : rectH;
             const countSuffix = (fr as any).count && (fr as any).count > 1 ? ` ×${(fr as any).count}` : '';
             const prefix = hasMethods ? (collapsed ? '▸ ' : '▾ ') : '';
-            const label = prefix + truncate(fr.label.replace(/^Class\./, '')) + countSuffix;
+            const label = prefix + truncate(fr.label.replace(/^Class\./, '')) + countSuffix + statsSuffix(fr);
             const textColor = 'var(--vscode-foreground)';
             return (
               <g
@@ -188,7 +233,36 @@ export function DiagramSvg({
                 <text x={x + 10} y={y1 + 16} fill={textColor} fontSize={12}>
                   {label}
                 </text>
-                <title>{fr.label}</title>
+                <title>{tooltipText(fr)}</title>
+                {showProfilingChips && chipText(fr) && (
+                  <>
+                    {(() => {
+                      const text = chipText(fr)!;
+                      const cw = chipWidth(text, 11);
+                      const ch = 16;
+                      const cy = y1 + 4;
+                      const cx = x + w - cw - 8;
+                      return (
+                        <g>
+                          <rect
+                            x={cx}
+                            y={cy}
+                            width={cw}
+                            height={ch}
+                            rx={8}
+                            ry={8}
+                            fill={'rgba(148,163,184,0.18)'}
+                            stroke={'rgba(148,163,184,0.45)'}
+                            strokeWidth={1}
+                          />
+                          <text x={cx + 6} y={cy + 12} fill={'var(--vscode-descriptionForeground)'} fontSize={11}>
+                            {text}
+                          </text>
+                        </g>
+                      );
+                    })()}
+                  </>
+                )}
               </g>
             );
           }
@@ -201,7 +275,7 @@ export function DiagramSvg({
           if (!visible) return null;
           const sty = styleByKind(kindFromActor(fr.actor));
           const countSuffix = (fr as any).count && (fr as any).count > 1 ? ` ×${(fr as any).count}` : '';
-          const label = truncate(fr.label.replace(/^Class\./, '')) + countSuffix;
+          const label = truncate(fr.label.replace(/^Class\./, '')) + countSuffix + statsSuffix(fr);
           const textColor = 'var(--vscode-foreground)';
           return (
             <g key={`m-${fr.actor}-${fr.start}`}>
@@ -209,7 +283,36 @@ export function DiagramSvg({
               <text x={x + 10} y={y1 + 16} fill={textColor} fontSize={12}>
                 {label}
               </text>
-              <title>{fr.label}</title>
+              <title>{tooltipText(fr)}</title>
+              {showProfilingChips && chipText(fr) && (
+                <>
+                  {(() => {
+                    const text = chipText(fr)!;
+                    const cw = chipWidth(text, 11);
+                    const ch = 16;
+                    const cy = y1 + 4;
+                    const cx = x + w - cw - 8;
+                    return (
+                      <g>
+                        <rect
+                          x={cx}
+                          y={cy}
+                          width={cw}
+                          height={ch}
+                          rx={8}
+                          ry={8}
+                          fill={'rgba(148,163,184,0.18)'}
+                          stroke={'rgba(148,163,184,0.45)'}
+                          strokeWidth={1}
+                        />
+                        <text x={cx + 6} y={cy + 12} fill={'var(--vscode-descriptionForeground)'} fontSize={11}>
+                          {text}
+                        </text>
+                      </g>
+                    );
+                  })()}
+                </>
+              )}
             </g>
           );
         })}
@@ -217,4 +320,3 @@ export function DiagramSvg({
     </div>
   );
 }
-
