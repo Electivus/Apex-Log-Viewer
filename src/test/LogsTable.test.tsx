@@ -36,23 +36,23 @@ suite('LogsTable', () => {
   test('loads more when scrolled near end', () => {
     const rows = createRows(20);
     const captured: any = {};
-    const VariableSizeList = React.forwardRef<HTMLDivElement, any>((props, ref) => {
-      captured.onItemsRendered = props.onItemsRendered;
+    const List = (props: any) => {
+      captured.onRowsRendered = props.onRowsRendered;
       return (
         <div
           ref={el => {
             captured.outer = el;
-            if (typeof props.outerRef === 'function') {
-              props.outerRef(el);
-            } else if (props.outerRef) {
-              props.outerRef.current = el;
+            if (props.listRef) {
+              const api = { element: el, scrollToRow: () => {} };
+              if (typeof props.listRef === 'function') props.listRef(api);
+              else props.listRef.current = api;
             }
           }}
         />
       );
-    });
+    };
     const { LogsTable } = proxyquire('../webview/components/LogsTable', {
-      'react-window': { VariableSizeList }
+      'react-window': { List }
     });
 
     let loadMore = 0;
@@ -76,35 +76,30 @@ suite('LogsTable', () => {
     const outer = captured.outer as HTMLDivElement;
     outer.scrollTop = 10;
     fireEvent.scroll(outer);
-    captured.onItemsRendered({
-      overscanStartIndex: 0,
-      overscanStopIndex: 0,
-      visibleStartIndex: 0,
-      visibleStopIndex: rows.length - 1
-    });
+    captured.onRowsRendered({ startIndex: 0, stopIndex: rows.length - 1 });
     assert.equal(loadMore > 0, true);
   });
 
   test('adjusts overscan based on scroll speed', async () => {
     const rows = createRows(5);
     const captured: any = {};
-    const VariableSizeList = React.forwardRef<HTMLDivElement, any>((props, ref) => {
+    const List = (props: any) => {
       captured.overscanCount = props.overscanCount;
       return (
         <div
           ref={el => {
             captured.outer = el;
-            if (typeof props.outerRef === 'function') {
-              props.outerRef(el);
-            } else if (props.outerRef) {
-              props.outerRef.current = el;
+            if (props.listRef) {
+              const api = { element: el, scrollToRow: () => {} };
+              if (typeof props.listRef === 'function') props.listRef(api);
+              else props.listRef.current = api;
             }
           }}
         />
       );
-    });
+    };
     const { LogsTable } = proxyquire('../webview/components/LogsTable', {
-      'react-window': { VariableSizeList }
+      'react-window': { List }
     });
 
     render(

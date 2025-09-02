@@ -6,7 +6,13 @@
     "noEmit": false,
     "sourceMap": true,
     "lib": ["ES2022", "DOM"],
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "react-window": [
+        "src/test/stubs/react-window"
+      ]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["node_modules", "dist", "media", "out", "src/extension.ts"]
