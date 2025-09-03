@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { VariableSizeList } from 'react-window';
+import type { ListImperativeAPI } from 'react-window';
 import { createRoot } from 'react-dom/client';
 import { getMessages } from './i18n';
 import type { OrgItem } from '../shared/types';
@@ -34,7 +34,7 @@ function App() {
   const [selectedIndex, setSelectedIndex] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const t = getMessages(locale) as any;
-  const listRef = useRef<VariableSizeList | null>(null);
+  const listRef = useRef<ListImperativeAPI | null>(null);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -119,7 +119,7 @@ function App() {
   useEffect(() => {
     if (!autoScroll) return;
     const last = filteredIndexes.length > 0 ? filteredIndexes.length - 1 : 0;
-    listRef.current?.scrollToItem(last, 'end');
+    listRef.current?.scrollToRow({ index: last, align: 'end', behavior: 'auto' });
   }, [lines, autoScroll, filteredIndexes.length]);
 
   // Map full indices to their current position inside filteredIndexes for O(1) lookup
@@ -135,7 +135,7 @@ function App() {
       if (filteredPos === undefined) {
         return;
       }
-      listRef.current?.scrollToItem(filteredPos, behavior === 'smooth' ? 'center' : 'auto');
+      listRef.current?.scrollToRow({ index: filteredPos, align: behavior === 'smooth' ? 'center' : 'auto', behavior });
     },
     [filteredIndexMap]
   );
@@ -228,7 +228,7 @@ function App() {
             // Clear selection to allow auto-scroll to take over and jump to end immediately
             setSelectedIndex(undefined);
             const last = filteredIndexes.length > 0 ? filteredIndexes.length - 1 : 0;
-            listRef.current?.scrollToItem(last, 'end');
+            listRef.current?.scrollToRow({ index: last, align: 'end', behavior: 'auto' });
           }
         }}
         error={error}

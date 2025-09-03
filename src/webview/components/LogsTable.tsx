@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
-import { VariableSizeList, ListOnItemsRenderedProps } from 'react-window';
+import { List, type ListImperativeAPI } from 'react-window';
 import type { ApexLogRow } from '../../shared/types';
 import { LogsHeader } from './table/LogsHeader';
 import { LogRow } from './table/LogRow';
@@ -33,8 +33,7 @@ export function LogsTable({
   sortDir: 'asc' | 'desc';
   onSort: (key: 'user' | 'application' | 'operation' | 'time' | 'status' | 'size' | 'codeUnit') => void;
 }) {
-  const listOuterRef = useRef<HTMLDivElement | null>(null);
-  const listRef = useRef<VariableSizeList | null>(null);
+  const listRef = useRef<ListImperativeAPI | null>(null);
   const outerRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
   const [autoPagingActivated, setAutoPagingActivated] = useState(false);
@@ -51,22 +50,10 @@ export function LogsTable({
     'minmax(160px,1fr) minmax(140px,1fr) minmax(200px,1.2fr) minmax(200px,1fr) minmax(120px,0.8fr) minmax(260px,1.4fr) minmax(90px,0.6fr) 72px';
   // Header is rendered by LogsHeader; keep container simple
 
-  useEffect(() => {
-    const el = listOuterRef.current;
-    if (!el) {
-      return;
-    }
-    const onScroll = () => {
-      if (el.scrollTop > 0 && !autoPagingActivated) {
-        setAutoPagingActivated(true);
-      }
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, [autoPagingActivated]);
+  // autoPagingActivated will be flipped by the adaptive overscan listener below
 
-  const handleItemsRendered = (props: ListOnItemsRenderedProps) => {
-    const { visibleStopIndex } = props;
+  const handleRowsRendered = (props: { startIndex: number; stopIndex: number }) => {
+    const { stopIndex: visibleStopIndex } = props;
     // Trigger load more when within ~one screenful from the end
     const approxVisible = Math.max(5, Math.ceil(measuredListHeight / defaultRowHeight));
     const threshold = Math.max(0, rows.length - (approxVisible + 5));
@@ -76,31 +63,21 @@ export function LogsTable({
   };
 
   // Batch resetAfterIndex calls to once-per-frame
-  const pendingResetFromRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
-  const flushReset = () => {
-    if (pendingResetFromRef.current === null) return;
-    const from = pendingResetFromRef.current;
-    pendingResetFromRef.current = null;
-    listRef.current?.resetAfterIndex(from);
-    rafRef.current = null;
-  };
-  const scheduleResetFrom = (index: number) => {
-    if (pendingResetFromRef.current === null) {
-      pendingResetFromRef.current = index;
-    } else {
-      pendingResetFromRef.current = Math.min(pendingResetFromRef.current, index);
-    }
-    if (rafRef.current === null) {
-      rafRef.current = requestAnimationFrame(flushReset);
-    }
+  const [, forceRender] = useState(0);
+  const scheduleRerender = () => {
+    if (rafRef.current !== null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      forceRender(v => v + 1);
+    });
   };
   const setRowHeight = (index: number, size: number) => {
     const current = rowHeightsRef.current[index] ?? defaultRowHeight;
     const next = Math.max(defaultRowHeight, Math.ceil(size));
     if (current !== next) {
       rowHeightsRef.current[index] = next;
-      scheduleResetFrom(index);
+      scheduleRerender();
     }
   };
 
@@ -133,7 +110,7 @@ export function LogsTable({
 
   // Adaptive overscan based on scroll velocity
   useEffect(() => {
-    const el = listOuterRef.current;
+    const el = listRef.current?.element;
     if (!el) return;
     const onScroll = () => {
       if (el.scrollTop > 0 && !autoPagingActivated) setAutoPagingActivated(true);
@@ -169,22 +146,19 @@ export function LogsTable({
   return (
     <div ref={outerRef} style={{ overflow: 'hidden' }}>
       <LogsHeader ref={headerRef} t={t} sortBy={sortBy} sortDir={sortDir} onSort={onSort} gridTemplate={gridTemplate} />
-      <VariableSizeList
-        height={measuredListHeight}
-        width={'100%'}
-        itemCount={rows.length}
-        estimatedItemSize={defaultRowHeight}
-        itemSize={getItemSize}
-        outerRef={listOuterRef}
-        ref={listRef}
-        onItemsRendered={handleItemsRendered}
+      <List
+        style={{ height: measuredListHeight, width: '100%' }}
+        rowCount={rows.length}
+        rowHeight={(index: number) => getItemSize(index)}
+        listRef={listRef}
+        rowProps={{}}
+        onRowsRendered={({ startIndex, stopIndex }: { startIndex: number; stopIndex: number }) =>
+          handleRowsRendered({ startIndex, stopIndex })
+        }
         overscanCount={overscanCount}
-      >
-        {({ index, style }) => {
+        rowComponent={({ index, style }: { index: number; style: React.CSSProperties }) => {
           const row = rows[index];
-          if (!row) {
-            return null;
-          }
+          if (!row) return null;
           return (
             <LogRow
               r={row}
@@ -201,7 +175,7 @@ export function LogsTable({
             />
           );
         }}
-      </VariableSizeList>
+      />
     </div>
   );
 }

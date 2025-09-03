@@ -1,6 +1,6 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Messages } from '../../i18n';
-import { VariableSizeList, type ListOnItemsRenderedProps } from 'react-window';
+import { List, type ListImperativeAPI } from 'react-window';
 import { apexLineStyle, categoryStyle, contentHighlightRules, highlightContent, parseApexLine } from '../../utils/tail';
 
 type TailListProps = {
@@ -10,7 +10,7 @@ type TailListProps = {
   onSelectIndex: (idx: number) => void;
   colorize: boolean;
   running: boolean;
-  listRef: React.RefObject<VariableSizeList>;
+  listRef: React.RefObject<ListImperativeAPI>;
   t: Messages;
   onAtBottomChange?: (atBottom: boolean) => void;
 };
@@ -30,7 +30,7 @@ export function TailList({
   const rowHeightsRef = useRef<Record<number, number>>({});
   const [height, setHeight] = useState(420);
   const outerRef = useRef<HTMLDivElement | null>(null);
-  const listOuterRef = useRef<HTMLDivElement | null>(null);
+  // Removed outerRef for List v2; use listRef.current.element instead
   const [overscanCount, setOverscanCount] = useState<number>(8);
   const overscanBaseRef = useRef<number>(8);
   const overscanLastTopRef = useRef<number>(0);
@@ -40,31 +40,21 @@ export function TailList({
   const atBottomRef = useRef<boolean | null>(null);
 
   const getItemSize = (index: number) => rowHeightsRef.current[index] ?? defaultRowHeight;
-  // Batch resetAfterIndex calls to once-per-frame
-  const pendingResetFromRef = useRef<number | null>(null);
+  // Batch re-render to reflect updated row heights
   const rafRef = useRef<number | null>(null);
-  const flushReset = () => {
-    if (pendingResetFromRef.current === null) return;
-    const from = pendingResetFromRef.current;
-    pendingResetFromRef.current = null;
-    listRef.current?.resetAfterIndex(from);
-    rafRef.current = null;
-  };
-  const scheduleResetFrom = (index: number) => {
-    if (pendingResetFromRef.current === null) {
-      pendingResetFromRef.current = index;
-    } else {
-      pendingResetFromRef.current = Math.min(pendingResetFromRef.current, index);
-    }
-    if (rafRef.current === null) {
-      rafRef.current = requestAnimationFrame(flushReset);
-    }
+  const [, forceRender] = useState(0);
+  const scheduleRerender = () => {
+    if (rafRef.current !== null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      forceRender(v => v + 1);
+    });
   };
   const setRowHeight = (index: number, size: number) => {
     const next = Math.max(defaultRowHeight, Math.ceil(size));
     if (rowHeightsRef.current[index] !== next) {
       rowHeightsRef.current[index] = next;
-      scheduleResetFrom(index);
+      scheduleRerender();
     }
   };
 
@@ -115,7 +105,7 @@ export function TailList({
     );
   };
 
-  const onItemsRendered = (_: ListOnItemsRenderedProps) => {
+  const onRowsRendered = (_: { startIndex: number; stopIndex: number }) => {
     // Reserved for future tail auto-paging; no-op today
   };
 
@@ -124,7 +114,7 @@ export function TailList({
 
   // Detect whether the list is scrolled to the bottom and notify parent on changes
   React.useEffect(() => {
-    const el = listOuterRef.current;
+    const el = listRef.current?.element;
     if (!el) return;
     const threshold = 4; // px
     const compute = () => {
@@ -145,7 +135,7 @@ export function TailList({
 
   // Adaptive overscan based on scroll velocity
   React.useEffect(() => {
-    const el = listOuterRef.current;
+    const el = listRef.current?.element;
     if (!el) return;
     const onScroll = () => {
       const now = performance.now();
@@ -195,20 +185,16 @@ export function TailList({
             {running ? (t.tail?.waiting ?? 'Waiting for logs…') : (t.tail?.pressStart ?? 'Press Start to tail logs.')}
           </div>
         ) : (
-          <VariableSizeList
-            ref={listRef}
-            outerRef={listOuterRef}
-            height={height}
-            width={'100%'}
-            itemCount={filteredIndexes.length}
-            itemSize={getItemSize}
-            estimatedItemSize={defaultRowHeight}
-            itemKey={itemKey}
+          <List
+            listRef={listRef}
+            style={{ height, width: '100%' }}
+            rowCount={filteredIndexes.length}
+            rowHeight={(index: number) => getItemSize(index)}
             overscanCount={overscanCount}
-            onItemsRendered={onItemsRendered}
-          >
-            {renderRow}
-          </VariableSizeList>
+            rowProps={{}}
+            onRowsRendered={onRowsRendered}
+            rowComponent={(props: { index: number; style: React.CSSProperties }) => renderRow(props)}
+          />
         )}
       </div>
     </div>
