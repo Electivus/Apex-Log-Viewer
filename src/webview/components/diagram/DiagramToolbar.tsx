@@ -10,7 +10,10 @@ export function DiagramToolbar({
   showProfilingChips,
   onToggleShowProfilingChips,
   showProfilingSidebar,
-  onToggleShowProfilingSidebar
+  onToggleShowProfilingSidebar,
+  entityPanelOpen,
+  onToggleEntityPanel,
+  hiddenCount
 }: {
   hideSystem: boolean;
   onToggleHideSystem: (v: boolean) => void;
@@ -22,6 +25,9 @@ export function DiagramToolbar({
   onToggleShowProfilingChips: (v: boolean) => void;
   showProfilingSidebar: boolean;
   onToggleShowProfilingSidebar: (v: boolean) => void;
+  entityPanelOpen: boolean;
+  onToggleEntityPanel: (v: boolean) => void;
+  hiddenCount: number;
 }) {
   const Swatch = ({ stroke, fill, label }: { stroke: string; fill: string; label: string }) => (
     <span className="item">
@@ -32,6 +38,9 @@ export function DiagramToolbar({
 
   return (
     <div className="toolbar">
+      <button type="button" onClick={() => onToggleEntityPanel(!entityPanelOpen)}>
+        Entities{hiddenCount ? ` (${hiddenCount} hidden)` : ''} {entityPanelOpen ? '▴' : '▾'}
+      </button>
       <label>
         <input type="checkbox" checked={hideSystem} onChange={e => onToggleHideSystem(e.target.checked)} /> Hide System
       </label>

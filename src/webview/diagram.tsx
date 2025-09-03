@@ -4,10 +4,16 @@ import type { LogGraph, NestedFrame } from '../shared/apexLogParser';
 import type { DiagramExtensionToWebviewMessage, DiagramWebviewToExtensionMessage } from '../shared/diagramMessages';
 import { DiagramToolbar } from './components/diagram/DiagramToolbar';
 import { DiagramSvg } from './components/diagram/DiagramSvg';
+import EntityFilter from './components/diagram/EntityFilter';
+import { filterAndCollapse } from './utils/diagramFilter';
 
 declare global {
   // Provided by VS Code webview runtime
-  var acquireVsCodeApi: <T = unknown>() => { postMessage: (msg: T) => void };
+  var acquireVsCodeApi: <T = unknown>() => {
+    postMessage: (msg: T) => void;
+    getState: <S = any>() => S | undefined;
+    setState: (state: any) => void;
+  };
 }
 
 const vscode = acquireVsCodeApi<DiagramWebviewToExtensionMessage>();
@@ -30,46 +36,7 @@ function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
   return true;
 }
 
-function filterAndCollapse(
-  frames: NestedFrame[] | undefined,
-  hideSystem: boolean,
-  collapseRepeats: boolean
-): (NestedFrame & { count?: number })[] {
-  let list: NestedFrame[] = (frames || []).slice();
-  if (hideSystem) {
-    list = list.filter(fr => !/^Class:System\b/.test(fr.actor) && !/^System\./.test(fr.label));
-  }
-  // Collapse consecutive repeats on same lane, same depth and same label
-  list.sort((a, b) => a.start - b.start || a.depth - b.depth);
-  if (!collapseRepeats) return list as any;
-  const out: (NestedFrame & { count?: number })[] = [];
-  for (const f of list) {
-    const prev = out[out.length - 1];
-    if (
-      prev &&
-      prev.actor === f.actor &&
-      prev.depth === f.depth &&
-      prev.label === f.label &&
-      (prev.end ?? prev.start) <= f.start
-    ) {
-      prev.end = f.end ?? f.start + 1;
-      prev.count = (prev.count || 1) + 1;
-      if (f.profile) {
-        // Sum profiling counters when collapsing
-        (prev.profile ||= {});
-        if (f.profile.soql) prev.profile.soql = (prev.profile.soql || 0) + f.profile.soql;
-        if (f.profile.dml) prev.profile.dml = (prev.profile.dml || 0) + f.profile.dml;
-        if (f.profile.callout) prev.profile.callout = (prev.profile.callout || 0) + f.profile.callout;
-        if (f.profile.cpuMs) prev.profile.cpuMs = (prev.profile.cpuMs || 0) + f.profile.cpuMs;
-        if (f.profile.heapBytes) prev.profile.heapBytes = (prev.profile.heapBytes || 0) + f.profile.heapBytes;
-      }
-    } else {
-      // Clone profile to avoid mutating the source graph when we merge repeats
-      out.push({ ...f, profile: f.profile ? { ...f.profile } : undefined });
-    }
-  }
-  return out;
-}
+// moved to ./utils/diagramFilter
 
 function App() {
   const [graph, setGraph] = useState<LogGraph | undefined>(undefined);
@@ -79,6 +46,8 @@ function App() {
   const [allUnitIds, setAllUnitIds] = useState<string[]>([]);
   const [showProfilingChips, setShowProfilingChips] = useState(false);
   const [showProfilingSidebar, setShowProfilingSidebar] = useState(true);
+  const [hiddenActors, setHiddenActors] = useState<Set<string>>(new Set());
+  const [showEntityPanel, setShowEntityPanel] = useState(false);
 
   // Listen for graph messages and announce readiness
   useEffect(() => {
@@ -90,6 +59,17 @@ function App() {
       }
     };
     window.addEventListener('message', onMsg);
+    // Restore persisted UI state
+    try {
+      const state = vscode.getState<{ hiddenActorIds?: string[]; hideSystem?: boolean; collapseRepeats?: boolean; showProfilingChips?: boolean; showProfilingSidebar?: boolean }>();
+      if (state) {
+        if (Array.isArray(state.hiddenActorIds)) setHiddenActors(new Set(state.hiddenActorIds));
+        if (typeof state.hideSystem === 'boolean') setHideSystem(state.hideSystem);
+        if (typeof state.collapseRepeats === 'boolean') setCollapseRepeats(state.collapseRepeats);
+        if (typeof state.showProfilingChips === 'boolean') setShowProfilingChips(state.showProfilingChips);
+        if (typeof state.showProfilingSidebar === 'boolean') setShowProfilingSidebar(state.showProfilingSidebar);
+      }
+    } catch {}
     vscode.postMessage({ type: 'ready' });
     return () => window.removeEventListener('message', onMsg);
   }, []);
@@ -114,8 +94,8 @@ function App() {
   }, [framesRaw]);
 
   const frames = useMemo(
-    () => filterAndCollapse(framesRaw, hideSystem, collapseRepeats),
-    [framesRaw, hideSystem, collapseRepeats]
+    () => filterAndCollapse(framesRaw, hideSystem, collapseRepeats, hiddenActors),
+    [framesRaw, hideSystem, collapseRepeats, hiddenActors]
   );
 
   const onToggleUnit = (id: string) => {
@@ -126,6 +106,25 @@ function App() {
       return next;
     });
   };
+
+  // Persist certain UI states for the panel lifetime
+  useEffect(() => {
+    try {
+      vscode.setState({
+        hiddenActorIds: Array.from(hiddenActors),
+        hideSystem,
+        collapseRepeats,
+        showProfilingChips,
+        showProfilingSidebar
+      });
+    } catch {}
+  }, [hiddenActors, hideSystem, collapseRepeats, showProfilingChips, showProfilingSidebar]);
+
+  const allEntities = useMemo(() => {
+    const arr = (graph?.nodes || []).map(n => ({ id: n.id, label: n.label, kind: n.kind }));
+    arr.sort((a, b) => (a.kind === b.kind ? a.label.localeCompare(b.label) : a.kind.localeCompare(b.kind)));
+    return arr;
+  }, [graph]);
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -158,10 +157,37 @@ function App() {
         onToggleShowProfilingChips={setShowProfilingChips}
         showProfilingSidebar={showProfilingSidebar}
         onToggleShowProfilingSidebar={setShowProfilingSidebar}
+        entityPanelOpen={showEntityPanel}
+        onToggleEntityPanel={setShowEntityPanel}
+        hiddenCount={hiddenActors.size}
       />
 
       <div style={{ position: 'relative', flex: 1, display: 'flex', overflow: 'hidden' }}>
         <div style={{ position: 'relative', flex: 1, overflow: 'auto' }}>
+          {showEntityPanel && (
+            <div
+              style={{
+                position: 'absolute',
+                zIndex: 2,
+                top: 8,
+                right: 8,
+                width: 360,
+                maxHeight: 380,
+                overflow: 'auto',
+                background: 'var(--vscode-editor-background)',
+                border: '1px solid var(--vscode-editorGroup-border, rgba(148,163,184,0.25))',
+                borderRadius: 8,
+                boxShadow: '0 4px 18px rgba(0,0,0,0.22)'
+              }}
+            >
+              <EntityFilter
+                entities={allEntities}
+                hidden={hiddenActors}
+                onChangeHidden={setHiddenActors}
+                onClose={() => setShowEntityPanel(false)}
+              />
+            </div>
+          )}
           <DiagramSvg
             frames={frames}
             collapsedUnits={collapsedUnits}
