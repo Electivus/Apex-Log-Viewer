@@ -30,7 +30,7 @@ export function TailList({
   const rowHeightsRef = useRef<Record<number, number>>({});
   const [height, setHeight] = useState(420);
   const outerRef = useRef<HTMLDivElement | null>(null);
-  const listOuterRef = useRef<HTMLDivElement | null>(null);
+  // Removed outerRef for List v2; use listRef.current.element instead
   const [overscanCount, setOverscanCount] = useState<number>(8);
   const overscanBaseRef = useRef<number>(8);
   const overscanLastTopRef = useRef<number>(0);
@@ -114,7 +114,7 @@ export function TailList({
 
   // Detect whether the list is scrolled to the bottom and notify parent on changes
   React.useEffect(() => {
-    const el = listRef.current?.element ?? listOuterRef.current;
+    const el = listRef.current?.element;
     if (!el) return;
     const threshold = 4; // px
     const compute = () => {
@@ -135,7 +135,7 @@ export function TailList({
 
   // Adaptive overscan based on scroll velocity
   React.useEffect(() => {
-    const el = listRef.current?.element ?? listOuterRef.current;
+    const el = listRef.current?.element;
     if (!el) return;
     const onScroll = () => {
       const now = performance.now();
@@ -193,7 +193,7 @@ export function TailList({
             overscanCount={overscanCount}
             rowProps={{}}
             onRowsRendered={onRowsRendered}
-            rowComponent={renderRow as any}
+            rowComponent={(props: { index: number; style: React.CSSProperties }) => renderRow(props)}
           />
         )}
       </div>

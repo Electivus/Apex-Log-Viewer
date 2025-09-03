@@ -33,7 +33,6 @@ export function LogsTable({
   sortDir: 'asc' | 'desc';
   onSort: (key: 'user' | 'application' | 'operation' | 'time' | 'status' | 'size' | 'codeUnit') => void;
 }) {
-  const listOuterRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<ListImperativeAPI | null>(null);
   const outerRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
@@ -51,19 +50,7 @@ export function LogsTable({
     'minmax(160px,1fr) minmax(140px,1fr) minmax(200px,1.2fr) minmax(200px,1fr) minmax(120px,0.8fr) minmax(260px,1.4fr) minmax(90px,0.6fr) 72px';
   // Header is rendered by LogsHeader; keep container simple
 
-  useEffect(() => {
-    const el = listOuterRef.current;
-    if (!el) {
-      return;
-    }
-    const onScroll = () => {
-      if (el.scrollTop > 0 && !autoPagingActivated) {
-        setAutoPagingActivated(true);
-      }
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, [autoPagingActivated]);
+  // autoPagingActivated will be flipped by the adaptive overscan listener below
 
   const handleRowsRendered = (props: { startIndex: number; stopIndex: number }) => {
     const { stopIndex: visibleStopIndex } = props;
@@ -123,7 +110,7 @@ export function LogsTable({
 
   // Adaptive overscan based on scroll velocity
   useEffect(() => {
-    const el = listRef.current?.element ?? listOuterRef.current;
+    const el = listRef.current?.element;
     if (!el) return;
     const onScroll = () => {
       if (el.scrollTop > 0 && !autoPagingActivated) setAutoPagingActivated(true);
