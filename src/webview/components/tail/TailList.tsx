@@ -10,7 +10,7 @@ type TailListProps = {
   onSelectIndex: (idx: number) => void;
   colorize: boolean;
   running: boolean;
-  listRef: React.RefObject<ListImperativeAPI>;
+  listRef: React.RefObject<ListImperativeAPI | null>;
   t: Messages;
   onAtBottomChange?: (atBottom: boolean) => void;
 };
