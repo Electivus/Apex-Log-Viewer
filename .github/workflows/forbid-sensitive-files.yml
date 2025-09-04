@@ -1,0 +1,28 @@
+name: forbid-sensitive-files
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check-forbidden:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Fail if .log or .txt are tracked
+        run: |
+          set -euo pipefail
+          matches=$(git ls-files '*.log' '*.txt' || true)
+          if [ -n "$matches" ]; then
+            echo "\n❌ Encontrado(s) arquivo(s) proibido(s) versionado(s):"
+            echo "$matches" | sed 's/^/  - /'
+            echo "\nRemova-os do histórico/commit antes de prosseguir."
+            exit 1
+          fi
+      - name: Confirm apexlogs/ is not packaged
+        run: |
+          if [ -d apexlogs ]; then
+            echo "ℹ️ Diretório 'apexlogs/' existe localmente (ok). Ele não deve ser versionado."
+          fi
+
