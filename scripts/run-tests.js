@@ -413,7 +413,11 @@ async function run() {
   if (args.smokeVsix) {
     // Package VSIX
     console.log('[smoke] Packaging VSIX...');
-    await execFileAsync('npm', ['run', '-s', 'package']);
+    // Build artifacts (avoid full 'package' to reduce flakiness on CI)
+    await execFileAsync('npm', ['run', '-s', 'build']);
+    // Ensure NLS files exist (best-effort)
+    try { await execFileAsync('npm', ['run', '-s', 'nls:write']); } catch {}
+    // Create the VSIX (this will also run vscode:prepublish)
     await execFileAsync('npx', ['--no-install', 'vsce', 'package', '--no-yarn']);
     const vsix = require('fs').readdirSync(process.cwd()).find(f => /\.vsix$/.test(f));
     if (!vsix) throw new Error('[smoke] VSIX not found');

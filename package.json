@@ -184,7 +184,7 @@
     "test:clean": "node scripts/clean-vscode-test.js",
     "clean": "node -e \"const fs=require('fs');const p=require('path');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('dist');del('out');for(const f of ['media/main.js','media/main.js.map','media/tail.js','media/tail.js.map','media/diagram.js','media/diagram.js.map']){try{fs.unlinkSync(f)}catch{}}\"",
     "prebuild": "npm run clean",
-    "vscode:prepublish": "npm run package",
+    "vscode:prepublish": "npm run build && npm run nls:write",
     "check-types": "tsc --noEmit -p tsconfig.extension.json",
     "compile": "npm run lint && tsc -p tsconfig.extension.json --noEmit",
     "watch": "npm-run-all -p watch:*",
