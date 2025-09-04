@@ -45,6 +45,19 @@
 - PRs: clear description, linked issues, UI screenshots/GIFs, verification steps, and risk/rollback notes.
 - Gates: `npm run build` and `npm test` must pass. Update `CHANGELOG.md` manually for user‑facing changes (follow SemVer; keep entries concise).
 
+## Branching & Workflow (Agents)
+
+- Never commit directly to `main`.
+- Always start work on a new branch named by scope:
+  - Feature: `feat/<short-topic>` (e.g., `feat/timeline-profiling-validator`)
+  - Fix: `fix/<short-topic>` (e.g., `fix/diagram-empty-on-missing-prefix`)
+  - Chore/Docs/Build: `chore/<topic>`, `docs/<topic>`, `build/<topic>`
+- After implementing and validating locally:
+  1. `git push -u origin <branch>`
+  2. Open a Pull Request targeting `main`.
+  3. Ensure CI passes (`npm run build`, tests) before merge.
+- If a commit is accidentally pushed to `main`, immediately revert on `main`, push the revert, and reapply the changes on a feature branch via cherry-pick or revert-of-revert, then open a PR.
+
 ## Security & Configuration Tips
 
 - Requires Salesforce CLI (`sf` or `sfdx`) with an authenticated org (e.g., `sf org login web`).
