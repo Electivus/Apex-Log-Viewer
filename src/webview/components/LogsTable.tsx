@@ -49,6 +49,10 @@ export function LogsTable({
   const overscanLastTsRef = useRef<number>(0);
   const overscanDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overscanLastSetRef = useRef<number>(8);
+  // Track latest paging flags for scroll handler without re-binding listeners
+  const hasMoreRef = useRef<boolean>(hasMore);
+  const loadingRef = useRef<boolean>(loading);
+  const lastLoadTsRef = useRef<number>(0);
   const gridTemplate =
     'minmax(160px,1fr) minmax(140px,1fr) minmax(200px,1.2fr) minmax(200px,1fr) minmax(120px,0.8fr) minmax(260px,1.4fr) minmax(90px,0.6fr) 72px';
   // Header is rendered by LogsHeader; keep container simple
@@ -109,13 +113,20 @@ export function LogsTable({
       }
       window.removeEventListener('resize', recompute);
     };
-  }, [hasMore, loading]);
+  }, []);
+
+  // Keep refs synchronized with latest props for scroll safety net
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
 
   // Adaptive overscan based on scroll velocity
   useEffect(() => {
     const el = listRef.current?.element;
     if (!el) return;
-    const lastLoadTsRef = { current: 0 } as { current: number };
     const onScroll = () => {
       const now = performance.now();
       const dt = now - (overscanLastTsRef.current || now);
@@ -140,7 +151,7 @@ export function LogsTable({
         }, 200);
       }
       // Also trigger load-more when very near the bottom, as a safety net
-      if (hasMore && !loading) {
+      if (hasMoreRef.current && !loadingRef.current) {
         const remaining = el.scrollHeight - (el.scrollTop + el.clientHeight);
         if (remaining <= defaultRowHeight * 2) {
           if (now - lastLoadTsRef.current > 300) {
