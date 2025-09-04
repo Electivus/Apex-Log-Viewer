@@ -69,6 +69,20 @@ Manual packaging (rare):
 - Never log or commit tokens or org-sensitive data.
 - When `sfLogs.trace` is enabled, review output before sharing externally.
 
+## Sensitive Files Guardrails
+
+- Forbidden in commits: `*.log` and `*.txt`.
+- Local logs: keep under `apexlogs/` (already in `.gitignore`).
+- Pre-commit: Husky roda um scanner heurístico (sem extensão) e bloqueia conteúdo com cara de log; além disso, lint-staged bloqueia `.log/.txt` explicitamente.
+- CI: `.github/workflows/forbid-sensitive-files.yml` fails if any tracked `.log/.txt` exist in PRs.
+- Packaging: controlado via `files` no `package.json` (somente `dist/**`, bundles em `media/*.js` e metadados são empacotados; logs e fontes não entram).
+
+Unstage by mistake:
+
+```
+git restore --staged path/to/file.log
+```
+
 ## Questions
 
 - General usage: see `README.md`.

@@ -6,6 +6,7 @@ media/*.js
 
 # allow tracking webview entrypoints
 *.log
+*.txt
 dist
 .vscode-test/
 sample-workspace/
