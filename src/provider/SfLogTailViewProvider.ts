@@ -228,6 +228,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   }
   // Tail webview actions
   private async openLog(logId: string): Promise<void> {
+    this.post({ type: 'loading', value: true });
     try {
       const filePath = await this.tailService.ensureLogSaved(logId);
       const uri = vscode.Uri.file(filePath);
@@ -238,6 +239,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       const msg = e instanceof Error ? e.message : String(e);
       logWarn('Tail: openLog failed ->', msg);
       this.post({ type: 'error', message: msg });
+    } finally {
+      this.post({ type: 'loading', value: false });
     }
   }
 

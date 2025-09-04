@@ -98,7 +98,7 @@ export function LogRow({
                 onOpen(r.Id);
               }}
             >
-              <OpenIcon />
+              {loading ? <SpinnerIcon /> : <OpenIcon />}
             </IconButton>
             <IconButton
               title={t.replay}

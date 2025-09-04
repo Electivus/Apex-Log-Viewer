@@ -1,6 +1,7 @@
 import React from 'react';
 import type { OrgItem } from '../../../shared/types';
 import { commonButtonStyle } from '../styles';
+import { SpinnerIcon } from '../icons/ReplayIcon';
 
 type TailToolbarProps = {
   running: boolean;
@@ -87,7 +88,14 @@ export function TailToolbar({
         disabled={disabled || !actionsEnabled}
         title={t.tail?.openSelectedLogTitle ?? 'Open selected log'}
       >
-        {t.tail?.openLog ?? 'Open Log'}
+        {disabled && actionsEnabled ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <SpinnerIcon />
+            {t.tail?.openLog ?? 'Open Log'}
+          </span>
+        ) : (
+          t.tail?.openLog ?? 'Open Log'
+        )}
       </button>
       <button
         onClick={onReplaySelected}
