@@ -168,19 +168,23 @@ export function DiagramSvg({
     const lines: string[] = [];
     lines.push(fr.label);
     const p = fr.profile || {};
-    // Timeline duration (from log nanos)
-    if (p.timeMs) lines.push(`Time: ${p.timeMs} ms`);
     const counters: string[] = [];
-    if (p.soql) counters.push(`SOQL: ${p.soql}${p.soqlTimeMs ? ` (${p.soqlTimeMs} ms)` : ''}`);
-    if (p.dml) counters.push(`DML: ${p.dml}${p.dmlTimeMs ? ` (${p.dmlTimeMs} ms)` : ''}`);
-    if (p.callout) counters.push(`Callouts: ${p.callout}${p.calloutTimeMs ? ` (${p.calloutTimeMs} ms)` : ''}`);
+    if (p.soql) counters.push(`SOQL: ${p.soql}`);
+    if (p.dml) counters.push(`DML: ${p.dml}`);
+    if (p.callout) counters.push(`Callouts: ${p.callout}`);
     if (counters.length) lines.push(counters.join(', '));
+    const perf: string[] = [];
+    if (p.cpuMs) perf.push(`CPU: ${p.cpuMs} ms`);
+    if (p.heapBytes) perf.push(`Heap: ${humanBytes(p.heapBytes)}`);
+    if (perf.length) lines.push(perf.join(', '));
     return lines.join('\n');
   }
   function chipText(fr: NestedFrame): string | undefined {
     const p = fr.profile || {};
-    const time = p.timeMs && p.timeMs > 0 ? `Time ${p.timeMs}ms` : '';
-    return time || undefined;
+    const cpu = p.cpuMs && p.cpuMs > 0 ? `CPU ${p.cpuMs}ms` : '';
+    const heap = p.heapBytes && p.heapBytes > 0 ? `Heap ${humanBytes(p.heapBytes)}` : '';
+    const both = [cpu, heap].filter(Boolean).join(' • ');
+    return both || undefined;
   }
   function chipWidth(text: string, fontSize = 11): number {
     const avg = fontSize * 0.62;
