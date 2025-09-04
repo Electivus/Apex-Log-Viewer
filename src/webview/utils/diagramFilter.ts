@@ -37,6 +37,10 @@ export function filterAndCollapse(
         if (f.profile.callout) prev.profile.callout = (prev.profile.callout || 0) + f.profile.callout;
         if (f.profile.cpuMs) prev.profile.cpuMs = (prev.profile.cpuMs || 0) + f.profile.cpuMs;
         if (f.profile.heapBytes) prev.profile.heapBytes = (prev.profile.heapBytes || 0) + f.profile.heapBytes;
+        if (f.profile.timeMs) prev.profile.timeMs = (prev.profile.timeMs || 0) + f.profile.timeMs;
+        if (f.profile.soqlTimeMs) prev.profile.soqlTimeMs = (prev.profile.soqlTimeMs || 0) + f.profile.soqlTimeMs;
+        if (f.profile.dmlTimeMs) prev.profile.dmlTimeMs = (prev.profile.dmlTimeMs || 0) + f.profile.dmlTimeMs;
+        if (f.profile.calloutTimeMs) prev.profile.calloutTimeMs = (prev.profile.calloutTimeMs || 0) + f.profile.calloutTimeMs;
       }
     } else {
       // Clone profile to avoid mutating the source graph when we merge repeats
@@ -47,4 +51,3 @@ export function filterAndCollapse(
 }
 
 export default filterAndCollapse;
-

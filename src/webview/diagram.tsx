@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { LogGraph, NestedFrame } from '../shared/apexLogParser';
+import type { LogGraph, NestedFrame, LogIssue } from '../shared/apexLogParser';
 import type { DiagramExtensionToWebviewMessage, DiagramWebviewToExtensionMessage } from '../shared/diagramMessages';
 import { DiagramToolbar } from './components/diagram/DiagramToolbar';
 import { DiagramSvg } from './components/diagram/DiagramSvg';
@@ -196,16 +196,18 @@ function App() {
           />
           {frames.length === 0 && <div style={{ padding: 8, opacity: 0.8 }}>No flow detected.</div>}
         </div>
-        {showProfilingSidebar && <ProfilingSidebar frames={frames} />}
+        {showProfilingSidebar && <ProfilingSidebar frames={frames} issues={graph?.issues || []} />}
       </div>
     </div>
   );
 }
 
 function ProfilingSidebar({
-  frames
+  frames,
+  issues
 }: {
   frames: (NestedFrame & { count?: number })[];
+  issues: LogIssue[];
 }) {
   function kindFromActor(actor: string): 'Trigger' | 'Flow' | 'Class' | 'Other' {
     if (actor.startsWith('Trigger:')) return 'Trigger';
@@ -223,27 +225,40 @@ function ProfilingSidebar({
   const agg = useMemo(() => {
     const map = new Map<
       string,
-      { kind: 'Trigger' | 'Flow' | 'Class' | 'Other'; name: string; soql: number; dml: number; callout: number; cpuMs: number; heapBytes: number }
+      {
+        kind: 'Trigger' | 'Flow' | 'Class' | 'Other';
+        name: string;
+        soql: number;
+        dml: number;
+        callout: number;
+        timeMs: number;
+        soqlTimeMs: number;
+        dmlTimeMs: number;
+        calloutTimeMs: number;
+      }
     >();
     for (const fr of frames) {
       // Aggregate only unit frames to avoid double counting (methods share the same actor id)
       if (fr.kind !== 'unit') continue;
-      const p = fr.profile;
-      if (!p) continue;
-      const has = (p.soql || 0) + (p.dml || 0) + (p.callout || 0) + (p.cpuMs || 0) + (p.heapBytes || 0);
-      if (!has) continue;
+      const p = fr.profile || {};
+      const has = (p.timeMs || 0) + (p.soql || 0) + (p.dml || 0) + (p.callout || 0);
+      if (!has) continue; // no timing or counters
       const kind = kindFromActor(fr.actor);
       const name = fr.actor.split(':').slice(1).join(':') || fr.actor;
-      const cur = map.get(fr.actor) || { kind, name, soql: 0, dml: 0, callout: 0, cpuMs: 0, heapBytes: 0 };
+      const cur =
+        map.get(fr.actor) ||
+        { kind, name, soql: 0, dml: 0, callout: 0, timeMs: 0, soqlTimeMs: 0, dmlTimeMs: 0, calloutTimeMs: 0 };
       cur.soql += p.soql || 0;
       cur.dml += p.dml || 0;
       cur.callout += p.callout || 0;
-      cur.cpuMs += p.cpuMs || 0;
-      cur.heapBytes += p.heapBytes || 0;
+      cur.timeMs += p.timeMs || 0;
+      cur.soqlTimeMs += p.soqlTimeMs || 0;
+      cur.dmlTimeMs += p.dmlTimeMs || 0;
+      cur.calloutTimeMs += p.calloutTimeMs || 0;
       map.set(fr.actor, cur);
     }
     const arr = Array.from(map.entries()).map(([actor, v]) => ({ actor, ...v }));
-    arr.sort((a, b) => (b.cpuMs - a.cpuMs) || (b.soql + b.dml + b.callout - (a.soql + a.dml + a.callout)) || a.name.localeCompare(b.name));
+    arr.sort((a, b) => (b.timeMs - a.timeMs) || (b.soql + b.dml + b.callout - (a.soql + a.dml + a.callout)) || a.name.localeCompare(b.name));
     return arr;
   }, [frames]);
 
@@ -255,15 +270,26 @@ function ProfilingSidebar({
         <div key={it.actor} className="item">
           <span className="title">{it.name}</span>
           <span className="meta">
-            {it.cpuMs ? `CPU ${it.cpuMs}ms` : ''}
-            {it.cpuMs && (it.heapBytes || it.soql || it.dml || it.callout) ? ' • ' : ''}
-            {it.heapBytes ? `Heap ${humanBytes(it.heapBytes)}` : ''}
-            {(it.heapBytes && (it.soql || it.dml || it.callout)) ? ' • ' : ''}
-            {it.soql ? `S${it.soql}` : ''}
+            {it.timeMs ? `Time ${it.timeMs}ms` : ''}
+            {it.timeMs && (it.soql || it.dml || it.callout) ? ' • ' : ''}
+            {it.soql ? `S${it.soql}${it.soqlTimeMs ? `(${it.soqlTimeMs}ms)` : ''}` : ''}
             {it.soql && (it.dml || it.callout) ? ' ' : ''}
-            {it.dml ? `D${it.dml}` : ''}
+            {it.dml ? `D${it.dml}${it.dmlTimeMs ? `(${it.dmlTimeMs}ms)` : ''}` : ''}
             {it.dml && it.callout ? ' ' : ''}
-            {it.callout ? `C${it.callout}` : ''}
+            {it.callout ? `C${it.callout}${it.calloutTimeMs ? `(${it.calloutTimeMs}ms)` : ''}` : ''}
+          </span>
+        </div>
+      ))}
+
+      <h3 style={{ marginTop: 12 }}>Log Issues</h3>
+      {issues.length === 0 && <div className="item" style={{ opacity: 0.7 }}>No issues detected.</div>}
+      {issues.map((it, idx) => (
+        <div key={`${it.code}-${idx}`} className="item">
+          <span className="title">{it.message}</span>
+          <span className="meta">
+            {it.severity.toUpperCase()} • {it.code}
+            {typeof it.line === 'number' ? ` • line ${it.line}` : ''}
+            {it.details ? ` — ${it.details}` : ''}
           </span>
         </div>
       ))}
