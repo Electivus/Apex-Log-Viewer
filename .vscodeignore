@@ -1,0 +1,20 @@
+# Excluir artefatos e arquivos sensíveis do pacote VSIX
+apexlogs/**
+*.log
+*.txt
+
+# Infra/CI
+.github/**
+.husky/**
+
+# Pastas de dev/test comuns (mantemos apenas dist e media bundle)
+src/**
+out/**
+scripts/**
+.vscode/**
+.vscode-test/**
+sample-workspace/**
+patches/**
+node_modules/**/test/**
+node_modules/**/docs/**
+

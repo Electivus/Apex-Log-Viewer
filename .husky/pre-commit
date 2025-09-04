@@ -1,2 +1,8 @@
 #!/usr/bin/env sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Block committing inferred log files (content-based)
+node scripts/scan-logs-staged.cjs || exit 1
+
+# Run lint-staged tasks (formatting and other checks)
 npx --no-install lint-staged

@@ -272,7 +272,9 @@
     "package.nls.pt-br.json"
   ],
   "lint-staged": {
-    "*.{js,ts,jsx,tsx,json,md,css,scss}": "prettier --write"
+    "*.{js,ts,jsx,tsx,json,md,css,scss}": "prettier --write",
+    "*.log": "node scripts/guard-forbidden-staged.cjs --label=.log",
+    "*.txt": "node scripts/guard-forbidden-staged.cjs --label=.txt"
   },
   "homepage": "https://github.com/Electivus/Apex-Log-Viewer#readme",
   "bugs": {
