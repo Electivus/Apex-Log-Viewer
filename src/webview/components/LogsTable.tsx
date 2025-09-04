@@ -36,7 +36,10 @@ export function LogsTable({
   const listRef = useRef<ListImperativeAPI | null>(null);
   const outerRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
-  const [autoPagingActivated, setAutoPagingActivated] = useState(false);
+  // Previously we gated auto-paging until the first scroll; this
+  // prevented initial loads on small lists. After dependency updates,
+  // relying on that gate causes missed load-more events. Remove the gate
+  // and trigger based solely on visibility + hasMore/loading guards.
   const defaultRowHeight = 32;
   const rowHeightsRef = useRef<Record<number, number>>({});
   const [measuredListHeight, setMeasuredListHeight] = useState<number>(420);
@@ -46,6 +49,10 @@ export function LogsTable({
   const overscanLastTsRef = useRef<number>(0);
   const overscanDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overscanLastSetRef = useRef<number>(8);
+  // Track latest paging flags for scroll handler without re-binding listeners
+  const hasMoreRef = useRef<boolean>(hasMore);
+  const loadingRef = useRef<boolean>(loading);
+  const lastLoadTsRef = useRef<number>(0);
   const gridTemplate =
     'minmax(160px,1fr) minmax(140px,1fr) minmax(200px,1.2fr) minmax(200px,1fr) minmax(120px,0.8fr) minmax(260px,1.4fr) minmax(90px,0.6fr) 72px';
   // Header is rendered by LogsHeader; keep container simple
@@ -57,7 +64,7 @@ export function LogsTable({
     // Trigger load more when within ~one screenful from the end
     const approxVisible = Math.max(5, Math.ceil(measuredListHeight / defaultRowHeight));
     const threshold = Math.max(0, rows.length - (approxVisible + 5));
-    if (autoPagingActivated && hasMore && !loading && visibleStopIndex >= threshold) {
+    if (hasMore && !loading && visibleStopIndex >= threshold) {
       onLoadMore();
     }
   };
@@ -108,12 +115,19 @@ export function LogsTable({
     };
   }, []);
 
+  // Keep refs synchronized with latest props for scroll safety net
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
   // Adaptive overscan based on scroll velocity
   useEffect(() => {
     const el = listRef.current?.element;
     if (!el) return;
     const onScroll = () => {
-      if (el.scrollTop > 0 && !autoPagingActivated) setAutoPagingActivated(true);
       const now = performance.now();
       const dt = now - (overscanLastTsRef.current || now);
       const dy = Math.abs(el.scrollTop - (overscanLastTopRef.current || 0));
@@ -136,12 +150,22 @@ export function LogsTable({
           }
         }, 200);
       }
+      // Also trigger load-more when very near the bottom, as a safety net
+      if (hasMoreRef.current && !loadingRef.current) {
+        const remaining = el.scrollHeight - (el.scrollTop + el.clientHeight);
+        if (remaining <= defaultRowHeight * 2) {
+          if (now - lastLoadTsRef.current > 300) {
+            lastLoadTsRef.current = now;
+            onLoadMore();
+          }
+        }
+      }
       overscanLastTsRef.current = now;
       overscanLastTopRef.current = el.scrollTop;
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, [autoPagingActivated]);
+  }, []);
 
   return (
     <div ref={outerRef} style={{ overflow: 'hidden' }}>
