@@ -224,6 +224,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async openLog(logId: string) {
+    this.post({ type: 'loading', value: true });
     try {
       // Open directly if already present (works even without CLI)
       const existing = await this.findExistingLogFile(logId);
@@ -245,6 +246,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         localize('openError', 'Failed to open log: ') + (e instanceof Error ? e.message : String(e))
       );
       logWarn('Logs: openLog failed ->', e instanceof Error ? e.message : String(e));
+    } finally {
+      this.post({ type: 'loading', value: false });
     }
   }
 
