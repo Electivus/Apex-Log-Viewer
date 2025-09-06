@@ -101,19 +101,19 @@ jobs:
           echo "PRE_RELEASE=$PRE_RELEASE" >> $GITHUB_ENV
           if [ "$PRE_RELEASE" = "true" ]; then echo "CHANNEL_SUFFIX=pre" >> $GITHUB_ENV; else echo "CHANNEL_SUFFIX=stable" >> $GITHUB_ENV; fi
 
-      - name: Ensure telemetry secret present
+      - name: Ensure telemetry variable present
         env:
-          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
         run: |
           set -euo pipefail
           if [ -z "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}" ]; then
-            echo "Missing APPLICATIONINSIGHTS_CONNECTION_STRING secret. Refusing to package without telemetry." >&2
+            echo "Missing APPLICATIONINSIGHTS_CONNECTION_STRING variable. Refusing to package without telemetry." >&2
             exit 1
           fi
 
       - name: Create VSIX
         env:
-          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
         run: |
           if [ "${PRE_RELEASE}" = "true" ]; then
             echo "Packaging pre-release VSIX (${VERSION})"

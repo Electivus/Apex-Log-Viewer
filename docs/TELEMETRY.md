@@ -33,7 +33,7 @@ For maintainers
 
 GitHub Actions integration
 
-- Add a repository secret named `APPLICATIONINSIGHTS_CONNECTION_STRING` contendo sua Application Insights connection string.
+- Adicione uma variável de repositório (Actions → Variables) chamada `APPLICATIONINSIGHTS_CONNECTION_STRING` contendo sua Application Insights connection string. Variáveis do Actions não são criptografadas e são apropriadas aqui, conforme a documentação da Microsoft.
 - Export it as an environment variable in your workflow before packaging. The scripts will inject it into `package.json` for the duration of the packaging step and then remove it.
 
 Example job snippet:
@@ -50,19 +50,19 @@ jobs:
       - run: npm ci
       - name: Build (extension + webview)
         run: npm run package
-      - name: Ensure telemetry secret present
+      - name: Ensure telemetry variable present
         env:
-          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
         run: |
           if [ -z "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}" ]; then
-            echo "Missing APPLICATIONINSIGHTS_CONNECTION_STRING secret. Refusing to package without telemetry." >&2
+            echo "Missing APPLICATIONINSIGHTS_CONNECTION_STRING variable. Refusing to package without telemetry." >&2
             exit 1
           fi
 
       - name: Package VSIX
         run: npm run vsce:package
         env:
-          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
       # Optionally upload the VSIX artifact here
 ```
 
