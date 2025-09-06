@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { SfLogsViewProvider } from './provider/SfLogsViewProvider';
 import { SfLogTailViewProvider } from './provider/SfLogTailViewProvider';
-import { listOrgs } from './salesforce/cli';
 import type { OrgItem } from './shared/types';
 import * as path from 'path';
 import { promises as fs } from 'fs';
@@ -11,12 +10,19 @@ import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';
 import { ApexLogDiagramPanelManager } from './provider/ApexLogDiagramPanel';
 import { activateTelemetry, sendEvent, sendException, disposeTelemetry } from './shared/telemetry';
+import { CacheManager } from './utils/cacheManager';
+import { listOrgs, getOrgAuth } from './salesforce/cli';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
   username: string;
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+  // Init TTL cache (best-effort; no-op if unavailable)
+  try {
+    CacheManager.init(context.globalState);
+    await CacheManager.clearExpired();
+  } catch {}
   // Initialize telemetry (no-op if no key/conn configured)
   try {
     activateTelemetry(context);
@@ -186,6 +192,21 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  // Reset CLI cache command
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.resetCliCache', async () => {
+      try {
+        await CacheManager.delete('cli');
+        logInfo('CLI cache cleared.');
+        vscode.window.showInformationMessage('Apex Logs: CLI cache cleared');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        logWarn('Failed clearing CLI cache ->', msg);
+        vscode.window.showErrorMessage('Apex Logs: Failed to clear CLI cache');
+      }
+    })
+  );
+
   // Removed legacy openTailPanel command to avoid focus changes
 
   // Warm up Apex Replay Debugger in the background so the first
@@ -215,6 +236,37 @@ export async function activate(context: vscode.ExtensionContext) {
     setTimeout(() => void warmUp(), 0);
   } catch (e) {
     logWarn('Failed to warm up Apex Replay Debugger ->', e instanceof Error ? e.message : String(e));
+  }
+
+  // Preload CLI caches (org list and default org auth) in background
+  try {
+    const cfg = vscode.workspace.getConfiguration();
+    const enabled = cfg.get<boolean>('sfLogs.cliCache.enabled', true);
+    // Heuristic: skip when running inside VS Code test harness to avoid interfering with unit tests
+    const isVsCodeTestHost = /\.vscode-test\b/i.test(String((vscode.env as any)?.appRoot || ''));
+    if (enabled && !isVsCodeTestHost) {
+      setTimeout(async () => {
+        try {
+          logInfo('Preloading CLI caches (org list, default auth)…');
+          const orgs = await listOrgs(false);
+          const def = orgs.find(o => o.isDefaultUsername) || orgs[0];
+          if (def) {
+            try {
+              await getOrgAuth(def.username);
+            } catch {}
+          } else {
+            // If no orgs, attempt default auth anyway (may fill cache if CLI has default)
+            try { await getOrgAuth(undefined); } catch {}
+          }
+          logInfo('Preloading CLI caches done.');
+        } catch (e) {
+          // Best-effort; ignore errors
+          logWarn('Preloading CLI caches failed ->', e instanceof Error ? e.message : String(e));
+        }
+      }, 0);
+    }
+  } catch (e) {
+    logWarn('Failed to schedule CLI cache preload ->', e instanceof Error ? e.message : String(e));
   }
 
   // Return exports for tests and programmatic use

@@ -65,7 +65,7 @@ function httpsRequest(
 
 async function refreshAuthInPlace(auth: OrgAuth): Promise<void> {
   try {
-    const next = await getOrgAuth(auth.username);
+    const next = await getOrgAuth(auth.username, true);
     auth.accessToken = next.accessToken;
     auth.instanceUrl = next.instanceUrl;
     auth.username = next.username;

@@ -87,6 +87,32 @@
           "minimum": 1000,
           "maximum": 200000,
           "markdownDescription": "%configuration.sfLogs.tailBufferSize.description%"
+        },
+        "sfLogs.cliCache.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "%configuration.sfLogs.cliCache.enabled.description%"
+        },
+        "sfLogs.cliCache.orgListTtlSeconds": {
+          "type": "number",
+          "default": 86400,
+          "minimum": 0,
+          "maximum": 86400,
+          "markdownDescription": "%configuration.sfLogs.cliCache.orgListTtlSeconds.description%"
+        },
+        "sfLogs.cliCache.authTtlSeconds": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 600,
+          "markdownDescription": "%configuration.sfLogs.cliCache.authTtlSeconds.description%"
+        },
+        "sfLogs.cliCache.authPersistentTtlSeconds": {
+          "type": "number",
+          "default": 86400,
+          "minimum": 0,
+          "maximum": 86400,
+          "markdownDescription": "%configuration.sfLogs.cliCache.authPersistentTtlSeconds.description%"
         }
       }
     },
@@ -146,24 +172,19 @@
         "command": "sfLogs.showOutput",
         "title": "Show Extension Output",
         "category": "Apex Logs"
+      },
+      {
+        "command": "sfLogs.resetCliCache",
+        "title": "Reset CLI Cache",
+        "category": "Apex Logs"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "sfLogs.refresh",
-          "when": "view == sfLogViewer",
-          "group": "navigation@1"
-        },
-        {
-          "command": "sfLogs.selectOrg",
-          "when": "view == sfLogViewer",
-          "group": "navigation@2"
-        },
-        {
-          "command": "sfLogs.tail",
-          "when": "view == sfLogViewer",
-          "group": "navigation@3"
+          "command": "sfLogs.resetCliCache",
+          "when": "view == sfLogViewer || view == sfLogTail",
+          "group": "navigation@98"
         },
         {
           "command": "sfLogs.showOutput",

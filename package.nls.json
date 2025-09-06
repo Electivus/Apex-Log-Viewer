@@ -14,5 +14,9 @@
   "configuration.sfLogs.headConcurrency.description": "Maximum number of concurrent requests to fetch log heads.",
   "configuration.sfLogs.saveDirName.description": "Folder under the workspace where Apex logs are saved. If empty, the extension will auto-detect an existing 'apexlog' folder or use 'apexlogs'.",
   "configuration.sfLogs.tailBufferSize.description": "Maximum number of lines kept in the Tail view's rolling buffer. Larger values keep more history but use more memory.",
+  "configuration.sfLogs.cliCache.enabled.description": "Enable persistent caching for Salesforce CLI calls (org list, etc.).",
+  "configuration.sfLogs.cliCache.orgListTtlSeconds.description": "TTL in seconds for cached results of 'sf org list'. Set 0 to disable persistent cache.",
+  "configuration.sfLogs.cliCache.authTtlSeconds.description": "Short-lived in-memory TTL in seconds for cached auth tokens acquired via CLI. Tokens are NOT persisted.",
+  "configuration.sfLogs.cliCache.authPersistentTtlSeconds.description": "Persistent TTL in seconds for cached results of 'sf org display'. Stores the token locally in VS Code storage to avoid repeated CLI calls across reloads.",
   "tailSaveFailed": "Tail: failed to save log to workspace (best-effort)."
 }
