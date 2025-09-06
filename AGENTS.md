@@ -98,6 +98,7 @@ When adding messages, update both sides and add a focused unit test.
 - Never log access tokens; avoid sensitive data in messages.
 - Always load assets via `webview.asWebviewUri(...)`.
 - Do not bypass the extension host with direct webview network calls for org data.
+ - Telemetry: keep events minimal and anonymous; never include source code, Apex log content, or identifiers that can directly identify a user/org.
 
 ## User Settings (package.json)
 

@@ -127,7 +127,18 @@ See docs/TESTING.md for how to run unit and integration tests (`npm run test:uni
 ## Privacy & Security
 
 - No tokens are logged by default. When `sfLogs.trace` is enabled, verbose output is sent to the “Apex Log Viewer” output channel; review logs before sharing.
-- The extension shells out to `sf`/`sfdx` for org access and reads logs locally; it does not transmit your code or logs to third‑party services.
+- Telemetry: the extension may collect minimal, anonymized usage and error telemetry to help improve quality and performance. VS Code’s telemetry setting controls this behavior (see `settings.json` key `telemetry.telemetryLevel`).
+- We do not send your source code or Apex log content in telemetry.
+- The extension shells out to `sf`/`sfdx` for org access and reads logs locally.
+
+## Telemetry
+
+To help improve quality and performance, the extension may emit minimal, anonymized usage and error telemetry (for example: command invocation counts, non‑PII error categories like `ENOENT`/`ETIMEDOUT`, and coarse performance timings). We never include source code, Apex log content, access tokens, usernames, org IDs, or instance URLs in telemetry.
+
+Respecting your preferences:
+- VS Code’s `telemetry.telemetryLevel` setting controls whether telemetry is sent (values: `off`, `crash`, `error`, `all`). If set to `off`, the extension does not send telemetry.
+
+For details and implementer guidance, see `docs/TELEMETRY.md`.
 
 ## License
 
