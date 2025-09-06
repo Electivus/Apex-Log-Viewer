@@ -225,6 +225,7 @@ jobs:
           echo "pre_release=$PRE_RELEASE" >> $GITHUB_OUTPUT
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "PRE_RELEASE=$PRE_RELEASE" >> $GITHUB_ENV
+          if [ "$PRE_RELEASE" = "true" ]; then echo "CHANNEL_SUFFIX=pre" >> $GITHUB_ENV; else echo "CHANNEL_SUFFIX=stable" >> $GITHUB_ENV; fi
 
       - name: Set GitHub Release prerelease flag automatically
         if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
