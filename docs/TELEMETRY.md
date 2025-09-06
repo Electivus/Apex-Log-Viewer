@@ -1,46 +1,73 @@
 # Telemetry
 
-This extension may emit minimal, anonymized telemetry to help us improve quality and performance. This document explains what we intend to collect, how you can control it, and guidance for contributors who add instrumentation.
+This extension uses the official `@vscode/extension-telemetry` module to emit minimal, anonymized usage and error telemetry. Telemetry helps us prioritize features and improve reliability.
 
-## What we collect (intent)
+What we collect
 
-- Usage events: counts of high-level actions (e.g., commands like `sfLogs.refresh`, `sfLogs.tail`, opening the logs panel/diagram).
-- Error categories: bounded, non‑PII classifications such as `ENOENT` (CLI not found), `ETIMEDOUT` (CLI timeout), or HTTP status ranges (`401`, `5xx`). No raw stack traces.
-- Coarse performance timings: durations for operations like fetching a logs page (bucketed), not per‑log details.
+- Activation and command usage counts (e.g. `command.refresh`, `command.tail`).
+- Coarse environment info (platform, VS Code version) to understand compatibility.
+- Non‑PII error categories (e.g. error names like `ETIMEDOUT`, not full messages or stacks).
 
-We do not collect:
-- Source code, Apex log contents, or any file contents.
-- Access tokens, usernames, org IDs, instance URLs, or repository remotes.
-- Free‑form user input or error messages that could contain sensitive data.
+What we do not collect
 
-## How it’s controlled
+- No source code, Apex log contents, access tokens, usernames, org IDs, or instance URLs.
+- No full error messages or stack traces that could contain PII.
 
-The extension follows VS Code’s telemetry preference:
+Respecting user settings and modes
 
-- Setting: `telemetry.telemetryLevel` (values: `off`, `crash`, `error`, `all`).
-- If set to `off`, the extension does not send telemetry.
-- You can change this in Settings → “telemetry”, or in `settings.json`.
+- VS Code’s `telemetry.telemetryLevel` controls whether telemetry is sent (`off`, `crash`, `error`, `all`). When `off`, nothing is sent.
+- Telemetry is automatically disabled when the extension runs in Development or Test mode (Extension Development Host and tests).
+- The reporter respects the VS Code setting automatically; no additional configuration is required by users.
 
-## Contributor guidelines
+Opt‑out
 
-- Respect user preference: do not emit events if telemetry is disabled.
-- Keep events minimal and bounded: prefer enums/booleans/integers over free text.
-- No PII or sensitive data: never include code, logs, tokens, usernames, org IDs, or URLs.
-- Rate‑limit and/or sample: avoid spamming on high‑frequency operations (e.g., tail updates).
-- Stable naming: use a namespaced event id like `apex-log-viewer/<area>/<action>` and short property names.
-- Error reporting: record a categorical `errorKind` (e.g., `ENOENT`, `ETIMEDOUT`, `HTTP_401`) and a `where` scope; omit raw messages/stack traces.
-- Document new events: update this file and `AGENTS.md` when adding or changing telemetry.
+- Set `"telemetry.telemetryLevel": "off"` in your VS Code settings to disable telemetry globally.
 
-## Examples (proposed)
+For maintainers
 
-- `apex-log-viewer/command/invoked` with properties `{ cmd: 'sfLogs.refresh' }`
-- `apex-log-viewer/logs/fetch` with properties `{ pageSize: 100, durationMsBucket: '100-300' }`
-- `apex-log-viewer/tail/start` with properties `{ debugLevel: 'FINE' }` (do not include org info)
-- `apex-log-viewer/error` with properties `{ where: 'cli.getOrgAuth', errorKind: 'ENOENT' }`
+- No secrets are committed. The telemetry connection string must be provided via environment variable during packaging/publish and injected temporarily into the VSIX metadata:
+  - Environment variable `APPLICATIONINSIGHTS_CONNECTION_STRING` (preferred) or `VSCODE_TELEMETRY_CONNECTION_STRING`.
+  - Our CI writes this value to `package.json.telemetryConnectionString` just before packaging, and removes it afterwards.
+- If no connection string is provided, telemetry is a no‑op.
+- When adding events, avoid PII. Prefer counts, booleans, and coarse buckets. Never include usernames, org IDs, file paths, or log content.
 
-Note: these are examples for consistency; the code may implement a small wrapper to handle preference checks and bucketing.
+GitHub Actions integration
 
-## Opt‑out reminder
+- Add a repository secret named `APPLICATIONINSIGHTS_CONNECTION_STRING` contendo sua Application Insights connection string.
+- Export it as an environment variable in your workflow before packaging. The scripts will inject it into `package.json` for the duration of the packaging step and then remove it.
 
-To opt out, set `"telemetry.telemetryLevel": "off"` in your VS Code settings.
+Example job snippet:
 
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Build (extension + webview)
+        run: npm run package
+      - name: Ensure telemetry secret present
+        env:
+          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+        run: |
+          if [ -z "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}" ]; then
+            echo "Missing APPLICATIONINSIGHTS_CONNECTION_STRING secret. Refusing to package without telemetry." >&2
+            exit 1
+          fi
+
+      - name: Package VSIX
+        run: npm run vsce:package
+        env:
+          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+      # Optionally upload the VSIX artifact here
+```
+
+
+References
+
+- VS Code telemetry overview: https://code.visualstudio.com/docs/configure/telemetry
+- Telemetry guide for extensions: https://code.visualstudio.com/api/extension-guides/telemetry
