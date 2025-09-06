@@ -99,13 +99,13 @@ jobs:
       - name: Build for packaging
         run: npm run package
 
-      - name: Ensure telemetry secret present
+      - name: Ensure telemetry variable present
         env:
-          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
         run: |
           set -euo pipefail
           if [ -z "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}" ]; then
-            echo "Missing APPLICATIONINSIGHTS_CONNECTION_STRING secret. Refusing to package nightly without telemetry." >&2
+            echo "Missing APPLICATIONINSIGHTS_CONNECTION_STRING variable. Refusing to package nightly without telemetry." >&2
             exit 1
           fi
 
@@ -141,7 +141,7 @@ jobs:
 
       - name: Package VSIX (pre-release)
         env:
-          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
         run: npm run vsce:package:pre
 
       - name: Rename VSIX with timestamp
