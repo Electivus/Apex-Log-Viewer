@@ -136,6 +136,17 @@ jobs:
           echo "PRE_RELEASE=$PRE_RELEASE" >> $GITHUB_ENV
           if [ "$PRE_RELEASE" = "true" ]; then echo "CHANNEL_SUFFIX=pre" >> $GITHUB_ENV; else echo "CHANNEL_SUFFIX=stable" >> $GITHUB_ENV; fi
 
+      - name: Ensure telemetry secret present
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name != '')
+        env:
+          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}" ]; then
+            echo "Missing APPLICATIONINSIGHTS_CONNECTION_STRING secret. Refusing to package without telemetry." >&2
+            exit 1
+          fi
+
       - name: Set GitHub Release prerelease flag automatically
         if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         env:
@@ -152,6 +163,8 @@ jobs:
           fi
 
       - name: Create VSIX
+        env:
+          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
         run: |
           if [ "${PRE_RELEASE}" = "true" ]; then
             echo "Packaging pre-release VSIX (${VERSION})"
@@ -212,6 +225,7 @@ jobs:
           echo "pre_release=$PRE_RELEASE" >> $GITHUB_OUTPUT
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "PRE_RELEASE=$PRE_RELEASE" >> $GITHUB_ENV
+          if [ "$PRE_RELEASE" = "true" ]; then echo "CHANNEL_SUFFIX=pre" >> $GITHUB_ENV; else echo "CHANNEL_SUFFIX=stable" >> $GITHUB_ENV; fi
 
       - name: Set GitHub Release prerelease flag automatically
         if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
@@ -226,12 +240,26 @@ jobs:
           else
             gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=false
           fi
-      - name: Publish
+      - name: Download VSIX artifact from package job
+        uses: actions/download-artifact@v5
+        with:
+          name: apex-log-viewer-${{ github.ref_name }}-${{ env.CHANNEL_SUFFIX }}-vsix
+          path: .
+
+      - name: Publish from VSIX artifact
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
+          set -euo pipefail
+          FILE=$(ls *.vsix | head -n1)
+          if [ -z "${FILE}" ]; then
+            echo "No VSIX found to publish" >&2
+            exit 1
+          fi
           if [ "${PRE_RELEASE}" = "true" ]; then
-            echo "Publishing pre-release ${VERSION}"
-            npm run vsce:publish:pre
+            echo "Publishing pre-release ${VERSION} from ${FILE}"
+            npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release
           else
-            echo "Publishing stable ${VERSION}"
-            npm run vsce:publish
+            echo "Publishing stable ${VERSION} from ${FILE}"
+            npx --yes @vscode/vsce publish --packagePath "${FILE}"
           fi

@@ -99,6 +99,16 @@ jobs:
       - name: Build for packaging
         run: npm run package
 
+      - name: Ensure telemetry secret present
+        env:
+          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}" ]; then
+            echo "Missing APPLICATIONINSIGHTS_CONNECTION_STRING secret. Refusing to package nightly without telemetry." >&2
+            exit 1
+          fi
+
       - name: Bump version for nightly (increment from Marketplace)
         id: nightly_version
         shell: bash
@@ -130,6 +140,8 @@ jobs:
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Package VSIX (pre-release)
+        env:
+          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
         run: npm run vsce:package:pre
 
       - name: Rename VSIX with timestamp
@@ -149,6 +161,13 @@ jobs:
           echo "file=$NEW_NAME" >> $GITHUB_OUTPUT
           # Use version-based tag so each release is unique and time-correct
           echo "tag=pre-${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Upload VSIX artifact for publish
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-vsix
+          path: ${{ steps.meta.outputs.file }}
+          if-no-files-found: error
 
       - name: Create or update GitHub pre-release
         env:
@@ -195,8 +214,6 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Build for publish
-        run: npm run package
 
       - name: Bump version for nightly (increment from Marketplace)
         id: nightly_version_publish
@@ -222,9 +239,20 @@ jobs:
           echo "Nightly base=$BASE -> new version=$NEW_VERSION"
           node -e "const fs=require('fs');const p='./package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version='${NEW_VERSION}';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-      - name: Publish pre-release to Marketplace
+      - name: Download VSIX artifact from prerelease job
+        uses: actions/download-artifact@v5
+        with:
+          name: nightly-vsix
+          path: .
+
+      - name: Publish pre-release to Marketplace from VSIX
         run: |
           if [ -z "${VSCE_PAT}" ]; then
             echo "VSCE_PAT not set; skipping publish." && exit 0
           fi
-          npm run vsce:publish:pre
+          FILE=$(ls *.vsix | head -n1)
+          if [ -z "${FILE}" ]; then
+            echo "No VSIX found to publish" >&2
+            exit 1
+          fi
+          npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release

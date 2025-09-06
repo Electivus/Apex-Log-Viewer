@@ -10,12 +10,24 @@ import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger 
 import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';
 import { ApexLogDiagramPanelManager } from './provider/ApexLogDiagramPanel';
+import { activateTelemetry, sendEvent, sendException, disposeTelemetry } from './shared/telemetry';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
   username: string;
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+  // Initialize telemetry (no-op if no key/conn configured)
+  try {
+    activateTelemetry(context);
+    sendEvent('extension.activate', {
+      vscodeVersion: vscode.version,
+      platform: process.platform,
+      hasWorkspace: String(!!vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0)
+    });
+  } catch {
+    // ignore telemetry errors
+  }
   // Avoid @salesforce/core attempting to spawn Pino transports that fail when bundled
   try {
     if (!process.env.SF_DISABLE_LOG_FILE) process.env.SF_DISABLE_LOG_FILE = 'true';
@@ -97,7 +109,14 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  context.subscriptions.push(vscode.commands.registerCommand('sfLogs.refresh', () => provider.refresh()));
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.refresh', () => {
+      try {
+        sendEvent('command.refresh');
+      } catch {}
+      return provider.refresh();
+    })
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.selectOrg', async () => {
@@ -114,11 +133,20 @@ export async function activate(context: vscode.ExtensionContext) {
       });
       if (!picked) {
         logInfo('Select org cancelled.');
+        try {
+          sendEvent('command.selectOrg', { outcome: 'cancel' });
+        } catch {}
         return;
       }
       const username = picked.username;
       provider.setSelectedOrg(username);
       logInfo('Selected org:', username);
+      try {
+        const count = orgs.length;
+        const bucket = count === 0 ? '0' : count === 1 ? '1' : count <= 5 ? '2-5' : count <= 10 ? '6-10' : '10+';
+        const hasDefault = String(orgs.some(o => o.isDefaultUsername));
+        sendEvent('command.selectOrg', { outcome: 'picked', orgs: bucket, hasDefault });
+      } catch {}
       await provider.sendOrgs();
       await provider.refresh();
     })
@@ -127,6 +155,9 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.tail', async () => {
       logInfo('Command sfLogs.tail invoked. Opening Tail view and starting…');
+      try {
+        sendEvent('command.tail');
+      } catch {}
       await provider.tailLogs();
     })
   );
@@ -137,6 +168,9 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.showDiagram', async () => {
       logInfo('Command sfLogs.showDiagram invoked.');
+      try {
+        sendEvent('command.showDiagram');
+      } catch {}
       await diagramPanel.showForActiveEditor();
     })
   );
@@ -145,6 +179,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // Convenience: command to show the output channel
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.showOutput', () => {
+      try {
+        sendEvent('command.showOutput');
+      } catch {}
       showOutput(true);
     })
   );
@@ -188,4 +225,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
   disposeLogger();
+  try {
+    disposeTelemetry();
+  } catch {
+    // ignore
+  }
 }

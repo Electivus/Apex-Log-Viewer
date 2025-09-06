@@ -133,7 +133,7 @@ See docs/TESTING.md for how to run unit and integration tests (`npm run test:uni
 
 ## Telemetry
 
-To help improve quality and performance, the extension may emit minimal, anonymized usage and error telemetry (for example: command invocation counts, non‑PII error categories like `ENOENT`/`ETIMEDOUT`, and coarse performance timings). We never include source code, Apex log content, access tokens, usernames, org IDs, or instance URLs in telemetry.
+To help improve quality and performance, the extension may emit minimal, anonymized usage and error telemetry (for example: command invocation counts, non‑PII error categories like `ENOENT`/`ETIMEDOUT`, and coarse performance timings). We never include source code, Apex log content, access tokens, usernames, org IDs, or instance URLs in telemetry. Telemetry is disabled automatically in Development and Test modes (Extension Development Host and automated tests).
 
 Respecting your preferences:
 - VS Code’s `telemetry.telemetryLevel` setting controls whether telemetry is sent (values: `off`, `crash`, `error`, `all`). If set to `off`, the extension does not send telemetry.
