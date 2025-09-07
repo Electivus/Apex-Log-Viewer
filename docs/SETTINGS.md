@@ -12,15 +12,15 @@ The Electivus Apex Log Viewer extension exposes several settings under the `Elec
 
 ## `electivus.apexLogs.pageSize`
 
-- **Type**: number (10–200)
-- **Default**: `100`
-- Number of log headers fetched per page. Reduce this if large log sets cause slow loading, or increase it to load more logs at once.
+- Type: number (>= 10)
+- Default: `100`
+- Number of log headers fetched per page. Larger values fetch more per request but may impact performance.
 
 ## `electivus.apexLogs.headConcurrency`
 
-- **Type**: number (1–20)
-- **Default**: `5`
-- Maximum number of concurrent requests when retrieving log headers. Lower values decrease load on the Salesforce APIs at the cost of slower fetches.
+- Type: number (>= 1)
+- Default: `5`
+- Maximum number of concurrent requests when retrieving log headers. Very high values can overload APIs or hit rate limits.
 
 ## `electivus.apexLogs.saveDirName`
 
@@ -36,9 +36,9 @@ The Electivus Apex Log Viewer extension exposes several settings under the `Elec
 
 ## `electivus.apexLogs.tailBufferSize`
 
-- Type: number (1000–200000)
+- Type: number (>= 1000)
 - Default: `10000`
-- Maximum number of lines retained in the Tail view's rolling buffer. Higher values keep more history visible to filters and search, at the cost of additional memory.
+- Number of lines retained in the Tail view's rolling buffer. Higher values keep more history visible to filters and search, at the cost of additional memory and CPU.
 - Changes take effect immediately in an open Tail view; no reload required.
 
 ## Applying changes

@@ -93,8 +93,8 @@ Why developers like it
 
 ## Settings
 
-- `electivus.apexLogs.pageSize`: Number of logs fetched per page (10–200; default 100).
-- `electivus.apexLogs.headConcurrency`: Max concurrent requests to fetch log headers (1–20; default 5).
+- `electivus.apexLogs.pageSize`: Number of logs fetched per page (>= 10; default 100). Higher values may impact performance.
+- `electivus.apexLogs.headConcurrency`: Max concurrent requests to fetch log headers (>= 1; default 5). Very high values can overload APIs.
 - `electivus.apexLogs.saveDirName`: Folder name used when saving logs to disk (default `apexlogs`).
 - `electivus.apexLogs.trace`: Enable verbose trace logging of CLI and HTTP calls.
 

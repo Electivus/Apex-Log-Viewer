@@ -175,7 +175,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   }
 
   private getTailBufferSize(): number {
-    return getNumberConfig('sfLogs.tailBufferSize', 10000, 1000, 200000);
+    return getNumberConfig('sfLogs.tailBufferSize', 10000, 1000, Number.MAX_SAFE_INTEGER);
   }
 
   public async sendOrgs(): Promise<void> {

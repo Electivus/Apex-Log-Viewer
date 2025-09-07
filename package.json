@@ -61,14 +61,12 @@
           "type": "number",
           "default": 100,
           "minimum": 10,
-          "maximum": 200,
           "markdownDescription": "%configuration.electivus.apexLogs.pageSize.description%"
         },
         "electivus.apexLogs.headConcurrency": {
           "type": "number",
           "default": 5,
           "minimum": 1,
-          "maximum": 20,
           "markdownDescription": "%configuration.electivus.apexLogs.headConcurrency.description%"
         },
         "electivus.apexLogs.saveDirName": {
@@ -85,7 +83,6 @@
           "type": "number",
           "default": 10000,
           "minimum": 1000,
-          "maximum": 200000,
           "markdownDescription": "%configuration.electivus.apexLogs.tailBufferSize.description%"
         },
         "electivus.apexLogs.cliCache.enabled": {
@@ -97,21 +94,18 @@
           "type": "number",
           "default": 86400,
           "minimum": 0,
-          "maximum": 86400,
           "markdownDescription": "%configuration.electivus.apexLogs.cliCache.orgListTtlSeconds.description%"
         },
         "electivus.apexLogs.cliCache.authTtlSeconds": {
           "type": "number",
           "default": 0,
           "minimum": 0,
-          "maximum": 600,
           "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authTtlSeconds.description%"
         },
         "electivus.apexLogs.cliCache.authPersistentTtlSeconds": {
           "type": "number",
           "default": 86400,
           "minimum": 0,
-          "maximum": 86400,
           "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authPersistentTtlSeconds.description%"
         }
       }

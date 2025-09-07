@@ -48,7 +48,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
         if (affectsConfiguration(e, 'sfLogs.headConcurrency')) {
-          const nextConc = getNumberConfig('sfLogs.headConcurrency', this.headConcurrency, 1, 20);
+          const nextConc = getNumberConfig('sfLogs.headConcurrency', this.headConcurrency, 1, Number.MAX_SAFE_INTEGER);
           if (nextConc !== this.headConcurrency) {
             this.headConcurrency = nextConc;
             this.headLimiter = createLimiter(this.headConcurrency);
@@ -150,8 +150,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'loading', value: true });
     try {
       clearListCache();
-      this.pageLimit = getNumberConfig('sfLogs.pageSize', this.pageLimit, 10, 200);
-      const nextConc = getNumberConfig('sfLogs.headConcurrency', this.headConcurrency, 1, 20);
+      this.pageLimit = getNumberConfig('sfLogs.pageSize', this.pageLimit, 10, Number.MAX_SAFE_INTEGER);
+      const nextConc = getNumberConfig('sfLogs.headConcurrency', this.headConcurrency, 1, Number.MAX_SAFE_INTEGER);
       if (nextConc !== this.headConcurrency) {
         this.headConcurrency = nextConc;
         this.headLimiter = createLimiter(this.headConcurrency);
