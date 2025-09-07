@@ -151,9 +151,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: localize('refreshingLogs', 'Refreshing logs…')
+        title: localize('refreshingLogs', 'Refreshing logs…'),
+        cancellable: true
       },
-      async () => {
+      async (_progress, ct) => {
+        const controller = new AbortController();
+        ct.onCancellationRequested(() => controller.abort());
         this.post({ type: 'loading', value: true });
         try {
           clearListCache();
@@ -167,9 +170,22 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             this.headConcurrency = nextConc;
             this.headLimiter = createLimiter(this.headConcurrency);
           }
-          const auth = await getOrgAuth(this.selectedOrg);
+          const auth = await getOrgAuth(this.selectedOrg, undefined, controller.signal);
+          if (ct.isCancellationRequested) {
+            return;
+          }
           this.currentOffset = 0;
-          const logs: ApexLogRow[] = await fetchApexLogs(auth, this.pageLimit, this.currentOffset);
+          const logs: ApexLogRow[] = await fetchApexLogs(
+            auth,
+            this.pageLimit,
+            this.currentOffset,
+            undefined,
+            undefined,
+            controller.signal
+          );
+          if (ct.isCancellationRequested) {
+            return;
+          }
           logInfo('Logs: fetched', logs.length, 'rows (pageSize =', this.pageLimit, ')');
           this.currentOffset += logs.length;
           if (token !== this.refreshToken || this.disposed) {
@@ -179,11 +195,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           const hasMore = logs.length === this.pageLimit;
           this.post({ type: 'logs', data: logs, hasMore });
           // Limited parallel fetch of log heads
-          this.loadLogHeads(logs, auth, token);
+          this.loadLogHeads(logs, auth, token, controller.signal);
         } catch (e) {
-          const msg = getErrorMessage(e);
-          logWarn('Logs: refresh failed ->', msg);
-          this.post({ type: 'error', message: msg });
+          if (!controller.signal.aborted) {
+            const msg = getErrorMessage(e);
+            logWarn('Logs: refresh failed ->', msg);
+            this.post({ type: 'error', message: msg });
+          }
         } finally {
           this.post({ type: 'loading', value: false });
         }
@@ -217,22 +235,30 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private loadLogHeads(logs: ApexLogRow[], auth: OrgAuth, token: number): void {
+  private loadLogHeads(logs: ApexLogRow[], auth: OrgAuth, token: number, signal?: AbortSignal): void {
     for (const log of logs) {
       void this.headLimiter(async () => {
+        if (signal?.aborted) {
+          return;
+        }
         try {
           const headLines = await fetchApexLogHead(
             auth,
             log.Id,
             10,
-            typeof log.LogLength === 'number' ? log.LogLength : undefined
+            typeof log.LogLength === 'number' ? log.LogLength : undefined,
+            undefined,
+            signal
           );
+          if (signal?.aborted) {
+            return;
+          }
           const codeUnit = extractCodeUnitStartedFromLines(headLines);
           if (codeUnit && token === this.refreshToken && !this.disposed) {
             this.post({ type: 'logHead', logId: log.Id, codeUnitStarted: codeUnit });
           }
-        } catch {
-          // ignore per-log error
+        } catch (e) {
+          logWarn('Logs: loadLogHead failed for', log.Id, '->', e);
         }
       });
     }
@@ -265,43 +291,58 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async debugLog(logId: string) {
+    this.post({ type: 'loading', value: true });
     try {
-      // Ensure Replay Debugger is available before doing work
-      const ok = await ensureReplayDebuggerAvailable();
-      if (!ok) {
-        return;
-      }
-      this.post({ type: 'loading', value: true });
-      // Use existing file if present; otherwise fetch and save with username prefix
-      let targetPath = await this.findExistingLogFile(logId);
-      if (!targetPath) {
-        const auth = await getOrgAuth(this.selectedOrg);
-        const { filePath } = await this.getLogFilePathWithUsername(auth.username, logId);
-        const body = await fetchApexLogBody(auth, logId);
-        await fs.writeFile(filePath, body, 'utf8');
-        targetPath = filePath;
-      }
-      const uri = vscode.Uri.file(targetPath);
-      // Keep loading visible for the user-triggered launch and show a notification
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: localize('replayStarting', 'Starting Apex Replay Debugger…')
+          title: localize('replayStarting', 'Starting Apex Replay Debugger…'),
+          cancellable: true
         },
-        async () => {
+        async (_progress, ct) => {
+          const controller = new AbortController();
+          ct.onCancellationRequested(() => controller.abort());
+          const ok = await ensureReplayDebuggerAvailable();
+          if (!ok || ct.isCancellationRequested) {
+            return;
+          }
+          // Use existing file if present; otherwise fetch and save with username prefix
+          let targetPath = await this.findExistingLogFile(logId);
+          if (!targetPath) {
+            const auth = await getOrgAuth(this.selectedOrg, undefined, controller.signal);
+            if (ct.isCancellationRequested) {
+              return;
+            }
+            const { filePath } = await this.getLogFilePathWithUsername(auth.username, logId);
+            const body = await fetchApexLogBody(auth, logId, undefined, controller.signal);
+            if (ct.isCancellationRequested) {
+              return;
+            }
+            await fs.writeFile(filePath, body, 'utf8');
+            targetPath = filePath;
+          }
+          if (ct.isCancellationRequested) {
+            return;
+          }
+          const uri = vscode.Uri.file(targetPath);
           try {
             await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
           } catch (e) {
-            logWarn('Logs: sf.launch.replay.debugger.logfile failed ->', getErrorMessage(e));
-            await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
+            if (!controller.signal.aborted) {
+              logWarn('Logs: sf.launch.replay.debugger.logfile failed ->', getErrorMessage(e));
+              await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
+            }
           }
         }
       );
     } catch (e) {
-      vscode.window.showErrorMessage(
-        localize('replayError', 'Failed to launch Apex Replay Debugger: ') + getErrorMessage(e)
-      );
-      logWarn('Logs: replay failed ->', getErrorMessage(e));
+      if (e instanceof Error && e.message === 'aborted') {
+        // silent cancellation
+      } else {
+        const msg = getErrorMessage(e);
+        vscode.window.showErrorMessage(localize('replayError', 'Failed to launch Apex Replay Debugger: ') + msg);
+        logWarn('Logs: replay failed ->', msg);
+      }
     } finally {
       this.post({ type: 'loading', value: false });
     }
@@ -320,18 +361,28 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: localize('listingOrgs', 'Listing Salesforce orgs…')
+        title: localize('listingOrgs', 'Listing Salesforce orgs…'),
+        cancellable: true
       },
-      async () => {
+      async (_progress, ct) => {
+        const controller = new AbortController();
+        ct.onCancellationRequested(() => controller.abort());
         try {
-          const orgs = await listOrgs(forceRefresh);
+          const orgs = await listOrgs(forceRefresh, controller.signal);
+          if (ct.isCancellationRequested) {
+            return;
+          }
           const selected = pickSelectedOrg(orgs, this.selectedOrg);
           this.post({ type: 'orgs', data: orgs, selected });
         } catch (e) {
-          const msg = getErrorMessage(e);
-          logError('Logs: list orgs failed ->', msg);
-          void vscode.window.showErrorMessage(localize('sendOrgsFailed', 'Failed to list Salesforce orgs: {0}', msg));
-          this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
+          if (!controller.signal.aborted) {
+            const msg = getErrorMessage(e);
+            logError('Logs: list orgs failed ->', msg);
+            void vscode.window.showErrorMessage(
+              localize('sendOrgsFailed', 'Failed to list Salesforce orgs: {0}', msg)
+            );
+            this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
+          }
         }
       }
     );

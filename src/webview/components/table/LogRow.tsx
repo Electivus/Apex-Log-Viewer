@@ -67,8 +67,29 @@ export function LogRow({
     wordBreak: 'break-word'
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Only handle keys when the event originates on the row itself.
+    // This avoids hijacking keyboard interactions of inner buttons.
+    if (e.currentTarget !== e.target) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        onReplay(r.Id);
+      } else {
+        onOpen(r.Id);
+      }
+    }
+  };
+
   return (
-    <div role="row" style={{ ...style }}>
+    <div
+      role="row"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      onFocus={e => (e.currentTarget.style.outline = '1px solid var(--vscode-focusBorder)')}
+      onBlur={e => (e.currentTarget.style.outline = 'none')}
+      style={{ ...style, outline: 'none' }}
+    >
       <div
         ref={contentRef}
         style={{

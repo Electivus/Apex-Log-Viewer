@@ -247,32 +247,43 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
 
   private async replayLog(logId: string): Promise<void> {
     try {
-      const ok = await ensureReplayDebuggerAvailable();
-      if (!ok) {
-        return;
-      }
-      const filePath = await this.tailService.ensureLogSaved(logId);
-      const uri = vscode.Uri.file(filePath);
-      // Keep loading visible and show a notification while launching Replay
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: localize('replayStarting', 'Starting Apex Replay Debugger…')
+          title: localize('replayStarting', 'Starting Apex Replay Debugger…'),
+          cancellable: true
         },
-        async () => {
+        async (_progress, ct) => {
+          const controller = new AbortController();
+          ct.onCancellationRequested(() => controller.abort());
+          const ok = await ensureReplayDebuggerAvailable();
+          if (!ok || ct.isCancellationRequested) {
+            return;
+          }
+          const filePath = await this.tailService.ensureLogSaved(logId, controller.signal);
+          if (ct.isCancellationRequested) {
+            return;
+          }
+          const uri = vscode.Uri.file(filePath);
           try {
             await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
           } catch (e) {
-            logWarn('Tail: sf.launch.replay.debugger.logfile failed ->', getErrorMessage(e));
-            await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
+            if (!controller.signal.aborted) {
+              logWarn('Tail: sf.launch.replay.debugger.logfile failed ->', getErrorMessage(e));
+              await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
+            }
           }
         }
       );
       logInfo('Tail: replay requested for', logId);
     } catch (e) {
-      const msg = getErrorMessage(e);
-      logWarn('Tail: replay failed ->', msg);
-      this.post({ type: 'error', message: msg });
+      if (e instanceof Error && e.message === 'aborted') {
+        // cancellation; no error message
+      } else {
+        const msg = getErrorMessage(e);
+        logWarn('Tail: replay failed ->', msg);
+        this.post({ type: 'error', message: msg });
+      }
     }
   }
 }

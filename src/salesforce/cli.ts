@@ -2,7 +2,7 @@ import * as cp from 'child_process';
 import * as os from 'os';
 import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
-import { sendException } from '../shared/telemetry';
+import { safeSendException } from '../shared/telemetry';
 const crossSpawn = require('cross-spawn');
 import type { OrgAuth, OrgItem } from './types';
 import * as vscode from 'vscode';
@@ -13,6 +13,44 @@ const CLI_TIMEOUT_MS = 120000;
 
 // Deduplicate identical execs running concurrently
 const inFlightExecs = new Map<string, Promise<{ stdout: string; stderr: string }>>();
+
+function wrapWithAbort<T>(underlying: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) {
+    return underlying;
+  }
+  if (signal.aborted) {
+    return Promise.reject(new Error('aborted'));
+  }
+  return new Promise<T>((resolve, reject) => {
+    let aborted = false;
+    const onAbort = () => {
+      aborted = true;
+      try {
+        signal.removeEventListener('abort', onAbort);
+      } catch {}
+      reject(new Error('aborted'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    underlying.then(
+      v => {
+        try {
+          signal.removeEventListener('abort', onAbort);
+        } catch {}
+        if (!aborted) {
+          resolve(v);
+        }
+      },
+      err => {
+        try {
+          signal.removeEventListener('abort', onAbort);
+        } catch {}
+        if (!aborted) {
+          reject(err);
+        }
+      }
+    );
+  });
+}
 
 function makeExecKey(program: string, args: string[], envOverride?: NodeJS.ProcessEnv, timeoutMs?: number): string {
   const hasAltPath = !!(envOverride && envOverride.PATH && envOverride.PATH !== process.env.PATH);
@@ -164,12 +202,14 @@ function execCommand(
   program: string,
   args: string[],
   envOverride?: NodeJS.ProcessEnv,
-  timeoutMs: number = CLI_TIMEOUT_MS
+  timeoutMs: number = CLI_TIMEOUT_MS,
+  signal?: AbortSignal
 ): Promise<{ stdout: string; stderr: string }> {
   const key = makeExecKey(program, args, envOverride, timeoutMs);
   const existing = inFlightExecs.get(key);
   if (existing) {
-    return existing;
+    // Return a per-caller wrapper that can be cancelled without aborting the shared process
+    return wrapWithAbort(existing, signal);
   }
   const p = new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     const opts: cp.ExecFileOptionsWithStringEncoding = {
@@ -194,24 +234,32 @@ function execCommand(
       if (error) {
         const err: any = error;
         if (err && (err.code === 'ENOENT' || /not found|ENOENT/i.test(err.message))) {
-          const e = new Error(`CLI not found: ${program}`) as any;
+          const cmdStr = [program, ...args].join(' ').trim();
+          const e = new Error(`CLI not found: ${cmdStr}`) as any;
           e.code = 'ENOENT';
           try {
             logTrace('execCommand ENOENT for', program);
           } catch {}
-          try {
-            sendException('cli.exec', { code: 'ENOENT', command: program });
-          } catch {}
+          safeSendException('cli.exec', { code: 'ENOENT', command: program });
           reject(e);
           return;
         }
         try {
           logTrace('execCommand error for', program, '->', (stderr || err.message || '').split('\n')[0]);
         } catch {}
-        try {
-          sendException('cli.exec', { code: String(err.code || ''), command: program });
-        } catch {}
-        reject(new Error(stderr || err.message));
+        safeSendException('cli.exec', { code: String(err.code || ''), command: program });
+        const code = typeof err.code === 'number' || typeof err.code === 'string' ? err.code : undefined;
+        const cmdStr2 = [program, ...args].join(' ').trim();
+        const detail = stderr || err.message;
+        const msg =
+          code !== undefined
+            ? `Command "${cmdStr2}" exited with code ${code}: ${detail}`
+            : `Command "${cmdStr2}" failed: ${detail}`;
+        const e: any = new Error(msg);
+        if (code !== undefined) {
+          (e as any).code = code;
+        }
+        reject(e);
         return;
       }
       try {
@@ -230,19 +278,24 @@ function execCommand(
       try {
         logWarn('execCommand timeout for', program, args.join(' '));
       } catch {}
+      const cmdStrTimeout = [program, ...args].join(' ').trim();
       const err: any = new Error(
-        localize('cliTimeout', 'Salesforce CLI command timed out after {0} seconds.', Math.round(timeoutMs / 1000))
+        localize(
+          'cliTimeout',
+          'Salesforce CLI command timed out after {0} seconds: {1}',
+          Math.round(timeoutMs / 1000),
+          cmdStrTimeout
+        )
       );
       err.code = 'ETIMEDOUT';
       inFlightExecs.delete(key);
-      try {
-        sendException('cli.exec', { code: 'ETIMEDOUT', command: program });
-      } catch {}
+      safeSendException('cli.exec', { code: 'ETIMEDOUT', command: program });
       reject(err);
     }, timeoutMs);
   });
   inFlightExecs.set(key, p);
-  return p;
+  // Per-caller cancellation should not abort the shared underlying process
+  return wrapWithAbort(p, signal);
 }
 
 // Short-lived in-memory cache for auth (avoid storing tokens on disk)
@@ -282,18 +335,24 @@ function enforceAuthCacheLimit(): void {
 function getCliCacheConfig() {
   try {
     const enabled = getBooleanConfig('sfLogs.cliCache.enabled', true);
-    const authTtl = Math.max(0, getNumberConfig('sfLogs.cliCache.authTtlSeconds', 0, 0, Number.MAX_SAFE_INTEGER)) * 1000;
+    const authTtl =
+      Math.max(0, getNumberConfig('sfLogs.cliCache.authTtlSeconds', 0, 0, Number.MAX_SAFE_INTEGER)) * 1000;
     const orgsTtl =
       Math.max(0, getNumberConfig('sfLogs.cliCache.orgListTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) * 1000;
     const authPersistTtl =
-      Math.max(0, getNumberConfig('sfLogs.cliCache.authPersistentTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) * 1000;
+      Math.max(0, getNumberConfig('sfLogs.cliCache.authPersistentTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) *
+      1000;
     return { enabled, authTtl, orgsTtl, authPersistTtl };
   } catch {
     return { enabled: true, authTtl: 0, orgsTtl: 86400000, authPersistTtl: 86400000 };
   }
 }
 
-export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: boolean): Promise<OrgAuth> {
+export async function getOrgAuth(
+  targetUsernameOrAlias?: string,
+  forceRefresh?: boolean,
+  signal?: AbortSignal
+): Promise<OrgAuth> {
   const t = targetUsernameOrAlias;
   const { enabled, authTtl, authPersistTtl } = getCliCacheConfig();
   const cacheKey = t || '__default__';
@@ -340,7 +399,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
       try {
         logTrace('getOrgAuth: trying', program, args.join(' '));
       } catch {}
-      const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS);
+      const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS, signal);
       const parsed = JSON.parse(stdout);
       const result = parsed.result || parsed;
       const accessToken: string | undefined = result.accessToken || result.access_token;
@@ -364,20 +423,17 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
       }
     } catch (_e) {
       const e: any = _e;
+      if (signal?.aborted) {
+        throw new Error('aborted');
+      }
       if (e && e.code === 'ENOENT') {
         sawEnoent = true;
-        try {
-          sendException('cli.getOrgAuth', { code: 'ENOENT', command: program });
-        } catch {}
+        safeSendException('cli.getOrgAuth', { code: 'ENOENT', command: program });
       } else if (e && e.code === 'ETIMEDOUT') {
-        try {
-          sendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
-        } catch {}
+        safeSendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
         throw e;
       } else {
-        try {
-          sendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
-        } catch {}
+        safeSendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
       }
       try {
         logTrace('getOrgAuth: attempt failed for', program);
@@ -393,7 +449,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
           try {
             logTrace('getOrgAuth(login PATH): trying', program, args.join(' '));
           } catch {}
-          const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS);
+          const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS, signal);
           const parsed = JSON.parse(stdout);
           const result = parsed.result || parsed;
           const accessToken: string | undefined = result.accessToken || result.access_token;
@@ -417,19 +473,16 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
           }
         } catch (_e) {
           const e: any = _e;
+          if (signal?.aborted) {
+            throw new Error('aborted');
+          }
           if (e && e.code === 'ENOENT') {
-            try {
-              sendException('cli.getOrgAuth', { code: 'ENOENT', command: program });
-            } catch {}
+            safeSendException('cli.getOrgAuth', { code: 'ENOENT', command: program });
           } else if (e && e.code === 'ETIMEDOUT') {
-            try {
-              sendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
-            } catch {}
+            safeSendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
             throw e;
           } else {
-            try {
-              sendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
-            } catch {}
+            safeSendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
           }
           try {
             logTrace('getOrgAuth(login PATH): attempt failed for', program);
@@ -437,12 +490,12 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
         }
       }
     }
-    sendException('cli.getOrgAuth', { code: 'CLI_NOT_FOUND' });
+    safeSendException('cli.getOrgAuth', { code: 'CLI_NOT_FOUND' });
     throw new Error(
       localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).')
     );
   }
-  sendException('cli.getOrgAuth', { code: 'AUTH_FAILED' });
+  safeSendException('cli.getOrgAuth', { code: 'AUTH_FAILED' });
   throw new Error(
     localize(
       'cliAuthFailed',
@@ -555,7 +608,7 @@ export function __setListOrgsMockForTests(fn: (() => OrgItem[] | Promise<OrgItem
   execOverrideGeneration++;
 }
 
-export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
+export async function listOrgs(forceRefresh = false, signal?: AbortSignal): Promise<OrgItem[]> {
   const now = Date.now();
   const { enabled, orgsTtl } = getCliCacheConfig();
   const persistentKey = 'orgList';
@@ -595,7 +648,7 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
       try {
         logTrace('listOrgs: trying', program, args.join(' '));
       } catch {}
-      const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS);
+      const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS, signal);
       const res = parseOrgList(stdout);
       if (execOverriddenForTests) {
         orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
@@ -608,6 +661,9 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
       return res;
     } catch (_e) {
       const e: any = _e;
+      if (signal?.aborted) {
+        throw new Error('aborted');
+      }
       if (e && e.code === 'ENOENT') {
         sawEnoent = true;
       } else if (e && e.code === 'ETIMEDOUT') {
@@ -627,7 +683,7 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
           try {
             logTrace('listOrgs(login PATH): trying', program, args.join(' '));
           } catch {}
-          const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS);
+          const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS, signal);
           const res = parseOrgList(stdout);
           if (execOverriddenForTests) {
             orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
@@ -640,6 +696,9 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
           return res;
         } catch (_e) {
           const e: any = _e;
+          if (signal?.aborted) {
+            throw new Error('aborted');
+          }
           if (e && e.code === 'ETIMEDOUT') {
             throw e;
           }
@@ -665,4 +724,4 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
   return empty;
 }
 
-export { parseOrgList as __parseOrgListForTests };
+export { parseOrgList as __parseOrgListForTests, execCommand as __execCommandForTests };

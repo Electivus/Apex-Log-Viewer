@@ -12,7 +12,12 @@ function safeRm(p) {
 }
 
 const cwd = process.cwd();
-safeRm(join(cwd, '.vscode-test'));
+const cleanCache = /^1|true$/i.test(String(process.env.CLEAN_VSCODE_CACHE || ''));
+if (cleanCache) {
+  safeRm(join(cwd, '.vscode-test'));
+} else {
+  console.log('[test-clean] Skipping removal of .vscode-test cache. Set CLEAN_VSCODE_CACHE=true to purge.');
+}
 safeRm(join(tmpdir(), 'alv-user-data'));
 safeRm(join(tmpdir(), 'alv-extensions'));
-console.log('[test-clean] Cleaned .vscode-test and temp VS Code dirs.');
+console.log('[test-clean] Cleaned temp VS Code dirs.');
