@@ -22,7 +22,8 @@ function httpsRequest(
   urlString: string,
   headers: Record<string, string>,
   body?: string,
-  timeoutMs?: number
+  timeoutMs?: number,
+  signal?: AbortSignal
 ): Promise<{ statusCode: number; headers: Record<string, string | string[] | undefined>; body: string }> {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(urlString);
@@ -45,6 +46,24 @@ function httpsRequest(
       }
     );
     req.on('error', reject);
+    if (signal) {
+      const onAbort = () => {
+        try {
+          req.destroy();
+        } catch {}
+        reject(new Error('aborted'));
+      };
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+      req.on('close', () => {
+        try {
+          signal.removeEventListener('abort', onAbort);
+        } catch {}
+      });
+    }
     if (typeof timeoutMs === 'number') {
       req.setTimeout(timeoutMs, () => {
         try {
@@ -83,12 +102,13 @@ export async function httpsRequestWith401Retry(
   urlString: string,
   headers: Record<string, string>,
   body?: string,
-  timeoutMs?: number
+  timeoutMs?: number,
+  signal?: AbortSignal
 ): Promise<string> {
   try {
     logTrace('HTTP', method, urlString);
   } catch {}
-  const first = await httpsRequest(method, urlString, headers, body, timeoutMs);
+  const first = await httpsRequest(method, urlString, headers, body, timeoutMs, signal);
   try {
     logTrace('HTTP <-', first.statusCode, urlString);
   } catch {}
@@ -102,7 +122,8 @@ export async function httpsRequestWith401Retry(
       urlString,
       { ...headers, Authorization: `Bearer ${auth.accessToken}` },
       body,
-      timeoutMs
+      timeoutMs,
+      signal
     );
     try {
       logTrace('HTTP(retry) <-', second.statusCode, urlString);
@@ -159,7 +180,8 @@ export async function fetchApexLogs(
   limit: number = 50,
   offset: number = 0,
   debugLevel?: string,
-  timeoutMs?: number
+  timeoutMs?: number,
+  signal?: AbortSignal
 ): Promise<ApexLogRow[]> {
   const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
   const safeOffset = Math.max(0, Math.floor(offset));
@@ -185,7 +207,8 @@ export async function fetchApexLogs(
       'Content-Type': 'application/json'
     },
     undefined,
-    timeoutMs
+    timeoutMs,
+    signal
   );
   const json = JSON.parse(body);
   const records = (json.records || []) as ApexLogRow[];
@@ -200,7 +223,12 @@ export async function fetchApexLogs(
   return records;
 }
 
-export async function fetchApexLogBody(auth: OrgAuth, logId: string, timeoutMs?: number): Promise<string> {
+export async function fetchApexLogBody(
+  auth: OrgAuth,
+  logId: string,
+  timeoutMs?: number,
+  signal?: AbortSignal
+): Promise<string> {
   const url = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/sobjects/ApexLog/${logId}/Body`;
   const text = await httpsRequestWith401Retry(
     auth,
@@ -211,7 +239,8 @@ export async function fetchApexLogBody(auth: OrgAuth, logId: string, timeoutMs?:
       'Content-Type': 'text/plain'
     },
     undefined,
-    timeoutMs
+    timeoutMs,
+    signal
   );
   return text;
 }
@@ -223,7 +252,8 @@ async function fetchApexLogBytesRange(
   logId: string,
   start: number,
   endInclusive: number,
-  timeoutMs?: number
+  timeoutMs?: number,
+  signal?: AbortSignal
 ): Promise<RangeResponse> {
   const urlString = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/sobjects/ApexLog/${logId}/Body`;
   const first = await httpsRequest(
@@ -236,7 +266,8 @@ async function fetchApexLogBytesRange(
       Range: `bytes=${start}-${endInclusive}`
     },
     undefined,
-    timeoutMs
+    timeoutMs,
+    signal
   );
   if (first.statusCode === 401) {
     await refreshAuthInPlace(auth);
@@ -250,7 +281,8 @@ async function fetchApexLogBytesRange(
         Range: `bytes=${start}-${endInclusive}`
       },
       undefined,
-      timeoutMs
+      timeoutMs,
+      signal
     );
     return { statusCode: second.statusCode, headers: second.headers, body: second.body };
   }
@@ -262,7 +294,8 @@ export async function fetchApexLogHead(
   logId: string,
   maxLines: number,
   logLengthBytes?: number,
-  timeoutMs?: number
+  timeoutMs?: number,
+  signal?: AbortSignal
 ): Promise<string[]> {
   const key = makeLogKey(auth, logId);
   const cached = headCacheByLog.get(key);
@@ -276,7 +309,7 @@ export async function fetchApexLogHead(
     try {
       logTrace('HTTP Range GET ApexLog head', logId, 'bytes=0-', Math.max(0, stride - 1));
     } catch {}
-    const range = await fetchApexLogBytesRange(auth, logId, 0, Math.max(0, stride - 1), timeoutMs);
+    const range = await fetchApexLogBytesRange(auth, logId, 0, Math.max(0, stride - 1), timeoutMs, signal);
     const contentEncoding = (range.headers['content-encoding'] || '').toString().toLowerCase();
     if (range.statusCode === 206 && (!contentEncoding || contentEncoding === 'identity')) {
       try {
@@ -386,6 +419,24 @@ export async function fetchApexLogHead(
           });
         }
       );
+      if (signal) {
+        const onAbort = () => {
+          try {
+            req.destroy();
+          } catch {}
+          reject(new Error('aborted'));
+        };
+        if (signal.aborted) {
+          onAbort();
+          return req;
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+        req.on('close', () => {
+          try {
+            signal.removeEventListener('abort', onAbort);
+          } catch {}
+        });
+      }
       if (typeof timeoutMs === 'number') {
         req.setTimeout(timeoutMs, () => {
           try {
