@@ -52,14 +52,14 @@ export function getConfig<T>(name: string, def?: T): T {
   }
 
   // Use the new key only if explicitly set by the user
-  const primaryInfo = (cfg as any).inspect<T>(primary) as Inspection<T> | undefined;
+  const primaryInfo = (cfg as any).inspect(primary) as Inspection<T> | undefined;
   if (hasUserOverride(primaryInfo)) {
     const v = cfg.get<T | undefined>(primary);
     if (v !== undefined) return v as T;
   }
 
   // Otherwise, prefer an explicit legacy value if present
-  const fallbackInfo = (cfg as any).inspect<T>(fallback) as Inspection<T> | undefined;
+  const fallbackInfo = (cfg as any).inspect(fallback) as Inspection<T> | undefined;
   if (hasUserOverride(fallbackInfo)) {
     const v = cfg.get<T | undefined>(fallback);
     if (v !== undefined) return v as T;
