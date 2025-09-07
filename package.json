@@ -107,6 +107,66 @@
           "default": 86400,
           "minimum": 0,
           "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authPersistentTtlSeconds.description%"
+        },
+        "sfLogs.pageSize": {
+          "type": "number",
+          "default": 100,
+          "minimum": 10,
+          "markdownDescription": "%configuration.electivus.apexLogs.pageSize.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.pageSize"
+        },
+        "sfLogs.headConcurrency": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "markdownDescription": "%configuration.electivus.apexLogs.headConcurrency.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.headConcurrency"
+        },
+        "sfLogs.saveDirName": {
+          "type": "string",
+          "default": "apexlogs",
+          "markdownDescription": "%configuration.electivus.apexLogs.saveDirName.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.saveDirName"
+        },
+        "sfLogs.trace": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Enable verbose trace logging for CLI and HTTP calls (Output: Electivus Apex Log Viewer).",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.trace"
+        },
+        "sfLogs.tailBufferSize": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1000,
+          "markdownDescription": "%configuration.electivus.apexLogs.tailBufferSize.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.tailBufferSize"
+        },
+        "sfLogs.cliCache.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.enabled.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.enabled"
+        },
+        "sfLogs.cliCache.orgListTtlSeconds": {
+          "type": "number",
+          "default": 86400,
+          "minimum": 0,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.orgListTtlSeconds.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.orgListTtlSeconds"
+        },
+        "sfLogs.cliCache.authTtlSeconds": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authTtlSeconds.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.authTtlSeconds"
+        },
+        "sfLogs.cliCache.authPersistentTtlSeconds": {
+          "type": "number",
+          "default": 86400,
+          "minimum": 0,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authPersistentTtlSeconds.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.authPersistentTtlSeconds"
         }
       }
     },
