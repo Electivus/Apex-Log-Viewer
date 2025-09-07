@@ -2,6 +2,7 @@ import * as cp from 'child_process';
 import * as os from 'os';
 import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
+import { sendException } from '../shared/telemetry';
 const crossSpawn = require('cross-spawn');
 import type { OrgAuth, OrgItem } from './types';
 import * as vscode from 'vscode';
@@ -197,11 +198,17 @@ function execCommand(
           try {
             logTrace('execCommand ENOENT for', program);
           } catch {}
+          try {
+            sendException('cli.exec', { code: 'ENOENT', command: program });
+          } catch {}
           reject(e);
           return;
         }
         try {
           logTrace('execCommand error for', program, '->', (stderr || err.message || '').split('\n')[0]);
+        } catch {}
+        try {
+          sendException('cli.exec', { code: String(err.code || ''), command: program });
         } catch {}
         reject(new Error(stderr || err.message));
         return;
@@ -227,6 +234,9 @@ function execCommand(
       );
       err.code = 'ETIMEDOUT';
       inFlightExecs.delete(key);
+      try {
+        sendException('cli.exec', { code: 'ETIMEDOUT', command: program });
+      } catch {}
       reject(err);
     }, timeoutMs);
   });
@@ -355,8 +365,18 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
       const e: any = _e;
       if (e && e.code === 'ENOENT') {
         sawEnoent = true;
+        try {
+          sendException('cli.getOrgAuth', { code: 'ENOENT', command: program });
+        } catch {}
       } else if (e && e.code === 'ETIMEDOUT') {
+        try {
+          sendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
+        } catch {}
         throw e;
+      } else {
+        try {
+          sendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
+        } catch {}
       }
       try {
         logTrace('getOrgAuth: attempt failed for', program);
@@ -396,8 +416,19 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
           }
         } catch (_e) {
           const e: any = _e;
-          if (e && e.code === 'ETIMEDOUT') {
+          if (e && e.code === 'ENOENT') {
+            try {
+              sendException('cli.getOrgAuth', { code: 'ENOENT', command: program });
+            } catch {}
+          } else if (e && e.code === 'ETIMEDOUT') {
+            try {
+              sendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
+            } catch {}
             throw e;
+          } else {
+            try {
+              sendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
+            } catch {}
           }
           try {
             logTrace('getOrgAuth(login PATH): attempt failed for', program);
@@ -405,10 +436,12 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
         }
       }
     }
+    sendException('cli.getOrgAuth', { code: 'CLI_NOT_FOUND' });
     throw new Error(
       localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).')
     );
   }
+  sendException('cli.getOrgAuth', { code: 'AUTH_FAILED' });
   throw new Error(
     localize(
       'cliAuthFailed',
