@@ -24,6 +24,7 @@ import {
 } from '../utils/workspace';
 import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
 import { getNumberConfig, affectsConfiguration } from '../utils/config';
+import { getErrorMessage } from '../utils/error';
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
@@ -90,7 +91,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     try {
       setTimeout(() => void warmUpReplayDebugger(), 0);
     } catch (e) {
-      logWarn('Logs: warm-up of Apex Replay Debugger failed ->', e instanceof Error ? e.message : String(e));
+      logWarn('Logs: warm-up of Apex Replay Debugger failed ->', getErrorMessage(e));
     }
     // Dispose handling: stop posting and bump token to invalidate in-flight work
     this.context.subscriptions.push(
@@ -197,7 +198,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           this.loadLogHeads(logs, auth, token, controller.signal);
         } catch (e) {
           if (!controller.signal.aborted) {
-            const msg = e instanceof Error ? e.message : String(e);
+            const msg = getErrorMessage(e);
             logWarn('Logs: refresh failed ->', msg);
             this.post({ type: 'error', message: msg });
           }
@@ -226,7 +227,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       this.post({ type: 'appendLogs', data: logs, hasMore });
       this.loadLogHeads(logs, auth, token);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       logWarn('Logs: loadMore failed ->', msg);
       this.post({ type: 'error', message: msg });
     } finally {
@@ -282,10 +283,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       const doc = await vscode.workspace.openTextDocument(uri);
       await vscode.window.showTextDocument(doc, { preview: true });
     } catch (e) {
-      vscode.window.showErrorMessage(
-        localize('openError', 'Failed to open log: ') + (e instanceof Error ? e.message : String(e))
-      );
-      logWarn('Logs: openLog failed ->', e instanceof Error ? e.message : String(e));
+      vscode.window.showErrorMessage(localize('openError', 'Failed to open log: ') + getErrorMessage(e));
+      logWarn('Logs: openLog failed ->', getErrorMessage(e));
     } finally {
       this.post({ type: 'loading', value: false });
     }
@@ -330,7 +329,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
           } catch (e) {
             if (!controller.signal.aborted) {
-              logWarn('Logs: sf.launch.replay.debugger.logfile failed ->', e instanceof Error ? e.message : String(e));
+              logWarn('Logs: sf.launch.replay.debugger.logfile failed ->', getErrorMessage(e));
               await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
             }
           }
@@ -340,11 +339,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       if (e instanceof Error && e.message === 'aborted') {
         // silent cancellation
       } else {
-        vscode.window.showErrorMessage(
-          localize('replayError', 'Failed to launch Apex Replay Debugger: ') +
-            (e instanceof Error ? e.message : String(e))
-        );
-        logWarn('Logs: replay failed ->', e instanceof Error ? e.message : String(e));
+        const msg = getErrorMessage(e);
+        vscode.window.showErrorMessage(localize('replayError', 'Failed to launch Apex Replay Debugger: ') + msg);
+        logWarn('Logs: replay failed ->', msg);
       }
     } finally {
       this.post({ type: 'loading', value: false });
@@ -379,9 +376,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           this.post({ type: 'orgs', data: orgs, selected });
         } catch (e) {
           if (!controller.signal.aborted) {
-            const msg = e instanceof Error ? e.message : String(e);
+            const msg = getErrorMessage(e);
             logError('Logs: list orgs failed ->', msg);
-            void vscode.window.showErrorMessage(localize('sendOrgsFailed', 'Failed to list Salesforce orgs: {0}', msg));
+            void vscode.window.showErrorMessage(
+              localize('sendOrgsFailed', 'Failed to list Salesforce orgs: {0}', msg)
+            );
             this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
           }
         }

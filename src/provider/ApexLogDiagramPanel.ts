@@ -3,6 +3,7 @@ import { parseApexLogToGraph } from '../shared/apexLogParser';
 import type { DiagramWebviewToExtensionMessage } from '../shared/diagramMessages';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { logInfo, logWarn } from '../utils/logger';
+import { getErrorMessage } from '../utils/error';
 
 export class ApexLogDiagramPanelManager implements vscode.Disposable {
   private panel?: vscode.WebviewPanel;
@@ -65,7 +66,7 @@ export class ApexLogDiagramPanelManager implements vscode.Disposable {
             const graph = parseApexLogToGraph(doc.getText(), 100000);
             this.panel?.webview.postMessage({ type: 'graph', graph });
           } catch (e) {
-            logWarn('Diagram panel: parse failed ->', e instanceof Error ? e.message : String(e));
+            logWarn('Diagram panel: parse failed ->', getErrorMessage(e));
           }
         }
       });
@@ -78,7 +79,7 @@ export class ApexLogDiagramPanelManager implements vscode.Disposable {
           const graph = parseApexLogToGraph(e.document.getText(), 100000);
           this.panel.webview.postMessage({ type: 'graph', graph });
         } catch (e2) {
-          logWarn('Diagram panel: update parse failed ->', e2 instanceof Error ? e2.message : String(e2));
+          logWarn('Diagram panel: update parse failed ->', getErrorMessage(e2));
         }
       }
     });
@@ -88,7 +89,7 @@ export class ApexLogDiagramPanelManager implements vscode.Disposable {
       const graph = parseApexLogToGraph(doc.getText(), 100000);
       this.panel.webview.postMessage({ type: 'graph', graph });
     } catch (e) {
-      logWarn('Diagram panel: initial parse failed ->', e instanceof Error ? e.message : String(e));
+      logWarn('Diagram panel: initial parse failed ->', getErrorMessage(e));
     }
     this.panel.reveal(vscode.ViewColumn.Beside, true);
   }

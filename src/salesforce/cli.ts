@@ -234,7 +234,8 @@ function execCommand(
       if (error) {
         const err: any = error;
         if (err && (err.code === 'ENOENT' || /not found|ENOENT/i.test(err.message))) {
-          const e = new Error(`CLI not found: ${program}`) as any;
+          const cmdStr = [program, ...args].join(' ').trim();
+          const e = new Error(`CLI not found: ${cmdStr}`) as any;
           e.code = 'ENOENT';
           try {
             logTrace('execCommand ENOENT for', program);
@@ -723,4 +724,4 @@ export async function listOrgs(forceRefresh = false, signal?: AbortSignal): Prom
   return empty;
 }
 
-export { parseOrgList as __parseOrgListForTests };
+export { parseOrgList as __parseOrgListForTests, execCommand as __execCommandForTests };
