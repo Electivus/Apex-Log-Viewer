@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { logInfo, logWarn } from './logger';
 import { localize } from './localize';
+import { getErrorMessage } from './error';
 
 /**
  * Warm up the Apex Replay Debugger by activating its extension(s).
@@ -23,7 +24,7 @@ export async function warmUpReplayDebugger(): Promise<void> {
         logInfo('Warmed up extension:', id);
         return;
       } catch (e) {
-        logWarn('Warm-up failed for', id, '->', e instanceof Error ? e.message : String(e));
+        logWarn('Warm-up failed for', id, '->', getErrorMessage(e));
       }
     }
   } catch {
@@ -44,7 +45,7 @@ export async function ensureReplayDebuggerAvailable(): Promise<boolean> {
       return true;
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     logWarn('Failed to check Replay Debugger commands ->', msg);
   }
   const openExt = localize('replayMissingExtOpen', 'Open Extensions');
@@ -57,7 +58,7 @@ export async function ensureReplayDebuggerAvailable(): Promise<boolean> {
     try {
       await vscode.commands.executeCommand('workbench.extensions.search', '@id:salesforce.salesforcedx-vscode');
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       logWarn('Failed to open extensions search ->', msg);
     }
   }

@@ -12,6 +12,7 @@ import { ApexLogDiagramPanelManager } from './provider/ApexLogDiagramPanel';
 import { activateTelemetry, sendEvent, sendException, disposeTelemetry } from './shared/telemetry';
 import { CacheManager } from './utils/cacheManager';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
+import { getErrorMessage } from './utils/error';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
@@ -40,7 +41,7 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!process.env.SF_DISABLE_LOG_FILE) process.env.SF_DISABLE_LOG_FILE = 'true';
     if (!process.env.SFDX_DISABLE_LOG_FILE) process.env.SFDX_DISABLE_LOG_FILE = 'true';
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     logWarn('Failed to set disable log file env vars ->', msg);
   }
   logInfo('Activating Electivus Apex Log Viewer extension…');
@@ -57,7 +58,7 @@ export async function activate(context: vscode.ExtensionContext) {
       })
     );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     logWarn('Failed to configure trace logging ->', msg);
   }
   // Soft advice: if Apex Replay Debugger (via Salesforce Extension Pack) is missing, log a tip in Output
@@ -74,7 +75,7 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }, 0);
   } catch (e) {
-    logWarn('Failed to detect Apex Replay Debugger availability ->', e instanceof Error ? e.message : String(e));
+    logWarn('Failed to detect Apex Replay Debugger availability ->', getErrorMessage(e));
   }
   // Try to read sourceApiVersion from sfdx-project.json (first workspace folder)
   const folders = vscode.workspace.workspaceFolders;
@@ -91,13 +92,10 @@ export async function activate(context: vscode.ExtensionContext) {
           logInfo('Detected sourceApiVersion from sfdx-project.json:', v);
         }
       } catch (e) {
-        logWarn(
-          'Could not parse sfdx-project.json for sourceApiVersion ->',
-          e instanceof Error ? e.message : String(e)
-        );
+        logWarn('Could not parse sfdx-project.json for sourceApiVersion ->', getErrorMessage(e));
       }
     } catch (e) {
-      logInfo('No sfdx-project.json found in first workspace folder ->', e instanceof Error ? e.message : String(e));
+      logInfo('No sfdx-project.json found in first workspace folder ->', getErrorMessage(e));
     }
   }
   const provider = new SfLogsViewProvider(context);
@@ -157,7 +155,7 @@ export async function activate(context: vscode.ExtensionContext) {
         await provider.sendOrgs();
         await provider.refresh();
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = getErrorMessage(e);
         logError('Failed listing orgs ->', msg);
         vscode.window.showErrorMessage(localize('selectOrgError', 'Electivus Apex Logs: Failed to list orgs'));
         try {
@@ -209,7 +207,7 @@ export async function activate(context: vscode.ExtensionContext) {
         logInfo('CLI cache cleared.');
         vscode.window.showInformationMessage('Electivus Apex Logs: CLI cache cleared');
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = getErrorMessage(e);
         logWarn('Failed clearing CLI cache ->', msg);
         vscode.window.showErrorMessage('Electivus Apex Logs: Failed to clear CLI cache');
       }
@@ -236,7 +234,7 @@ export async function activate(context: vscode.ExtensionContext) {
             logInfo('Warmed up extension:', id);
             break;
           } catch (e) {
-            logWarn('Warm-up failed for', id, '->', e instanceof Error ? e.message : String(e));
+            logWarn('Warm-up failed for', id, '->', getErrorMessage(e));
           }
         }
       }
@@ -244,7 +242,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Defer to avoid impacting our own activation time
     setTimeout(() => void warmUp(), 0);
   } catch (e) {
-    logWarn('Failed to warm up Apex Replay Debugger ->', e instanceof Error ? e.message : String(e));
+    logWarn('Failed to warm up Apex Replay Debugger ->', getErrorMessage(e));
   }
 
   // Preload CLI caches (org list and default org auth) in background
@@ -271,12 +269,12 @@ export async function activate(context: vscode.ExtensionContext) {
           logInfo('Preloading CLI caches done.');
         } catch (e) {
           // Best-effort; ignore errors
-          logWarn('Preloading CLI caches failed ->', e instanceof Error ? e.message : String(e));
+          logWarn('Preloading CLI caches failed ->', getErrorMessage(e));
         }
       }, 0);
     }
   } catch (e) {
-    logWarn('Failed to schedule CLI cache preload ->', e instanceof Error ? e.message : String(e));
+    logWarn('Failed to schedule CLI cache preload ->', getErrorMessage(e));
   }
 
   // Return exports for tests and programmatic use

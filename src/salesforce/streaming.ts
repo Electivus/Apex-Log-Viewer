@@ -3,6 +3,7 @@ import { Duration } from '@salesforce/kit';
 import type { AnyJson, JsonMap } from '@salesforce/ts-types';
 import type { OrgAuth } from './types';
 import { logWarn } from '../utils/logger';
+import { getErrorMessage } from '../utils/error';
 
 export type { StreamingClient };
 
@@ -30,7 +31,7 @@ export async function createLoggingStreamingClient(
   try {
     options.setSubscribeTimeout(Duration.minutes(30));
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = getErrorMessage(e);
     logWarn('Failed to set StreamingClient timeout ->', msg);
   }
   // For system topics, DefaultOptions will force API 36.0 automatically.

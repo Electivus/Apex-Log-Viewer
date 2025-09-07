@@ -10,6 +10,7 @@ import { buildWebviewHtml } from '../utils/webviewHtml';
 import { TailService } from '../utils/tailService';
 import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
 import { getNumberConfig, affectsConfiguration } from '../utils/config';
+import { getErrorMessage } from '../utils/error';
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogTail';
@@ -54,7 +55,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     try {
       setTimeout(() => void warmUpReplayDebugger(), 0);
     } catch (e) {
-      logWarn('Tail: warm-up of Apex Replay Debugger failed ->', e instanceof Error ? e.message : String(e));
+      logWarn('Tail: warm-up of Apex Replay Debugger failed ->', getErrorMessage(e));
     }
 
     this.context.subscriptions.push(
@@ -78,7 +79,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       });
       this.context.subscriptions.push(d);
     } catch (e) {
-      logWarn('Tail: window state tracking failed ->', e instanceof Error ? e.message : String(e));
+      logWarn('Tail: window state tracking failed ->', getErrorMessage(e));
     }
 
     webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
@@ -185,7 +186,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       const selected = pickSelectedOrg(orgs, this.selectedOrg);
       this.post({ type: 'orgs', data: orgs, selected });
     } catch (e) {
-      logWarn('Tail: sendOrgs failed ->', e instanceof Error ? e.message : String(e));
+      logWarn('Tail: sendOrgs failed ->', getErrorMessage(e));
       this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
     }
   }
@@ -201,7 +202,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     try {
       auth = await getOrgAuth(this.selectedOrg);
     } catch (e) {
-      logWarn('Tail: could not load auth for debug levels ->', e instanceof Error ? e.message : String(e));
+      logWarn('Tail: could not load auth for debug levels ->', getErrorMessage(e));
       this.post({ type: 'debugLevels', data: [] });
       return;
     }
@@ -236,7 +237,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       await vscode.window.showTextDocument(doc, { preview: true });
       logInfo('Tail: opened log', logId);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       logWarn('Tail: openLog failed ->', msg);
       this.post({ type: 'error', message: msg });
     } finally {
@@ -262,14 +263,14 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
           try {
             await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
           } catch (e) {
-            logWarn('Tail: sf.launch.replay.debugger.logfile failed ->', e instanceof Error ? e.message : String(e));
+            logWarn('Tail: sf.launch.replay.debugger.logfile failed ->', getErrorMessage(e));
             await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
           }
         }
       );
       logInfo('Tail: replay requested for', logId);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       logWarn('Tail: replay failed ->', msg);
       this.post({ type: 'error', message: msg });
     }

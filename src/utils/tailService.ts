@@ -6,6 +6,7 @@ import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage } from '../shared/messages';
 import { logInfo, logWarn, logError, showOutput } from './logger';
 import { localize } from './localize';
+import { getErrorMessage } from './error';
 import {
   getWorkspaceRoot as utilGetWorkspaceRoot,
   ensureApexLogsDir as utilEnsureApexLogsDir,
@@ -163,7 +164,7 @@ export class TailService {
             void this.handleIncomingLogId(id);
           }
         } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
+          const msg = getErrorMessage(e);
           logWarn('Tail: streaming processor error ->', msg);
         }
         return { completed: false };
@@ -172,7 +173,7 @@ export class TailService {
       try {
         await this.streamingClient.handshake();
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = getErrorMessage(e);
         logError('Tail: handshake failed ->', msg);
         this.post({ type: 'error', message: `Handshake failed: ${msg}` });
         showOutput(true);
@@ -190,7 +191,7 @@ export class TailService {
             logInfo('Tail: starting fresh with replay -1');
           }
         } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
+          const msg = getErrorMessage(e);
           logWarn('Tail: failed to set replay id ->', msg);
         }
         // Don't await subscribe; it resolves only when the processor returns completed or on timeout.
@@ -198,7 +199,7 @@ export class TailService {
           .subscribe()
           .then(() => logInfo('Tail: streaming subscribe completed.'))
           .catch((err: any) => {
-            const msg = err instanceof Error ? err.message : String(err);
+            const msg = getErrorMessage(err);
             // Treat generic subscribe timeout as expected end when long-running
             if (/Socket timeout occurred/i.test(msg)) {
               logInfo('Tail: subscribe timed out (socket); continuing.');
@@ -210,7 +211,7 @@ export class TailService {
           });
         logInfo('Tail: subscribed to /systemTopic/Logging (started)');
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = getErrorMessage(e);
         logWarn('Tail: subscribe init failed ->', msg);
         // If replayId is invalid/expired, retry once with -1
         const isReplayError = /replay/i.test(msg) || /400::/.test(msg) || /invalid/i.test(msg);
@@ -222,7 +223,7 @@ export class TailService {
               .subscribe()
               .then(() => logInfo('Tail: streaming subscribe completed (fallback).'))
               .catch((err2: any) => {
-                const m2 = err2 instanceof Error ? err2.message : String(err2);
+                const m2 = getErrorMessage(err2);
                 if (/Socket timeout occurred/i.test(m2)) {
                   logInfo('Tail: subscribe fallback timed out (socket); continuing.');
                   return;
@@ -233,7 +234,7 @@ export class TailService {
               });
             logInfo('Tail: subscribed to /systemTopic/Logging (fallback started)');
           } catch (e2) {
-            const m2 = e2 instanceof Error ? e2.message : String(e2);
+            const m2 = getErrorMessage(e2);
             logError('Tail: subscribe retry failed ->', m2);
             this.post({ type: 'error', message: `Subscribe failed: ${m2}` });
             showOutput(true);
@@ -246,7 +247,7 @@ export class TailService {
         }
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       logError('Tail: start failed ->', msg);
       this.post({ type: 'error', message: msg });
       showOutput(true);
@@ -269,32 +270,32 @@ export class TailService {
         logInfo('Tail: streaming client disconnected.');
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       logWarn('Tail: streaming disconnect error ->', msg);
     }
     try {
       (this.connection as any)?.logout?.();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       logWarn('Tail: connection logout error ->', msg);
     }
     try {
       (this.connection as any)?.dispose?.();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       logWarn('Tail: connection dispose error ->', msg);
     }
     this.connection = undefined;
     try {
       (this.logService as any)?.logout?.();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       logWarn('Tail: log service logout error ->', msg);
     }
     try {
       (this.logService as any)?.dispose?.();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       logWarn('Tail: log service dispose error ->', msg);
     }
     this.logService = undefined;
@@ -342,7 +343,7 @@ export class TailService {
     } catch (e) {
       // Ensure failures don't permanently mark the log ID as seen
       this.seenLogIds.delete(id);
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       logWarn('Tail: failed processing streamed log', id, '->', msg);
       this.post({ type: 'error', message: msg });
     }
