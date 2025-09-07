@@ -2,6 +2,8 @@ import { logTrace } from '../utils/logger';
 import { httpsRequestWith401Retry, getApiVersion } from './http';
 import type { OrgAuth } from './types';
 
+const userIdCache = new Map<string, string>();
+
 export async function listDebugLevels(auth: OrgAuth): Promise<string[]> {
   const soql = encodeURIComponent('SELECT DeveloperName FROM DebugLevel ORDER BY DeveloperName');
   const url = `${auth.instanceUrl}/services/data/v${getApiVersion()}/tooling/query?q=${soql}`;
@@ -14,25 +16,10 @@ export async function listDebugLevels(auth: OrgAuth): Promise<string[]> {
 }
 
 export async function getActiveUserDebugLevel(auth: OrgAuth): Promise<string | undefined> {
-  // Resolve current user's Id from username, then look up the latest TraceFlag.
-  // Query User via standard REST query endpoint.
-  const username = (auth.username || '').trim();
-  if (!username) {
-    return undefined;
-  }
-  const esc = username.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-  const userSoql = encodeURIComponent(`SELECT Id FROM User WHERE Username = '${esc}' LIMIT 1`);
-  const userUrl = `${auth.instanceUrl}/services/data/v${getApiVersion()}/query?q=${userSoql}`;
-  const userBody = await httpsRequestWith401Retry(auth, 'GET', userUrl, {
-    Authorization: `Bearer ${auth.accessToken}`,
-    'Content-Type': 'application/json'
-  });
-  const userJson = JSON.parse(userBody);
-  const userId: string | undefined = Array.isArray(userJson.records) ? userJson.records[0]?.Id : undefined;
+  const userId = await getCurrentUserId(auth);
   if (!userId) {
     return undefined;
   }
-  // Fetch most recent TraceFlag for the user; avoid IsActive (not present on all orgs)
   const tfSoql = encodeURIComponent(
     `SELECT DebugLevel.DeveloperName FROM TraceFlag WHERE TracedEntityId = '${userId}' ORDER BY CreatedDate DESC LIMIT 1`
   );
@@ -60,10 +47,14 @@ function toSfDateTimeUTC(d: Date): string {
   );
 }
 
-async function getCurrentUserId(auth: OrgAuth): Promise<string | undefined> {
+export async function getCurrentUserId(auth: OrgAuth): Promise<string | undefined> {
   const username = (auth.username || '').trim();
   if (!username) {
     return undefined;
+  }
+  const cached = userIdCache.get(username);
+  if (cached) {
+    return cached;
   }
   const esc = username.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   const userSoql = encodeURIComponent(`SELECT Id FROM User WHERE Username = '${esc}' LIMIT 1`);
@@ -74,7 +65,14 @@ async function getCurrentUserId(auth: OrgAuth): Promise<string | undefined> {
   });
   const userJson = JSON.parse(userBody);
   const userId: string | undefined = Array.isArray(userJson.records) ? userJson.records[0]?.Id : undefined;
+  if (userId) {
+    userIdCache.set(username, userId);
+  }
   return userId;
+}
+
+export function __resetUserIdCacheForTests(): void {
+  userIdCache.clear();
 }
 
 async function getDebugLevelIdByName(auth: OrgAuth, developerName: string): Promise<string | undefined> {
