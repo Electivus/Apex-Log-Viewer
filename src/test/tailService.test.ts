@@ -135,6 +135,23 @@ suite('TailService', () => {
     assert.equal((service as any).lastReplayId, undefined);
   });
 
+  test('handles streaming disconnect with limited retries', async () => {
+    const posted: any[] = [];
+    const service = new TailService(m => posted.push(m));
+    (service as any).tailRunning = true;
+    let attempts = 0;
+    (service as any).streamingClient = {
+      handshake: async () => {
+        attempts++;
+        throw new Error('handshake failed');
+      }
+    } as any;
+    await (service as any).onStreamingDisconnect(new Error('boom'));
+    assert.equal(attempts, 3);
+    const err = posted.find(p => p.type === 'error');
+    assert.ok(err && /boom/.test(err.message));
+  });
+
   test('selectOrg resets caches and stops tail', async () => {
     const context = {
       extensionUri: vscode.Uri.file(path.resolve('.')),

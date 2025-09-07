@@ -164,6 +164,18 @@ export class TailService {
         return { completed: false };
       };
       this.streamingClient = await createLoggingStreamingClient(org, processor);
+
+      const scAny: any = this.streamingClient;
+      if (typeof scAny?.onDisconnect === 'function') {
+        scAny.onDisconnect((err: any) => {
+          void this.onStreamingDisconnect(err);
+        });
+      } else if (typeof scAny?.on === 'function') {
+        scAny.on('disconnect', (err: any) => {
+          void this.onStreamingDisconnect(err);
+        });
+      }
+
       try {
         await this.streamingClient.handshake();
       } catch (e) {
@@ -307,6 +319,51 @@ export class TailService {
 
   clearLogPaths(): void {
     this.logIdToPath.clear();
+  }
+
+  private async onStreamingDisconnect(err: unknown): Promise<void> {
+    if (!this.tailRunning || this.disposed) {
+      return;
+    }
+    const msg = err instanceof Error ? err.message : String(err ?? '');
+    logWarn('Tail: streaming disconnected ->', msg);
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (!this.streamingClient) {
+        break;
+      }
+      try {
+        await this.streamingClient.handshake();
+        try {
+          const replayStart = typeof this.lastReplayId === 'number' ? Math.max(0, this.lastReplayId - 5) : -1;
+          this.streamingClient.replay(replayStart);
+          logInfo('Tail: resubscribe replay from', replayStart);
+        } catch (e) {
+          const m = e instanceof Error ? e.message : String(e);
+          logWarn('Tail: failed to set replay id on resubscribe ->', m);
+        }
+        void this.streamingClient
+          .subscribe()
+          .then(() => logInfo('Tail: streaming resubscribe completed.'))
+          .catch((err2: any) => {
+            const m2 = err2 instanceof Error ? err2.message : String(err2);
+            if (/Socket timeout occurred/i.test(m2)) {
+              logInfo('Tail: resubscribe timed out (socket); continuing.');
+              return;
+            }
+            logError('Tail: resubscribe async error ->', m2);
+            this.post({ type: 'error', message: `Resubscribe failed: ${m2}` });
+            showOutput(true);
+          });
+        logInfo('Tail: resubscribed to /systemTopic/Logging (reconnected)');
+        return;
+      } catch (e) {
+        const m = e instanceof Error ? e.message : String(e);
+        logWarn(`Tail: resubscribe attempt ${attempt} failed ->`, m);
+      }
+    }
+    this.post({ type: 'error', message: `Streaming disconnected: ${msg}` });
+    showOutput(true);
   }
 
   // Streaming handler: fetch body via apex-node and header fields via Tooling API
