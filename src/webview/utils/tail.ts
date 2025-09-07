@@ -228,6 +228,12 @@ export function highlightContent(
         if (start > lastIndex) {
           next.push({ text: seg.text.slice(lastIndex, start) });
         }
+        // Avoid infinite loops on zero-length matches by advancing lastIndex
+        if (m[0].length === 0) {
+          regex.lastIndex++;
+          lastIndex = start;
+          continue;
+        }
         next.push({ text: m[0], style: rule.style });
         lastIndex = end;
       }
