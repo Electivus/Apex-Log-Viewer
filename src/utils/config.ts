@@ -41,15 +41,25 @@ export function getConfig<T>(name: string, def?: T): T {
   const cfg = vscode.workspace.getConfiguration();
   const [primary, fallback, extra] = resolveKeys(name);
 
+  const canInspect = typeof (cfg as any).inspect === 'function';
+  if (!canInspect) {
+    // Fallback path for tests or environments that stub getConfiguration() and omit inspect()
+    for (const key of [primary, fallback, ...extra]) {
+      const v = cfg.get<T | undefined>(key);
+      if (v !== undefined) return v as T;
+    }
+    return def as T;
+  }
+
   // Use the new key only if explicitly set by the user
-  const primaryInfo = cfg.inspect<T>(primary) as unknown as Inspection<T> | undefined;
+  const primaryInfo = (cfg as any).inspect<T>(primary) as Inspection<T> | undefined;
   if (hasUserOverride(primaryInfo)) {
     const v = cfg.get<T | undefined>(primary);
     if (v !== undefined) return v as T;
   }
 
   // Otherwise, prefer an explicit legacy value if present
-  const fallbackInfo = cfg.inspect<T>(fallback) as unknown as Inspection<T> | undefined;
+  const fallbackInfo = (cfg as any).inspect<T>(fallback) as Inspection<T> | undefined;
   if (hasUserOverride(fallbackInfo)) {
     const v = cfg.get<T | undefined>(fallback);
     if (v !== undefined) return v as T;
