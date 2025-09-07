@@ -339,7 +339,7 @@
   },
   "dependencies": {
     "@salesforce/apex-node": "^8.2.13",
-    "@salesforce/core": "^8.23.0",
+    "@salesforce/core": "^8.23.1",
     "@vscode/extension-telemetry": "^1.0.0",
     "cross-spawn": "^7.0.6",
     "vscode-nls": "^5.2.0"
