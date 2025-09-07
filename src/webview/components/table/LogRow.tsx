@@ -68,6 +68,9 @@ export function LogRow({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Only handle keys when the event originates on the row itself.
+    // This avoids hijacking keyboard interactions of inner buttons.
+    if (e.currentTarget !== e.target) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       if (e.shiftKey) {
