@@ -171,6 +171,7 @@ function execCommand(
   if (existing) {
     return existing;
   }
+  let threwSync = false;
   const p = new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     const opts: cp.ExecFileOptionsWithStringEncoding = {
       maxBuffer: 1024 * 1024 * 10,
@@ -184,41 +185,50 @@ function execCommand(
     } catch {}
     let finished = false;
     let timer: NodeJS.Timeout;
-    const child = execFileImpl(program, args, opts, (error, stdout, stderr) => {
-      if (finished) {
-        return;
-      }
-      finished = true;
-      clearTimeout(timer);
-      inFlightExecs.delete(key);
-      if (error) {
-        const err: any = error;
-        if (err && (err.code === 'ENOENT' || /not found|ENOENT/i.test(err.message))) {
-          const e = new Error(`CLI not found: ${program}`) as any;
-          e.code = 'ENOENT';
+    let child: cp.ChildProcess;
+    try {
+      child = execFileImpl(program, args, opts, (error, stdout, stderr) => {
+        if (finished) {
+          return;
+        }
+        finished = true;
+        clearTimeout(timer);
+        inFlightExecs.delete(key);
+        if (error) {
+          const err: any = error;
+          if (err && (err.code === 'ENOENT' || /not found|ENOENT/i.test(err.message))) {
+            const e = new Error(`CLI not found: ${program}`) as any;
+            e.code = 'ENOENT';
+            try {
+              logTrace('execCommand ENOENT for', program);
+            } catch {}
+            try {
+              sendException('cli.exec', { code: 'ENOENT', command: program });
+            } catch {}
+            reject(e);
+            return;
+          }
           try {
-            logTrace('execCommand ENOENT for', program);
+            logTrace('execCommand error for', program, '->', (stderr || err.message || '').split('\n')[0]);
           } catch {}
           try {
-            sendException('cli.exec', { code: 'ENOENT', command: program });
+            sendException('cli.exec', { code: String(err.code || ''), command: program });
           } catch {}
-          reject(e);
+          reject(new Error(stderr || err.message));
           return;
         }
         try {
-          logTrace('execCommand error for', program, '->', (stderr || err.message || '').split('\n')[0]);
+          logTrace('execCommand success for', program, '(stdout length', String(stdout || '').length, ')');
         } catch {}
-        try {
-          sendException('cli.exec', { code: String(err.code || ''), command: program });
-        } catch {}
-        reject(new Error(stderr || err.message));
-        return;
-      }
-      try {
-        logTrace('execCommand success for', program, '(stdout length', String(stdout || '').length, ')');
-      } catch {}
-      resolve({ stdout, stderr });
-    });
+        resolve({ stdout, stderr });
+      });
+    } catch (err) {
+      threwSync = true;
+      finished = true;
+      inFlightExecs.delete(key);
+      reject(err);
+      return;
+    }
     timer = setTimeout(() => {
       if (finished) {
         return;
@@ -241,7 +251,9 @@ function execCommand(
       reject(err);
     }, timeoutMs);
   });
-  inFlightExecs.set(key, p);
+  if (!threwSync) {
+    inFlightExecs.set(key, p);
+  }
   return p;
 }
 
@@ -282,11 +294,13 @@ function enforceAuthCacheLimit(): void {
 function getCliCacheConfig() {
   try {
     const enabled = getBooleanConfig('sfLogs.cliCache.enabled', true);
-    const authTtl = Math.max(0, getNumberConfig('sfLogs.cliCache.authTtlSeconds', 0, 0, Number.MAX_SAFE_INTEGER)) * 1000;
+    const authTtl =
+      Math.max(0, getNumberConfig('sfLogs.cliCache.authTtlSeconds', 0, 0, Number.MAX_SAFE_INTEGER)) * 1000;
     const orgsTtl =
       Math.max(0, getNumberConfig('sfLogs.cliCache.orgListTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) * 1000;
     const authPersistTtl =
-      Math.max(0, getNumberConfig('sfLogs.cliCache.authPersistentTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) * 1000;
+      Math.max(0, getNumberConfig('sfLogs.cliCache.authPersistentTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) *
+      1000;
     return { enabled, authTtl, orgsTtl, authPersistTtl };
   } catch {
     return { enabled: true, authTtl: 0, orgsTtl: 86400000, authPersistTtl: 86400000 };

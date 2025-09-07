@@ -53,4 +53,17 @@ suite('salesforce exec safety', () => {
       return true;
     });
   });
+
+  test('cleans up cache when exec throws synchronously', async () => {
+    let callCount = 0;
+    __setExecFileImplForTests(((_program: string, _args: readonly string[] | undefined, _opts: any, _cb: any) => {
+      callCount++;
+      throw new Error('sync fail');
+    }) as any);
+
+    await assert.rejects(getOrgAuth(undefined), /sync fail/);
+    const first = callCount;
+    await assert.rejects(getOrgAuth(undefined), /sync fail/);
+    assert.equal(callCount, first * 2);
+  });
 });
