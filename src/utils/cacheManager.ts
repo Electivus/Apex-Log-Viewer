@@ -75,18 +75,29 @@ export class CacheManager {
     for (const k of toDelete) {
       await this.store.update(k, undefined);
     }
+    if (toDelete.length) {
+      const remaining = keys.filter(k => !toDelete.includes(k));
+      await this.store.update(this.KEYS_INDEX, remaining);
+    }
   }
 
   static async clearExpired(): Promise<void> {
     if (!this.store) return;
     const keys = this.store.get<string[]>(this.KEYS_INDEX) || [];
     const now = Date.now();
+    const validKeys: string[] = [];
     for (const k of keys) {
       const entry = this.store.get<CacheEntry<unknown>>(k);
-      if (entry && typeof (entry as CacheEntry<unknown>).expiresAt === 'number' && (entry as CacheEntry<unknown>).expiresAt < now) {
+      if (
+        entry &&
+        typeof (entry as CacheEntry<unknown>).expiresAt === 'number' &&
+        (entry as CacheEntry<unknown>).expiresAt < now
+      ) {
         await this.store.update(k, undefined);
+      } else {
+        validKeys.push(k);
       }
     }
+    await this.store.update(this.KEYS_INDEX, validKeys);
   }
 }
-
