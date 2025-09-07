@@ -247,6 +247,36 @@ function execCommand(
 // Short-lived in-memory cache for auth (avoid storing tokens on disk)
 type AuthCache = { value: OrgAuth; expiresAt: number };
 const authCacheByUser = new Map<string, AuthCache>();
+const MAX_AUTH_CACHE_ITEMS = 50;
+const AUTH_CACHE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+let authCacheCleanupTimer: NodeJS.Timeout | undefined;
+
+function purgeExpiredAuthCache(now: number = Date.now()): void {
+  for (const [key, { expiresAt }] of authCacheByUser) {
+    if (expiresAt <= now) {
+      authCacheByUser.delete(key);
+    }
+  }
+}
+
+function scheduleAuthCacheCleanup(): void {
+  if (authCacheCleanupTimer) {
+    return;
+  }
+  authCacheCleanupTimer = setInterval(() => purgeExpiredAuthCache(), AUTH_CACHE_CLEANUP_INTERVAL_MS);
+  authCacheCleanupTimer.unref?.();
+}
+
+function enforceAuthCacheLimit(): void {
+  if (authCacheByUser.size <= MAX_AUTH_CACHE_ITEMS) {
+    return;
+  }
+  const entries = Array.from(authCacheByUser.entries()).sort((a, b) => a[1].expiresAt - b[1].expiresAt);
+  while (authCacheByUser.size > MAX_AUTH_CACHE_ITEMS && entries.length) {
+    const [key] = entries.shift()!;
+    authCacheByUser.delete(key);
+  }
+}
 
 function getCliCacheConfig() {
   try {
@@ -267,13 +297,19 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
   const { enabled, authTtl, authPersistTtl } = getCliCacheConfig();
   const cacheKey = t || '__default__';
   const now = Date.now();
+  purgeExpiredAuthCache(now);
+  scheduleAuthCacheCleanup();
   if (execOverriddenForTests && !forceRefresh && authTtl > 0) {
     const cached = authCacheByUser.get(cacheKey);
-    if (cached && cached.expiresAt > now) {
-      try {
-        logTrace('getOrgAuth: returning cached auth for', cacheKey);
-      } catch {}
-      return cached.value;
+    if (cached) {
+      if (cached.expiresAt <= now) {
+        authCacheByUser.delete(cacheKey);
+      } else {
+        try {
+          logTrace('getOrgAuth: returning cached auth for', cacheKey);
+        } catch {}
+        return cached.value;
+      }
     }
   }
   if (!forceRefresh && enabled && authPersistTtl > 0 && !execOverriddenForTests) {
@@ -285,6 +321,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
       // refresh in-memory cache too
       if (authTtl > 0) {
         authCacheByUser.set(cacheKey, { value: persisted, expiresAt: now + authTtl });
+        enforceAuthCacheLimit();
       }
       return persisted;
     }
@@ -315,6 +352,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
         const auth = { accessToken, instanceUrl, username } as OrgAuth;
         if (execOverriddenForTests && authTtl > 0) {
           authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
+          enforceAuthCacheLimit();
         }
         if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
           try {
@@ -367,6 +405,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
             const auth = { accessToken, instanceUrl, username } as OrgAuth;
             if (execOverriddenForTests && authTtl > 0) {
               authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
+              enforceAuthCacheLimit();
             }
             if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
               try {

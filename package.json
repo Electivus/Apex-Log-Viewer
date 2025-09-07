@@ -238,7 +238,7 @@
     "postvsce:publish:pre": "npm run telemetry:strip",
     "compile-tests": "node -e \"try{require('fs').rmSync('out/test',{recursive:true,force:true})}catch(e){}\" && tsc -p tsconfig.test.json",
     "watch-tests": "tsc -p tsconfig.test.json -w",
-    "pretest": "npm run test:clean && npm run test:linux-deps && npm run compile && npm run compile-tests",
+    "pretest": "npm run test:clean && npm run test:linux-deps && npm run compile && npm run build:extension && npm run compile-tests",
     "test": "bash scripts/run-tests.sh --scope=unit",
     "test:unit": "npm run pretest && bash scripts/run-tests.sh --scope=unit",
     "test:integration": "npm run pretest && bash scripts/run-tests.sh --scope=integration --install-deps --timeout=900000",

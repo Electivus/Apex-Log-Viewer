@@ -11,14 +11,16 @@ export class ApexLogDiagramPanelManager implements vscode.Disposable {
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   dispose(): void {
+    if (!this.panel && !this.changeSub) return;
+    const panel = this.panel;
+    this.panel = undefined;
     try {
       this.changeSub?.dispose();
     } catch {}
-    try {
-      this.panel?.dispose();
-    } catch {}
-    this.panel = undefined;
     this.changeSub = undefined;
+    try {
+      panel?.dispose();
+    } catch {}
   }
 
   private isApexLog(doc: vscode.TextDocument): boolean {
@@ -41,23 +43,22 @@ export class ApexLogDiagramPanelManager implements vscode.Disposable {
       return;
     }
     if (!this.panel) {
-      this.panel = vscode.window.createWebviewPanel(
-        'apexLogDiagram',
-        'Apex Log Diagram',
-        vscode.ViewColumn.Beside,
-        {
-          enableScripts: true,
-          retainContextWhenHidden: true,
-          localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
-        }
-      );
+      this.panel = vscode.window.createWebviewPanel('apexLogDiagram', 'Apex Log Diagram', vscode.ViewColumn.Beside, {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
+      });
       this.panel.webview.html = buildWebviewHtml(
         this.panel.webview,
         this.context.extensionUri,
         'diagram.js',
         'Apex Log Diagram'
       );
-      this.panel.onDidDispose(() => this.dispose());
+      this.panel.onDidDispose(() => {
+        this.changeSub?.dispose();
+        this.changeSub = undefined;
+        this.panel = undefined;
+      });
       this.panel.webview.onDidReceiveMessage((msg: DiagramWebviewToExtensionMessage) => {
         if (msg?.type === 'ready') {
           try {
