@@ -101,6 +101,10 @@ export function __resetExecFileImplForTests(): void {
   execOverrideGeneration++;
 }
 
+export function __getInFlightExecsSizeForTests(): number {
+  return inFlightExecs.size;
+}
+
 // Lazily resolve PATH from the user's login shell (macOS/Linux) to match Terminal/Cursor
 let cachedLoginShellPATH: string | undefined;
 let resolvingPATH: Promise<string | undefined> | null = null;
@@ -169,6 +173,7 @@ function execCommand(
   if (existing) {
     return existing;
   }
+  let spawnFailed = false;
   const p = new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     const opts: cp.ExecFileOptionsWithStringEncoding = {
       maxBuffer: 1024 * 1024 * 10,
@@ -182,35 +187,43 @@ function execCommand(
     } catch {}
     let finished = false;
     let timer: NodeJS.Timeout;
-    const child = execFileImpl(program, args, opts, (error, stdout, stderr) => {
-      if (finished) {
-        return;
-      }
-      finished = true;
-      clearTimeout(timer);
-      inFlightExecs.delete(key);
-      if (error) {
-        const err: any = error;
-        if (err && (err.code === 'ENOENT' || /not found|ENOENT/i.test(err.message))) {
-          const e = new Error(`CLI not found: ${program}`) as any;
-          e.code = 'ENOENT';
+    let child: cp.ChildProcess;
+    try {
+      child = execFileImpl(program, args, opts, (error, stdout, stderr) => {
+        if (finished) {
+          return;
+        }
+        finished = true;
+        clearTimeout(timer);
+        inFlightExecs.delete(key);
+        if (error) {
+          const err: any = error;
+          if (err && (err.code === 'ENOENT' || /not found|ENOENT/i.test(err.message))) {
+            const e = new Error(`CLI not found: ${program}`) as any;
+            e.code = 'ENOENT';
+            try {
+              logTrace('execCommand ENOENT for', program);
+            } catch {}
+            reject(e);
+            return;
+          }
           try {
-            logTrace('execCommand ENOENT for', program);
+            logTrace('execCommand error for', program, '->', (stderr || err.message || '').split('\\n')[0]);
           } catch {}
-          reject(e);
+          reject(new Error(stderr || err.message));
           return;
         }
         try {
-          logTrace('execCommand error for', program, '->', (stderr || err.message || '').split('\n')[0]);
+          logTrace('execCommand success for', program, '(stdout length', String(stdout || '').length, ')');
         } catch {}
-        reject(new Error(stderr || err.message));
-        return;
-      }
-      try {
-        logTrace('execCommand success for', program, '(stdout length', String(stdout || '').length, ')');
-      } catch {}
-      resolve({ stdout, stderr });
-    });
+        resolve({ stdout, stderr });
+      });
+    } catch (error) {
+      spawnFailed = true;
+      inFlightExecs.delete(key);
+      reject(error as Error);
+      return;
+    }
     timer = setTimeout(() => {
       if (finished) {
         return;
@@ -230,7 +243,9 @@ function execCommand(
       reject(err);
     }, timeoutMs);
   });
-  inFlightExecs.set(key, p);
+  if (!spawnFailed) {
+    inFlightExecs.set(key, p);
+  }
   return p;
 }
 
@@ -244,7 +259,8 @@ function getCliCacheConfig() {
     const enabled = cfg.get<boolean>('sfLogs.cliCache.enabled', true);
     const authTtl = Math.max(0, Math.floor(cfg.get<number>('sfLogs.cliCache.authTtlSeconds', 0))) * 1000; // in-memory disabled by default
     const orgsTtl = Math.max(0, Math.floor(cfg.get<number>('sfLogs.cliCache.orgListTtlSeconds', 86400))) * 1000; // 1 day
-    const authPersistTtl = Math.max(0, Math.floor(cfg.get<number>('sfLogs.cliCache.authPersistentTtlSeconds', 86400))) * 1000; // 1 day
+    const authPersistTtl =
+      Math.max(0, Math.floor(cfg.get<number>('sfLogs.cliCache.authPersistentTtlSeconds', 86400))) * 1000; // 1 day
     return { enabled, authTtl, orgsTtl, authPersistTtl };
   } catch {
     return { enabled: true, authTtl: 0, orgsTtl: 86400000, authPersistTtl: 86400000 };
@@ -268,7 +284,9 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
   if (!forceRefresh && enabled && authPersistTtl > 0 && !execOverriddenForTests) {
     const persisted = CacheManager.get<OrgAuth>('cli', `orgAuth:${cacheKey}`);
     if (persisted && persisted.accessToken && persisted.instanceUrl) {
-      try { logTrace('getOrgAuth: hit persistent cache for', cacheKey); } catch {}
+      try {
+        logTrace('getOrgAuth: hit persistent cache for', cacheKey);
+      } catch {}
       // refresh in-memory cache too
       if (authTtl > 0) {
         authCacheByUser.set(cacheKey, { value: persisted, expiresAt: now + authTtl });
@@ -304,7 +322,9 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
           authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
         }
         if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
-          try { await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl); } catch {}
+          try {
+            await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
+          } catch {}
         }
         return auth;
       }
@@ -339,14 +359,16 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
             try {
               logTrace('getOrgAuth(login PATH): success for user', username || '(unknown)', 'at', instanceUrl);
             } catch {}
-          const auth = { accessToken, instanceUrl, username } as OrgAuth;
-          if (execOverriddenForTests && authTtl > 0) {
-            authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
-          }
-          if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
-            try { await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl); } catch {}
-          }
-          return auth;
+            const auth = { accessToken, instanceUrl, username } as OrgAuth;
+            if (execOverriddenForTests && authTtl > 0) {
+              authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
+            }
+            if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
+              try {
+                await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
+              } catch {}
+            }
+            return auth;
           }
         } catch (_e) {
           const e: any = _e;
@@ -451,9 +473,7 @@ let orgsCache: OrgsCache | undefined;
 let orgsCacheTtl = 10000; // 10s default
 
 // Test hook to bypass CLI and provide deterministic results
-let listOrgsMock:
-  | (() => OrgItem[] | Promise<OrgItem[]>)
-  | undefined;
+let listOrgsMock: (() => OrgItem[] | Promise<OrgItem[]>) | undefined;
 
 export function __setListOrgsCacheTTLForTests(ms: number): void {
   orgsCacheTtl = ms;
@@ -471,9 +491,7 @@ export function __resetListOrgsCacheForTests(): void {
   listOrgsMock = undefined;
 }
 
-export function __setListOrgsMockForTests(
-  fn: (() => OrgItem[] | Promise<OrgItem[]>) | undefined
-): void {
+export function __setListOrgsMockForTests(fn: (() => OrgItem[] | Promise<OrgItem[]>) | undefined): void {
   listOrgsMock = fn;
   execOverriddenForTests = true;
   execOverrideGeneration++;
@@ -486,7 +504,9 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
   if (!forceRefresh && enabled && orgsTtl > 0 && !execOverriddenForTests) {
     const persisted = CacheManager.get<OrgItem[]>('cli', persistentKey);
     if (persisted && Array.isArray(persisted)) {
-      try { logTrace('listOrgs: hit persistent cache'); } catch {}
+      try {
+        logTrace('listOrgs: hit persistent cache');
+      } catch {}
       // Para produção, evitamos cache em memória; para testes, mantemos
       if (execOverriddenForTests) {
         orgsCache = { data: persisted, expiresAt: now + Math.max(0, orgsCacheTtl), gen: execOverrideGeneration };
@@ -523,7 +543,9 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
         orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
       }
       if (enabled && orgsTtl > 0 && !execOverriddenForTests) {
-        try { await CacheManager.set('cli', persistentKey, res, orgsTtl); } catch {}
+        try {
+          await CacheManager.set('cli', persistentKey, res, orgsTtl);
+        } catch {}
       }
       return res;
     } catch (_e) {
@@ -553,7 +575,9 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
             orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
           }
           if (enabled && orgsTtl > 0 && !execOverriddenForTests) {
-            try { await CacheManager.set('cli', persistentKey, res, orgsTtl); } catch {}
+            try {
+              await CacheManager.set('cli', persistentKey, res, orgsTtl);
+            } catch {}
           }
           return res;
         } catch (_e) {
@@ -576,7 +600,9 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
     orgsCache = { data: empty, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
   }
   if (enabled && orgsTtl > 0 && !execOverriddenForTests) {
-    try { await CacheManager.set('cli', persistentKey, empty, orgsTtl); } catch {}
+    try {
+      await CacheManager.set('cli', persistentKey, empty, orgsTtl);
+    } catch {}
   }
   return empty;
 }

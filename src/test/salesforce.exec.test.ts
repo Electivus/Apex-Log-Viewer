@@ -1,5 +1,10 @@
 import assert from 'assert/strict';
-import { getOrgAuth, __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce/cli';
+import {
+  getOrgAuth,
+  __setExecFileImplForTests,
+  __resetExecFileImplForTests,
+  __getInFlightExecsSizeForTests
+} from '../salesforce/cli';
 
 suite('salesforce exec safety', () => {
   teardown(() => {
@@ -52,5 +57,15 @@ suite('salesforce exec safety', () => {
       assert.match(String(e?.message || ''), /CLI não encontrada|CLI not found|Salesforce CLI/);
       return true;
     });
+  });
+
+  test('cleans up inFlightExecs on sync throw', async () => {
+    __setExecFileImplForTests(((program: string, args: readonly string[] | undefined, _opts: any, _cb: any) => {
+      throw new Error('boom');
+    }) as any);
+
+    const before = __getInFlightExecsSizeForTests();
+    await assert.rejects(getOrgAuth(undefined, true));
+    assert.equal(__getInFlightExecsSizeForTests(), before);
   });
 });
