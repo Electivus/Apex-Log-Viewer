@@ -26,7 +26,6 @@ import type { Connection } from '@salesforce/core';
  */
 export class TailService {
   private tailRunning = false;
-  private tailTimer: NodeJS.Timeout | undefined;
   private tailHardStopTimer: NodeJS.Timeout | undefined;
   private seenLogIds = new Set<string>();
   private currentAuth: OrgAuth | undefined;
@@ -58,9 +57,6 @@ export class TailService {
 
   promptPoll(): void {
     // No-op with Streaming API (kept for compatibility with older VS Code versions)
-    if (this.tailTimer) {
-      clearTimeout(this.tailTimer);
-    }
   }
 
   dispose(): void {
@@ -300,10 +296,6 @@ export class TailService {
     this.logService = undefined;
     this.currentAuth = undefined;
     this.lastReplayId = undefined;
-    if (this.tailTimer) {
-      clearTimeout(this.tailTimer);
-      this.tailTimer = undefined;
-    }
     if (this.tailHardStopTimer) {
       clearTimeout(this.tailHardStopTimer);
       this.tailHardStopTimer = undefined;
