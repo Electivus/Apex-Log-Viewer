@@ -159,7 +159,9 @@ export async function activate(context: vscode.ExtensionContext) {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         logError('Failed listing orgs ->', msg);
-        vscode.window.showErrorMessage(localize('selectOrgError', 'Electivus Apex Logs: Failed to list orgs'));
+        vscode.window.showErrorMessage(
+          localize('selectOrgError', 'Electivus Apex Logs: Failed to list orgs: {0}', msg)
+        );
         try {
           sendException('command.selectOrg', { error: msg });
         } catch {}

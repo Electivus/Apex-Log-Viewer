@@ -193,8 +193,9 @@ function execCommand(
       inFlightExecs.delete(key);
       if (error) {
         const err: any = error;
+        const cmdStr = [program, ...args].join(' ').trim();
         if (err && (err.code === 'ENOENT' || /not found|ENOENT/i.test(err.message))) {
-          const e = new Error(`CLI not found: ${program}`) as any;
+          const e = new Error(`CLI not found: ${cmdStr}`) as any;
           e.code = 'ENOENT';
           try {
             logTrace('execCommand ENOENT for', program);
@@ -211,7 +212,17 @@ function execCommand(
         try {
           sendException('cli.exec', { code: String(err.code || ''), command: program });
         } catch {}
-        reject(new Error(stderr || err.message));
+        const code = typeof err.code === 'number' || typeof err.code === 'string' ? err.code : undefined;
+        const detail = stderr || err.message;
+        const msg =
+          code !== undefined
+            ? `Command "${cmdStr}" exited with code ${code}: ${detail}`
+            : `Command "${cmdStr}" failed: ${detail}`;
+        const e: any = new Error(msg);
+        if (code !== undefined) {
+          e.code = code;
+        }
+        reject(e);
         return;
       }
       try {
@@ -230,8 +241,14 @@ function execCommand(
       try {
         logWarn('execCommand timeout for', program, args.join(' '));
       } catch {}
+      const cmdStr = [program, ...args].join(' ').trim();
       const err: any = new Error(
-        localize('cliTimeout', 'Salesforce CLI command timed out after {0} seconds.', Math.round(timeoutMs / 1000))
+        localize(
+          'cliTimeout',
+          'Salesforce CLI command timed out after {0} seconds: {1}',
+          Math.round(timeoutMs / 1000),
+          cmdStr
+        )
       );
       err.code = 'ETIMEDOUT';
       inFlightExecs.delete(key);
@@ -282,11 +299,13 @@ function enforceAuthCacheLimit(): void {
 function getCliCacheConfig() {
   try {
     const enabled = getBooleanConfig('sfLogs.cliCache.enabled', true);
-    const authTtl = Math.max(0, getNumberConfig('sfLogs.cliCache.authTtlSeconds', 0, 0, Number.MAX_SAFE_INTEGER)) * 1000;
+    const authTtl =
+      Math.max(0, getNumberConfig('sfLogs.cliCache.authTtlSeconds', 0, 0, Number.MAX_SAFE_INTEGER)) * 1000;
     const orgsTtl =
       Math.max(0, getNumberConfig('sfLogs.cliCache.orgListTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) * 1000;
     const authPersistTtl =
-      Math.max(0, getNumberConfig('sfLogs.cliCache.authPersistentTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) * 1000;
+      Math.max(0, getNumberConfig('sfLogs.cliCache.authPersistentTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) *
+      1000;
     return { enabled, authTtl, orgsTtl, authPersistTtl };
   } catch {
     return { enabled: true, authTtl: 0, orgsTtl: 86400000, authPersistTtl: 86400000 };
@@ -335,6 +354,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
     { program: 'sfdx', args: ['force:org:display', '--json', ...(t ? ['-u', t] : [])] }
   ];
   let sawEnoent = false;
+  let lastError: any;
   for (const { program, args } of candidates) {
     try {
       try {
@@ -375,6 +395,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
         } catch {}
         throw e;
       } else {
+        lastError = e;
         try {
           sendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
         } catch {}
@@ -383,6 +404,9 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
         logTrace('getOrgAuth: attempt failed for', program);
       } catch {}
     }
+  }
+  if (!sawEnoent && lastError) {
+    throw lastError;
   }
   if (sawEnoent) {
     const loginPath = await resolvePATHFromLoginShell();
@@ -427,6 +451,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
             } catch {}
             throw e;
           } else {
+            lastError = e;
             try {
               sendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
             } catch {}
@@ -436,11 +461,17 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
           } catch {}
         }
       }
+      if (lastError) {
+        throw lastError;
+      }
     }
     sendException('cli.getOrgAuth', { code: 'CLI_NOT_FOUND' });
     throw new Error(
       localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).')
     );
+  }
+  if (lastError) {
+    throw lastError;
   }
   sendException('cli.getOrgAuth', { code: 'AUTH_FAILED' });
   throw new Error(
@@ -565,10 +596,6 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
       try {
         logTrace('listOrgs: hit persistent cache');
       } catch {}
-      // Para produção, evitamos cache em memória; para testes, mantemos
-      if (execOverriddenForTests) {
-        orgsCache = { data: persisted, expiresAt: now + Math.max(0, orgsCacheTtl), gen: execOverrideGeneration };
-      }
       return persisted;
     }
   }
@@ -590,6 +617,7 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
     { program: 'sfdx', args: ['force:org:list', '--json'] }
   ];
   let sawEnoent = false;
+  let lastError: any;
   for (const { program, args } of candidates) {
     try {
       try {
@@ -612,11 +640,16 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
         sawEnoent = true;
       } else if (e && e.code === 'ETIMEDOUT') {
         throw e;
+      } else {
+        lastError = e;
       }
       try {
         logTrace('listOrgs: attempt failed for', program);
       } catch {}
     }
+  }
+  if (!sawEnoent && lastError) {
+    throw lastError;
   }
   if (sawEnoent) {
     const loginPath = await resolvePATHFromLoginShell();
@@ -643,15 +676,22 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
           if (e && e.code === 'ETIMEDOUT') {
             throw e;
           }
+          lastError = e;
           try {
             logTrace('listOrgs(login PATH): attempt failed for', program);
           } catch {}
         }
       }
+      if (lastError) {
+        throw lastError;
+      }
     }
     throw new Error(
       localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).')
     );
+  }
+  if (lastError) {
+    throw lastError;
   }
   const empty: OrgItem[] = [];
   if (execOverriddenForTests) {
@@ -665,4 +705,4 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
   return empty;
 }
 
-export { parseOrgList as __parseOrgListForTests };
+export { parseOrgList as __parseOrgListForTests, execCommand as __execCommandForTests };
