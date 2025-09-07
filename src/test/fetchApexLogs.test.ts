@@ -4,7 +4,10 @@ import {
   fetchApexLogs,
   clearListCache,
   __setHttpsRequestImplForTests,
-  __resetHttpsRequestImplForTests
+  __resetHttpsRequestImplForTests,
+  __getListCacheSizeForTests,
+  __getListCacheLimitForTests,
+  __forceExpireListCacheForTests
 } from '../salesforce/http';
 import type { OrgAuth } from '../salesforce/types';
 
@@ -93,5 +96,80 @@ suite('fetchApexLogs', () => {
     const decoded = decodeURIComponent(q);
     assert.ok(decoded.includes('LIMIT 3'), 'query should include limit');
     assert.ok(decoded.includes('OFFSET 7'), 'query should include offset');
+  });
+
+  test('prunes expired cache entries', async () => {
+    const auth: OrgAuth = {
+      accessToken: 'tok',
+      instanceUrl: 'https://example.com',
+      username: 'user'
+    };
+
+    const body = JSON.stringify({ records: [] });
+    __setHttpsRequestImplForTests((options: any, cb: any) => {
+      const req = new EventEmitter() as any;
+      req.on = function (event: string, listener: any) {
+        EventEmitter.prototype.on.call(this, event, listener);
+        return this;
+      };
+      req.end = () => {
+        const res = new EventEmitter() as any;
+        res.statusCode = 200;
+        res.headers = {};
+        res.setEncoding = () => {};
+        res.req = req;
+        process.nextTick(() => {
+          cb(res);
+          process.nextTick(() => {
+            res.emit('data', Buffer.from(body));
+            res.emit('end');
+          });
+        });
+      };
+      return req;
+    });
+
+    await fetchApexLogs(auth, 50, 0);
+    __forceExpireListCacheForTests();
+    await fetchApexLogs(auth, 50, 1);
+    assert.equal(__getListCacheSizeForTests(), 1, 'expired entries should be removed');
+  });
+
+  test('enforces cache size limit', async () => {
+    const auth: OrgAuth = {
+      accessToken: 'tok',
+      instanceUrl: 'https://example.com',
+      username: 'user'
+    };
+
+    const body = JSON.stringify({ records: [] });
+    __setHttpsRequestImplForTests((options: any, cb: any) => {
+      const req = new EventEmitter() as any;
+      req.on = function (event: string, listener: any) {
+        EventEmitter.prototype.on.call(this, event, listener);
+        return this;
+      };
+      req.end = () => {
+        const res = new EventEmitter() as any;
+        res.statusCode = 200;
+        res.headers = {};
+        res.setEncoding = () => {};
+        res.req = req;
+        process.nextTick(() => {
+          cb(res);
+          process.nextTick(() => {
+            res.emit('data', Buffer.from(body));
+            res.emit('end');
+          });
+        });
+      };
+      return req;
+    });
+
+    const limit = __getListCacheLimitForTests();
+    for (let i = 0; i < limit + 5; i++) {
+      await fetchApexLogs(auth, 50, i);
+    }
+    assert.equal(__getListCacheSizeForTests(), limit, 'list cache should not exceed configured limit');
   });
 });

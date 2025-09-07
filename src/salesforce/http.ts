@@ -140,6 +140,23 @@ const listCache = new Map<string, ListCacheEntry>();
 const headCacheByLog = new Map<string, string[]>();
 const HEAD_CACHE_LIMIT = 200;
 const HEAD_MAX_LINES = 100;
+const LIST_CACHE_LIMIT = 50;
+
+function cleanupListCache(now: number): void {
+  for (const [key, entry] of listCache) {
+    if (entry.expiresAt <= now) {
+      listCache.delete(key);
+    }
+  }
+  while (listCache.size > LIST_CACHE_LIMIT) {
+    const oldest = listCache.keys().next().value as string | undefined;
+    if (oldest) {
+      listCache.delete(oldest);
+    } else {
+      break;
+    }
+  }
+}
 
 function makeListKey(auth: OrgAuth, limit: number, offset: number): string {
   return `${auth.instanceUrl}|${auth.username ?? ''}|${limit}|${offset}`;
@@ -152,6 +169,20 @@ function makeLogKey(auth: OrgAuth, logId: string): string {
 
 export function clearListCache(): void {
   listCache.clear();
+}
+
+export function __getListCacheSizeForTests(): number {
+  return listCache.size;
+}
+
+export function __getListCacheLimitForTests(): number {
+  return LIST_CACHE_LIMIT;
+}
+
+export function __forceExpireListCacheForTests(): void {
+  for (const entry of listCache.values()) {
+    entry.expiresAt = 0;
+  }
 }
 
 export async function fetchApexLogs(
@@ -169,6 +200,7 @@ export async function fetchApexLogs(
   if (cacheKey) {
     const cached = listCache.get(cacheKey);
     if (cached && cached.expiresAt > now) {
+      cleanupListCache(now);
       return cached.data;
     }
   }
@@ -197,6 +229,7 @@ export async function fetchApexLogs(
   if (cacheKey) {
     listCache.set(cacheKey, { data: records, expiresAt: now + 3000 });
   }
+  cleanupListCache(now);
   return records;
 }
 
