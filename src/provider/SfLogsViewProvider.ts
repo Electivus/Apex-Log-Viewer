@@ -147,39 +147,48 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const token = ++this.refreshToken;
-    this.post({ type: 'loading', value: true });
-    try {
-      clearListCache();
-      const configuredLimit = getNumberConfig('sfLogs.pageSize', this.pageLimit, 10, Number.MAX_SAFE_INTEGER);
-      if (configuredLimit > 200) {
-        logWarn('Logs: sfLogs.pageSize clamped to 200 (was', configuredLimit, ')');
+<<<<<<< HEAD
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: localize('refreshingLogs', 'Refreshing logs…')
+      },
+      async () => {
+        this.post({ type: 'loading', value: true });
+        try {
+          clearListCache();
+          const configuredLimit = getNumberConfig('sfLogs.pageSize', this.pageLimit, 10, Number.MAX_SAFE_INTEGER);
+          if (configuredLimit > 200) {
+            logWarn('Logs: sfLogs.pageSize clamped to 200 (was', configuredLimit, ')');
+          }
+          this.pageLimit = Math.min(configuredLimit, 200);
+          const nextConc = getNumberConfig('sfLogs.headConcurrency', this.headConcurrency, 1, Number.MAX_SAFE_INTEGER);
+          if (nextConc !== this.headConcurrency) {
+            this.headConcurrency = nextConc;
+            this.headLimiter = createLimiter(this.headConcurrency);
+          }
+          const auth = await getOrgAuth(this.selectedOrg);
+          this.currentOffset = 0;
+          const logs: ApexLogRow[] = await fetchApexLogs(auth, this.pageLimit, this.currentOffset);
+          logInfo('Logs: fetched', logs.length, 'rows (pageSize =', this.pageLimit, ')');
+          this.currentOffset += logs.length;
+          if (token !== this.refreshToken || this.disposed) {
+            return;
+          }
+          this.post({ type: 'init', locale: vscode.env.language });
+          const hasMore = logs.length === this.pageLimit;
+          this.post({ type: 'logs', data: logs, hasMore });
+          // Limited parallel fetch of log heads
+          this.loadLogHeads(logs, auth, token);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          logWarn('Logs: refresh failed ->', msg);
+          this.post({ type: 'error', message: msg });
+        } finally {
+          this.post({ type: 'loading', value: false });
+        }
       }
-      this.pageLimit = Math.min(configuredLimit, 200);
-      const nextConc = getNumberConfig('sfLogs.headConcurrency', this.headConcurrency, 1, Number.MAX_SAFE_INTEGER);
-      if (nextConc !== this.headConcurrency) {
-        this.headConcurrency = nextConc;
-        this.headLimiter = createLimiter(this.headConcurrency);
-      }
-      const auth = await getOrgAuth(this.selectedOrg);
-      this.currentOffset = 0;
-      const logs: ApexLogRow[] = await fetchApexLogs(auth, this.pageLimit, this.currentOffset);
-      logInfo('Logs: fetched', logs.length, 'rows (pageSize =', this.pageLimit, ')');
-      this.currentOffset += logs.length;
-      if (token !== this.refreshToken || this.disposed) {
-        return;
-      }
-      this.post({ type: 'init', locale: vscode.env.language });
-      const hasMore = logs.length === this.pageLimit;
-      this.post({ type: 'logs', data: logs, hasMore });
-      // Limited parallel fetch of log heads
-      this.loadLogHeads(logs, auth, token);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      logWarn('Logs: refresh failed ->', msg);
-      this.post({ type: 'error', message: msg });
-    } finally {
-      this.post({ type: 'loading', value: false });
-    }
+    );
   }
 
   private async loadMore() {
@@ -311,16 +320,24 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   }
 
   public async sendOrgs(forceRefresh = false) {
-    try {
-      const orgs = await listOrgs(forceRefresh);
-      const selected = pickSelectedOrg(orgs, this.selectedOrg);
-      this.post({ type: 'orgs', data: orgs, selected });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      logError('Logs: list orgs failed ->', msg);
-      void vscode.window.showErrorMessage(localize('sendOrgsFailed', 'Failed to list Salesforce orgs: {0}', msg));
-      this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
-    }
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: localize('listingOrgs', 'Listing Salesforce orgs…')
+      },
+      async () => {
+        try {
+          const orgs = await listOrgs(forceRefresh);
+          const selected = pickSelectedOrg(orgs, this.selectedOrg);
+          this.post({ type: 'orgs', data: orgs, selected });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          logError('Logs: list orgs failed ->', msg);
+          void vscode.window.showErrorMessage(localize('sendOrgsFailed', 'Failed to list Salesforce orgs: {0}', msg));
+          this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
+        }
+      }
+    );
   }
 
   // Expose for command integration
