@@ -340,6 +340,8 @@ export class TailService {
       ]);
       await this.emitLogWithHeader(auth, meta as any, log || '');
     } catch (e) {
+      // Ensure failures don't permanently mark the log ID as seen
+      this.seenLogIds.delete(id);
       const msg = e instanceof Error ? e.message : String(e);
       logWarn('Tail: failed processing streamed log', id, '->', msg);
       this.post({ type: 'error', message: msg });

@@ -155,4 +155,27 @@ suite('TailService', () => {
     assert.equal((service as any).logIdToPath.size, 0);
     assert.equal(service.isRunning(), false);
   });
+
+  test('retries log ID after fetch failure', async () => {
+    const service = new TailService(() => {});
+    (service as any).tailRunning = true;
+    (service as any).currentAuth = { username: 'u', instanceUrl: 'i', accessToken: 't' };
+    const origFetch = http.fetchApexLogBody;
+    let calls = 0;
+    (http as any).fetchApexLogBody = async () => {
+      calls++;
+      if (calls === 1) {
+        throw new Error('fail');
+      }
+      return 'body';
+    };
+    (service as any).emitLogWithHeader = async () => {};
+    await (service as any).handleIncomingLogId('1');
+    assert.equal(calls, 1);
+    assert.equal((service as any).seenLogIds.has('1'), false);
+    await (service as any).handleIncomingLogId('1');
+    assert.equal(calls, 2);
+    assert.equal((service as any).seenLogIds.has('1'), true);
+    (http as any).fetchApexLogBody = origFetch;
+  });
 });
