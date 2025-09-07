@@ -81,6 +81,7 @@ export class TailService {
     this.seenLogIds.clear();
     this.logIdToPath.clear();
     this.currentDebugLevel = debugLevel;
+    let started = false;
     try {
       const auth = await getOrgAuth(this.selectedOrg);
       this.currentAuth = auth;
@@ -120,24 +121,7 @@ export class TailService {
       } catch {
         logWarn('Tail: prime recent logs failed; proceeding with empty seen set');
       }
-
-      this.tailRunning = true;
-      this.post({ type: 'tailStatus', running: true });
-      logInfo('Tail: started; subscribing to /systemTopic/Logging…');
-
-      if (this.tailHardStopTimer) {
-        clearTimeout(this.tailHardStopTimer);
-      }
-      this.tailHardStopTimer = setTimeout(
-        () => {
-          if (this.tailRunning && !this.disposed) {
-            logInfo('Tail: auto-stopping after 30 minutes.');
-            this.post({ type: 'error', message: localize('tailHardStop', 'Tail stopped after 30 minutes.') });
-            this.stop();
-          }
-        },
-        30 * 60 * 1000
-      );
+      logInfo('Tail: subscribing to /systemTopic/Logging…');
       // Create StreamingClient (uses API 36.0 for system topics automatically)
       const processor: StreamProcessor = (message: Parameters<StreamProcessor>[0]) => {
         try {
@@ -240,13 +224,31 @@ export class TailService {
           throw e;
         }
       }
+      this.tailRunning = true;
+      this.post({ type: 'tailStatus', running: true });
+      if (this.tailHardStopTimer) {
+        clearTimeout(this.tailHardStopTimer);
+      }
+      this.tailHardStopTimer = setTimeout(
+        () => {
+          if (this.tailRunning && !this.disposed) {
+            logInfo('Tail: auto-stopping after 30 minutes.');
+            this.post({ type: 'error', message: localize('tailHardStop', 'Tail stopped after 30 minutes.') });
+            this.stop();
+          }
+        },
+        30 * 60 * 1000
+      );
+      started = true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logError('Tail: start failed ->', msg);
       this.post({ type: 'error', message: msg });
       showOutput(true);
-      this.post({ type: 'tailStatus', running: false });
-      this.tailRunning = false;
+    } finally {
+      if (!started) {
+        this.stop();
+      }
     }
   }
 
