@@ -25,7 +25,7 @@ The Electivus Apex Log Viewer extension exposes several settings under the `Elec
 ## `electivus.apexLogs.saveDirName`
 
 - **Type**: string
-- **Default**: `"apexlogs"`
+- **Default**: `"apexlogs"` (stored under `${workspaceFolder}/.sflogs/apexlogs`)
 - Folder name used when saving logs to disk. Files are placed under `${workspaceFolder}/.sflogs/<saveDirName>`.
 
 ## `electivus.apexLogs.trace`

@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import { getApexLogsDir, findExistingLogFile } from '../utils/workspace';
 
 suite('integration: findExistingLogFile', () => {
-  test('does not create apexlogs directory when missing', async () => {
+  test('does not create log directory when missing', async () => {
     const dir = getApexLogsDir();
     await fs.rm(dir, { recursive: true, force: true });
     const result = await findExistingLogFile('nope');

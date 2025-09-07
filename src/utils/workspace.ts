@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';
 import { promises as fs } from 'fs';
+import { getStringConfig } from './config';
 
 /** Return the first workspace folder path, if any. */
 export function getWorkspaceRoot(): string | undefined {
@@ -12,16 +13,17 @@ export function getWorkspaceRoot(): string | undefined {
   return undefined;
 }
 
-/** Resolve the `apexlogs` directory path (workspace or temp) without creating it. */
+/** Resolve the log save directory path (workspace or temp) without creating it. */
 export function getApexLogsDir(): string {
+  const saveDir = getStringConfig('sfLogs.saveDirName', 'apexlogs');
   const workspaceRoot = getWorkspaceRoot();
   if (!workspaceRoot) {
-    return path.join(os.tmpdir(), 'apexlogs');
+    return path.join(os.tmpdir(), saveDir);
   }
-  return path.join(workspaceRoot, 'apexlogs');
+  return path.join(workspaceRoot, '.sflogs', saveDir);
 }
 
-/** Ensure an `apexlogs` folder exists (workspace or temp) and return its path. */
+/** Ensure the configured log directory exists (workspace or temp) and return its path. */
 export async function ensureApexLogsDir(): Promise<string> {
   const dir = getApexLogsDir();
   const workspaceRoot = getWorkspaceRoot();
@@ -34,11 +36,13 @@ export async function ensureApexLogsDir(): Promise<string> {
       if (stat && stat.isFile()) {
         const content = await fs.readFile(gitignorePath, 'utf8').catch(() => '');
         const lines = content.split(/\r?\n/).map(l => l.trim());
+        const saveDir = getStringConfig('sfLogs.saveDirName', 'apexlogs');
+        const target = `.sflogs/${saveDir}`;
         const hasEntry = lines.some(
-          l => l === 'apexlogs' || l === 'apexlogs/' || l === '/apexlogs' || l === '/apexlogs/'
+          l => l === target || l === `${target}/` || l === `/${target}` || l === `/${target}/`
         );
         if (!hasEntry) {
-          await fs.appendFile(gitignorePath, (content.endsWith('\n') ? '' : '\n') + 'apexlogs/\n', 'utf8');
+          await fs.appendFile(gitignorePath, (content.endsWith('\n') ? '' : '\n') + `${target}/\n`, 'utf8');
         }
       }
     } catch {
@@ -49,7 +53,7 @@ export async function ensureApexLogsDir(): Promise<string> {
 }
 
 /**
- * Build a username-prefixed log file path under `apexlogs`.
+ * Build a username-prefixed log file path under the configured log directory.
  */
 export async function getLogFilePathWithUsername(
   username: string | undefined,

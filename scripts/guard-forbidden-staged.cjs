@@ -19,7 +19,7 @@ if (files.length === 0) {
 const rel = (f) => path.relative(process.cwd(), f || '');
 
 const list = files.map(rel).join('\n  - ');
-const msg = `\n❌ Bloqueado: arquivos ${label} não são permitidos no commit.\n\nArquivos detectados:\n  - ${list}\n\nDica:\n- Mantenha logs apenas localmente (ex.: diretório 'apexlogs/' já está no .gitignore).\n- Se adicionou por engano, use: git restore --staged <arquivo>\n- Se precisar revisar, compartilhe por meio seguro e não versione.\n`;
+const msg = `\n❌ Bloqueado: arquivos ${label} não são permitidos no commit.\n\nArquivos detectados:\n  - ${list}\n\nDica:\n- Mantenha logs apenas localmente (ex.: diretório '.sflogs/' já está no .gitignore).\n- Se adicionou por engano, use: git restore --staged <arquivo>\n- Se precisar revisar, compartilhe por meio seguro e não versione.\n`;
 
 console.error(msg);
 process.exit(1);

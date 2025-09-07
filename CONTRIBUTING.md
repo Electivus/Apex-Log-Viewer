@@ -68,12 +68,12 @@ Manual packaging (rare):
 - Requires Salesforce CLI with an authenticated org (`sf org login web`).
 - Never log or commit tokens or org-sensitive data.
 - When `electivus.apexLogs.trace` is enabled, review output before sharing externally.
- - Telemetry: respect the user's VS Code `telemetry.telemetryLevel`. Never include source code, Apex log content, access tokens, usernames, org IDs, or instance URLs in telemetry. Keep events minimal (counts/flags), prefer bounded enums over free-form strings, and consider sampling to avoid high-frequency spam.
+- Telemetry: respect the user's VS Code `telemetry.telemetryLevel`. Never include source code, Apex log content, access tokens, usernames, org IDs, or instance URLs in telemetry. Keep events minimal (counts/flags), prefer bounded enums over free-form strings, and consider sampling to avoid high-frequency spam.
 
 ## Sensitive Files Guardrails
 
 - Forbidden in commits: `*.log` and `*.txt`.
-- Local logs: keep under `apexlogs/` (already in `.gitignore`).
+- Local logs: keep under `.sflogs/` (already in `.gitignore`).
 - Pre-commit: Husky roda um scanner heurístico (sem extensão) e bloqueia conteúdo com cara de log; além disso, lint-staged bloqueia `.log/.txt` explicitamente.
 - CI: `.github/workflows/forbid-sensitive-files.yml` fails if any tracked `.log/.txt` exist in PRs.
 - Packaging: controlado via `files` no `package.json` (somente `dist/**`, bundles em `media/*.js` e metadados são empacotados; logs e fontes não entram).

@@ -30,11 +30,7 @@ interface Inspection<T> {
 
 function hasUserOverride<T>(info: Inspection<T> | undefined): boolean {
   if (!info) return false;
-  return (
-    info.globalValue !== undefined ||
-    info.workspaceValue !== undefined ||
-    info.workspaceFolderValue !== undefined
-  );
+  return info.globalValue !== undefined || info.workspaceValue !== undefined || info.workspaceFolderValue !== undefined;
 }
 
 export function getConfig<T>(name: string, def?: T): T {
@@ -95,6 +91,11 @@ export function getNumberConfig(name: string, def: number, min: number, max: num
 export function getBooleanConfig(name: string, def: boolean): boolean {
   const raw = getConfig<boolean | undefined>(name, undefined);
   return raw !== undefined ? !!raw : def;
+}
+
+export function getStringConfig(name: string, def: string): string {
+  const raw = getConfig<string | undefined>(name, undefined);
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : def;
 }
 
 export function affectsConfiguration(e: vscode.ConfigurationChangeEvent, name: string): boolean {

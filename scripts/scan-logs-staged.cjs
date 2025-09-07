@@ -4,6 +4,7 @@
 // - Skips binary files; samples up to MAX_BYTES for speed
 
 const { execSync, spawnSync } = require('child_process');
+const path = require('path');
 
 const MAX_BYTES = 512 * 1024; // 512KB
 const MAX_LINES = 2000;
@@ -73,9 +74,11 @@ function main() {
   if (files.length === 0) process.exit(0);
 
   const flagged = [];
+  const self = path.join('scripts', 'scan-logs-staged.cjs');
   for (const f of files) {
+    if (path.normalize(f) === self) continue;
     // Fast path for typical log directories
-    if (/\b(apexlogs|logs?)\b/.test(f)) {
+    if (/\b(sflogs|apexlogs|logs?)\b/.test(f)) {
       flagged.push(f);
       continue;
     }
@@ -88,7 +91,7 @@ function main() {
   if (flagged.length > 0) {
     const list = flagged.map((p) => `  - ${p}`).join('\n');
     console.error(
-      `\n❌ Bloqueado: conteúdo com aparência de LOG detectado (sem depender da extensão).\n\nArquivos:\n${list}\n\nDica:\n- Mantenha logs fora do VCS (ex.: 'apexlogs/' já no .gitignore).\n- Desfaça a inclusão: git restore --staged <arquivo>\n- Se não for log, renomeie/ajuste conteúdo para evitar falso-positivo.\n`
+      `\n❌ Bloqueado: conteúdo com aparência de LOG detectado (sem depender da extensão).\n\nArquivos:\n${list}\n\nDica:\n- Mantenha logs fora do VCS (ex.: '.sflogs/' já no .gitignore).\n- Desfaça a inclusão: git restore --staged <arquivo>\n- Se não for log, renomeie/ajuste conteúdo para evitar falso-positivo.\n`
     );
     process.exit(1);
   }
