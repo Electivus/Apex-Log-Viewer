@@ -84,6 +84,10 @@ export class TailService {
     this.currentDebugLevel = debugLevel;
     try {
       const auth = await getOrgAuth(this.selectedOrg);
+      if (!this.tailRunning || this.disposed) {
+        logWarn('Tail: start aborted while awaiting auth');
+        return;
+      }
       this.currentAuth = auth;
       logInfo('Tail: acquired auth for', auth.username || '(default)', 'at', auth.instanceUrl);
 
@@ -120,6 +124,11 @@ export class TailService {
         }
       } catch {
         logWarn('Tail: prime recent logs failed; proceeding with empty seen set');
+      }
+
+      if (!this.tailRunning || this.disposed) {
+        logWarn('Tail: start aborted after priming');
+        return;
       }
 
       this.post({ type: 'tailStatus', running: true });
