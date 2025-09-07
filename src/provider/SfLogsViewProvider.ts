@@ -23,7 +23,7 @@ import {
   findExistingLogFile as utilFindExistingLogFile
 } from '../utils/workspace';
 import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
-import { getNumberConfig } from '../utils/config';
+import { getNumberConfig, affectsConfiguration } from '../utils/config';
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
@@ -47,7 +47,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     // React to settings changes live (no manual refresh required)
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
-        if (e.affectsConfiguration('sfLogs.headConcurrency')) {
+        if (affectsConfiguration(e, 'sfLogs.headConcurrency')) {
           const nextConc = getNumberConfig('sfLogs.headConcurrency', this.headConcurrency, 1, 20);
           if (nextConc !== this.headConcurrency) {
             this.headConcurrency = nextConc;
@@ -300,7 +300,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       webview,
       this.context.extensionUri,
       'main.js',
-      localize('salesforce.logs.view.name', 'Apex Logs')
+      localize('salesforce.logs.view.name', 'Electivus Apex Logs')
     );
   }
 

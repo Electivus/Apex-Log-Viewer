@@ -11,6 +11,7 @@ import { localize } from './utils/localize';
 import { ApexLogDiagramPanelManager } from './provider/ApexLogDiagramPanel';
 import { activateTelemetry, sendEvent, sendException, disposeTelemetry } from './shared/telemetry';
 import { CacheManager } from './utils/cacheManager';
+import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
@@ -42,16 +43,15 @@ export async function activate(context: vscode.ExtensionContext) {
     const msg = e instanceof Error ? e.message : String(e);
     logWarn('Failed to set disable log file env vars ->', msg);
   }
-  logInfo('Activating Apex Log Viewer extension…');
+  logInfo('Activating Electivus Apex Log Viewer extension…');
   // Configure trace logging from settings
   try {
-    const cfg = vscode.workspace.getConfiguration();
-    const trace = !!cfg.get<boolean>('sfLogs.trace');
+    const trace = getBooleanConfig('sfLogs.trace', false);
     setTraceEnabled(trace);
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
-        if (e.affectsConfiguration('sfLogs.trace')) {
-          const next = !!vscode.workspace.getConfiguration().get<boolean>('sfLogs.trace');
+        if (affectsConfiguration(e, 'sfLogs.trace')) {
+          const next = getBooleanConfig('sfLogs.trace', false);
           setTraceEnabled(next);
         }
       })
@@ -198,11 +198,11 @@ export async function activate(context: vscode.ExtensionContext) {
       try {
         await CacheManager.delete('cli');
         logInfo('CLI cache cleared.');
-        vscode.window.showInformationMessage('Apex Logs: CLI cache cleared');
+        vscode.window.showInformationMessage('Electivus Apex Logs: CLI cache cleared');
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         logWarn('Failed clearing CLI cache ->', msg);
-        vscode.window.showErrorMessage('Apex Logs: Failed to clear CLI cache');
+        vscode.window.showErrorMessage('Electivus Apex Logs: Failed to clear CLI cache');
       }
     })
   );
@@ -240,8 +240,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Preload CLI caches (org list and default org auth) in background
   try {
-    const cfg = vscode.workspace.getConfiguration();
-    const enabled = cfg.get<boolean>('sfLogs.cliCache.enabled', true);
+    const enabled = getBooleanConfig('sfLogs.cliCache.enabled', true);
     // Heuristic: skip when running inside VS Code test harness to avoid interfering with unit tests
     const isVsCodeTestHost = /\.vscode-test\b/i.test(String((vscode.env as any)?.appRoot || ''));
     if (enabled && !isVsCodeTestHost) {

@@ -9,7 +9,7 @@ import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/wa
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { TailService } from '../utils/tailService';
 import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
-import { getNumberConfig } from '../utils/config';
+import { getNumberConfig, affectsConfiguration } from '../utils/config';
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogTail';
@@ -29,7 +29,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     // React to tail buffer size changes live
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
-        if (e.affectsConfiguration('sfLogs.tailBufferSize')) {
+        if (affectsConfiguration(e, 'sfLogs.tailBufferSize')) {
           try {
             const size = this.getTailBufferSize();
             this.post({ type: 'tailConfig', tailBufferSize: size });
@@ -166,7 +166,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       webview,
       this.context.extensionUri,
       'tail.js',
-      localize('salesforce.tail.view.name', 'Apex Logs Tail')
+      localize('salesforce.tail.view.name', 'Electivus Apex Logs Tail')
     );
   }
 

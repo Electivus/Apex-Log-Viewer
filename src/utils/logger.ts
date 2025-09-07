@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 // Centralized OutputChannel for the extension
-const channel = vscode.window.createOutputChannel('Apex Log Viewer');
+const channel = vscode.window.createOutputChannel('Electivus Apex Log Viewer');
 let traceEnabled = false;
 
 function fmt(parts: unknown[]): string {
