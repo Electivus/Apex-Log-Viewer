@@ -8,7 +8,8 @@ import {
   fetchApexLogBody,
   fetchApexLogHead,
   extractCodeUnitStartedFromLines,
-  clearListCache
+  clearListCache,
+  clearHeadCache
 } from '../salesforce/http';
 import type { ApexLogRow, OrgItem } from '../shared/types';
 import type { OrgAuth } from '../salesforce/types';
@@ -150,6 +151,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'loading', value: true });
     try {
       clearListCache();
+      clearHeadCache();
       this.pageLimit = getNumberConfig('sfLogs.pageSize', this.pageLimit, 10, 200);
       const nextConc = getNumberConfig('sfLogs.headConcurrency', this.headConcurrency, 1, 20);
       if (nextConc !== this.headConcurrency) {

@@ -1,5 +1,5 @@
 import { promises as fs } from 'fs';
-import { fetchApexLogs, fetchApexLogBody } from '../salesforce/http';
+import { fetchApexLogs, fetchApexLogBody, clearHeadCache } from '../salesforce/http';
 import { getOrgAuth } from '../salesforce/cli';
 import { ensureUserTraceFlag } from '../salesforce/traceflags';
 import type { OrgAuth } from '../salesforce/types';
@@ -301,6 +301,7 @@ export class TailService {
     }
     this.seenLogIds.clear();
     this.logIdToPath.clear();
+    clearHeadCache();
     this.post({ type: 'tailStatus', running: false });
     logInfo('Tail: stopped.');
   }

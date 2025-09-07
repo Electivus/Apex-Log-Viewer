@@ -154,6 +154,10 @@ export function clearListCache(): void {
   listCache.clear();
 }
 
+export function clearHeadCache(): void {
+  headCacheByLog.clear();
+}
+
 export async function fetchApexLogs(
   auth: OrgAuth,
   limit: number = 50,
