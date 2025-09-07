@@ -150,7 +150,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'loading', value: true });
     try {
       clearListCache();
-      this.pageLimit = getNumberConfig('sfLogs.pageSize', this.pageLimit, 10, Number.MAX_SAFE_INTEGER);
+      const configuredLimit = getNumberConfig('sfLogs.pageSize', this.pageLimit, 10, Number.MAX_SAFE_INTEGER);
+      if (configuredLimit > 200) {
+        logWarn('Logs: sfLogs.pageSize clamped to 200 (was', configuredLimit, ')');
+      }
+      this.pageLimit = Math.min(configuredLimit, 200);
       const nextConc = getNumberConfig('sfLogs.headConcurrency', this.headConcurrency, 1, Number.MAX_SAFE_INTEGER);
       if (nextConc !== this.headConcurrency) {
         this.headConcurrency = nextConc;
@@ -165,7 +169,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       this.post({ type: 'init', locale: vscode.env.language });
-      this.post({ type: 'logs', data: logs, hasMore: logs.length === this.pageLimit });
+      const hasMore = logs.length === this.pageLimit;
+      this.post({ type: 'logs', data: logs, hasMore });
       // Limited parallel fetch of log heads
       this.loadLogHeads(logs, auth, token);
     } catch (e) {
@@ -191,7 +196,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       if (token !== this.refreshToken || this.disposed) {
         return;
       }
-      this.post({ type: 'appendLogs', data: logs, hasMore: logs.length === this.pageLimit });
+      const hasMore = logs.length === this.pageLimit;
+      this.post({ type: 'appendLogs', data: logs, hasMore });
       this.loadLogHeads(logs, auth, token);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
