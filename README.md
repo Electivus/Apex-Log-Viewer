@@ -97,6 +97,8 @@ Why developers like it
 - `electivus.apexLogs.headConcurrency`: Max concurrent requests to fetch log headers (>= 1; default 5). Very high values can overload APIs.
 - `electivus.apexLogs.saveDirName`: Folder name used when saving logs to disk (default `apexlogs`).
 - `electivus.apexLogs.trace`: Enable verbose trace logging of CLI and HTTP calls.
+- `electivus.apexLogs.httpTimeoutMs`: Timeout in milliseconds for Salesforce HTTP requests (1000–600000; default 120000).
+- `electivus.apexLogs.cliTimeoutMs`: Timeout in milliseconds for Salesforce CLI commands (1000–600000; default 120000).
 
 See [docs/SETTINGS.md](docs/SETTINGS.md) for more details on configuration.
 
@@ -136,6 +138,7 @@ See docs/TESTING.md for how to run unit and integration tests (`npm run test:uni
 To help improve quality and performance, the extension may emit minimal, anonymized usage and error telemetry (for example: command invocation counts, non‑PII error categories like `ENOENT`/`ETIMEDOUT`, and coarse performance timings). We never include source code, Apex log content, access tokens, usernames, org IDs, or instance URLs in telemetry. Telemetry is disabled automatically in Development and Test modes (Extension Development Host and automated tests).
 
 Respecting your preferences:
+
 - VS Code’s `telemetry.telemetryLevel` setting controls whether telemetry is sent (values: `off`, `crash`, `error`, `all`). If set to `off`, the extension does not send telemetry.
 
 For details and implementer guidance, see `docs/TELEMETRY.md`.

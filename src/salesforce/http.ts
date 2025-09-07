@@ -1,10 +1,15 @@
 import * as https from 'https';
 import { URL } from 'url';
 import { logTrace, logWarn } from '../utils/logger';
+import { getNumberConfig } from '../utils/config';
 import { getOrgAuth } from './cli';
 import type { ApexLogRow, OrgAuth } from './types';
 
 const agent = new https.Agent({ keepAlive: true });
+
+export function getHttpTimeoutMs(): number {
+  return getNumberConfig('sfLogs.httpTimeoutMs', 120000, 1000, 600000);
+}
 
 type HttpsRequestFn = typeof https.request;
 let httpsRequestImpl: HttpsRequestFn = https.request;
@@ -176,6 +181,7 @@ export async function fetchApexLogs(
     `SELECT Id, StartTime, Operation, Application, DurationMilliseconds, Status, Request, LogLength, LogUser.Name FROM ApexLog ORDER BY StartTime DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`
   );
   const url = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/query?q=${soql}`;
+  const effectiveTimeout = timeoutMs ?? getHttpTimeoutMs();
   const body = await httpsRequestWith401Retry(
     auth,
     'GET',
@@ -185,7 +191,7 @@ export async function fetchApexLogs(
       'Content-Type': 'application/json'
     },
     undefined,
-    timeoutMs
+    effectiveTimeout
   );
   const json = JSON.parse(body);
   const records = (json.records || []) as ApexLogRow[];
@@ -202,6 +208,7 @@ export async function fetchApexLogs(
 
 export async function fetchApexLogBody(auth: OrgAuth, logId: string, timeoutMs?: number): Promise<string> {
   const url = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/sobjects/ApexLog/${logId}/Body`;
+  const effectiveTimeout = timeoutMs ?? getHttpTimeoutMs();
   const text = await httpsRequestWith401Retry(
     auth,
     'GET',
@@ -211,7 +218,7 @@ export async function fetchApexLogBody(auth: OrgAuth, logId: string, timeoutMs?:
       'Content-Type': 'text/plain'
     },
     undefined,
-    timeoutMs
+    effectiveTimeout
   );
   return text;
 }
@@ -225,6 +232,7 @@ async function fetchApexLogBytesRange(
   endInclusive: number,
   timeoutMs?: number
 ): Promise<RangeResponse> {
+  const effectiveTimeout = timeoutMs ?? getHttpTimeoutMs();
   const urlString = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/sobjects/ApexLog/${logId}/Body`;
   const first = await httpsRequest(
     'GET',
@@ -236,7 +244,7 @@ async function fetchApexLogBytesRange(
       Range: `bytes=${start}-${endInclusive}`
     },
     undefined,
-    timeoutMs
+    effectiveTimeout
   );
   if (first.statusCode === 401) {
     await refreshAuthInPlace(auth);
@@ -250,7 +258,7 @@ async function fetchApexLogBytesRange(
         Range: `bytes=${start}-${endInclusive}`
       },
       undefined,
-      timeoutMs
+      effectiveTimeout
     );
     return { statusCode: second.statusCode, headers: second.headers, body: second.body };
   }
@@ -264,6 +272,7 @@ export async function fetchApexLogHead(
   logLengthBytes?: number,
   timeoutMs?: number
 ): Promise<string[]> {
+  const effectiveTimeout = timeoutMs ?? getHttpTimeoutMs();
   const key = makeLogKey(auth, logId);
   const cached = headCacheByLog.get(key);
   if (cached && cached.length >= maxLines) {
@@ -276,7 +285,7 @@ export async function fetchApexLogHead(
     try {
       logTrace('HTTP Range GET ApexLog head', logId, 'bytes=0-', Math.max(0, stride - 1));
     } catch {}
-    const range = await fetchApexLogBytesRange(auth, logId, 0, Math.max(0, stride - 1), timeoutMs);
+    const range = await fetchApexLogBytesRange(auth, logId, 0, Math.max(0, stride - 1), effectiveTimeout);
     const contentEncoding = (range.headers['content-encoding'] || '').toString().toLowerCase();
     if (range.statusCode === 206 && (!contentEncoding || contentEncoding === 'identity')) {
       try {
@@ -386,8 +395,8 @@ export async function fetchApexLogHead(
           });
         }
       );
-      if (typeof timeoutMs === 'number') {
-        req.setTimeout(timeoutMs, () => {
+      if (typeof effectiveTimeout === 'number') {
+        req.setTimeout(effectiveTimeout, () => {
           try {
             req.destroy();
           } catch {}

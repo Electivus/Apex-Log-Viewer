@@ -7,7 +7,9 @@ The Electivus Apex Log Viewer extension exposes several settings under the `Elec
 "electivus.apexLogs.headConcurrency": 5,
 "electivus.apexLogs.saveDirName": "apexlogs",
 "electivus.apexLogs.trace": false,
-"electivus.apexLogs.tailBufferSize": 10000
+"electivus.apexLogs.tailBufferSize": 10000,
+"electivus.apexLogs.httpTimeoutMs": 120000,
+"electivus.apexLogs.cliTimeoutMs": 120000
 ```
 
 ## `electivus.apexLogs.pageSize`
@@ -40,6 +42,18 @@ The Electivus Apex Log Viewer extension exposes several settings under the `Elec
 - Default: `10000`
 - Number of lines retained in the Tail view's rolling buffer. Higher values keep more history visible to filters and search, at the cost of additional memory and CPU.
 - Changes take effect immediately in an open Tail view; no reload required.
+
+## `electivus.apexLogs.httpTimeoutMs`
+
+- Type: number (1000–600000)
+- Default: `120000`
+- Timeout in milliseconds for Salesforce HTTP requests. Values outside the range are clamped.
+
+## `electivus.apexLogs.cliTimeoutMs`
+
+- Type: number (1000–600000)
+- Default: `120000`
+- Timeout in milliseconds for Salesforce CLI commands. Values outside the range are clamped.
 
 ## Applying changes
 

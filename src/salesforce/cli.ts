@@ -9,7 +9,11 @@ import * as vscode from 'vscode';
 import { CacheManager } from '../utils/cacheManager';
 import { getBooleanConfig, getNumberConfig } from '../utils/config';
 
-const CLI_TIMEOUT_MS = 120000;
+const CLI_TIMEOUT_MS_DEFAULT = 120000;
+
+export function getCliTimeoutMs(): number {
+  return getNumberConfig('sfLogs.cliTimeoutMs', CLI_TIMEOUT_MS_DEFAULT, 1000, 600000);
+}
 
 // Deduplicate identical execs running concurrently
 const inFlightExecs = new Map<string, Promise<{ stdout: string; stderr: string }>>();
@@ -164,7 +168,7 @@ function execCommand(
   program: string,
   args: string[],
   envOverride?: NodeJS.ProcessEnv,
-  timeoutMs: number = CLI_TIMEOUT_MS
+  timeoutMs: number = getCliTimeoutMs()
 ): Promise<{ stdout: string; stderr: string }> {
   const key = makeExecKey(program, args, envOverride, timeoutMs);
   const existing = inFlightExecs.get(key);
@@ -282,11 +286,13 @@ function enforceAuthCacheLimit(): void {
 function getCliCacheConfig() {
   try {
     const enabled = getBooleanConfig('sfLogs.cliCache.enabled', true);
-    const authTtl = Math.max(0, getNumberConfig('sfLogs.cliCache.authTtlSeconds', 0, 0, Number.MAX_SAFE_INTEGER)) * 1000;
+    const authTtl =
+      Math.max(0, getNumberConfig('sfLogs.cliCache.authTtlSeconds', 0, 0, Number.MAX_SAFE_INTEGER)) * 1000;
     const orgsTtl =
       Math.max(0, getNumberConfig('sfLogs.cliCache.orgListTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) * 1000;
     const authPersistTtl =
-      Math.max(0, getNumberConfig('sfLogs.cliCache.authPersistentTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) * 1000;
+      Math.max(0, getNumberConfig('sfLogs.cliCache.authPersistentTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) *
+      1000;
     return { enabled, authTtl, orgsTtl, authPersistTtl };
   } catch {
     return { enabled: true, authTtl: 0, orgsTtl: 86400000, authPersistTtl: 86400000 };
@@ -340,7 +346,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
       try {
         logTrace('getOrgAuth: trying', program, args.join(' '));
       } catch {}
-      const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS);
+      const { stdout } = await execCommand(program, args, undefined, getCliTimeoutMs());
       const parsed = JSON.parse(stdout);
       const result = parsed.result || parsed;
       const accessToken: string | undefined = result.accessToken || result.access_token;
@@ -393,7 +399,7 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
           try {
             logTrace('getOrgAuth(login PATH): trying', program, args.join(' '));
           } catch {}
-          const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS);
+          const { stdout } = await execCommand(program, args, env2, getCliTimeoutMs());
           const parsed = JSON.parse(stdout);
           const result = parsed.result || parsed;
           const accessToken: string | undefined = result.accessToken || result.access_token;
@@ -595,7 +601,7 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
       try {
         logTrace('listOrgs: trying', program, args.join(' '));
       } catch {}
-      const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS);
+      const { stdout } = await execCommand(program, args, undefined, getCliTimeoutMs());
       const res = parseOrgList(stdout);
       if (execOverriddenForTests) {
         orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
@@ -627,7 +633,7 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
           try {
             logTrace('listOrgs(login PATH): trying', program, args.join(' '));
           } catch {}
-          const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS);
+          const { stdout } = await execCommand(program, args, env2, getCliTimeoutMs());
           const res = parseOrgList(stdout);
           if (execOverriddenForTests) {
             orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };

@@ -85,6 +85,18 @@
           "minimum": 1000,
           "markdownDescription": "%configuration.electivus.apexLogs.tailBufferSize.description%"
         },
+        "electivus.apexLogs.httpTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "minimum": 1000,
+          "markdownDescription": "%configuration.electivus.apexLogs.httpTimeoutMs.description%"
+        },
+        "electivus.apexLogs.cliTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "minimum": 1000,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliTimeoutMs.description%"
+        },
         "electivus.apexLogs.cliCache.enabled": {
           "type": "boolean",
           "default": true,
