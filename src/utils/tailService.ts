@@ -26,6 +26,7 @@ import type { Connection } from '@salesforce/core';
  */
 export class TailService {
   private tailRunning = false;
+  private starting = false;
   private tailTimer: NodeJS.Timeout | undefined;
   private tailHardStopTimer: NodeJS.Timeout | undefined;
   private seenLogIds = new Set<string>();
@@ -69,13 +70,15 @@ export class TailService {
   }
 
   async start(debugLevel?: string): Promise<void> {
-    if (this.tailRunning) {
+    if (this.tailRunning || this.starting) {
       logInfo('Tail: start requested but already running.');
       return;
     }
+    this.starting = true;
     if (!debugLevel) {
       this.post({ type: 'error', message: localize('tailSelectDebugLevel', 'Select a debug level') });
       logWarn('Tail: start aborted; no debug level selected.');
+      this.starting = false;
       return;
     }
     this.seenLogIds.clear();
@@ -246,6 +249,7 @@ export class TailService {
       this.post({ type: 'error', message: msg });
       showOutput(true);
     } finally {
+      this.starting = false;
       if (!started) {
         this.stop();
       }
