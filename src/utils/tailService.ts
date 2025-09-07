@@ -251,6 +251,10 @@ export class TailService {
       this.post({ type: 'error', message: msg });
       showOutput(true);
       this.post({ type: 'tailStatus', running: false });
+      if (this.tailHardStopTimer) {
+        clearTimeout(this.tailHardStopTimer);
+        this.tailHardStopTimer = undefined;
+      }
       this.tailRunning = false;
     }
   }
