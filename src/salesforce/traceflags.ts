@@ -52,7 +52,8 @@ export async function getCurrentUserId(auth: OrgAuth): Promise<string | undefine
   if (!username) {
     return undefined;
   }
-  const cached = userIdCache.get(username);
+  const key = `${auth.instanceUrl || ''}::${username}`;
+  const cached = userIdCache.get(key);
   if (cached) {
     return cached;
   }
@@ -66,7 +67,7 @@ export async function getCurrentUserId(auth: OrgAuth): Promise<string | undefine
   const userJson = JSON.parse(userBody);
   const userId: string | undefined = Array.isArray(userJson.records) ? userJson.records[0]?.Id : undefined;
   if (userId) {
-    userIdCache.set(username, userId);
+    userIdCache.set(key, userId);
   }
   return userId;
 }
