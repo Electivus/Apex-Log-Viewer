@@ -224,15 +224,14 @@ export function highlightContent(
       let m: RegExpExecArray | null;
       while ((m = regex.exec(seg.text)) !== null) {
         const start = m.index;
-        const end = m.index + m[0].length;
-        if (start > lastIndex) {
-          next.push({ text: seg.text.slice(lastIndex, start) });
-        }
-        // Avoid infinite loops on zero-length matches by advancing lastIndex
+        const end = start + m[0].length;
+        // Skip zero-length matches up-front to avoid fragmentation
         if (m[0].length === 0) {
           regex.lastIndex++;
-          lastIndex = start;
           continue;
+        }
+        if (start > lastIndex) {
+          next.push({ text: seg.text.slice(lastIndex, start) });
         }
         next.push({ text: m[0], style: rule.style });
         lastIndex = end;
