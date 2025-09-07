@@ -51,12 +51,26 @@ function httpsRequest(
     );
     req.on('error', reject);
     if (typeof timeoutMs === 'number') {
-      req.setTimeout(timeoutMs, () => {
+      const anyReq: any = req as any;
+      if (typeof anyReq.setTimeout === 'function') {
+        anyReq.setTimeout(timeoutMs, () => {
+          try {
+            anyReq.destroy?.();
+          } catch {}
+          reject(new Error('Request timed out'));
+        });
+      } else {
+        // Fallback for tests/mocks that do not implement setTimeout
+        const timer = setTimeout(() => {
+          try {
+            anyReq.destroy?.();
+          } catch {}
+          reject(new Error('Request timed out'));
+        }, timeoutMs);
         try {
-          req.destroy();
+          anyReq.on?.('close', () => clearTimeout(timer));
         } catch {}
-        reject(new Error('Request timed out'));
-      });
+      }
     }
     if (body && method !== 'GET' && method !== 'HEAD') {
       try {
@@ -396,12 +410,25 @@ export async function fetchApexLogHead(
         }
       );
       if (typeof effectiveTimeout === 'number') {
-        req.setTimeout(effectiveTimeout, () => {
+        const anyReq: any = req as any;
+        if (typeof anyReq.setTimeout === 'function') {
+          anyReq.setTimeout(effectiveTimeout, () => {
+            try {
+              anyReq.destroy?.();
+            } catch {}
+            reject(new Error('Request timed out'));
+          });
+        } else {
+          const timer = setTimeout(() => {
+            try {
+              anyReq.destroy?.();
+            } catch {}
+            reject(new Error('Request timed out'));
+          }, effectiveTimeout);
           try {
-            req.destroy();
+            anyReq.on?.('close', () => clearTimeout(timer));
           } catch {}
-          reject(new Error('Request timed out'));
-        });
+        }
       }
       return req;
     };
