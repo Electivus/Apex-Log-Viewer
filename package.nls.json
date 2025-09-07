@@ -18,5 +18,6 @@
   "configuration.electivus.apexLogs.cliCache.orgListTtlSeconds.description": "TTL in seconds for cached results of 'sf org list'. Set 0 to disable. Large TTLs keep results longer but may be stale.",
   "configuration.electivus.apexLogs.cliCache.authTtlSeconds.description": "Short-lived in-memory TTL (seconds) for cached auth tokens acquired via CLI. Tokens are NOT persisted. Larger values reduce CLI calls but increase the reuse window.",
   "configuration.electivus.apexLogs.cliCache.authPersistentTtlSeconds.description": "Persistent TTL in seconds for cached results of 'sf org display'. Stores the token in VS Code storage to avoid repeated CLI calls across reloads. Larger values reduce CLI calls but keep cached auth longer; set 0 to disable.",
+  "configuration.electivus.apexLogs.cliCache.debugLevelsTtlSeconds.description": "TTL in seconds for cached DebugLevel queries. Set 0 to disable. Large TTLs reduce API calls but may serve stale data.",
   "tailSaveFailed": "Tail: failed to save log to workspace (best-effort)."
 }
