@@ -393,14 +393,14 @@ export class TailService {
     }
   }
 
-  async ensureLogSaved(logId: string): Promise<string> {
+  async ensureLogSaved(logId: string, signal?: AbortSignal): Promise<string> {
     const existing = this.logIdToPath.get(logId);
     if (existing) {
       return existing;
     }
-    const auth = this.currentAuth ?? (await getOrgAuth(this.selectedOrg));
+    const auth = this.currentAuth ?? (await getOrgAuth(this.selectedOrg, undefined, signal));
     this.currentAuth = auth;
-    const body = await fetchApexLogBody(auth, logId);
+    const body = await fetchApexLogBody(auth, logId, undefined, signal);
     const { filePath } = await this.getLogFilePathWithUsername(auth.username, logId);
     await fs.writeFile(filePath, body, 'utf8');
     this.addLogPath(logId, filePath);

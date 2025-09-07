@@ -202,35 +202,38 @@ async function ensureDefaultScratch(cli, { alias, durationDays, definitionJson, 
   }
 }
 
-async function pretestSetup() {
+async function pretestSetup(scope = 'all') {
   const devhubAuthUrl = process.env.SF_DEVHUB_AUTH_URL || process.env.SFDX_AUTH_URL;
   const devhubAlias = process.env.SF_DEVHUB_ALIAS || 'DevHub';
   const scratchAlias = process.env.SF_SCRATCH_ALIAS || 'ALV_Test_Scratch';
   const keepScratch = /^1|true$/i.test(String(process.env.SF_TEST_KEEP_ORG || ''));
   const durationDays = Number(process.env.SF_SCRATCH_DURATION || 1);
-
-  const cli = await ensureSfCliInstalled();
-  if (!cli) {
-    console.warn('[test-setup] Salesforce CLI not found; skipping org setup.');
-    return { cleanup: async () => {} };
-  }
-
-  if (devhubAuthUrl) {
-    console.log('[test-setup] Authenticating Dev Hub from env...');
-    await ensureDevHub(cli, { authUrl: devhubAuthUrl, alias: devhubAlias });
-  }
-
-  const toggle = process.env.SF_SETUP_SCRATCH || process.env.CI || devhubAuthUrl;
+  // When running unit tests, skip any Salesforce CLI/Dev Hub setup.
+  // Keep only the temporary workspace preparation below.
   let cleanup = async () => {};
-  if (toggle) {
-    const res = await ensureDefaultScratch(cli, {
-      alias: scratchAlias,
-      durationDays,
-      definitionJson: undefined,
-      keep: keepScratch
-    });
-    if (res && res.cleanup) {
-      cleanup = res.cleanup;
+  if (String(scope) !== 'unit') {
+    const cli = await ensureSfCliInstalled();
+    if (!cli) {
+      console.warn('[test-setup] Salesforce CLI not found; skipping org setup.');
+      // Continue to workspace creation so tests still have a workspace.
+    } else {
+      if (devhubAuthUrl) {
+        console.log('[test-setup] Authenticating Dev Hub from env...');
+        await ensureDevHub(cli, { authUrl: devhubAuthUrl, alias: devhubAlias });
+      }
+
+      const toggle = process.env.SF_SETUP_SCRATCH || process.env.CI || devhubAuthUrl;
+      if (toggle) {
+        const res = await ensureDefaultScratch(cli, {
+          alias: scratchAlias,
+          durationDays,
+          definitionJson: undefined,
+          keep: keepScratch
+        });
+        if (res && res.cleanup) {
+          cleanup = res.cleanup;
+        }
+      }
     }
   }
   // Create a temporary VS Code workspace with expected sfdx-project.json
@@ -321,7 +324,7 @@ async function run() {
     }
   }
 
-  const { cleanup } = await pretestSetup();
+  const { cleanup } = await pretestSetup(args.scope);
 
   // Hint Electron to avoid GPU issues in headless envs
   process.env.ELECTRON_DISABLE_GPU = process.env.ELECTRON_DISABLE_GPU || '1';
@@ -336,8 +339,9 @@ async function run() {
   const defaultMs = scope === 'unit' ? 8 * 60 * 1000 : 15 * 60 * 1000;
   const totalTimeout = Number(args.timeoutMs || defaultMs);
 
-  // Download VS Code (insiders by default; CI can pass --vscode=stable)
-  const vsVer = String(args.vscode || 'insiders');
+  // Download VS Code: prefer stable for unit tests to maximize cache reuse
+  // (avoid frequent Insiders updates triggering re-downloads). Can be overridden via --vscode.
+  const vsVer = String(args.vscode || (scope === 'unit' ? 'stable' : 'insiders'));
   const vscodeExecutablePath = await downloadAndUnzipVSCode(vsVer);
   const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, {
     reuseMachineInstall: true
