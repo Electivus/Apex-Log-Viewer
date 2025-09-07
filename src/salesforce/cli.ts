@@ -2,7 +2,7 @@ import * as cp from 'child_process';
 import * as os from 'os';
 import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
-import { sendException } from '../shared/telemetry';
+import { safeSendException } from '../shared/telemetry';
 const crossSpawn = require('cross-spawn');
 import type { OrgAuth, OrgItem } from './types';
 import * as vscode from 'vscode';
@@ -239,18 +239,14 @@ function execCommand(
           try {
             logTrace('execCommand ENOENT for', program);
           } catch {}
-          try {
-            sendException('cli.exec', { code: 'ENOENT', command: program });
-          } catch {}
+          safeSendException('cli.exec', { code: 'ENOENT', command: program });
           reject(e);
           return;
         }
         try {
           logTrace('execCommand error for', program, '->', (stderr || err.message || '').split('\n')[0]);
         } catch {}
-        try {
-          sendException('cli.exec', { code: String(err.code || ''), command: program });
-        } catch {}
+        safeSendException('cli.exec', { code: String(err.code || ''), command: program });
         reject(new Error(stderr || err.message));
         return;
       }
@@ -275,9 +271,7 @@ function execCommand(
       );
       err.code = 'ETIMEDOUT';
       inFlightExecs.delete(key);
-      try {
-        sendException('cli.exec', { code: 'ETIMEDOUT', command: program });
-      } catch {}
+      safeSendException('cli.exec', { code: 'ETIMEDOUT', command: program });
       reject(err);
     }, timeoutMs);
   });
@@ -416,18 +410,12 @@ export async function getOrgAuth(
       }
       if (e && e.code === 'ENOENT') {
         sawEnoent = true;
-        try {
-          sendException('cli.getOrgAuth', { code: 'ENOENT', command: program });
-        } catch {}
+        safeSendException('cli.getOrgAuth', { code: 'ENOENT', command: program });
       } else if (e && e.code === 'ETIMEDOUT') {
-        try {
-          sendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
-        } catch {}
+        safeSendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
         throw e;
       } else {
-        try {
-          sendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
-        } catch {}
+        safeSendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
       }
       try {
         logTrace('getOrgAuth: attempt failed for', program);
@@ -471,18 +459,12 @@ export async function getOrgAuth(
             throw new Error('aborted');
           }
           if (e && e.code === 'ENOENT') {
-            try {
-              sendException('cli.getOrgAuth', { code: 'ENOENT', command: program });
-            } catch {}
+            safeSendException('cli.getOrgAuth', { code: 'ENOENT', command: program });
           } else if (e && e.code === 'ETIMEDOUT') {
-            try {
-              sendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
-            } catch {}
+            safeSendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
             throw e;
           } else {
-            try {
-              sendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
-            } catch {}
+            safeSendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
           }
           try {
             logTrace('getOrgAuth(login PATH): attempt failed for', program);
@@ -490,12 +472,12 @@ export async function getOrgAuth(
         }
       }
     }
-    sendException('cli.getOrgAuth', { code: 'CLI_NOT_FOUND' });
+    safeSendException('cli.getOrgAuth', { code: 'CLI_NOT_FOUND' });
     throw new Error(
       localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).')
     );
   }
-  sendException('cli.getOrgAuth', { code: 'AUTH_FAILED' });
+  safeSendException('cli.getOrgAuth', { code: 'AUTH_FAILED' });
   throw new Error(
     localize(
       'cliAuthFailed',
