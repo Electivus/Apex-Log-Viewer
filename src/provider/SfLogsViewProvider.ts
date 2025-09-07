@@ -147,7 +147,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const token = ++this.refreshToken;
-<<<<<<< HEAD
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
