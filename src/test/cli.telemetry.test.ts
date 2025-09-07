@@ -6,7 +6,7 @@ suite('cli telemetry', () => {
     const calls: any[] = [];
     const { getOrgAuth, __setExecFileImplForTests, __resetExecFileImplForTests } = proxyquire('../salesforce/cli', {
       '../shared/telemetry': {
-        sendException: (name: string, properties: Record<string, string>) => {
+        safeSendException: (name: string, properties: Record<string, string>) => {
           calls.push({ name, properties });
         }
       }
@@ -28,7 +28,7 @@ suite('cli telemetry', () => {
     const calls: any[] = [];
     const { getOrgAuth, __setExecFileImplForTests, __resetExecFileImplForTests } = proxyquire('../salesforce/cli', {
       '../shared/telemetry': {
-        sendException: (name: string, properties: Record<string, string>) => {
+        safeSendException: (name: string, properties: Record<string, string>) => {
           calls.push({ name, properties });
         }
       }
