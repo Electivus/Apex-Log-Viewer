@@ -38,6 +38,8 @@ const en = {
   selectOrgPlaceholder: 'Select an authenticated org',
   selectOrgDefault: 'Default',
   selectOrgError: 'Electivus Apex Logs: Failed to list orgs',
+  refreshingLogs: 'Refreshing logs…',
+  listingOrgs: 'Listing Salesforce orgs…',
   'salesforce.logs.view.name': 'Electivus Apex Logs',
   'salesforce.tail.view.name': 'Electivus Apex Logs Tail'
 };
@@ -62,6 +64,8 @@ const ptBr = {
   selectOrgPlaceholder: 'Selecione uma org autenticada',
   selectOrgDefault: 'Padrão',
   selectOrgError: 'Electivus Apex Logs: falha ao listar orgs',
+  refreshingLogs: 'Atualizando logs…',
+  listingOrgs: 'Listando orgs Salesforce…',
   'salesforce.logs.view.name': 'Electivus Apex Logs',
   'salesforce.tail.view.name': 'Electivus Apex Logs Tail'
 };

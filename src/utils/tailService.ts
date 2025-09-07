@@ -26,7 +26,6 @@ import type { Connection } from '@salesforce/core';
  */
 export class TailService {
   private tailRunning = false;
-  private tailTimer: NodeJS.Timeout | undefined;
   private tailHardStopTimer: NodeJS.Timeout | undefined;
   private seenLogIds = new Set<string>();
   private currentAuth: OrgAuth | undefined;
@@ -58,9 +57,6 @@ export class TailService {
 
   promptPoll(): void {
     // No-op with Streaming API (kept for compatibility with older VS Code versions)
-    if (this.tailTimer) {
-      clearTimeout(this.tailTimer);
-    }
   }
 
   dispose(): void {
@@ -78,11 +74,16 @@ export class TailService {
       logWarn('Tail: start aborted; no debug level selected.');
       return;
     }
+    this.tailRunning = true;
     this.seenLogIds.clear();
     this.logIdToPath.clear();
     this.currentDebugLevel = debugLevel;
     try {
       const auth = await getOrgAuth(this.selectedOrg);
+      if (!this.tailRunning || this.disposed) {
+        logWarn('Tail: start aborted while awaiting auth');
+        return;
+      }
       this.currentAuth = auth;
       logInfo('Tail: acquired auth for', auth.username || '(default)', 'at', auth.instanceUrl);
 
@@ -121,7 +122,11 @@ export class TailService {
         logWarn('Tail: prime recent logs failed; proceeding with empty seen set');
       }
 
-      this.tailRunning = true;
+      if (!this.tailRunning || this.disposed) {
+        logWarn('Tail: start aborted after priming');
+        return;
+      }
+
       this.post({ type: 'tailStatus', running: true });
       logInfo('Tail: started; subscribing to /systemTopic/Logging…');
 
@@ -246,6 +251,10 @@ export class TailService {
       this.post({ type: 'error', message: msg });
       showOutput(true);
       this.post({ type: 'tailStatus', running: false });
+      if (this.tailHardStopTimer) {
+        clearTimeout(this.tailHardStopTimer);
+        this.tailHardStopTimer = undefined;
+      }
       this.tailRunning = false;
     }
   }
@@ -291,10 +300,6 @@ export class TailService {
     this.logService = undefined;
     this.currentAuth = undefined;
     this.lastReplayId = undefined;
-    if (this.tailTimer) {
-      clearTimeout(this.tailTimer);
-      this.tailTimer = undefined;
-    }
     if (this.tailHardStopTimer) {
       clearTimeout(this.tailHardStopTimer);
       this.tailHardStopTimer = undefined;

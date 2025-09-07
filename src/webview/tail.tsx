@@ -122,7 +122,8 @@ function App() {
   // Auto-scroll to the last visible (filtered) item when enabled
   useEffect(() => {
     if (!autoScroll) return;
-    const last = filteredIndexes.length > 0 ? filteredIndexes.length - 1 : 0;
+    if (filteredIndexes.length === 0) return;
+    const last = filteredIndexes.length - 1;
     listRef.current?.scrollToRow({ index: last, align: 'end', behavior: 'auto' });
   }, [lines, autoScroll, filteredIndexes.length]);
 

@@ -224,7 +224,12 @@ export function highlightContent(
       let m: RegExpExecArray | null;
       while ((m = regex.exec(seg.text)) !== null) {
         const start = m.index;
-        const end = m.index + m[0].length;
+        const end = start + m[0].length;
+        // Skip zero-length matches up-front to avoid fragmentation
+        if (m[0].length === 0) {
+          regex.lastIndex++;
+          continue;
+        }
         if (start > lastIndex) {
           next.push({ text: seg.text.slice(lastIndex, start) });
         }
