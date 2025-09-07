@@ -237,6 +237,36 @@ function execCommand(
 // Short-lived in-memory cache for auth (avoid storing tokens on disk)
 type AuthCache = { value: OrgAuth; expiresAt: number };
 const authCacheByUser = new Map<string, AuthCache>();
+const MAX_AUTH_CACHE_ITEMS = 50;
+const AUTH_CACHE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+let authCacheCleanupTimer: NodeJS.Timeout | undefined;
+
+function purgeExpiredAuthCache(now: number = Date.now()): void {
+  for (const [key, { expiresAt }] of authCacheByUser) {
+    if (expiresAt <= now) {
+      authCacheByUser.delete(key);
+    }
+  }
+}
+
+function scheduleAuthCacheCleanup(): void {
+  if (authCacheCleanupTimer) {
+    return;
+  }
+  authCacheCleanupTimer = setInterval(() => purgeExpiredAuthCache(), AUTH_CACHE_CLEANUP_INTERVAL_MS);
+  authCacheCleanupTimer.unref?.();
+}
+
+function enforceAuthCacheLimit(): void {
+  if (authCacheByUser.size <= MAX_AUTH_CACHE_ITEMS) {
+    return;
+  }
+  const entries = Array.from(authCacheByUser.entries()).sort((a, b) => a[1].expiresAt - b[1].expiresAt);
+  while (authCacheByUser.size > MAX_AUTH_CACHE_ITEMS && entries.length) {
+    const [key] = entries.shift()!;
+    authCacheByUser.delete(key);
+  }
+}
 
 function getCliCacheConfig() {
   try {
@@ -244,7 +274,8 @@ function getCliCacheConfig() {
     const enabled = cfg.get<boolean>('sfLogs.cliCache.enabled', true);
     const authTtl = Math.max(0, Math.floor(cfg.get<number>('sfLogs.cliCache.authTtlSeconds', 0))) * 1000; // in-memory disabled by default
     const orgsTtl = Math.max(0, Math.floor(cfg.get<number>('sfLogs.cliCache.orgListTtlSeconds', 86400))) * 1000; // 1 day
-    const authPersistTtl = Math.max(0, Math.floor(cfg.get<number>('sfLogs.cliCache.authPersistentTtlSeconds', 86400))) * 1000; // 1 day
+    const authPersistTtl =
+      Math.max(0, Math.floor(cfg.get<number>('sfLogs.cliCache.authPersistentTtlSeconds', 86400))) * 1000; // 1 day
     return { enabled, authTtl, orgsTtl, authPersistTtl };
   } catch {
     return { enabled: true, authTtl: 0, orgsTtl: 86400000, authPersistTtl: 86400000 };
@@ -256,22 +287,31 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
   const { enabled, authTtl, authPersistTtl } = getCliCacheConfig();
   const cacheKey = t || '__default__';
   const now = Date.now();
+  purgeExpiredAuthCache(now);
+  scheduleAuthCacheCleanup();
   if (execOverriddenForTests && !forceRefresh && authTtl > 0) {
     const cached = authCacheByUser.get(cacheKey);
-    if (cached && cached.expiresAt > now) {
-      try {
-        logTrace('getOrgAuth: returning cached auth for', cacheKey);
-      } catch {}
-      return cached.value;
+    if (cached) {
+      if (cached.expiresAt <= now) {
+        authCacheByUser.delete(cacheKey);
+      } else {
+        try {
+          logTrace('getOrgAuth: returning cached auth for', cacheKey);
+        } catch {}
+        return cached.value;
+      }
     }
   }
   if (!forceRefresh && enabled && authPersistTtl > 0 && !execOverriddenForTests) {
     const persisted = CacheManager.get<OrgAuth>('cli', `orgAuth:${cacheKey}`);
     if (persisted && persisted.accessToken && persisted.instanceUrl) {
-      try { logTrace('getOrgAuth: hit persistent cache for', cacheKey); } catch {}
+      try {
+        logTrace('getOrgAuth: hit persistent cache for', cacheKey);
+      } catch {}
       // refresh in-memory cache too
       if (authTtl > 0) {
         authCacheByUser.set(cacheKey, { value: persisted, expiresAt: now + authTtl });
+        enforceAuthCacheLimit();
       }
       return persisted;
     }
@@ -302,9 +342,12 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
         const auth = { accessToken, instanceUrl, username } as OrgAuth;
         if (execOverriddenForTests && authTtl > 0) {
           authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
+          enforceAuthCacheLimit();
         }
         if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
-          try { await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl); } catch {}
+          try {
+            await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
+          } catch {}
         }
         return auth;
       }
@@ -339,14 +382,17 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
             try {
               logTrace('getOrgAuth(login PATH): success for user', username || '(unknown)', 'at', instanceUrl);
             } catch {}
-          const auth = { accessToken, instanceUrl, username } as OrgAuth;
-          if (execOverriddenForTests && authTtl > 0) {
-            authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
-          }
-          if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
-            try { await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl); } catch {}
-          }
-          return auth;
+            const auth = { accessToken, instanceUrl, username } as OrgAuth;
+            if (execOverriddenForTests && authTtl > 0) {
+              authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
+              enforceAuthCacheLimit();
+            }
+            if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
+              try {
+                await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
+              } catch {}
+            }
+            return auth;
           }
         } catch (_e) {
           const e: any = _e;
@@ -451,9 +497,7 @@ let orgsCache: OrgsCache | undefined;
 let orgsCacheTtl = 10000; // 10s default
 
 // Test hook to bypass CLI and provide deterministic results
-let listOrgsMock:
-  | (() => OrgItem[] | Promise<OrgItem[]>)
-  | undefined;
+let listOrgsMock: (() => OrgItem[] | Promise<OrgItem[]>) | undefined;
 
 export function __setListOrgsCacheTTLForTests(ms: number): void {
   orgsCacheTtl = ms;
@@ -471,9 +515,7 @@ export function __resetListOrgsCacheForTests(): void {
   listOrgsMock = undefined;
 }
 
-export function __setListOrgsMockForTests(
-  fn: (() => OrgItem[] | Promise<OrgItem[]>) | undefined
-): void {
+export function __setListOrgsMockForTests(fn: (() => OrgItem[] | Promise<OrgItem[]>) | undefined): void {
   listOrgsMock = fn;
   execOverriddenForTests = true;
   execOverrideGeneration++;
@@ -486,7 +528,9 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
   if (!forceRefresh && enabled && orgsTtl > 0 && !execOverriddenForTests) {
     const persisted = CacheManager.get<OrgItem[]>('cli', persistentKey);
     if (persisted && Array.isArray(persisted)) {
-      try { logTrace('listOrgs: hit persistent cache'); } catch {}
+      try {
+        logTrace('listOrgs: hit persistent cache');
+      } catch {}
       // Para produção, evitamos cache em memória; para testes, mantemos
       if (execOverriddenForTests) {
         orgsCache = { data: persisted, expiresAt: now + Math.max(0, orgsCacheTtl), gen: execOverrideGeneration };
@@ -523,7 +567,9 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
         orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
       }
       if (enabled && orgsTtl > 0 && !execOverriddenForTests) {
-        try { await CacheManager.set('cli', persistentKey, res, orgsTtl); } catch {}
+        try {
+          await CacheManager.set('cli', persistentKey, res, orgsTtl);
+        } catch {}
       }
       return res;
     } catch (_e) {
@@ -553,7 +599,9 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
             orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
           }
           if (enabled && orgsTtl > 0 && !execOverriddenForTests) {
-            try { await CacheManager.set('cli', persistentKey, res, orgsTtl); } catch {}
+            try {
+              await CacheManager.set('cli', persistentKey, res, orgsTtl);
+            } catch {}
           }
           return res;
         } catch (_e) {
@@ -576,7 +624,9 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
     orgsCache = { data: empty, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
   }
   if (enabled && orgsTtl > 0 && !execOverriddenForTests) {
-    try { await CacheManager.set('cli', persistentKey, empty, orgsTtl); } catch {}
+    try {
+      await CacheManager.set('cli', persistentKey, empty, orgsTtl);
+    } catch {}
   }
   return empty;
 }
