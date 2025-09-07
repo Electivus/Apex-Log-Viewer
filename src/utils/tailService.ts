@@ -246,6 +246,14 @@ export class TailService {
       this.post({ type: 'error', message: msg });
       showOutput(true);
       this.post({ type: 'tailStatus', running: false });
+      if (this.tailTimer) {
+        clearTimeout(this.tailTimer);
+        this.tailTimer = undefined;
+      }
+      if (this.tailHardStopTimer) {
+        clearTimeout(this.tailHardStopTimer);
+        this.tailHardStopTimer = undefined;
+      }
       this.tailRunning = false;
     }
   }
