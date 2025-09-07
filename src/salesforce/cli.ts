@@ -450,6 +450,11 @@ interface OrgsCache {
 let orgsCache: OrgsCache | undefined;
 let orgsCacheTtl = 10000; // 10s default
 
+// Test hook to bypass CLI and provide deterministic results
+let listOrgsMock:
+  | (() => OrgItem[] | Promise<OrgItem[]>)
+  | undefined;
+
 export function __setListOrgsCacheTTLForTests(ms: number): void {
   orgsCacheTtl = ms;
   // Avoid leaking previously cached data between tests when TTL changes
@@ -463,6 +468,15 @@ export function __resetListOrgsCacheForTests(): void {
     // Best-effort: clear persistent cache to avoid test leakage when extension is activated
     void CacheManager.delete('cli', 'orgList');
   } catch {}
+  listOrgsMock = undefined;
+}
+
+export function __setListOrgsMockForTests(
+  fn: (() => OrgItem[] | Promise<OrgItem[]>) | undefined
+): void {
+  listOrgsMock = fn;
+  execOverriddenForTests = true;
+  execOverrideGeneration++;
 }
 
 export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
@@ -486,6 +500,12 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
     } else {
       return orgsCache.data;
     }
+  }
+  // When mocked in tests, use the provided function to get results
+  if (execOverriddenForTests && listOrgsMock) {
+    const res = await Promise.resolve(listOrgsMock());
+    orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
+    return res;
   }
   const candidates: Array<{ program: string; args: string[] }> = [
     { program: 'sf', args: ['org', 'list', '--json'] },
