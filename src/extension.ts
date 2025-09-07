@@ -9,7 +9,7 @@ import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger 
 import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';
 import { ApexLogDiagramPanelManager } from './provider/ApexLogDiagramPanel';
-import { activateTelemetry, sendEvent, sendException, disposeTelemetry } from './shared/telemetry';
+import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry } from './shared/telemetry';
 import { CacheManager } from './utils/cacheManager';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
@@ -27,14 +27,14 @@ export async function activate(context: vscode.ExtensionContext) {
   // Initialize telemetry (no-op if no key/conn configured)
   try {
     activateTelemetry(context);
-    sendEvent('extension.activate', {
-      vscodeVersion: vscode.version,
-      platform: process.platform,
-      hasWorkspace: String(!!vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0)
-    });
   } catch {
-    // ignore telemetry errors
+    // ignore telemetry init errors
   }
+  safeSendEvent('extension.activate', {
+    vscodeVersion: vscode.version,
+    platform: process.platform,
+    hasWorkspace: String(!!vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0)
+  });
   // Avoid @salesforce/core attempting to spawn Pino transports that fail when bundled
   try {
     if (!process.env.SF_DISABLE_LOG_FILE) process.env.SF_DISABLE_LOG_FILE = 'true';
@@ -117,9 +117,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.refresh', () => {
-      try {
-        sendEvent('command.refresh');
-      } catch {}
+      safeSendEvent('command.refresh');
       return provider.refresh();
     })
   );
@@ -140,31 +138,23 @@ export async function activate(context: vscode.ExtensionContext) {
         });
         if (!picked) {
           logInfo('Select org cancelled.');
-          try {
-            sendEvent('command.selectOrg', { outcome: 'cancel' });
-          } catch {}
+          safeSendEvent('command.selectOrg', { outcome: 'cancel' });
           return;
         }
         const username = picked.username;
         provider.setSelectedOrg(username);
         logInfo('Selected org:', username);
-        try {
-          const count = orgs.length;
-          const bucket = count === 0 ? '0' : count === 1 ? '1' : count <= 5 ? '2-5' : count <= 10 ? '6-10' : '10+';
-          const hasDefault = String(orgs.some(o => o.isDefaultUsername));
-          sendEvent('command.selectOrg', { outcome: 'picked', orgs: bucket, hasDefault });
-        } catch {}
+        const count = orgs.length;
+        const bucket = count === 0 ? '0' : count === 1 ? '1' : count <= 5 ? '2-5' : count <= 10 ? '6-10' : '10+';
+        const hasDefault = String(orgs.some(o => o.isDefaultUsername));
+        safeSendEvent('command.selectOrg', { outcome: 'picked', orgs: bucket, hasDefault });
         await provider.sendOrgs();
         await provider.refresh();
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         logError('Failed listing orgs ->', msg);
-        vscode.window.showErrorMessage(
-          localize('selectOrgError', 'Electivus Apex Logs: Failed to list orgs: {0}', msg)
-        );
-        try {
-          sendException('command.selectOrg', { error: msg });
-        } catch {}
+        vscode.window.showErrorMessage(localize('selectOrgError', 'Electivus Apex Logs: Failed to list orgs'));
+        safeSendException('command.selectOrg', { error: msg });
       }
     })
   );
@@ -172,9 +162,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.tail', async () => {
       logInfo('Command sfLogs.tail invoked. Opening Tail view and starting…');
-      try {
-        sendEvent('command.tail');
-      } catch {}
+      safeSendEvent('command.tail');
       await provider.tailLogs();
     })
   );
@@ -185,9 +173,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.showDiagram', async () => {
       logInfo('Command sfLogs.showDiagram invoked.');
-      try {
-        sendEvent('command.showDiagram');
-      } catch {}
+      safeSendEvent('command.showDiagram');
       await diagramPanel.showForActiveEditor();
     })
   );
@@ -196,9 +182,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Convenience: command to show the output channel
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.showOutput', () => {
-      try {
-        sendEvent('command.showOutput');
-      } catch {}
+      safeSendEvent('command.showOutput');
       showOutput(true);
     })
   );

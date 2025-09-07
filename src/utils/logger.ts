@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
-// Centralized OutputChannel for the extension
-const channel = vscode.window.createOutputChannel('Electivus Apex Log Viewer');
+// Centralized LogOutputChannel for the extension
+const channel: vscode.LogOutputChannel = vscode.window.createOutputChannel('Electivus Apex Log Viewer', { log: true });
 let traceEnabled = false;
 
 function fmt(parts: unknown[]): string {
@@ -25,22 +25,16 @@ function fmt(parts: unknown[]): string {
   }
 }
 
-function now(): string {
-  const d = new Date();
-  const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
 export function logInfo(...parts: unknown[]): void {
-  channel.appendLine(`[${now()}] INFO  ${fmt(parts)}`);
+  channel.info(fmt(parts));
 }
 
 export function logWarn(...parts: unknown[]): void {
-  channel.appendLine(`[${now()}] WARN  ${fmt(parts)}`);
+  channel.warn(fmt(parts));
 }
 
 export function logError(...parts: unknown[]): void {
-  channel.appendLine(`[${now()}] ERROR ${fmt(parts)}`);
+  channel.error(fmt(parts));
 }
 
 export function showOutput(preserveFocus: boolean = false): void {
@@ -53,7 +47,7 @@ export function disposeLogger(): void {
 
 export function setTraceEnabled(enabled: boolean): void {
   traceEnabled = !!enabled;
-  channel.appendLine(`[${now()}] INFO  Trace logging ${traceEnabled ? 'enabled' : 'disabled'}`);
+  channel.info(`Trace logging ${traceEnabled ? 'enabled' : 'disabled'}`);
 }
 
 export function isTraceEnabled(): boolean {
@@ -64,5 +58,5 @@ export function logTrace(...parts: unknown[]): void {
   if (!traceEnabled) {
     return;
   }
-  channel.appendLine(`[${now()}] TRACE ${fmt(parts)}`);
+  channel.trace(fmt(parts));
 }

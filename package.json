@@ -108,6 +108,12 @@
           "minimum": 0,
           "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authPersistentTtlSeconds.description%"
         },
+        "electivus.apexLogs.cliCache.debugLevelsTtlSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.debugLevelsTtlSeconds.description%"
+        },
         "sfLogs.pageSize": {
           "type": "number",
           "default": 100,
@@ -167,6 +173,13 @@
           "minimum": 0,
           "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authPersistentTtlSeconds.description%",
           "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.authPersistentTtlSeconds"
+        },
+        "sfLogs.cliCache.debugLevelsTtlSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.debugLevelsTtlSeconds.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.debugLevelsTtlSeconds"
         }
       }
     },

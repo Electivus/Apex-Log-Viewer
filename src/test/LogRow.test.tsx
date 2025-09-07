@@ -43,5 +43,16 @@ suite('LogRow', () => {
     fireEvent.click(getByRole('button', { name: 'Replay' }));
     assert.equal(opened, '1');
     assert.equal(replayed, '1');
+
+    opened = undefined;
+    replayed = undefined;
+    const rowEl = getByRole('row');
+    fireEvent.keyDown(rowEl, { key: 'Enter' });
+    assert.equal(opened, '1');
+    opened = undefined;
+    fireEvent.keyDown(rowEl, { key: ' ' });
+    assert.equal(opened, '1');
+    fireEvent.keyDown(rowEl, { key: 'Enter', shiftKey: true });
+    assert.equal(replayed, '1');
   });
 });

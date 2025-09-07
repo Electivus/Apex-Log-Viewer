@@ -1,10 +1,35 @@
 import { logTrace } from '../utils/logger';
+import { CacheManager } from '../utils/cacheManager';
+import { getBooleanConfig, getNumberConfig } from '../utils/config';
 import { httpsRequestWith401Retry, getApiVersion } from './http';
 import type { OrgAuth } from './types';
 
 const userIdCache = new Map<string, string>();
 
+function getDebugLevelsCacheConfig() {
+  try {
+    const enabled = getBooleanConfig('sfLogs.cliCache.enabled', true);
+    const ttl =
+      Math.max(0, getNumberConfig('sfLogs.cliCache.debugLevelsTtlSeconds', 300, 0, Number.MAX_SAFE_INTEGER)) * 1000;
+    return { enabled, ttl };
+  } catch {
+    return { enabled: true, ttl: 300000 };
+  }
+}
+
 export async function listDebugLevels(auth: OrgAuth): Promise<string[]> {
+  const { enabled, ttl } = getDebugLevelsCacheConfig();
+  const key = auth.instanceUrl || auth.username || '';
+  const cacheKey = `debugLevels:${key}`;
+  if (enabled && ttl > 0) {
+    const cached = CacheManager.get<string[]>('cli', cacheKey);
+    if (Array.isArray(cached)) {
+      try {
+        logTrace('listDebugLevels: cache hit for', key);
+      } catch {}
+      return cached;
+    }
+  }
   const soql = encodeURIComponent('SELECT DeveloperName FROM DebugLevel ORDER BY DeveloperName');
   const url = `${auth.instanceUrl}/services/data/v${getApiVersion()}/tooling/query?q=${soql}`;
   const body = await httpsRequestWith401Retry(auth, 'GET', url, {
@@ -12,7 +37,13 @@ export async function listDebugLevels(auth: OrgAuth): Promise<string[]> {
     'Content-Type': 'application/json'
   });
   const json = JSON.parse(body);
-  return (json.records || []).map((r: any) => r?.DeveloperName).filter((n: any): n is string => typeof n === 'string');
+  const names = (json.records || [])
+    .map((r: any) => r?.DeveloperName)
+    .filter((n: any): n is string => typeof n === 'string');
+  if (enabled && ttl > 0) {
+    await CacheManager.set('cli', cacheKey, names, ttl);
+  }
+  return names;
 }
 
 export async function getActiveUserDebugLevel(auth: OrgAuth): Promise<string | undefined> {
