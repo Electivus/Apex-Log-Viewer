@@ -14,6 +14,7 @@
   "configuration.electivus.apexLogs.headConcurrency.description": "Maximum concurrent requests to fetch log headers. Very high values may overload Salesforce APIs or hit rate limits.",
   "configuration.electivus.apexLogs.saveDirName.description": "Folder under the workspace where Apex logs are saved. If empty, the extension will auto-detect an existing 'apexlog' folder or use 'apexlogs'.",
   "configuration.electivus.apexLogs.tailBufferSize.description": "Lines kept in the Tail view's rolling buffer. Larger buffers use more memory and CPU.",
+  "configuration.electivus.apexLogs.cliPath.description": "Path to the Salesforce CLI executable (sf or sfdx). Leave empty to search the system PATH.",
   "configuration.electivus.apexLogs.cliCache.enabled.description": "Enable persistent caching for Salesforce CLI calls (org list, etc.).",
   "configuration.electivus.apexLogs.cliCache.orgListTtlSeconds.description": "TTL in seconds for cached results of 'sf org list'. Set 0 to disable. Large TTLs keep results longer but may be stale.",
   "configuration.electivus.apexLogs.cliCache.authTtlSeconds.description": "Short-lived in-memory TTL (seconds) for cached auth tokens acquired via CLI. Tokens are NOT persisted. Larger values reduce CLI calls but increase the reuse window.",

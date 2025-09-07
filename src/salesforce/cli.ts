@@ -7,7 +7,7 @@ const crossSpawn = require('cross-spawn');
 import type { OrgAuth, OrgItem } from './types';
 import * as vscode from 'vscode';
 import { CacheManager } from '../utils/cacheManager';
-import { getBooleanConfig, getNumberConfig } from '../utils/config';
+import { getBooleanConfig, getNumberConfig, getCliPath } from '../utils/config';
 
 const CLI_TIMEOUT_MS = 120000;
 
@@ -282,11 +282,13 @@ function enforceAuthCacheLimit(): void {
 function getCliCacheConfig() {
   try {
     const enabled = getBooleanConfig('sfLogs.cliCache.enabled', true);
-    const authTtl = Math.max(0, getNumberConfig('sfLogs.cliCache.authTtlSeconds', 0, 0, Number.MAX_SAFE_INTEGER)) * 1000;
+    const authTtl =
+      Math.max(0, getNumberConfig('sfLogs.cliCache.authTtlSeconds', 0, 0, Number.MAX_SAFE_INTEGER)) * 1000;
     const orgsTtl =
       Math.max(0, getNumberConfig('sfLogs.cliCache.orgListTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) * 1000;
     const authPersistTtl =
-      Math.max(0, getNumberConfig('sfLogs.cliCache.authPersistentTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) * 1000;
+      Math.max(0, getNumberConfig('sfLogs.cliCache.authPersistentTtlSeconds', 86400, 0, Number.MAX_SAFE_INTEGER)) *
+      1000;
     return { enabled, authTtl, orgsTtl, authPersistTtl };
   } catch {
     return { enabled: true, authTtl: 0, orgsTtl: 86400000, authPersistTtl: 86400000 };
@@ -327,13 +329,21 @@ export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: 
       return persisted;
     }
   }
-  const candidates: Array<{ program: string; args: string[] }> = [
-    { program: 'sf', args: ['org', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
-    { program: 'sf', args: ['org', 'user', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
-    { program: 'sf', args: ['org', 'user', 'display', '--json', ...(t ? ['-o', t] : [])] },
-    { program: 'sf', args: ['org', 'display', '--json', ...(t ? ['-o', t] : [])] },
-    { program: 'sfdx', args: ['force:org:display', '--json', ...(t ? ['-u', t] : [])] }
-  ];
+  const cli = getCliPath();
+  const candidates: Array<{ program: string; args: string[] }> = cli
+    ? [
+        { program: cli, args: ['org', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
+        { program: cli, args: ['org', 'user', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
+        { program: cli, args: ['org', 'user', 'display', '--json', ...(t ? ['-o', t] : [])] },
+        { program: cli, args: ['org', 'display', '--json', ...(t ? ['-o', t] : [])] }
+      ]
+    : [
+        { program: 'sf', args: ['org', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
+        { program: 'sf', args: ['org', 'user', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
+        { program: 'sf', args: ['org', 'user', 'display', '--json', ...(t ? ['-o', t] : [])] },
+        { program: 'sf', args: ['org', 'display', '--json', ...(t ? ['-o', t] : [])] },
+        { program: 'sfdx', args: ['force:org:display', '--json', ...(t ? ['-u', t] : [])] }
+      ];
   let sawEnoent = false;
   for (const { program, args } of candidates) {
     try {
@@ -585,10 +595,13 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
     orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
     return res;
   }
-  const candidates: Array<{ program: string; args: string[] }> = [
-    { program: 'sf', args: ['org', 'list', '--json'] },
-    { program: 'sfdx', args: ['force:org:list', '--json'] }
-  ];
+  const cli = getCliPath();
+  const candidates: Array<{ program: string; args: string[] }> = cli
+    ? [{ program: cli, args: ['org', 'list', '--json'] }]
+    : [
+        { program: 'sf', args: ['org', 'list', '--json'] },
+        { program: 'sfdx', args: ['force:org:list', '--json'] }
+      ];
   let sawEnoent = false;
   for (const { program, args } of candidates) {
     try {

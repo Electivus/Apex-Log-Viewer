@@ -1,9 +1,12 @@
 import assert from 'assert/strict';
+import { workspace } from 'vscode';
 import { getOrgAuth, __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce/cli';
 
 suite('salesforce exec safety', () => {
+  const originalGetConfiguration = workspace.getConfiguration;
   teardown(() => {
     __resetExecFileImplForTests();
+    (workspace.getConfiguration as any) = originalGetConfiguration;
   });
 
   test('passes alias with spaces/special chars as single argv', async () => {
@@ -37,6 +40,31 @@ suite('salesforce exec safety', () => {
     const idx = args.indexOf('-o');
     assert.ok(idx >= 0, 'expected -o flag to be present');
     assert.equal(args[idx + 1], alias, 'alias should be single argv item, unchanged');
+  });
+
+  test('uses configured CLI path when provided', async () => {
+    const customCli = '/custom/sf';
+    (workspace.getConfiguration as any) = () => ({
+      get: (key: string) => (key === 'electivus.apexLogs.cliPath' ? customCli : undefined)
+    });
+
+    let capturedProgram: string | undefined;
+    __setExecFileImplForTests(((program: string, _args: readonly string[] | undefined, _opts: any, cb: any) => {
+      capturedProgram = program;
+      const stdout = JSON.stringify({
+        result: {
+          accessToken: 'token',
+          instanceUrl: 'https://example.my.salesforce.com',
+          username: 'user@example.com'
+        }
+      });
+      cb(null, stdout, '');
+      return undefined as any;
+    }) as any);
+
+    const auth = await getOrgAuth(undefined);
+    assert.equal(auth.instanceUrl, 'https://example.my.salesforce.com');
+    assert.equal(capturedProgram, customCli);
   });
 
   test('reports missing CLI when ENOENT is raised', async () => {

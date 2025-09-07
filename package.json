@@ -85,6 +85,11 @@
           "minimum": 1000,
           "markdownDescription": "%configuration.electivus.apexLogs.tailBufferSize.description%"
         },
+        "electivus.apexLogs.cliPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "%configuration.electivus.apexLogs.cliPath.description%"
+        },
         "electivus.apexLogs.cliCache.enabled": {
           "type": "boolean",
           "default": true,
@@ -140,6 +145,12 @@
           "minimum": 1000,
           "markdownDescription": "%configuration.electivus.apexLogs.tailBufferSize.description%",
           "deprecationMessage": "Deprecated: use electivus.apexLogs.tailBufferSize"
+        },
+        "sfLogs.cliPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "%configuration.electivus.apexLogs.cliPath.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliPath"
         },
         "sfLogs.cliCache.enabled": {
           "type": "boolean",

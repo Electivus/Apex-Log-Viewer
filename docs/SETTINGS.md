@@ -7,6 +7,7 @@ The Electivus Apex Log Viewer extension exposes several settings under the `Elec
 "electivus.apexLogs.headConcurrency": 5,
 "electivus.apexLogs.saveDirName": "apexlogs",
 "electivus.apexLogs.trace": false,
+"electivus.apexLogs.cliPath": "",
 "electivus.apexLogs.tailBufferSize": 10000
 ```
 
@@ -33,6 +34,12 @@ The Electivus Apex Log Viewer extension exposes several settings under the `Elec
 - **Type**: boolean
 - **Default**: `false`
 - Enables verbose trace logging of CLI and HTTP interactions in the **Electivus Apex Log Viewer** output channel. Useful for troubleshooting issues with log retrieval or authentication.
+
+## `electivus.apexLogs.cliPath`
+
+- **Type**: string
+- **Default**: `""`
+- Path to the Salesforce CLI executable (`sf` or `sfdx`). When empty, the extension searches the system `PATH`.
 
 ## `electivus.apexLogs.tailBufferSize`
 
