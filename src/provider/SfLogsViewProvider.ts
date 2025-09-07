@@ -230,8 +230,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           if (codeUnit && token === this.refreshToken && !this.disposed) {
             this.post({ type: 'logHead', logId: log.Id, codeUnitStarted: codeUnit });
           }
-        } catch {
-          // ignore per-log error
+        } catch (e) {
+          logWarn('Logs: loadLogHead failed for', log.Id, '->', e);
         }
       });
     }
