@@ -241,16 +241,17 @@ export class TailService {
         }
       }
     } catch (e) {
+      this.stop();
       const msg = e instanceof Error ? e.message : String(e);
       logError('Tail: start failed ->', msg);
       this.post({ type: 'error', message: msg });
       showOutput(true);
       this.post({ type: 'tailStatus', running: false });
-      this.tailRunning = false;
     }
   }
 
   stop(): void {
+    const wasRunning = this.tailRunning;
     this.tailRunning = false;
     try {
       if (this.streamingClient) {
@@ -301,8 +302,10 @@ export class TailService {
     }
     this.seenLogIds.clear();
     this.logIdToPath.clear();
-    this.post({ type: 'tailStatus', running: false });
-    logInfo('Tail: stopped.');
+    if (wasRunning) {
+      this.post({ type: 'tailStatus', running: false });
+      logInfo('Tail: stopped.');
+    }
   }
 
   clearLogPaths(): void {
