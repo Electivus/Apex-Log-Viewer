@@ -247,7 +247,18 @@ function execCommand(
           logTrace('execCommand error for', program, '->', (stderr || err.message || '').split('\n')[0]);
         } catch {}
         safeSendException('cli.exec', { code: String(err.code || ''), command: program });
-        reject(new Error(stderr || err.message));
+        const code = typeof err.code === 'number' || typeof err.code === 'string' ? err.code : undefined;
+        const cmdStr2 = [program, ...args].join(' ').trim();
+        const detail = stderr || err.message;
+        const msg =
+          code !== undefined
+            ? `Command "${cmdStr2}" exited with code ${code}: ${detail}`
+            : `Command "${cmdStr2}" failed: ${detail}`;
+        const e: any = new Error(msg);
+        if (code !== undefined) {
+          (e as any).code = code;
+        }
+        reject(e);
         return;
       }
       try {
@@ -266,8 +277,14 @@ function execCommand(
       try {
         logWarn('execCommand timeout for', program, args.join(' '));
       } catch {}
+      const cmdStrTimeout = [program, ...args].join(' ').trim();
       const err: any = new Error(
-        localize('cliTimeout', 'Salesforce CLI command timed out after {0} seconds.', Math.round(timeoutMs / 1000))
+        localize(
+          'cliTimeout',
+          'Salesforce CLI command timed out after {0} seconds: {1}',
+          Math.round(timeoutMs / 1000),
+          cmdStrTimeout
+        )
       );
       err.code = 'ETIMEDOUT';
       inFlightExecs.delete(key);
