@@ -19,12 +19,43 @@ function resolveKeys(name: string): string[] {
   return [primary, fallback, ...extra];
 }
 
+function hasUserOverride<T>(info: vscode.WorkspaceConfigurationInspection<T> | undefined): boolean {
+  if (!info) return false;
+  return (
+    info.globalValue !== undefined ||
+    info.workspaceValue !== undefined ||
+    info.workspaceFolderValue !== undefined
+  );
+}
+
 export function getConfig<T>(name: string, def?: T): T {
   const cfg = vscode.workspace.getConfiguration();
-  for (const key of resolveKeys(name)) {
+  const [primary, fallback, ...rest] = resolveKeys(name);
+
+  // Use the new key only if explicitly set by the user
+  const primaryInfo = cfg.inspect<T>(primary);
+  if (hasUserOverride(primaryInfo)) {
+    const v = cfg.get<T | undefined>(primary);
+    if (v !== undefined) return v as T;
+  }
+
+  // Otherwise, prefer an explicit legacy value if present
+  const fallbackInfo = cfg.inspect<T>(fallback);
+  if (hasUserOverride(fallbackInfo)) {
+    const v = cfg.get<T | undefined>(fallback);
+    if (v !== undefined) return v as T;
+  }
+
+  // Try any additional provided key(s)
+  for (const key of rest) {
     const v = cfg.get<T | undefined>(key);
     if (v !== undefined) return v as T;
   }
+
+  // Neither key set by user; return new key's package default if available
+  const v = cfg.get<T | undefined>(primary);
+  if (v !== undefined) return v as T;
+
   return def as T;
 }
 
