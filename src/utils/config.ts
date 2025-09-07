@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 const NEW_NS = 'electivus.apexLogs';
 const OLD_NS = 'sfLogs';
 
-function resolveKeys(name: string): string[] {
+function resolveKeys(name: string): [string, string, string[]] {
   // Accept full keys like "sfLogs.pageSize" or "electivus.apexLogs.pageSize"
   // Prefer the new namespace, but support the old one for backward compatibility.
   let suffix = name;
@@ -16,10 +16,19 @@ function resolveKeys(name: string): string[] {
   const fallback = `${OLD_NS}.${suffix}`;
   // If caller passed a different key, include it last just in case
   const extra = name === primary || name === fallback ? [] : [name];
-  return [primary, fallback, ...extra];
+  return [primary, fallback, extra];
 }
 
-function hasUserOverride<T>(info: vscode.WorkspaceConfigurationInspection<T> | undefined): boolean {
+// Local structural type for inspect results to avoid depending on exact vscode type name
+interface Inspection<T> {
+  key: string;
+  defaultValue?: T;
+  globalValue?: T;
+  workspaceValue?: T;
+  workspaceFolderValue?: T;
+}
+
+function hasUserOverride<T>(info: Inspection<T> | undefined): boolean {
   if (!info) return false;
   return (
     info.globalValue !== undefined ||
@@ -30,24 +39,24 @@ function hasUserOverride<T>(info: vscode.WorkspaceConfigurationInspection<T> | u
 
 export function getConfig<T>(name: string, def?: T): T {
   const cfg = vscode.workspace.getConfiguration();
-  const [primary, fallback, ...rest] = resolveKeys(name);
+  const [primary, fallback, extra] = resolveKeys(name);
 
   // Use the new key only if explicitly set by the user
-  const primaryInfo = cfg.inspect<T>(primary);
+  const primaryInfo = cfg.inspect<T>(primary) as unknown as Inspection<T> | undefined;
   if (hasUserOverride(primaryInfo)) {
     const v = cfg.get<T | undefined>(primary);
     if (v !== undefined) return v as T;
   }
 
   // Otherwise, prefer an explicit legacy value if present
-  const fallbackInfo = cfg.inspect<T>(fallback);
+  const fallbackInfo = cfg.inspect<T>(fallback) as unknown as Inspection<T> | undefined;
   if (hasUserOverride(fallbackInfo)) {
     const v = cfg.get<T | undefined>(fallback);
     if (v !== undefined) return v as T;
   }
 
   // Try any additional provided key(s)
-  for (const key of rest) {
+  for (const key of extra) {
     const v = cfg.get<T | undefined>(key);
     if (v !== undefined) return v as T;
   }
@@ -79,7 +88,9 @@ export function getBooleanConfig(name: string, def: boolean): boolean {
 }
 
 export function affectsConfiguration(e: vscode.ConfigurationChangeEvent, name: string): boolean {
-  for (const key of resolveKeys(name)) {
+  const [primary, fallback, extra] = resolveKeys(name);
+  if (e.affectsConfiguration(primary) || e.affectsConfiguration(fallback)) return true;
+  for (const key of extra) {
     if (e.affectsConfiguration(key)) return true;
   }
   return false;
