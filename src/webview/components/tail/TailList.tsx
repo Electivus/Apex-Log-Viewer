@@ -58,6 +58,10 @@ export function TailList({
     }
   };
 
+  React.useEffect(() => {
+    rowHeightsRef.current = {};
+  }, [filteredIndexes, lines]);
+
   // Auto-size list to fit viewport similarly to LogsTable
   useLayoutEffect(() => {
     const recompute = () => {
