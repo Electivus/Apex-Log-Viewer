@@ -2,18 +2,61 @@
 
 ## Unreleased
 
+No unreleased changes yet.
+
+## [0.6.2](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.6.1...v0.6.2) (2025-09-07)
+
 ### Features
 
-- Allow expanding or collapsing methods in Apex log diagram, with default collapsed and expand/collapse all controls.
-- Add visual indicators (▸/▾) on code units and only enable toggle when methods exist.
-
-### Security
-
-- Harden webview DOM helper with a safe attribute allowlist and remove `innerHTML` usage for clearing, addressing CodeQL XSS warning.
+- CLI: surface command and exit codes in errors ([5732f7e](https://github.com/Electivus/Apex-Log-Viewer/commit/5732f7e))
+- Traceflags: cache debug levels ([a1c9f09](https://github.com/Electivus/Apex-Log-Viewer/commit/a1c9f09))
+- Webview: add keyboard handlers to log row ([#170](https://github.com/Electivus/Apex-Log-Viewer/pull/170)) ([4fe8de2](https://github.com/Electivus/Apex-Log-Viewer/commit/4fe8de2))
+- Logs: add cancellation support to progress operations ([#166](https://github.com/Electivus/Apex-Log-Viewer/pull/166)) ([c5ba2bb](https://github.com/Electivus/Apex-Log-Viewer/commit/c5ba2bb))
+- Traceflags: cache current user id ([168fb40](https://github.com/Electivus/Apex-Log-Viewer/commit/168fb40))
+- Logs: show progress when listing orgs and refreshing ([760830f](https://github.com/Electivus/Apex-Log-Viewer/commit/760830f))
+- Branding: Electivus-prefixed naming; deprecate `sfLogs.*`; remove max limits ([#137](https://github.com/Electivus/Apex-Log-Viewer/pull/137)) ([a7b090a](https://github.com/Electivus/Apex-Log-Viewer/commit/a7b090a))
+- CLI cache: persist sf CLI results for 1 day and add reset command ([#132](https://github.com/Electivus/Apex-Log-Viewer/pull/132)) ([99092e1](https://github.com/Electivus/Apex-Log-Viewer/commit/99092e1))
 
 ### Bug Fixes
 
-- Diagram: fix infinite render loop and reduce unnecessary re-renders in webview.
+- Tail: retry log fetch on failure ([7871a3b](https://github.com/Electivus/Apex-Log-Viewer/commit/7871a3b))
+- Select Org: handle list failures ([047e67e](https://github.com/Electivus/Apex-Log-Viewer/commit/047e67e))
+- Clamp logs page size to 200 ([ce834f1](https://github.com/Electivus/Apex-Log-Viewer/commit/ce834f1))
+- Webview: guard tail auto-scroll with empty filters ([a9e8f16](https://github.com/Electivus/Apex-Log-Viewer/commit/a9e8f16))
+- Tail: clear timers on start failure ([733c789](https://github.com/Electivus/Apex-Log-Viewer/commit/733c789))
+- Tail: set running flag before async ops and abort if stopped during setup ([329b134](https://github.com/Electivus/Apex-Log-Viewer/commit/329b134))
+- Webview: handle zero-length regex in highlightContent ([78a8c26](https://github.com/Electivus/Apex-Log-Viewer/commit/78a8c26))
+- Utils: sync cache key index on deletion ([#135](https://github.com/Electivus/Apex-Log-Viewer/pull/135)) ([e624d50](https://github.com/Electivus/Apex-Log-Viewer/commit/e624d50))
+- CLI: purge expired auth cache ([#136](https://github.com/Electivus/Apex-Log-Viewer/pull/136)) ([32c8545](https://github.com/Electivus/Apex-Log-Viewer/commit/32c8545))
+- Diagram: prevent recursive panel disposal ([#134](https://github.com/Electivus/Apex-Log-Viewer/pull/134)) ([57d546b](https://github.com/Electivus/Apex-Log-Viewer/commit/57d546b))
+
+### Refactoring
+
+- Centralize error message handling ([ccc2b1c](https://github.com/Electivus/Apex-Log-Viewer/commit/ccc2b1c))
+- Telemetry: add safe send helper ([b1d8ace](https://github.com/Electivus/Apex-Log-Viewer/commit/b1d8ace))
+- Tail: remove unused polling timer ([2d67844](https://github.com/Electivus/Apex-Log-Viewer/commit/2d67844))
+
+### Build
+
+- Bump actions/setup-node from 4 to 5 ([#152](https://github.com/Electivus/Apex-Log-Viewer/pull/152)) ([d57277f](https://github.com/Electivus/Apex-Log-Viewer/commit/d57277f))
+- Bump actions/checkout from 4 to 5 ([#153](https://github.com/Electivus/Apex-Log-Viewer/pull/153)) ([392f0b3](https://github.com/Electivus/Apex-Log-Viewer/commit/392f0b3))
+- Bump @types/node from 24.3.0 to 24.3.1 ([#156](https://github.com/Electivus/Apex-Log-Viewer/pull/156)) ([0d923a6](https://github.com/Electivus/Apex-Log-Viewer/commit/0d923a6))
+- Bump @salesforce/core from 8.23.0 to 8.23.1 ([#157](https://github.com/Electivus/Apex-Log-Viewer/pull/157)) ([96436c8](https://github.com/Electivus/Apex-Log-Viewer/commit/96436c8))
+- Bump @vscode/extension-telemetry from 0.9.9 to 1.0.0 ([#154](https://github.com/Electivus/Apex-Log-Viewer/pull/154)) ([bd859f1](https://github.com/Electivus/Apex-Log-Viewer/commit/bd859f1))
+- Bump eslint from 9.34.0 to 9.35.0 ([#155](https://github.com/Electivus/Apex-Log-Viewer/pull/155)) ([48b6dd1](https://github.com/Electivus/Apex-Log-Viewer/commit/48b6dd1))
+- Bump @salesforce/apex-node from 8.2.11 to 8.2.13 ([#158](https://github.com/Electivus/Apex-Log-Viewer/pull/158)) ([e5e8841](https://github.com/Electivus/Apex-Log-Viewer/commit/e5e8841))
+
+### Tests
+
+- Add CacheManager unit tests ([7c4dc2d](https://github.com/Electivus/Apex-Log-Viewer/commit/7c4dc2d))
+- Logger: ensure showOutput reveals channel ([#167](https://github.com/Electivus/Apex-Log-Viewer/pull/167)) ([3cc64ad](https://github.com/Electivus/Apex-Log-Viewer/commit/3cc64ad))
+- Runner: skip SF CLI/Dev Hub on unit and prefer stable VS Code to reuse cache ([#172](https://github.com/Electivus/Apex-Log-Viewer/pull/172)) ([5ee8ca9](https://github.com/Electivus/Apex-Log-Viewer/commit/5ee8ca9))
+- Telemetry: verify CLI error reporting ([#133](https://github.com/Electivus/Apex-Log-Viewer/pull/133)) ([f8afb8b](https://github.com/Electivus/Apex-Log-Viewer/commit/f8afb8b))
+
+### Docs/Chores
+
+- Docs: improve AI coding agent instructions ([#171](https://github.com/Electivus/Apex-Log-Viewer/pull/171)) ([12276fa](https://github.com/Electivus/Apex-Log-Viewer/commit/12276fa))
+- Logs: warn on log head fetch errors ([eafe94a](https://github.com/Electivus/Apex-Log-Viewer/commit/eafe94a))
 
 ## [0.4.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.3.1...v0.4.0) (2025-09-01)
 
