@@ -37,6 +37,7 @@ const en = {
     'Could not obtain credentials via sf/sfdx CLI. Verify authentication and try: sf org display --json --verbose',
   selectOrgPlaceholder: 'Select an authenticated org',
   selectOrgDefault: 'Default',
+  selectOrgError: 'Electivus Apex Logs: Failed to list orgs',
   'salesforce.logs.view.name': 'Electivus Apex Logs',
   'salesforce.tail.view.name': 'Electivus Apex Logs Tail'
 };
@@ -60,6 +61,7 @@ const ptBr = {
     'Não foi possível obter credenciais via sf/sfdx CLI. Verifique a autenticação e tente: sf org display --json --verbose',
   selectOrgPlaceholder: 'Selecione uma org autenticada',
   selectOrgDefault: 'Padrão',
+  selectOrgError: 'Electivus Apex Logs: falha ao listar orgs',
   'salesforce.logs.view.name': 'Electivus Apex Logs',
   'salesforce.tail.view.name': 'Electivus Apex Logs Tail'
 };

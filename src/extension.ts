@@ -127,34 +127,43 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.selectOrg', async () => {
       logInfo('Command sfLogs.selectOrg invoked. Listing orgs…');
-      const orgs: OrgItem[] = await listOrgs(true);
-      const items: OrgQuickPick[] = orgs.map(o => ({
-        label: o.alias ?? o.username,
-        description: o.isDefaultUsername ? localize('selectOrgDefault', 'Default') : undefined,
-        detail: o.instanceUrl || undefined,
-        username: o.username
-      }));
-      const picked = await vscode.window.showQuickPick<OrgQuickPick>(items, {
-        placeHolder: localize('selectOrgPlaceholder', 'Select an authenticated org')
-      });
-      if (!picked) {
-        logInfo('Select org cancelled.');
-        try {
-          sendEvent('command.selectOrg', { outcome: 'cancel' });
-        } catch {}
-        return;
-      }
-      const username = picked.username;
-      provider.setSelectedOrg(username);
-      logInfo('Selected org:', username);
       try {
-        const count = orgs.length;
-        const bucket = count === 0 ? '0' : count === 1 ? '1' : count <= 5 ? '2-5' : count <= 10 ? '6-10' : '10+';
-        const hasDefault = String(orgs.some(o => o.isDefaultUsername));
-        sendEvent('command.selectOrg', { outcome: 'picked', orgs: bucket, hasDefault });
-      } catch {}
-      await provider.sendOrgs();
-      await provider.refresh();
+        const orgs: OrgItem[] = await listOrgs(true);
+        const items: OrgQuickPick[] = orgs.map(o => ({
+          label: o.alias ?? o.username,
+          description: o.isDefaultUsername ? localize('selectOrgDefault', 'Default') : undefined,
+          detail: o.instanceUrl || undefined,
+          username: o.username
+        }));
+        const picked = await vscode.window.showQuickPick<OrgQuickPick>(items, {
+          placeHolder: localize('selectOrgPlaceholder', 'Select an authenticated org')
+        });
+        if (!picked) {
+          logInfo('Select org cancelled.');
+          try {
+            sendEvent('command.selectOrg', { outcome: 'cancel' });
+          } catch {}
+          return;
+        }
+        const username = picked.username;
+        provider.setSelectedOrg(username);
+        logInfo('Selected org:', username);
+        try {
+          const count = orgs.length;
+          const bucket = count === 0 ? '0' : count === 1 ? '1' : count <= 5 ? '2-5' : count <= 10 ? '6-10' : '10+';
+          const hasDefault = String(orgs.some(o => o.isDefaultUsername));
+          sendEvent('command.selectOrg', { outcome: 'picked', orgs: bucket, hasDefault });
+        } catch {}
+        await provider.sendOrgs();
+        await provider.refresh();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        logError('Failed listing orgs ->', msg);
+        vscode.window.showErrorMessage(localize('selectOrgError', 'Electivus Apex Logs: Failed to list orgs'));
+        try {
+          sendException('command.selectOrg', { error: msg });
+        } catch {}
+      }
     })
   );
 
@@ -255,7 +264,9 @@ export async function activate(context: vscode.ExtensionContext) {
             } catch {}
           } else {
             // If no orgs, attempt default auth anyway (may fill cache if CLI has default)
-            try { await getOrgAuth(undefined); } catch {}
+            try {
+              await getOrgAuth(undefined);
+            } catch {}
           }
           logInfo('Preloading CLI caches done.');
         } catch (e) {
