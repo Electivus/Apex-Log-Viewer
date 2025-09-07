@@ -4,8 +4,18 @@ import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
 const crossSpawn = require('cross-spawn');
 import type { OrgAuth, OrgItem } from './types';
+import * as vscode from 'vscode';
+import { CacheManager } from '../utils/cacheManager';
 
 const CLI_TIMEOUT_MS = 120000;
+
+// Deduplicate identical execs running concurrently
+const inFlightExecs = new Map<string, Promise<{ stdout: string; stderr: string }>>();
+
+function makeExecKey(program: string, args: string[], envOverride?: NodeJS.ProcessEnv, timeoutMs?: number): string {
+  const hasAltPath = !!(envOverride && envOverride.PATH && envOverride.PATH !== process.env.PATH);
+  return [program, ...args, hasAltPath ? 'loginPATH' : '', String(timeoutMs || '')].join('\u0000');
+}
 
 // Allow swapping exec implementation in tests
 export type ExecFileFn = (
@@ -76,12 +86,19 @@ let execFileImpl: ExecFileFn = ((
   return child as unknown as cp.ChildProcess;
 }) as unknown as ExecFileFn;
 
+let execOverriddenForTests = false;
+let execOverrideGeneration = 0;
+
 export function __setExecFileImplForTests(fn: ExecFileFn): void {
   execFileImpl = fn;
+  execOverriddenForTests = true;
+  execOverrideGeneration++;
 }
 
 export function __resetExecFileImplForTests(): void {
   execFileImpl = cp.execFile as unknown as ExecFileFn;
+  execOverriddenForTests = false;
+  execOverrideGeneration++;
 }
 
 // Lazily resolve PATH from the user's login shell (macOS/Linux) to match Terminal/Cursor
@@ -147,7 +164,12 @@ function execCommand(
   envOverride?: NodeJS.ProcessEnv,
   timeoutMs: number = CLI_TIMEOUT_MS
 ): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
+  const key = makeExecKey(program, args, envOverride, timeoutMs);
+  const existing = inFlightExecs.get(key);
+  if (existing) {
+    return existing;
+  }
+  const p = new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     const opts: cp.ExecFileOptionsWithStringEncoding = {
       maxBuffer: 1024 * 1024 * 10,
       encoding: 'utf8'
@@ -166,6 +188,7 @@ function execCommand(
       }
       finished = true;
       clearTimeout(timer);
+      inFlightExecs.delete(key);
       if (error) {
         const err: any = error;
         if (err && (err.code === 'ENOENT' || /not found|ENOENT/i.test(err.message))) {
@@ -203,13 +226,56 @@ function execCommand(
         localize('cliTimeout', 'Salesforce CLI command timed out after {0} seconds.', Math.round(timeoutMs / 1000))
       );
       err.code = 'ETIMEDOUT';
+      inFlightExecs.delete(key);
       reject(err);
     }, timeoutMs);
   });
+  inFlightExecs.set(key, p);
+  return p;
 }
 
-export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAuth> {
+// Short-lived in-memory cache for auth (avoid storing tokens on disk)
+type AuthCache = { value: OrgAuth; expiresAt: number };
+const authCacheByUser = new Map<string, AuthCache>();
+
+function getCliCacheConfig() {
+  try {
+    const cfg = vscode.workspace.getConfiguration();
+    const enabled = cfg.get<boolean>('sfLogs.cliCache.enabled', true);
+    const authTtl = Math.max(0, Math.floor(cfg.get<number>('sfLogs.cliCache.authTtlSeconds', 0))) * 1000; // in-memory disabled by default
+    const orgsTtl = Math.max(0, Math.floor(cfg.get<number>('sfLogs.cliCache.orgListTtlSeconds', 86400))) * 1000; // 1 day
+    const authPersistTtl = Math.max(0, Math.floor(cfg.get<number>('sfLogs.cliCache.authPersistentTtlSeconds', 86400))) * 1000; // 1 day
+    return { enabled, authTtl, orgsTtl, authPersistTtl };
+  } catch {
+    return { enabled: true, authTtl: 0, orgsTtl: 86400000, authPersistTtl: 86400000 };
+  }
+}
+
+export async function getOrgAuth(targetUsernameOrAlias?: string, forceRefresh?: boolean): Promise<OrgAuth> {
   const t = targetUsernameOrAlias;
+  const { enabled, authTtl, authPersistTtl } = getCliCacheConfig();
+  const cacheKey = t || '__default__';
+  const now = Date.now();
+  if (execOverriddenForTests && !forceRefresh && authTtl > 0) {
+    const cached = authCacheByUser.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      try {
+        logTrace('getOrgAuth: returning cached auth for', cacheKey);
+      } catch {}
+      return cached.value;
+    }
+  }
+  if (!forceRefresh && enabled && authPersistTtl > 0 && !execOverriddenForTests) {
+    const persisted = CacheManager.get<OrgAuth>('cli', `orgAuth:${cacheKey}`);
+    if (persisted && persisted.accessToken && persisted.instanceUrl) {
+      try { logTrace('getOrgAuth: hit persistent cache for', cacheKey); } catch {}
+      // refresh in-memory cache too
+      if (authTtl > 0) {
+        authCacheByUser.set(cacheKey, { value: persisted, expiresAt: now + authTtl });
+      }
+      return persisted;
+    }
+  }
   const candidates: Array<{ program: string; args: string[] }> = [
     { program: 'sf', args: ['org', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
     { program: 'sf', args: ['org', 'user', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
@@ -233,7 +299,14 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
         try {
           logTrace('getOrgAuth: success for user', username || '(unknown)', 'at', instanceUrl);
         } catch {}
-        return { accessToken, instanceUrl, username };
+        const auth = { accessToken, instanceUrl, username } as OrgAuth;
+        if (execOverriddenForTests && authTtl > 0) {
+          authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
+        }
+        if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
+          try { await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl); } catch {}
+        }
+        return auth;
       }
     } catch (_e) {
       const e: any = _e;
@@ -266,7 +339,14 @@ export async function getOrgAuth(targetUsernameOrAlias?: string): Promise<OrgAut
             try {
               logTrace('getOrgAuth(login PATH): success for user', username || '(unknown)', 'at', instanceUrl);
             } catch {}
-            return { accessToken, instanceUrl, username };
+          const auth = { accessToken, instanceUrl, username } as OrgAuth;
+          if (execOverriddenForTests && authTtl > 0) {
+            authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
+          }
+          if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
+            try { await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl); } catch {}
+          }
+          return auth;
           }
         } catch (_e) {
           const e: any = _e;
@@ -364,24 +444,68 @@ function parseOrgList(json: string): OrgItem[] {
 interface OrgsCache {
   data: OrgItem[];
   expiresAt: number;
+  gen: number;
 }
 
 let orgsCache: OrgsCache | undefined;
 let orgsCacheTtl = 10000; // 10s default
 
+// Test hook to bypass CLI and provide deterministic results
+let listOrgsMock:
+  | (() => OrgItem[] | Promise<OrgItem[]>)
+  | undefined;
+
 export function __setListOrgsCacheTTLForTests(ms: number): void {
   orgsCacheTtl = ms;
+  // Avoid leaking previously cached data between tests when TTL changes
+  orgsCache = undefined;
 }
 
 export function __resetListOrgsCacheForTests(): void {
   orgsCache = undefined;
   orgsCacheTtl = 10000;
+  try {
+    // Best-effort: clear persistent cache to avoid test leakage when extension is activated
+    void CacheManager.delete('cli', 'orgList');
+  } catch {}
+  listOrgsMock = undefined;
+}
+
+export function __setListOrgsMockForTests(
+  fn: (() => OrgItem[] | Promise<OrgItem[]>) | undefined
+): void {
+  listOrgsMock = fn;
+  execOverriddenForTests = true;
+  execOverrideGeneration++;
 }
 
 export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
   const now = Date.now();
-  if (!forceRefresh && orgsCache && orgsCache.expiresAt > now) {
-    return orgsCache.data;
+  const { enabled, orgsTtl } = getCliCacheConfig();
+  const persistentKey = 'orgList';
+  if (!forceRefresh && enabled && orgsTtl > 0 && !execOverriddenForTests) {
+    const persisted = CacheManager.get<OrgItem[]>('cli', persistentKey);
+    if (persisted && Array.isArray(persisted)) {
+      try { logTrace('listOrgs: hit persistent cache'); } catch {}
+      // Para produção, evitamos cache em memória; para testes, mantemos
+      if (execOverriddenForTests) {
+        orgsCache = { data: persisted, expiresAt: now + Math.max(0, orgsCacheTtl), gen: execOverrideGeneration };
+      }
+      return persisted;
+    }
+  }
+  if (execOverriddenForTests && !forceRefresh && orgsCache && orgsCache.expiresAt > now) {
+    if (execOverriddenForTests && orgsCache.gen !== execOverrideGeneration) {
+      orgsCache = undefined;
+    } else {
+      return orgsCache.data;
+    }
+  }
+  // When mocked in tests, use the provided function to get results
+  if (execOverriddenForTests && listOrgsMock) {
+    const res = await Promise.resolve(listOrgsMock());
+    orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
+    return res;
   }
   const candidates: Array<{ program: string; args: string[] }> = [
     { program: 'sf', args: ['org', 'list', '--json'] },
@@ -395,7 +519,12 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
       } catch {}
       const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS);
       const res = parseOrgList(stdout);
-      orgsCache = { data: res, expiresAt: now + orgsCacheTtl };
+      if (execOverriddenForTests) {
+        orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
+      }
+      if (enabled && orgsTtl > 0 && !execOverriddenForTests) {
+        try { await CacheManager.set('cli', persistentKey, res, orgsTtl); } catch {}
+      }
       return res;
     } catch (_e) {
       const e: any = _e;
@@ -420,7 +549,12 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
           } catch {}
           const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS);
           const res = parseOrgList(stdout);
-          orgsCache = { data: res, expiresAt: now + orgsCacheTtl };
+          if (execOverriddenForTests) {
+            orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
+          }
+          if (enabled && orgsTtl > 0 && !execOverriddenForTests) {
+            try { await CacheManager.set('cli', persistentKey, res, orgsTtl); } catch {}
+          }
           return res;
         } catch (_e) {
           const e: any = _e;
@@ -438,7 +572,12 @@ export async function listOrgs(forceRefresh = false): Promise<OrgItem[]> {
     );
   }
   const empty: OrgItem[] = [];
-  orgsCache = { data: empty, expiresAt: now + orgsCacheTtl };
+  if (execOverriddenForTests) {
+    orgsCache = { data: empty, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
+  }
+  if (enabled && orgsTtl > 0 && !execOverriddenForTests) {
+    try { await CacheManager.set('cli', persistentKey, empty, orgsTtl); } catch {}
+  }
   return empty;
 }
 
