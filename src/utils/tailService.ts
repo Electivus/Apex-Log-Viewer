@@ -78,11 +78,16 @@ export class TailService {
       logWarn('Tail: start aborted; no debug level selected.');
       return;
     }
+    this.tailRunning = true;
     this.seenLogIds.clear();
     this.logIdToPath.clear();
     this.currentDebugLevel = debugLevel;
     try {
       const auth = await getOrgAuth(this.selectedOrg);
+      if (!this.tailRunning || this.disposed) {
+        logWarn('Tail: start aborted while awaiting auth');
+        return;
+      }
       this.currentAuth = auth;
       logInfo('Tail: acquired auth for', auth.username || '(default)', 'at', auth.instanceUrl);
 
@@ -121,7 +126,11 @@ export class TailService {
         logWarn('Tail: prime recent logs failed; proceeding with empty seen set');
       }
 
-      this.tailRunning = true;
+      if (!this.tailRunning || this.disposed) {
+        logWarn('Tail: start aborted after priming');
+        return;
+      }
+
       this.post({ type: 'tailStatus', running: true });
       logInfo('Tail: started; subscribing to /systemTopic/Logging…');
 
