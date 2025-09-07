@@ -35,6 +35,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private headConcurrency: number = 5;
   private disposed = false;
   private refreshToken = 0;
+  private logHeadWarned = false;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.headLimiter = createLimiter(this.headConcurrency);
@@ -203,6 +204,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   }
 
   private loadLogHeads(logs: ApexLogRow[], auth: OrgAuth, token: number): void {
+    this.logHeadWarned = false;
     for (const log of logs) {
       void this.headLimiter(async () => {
         try {
@@ -216,8 +218,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           if (codeUnit && token === this.refreshToken && !this.disposed) {
             this.post({ type: 'logHead', logId: log.Id, codeUnitStarted: codeUnit });
           }
-        } catch {
-          // ignore per-log error
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          logWarn('Logs: loadLogHead failed ->', msg);
+          if (!this.logHeadWarned) {
+            this.logHeadWarned = true;
+            this.post({ type: 'error', message: localize('loadHeadFailed', 'Failed to load log details: {0}', msg) });
+          }
         }
       });
     }
