@@ -78,6 +78,7 @@ export class TailService {
       logWarn('Tail: start aborted; no debug level selected.');
       return;
     }
+    this.tailRunning = true;
     this.seenLogIds.clear();
     this.logIdToPath.clear();
     this.currentDebugLevel = debugLevel;
@@ -121,7 +122,6 @@ export class TailService {
         logWarn('Tail: prime recent logs failed; proceeding with empty seen set');
       }
 
-      this.tailRunning = true;
       this.post({ type: 'tailStatus', running: true });
       logInfo('Tail: started; subscribing to /systemTopic/Logging…');
 
