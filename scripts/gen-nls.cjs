@@ -37,8 +37,8 @@ const en = {
     'Could not obtain credentials via sf/sfdx CLI. Verify authentication and try: sf org display --json --verbose',
   selectOrgPlaceholder: 'Select an authenticated org',
   selectOrgDefault: 'Default',
-  'salesforce.logs.view.name': 'Apex Logs',
-  'salesforce.tail.view.name': 'Apex Logs Tail'
+  'salesforce.logs.view.name': 'Electivus Apex Logs',
+  'salesforce.tail.view.name': 'Electivus Apex Logs Tail'
 };
 
 // Brazilian Portuguese (fallback translations)
@@ -60,8 +60,8 @@ const ptBr = {
     'Não foi possível obter credenciais via sf/sfdx CLI. Verifique a autenticação e tente: sf org display --json --verbose',
   selectOrgPlaceholder: 'Selecione uma org autenticada',
   selectOrgDefault: 'Padrão',
-  'salesforce.logs.view.name': 'Apex Logs',
-  'salesforce.tail.view.name': 'Apex Logs Tail'
+  'salesforce.logs.view.name': 'Electivus Apex Logs',
+  'salesforce.tail.view.name': 'Electivus Apex Logs Tail'
 };
 
 if (!fs.existsSync(baseFile)) {

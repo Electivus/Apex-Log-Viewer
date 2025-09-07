@@ -33,5 +33,4 @@
 
 ## Security & Configuration Tips
 - Requires Salesforce CLI: `sf org login web` to authenticate. Never log or commit tokens, org IDs, or Apex log contents.
-- Optional settings under `sfLogs.*` (pageSize, headConcurrency, tailBufferSize) can be adjusted in VS Code settings.
-
+- Optional settings under `electivus.apexLogs.*` (pageSize, headConcurrency, tailBufferSize) can be adjusted in VS Code settings.

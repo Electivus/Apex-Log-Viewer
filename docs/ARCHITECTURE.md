@@ -19,7 +19,7 @@ Key responsibilities:
 
 - Execute Salesforce CLI commands (`sf` or `sfdx`) to list, tail, and download logs.
 - Maintain per-org state such as selected org and log cache.
-- Forward trace output to the "Apex Log Viewer" output channel when `sfLogs.trace` is enabled.
+- Forward trace output to the "Electivus Apex Log Viewer" output channel when `electivus.apexLogs.trace` is enabled.
 
 ## Webview UI
 

@@ -1,6 +1,6 @@
 ![Apex Log Viewer banner](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/media/banner.png)
 
-# Apex Log Viewer
+# Electivus Apex Log Viewer
 
 Fast, searchable Salesforce Apex logs — right inside VS Code. Browse, filter, open, tail, and debug logs from your default or selected org with a streamlined VS Code panel and Apex Replay integration.
 
@@ -21,7 +21,7 @@ Fast, searchable Salesforce Apex logs — right inside VS Code. Browse, filter, 
 - Open and debug: Open a log in the editor or start Apex Replay Debugger directly from the list.
 - Real‑time tail: Start tailing logs from the toolbar using your Salesforce CLI.
 - Org selector: Quickly switch between your authenticated orgs or use the CLI default.
-- Configurable: Tune `sfLogs.pageSize`, `sfLogs.headConcurrency`, and other options to fit your workflow.
+- Configurable: Tune `electivus.apexLogs.pageSize`, `electivus.apexLogs.headConcurrency`, and other options to fit your workflow. (Legacy `sfLogs.*` keys still work for backward compatibility.)
 - Localization: English and Brazilian Portuguese (pt‑BR).
 
 Why developers like it
@@ -46,7 +46,7 @@ Why developers like it
 
 ## Install
 
-- From VS Code: open Extensions (Ctrl/Cmd+Shift+X), search for “Apex Log Viewer”, and click Install.
+- From VS Code: open Extensions (Ctrl/Cmd+Shift+X), search for “Electivus Apex Log Viewer”, and click Install.
 - From the Marketplace: click “Install from Marketplace” above.
 - From the CLI: `code --install-extension electivus.apex-log-viewer`
 
@@ -55,7 +55,7 @@ Why developers like it
 ### Open the Apex Logs panel
 
 1. In VS Code, choose `View` > `Appearance` > `Panel`.
-2. Switch to the **Apex Logs** container to load recent logs.
+2. Switch to the **Electivus Apex Logs** container to load recent logs.
 
 ### Refresh logs
 
@@ -86,17 +86,17 @@ Why developers like it
 
 ## Commands
 
-- Apex Logs: Refresh Logs (`sfLogs.refresh`)
-- Apex Logs: Select Org (`sfLogs.selectOrg`)
-- Apex Logs: Tail Logs (`sfLogs.tail`)
-- Apex Logs: Show Extension Output (`sfLogs.showOutput`)
+- Electivus Apex Logs: Refresh Logs (`sfLogs.refresh`)
+- Electivus Apex Logs: Select Org (`sfLogs.selectOrg`)
+- Electivus Apex Logs: Tail Logs (`sfLogs.tail`)
+- Electivus Apex Logs: Show Extension Output (`sfLogs.showOutput`)
 
 ## Settings
 
-- `sfLogs.pageSize`: Number of logs fetched per page (10–200; default 100).
-- `sfLogs.headConcurrency`: Max concurrent requests to fetch log headers (1–20; default 5).
-- `sfLogs.saveDirName`: Folder name used when saving logs to disk (default `apexlogs`).
-- `sfLogs.trace`: Enable verbose trace logging of CLI and HTTP calls.
+- `electivus.apexLogs.pageSize`: Number of logs fetched per page (>= 10; default 100). Higher values may impact performance.
+- `electivus.apexLogs.headConcurrency`: Max concurrent requests to fetch log headers (>= 1; default 5). Very high values can overload APIs.
+- `electivus.apexLogs.saveDirName`: Folder name used when saving logs to disk (default `apexlogs`).
+- `electivus.apexLogs.trace`: Enable verbose trace logging of CLI and HTTP calls.
 
 See [docs/SETTINGS.md](docs/SETTINGS.md) for more details on configuration.
 
@@ -126,7 +126,7 @@ See docs/TESTING.md for how to run unit and integration tests (`npm run test:uni
 
 ## Privacy & Security
 
-- No tokens are logged by default. When `sfLogs.trace` is enabled, verbose output is sent to the “Apex Log Viewer” output channel; review logs before sharing.
+- No tokens are logged by default. When `electivus.apexLogs.trace` is enabled, verbose output is sent to the “Electivus Apex Log Viewer” output channel; review logs before sharing.
 - Telemetry: the extension may collect minimal, anonymized usage and error telemetry to help improve quality and performance. VS Code’s telemetry setting controls this behavior (see `settings.json` key `telemetry.telemetryLevel`).
 - We do not send your source code or Apex log content in telemetry.
 - The extension shells out to `sf`/`sfdx` for org access and reads logs locally.

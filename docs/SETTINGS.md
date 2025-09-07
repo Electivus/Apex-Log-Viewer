@@ -1,44 +1,44 @@
 # Settings
 
-The Apex Log Viewer extension exposes several settings under the `Apex Logs` section of the VS Code Settings UI. You can change them from `Preferences: Open Settings (UI)` or by editing your `settings.json` directly.
+The Electivus Apex Log Viewer extension exposes several settings under the `Electivus Apex Logs` section of the VS Code Settings UI. You can change them from `Preferences: Open Settings (UI)` or by editing your `settings.json` directly.
 
 ```jsonc
-"sfLogs.pageSize": 100,
-"sfLogs.headConcurrency": 5,
-"sfLogs.saveDirName": "apexlogs",
-"sfLogs.trace": false,
-"sfLogs.tailBufferSize": 10000
+"electivus.apexLogs.pageSize": 100,
+"electivus.apexLogs.headConcurrency": 5,
+"electivus.apexLogs.saveDirName": "apexlogs",
+"electivus.apexLogs.trace": false,
+"electivus.apexLogs.tailBufferSize": 10000
 ```
 
-## `sfLogs.pageSize`
+## `electivus.apexLogs.pageSize`
 
-- **Type**: number (10–200)
-- **Default**: `100`
-- Number of log headers fetched per page. Reduce this if large log sets cause slow loading, or increase it to load more logs at once.
+- Type: number (>= 10)
+- Default: `100`
+- Number of log headers fetched per page. Larger values fetch more per request but may impact performance.
 
-## `sfLogs.headConcurrency`
+## `electivus.apexLogs.headConcurrency`
 
-- **Type**: number (1–20)
-- **Default**: `5`
-- Maximum number of concurrent requests when retrieving log headers. Lower values decrease load on the Salesforce APIs at the cost of slower fetches.
+- Type: number (>= 1)
+- Default: `5`
+- Maximum number of concurrent requests when retrieving log headers. Very high values can overload APIs or hit rate limits.
 
-## `sfLogs.saveDirName`
+## `electivus.apexLogs.saveDirName`
 
 - **Type**: string
 - **Default**: `"apexlogs"`
 - Folder name used when saving logs to disk. Files are placed under `${workspaceFolder}/.sflogs/<saveDirName>`.
 
-## `sfLogs.trace`
+## `electivus.apexLogs.trace`
 
 - **Type**: boolean
 - **Default**: `false`
-- Enables verbose trace logging of CLI and HTTP interactions in the **Apex Log Viewer** output channel. Useful for troubleshooting issues with log retrieval or authentication.
+- Enables verbose trace logging of CLI and HTTP interactions in the **Electivus Apex Log Viewer** output channel. Useful for troubleshooting issues with log retrieval or authentication.
 
-## `sfLogs.tailBufferSize`
+## `electivus.apexLogs.tailBufferSize`
 
-- Type: number (1000–200000)
+- Type: number (>= 1000)
 - Default: `10000`
-- Maximum number of lines retained in the Tail view's rolling buffer. Higher values keep more history visible to filters and search, at the cost of additional memory.
+- Number of lines retained in the Tail view's rolling buffer. Higher values keep more history visible to filters and search, at the cost of additional memory and CPU.
 - Changes take effect immediately in an open Tail view; no reload required.
 
 ## Applying changes

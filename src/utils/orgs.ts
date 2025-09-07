@@ -1,11 +1,14 @@
 import * as vscode from 'vscode';
 import type { OrgItem } from '../shared/types';
-import { SELECTED_ORG_KEY } from '../shared/constants';
+import { SELECTED_ORG_KEY, LEGACY_SELECTED_ORG_KEY } from '../shared/constants';
 
 /** Restore previously selected org username from globalState, if any. */
 export function restoreSelectedOrg(context: vscode.ExtensionContext): string | undefined {
   try {
-    return (context as any)?.globalState?.get?.(SELECTED_ORG_KEY) as string | undefined;
+    const cur = (context as any)?.globalState?.get?.(SELECTED_ORG_KEY) as string | undefined;
+    if (cur !== undefined) return cur;
+    // Fallback to legacy key for backward compatibility
+    return (context as any)?.globalState?.get?.(LEGACY_SELECTED_ORG_KEY) as string | undefined;
   } catch {
     return undefined;
   }
