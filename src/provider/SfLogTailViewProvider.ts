@@ -5,6 +5,7 @@ import { listDebugLevels, getActiveUserDebugLevel } from '../salesforce/tracefla
 import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn } from '../utils/logger';
+import { safeSendEvent } from '../shared/telemetry';
 import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { TailService } from '../utils/tailService';
@@ -180,14 +181,23 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   }
 
   public async sendOrgs(): Promise<void> {
+    const t0 = Date.now();
     try {
       const orgs = await listOrgs();
       logInfo('Tail: sendOrgs ->', orgs.length, 'org(s)');
       const selected = pickSelectedOrg(orgs, this.selectedOrg);
       this.post({ type: 'orgs', data: orgs, selected });
+      try {
+        const durationMs = Date.now() - t0;
+        safeSendEvent('orgs.list', { outcome: 'ok', view: 'tail' }, { durationMs, count: orgs.length });
+      } catch {}
     } catch (e) {
       logWarn('Tail: sendOrgs failed ->', getErrorMessage(e));
       this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
+      try {
+        const durationMs = Date.now() - t0;
+        safeSendEvent('orgs.list', { outcome: 'error', view: 'tail' }, { durationMs });
+      } catch {}
     }
   }
 
@@ -197,6 +207,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async sendDebugLevels(): Promise<void> {
+    const t0 = Date.now();
     // Load auth; if this fails, surface empty list once
     let auth: OrgAuth;
     try {
@@ -204,6 +215,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     } catch (e) {
       logWarn('Tail: could not load auth for debug levels ->', getErrorMessage(e));
       this.post({ type: 'debugLevels', data: [] });
+      try {
+        const durationMs = Date.now() - t0;
+        safeSendEvent('debugLevels.load', { outcome: 'error' }, { durationMs });
+      } catch {}
       return;
     }
 
@@ -226,9 +241,14 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       out.unshift(active);
     }
     this.post({ type: 'debugLevels', data: out, active });
+    try {
+      const durationMs = Date.now() - t0;
+      safeSendEvent('debugLevels.load', { outcome: 'ok' }, { durationMs, count: out.length });
+    } catch {}
   }
   // Tail webview actions
   private async openLog(logId: string): Promise<void> {
+    const t0 = Date.now();
     this.post({ type: 'loading', value: true });
     try {
       const filePath = await this.tailService.ensureLogSaved(logId);
@@ -236,16 +256,25 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       const doc = await vscode.workspace.openTextDocument(uri);
       await vscode.window.showTextDocument(doc, { preview: true });
       logInfo('Tail: opened log', logId);
+      try {
+        const durationMs = Date.now() - t0;
+        safeSendEvent('log.open', { view: 'tail' }, { durationMs });
+      } catch {}
     } catch (e) {
       const msg = getErrorMessage(e);
       logWarn('Tail: openLog failed ->', msg);
       this.post({ type: 'error', message: msg });
+      try {
+        const durationMs = Date.now() - t0;
+        safeSendEvent('log.open', { view: 'tail', outcome: 'error' }, { durationMs });
+      } catch {}
     } finally {
       this.post({ type: 'loading', value: false });
     }
   }
 
   private async replayLog(logId: string): Promise<void> {
+    const t0 = Date.now();
     try {
       await vscode.window.withProgress(
         {
@@ -276,6 +305,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         }
       );
       logInfo('Tail: replay requested for', logId);
+      try {
+        const durationMs = Date.now() - t0;
+        safeSendEvent('logs.replay', { view: 'tail', outcome: 'ok' }, { durationMs });
+      } catch {}
     } catch (e) {
       if (e instanceof Error && e.message === 'aborted') {
         // cancellation; no error message
@@ -283,6 +316,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         const msg = getErrorMessage(e);
         logWarn('Tail: replay failed ->', msg);
         this.post({ type: 'error', message: msg });
+        try {
+          const durationMs = Date.now() - t0;
+          safeSendEvent('logs.replay', { view: 'tail', outcome: 'error' }, { durationMs });
+        } catch {}
       }
     }
   }

@@ -20,6 +20,7 @@ interface OrgQuickPick extends vscode.QuickPickItem {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+  const activationStart = Date.now();
   // Init TTL cache (best-effort; no-op if unavailable)
   try {
     CacheManager.init(context.globalState);
@@ -152,7 +153,8 @@ export async function activate(context: vscode.ExtensionContext) {
         const msg = getErrorMessage(e);
         logError('Failed listing orgs ->', msg);
         vscode.window.showErrorMessage(localize('selectOrgError', 'Electivus Apex Logs: Failed to list orgs'));
-        safeSendException('command.selectOrg', { error: msg });
+        // Do not send raw error messages to telemetry; use a coarse code instead
+        safeSendException('command.selectOrg', { code: 'LIST_ORGS_FAILED' });
       }
     })
   );
@@ -264,6 +266,10 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // Return exports for tests and programmatic use
+  try {
+    const activationMs = Date.now() - activationStart;
+    safeSendEvent('extension.activate.duration', undefined, { activationMs });
+  } catch {}
   return {
     getApiVersion
   };

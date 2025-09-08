@@ -3,6 +3,7 @@ import { parseApexLogToGraph } from '../shared/apexLogParser';
 import type { DiagramWebviewToExtensionMessage } from '../shared/diagramMessages';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { logInfo, logWarn } from '../utils/logger';
+import { safeSendEvent } from '../shared/telemetry';
 import { getErrorMessage } from '../utils/error';
 
 export class ApexLogDiagramPanelManager implements vscode.Disposable {
@@ -63,8 +64,13 @@ export class ApexLogDiagramPanelManager implements vscode.Disposable {
       this.panel.webview.onDidReceiveMessage((msg: DiagramWebviewToExtensionMessage) => {
         if (msg?.type === 'ready') {
           try {
+            const t0 = Date.now();
             const graph = parseApexLogToGraph(doc.getText(), 100000);
             this.panel?.webview.postMessage({ type: 'graph', graph });
+            try {
+              const durationMs = Date.now() - t0;
+              safeSendEvent('diagram.parse', { phase: 'initial' }, { durationMs });
+            } catch {}
           } catch (e) {
             logWarn('Diagram panel: parse failed ->', getErrorMessage(e));
           }
