@@ -124,10 +124,13 @@ async function getDebugLevelIdByName(auth: OrgAuth, developerName: string): Prom
   return rec?.Id as string | undefined;
 }
 
-async function hasActiveTraceFlag(auth: OrgAuth, userId: string): Promise<boolean> {
-  const now = toSfDateTimeUTC(new Date());
+async function findExistingUserDebugTraceFlagId(
+  auth: OrgAuth,
+  userId: string,
+  debugLevelId: string
+): Promise<string | undefined> {
   const soql = encodeURIComponent(
-    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'DEVELOPER_LOG' AND StartDate <= ${now} AND ExpirationDate > ${now} ORDER BY CreatedDate DESC LIMIT 1`
+    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'USER_DEBUG' AND DebugLevelId = '${debugLevelId}' ORDER BY CreatedDate DESC LIMIT 1`
   );
   const url = `${auth.instanceUrl}/services/data/v${getApiVersion()}/tooling/query?q=${soql}`;
   const body = await httpsRequestWith401Retry(auth, 'GET', url, {
@@ -135,7 +138,8 @@ async function hasActiveTraceFlag(auth: OrgAuth, userId: string): Promise<boolea
     'Content-Type': 'application/json'
   });
   const json = JSON.parse(body);
-  return Array.isArray(json.records) && json.records.length > 0;
+  const rec = (json.records || [])[0];
+  return rec?.Id as string | undefined;
 }
 
 export async function ensureUserTraceFlag(
@@ -143,19 +147,12 @@ export async function ensureUserTraceFlag(
   developerName: string,
   ttlMinutes: number = 30
 ): Promise<boolean> {
-  // Returns true if created a new TraceFlag, false if one already active or not possible
+  // Returns true if created a new TraceFlag, false if updated or not possible
   try {
     const userId = await getCurrentUserId(auth);
     if (!userId) {
       try {
         logTrace('ensureUserTraceFlag: no user id');
-      } catch {}
-      return false;
-    }
-    // If already active, do nothing
-    if (await hasActiveTraceFlag(auth, userId)) {
-      try {
-        logTrace('ensureUserTraceFlag: active traceflag exists for user');
       } catch {}
       return false;
     }
@@ -170,10 +167,33 @@ export async function ensureUserTraceFlag(
     const now = new Date();
     const start = toSfDateTimeUTC(new Date(now.getTime() - 1000));
     const exp = toSfDateTimeUTC(new Date(now.getTime() + Math.max(1, ttlMinutes) * 60 * 1000));
-    const url = `${auth.instanceUrl}/services/data/v${getApiVersion()}/tooling/sobjects/TraceFlag`;
+
+    // Try to find existing USER_DEBUG TraceFlag for this user and debug level
+    const existingId = await findExistingUserDebugTraceFlagId(auth, userId, debugLevelId);
+    if (existingId) {
+      // Update existing TraceFlag window (PATCH returns 204 No Content on success)
+      const patchUrl = `${auth.instanceUrl}/services/data/v${getApiVersion()}/tooling/sobjects/TraceFlag/${existingId}`;
+      await httpsRequestWith401Retry(
+        auth,
+        'PATCH',
+        patchUrl,
+        {
+          Authorization: `Bearer ${auth.accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        JSON.stringify({ StartDate: start, ExpirationDate: exp })
+      );
+      try {
+        logTrace('ensureUserTraceFlag: updated existing USER_DEBUG TraceFlag', existingId);
+      } catch {}
+      return false;
+    }
+
+    // Create a new USER_DEBUG TraceFlag
+    const createUrl = `${auth.instanceUrl}/services/data/v${getApiVersion()}/tooling/sobjects/TraceFlag`;
     const payload = {
       TracedEntityId: userId,
-      LogType: 'DEVELOPER_LOG',
+      LogType: 'USER_DEBUG',
       DebugLevelId: debugLevelId,
       StartDate: start,
       ExpirationDate: exp
@@ -181,7 +201,7 @@ export async function ensureUserTraceFlag(
     const resBody = await httpsRequestWith401Retry(
       auth,
       'POST',
-      url,
+      createUrl,
       {
         Authorization: `Bearer ${auth.accessToken}`,
         'Content-Type': 'application/json'
@@ -191,7 +211,7 @@ export async function ensureUserTraceFlag(
     const res = JSON.parse(resBody);
     if (res && res.success) {
       try {
-        logTrace('ensureUserTraceFlag: created TraceFlag', res.id || '(unknown id)');
+        logTrace('ensureUserTraceFlag: created USER_DEBUG TraceFlag', res.id || '(unknown id)');
       } catch {}
       return true;
     }
