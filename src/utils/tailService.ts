@@ -94,21 +94,15 @@ export class TailService {
       this.logService = new (LogService as any)(this.connection as any);
 
       try {
-        // Prefer apex-node trace flag management
-        await (this.logService as any)?.prepareTraceFlag(debugLevel);
-        logInfo('Tail: TraceFlag ensured via apex-node with level', debugLevel);
-      } catch {
-        // Fall back to our helper if apex-node path fails
-        try {
-          const created = await ensureUserTraceFlag(auth, debugLevel);
-          if (created) {
-            logInfo('Tail: TraceFlag created for user with level', debugLevel);
-          } else {
-            logInfo('Tail: TraceFlag already active or unchanged');
-          }
-        } catch {
-          logWarn('Tail: ensure TraceFlag failed (continuing)');
+        // Ensure TraceFlag using USER_DEBUG and update existing if present
+        const created = await ensureUserTraceFlag(auth, debugLevel);
+        if (created) {
+          logInfo('Tail: TraceFlag created for user with level', debugLevel);
+        } else {
+          logInfo('Tail: TraceFlag updated or already matching for level', debugLevel);
         }
+      } catch {
+        logWarn('Tail: ensure TraceFlag failed (continuing)');
       }
 
       try {
