@@ -4,6 +4,12 @@
 
 No unreleased changes yet.
 
+## [0.8.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.6.2...v0.8.0) (2025-09-08)
+
+### Features
+
+- Telemetry: add coarse performance timings and avoid error message PII ([d291053](https://github.com/Electivus/Apex-Log-Viewer/commit/d291053))
+
 ## [0.6.2](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.6.1...v0.6.2) (2025-09-07)
 
 ### Features
