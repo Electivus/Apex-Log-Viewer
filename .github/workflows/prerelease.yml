@@ -43,7 +43,8 @@ jobs:
           fi
 
           # Consider the latest odd-minor tag (vX.Y.Z where Y is odd); fallback to legacy pre-* tags
-          LAST_TAG=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]*[13579]\.[0-9]+$' | head -n 1)
+          # grep exits 1 when no match; with pipefail that would abort the job, so tolerate empty match
+          LAST_TAG=$(git tag --list 'v*' --sort=-v:refname | (grep -E '^v[0-9]+\.[0-9]*[13579]\.[0-9]+$' || true) | head -n 1)
           if [ -z "$LAST_TAG" ]; then
             LAST_TAG=$(git tag --list 'pre-*' --sort=-v:refname | head -n 1)
           fi
