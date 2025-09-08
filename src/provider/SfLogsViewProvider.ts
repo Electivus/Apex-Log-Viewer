@@ -14,6 +14,7 @@ import type { ApexLogRow, OrgItem } from '../shared/types';
 import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn, logError } from '../utils/logger';
+import { safeSendEvent } from '../shared/telemetry';
 import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import {
@@ -148,6 +149,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const token = ++this.refreshToken;
+    const t0 = Date.now();
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
@@ -196,11 +198,19 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           this.post({ type: 'logs', data: logs, hasMore });
           // Limited parallel fetch of log heads
           this.loadLogHeads(logs, auth, token, controller.signal);
+          try {
+            const durationMs = Date.now() - t0;
+            safeSendEvent('logs.refresh', { outcome: 'ok' }, { durationMs, pageSize: this.pageLimit });
+          } catch {}
         } catch (e) {
           if (!controller.signal.aborted) {
             const msg = getErrorMessage(e);
             logWarn('Logs: refresh failed ->', msg);
             this.post({ type: 'error', message: msg });
+            try {
+              const durationMs = Date.now() - t0;
+              safeSendEvent('logs.refresh', { outcome: 'error' }, { durationMs, pageSize: this.pageLimit });
+            } catch {}
           }
         } finally {
           this.post({ type: 'loading', value: false });
@@ -214,6 +224,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const token = this.refreshToken;
+    const t0 = Date.now();
     this.post({ type: 'loading', value: true });
     try {
       const auth = await getOrgAuth(this.selectedOrg);
@@ -226,10 +237,18 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       const hasMore = logs.length === this.pageLimit;
       this.post({ type: 'appendLogs', data: logs, hasMore });
       this.loadLogHeads(logs, auth, token);
+      try {
+        const durationMs = Date.now() - t0;
+        safeSendEvent('logs.loadMore', { outcome: 'ok' }, { durationMs, count: logs.length });
+      } catch {}
     } catch (e) {
       const msg = getErrorMessage(e);
       logWarn('Logs: loadMore failed ->', msg);
       this.post({ type: 'error', message: msg });
+      try {
+        const durationMs = Date.now() - t0;
+        safeSendEvent('logs.loadMore', { outcome: 'error' }, { durationMs });
+      } catch {}
     } finally {
       this.post({ type: 'loading', value: false });
     }
@@ -265,6 +284,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async openLog(logId: string) {
+    const t0 = Date.now();
     this.post({ type: 'loading', value: true });
     try {
       // Open directly if already present (works even without CLI)
@@ -282,15 +302,24 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       const uri = vscode.Uri.file(targetPath);
       const doc = await vscode.workspace.openTextDocument(uri);
       await vscode.window.showTextDocument(doc, { preview: true });
+      try {
+        const durationMs = Date.now() - t0;
+        safeSendEvent('log.open', { view: 'logs' }, { durationMs });
+      } catch {}
     } catch (e) {
       vscode.window.showErrorMessage(localize('openError', 'Failed to open log: ') + getErrorMessage(e));
       logWarn('Logs: openLog failed ->', getErrorMessage(e));
+      try {
+        const durationMs = Date.now() - t0;
+        safeSendEvent('log.open', { view: 'logs', outcome: 'error' }, { durationMs });
+      } catch {}
     } finally {
       this.post({ type: 'loading', value: false });
     }
   }
 
   private async debugLog(logId: string) {
+    const t0 = Date.now();
     this.post({ type: 'loading', value: true });
     try {
       await vscode.window.withProgress(
@@ -335,6 +364,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           }
         }
       );
+      try {
+        const durationMs = Date.now() - t0;
+        safeSendEvent('logs.replay', { view: 'logs', outcome: 'ok' }, { durationMs });
+      } catch {}
     } catch (e) {
       if (e instanceof Error && e.message === 'aborted') {
         // silent cancellation
@@ -342,6 +375,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         const msg = getErrorMessage(e);
         vscode.window.showErrorMessage(localize('replayError', 'Failed to launch Apex Replay Debugger: ') + msg);
         logWarn('Logs: replay failed ->', msg);
+        try {
+          const durationMs = Date.now() - t0;
+          safeSendEvent('logs.replay', { view: 'logs', outcome: 'error' }, { durationMs });
+        } catch {}
       }
     } finally {
       this.post({ type: 'loading', value: false });
@@ -358,6 +395,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   }
 
   public async sendOrgs(forceRefresh = false) {
+    const t0 = Date.now();
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
@@ -374,6 +412,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           }
           const selected = pickSelectedOrg(orgs, this.selectedOrg);
           this.post({ type: 'orgs', data: orgs, selected });
+          try {
+            const durationMs = Date.now() - t0;
+            safeSendEvent('orgs.list', { outcome: 'ok', view: 'logs' }, { durationMs, count: orgs.length });
+          } catch {}
         } catch (e) {
           if (!controller.signal.aborted) {
             const msg = getErrorMessage(e);
@@ -382,6 +424,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
               localize('sendOrgsFailed', 'Failed to list Salesforce orgs: {0}', msg)
             );
             this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
+            try {
+              const durationMs = Date.now() - t0;
+              safeSendEvent('orgs.list', { outcome: 'error', view: 'logs' }, { durationMs });
+            } catch {}
           }
         }
       }
