@@ -9,6 +9,7 @@
   "command.selectOrg.title": "Select Org",
   "command.tail.title": "Tail Logs",
   "command.showDiagram.title": "Show Log Diagram",
+  "command.showCallTree.title": "Show Call Tree",
   "configuration.title": "Electivus Apex Logs",
   "configuration.electivus.apexLogs.pageSize.description": "Number of logs to fetch per page (effective maximum: 200). Higher values fetch more per request but may slow the UI or increase API load.",
   "configuration.electivus.apexLogs.headConcurrency.description": "Maximum concurrent requests to fetch log headers. Very high values may overload Salesforce APIs or hit rate limits.",

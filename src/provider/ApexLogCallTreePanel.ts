@@ -1,0 +1,102 @@
+import * as vscode from 'vscode';
+import { parseApexLogToGraph } from '../shared/apexLogParser';
+import { buildWebviewHtml } from '../utils/webviewHtml';
+import { logInfo, logWarn } from '../utils/logger';
+import { safeSendEvent } from '../shared/telemetry';
+import { getErrorMessage } from '../utils/error';
+
+type WebToExt = { type: 'ready' };
+
+export class ApexLogCallTreePanelManager implements vscode.Disposable {
+  private panel?: vscode.WebviewPanel;
+  private changeSub?: vscode.Disposable;
+
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  dispose(): void {
+    if (!this.panel && !this.changeSub) return;
+    const panel = this.panel;
+    this.panel = undefined;
+    try { this.changeSub?.dispose(); } catch {}
+    this.changeSub = undefined;
+    try { panel?.dispose(); } catch {}
+  }
+
+  private isApexLog(doc: vscode.TextDocument): boolean {
+    const name = (doc.fileName || '').toLowerCase();
+    if (!/\.log$/.test(name)) return false;
+    const head = doc.getText(new vscode.Range(0, 0, Math.min(10, doc.lineCount), 0));
+    return /APEX_CODE\s*,/i.test(head) || /\|EXECUTION_STARTED\|/.test(head);
+  }
+
+  async showForActiveEditor(): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return;
+    await this.showForDocument(editor.document);
+  }
+
+  async showForDocument(doc: vscode.TextDocument): Promise<void> {
+    if (!this.isApexLog(doc)) {
+      logInfo('CallTree panel: not an Apex log ->', doc.fileName);
+      void vscode.window.showInformationMessage('Open a Salesforce Apex .log to show Call Tree.');
+      return;
+    }
+
+    if (!this.panel) {
+      this.panel = vscode.window.createWebviewPanel('apexLogCallTree', 'Apex Log Call Tree', vscode.ViewColumn.Beside, {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
+      });
+      this.panel.webview.html = buildWebviewHtml(
+        this.panel.webview,
+        this.context.extensionUri,
+        'calltree.js',
+        'Apex Log Call Tree'
+      );
+      this.panel.onDidDispose(() => {
+        this.changeSub?.dispose();
+        this.changeSub = undefined;
+        this.panel = undefined;
+      });
+      this.panel.webview.onDidReceiveMessage((msg: WebToExt) => {
+        if (msg?.type === 'ready') {
+          try {
+            const t0 = Date.now();
+            const graph = parseApexLogToGraph(doc.getText(), 100000);
+            this.panel?.webview.postMessage({ type: 'graph', graph });
+            try {
+              const durationMs = Date.now() - t0;
+              safeSendEvent('calltree.parse', { phase: 'initial' }, { durationMs });
+            } catch {}
+          } catch (e) {
+            logWarn('CallTree panel: parse failed ->', getErrorMessage(e));
+          }
+        }
+      });
+    }
+
+    // Update when the document changes
+    this.changeSub?.dispose();
+    this.changeSub = vscode.workspace.onDidChangeTextDocument(e => {
+      if (e.document.uri.toString() === doc.uri.toString() && this.panel) {
+        try {
+          const graph = parseApexLogToGraph(e.document.getText(), 100000);
+          this.panel.webview.postMessage({ type: 'graph', graph });
+        } catch (e2) {
+          logWarn('CallTree panel: update parse failed ->', getErrorMessage(e2));
+        }
+      }
+    });
+
+    // Post initial graph if the panel already exists
+    try {
+      const graph = parseApexLogToGraph(doc.getText(), 100000);
+      this.panel.webview.postMessage({ type: 'graph', graph });
+    } catch (e) {
+      logWarn('CallTree panel: initial parse failed ->', getErrorMessage(e));
+    }
+    this.panel.reveal(vscode.ViewColumn.Beside, true);
+  }
+}
+
