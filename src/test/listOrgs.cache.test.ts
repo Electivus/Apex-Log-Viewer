@@ -2,10 +2,10 @@ import assert from 'assert/strict';
 import {
   listOrgs,
   __setListOrgsMockForTests,
-  __resetExecFileImplForTests,
   __setListOrgsCacheTTLForTests,
   __resetListOrgsCacheForTests
 } from '../salesforce/cli';
+import { __resetExecFileImplForTests } from '../salesforce/exec';
 
 suite('listOrgs caching', () => {
   teardown(() => {

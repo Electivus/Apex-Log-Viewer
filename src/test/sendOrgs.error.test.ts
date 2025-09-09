@@ -2,12 +2,8 @@ import assert from 'assert/strict';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { SfLogsViewProvider } from '../provider/SfLogsViewProvider';
-import {
-  __setExecFileImplForTests,
-  __resetExecFileImplForTests,
-  __resetListOrgsCacheForTests,
-  __setListOrgsMockForTests
-} from '../salesforce/cli';
+import { __resetListOrgsCacheForTests, __setListOrgsMockForTests } from '../salesforce/cli';
+import { __resetExecFileImplForTests } from '../salesforce/exec';
 
 suite('SfLogsViewProvider sendOrgs', () => {
   teardown(() => {

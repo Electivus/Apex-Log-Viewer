@@ -1,6 +1,10 @@
 import assert from 'assert/strict';
 import { EventEmitter } from 'events';
-import { __execCommandForTests, __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce/cli';
+import {
+  execCommand as __execCommandForTests,
+  __setExecFileImplForTests,
+  __resetExecFileImplForTests
+} from '../salesforce/exec';
 
 suite('execCommand error messages', () => {
   teardown(() => {

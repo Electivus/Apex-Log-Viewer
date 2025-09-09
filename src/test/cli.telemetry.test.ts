@@ -4,13 +4,17 @@ const proxyquire: any = require('proxyquire');
 suite('cli telemetry', () => {
   test('sends telemetry on ENOENT', async () => {
     const calls: any[] = [];
-    const { getOrgAuth, __setExecFileImplForTests, __resetExecFileImplForTests } = proxyquire('../salesforce/cli', {
-      '../shared/telemetry': {
-        safeSendException: (name: string, properties: Record<string, string>) => {
-          calls.push({ name, properties });
-        }
-      }
+    const telemetry = (name: string, properties: Record<string, string>) => {
+      calls.push({ name, properties });
+    };
+    const execModule = proxyquire('../salesforce/exec', {
+      '../shared/telemetry': { safeSendException: telemetry }
     });
+    const { getOrgAuth } = proxyquire('../salesforce/cli', {
+      '../shared/telemetry': { safeSendException: telemetry },
+      './exec': execModule
+    });
+    const { __setExecFileImplForTests, __resetExecFileImplForTests } = execModule;
 
     __setExecFileImplForTests(((_program: string, _args: readonly string[] | undefined, _opts: any, cb: any) => {
       const err: any = new Error('not found');
@@ -26,13 +30,17 @@ suite('cli telemetry', () => {
 
   test('sends telemetry on ETIMEDOUT', async () => {
     const calls: any[] = [];
-    const { getOrgAuth, __setExecFileImplForTests, __resetExecFileImplForTests } = proxyquire('../salesforce/cli', {
-      '../shared/telemetry': {
-        safeSendException: (name: string, properties: Record<string, string>) => {
-          calls.push({ name, properties });
-        }
-      }
+    const telemetry = (name: string, properties: Record<string, string>) => {
+      calls.push({ name, properties });
+    };
+    const execModule = proxyquire('../salesforce/exec', {
+      '../shared/telemetry': { safeSendException: telemetry }
     });
+    const { getOrgAuth } = proxyquire('../salesforce/cli', {
+      '../shared/telemetry': { safeSendException: telemetry },
+      './exec': execModule
+    });
+    const { __setExecFileImplForTests, __resetExecFileImplForTests } = execModule;
 
     __setExecFileImplForTests(((_program: string, _args: readonly string[] | undefined, _opts: any, cb: any) => {
       const err: any = new Error('timeout');
