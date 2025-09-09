@@ -70,7 +70,6 @@ function App() {
       setSelectedSig(undefined);
       setCollapsed(new Set());
       setSelectedId(undefined);
-      setSelectedId(undefined);
     } catch (e) {
       console.warn('CallTree: build failed', e);
     }
