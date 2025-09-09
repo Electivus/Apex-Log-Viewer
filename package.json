@@ -49,7 +49,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:sfLogs.showDiagram"
+    "onCommand:sfLogs.showDiagram",
+    "onCommand:sfLogs.showCallTree"
   ],
   "extensionDependencies": [],
   "main": "./dist/extension.js",
@@ -236,6 +237,12 @@
         "icon": "$(graph)"
       },
       {
+        "command": "sfLogs.showCallTree",
+        "title": "%command.showCallTree.title%",
+        "category": "Electivus Apex Logs",
+        "icon": "$(list-tree)"
+      },
+      {
         "command": "sfLogs.showOutput",
         "title": "Show Extension Output",
         "category": "Electivus Apex Logs"
@@ -265,12 +272,18 @@
           "when": "resourceExtname == .log",
           "group": "navigation@100"
         }
+        ,
+        {
+          "command": "sfLogs.showCallTree",
+          "when": "resourceExtname == .log",
+          "group": "navigation@101"
+        }
       ]
     }
   },
   "scripts": {
     "test:clean": "node scripts/clean-vscode-test.js",
-    "clean": "node -e \"const fs=require('fs');const p=require('path');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('dist');del('out');for(const f of ['media/main.js','media/main.js.map','media/tail.js','media/tail.js.map','media/diagram.js','media/diagram.js.map']){try{fs.unlinkSync(f)}catch{}}\"",
+    "clean": "node -e \"const fs=require('fs');const p=require('path');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('dist');del('out');for(const f of ['media/main.js','media/main.js.map','media/tail.js','media/tail.js.map','media/diagram.js','media/diagram.js.map','media/calltree.js','media/calltree.js.map']){try{fs.unlinkSync(f)}catch{}}\"",
     "prebuild": "npm run clean",
     "vscode:prepublish": "npm run build && npm run nls:write",
     "check-types": "tsc --noEmit -p tsconfig.extension.json",
@@ -278,9 +291,9 @@
     "watch": "npm-run-all -p watch:*",
     "watch:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --sourcemap --external:vscode --alias:bfj=./src/shims/bfj.ts --watch",
     "watch:tsc": "tsc -p tsconfig.extension.json --watch --noEmit",
-    "watch:webview": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/diagram.tsx --bundle --outdir=media --platform=browser --format=iife --sourcemap --watch",
+    "watch:webview": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/diagram.tsx src/webview/calltree.tsx --bundle --outdir=media --platform=browser --format=iife --sourcemap --watch",
     "build:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --minify --external:vscode --alias:bfj=./src/shims/bfj.ts",
-    "build:webview": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/diagram.tsx --bundle --outdir=media --platform=browser --format=iife --minify",
+    "build:webview": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/diagram.tsx src/webview/calltree.tsx --bundle --outdir=media --platform=browser --format=iife --minify",
     "build": "npm run build:extension && npm run build:webview",
     "build:icon": "node scripts/gen-icon.mjs",
     "build:assets": "node scripts/gen-assets.mjs",
@@ -361,6 +374,7 @@
     "dist/**",
     "media/main.js",
     "media/diagram.js",
+    "media/calltree.js",
     "media/tail.js",
     "media/icon.png",
     "README.md",
