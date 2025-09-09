@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { parseApexLogToGraph } from '../shared/apexLogParser';
+import { parseApexLogToGraph } from '../shared/apexLogParser/graph';
 import type { DiagramWebviewToExtensionMessage } from '../shared/diagramMessages';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { logInfo, logWarn } from '../utils/logger';

@@ -4,109 +4,17 @@
 // classes and flows. It also captures the default log levels from the head
 // of the file (e.g., "64.0 APEX_CODE,FINEST;DB,INFO;...").
 
-export type LogLevels = Record<string, string>;
-
-export type GraphNode = {
-  id: string; // stable id (e.g., kind:Name)
-  label: string; // human friendly label
-  kind: 'Trigger' | 'Class' | 'Flow' | 'Other';
-  levels?: LogLevels; // default/inherited levels (best-effort)
-};
-
-export type GraphEdge = {
-  from: string; // node id
-  to: string; // node id
-  count: number; // number of times observed
-};
-
-export type SequenceEvent = {
-  from?: string; // node id (optional for first event)
-  to: string; // node id
-  label?: string;
-  time?: string; // HH:MM:SS.mmm
-  nanos?: string; // raw nanoseconds field in parentheses
-};
-
-export type FlowSpan = {
-  actor: string; // node id (lane)
-  label: string;
-  start: number; // sequence index where it started
-  end?: number; // sequence index where it finished
-  depth: number; // nesting level within the same actor lane
-  kind: 'unit' | 'method';
-  // Timeline timestamps (nanoseconds from log prefix) for duration computation
-  startNs?: number;
-  endNs?: number;
-};
-
-export type NestedFrame = {
-  actor: string; // node id
-  label: string; // display label
-  start: number; // sequence index at start
-  end?: number; // sequence index at end (exclusive)
-  depth: number; // global stack depth
-  kind: 'unit' | 'method';
-  // Lightweight profiling counters captured while the frame is active
-  profile?: {
-    soql?: number;
-    dml?: number;
-    callout?: number;
-    cpuMs?: number;
-    heapBytes?: number;
-    // Wall-clock time derived from log timeline (in milliseconds)
-    timeMs?: number;
-    // Per-category wall times (ms) from BEGIN/END pairs
-    soqlTimeMs?: number;
-    dmlTimeMs?: number;
-    calloutTimeMs?: number;
-  };
-  // Timeline timestamps (nanoseconds from log prefix) for duration computation
-  startNs?: number;
-  endNs?: number;
-};
-
-export type LogGraph = {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  sequence: SequenceEvent[];
-  flow: FlowSpan[];
-  nested: NestedFrame[];
-  issues?: LogIssue[];
-};
-
-export type LogIssue = {
-  severity: 'info' | 'warning' | 'error';
-  code: string;
-  message: string;
-  details?: string;
-  line?: number;
-};
-
-function normalizeLevel(level: string | undefined): string | undefined {
-  const l = (level || '').toUpperCase().trim();
-  const allowed = ['FINEST', 'FINER', 'FINE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'NONE'];
-  return allowed.includes(l) ? l : undefined;
-}
-
-// Parse a line like:
-//   "64.0 APEX_CODE,FINEST;APEX_PROFILING,INFO;DB,INFO;SYSTEM,DEBUG;..."
-export function parseDefaultLogLevels(headLines: string[]): LogLevels | undefined {
-  const first = headLines.find(l => /\bAPEX_CODE\b.*[,;]/.test(l));
-  if (!first) return undefined;
-  const map: LogLevels = {};
-  // Take the substring starting at the first category to avoid leading version numbers
-  const start = first.indexOf('APEX_');
-  const payload = start >= 0 ? first.slice(start) : first;
-  for (const part of payload.split(';')) {
-    const m = part.match(/([A-Z_]+)\s*,\s*([A-Z]+)/);
-    if (m) {
-      const [, key, lvl] = m as unknown as [string, string, string];
-      const norm = normalizeLevel(lvl);
-      if (norm) (map as Record<string, string>)[key] = norm;
-    }
-  }
-  return Object.keys(map).length ? map : undefined;
-}
+import type {
+  LogGraph,
+  LogLevels,
+  GraphNode,
+  GraphEdge,
+  SequenceEvent,
+  FlowSpan,
+  NestedFrame,
+  LogIssue
+} from './types';
+import { parseDefaultLogLevels } from './levels';
 
 function nodeId(kind: GraphNode['kind'], name: string): string {
   return `${kind}:${name}`;
@@ -200,7 +108,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         if (typeof fr.startNs === 'number' && typeof fr.endNs === 'number') {
           const delta = Math.max(0, fr.endNs - fr.startNs);
           const ms = Math.round(delta / 1_000_000);
-          (fr.profile ||= {});
+          fr.profile ||= {};
           fr.profile.timeMs = (fr.profile.timeMs || 0) + ms;
         }
         nestedStack.splice(i, 1);
@@ -342,7 +250,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
       for (let idx = nestedStack.length - 1; idx >= 0; idx--) {
         const fr = nestedStack[idx]!;
         if (fr.actor === actor && fr.kind === k) {
-          (fr.profile ||= {} as any);
+          fr.profile ||= {} as any;
           (fr.profile as any)[profileKey] = ((fr.profile as any)[profileKey] || 0) + amount;
           return true;
         }
@@ -350,7 +258,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
       for (let i = nested.length - 1; i >= 0; i--) {
         const fr = nested[i]!;
         if (fr.actor === actor && fr.kind === k) {
-          (fr.profile ||= {} as any);
+          fr.profile ||= {} as any;
           (fr.profile as any)[profileKey] = ((fr.profile as any)[profileKey] || 0) + amount;
           return true;
         }
@@ -364,22 +272,52 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
   };
   let lastSeenNs: number | undefined;
   // Guidance based on defaults
-  const levelRank: Record<string, number> = { NONE: 0, ERROR: 1, WARN: 2, INFO: 3, DEBUG: 4, FINE: 5, FINER: 6, FINEST: 7 };
-  const getRank = (lvl?: string) => (lvl ? levelRank[(lvl || '').toUpperCase()] ?? -1 : -1);
+  const levelRank: Record<string, number> = {
+    NONE: 0,
+    ERROR: 1,
+    WARN: 2,
+    INFO: 3,
+    DEBUG: 4,
+    FINE: 5,
+    FINER: 6,
+    FINEST: 7
+  };
+  const getRank = (lvl?: string) => (lvl ? (levelRank[(lvl || '').toUpperCase()] ?? -1) : -1);
   if (!defaults) {
-    issues.push({ severity: 'info', code: 'levels.missing', message: 'Default log levels not detected in header.', details: 'Some features may be incomplete. Ensure the first lines include categories (e.g., APEX_CODE,FINEST;DB,INFO;CALLOUT,INFO;).' });
+    issues.push({
+      severity: 'info',
+      code: 'levels.missing',
+      message: 'Default log levels not detected in header.',
+      details:
+        'Some features may be incomplete. Ensure the first lines include categories (e.g., APEX_CODE,FINEST;DB,INFO;CALLOUT,INFO;).'
+    });
   } else {
     const apexCode = defaults['APEX_CODE'];
     if (getRank(apexCode) < getRank('FINEST')) {
-      issues.push({ severity: 'warning', code: 'levels.apex_code.low', message: 'APEX_CODE level below FINEST.', details: 'Method entries may be missing. Set APEX_CODE to FINEST for best results.' });
+      issues.push({
+        severity: 'warning',
+        code: 'levels.apex_code.low',
+        message: 'APEX_CODE level below FINEST.',
+        details: 'Method entries may be missing. Set APEX_CODE to FINEST for best results.'
+      });
     }
     const db = defaults['DB'];
     if (getRank(db) < getRank('INFO')) {
-      issues.push({ severity: 'warning', code: 'levels.db.low', message: 'DB level below INFO.', details: 'SOQL/DML counters and timings may be incomplete. Set DB to INFO or higher.' });
+      issues.push({
+        severity: 'warning',
+        code: 'levels.db.low',
+        message: 'DB level below INFO.',
+        details: 'SOQL/DML counters and timings may be incomplete. Set DB to INFO or higher.'
+      });
     }
     const callout = defaults['CALLOUT'];
     if (getRank(callout) < getRank('INFO')) {
-      issues.push({ severity: 'warning', code: 'levels.callout.low', message: 'CALLOUT level below INFO.', details: 'Callout counters and timings may be incomplete. Set CALLOUT to INFO or higher.' });
+      issues.push({
+        severity: 'warning',
+        code: 'levels.callout.low',
+        message: 'CALLOUT level below INFO.',
+        details: 'Callout counters and timings may be incomplete. Set CALLOUT to INFO or higher.'
+      });
     }
   }
 
@@ -415,7 +353,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         for (let idx = nestedStack.length - 1; idx >= 0; idx--) {
           const fr = nestedStack[idx]!;
           if (fr.actor === curMethodActor && fr.kind === 'method') {
-            (fr.profile ||= {} as any);
+            fr.profile ||= {} as any;
             (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + 1;
             break;
           }
@@ -427,7 +365,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         for (let idx = nestedStack.length - 1; idx >= 0; idx--) {
           const fr = nestedStack[idx]!;
           if (fr.actor === curUnitActor && fr.kind === 'unit') {
-            (fr.profile ||= {} as any);
+            fr.profile ||= {} as any;
             (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + 1;
             break;
           }
@@ -508,7 +446,10 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         if (!Number.isNaN(v)) snapHeapBytes = v;
       }
       // End of block => attribute deltas
-      if (/(^|\|)CUMULATIVE_LIMIT_USAGE_END(\||$)/.test(lineUpper) || /(^|\|)CUMULATIVE_PROFILING_END(\||$)/.test(lineUpper)) {
+      if (
+        /(^|\|)CUMULATIVE_LIMIT_USAGE_END(\||$)/.test(lineUpper) ||
+        /(^|\|)CUMULATIVE_PROFILING_END(\||$)/.test(lineUpper)
+      ) {
         const curCpu = typeof snapCpuMs === 'number' ? snapCpuMs : lastCpuMs;
         const curHeap = typeof snapHeapBytes === 'number' ? snapHeapBytes : lastHeapBytes;
         let dCpu = Math.max(0, curCpu - lastCpuMs);
@@ -517,12 +458,17 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         lastCpuMs = curCpu;
         lastHeapBytes = curHeap;
         if (dCpu || dHeap) {
-          const addToFrame = (actor: string | undefined, k: NestedFrame['kind'], kind: 'cpuMs' | 'heapBytes', amount: number) => {
+          const addToFrame = (
+            actor: string | undefined,
+            k: NestedFrame['kind'],
+            kind: 'cpuMs' | 'heapBytes',
+            amount: number
+          ) => {
             if (!actor || !amount) return false;
             for (let idx = nestedStack.length - 1; idx >= 0; idx--) {
               const fr = nestedStack[idx]!;
               if (fr.actor === actor && fr.kind === k) {
-                (fr.profile ||= {} as any);
+                fr.profile ||= {} as any;
                 (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + amount;
                 return true;
               }
@@ -530,7 +476,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
             for (let i = nested.length - 1; i >= 0; i--) {
               const fr = nested[i]!;
               if (fr.actor === actor && fr.kind === k) {
-                (fr.profile ||= {} as any);
+                fr.profile ||= {} as any;
                 (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + amount;
                 return true;
               }
@@ -539,7 +485,9 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
           };
           const addAmount = (kind: 'cpuMs' | 'heapBytes', amount: number) => {
             if (!amount) return;
-            const curMethodActor = methodStack.length ? nodeId('Class', methodStack[methodStack.length - 1]!) : undefined;
+            const curMethodActor = methodStack.length
+              ? nodeId('Class', methodStack[methodStack.length - 1]!)
+              : undefined;
             const curUnitActor = unitStack.length ? unitStack[unitStack.length - 1]!.id : undefined;
             addToFrame(curMethodActor || lastClosedMethodActor, 'method', kind, amount);
             addToFrame(curUnitActor || lastClosedUnitActor, 'unit', kind, amount);
@@ -679,43 +627,89 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
     if (typeof fr.startNs === 'number' && typeof fr.endNs === 'number') {
       const delta = Math.max(0, fr.endNs - fr.startNs);
       const ms = Math.round(delta / 1_000_000);
-      (fr.profile ||= {});
+      fr.profile ||= {};
       fr.profile.timeMs = (fr.profile.timeMs || 0) + ms;
     }
   }
   // Post-parse validations
   if (missingPrefixCount > 0) {
-    issues.push({ severity: 'warning', code: 'timestamps.missing', message: `${missingPrefixCount} line(s) without time prefix.`, details: 'Timeline metrics rely on the (nanos) prefix. Some durations may be inaccurate.' });
+    issues.push({
+      severity: 'warning',
+      code: 'timestamps.missing',
+      message: `${missingPrefixCount} line(s) without time prefix.`,
+      details: 'Timeline metrics rely on the (nanos) prefix. Some durations may be inaccurate.'
+    });
   }
   if (nonMonotonicCount > 0) {
-    issues.push({ severity: 'info', code: 'timestamps.non_monotonic', message: `Detected ${nonMonotonicCount} non-monotonic timestamp(s).`, details: 'Out-of-order timestamps can occur; timeline durations are clamped to non-negative.' });
+    issues.push({
+      severity: 'info',
+      code: 'timestamps.non_monotonic',
+      message: `Detected ${nonMonotonicCount} non-monotonic timestamp(s).`,
+      details: 'Out-of-order timestamps can occur; timeline durations are clamped to non-negative.'
+    });
   }
   if (codeUnitStartCount === 0) {
-    issues.push({ severity: 'warning', code: 'events.code_unit.missing', message: 'No CODE_UNIT_* events found.', details: 'Diagram may be empty. Ensure APEX_CODE is set to FINEST.' });
+    issues.push({
+      severity: 'warning',
+      code: 'events.code_unit.missing',
+      message: 'No CODE_UNIT_* events found.',
+      details: 'Diagram may be empty. Ensure APEX_CODE is set to FINEST.'
+    });
   }
   if (methodEntryCount === 0) {
-    issues.push({ severity: 'info', code: 'events.methods.missing', message: 'No METHOD_ENTRY events found.', details: 'Method timeline will be empty. Set APEX_CODE to FINEST.' });
+    issues.push({
+      severity: 'info',
+      code: 'events.methods.missing',
+      message: 'No METHOD_ENTRY events found.',
+      details: 'Method timeline will be empty. Set APEX_CODE to FINEST.'
+    });
   }
   if (methodEntryCount !== methodExitCount) {
-    issues.push({ severity: 'info', code: 'events.methods.unbalanced', message: `METHOD_ENTRY (${methodEntryCount}) != METHOD_EXIT (${methodExitCount}).`, details: 'This can happen with system frames. Parser compensates, but durations may be rough.' });
+    issues.push({
+      severity: 'info',
+      code: 'events.methods.unbalanced',
+      message: `METHOD_ENTRY (${methodEntryCount}) != METHOD_EXIT (${methodExitCount}).`,
+      details: 'This can happen with system frames. Parser compensates, but durations may be rough.'
+    });
   }
   if (unitStack.length > 0) {
-    issues.push({ severity: 'warning', code: 'frames.unit.unclosed', message: `${unitStack.length} code unit(s) left open at end of log.`, details: 'Unclosed units reduce accuracy of durations and nesting.' });
+    issues.push({
+      severity: 'warning',
+      code: 'frames.unit.unclosed',
+      message: `${unitStack.length} code unit(s) left open at end of log.`,
+      details: 'Unclosed units reduce accuracy of durations and nesting.'
+    });
   }
   if (methodStack.length > 0) {
-    issues.push({ severity: 'info', code: 'frames.method.unclosed', message: `${methodStack.length} method frame(s) left open at end of log.` });
+    issues.push({
+      severity: 'info',
+      code: 'frames.method.unclosed',
+      message: `${methodStack.length} method frame(s) left open at end of log.`
+    });
   }
   if (fallbackMethodExitClose > 0) {
-    issues.push({ severity: 'info', code: 'methods.exit.fallback', message: `Closed ${fallbackMethodExitClose} method(s) by fallback due to ambiguous METHOD_EXIT entries.` });
+    issues.push({
+      severity: 'info',
+      code: 'methods.exit.fallback',
+      message: `Closed ${fallbackMethodExitClose} method(s) by fallback due to ambiguous METHOD_EXIT entries.`
+    });
   }
   if (soqlNsStack.length > 0) {
-    issues.push({ severity: 'info', code: 'soql.open', message: `${soqlNsStack.length} SOQL_EXECUTE_BEGIN without SOQL_EXECUTE_END.` });
+    issues.push({
+      severity: 'info',
+      code: 'soql.open',
+      message: `${soqlNsStack.length} SOQL_EXECUTE_BEGIN without SOQL_EXECUTE_END.`
+    });
   }
   if (dmlNsStack.length > 0) {
     issues.push({ severity: 'info', code: 'dml.open', message: `${dmlNsStack.length} DML_BEGIN without DML_END.` });
   }
   if (calloutNsStack.length > 0) {
-    issues.push({ severity: 'info', code: 'callout.open', message: `${calloutNsStack.length} CALLOUT_REQUEST without CALLOUT_RESPONSE.` });
+    issues.push({
+      severity: 'info',
+      code: 'callout.open',
+      message: `${calloutNsStack.length} CALLOUT_REQUEST without CALLOUT_RESPONSE.`
+    });
   }
 
   return { nodes, edges, sequence, flow, nested, issues };

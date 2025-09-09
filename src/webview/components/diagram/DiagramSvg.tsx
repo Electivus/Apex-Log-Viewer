@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { NestedFrame } from '../../../shared/apexLogParser';
+import type { NestedFrame } from '../../../shared/apexLogParser/types';
 
 type UnitFrame = NestedFrame & { kind: 'unit'; count?: number };
 type MethodFrame = NestedFrame & { kind: 'method'; count?: number };
@@ -275,7 +275,17 @@ export function DiagramSvg({
           const textColor = 'var(--vscode-foreground)';
           return (
             <g key={`m-${fr.actor}-${fr.start}`}>
-              <rect x={x} y={y1} width={w} height={rectH} rx={8} ry={8} fill={sty.fill} stroke={sty.stroke} strokeWidth={1} />
+              <rect
+                x={x}
+                y={y1}
+                width={w}
+                height={rectH}
+                rx={8}
+                ry={8}
+                fill={sty.fill}
+                stroke={sty.stroke}
+                strokeWidth={1}
+              />
               <text x={x + 10} y={y1 + 16} fill={textColor} fontSize={12}>
                 {label}
               </text>
