@@ -1,4 +1,4 @@
-import type { NestedFrame } from '../../shared/apexLogParser';
+import type { NestedFrame } from '../../shared/apexLogParser/types';
 
 export function filterAndCollapse(
   frames: NestedFrame[] | undefined,

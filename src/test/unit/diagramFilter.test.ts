@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-import type { NestedFrame } from '../../shared/apexLogParser';
+import type { NestedFrame } from '../../shared/apexLogParser/types';
 import { filterAndCollapse } from '../../webview/utils/diagramFilter';
 
 suite('filterAndCollapse (diagram filter)', () => {

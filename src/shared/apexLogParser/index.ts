@@ -4,142 +4,18 @@
 // classes and flows. It also captures the default log levels from the head
 // of the file (e.g., "64.0 APEX_CODE,FINEST;DB,INFO;...").
 
-export type LogLevels = Record<string, string>;
-
-export type GraphNode = {
-  id: string; // stable id (e.g., kind:Name)
-  label: string; // human friendly label
-  kind: 'Trigger' | 'Class' | 'Flow' | 'Other';
-  levels?: LogLevels; // default/inherited levels (best-effort)
-};
-
-export type GraphEdge = {
-  from: string; // node id
-  to: string; // node id
-  count: number; // number of times observed
-};
-
-export type SequenceEvent = {
-  from?: string; // node id (optional for first event)
-  to: string; // node id
-  label?: string;
-  time?: string; // HH:MM:SS.mmm
-  nanos?: string; // raw nanoseconds field in parentheses
-};
-
-export type FlowSpan = {
-  actor: string; // node id (lane)
-  label: string;
-  start: number; // sequence index where it started
-  end?: number; // sequence index where it finished
-  depth: number; // nesting level within the same actor lane
-  kind: 'unit' | 'method';
-  // Timeline timestamps (nanoseconds from log prefix) for duration computation
-  startNs?: number;
-  endNs?: number;
-};
-
-export type NestedFrame = {
-  actor: string; // node id
-  label: string; // display label
-  start: number; // sequence index at start
-  end?: number; // sequence index at end (exclusive)
-  depth: number; // global stack depth
-  kind: 'unit' | 'method';
-  // Lightweight profiling counters captured while the frame is active
-  profile?: {
-    soql?: number;
-    dml?: number;
-    callout?: number;
-    cpuMs?: number;
-    heapBytes?: number;
-    // Wall-clock time derived from log timeline (in milliseconds)
-    timeMs?: number;
-    // Per-category wall times (ms) from BEGIN/END pairs
-    soqlTimeMs?: number;
-    dmlTimeMs?: number;
-    calloutTimeMs?: number;
-  };
-  // Timeline timestamps (nanoseconds from log prefix) for duration computation
-  startNs?: number;
-  endNs?: number;
-};
-
-export type LogGraph = {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  sequence: SequenceEvent[];
-  flow: FlowSpan[];
-  nested: NestedFrame[];
-  issues?: LogIssue[];
-};
-
-export type LogIssue = {
-  severity: 'info' | 'warning' | 'error';
-  code: string;
-  message: string;
-  details?: string;
-  line?: number;
-};
-
-function normalizeLevel(level: string | undefined): string | undefined {
-  const l = (level || '').toUpperCase().trim();
-  const allowed = ['FINEST', 'FINER', 'FINE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'NONE'];
-  return allowed.includes(l) ? l : undefined;
-}
-
-// Parse a line like:
-//   "64.0 APEX_CODE,FINEST;APEX_PROFILING,INFO;DB,INFO;SYSTEM,DEBUG;..."
-export function parseDefaultLogLevels(headLines: string[]): LogLevels | undefined {
-  const first = headLines.find(l => /\bAPEX_CODE\b.*[,;]/.test(l));
-  if (!first) return undefined;
-  const map: LogLevels = {};
-  // Take the substring starting at the first category to avoid leading version numbers
-  const start = first.indexOf('APEX_');
-  const payload = start >= 0 ? first.slice(start) : first;
-  for (const part of payload.split(';')) {
-    const m = part.match(/([A-Z_]+)\s*,\s*([A-Z]+)/);
-    if (m) {
-      const [, key, lvl] = m as unknown as [string, string, string];
-      const norm = normalizeLevel(lvl);
-      if (norm) (map as Record<string, string>)[key] = norm;
-    }
-  }
-  return Object.keys(map).length ? map : undefined;
-}
-
-function nodeId(kind: GraphNode['kind'], name: string): string {
-  return `${kind}:${name}`;
-}
-
-function upsertNode(
-  nodesById: Map<string, GraphNode>,
-  kind: GraphNode['kind'],
-  name: string,
-  levels?: LogLevels
-): GraphNode {
-  const id = nodeId(kind, name);
-  const existing = nodesById.get(id);
-  if (existing) {
-    return existing;
-  }
-  const node: GraphNode = { id, label: name, kind, levels };
-  nodesById.set(id, node);
-  return node;
-}
-
-function incEdge(edgesByKey: Map<string, GraphEdge>, from: string, to: string) {
-  if (from === to) return; // ignore self loops
-  const key = `${from}|${to}`;
-  const existing = edgesByKey.get(key);
-  if (existing) {
-    existing.count++;
-    return existing;
-  }
-  const edge: GraphEdge = { from, to, count: 1 };
-  edgesByKey.set(key, edge);
-  return edge;
-}
+import type {
+  FlowSpan,
+  GraphEdge,
+  GraphNode,
+  LogGraph,
+  LogIssue,
+  LogLevels,
+  NestedFrame,
+  SequenceEvent
+} from './types';
+import { parseDefaultLogLevels } from './levels';
+import { nodeId, upsertNode, incEdge, addSequenceEvent } from './graph';
 
 type Unit = { kind: GraphNode['kind']; name: string; id: string };
 
@@ -200,7 +76,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         if (typeof fr.startNs === 'number' && typeof fr.endNs === 'number') {
           const delta = Math.max(0, fr.endNs - fr.startNs);
           const ms = Math.round(delta / 1_000_000);
-          (fr.profile ||= {});
+          fr.profile ||= {};
           fr.profile.timeMs = (fr.profile.timeMs || 0) + ms;
         }
         nestedStack.splice(i, 1);
@@ -364,22 +240,52 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
   };
   let lastSeenNs: number | undefined;
   // Guidance based on defaults
-  const levelRank: Record<string, number> = { NONE: 0, ERROR: 1, WARN: 2, INFO: 3, DEBUG: 4, FINE: 5, FINER: 6, FINEST: 7 };
-  const getRank = (lvl?: string) => (lvl ? levelRank[(lvl || '').toUpperCase()] ?? -1 : -1);
+  const levelRank: Record<string, number> = {
+    NONE: 0,
+    ERROR: 1,
+    WARN: 2,
+    INFO: 3,
+    DEBUG: 4,
+    FINE: 5,
+    FINER: 6,
+    FINEST: 7
+  };
+  const getRank = (lvl?: string) => (lvl ? (levelRank[(lvl || '').toUpperCase()] ?? -1) : -1);
   if (!defaults) {
-    issues.push({ severity: 'info', code: 'levels.missing', message: 'Default log levels not detected in header.', details: 'Some features may be incomplete. Ensure the first lines include categories (e.g., APEX_CODE,FINEST;DB,INFO;CALLOUT,INFO;).' });
+    issues.push({
+      severity: 'info',
+      code: 'levels.missing',
+      message: 'Default log levels not detected in header.',
+      details:
+        'Some features may be incomplete. Ensure the first lines include categories (e.g., APEX_CODE,FINEST;DB,INFO;CALLOUT,INFO;).'
+    });
   } else {
     const apexCode = defaults['APEX_CODE'];
     if (getRank(apexCode) < getRank('FINEST')) {
-      issues.push({ severity: 'warning', code: 'levels.apex_code.low', message: 'APEX_CODE level below FINEST.', details: 'Method entries may be missing. Set APEX_CODE to FINEST for best results.' });
+      issues.push({
+        severity: 'warning',
+        code: 'levels.apex_code.low',
+        message: 'APEX_CODE level below FINEST.',
+        details: 'Method entries may be missing. Set APEX_CODE to FINEST for best results.'
+      });
     }
     const db = defaults['DB'];
     if (getRank(db) < getRank('INFO')) {
-      issues.push({ severity: 'warning', code: 'levels.db.low', message: 'DB level below INFO.', details: 'SOQL/DML counters and timings may be incomplete. Set DB to INFO or higher.' });
+      issues.push({
+        severity: 'warning',
+        code: 'levels.db.low',
+        message: 'DB level below INFO.',
+        details: 'SOQL/DML counters and timings may be incomplete. Set DB to INFO or higher.'
+      });
     }
     const callout = defaults['CALLOUT'];
     if (getRank(callout) < getRank('INFO')) {
-      issues.push({ severity: 'warning', code: 'levels.callout.low', message: 'CALLOUT level below INFO.', details: 'Callout counters and timings may be incomplete. Set CALLOUT to INFO or higher.' });
+      issues.push({
+        severity: 'warning',
+        code: 'levels.callout.low',
+        message: 'CALLOUT level below INFO.',
+        details: 'Callout counters and timings may be incomplete. Set CALLOUT to INFO or higher.'
+      });
     }
   }
 
@@ -415,7 +321,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         for (let idx = nestedStack.length - 1; idx >= 0; idx--) {
           const fr = nestedStack[idx]!;
           if (fr.actor === curMethodActor && fr.kind === 'method') {
-            (fr.profile ||= {} as any);
+            fr.profile ||= {} as any;
             (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + 1;
             break;
           }
@@ -427,7 +333,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         for (let idx = nestedStack.length - 1; idx >= 0; idx--) {
           const fr = nestedStack[idx]!;
           if (fr.actor === curUnitActor && fr.kind === 'unit') {
-            (fr.profile ||= {} as any);
+            fr.profile ||= {} as any;
             (fr.profile as any)[kind] = ((fr.profile as any)[kind] || 0) + 1;
             break;
           }
@@ -560,8 +466,9 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
       if (unit) {
         // Sequence edge from current owner to new unit
         const owner = currentOwnerId();
-        if (owner) sequence.push({ from: owner, to: unit.id, label: 'CODE_UNIT_STARTED', time, nanos });
-        else sequence.push({ to: unit.id, label: 'CODE_UNIT_STARTED', time, nanos });
+        if (owner)
+          addSequenceEvent(sequence, { from: owner, to: unit.id, label: 'CODE_UNIT_STARTED', time, nanos });
+        else addSequenceEvent(sequence, { to: unit.id, label: 'CODE_UNIT_STARTED', time, nanos });
         // Flow span on the unit's own lane
         pushSpan(unit.id, unit.name, 'unit', lastSeenNs);
         // Global nested frame
@@ -605,9 +512,9 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
         const owner = currentOwnerId();
         if (owner) {
           incEdge(edgesByKey, owner, targetId);
-          sequence.push({ from: owner, to: targetId, label: payload, time, nanos });
+          addSequenceEvent(sequence, { from: owner, to: targetId, label: payload, time, nanos });
         } else {
-          sequence.push({ to: targetId, label: payload, time, nanos });
+          addSequenceEvent(sequence, { to: targetId, label: payload, time, nanos });
         }
         // Flow span on class lane
         pushSpan(targetId, payload, 'method', lastSeenNs);
@@ -679,7 +586,7 @@ export function parseApexLogToGraph(text: string, maxLines?: number): LogGraph {
     if (typeof fr.startNs === 'number' && typeof fr.endNs === 'number') {
       const delta = Math.max(0, fr.endNs - fr.startNs);
       const ms = Math.round(delta / 1_000_000);
-      (fr.profile ||= {});
+      fr.profile ||= {};
       fr.profile.timeMs = (fr.profile.timeMs || 0) + ms;
     }
   }
