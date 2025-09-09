@@ -201,3 +201,31 @@ export function invertForSignature(model: CallTreeModel, signature: string): Cal
   return { roots, all, bySignature: model.bySignature, parentsBySignature: model.parentsBySignature, totals };
 }
 
+export function scopeToOccurrence(model: CallTreeModel, nodeId: string): CallTreeModel {
+  const src = model.all.get(nodeId);
+  if (!src) return model;
+  const all = new Map<string, CallTreeNode>();
+  const clone = (n: CallTreeNode): CallTreeNode => {
+    const m: CallTreeNode = {
+      id: n.id,
+      ref: { ...n.ref },
+      children: [],
+      metrics: { ...n.metrics },
+      start: n.start,
+      end: n.end,
+      depth: 0,
+      actor: n.actor
+    };
+    all.set(m.id, m);
+    for (const c of n.children) {
+      const cc = clone(c);
+      m.children.push(cc);
+      (cc.parents ||= []).push(m);
+    }
+    return m;
+  };
+  const root = clone(src);
+  const roots = [root];
+  const totals = { totalTimeMs: root.metrics.totalTimeMs };
+  return { roots, all, bySignature: model.bySignature, parentsBySignature: model.parentsBySignature, totals };
+}

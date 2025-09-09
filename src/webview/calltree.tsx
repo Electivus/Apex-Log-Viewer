@@ -43,8 +43,9 @@ function App() {
   const [selectedSig, setSelectedSig] = useState<string | undefined>(undefined);
   const [filter, setFilter] = useState('');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [history, setHistory] = useState<{ mode: Mode; sig?: string }[]>([]);
+  const [history, setHistory] = useState<{ mode: Mode; sig?: string; scopedId?: string }[]>([]);
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+  const [scopedId, setScopedId] = useState<string | undefined>(undefined);
 
   // Listen for messages and ask for initial data
   useEffect(() => {
@@ -77,11 +78,15 @@ function App() {
   // Derived view model depending on mode/selection
   const viewModel: CallTreeModel | undefined = useMemo(() => {
     if (!model) return undefined;
-    if (mode === 'tree' || !selectedSig) return model;
-    if (mode === 'backtraces') return invertForSignature(model, selectedSig);
-    if (mode === 'merged') return mergeOccurrences(model, selectedSig);
+    if (mode === 'backtraces' && selectedSig) return invertForSignature(model, selectedSig);
+    if (mode === 'merged' && selectedSig) return mergeOccurrences(model, selectedSig);
+    // Treat 'tree' and 'flame' similarly; allow scoping by occurrence id
+    if (scopedId) {
+      const { scopeToOccurrence } = require('../shared/callTree');
+      return scopeToOccurrence(model, scopedId);
+    }
     return model;
-  }, [model, mode, selectedSig]);
+  }, [model, mode, selectedSig, scopedId]);
 
   // Filter roots by search
   const roots = useMemo(() => {
@@ -132,30 +137,31 @@ function App() {
   };
 
   const onScope = (n: CallTreeNode) => {
-    const sig = `${n.ref.className}#${n.ref.method}`;
-    setHistory(h => [...h, { mode, sig: selectedSig }]);
-    setSelectedSig(sig);
+    setHistory(h => [...h, { mode, sig: selectedSig, scopedId }]);
+    setScopedId(n.id);
     setMode('tree');
     setCollapsed(new Set());
-    setSelectedId(undefined);
+    setSelectedId(n.id);
   };
 
   const onMerged = (n: CallTreeNode) => {
     const sig = `${n.ref.className}#${n.ref.method}`;
-    setHistory(h => [...h, { mode, sig: selectedSig }]);
+    setHistory(h => [...h, { mode, sig: selectedSig, scopedId }]);
     setSelectedSig(sig);
     setMode('merged');
     setCollapsed(new Set());
     setSelectedId(undefined);
+    setScopedId(undefined);
   };
 
   const onBacktraces = (n: CallTreeNode) => {
     const sig = `${n.ref.className}#${n.ref.method}`;
-    setHistory(h => [...h, { mode, sig: selectedSig }]);
+    setHistory(h => [...h, { mode, sig: selectedSig, scopedId }]);
     setSelectedSig(sig);
     setMode('backtraces');
     setCollapsed(new Set());
     setSelectedId(undefined);
+    setScopedId(undefined);
   };
 
   const canBack = history.length > 0;
@@ -165,6 +171,7 @@ function App() {
     if (prev) {
       setMode(prev.mode);
       setSelectedSig(prev.sig);
+      setScopedId(prev.scopedId);
       setCollapsed(new Set());
     }
   };
