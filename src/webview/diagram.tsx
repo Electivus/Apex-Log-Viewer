@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { LogGraph, NestedFrame, LogIssue } from '../shared/apexLogParser';
+import type { LogGraph, NestedFrame, LogIssue } from '../shared/apexLogParser/types';
 import type { DiagramExtensionToWebviewMessage, DiagramWebviewToExtensionMessage } from '../shared/diagramMessages';
 import { DiagramToolbar } from './components/diagram/DiagramToolbar';
 import { DiagramSvg } from './components/diagram/DiagramSvg';

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { NestedFrame } from '../../../shared/apexLogParser';
+import type { NestedFrame } from '../../../shared/apexLogParser/types';
 
 type UnitFrame = NestedFrame & { kind: 'unit'; count?: number };
 type MethodFrame = NestedFrame & { kind: 'method'; count?: number };
