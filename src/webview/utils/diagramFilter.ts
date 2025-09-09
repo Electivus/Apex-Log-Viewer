@@ -1,4 +1,4 @@
-import type { NestedFrame } from '../../shared/apexLogParser';
+import type { NestedFrame } from '../../shared/apexLogParser/types';
 
 export function filterAndCollapse(
   frames: NestedFrame[] | undefined,
@@ -31,7 +31,7 @@ export function filterAndCollapse(
       prev.count = (prev.count || 1) + 1;
       if (f.profile) {
         // Sum profiling counters when collapsing
-        (prev.profile ||= {});
+        prev.profile ||= {};
         if (f.profile.soql) prev.profile.soql = (prev.profile.soql || 0) + f.profile.soql;
         if (f.profile.dml) prev.profile.dml = (prev.profile.dml || 0) + f.profile.dml;
         if (f.profile.callout) prev.profile.callout = (prev.profile.callout || 0) + f.profile.callout;
@@ -40,7 +40,8 @@ export function filterAndCollapse(
         if (f.profile.timeMs) prev.profile.timeMs = (prev.profile.timeMs || 0) + f.profile.timeMs;
         if (f.profile.soqlTimeMs) prev.profile.soqlTimeMs = (prev.profile.soqlTimeMs || 0) + f.profile.soqlTimeMs;
         if (f.profile.dmlTimeMs) prev.profile.dmlTimeMs = (prev.profile.dmlTimeMs || 0) + f.profile.dmlTimeMs;
-        if (f.profile.calloutTimeMs) prev.profile.calloutTimeMs = (prev.profile.calloutTimeMs || 0) + f.profile.calloutTimeMs;
+        if (f.profile.calloutTimeMs)
+          prev.profile.calloutTimeMs = (prev.profile.calloutTimeMs || 0) + f.profile.calloutTimeMs;
       }
     } else {
       // Clone profile to avoid mutating the source graph when we merge repeats

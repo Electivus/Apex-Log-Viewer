@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { LogGraph, NestedFrame, LogIssue } from '../shared/apexLogParser';
+import type { LogGraph, NestedFrame, LogIssue } from '../shared/apexLogParser/types';
 import type { DiagramExtensionToWebviewMessage, DiagramWebviewToExtensionMessage } from '../shared/diagramMessages';
 import { DiagramToolbar } from './components/diagram/DiagramToolbar';
 import { DiagramSvg } from './components/diagram/DiagramSvg';
@@ -61,7 +61,13 @@ function App() {
     window.addEventListener('message', onMsg);
     // Restore persisted UI state
     try {
-      const state = vscode.getState<{ hiddenActorIds?: string[]; hideSystem?: boolean; collapseRepeats?: boolean; showProfilingChips?: boolean; showProfilingSidebar?: boolean }>();
+      const state = vscode.getState<{
+        hiddenActorIds?: string[];
+        hideSystem?: boolean;
+        collapseRepeats?: boolean;
+        showProfilingChips?: boolean;
+        showProfilingSidebar?: boolean;
+      }>();
       if (state) {
         if (Array.isArray(state.hiddenActorIds)) setHiddenActors(new Set(state.hiddenActorIds));
         if (typeof state.hideSystem === 'boolean') setHideSystem(state.hideSystem);
@@ -202,13 +208,7 @@ function App() {
   );
 }
 
-function ProfilingSidebar({
-  frames,
-  issues
-}: {
-  frames: (NestedFrame & { count?: number })[];
-  issues: LogIssue[];
-}) {
+function ProfilingSidebar({ frames, issues }: { frames: (NestedFrame & { count?: number })[]; issues: LogIssue[] }) {
   function kindFromActor(actor: string): 'Trigger' | 'Flow' | 'Class' | 'Other' {
     if (actor.startsWith('Trigger:')) return 'Trigger';
     if (actor.startsWith('Flow:')) return 'Flow';
@@ -245,9 +245,17 @@ function ProfilingSidebar({
       if (!has) continue; // no timing or counters
       const kind = kindFromActor(fr.actor);
       const name = fr.actor.split(':').slice(1).join(':') || fr.actor;
-      const cur =
-        map.get(fr.actor) ||
-        { kind, name, soql: 0, dml: 0, callout: 0, timeMs: 0, soqlTimeMs: 0, dmlTimeMs: 0, calloutTimeMs: 0 };
+      const cur = map.get(fr.actor) || {
+        kind,
+        name,
+        soql: 0,
+        dml: 0,
+        callout: 0,
+        timeMs: 0,
+        soqlTimeMs: 0,
+        dmlTimeMs: 0,
+        calloutTimeMs: 0
+      };
       cur.soql += p.soql || 0;
       cur.dml += p.dml || 0;
       cur.callout += p.callout || 0;
@@ -258,14 +266,21 @@ function ProfilingSidebar({
       map.set(fr.actor, cur);
     }
     const arr = Array.from(map.entries()).map(([actor, v]) => ({ actor, ...v }));
-    arr.sort((a, b) => (b.timeMs - a.timeMs) || (b.soql + b.dml + b.callout - (a.soql + a.dml + a.callout)) || a.name.localeCompare(b.name));
+    arr.sort(
+      (a, b) =>
+        b.timeMs - a.timeMs || b.soql + b.dml + b.callout - (a.soql + a.dml + a.callout) || a.name.localeCompare(b.name)
+    );
     return arr;
   }, [frames]);
 
   return (
     <div className="sidebar" style={{ width: 300 }}>
       <h3>Profiling</h3>
-      {agg.length === 0 && <div className="item" style={{ opacity: 0.7 }}>No profiling data.</div>}
+      {agg.length === 0 && (
+        <div className="item" style={{ opacity: 0.7 }}>
+          No profiling data.
+        </div>
+      )}
       {agg.map(it => (
         <div key={it.actor} className="item">
           <span className="title">{it.name}</span>
@@ -282,7 +297,11 @@ function ProfilingSidebar({
       ))}
 
       <h3 style={{ marginTop: 12 }}>Log Issues</h3>
-      {issues.length === 0 && <div className="item" style={{ opacity: 0.7 }}>No issues detected.</div>}
+      {issues.length === 0 && (
+        <div className="item" style={{ opacity: 0.7 }}>
+          No issues detected.
+        </div>
+      )}
       {issues.map((it, idx) => (
         <div key={`${it.code}-${idx}`} className="item">
           <span className="title">{it.message}</span>
