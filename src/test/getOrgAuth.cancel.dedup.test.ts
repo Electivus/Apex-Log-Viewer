@@ -1,9 +1,18 @@
 import assert from 'assert/strict';
-import { getOrgAuth, __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce/cli';
+import { getOrgAuth } from '../salesforce/cli';
+import {
+  __setExecFileImplForTests,
+  __resetExecFileImplForTests,
+  __resetExecDedupeCacheForTests
+} from '../salesforce/exec';
 
 suite('getOrgAuth cancellation + dedupe', () => {
+  setup(() => {
+    __resetExecDedupeCacheForTests();
+  });
   teardown(() => {
     __resetExecFileImplForTests();
+    __resetExecDedupeCacheForTests();
   });
 
   test('cancelling one caller does not abort shared exec', async () => {
@@ -57,4 +66,3 @@ suite('getOrgAuth cancellation + dedupe', () => {
     assert.equal(spawnCount, 1);
   });
 });
-

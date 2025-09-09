@@ -1,7 +1,7 @@
 import assert from 'assert/strict';
 import { EventEmitter } from 'events';
 import { fetchApexLogHead, __setHttpsRequestImplForTests, __resetHttpsRequestImplForTests } from '../salesforce/http';
-import { __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce/cli';
+import { __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce/exec';
 import type { OrgAuth } from '../salesforce/types';
 
 suite('fetchApexLogHead retry', () => {

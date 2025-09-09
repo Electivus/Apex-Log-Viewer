@@ -1,10 +1,6 @@
 import assert from 'assert/strict';
-import {
-  listOrgs,
-  __setExecFileImplForTests,
-  __resetExecFileImplForTests,
-  __resetListOrgsCacheForTests
-} from '../salesforce/cli';
+import { listOrgs, __resetListOrgsCacheForTests } from '../salesforce/cli';
+import { __setExecFileImplForTests, __resetExecFileImplForTests } from '../salesforce/exec';
 
 suite('listOrgs cancellation + dedupe', () => {
   teardown(() => {
@@ -69,4 +65,3 @@ suite('listOrgs cancellation + dedupe', () => {
     assert.equal(spawnCount, 1);
   });
 });
-
