@@ -70,6 +70,7 @@ function App() {
       setSelectedSig(undefined);
       setCollapsed(new Set());
       setSelectedId(undefined);
+      setSelectedId(undefined);
     } catch (e) {
       console.warn('CallTree: build failed', e);
     }
@@ -126,7 +127,6 @@ function App() {
     }
     return res;
   }, [viewModel]);
-
   const onToggle = (id: string) => {
     setCollapsed(prev => {
       const n = new Set(prev);
@@ -232,7 +232,6 @@ function App() {
     const nxt = importantNodes[(idx + 1) % importantNodes.length];
     if (nxt) setSelectedId(nxt.id);
   };
-
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <style>{`
