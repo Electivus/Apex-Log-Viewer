@@ -247,11 +247,11 @@ export function DiagramSvg({
                             height={ch}
                             rx={8}
                             ry={8}
-                            fill={'rgba(148,163,184,0.18)'}
-                            stroke={'rgba(148,163,184,0.45)'}
+                            fill={'var(--vscode-editorHoverWidget-background)'}
+                            stroke={'var(--vscode-focusBorder, rgba(148,163,184,0.55))'}
                             strokeWidth={1}
                           />
-                          <text x={cx + 6} y={cy + 12} fill={'var(--vscode-descriptionForeground)'} fontSize={11}>
+                          <text x={cx + 6} y={cy + 12} fill={'var(--vscode-foreground)'} fontSize={11}>
                             {text}
                           </text>
                         </g>
@@ -297,11 +297,11 @@ export function DiagramSvg({
                           height={ch}
                           rx={8}
                           ry={8}
-                          fill={'rgba(148,163,184,0.18)'}
-                          stroke={'rgba(148,163,184,0.45)'}
+                          fill={'var(--vscode-editorHoverWidget-background)'}
+                          stroke={'var(--vscode-focusBorder, rgba(148,163,184,0.55))'}
                           strokeWidth={1}
                         />
-                        <text x={cx + 6} y={cy + 12} fill={'var(--vscode-descriptionForeground)'} fontSize={11}>
+                        <text x={cx + 6} y={cy + 12} fill={'var(--vscode-foreground)'} fontSize={11}>
                           {text}
                         </text>
                       </g>

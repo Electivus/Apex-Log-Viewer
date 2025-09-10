@@ -175,18 +175,25 @@ export function clearListCache(): void {
   listCache.clear();
 }
 
+export type ApexLogCursor = {
+  // Fetch logs strictly older than this (StartTime DESC, Id DESC)
+  beforeStartTime: string;
+  beforeId: string;
+};
+
 export async function fetchApexLogs(
   auth: OrgAuth,
   limit: number = 50,
   offset: number = 0,
   debugLevel?: string,
   timeoutMs?: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  cursor?: ApexLogCursor
 ): Promise<ApexLogRow[]> {
   const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
   const safeOffset = Math.max(0, Math.floor(offset));
-  // Attempt cache with short TTL when no debug level filter
-  const cacheKey = debugLevel ? undefined : makeListKey(auth, safeLimit, safeOffset);
+  // Attempt cache with short TTL when no debug level filter and no cursor-based pagination
+  const cacheKey = debugLevel || cursor ? undefined : makeListKey(auth, safeLimit, safeOffset);
   const now = Date.now();
   if (cacheKey) {
     const cached = listCache.get(cacheKey);
@@ -194,9 +201,21 @@ export async function fetchApexLogs(
       return cached.data;
     }
   }
-  const soql = encodeURIComponent(
-    `SELECT Id, StartTime, Operation, Application, DurationMilliseconds, Status, Request, LogLength, LogUser.Name FROM ApexLog ORDER BY StartTime DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`
-  );
+  // Build query using keyset pagination when a cursor is provided. This avoids the 2000 OFFSET limit in SOQL.
+  const baseSelect =
+    'SELECT Id, StartTime, Operation, Application, DurationMilliseconds, Status, Request, LogLength, LogUser.Name FROM ApexLog';
+  let query: string;
+  if (cursor && cursor.beforeStartTime && cursor.beforeId) {
+    // Use deterministic ordering to ensure stable pagination
+    // SOQL datetime literals are unquoted; Id is quoted.
+    const dt = cursor.beforeStartTime;
+    const id = cursor.beforeId.replace(/'/g, "\\'");
+    query = `${baseSelect} WHERE StartTime < ${dt} OR (StartTime = ${dt} AND Id < '${id}') ORDER BY StartTime DESC, Id DESC LIMIT ${safeLimit}`;
+  } else {
+    // Default to OFFSET-based paging for the first page(s)
+    query = `${baseSelect} ORDER BY StartTime DESC, Id DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`;
+  }
+  const soql = encodeURIComponent(query);
   const url = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/query?q=${soql}`;
   const body = await httpsRequestWith401Retry(
     auth,
