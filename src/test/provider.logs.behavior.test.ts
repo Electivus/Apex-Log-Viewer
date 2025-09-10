@@ -101,108 +101,71 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(append.data[0]?.Id, '2');
   });
 
-  test('openLog uses existing file when present', async () => {
-    const tmp = path.join(process.cwd(), 'apexlogs');
-    await fs.mkdir(tmp, { recursive: true });
-    const existing = path.join(tmp, 'existing.log');
-    await fs.writeFile(existing, 'body', 'utf8');
-
-    const context = makeContext();
-    const provider = new SfLogsViewProvider(context);
-    const opened: string[] = [];
-    (vscode.workspace as any).openTextDocument = async (uri: any) => {
-      opened.push(uri.fsPath || uri.path || String(uri));
-      return { uri } as any;
-    };
-    (vscode.window as any).showTextDocument = async () => undefined;
-
-    // Proper mock webview/view
-    class MockWebview implements vscode.Webview {
-      html = '';
-      options: vscode.WebviewOptions = {};
-      cspSource = 'vscode-resource://test';
-      private handler: ((e: any) => any) | undefined;
-      asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
-      postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
-      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
-        this.handler = listener; return { dispose() {} } as any;
+    test('openLog forwards to logService', async () => {
+      const opened: string[] = [];
+      const context = makeContext();
+      const provider = new SfLogsViewProvider(context);
+      (provider as any).logService.openLog = async (logId: string) => {
+        opened.push(logId);
+      };
+      class MockWebview implements vscode.Webview {
+        html = '';
+        options: vscode.WebviewOptions = {};
+        cspSource = 'vscode-resource://test';
+        private handler: ((e: any) => any) | undefined;
+        asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
+        postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
+        onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
+          this.handler = listener; return { dispose() {} } as any;
+        }
+        emit(message: any) { return this.handler?.(message); }
       }
-      emit(message: any) { return this.handler?.(message); }
-    }
-    class MockWebviewView implements vscode.WebviewView {
-      visible = true; title = 'Test'; viewType = 'sfLogViewer';
-      description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
-      webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
-      show(): void { /* noop */ }
-      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
-      onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
-    }
-    const webview = new MockWebview();
-    const view = new MockWebviewView(webview);
-    await provider.resolveWebviewView(view);
-
-    // Bypass network: force existing file hit and ensure fetch not called
-    (provider as any).findExistingLogFile = async () => existing;
-    const origFetchBody = http.fetchApexLogBody;
-    (http as any).fetchApexLogBody = async () => {
-      throw new Error('should not fetch when existing file is present');
-    };
-
-    try {
-      await (webview as any).emit({ type: 'openLog', logId: 'ignored' });
-      assert.equal(opened[0], existing);
-    } finally {
-      (http as any).fetchApexLogBody = origFetchBody;
-    }
-  });
-
-  test('debugLog launches replay when available', async () => {
-    (vscode.commands as any).getCommands = async () => ['sf.launch.replay.debugger.logfile'];
-    const executed: Array<{ cmd: string; args: any[] }> = [];
-    (vscode.commands as any).executeCommand = async (cmd: string, ...args: any[]) => {
-      executed.push({ cmd, args });
-      return undefined;
-    };
-    const tmpDir = path.join(process.cwd(), 'apexlogs');
-    await fs.mkdir(tmpDir, { recursive: true });
-    const filePath = path.join(tmpDir, 'dbg.log');
-    await fs.writeFile(filePath, 'body', 'utf8');
-
-    const context = makeContext();
-    const provider = new SfLogsViewProvider(context);
-
-    class MockWebview implements vscode.Webview {
-      html = '';
-      options: vscode.WebviewOptions = {};
-      cspSource = 'vscode-resource://test';
-      private handler: ((e: any) => any) | undefined;
-      asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
-      postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
-      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
-        this.handler = listener; return { dispose() {} } as any;
+      class MockWebviewView implements vscode.WebviewView {
+        visible = true; title = 'Test'; viewType = 'sfLogViewer';
+        description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
+        webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
+        show(): void { /* noop */ }
+        onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
+        onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
       }
-      emit(message: any) { return this.handler?.(message); }
-    }
-    class MockWebviewView implements vscode.WebviewView {
-      visible = true; title = 'Test'; viewType = 'sfLogViewer';
-      description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
-      webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
-      show(): void { /* noop */ }
-      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
-      onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
-    }
-    const webview = new MockWebview();
-    const view = new MockWebviewView(webview);
-    await provider.resolveWebviewView(view);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      await provider.resolveWebviewView(view);
+      await (webview as any).emit({ type: 'openLog', logId: 'abc' });
+      assert.equal(opened[0], 'abc');
+    });
 
-    // Make provider return an existing file to avoid network
-    (provider as any).findExistingLogFile = async () => filePath;
-
-    await (webview as any).emit({ type: 'replay', logId: 'abc' });
-
-    const call = executed.find(c => c.cmd === 'sf.launch.replay.debugger.logfile');
-    assert.ok(call, 'should execute replay command');
-    const uri = call?.args?.[0];
-    assert.ok(uri && typeof uri.fsPath === 'string' && uri.fsPath.endsWith('dbg.log'), 'should pass URI');
-  });
+    test('debugLog forwards to logService', async () => {
+      const executed: string[] = [];
+      const context = makeContext();
+      const provider = new SfLogsViewProvider(context);
+      (provider as any).logService.debugLog = async (logId: string) => {
+        executed.push(logId);
+      };
+      class MockWebview implements vscode.Webview {
+        html = '';
+        options: vscode.WebviewOptions = {};
+        cspSource = 'vscode-resource://test';
+        private handler: ((e: any) => any) | undefined;
+        asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
+        postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
+        onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
+          this.handler = listener; return { dispose() {} } as any;
+        }
+        emit(message: any) { return this.handler?.(message); }
+      }
+      class MockWebviewView implements vscode.WebviewView {
+        visible = true; title = 'Test'; viewType = 'sfLogViewer';
+        description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
+        webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
+        show(): void { /* noop */ }
+        onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
+        onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
+      }
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      await provider.resolveWebviewView(view);
+      await (webview as any).emit({ type: 'replay', logId: 'abc' });
+      assert.equal(executed[0], 'abc');
+    });
 });
