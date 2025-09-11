@@ -29,11 +29,11 @@ suite('Persisted org state', () => {
     const { context, capturedGetKey, updates } = makeContext();
     const provider = new SfLogsViewProvider(context);
     assert.equal(capturedGetKey(), SELECTED_ORG_KEY);
-    assert.equal((provider as any).selectedOrg, 'persisted-org');
-    (provider as any).setSelectedOrg('next-org');
+    assert.equal((provider as any).orgManager.getSelectedOrg(), 'persisted-org');
+    provider.setSelectedOrg('next-org');
     assert.equal(updates[0]?.key, SELECTED_ORG_KEY);
     assert.equal(updates[0]?.value, 'next-org');
-    assert.equal((provider as any).selectedOrg, 'next-org');
+    assert.equal((provider as any).orgManager.getSelectedOrg(), 'next-org');
   });
 
   test('SfLogTailViewProvider restores and persists selected org', () => {

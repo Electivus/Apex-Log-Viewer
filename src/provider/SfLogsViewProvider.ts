@@ -1,84 +1,56 @@
 import * as vscode from 'vscode';
-import { promises as fs } from 'fs';
 import { localize } from '../utils/localize';
-import { createLimiter, type Limiter } from '../utils/limiter';
-import { getOrgAuth, listOrgs } from '../salesforce/cli';
-import {
-  fetchApexLogs,
-  fetchApexLogBody,
-  fetchApexLogHead,
-  extractCodeUnitStartedFromLines,
-  clearListCache
-} from '../salesforce/http';
-import type { ApexLogRow, OrgItem } from '../shared/types';
-import type { OrgAuth } from '../salesforce/types';
+import { getOrgAuth } from '../salesforce/cli';
+import { clearListCache } from '../salesforce/http';
+import type { ApexLogRow } from '../shared/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn, logError } from '../utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
-import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
+import { warmUpReplayDebugger } from '../utils/warmup';
 import { buildWebviewHtml } from '../utils/webviewHtml';
-import {
-  getWorkspaceRoot as utilGetWorkspaceRoot,
-  ensureApexLogsDir as utilEnsureApexLogsDir,
-  getLogFilePathWithUsername as utilGetLogFilePathWithUsername,
-  findExistingLogFile as utilFindExistingLogFile
-} from '../utils/workspace';
-import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
-import { getNumberConfig, affectsConfiguration } from '../utils/config';
 import { getErrorMessage } from '../utils/error';
+import { LogService } from '../services/logService';
+import { LogsMessageHandler } from './logsMessageHandler';
+import { OrgManager } from '../utils/orgManager';
+import { ConfigManager } from '../utils/configManager';
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
   private view?: vscode.WebviewView;
   private pageLimit = 100;
   private currentOffset = 0;
-  private selectedOrg: string | undefined;
-  private headLimiter: Limiter;
-  private headConcurrency: number = 5;
   private disposed = false;
   private refreshToken = 0;
+  private messageHandler: LogsMessageHandler;
   private cursorStartTime: string | undefined;
   private cursorId: string | undefined;
 
-  constructor(private readonly context: vscode.ExtensionContext) {
-    this.headLimiter = createLimiter(this.headConcurrency);
-    // Restore last selected org from persisted state
-    const persisted = restoreSelectedOrg(this.context);
-    if (persisted) {
-      this.selectedOrg = persisted;
-      logInfo('Logs: restored selected org from globalState:', this.selectedOrg || '(default)');
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly logService = new LogService(),
+    private readonly orgManager = new OrgManager(context),
+    private readonly configManager = new ConfigManager(5, 100)
+  ) {
+    const org = this.orgManager.getSelectedOrg();
+    if (org) {
+      logInfo('Logs: restored selected org from globalState:', org || '(default)');
     }
-    // React to settings changes live (no manual refresh required)
+    this.logService.setHeadConcurrency(this.configManager.getHeadConcurrency());
+    this.messageHandler = new LogsMessageHandler(
+      () => this.refresh(),
+      () => this.sendOrgs(),
+      o => this.setSelectedOrg(o),
+      id => this.logService.openLog(id, this.orgManager.getSelectedOrg()),
+      id => this.logService.debugLog(id, this.orgManager.getSelectedOrg()),
+      () => this.loadMore(),
+      v => this.post({ type: 'loading', value: v })
+    );
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
-        if (affectsConfiguration(e, 'sfLogs.headConcurrency')) {
-          const nextConc = getNumberConfig('sfLogs.headConcurrency', this.headConcurrency, 1, Number.MAX_SAFE_INTEGER);
-          if (nextConc !== this.headConcurrency) {
-            this.headConcurrency = nextConc;
-            this.headLimiter = createLimiter(this.headConcurrency);
-          }
-        }
+        this.configManager.handleChange(e);
+        this.logService.setHeadConcurrency(this.configManager.getHeadConcurrency());
       })
     );
-  }
-
-  private getWorkspaceRoot(): string | undefined {
-    return utilGetWorkspaceRoot();
-  }
-
-  private async ensureApexLogsDir(): Promise<string> {
-    return utilEnsureApexLogsDir();
-  }
-
-  private async findExistingLogFile(logId: string): Promise<string | undefined> {
-    return utilFindExistingLogFile(logId);
-  }
-
-  private async getLogFilePathWithUsername(
-    username: string | undefined,
-    logId: string
-  ): Promise<{ dir: string; filePath: string }> {
-    return utilGetLogFilePathWithUsername(username, logId);
   }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
@@ -102,48 +74,15 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         this.disposed = true;
         this.view = undefined;
         this.refreshToken++;
-        this.headLimiter = createLimiter(this.headConcurrency);
         logInfo('Logs webview disposed.');
       })
     );
 
-    webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
-      if (message?.type === 'ready') {
-        logInfo('Logs: message ready');
-        // Show loading while fetching orgs and initial logs
-        this.post({ type: 'loading', value: true });
-        await this.sendOrgs();
-        await this.refresh();
-        return;
-      }
-      if (message?.type === 'refresh') {
-        logInfo('Logs: message refresh');
-        await this.refresh();
-      } else if (message?.type === 'getOrgs') {
-        logInfo('Logs: message getOrgs');
-        this.post({ type: 'loading', value: true });
-        try {
-          await this.sendOrgs();
-        } finally {
-          this.post({ type: 'loading', value: false });
-        }
-      } else if (message?.type === 'selectOrg') {
-        const target = typeof message.target === 'string' ? message.target.trim() : undefined;
-        const next = target || undefined;
-        this.setSelectedOrg(next);
-        logInfo('Logs: selected org set to', next || '(none)');
-        await this.refresh();
-      } else if (message?.type === 'openLog' && message.logId) {
-        logInfo('Logs: openLog', message.logId);
-        await this.openLog(message.logId);
-      } else if (message?.type === 'replay' && message.logId) {
-        logInfo('Logs: replay', message.logId);
-        await this.debugLog(message.logId);
-      } else if (message?.type === 'loadMore') {
-        logInfo('Logs: loadMore');
-        await this.loadMore();
-      }
-    });
+    this.context.subscriptions.push(
+      webviewView.webview.onDidReceiveMessage(message => {
+        void this.messageHandler.handle(message);
+      })
+    );
   }
 
   public async refresh() {
@@ -164,29 +103,18 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         this.post({ type: 'loading', value: true });
         try {
           clearListCache();
-          const configuredLimit = getNumberConfig('sfLogs.pageSize', this.pageLimit, 10, Number.MAX_SAFE_INTEGER);
-          if (configuredLimit > 200) {
-            logWarn('Logs: sfLogs.pageSize clamped to 200 (was', configuredLimit, ')');
-          }
-          this.pageLimit = Math.min(configuredLimit, 200);
-          const nextConc = getNumberConfig('sfLogs.headConcurrency', this.headConcurrency, 1, Number.MAX_SAFE_INTEGER);
-          if (nextConc !== this.headConcurrency) {
-            this.headConcurrency = nextConc;
-            this.headLimiter = createLimiter(this.headConcurrency);
-          }
-          const auth = await getOrgAuth(this.selectedOrg, undefined, controller.signal);
+          this.pageLimit = this.configManager.getPageLimit();
+          const auth = await getOrgAuth(this.orgManager.getSelectedOrg(), undefined, controller.signal);
           if (ct.isCancellationRequested) {
             return;
           }
           this.currentOffset = 0;
           this.cursorStartTime = undefined;
           this.cursorId = undefined;
-          const logs: ApexLogRow[] = await fetchApexLogs(
+          const logs: ApexLogRow[] = await this.logService.fetchLogs(
             auth,
             this.pageLimit,
             this.currentOffset,
-            undefined,
-            undefined,
             controller.signal
           );
           if (ct.isCancellationRequested) {
@@ -205,8 +133,17 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           this.post({ type: 'init', locale: vscode.env.language });
           const hasMore = logs.length === this.pageLimit;
           this.post({ type: 'logs', data: logs, hasMore });
-          // Limited parallel fetch of log heads
-          this.loadLogHeads(logs, auth, token, controller.signal);
+          this.logService.loadLogHeads(
+            logs,
+            auth,
+            token,
+            (logId, codeUnit) => {
+              if (token === this.refreshToken && !this.disposed) {
+                this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
+              }
+            },
+            controller.signal
+          );
           try {
             const durationMs = Date.now() - t0;
             safeSendEvent('logs.refresh', { outcome: 'ok' }, { durationMs, pageSize: this.pageLimit });
@@ -236,13 +173,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     const t0 = Date.now();
     this.post({ type: 'loading', value: true });
     try {
-      const auth = await getOrgAuth(this.selectedOrg);
-      const logs: ApexLogRow[] = await fetchApexLogs(
+      const auth = await getOrgAuth(this.orgManager.getSelectedOrg());
+      const logs: ApexLogRow[] = await this.logService.fetchLogs(
         auth,
         this.pageLimit,
         this.currentOffset,
-        undefined,
-        undefined,
         undefined,
         this.cursorStartTime && this.cursorId
           ? { beforeStartTime: this.cursorStartTime, beforeId: this.cursorId }
@@ -260,7 +195,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       }
       const hasMore = logs.length === this.pageLimit;
       this.post({ type: 'appendLogs', data: logs, hasMore });
-      this.loadLogHeads(logs, auth, token);
+      this.logService.loadLogHeads(logs, auth, token, (logId, codeUnit) => {
+        if (token === this.refreshToken && !this.disposed) {
+          this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
+        }
+      });
       try {
         const durationMs = Date.now() - t0;
         safeSendEvent('logs.loadMore', { outcome: 'ok' }, { durationMs, count: logs.length });
@@ -278,136 +217,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private loadLogHeads(logs: ApexLogRow[], auth: OrgAuth, token: number, signal?: AbortSignal): void {
-    for (const log of logs) {
-      void this.headLimiter(async () => {
-        if (signal?.aborted) {
-          return;
-        }
-        try {
-          const headLines = await fetchApexLogHead(
-            auth,
-            log.Id,
-            10,
-            typeof log.LogLength === 'number' ? log.LogLength : undefined,
-            undefined,
-            signal
-          );
-          if (signal?.aborted) {
-            return;
-          }
-          const codeUnit = extractCodeUnitStartedFromLines(headLines);
-          if (codeUnit && token === this.refreshToken && !this.disposed) {
-            this.post({ type: 'logHead', logId: log.Id, codeUnitStarted: codeUnit });
-          }
-        } catch (e) {
-          logWarn('Logs: loadLogHead failed for', log.Id, '->', e);
-        }
-      });
-    }
-  }
-
-  private async openLog(logId: string) {
-    const t0 = Date.now();
-    this.post({ type: 'loading', value: true });
-    try {
-      // Open directly if already present (works even without CLI)
-      const existing = await this.findExistingLogFile(logId);
-      let targetPath: string;
-      if (existing) {
-        targetPath = existing;
-      } else {
-        const auth = await getOrgAuth(this.selectedOrg);
-        const { filePath } = await this.getLogFilePathWithUsername(auth.username, logId);
-        const body = await fetchApexLogBody(auth, logId);
-        await fs.writeFile(filePath, body, 'utf8');
-        targetPath = filePath;
-      }
-      const uri = vscode.Uri.file(targetPath);
-      const doc = await vscode.workspace.openTextDocument(uri);
-      await vscode.window.showTextDocument(doc, { preview: true });
-      try {
-        const durationMs = Date.now() - t0;
-        safeSendEvent('log.open', { view: 'logs' }, { durationMs });
-      } catch {}
-    } catch (e) {
-      vscode.window.showErrorMessage(localize('openError', 'Failed to open log: ') + getErrorMessage(e));
-      logWarn('Logs: openLog failed ->', getErrorMessage(e));
-      try {
-        const durationMs = Date.now() - t0;
-        safeSendEvent('log.open', { view: 'logs', outcome: 'error' }, { durationMs });
-      } catch {}
-    } finally {
-      this.post({ type: 'loading', value: false });
-    }
-  }
-
-  private async debugLog(logId: string) {
-    const t0 = Date.now();
-    this.post({ type: 'loading', value: true });
-    try {
-      await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: localize('replayStarting', 'Starting Apex Replay Debugger…'),
-          cancellable: true
-        },
-        async (_progress, ct) => {
-          const controller = new AbortController();
-          ct.onCancellationRequested(() => controller.abort());
-          const ok = await ensureReplayDebuggerAvailable();
-          if (!ok || ct.isCancellationRequested) {
-            return;
-          }
-          // Use existing file if present; otherwise fetch and save with username prefix
-          let targetPath = await this.findExistingLogFile(logId);
-          if (!targetPath) {
-            const auth = await getOrgAuth(this.selectedOrg, undefined, controller.signal);
-            if (ct.isCancellationRequested) {
-              return;
-            }
-            const { filePath } = await this.getLogFilePathWithUsername(auth.username, logId);
-            const body = await fetchApexLogBody(auth, logId, undefined, controller.signal);
-            if (ct.isCancellationRequested) {
-              return;
-            }
-            await fs.writeFile(filePath, body, 'utf8');
-            targetPath = filePath;
-          }
-          if (ct.isCancellationRequested) {
-            return;
-          }
-          const uri = vscode.Uri.file(targetPath);
-          try {
-            await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
-          } catch (e) {
-            if (!controller.signal.aborted) {
-              logWarn('Logs: sf.launch.replay.debugger.logfile failed ->', getErrorMessage(e));
-              await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
-            }
-          }
-        }
-      );
-      try {
-        const durationMs = Date.now() - t0;
-        safeSendEvent('logs.replay', { view: 'logs', outcome: 'ok' }, { durationMs });
-      } catch {}
-    } catch (e) {
-      if (e instanceof Error && e.message === 'aborted') {
-        // silent cancellation
-      } else {
-        const msg = getErrorMessage(e);
-        vscode.window.showErrorMessage(localize('replayError', 'Failed to launch Apex Replay Debugger: ') + msg);
-        logWarn('Logs: replay failed ->', msg);
-        try {
-          const durationMs = Date.now() - t0;
-          safeSendEvent('logs.replay', { view: 'logs', outcome: 'error' }, { durationMs });
-        } catch {}
-      }
-    } finally {
-      this.post({ type: 'loading', value: false });
-    }
-  }
 
   private getHtmlForWebview(webview: vscode.Webview): string {
     return buildWebviewHtml(
@@ -430,11 +239,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         const controller = new AbortController();
         ct.onCancellationRequested(() => controller.abort());
         try {
-          const orgs = await listOrgs(forceRefresh, controller.signal);
+          const { orgs, selected } = await this.orgManager.list(forceRefresh, controller.signal);
           if (ct.isCancellationRequested) {
             return;
           }
-          const selected = pickSelectedOrg(orgs, this.selectedOrg);
           this.post({ type: 'orgs', data: orgs, selected });
           try {
             const durationMs = Date.now() - t0;
@@ -447,7 +255,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             void vscode.window.showErrorMessage(
               localize('sendOrgsFailed', 'Failed to list Salesforce orgs: {0}', msg)
             );
-            this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
+            this.post({ type: 'orgs', data: [], selected: this.orgManager.getSelectedOrg() });
             try {
               const durationMs = Date.now() - t0;
               safeSendEvent('orgs.list', { outcome: 'error', view: 'logs' }, { durationMs });
@@ -460,8 +268,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
 
   // Expose for command integration
   public setSelectedOrg(username?: string) {
-    this.selectedOrg = username;
-    persistSelectedOrg(this.context, username);
+    this.orgManager.setSelectedOrg(username);
   }
 
   public async tailLogs() {
