@@ -34,6 +34,27 @@ function classShort(name: string): string {
   return parts[parts.length - 1] || name;
 }
 
+type Kind = 'Trigger' | 'Flow' | 'Class' | 'Other';
+function kindFromActor(actor?: string): Kind {
+  if (!actor) return 'Other';
+  if (actor.startsWith('Trigger:')) return 'Trigger';
+  if (actor.startsWith('Flow:')) return 'Flow';
+  if (actor.startsWith('Class:')) return 'Class';
+  return 'Other';
+}
+function colorsFor(kind: Kind): { stroke: string; fill: string } {
+  switch (kind) {
+    case 'Trigger':
+      return { stroke: '#60a5fa', fill: 'rgba(96,165,250,0.16)' };
+    case 'Flow':
+      return { stroke: '#a78bfa', fill: 'rgba(167,139,250,0.16)' };
+    case 'Class':
+      return { stroke: '#34d399', fill: 'rgba(52,211,153,0.16)' };
+    default:
+      return { stroke: 'rgba(148,163,184,0.7)', fill: 'rgba(148,163,184,0.12)' };
+  }
+}
+
 type Mode = 'tree' | 'backtraces' | 'merged' | 'flame';
 
 function App() {
@@ -126,7 +147,6 @@ function App() {
     }
     return res;
   }, [viewModel]);
-
   const onToggle = (id: string) => {
     setCollapsed(prev => {
       const n = new Set(prev);
@@ -232,7 +252,6 @@ function App() {
     const nxt = importantNodes[(idx + 1) % importantNodes.length];
     if (nxt) setSelectedId(nxt.id);
   };
-
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <style>{`
@@ -241,9 +260,12 @@ function App() {
         .toolbar { display:flex; align-items:center; gap:8px; padding:6px 10px; }
         .tree { padding: 4px 10px 20px; overflow:auto; flex: 1; }
         .node { line-height: 1.6; }
-        .label { cursor: default; }
+        .label { cursor: default; padding: 6px 8px; border: 1px solid var(--vscode-editorGroup-border, rgba(148,163,184,0.30)); border-radius: 10px; margin: 6px 0; display: inline-flex; align-items: center; gap: 6px; }
         .dim { opacity: 0.7; }
+        .chip { border-radius: 8px; padding: 3px 10px; border: 1px solid var(--vscode-focusBorder, rgba(148,163,184,0.6)); background: var(--vscode-button-background); color: var(--vscode-button-foreground); font-weight: 600; }
+        .chip:hover { filter: brightness(1.03); }
         .controls button { margin-left: 4px; }
+        .soft { background: var(--vscode-editorHoverWidget-background); }
       `}</style>
       <div className="toolbar">
         <button type="button" disabled={!canBack} onClick={onBack} title="Back">◀</button>
@@ -254,10 +276,10 @@ function App() {
           onChange={e => setFilter(e.target.value)}
           style={{ flex: 1 }}
         />
-        <button type="button" onClick={() => setMode(mode === 'flame' ? 'tree' as Mode : 'flame')} title="Flame Graph">
+        <button type="button" className="chip" onClick={() => setMode(mode === 'flame' ? 'tree' as Mode : 'flame')} title="Flame Graph">
           {mode === 'flame' ? 'Tree' : 'Flame Graph'}
         </button>
-        <button type="button" onClick={nextImportant} title="Next Important Call (Ctrl+Shift+Right)">Next Important</button>
+        <button type="button" className="chip" onClick={nextImportant} title="Next Important Call (Ctrl+Shift+Right)">Next Important</button>
         <span className="dim">Total: {fmtMs(total)}</span>
         {(agg.soql || agg.dml || agg.callout) ? (
           <span className="dim">
@@ -322,6 +344,8 @@ function TreeNode({
   const name = `${cls}.${node.ref.method}`;
   const suffix = node.metrics.count && node.metrics.count > 1 ? ` ×${node.metrics.count}` : '';
   const selected = selectedId === id;
+  const k = kindFromActor(node.actor);
+  const col = colorsFor(k);
 
   return (
     <div className="node" style={{ marginLeft: 12 }}>
@@ -329,9 +353,14 @@ function TreeNode({
         className="label"
         onDoubleClick={() => onToggle(id)}
         onClick={() => onSelect?.(node)}
-        style={selected ? { background: 'var(--vscode-list-hoverBackground)', borderRadius: 4 } : undefined}
+        style={{
+          background: selected ? 'var(--vscode-list-hoverBackground)' : col.fill,
+          borderColor: col.stroke,
+          boxShadow: selected ? `0 0 0 1px ${col.stroke} inset` : undefined,
+          borderLeft: `4px solid ${col.stroke}`
+        }}
       >
-        <button type="button" onClick={() => onToggle(id)} style={{ width: 22 }}>
+        <button type="button" className="chip" onClick={() => onToggle(id)} style={{ width: 24 }}>
           {node.children.length ? (isCollapsed ? '▸' : '▾') : '·'}
         </button>
         <strong>{name}</strong>
@@ -347,9 +376,9 @@ function TreeNode({
           </span>
         )}
         <span className="controls">
-          <button type="button" onClick={() => onScope(node)} title="Scope to This (Ctrl+Enter)">Scope</button>
-          <button type="button" onClick={() => onMerged(node)} title="Merge occurrences (Ctrl+Shift+Enter)">Merge</button>
-          <button type="button" onClick={() => onBacktraces(node)} title="Backtraces">Backtraces</button>
+          <button type="button" className="chip" onClick={() => onScope(node)} title="Scope to This (Ctrl+Enter)">Scope</button>
+          <button type="button" className="chip" onClick={() => onMerged(node)} title="Merge occurrences (Ctrl+Shift+Enter)">Merge</button>
+          <button type="button" className="chip" onClick={() => onBacktraces(node)} title="Backtraces">Backtraces</button>
         </span>
       </div>
       {!isCollapsed && node.children.map(c => (
@@ -424,6 +453,8 @@ function FlameGraph({
         {blocks.map(b => {
           const selected = selectedId === b.n.id;
           const label = textFor(b.n);
+          const kind = kindFromActor(b.n.actor);
+          const col = colorsFor(kind);
           return (
             <g key={`${b.n.id}`}>
               <rect
@@ -433,8 +464,9 @@ function FlameGraph({
                 height={b.h}
                 rx={3}
                 ry={3}
-                fill={selected ? 'var(--vscode-editorHoverWidget-background)' : 'var(--vscode-editorCodeLens-foreground, rgba(148,163,184,0.25))'}
-                stroke={'var(--vscode-contrastBorder, rgba(148,163,184,0.35))'}
+                fill={selected ? col.fill : col.fill}
+                stroke={selected ? col.stroke : col.stroke}
+                strokeWidth={selected ? 2 : 1}
                 onClick={() => onSelect(b.n)}
                 onDoubleClick={() => onScope(b.n)}
               />

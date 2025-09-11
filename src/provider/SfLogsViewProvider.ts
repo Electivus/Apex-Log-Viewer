@@ -37,6 +37,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private headConcurrency: number = 5;
   private disposed = false;
   private refreshToken = 0;
+  private cursorStartTime: string | undefined;
+  private cursorId: string | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.headLimiter = createLimiter(this.headConcurrency);
@@ -177,6 +179,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             return;
           }
           this.currentOffset = 0;
+          this.cursorStartTime = undefined;
+          this.cursorId = undefined;
           const logs: ApexLogRow[] = await fetchApexLogs(
             auth,
             this.pageLimit,
@@ -190,6 +194,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           }
           logInfo('Logs: fetched', logs.length, 'rows (pageSize =', this.pageLimit, ')');
           this.currentOffset += logs.length;
+          if (logs.length > 0) {
+            const last = logs[logs.length - 1];
+            this.cursorStartTime = last?.StartTime;
+            this.cursorId = last?.Id;
+          }
           if (token !== this.refreshToken || this.disposed) {
             return;
           }
@@ -228,9 +237,24 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'loading', value: true });
     try {
       const auth = await getOrgAuth(this.selectedOrg);
-      const logs: ApexLogRow[] = await fetchApexLogs(auth, this.pageLimit, this.currentOffset);
+      const logs: ApexLogRow[] = await fetchApexLogs(
+        auth,
+        this.pageLimit,
+        this.currentOffset,
+        undefined,
+        undefined,
+        undefined,
+        this.cursorStartTime && this.cursorId
+          ? { beforeStartTime: this.cursorStartTime, beforeId: this.cursorId }
+          : undefined
+      );
       logInfo('Logs: loadMore fetched', logs.length);
       this.currentOffset += logs.length;
+      if (logs.length > 0) {
+        const last = logs[logs.length - 1];
+        this.cursorStartTime = last?.StartTime;
+        this.cursorId = last?.Id;
+      }
       if (token !== this.refreshToken || this.disposed) {
         return;
       }
