@@ -15,6 +15,7 @@ import { getLogFilePathWithUsername, findExistingLogFile } from '../utils/worksp
 import { ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { getErrorMessage } from '../utils/error';
 import { logWarn } from '../utils/logger';
+import { localize } from '../utils/localize';
 
 export class LogService {
   private headLimiter: Limiter;
@@ -77,23 +78,50 @@ export class LogService {
     }
   }
 
-  private async ensureLogFile(logId: string, selectedOrg?: string): Promise<string> {
+  private async ensureLogFile(logId: string, selectedOrg?: string, signal?: AbortSignal): Promise<string> {
     const existing = await findExistingLogFile(logId);
     if (existing) {
       return existing;
     }
-    const auth = await getOrgAuth(selectedOrg);
+    const auth = await getOrgAuth(selectedOrg, undefined, signal);
     const { filePath } = await getLogFilePathWithUsername(auth.username, logId);
-    const body = await fetchApexLogBody(auth, logId);
+    const body = await fetchApexLogBody(auth, logId, undefined, signal);
     await fs.writeFile(filePath, body, 'utf8');
     return filePath;
   }
 
   async openLog(logId: string, selectedOrg?: string): Promise<void> {
-    const targetPath = await this.ensureLogFile(logId, selectedOrg);
-    const uri = vscode.Uri.file(targetPath);
-    const doc = await vscode.workspace.openTextDocument(uri);
-    await vscode.window.showTextDocument(doc, { preview: true });
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: localize('openingApexLog', 'Opening Apex Log…'),
+        cancellable: true
+      },
+      async (_progress, ct) => {
+        const controller = new AbortController();
+        ct.onCancellationRequested(() => controller.abort());
+        try {
+          const targetPath = await this.ensureLogFile(logId, selectedOrg, controller.signal);
+          if (ct.isCancellationRequested) {
+            return;
+          }
+          const uri = vscode.Uri.file(targetPath);
+          const doc = await vscode.workspace.openTextDocument(uri);
+          if (ct.isCancellationRequested) {
+            return;
+          }
+          await vscode.window.showTextDocument(doc, { preview: true });
+        } catch (e) {
+          if (!controller.signal.aborted) {
+            const msg = getErrorMessage(e);
+            logWarn('LogService: openLog failed ->', msg);
+            void vscode.window.showErrorMessage(
+              localize('openLogFailed', 'Failed to open Apex log: {0}', msg)
+            );
+          }
+        }
+      }
+    );
   }
 
   async debugLog(logId: string, selectedOrg?: string): Promise<void> {
@@ -106,34 +134,44 @@ export class LogService {
       async (_progress, ct) => {
         const controller = new AbortController();
         ct.onCancellationRequested(() => controller.abort());
-        const ok = await ensureReplayDebuggerAvailable();
-        if (!ok || ct.isCancellationRequested) {
-          return;
-        }
-        let targetPath = await findExistingLogFile(logId);
-        if (!targetPath) {
-          const auth = await getOrgAuth(selectedOrg, undefined, controller.signal);
-          if (ct.isCancellationRequested) {
-            return;
-          }
-          const { filePath } = await getLogFilePathWithUsername(auth.username, logId);
-          const body = await fetchApexLogBody(auth, logId, undefined, controller.signal);
-          if (ct.isCancellationRequested) {
-            return;
-          }
-          await fs.writeFile(filePath, body, 'utf8');
-          targetPath = filePath;
-        }
-        if (ct.isCancellationRequested) {
-          return;
-        }
-        const uri = vscode.Uri.file(targetPath);
         try {
-          await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
+          const ok = await ensureReplayDebuggerAvailable();
+          if (!ok || ct.isCancellationRequested) {
+            return;
+          }
+          let targetPath = await findExistingLogFile(logId);
+          if (!targetPath) {
+            const auth = await getOrgAuth(selectedOrg, undefined, controller.signal);
+            if (ct.isCancellationRequested) {
+              return;
+            }
+            const { filePath } = await getLogFilePathWithUsername(auth.username, logId);
+            const body = await fetchApexLogBody(auth, logId, undefined, controller.signal);
+            if (ct.isCancellationRequested) {
+              return;
+            }
+            await fs.writeFile(filePath, body, 'utf8');
+            targetPath = filePath;
+          }
+          if (ct.isCancellationRequested) {
+            return;
+          }
+          const uri = vscode.Uri.file(targetPath);
+          try {
+            await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
+          } catch (e) {
+            if (!controller.signal.aborted) {
+              logWarn('LogService: sf.launch.replay.debugger.logfile failed ->', getErrorMessage(e));
+              await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
+            }
+          }
         } catch (e) {
           if (!controller.signal.aborted) {
-            logWarn('LogService: sf.launch.replay.debugger.logfile failed ->', getErrorMessage(e));
-            await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
+            const msg = getErrorMessage(e);
+            logWarn('LogService: debugLog failed ->', msg);
+            void vscode.window.showErrorMessage(
+              localize('startReplayFailed', 'Failed to start Apex Replay Debugger: {0}', msg)
+            );
           }
         }
       }
