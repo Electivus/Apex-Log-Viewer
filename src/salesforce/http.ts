@@ -209,7 +209,8 @@ export async function fetchApexLogs(
     // Use deterministic ordering to ensure stable pagination
     // SOQL datetime literals are unquoted; Id is quoted.
     const dt = cursor.beforeStartTime;
-    const id = cursor.beforeId.replace(/'/g, "\\'");
+    // Escape backslashes first, then single quotes inside the SOQL string literal
+    const id = cursor.beforeId.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     query = `${baseSelect} WHERE StartTime < ${dt} OR (StartTime = ${dt} AND Id < '${id}') ORDER BY StartTime DESC, Id DESC LIMIT ${safeLimit}`;
   } else {
     // Default to OFFSET-based paging for the first page(s)
