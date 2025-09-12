@@ -10,7 +10,12 @@ export function buildWebviewHtml(
   title: string
 ): string {
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', scriptFile));
-  const csp = `default-src 'none'; img-src ${webview.cspSource} https:; script-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline';`;
+  // Allow service/worker scripts from the webview source. VS Code registers
+  // an internal service worker to serve local resources. Without an explicit
+  // worker-src, the default-src ('none') can cause registration to fail on
+  // some platforms, leading to sporadic "Could not register service worker"
+  // errors. Keeping other directives tight.
+  const csp = `default-src 'none'; img-src ${webview.cspSource} https:; script-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; worker-src ${webview.cspSource};`;
   return `<!DOCTYPE html>
       <html lang="en">
       <head>
@@ -43,4 +48,3 @@ export function buildWebviewHtml(
       </body>
       </html>`;
 }
-
