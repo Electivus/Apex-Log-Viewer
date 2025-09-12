@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-No unreleased changes yet.
+### Removed
+
+- Diagram and Call Tree features have been removed to simplify the extension and reduce maintenance overhead. Webview bundles `diagram.js` and `calltree.js`, parser modules, and related commands/menus were deleted. If you relied on these experimental views, please open an issue to discuss a potential standalone extension.
 
 ## [0.10.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.8.0...v0.10.0) (2025-09-12)
 

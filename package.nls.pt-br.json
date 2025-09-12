@@ -8,8 +8,6 @@
   "command.refresh.title": "Atualizar Logs",
   "command.selectOrg.title": "Selecionar Org",
   "command.tail.title": "Tail de Logs",
-  "command.showDiagram.title": "Mostrar Diagrama do Log",
-  "command.showCallTree.title": "Mostrar Árvore de Chamadas",
   "configuration.title": "Electivus Apex Logs",
   "configuration.electivus.apexLogs.pageSize.description": "Quantidade de logs por página (máximo efetivo: 200). Valores maiores trazem mais por requisição, mas podem deixar a UI mais lenta ou aumentar a carga nas APIs.",
   "configuration.electivus.apexLogs.headConcurrency.description": "Número máximo de requisições concorrentes para buscar cabeçalhos. Valores muito altos podem sobrecarregar as APIs do Salesforce ou atingir limites de rate.",

@@ -5,7 +5,7 @@ This extension uses the official `@vscode/extension-telemetry` module to emit mi
 What we collect
 
 - Activation and command usage counts (e.g. `command.refresh`, `command.tail`).
-- Coarse performance timings (e.g., activation duration, log refresh time, diagram parse time).
+- Coarse performance timings (e.g., activation duration, log refresh time).
 - Coarse environment info (platform, VS Code version) to understand compatibility.
 - Non‑PII error categories (e.g. error names like `ETIMEDOUT`, not full messages or stacks).
 
