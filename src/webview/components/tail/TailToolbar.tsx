@@ -1,6 +1,7 @@
 import React from 'react';
 import type { OrgItem } from '../../../shared/types';
-import { commonButtonStyle } from '../styles';
+import { commonButtonStyle, inputStyle, selectStyle } from '../styles';
+import { OrgSelect } from '../OrgSelect';
 import { SpinnerIcon } from '../icons/ReplayIcon';
 
 type TailToolbarProps = {
@@ -57,23 +58,6 @@ export function TailToolbar({
   error,
   t
 }: TailToolbarProps) {
-  const selectStyle: React.CSSProperties = {
-    background: 'var(--vscode-dropdown-background, var(--vscode-input-background))',
-    color: 'var(--vscode-dropdown-foreground, var(--vscode-input-foreground))',
-    border: '1px solid var(--vscode-dropdown-border, var(--vscode-input-border))',
-    padding: '2px 6px',
-    borderRadius: 4
-  };
-
-  const inputStyle: React.CSSProperties = {
-    minWidth: 140,
-    padding: '4px 8px',
-    borderRadius: 4,
-    border: '1px solid var(--vscode-input-border)',
-    background: 'var(--vscode-input-background)',
-    color: 'var(--vscode-input-foreground)'
-  };
-
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
       <button onClick={running ? onStop : onStart} style={commonButtonStyle} disabled={disabled}>
@@ -105,21 +89,14 @@ export function TailToolbar({
       >
         {t.tail?.replayDebugger ?? 'Replay Debugger'}
       </button>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ opacity: 0.8 }}>{t.orgLabel}:</span>
-        <select
-          value={selectedOrg ?? (orgs[0]?.username || '')}
-          onChange={e => onSelectOrg(e.target.value)}
-          disabled={disabled}
-          style={selectStyle}
-        >
-          {orgs.map(o => (
-            <option key={o.username} value={o.username}>
-              {(o.alias ?? o.username) + (o.isDefaultUsername ? ' *' : '')}
-            </option>
-          ))}
-        </select>
-      </label>
+      <OrgSelect
+        label={t.orgLabel}
+        orgs={orgs}
+        selected={selectedOrg}
+        onChange={onSelectOrg}
+        disabled={disabled}
+        emptyText={t.noOrgsDetected ?? 'No orgs detected. Run "sf org list".'}
+      />
       <input
         type="search"
         value={query}
