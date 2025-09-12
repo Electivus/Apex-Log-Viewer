@@ -4,6 +4,32 @@
 
 No unreleased changes yet.
 
+## [0.10.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.8.0...v0.10.0) (2025-09-12)
+
+### Features
+
+- Call Tree: add Call Tree + Flame Graph for Apex logs ([#190](https://github.com/Electivus/Apex-Log-Viewer/pull/190)) ([b6361fe](https://github.com/Electivus/Apex-Log-Viewer/commit/b6361fe))
+
+### Bug Fixes
+
+- Webview: allow worker-src in CSP to avoid service worker registration error in VS Code webviews ([#193](https://github.com/Electivus/Apex-Log-Viewer/pull/193)) ([cd40b0d](https://github.com/Electivus/Apex-Log-Viewer/commit/cd40b0d))
+- Logs: use cursor-based pagination to bypass SOQL OFFSET 2000 ([#192](https://github.com/Electivus/Apex-Log-Viewer/pull/192)) ([d34df8e](https://github.com/Electivus/Apex-Log-Viewer/commit/d34df8e))
+
+### Refactoring
+
+- Provider: extract log services and handlers ([#191](https://github.com/Electivus/Apex-Log-Viewer/pull/191)) ([3565a03](https://github.com/Electivus/Apex-Log-Viewer/commit/3565a03))
+- Parser: modularize types, levels, and graph; update imports; add unit tests ([#189](https://github.com/Electivus/Apex-Log-Viewer/pull/189)) ([4d7ac75](https://github.com/Electivus/Apex-Log-Viewer/commit/4d7ac75))
+
+### Build
+
+- deps-dev: bump @typescript-eslint/eslint-plugin ([#182](https://github.com/Electivus/Apex-Log-Viewer/pull/182)) ([c46b53d](https://github.com/Electivus/Apex-Log-Viewer/commit/c46b53d))
+- deps-dev: bump react-window from 2.0.2 to 2.1.0 ([#183](https://github.com/Electivus/Apex-Log-Viewer/pull/183)) ([c990fe2](https://github.com/Electivus/Apex-Log-Viewer/commit/c990fe2))
+- CI: prerelease tags use v<version> + USER_DEBUG TraceFlag ([#180](https://github.com/Electivus/Apex-Log-Viewer/pull/180)) ([0eceb02](https://github.com/Electivus/Apex-Log-Viewer/commit/0eceb02))
+
+### Tests
+
+- Salesforce: stabilize CLI utils tests ([#184](https://github.com/Electivus/Apex-Log-Viewer/pull/184)) ([a911d6b](https://github.com/Electivus/Apex-Log-Viewer/commit/a911d6b))
+
 ## [0.8.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.6.2...v0.8.0) (2025-09-08)
 
 ### Features
