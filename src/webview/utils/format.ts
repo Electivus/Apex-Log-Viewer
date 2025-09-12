@@ -1,1 +1,1 @@
-export { formatBytes } from '../../shared/format';
+export { formatBytes, formatDuration } from '../../shared/format';

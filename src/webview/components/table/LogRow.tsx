@@ -1,7 +1,7 @@
 import React, { useLayoutEffect, useRef } from 'react';
 import type { ApexLogRow } from '../../../shared/types';
 import type { LogHeadMap } from '../LogsTable';
-import { formatBytes } from '../../utils/format';
+import { formatBytes, formatDuration } from '../../utils/format';
 import { OpenIcon } from '../icons/OpenIcon';
 import { ReplayIcon, SpinnerIcon } from '../icons/ReplayIcon';
 import { IconButton } from '../IconButton';
@@ -103,6 +103,7 @@ export function LogRow({
         <div style={baseCell}>{r.Application}</div>
         <div style={baseCell}>{r.Operation}</div>
         <div style={baseCell}>{new Date(r.StartTime).toLocaleString(locale)}</div>
+        <div style={baseCell}>{formatDuration(r.DurationMilliseconds)}</div>
         <div style={baseCell}>{r.Status}</div>
         <div style={baseCell} title={logHead[r.Id]?.codeUnitStarted ?? ''}>
           {logHead[r.Id]?.codeUnitStarted ?? ''}

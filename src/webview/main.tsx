@@ -18,7 +18,7 @@ declare global {
 
 const vscode = acquireVsCodeApi<WebviewToExtensionMessage>();
 
-type SortKey = 'user' | 'application' | 'operation' | 'time' | 'status' | 'size' | 'codeUnit';
+type SortKey = 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit';
 
 function App() {
   const [locale, setLocale] = useState('en');
@@ -104,7 +104,7 @@ function App() {
     } else {
       setSortBy(key);
       // sensible defaults
-      setSortDir(key === 'time' || key === 'size' ? 'desc' : 'asc');
+      setSortDir(key === 'time' || key === 'size' || key === 'duration' ? 'desc' : 'asc');
     }
   };
 
@@ -171,6 +171,9 @@ function App() {
           break;
         case 'time':
           cmp = new Date(a.StartTime).getTime() - new Date(b.StartTime).getTime();
+          break;
+        case 'duration':
+          cmp = (a.DurationMilliseconds || 0) - (b.DurationMilliseconds || 0);
           break;
         case 'status':
           cmp = (a.Status || '').localeCompare(b.Status || '');

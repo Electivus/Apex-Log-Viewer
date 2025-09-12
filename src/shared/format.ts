@@ -21,3 +21,14 @@ function formatUnit(value: number, unit: 'KB' | 'MB' | 'GB'): string {
   const trimmed = s.endsWith('.0') ? s.slice(0, -2) : s;
   return `${trimmed} ${unit}`;
 }
+
+export function formatDuration(ms: number): string {
+  const n = typeof ms === 'number' && isFinite(ms) ? Math.max(0, Math.floor(ms)) : 0;
+  if (n < 1000) {
+    return `${n} ms`;
+  }
+  const seconds = n / 1000;
+  const s = seconds.toFixed(1);
+  const trimmed = s.endsWith('.0') ? s.slice(0, -2) : s;
+  return `${trimmed} s`;
+}

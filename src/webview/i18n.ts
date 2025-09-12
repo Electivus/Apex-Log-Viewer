@@ -39,6 +39,7 @@ export type Messages = {
     application: string;
     operation: string;
     time: string;
+    duration: string;
     status: string;
     size: string;
     codeUnitStarted: string;
@@ -86,6 +87,7 @@ const en: Messages = {
     application: 'Application',
     operation: 'Operation',
     time: 'Time',
+    duration: 'Duration',
     status: 'Status',
     size: 'Size',
     codeUnitStarted: 'Code Unit'
@@ -133,6 +135,7 @@ const ptBR: Messages = {
     application: 'Aplicação',
     operation: 'Operação',
     time: 'Tempo',
+    duration: 'Duração',
     status: 'Status',
     size: 'Tamanho',
     codeUnitStarted: 'Code Unit'
