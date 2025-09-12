@@ -1,6 +1,6 @@
 import React from 'react';
 
-type SortKey = 'user' | 'application' | 'operation' | 'time' | 'status' | 'size' | 'codeUnit';
+type SortKey = 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit';
 
 type Props = {
   t: any;
@@ -76,6 +76,15 @@ export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
         >
           {t.columns.time}
           {sortArrow('time')}
+        </div>
+        <div
+          role="columnheader"
+          style={sortableStyle}
+          aria-sort={sortBy === 'duration' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+          onClick={() => onSort('duration')}
+        >
+          {t.columns.duration}
+          {sortArrow('duration')}
         </div>
         <div
           role="columnheader"
