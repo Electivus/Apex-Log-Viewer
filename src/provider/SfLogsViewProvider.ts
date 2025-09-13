@@ -3,10 +3,10 @@ import { localize } from '../utils/localize';
 import { getOrgAuth } from '../salesforce/cli';
 import { clearListCache } from '../salesforce/http';
 import type { ApexLogRow } from '../shared/types';
-import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
+import type { WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn, logError } from '../utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
-import { warmUpReplayDebugger } from '../utils/warmup';
+import { BaseWebviewViewProvider } from './BaseWebviewViewProvider';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { getErrorMessage } from '../utils/error';
 import { LogService } from '../services/logService';
@@ -14,23 +14,22 @@ import { LogsMessageHandler } from './logsMessageHandler';
 import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../utils/configManager';
 
-export class SfLogsViewProvider implements vscode.WebviewViewProvider {
+export class SfLogsViewProvider extends BaseWebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
-  private view?: vscode.WebviewView;
   private pageLimit = 100;
   private currentOffset = 0;
-  private disposed = false;
   private refreshToken = 0;
   private messageHandler: LogsMessageHandler;
   private cursorStartTime: string | undefined;
   private cursorId: string | undefined;
 
   constructor(
-    private readonly context: vscode.ExtensionContext,
+    context: vscode.ExtensionContext,
     private readonly logService = new LogService(),
     private readonly orgManager = new OrgManager(context),
     private readonly configManager = new ConfigManager(5, 100)
   ) {
+    super(context, 'Logs');
     const org = this.orgManager.getSelectedOrg();
     if (org) {
       logInfo('Logs: restored selected org from globalState:', org || '(default)');
@@ -45,7 +44,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       () => this.loadMore(),
       v => this.post({ type: 'loading', value: v })
     );
-    this.context.subscriptions.push(
+    this.subscribe(
       vscode.workspace.onDidChangeConfiguration(e => {
         this.configManager.handleChange(e);
         this.logService.setHeadConcurrency(this.configManager.getHeadConcurrency());
@@ -53,36 +52,16 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     );
   }
 
-  resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
-    this.view = webviewView;
-    this.disposed = false;
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
-    };
-    webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
-    logInfo('Logs webview resolved.');
-    // Fire-and-forget warm-up of Replay Debugger when the view opens
-    try {
-      setTimeout(() => void warmUpReplayDebugger(), 0);
-    } catch (e) {
-      logWarn('Logs: warm-up of Apex Replay Debugger failed ->', getErrorMessage(e));
-    }
-    // Dispose handling: stop posting and bump token to invalidate in-flight work
-    this.context.subscriptions.push(
-      webviewView.onDidDispose(() => {
-        this.disposed = true;
-        this.view = undefined;
-        this.refreshToken++;
-        logInfo('Logs webview disposed.');
-      })
-    );
-
-    this.context.subscriptions.push(
+  protected override onResolve(webviewView: vscode.WebviewView): void {
+    this.subscribe(
       webviewView.webview.onDidReceiveMessage(message => {
         void this.messageHandler.handle(message);
       })
     );
+  }
+
+  protected override onDisposed(): void {
+    this.refreshToken++;
   }
 
   public async refresh() {
@@ -218,7 +197,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   }
 
 
-  private getHtmlForWebview(webview: vscode.Webview): string {
+  protected getHtmlForWebview(webview: vscode.Webview): string {
     return buildWebviewHtml(
       webview,
       this.context.extensionUri,
@@ -274,9 +253,5 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public async tailLogs() {
     await vscode.commands.executeCommand('workbench.view.extension.salesforceTailPanel');
     await vscode.commands.executeCommand('workbench.viewsService.openView', 'sfLogTail');
-  }
-
-  private post(msg: ExtensionToWebviewMessage): void {
-    this.view?.webview.postMessage(msg);
   }
 }
