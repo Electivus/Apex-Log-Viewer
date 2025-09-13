@@ -18,10 +18,12 @@ class MockWebview implements vscode.Webview {
   options: vscode.WebviewOptions = {};
   cspSource = 'vscode-resource://test';
   private handler: ((e: any) => any) | undefined;
+  posted: any[] = [];
   asWebviewUri(uri: vscode.Uri): vscode.Uri {
     return uri;
   }
-  postMessage(_message: any): Thenable<boolean> {
+  postMessage(message: any): Thenable<boolean> {
+    this.posted.push(message);
     return Promise.resolve(true);
   }
   onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
@@ -154,6 +156,23 @@ suite('TailService', () => {
     assert.equal((service as any).seenLogIds.size, 0);
     assert.equal((service as any).logIdToPath.size, 0);
     assert.equal(service.isRunning(), false);
+  });
+
+  test('posts tail buffer size using config manager', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const provider = new SfLogTailViewProvider(context);
+    const webview = new MockWebview();
+    const view = new MockWebviewView(webview);
+    (provider as any).sendOrgs = async () => {};
+    (provider as any).sendDebugLevels = async () => {};
+    await provider.resolveWebviewView(view);
+    await webview.emit({ type: 'ready' });
+    const size = (provider as any).configManager.getTailBufferSize();
+    const msg = webview.posted.find((m: any) => m.type === 'tailConfig');
+    assert.equal(msg?.tailBufferSize, size);
   });
 
   test('retries log ID after fetch failure', async () => {
