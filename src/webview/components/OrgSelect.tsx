@@ -1,6 +1,6 @@
 import React from 'react';
 import type { OrgItem } from '../../shared/types';
-import { selectStyle } from './styles';
+import { LabeledSelect } from './LabeledSelect';
 
 export function OrgSelect({
   label,
@@ -17,24 +17,20 @@ export function OrgSelect({
   disabled?: boolean;
   emptyText?: string;
 }) {
-  const value = selected ?? (orgs[0]?.username || '');
+  const options = orgs.map(o => ({
+    value: o.username,
+    label: (o.alias ?? o.username) + (o.isDefaultUsername ? ' *' : '')
+  }));
+  const value = selected ?? (options[0]?.value || '');
   return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <span style={{ opacity: 0.8 }}>{label}:</span>
-      {orgs.length > 0 ? (
-        <select value={value} onChange={e => onChange(e.target.value)} disabled={disabled} style={selectStyle}>
-          {orgs.map(o => (
-            <option key={o.username} value={o.username}>
-              {(o.alias ?? o.username) + (o.isDefaultUsername ? ' *' : '')}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <span style={{ opacity: 0.7 }} aria-live="polite">
-          {emptyText || 'No orgs detected.'}
-        </span>
-      )}
-    </label>
+    <LabeledSelect
+      label={label}
+      value={value}
+      onChange={onChange}
+      options={options}
+      disabled={disabled}
+      hideIfEmpty
+      emptyText={emptyText || 'No orgs detected.'}
+    />
   );
 }
-

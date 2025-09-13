@@ -1,6 +1,7 @@
 import React from 'react';
 import type { OrgItem } from '../../../shared/types';
-import { commonButtonStyle, inputStyle, selectStyle } from '../styles';
+import { commonButtonStyle, inputStyle } from '../styles';
+import { LabeledSelect } from '../LabeledSelect';
 import { OrgSelect } from '../OrgSelect';
 import { SpinnerIcon } from '../icons/ReplayIcon';
 
@@ -123,22 +124,15 @@ export function TailToolbar({
         />
         <span>{t.tail?.colorize ?? 'Color'}</span>
       </label>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span>{t.tail?.debugLevel ?? 'Debug level'}</span>
-        <select
-          value={debugLevel}
-          onChange={e => onDebugLevelChange(e.target.value)}
-          disabled={disabled}
-          style={{ ...selectStyle, minWidth: 140 }}
-        >
-          <option value="">{t.tail?.select ?? 'Select'}</option>
-          {debugLevels.map(level => (
-            <option key={level} value={level}>
-              {level}
-            </option>
-          ))}
-        </select>
-      </label>
+      <LabeledSelect
+        label={t.tail?.debugLevel ?? 'Debug level'}
+        value={debugLevel}
+        onChange={onDebugLevelChange}
+        disabled={disabled}
+        options={debugLevels.map(level => ({ value: level, label: level }))}
+        placeholderLabel={t.tail?.select ?? 'Select'}
+        selectStyleOverride={{ minWidth: 140 }}
+      />
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
         <input
           type="checkbox"
