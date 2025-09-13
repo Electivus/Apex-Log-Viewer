@@ -2,7 +2,6 @@ import React from 'react';
 import type { OrgItem } from '../../shared/types';
 import { FilterSelect } from './FilterSelect';
 import { OrgSelect } from './OrgSelect';
-import { commonButtonStyle, inputStyle } from './styles';
 
 type ToolbarProps = {
   loading: boolean;
@@ -56,7 +55,7 @@ export function Toolbar({
 }: ToolbarProps) {
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
-      <button onClick={onRefresh} disabled={loading} style={commonButtonStyle}>
+      <button onClick={onRefresh} disabled={loading} className="alv-button">
         {loading ? t.loading : t.refresh}
       </button>
       <OrgSelect
@@ -73,7 +72,8 @@ export function Toolbar({
         onChange={e => onQueryChange(e.target.value)}
         placeholder={t.searchPlaceholder ?? 'Search logs…'}
         disabled={loading}
-        style={{ ...inputStyle, flex: '1 1 220px', minWidth: 160 }}
+        className="alv-input"
+        style={{ flex: '1 1 220px', minWidth: 160 }}
       />
       {/* Filters */}
       <FilterSelect
@@ -111,10 +111,8 @@ export function Toolbar({
       <button
         onClick={onClearFilters}
         disabled={loading}
-        style={{
-          ...commonButtonStyle,
-          opacity: filterUser || filterOperation || filterStatus || filterCodeUnit ? 1 : 0.7
-        }}
+        className="alv-button"
+        style={{ opacity: filterUser || filterOperation || filterStatus || filterCodeUnit ? 1 : 0.7 }}
       >
         {t.filters?.clear ?? 'Clear filters'}
       </button>

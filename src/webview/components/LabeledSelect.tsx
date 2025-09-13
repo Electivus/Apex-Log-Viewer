@@ -1,6 +1,5 @@
 import React from 'react';
 import type ReactNS from 'react';
-import { selectStyle as baseSelectStyle } from './styles';
 
 export type LabeledSelectOption = {
   value: string;
@@ -45,8 +44,6 @@ export function LabeledSelect({
     );
   }
 
-  const selectStyle = { ...baseSelectStyle, ...(selectStyleOverride || {}) };
-
   return (
     <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       <span style={{ opacity: 0.8 }}>{label}:</span>
@@ -54,7 +51,8 @@ export function LabeledSelect({
         value={value}
         onChange={e => onChange(e.target.value)}
         disabled={disabled}
-        style={selectStyle}
+        className="alv-select"
+        style={selectStyleOverride}
       >
         {typeof placeholderLabel === 'string' && (
           <option value="">{placeholderLabel}</option>

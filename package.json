@@ -355,7 +355,9 @@
   "files": [
     "dist/**",
     "media/main.js",
+    "media/main.css",
     "media/tail.js",
+    "media/tail.css",
     "media/icon.png",
     "README.md",
     "CHANGELOG.md",

@@ -7,6 +7,7 @@ import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../sh
 import { TailToolbar } from './components/tail/TailToolbar';
 import { TailList } from './components/tail/TailList';
 import { LoadingOverlay } from './components/LoadingOverlay';
+import './components/styles.css';
 
 declare global {
   var acquireVsCodeApi: <T = unknown>() => {
