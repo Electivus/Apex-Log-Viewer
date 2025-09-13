@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Messages } from '../../i18n';
+import type { TailMessages } from '../../i18n';
 import { List, type ListImperativeAPI } from 'react-window';
 import { apexLineStyle, categoryStyle, contentHighlightRules, highlightContent, parseApexLine } from '../../utils/tail';
 
@@ -11,7 +11,7 @@ type TailListProps = {
   colorize: boolean;
   running: boolean;
   listRef: React.RefObject<ListImperativeAPI | null>;
-  t: Messages;
+  t?: TailMessages;
   onAtBottomChange?: (atBottom: boolean) => void;
 };
 
@@ -182,7 +182,7 @@ export function TailList({
       >
         {showEmpty ? (
           <div style={{ opacity: 0.7, padding: 8 }}>
-            {running ? (t.tail?.waiting ?? 'Waiting for logs…') : (t.tail?.pressStart ?? 'Press Start to tail logs.')}
+            {running ? (t?.waiting ?? 'Waiting for logs…') : (t?.pressStart ?? 'Press Start to tail logs.')}
           </div>
         ) : (
           <List
@@ -217,7 +217,7 @@ function RowContent({
   sepStyle: React.CSSProperties;
   timeStyle: React.CSSProperties;
   debugMsgStyle: React.CSSProperties;
-  t: Messages;
+  t?: TailMessages;
   onMeasured: (h: number) => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -300,7 +300,7 @@ function RowContent({
       )}
       {cat && cat.toUpperCase().includes('USER_DEBUG') && parsed.debugMessage ? (
         <>
-          <span style={{ opacity: 0.6 }}>[{t.tail?.debugTag ?? 'debug'}]</span>
+          <span style={{ opacity: 0.6 }}>[{t?.debugTag ?? 'debug'}]</span>
           <span style={sepStyle}> | </span>
           {highlightContent(parsed.debugMessage, contentHighlightRules).map((s, j) => (
             <span key={j} style={s.style ?? debugMsgStyle}>

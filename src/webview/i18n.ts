@@ -1,3 +1,23 @@
+export interface TailMessages {
+  start: string;
+  stop: string;
+  clear: string;
+  openLog: string;
+  openSelectedLogTitle: string;
+  replayDebugger: string;
+  replayDebuggerTitle: string;
+  searchLivePlaceholder: string;
+  debugOnly: string;
+  colorize: string;
+  debugLevel: string;
+  select: string;
+  autoScroll: string;
+  waiting: string;
+  pressStart: string;
+  selectDebugLevel: string;
+  debugTag?: string;
+}
+
 export type Messages = {
   refresh: string;
   loading: string;
@@ -8,25 +28,7 @@ export type Messages = {
   defaultOrg: string;
   searchPlaceholder?: string;
   noOrgsDetected?: string;
-  tail?: {
-    start: string;
-    stop: string;
-    clear: string;
-    openLog: string;
-    openSelectedLogTitle: string;
-    replayDebugger: string;
-    replayDebuggerTitle: string;
-    searchLivePlaceholder: string;
-    debugOnly: string;
-    colorize: string;
-    debugLevel: string;
-    select: string;
-    autoScroll: string;
-    waiting: string;
-    pressStart: string;
-    selectDebugLevel: string;
-    debugTag?: string;
-  };
+  tail?: TailMessages;
   filters?: {
     user: string;
     operation: string;

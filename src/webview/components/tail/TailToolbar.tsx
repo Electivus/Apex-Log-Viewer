@@ -1,5 +1,6 @@
 import React from 'react';
 import type { OrgItem } from '../../../shared/types';
+import type { TailMessages } from '../../i18n';
 import { commonButtonStyle, inputStyle } from '../styles';
 import { LabeledSelect } from '../LabeledSelect';
 import { OrgSelect } from '../OrgSelect';
@@ -30,7 +31,9 @@ type TailToolbarProps = {
   autoScroll: boolean;
   onToggleAutoScroll: (v: boolean) => void;
   error?: string;
-  t: any;
+  t?: TailMessages;
+  orgLabel: string;
+  noOrgsDetected?: string;
 };
 
 export function TailToolbar({
@@ -57,52 +60,54 @@ export function TailToolbar({
   autoScroll,
   onToggleAutoScroll,
   error,
-  t
+  t,
+  orgLabel,
+  noOrgsDetected
 }: TailToolbarProps) {
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
       <button onClick={running ? onStop : onStart} style={commonButtonStyle} disabled={disabled}>
-        {running ? (t.tail?.stop ?? 'Stop') : (t.tail?.start ?? 'Start')}
+        {running ? (t?.stop ?? 'Stop') : (t?.start ?? 'Start')}
       </button>
       <button onClick={onClear} style={commonButtonStyle} disabled={disabled}>
-        {t.tail?.clear ?? 'Clear'}
+        {t?.clear ?? 'Clear'}
       </button>
       <button
         onClick={onOpenSelected}
         style={commonButtonStyle}
         disabled={disabled || !actionsEnabled}
-        title={t.tail?.openSelectedLogTitle ?? 'Open selected log'}
+        title={t?.openSelectedLogTitle ?? 'Open selected log'}
       >
         {disabled && actionsEnabled ? (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <SpinnerIcon />
-            {t.tail?.openLog ?? 'Open Log'}
+            {t?.openLog ?? 'Open Log'}
           </span>
         ) : (
-          t.tail?.openLog ?? 'Open Log'
+          t?.openLog ?? 'Open Log'
         )}
       </button>
       <button
         onClick={onReplaySelected}
         style={commonButtonStyle}
         disabled={disabled || !actionsEnabled}
-        title={t.tail?.replayDebuggerTitle ?? 'Apex Replay Debugger'}
+        title={t?.replayDebuggerTitle ?? 'Apex Replay Debugger'}
       >
-        {t.tail?.replayDebugger ?? 'Replay Debugger'}
+        {t?.replayDebugger ?? 'Replay Debugger'}
       </button>
       <OrgSelect
-        label={t.orgLabel}
+        label={orgLabel}
         orgs={orgs}
         selected={selectedOrg}
         onChange={onSelectOrg}
         disabled={disabled}
-        emptyText={t.noOrgsDetected ?? 'No orgs detected. Run "sf org list".'}
+        emptyText={noOrgsDetected ?? 'No orgs detected. Run "sf org list".'}
       />
       <input
         type="search"
         value={query}
         onChange={e => onQueryChange(e.target.value)}
-        placeholder={t.tail?.searchLivePlaceholder ?? 'Search live logs…'}
+        placeholder={t?.searchLivePlaceholder ?? 'Search live logs…'}
         disabled={disabled}
         style={{ ...inputStyle, flex: '1 1 220px', minWidth: 160 }}
       />
@@ -113,7 +118,7 @@ export function TailToolbar({
           onChange={e => onToggleOnlyUserDebug(e.target.checked)}
           disabled={disabled}
         />
-        <span>{t.tail?.debugOnly ?? 'Debug Only'}</span>
+        <span>{t?.debugOnly ?? 'Debug Only'}</span>
       </label>
       <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <input
@@ -122,15 +127,15 @@ export function TailToolbar({
           onChange={e => onToggleColorize(e.target.checked)}
           disabled={disabled}
         />
-        <span>{t.tail?.colorize ?? 'Color'}</span>
+        <span>{t?.colorize ?? 'Color'}</span>
       </label>
       <LabeledSelect
-        label={t.tail?.debugLevel ?? 'Debug level'}
+        label={t?.debugLevel ?? 'Debug level'}
         value={debugLevel}
         onChange={onDebugLevelChange}
         disabled={disabled}
         options={debugLevels.map(level => ({ value: level, label: level }))}
-        placeholderLabel={t.tail?.select ?? 'Select'}
+        placeholderLabel={t?.select ?? 'Select'}
         selectStyleOverride={{ minWidth: 140 }}
       />
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
@@ -140,7 +145,7 @@ export function TailToolbar({
           onChange={e => onToggleAutoScroll(e.target.checked)}
           disabled={disabled}
         />
-        <span>{t.tail?.autoScroll ?? 'Auto-scroll'}</span>
+        <span>{t?.autoScroll ?? 'Auto-scroll'}</span>
       </label>
       {error && <span style={{ color: 'var(--vscode-errorForeground)' }}>{error}</span>}
     </div>

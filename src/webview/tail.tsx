@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ListImperativeAPI } from 'react-window';
 import { createRoot } from 'react-dom/client';
-import { getMessages } from './i18n';
+import { getMessages, type TailMessages } from './i18n';
 import type { OrgItem } from '../shared/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { TailToolbar } from './components/tail/TailToolbar';
@@ -37,7 +37,8 @@ function App() {
   const [error, setError] = useState<string | undefined>(undefined);
   const [selectedIndex, setSelectedIndex] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(false);
-  const t = getMessages(locale) as any;
+  const messages = getMessages(locale);
+  const t: TailMessages | undefined = messages.tail;
   const listRef = useRef<ListImperativeAPI | null>(null);
 
   useEffect(() => {
@@ -155,7 +156,7 @@ function App() {
   const start = () => {
     setError(undefined);
     if (!debugLevel) {
-      setError(t.tail?.selectDebugLevel ?? 'Select a debug level');
+      setError(t?.selectDebugLevel ?? 'Select a debug level');
       return;
     }
     vscode.postMessage({ type: 'tailStart', debugLevel });
@@ -192,7 +193,7 @@ function App() {
         position: 'relative'
       }}
     >
-      <LoadingOverlay show={loading} label={t.loading} />
+      <LoadingOverlay show={loading} label={messages.loading} />
       <TailToolbar
         running={running}
         onStart={start}
@@ -238,6 +239,8 @@ function App() {
         }}
         error={error}
         t={t}
+        orgLabel={messages.orgLabel}
+        noOrgsDetected={messages.noOrgsDetected}
       />
       <TailList
         lines={lines}
