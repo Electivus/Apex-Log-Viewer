@@ -2,21 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getMessages, type Messages } from './i18n';
 import type { OrgItem, ApexLogRow } from '../shared/types';
-import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
+import { useVsCodeMessaging } from './hooks/useVsCodeMessaging';
 import { Toolbar } from './components/Toolbar';
 import { LogsTable } from './components/LogsTable';
 import { LoadingOverlay } from './components/LoadingOverlay';
-
-declare global {
-  // Provided by VS Code webview runtime
-  var acquireVsCodeApi: <T = unknown>() => {
-    postMessage: (msg: T) => void;
-    getState: <S = any>() => S | undefined;
-    setState: (state: any) => void;
-  };
-}
-
-const vscode = acquireVsCodeApi<WebviewToExtensionMessage>();
 
 type SortKey = 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit';
 
@@ -43,60 +32,55 @@ function App() {
   const [sortBy, setSortBy] = useState<SortKey>('time');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
+  const postMessage = useVsCodeMessaging(msg => {
+    switch (msg.type) {
+      case 'loading':
+        setLoading(!!msg.value);
+        break;
+      case 'error':
+        setError(msg.message);
+        break;
+      case 'init':
+        setLocale(msg.locale);
+        setT(getMessages(msg.locale));
+        break;
+      case 'logs':
+        setRows(msg.data || []);
+        setHasMore(!!msg.hasMore);
+        setError(undefined);
+        break;
+      case 'appendLogs':
+        setRows(prev => [...prev, ...(msg.data || [])]);
+        setHasMore(!!msg.hasMore);
+        break;
+      case 'logHead':
+        setLogHead(prev => ({
+          ...prev,
+          [msg.logId]: { codeUnitStarted: msg.codeUnitStarted }
+        }));
+        break;
+      case 'orgs':
+        setOrgs(msg.data || []);
+        setSelectedOrg(msg.selected);
+        break;
+    }
+  });
+
   useEffect(() => {
-    const onMsg = (event: MessageEvent) => {
-      const msg = event.data as ExtensionToWebviewMessage;
-      if (!msg || typeof msg !== 'object') {
-        return;
-      }
-      switch (msg.type) {
-        case 'loading':
-          setLoading(!!msg.value);
-          break;
-        case 'error':
-          setError(msg.message);
-          break;
-        case 'init':
-          setLocale(msg.locale);
-          setT(getMessages(msg.locale));
-          break;
-        case 'logs':
-          setRows(msg.data || []);
-          setHasMore(!!msg.hasMore);
-          setError(undefined);
-          break;
-        case 'appendLogs':
-          setRows(prev => [...prev, ...(msg.data || [])]);
-          setHasMore(!!msg.hasMore);
-          break;
-        case 'logHead':
-          setLogHead(prev => ({
-            ...prev,
-            [msg.logId]: { codeUnitStarted: msg.codeUnitStarted }
-          }));
-          break;
-        case 'orgs':
-          setOrgs(msg.data || []);
-          setSelectedOrg(msg.selected);
-          break;
-      }
-    };
-    window.addEventListener('message', onMsg);
-    vscode.postMessage({ type: 'ready' });
-    vscode.postMessage({ type: 'getOrgs' });
-    return () => window.removeEventListener('message', onMsg);
-  }, []);
+    postMessage({ type: 'ready' });
+    postMessage({ type: 'getOrgs' });
+  }, [postMessage]);
 
   const onRefresh = () => {
-    vscode.postMessage({ type: 'refresh' });
+    postMessage({ type: 'refresh' });
   };
   const onSelectOrg = (v: string) => {
     setSelectedOrg(v);
-    vscode.postMessage({ type: 'selectOrg', target: v });
+    postMessage({ type: 'selectOrg', target: v });
   };
-  const onOpen = (logId: string) => vscode.postMessage({ type: 'openLog', logId });
-  const onReplay = (logId: string) => vscode.postMessage({ type: 'replay', logId });
-  const onLoadMore = () => hasMore && vscode.postMessage({ type: 'loadMore' });
+  const onOpen = (logId: string) => postMessage({ type: 'openLog', logId });
+  const onReplay = (logId: string) => postMessage({ type: 'replay', logId });
+  const onLoadMore = () => hasMore && postMessage({ type: 'loadMore' });
 
   const onSort = (key: SortKey) => {
     if (key === sortBy) {
