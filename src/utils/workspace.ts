@@ -81,3 +81,11 @@ export async function findExistingLogFile(logId: string): Promise<string | undef
   }
   return undefined;
 }
+
+/** Heuristic check whether a TextDocument appears to be a Salesforce Apex log. */
+export function isApexLogDocument(doc: vscode.TextDocument): boolean {
+  const name = (doc.fileName || '').toLowerCase();
+  if (!/\.log$/.test(name)) return false;
+  const head = doc.getText(new vscode.Range(0, 0, Math.min(10, doc.lineCount), 0));
+  return /APEX_CODE\s*,/i.test(head) || /\|EXECUTION_STARTED\|/.test(head);
+}
