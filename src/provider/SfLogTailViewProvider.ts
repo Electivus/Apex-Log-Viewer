@@ -6,21 +6,21 @@ import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn } from '../utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
-import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
+import { ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { TailService } from '../utils/tailService';
 import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
 import { getNumberConfig, affectsConfiguration } from '../utils/config';
 import { getErrorMessage } from '../utils/error';
+import { BaseWebviewProvider } from './baseWebviewProvider';
 
-export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
+export class SfLogTailViewProvider extends BaseWebviewProvider {
   public static readonly viewType = 'sfLogTail';
-  private view?: vscode.WebviewView;
-  private disposed = false;
   private selectedOrg: string | undefined;
   private tailService = new TailService(m => this.post(m));
 
-  constructor(private readonly context: vscode.ExtensionContext) {
+  constructor(context: vscode.ExtensionContext) {
+    super(context, 'Tail');
     const persisted = restoreSelectedOrg(this.context);
     if (persisted) {
       this.selectedOrg = persisted;
@@ -43,32 +43,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     );
   }
 
-  resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
-    this.view = webviewView;
-    this.disposed = false;
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
-    };
-    webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
-    logInfo('Tail webview resolved.');
-    // Fire-and-forget warm-up of Replay Debugger when the Tail view opens
-    try {
-      setTimeout(() => void warmUpReplayDebugger(), 0);
-    } catch (e) {
-      logWarn('Tail: warm-up of Apex Replay Debugger failed ->', getErrorMessage(e));
-    }
-
-    this.context.subscriptions.push(
-      webviewView.onDidDispose(() => {
-        this.disposed = true;
-        this.view = undefined;
-        // Stop timers and clear caches, but keep TailService reusable when the view reopens
-        this.tailService.stop();
-        logInfo('Tail webview disposed; stopped tail.');
-      })
-    );
-
+  protected override onViewResolved(webviewView: vscode.WebviewView): void {
     // Track window activity to adapt polling cadence (requires VS Code 1.89+; @types 1.90)
     try {
       this.tailService.setWindowActive(vscode.window.state?.active ?? true);
@@ -83,12 +58,13 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       logWarn('Tail: window state tracking failed ->', getErrorMessage(e));
     }
 
-    webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
-      const t = (message as any)?.type;
-      if (t) {
-        logInfo('Tail: received message from webview:', t);
-      }
-      if (message?.type === 'ready') {
+    this.context.subscriptions.push(
+      webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
+        const t = (message as any)?.type;
+        if (t) {
+          logInfo('Tail: received message from webview:', t);
+        }
+        if (message?.type === 'ready') {
         // Show loading while bootstrapping orgs and debug levels
         this.post({ type: 'loading', value: true });
         await this.sendOrgs();
@@ -160,10 +136,17 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         this.post({ type: 'tailReset' });
         return;
       }
-    });
+      })
+    );
   }
 
-  private getHtmlForWebview(webview: vscode.Webview): string {
+  protected override onViewDisposed(): string {
+    // Stop timers and clear caches, but keep TailService reusable when the view reopens
+    this.tailService.stop();
+    return 'Tail webview disposed; stopped tail.';
+  }
+
+  protected getHtmlForWebview(webview: vscode.Webview): string {
     return buildWebviewHtml(
       webview,
       this.context.extensionUri,
