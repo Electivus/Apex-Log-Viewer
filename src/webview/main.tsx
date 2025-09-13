@@ -6,6 +6,7 @@ import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../sh
 import { Toolbar } from './components/Toolbar';
 import { LogsTable } from './components/LogsTable';
 import { LoadingOverlay } from './components/LoadingOverlay';
+import useLogFilters, { SortKey } from './hooks/useLogFilters';
 
 declare global {
   // Provided by VS Code webview runtime
@@ -17,8 +18,6 @@ declare global {
 }
 
 const vscode = acquireVsCodeApi<WebviewToExtensionMessage>();
-
-type SortKey = 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit';
 
 function App() {
   const [locale, setLocale] = useState('en');
@@ -32,16 +31,23 @@ function App() {
   const [hasMore, setHasMore] = useState(false);
   const [logHead, setLogHead] = useState<Record<string, { codeUnitStarted?: string }>>({});
 
-  // Search + filters
-  const [query, setQuery] = useState('');
-  const [filterUser, setFilterUser] = useState('');
-  const [filterOperation, setFilterOperation] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-  const [filterCodeUnit, setFilterCodeUnit] = useState('');
-
-  // Sorting
-  const [sortBy, setSortBy] = useState<SortKey>('time');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  // Search + filters + sorting
+  const {
+    query,
+    filterUser,
+    filterOperation,
+    filterStatus,
+    filterCodeUnit,
+    sortBy,
+    sortDir,
+    setQuery,
+    setFilterUser,
+    setFilterOperation,
+    setFilterStatus,
+    setFilterCodeUnit,
+    onSort,
+    clearFilters
+  } = useLogFilters();
 
   useEffect(() => {
     const onMsg = (event: MessageEvent) => {
@@ -98,23 +104,7 @@ function App() {
   const onReplay = (logId: string) => vscode.postMessage({ type: 'replay', logId });
   const onLoadMore = () => hasMore && vscode.postMessage({ type: 'loadMore' });
 
-  const onSort = (key: SortKey) => {
-    if (key === sortBy) {
-      setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortBy(key);
-      // sensible defaults
-      setSortDir(key === 'time' || key === 'size' || key === 'duration' ? 'desc' : 'asc');
-    }
-  };
 
-  const clearFilters = () => {
-    setQuery('');
-    setFilterUser('');
-    setFilterOperation('');
-    setFilterStatus('');
-    setFilterCodeUnit('');
-  };
 
   // Compute filter options
   const users = useMemo(() => Array.from(new Set(rows.map(r => r.LogUser?.Name || ''))).filter(Boolean), [rows]);
