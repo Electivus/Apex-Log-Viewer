@@ -12,6 +12,7 @@ import { TailService } from '../utils/tailService';
 import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
 import { getNumberConfig, affectsConfiguration } from '../utils/config';
 import { getErrorMessage } from '../utils/error';
+import { TailMessageHandler } from './tailMessageHandler';
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogTail';
@@ -19,6 +20,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   private disposed = false;
   private selectedOrg: string | undefined;
   private tailService = new TailService(m => this.post(m));
+  private messageHandler: TailMessageHandler;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     const persisted = restoreSelectedOrg(this.context);
@@ -27,6 +29,23 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       logInfo('Tail: restored selected org from globalState:', this.selectedOrg || '(default)');
     }
     this.tailService.setOrg(this.selectedOrg);
+
+    this.messageHandler = new TailMessageHandler(
+      () => this.sendOrgs(),
+      () => this.sendDebugLevels(),
+      o => this.setSelectedOrg(o),
+      () => this.selectedOrg,
+      o => this.tailService.setOrg(o),
+      () => this.tailService.stop(),
+      d => this.tailService.start(d),
+      () => this.tailService.clearLogPaths(),
+      () => this.tailService.isRunning(),
+      id => this.openLog(id),
+      id => this.replayLog(id),
+      () => this.getTailBufferSize(),
+      m => this.post(m),
+      v => this.post({ type: 'loading', value: v })
+    );
 
     // React to tail buffer size changes live
     this.context.subscriptions.push(
@@ -83,84 +102,11 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       logWarn('Tail: window state tracking failed ->', getErrorMessage(e));
     }
 
-    webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
-      const t = (message as any)?.type;
-      if (t) {
-        logInfo('Tail: received message from webview:', t);
-      }
-      if (message?.type === 'ready') {
-        // Show loading while bootstrapping orgs and debug levels
-        this.post({ type: 'loading', value: true });
-        await this.sendOrgs();
-        await this.sendDebugLevels();
-        this.post({ type: 'init', locale: vscode.env.language });
-        // Send tail buffer size configuration
-        this.post({ type: 'tailConfig', tailBufferSize: this.getTailBufferSize() });
-        this.post({ type: 'tailStatus', running: this.tailService.isRunning() });
-        this.post({ type: 'loading', value: false });
-        return;
-      }
-      if (message?.type === 'getOrgs') {
-        this.post({ type: 'loading', value: true });
-        try {
-          await this.sendOrgs();
-          await this.sendDebugLevels();
-        } finally {
-          this.post({ type: 'loading', value: false });
-        }
-        return;
-      }
-      if (message?.type === 'selectOrg') {
-        const target = typeof message.target === 'string' ? message.target.trim() : undefined;
-        const next = target || undefined;
-        const prev = this.selectedOrg;
-        this.setSelectedOrg(next);
-        this.tailService.setOrg(next);
-        if (prev !== next) {
-          this.tailService.stop();
-        }
-        logInfo('Tail: selected org set to', next || '(none)');
-        this.post({ type: 'loading', value: true });
-        try {
-          await this.sendOrgs();
-          await this.sendDebugLevels();
-        } finally {
-          this.post({ type: 'loading', value: false });
-        }
-        return;
-      }
-      if (message?.type === 'openLog' && (message as any).logId) {
-        const id = (message as any).logId;
-        logInfo('Tail: openLog requested for', id);
-        await this.openLog(id);
-        return;
-      }
-      if (message?.type === 'replay' && (message as any).logId) {
-        const id = (message as any).logId;
-        logInfo('Tail: replay requested for', id);
-        await this.replayLog(id);
-        return;
-      }
-      if (message?.type === 'tailStart') {
-        // Surface loading while ensuring TraceFlag and priming tail
-        this.post({ type: 'loading', value: true });
-        try {
-          await this.tailService.start(typeof message.debugLevel === 'string' ? message.debugLevel.trim() : undefined);
-        } finally {
-          this.post({ type: 'loading', value: false });
-        }
-        return;
-      }
-      if (message?.type === 'tailStop') {
-        this.tailService.stop();
-        return;
-      }
-      if (message?.type === 'tailClear') {
-        this.tailService.clearLogPaths();
-        this.post({ type: 'tailReset' });
-        return;
-      }
-    });
+    this.context.subscriptions.push(
+      webviewView.webview.onDidReceiveMessage((message: WebviewToExtensionMessage) => {
+        void this.messageHandler.handle(message);
+      })
+    );
   }
 
   private getHtmlForWebview(webview: vscode.Webview): string {
