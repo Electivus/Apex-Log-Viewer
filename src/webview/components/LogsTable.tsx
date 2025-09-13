@@ -3,13 +3,13 @@ import { List, type ListImperativeAPI } from 'react-window';
 import type { ApexLogRow } from '../../shared/types';
 import { LogsHeader } from './table/LogsHeader';
 import { LogRow } from './table/LogRow';
+import { useI18n } from '../i18n';
 
 export type LogHeadMap = Record<string, { codeUnitStarted?: string }>;
 
 export function LogsTable({
   rows,
   logHead,
-  t,
   onOpen,
   onReplay,
   loading,
@@ -22,7 +22,6 @@ export function LogsTable({
 }: {
   rows: ApexLogRow[];
   logHead: LogHeadMap;
-  t: any;
   onOpen: (logId: string) => void;
   onReplay: (logId: string) => void;
   loading: boolean;
@@ -35,6 +34,7 @@ export function LogsTable({
     key: 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit'
   ) => void;
 }) {
+  const t = useI18n();
   const listRef = useRef<ListImperativeAPI | null>(null);
   const outerRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
@@ -171,7 +171,7 @@ export function LogsTable({
 
   return (
     <div ref={outerRef} style={{ overflow: 'hidden' }}>
-      <LogsHeader ref={headerRef} t={t} sortBy={sortBy} sortDir={sortDir} onSort={onSort} gridTemplate={gridTemplate} />
+      <LogsHeader ref={headerRef} sortBy={sortBy} sortDir={sortDir} onSort={onSort} gridTemplate={gridTemplate} />
       <List
         style={{ height: measuredListHeight, width: '100%' }}
         rowCount={rows.length}
@@ -190,7 +190,6 @@ export function LogsTable({
               r={row}
               logHead={logHead}
               locale={locale}
-              t={t}
               loading={loading}
               onOpen={onOpen}
               onReplay={onReplay}

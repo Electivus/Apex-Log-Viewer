@@ -3,6 +3,7 @@ import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
 import { LogRow } from '../webview/components/table/LogRow';
 import type { ApexLogRow } from '../shared/types';
+import { I18nProvider } from '../webview/i18n';
 
 suite('LogRow', () => {
   test('renders data and callbacks fire', () => {
@@ -20,23 +21,24 @@ suite('LogRow', () => {
     let opened: string | undefined;
     let replayed: string | undefined;
     const { getByRole, getByText } = render(
-      <LogRow
-        r={row}
-        logHead={{ '1': { codeUnitStarted: 'CU' } }}
-        locale="en-US"
-        t={{ open: 'Open', replay: 'Replay' }}
-        loading={false}
-        onOpen={id => {
-          opened = id;
-        }}
-        onReplay={id => {
-          replayed = id;
-        }}
-        gridTemplate="1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr"
-        style={{}}
-        index={0}
-        setRowHeight={() => {}}
-      />
+      <I18nProvider locale="en">
+        <LogRow
+          r={row}
+          logHead={{ '1': { codeUnitStarted: 'CU' } }}
+          locale="en-US"
+          loading={false}
+          onOpen={id => {
+            opened = id;
+          }}
+          onReplay={id => {
+            replayed = id;
+          }}
+          gridTemplate="1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr"
+          style={{}}
+          index={0}
+          setRowHeight={() => {}}
+        />
+      </I18nProvider>
     );
     getByText('User');
     fireEvent.click(getByRole('button', { name: 'Open' }));

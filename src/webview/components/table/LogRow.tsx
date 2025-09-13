@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useRef } from 'react';
 import type { ApexLogRow } from '../../../shared/types';
 import type { LogHeadMap } from '../LogsTable';
+import { useI18n } from '../../i18n';
 import { formatBytes, formatDuration } from '../../utils/format';
 import { OpenIcon } from '../icons/OpenIcon';
 import { ReplayIcon, SpinnerIcon } from '../icons/ReplayIcon';
@@ -10,7 +11,6 @@ type Props = {
   r: ApexLogRow;
   logHead: LogHeadMap;
   locale: string;
-  t: any;
   loading: boolean;
   onOpen: (logId: string) => void;
   onReplay: (logId: string) => void;
@@ -24,7 +24,6 @@ export function LogRow({
   r,
   logHead,
   locale,
-  t,
   loading,
   onOpen,
   onReplay,
@@ -33,6 +32,7 @@ export function LogRow({
   index,
   setRowHeight
 }: Props) {
+  const t = useI18n();
   const contentRef = useRef<HTMLDivElement | null>(null);
 
   useLayoutEffect(() => {

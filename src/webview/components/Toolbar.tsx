@@ -1,5 +1,6 @@
 import React from 'react';
 import type { OrgItem } from '../../shared/types';
+import { useI18n } from '../i18n';
 import { FilterSelect } from './FilterSelect';
 import { OrgSelect } from './OrgSelect';
 import { commonButtonStyle, inputStyle } from './styles';
@@ -8,7 +9,6 @@ type ToolbarProps = {
   loading: boolean;
   error?: string;
   onRefresh: () => void;
-  t: any;
   orgs: OrgItem[];
   selectedOrg?: string;
   onSelectOrg: (v: string) => void;
@@ -34,7 +34,6 @@ export function Toolbar({
   loading,
   error,
   onRefresh,
-  t,
   orgs,
   selectedOrg,
   onSelectOrg,
@@ -54,6 +53,7 @@ export function Toolbar({
   onFilterCodeUnitChange,
   onClearFilters
 }: ToolbarProps) {
+  const t = useI18n();
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
       <button onClick={onRefresh} disabled={loading} style={commonButtonStyle}>
