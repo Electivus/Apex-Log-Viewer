@@ -13,6 +13,7 @@ import { CacheManager } from './utils/cacheManager';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { getErrorMessage } from './utils/error';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
+import { requireOrgSelected, handleCommandError } from './utils/commandValidation';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
   username: string;
@@ -113,55 +114,65 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  const getSelectedOrg = () => (provider as any).orgManager.getSelectedOrg() as string | undefined;
+
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.refresh', () => {
       safeSendEvent('command.refresh');
+      if (!requireOrgSelected(getSelectedOrg)) {
+        return;
+      }
       return provider.refresh();
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.selectOrg', async () => {
-      logInfo('Command sfLogs.selectOrg invoked. Listing orgs…');
-      try {
-        const orgs: OrgItem[] = await listOrgs(true);
-        const items: OrgQuickPick[] = orgs.map(o => ({
-          label: o.alias ?? o.username,
-          description: o.isDefaultUsername ? localize('selectOrgDefault', 'Default') : undefined,
-          detail: o.instanceUrl || undefined,
-          username: o.username
-        }));
-        const picked = await vscode.window.showQuickPick<OrgQuickPick>(items, {
-          placeHolder: localize('selectOrgPlaceholder', 'Select an authenticated org')
-        });
-        if (!picked) {
-          logInfo('Select org cancelled.');
-          safeSendEvent('command.selectOrg', { outcome: 'cancel' });
-          return;
+    vscode.commands.registerCommand('sfLogs.selectOrg', () =>
+      handleCommandError(
+        async () => {
+          logInfo('Command sfLogs.selectOrg invoked. Listing orgs…');
+          const orgs: OrgItem[] = await listOrgs(true);
+          const items: OrgQuickPick[] = orgs.map(o => ({
+            label: o.alias ?? o.username,
+            description: o.isDefaultUsername ? localize('selectOrgDefault', 'Default') : undefined,
+            detail: o.instanceUrl || undefined,
+            username: o.username
+          }));
+          const picked = await vscode.window.showQuickPick<OrgQuickPick>(items, {
+            placeHolder: localize('selectOrgPlaceholder', 'Select an authenticated org')
+          });
+          if (!picked) {
+            logInfo('Select org cancelled.');
+            safeSendEvent('command.selectOrg', { outcome: 'cancel' });
+            return;
+          }
+          const username = picked.username;
+          provider.setSelectedOrg(username);
+          logInfo('Selected org:', username);
+          const count = orgs.length;
+          const bucket = count === 0 ? '0' : count === 1 ? '1' : count <= 5 ? '2-5' : count <= 10 ? '6-10' : '10+';
+          const hasDefault = String(orgs.some(o => o.isDefaultUsername));
+          safeSendEvent('command.selectOrg', { outcome: 'picked', orgs: bucket, hasDefault });
+          await provider.sendOrgs();
+          await provider.refresh();
+        },
+        {
+          logMessage: 'Failed listing orgs',
+          userMessage: localize('selectOrgError', 'Electivus Apex Logs: Failed to list orgs'),
+          telemetryEvent: 'command.selectOrg',
+          telemetryCode: 'LIST_ORGS_FAILED'
         }
-        const username = picked.username;
-        provider.setSelectedOrg(username);
-        logInfo('Selected org:', username);
-        const count = orgs.length;
-        const bucket = count === 0 ? '0' : count === 1 ? '1' : count <= 5 ? '2-5' : count <= 10 ? '6-10' : '10+';
-        const hasDefault = String(orgs.some(o => o.isDefaultUsername));
-        safeSendEvent('command.selectOrg', { outcome: 'picked', orgs: bucket, hasDefault });
-        await provider.sendOrgs();
-        await provider.refresh();
-      } catch (e) {
-        const msg = getErrorMessage(e);
-        logError('Failed listing orgs ->', msg);
-        vscode.window.showErrorMessage(localize('selectOrgError', 'Electivus Apex Logs: Failed to list orgs'));
-        // Do not send raw error messages to telemetry; use a coarse code instead
-        safeSendException('command.selectOrg', { code: 'LIST_ORGS_FAILED' });
-      }
-    })
+      )
+    )
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.tail', async () => {
       logInfo('Command sfLogs.tail invoked. Opening Tail view and starting…');
       safeSendEvent('command.tail');
+      if (!requireOrgSelected(getSelectedOrg)) {
+        return;
+      }
       await provider.tailLogs();
     })
   );
@@ -178,17 +189,20 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Reset CLI cache command
   context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.resetCliCache', async () => {
-      try {
-        await CacheManager.delete('cli');
-        logInfo('CLI cache cleared.');
-        vscode.window.showInformationMessage('Electivus Apex Logs: CLI cache cleared');
-      } catch (e) {
-        const msg = getErrorMessage(e);
-        logWarn('Failed clearing CLI cache ->', msg);
-        vscode.window.showErrorMessage('Electivus Apex Logs: Failed to clear CLI cache');
-      }
-    })
+    vscode.commands.registerCommand('sfLogs.resetCliCache', () =>
+      handleCommandError(
+        async () => {
+          await CacheManager.delete('cli');
+          logInfo('CLI cache cleared.');
+          vscode.window.showInformationMessage('Electivus Apex Logs: CLI cache cleared');
+        },
+        {
+          logMessage: 'Failed clearing CLI cache',
+          userMessage: localize('resetCliCacheError', 'Electivus Apex Logs: Failed to clear CLI cache'),
+          log: logWarn
+        }
+      )
+    )
   );
 
   // Removed legacy openTailPanel command to avoid focus changes
