@@ -1,6 +1,20 @@
 import type { WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo } from '../utils/logger';
 
+export type LogsMessage = Extract<
+  WebviewToExtensionMessage,
+  {
+    type:
+      | 'ready'
+      | 'refresh'
+      | 'getOrgs'
+      | 'selectOrg'
+      | 'openLog'
+      | 'replay'
+      | 'loadMore';
+  }
+>;
+
 export class LogsMessageHandler {
   constructor(
     private readonly refresh: () => Promise<void>,
@@ -12,10 +26,7 @@ export class LogsMessageHandler {
     private readonly setLoading: (val: boolean) => void
   ) {}
 
-  async handle(message: WebviewToExtensionMessage): Promise<void> {
-    if (!message?.type) {
-      return;
-    }
+  async handle(message: LogsMessage): Promise<void> {
     switch (message.type) {
       case 'ready':
         logInfo('Logs: message ready');
@@ -38,26 +49,26 @@ export class LogsMessageHandler {
         }
         break;
       case 'selectOrg':
-        this.setSelectedOrg(typeof message.target === 'string' ? message.target.trim() : undefined);
+        this.setSelectedOrg(message.target.trim());
         logInfo('Logs: selected org set');
         await this.refresh();
         break;
       case 'openLog':
-        if (message.logId) {
-          logInfo('Logs: openLog', message.logId);
-          await this.openLog(message.logId);
-        }
+        logInfo('Logs: openLog', message.logId);
+        await this.openLog(message.logId);
         break;
       case 'replay':
-        if (message.logId) {
-          logInfo('Logs: replay', message.logId);
-          await this.debugLog(message.logId);
-        }
+        logInfo('Logs: replay', message.logId);
+        await this.debugLog(message.logId);
         break;
       case 'loadMore':
         logInfo('Logs: loadMore');
         await this.loadMore();
         break;
+      default: {
+        const _exhaustiveCheck: never = message;
+        return _exhaustiveCheck;
+      }
     }
   }
 }

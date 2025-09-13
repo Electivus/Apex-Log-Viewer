@@ -82,21 +82,36 @@ function App() {
       }
     };
     window.addEventListener('message', onMsg);
-    vscode.postMessage({ type: 'ready' });
-    vscode.postMessage({ type: 'getOrgs' });
+    const ready = { type: 'ready' } as const satisfies WebviewToExtensionMessage;
+    vscode.postMessage(ready);
+    const getOrgs = { type: 'getOrgs' } as const satisfies WebviewToExtensionMessage;
+    vscode.postMessage(getOrgs);
     return () => window.removeEventListener('message', onMsg);
   }, []);
 
   const onRefresh = () => {
-    vscode.postMessage({ type: 'refresh' });
+    const msg = { type: 'refresh' } as const satisfies WebviewToExtensionMessage;
+    vscode.postMessage(msg);
   };
   const onSelectOrg = (v: string) => {
     setSelectedOrg(v);
-    vscode.postMessage({ type: 'selectOrg', target: v });
+    const msg = { type: 'selectOrg', target: v } as const satisfies WebviewToExtensionMessage;
+    vscode.postMessage(msg);
   };
-  const onOpen = (logId: string) => vscode.postMessage({ type: 'openLog', logId });
-  const onReplay = (logId: string) => vscode.postMessage({ type: 'replay', logId });
-  const onLoadMore = () => hasMore && vscode.postMessage({ type: 'loadMore' });
+  const onOpen = (logId: string) => {
+    const msg = { type: 'openLog', logId } as const satisfies WebviewToExtensionMessage;
+    vscode.postMessage(msg);
+  };
+  const onReplay = (logId: string) => {
+    const msg = { type: 'replay', logId } as const satisfies WebviewToExtensionMessage;
+    vscode.postMessage(msg);
+  };
+  const onLoadMore = () => {
+    if (hasMore) {
+      const msg = { type: 'loadMore' } as const satisfies WebviewToExtensionMessage;
+      vscode.postMessage(msg);
+    }
+  };
 
   const onSort = (key: SortKey) => {
     if (key === sortBy) {
