@@ -235,7 +235,6 @@
         "title": "%command.tail.title%",
         "category": "Electivus Apex Logs"
       },
-      
       {
         "command": "sfLogs.showOutput",
         "title": "Show Extension Output",
@@ -331,6 +330,8 @@
     "esbuild": "^0.25.8",
     "eslint": "^9.35.0",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
     "husky": "^9.1.7",
     "jsdom": "^26.1.0",
     "lint-staged": "^16.1.6",

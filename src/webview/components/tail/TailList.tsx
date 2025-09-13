@@ -131,7 +131,7 @@ export function TailList({
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, [onAtBottomChange, height, filteredIndexes.length]);
+  }, [listRef, onAtBottomChange, height, filteredIndexes.length]);
 
   // Adaptive overscan based on scroll velocity
   React.useEffect(() => {
@@ -165,7 +165,7 @@ export function TailList({
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+  }, [listRef]);
 
   return (
     <div ref={outerRef} style={{ flex: '1 1 auto' }}>
