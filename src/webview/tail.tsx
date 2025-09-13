@@ -7,16 +7,7 @@ import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../sh
 import { TailToolbar } from './components/tail/TailToolbar';
 import { TailList } from './components/tail/TailList';
 import { LoadingOverlay } from './components/LoadingOverlay';
-
-declare global {
-  var acquireVsCodeApi: <T = unknown>() => {
-    postMessage: (msg: T) => void;
-    getState: <S = any>() => S | undefined;
-    setState: (state: any) => void;
-  };
-}
-
-const vscode = acquireVsCodeApi<WebviewToExtensionMessage>();
+import { useVsCodeMessages } from './utils/useVsCodeMessages';
 
 type TailMessage = ExtensionToWebviewMessage;
 
@@ -40,12 +31,11 @@ function App() {
   const t = getMessages(locale) as any;
   const listRef = useRef<ListImperativeAPI | null>(null);
 
+  const { postMessage, addMessageListener } =
+    useVsCodeMessages<WebviewToExtensionMessage, ExtensionToWebviewMessage>();
+
   useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      const msg = event.data as TailMessage;
-      if (!msg || typeof msg !== 'object') {
-        return;
-      }
+    const dispose = addMessageListener(msg => {
       if (msg.type === 'init') {
         setLocale(msg.locale);
       }
@@ -91,12 +81,11 @@ function App() {
       if (msg.type === 'error') {
         setError(msg.message);
       }
-    };
-    window.addEventListener('message', handler);
-    vscode.postMessage({ type: 'ready' });
-    vscode.postMessage({ type: 'getOrgs' });
-    return () => window.removeEventListener('message', handler);
-  }, []);
+    });
+    postMessage({ type: 'ready' });
+    postMessage({ type: 'getOrgs' });
+    return dispose;
+  }, [addMessageListener, postMessage, tailMaxLines]);
 
   const filteredIndexes = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -158,10 +147,10 @@ function App() {
       setError(t.tail?.selectDebugLevel ?? 'Select a debug level');
       return;
     }
-    vscode.postMessage({ type: 'tailStart', debugLevel });
+    postMessage({ type: 'tailStart', debugLevel });
   };
-  const stop = () => vscode.postMessage({ type: 'tailStop' });
-  const clear = () => vscode.postMessage({ type: 'tailClear' });
+  const stop = () => postMessage({ type: 'tailStop' });
+  const clear = () => postMessage({ type: 'tailClear' });
 
   // Infer selected logId by scanning up to nearest header line
   const selectedLogId: string | undefined = useMemo(() => {
@@ -201,12 +190,12 @@ function App() {
         disabled={loading}
         onOpenSelected={() => {
           if (selectedLogId) {
-            vscode.postMessage({ type: 'openLog', logId: selectedLogId });
+            postMessage({ type: 'openLog', logId: selectedLogId });
           }
         }}
         onReplaySelected={() => {
           if (selectedLogId) {
-            vscode.postMessage({ type: 'replay', logId: selectedLogId });
+            postMessage({ type: 'replay', logId: selectedLogId });
           }
         }}
         actionsEnabled={!!selectedLogId}
@@ -214,7 +203,7 @@ function App() {
         selectedOrg={selectedOrg}
         onSelectOrg={value => {
           setSelectedOrg(value);
-          vscode.postMessage({ type: 'selectOrg', target: value });
+          postMessage({ type: 'selectOrg', target: value });
         }}
         query={query}
         onQueryChange={setQuery}
