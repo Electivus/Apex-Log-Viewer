@@ -10,7 +10,8 @@ import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/wa
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { TailService } from '../utils/tailService';
 import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
-import { getNumberConfig, affectsConfiguration } from '../utils/config';
+import { affectsConfiguration } from '../utils/config';
+import { ConfigManager } from '../utils/configManager';
 import { getErrorMessage } from '../utils/error';
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
@@ -19,6 +20,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   private disposed = false;
   private selectedOrg: string | undefined;
   private tailService = new TailService(m => this.post(m));
+  private readonly configManager = new ConfigManager(5, 100);
 
   constructor(private readonly context: vscode.ExtensionContext) {
     const persisted = restoreSelectedOrg(this.context);
@@ -31,10 +33,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     // React to tail buffer size changes live
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
+        this.configManager.handleChange(e);
         if (affectsConfiguration(e, 'sfLogs.tailBufferSize')) {
           try {
-            const size = this.getTailBufferSize();
-            this.post({ type: 'tailConfig', tailBufferSize: size });
+            this.post({ type: 'tailConfig', tailBufferSize: this.configManager.getTailBufferSize() });
           } catch {
             // ignore
           }
@@ -95,7 +97,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         await this.sendDebugLevels();
         this.post({ type: 'init', locale: vscode.env.language });
         // Send tail buffer size configuration
-        this.post({ type: 'tailConfig', tailBufferSize: this.getTailBufferSize() });
+        this.post({ type: 'tailConfig', tailBufferSize: this.configManager.getTailBufferSize() });
         this.post({ type: 'tailStatus', running: this.tailService.isRunning() });
         this.post({ type: 'loading', value: false });
         return;
@@ -176,9 +178,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     this.view?.webview.postMessage(msg);
   }
 
-  private getTailBufferSize(): number {
-    return getNumberConfig('sfLogs.tailBufferSize', 10000, 1000, Number.MAX_SAFE_INTEGER);
-  }
 
   public async sendOrgs(): Promise<void> {
     const t0 = Date.now();
