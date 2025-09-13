@@ -235,7 +235,6 @@
         "title": "%command.tail.title%",
         "category": "Electivus Apex Logs"
       },
-      
       {
         "command": "sfLogs.showOutput",
         "title": "Show Extension Output",
@@ -323,6 +322,7 @@
     "@types/proxyquire": "^1.3.4",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.0.2",
+    "@types/react-window-infinite-loader": "^1.0.9",
     "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^8.43.0",
     "@typescript-eslint/parser": "^8.42.0",
@@ -341,6 +341,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-window": "^2.1.0",
+    "react-window-infinite-loader": "^1.0.10",
     "sharp": "^0.34.3",
     "typescript": "^5.9.2",
     "vscode-nls-dev": "^4.0.4"
