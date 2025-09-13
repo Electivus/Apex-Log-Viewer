@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
+import React, { useRef, useState, useLayoutEffect } from 'react';
 import { List, type ListImperativeAPI } from 'react-window';
+import InfiniteLoader from 'react-window-infinite-loader';
 import type { ApexLogRow } from '../../shared/types';
 import { LogsHeader } from './table/LogsHeader';
 import { LogRow } from './table/LogRow';
@@ -45,31 +46,10 @@ export function LogsTable({
   const defaultRowHeight = 32;
   const rowHeightsRef = useRef<Record<number, number>>({});
   const [measuredListHeight, setMeasuredListHeight] = useState<number>(420);
-  const [overscanCount, setOverscanCount] = useState<number>(8);
-  const overscanBaseRef = useRef<number>(8);
-  const overscanLastTopRef = useRef<number>(0);
-  const overscanLastTsRef = useRef<number>(0);
-  const overscanDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const overscanLastSetRef = useRef<number>(8);
-  // Track latest paging flags for scroll handler without re-binding listeners
-  const hasMoreRef = useRef<boolean>(hasMore);
-  const loadingRef = useRef<boolean>(loading);
-  const lastLoadTsRef = useRef<number>(0);
+  const overscanCount = 8;
   const gridTemplate =
     'minmax(160px,1fr) minmax(140px,1fr) minmax(200px,1.2fr) minmax(200px,1fr) minmax(110px,0.6fr) minmax(120px,0.8fr) minmax(260px,1.4fr) minmax(90px,0.6fr) 72px';
   // Header is rendered by LogsHeader; keep container simple
-
-  // autoPagingActivated will be flipped by the adaptive overscan listener below
-
-  const handleRowsRendered = (props: { startIndex: number; stopIndex: number }) => {
-    const { stopIndex: visibleStopIndex } = props;
-    // Trigger load more when within ~one screenful from the end
-    const approxVisible = Math.max(5, Math.ceil(measuredListHeight / defaultRowHeight));
-    const threshold = Math.max(0, rows.length - (approxVisible + 5));
-    if (hasMore && !loading && visibleStopIndex >= threshold) {
-      onLoadMore();
-    }
-  };
 
   // Batch resetAfterIndex calls to once-per-frame
   const rafRef = useRef<number | null>(null);
@@ -117,91 +97,60 @@ export function LogsTable({
     };
   }, []);
 
-  // Keep refs synchronized with latest props for scroll safety net
-  useEffect(() => {
-    hasMoreRef.current = hasMore;
-  }, [hasMore]);
-  useEffect(() => {
-    loadingRef.current = loading;
-  }, [loading]);
-
-  // Adaptive overscan based on scroll velocity
-  useEffect(() => {
-    const el = listRef.current?.element;
-    if (!el) return;
-    const onScroll = () => {
-      const now = performance.now();
-      const dt = now - (overscanLastTsRef.current || now);
-      const dy = Math.abs(el.scrollTop - (overscanLastTopRef.current || 0));
-      if (dt > 16) {
-        const v = dy / dt; // px per ms
-        let next = overscanBaseRef.current;
-        if (v > 2) next = 22;
-        else if (v > 1) next = 14;
-        else if (v > 0.4) next = 10;
-        else next = overscanBaseRef.current; // idle/slow
-        if (next !== overscanLastSetRef.current) {
-          overscanLastSetRef.current = next;
-          setOverscanCount(next);
-        }
-        if (overscanDecayRef.current) clearTimeout(overscanDecayRef.current);
-        overscanDecayRef.current = setTimeout(() => {
-          if (overscanLastSetRef.current !== overscanBaseRef.current) {
-            overscanLastSetRef.current = overscanBaseRef.current;
-            setOverscanCount(overscanBaseRef.current);
-          }
-        }, 200);
-      }
-      // Also trigger load-more when very near the bottom, as a safety net
-      if (hasMoreRef.current && !loadingRef.current) {
-        const remaining = el.scrollHeight - (el.scrollTop + el.clientHeight);
-        if (remaining <= defaultRowHeight * 2) {
-          if (now - lastLoadTsRef.current > 300) {
-            lastLoadTsRef.current = now;
-            onLoadMore();
-          }
-        }
-      }
-      overscanLastTsRef.current = now;
-      overscanLastTopRef.current = el.scrollTop;
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+  const itemCount = hasMore ? rows.length + 1 : rows.length;
+  const isItemLoaded = (index: number) => index < rows.length || loading;
 
   return (
     <div ref={outerRef} style={{ overflow: 'hidden' }}>
       <LogsHeader ref={headerRef} t={t} sortBy={sortBy} sortDir={sortDir} onSort={onSort} gridTemplate={gridTemplate} />
-      <List
-        style={{ height: measuredListHeight, width: '100%' }}
-        rowCount={rows.length}
-        rowHeight={(index: number) => getItemSize(index)}
-        listRef={listRef}
-        rowProps={{}}
-        onRowsRendered={({ startIndex, stopIndex }: { startIndex: number; stopIndex: number }) =>
-          handleRowsRendered({ startIndex, stopIndex })
-        }
-        overscanCount={overscanCount}
-        rowComponent={({ index, style }: { index: number; style: React.CSSProperties }) => {
-          const row = rows[index];
-          if (!row) return null;
-          return (
-            <LogRow
-              r={row}
-              logHead={logHead}
-              locale={locale}
-              t={t}
-              loading={loading}
-              onOpen={onOpen}
-              onReplay={onReplay}
-              gridTemplate={gridTemplate}
-              style={style}
-              index={index}
-              setRowHeight={setRowHeight}
-            />
-          );
-        }}
-      />
+      <InfiniteLoader
+        isItemLoaded={isItemLoaded}
+        itemCount={itemCount}
+        loadMoreItems={onLoadMore}
+        threshold={overscanCount}
+      >
+        {({ onItemsRendered, ref }: { onItemsRendered: (info: any) => void; ref: React.Ref<ListImperativeAPI> }) => (
+          <List
+            style={{ height: measuredListHeight, width: '100%' }}
+            rowCount={itemCount}
+            rowHeight={(index: number) => getItemSize(index)}
+            listRef={(instance: ListImperativeAPI | null) => {
+              listRef.current = instance;
+              if (typeof ref === 'function') ref(instance);
+              else if (ref) (ref as any).current = instance;
+            }}
+            rowProps={{}}
+            onRowsRendered={({ startIndex, stopIndex }: { startIndex: number; stopIndex: number }) =>
+              onItemsRendered({
+                overscanStartIndex: startIndex,
+                overscanStopIndex: stopIndex + overscanCount,
+                visibleStartIndex: startIndex,
+                visibleStopIndex: stopIndex
+              })
+            }
+            overscanCount={overscanCount}
+            rowComponent={({ index, style }: { index: number; style: React.CSSProperties }) => {
+              const row = rows[index];
+              if (!row) return null;
+              return (
+                <LogRow
+                  r={row}
+                  logHead={logHead}
+                  locale={locale}
+                  t={t}
+                  loading={loading}
+                  onOpen={onOpen}
+                  onReplay={onReplay}
+                  gridTemplate={gridTemplate}
+                  style={style}
+                  index={index}
+                  setRowHeight={setRowHeight}
+                />
+              );
+            }}
+          />
+        )}
+      </InfiniteLoader>
     </div>
   );
 }
