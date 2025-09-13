@@ -12,6 +12,7 @@ import {
   ensureApexLogsDir as utilEnsureApexLogsDir,
   getLogFilePathWithUsername as utilGetLogFilePathWithUsername
 } from './workspace';
+import { ensureLogFile } from './logFile';
 import {
   createConnectionFromAuth,
   createLoggingStreamingClient,
@@ -395,9 +396,7 @@ export class TailService {
     }
     const auth = this.currentAuth ?? (await getOrgAuth(this.selectedOrg, undefined, signal));
     this.currentAuth = auth;
-    const body = await fetchApexLogBody(auth, logId, undefined, signal);
-    const { filePath } = await this.getLogFilePathWithUsername(auth.username, logId);
-    await fs.writeFile(filePath, body, 'utf8');
+    const filePath = await ensureLogFile(auth, logId, signal);
     this.addLogPath(logId, filePath);
     logInfo('Tail: ensured log saved at', filePath);
     return filePath;

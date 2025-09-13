@@ -1,17 +1,16 @@
 import * as vscode from 'vscode';
-import { promises as fs } from 'fs';
 import { createLimiter, type Limiter } from '../utils/limiter';
 import { getOrgAuth } from '../salesforce/cli';
 import {
   fetchApexLogs,
   fetchApexLogHead,
-  fetchApexLogBody,
   extractCodeUnitStartedFromLines
 } from '../salesforce/http';
 import type { ApexLogCursor } from '../salesforce/http';
 import type { OrgAuth } from '../salesforce/types';
 import type { ApexLogRow } from '../shared/types';
-import { getLogFilePathWithUsername, findExistingLogFile } from '../utils/workspace';
+import { findExistingLogFile } from '../utils/workspace';
+import { ensureLogFile as ensureLogFileUtil } from '../utils/logFile';
 import { ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { getErrorMessage } from '../utils/error';
 import { logWarn } from '../utils/logger';
@@ -84,10 +83,7 @@ export class LogService {
       return existing;
     }
     const auth = await getOrgAuth(selectedOrg, undefined, signal);
-    const { filePath } = await getLogFilePathWithUsername(auth.username, logId);
-    const body = await fetchApexLogBody(auth, logId, undefined, signal);
-    await fs.writeFile(filePath, body, 'utf8');
-    return filePath;
+    return ensureLogFileUtil(auth, logId, signal);
   }
 
   async openLog(logId: string, selectedOrg?: string): Promise<void> {
@@ -139,20 +135,7 @@ export class LogService {
           if (!ok || ct.isCancellationRequested) {
             return;
           }
-          let targetPath = await findExistingLogFile(logId);
-          if (!targetPath) {
-            const auth = await getOrgAuth(selectedOrg, undefined, controller.signal);
-            if (ct.isCancellationRequested) {
-              return;
-            }
-            const { filePath } = await getLogFilePathWithUsername(auth.username, logId);
-            const body = await fetchApexLogBody(auth, logId, undefined, controller.signal);
-            if (ct.isCancellationRequested) {
-              return;
-            }
-            await fs.writeFile(filePath, body, 'utf8');
-            targetPath = filePath;
-          }
+          const targetPath = await this.ensureLogFile(logId, selectedOrg, controller.signal);
           if (ct.isCancellationRequested) {
             return;
           }

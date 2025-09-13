@@ -51,4 +51,31 @@ suite('LogService', () => {
     await new Promise(r => setTimeout(r, 10));
     assert.deepEqual(seen, [{ id: '1', code: 'Unit' }]);
   });
+
+  test('ensureLogFile delegates to utility', async () => {
+    const calls: any[] = [];
+    const { LogService } = proxyquire('../services/logService', {
+      '../utils/logFile': {
+        ensureLogFile: async (...args: any[]) => {
+          calls.push(args);
+          return '/p';
+        }
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' })
+      },
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        fetchApexLogHead: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined
+      },
+      '../utils/workspace': { findExistingLogFile: async () => undefined },
+      '../utils/limiter': { createLimiter: () => (fn: any) => fn() }
+    });
+    const svc = new LogService();
+    const path = await (svc as any).ensureLogFile('1', 'org');
+    assert.equal(path, '/p');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][1], '1');
+  });
 });
