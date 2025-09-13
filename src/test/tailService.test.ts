@@ -1,4 +1,5 @@
 import assert from 'assert/strict';
+import proxyquire from 'proxyquire';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { TailService } from '../utils/tailService';
@@ -177,5 +178,24 @@ suite('TailService', () => {
     assert.equal(calls, 2);
     assert.equal((service as any).seenLogIds.has('1'), true);
     (http as any).fetchApexLogBody = origFetch;
+  });
+
+  test('ensureLogSaved delegates to ensureLogFile', async () => {
+    const p = proxyquire.noCallThru().noPreserveCache();
+    const calls: any[] = [];
+    const { TailService: TailServiceProxy } = p('../utils/tailService', {
+      './logFile': {
+        ensureLogFile: async (...args: any[]) => {
+          calls.push(args);
+          return '/p';
+        }
+      }
+    });
+    const svc = new TailServiceProxy(() => {});
+    (svc as any).currentAuth = { username: 'u', instanceUrl: 'i', accessToken: 't' };
+    const path = await svc.ensureLogSaved('55');
+    assert.equal(path, '/p');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][1], '55');
   });
 });
