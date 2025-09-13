@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { localize } from '../utils/localize';
-import { listOrgs, getOrgAuth } from '../salesforce/cli';
+import { getOrgAuth } from '../salesforce/cli';
 import { listDebugLevels, getActiveUserDebugLevel } from '../salesforce/traceflags';
 import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
@@ -9,7 +9,7 @@ import { safeSendEvent } from '../shared/telemetry';
 import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { TailService } from '../utils/tailService';
-import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
+import { OrgManager } from '../utils/orgManager';
 import { getNumberConfig, affectsConfiguration } from '../utils/config';
 import { getErrorMessage } from '../utils/error';
 
@@ -17,16 +17,17 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogTail';
   private view?: vscode.WebviewView;
   private disposed = false;
-  private selectedOrg: string | undefined;
   private tailService = new TailService(m => this.post(m));
 
-  constructor(private readonly context: vscode.ExtensionContext) {
-    const persisted = restoreSelectedOrg(this.context);
-    if (persisted) {
-      this.selectedOrg = persisted;
-      logInfo('Tail: restored selected org from globalState:', this.selectedOrg || '(default)');
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly orgManager = new OrgManager(context)
+  ) {
+    const org = this.orgManager.getSelectedOrg();
+    if (org) {
+      logInfo('Tail: restored selected org from globalState:', org || '(default)');
     }
-    this.tailService.setOrg(this.selectedOrg);
+    this.tailService.setOrg(org);
 
     // React to tail buffer size changes live
     this.context.subscriptions.push(
@@ -113,8 +114,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       if (message?.type === 'selectOrg') {
         const target = typeof message.target === 'string' ? message.target.trim() : undefined;
         const next = target || undefined;
-        const prev = this.selectedOrg;
-        this.setSelectedOrg(next);
+        const prev = this.orgManager.getSelectedOrg();
+        this.orgManager.setSelectedOrg(next);
         this.tailService.setOrg(next);
         if (prev !== next) {
           this.tailService.stop();
@@ -183,9 +184,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   public async sendOrgs(): Promise<void> {
     const t0 = Date.now();
     try {
-      const orgs = await listOrgs();
+      const { orgs, selected } = await this.orgManager.list();
       logInfo('Tail: sendOrgs ->', orgs.length, 'org(s)');
-      const selected = pickSelectedOrg(orgs, this.selectedOrg);
       this.post({ type: 'orgs', data: orgs, selected });
       try {
         const durationMs = Date.now() - t0;
@@ -193,7 +193,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       } catch {}
     } catch (e) {
       logWarn('Tail: sendOrgs failed ->', getErrorMessage(e));
-      this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
+      this.post({ type: 'orgs', data: [], selected: this.orgManager.getSelectedOrg() });
       try {
         const durationMs = Date.now() - t0;
         safeSendEvent('orgs.list', { outcome: 'error', view: 'tail' }, { durationMs });
@@ -201,17 +201,12 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private setSelectedOrg(username?: string): void {
-    this.selectedOrg = username;
-    persistSelectedOrg(this.context, username);
-  }
-
   private async sendDebugLevels(): Promise<void> {
     const t0 = Date.now();
     // Load auth; if this fails, surface empty list once
     let auth: OrgAuth;
     try {
-      auth = await getOrgAuth(this.selectedOrg);
+      auth = await getOrgAuth(this.orgManager.getSelectedOrg());
     } catch (e) {
       logWarn('Tail: could not load auth for debug levels ->', getErrorMessage(e));
       this.post({ type: 'debugLevels', data: [] });
