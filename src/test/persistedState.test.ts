@@ -40,10 +40,10 @@ suite('Persisted org state', () => {
     const { context, capturedGetKey, updates } = makeContext();
     const provider = new SfLogTailViewProvider(context);
     assert.equal(capturedGetKey(), SELECTED_ORG_KEY);
-    assert.equal((provider as any).selectedOrg, 'persisted-org');
-    (provider as any).setSelectedOrg('next-org');
+    assert.equal((provider as any).orgManager.getSelectedOrg(), 'persisted-org');
+    (provider as any).orgManager.setSelectedOrg('next-org');
     assert.equal(updates[0]?.key, SELECTED_ORG_KEY);
     assert.equal(updates[0]?.value, 'next-org');
-    assert.equal((provider as any).selectedOrg, 'next-org');
+    assert.equal((provider as any).orgManager.getSelectedOrg(), 'next-org');
   });
 });
