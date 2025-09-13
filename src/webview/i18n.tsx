@@ -1,3 +1,5 @@
+import React, { createContext, useContext, useMemo, type ReactNode } from 'react';
+
 export type Messages = {
   refresh: string;
   loading: string;
@@ -151,4 +153,15 @@ export function getMessages(locale?: string): Messages {
     return ptBR;
   }
   return en;
+}
+
+export const I18nContext = createContext<Messages>(en);
+
+export function I18nProvider({ locale, children }: { locale: string; children: ReactNode }) {
+  const messages = useMemo(() => getMessages(locale), [locale]);
+  return <I18nContext.Provider value={messages}>{children}</I18nContext.Provider>;
+}
+
+export function useI18n(): Messages {
+  return useContext(I18nContext);
 }

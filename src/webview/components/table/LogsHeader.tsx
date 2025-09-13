@@ -1,9 +1,9 @@
 import React from 'react';
+import { useI18n } from '../../i18n';
 
 type SortKey = 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit';
 
 type Props = {
-  t: any;
   sortBy: SortKey;
   sortDir: 'asc' | 'desc';
   onSort: (key: SortKey) => void;
@@ -11,7 +11,8 @@ type Props = {
 };
 
 export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
-  ({ t, sortBy, sortDir, onSort, gridTemplate }, ref) => {
+  ({ sortBy, sortDir, onSort, gridTemplate }, ref) => {
+    const t = useI18n();
     const sortableStyle: React.CSSProperties = { cursor: 'pointer' };
     const sortArrow = (key: string) => {
       if (sortBy !== (key as any)) {

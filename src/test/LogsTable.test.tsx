@@ -3,6 +3,7 @@ import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
 const proxyquire: any = require('proxyquire');
 import type { ApexLogRow } from '../shared/types';
+import { I18nProvider } from '../webview/i18n';
 
 function createRows(n: number): ApexLogRow[] {
   return Array.from({ length: n }, (_, i) => ({
@@ -18,19 +19,6 @@ function createRows(n: number): ApexLogRow[] {
   }));
 }
 
-const t = {
-  open: 'Open',
-  replay: 'Replay',
-  columns: {
-    user: 'User',
-    application: 'Application',
-    operation: 'Operation',
-    time: 'Time',
-    status: 'Status',
-    codeUnitStarted: 'Code Unit',
-    size: 'Size'
-  }
-};
 
 suite('LogsTable', () => {
   test('loads more via onRowsRendered without prior scroll', () => {
@@ -57,20 +45,21 @@ suite('LogsTable', () => {
 
     let loadMore = 0;
     render(
-      <LogsTable
-        rows={rows}
-        logHead={{}}
-        t={t}
-        onOpen={() => {}}
-        onReplay={() => {}}
-        loading={false}
-        locale="en-US"
-        hasMore={true}
-        onLoadMore={() => loadMore++}
-        sortBy="time"
-        sortDir="asc"
-        onSort={() => {}}
-      />
+      <I18nProvider locale="en">
+        <LogsTable
+          rows={rows}
+          logHead={{}}
+          onOpen={() => {}}
+          onReplay={() => {}}
+          loading={false}
+          locale="en-US"
+          hasMore={true}
+          onLoadMore={() => loadMore++}
+          sortBy="time"
+          sortDir="asc"
+          onSort={() => {}}
+        />
+      </I18nProvider>
     );
 
     // Without any scroll, being near the end should trigger loadMore
@@ -102,20 +91,21 @@ suite('LogsTable', () => {
 
     let loadMore = 0;
     render(
-      <LogsTable
-        rows={rows}
-        logHead={{}}
-        t={t}
-        onOpen={() => {}}
-        onReplay={() => {}}
-        loading={false}
-        locale="en-US"
-        hasMore={true}
-        onLoadMore={() => loadMore++}
-        sortBy="time"
-        sortDir="asc"
-        onSort={() => {}}
-      />
+      <I18nProvider locale="en">
+        <LogsTable
+          rows={rows}
+          logHead={{}}
+          onOpen={() => {}}
+          onReplay={() => {}}
+          loading={false}
+          locale="en-US"
+          hasMore={true}
+          onLoadMore={() => loadMore++}
+          sortBy="time"
+          sortDir="asc"
+          onSort={() => {}}
+        />
+      </I18nProvider>
     );
 
     const outer = captured.outer as HTMLDivElement;
@@ -148,20 +138,21 @@ suite('LogsTable', () => {
     });
 
     render(
-      <LogsTable
-        rows={rows}
-        logHead={{}}
-        t={t}
-        onOpen={() => {}}
-        onReplay={() => {}}
-        loading={false}
-        locale="en-US"
-        hasMore={false}
-        onLoadMore={() => {}}
-        sortBy="time"
-        sortDir="asc"
-        onSort={() => {}}
-      />
+      <I18nProvider locale="en">
+        <LogsTable
+          rows={rows}
+          logHead={{}}
+          onOpen={() => {}}
+          onReplay={() => {}}
+          loading={false}
+          locale="en-US"
+          hasMore={false}
+          onLoadMore={() => {}}
+          sortBy="time"
+          sortDir="asc"
+          onSort={() => {}}
+        />
+      </I18nProvider>
     );
 
     const outer = captured.outer as HTMLDivElement;
@@ -209,20 +200,21 @@ suite('LogsTable', () => {
 
     let loadMore = 0;
     render(
-      <LogsTable
-        rows={rows}
-        logHead={{}}
-        t={t}
-        onOpen={() => {}}
-        onReplay={() => {}}
-        loading={false}
-        locale="en-US"
-        hasMore={true}
-        onLoadMore={() => loadMore++}
-        sortBy="time"
-        sortDir="asc"
-        onSort={() => {}}
-      />
+      <I18nProvider locale="en">
+        <LogsTable
+          rows={rows}
+          logHead={{}}
+          onOpen={() => {}}
+          onReplay={() => {}}
+          loading={false}
+          locale="en-US"
+          hasMore={true}
+          onLoadMore={() => loadMore++}
+          sortBy="time"
+          sortDir="asc"
+          onSort={() => {}}
+        />
+      </I18nProvider>
     );
 
     const el = captured.outer as HTMLDivElement;
@@ -264,40 +256,42 @@ suite('LogsTable', () => {
 
     let loadMore = 0;
     const { rerender } = render(
-      <LogsTable
-        rows={rows}
-        logHead={{}}
-        t={t}
-        onOpen={() => {}}
-        onReplay={() => {}}
-        loading={true}
-        locale="en-US"
-        hasMore={true}
-        onLoadMore={() => loadMore++}
-        sortBy="time"
-        sortDir="asc"
-        onSort={() => {}}
-      />
+      <I18nProvider locale="en">
+        <LogsTable
+          rows={rows}
+          logHead={{}}
+          onOpen={() => {}}
+          onReplay={() => {}}
+          loading={true}
+          locale="en-US"
+          hasMore={true}
+          onLoadMore={() => loadMore++}
+          sortBy="time"
+          sortDir="asc"
+          onSort={() => {}}
+        />
+      </I18nProvider>
     );
 
     captured.onRowsRendered({ startIndex: 0, stopIndex: rows.length - 1 });
     assert.equal(loadMore, 0);
 
     rerender(
-      <LogsTable
-        rows={rows}
-        logHead={{}}
-        t={t}
-        onOpen={() => {}}
-        onReplay={() => {}}
-        loading={false}
-        locale="en-US"
-        hasMore={false}
-        onLoadMore={() => loadMore++}
-        sortBy="time"
-        sortDir="asc"
-        onSort={() => {}}
-      />
+      <I18nProvider locale="en">
+        <LogsTable
+          rows={rows}
+          logHead={{}}
+          onOpen={() => {}}
+          onReplay={() => {}}
+          loading={false}
+          locale="en-US"
+          hasMore={false}
+          onLoadMore={() => loadMore++}
+          sortBy="time"
+          sortDir="asc"
+          onSort={() => {}}
+        />
+      </I18nProvider>
     );
     captured.onRowsRendered({ startIndex: 0, stopIndex: rows.length - 1 });
     assert.equal(loadMore, 0);

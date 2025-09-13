@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { getMessages, type Messages } from './i18n';
+import { I18nProvider, useI18n } from './i18n';
 import type { OrgItem, ApexLogRow } from '../shared/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { Toolbar } from './components/Toolbar';
@@ -22,7 +22,6 @@ type SortKey = 'user' | 'application' | 'operation' | 'time' | 'duration' | 'sta
 
 function App() {
   const [locale, setLocale] = useState('en');
-  const [t, setT] = useState<Messages>(() => getMessages('en'));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [orgs, setOrgs] = useState<OrgItem[]>([]);
@@ -58,7 +57,6 @@ function App() {
           break;
         case 'init':
           setLocale(msg.locale);
-          setT(getMessages(msg.locale));
           break;
         case 'logs':
           setRows(msg.data || []);
@@ -191,52 +189,61 @@ function App() {
     return items.slice().sort(compare);
   }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead]);
 
+  const Body = () => {
+    const t = useI18n();
+    return (
+      <div style={{ padding: 8, position: 'relative', minHeight: 120 }}>
+        <Toolbar
+          loading={loading}
+          error={error}
+          onRefresh={onRefresh}
+          orgs={orgs}
+          selectedOrg={selectedOrg}
+          onSelectOrg={onSelectOrg}
+          query={query}
+          onQueryChange={setQuery}
+          users={users}
+          operations={operations}
+          statuses={statuses}
+          codeUnits={codeUnits}
+          filterUser={filterUser}
+          filterOperation={filterOperation}
+          filterStatus={filterStatus}
+          filterCodeUnit={filterCodeUnit}
+          onFilterUserChange={setFilterUser}
+          onFilterOperationChange={setFilterOperation}
+          onFilterStatusChange={setFilterStatus}
+          onFilterCodeUnitChange={setFilterCodeUnit}
+          onClearFilters={clearFilters}
+        />
+
+        <LogsTable
+          rows={filteredRows}
+          logHead={logHead}
+          onOpen={onOpen}
+          onReplay={onReplay}
+          loading={loading}
+          locale={locale}
+          hasMore={hasMore}
+          onLoadMore={onLoadMore}
+          sortBy={sortBy}
+          sortDir={sortDir}
+          onSort={onSort}
+        />
+
+        <LoadingOverlay show={loading} label={t.loading} />
+
+        {!loading && filteredRows.length === 0 && (
+          <div style={{ marginTop: 12, opacity: 0.8 }}>{t.noLogs}</div>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div style={{ padding: 8, position: 'relative', minHeight: 120 }}>
-      <Toolbar
-        loading={loading}
-        error={error}
-        onRefresh={onRefresh}
-        t={t}
-        orgs={orgs}
-        selectedOrg={selectedOrg}
-        onSelectOrg={onSelectOrg}
-        query={query}
-        onQueryChange={setQuery}
-        users={users}
-        operations={operations}
-        statuses={statuses}
-        codeUnits={codeUnits}
-        filterUser={filterUser}
-        filterOperation={filterOperation}
-        filterStatus={filterStatus}
-        filterCodeUnit={filterCodeUnit}
-        onFilterUserChange={setFilterUser}
-        onFilterOperationChange={setFilterOperation}
-        onFilterStatusChange={setFilterStatus}
-        onFilterCodeUnitChange={setFilterCodeUnit}
-        onClearFilters={clearFilters}
-      />
-
-      <LogsTable
-        rows={filteredRows}
-        logHead={logHead}
-        t={t}
-        onOpen={onOpen}
-        onReplay={onReplay}
-        loading={loading}
-        locale={locale}
-        hasMore={hasMore}
-        onLoadMore={onLoadMore}
-        sortBy={sortBy}
-        sortDir={sortDir}
-        onSort={onSort}
-      />
-
-      <LoadingOverlay show={loading} label={t.loading} />
-
-      {!loading && filteredRows.length === 0 && <div style={{ marginTop: 12, opacity: 0.8 }}>{t.noLogs}</div>}
-    </div>
+    <I18nProvider locale={locale}>
+      <Body />
+    </I18nProvider>
   );
 }
 
