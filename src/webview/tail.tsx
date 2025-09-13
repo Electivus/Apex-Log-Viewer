@@ -7,6 +7,7 @@ import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../sh
 import { TailToolbar } from './components/tail/TailToolbar';
 import { TailList } from './components/tail/TailList';
 import { LoadingOverlay } from './components/LoadingOverlay';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 declare global {
   var acquireVsCodeApi: <T = unknown>() => {
@@ -271,4 +272,8 @@ function App() {
 }
 
 const container = document.getElementById('root')!;
-createRoot(container).render(<App />);
+createRoot(container).render(
+  <ErrorBoundary showReload>
+    <App />
+  </ErrorBoundary>
+);

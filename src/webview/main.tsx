@@ -6,6 +6,7 @@ import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../sh
 import { Toolbar } from './components/Toolbar';
 import { LogsTable } from './components/LogsTable';
 import { LoadingOverlay } from './components/LoadingOverlay';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 declare global {
   // Provided by VS Code webview runtime
@@ -241,4 +242,8 @@ function App() {
 }
 
 const root = createRoot(document.getElementById('root')!);
-root.render(<App />);
+root.render(
+  <ErrorBoundary showReload>
+    <App />
+  </ErrorBoundary>
+);
