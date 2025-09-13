@@ -8,8 +8,6 @@ import { setApiVersion, getApiVersion } from './salesforce/http';
 import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger } from './utils/logger';
 import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';
-import { ApexLogDiagramPanelManager } from './provider/ApexLogDiagramPanel';
-import { ApexLogCallTreePanelManager } from './provider/ApexLogCallTreePanel';
 import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry } from './shared/telemetry';
 import { CacheManager } from './utils/cacheManager';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
@@ -168,28 +166,7 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Diagram panel command
-  const diagramPanel = new ApexLogDiagramPanelManager(context);
-  context.subscriptions.push(diagramPanel);
-  context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.showDiagram', async () => {
-      logInfo('Command sfLogs.showDiagram invoked.');
-      safeSendEvent('command.showDiagram');
-      await diagramPanel.showForActiveEditor();
-    })
-  );
-  // No auto-overlay; the diagram opens via the editor title button/command.
-
-  // Call Tree panel command
-  const callTreePanel = new ApexLogCallTreePanelManager(context);
-  context.subscriptions.push(callTreePanel);
-  context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.showCallTree', async () => {
-      logInfo('Command sfLogs.showCallTree invoked.');
-      safeSendEvent('command.showCallTree');
-      await callTreePanel.showForActiveEditor();
-    })
-  );
+  // Diagram and Call Tree features removed.
 
   // Convenience: command to show the output channel
   context.subscriptions.push(

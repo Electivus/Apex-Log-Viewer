@@ -445,7 +445,7 @@ async function run() {
     writeFileSync(join(dev, 'index.js'), "exports.activate=()=>{};exports.deactivate=()=>{};\n");
     extensionDevelopmentPath = dev;
     // Write runner that activates installed extension
-    const runner = `"use strict";const assert=require('assert/strict');const vscode=require('vscode');exports.run=async function(){const ext=vscode.extensions.getExtension('electivus.apex-log-viewer');assert.ok(ext,'extension not found');await ext.activate();const cmds=await vscode.commands.getCommands(true);for(const c of ['sfLogs.refresh','sfLogs.selectOrg','sfLogs.tail','sfLogs.showDiagram']){assert.ok(cmds.includes(c),'missing command: '+c);} };\n`;
+    const runner = `"use strict";const assert=require('assert/strict');const vscode=require('vscode');exports.run=async function(){const ext=vscode.extensions.getExtension('electivus.apex-log-viewer');assert.ok(ext,'extension not found');await ext.activate();const cmds=await vscode.commands.getCommands(true);for(const c of ['sfLogs.refresh','sfLogs.selectOrg','sfLogs.tail','sfLogs.showOutput']){assert.ok(cmds.includes(c),'missing command: '+c);} };\n`;
     const testsDir = mkdtempSync(join(tmpdir(), 'alv-smoke-tests-'));
     extensionTestsPath = join(testsDir, 'smoke-runner.js');
     writeFileSync(extensionTestsPath, runner, 'utf8');
