@@ -1,6 +1,5 @@
 import React from 'react';
 import type { OrgItem } from '../../../shared/types';
-import { commonButtonStyle, inputStyle } from '../styles';
 import { LabeledSelect } from '../LabeledSelect';
 import { OrgSelect } from '../OrgSelect';
 import { SpinnerIcon } from '../icons/ReplayIcon';
@@ -61,15 +60,15 @@ export function TailToolbar({
 }: TailToolbarProps) {
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-      <button onClick={running ? onStop : onStart} style={commonButtonStyle} disabled={disabled}>
+      <button onClick={running ? onStop : onStart} className="alv-button" disabled={disabled}>
         {running ? (t.tail?.stop ?? 'Stop') : (t.tail?.start ?? 'Start')}
       </button>
-      <button onClick={onClear} style={commonButtonStyle} disabled={disabled}>
+      <button onClick={onClear} className="alv-button" disabled={disabled}>
         {t.tail?.clear ?? 'Clear'}
       </button>
       <button
         onClick={onOpenSelected}
-        style={commonButtonStyle}
+        className="alv-button"
         disabled={disabled || !actionsEnabled}
         title={t.tail?.openSelectedLogTitle ?? 'Open selected log'}
       >
@@ -84,7 +83,7 @@ export function TailToolbar({
       </button>
       <button
         onClick={onReplaySelected}
-        style={commonButtonStyle}
+        className="alv-button"
         disabled={disabled || !actionsEnabled}
         title={t.tail?.replayDebuggerTitle ?? 'Apex Replay Debugger'}
       >
@@ -104,7 +103,8 @@ export function TailToolbar({
         onChange={e => onQueryChange(e.target.value)}
         placeholder={t.tail?.searchLivePlaceholder ?? 'Search live logs…'}
         disabled={disabled}
-        style={{ ...inputStyle, flex: '1 1 220px', minWidth: 160 }}
+        className="alv-input"
+        style={{ flex: '1 1 220px', minWidth: 160 }}
       />
       <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <input
