@@ -93,8 +93,10 @@ function App() {
       }
     };
     window.addEventListener('message', handler);
-    vscode.postMessage({ type: 'ready' });
-    vscode.postMessage({ type: 'getOrgs' });
+    const ready = { type: 'ready' } as const satisfies WebviewToExtensionMessage;
+    vscode.postMessage(ready);
+    const getOrgs = { type: 'getOrgs' } as const satisfies WebviewToExtensionMessage;
+    vscode.postMessage(getOrgs);
     return () => window.removeEventListener('message', handler);
   }, []);
 
@@ -158,10 +160,17 @@ function App() {
       setError(t.tail?.selectDebugLevel ?? 'Select a debug level');
       return;
     }
-    vscode.postMessage({ type: 'tailStart', debugLevel });
+    const msg = { type: 'tailStart', debugLevel } as const satisfies WebviewToExtensionMessage;
+    vscode.postMessage(msg);
   };
-  const stop = () => vscode.postMessage({ type: 'tailStop' });
-  const clear = () => vscode.postMessage({ type: 'tailClear' });
+  const stop = () => {
+    const msg = { type: 'tailStop' } as const satisfies WebviewToExtensionMessage;
+    vscode.postMessage(msg);
+  };
+  const clear = () => {
+    const msg = { type: 'tailClear' } as const satisfies WebviewToExtensionMessage;
+    vscode.postMessage(msg);
+  };
 
   // Infer selected logId by scanning up to nearest header line
   const selectedLogId: string | undefined = useMemo(() => {
@@ -201,12 +210,14 @@ function App() {
         disabled={loading}
         onOpenSelected={() => {
           if (selectedLogId) {
-            vscode.postMessage({ type: 'openLog', logId: selectedLogId });
+            const msg = { type: 'openLog', logId: selectedLogId } as const satisfies WebviewToExtensionMessage;
+            vscode.postMessage(msg);
           }
         }}
         onReplaySelected={() => {
           if (selectedLogId) {
-            vscode.postMessage({ type: 'replay', logId: selectedLogId });
+            const msg = { type: 'replay', logId: selectedLogId } as const satisfies WebviewToExtensionMessage;
+            vscode.postMessage(msg);
           }
         }}
         actionsEnabled={!!selectedLogId}
@@ -214,7 +225,8 @@ function App() {
         selectedOrg={selectedOrg}
         onSelectOrg={value => {
           setSelectedOrg(value);
-          vscode.postMessage({ type: 'selectOrg', target: value });
+          const msg = { type: 'selectOrg', target: value } as const satisfies WebviewToExtensionMessage;
+          vscode.postMessage(msg);
         }}
         query={query}
         onQueryChange={setQuery}
