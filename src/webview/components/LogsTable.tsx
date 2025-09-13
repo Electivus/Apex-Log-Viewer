@@ -167,7 +167,7 @@ export function LogsTable({
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+  }, [onLoadMore]);
 
   return (
     <div ref={outerRef} style={{ overflow: 'hidden' }}>

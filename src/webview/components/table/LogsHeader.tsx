@@ -118,3 +118,5 @@ export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
     );
   }
 );
+
+LogsHeader.displayName = 'LogsHeader';

@@ -96,7 +96,7 @@ function App() {
     vscode.postMessage({ type: 'ready' });
     vscode.postMessage({ type: 'getOrgs' });
     return () => window.removeEventListener('message', handler);
-  }, []);
+  }, [tailMaxLines]);
 
   const filteredIndexes = useMemo(() => {
     const q = query.trim().toLowerCase();

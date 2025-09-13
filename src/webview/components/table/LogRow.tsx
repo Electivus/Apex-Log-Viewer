@@ -34,6 +34,7 @@ export function LogRow({
   setRowHeight
 }: Props) {
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const codeUnit = logHead[r.Id]?.codeUnitStarted;
 
   useLayoutEffect(() => {
     const el = contentRef.current;
@@ -57,7 +58,7 @@ export function LogRow({
         console.warn('LogRow: failed to disconnect ResizeObserver', e);
       }
     };
-  }, [index, setRowHeight, logHead[r.Id]?.codeUnitStarted, r]);
+  }, [index, setRowHeight, codeUnit, r]);
 
   const baseCell: React.CSSProperties = {
     padding: 4,
