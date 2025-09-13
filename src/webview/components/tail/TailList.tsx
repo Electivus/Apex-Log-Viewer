@@ -1,7 +1,8 @@
-import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 import type { Messages } from '../../i18n';
 import { List, type ListImperativeAPI } from 'react-window';
 import { apexLineStyle, categoryStyle, contentHighlightRules, highlightContent, parseApexLine } from '../../utils/tail';
+import { useAdaptiveList } from '../../utils/useAdaptiveList';
 
 type TailListProps = {
   lines: string[];
@@ -26,59 +27,18 @@ export function TailList({
   t,
   onAtBottomChange
 }: TailListProps) {
-  const defaultRowHeight = 18; // close to single-line height at default font
-  const rowHeightsRef = useRef<Record<number, number>>({});
-  const [height, setHeight] = useState(420);
-  const outerRef = useRef<HTMLDivElement | null>(null);
-  // Removed outerRef for List v2; use listRef.current.element instead
-  const [overscanCount, setOverscanCount] = useState<number>(8);
-  const overscanBaseRef = useRef<number>(8);
-  const overscanLastTopRef = useRef<number>(0);
-  const overscanLastTsRef = useRef<number>(0);
-  const overscanDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const overscanLastSetRef = useRef<number>(8);
+  const {
+    outerRef,
+    height,
+    getItemSize,
+    setRowHeight,
+    overscanCount
+  } = useAdaptiveList({
+    listRef,
+    defaultRowHeight: 18,
+    itemCount: filteredIndexes.length
+  });
   const atBottomRef = useRef<boolean | null>(null);
-
-  const getItemSize = (index: number) => rowHeightsRef.current[index] ?? defaultRowHeight;
-  // Batch re-render to reflect updated row heights
-  const rafRef = useRef<number | null>(null);
-  const [, forceRender] = useState(0);
-  const scheduleRerender = () => {
-    if (rafRef.current !== null) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      forceRender(v => v + 1);
-    });
-  };
-  const setRowHeight = (index: number, size: number) => {
-    const next = Math.max(defaultRowHeight, Math.ceil(size));
-    if (rowHeightsRef.current[index] !== next) {
-      rowHeightsRef.current[index] = next;
-      scheduleRerender();
-    }
-  };
-
-  // Auto-size list to fit viewport similarly to LogsTable
-  useLayoutEffect(() => {
-    const recompute = () => {
-      const rect = outerRef.current?.getBoundingClientRect();
-      const top = rect?.top ?? 0;
-      const available = Math.max(160, Math.floor(window.innerHeight - top - 12));
-      setHeight(available);
-    };
-    recompute();
-    const ro = new ResizeObserver(recompute);
-    if (outerRef.current) ro.observe(outerRef.current);
-    window.addEventListener('resize', recompute);
-    return () => {
-      try {
-        ro.disconnect();
-      } catch (e) {
-        console.warn('TailList: failed to disconnect ResizeObserver', e);
-      }
-      window.removeEventListener('resize', recompute);
-    };
-  }, []);
 
   const itemKey = (index: number) => filteredIndexes[index] ?? index;
 
@@ -132,40 +92,6 @@ export function TailList({
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
   }, [onAtBottomChange, height, filteredIndexes.length]);
-
-  // Adaptive overscan based on scroll velocity
-  React.useEffect(() => {
-    const el = listRef.current?.element;
-    if (!el) return;
-    const onScroll = () => {
-      const now = performance.now();
-      const dt = now - (overscanLastTsRef.current || now);
-      const dy = Math.abs(el.scrollTop - (overscanLastTopRef.current || 0));
-      if (dt > 16) {
-        const v = dy / dt; // px per ms
-        let next = overscanBaseRef.current;
-        if (v > 2) next = 22;
-        else if (v > 1) next = 14;
-        else if (v > 0.4) next = 10;
-        else next = overscanBaseRef.current; // idle/slow
-        if (next !== overscanLastSetRef.current) {
-          overscanLastSetRef.current = next;
-          setOverscanCount(next);
-        }
-        if (overscanDecayRef.current) clearTimeout(overscanDecayRef.current);
-        overscanDecayRef.current = setTimeout(() => {
-          if (overscanLastSetRef.current !== overscanBaseRef.current) {
-            overscanLastSetRef.current = overscanBaseRef.current;
-            setOverscanCount(overscanBaseRef.current);
-          }
-        }, 200);
-      }
-      overscanLastTsRef.current = now;
-      overscanLastTopRef.current = el.scrollTop;
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, []);
 
   return (
     <div ref={outerRef} style={{ flex: '1 1 auto' }}>
