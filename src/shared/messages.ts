@@ -9,6 +9,14 @@ export type WebviewToExtensionMessage =
   | { type: 'openLog'; logId: string }
   | { type: 'replay'; logId: string }
   | { type: 'loadMore' }
+  // Webview telemetry bridge (UI-level events only)
+  | {
+      type: 'telemetry';
+      name: string; // must start with 'ui.'
+      properties?: Record<string, string>;
+      measurements?: Record<string, number>;
+      level?: 'event' | 'error';
+    }
   // Tail view messages
   | { type: 'tailStart'; debugLevel?: string }
   | { type: 'tailStop' }

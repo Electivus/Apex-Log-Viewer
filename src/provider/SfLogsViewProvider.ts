@@ -80,6 +80,19 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
 
     this.context.subscriptions.push(
       webviewView.webview.onDidReceiveMessage(message => {
+        if (message && typeof message === 'object' && (message as any).type === 'telemetry') {
+          const { name, properties, measurements, level } = message as any;
+          try {
+            if (typeof name === 'string' && name.startsWith('ui.')) {
+              if (level === 'error') {
+                safeSendEvent(String(name) + '.error', properties as any, measurements as any);
+              } else {
+                safeSendEvent(String(name), properties as any, measurements as any);
+              }
+            }
+          } catch {}
+          return;
+        }
         void this.messageHandler.handle(message);
       })
     );

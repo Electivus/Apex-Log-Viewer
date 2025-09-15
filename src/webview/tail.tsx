@@ -17,6 +17,7 @@ declare global {
 }
 
 const vscode = acquireVsCodeApi<WebviewToExtensionMessage>();
+const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 
 type TailMessage = ExtensionToWebviewMessage;
 
@@ -39,6 +40,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const t = getMessages(locale) as any;
   const listRef = useRef<ListImperativeAPI | null>(null);
+
+  const sent = useRef<{ ready?: boolean; firstData?: boolean }>({});
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -84,6 +87,12 @@ function App() {
           }
           return merged;
         });
+        if (!sent.current.firstData && (incoming && incoming.length > 0)) {
+          sent.current.firstData = true;
+          const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+          const durationMs = Math.max(0, Math.round(now - t0));
+          vscode.postMessage({ type: 'telemetry', name: 'ui.tail.firstData', measurements: { durationMs } });
+        }
       }
       if (msg.type === 'tailReset') {
         setLines([]);
@@ -95,6 +104,12 @@ function App() {
     window.addEventListener('message', handler);
     vscode.postMessage({ type: 'ready' });
     vscode.postMessage({ type: 'getOrgs' });
+    if (!sent.current.ready) {
+      sent.current.ready = true;
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      const durationMs = Math.max(0, Math.round(now - t0));
+      vscode.postMessage({ type: 'telemetry', name: 'ui.tail.ready', measurements: { durationMs } });
+    }
     return () => window.removeEventListener('message', handler);
   }, []);
 

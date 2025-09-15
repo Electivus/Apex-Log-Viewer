@@ -88,6 +88,19 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       if (t) {
         logInfo('Tail: received message from webview:', t);
       }
+      if (t === 'telemetry') {
+        const { name, properties, measurements, level } = message as any;
+        try {
+          if (typeof name === 'string' && name.startsWith('ui.')) {
+            if (level === 'error') {
+              safeSendEvent(String(name) + '.error', properties as any, measurements as any);
+            } else {
+              safeSendEvent(String(name), properties as any, measurements as any);
+            }
+          }
+        } catch {}
+        return;
+      }
       if (message?.type === 'ready') {
         // Show loading while bootstrapping orgs and debug levels
         this.post({ type: 'loading', value: true });

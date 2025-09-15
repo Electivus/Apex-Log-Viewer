@@ -17,6 +17,7 @@ declare global {
 }
 
 const vscode = acquireVsCodeApi<WebviewToExtensionMessage>();
+const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 
 type SortKey = 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit';
 
@@ -43,6 +44,8 @@ function App() {
   const [sortBy, setSortBy] = useState<SortKey>('time');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
+  const sent = React.useRef<{ ready?: boolean; firstData?: boolean }>({});
+
   useEffect(() => {
     const onMsg = (event: MessageEvent) => {
       const msg = event.data as ExtensionToWebviewMessage;
@@ -64,10 +67,27 @@ function App() {
           setRows(msg.data || []);
           setHasMore(!!msg.hasMore);
           setError(undefined);
+          if (!sent.current.firstData) {
+            sent.current.firstData = true;
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            const durationMs = Math.max(0, Math.round(now - t0));
+            vscode.postMessage({
+              type: 'telemetry',
+              name: 'ui.logs.firstData',
+              properties: undefined,
+              measurements: { durationMs }
+            });
+          }
           break;
         case 'appendLogs':
           setRows(prev => [...prev, ...(msg.data || [])]);
           setHasMore(!!msg.hasMore);
+          if (!sent.current.firstData && (msg.data && msg.data.length > 0)) {
+            sent.current.firstData = true;
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            const durationMs = Math.max(0, Math.round(now - t0));
+            vscode.postMessage({ type: 'telemetry', name: 'ui.logs.firstData', measurements: { durationMs } });
+          }
           break;
         case 'logHead':
           setLogHead(prev => ({
@@ -84,6 +104,12 @@ function App() {
     window.addEventListener('message', onMsg);
     vscode.postMessage({ type: 'ready' });
     vscode.postMessage({ type: 'getOrgs' });
+    if (!sent.current.ready) {
+      sent.current.ready = true;
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      const durationMs = Math.max(0, Math.round(now - t0));
+      vscode.postMessage({ type: 'telemetry', name: 'ui.logs.ready', measurements: { durationMs } });
+    }
     return () => window.removeEventListener('message', onMsg);
   }, []);
 

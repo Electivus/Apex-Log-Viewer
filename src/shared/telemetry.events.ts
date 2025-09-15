@@ -28,5 +28,10 @@ export interface TelemetryEventMap {
 
   'tail.start': { outcome?: Outcome; hasDebugLevel?: BoolStr } | undefined;
   'tail.stop': { reason?: 'user' | 'auto' | 'viewDispose' | 'orgChange' | 'error' } | undefined;
-}
 
+  // UI (webview) events
+  'ui.logs.ready': {} | undefined;
+  'ui.logs.firstData': { outcome?: Extract<Outcome, 'ok' | 'error'> } | undefined;
+  'ui.tail.ready': {} | undefined;
+  'ui.tail.firstData': { outcome?: Extract<Outcome, 'ok' | 'error'> } | undefined;
+}
