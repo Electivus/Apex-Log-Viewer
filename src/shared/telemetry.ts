@@ -4,31 +4,21 @@ import { logWarn } from '../utils/logger';
 
 let reporter: TelemetryReporter | undefined;
 
-function getConnectionString(context: vscode.ExtensionContext): string | undefined {
-  // Prefer environment variables configured during packaging.
-  const envConn = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING || process.env.VSCODE_TELEMETRY_CONNECTION_STRING;
-  if (envConn) return envConn;
-  // Fallback to packaged field set by CI (non-legacy): package.json.telemetryConnectionString
-  const anyPkg = context.extension.packageJSON as any;
-  const conn: string | undefined =
-    anyPkg && typeof anyPkg.telemetryConnectionString === 'string' ? anyPkg.telemetryConnectionString : undefined;
-  return conn;
-}
+// Hardcoded Application Insights key/connection string. This is not sensitive.
+// Using the legacy instrumentation key format keeps setup simple while
+// allowing the library to route to the correct backend.
+const TELEMETRY_CONNECTION_STRING = 'InstrumentationKey=4bb6665c-300d-4506-b2d6-5a47198cccde;IngestionEndpoint=https://eastus-8.in.applicationinsights.azure.com/;LiveEndpoint=https://eastus.livediagnostics.monitor.azure.com/;ApplicationId=5a330611-dd73-4e8f-80d7-66263ce00474';
 
 export function activateTelemetry(context: vscode.ExtensionContext) {
   try {
-    // Never send telemetry in Development or Test modes
-    if (
-      context.extensionMode === vscode.ExtensionMode.Development ||
-      context.extensionMode === vscode.ExtensionMode.Test
-    ) {
-      return;
-    }
-    const keyOrConn = getConnectionString(context);
-    if (!keyOrConn) {
-      return; // No telemetry key configured – gracefully no-op
-    }
-    reporter = new TelemetryReporter(keyOrConn);
+    // Initialize the reporter unconditionally and let VS Code telemetry level
+    // control collection ("off", "crash", "error", "all").
+    reporter = new TelemetryReporter(TELEMETRY_CONNECTION_STRING, [
+      // Be extra cautious: drop common error-related fields if ever present.
+      { lookup: /(errorName|errorMessage|errorStack)/gi },
+      // Drop potential PII-ish fields if accidentally included.
+      { lookup: /(username|orgId|instanceUrl|uri|url|file|path)/gi }
+    ]);
     context.subscriptions.push({
       dispose: () => reporter?.dispose()
     });

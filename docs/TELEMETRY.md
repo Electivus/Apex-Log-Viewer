@@ -14,10 +14,9 @@ What we do not collect
 - No source code, Apex log contents, access tokens, usernames, org IDs, or instance URLs.
 - No full error messages or stack traces that could contain PII.
 
-Respecting user settings and modes
+Respecting user settings
 
 - VS Code’s `telemetry.telemetryLevel` controls whether telemetry is sent (`off`, `crash`, `error`, `all`). When `off`, nothing is sent.
-- Telemetry is automatically disabled when the extension runs in Development or Test mode (Extension Development Host and tests).
 - The reporter respects the VS Code setting automatically; no additional configuration is required by users.
 
 Opt‑out
@@ -26,46 +25,13 @@ Opt‑out
 
 For maintainers
 
-- No secrets are committed. The telemetry connection string must be provided via environment variable during packaging/publish and injected temporarily into the VSIX metadata:
-  - Environment variable `APPLICATIONINSIGHTS_CONNECTION_STRING` (preferred) or `VSCODE_TELEMETRY_CONNECTION_STRING`.
-  - Our CI writes this value to `package.json.telemetryConnectionString` just before packaging, and removes it afterwards.
-- If no connection string is provided, telemetry is a no‑op.
+- The telemetry connection string is embedded in code as a constant and is not sensitive: `InstrumentationKey=4bb6665c-300d-4506-b2d6-5a47198cccde`.
+- No CI injection or packaging steps are required.
 - When adding events, avoid PII. Prefer counts, booleans, and coarse buckets. Never include usernames, org IDs, file paths, or log content.
 
 GitHub Actions integration
 
-- Adicione uma variável de repositório (Actions → Variables) chamada `APPLICATIONINSIGHTS_CONNECTION_STRING` contendo sua Application Insights connection string (não sensível segundo a documentação da Microsoft).
-- Exporte-a como variável de ambiente no workflow antes do empacotamento. Os scripts irão injetá-la em `package.json` durante o empacotamento e removê-la depois.
-
-Example job snippet:
-
-```yaml
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm ci
-      - name: Build (extension + webview)
-        run: npm run package
-      - name: Ensure telemetry variable present
-        env:
-          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
-        run: |
-          if [ -z "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}" ]; then
-            echo "Missing APPLICATIONINSIGHTS_CONNECTION_STRING variable. Refusing to package without telemetry." >&2
-            exit 1
-          fi
-
-      - name: Package VSIX
-        run: npm run vsce:package
-        env:
-          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
-      # Optionally upload the VSIX artifact here
-```
+- No special telemetry-related configuration is needed. Use the standard build/packaging steps.
 
 
 References
