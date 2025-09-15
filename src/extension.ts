@@ -8,7 +8,7 @@ import { setApiVersion, getApiVersion } from './salesforce/http';
 import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger } from './utils/logger';
 import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';
-import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry } from './shared/telemetry';
+import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry, trackStartup, flushTelemetry } from './shared/telemetry';
 import { CacheManager } from './utils/cacheManager';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { getErrorMessage } from './utils/error';
@@ -25,17 +25,13 @@ export async function activate(context: vscode.ExtensionContext) {
     CacheManager.init(context.globalState);
     await CacheManager.clearExpired();
   } catch {}
-  // Initialize telemetry (no-op if no key/conn configured)
+  // Initialize telemetry
   try {
     activateTelemetry(context);
   } catch {
     // ignore telemetry init errors
   }
-  safeSendEvent('extension.activate', {
-    vscodeVersion: vscode.version,
-    platform: process.platform,
-    hasWorkspace: String(!!vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0)
-  });
+  const hasWorkspace = !!vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
   // Avoid @salesforce/core attempting to spawn Pino transports that fail when bundled
   try {
     if (!process.env.SF_DISABLE_LOG_FILE) process.env.SF_DISABLE_LOG_FILE = 'true';
@@ -256,8 +252,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Return exports for tests and programmatic use
   try {
-    const activationMs = Date.now() - activationStart;
-    safeSendEvent('extension.activate.duration', undefined, { activationMs });
+    await trackStartup(context, activationStart, { hasWorkspace });
   } catch {}
   return {
     getApiVersion
@@ -268,6 +263,8 @@ export function deactivate() {
   disposeLogger();
   try {
     disposeTelemetry();
+    // Best-effort flush (async) so we don't drop final events
+    void flushTelemetry();
   } catch {
     // ignore
   }
