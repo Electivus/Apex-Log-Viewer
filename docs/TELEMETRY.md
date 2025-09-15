@@ -38,3 +38,57 @@ References
 
 - VS Code telemetry overview: https://code.visualstudio.com/docs/configure/telemetry
 - Telemetry guide for extensions: https://code.visualstudio.com/api/extension-guides/telemetry
+
+## Catálogo de eventos
+
+- extension.install
+  - props: version
+  - meas: —
+
+- extension.update
+  - props: from, to
+  - meas: —
+
+- extension.activate
+  - props: hasWorkspace = 'true'|'false'
+  - meas: activationMs
+
+- command.refresh
+  - props: outcome = 'ok'|'error' (opcional)
+  - meas: durationMs
+
+- command.selectOrg
+  - props: outcome = 'picked'|'cancel'|'error'; orgs = '0'|'1'|'2-5'|'6-10'|'10+' (opcional); hasDefault = 'true'|'false' (opcional); code (opcional)
+  - meas: —
+
+- command.tail
+  - props: outcome (opcional)
+  - meas: durationMs
+
+- logs.refresh | logs.loadMore
+  - props: outcome = 'ok'|'error'
+  - meas: durationMs; pageSize | count (quando aplicável)
+
+- orgs.list
+  - props: view = 'logs'|'tail'; outcome = 'ok'|'error'
+  - meas: durationMs; count
+
+- debugLevels.load
+  - props: outcome = 'ok'|'error'
+  - meas: durationMs; count
+
+- log.open
+  - props: view = 'logs'|'tail'; outcome (opcional)
+  - meas: durationMs
+
+- logs.replay
+  - props: view = 'logs'|'tail'; outcome = 'ok'|'error'
+  - meas: durationMs
+
+- tail.start
+  - props: hasDebugLevel = 'true'|'false'; outcome (marcado automaticamente em caso de erro)
+  - meas: durationMs
+
+- tail.stop
+  - props: reason = 'user'|'auto'|'viewDispose'|'orgChange'|'error'
+  - meas: —

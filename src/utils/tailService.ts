@@ -5,6 +5,7 @@ import { ensureUserTraceFlag } from '../salesforce/traceflags';
 import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage } from '../shared/messages';
 import { logInfo, logWarn, logError, showOutput } from './logger';
+import { safeSendEvent } from '../shared/telemetry';
 import { localize } from './localize';
 import { getErrorMessage } from './error';
 import {
@@ -133,7 +134,7 @@ export class TailService {
           if (this.tailRunning && !this.disposed) {
             logInfo('Tail: auto-stopping after 30 minutes.');
             this.post({ type: 'error', message: localize('tailHardStop', 'Tail stopped after 30 minutes.') });
-            this.stop();
+            this.stop('auto');
           }
         },
         30 * 60 * 1000
@@ -254,7 +255,7 @@ export class TailService {
     }
   }
 
-  stop(): void {
+  stop(reason?: 'user' | 'auto' | 'viewDispose' | 'orgChange' | 'error'): void {
     this.tailRunning = false;
     try {
       if (this.streamingClient) {
@@ -301,6 +302,9 @@ export class TailService {
     }
     this.seenLogIds.clear();
     this.logIdToPath.clear();
+    try {
+      safeSendEvent('tail.stop', { reason: (reason as any) || 'user' });
+    } catch {}
     this.post({ type: 'tailStatus', running: false });
     logInfo('Tail: stopped.');
   }

@@ -5,7 +5,7 @@ import { listDebugLevels, getActiveUserDebugLevel } from '../salesforce/tracefla
 import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn } from '../utils/logger';
-import { safeSendEvent } from '../shared/telemetry';
+import { safeSendEvent, withDurationT } from '../shared/telemetry';
 import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { TailService } from '../utils/tailService';
@@ -64,7 +64,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         this.disposed = true;
         this.view = undefined;
         // Stop timers and clear caches, but keep TailService reusable when the view reopens
-        this.tailService.stop();
+        this.tailService.stop('viewDispose');
         logInfo('Tail webview disposed; stopped tail.');
       })
     );
@@ -117,7 +117,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         this.setSelectedOrg(next);
         this.tailService.setOrg(next);
         if (prev !== next) {
-          this.tailService.stop();
+          this.tailService.stop('orgChange');
         }
         logInfo('Tail: selected org set to', next || '(none)');
         this.post({ type: 'loading', value: true });
@@ -145,14 +145,21 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         // Surface loading while ensuring TraceFlag and priming tail
         this.post({ type: 'loading', value: true });
         try {
-          await this.tailService.start(typeof message.debugLevel === 'string' ? message.debugLevel.trim() : undefined);
+          const has = typeof message.debugLevel === 'string' && message.debugLevel.trim().length > 0;
+          await withDurationT('tail.start', async () => {
+            await this.tailService.start(typeof message.debugLevel === 'string' ? message.debugLevel.trim() : undefined);
+            if (!this.tailService.isRunning()) {
+              // Force error path for telemetry when start did not succeed
+              throw new Error('TAIL_START_FAILED');
+            }
+          }, { hasDebugLevel: has ? 'true' : 'false' });
         } finally {
           this.post({ type: 'loading', value: false });
         }
         return;
       }
       if (message?.type === 'tailStop') {
-        this.tailService.stop();
+        this.tailService.stop('user');
         return;
       }
       if (message?.type === 'tailClear') {

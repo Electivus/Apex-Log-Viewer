@@ -8,7 +8,7 @@ import { setApiVersion, getApiVersion } from './salesforce/http';
 import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger } from './utils/logger';
 import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';
-import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry, trackStartup, flushTelemetry } from './shared/telemetry';
+import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry, trackStartup, flushTelemetry, withDurationT } from './shared/telemetry';
 import { CacheManager } from './utils/cacheManager';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { getErrorMessage } from './utils/error';
@@ -111,8 +111,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.refresh', () => {
-      safeSendEvent('command.refresh');
-      return provider.refresh();
+      return withDurationT('command.refresh', async () => {
+        await provider.refresh();
+      });
     })
   );
 
@@ -156,9 +157,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.tail', async () => {
-      logInfo('Command sfLogs.tail invoked. Opening Tail view and starting…');
-      safeSendEvent('command.tail');
-      await provider.tailLogs();
+      logInfo('Command sfLogs.tail invoked. Opening Tail view…');
+      await withDurationT('command.tail', async () => {
+        await provider.tailLogs();
+      });
     })
   );
 

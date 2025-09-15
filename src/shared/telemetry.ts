@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { TelemetryReporter } from '@vscode/extension-telemetry';
 import { logWarn } from '../utils/logger';
+import type { TelemetryEventMap } from './telemetry.events';
 
 let reporter: TelemetryReporter | undefined;
 const commonProps: Record<string, string> = {};
@@ -62,7 +63,6 @@ export function sendEvent(
   if (process.env.ALV_LOG_TELEMETRY) {
     try {
       // Avoid noisy JSON of big objects
-      // eslint-disable-next-line no-console
       console.info(`[telemetry] ${name} props=${JSON.stringify(props)} meas=${JSON.stringify(measurements || {})}`);
     } catch {}
   }
@@ -74,7 +74,6 @@ export function sendException(name: string, properties?: Record<string, string>)
   const props = { ...commonProps, ...(properties ?? {}) };
   if (process.env.ALV_LOG_TELEMETRY) {
     try {
-      // eslint-disable-next-line no-console
       console.info(`[telemetry] ${name} ERROR props=${JSON.stringify(props)}`);
     } catch {}
   }
@@ -160,4 +159,26 @@ export async function withDuration<T>(
     safeSendEvent(eventName, { ...(properties || {}), outcome: 'error' }, { durationMs: ms });
     throw e;
   }
+}
+
+// Typed wrappers for stronger compile-time checks in call sites.
+export function sendEventT<E extends keyof TelemetryEventMap>(
+  name: E,
+  properties?: TelemetryEventMap[E],
+  measurements?: Record<string, number>
+): void {
+  // Cast to generic send to keep implementation simple.
+  sendEvent(String(name), properties as any, measurements);
+}
+
+export function sendExceptionT<E extends keyof TelemetryEventMap>(name: E, properties?: TelemetryEventMap[E]): void {
+  sendException(String(name), properties as any);
+}
+
+export async function withDurationT<E extends keyof TelemetryEventMap, T>(
+  eventName: E,
+  fn: () => Promise<T>,
+  properties?: TelemetryEventMap[E]
+): Promise<T> {
+  return withDuration(String(eventName), fn, properties as any);
 }
