@@ -45,6 +45,7 @@ export function LabeledSelect({
     typeof document !== 'undefined' &&
     typeof DocumentFragment !== 'undefined' &&
     typeof HTMLElement !== 'undefined';
+  const selectId = React.useId();
   if (hideIfEmpty && options.length === 0) {
     return (
       <div className={cn('flex min-w-[160px] flex-col gap-1', className)}>
@@ -62,7 +63,6 @@ export function LabeledSelect({
   const fallbackValue = value || (hasPlaceholder ? '' : options[0]?.value ?? '');
 
   if (!canUseRadix) {
-    const selectId = React.useId();
     return (
       <div className={cn('flex min-w-[160px] flex-col gap-1', className)}>
         <Label
