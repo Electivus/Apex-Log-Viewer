@@ -192,7 +192,7 @@ function App() {
   }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead]);
 
   return (
-    <div style={{ padding: 8, position: 'relative', minHeight: 120 }}>
+    <div className="relative flex min-h-[120px] flex-col gap-4 p-4 text-sm">
       <Toolbar
         loading={loading}
         error={error}
@@ -218,24 +218,29 @@ function App() {
         onClearFilters={clearFilters}
       />
 
-      <LogsTable
-        rows={filteredRows}
-        logHead={logHead}
-        t={t}
-        onOpen={onOpen}
-        onReplay={onReplay}
-        loading={loading}
-        locale={locale}
-        hasMore={hasMore}
-        onLoadMore={onLoadMore}
-        sortBy={sortBy}
-        sortDir={sortDir}
-        onSort={onSort}
-      />
+      <div className="relative rounded-lg border border-border bg-card/60 p-2">
+        <LogsTable
+          rows={filteredRows}
+          logHead={logHead}
+          t={t}
+          onOpen={onOpen}
+          onReplay={onReplay}
+          loading={loading}
+          locale={locale}
+          hasMore={hasMore}
+          onLoadMore={onLoadMore}
+          sortBy={sortBy}
+          sortDir={sortDir}
+          onSort={onSort}
+        />
+        <LoadingOverlay show={loading} label={t.loading} />
+      </div>
 
-      <LoadingOverlay show={loading} label={t.loading} />
-
-      {!loading && filteredRows.length === 0 && <div style={{ marginTop: 12, opacity: 0.8 }}>{t.noLogs}</div>}
+      {!loading && filteredRows.length === 0 && (
+        <p className="mt-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+          {t.noLogs}
+        </p>
+      )}
     </div>
   );
 }

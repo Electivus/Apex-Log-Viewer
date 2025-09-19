@@ -13,5 +13,14 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true
   },
-  "exclude": ["node_modules", "media", "out", "dist", "src/webview", "src/test"]
+  "exclude": [
+    "node_modules",
+    "media",
+    "out",
+    "dist",
+    "src/webview",
+    "src/test",
+    "tailwind.config.ts",
+    "postcss.config.cjs"
+  ]
 }

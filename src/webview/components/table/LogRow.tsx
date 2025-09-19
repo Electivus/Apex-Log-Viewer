@@ -1,10 +1,10 @@
 import React, { useLayoutEffect, useRef } from 'react';
+import { ExternalLink, Loader2, RotateCcw } from 'lucide-react';
 import type { ApexLogRow } from '../../../shared/types';
 import type { LogHeadMap } from '../LogsTable';
 import { formatBytes, formatDuration } from '../../utils/format';
-import { OpenIcon } from '../icons/OpenIcon';
-import { ReplayIcon, SpinnerIcon } from '../icons/ReplayIcon';
-import { IconButton } from '../IconButton';
+import { Button } from '../ui/button';
+import { cn } from '../../lib/utils';
 
 type Props = {
   r: ApexLogRow;
@@ -43,7 +43,6 @@ export function LogRow({
 
     const measure = () => {
       const h = el.scrollHeight || el.getBoundingClientRect().height;
-      // add 1 for the row bottom border to avoid clipping
       setRowHeight(index, h + 1);
     };
 
@@ -59,17 +58,10 @@ export function LogRow({
     };
   }, [index, setRowHeight, logHead[r.Id]?.codeUnitStarted, r]);
 
-  const baseCell: React.CSSProperties = {
-    padding: 4,
-    minWidth: 0,
-    whiteSpace: 'normal',
-    overflowWrap: 'anywhere',
-    wordBreak: 'break-word'
-  };
+  const cellClass =
+    'min-w-0 px-3 py-2 text-sm leading-relaxed text-foreground/90 transition-colors break-words';
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    // Only handle keys when the event originates on the row itself.
-    // This avoids hijacking keyboard interactions of inner buttons.
     if (e.currentTarget !== e.target) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -81,58 +73,76 @@ export function LogRow({
     }
   };
 
+  const actionButton = (
+    icon: React.ReactNode,
+    label: string,
+    handler: (e: React.MouseEvent<HTMLButtonElement>) => void
+  ) => (
+    <Button
+      type="button"
+      size="icon"
+      variant="ghost"
+      className="h-8 w-8 text-primary hover:bg-primary/10"
+      disabled={loading}
+      aria-label={label}
+      title={label}
+      onClick={handler}
+    >
+      {icon}
+    </Button>
+  );
+
   return (
     <div
       role="row"
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      onFocus={e => (e.currentTarget.style.outline = '1px solid var(--vscode-focusBorder)')}
-      onBlur={e => (e.currentTarget.style.outline = 'none')}
-      style={{ ...style, outline: 'none' }}
+      style={style}
+      className="outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
       <div
         ref={contentRef}
-        style={{
-          display: 'grid',
-          gridTemplateColumns: gridTemplate,
-          alignItems: 'center',
-          borderBottom: '1px solid var(--vscode-editorWidget-border)'
-        }}
+        style={{ gridTemplateColumns: gridTemplate }}
+        className="grid items-stretch border-b border-border bg-background/40 text-sm transition-colors hover:bg-muted/40"
       >
-        <div style={baseCell}>{r.LogUser?.Name ?? ''}</div>
-        <div style={baseCell}>{r.Application}</div>
-        <div style={baseCell}>{r.Operation}</div>
-        <div style={baseCell}>{new Date(r.StartTime).toLocaleString(locale)}</div>
-        <div style={baseCell}>{formatDuration(r.DurationMilliseconds)}</div>
-        <div style={baseCell}>{r.Status}</div>
-        <div style={baseCell} title={logHead[r.Id]?.codeUnitStarted ?? ''}>
+        <div className={cellClass}>{r.LogUser?.Name ?? ''}</div>
+        <div className={cellClass}>{r.Application}</div>
+        <div className={cellClass}>{r.Operation}</div>
+        <div className={cellClass}>{new Date(r.StartTime).toLocaleString(locale)}</div>
+        <div className={cellClass}>{formatDuration(r.DurationMilliseconds)}</div>
+        <div className={cellClass}>{r.Status}</div>
+        <div className={cellClass} title={logHead[r.Id]?.codeUnitStarted ?? ''}>
           {logHead[r.Id]?.codeUnitStarted ?? ''}
         </div>
-        <div style={{ ...baseCell, textAlign: 'right' }}>{formatBytes(r.LogLength)}</div>
-        <div style={{ ...baseCell, textAlign: 'center' }}>
-          <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-            <IconButton
-              title={t.open ?? 'Open'}
-              ariaLabel={t.open ?? 'Open'}
-              disabled={loading}
-              onClick={e => {
+        <div className={cn(cellClass, 'text-right font-medium tabular-nums text-foreground')}>
+          {formatBytes(r.LogLength)}
+        </div>
+        <div className={cn(cellClass, 'flex items-center justify-center gap-2 text-center')}>
+          <div className="flex items-center gap-2">
+            {actionButton(
+              loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              ),
+              t.open ?? 'Open',
+              e => {
                 e.stopPropagation();
                 onOpen(r.Id);
-              }}
-            >
-              {loading ? <SpinnerIcon /> : <OpenIcon />}
-            </IconButton>
-            <IconButton
-              title={t.replay}
-              ariaLabel={t.replay}
-              disabled={loading}
-              onClick={e => {
+              }
+            )}
+            {actionButton(
+              loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              ),
+              t.replay,
+              e => {
                 e.stopPropagation();
                 onReplay(r.Id);
-              }}
-            >
-              {loading ? <SpinnerIcon /> : <ReplayIcon />}
-            </IconButton>
+              }
+            )}
           </div>
         </div>
       </div>

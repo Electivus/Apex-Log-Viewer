@@ -19,9 +19,9 @@ export function OrgSelect({
 }) {
   const options = orgs.map(o => ({
     value: o.username,
-    label: (o.alias ?? o.username) + (o.isDefaultUsername ? ' *' : '')
+    label: `${o.alias ?? o.username}${o.isDefaultUsername ? ' *' : ''}`
   }));
-  const value = selected ?? (options[0]?.value || '');
+  const value = selected ?? '';
   return (
     <LabeledSelect
       label={label}
@@ -31,6 +31,7 @@ export function OrgSelect({
       disabled={disabled}
       hideIfEmpty
       emptyText={emptyText || 'No orgs detected.'}
+      triggerClassName="min-w-[220px]"
     />
   );
 }

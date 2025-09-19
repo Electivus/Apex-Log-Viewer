@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Messages } from '../../i18n';
 import { List, type ListImperativeAPI } from 'react-window';
+import { cn } from '../../lib/utils';
 import { apexLineStyle, categoryStyle, contentHighlightRules, highlightContent, parseApexLine } from '../../utils/tail';
 
 type TailListProps = {
@@ -90,7 +91,12 @@ export function TailList({
     const fullIdx = filteredIndexes[index]!;
     const l = lines[fullIdx]!;
     return (
-      <div role="row" style={{ ...style, overflow: 'hidden' }} onClick={() => onSelectIndex(fullIdx)}>
+      <div
+        role="row"
+        style={style}
+        className="cursor-pointer overflow-hidden border-b border-border/60 transition-colors hover:bg-muted/25"
+        onClick={() => onSelectIndex(fullIdx)}
+      >
         <RowContent
           text={l}
           colorize={colorize}
@@ -168,20 +174,13 @@ export function TailList({
   }, []);
 
   return (
-    <div ref={outerRef} style={{ flex: '1 1 auto' }}>
+    <div ref={outerRef} className="flex-1">
       <div
-        style={{
-          border: '1px solid var(--vscode-editorWidget-border)',
-          borderRadius: 4,
-          fontFamily: 'var(--vscode-editor-font-family, monospace)',
-          fontSize: 'var(--vscode-editor-font-size, 12px)',
-          lineHeight: 1.4,
-          overflow: 'hidden',
-          height: height
-        }}
+        className="relative w-full overflow-hidden rounded-lg border border-border bg-background/40 font-mono text-xs text-foreground shadow-inner"
+        style={{ height }}
       >
         {showEmpty ? (
-          <div style={{ opacity: 0.7, padding: 8 }}>
+          <div className="px-4 py-6 text-sm text-muted-foreground">
             {running ? (t.tail?.waiting ?? 'Waiting for logs…') : (t.tail?.pressStart ?? 'Press Start to tail logs.')}
           </div>
         ) : (
@@ -242,13 +241,12 @@ function RowContent({
     background: selected ? 'var(--vscode-editor-selectionBackground)' : 'transparent',
     outline: selected ? '1px solid var(--vscode-contrastActiveBorder, transparent)' : 'none',
     borderLeft: selected ? '3px solid var(--vscode-focusBorder)' : '3px solid transparent',
-    paddingLeft: 4,
     cursor: 'pointer'
   };
 
   if (!colorize) {
     return (
-      <div ref={ref} style={commonStyle}>
+      <div ref={ref} style={commonStyle} className="px-3 py-1.5 text-xs leading-relaxed">
         {text}
       </div>
     );
@@ -269,6 +267,7 @@ function RowContent({
           ...lineFallback,
           background: selected ? 'var(--vscode-editor-selectionBackground)' : lineFallback.background || 'transparent'
         }}
+        className="px-3 py-1.5 text-xs leading-relaxed"
       >
         {segs.map((s, j) => (
           <span key={j} style={s.style}>
@@ -280,7 +279,7 @@ function RowContent({
   }
 
   return (
-    <div ref={ref} style={commonStyle}>
+    <div ref={ref} style={commonStyle} className="px-3 py-1.5 text-xs leading-relaxed">
       {parsed.time && (
         <>
           <span style={timeStyle}>{parsed.time}</span>
