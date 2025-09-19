@@ -13,6 +13,10 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true
   },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
   "exclude": [
     "node_modules",
     "media",
@@ -21,6 +25,8 @@
     "src/webview",
     "src/test",
     "tailwind.config.ts",
-    "postcss.config.cjs"
+    "postcss.config.cjs",
+    "Visual Prototype for Apex Log",
+    "Visual Prototype for Apex Log/**/*"
   ]
 }

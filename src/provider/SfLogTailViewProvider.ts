@@ -12,6 +12,7 @@ import { TailService } from '../utils/tailService';
 import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
 import { getNumberConfig, affectsConfiguration } from '../utils/config';
 import { getErrorMessage } from '../utils/error';
+import { LogViewerPanel } from '../panel/LogViewerPanel';
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogTail';
@@ -252,9 +253,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'loading', value: true });
     try {
       const filePath = await this.tailService.ensureLogSaved(logId);
-      const uri = vscode.Uri.file(filePath);
-      const doc = await vscode.workspace.openTextDocument(uri);
-      await vscode.window.showTextDocument(doc, { preview: true });
+      await LogViewerPanel.show({ logId, filePath });
       logInfo('Tail: opened log', logId);
       try {
         const durationMs = Date.now() - t0;
