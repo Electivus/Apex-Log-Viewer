@@ -369,6 +369,7 @@
   "files": [
     "dist/**",
     "media/main.js",
+    "media/webview.css",
     "media/tail.js",
     "media/icon.png",
     "README.md",
