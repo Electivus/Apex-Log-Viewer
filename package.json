@@ -333,7 +333,7 @@
     "@vscode/vsce": "^3.0.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.8",
-    "eslint": "^9.35.0",
+    "eslint": "^9.36.0",
     "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
     "jsdom": "^26.1.0",
