@@ -39,6 +39,7 @@ export function LabeledSelect({
   className,
   triggerClassName
 }: LabeledSelectProps) {
+  const PLACEHOLDER_VALUE = '__radix_empty__';
   if (hideIfEmpty && options.length === 0) {
     return (
       <div className={cn('flex min-w-[160px] flex-col gap-1', className)}>
@@ -52,20 +53,37 @@ export function LabeledSelect({
     );
   }
 
-  const normalizedValue = value ?? '';
+  const hasPlaceholder = typeof placeholderLabel === 'string';
+  const normalizedValue = (() => {
+    if (value) {
+      return value;
+    }
+    if (hasPlaceholder) {
+      return PLACEHOLDER_VALUE;
+    }
+    return options[0]?.value ?? undefined;
+  })();
+
+  const handleValueChange = (nextValue: string) => {
+    if (nextValue === PLACEHOLDER_VALUE) {
+      onChange('');
+      return;
+    }
+    onChange(nextValue);
+  };
 
   return (
     <div className={cn('flex min-w-[160px] flex-col gap-1', className)}>
       <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </Label>
-      <Select value={normalizedValue} onValueChange={onChange} disabled={disabled}>
+      <Select value={normalizedValue} onValueChange={handleValueChange} disabled={disabled}>
         <SelectTrigger className={cn('min-w-[160px]', triggerClassName)}>
           <SelectValue placeholder={placeholderLabel} />
         </SelectTrigger>
         <SelectContent>
-          {typeof placeholderLabel === 'string' && (
-            <SelectItem value="">{placeholderLabel}</SelectItem>
+          {hasPlaceholder && (
+            <SelectItem value={PLACEHOLDER_VALUE}>{placeholderLabel}</SelectItem>
           )}
           {options.map(option => (
             <SelectItem key={option.value} value={option.value}>

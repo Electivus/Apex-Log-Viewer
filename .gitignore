@@ -1,6 +1,7 @@
 node_modules
 out
 media/*.js
+media/webview.css
 *.vsix
 *.zip
 
