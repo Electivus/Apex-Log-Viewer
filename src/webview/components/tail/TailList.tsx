@@ -220,10 +220,14 @@ function RowContent({
   onMeasured: (h: number) => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
+
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const measure = () => onMeasured((el.scrollHeight || el.getBoundingClientRect().height) + 1);
+    const measure = () => {
+      // add 1 for the row bottom border to avoid clipping
+      onMeasured((el.scrollHeight || el.getBoundingClientRect().height) + 1);
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -261,6 +265,18 @@ function RowContent({
   const cat = parsed.category;
   const catSty = categoryStyle(cat, text);
   const lineFallback = apexLineStyle(text, colorize);
+  const {
+    background: fallbackBackground,
+    backgroundColor: fallbackBackgroundColor,
+    ...lineFallbackRest
+  } = lineFallback;
+
+  const resolvedBackground =
+    typeof fallbackBackgroundColor === 'string'
+      ? fallbackBackgroundColor
+      : typeof fallbackBackground === 'string'
+        ? fallbackBackground
+        : undefined;
 
   if (!parsed.time && !cat) {
     const segs = highlightContent(text, contentHighlightRules);
@@ -269,13 +285,9 @@ function RowContent({
         ref={ref}
         className={baseClass}
         style={{
+          ...lineFallbackRest,
           ...styleOverrides,
-          color: lineFallback.color,
-          fontStyle: lineFallback.fontStyle,
-          fontWeight: lineFallback.fontWeight,
-          backgroundColor: selected
-            ? 'var(--vscode-editor-selectionBackground)'
-            : lineFallback.background || 'transparent'
+          backgroundColor: styleOverrides.backgroundColor ?? resolvedBackground ?? 'transparent'
         }}
       >
         {segs.map((s, j) => (
@@ -288,7 +300,15 @@ function RowContent({
   }
 
   return (
-    <div ref={ref} className={baseClass} style={styleOverrides}>
+    <div
+      ref={ref}
+      className={baseClass}
+      style={{
+        ...lineFallbackRest,
+        ...styleOverrides,
+        backgroundColor: styleOverrides.backgroundColor ?? resolvedBackground ?? 'transparent'
+      }}
+    >
       {parsed.time && (
         <>
           <span className={timeClass}>{parsed.time}</span>
@@ -326,3 +346,4 @@ function RowContent({
     </div>
   );
 }
+
