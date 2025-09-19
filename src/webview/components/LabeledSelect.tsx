@@ -40,6 +40,11 @@ export function LabeledSelect({
   triggerClassName
 }: LabeledSelectProps) {
   const PLACEHOLDER_VALUE = '__radix_empty__';
+  const canUseRadix =
+    typeof window !== 'undefined' &&
+    typeof document !== 'undefined' &&
+    typeof DocumentFragment !== 'undefined' &&
+    typeof HTMLElement !== 'undefined';
   if (hideIfEmpty && options.length === 0) {
     return (
       <div className={cn('flex min-w-[160px] flex-col gap-1', className)}>
@@ -54,6 +59,38 @@ export function LabeledSelect({
   }
 
   const hasPlaceholder = typeof placeholderLabel === 'string';
+  const fallbackValue = value || (hasPlaceholder ? '' : options[0]?.value ?? '');
+
+  if (!canUseRadix) {
+    const selectId = React.useId();
+    return (
+      <div className={cn('flex min-w-[160px] flex-col gap-1', className)}>
+        <Label
+          htmlFor={selectId}
+          className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+        >
+          {label}
+        </Label>
+        <select
+          id={selectId}
+          value={fallbackValue}
+          onChange={e => onChange(e.target.value)}
+          disabled={disabled}
+          className={cn(
+            'min-w-[160px] rounded-md border border-input bg-input px-3 py-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            triggerClassName
+          )}
+        >
+          {hasPlaceholder && <option value="">{placeholderLabel}</option>}
+          {options.map(option => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
   const normalizedValue = (() => {
     if (value) {
       return value;
