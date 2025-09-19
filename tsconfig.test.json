@@ -15,5 +15,13 @@
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules", "dist", "media", "out", "src/extension.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "media",
+    "out",
+    "src/extension.ts",
+    "Visual Prototype for Apex Log",
+    "Visual Prototype for Apex Log/**/*"
+  ]
 }
