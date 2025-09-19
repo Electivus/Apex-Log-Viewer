@@ -14,8 +14,9 @@ import type { ApexLogRow } from '../shared/types';
 import { getLogFilePathWithUsername, findExistingLogFile } from '../utils/workspace';
 import { ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { getErrorMessage } from '../utils/error';
-import { logWarn } from '../utils/logger';
+import { logWarn, logInfo } from '../utils/logger';
 import { localize } from '../utils/localize';
+import { LogViewerPanel } from '../panel/LogViewerPanel';
 
 export class LogService {
   private headLimiter: Limiter;
@@ -105,12 +106,10 @@ export class LogService {
           if (ct.isCancellationRequested) {
             return;
           }
-          const uri = vscode.Uri.file(targetPath);
-          const doc = await vscode.workspace.openTextDocument(uri);
-          if (ct.isCancellationRequested) {
-            return;
+          await LogViewerPanel.show({ logId, filePath: targetPath, signal: controller.signal });
+          if (!controller.signal.aborted) {
+            logInfo('LogService: opened log in viewer', logId);
           }
-          await vscode.window.showTextDocument(doc, { preview: true });
         } catch (e) {
           if (!controller.signal.aborted) {
             const msg = getErrorMessage(e);

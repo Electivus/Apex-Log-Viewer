@@ -313,8 +313,8 @@
     "prepare": "husky",
     "tailwind:build": "tailwindcss -c tailwind.config.ts -i ./src/webview/styles/tailwind.css -o ./media/webview.css --minify",
     "tailwind:watch": "tailwindcss -c tailwind.config.ts -i ./src/webview/styles/tailwind.css -o ./media/webview.css --watch",
-    "build:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx --bundle --outdir=media --platform=browser --format=iife --minify",
-    "watch:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx --bundle --outdir=media --platform=browser --format=iife --sourcemap --watch"
+    "build:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/logViewer.tsx --bundle --outdir=media --platform=browser --format=iife --minify",
+    "watch:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/logViewer.tsx --bundle --outdir=media --platform=browser --format=iife --sourcemap --watch"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.5.0",

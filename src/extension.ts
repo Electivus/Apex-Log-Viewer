@@ -10,6 +10,7 @@ import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';
 import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry } from './shared/telemetry';
 import { CacheManager } from './utils/cacheManager';
+import { LogViewerPanel } from './panel/LogViewerPanel';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { getErrorMessage } from './utils/error';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
@@ -20,6 +21,7 @@ interface OrgQuickPick extends vscode.QuickPickItem {
 
 export async function activate(context: vscode.ExtensionContext) {
   const activationStart = Date.now();
+  LogViewerPanel.initialize(context);
   // Init TTL cache (best-effort; no-op if unavailable)
   try {
     CacheManager.init(context.globalState);

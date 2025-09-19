@@ -1,5 +1,6 @@
 import assert from 'assert/strict';
 import proxyquire from 'proxyquire';
+import * as vscode from 'vscode';
 import type { OrgAuth } from '../salesforce/types';
 import type { ApexLogRow } from '../shared/types';
 
@@ -50,5 +51,44 @@ suite('LogService', () => {
     });
     await new Promise(r => setTimeout(r, 10));
     assert.deepEqual(seen, [{ id: '1', code: 'Unit' }]);
+  });
+
+  test('openLog delegates to LogViewerPanel', async () => {
+    const calls: any[] = [];
+    const origWithProgress = vscode.window.withProgress;
+    (vscode.window as any).withProgress = async (_opts: any, task: any) => {
+      return task({} as any, {
+        onCancellationRequested: () => {},
+        isCancellationRequested: false
+      });
+    };
+    try {
+      const { LogService } = proxyquire('../services/logService', {
+        '../salesforce/http': {
+          fetchApexLogs: async () => [],
+          fetchApexLogHead: async () => [],
+          extractCodeUnitStartedFromLines: () => undefined,
+          fetchApexLogBody: async () => ''
+        },
+        '../utils/workspace': {
+          getLogFilePathWithUsername: async () => ({ dir: '', filePath: '/tmp/test.log' }),
+          findExistingLogFile: async () => '/tmp/test.log'
+        },
+        '../panel/LogViewerPanel': {
+          LogViewerPanel: class {
+            static async show(opts: any) {
+              calls.push(opts);
+            }
+          }
+        }
+      });
+      const svc = new LogService();
+      await svc.openLog('abc');
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0]?.logId, 'abc');
+      assert.equal(calls[0]?.filePath, '/tmp/test.log');
+    } finally {
+      (vscode.window as any).withProgress = origWithProgress;
+    }
   });
 });
