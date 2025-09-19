@@ -14,10 +14,8 @@ suite('OrgSelect', () => {
     render(
       <OrgSelect label="Org" orgs={orgs} selected={undefined} onChange={v => changes.push(v)} disabled={false} />
     );
-    // Select should exist and contain options
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    assert.equal(select.value, 'u1'); // defaults to first when selected is undefined
-    // fire change
+    const select = screen.getByRole('combobox', { name: /Org/i }) as HTMLSelectElement;
+    assert.equal(select.value, 'u1');
     fireEvent.change(select, { target: { value: 'u2' } });
     assert.deepEqual(changes, ['u2']);
   });

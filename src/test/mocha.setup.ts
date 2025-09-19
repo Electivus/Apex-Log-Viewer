@@ -4,9 +4,28 @@ import { JSDOM } from 'jsdom';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' });
 (globalThis as any).window = dom.window;
 (globalThis as any).document = dom.window.document;
+(globalThis as any).Document = dom.window.Document;
+(globalThis as any).DocumentFragment = dom.window.DocumentFragment;
 Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
 (globalThis as any).HTMLElement = dom.window.HTMLElement;
+(globalThis as any).Node = dom.window.Node;
+(globalThis as any).Text = dom.window.Text;
+if (!(globalThis as any).PointerEvent) {
+  class PointerEvent extends dom.window.MouseEvent {
+    constructor(type: string, props?: any) {
+      super(type, props);
+      Object.assign(this, props);
+    }
+  }
+  (globalThis as any).PointerEvent = PointerEvent;
+}
 (globalThis as any).getComputedStyle = dom.window.getComputedStyle;
+if ((globalThis as any).Element && !(globalThis as any).Element.prototype.hasPointerCapture) {
+  (globalThis as any).Element.prototype.hasPointerCapture = () => false;
+  (globalThis as any).Element.prototype.setPointerCapture = () => {};
+  (globalThis as any).Element.prototype.releasePointerCapture = () => {};
+}
+
 (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => cb(Date.now()), 0);
 (globalThis as any).cancelAnimationFrame = (id: number) => clearTimeout(id);
 class ResizeObserverMock {
