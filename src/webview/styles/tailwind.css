@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light dark;
+    --background: var(--vscode-sideBar-background, var(--vscode-editor-background, #111827));
+    --foreground: var(--vscode-foreground, #f3f4f6);
+    --card: var(--vscode-editorWidget-background, var(--background));
+    --card-foreground: var(--vscode-editorWidget-foreground, var(--foreground));
+    --popover: var(--vscode-editorHoverWidget-background, var(--card));
+    --popover-foreground: var(--vscode-editorHoverWidget-foreground, var(--foreground));
+    --primary: var(--vscode-button-background, #2563eb);
+    --primary-foreground: var(--vscode-button-foreground, #ffffff);
+    --secondary: var(--vscode-button-secondaryBackground, rgba(148, 163, 184, 0.25));
+    --secondary-foreground: var(--vscode-button-secondaryForeground, var(--foreground));
+    --muted: var(--vscode-editorHoverWidget-background, rgba(148, 163, 184, 0.12));
+    --muted-foreground: var(--vscode-descriptionForeground, rgba(226, 232, 240, 0.72));
+    --accent: var(--vscode-button-hoverBackground, rgba(37, 99, 235, 0.85));
+    --accent-foreground: var(--vscode-button-foreground, #ffffff);
+    --destructive: var(--vscode-errorForeground, #ef4444);
+    --destructive-foreground: var(--background);
+    --border: var(--vscode-panel-border, var(--vscode-editorWidget-border, rgba(148, 163, 184, 0.35)));
+    --input: var(--vscode-input-background, rgba(15, 23, 42, 0.35));
+    --ring: var(--vscode-focusBorder, rgba(37, 99, 235, 0.65));
+    --radius: 0.45rem;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--vscode-font-family, 'Inter', sans-serif);
+    font-size: var(--vscode-font-size, 13px);
+    margin: 0;
+  }
+
+  #root {
+    min-height: 100%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  *,
+  *::before,
+  *::after {
+    @apply box-border;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  ::selection {
+    background-color: var(--vscode-editor-selectionBackground, rgba(37, 99, 235, 0.35));
+    color: inherit;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-lg border bg-card text-card-foreground shadow-sm;
+  }
+
+  .surface {
+    @apply rounded-md border border-border bg-card/70 backdrop-blur;
+  }
+}

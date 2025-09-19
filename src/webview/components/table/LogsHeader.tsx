@@ -1,4 +1,6 @@
 import React from 'react';
+import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
 type SortKey = 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit';
 
@@ -12,109 +14,64 @@ type Props = {
 
 export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
   ({ t, sortBy, sortDir, onSort, gridTemplate }, ref) => {
-    const sortableStyle: React.CSSProperties = { cursor: 'pointer' };
-    const sortArrow = (key: string) => {
-      if (sortBy !== (key as any)) {
-        return null;
+    const renderSortIcon = (key: SortKey) => {
+      if (sortBy !== key) {
+        return <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" aria-hidden="true" />;
       }
-      return (
-        <span aria-hidden style={{ marginLeft: 4 }}>
-          {sortDir === 'asc' ? '▲' : '▼'}
-        </span>
+      return sortDir === 'asc' ? (
+        <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
+      ) : (
+        <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
       );
     };
+
+    const ariaSort = (key: SortKey): 'none' | 'ascending' | 'descending' => {
+      if (sortBy !== key) return 'none';
+      return sortDir === 'asc' ? 'ascending' : 'descending';
+    };
+
+    const headerClass =
+      'flex items-center gap-1 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground';
+
+    const renderHeader = (key: SortKey, label: string, align?: 'start' | 'end') => (
+      <div
+        role="columnheader"
+        aria-sort={ariaSort(key)}
+        className={cn(headerClass, align === 'end' ? 'justify-end text-right' : 'justify-start text-left')}
+      >
+        <button
+          type="button"
+          onClick={() => onSort(key)}
+          className={cn(
+            'flex w-full items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+            align === 'end' ? 'justify-end text-right' : 'justify-start text-left'
+          )}
+        >
+          <span className="truncate">{label}</span>
+          {renderSortIcon(key)}
+        </button>
+      </div>
+    );
 
     return (
       <div
         ref={ref}
         role="row"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: gridTemplate,
-          alignItems: 'center',
-          borderBottom: '1px solid var(--vscode-editorWidget-border)',
-          padding: '4px 0',
-          fontWeight: 600,
-          position: 'sticky',
-          top: 0,
-          zIndex: 1,
-          background: 'var(--vscode-editorWidget-background, var(--vscode-editor-background, transparent))'
-        }}
+        style={{ gridTemplateColumns: gridTemplate }}
+        className="sticky top-0 z-10 grid items-stretch border-b border-border bg-card/80 backdrop-blur"
       >
-        <div
-          role="columnheader"
-          style={sortableStyle}
-          aria-sort={sortBy === 'user' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-          onClick={() => onSort('user')}
-        >
-          {t.columns.user}
-          {sortArrow('user')}
-        </div>
-        <div
-          role="columnheader"
-          style={sortableStyle}
-          aria-sort={sortBy === 'application' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-          onClick={() => onSort('application')}
-        >
-          {t.columns.application}
-          {sortArrow('application')}
-        </div>
-        <div
-          role="columnheader"
-          style={sortableStyle}
-          aria-sort={sortBy === 'operation' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-          onClick={() => onSort('operation')}
-        >
-          {t.columns.operation}
-          {sortArrow('operation')}
-        </div>
-        <div
-          role="columnheader"
-          style={sortableStyle}
-          aria-sort={sortBy === 'time' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-          onClick={() => onSort('time')}
-        >
-          {t.columns.time}
-          {sortArrow('time')}
-        </div>
-        <div
-          role="columnheader"
-          style={sortableStyle}
-          aria-sort={sortBy === 'duration' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-          onClick={() => onSort('duration')}
-        >
-          {t.columns.duration}
-          {sortArrow('duration')}
-        </div>
-        <div
-          role="columnheader"
-          style={sortableStyle}
-          aria-sort={sortBy === 'status' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-          onClick={() => onSort('status')}
-        >
-          {t.columns.status}
-          {sortArrow('status')}
-        </div>
-        <div
-          role="columnheader"
-          style={sortableStyle}
-          aria-sort={sortBy === 'codeUnit' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-          onClick={() => onSort('codeUnit')}
-        >
-          {t.columns.codeUnitStarted}
-          {sortArrow('codeUnit')}
-        </div>
-        <div
-          role="columnheader"
-          style={{ textAlign: 'right', cursor: 'pointer' }}
-          aria-sort={sortBy === 'size' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-          onClick={() => onSort('size')}
-        >
-          {t.columns.size}
-          {sortArrow('size')}
-        </div>
-        <div aria-hidden />
+        {renderHeader('user', t.columns.user)}
+        {renderHeader('application', t.columns.application)}
+        {renderHeader('operation', t.columns.operation)}
+        {renderHeader('time', t.columns.time)}
+        {renderHeader('duration', t.columns.duration)}
+        {renderHeader('status', t.columns.status)}
+        {renderHeader('codeUnit', t.columns.codeUnitStarted)}
+        {renderHeader('size', t.columns.size, 'end')}
+        <div aria-hidden="true" />
       </div>
     );
   }
 );
+
+LogsHeader.displayName = 'LogsHeader';

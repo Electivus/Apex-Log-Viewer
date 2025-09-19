@@ -19,6 +19,7 @@ export function FilterSelect({ label, value, onChange, options, allLabel = 'All'
       options={options.map(o => ({ value: o, label: o }))}
       placeholderLabel={allLabel}
       disabled={disabled}
+      triggerClassName="min-w-[160px]"
     />
   );
 }

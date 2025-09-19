@@ -1,6 +1,7 @@
 node_modules
 out
 media/*.js
+media/webview.css
 *.vsix
 *.zip
 
@@ -16,3 +17,4 @@ media/*.js.map
 src/**/*.js
 src/**/*.js.map
 apexlogs/
+memory.json
