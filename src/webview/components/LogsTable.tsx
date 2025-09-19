@@ -1,10 +1,32 @@
-import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import { List, type ListImperativeAPI } from 'react-window';
 import type { ApexLogRow } from '../../shared/types';
 import { LogsHeader } from './table/LogsHeader';
 import { LogRow } from './table/LogRow';
 
 export type LogHeadMap = Record<string, { codeUnitStarted?: string }>;
+
+type ListRowProps = {
+  rows: ApexLogRow[];
+  logHead: LogHeadMap;
+  locale: string;
+  t: any;
+  loading: boolean;
+  onOpen: (logId: string) => void;
+  onReplay: (logId: string) => void;
+  gridTemplate: string;
+  setRowHeight: (index: number, size: number) => void;
+};
+
+type VirtualRowArgs = ListRowProps & {
+  index: number;
+  style: React.CSSProperties;
+  ariaAttributes: {
+    'aria-posinset': number;
+    'aria-setsize': number;
+    role: 'listitem';
+  };
+};
 
 export function LogsTable({
   rows,
@@ -74,23 +96,60 @@ export function LogsTable({
   // Batch resetAfterIndex calls to once-per-frame
   const rafRef = useRef<number | null>(null);
   const [, forceRender] = useState(0);
-  const scheduleRerender = () => {
+  const scheduleRerender = useCallback(() => {
     if (rafRef.current !== null) return;
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null;
       forceRender(v => v + 1);
     });
-  };
-  const setRowHeight = (index: number, size: number) => {
+  }, []);
+  const setRowHeight = useCallback((index: number, size: number) => {
     const current = rowHeightsRef.current[index] ?? defaultRowHeight;
     const next = Math.max(defaultRowHeight, Math.ceil(size));
     if (current !== next) {
       rowHeightsRef.current[index] = next;
       scheduleRerender();
     }
-  };
+  }, [defaultRowHeight, scheduleRerender]);
 
   const getItemSize = (index: number) => rowHeightsRef.current[index] ?? defaultRowHeight;
+
+  const listRowProps = useMemo<ListRowProps>(
+    () => ({ rows, logHead, locale, t, loading, onOpen, onReplay, gridTemplate, setRowHeight }),
+    [rows, logHead, locale, t, loading, onOpen, onReplay, gridTemplate, setRowHeight]
+  );
+
+  const renderRow = useCallback(({
+    index,
+    style,
+    rows: rowList,
+    logHead: logHeadMap,
+    locale: rowLocale,
+    t: messages,
+    loading: isLoading,
+    onOpen: handleOpen,
+    onReplay: handleReplay,
+    gridTemplate: template,
+    setRowHeight: measureRowHeight
+  }: VirtualRowArgs) => {
+      const row = rowList[index];
+      if (!row) return null;
+      return (
+        <LogRow
+          r={row}
+          logHead={logHeadMap}
+          locale={rowLocale}
+          t={messages}
+          loading={isLoading}
+          onOpen={handleOpen}
+          onReplay={handleReplay}
+          gridTemplate={template}
+          style={style}
+          index={index}
+          setRowHeight={measureRowHeight}
+        />
+      );
+    }, []);
 
   useLayoutEffect(() => {
     const recompute = () => {
@@ -177,30 +236,12 @@ export function LogsTable({
         rowCount={rows.length}
         rowHeight={(index: number) => getItemSize(index)}
         listRef={listRef}
-        rowProps={{}}
+        rowProps={listRowProps}
         onRowsRendered={({ startIndex, stopIndex }: { startIndex: number; stopIndex: number }) =>
           handleRowsRendered({ startIndex, stopIndex })
         }
         overscanCount={overscanCount}
-        rowComponent={({ index, style }: { index: number; style: React.CSSProperties }) => {
-          const row = rows[index];
-          if (!row) return null;
-          return (
-            <LogRow
-              r={row}
-              logHead={logHead}
-              locale={locale}
-              t={t}
-              loading={loading}
-              onOpen={onOpen}
-              onReplay={onReplay}
-              gridTemplate={gridTemplate}
-              style={style}
-              index={index}
-              setRowHeight={setRowHeight}
-            />
-          );
-        }}
+        rowComponent={renderRow}
       />
     </div>
   );
