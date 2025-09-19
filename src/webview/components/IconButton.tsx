@@ -1,32 +1,31 @@
 import React from 'react';
+import { Button, type ButtonProps } from './ui/button';
+import { cn } from '../utils/cn';
 
-type IconButtonProps = {
-  title?: string;
+type IconButtonProps = ButtonProps & {
+  tooltip?: string;
   ariaLabel?: string;
-  disabled?: boolean;
-  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
-  children: React.ReactNode;
-  style?: React.CSSProperties;
 };
 
-const baseStyle: React.CSSProperties = {
-  border: 'none',
-  background: 'transparent',
-  cursor: 'pointer',
-  color: 'var(--vscode-testing-iconPassed, #3fb950)'
-};
-
-export function IconButton({ title, ariaLabel, disabled, onClick, children, style }: IconButtonProps) {
+export function IconButton({
+  tooltip,
+  ariaLabel,
+  className,
+  variant = 'ghost',
+  size = 'icon',
+  children,
+  ...props
+}: IconButtonProps) {
   return (
-    <button
-      type="button"
-      title={title}
-      aria-label={ariaLabel ?? title}
-      onClick={onClick}
-      disabled={disabled}
-      style={{ ...baseStyle, ...style }}
+    <Button
+      variant={variant}
+      size={size}
+      className={cn('text-muted-foreground hover:text-primary focus-visible:ring-ring', className)}
+      title={tooltip}
+      aria-label={ariaLabel ?? tooltip}
+      {...props}
     >
       {children}
-    </button>
+    </Button>
   );
 }

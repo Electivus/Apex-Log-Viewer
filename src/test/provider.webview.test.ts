@@ -62,6 +62,7 @@ suite('SfLogsViewProvider webview', () => {
 
     assert.equal(webview.options.enableScripts, true, 'enableScripts should be set');
     assert.ok(webview.html.includes('Content-Security-Policy'), 'CSP meta should be present');
+    assert.ok(webview.html.includes('media/webview.css'), 'webview stylesheet should be referenced');
     assert.ok(webview.html.includes('media/main.js'), 'bundled webview script should be referenced');
   });
 

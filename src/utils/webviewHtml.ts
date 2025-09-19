@@ -10,6 +10,7 @@ export function buildWebviewHtml(
   title: string
 ): string {
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', scriptFile));
+  const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'webview.css'));
   // Allow service/worker scripts from the webview source. VS Code registers
   // an internal service worker to serve local resources. Without an explicit
   // worker-src, the default-src ('none') can cause registration to fail on
@@ -22,24 +23,7 @@ export function buildWebviewHtml(
       <meta charset="UTF-8">
       <meta http-equiv="Content-Security-Policy" content="${csp}">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <style>
-        :root { color-scheme: light dark; }
-        body { color: var(--vscode-foreground); background: transparent; }
-        select {
-          background-color: var(--vscode-dropdown-background, var(--vscode-input-background));
-          color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
-          border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border));
-          outline-color: var(--vscode-focusBorder);
-        }
-        option {
-          background-color: var(--vscode-dropdown-background, var(--vscode-input-background));
-          color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
-        }
-        option:checked, option:hover {
-          background-color: var(--vscode-list-activeSelectionBackground, var(--vscode-dropdown-background));
-          color: var(--vscode-list-activeSelectionForeground, var(--vscode-dropdown-foreground));
-        }
-      </style>
+      <link rel="stylesheet" href="${styleUri}">
       <title>${title}</title>
       </head>
       <body>

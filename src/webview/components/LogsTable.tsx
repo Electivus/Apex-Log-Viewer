@@ -170,7 +170,7 @@ export function LogsTable({
   }, []);
 
   return (
-    <div ref={outerRef} style={{ overflow: 'hidden' }}>
+    <div ref={outerRef} className="overflow-hidden rounded-md border border-border/60 bg-background/60 shadow-sm">
       <LogsHeader ref={headerRef} t={t} sortBy={sortBy} sortDir={sortDir} onSort={onSort} gridTemplate={gridTemplate} />
       <List
         style={{ height: measuredListHeight, width: '100%' }}

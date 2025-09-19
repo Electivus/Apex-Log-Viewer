@@ -1,6 +1,14 @@
 import React from 'react';
 import type ReactNS from 'react';
-import { selectStyle as baseSelectStyle } from './styles';
+import { Label } from './ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from './ui/select';
+import { cn } from '../utils/cn';
 
 export type LabeledSelectOption = {
   value: string;
@@ -36,36 +44,44 @@ export function LabeledSelect({
 }: LabeledSelectProps) {
   if (hideIfEmpty && options.length === 0) {
     return (
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ opacity: 0.8 }}>{label}:</span>
-        <span style={{ opacity: 0.7 }} aria-live="polite">
-          {emptyText || 'No options available.'}
-        </span>
-      </label>
+      <div className="flex items-center gap-2" aria-live="polite">
+        <Label className="text-muted-foreground">{label}:</Label>
+        <span className="text-xs text-muted-foreground/80">{emptyText || 'No options available.'}</span>
+      </div>
     );
   }
 
-  const selectStyle = { ...baseSelectStyle, ...(selectStyleOverride || {}) };
+  const hasPlaceholder = typeof placeholderLabel === 'string' && placeholderLabel.length > 0;
+  const placeholderValue = '__placeholder__';
+  const selectValue = hasPlaceholder && (!value || value === placeholderValue) ? placeholderValue : value;
+
+  const handleChange = (next: string) => {
+    if (hasPlaceholder && next === placeholderValue) {
+      onChange('');
+    } else {
+      onChange(next);
+    }
+  };
 
   return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <span style={{ opacity: 0.8 }}>{label}:</span>
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        disabled={disabled}
-        style={selectStyle}
-      >
-        {typeof placeholderLabel === 'string' && (
-          <option value="">{placeholderLabel}</option>
-        )}
-        {options.map(o => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div className="flex items-center gap-2">
+      <Label className="text-muted-foreground">{label}:</Label>
+      <Select value={selectValue} onValueChange={handleChange} disabled={disabled}>
+        <SelectTrigger
+          className={cn('w-40 min-w-[8rem]', disabled && 'opacity-80')}
+          style={selectStyleOverride}
+        >
+          <SelectValue placeholder={placeholderLabel} />
+        </SelectTrigger>
+        <SelectContent>
+          {hasPlaceholder && <SelectItem value={placeholderValue}>{placeholderLabel}</SelectItem>}
+          {options.map(o => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }
-

@@ -1,8 +1,10 @@
 import React from 'react';
+import { Loader2 } from 'lucide-react';
 import type { OrgItem } from '../../shared/types';
 import { FilterSelect } from './FilterSelect';
 import { OrgSelect } from './OrgSelect';
-import { commonButtonStyle, inputStyle } from './styles';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
 
 type ToolbarProps = {
   loading: boolean;
@@ -55,10 +57,17 @@ export function Toolbar({
   onClearFilters
 }: ToolbarProps) {
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
-      <button onClick={onRefresh} disabled={loading} style={commonButtonStyle}>
-        {loading ? t.loading : t.refresh}
-      </button>
+    <div className="mb-2 flex flex-wrap items-center gap-2 md:gap-3">
+      <Button onClick={onRefresh} disabled={loading} className="min-w-[90px]">
+        {loading ? (
+          <span className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            {t.loading}
+          </span>
+        ) : (
+          t.refresh
+        )}
+      </Button>
       <OrgSelect
         label={t.orgLabel}
         orgs={orgs}
@@ -67,13 +76,13 @@ export function Toolbar({
         disabled={loading}
         emptyText={t.noOrgsDetected ?? 'No orgs detected. Run "sf org list".'}
       />
-      <input
+      <Input
         type="search"
         value={query}
         onChange={e => onQueryChange(e.target.value)}
         placeholder={t.searchPlaceholder ?? 'Search logs…'}
         disabled={loading}
-        style={{ ...inputStyle, flex: '1 1 220px', minWidth: 160 }}
+        className="min-w-[10rem] flex-1 md:max-w-xs"
       />
       {/* Filters */}
       <FilterSelect
@@ -108,18 +117,16 @@ export function Toolbar({
         allLabel={t.filters?.all ?? 'All'}
         disabled={loading}
       />
-      <button
+      <Button
         onClick={onClearFilters}
-        disabled={loading}
-        style={{
-          ...commonButtonStyle,
-          opacity: filterUser || filterOperation || filterStatus || filterCodeUnit ? 1 : 0.7
-        }}
+        disabled={loading || !(filterUser || filterOperation || filterStatus || filterCodeUnit || query)}
+        variant="outline"
+        className="min-w-[120px]"
       >
         {t.filters?.clear ?? 'Clear filters'}
-      </button>
-      {error && <span style={{ color: 'var(--vscode-errorForeground)' }}>{error}</span>}
-      {!error && loading && <span>{t.loading}</span>}
+      </Button>
+      {error && <span className="text-sm text-destructive">{error}</span>}
+      {!error && loading && <span className="text-sm text-muted-foreground">{t.loading}</span>}
     </div>
   );
 }

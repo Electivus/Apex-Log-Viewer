@@ -1,9 +1,8 @@
 import React, { useLayoutEffect, useRef } from 'react';
+import { ExternalLink, Loader2, Redo2 } from 'lucide-react';
 import type { ApexLogRow } from '../../../shared/types';
 import type { LogHeadMap } from '../LogsTable';
 import { formatBytes, formatDuration } from '../../utils/format';
-import { OpenIcon } from '../icons/OpenIcon';
-import { ReplayIcon, SpinnerIcon } from '../icons/ReplayIcon';
 import { IconButton } from '../IconButton';
 
 type Props = {
@@ -59,14 +58,6 @@ export function LogRow({
     };
   }, [index, setRowHeight, logHead[r.Id]?.codeUnitStarted, r]);
 
-  const baseCell: React.CSSProperties = {
-    padding: 4,
-    minWidth: 0,
-    whiteSpace: 'normal',
-    overflowWrap: 'anywhere',
-    wordBreak: 'break-word'
-  };
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     // Only handle keys when the event originates on the row itself.
     // This avoids hijacking keyboard interactions of inner buttons.
@@ -86,52 +77,56 @@ export function LogRow({
       role="row"
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      onFocus={e => (e.currentTarget.style.outline = '1px solid var(--vscode-focusBorder)')}
-      onBlur={e => (e.currentTarget.style.outline = 'none')}
-      style={{ ...style, outline: 'none' }}
+      style={style}
+      className="outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
       <div
         ref={contentRef}
-        style={{
-          display: 'grid',
-          gridTemplateColumns: gridTemplate,
-          alignItems: 'center',
-          borderBottom: '1px solid var(--vscode-editorWidget-border)'
-        }}
+        style={{ gridTemplateColumns: gridTemplate }}
+        className="grid items-center border-b border-border/60 bg-background/60 text-sm"
       >
-        <div style={baseCell}>{r.LogUser?.Name ?? ''}</div>
-        <div style={baseCell}>{r.Application}</div>
-        <div style={baseCell}>{r.Operation}</div>
-        <div style={baseCell}>{new Date(r.StartTime).toLocaleString(locale)}</div>
-        <div style={baseCell}>{formatDuration(r.DurationMilliseconds)}</div>
-        <div style={baseCell}>{r.Status}</div>
-        <div style={baseCell} title={logHead[r.Id]?.codeUnitStarted ?? ''}>
+        <div className="min-w-0 px-2 py-2 break-words">{r.LogUser?.Name ?? ''}</div>
+        <div className="min-w-0 px-2 py-2 break-words">{r.Application}</div>
+        <div className="min-w-0 px-2 py-2 break-words">{r.Operation}</div>
+        <div className="min-w-0 px-2 py-2 break-words text-xs text-muted-foreground">
+          {new Date(r.StartTime).toLocaleString(locale)}
+        </div>
+        <div className="min-w-0 px-2 py-2 break-words">{formatDuration(r.DurationMilliseconds)}</div>
+        <div className="min-w-0 px-2 py-2 break-words">{r.Status}</div>
+        <div
+          className="min-w-0 px-2 py-2 break-words"
+          title={logHead[r.Id]?.codeUnitStarted ?? ''}
+        >
           {logHead[r.Id]?.codeUnitStarted ?? ''}
         </div>
-        <div style={{ ...baseCell, textAlign: 'right' }}>{formatBytes(r.LogLength)}</div>
-        <div style={{ ...baseCell, textAlign: 'center' }}>
-          <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+        <div className="px-2 py-2 text-right font-mono text-xs text-muted-foreground">
+          {formatBytes(r.LogLength)}
+        </div>
+        <div className="px-2 py-2">
+          <div className="flex items-center justify-center gap-2">
             <IconButton
-              title={t.open ?? 'Open'}
+              tooltip={t.open ?? 'Open'}
               ariaLabel={t.open ?? 'Open'}
               disabled={loading}
               onClick={e => {
                 e.stopPropagation();
                 onOpen(r.Id);
               }}
+              className="text-primary hover:text-primary"
             >
-              {loading ? <SpinnerIcon /> : <OpenIcon />}
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <ExternalLink className="h-4 w-4" aria-hidden />}
             </IconButton>
             <IconButton
-              title={t.replay}
+              tooltip={t.replay}
               ariaLabel={t.replay}
               disabled={loading}
               onClick={e => {
                 e.stopPropagation();
                 onReplay(r.Id);
               }}
+              className="text-accent-foreground hover:text-primary"
             >
-              {loading ? <SpinnerIcon /> : <ReplayIcon />}
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Redo2 className="h-4 w-4" aria-hidden />}
             </IconButton>
           </div>
         </div>

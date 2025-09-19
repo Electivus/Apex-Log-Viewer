@@ -192,7 +192,7 @@ function App() {
   }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead]);
 
   return (
-    <div style={{ padding: 8, position: 'relative', minHeight: 120 }}>
+    <div className="relative min-h-[7.5rem] space-y-4 p-3">
       <Toolbar
         loading={loading}
         error={error}
@@ -235,7 +235,11 @@ function App() {
 
       <LoadingOverlay show={loading} label={t.loading} />
 
-      {!loading && filteredRows.length === 0 && <div style={{ marginTop: 12, opacity: 0.8 }}>{t.noLogs}</div>}
+      {!loading && filteredRows.length === 0 && (
+        <div className="rounded-md border border-dashed border-border/60 bg-background/40 p-6 text-center text-sm text-muted-foreground">
+          {t.noLogs}
+        </div>
+      )}
     </div>
   );
 }

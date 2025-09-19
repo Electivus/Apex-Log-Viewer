@@ -4,5 +4,14 @@
     "noEmit": false,
     "outDir": "dist"
   },
-  "exclude": ["src/test/**", "src/webview/**"]
+  "exclude": [
+    "node_modules",
+    "media",
+    "out",
+    "dist",
+    "src/test/**",
+    "src/webview/**",
+    "tailwind.config.ts",
+    "postcss.config.cjs"
+  ]
 }

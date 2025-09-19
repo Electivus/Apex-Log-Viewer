@@ -181,17 +181,7 @@ function App() {
   }, [selectedIndex, lines]);
 
   return (
-    <div
-      style={{
-        padding: 8,
-        fontFamily: 'var(--vscode-font-family)',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        position: 'relative'
-      }}
-    >
+    <div className="relative flex h-full flex-col gap-4 p-3">
       <LoadingOverlay show={loading} label={t.loading} />
       <TailToolbar
         running={running}

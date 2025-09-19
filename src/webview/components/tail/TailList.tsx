@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Messages } from '../../i18n';
 import { List, type ListImperativeAPI } from 'react-window';
 import { apexLineStyle, categoryStyle, contentHighlightRules, highlightContent, parseApexLine } from '../../utils/tail';
+import { cn } from '../../utils/cn';
 
 type TailListProps = {
   lines: string[];
@@ -82,22 +83,27 @@ export function TailList({
 
   const itemKey = (index: number) => filteredIndexes[index] ?? index;
 
-  const sepStyle: React.CSSProperties = { opacity: 0.4 };
-  const timeStyle: React.CSSProperties = { opacity: 0.6 };
-  const debugMsgStyle: React.CSSProperties = { color: 'var(--vscode-charts-blue)' };
+  const sepClass = 'mx-1 text-muted-foreground/70';
+  const timeClass = 'text-muted-foreground';
+  const debugMsgClass = 'text-[var(--vscode-charts-blue,#2bbac5)]';
 
   const renderRow = ({ index, style }: { index: number; style: React.CSSProperties }) => {
     const fullIdx = filteredIndexes[index]!;
     const l = lines[fullIdx]!;
     return (
-      <div role="row" style={{ ...style, overflow: 'hidden' }} onClick={() => onSelectIndex(fullIdx)}>
+      <div
+        role="row"
+        style={{ ...style, overflow: 'hidden' }}
+        className="border-b border-border/40"
+        onClick={() => onSelectIndex(fullIdx)}
+      >
         <RowContent
           text={l}
           colorize={colorize}
           selected={selectedIndex === fullIdx}
-          sepStyle={sepStyle}
-          timeStyle={timeStyle}
-          debugMsgStyle={debugMsgStyle}
+          sepClass={sepClass}
+          timeClass={timeClass}
+          debugMsgClass={debugMsgClass}
           t={t}
           onMeasured={h => setRowHeight(index, h)}
         />
@@ -168,20 +174,13 @@ export function TailList({
   }, []);
 
   return (
-    <div ref={outerRef} style={{ flex: '1 1 auto' }}>
+    <div ref={outerRef} className="flex-1">
       <div
-        style={{
-          border: '1px solid var(--vscode-editorWidget-border)',
-          borderRadius: 4,
-          fontFamily: 'var(--vscode-editor-font-family, monospace)',
-          fontSize: 'var(--vscode-editor-font-size, 12px)',
-          lineHeight: 1.4,
-          overflow: 'hidden',
-          height: height
-        }}
+        className="overflow-hidden rounded-md border border-border/60 bg-background/70 font-mono text-xs leading-relaxed shadow-sm"
+        style={{ height }}
       >
         {showEmpty ? (
-          <div style={{ opacity: 0.7, padding: 8 }}>
+          <div className="flex h-full items-center justify-center px-4 py-6 text-sm text-muted-foreground">
             {running ? (t.tail?.waiting ?? 'Waiting for logs…') : (t.tail?.pressStart ?? 'Press Start to tail logs.')}
           </div>
         ) : (
@@ -205,18 +204,18 @@ function RowContent({
   text,
   colorize,
   selected,
-  sepStyle,
-  timeStyle,
-  debugMsgStyle,
+  sepClass,
+  timeClass,
+  debugMsgClass,
   t,
   onMeasured
 }: {
   text: string;
   colorize: boolean;
   selected: boolean;
-  sepStyle: React.CSSProperties;
-  timeStyle: React.CSSProperties;
-  debugMsgStyle: React.CSSProperties;
+  sepClass: string;
+  timeClass: string;
+  debugMsgClass: string;
   t: Messages;
   onMeasured: (h: number) => void;
 }) {
@@ -237,18 +236,22 @@ function RowContent({
     };
   }, [text, onMeasured, colorize, selected]);
 
-  const commonStyle: React.CSSProperties = {
-    whiteSpace: 'pre-wrap',
-    background: selected ? 'var(--vscode-editor-selectionBackground)' : 'transparent',
-    outline: selected ? '1px solid var(--vscode-contrastActiveBorder, transparent)' : 'none',
-    borderLeft: selected ? '3px solid var(--vscode-focusBorder)' : '3px solid transparent',
-    paddingLeft: 4,
-    cursor: 'pointer'
-  };
+  const styleOverrides: React.CSSProperties = selected
+    ? {
+        backgroundColor: 'var(--vscode-editor-selectionBackground)',
+        borderLeftColor: 'var(--vscode-focusBorder)'
+      }
+    : {
+        borderLeftColor: 'transparent'
+      };
+
+  const baseClass = cn(
+    'cursor-pointer whitespace-pre-wrap border-l-[3px] border-solid border-transparent px-2 py-1 text-xs leading-relaxed text-foreground transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background'
+  );
 
   if (!colorize) {
     return (
-      <div ref={ref} style={commonStyle}>
+      <div ref={ref} className={baseClass} style={styleOverrides}>
         {text}
       </div>
     );
@@ -264,10 +267,15 @@ function RowContent({
     return (
       <div
         ref={ref}
+        className={baseClass}
         style={{
-          ...commonStyle,
-          ...lineFallback,
-          background: selected ? 'var(--vscode-editor-selectionBackground)' : lineFallback.background || 'transparent'
+          ...styleOverrides,
+          color: lineFallback.color,
+          fontStyle: lineFallback.fontStyle,
+          fontWeight: lineFallback.fontWeight,
+          backgroundColor: selected
+            ? 'var(--vscode-editor-selectionBackground)'
+            : lineFallback.background || 'transparent'
         }}
       >
         {segs.map((s, j) => (
@@ -280,30 +288,30 @@ function RowContent({
   }
 
   return (
-    <div ref={ref} style={commonStyle}>
+    <div ref={ref} className={baseClass} style={styleOverrides}>
       {parsed.time && (
         <>
-          <span style={timeStyle}>{parsed.time}</span>
+          <span className={timeClass}>{parsed.time}</span>
           {parsed.nanos && (
             <>
-              <span style={timeStyle}> ({parsed.nanos})</span>
+              <span className={timeClass}> ({parsed.nanos})</span>
             </>
           )}
-          <span style={sepStyle}> | </span>
+          <span className={sepClass}>|</span>
         </>
       )}
       {cat && (
         <>
           <span style={catSty}>{cat}</span>
-          {parsed.tokens.length > 0 && <span style={sepStyle}> | </span>}
+          {parsed.tokens.length > 0 && <span className={sepClass}>|</span>}
         </>
       )}
       {cat && cat.toUpperCase().includes('USER_DEBUG') && parsed.debugMessage ? (
         <>
-          <span style={{ opacity: 0.6 }}>[{t.tail?.debugTag ?? 'debug'}]</span>
-          <span style={sepStyle}> | </span>
+          <span className="text-muted-foreground/80">[{t.tail?.debugTag ?? 'debug'}]</span>
+          <span className={sepClass}>|</span>
           {highlightContent(parsed.debugMessage, contentHighlightRules).map((s, j) => (
-            <span key={j} style={s.style ?? debugMsgStyle}>
+            <span key={j} style={s.style ?? undefined} className={cn(!s.style && debugMsgClass)}>
               {s.text}
             </span>
           ))}
