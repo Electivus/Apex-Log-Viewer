@@ -44,12 +44,9 @@ export class LogViewerPanel {
       return;
     }
 
-    let content: string;
     let stats: Stats | undefined;
     try {
-      const readPromise = fs.readFile(options.filePath, { encoding: 'utf8', signal: options.signal as any });
-      const statPromise = fs.stat(options.filePath).catch(() => undefined);
-      [content, stats] = await Promise.all([readPromise, statPromise]);
+      stats = await fs.stat(options.filePath);
     } catch (err) {
       if ((options.signal as any)?.aborted) {
         return;
@@ -64,21 +61,16 @@ export class LogViewerPanel {
       return;
     }
 
-    const lines = content.split(/\r?\n/);
-    if (lines.length > 0 && lines[lines.length - 1] === '') {
-      lines.pop();
-    }
-
     const key = options.filePath;
     const existing = this.panels.get(key);
     if (existing) {
-      existing.update(lines, stats);
+      existing.update(stats);
       existing.reveal();
       logInfo('LogViewerPanel: revealed existing panel for', options.logId);
       return;
     }
 
-    const panel = new LogViewerPanel(extensionUri, { ...options }, lines, stats);
+    const panel = new LogViewerPanel(extensionUri, { ...options }, stats);
     this.panels.set(key, panel);
     logInfo('LogViewerPanel: created panel for', options.logId);
   }
@@ -86,23 +78,22 @@ export class LogViewerPanel {
   private panel: vscode.WebviewPanel;
   private readonly filePath: string;
   private readonly logId: string;
-  private lines: string[];
   private stats: Stats | undefined;
   private ready = false;
   private disposed = false;
+  private cacheBust = Date.now();
 
   private constructor(
     extensionUri: vscode.Uri,
     options: ShowOptions,
-    lines: string[],
     stats: Stats | undefined
   ) {
     this.logId = options.logId;
     this.filePath = options.filePath;
-    this.lines = lines;
     this.stats = stats;
 
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.Active;
+    const logDirectoryUri = vscode.Uri.file(path.dirname(this.filePath));
     this.panel = vscode.window.createWebviewPanel(
       LogViewerPanel.viewType,
       this.buildTitle(),
@@ -110,7 +101,7 @@ export class LogViewerPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
+        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media'), logDirectoryUri]
       }
     );
     this.panel.webview.html = buildWebviewHtml(this.panel.webview, extensionUri, 'logViewer.js', 'Apex Log Viewer');
@@ -130,6 +121,11 @@ export class LogViewerPanel {
   private buildTitle(): string {
     const fileName = path.basename(this.filePath);
     return `Apex Log: ${fileName}`;
+  }
+
+  private buildLogUri(): string {
+    const resourceWithCacheBust = vscode.Uri.file(this.filePath).with({ query: `v=${this.cacheBust}` });
+    return this.panel.webview.asWebviewUri(resourceWithCacheBust).toString();
   }
 
   private async onMessage(message: LogViewerFromWebviewMessage): Promise<void> {
@@ -179,7 +175,7 @@ export class LogViewerPanel {
       logId: this.logId,
       locale: vscode.env.language,
       fileName: path.basename(this.filePath),
-      lines: this.lines,
+      logUri: this.buildLogUri(),
       metadata: this.stats
         ? {
             sizeBytes: this.stats.size,
@@ -190,9 +186,9 @@ export class LogViewerPanel {
     void this.panel.webview.postMessage(message);
   }
 
-  private update(lines: string[], stats: Stats | undefined): void {
-    this.lines = lines;
+  private update(stats: Stats | undefined): void {
     this.stats = stats;
+    this.cacheBust = Date.now();
     if (this.ready) {
       this.postInit();
     }

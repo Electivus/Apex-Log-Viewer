@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { LogViewerFromWebviewMessage, LogViewerToWebviewMessage } from '../shared/logViewerMessages';
 import { parseLogLines, type ParsedLogEntry, type LogCategory } from './utils/logViewerParser';
@@ -44,6 +44,7 @@ function App() {
   const [filter, setFilter] = useState<LogFilter>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>(undefined);
+  const latestRequestId = useRef(0);
 
   useEffect(() => {
     const handler = (event: MessageEvent<LogViewerToWebviewMessage>) => {
@@ -55,10 +56,43 @@ function App() {
         setLocale(msg.locale || 'en');
         setFileName(msg.fileName);
         setMetadata(msg.metadata);
-        const parsed = parseLogLines(Array.isArray(msg.lines) ? msg.lines : []);
-        setEntries(parsed);
-        setLoading(false);
-        setError(undefined);
+        if (typeof msg.logUri === 'string' && msg.logUri.length > 0) {
+          const requestId = ++latestRequestId.current;
+          setLoading(true);
+          setError(undefined);
+          void fetch(msg.logUri)
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+              }
+              return response.text();
+            })
+            .then(text => {
+              if (latestRequestId.current !== requestId) {
+                return;
+              }
+              const lines = text.split(/\r?\n/);
+              if (lines.length > 0 && lines[lines.length - 1] === '') {
+                lines.pop();
+              }
+              setEntries(parseLogLines(lines));
+              setLoading(false);
+            })
+            .catch(err => {
+              if (latestRequestId.current !== requestId) {
+                return;
+              }
+              setEntries([]);
+              const message = err instanceof Error ? err.message : String(err);
+              setError(`Failed to load log content: ${message}`);
+              setLoading(false);
+            });
+        } else {
+          const parsed = parseLogLines(Array.isArray(msg.lines) ? msg.lines : []);
+          setEntries(parsed);
+          setLoading(false);
+          setError(undefined);
+        }
       } else if (msg.type === 'logViewerError') {
         setError(msg.message);
         setLoading(false);

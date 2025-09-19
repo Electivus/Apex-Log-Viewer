@@ -6,7 +6,8 @@ export type LogViewerToWebviewMessage =
       logId: string;
       locale: string;
       fileName: string;
-      lines: string[];
+      logUri?: string;
+      lines?: string[];
       metadata?: {
         sizeBytes?: number;
         modifiedAt?: string;
