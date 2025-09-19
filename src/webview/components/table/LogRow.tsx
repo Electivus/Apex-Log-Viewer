@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useRef } from 'react';
-import { ExternalLink, Loader2, RotateCcw } from 'lucide-react';
+import { BugPlay, FileText, Loader2 } from 'lucide-react';
 import type { ApexLogRow } from '../../../shared/types';
 import type { LogHeadMap } from '../LogsTable';
 import { formatBytes, formatDuration } from '../../utils/format';
@@ -123,7 +123,7 @@ export function LogRow({
               loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
-                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                <FileText className="h-4 w-4" aria-hidden="true" />
               ),
               t.open ?? 'Open',
               e => {
@@ -135,7 +135,7 @@ export function LogRow({
               loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
-                <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                <BugPlay className="h-4 w-4" aria-hidden="true" />
               ),
               t.replay,
               e => {
