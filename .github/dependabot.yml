@@ -35,9 +35,17 @@ updates:
           - "@types/mocha"
           - "@types/jsdom"
           - "@testing-library/*"
+      react-types:
+        patterns:
+          - "@types/react"
+          - "@types/react-dom"
+      vscode-types:
+        patterns:
+          - "@types/vscode"
       types:
         patterns:
-          - "@types/*"
+          - "@types/node"
+          - "@types/proxyquire"
       tailwind:
         patterns:
           - "tailwindcss"
