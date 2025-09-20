@@ -368,7 +368,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-window": "^2.1.1",
-    "sharp": "^0.34.3",
+    "sharp": "^0.34.4",
     "tailwindcss": "^4.1.13",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.9.2",
