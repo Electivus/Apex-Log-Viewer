@@ -257,8 +257,7 @@
       {
         "id": "apexlog",
         "aliases": ["ApexLog", "Salesforce Apex Log"],
-        "firstLine": "^\\d{2}\\.\\d{2}.+?APEX_CODE,\\w.+$",
-        "filenamePatterns": ["**/apexlogs/*.log", "**/apexlogs/*.txt"]
+        "firstLine": "^\\d{2}\\.\\d{2}.+?APEX_CODE,\\w.+$"
       }
     ],
     "menus": {
