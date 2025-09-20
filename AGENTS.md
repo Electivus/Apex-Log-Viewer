@@ -13,6 +13,11 @@
 - `npm run lint` / `npm run format` – enforce ESLint (`eslint.config.mjs`) and Prettier across sources.
 - `npm run test` – compile and execute the default Mocha suite; use `npm run test:unit`, `npm run test:integration`, or `npm run test:all` for targeted scopes.
 
+## Dependency Management
+- Dependabot groups live in `.github/dependabot.yml`; when adding or upgrading dependencies, confirm the new package is matched by an existing group pattern.
+- If the dependency belongs to a new technology area, create a dedicated group (or expand an existing one) so related packages are updated together.
+- Ensure each dependency maps to exactly one group; avoid overlapping patterns when adding catch-all buckets.
+
 ## Coding Style & Naming Conventions
 - TypeScript strict mode, 2-space indent, semicolons, and single quotes. Prettier is the source of truth for formatting.
 - Keep ESLint clean; avoid disabling rules without justification in-code.
