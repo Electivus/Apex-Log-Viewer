@@ -77,7 +77,7 @@ export function LabeledSelect({
           onChange={e => onChange(e.target.value)}
           disabled={disabled}
           className={cn(
-            'min-w-[160px] rounded-md border border-input bg-input px-3 py-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'min-w-[160px] rounded-md border border-input bg-input px-3 py-1 text-[13px] text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
             triggerClassName
           )}
         >
