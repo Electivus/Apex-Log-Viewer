@@ -55,7 +55,9 @@
     "onCommand:sfLogs.selectOrg",
     "onCommand:sfLogs.tail",
     "onCommand:sfLogs.showOutput",
-    "onCommand:sfLogs.resetCliCache"
+    "onCommand:sfLogs.resetCliCache",
+    "onCommand:sfLogs.openLogInViewer",
+    "onLanguage:apexlog"
   ],
   "extensionDependencies": [],
   "main": "./dist/extension.js",
@@ -236,6 +238,11 @@
         "category": "Electivus Apex Logs"
       },
       {
+        "command": "sfLogs.openLogInViewer",
+        "title": "%command.openLogInViewer.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
         "command": "sfLogs.showOutput",
         "title": "Show Extension Output",
         "category": "Electivus Apex Logs"
@@ -244,6 +251,13 @@
         "command": "sfLogs.resetCliCache",
         "title": "Reset CLI Cache",
         "category": "Electivus Apex Logs"
+      }
+    ],
+    "languages": [
+      {
+        "id": "apexlog",
+        "aliases": ["ApexLog", "Salesforce Apex Log"],
+        "firstLine": "^\\d{2}\\.\\d{2}.+?APEX_CODE,\\w.+$"
       }
     ],
     "menus": {
@@ -259,7 +273,14 @@
           "group": "navigation@99"
         }
       ],
-      "editor/title": []
+      "editor/title": [
+        {
+          "command": "sfLogs.openLogInViewer",
+          "when": "resourceLangId == apexlog",
+          "group": "navigation@50",
+          "icon": "$(open-preview)"
+        }
+      ]
     }
   },
   "scripts": {

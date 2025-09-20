@@ -14,6 +14,8 @@ import { LogViewerPanel } from './panel/LogViewerPanel';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { getErrorMessage } from './utils/error';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
+import { isApexLogDocument } from './utils/workspace';
+import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
   username: string;
@@ -165,6 +167,53 @@ export async function activate(context: vscode.ExtensionContext) {
       logInfo('Command sfLogs.tail invoked. Opening Tail view and starting…');
       safeSendEvent('command.tail');
       await provider.tailLogs();
+    })
+  );
+
+  const codeLensProvider = new ApexLogCodeLensProvider();
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider({ scheme: 'file', language: 'apexlog' }, codeLensProvider),
+    codeLensProvider
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.openLogInViewer', async (uri?: vscode.Uri) => {
+      safeSendEvent('command.openLogInViewer');
+      try {
+        const doc = uri ? await vscode.workspace.openTextDocument(uri) : vscode.window.activeTextEditor?.document;
+        if (!doc || doc.isClosed) {
+          void vscode.window.showWarningMessage(
+            localize('openLogInViewer.noDocument', 'Electivus Apex Logs: No Apex log is active.')
+          );
+          return;
+        }
+        if (doc.uri.scheme !== 'file' || !doc.uri.fsPath) {
+          void vscode.window.showWarningMessage(
+            localize(
+              'openLogInViewer.unsupportedScheme',
+              'Electivus Apex Logs: Unable to open Apex logs from this location.'
+            )
+          );
+          return;
+        }
+        if (!isApexLogDocument(doc)) {
+          void vscode.window.showWarningMessage(
+            localize(
+              'openLogInViewer.notApex',
+              'Electivus Apex Logs: The active document is not recognized as a Salesforce Apex log.'
+            )
+          );
+          return;
+        }
+        const filePath = doc.uri.fsPath;
+        const logId = path.basename(filePath).replace(/\.log$/i, '');
+        await LogViewerPanel.show({ logId, filePath });
+        logInfo('Command sfLogs.openLogInViewer opened log viewer for', logId);
+      } catch (e) {
+        const msg = getErrorMessage(e);
+        logWarn('Command sfLogs.openLogInViewer failed ->', msg);
+        void vscode.window.showErrorMessage(localize('openLogInViewer.failed', 'Failed to open Apex log: {0}', msg));
+      }
     })
   );
 
