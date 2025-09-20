@@ -2,9 +2,47 @@
 
 ## Unreleased
 
-### Removed
+## [0.12.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.10.0...v0.12.0) (2025-09-20)
 
-- Diagram and Call Tree features have been removed to simplify the extension and reduce maintenance overhead. Webview bundles `diagram.js` and `calltree.js`, parser modules, and related commands/menus were deleted. If you relied on these experimental views, please open an issue to discuss a potential standalone extension.
+### ⚠ BREAKING CHANGES
+
+- Webview: remove the Diagram and Call Tree experiences along with related commands to simplify maintenance. If you need these experimental views back, please open an issue to discuss alternatives. ([#195](https://github.com/Electivus/Apex-Log-Viewer/pull/195)) ([f47b863](https://github.com/Electivus/Apex-Log-Viewer/commit/f47b863))
+
+### Features
+
+- Logs: add a duration column to the Apex Logs view so you can quickly spot longer executions. ([#194](https://github.com/Electivus/Apex-Log-Viewer/pull/194)) ([13ed564](https://github.com/Electivus/Apex-Log-Viewer/commit/13ed564))
+- Webview: introduce a shared `LabeledSelect` control and refresh toolbars for consistent filtering UX. ([#196](https://github.com/Electivus/Apex-Log-Viewer/pull/196)) ([f5318cc](https://github.com/Electivus/Apex-Log-Viewer/commit/f5318cc))
+- UI: migrate webview components to a new Tailwind-powered design system with updated buttons, inputs, and tables. ([#230](https://github.com/Electivus/Apex-Log-Viewer/pull/230)) ([8b28816](https://github.com/Electivus/Apex-Log-Viewer/commit/8b28816))
+- Log Viewer: add a dedicated log detail panel with filters, status bar, and structured entry list. ([#231](https://github.com/Electivus/Apex-Log-Viewer/pull/231)) ([20ddcd1](https://github.com/Electivus/Apex-Log-Viewer/commit/20ddcd1))
+- VS Code: add a command and CodeLens to open Apex logs directly in the viewer. ([#237](https://github.com/Electivus/Apex-Log-Viewer/pull/237)) ([38e5c52](https://github.com/Electivus/Apex-Log-Viewer/commit/38e5c52))
+
+### Bug Fixes
+
+- Webview: avoid showing duplicate org entries when the tail view loads. ([#238](https://github.com/Electivus/Apex-Log-Viewer/pull/238)) ([53d518b](https://github.com/Electivus/Apex-Log-Viewer/commit/53d518b))
+
+### Styling
+
+- Webview: align toolbar controls to share a consistent height. ([#249](https://github.com/Electivus/Apex-Log-Viewer/pull/249)) ([9935366](https://github.com/Electivus/Apex-Log-Viewer/commit/9935366))
+
+### Build
+
+- deps-dev: bump @typescript-eslint/eslint-plugin. ([#223](https://github.com/Electivus/Apex-Log-Viewer/pull/223)) ([2bd6752](https://github.com/Electivus/Apex-Log-Viewer/commit/2bd6752))
+- deps-dev: bump @types/node from 24.3.1 to 24.5.2. ([#232](https://github.com/Electivus/Apex-Log-Viewer/pull/232)) ([24431a9](https://github.com/Electivus/Apex-Log-Viewer/commit/24431a9))
+- deps-dev: bump jsdom from 26.1.0 to 27.0.0. ([#233](https://github.com/Electivus/Apex-Log-Viewer/pull/233)) ([f29ab0f](https://github.com/Electivus/Apex-Log-Viewer/commit/f29ab0f))
+- deps-dev: bump react-window from 2.1.0 to 2.1.1. ([#234](https://github.com/Electivus/Apex-Log-Viewer/pull/234)) ([8790fbb](https://github.com/Electivus/Apex-Log-Viewer/commit/8790fbb))
+- deps-dev: bump esbuild from 0.25.9 to 0.25.10. ([#236](https://github.com/Electivus/Apex-Log-Viewer/pull/236)) ([ac8d547](https://github.com/Electivus/Apex-Log-Viewer/commit/ac8d547))
+- deps-dev: bump tailwindcss from 3.4.17 to 4.1.13. ([#240](https://github.com/Electivus/Apex-Log-Viewer/pull/240)) ([a99104a](https://github.com/Electivus/Apex-Log-Viewer/commit/a99104a))
+- deps: bump @salesforce/apex-node in the salesforce-sdk group. ([#245](https://github.com/Electivus/Apex-Log-Viewer/pull/245)) ([6c2c3da](https://github.com/Electivus/Apex-Log-Viewer/commit/6c2c3da))
+- deps-dev: bump eslint in the linting-and-formatting group. ([#246](https://github.com/Electivus/Apex-Log-Viewer/pull/246)) ([0127fbb](https://github.com/Electivus/Apex-Log-Viewer/commit/0127fbb))
+- deps-dev: bump sharp from 0.34.3 to 0.34.4 in the tooling group. ([#247](https://github.com/Electivus/Apex-Log-Viewer/pull/247)) ([7994558](https://github.com/Electivus/Apex-Log-Viewer/commit/7994558))
+
+### Chores
+
+- Repo: add the Visual Prototype for Apex Log directory to `.gitignore`. ([2596895](https://github.com/Electivus/Apex-Log-Viewer/commit/2596895))
+- Dependabot: configure grouped updates for React and VS Code types. ([#244](https://github.com/Electivus/Apex-Log-Viewer/pull/244)) ([47d851c](https://github.com/Electivus/Apex-Log-Viewer/commit/47d851c))
+- Dependabot: define update groups across the repo. ([#241](https://github.com/Electivus/Apex-Log-Viewer/pull/241)) ([f20e95d](https://github.com/Electivus/Apex-Log-Viewer/commit/f20e95d))
+- CI: restrict workflow permissions to the minimum required. ([#248](https://github.com/Electivus/Apex-Log-Viewer/pull/248)) ([d0962ed](https://github.com/Electivus/Apex-Log-Viewer/commit/d0962ed))
+- Dependabot: cap simultaneous npm and GitHub Actions pull requests. ([fa4e2bd](https://github.com/Electivus/Apex-Log-Viewer/commit/fa4e2bd))
 
 ## [0.10.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.8.0...v0.10.0) (2025-09-12)
 
