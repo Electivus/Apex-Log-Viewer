@@ -311,14 +311,15 @@
     "test:smoke:vsix": "node scripts/run-tests.js --scope=unit --smoke-vsix",
     "format": "prettier --write .",
     "prepare": "husky",
-    "tailwind:build": "tailwindcss -c tailwind.config.ts -i ./src/webview/styles/tailwind.css -o ./media/webview.css --minify",
-    "tailwind:watch": "tailwindcss -c tailwind.config.ts -i ./src/webview/styles/tailwind.css -o ./media/webview.css --watch",
+    "tailwind:build": "tailwindcss -c tailwind.config.js -i ./src/webview/styles/tailwind.css -o ./media/webview.css --minify",
+    "tailwind:watch": "tailwindcss -c tailwind.config.js -i ./src/webview/styles/tailwind.css -o ./media/webview.css --watch",
     "build:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/logViewer.tsx --bundle --outdir=media --platform=browser --format=iife --minify",
     "watch:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/logViewer.tsx --bundle --outdir=media --platform=browser --format=iife --sourcemap --watch"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.5.0",
     "@commitlint/config-conventional": "^19.5.0",
+    "@tailwindcss/cli": "^4.1.13",
     "@testing-library/react": "^16.0.1",
     "@types/jsdom": "^21.1.7",
     "@types/mocha": "^10.0.10",
