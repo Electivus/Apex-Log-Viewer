@@ -378,7 +378,7 @@
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-switch": "^1.2.6",
-    "@salesforce/apex-node": "^8.2.13",
+    "@salesforce/apex-node": "^8.3.3",
     "@salesforce/core": "^8.23.1",
     "@vscode/extension-telemetry": "^1.0.0",
     "class-variance-authority": "^0.7.1",
