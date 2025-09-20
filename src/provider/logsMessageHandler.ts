@@ -28,15 +28,6 @@ export class LogsMessageHandler {
         logInfo('Logs: message refresh');
         await this.refresh();
         break;
-      case 'getOrgs':
-        logInfo('Logs: message getOrgs');
-        this.setLoading(true);
-        try {
-          await this.sendOrgs();
-        } finally {
-          this.setLoading(false);
-        }
-        break;
       case 'selectOrg':
         this.setSelectedOrg(typeof message.target === 'string' ? message.target.trim() : undefined);
         logInfo('Logs: selected org set');
