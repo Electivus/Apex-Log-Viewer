@@ -4,7 +4,6 @@ import type { ApexLogRow, OrgItem } from './types';
 export type WebviewToExtensionMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
-  | { type: 'getOrgs' }
   | { type: 'selectOrg'; target: string }
   | { type: 'openLog'; logId: string }
   | { type: 'replay'; logId: string }

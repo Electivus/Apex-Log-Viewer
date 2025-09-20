@@ -101,16 +101,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         this.post({ type: 'loading', value: false });
         return;
       }
-      if (message?.type === 'getOrgs') {
-        this.post({ type: 'loading', value: true });
-        try {
-          await this.sendOrgs();
-          await this.sendDebugLevels();
-        } finally {
-          this.post({ type: 'loading', value: false });
-        }
-        return;
-      }
       if (message?.type === 'selectOrg') {
         const target = typeof message.target === 'string' ? message.target.trim() : undefined;
         const next = target || undefined;

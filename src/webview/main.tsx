@@ -83,7 +83,6 @@ function App() {
     };
     window.addEventListener('message', onMsg);
     vscode.postMessage({ type: 'ready' });
-    vscode.postMessage({ type: 'getOrgs' });
     return () => window.removeEventListener('message', onMsg);
   }, []);
 
