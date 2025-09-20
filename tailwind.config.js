@@ -1,8 +1,8 @@
-import type { Config } from 'tailwindcss';
-import defaultTheme from 'tailwindcss/defaultTheme';
-import tailwindcssAnimate from 'tailwindcss-animate';
+const defaultTheme = require('tailwindcss/defaultTheme');
+const tailwindcssAnimate = require('tailwindcss-animate');
 
-const config: Config = {
+/** @type {import('tailwindcss').Config} */
+const config = {
   darkMode: ['class'],
   content: ['./src/webview/**/*.{ts,tsx}'],
   theme: {
@@ -70,4 +70,4 @@ const config: Config = {
   plugins: [tailwindcssAnimate]
 };
 
-export default config;
+module.exports = config;
