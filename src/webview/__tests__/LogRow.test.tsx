@@ -1,11 +1,10 @@
-import assert from 'assert/strict';
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
-import { LogRow } from '../webview/components/table/LogRow';
-import type { ApexLogRow } from '../shared/types';
+import { LogRow } from '../components/table/LogRow';
+import type { ApexLogRow } from '../../shared/types';
 
-suite('LogRow', () => {
-  test('renders data and callbacks fire', () => {
+describe('LogRow', () => {
+  it('renders data and callbacks fire', () => {
     const row: ApexLogRow = {
       Id: '1',
       StartTime: new Date().toISOString(),
@@ -41,18 +40,18 @@ suite('LogRow', () => {
     getByText('User');
     fireEvent.click(getByRole('button', { name: 'Open' }));
     fireEvent.click(getByRole('button', { name: 'Replay' }));
-    assert.equal(opened, '1');
-    assert.equal(replayed, '1');
+    expect(opened).toBe('1');
+    expect(replayed).toBe('1');
 
     opened = undefined;
     replayed = undefined;
     const rowEl = getByRole('row');
     fireEvent.keyDown(rowEl, { key: 'Enter' });
-    assert.equal(opened, '1');
+    expect(opened).toBe('1');
     opened = undefined;
     fireEvent.keyDown(rowEl, { key: ' ' });
-    assert.equal(opened, '1');
+    expect(opened).toBe('1');
     fireEvent.keyDown(rowEl, { key: 'Enter', shiftKey: true });
-    assert.equal(replayed, '1');
+    expect(replayed).toBe('1');
   });
 });

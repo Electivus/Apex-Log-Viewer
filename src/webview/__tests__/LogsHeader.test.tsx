@@ -1,10 +1,9 @@
-import assert from 'assert/strict';
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react';
-import { LogsHeader } from '../webview/components/table/LogsHeader';
+import { LogsHeader } from '../components/table/LogsHeader';
 
-suite('LogsHeader', () => {
-  test('renders columns and handles sort', () => {
+describe('LogsHeader', () => {
+  it('renders columns and handles sort', () => {
     let sorted: string | undefined;
     const t = {
       columns: {
@@ -29,6 +28,6 @@ suite('LogsHeader', () => {
       />
     );
     fireEvent.click(getByText('Application'));
-    assert.equal(sorted, 'application');
+    expect(sorted).toBe('application');
   });
 });

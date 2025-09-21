@@ -14,6 +14,7 @@ type TailListProps = {
   listRef: React.RefObject<ListImperativeAPI | null>;
   t: Messages;
   onAtBottomChange?: (atBottom: boolean) => void;
+  virtualListComponent?: typeof List;
 };
 
 export function TailList({
@@ -25,7 +26,8 @@ export function TailList({
   running,
   listRef,
   t,
-  onAtBottomChange
+  onAtBottomChange,
+  virtualListComponent
 }: TailListProps) {
   const defaultRowHeight = 18; // close to single-line height at default font
   const rowHeightsRef = useRef<Record<number, number>>({});
@@ -39,6 +41,7 @@ export function TailList({
   const overscanDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overscanLastSetRef = useRef<number>(8);
   const atBottomRef = useRef<boolean | null>(null);
+  const VirtualList = virtualListComponent ?? List;
 
   const getItemSize = (index: number) => rowHeightsRef.current[index] ?? defaultRowHeight;
   // Batch re-render to reflect updated row heights
@@ -184,7 +187,7 @@ export function TailList({
             {running ? (t.tail?.waiting ?? 'Waiting for logs…') : (t.tail?.pressStart ?? 'Press Start to tail logs.')}
           </div>
         ) : (
-          <List
+          <VirtualList
             listRef={listRef}
             style={{ height, width: '100%' }}
             rowCount={filteredIndexes.length}

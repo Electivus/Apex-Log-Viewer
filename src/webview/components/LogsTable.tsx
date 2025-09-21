@@ -40,7 +40,8 @@ export function LogsTable({
   onLoadMore,
   sortBy,
   sortDir,
-  onSort
+  onSort,
+  virtualListComponent
 }: {
   rows: ApexLogRow[];
   logHead: LogHeadMap;
@@ -56,6 +57,7 @@ export function LogsTable({
   onSort: (
     key: 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit'
   ) => void;
+  virtualListComponent?: typeof List;
 }) {
   const listRef = useRef<ListImperativeAPI | null>(null);
   const outerRef = useRef<HTMLDivElement | null>(null);
@@ -73,6 +75,7 @@ export function LogsTable({
   const overscanLastTsRef = useRef<number>(0);
   const overscanDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overscanLastSetRef = useRef<number>(8);
+  const VirtualList = virtualListComponent ?? List;
   // Track latest paging flags for scroll handler without re-binding listeners
   const hasMoreRef = useRef<boolean>(hasMore);
   const loadingRef = useRef<boolean>(loading);
@@ -231,7 +234,7 @@ export function LogsTable({
   return (
     <div ref={outerRef} className="relative overflow-hidden">
       <LogsHeader ref={headerRef} t={t} sortBy={sortBy} sortDir={sortDir} onSort={onSort} gridTemplate={gridTemplate} />
-      <List
+      <VirtualList
         style={{ height: measuredListHeight, width: '100%' }}
         rowCount={rows.length}
         rowHeight={(index: number) => getItemSize(index)}

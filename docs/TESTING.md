@@ -4,9 +4,10 @@ This project uses VS Code integration tests (Mocha running inside the Extension 
 
 ## Commands
 
-- `npm run test:unit`: fast path; runs tests with scope=unit.
+- `npm run test:webview`: executes the React webview suites under Jest with a jsdom environment (fast, no VS Code host required).
+- `npm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
 - `npm run test:integration`: installs dependency extensions if needed and runs integration tests.
-- `npm run test:all`: runs both scopes (unit + integration).
+- `npm run test:all`: runs the Jest webview suites, then both unit and integration scopes.
 
 The test orchestrator lives in `scripts/run-tests.js` and the Mocha programmatic runner in `src/test/runner.ts`.
 

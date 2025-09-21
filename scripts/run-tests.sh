@@ -14,7 +14,17 @@ if [[ -n "${ENABLE_COVERAGE:-}" && "${ENABLE_COVERAGE}" != "0" ]]; then
       export NODE_OPTIONS="--enable-source-maps"
     fi
   fi
-  cmd=(npx --no-install c8 "${cmd[@]}")
+  webview_exclude="src/webview/**"
+  if [[ -n "${C8_EXCLUDE:-}" ]]; then
+    if [[ ",${C8_EXCLUDE}," != *",${webview_exclude},"* ]]; then
+      export C8_EXCLUDE="${webview_exclude},${C8_EXCLUDE}"
+    fi
+  else
+    export C8_EXCLUDE="${webview_exclude}"
+  fi
+  report_dir="coverage/extension"
+  mkdir -p "${report_dir}"
+  cmd=(npx --no-install c8 --exclude "${webview_exclude}" --exclude-after-remap --report-dir "${report_dir}" --reporter=json --reporter=json-summary --reporter=lcovonly --reporter=html "${cmd[@]}")
 fi
 
 if command -v xvfb-run >/dev/null 2>&1 && [[ -z "${DISPLAY:-}" ]]; then
