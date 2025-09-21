@@ -12,7 +12,7 @@ const sources = [
   { name: 'webview', file: path.join(coverageDir, 'webview', 'coverage-final.json') }
 ];
 
-const coverageMap = createCoverageMap({});
+let coverageMap = createCoverageMap({});
 let mergedAny = false;
 
 for (const source of sources) {
@@ -37,6 +37,20 @@ for (const source of sources) {
 if (!mergedAny) {
   console.warn('[coverage-merge] no coverage inputs detected; nothing to merge.');
   process.exit(0);
+}
+
+const excludedPrefixes = ['src/test/'];
+if (excludedPrefixes.length) {
+  const filteredMap = createCoverageMap({});
+  for (const file of coverageMap.files()) {
+    const rel = path.relative(rootDir, file).replace(/\\/g, '/');
+    if (excludedPrefixes.some(prefix => rel.startsWith(prefix))) {
+      console.log(`[coverage-merge] dropped test coverage: ${rel}`);
+      continue;
+    }
+    filteredMap.addFileCoverage(coverageMap.fileCoverageFor(file));
+  }
+  coverageMap = filteredMap;
 }
 
 fs.mkdirSync(coverageDir, { recursive: true });
