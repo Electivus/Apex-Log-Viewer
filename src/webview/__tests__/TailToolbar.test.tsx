@@ -1,17 +1,16 @@
-import assert from 'assert/strict';
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
-import { TailToolbar } from '../webview/components/tail/TailToolbar';
-import { getMessages } from '../webview/i18n';
-import type { OrgItem } from '../shared/types';
+import { TailToolbar } from '../components/tail/TailToolbar';
+import { getMessages } from '../i18n';
+import type { OrgItem } from '../../shared/types';
 
 const t = getMessages('en');
 const orgs: OrgItem[] = [
   { username: 'user@example.com', alias: 'Primary', isDefaultUsername: true } as OrgItem
 ];
 
-suite('TailToolbar webview component', () => {
-  test('starts and stops tailing based on running state', () => {
+describe('TailToolbar webview component', () => {
+  it('starts and stops tailing based on running state', () => {
     let starts = 0;
     let stops = 0;
 
@@ -49,7 +48,7 @@ suite('TailToolbar webview component', () => {
 
     const startButton = screen.getByRole('button', { name: 'Start' });
     fireEvent.click(startButton);
-    assert.equal(starts, 1, 'start callback fires when not running');
+    expect(starts).toBe(1);
 
     rerender(
       <TailToolbar
@@ -85,10 +84,10 @@ suite('TailToolbar webview component', () => {
 
     const stopButton = screen.getByRole('button', { name: 'Stop' });
     fireEvent.click(stopButton);
-    assert.equal(stops, 1, 'stop callback fires when running');
+    expect(stops).toBe(1);
   });
 
-  test('disables actions while busy and surfaces error copy', () => {
+  it('disables actions while busy and surfaces error copy', () => {
     const openCalls: string[] = [];
 
     render(
@@ -123,15 +122,15 @@ suite('TailToolbar webview component', () => {
     screen.getByText('Connection lost');
 
     const openButton = screen.getByRole('button', { name: 'Open Log' });
-    assert.equal(openButton.getAttribute('disabled'), '');
+    expect(openButton).toBeDisabled();
     const loader = openButton.querySelector('.animate-spin');
-    assert.ok(loader, 'loader appears while disabled with actionable selection');
+    expect(loader).not.toBeNull();
 
     fireEvent.click(openButton);
-    assert.deepEqual(openCalls, [], 'no callbacks run while disabled');
+    expect(openCalls).toEqual([]);
   });
 
-  test('propagates control changes for filters, switches and inputs', () => {
+  it('propagates control changes for filters, switches and inputs', () => {
     const toggles: Array<{ type: string; value: boolean }> = [];
     const debugChanges: string[] = [];
     const queryChanges: string[] = [];
@@ -176,17 +175,17 @@ suite('TailToolbar webview component', () => {
 
     const searchInput = screen.getByLabelText('Search live logs…') as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: 'filter' } });
-    assert.deepEqual(queryChanges, ['filter']);
+    expect(queryChanges).toEqual(['filter']);
 
     const debugLevelSelect = screen.getByLabelText('Debug level') as HTMLSelectElement;
     fireEvent.change(debugLevelSelect, { target: { value: 'LevelB' } });
-    assert.deepEqual(debugChanges, ['LevelB']);
+    expect(debugChanges).toEqual(['LevelB']);
 
     fireEvent.click(screen.getByLabelText('Debug Only'));
     fireEvent.click(screen.getByLabelText('Color'));
     fireEvent.click(screen.getByLabelText('Auto-scroll'));
 
-    assert.deepEqual(toggles, [
+    expect(toggles).toEqual([
       { type: 'debug', value: true },
       { type: 'color', value: true },
       { type: 'auto', value: true }

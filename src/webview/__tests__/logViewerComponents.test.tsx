@@ -1,17 +1,15 @@
-import assert from 'assert/strict';
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-const proxyquire: any = require('proxyquire');
 
-import type { LogCategory, ParsedLogEntry } from '../webview/utils/logViewerParser';
-import { LogViewerFilters } from '../webview/components/log-viewer/LogViewerFilters';
-import { LogViewerHeader } from '../webview/components/log-viewer/LogViewerHeader';
-import { LogViewerStatusBar } from '../webview/components/log-viewer/LogViewerStatusBar';
-import { LogEntryRow } from '../webview/components/log-viewer/LogEntryRow';
+import type { LogCategory, ParsedLogEntry } from '../utils/logViewerParser';
+import { LogViewerFilters } from '../components/log-viewer/LogViewerFilters';
+import { LogViewerHeader } from '../components/log-viewer/LogViewerHeader';
+import { LogViewerStatusBar } from '../components/log-viewer/LogViewerStatusBar';
+import { LogEntryRow } from '../components/log-viewer/LogEntryRow';
 
-suite('Log viewer components', () => {
-  suite('LogViewerHeader', () => {
-    test('handles search updates and disables controls', () => {
+describe('Log viewer components', () => {
+  describe('LogViewerHeader', () => {
+    it('handles search updates and disables controls', () => {
       const changes: string[] = [];
       const viewCalls: number[] = [];
       const { unmount } = render(
@@ -25,9 +23,9 @@ suite('Log viewer components', () => {
       );
 
       const search = screen.getByPlaceholderText('Search entries…') as HTMLInputElement;
-      assert.equal(search.disabled, true, 'search input disabled when prop set');
+      expect(search.disabled).toBe(true);
       const disabledButton = screen.getByRole('button', { name: 'View Raw' });
-      assert.equal(disabledButton.hasAttribute('disabled'), true, 'view raw button disabled');
+      expect(disabledButton).toBeDisabled();
       unmount();
 
       const enabledChanges: string[] = [];
@@ -44,15 +42,15 @@ suite('Log viewer components', () => {
 
       const input = screen.getByDisplayValue('debug');
       fireEvent.change(input, { target: { value: 'fatal error' } });
-      assert.equal(enabledChanges[0], 'fatal error');
+      expect(enabledChanges[0]).toBe('fatal error');
 
       fireEvent.click(screen.getByText('View Raw'));
-      assert.equal(enabledView.length, 1, 'view raw callback invoked');
+      expect(enabledView).toHaveLength(1);
     });
   });
 
-  suite('LogViewerFilters', () => {
-    test('toggles filters and formats counts with locale', () => {
+  describe('LogViewerFilters', () => {
+    it('toggles filters and formats counts with locale', () => {
       const calls: Array<string> = [];
       render(
         <LogViewerFilters
@@ -64,16 +62,16 @@ suite('Log viewer components', () => {
       );
 
       fireEvent.click(screen.getByText('Debug Only'));
-      assert.equal(calls[0], 'debug');
+      expect(calls[0]).toBe('debug');
 
       fireEvent.click(screen.getByText('SOQL'));
-      assert.equal(calls[1], 'soql');
+      expect(calls[1]).toBe('soql');
 
       const showing = screen.getByText(/entries$/);
-      assert.equal(showing.textContent?.includes('1,234 entries'), true, 'locale formatting applied');
+      expect(showing.textContent?.includes('1,234 entries')).toBe(true);
     });
 
-    test('falls back to default locale when Number.toLocaleString throws', () => {
+    it('falls back to default locale when Number.toLocaleString throws', () => {
       const original = Number.prototype.toLocaleString;
       Number.prototype.toLocaleString = function mocked(locale?: string) {
         if (locale === 'zz-ZZ') {
@@ -91,15 +89,15 @@ suite('Log viewer components', () => {
           />
         );
         const badge = screen.getByText(/entries/);
-        assert.equal(/456/.test(badge.textContent ?? ''), true, 'fallback renders default locale value');
+        expect(/456/.test(badge.textContent ?? '')).toBe(true);
       } finally {
         Number.prototype.toLocaleString = original;
       }
     });
   });
 
-  suite('LogViewerStatusBar', () => {
-    test('renders metadata and formatted values', () => {
+  describe('LogViewerStatusBar', () => {
+    it('renders metadata and formatted values', () => {
       render(
         <LogViewerStatusBar
           counts={{ total: 2048, debug: 20, soql: 10, dml: 4 }}
@@ -113,12 +111,11 @@ suite('Log viewer components', () => {
       screen.getByText('SOQL Queries: 10');
       screen.getByText('DML Operations: 4');
       screen.getByText('Size: 1.5 KB');
-      const updated = screen.getByText(/Updated:/);
-      assert.equal(updated.textContent?.includes('Updated:'), true);
+      expect(screen.getByText(/Updated:/)).toHaveTextContent('Updated:');
       screen.getByText('Ready');
     });
 
-    test('omits updated timestamp when invalid and recovers from locale failure', () => {
+    it('omits updated timestamp when invalid and recovers from locale failure', () => {
       const original = Number.prototype.toLocaleString;
       Number.prototype.toLocaleString = function mocked(locale?: string) {
         if (locale === 'bad-locale') {
@@ -134,7 +131,7 @@ suite('Log viewer components', () => {
             metadata={{ sizeBytes: 512, modifiedAt: 'not-a-date' }}
           />
         );
-        assert.equal(screen.queryByText(/Updated:/), null, 'invalid date hidden');
+        expect(screen.queryByText(/Updated:/)).toBeNull();
         screen.getByText('Size: 512 B');
       } finally {
         Number.prototype.toLocaleString = original;
@@ -142,7 +139,7 @@ suite('Log viewer components', () => {
     });
   });
 
-  suite('LogEntryRow', () => {
+  describe('LogEntryRow', () => {
     const baseEntry: ParsedLogEntry = {
       id: 1,
       timestamp: '12:00:00.000',
@@ -153,34 +150,40 @@ suite('Log viewer components', () => {
       details: 'Context info'
     };
 
-    test('measures row and applies highlight styling', () => {
+    it('measures row and applies highlight styling', () => {
       const measured: number[] = [];
       const { container } = render(<LogEntryRow entry={baseEntry} highlighted onMeasured={value => measured.push(value)} />);
-      const row = container.firstElementChild as HTMLDivElement;
-      assert.ok(row?.className.includes('bg-sky-500/10'), 'highlight class applied');
-      assert.equal(measured.length > 0, true, 'measurement callback invoked');
-      assert.ok(screen.getByText('Context info'));
+      const row = container.firstElementChild as HTMLDivElement | null;
+      expect(row?.className).toContain('bg-sky-500/10');
+      expect(measured.length).toBeGreaterThan(0);
+      expect(screen.getByText('Context info')).toBeInTheDocument();
     });
 
-    (['debug', 'soql', 'dml', 'code', 'limit', 'system', 'other'] as LogCategory[]).forEach(category => {
-      test(`applies visuals for ${category} entries`, () => {
+    it.each(['debug', 'soql', 'dml', 'code', 'limit', 'system', 'other'] as LogCategory[])(
+      'applies visuals for %s entries',
+      category => {
         const entry = { ...baseEntry, category, type: category.toUpperCase(), details: undefined };
         render(<LogEntryRow entry={entry} highlighted={false} onMeasured={() => {}} />);
         const badge = screen.getByText(entry.type);
-        assert.equal(typeof badge.className, 'string');
-        assert.equal(badge.className.length > 0, true);
-      });
-    });
+        expect(typeof badge.className).toBe('string');
+        expect(badge.className.length).toBeGreaterThan(0);
+      }
+    );
   });
 
-  suite('LogEntryList', () => {
-    test('renders empty state when no entries', () => {
-      const { LogEntryList } = require('../webview/components/log-viewer/LogEntryList');
+  describe('LogEntryList', () => {
+    afterEach(() => {
+      jest.resetModules();
+      jest.clearAllMocks();
+    });
+
+    it('renders empty state when no entries', async () => {
+      const { LogEntryList } = await import('../components/log-viewer/LogEntryList');
       render(<LogEntryList entries={[]} />);
       screen.getByText('No entries match the current filters.');
     });
 
-    test('renders rows, measures height, and forwards highlight category', async () => {
+    it('renders rows, measures height, and forwards highlight category', async () => {
       const entries: ParsedLogEntry[] = [
         {
           id: 0,
@@ -205,52 +208,45 @@ suite('Log viewer components', () => {
         highlighted: {}
       };
 
-      const List = (props: any) => {
-        const nodes = Array.from({ length: props.rowCount }).map((_, index) => (
-          <div key={index}>
-            {props.rowComponent({ ...props.rowProps, index, style: { height: props.rowHeight(index) } })}
-          </div>
-        ));
-        return (
-          <div
-            data-testid="virtual-list"
-            ref={el => {
-              if (props.listRef) {
-                const api = { element: el };
-                if (typeof props.listRef === 'function') props.listRef(api);
-                else props.listRef.current = api;
-              }
-            }}
-          >
-            {nodes}
-          </div>
-        );
-      };
+      jest.doMock('react-window', () => ({
+        List: ({ rowCount, rowHeight, rowComponent, rowProps, listRef }: any) => {
+          const nodes = Array.from({ length: rowCount }).map((_, index) =>
+            rowComponent({ ...rowProps, index, style: { height: rowHeight(index) } })
+          );
+          const handleRef = (api: unknown) => {
+            if (typeof listRef === 'function') {
+              listRef(api);
+            } else if (listRef && 'current' in listRef) {
+              (listRef as { current: unknown }).current = api;
+            }
+          };
+          handleRef({ element: document.createElement('div') });
+          return <div data-testid="virtual-list">{nodes}</div>;
+        }
+      }));
 
-      const StubRow = ({ entry, highlighted, onMeasured }: any) => {
-        React.useEffect(() => {
-          const value = 72 + entry.id;
-          captured.measured.push(value);
-          onMeasured(value);
-        }, [entry, onMeasured]);
-        captured.highlighted[entry.id] = highlighted;
-        return <div data-testid={`row-${entry.id}`}>{entry.message}</div>;
-      };
+      jest.doMock('../components/log-viewer/LogEntryRow', () => ({
+        LogEntryRow: ({ entry, highlighted, onMeasured }: any) => {
+          React.useEffect(() => {
+            const value = 72 + entry.id;
+            captured.measured.push(value);
+            onMeasured(value);
+          }, [entry, onMeasured]);
+          captured.highlighted[entry.id] = highlighted;
+          return <div data-testid={`row-${entry.id}`}>{entry.message}</div>;
+        }
+      }));
 
-      const { LogEntryList } = proxyquire('../webview/components/log-viewer/LogEntryList', {
-        'react-window': { List },
-        './LogEntryRow': { LogEntryRow: StubRow }
-      });
-
+      const { LogEntryList } = await import('../components/log-viewer/LogEntryList');
       render(<LogEntryList entries={entries} highlightCategory="debug" />);
 
       await waitFor(() => {
-        assert.equal(captured.highlighted[0], true);
-        assert.equal(captured.highlighted[1], false);
+        expect(captured.highlighted[0]).toBe(true);
+        expect(captured.highlighted[1]).toBe(false);
       });
 
       await waitFor(() => {
-        assert.equal(captured.measured.length > 0, true);
+        expect(captured.measured.length).toBeGreaterThan(0);
       });
     });
   });

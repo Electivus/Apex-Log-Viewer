@@ -1,12 +1,11 @@
-import assert from 'assert/strict';
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
-import type { VsCodeWebviewApi } from '../webview/vscodeApi';
-import { LogsApp } from '../webview/main';
+import type { VsCodeWebviewApi } from '../vscodeApi';
+import { LogsApp } from '../main';
 
-suite('Logs webview App', () => {
+describe('Logs webview App', () => {
   function createVsCodeMock() {
     const posted: WebviewToExtensionMessage[] = [];
     const vscode: VsCodeWebviewApi<WebviewToExtensionMessage> = {
@@ -25,12 +24,12 @@ suite('Logs webview App', () => {
     });
   }
 
-  test('responds to extension messages and exposes key actions', async () => {
+  it('responds to extension messages and exposes key actions', async () => {
     const { vscode, posted } = createVsCodeMock();
     const bus = new EventTarget();
     render(<LogsApp vscode={vscode} messageBus={bus} />);
 
-    assert.deepEqual(posted[0], { type: 'ready' }, 'posts ready on mount');
+    expect(posted[0]).toEqual({ type: 'ready' });
 
     sendMessage(bus, { type: 'init', locale: 'pt-BR' });
     await screen.findByText('Atualizar');
@@ -81,7 +80,7 @@ suite('Logs webview App', () => {
     sendMessage(bus, { type: 'logs', data: baseLogs, hasMore: true });
     sendMessage(bus, { type: 'loading', value: false });
     await waitFor(() => {
-      assert.equal(screen.queryByText('Falhou ao carregar'), null);
+      expect(screen.queryByText('Falhou ao carregar')).toBeNull();
     });
 
     await screen.findByText('ExecuteAnonymous');
@@ -116,7 +115,7 @@ suite('Logs webview App', () => {
     const timeButton = within(timeHeader).getByRole('button');
     fireEvent.click(timeButton);
     await waitFor(() => {
-      assert.equal(screen.getByRole('columnheader', { name: /Tempo/i }).getAttribute('aria-sort'), 'ascending');
+      expect(screen.getByRole('columnheader', { name: /Tempo/i }).getAttribute('aria-sort')).toBe('ascending');
     });
 
     const openButtons = await screen.findAllByRole('button', { name: 'Abrir' });
@@ -126,10 +125,8 @@ suite('Logs webview App', () => {
 
     await waitFor(() => {
       const types = posted.map(m => m.type);
-      assert.equal(types[0], 'ready');
-      assert(types.includes('openLog'), 'openLog message emitted');
-      assert(types.includes('replay'), 'replay message emitted');
-      assert(types.includes('refresh'), 'refresh message emitted');
+      expect(types[0]).toBe('ready');
+      expect(types).toEqual(expect.arrayContaining(['openLog', 'replay', 'refresh']));
     });
   });
 });

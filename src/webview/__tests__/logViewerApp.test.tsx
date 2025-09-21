@@ -1,10 +1,9 @@
-import assert from 'assert/strict';
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { LogViewerFromWebviewMessage, LogViewerToWebviewMessage } from '../shared/logViewerMessages';
-import type { VsCodeWebviewApi } from '../webview/vscodeApi';
-import { LogViewerApp } from '../webview/logViewer';
+import type { VsCodeWebviewApi } from '../vscodeApi';
+import { LogViewerApp } from '../logViewer';
 
 type PendingFetch = {
   url: string;
@@ -12,7 +11,7 @@ type PendingFetch = {
   reject: (reason?: unknown) => void;
 };
 
-suite('Log Viewer App', () => {
+describe('Log Viewer App', () => {
   function createVsCodeMock() {
     const posted: LogViewerFromWebviewMessage[] = [];
     const vscode: VsCodeWebviewApi<LogViewerFromWebviewMessage> = {
@@ -52,13 +51,13 @@ suite('Log Viewer App', () => {
     } as Response;
   }
 
-  test('renders inline logs, fetches remote logs, and handles errors', async () => {
+  it('renders inline logs, fetches remote logs, and handles errors', async () => {
     const { vscode, posted } = createVsCodeMock();
     const bus = new EventTarget();
     const { pending, fetchStub } = createPendingFetch();
 
     render(<LogViewerApp vscode={vscode} messageBus={bus} fetchImpl={fetchStub} />);
-    assert.equal(posted[0]?.type, 'logViewerReady');
+    expect(posted[0]?.type).toBe('logViewerReady');
 
     send(bus, {
       type: 'logViewerInit',
@@ -86,7 +85,7 @@ suite('Log Viewer App', () => {
       fileName: 'Remote.log',
       logUri: 'https://example.com/log-one'
     });
-    assert.equal(pending.length, 1);
+    expect(pending).toHaveLength(1);
 
     send(bus, {
       type: 'logViewerInit',
@@ -95,7 +94,7 @@ suite('Log Viewer App', () => {
       fileName: 'Remote.log',
       logUri: 'https://example.com/log-two'
     });
-    assert.equal(pending.length, 2);
+    expect(pending).toHaveLength(2);
 
     await act(async () => {
       pending[0]!.resolve(createResponse('12:00:10.000 (0)|USER_DEBUG|[1]|Old|Ignored'));
@@ -105,7 +104,7 @@ suite('Log Viewer App', () => {
       pending[1]!.resolve(createResponse('12:00:11.000 (0)|SOQL_EXECUTION_BEGIN|SELECT Id FROM Account'));
     });
     await screen.findByText('SELECT Id FROM Account');
-    assert.equal(screen.queryByText('Old | Ignored'), null, 'stale fetch ignored');
+    expect(screen.queryByText('Old | Ignored')).toBeNull();
 
     send(bus, {
       type: 'logViewerInit',
@@ -145,8 +144,8 @@ suite('Log Viewer App', () => {
 
     await waitFor(() => {
       const types = posted.map(m => m.type);
-      assert.equal(types[0], 'logViewerReady');
-      assert(types.includes('logViewerViewRaw'), 'view raw message emitted');
+      expect(types[0]).toBe('logViewerReady');
+      expect(types).toContain('logViewerViewRaw');
     });
   });
 });

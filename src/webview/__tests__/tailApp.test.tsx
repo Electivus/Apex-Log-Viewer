@@ -1,12 +1,11 @@
-import assert from 'assert/strict';
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
-import type { VsCodeWebviewApi } from '../webview/vscodeApi';
-import { TailApp } from '../webview/tail';
+import type { VsCodeWebviewApi } from '../vscodeApi';
+import { TailApp } from '../tail';
 
-suite('Tail webview App', () => {
+describe('Tail webview App', () => {
   function createVsCodeMock() {
     const posted: WebviewToExtensionMessage[] = [];
     const vscode: VsCodeWebviewApi<WebviewToExtensionMessage> = {
@@ -25,12 +24,12 @@ suite('Tail webview App', () => {
     });
   }
 
-  test('tails logs, trims buffer, and exposes tail actions', async () => {
+  it('tails logs, trims buffer, and exposes tail actions', async () => {
     const { vscode, posted } = createVsCodeMock();
     const bus = new EventTarget();
     render(<TailApp vscode={vscode} messageBus={bus} />);
 
-    assert.equal(posted[0]?.type, 'ready');
+    expect(posted[0]?.type).toBe('ready');
 
     send(bus, { type: 'init', locale: 'pt-BR' });
     await screen.findByText('Iniciar');
@@ -57,7 +56,7 @@ suite('Tail webview App', () => {
     });
 
     await screen.findByText('13:00:05.000|USER_DEBUG|line-5');
-    assert.equal(screen.queryByText(headerOne), null, 'old lines trimmed from buffer');
+    expect(screen.queryByText(headerOne)).toBeNull();
 
     send(bus, { type: 'tailStatus', running: true });
     await screen.findByText('Parar');
@@ -70,13 +69,13 @@ suite('Tail webview App', () => {
 
     fireEvent.click(screen.getByText('13:00:03.000|USER_DEBUG|line-3'));
     const openBtn = screen.getByRole('button', { name: 'Abrir Log' });
-    await waitFor(() => assert.equal(openBtn.hasAttribute('disabled'), false));
+    await waitFor(() => expect(openBtn.hasAttribute('disabled')).toBe(false));
     fireEvent.click(openBtn);
     fireEvent.click(screen.getByRole('button', { name: 'Replay Debugger' }));
 
     fireEvent.click(screen.getByLabelText('Somente USER_DEBUG'));
     await waitFor(() => {
-      assert.equal(screen.queryByText('13:00:04.000|METHOD_ENTRY|line-4'), null);
+      expect(screen.queryByText('13:00:04.000|METHOD_ENTRY|line-4')).toBeNull();
     });
     fireEvent.click(screen.getByLabelText('Somente USER_DEBUG'));
 
@@ -91,11 +90,7 @@ suite('Tail webview App', () => {
 
     await waitFor(() => {
       const types = posted.map(m => m.type);
-      assert(types.includes('tailStart'), 'tailStart emitted');
-      assert(types.includes('tailStop'), 'tailStop emitted');
-      assert(types.includes('tailClear'), 'tailClear emitted');
-      assert(types.includes('openLog'), 'openLog emitted');
-      assert(types.includes('replay'), 'replay emitted');
+      expect(types).toEqual(expect.arrayContaining(['tailStart', 'tailStop', 'tailClear', 'openLog', 'replay']));
     });
   });
 });

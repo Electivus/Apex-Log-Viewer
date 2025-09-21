@@ -1,9 +1,8 @@
-import assert from 'assert/strict';
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
-import { Toolbar } from '../webview/components/Toolbar';
-import { getMessages } from '../webview/i18n';
-import type { OrgItem } from '../shared/types';
+import { Toolbar } from '../components/Toolbar';
+import { getMessages } from '../i18n';
+import type { OrgItem } from '../../shared/types';
 
 type ToolbarRenderOptions = {
   loading?: boolean;
@@ -88,26 +87,26 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
   };
 }
 
-suite('Toolbar webview component', () => {
-  test('disables refresh and inputs while loading and surfaces progress message', () => {
+describe('Toolbar webview component', () => {
+  it('disables refresh and inputs while loading and surfaces progress message', () => {
     const utils = renderToolbar({ loading: true });
 
     const refreshButton = screen.getByRole('button', { name: 'Loading…' });
-    assert.equal(refreshButton.getAttribute('disabled'), '');
+    expect(refreshButton).toBeDisabled();
     fireEvent.click(refreshButton);
-    assert.equal(utils.refreshCount(), 0, 'click ignored while disabled');
+    expect(utils.refreshCount()).toBe(0);
 
     const searchInput = screen.getByLabelText('Search logs…') as HTMLInputElement;
-    assert.ok(searchInput.disabled, 'search input should be disabled during loading');
+    expect(searchInput.disabled).toBe(true);
 
     const loadingNotice = screen.getAllByText('Loading…');
-    assert.ok(loadingNotice.length >= 1, 'renders loading copy when busy');
+    expect(loadingNotice.length).toBeGreaterThanOrEqual(1);
 
     const spinner = refreshButton.querySelector('.animate-spin');
-    assert.ok(spinner, 'refresh button shows spinner icon');
+    expect(spinner).not.toBeNull();
   });
 
-  test('shows error banner and enables clearing when filters are active', () => {
+  it('shows error banner and enables clearing when filters are active', () => {
     const utils = renderToolbar({
       error: 'Request failed',
       filterUser: 'User A',
@@ -118,22 +117,22 @@ suite('Toolbar webview component', () => {
     screen.getByText('Request failed');
 
     const clearButton = screen.getByRole('button', { name: 'Clear filters' });
-    assert.equal(clearButton.getAttribute('disabled'), null);
+    expect(clearButton).not.toBeDisabled();
     fireEvent.click(clearButton);
-    assert.equal(utils.clearCount(), 1, 'clear callback invoked');
+    expect(utils.clearCount()).toBe(1);
 
     const userSelect = screen.getByLabelText('User') as HTMLSelectElement;
     fireEvent.change(userSelect, { target: { value: 'User B' } });
-    assert.deepEqual(utils.userChanges, ['user:User B']);
+    expect(utils.userChanges).toEqual(['user:User B']);
   });
 
-  test('disables clear action when no filters and captures query updates', () => {
+  it('disables clear action when no filters and captures query updates', () => {
     const utils = renderToolbar();
     const clearButton = screen.getByRole('button', { name: 'Clear filters' });
-    assert.equal(clearButton.getAttribute('disabled'), '', 'clear disabled with no filters');
+    expect(clearButton).toBeDisabled();
 
     const searchInput = screen.getByLabelText('Search logs…') as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: 'new search' } });
-    assert.deepEqual(utils.queryChanges, ['new search']);
+    expect(utils.queryChanges).toEqual(['new search']);
   });
 });
