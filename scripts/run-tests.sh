@@ -22,7 +22,9 @@ if [[ -n "${ENABLE_COVERAGE:-}" && "${ENABLE_COVERAGE}" != "0" ]]; then
   else
     export C8_EXCLUDE="${webview_exclude}"
   fi
-  cmd=(npx --no-install c8 --exclude "${webview_exclude}" --exclude-after-remap "${cmd[@]}")
+  report_dir="coverage/extension"
+  mkdir -p "${report_dir}"
+  cmd=(npx --no-install c8 --exclude "${webview_exclude}" --exclude-after-remap --report-dir "${report_dir}" --reporter=json --reporter=json-summary --reporter=lcovonly --reporter=html "${cmd[@]}")
 fi
 
 if command -v xvfb-run >/dev/null 2>&1 && [[ -z "${DISPLAY:-}" ]]; then
