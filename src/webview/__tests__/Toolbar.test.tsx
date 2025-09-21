@@ -37,46 +37,56 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
   const queryChanges: string[] = [];
   const userChanges: string[] = [];
 
-  const view = render(
-    <Toolbar
-      loading={loading}
-      error={error}
-      onRefresh={() => {
-        refreshCount++;
-      }}
-      t={t}
-      orgs={orgs}
-      selectedOrg="u1"
-      onSelectOrg={() => {}}
-      query="initial"
-      onQueryChange={value => {
-        queryChanges.push(value);
-      }}
-      users={users}
-      operations={operations}
-      statuses={statuses}
-      codeUnits={codeUnits}
-      filterUser={filterUser}
-      filterOperation={filterOperation}
-      filterStatus={filterStatus}
-      filterCodeUnit={filterCodeUnit}
-      onFilterUserChange={value => {
-        userChanges.push(`user:${value}`);
-      }}
-      onFilterOperationChange={value => {
-        userChanges.push(`op:${value}`);
-      }}
-      onFilterStatusChange={value => {
-        userChanges.push(`status:${value}`);
-      }}
-      onFilterCodeUnitChange={value => {
-        userChanges.push(`code:${value}`);
-      }}
-      onClearFilters={() => {
-        clearCount++;
-      }}
-    />
-  );
+  const originalDocumentFragment = globalThis.DocumentFragment;
+  // Force native selects to simplify interaction semantics in tests
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).DocumentFragment = undefined;
+  let view: ReturnType<typeof render>;
+  try {
+    view = render(
+      <Toolbar
+        loading={loading}
+        error={error}
+        onRefresh={() => {
+          refreshCount++;
+        }}
+        t={t}
+        orgs={orgs}
+        selectedOrg="u1"
+        onSelectOrg={() => {}}
+        query="initial"
+        onQueryChange={value => {
+          queryChanges.push(value);
+        }}
+        users={users}
+        operations={operations}
+        statuses={statuses}
+        codeUnits={codeUnits}
+        filterUser={filterUser}
+        filterOperation={filterOperation}
+        filterStatus={filterStatus}
+        filterCodeUnit={filterCodeUnit}
+        onFilterUserChange={value => {
+          userChanges.push(`user:${value}`);
+        }}
+        onFilterOperationChange={value => {
+          userChanges.push(`op:${value}`);
+        }}
+        onFilterStatusChange={value => {
+          userChanges.push(`status:${value}`);
+        }}
+        onFilterCodeUnitChange={value => {
+          userChanges.push(`code:${value}`);
+        }}
+        onClearFilters={() => {
+          clearCount++;
+        }}
+      />
+    );
+  } finally {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).DocumentFragment = originalDocumentFragment;
+  }
 
   return {
     view,

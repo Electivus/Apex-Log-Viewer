@@ -1,5 +1,14 @@
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render, waitFor } from '@testing-library/react';
+
+import { TailList } from '../components/tail/TailList';
+
+type TailListInputs = Parameters<typeof TailList>[0];
+
+type CapturedList = {
+  element?: HTMLDivElement | null;
+  overscanCount?: number;
+};
 
 const t = {
   tail: {
@@ -9,44 +18,33 @@ const t = {
   }
 };
 
-describe('TailList', () => {
-  afterEach(() => {
-    jest.resetModules();
-    jest.clearAllMocks();
-  });
+function createVirtualList(captured: CapturedList) {
+  return function VirtualList({ listRef, overscanCount }: any) {
+    captured.overscanCount = overscanCount;
+    return (
+      <div
+        ref={el => {
+          captured.element = el as HTMLDivElement | null;
+          const api = { element: el, scrollToRow: () => {} };
+          if (typeof listRef === 'function') {
+            listRef(api);
+          } else if (listRef && typeof listRef === 'object' && 'current' in listRef) {
+            (listRef as { current: unknown }).current = api;
+          }
+        }}
+      />
+    );
+  };
+}
 
-  function mountWithStubbedList({
+describe('TailList', () => {
+  function renderTailList({
     lines,
     filteredIndexes,
     onAtBottomChange
-  }: {
-    lines: string[];
-    filteredIndexes: number[];
-    onAtBottomChange?: (value: boolean) => void;
-  }) {
-    jest.resetModules();
-    const captured: Record<string, unknown> & { el?: HTMLDivElement; overscanCount?: number } = {};
-    jest.doMock('react-window', () => ({
-      List: ({ listRef, overscanCount }: any) => {
-        captured.overscanCount = overscanCount;
-        return (
-          <div
-            ref={el => {
-              captured.el = el as HTMLDivElement | null;
-              const api = { element: el, scrollToRow: () => {} };
-              if (typeof listRef === 'function') {
-                listRef(api);
-              } else if (listRef && typeof listRef === 'object' && 'current' in listRef) {
-                (listRef as { current: unknown }).current = api;
-              }
-            }}
-          />
-        );
-      }
-    }));
-    const { TailList } = require('../components/tail/TailList') as typeof import('../components/tail/TailList');
-
-    const listRef = React.createRef<any>();
+  }: Pick<TailListInputs, 'lines' | 'filteredIndexes' | 'onAtBottomChange'>) {
+    const captured: CapturedList = {};
+    const virtualList = createVirtualList(captured);
     render(
       <TailList
         lines={lines}
@@ -55,38 +53,41 @@ describe('TailList', () => {
         onSelectIndex={() => {}}
         colorize={false}
         running
-        listRef={listRef}
+        listRef={React.createRef()}
         t={t as any}
         onAtBottomChange={onAtBottomChange}
+        virtualListComponent={virtualList}
       />
     );
-    return captured as { el: HTMLDivElement; overscanCount: number } & Record<string, unknown>;
+    return captured as { element: HTMLDivElement } & CapturedList;
   }
 
   it('adjusts overscan based on scroll speed', async () => {
     const lines = Array.from({ length: 50 }, (_, i) => `Line ${i}`);
     const filtered = lines.map((_, i) => i);
-    const captured = mountWithStubbedList({ lines, filteredIndexes: filtered });
+    const captured = renderTailList({ lines, filteredIndexes: filtered });
 
-    const el = captured.el as HTMLDivElement;
+    const el = captured.element;
     const originalNow = performance.now.bind(performance);
     let now = 0;
     (performance as any).now = () => now;
 
-    el.scrollTop = 20;
-    fireEvent.scroll(el);
-    now += 20;
-    el.scrollTop = 120;
-    fireEvent.scroll(el);
-    now += 20;
-    el.scrollTop = 260;
-    fireEvent.scroll(el);
+    await act(async () => {
+      el.scrollTop = 20;
+      fireEvent.scroll(el);
+      now += 20;
+      el.scrollTop = 120;
+      fireEvent.scroll(el);
+      now += 20;
+      el.scrollTop = 260;
+      fireEvent.scroll(el);
+      await Promise.resolve();
+    });
+    expect(captured.overscanCount as number).toBeGreaterThan(8);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(captured.overscanCount).toBeGreaterThan(8);
-
-    await new Promise(resolve => setTimeout(resolve, 250));
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 250));
+    });
     expect(captured.overscanCount).toBe(8);
 
     (performance as any).now = originalNow;
@@ -96,30 +97,35 @@ describe('TailList', () => {
     const lines = Array.from({ length: 10 }, (_, i) => `Line ${i}`);
     const filtered = lines.map((_, i) => i);
     const calls: boolean[] = [];
-    const captured = mountWithStubbedList({
+    const captured = renderTailList({
       lines,
       filteredIndexes: filtered,
       onAtBottomChange: value => calls.push(value)
     });
 
-    const el = captured.el as HTMLDivElement;
+    const el = captured.element;
     Object.defineProperty(el, 'clientHeight', { value: 300, configurable: true });
     Object.defineProperty(el, 'scrollHeight', { value: 1000, configurable: true });
-    el.scrollTop = 1000 - 300 - 2; // remaining = 2 (<= threshold 4)
 
-    fireEvent.scroll(el);
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(calls.length).toBeGreaterThan(0);
-    expect(calls[calls.length - 1]).toBe(true);
+    await act(async () => {
+      el.scrollTop = 1000 - 300 - 2;
+      fireEvent.scroll(el);
+      await Promise.resolve();
+    });
+    expect(calls.at(-1)).toBe(true);
 
-    el.scrollTop = 500;
-    fireEvent.scroll(el);
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(calls[calls.length - 1]).toBe(false);
+    await act(async () => {
+      el.scrollTop = 500;
+      fireEvent.scroll(el);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(calls.at(-1)).toBe(false));
 
-    el.scrollTop = 1000 - 300 - 1;
-    fireEvent.scroll(el);
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(calls[calls.length - 1]).toBe(true);
+    await act(async () => {
+      el.scrollTop = 1000 - 300 - 1;
+      fireEvent.scroll(el);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(calls.at(-1)).toBe(true));
   });
 });

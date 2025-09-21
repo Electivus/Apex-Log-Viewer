@@ -9,12 +9,36 @@ const orgs: OrgItem[] = [
   { username: 'user@example.com', alias: 'Primary', isDefaultUsername: true } as OrgItem
 ];
 
+function renderWithNativeSelect(element: React.ReactElement) {
+  const originalDocumentFragment = globalThis.DocumentFragment;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).DocumentFragment = undefined;
+  const result = render(element);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).DocumentFragment = originalDocumentFragment;
+  const baseRerender = result.rerender;
+  return {
+    ...result,
+    rerender: (next: React.ReactElement) => {
+      const snapshot = globalThis.DocumentFragment;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).DocumentFragment = undefined;
+      try {
+        baseRerender(next);
+      } finally {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (globalThis as any).DocumentFragment = snapshot;
+      }
+    }
+  };
+}
+
 describe('TailToolbar webview component', () => {
   it('starts and stops tailing based on running state', () => {
     let starts = 0;
     let stops = 0;
 
-    const { rerender } = render(
+    const { rerender } = renderWithNativeSelect(
       <TailToolbar
         running={false}
         onStart={() => {
@@ -50,7 +74,7 @@ describe('TailToolbar webview component', () => {
     fireEvent.click(startButton);
     expect(starts).toBe(1);
 
-    rerender(
+    renderWithNativeSelect(
       <TailToolbar
         running
         onStart={() => {
@@ -90,7 +114,7 @@ describe('TailToolbar webview component', () => {
   it('disables actions while busy and surfaces error copy', () => {
     const openCalls: string[] = [];
 
-    render(
+    renderWithNativeSelect(
       <TailToolbar
         running={false}
         onStart={() => {}}
@@ -135,7 +159,7 @@ describe('TailToolbar webview component', () => {
     const debugChanges: string[] = [];
     const queryChanges: string[] = [];
 
-    render(
+    renderWithNativeSelect(
       <TailToolbar
         running={false}
         onStart={() => {}}

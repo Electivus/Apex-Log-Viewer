@@ -56,7 +56,7 @@ describe('Tail webview App', () => {
     });
 
     await screen.findByText('13:00:05.000|USER_DEBUG|line-5');
-    expect(screen.queryByText(headerOne)).toBeNull();
+    await waitFor(() => expect(screen.queryByText(headerOne)).toBeNull());
 
     send(bus, { type: 'tailStatus', running: true });
     await screen.findByText('Parar');

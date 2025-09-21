@@ -6,6 +6,7 @@ import { LogViewerFilters } from '../components/log-viewer/LogViewerFilters';
 import { LogViewerHeader } from '../components/log-viewer/LogViewerHeader';
 import { LogViewerStatusBar } from '../components/log-viewer/LogViewerStatusBar';
 import { LogEntryRow } from '../components/log-viewer/LogEntryRow';
+import { LogEntryList } from '../components/log-viewer/LogEntryList';
 
 describe('Log viewer components', () => {
   describe('LogViewerHeader', () => {
@@ -172,13 +173,7 @@ describe('Log viewer components', () => {
   });
 
   describe('LogEntryList', () => {
-    afterEach(() => {
-      jest.resetModules();
-      jest.clearAllMocks();
-    });
-
-    it('renders empty state when no entries', async () => {
-      const { LogEntryList } = await import('../components/log-viewer/LogEntryList');
+    it('renders empty state when no entries', () => {
       render(<LogEntryList entries={[]} />);
       screen.getByText('No entries match the current filters.');
     });
@@ -208,37 +203,46 @@ describe('Log viewer components', () => {
         highlighted: {}
       };
 
-      jest.doMock('react-window', () => ({
-        List: ({ rowCount, rowHeight, rowComponent, rowProps, listRef }: any) => {
-          const nodes = Array.from({ length: rowCount }).map((_, index) =>
-            rowComponent({ ...rowProps, index, style: { height: rowHeight(index) } })
-          );
-          const handleRef = (api: unknown) => {
-            if (typeof listRef === 'function') {
-              listRef(api);
-            } else if (listRef && 'current' in listRef) {
-              (listRef as { current: unknown }).current = api;
-            }
-          };
-          handleRef({ element: document.createElement('div') });
-          return <div data-testid="virtual-list">{nodes}</div>;
-        }
-      }));
+      const VirtualList = ({ rowCount, rowHeight, rowComponent, rowProps, listRef }: any) => {
+        const rows = Array.from({ length: rowCount }).map((_, index) => {
+          const rendered = rowComponent({ ...rowProps, index, style: { height: rowHeight(index) } });
+          return <React.Fragment key={index}>{rendered}</React.Fragment>;
+        });
+        return (
+          <div
+            data-testid="virtual-list"
+            ref={el => {
+              const api = { element: el, scrollToRow: () => {} };
+              if (typeof listRef === 'function') {
+                listRef(api);
+              } else if (listRef && 'current' in listRef) {
+                (listRef as { current: unknown }).current = api;
+              }
+            }}
+          >
+            {rows}
+          </div>
+        );
+      };
 
-      jest.doMock('../components/log-viewer/LogEntryRow', () => ({
-        LogEntryRow: ({ entry, highlighted, onMeasured }: any) => {
-          React.useEffect(() => {
-            const value = 72 + entry.id;
-            captured.measured.push(value);
-            onMeasured(value);
-          }, [entry, onMeasured]);
-          captured.highlighted[entry.id] = highlighted;
-          return <div data-testid={`row-${entry.id}`}>{entry.message}</div>;
-        }
-      }));
+      const StubRow = ({ entry, highlighted, onMeasured }: any) => {
+        React.useEffect(() => {
+          const value = 72 + entry.id;
+          captured.measured.push(value);
+          onMeasured(value);
+        }, [entry, onMeasured]);
+        captured.highlighted[entry.id] = highlighted;
+        return <div data-testid={`row-${entry.id}`}>{entry.message}</div>;
+      };
 
-      const { LogEntryList } = await import('../components/log-viewer/LogEntryList');
-      render(<LogEntryList entries={entries} highlightCategory="debug" />);
+      render(
+        <LogEntryList
+          entries={entries}
+          highlightCategory="debug"
+          virtualListComponent={VirtualList}
+          RowComponent={StubRow}
+        />
+      );
 
       await waitFor(() => {
         expect(captured.highlighted[0]).toBe(true);

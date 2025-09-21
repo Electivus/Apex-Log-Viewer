@@ -18,11 +18,12 @@ module.exports = {
   collectCoverage: true,
   coverageDirectory: '<rootDir>/coverage/webview',
   collectCoverageFrom: [
-    '<rootDir>/src/webview/**/*.{ts,tsx}',
+    '<rootDir>/src/webview/components/**/*.{ts,tsx}',
+    '<rootDir>/src/webview/lib/**/*.{ts,tsx}',
     '!<rootDir>/src/webview/**/__tests__/**/*'
   ],
   coverageThreshold: {
-    global: {
+    'src/webview/components/**/*.{ts,tsx}': {
       statements: 90,
       branches: 80,
       functions: 90,

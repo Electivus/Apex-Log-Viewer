@@ -35,7 +35,7 @@ describe('Logs webview App', () => {
     await screen.findByText('Atualizar');
 
     sendMessage(bus, { type: 'loading', value: true });
-    await screen.findByText('Carregando…');
+    await screen.findAllByText('Carregando…');
 
     sendMessage(bus, {
       type: 'orgs',

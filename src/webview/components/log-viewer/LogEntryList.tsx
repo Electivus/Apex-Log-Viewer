@@ -6,9 +6,11 @@ import { LogEntryRow } from './LogEntryRow';
 interface Props {
   entries: ParsedLogEntry[];
   highlightCategory?: LogCategory;
+  virtualListComponent?: typeof List;
+  RowComponent?: typeof LogEntryRow;
 }
 
-export function LogEntryList({ entries, highlightCategory }: Props) {
+export function LogEntryList({ entries, highlightCategory, virtualListComponent, RowComponent }: Props) {
   const defaultRowHeight = 64;
   const rowHeightsRef = useRef<Record<number, number>>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -16,6 +18,8 @@ export function LogEntryList({ entries, highlightCategory }: Props) {
   const [height, setHeight] = useState<number>(420);
   const rafRef = useRef<number | null>(null);
   const [, forceRender] = useState(0);
+  const VirtualList = virtualListComponent ?? List;
+  const Row = RowComponent ?? LogEntryRow;
 
   const scheduleRerender = useCallback(() => {
     if (rafRef.current !== null) return;
@@ -70,7 +74,7 @@ export function LogEntryList({ entries, highlightCategory }: Props) {
       const highlighted = target ? entry.category === target : false;
       return (
         <div style={style}>
-          <LogEntryRow entry={entry} highlighted={highlighted} onMeasured={h => measure(index, h)} />
+          <Row entry={entry} highlighted={highlighted} onMeasured={h => measure(index, h)} />
         </div>
       );
     },
@@ -83,7 +87,7 @@ export function LogEntryList({ entries, highlightCategory }: Props) {
         {entries.length === 0 ? (
           <div className="px-6 py-8 text-sm text-muted-foreground">No entries match the current filters.</div>
         ) : (
-          <List
+          <VirtualList
             listRef={listRef}
             style={{ height, width: '100%' }}
             rowCount={entries.length}
