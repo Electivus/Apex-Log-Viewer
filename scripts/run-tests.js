@@ -3,7 +3,6 @@ const { platform, tmpdir } = require('os');
 const { mkdtempSync, writeFileSync, mkdirSync, rmSync } = require('fs');
 const { join, resolve } = require('path');
 const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } = require('@vscode/test-electron');
-const { cleanVsCodeTest } = require('./clean-vscode-test.js');
 
 function execFileAsync(file, args, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -28,119 +27,6 @@ function addLocalBinToPath() {
     }
   } catch (e) {
     console.warn('Failed to add local bin to PATH:', e && e.message ? e.message : e);
-  }
-}
-
-function normalizeForMatch(value) {
-  if (!value) {
-    return null;
-  }
-  return value.replace(/\\/g, '/').toLowerCase();
-}
-
-function isProcessAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function killLeakedVSCodeProcesses(markers) {
-  const normalized = Array.from(new Set(markers.map(normalizeForMatch).filter(Boolean)));
-  if (normalized.length === 0) {
-    return;
-  }
-
-  const plat = platform();
-  if (plat === 'win32') {
-    try {
-      const markerExpr = normalized.map(m => m.replace(/"/g, '""')).join(' -and ');
-      const psCommand =
-        `$procs = Get-CimInstance Win32_Process | Where-Object { ${normalized
-          .map((m, idx) => `$_.CommandLine -like '*${m.replace(/'/g, "''")}*'`)
-          .join(' -or ')} }; $pids = $procs | ForEach-Object { $_.ProcessId }; if ($pids) { $pids }`;
-      const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-Command', psCommand]);
-      const pids = stdout
-        .split(/\r?\n/)
-        .map(l => Number.parseInt(l, 10))
-        .filter(n => Number.isInteger(n));
-      for (const pid of pids) {
-        try {
-          process.kill(pid);
-        } catch (e) {
-          console.warn('[test-runner] Failed to terminate VS Code process', pid, e && e.message ? e.message : e);
-        }
-      }
-    } catch (e) {
-      console.warn('[test-runner] Unable to enumerate VS Code processes on Windows:', e && e.message ? e.message : e);
-    }
-    return;
-  }
-
-  let stdout;
-  try {
-    ({ stdout } = await execFileAsync('ps', ['-eo', 'pid=,args=']));
-  } catch (e) {
-    console.warn('[test-runner] Failed to list processes for VS Code cleanup:', e && e.message ? e.message : e);
-    return;
-  }
-
-  const toKill = new Set();
-  for (const line of stdout.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    const match = /^([0-9]+)\s+(.*)$/.exec(trimmed);
-    if (!match) {
-      continue;
-    }
-    const pid = Number.parseInt(match[1], 10);
-    if (pid === process.pid || pid === process.ppid) {
-      continue;
-    }
-    const cmd = normalizeForMatch(match[2] || '');
-    if (!Number.isInteger(pid) || !cmd) {
-      continue;
-    }
-    if (normalized.some(marker => cmd.includes(marker))) {
-      toKill.add(pid);
-    }
-  }
-
-  if (!toKill.size) {
-    return;
-  }
-
-  for (const pid of toKill) {
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch (e) {
-      if (e && e.code !== 'ESRCH') {
-        console.warn('[test-runner] Failed to TERM VS Code process', pid, e.message || e);
-      }
-    }
-  }
-
-  await delay(300);
-
-  for (const pid of toKill) {
-    if (!isProcessAlive(pid)) {
-      continue;
-    }
-    try {
-      process.kill(pid, 'SIGKILL');
-    } catch (e) {
-      if (e && e.code !== 'ESRCH') {
-        console.warn('[test-runner] Failed to KILL VS Code process', pid, e.message || e);
-      }
-    }
   }
 }
 
@@ -534,52 +420,29 @@ async function run() {
     // Build artifacts (avoid full 'package' to reduce flakiness on CI)
     await execFileAsync('npm', ['run', '-s', 'build']);
     // Ensure NLS files exist (best-effort)
-    try {
-      await execFileAsync('npm', ['run', '-s', 'nls:write']);
-    } catch {}
+    try { await execFileAsync('npm', ['run', '-s', 'nls:write']); } catch {}
     // Create the VSIX (this will also run vscode:prepublish)
     await execFileAsync('npx', ['--no-install', 'vsce', 'package', '--no-yarn']);
-    const vsix = require('fs')
-      .readdirSync(process.cwd())
-      .find(f => /\.vsix$/.test(f));
+    const vsix = require('fs').readdirSync(process.cwd()).find(f => /\.vsix$/.test(f));
     if (!vsix) throw new Error('[smoke] VSIX not found');
     // Install into test profile
     const userDataDir = join(tmpdir(), 'alv-user-data');
     const extensionsDir = join(tmpdir(), 'alv-extensions');
     console.log('[smoke] Installing VSIX into isolated profile...');
-    const inst = spawnSync(
-      cliPath,
-      [
-        ...cliArgs,
-        '--install-extension',
-        resolve(vsix),
-        '--force',
-        '--user-data-dir',
-        userDataDir,
-        '--extensions-dir',
-        extensionsDir
-      ],
-      {
-        stdio: ['pipe', 'inherit', 'inherit'],
-        encoding: 'utf8',
-        input: 'y\n',
-        env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
-      }
-    );
+    const inst = spawnSync(cliPath, [...cliArgs, '--install-extension', resolve(vsix), '--force', '--user-data-dir', userDataDir, '--extensions-dir', extensionsDir], {
+      stdio: ['pipe', 'inherit', 'inherit'],
+      encoding: 'utf8',
+      input: 'y\n',
+      env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
+    });
     if (inst.status !== 0) {
       throw new Error('[smoke] Failed to install VSIX');
     }
     // Create minimal harness extension
     const dev = mkdtempSync(join(tmpdir(), 'alv-smoke-dev-'));
-    const pkg = {
-      name: 'alv-smoke-harness',
-      version: '0.0.0',
-      engines: { vscode: '*' },
-      main: './index.js',
-      activationEvents: ['*']
-    };
+    const pkg = { name: 'alv-smoke-harness', version: '0.0.0', engines: { vscode: '*' }, main: './index.js', activationEvents: ['*'] };
     writeFileSync(join(dev, 'package.json'), JSON.stringify(pkg, null, 2));
-    writeFileSync(join(dev, 'index.js'), 'exports.activate=()=>{};exports.deactivate=()=>{};\n');
+    writeFileSync(join(dev, 'index.js'), "exports.activate=()=>{};exports.deactivate=()=>{};\n");
     extensionDevelopmentPath = dev;
     // Write runner that activates installed extension
     const runner = `"use strict";const assert=require('assert/strict');const vscode=require('vscode');exports.run=async function(){const ext=vscode.extensions.getExtension('electivus.apex-log-viewer');assert.ok(ext,'extension not found');await ext.activate();const cmds=await vscode.commands.getCommands(true);for(const c of ['sfLogs.refresh','sfLogs.selectOrg','sfLogs.tail','sfLogs.showOutput']){assert.ok(cmds.includes(c),'missing command: '+c);} };\n`;
@@ -609,42 +472,20 @@ async function run() {
     process.exit(124);
   }, totalTimeout);
 
-  let userDataDir = process.env.__ALV_SMOKE_USER_DIR || join(tmpdir(), 'alv-user-data');
-  let extensionsDir = process.env.__ALV_SMOKE_EXT_DIR || join(tmpdir(), 'alv-extensions');
-
   try {
-    userDataDir = process.env.__ALV_SMOKE_USER_DIR || join(tmpdir(), 'alv-user-data');
-    extensionsDir = process.env.__ALV_SMOKE_EXT_DIR || join(tmpdir(), 'alv-extensions');
-
     const launch = [
-      '--user-data-dir',
-      userDataDir,
-      '--extensions-dir',
-      extensionsDir,
+      '--user-data-dir', process.env.__ALV_SMOKE_USER_DIR || join(tmpdir(), 'alv-user-data'),
+      '--extensions-dir', process.env.__ALV_SMOKE_EXT_DIR || join(tmpdir(), 'alv-extensions'),
       '--skip-welcome',
       '--skip-release-notes',
       // Use the prepared workspace (set in pretestSetup)
       ...(process.env.VSCODE_TEST_WORKSPACE ? [process.env.VSCODE_TEST_WORKSPACE] : [])
     ];
-    const extensionTestsEnv = {};
-    if (sfExtPresent) {
-      extensionTestsEnv.SF_EXT_PRESENT = '1';
-    }
-    if (process.env.NODE_V8_COVERAGE) {
-      extensionTestsEnv.NODE_V8_COVERAGE = process.env.NODE_V8_COVERAGE;
-    }
-    if (process.env.NODE_OPTIONS) {
-      extensionTestsEnv.NODE_OPTIONS = process.env.NODE_OPTIONS;
-    }
-    if (process.env.ENABLE_COVERAGE) {
-      extensionTestsEnv.ENABLE_COVERAGE = process.env.ENABLE_COVERAGE;
-    }
-
     await runTests({
       vscodeExecutablePath,
       extensionDevelopmentPath,
       extensionTestsPath,
-      extensionTestsEnv: Object.keys(extensionTestsEnv).length ? extensionTestsEnv : undefined,
+      extensionTestsEnv: sfExtPresent ? { SF_EXT_PRESENT: '1' } : undefined,
       launchArgs: launch
     });
   } finally {
@@ -656,19 +497,6 @@ async function run() {
     }
     if (timedOut) {
       return;
-    }
-
-    try {
-      const cleanupMarkers = [
-        vscodeExecutablePath,
-        'code-insiders',
-        'vscode-linux-x64-insiders',
-        'chrome_crashpad_handler'
-      ];
-      await killLeakedVSCodeProcesses(cleanupMarkers);
-      cleanVsCodeTest({ quiet: true });
-    } catch (e) {
-      console.warn('[test-runner] VS Code cleanup failed:', e && e.message ? e.message : e);
     }
   }
 }
