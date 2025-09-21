@@ -2,6 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname "$0")" >/dev/null 2>&1 && pwd)"
+node "$script_dir/clean-vscode-test.js"
 cmd=(node "$script_dir/run-tests.js" "$@")
 
 if [[ -n "${ENABLE_COVERAGE:-}" && "${ENABLE_COVERAGE}" != "0" ]]; then
