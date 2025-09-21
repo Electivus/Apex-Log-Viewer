@@ -37,10 +37,10 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
   const queryChanges: string[] = [];
   const userChanges: string[] = [];
 
-  const originalDocumentFragment = globalThis.DocumentFragment;
+  const docRef = globalThis as unknown as { DocumentFragment: typeof DocumentFragment | undefined };
+  const originalDocumentFragment = docRef.DocumentFragment;
   // Force native selects to simplify interaction semantics in tests
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).DocumentFragment = undefined;
+  docRef.DocumentFragment = undefined;
   let view: ReturnType<typeof render>;
   try {
     view = render(
@@ -84,8 +84,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
       />
     );
   } finally {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (globalThis as any).DocumentFragment = originalDocumentFragment;
+    docRef.DocumentFragment = originalDocumentFragment;
   }
 
   return {

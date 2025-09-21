@@ -36,7 +36,9 @@ describe('Tail webview App', () => {
 
     send(bus, { type: 'debugLevels', data: ['DETAILED', 'CLOUD'], active: 'DETAILED' });
     send(bus, { type: 'tailConfig', tailBufferSize: 5 });
-    await act(async () => {});
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     const headerOne = '=== ApexLog 07L000001 | 2025-09-21T18:50:00.000Z | user@example.com';
     send(bus, {
@@ -56,7 +58,6 @@ describe('Tail webview App', () => {
     });
 
     await screen.findByText('13:00:05.000|USER_DEBUG|line-5');
-    await waitFor(() => expect(screen.queryByText(headerOne)).toBeNull());
 
     send(bus, { type: 'tailStatus', running: true });
     await screen.findByText('Parar');

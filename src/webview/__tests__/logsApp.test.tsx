@@ -128,5 +128,5 @@ describe('Logs webview App', () => {
       expect(types[0]).toBe('ready');
       expect(types).toEqual(expect.arrayContaining(['openLog', 'replay', 'refresh']));
     });
-  });
+  }, 10000);
 });

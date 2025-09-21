@@ -5,29 +5,24 @@ import { getMessages } from '../i18n';
 import type { OrgItem } from '../../shared/types';
 
 const t = getMessages('en');
-const orgs: OrgItem[] = [
-  { username: 'user@example.com', alias: 'Primary', isDefaultUsername: true } as OrgItem
-];
+const orgs: OrgItem[] = [{ username: 'user@example.com', alias: 'Primary', isDefaultUsername: true }];
 
 function renderWithNativeSelect(element: React.ReactElement) {
-  const originalDocumentFragment = globalThis.DocumentFragment;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).DocumentFragment = undefined;
+  const docRef = globalThis as unknown as { DocumentFragment: typeof DocumentFragment | undefined };
+  const originalDocumentFragment = docRef.DocumentFragment;
+  docRef.DocumentFragment = undefined;
   const result = render(element);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).DocumentFragment = originalDocumentFragment;
+  docRef.DocumentFragment = originalDocumentFragment;
   const baseRerender = result.rerender;
   return {
     ...result,
     rerender: (next: React.ReactElement) => {
-      const snapshot = globalThis.DocumentFragment;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (globalThis as any).DocumentFragment = undefined;
+      const snapshot = docRef.DocumentFragment;
+      docRef.DocumentFragment = undefined;
       try {
         baseRerender(next);
       } finally {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (globalThis as any).DocumentFragment = snapshot;
+        docRef.DocumentFragment = snapshot;
       }
     }
   };
@@ -74,7 +69,7 @@ describe('TailToolbar webview component', () => {
     fireEvent.click(startButton);
     expect(starts).toBe(1);
 
-    renderWithNativeSelect(
+    rerender(
       <TailToolbar
         running
         onStart={() => {

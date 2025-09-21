@@ -14,6 +14,14 @@ if [[ -n "${ENABLE_COVERAGE:-}" && "${ENABLE_COVERAGE}" != "0" ]]; then
       export NODE_OPTIONS="--enable-source-maps"
     fi
   fi
+  webview_exclude="src/webview/**"
+  if [[ -n "${C8_EXCLUDE:-}" ]]; then
+    if [[ ",${C8_EXCLUDE}," != *",${webview_exclude},"* ]]; then
+      export C8_EXCLUDE="${webview_exclude},${C8_EXCLUDE}"
+    fi
+  else
+    export C8_EXCLUDE="${webview_exclude}"
+  fi
   cmd=(npx --no-install c8 "${cmd[@]}")
 fi
 

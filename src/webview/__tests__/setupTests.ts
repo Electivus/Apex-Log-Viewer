@@ -1,8 +1,7 @@
 import '@testing-library/jest-dom';
 
 // Ensure React Testing Library acts warnings surface during async updates
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 if (typeof globalThis.requestAnimationFrame !== 'function') {
   globalThis.requestAnimationFrame = cb => setTimeout(() => cb(Date.now()), 0);
@@ -18,6 +17,5 @@ if (typeof globalThis.ResizeObserver !== 'function') {
     unobserve() {}
     disconnect() {}
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).ResizeObserver = ResizeObserverMock;
+  (globalThis as unknown as { ResizeObserver: typeof ResizeObserver }).ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
 }
