@@ -4,14 +4,13 @@ module.exports = {
   clearMocks: true,
   testEnvironment: 'jsdom',
   roots: ['<rootDir>/src/webview/__tests__'],
-  testMatch: ['**/*.test.(ts|tsx)'],
+  testMatch: ['**/*.test.{ts,tsx}'],
   setupFilesAfterEnv: ['<rootDir>/src/webview/__tests__/setupTests.ts'],
   transform: {
     '^.+\\.(ts|tsx)$': [
       'ts-jest',
       {
-        tsconfig: '<rootDir>/tsconfig.webview-tests.json',
-        isolatedModules: true
+        tsconfig: '<rootDir>/tsconfig.webview-tests.json'
       }
     ]
   },

@@ -1,8 +1,14 @@
-import assert from 'assert/strict';
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react';
-const proxyquire: any = require('proxyquire');
+import { fireEvent, render } from '@testing-library/react';
+
 import type { ApexLogRow } from '../shared/types';
+import { LogsTable } from '../components/LogsTable';
+
+jest.mock('react-window', () => ({
+  List: jest.fn(() => null)
+}));
+
+const { List } = require('react-window') as { List: jest.Mock };
 
 function createRows(n: number): ApexLogRow[] {
   return Array.from({ length: n }, (_, i) => ({
@@ -32,138 +38,120 @@ const t = {
   }
 };
 
-suite('LogsTable', () => {
-  test('loads more via onRowsRendered without prior scroll', () => {
-    const rows = createRows(30);
-    const captured: any = {};
-    const List = (props: any) => {
-      captured.onRowsRendered = props.onRowsRendered;
-      return (
-        <div
-          ref={el => {
-            captured.outer = el;
-            if (props.listRef) {
-              const api = { element: el, scrollToRow: () => {} };
-              if (typeof props.listRef === 'function') props.listRef(api);
-              else props.listRef.current = api;
-            }
-          }}
-        />
-      );
-    };
-    const { LogsTable } = proxyquire('../webview/components/LogsTable', {
-      'react-window': { List }
-    });
-
-    let loadMore = 0;
-    render(
-      <LogsTable
-        rows={rows}
-        logHead={{}}
-        t={t}
-        onOpen={() => {}}
-        onReplay={() => {}}
-        loading={false}
-        locale="en-US"
-        hasMore={true}
-        onLoadMore={() => loadMore++}
-        sortBy="time"
-        sortDir="asc"
-        onSort={() => {}}
-      />
-    );
-
-    // Without any scroll, being near the end should trigger loadMore
-    captured.onRowsRendered({ startIndex: 0, stopIndex: rows.length - 1 });
-    assert.equal(loadMore > 0, true);
+describe('LogsTable', () => {
+  afterEach(() => {
+    List.mockReset();
   });
 
-  test('loads more when scrolled near end', () => {
-    const rows = createRows(20);
-    const captured: any = {};
-    const List = (props: any) => {
-      captured.onRowsRendered = props.onRowsRendered;
+  function renderTable({
+    rows = createRows(10),
+    hasMore = true,
+    loading = false,
+    captured
+  }: {
+    rows?: ApexLogRow[];
+    hasMore?: boolean;
+    loading?: boolean;
+    captured: Record<string, unknown>;
+  }) {
+    const loadMoreMock = jest.fn();
+    const baseProps = {
+      rows,
+      logHead: {},
+      t: t as any,
+      onOpen: () => {},
+      onReplay: () => {},
+      loading,
+      locale: 'en-US',
+      hasMore,
+      sortBy: 'time',
+      sortDir: 'asc',
+      onSort: () => {}
+    };
+    const view = render(<LogsTable {...baseProps} onLoadMore={loadMoreMock} />);
+    return {
+      loadMoreMock,
+      rerender: (next: Partial<typeof baseProps>) =>
+        view.rerender(<LogsTable {...baseProps} {...next} onLoadMore={loadMoreMock} />)
+    };
+  }
+
+  it('requests more data via onRowsRendered before any scroll occurs', () => {
+    const rows = createRows(30);
+    const captured: Record<string, unknown> = {};
+    List.mockImplementation(({ listRef, onRowsRendered }: any) => {
+      captured.onRowsRendered = onRowsRendered;
       return (
         <div
           ref={el => {
-            captured.outer = el;
-            if (props.listRef) {
-              const api = { element: el, scrollToRow: () => {} };
-              if (typeof props.listRef === 'function') props.listRef(api);
-              else props.listRef.current = api;
+            captured.outer = el as HTMLDivElement | null;
+            const api = { element: el, scrollToRow: () => {} };
+            if (typeof listRef === 'function') {
+              listRef(api);
+            } else if (listRef && typeof listRef === 'object' && 'current' in listRef) {
+              (listRef as { current: unknown }).current = api;
             }
           }}
         />
       );
-    };
-    const { LogsTable } = proxyquire('../webview/components/LogsTable', {
-      'react-window': { List }
     });
 
-    let loadMore = 0;
-    render(
-      <LogsTable
-        rows={rows}
-        logHead={{}}
-        t={t}
-        onOpen={() => {}}
-        onReplay={() => {}}
-        loading={false}
-        locale="en-US"
-        hasMore={true}
-        onLoadMore={() => loadMore++}
-        sortBy="time"
-        sortDir="asc"
-        onSort={() => {}}
-      />
-    );
+    const { loadMoreMock } = renderTable({ rows, captured });
+    const handler = captured.onRowsRendered as ((args: { startIndex: number; stopIndex: number }) => void) | undefined;
+    expect(handler).toBeDefined();
+    handler?.({ startIndex: 0, stopIndex: rows.length - 1 });
+    expect(loadMoreMock).toHaveBeenCalled();
+  });
 
+  it('requests more data after user scrolls near the end', () => {
+    const rows = createRows(20);
+    const captured: Record<string, unknown> = {};
+    List.mockImplementation(({ listRef, onRowsRendered }: any) => {
+      captured.onRowsRendered = onRowsRendered;
+      return (
+        <div
+          ref={el => {
+            captured.outer = el as HTMLDivElement | null;
+            const api = { element: el, scrollToRow: () => {} };
+            if (typeof listRef === 'function') {
+              listRef(api);
+            } else if (listRef && typeof listRef === 'object' && 'current' in listRef) {
+              (listRef as { current: unknown }).current = api;
+            }
+          }}
+        />
+      );
+    });
+
+    const { loadMoreMock } = renderTable({ rows, captured });
     const outer = captured.outer as HTMLDivElement;
     outer.scrollTop = 10;
     fireEvent.scroll(outer);
-    captured.onRowsRendered({ startIndex: 0, stopIndex: rows.length - 1 });
-    assert.equal(loadMore > 0, true);
+    const handler = captured.onRowsRendered as (args: { startIndex: number; stopIndex: number }) => void;
+    handler({ startIndex: 0, stopIndex: rows.length - 1 });
+    expect(loadMoreMock).toHaveBeenCalled();
   });
 
-  test('adjusts overscan based on scroll speed', async () => {
-    const rows = createRows(5);
-    const captured: any = {};
-    const List = (props: any) => {
-      captured.overscanCount = props.overscanCount;
+  it('adjusts overscan while scrolling quickly', async () => {
+    const captured: Record<string, unknown> = {};
+    List.mockImplementation(({ listRef, overscanCount }: any) => {
+      captured.overscanCount = overscanCount;
       return (
         <div
           ref={el => {
-            captured.outer = el;
-            if (props.listRef) {
-              const api = { element: el, scrollToRow: () => {} };
-              if (typeof props.listRef === 'function') props.listRef(api);
-              else props.listRef.current = api;
+            captured.outer = el as HTMLDivElement | null;
+            const api = { element: el, scrollToRow: () => {} };
+            if (typeof listRef === 'function') {
+              listRef(api);
+            } else if (listRef && typeof listRef === 'object' && 'current' in listRef) {
+              (listRef as { current: unknown }).current = api;
             }
           }}
         />
       );
-    };
-    const { LogsTable } = proxyquire('../webview/components/LogsTable', {
-      'react-window': { List }
     });
 
-    render(
-      <LogsTable
-        rows={rows}
-        logHead={{}}
-        t={t}
-        onOpen={() => {}}
-        onReplay={() => {}}
-        loading={false}
-        locale="en-US"
-        hasMore={false}
-        onLoadMore={() => {}}
-        sortBy="time"
-        sortDir="asc"
-        onSort={() => {}}
-      />
-    );
-
+    renderTable({ rows: createRows(5), hasMore: false, captured });
     const outer = captured.outer as HTMLDivElement;
     const originalNow = performance.now.bind(performance);
     let now = 0;
@@ -177,129 +165,77 @@ suite('LogsTable', () => {
     now += 20;
     outer.scrollTop = 200;
     fireEvent.scroll(outer);
-    await new Promise(r => setTimeout(r, 0));
-    assert.equal(captured.overscanCount > 8, true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(captured.overscanCount as number).toBeGreaterThan(8);
 
-    await new Promise(r => setTimeout(r, 250));
-    await new Promise(r => setTimeout(r, 0));
-    assert.equal(captured.overscanCount, 8);
+    await new Promise(resolve => setTimeout(resolve, 250));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(captured.overscanCount).toBe(8);
     (performance as any).now = originalNow;
   });
 
-  test('loads more when scrolled to bottom (safety net)', () => {
-    const rows = createRows(200);
-    const captured: any = {};
-    const List = (props: any) => {
+  it('uses bottom proximity as a fallback trigger for pagination', () => {
+    const captured: Record<string, unknown> = {};
+    List.mockImplementation(({ listRef, overscanCount }: any) => {
+      captured.overscanCount = overscanCount;
       return (
         <div
           ref={el => {
-            captured.outer = el as HTMLDivElement;
-            if (props.listRef) {
-              const api = { element: el, scrollToRow: () => {} };
-              if (typeof props.listRef === 'function') props.listRef(api);
-              else props.listRef.current = api;
+            captured.outer = el as HTMLDivElement | null;
+            const api = { element: el, scrollToRow: () => {} };
+            if (typeof listRef === 'function') {
+              listRef(api);
+            } else if (listRef && typeof listRef === 'object' && 'current' in listRef) {
+              (listRef as { current: unknown }).current = api;
             }
           }}
         />
       );
-    };
-    const { LogsTable } = proxyquire('../webview/components/LogsTable', {
-      'react-window': { List }
     });
 
-    let loadMore = 0;
-    render(
-      <LogsTable
-        rows={rows}
-        logHead={{}}
-        t={t}
-        onOpen={() => {}}
-        onReplay={() => {}}
-        loading={false}
-        locale="en-US"
-        hasMore={true}
-        onLoadMore={() => loadMore++}
-        sortBy="time"
-        sortDir="asc"
-        onSort={() => {}}
-      />
-    );
-
+    const { loadMoreMock } = renderTable({ rows: createRows(200), captured });
     const el = captured.outer as HTMLDivElement;
-    // Simulate dimensions so remaining <= defaultRowHeight*2 (64px)
     Object.defineProperty(el, 'clientHeight', { value: 300, configurable: true });
     Object.defineProperty(el, 'scrollHeight', { value: 1000, configurable: true });
-    el.scrollTop = 1000 - 300 - 20; // remaining = 20
+    el.scrollTop = 1000 - 300 - 20;
 
     const originalNow = performance.now.bind(performance);
-    (performance as any).now = () => 1000; // pass the debounce > 300ms
+    (performance as any).now = () => 1000;
 
     fireEvent.scroll(el);
-
-    assert.equal(loadMore > 0, true);
+    expect(loadMoreMock).toHaveBeenCalled();
     (performance as any).now = originalNow;
   });
 
-  test('does not load when loading or hasMore=false', () => {
+  it('avoids loading more when already loading or when hasMore is false', () => {
     const rows = createRows(50);
-    const captured: any = {};
-    const List = (props: any) => {
-      captured.onRowsRendered = props.onRowsRendered;
+    const captured: Record<string, unknown> = {};
+    List.mockImplementation(({ listRef, onRowsRendered }: any) => {
+      captured.onRowsRendered = onRowsRendered;
       return (
         <div
           ref={el => {
-            captured.outer = el;
-            if (props.listRef) {
-              const api = { element: el, scrollToRow: () => {} };
-              if (typeof props.listRef === 'function') props.listRef(api);
-              else props.listRef.current = api;
+            captured.outer = el as HTMLDivElement | null;
+            const api = { element: el, scrollToRow: () => {} };
+            if (typeof listRef === 'function') {
+              listRef(api);
+            } else if (listRef && typeof listRef === 'object' && 'current' in listRef) {
+              (listRef as { current: unknown }).current = api;
             }
           }}
         />
       );
-    };
-    const { LogsTable } = proxyquire('../webview/components/LogsTable', {
-      'react-window': { List }
     });
 
-    let loadMore = 0;
-    const { rerender } = render(
-      <LogsTable
-        rows={rows}
-        logHead={{}}
-        t={t}
-        onOpen={() => {}}
-        onReplay={() => {}}
-        loading={true}
-        locale="en-US"
-        hasMore={true}
-        onLoadMore={() => loadMore++}
-        sortBy="time"
-        sortDir="asc"
-        onSort={() => {}}
-      />
-    );
+    const { loadMoreMock, rerender } = renderTable({ rows, loading: true, hasMore: true, captured });
+    const handler = captured.onRowsRendered as (args: { startIndex: number; stopIndex: number }) => void;
+    handler({ startIndex: 0, stopIndex: rows.length - 1 });
+    expect(loadMoreMock).not.toHaveBeenCalled();
 
-    captured.onRowsRendered({ startIndex: 0, stopIndex: rows.length - 1 });
-    assert.equal(loadMore, 0);
-
-    rerender(
-      <LogsTable
-        rows={rows}
-        logHead={{}}
-        t={t}
-        onOpen={() => {}}
-        onReplay={() => {}}
-        loading={false}
-        locale="en-US"
-        hasMore={false}
-        onLoadMore={() => loadMore++}
-        sortBy="time"
-        sortDir="asc"
-        onSort={() => {}}
-      />
-    );
-    captured.onRowsRendered({ startIndex: 0, stopIndex: rows.length - 1 });
-    assert.equal(loadMore, 0);
+    loadMoreMock.mockClear();
+    rerender({ loading: false, hasMore: false });
+    const nextHandler = captured.onRowsRendered as (args: { startIndex: number; stopIndex: number }) => void;
+    nextHandler({ startIndex: 0, stopIndex: rows.length - 1 });
+    expect(loadMoreMock).not.toHaveBeenCalled();
   });
 });
