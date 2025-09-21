@@ -6,16 +6,8 @@ import { LogViewerHeader } from './components/log-viewer/LogViewerHeader';
 import { LogViewerFilters, type LogFilter } from './components/log-viewer/LogViewerFilters';
 import { LogEntryList } from './components/log-viewer/LogEntryList';
 import { LogViewerStatusBar } from './components/log-viewer/LogViewerStatusBar';
-
-declare global {
-  var acquireVsCodeApi: <T = unknown>() => {
-    postMessage: (msg: T) => void;
-    getState: <S = any>() => S | undefined;
-    setState: (state: any) => void;
-  };
-}
-
-const vscode = acquireVsCodeApi<LogViewerFromWebviewMessage>();
+import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
+import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
 type Metadata = {
   sizeBytes?: number;
@@ -35,7 +27,17 @@ function mapFilterToCategory(filter: LogFilter): LogCategory | undefined {
   }
 }
 
-function App() {
+export interface LogViewerAppProps {
+  vscode?: VsCodeWebviewApi<LogViewerFromWebviewMessage>;
+  messageBus?: MessageBus;
+  fetchImpl?: typeof fetch;
+}
+
+export function LogViewerApp({
+  vscode = getDefaultVsCodeApi<LogViewerFromWebviewMessage>(),
+  messageBus = getDefaultMessageBus(),
+  fetchImpl
+}: LogViewerAppProps = {}) {
   const [fileName, setFileName] = useState('');
   const [locale, setLocale] = useState('en');
   const [metadata, setMetadata] = useState<Metadata | undefined>(undefined);
@@ -46,7 +48,13 @@ function App() {
   const [error, setError] = useState<string | undefined>(undefined);
   const latestRequestId = useRef(0);
 
+  const resolvedFetch = fetchImpl ?? (typeof fetch === 'function' ? fetch : undefined);
+
   useEffect(() => {
+    if (!messageBus) {
+      vscode.postMessage({ type: 'logViewerReady' });
+      return;
+    }
     const handler = (event: MessageEvent<LogViewerToWebviewMessage>) => {
       const msg = event.data;
       if (!msg || typeof msg !== 'object') {
@@ -57,36 +65,42 @@ function App() {
         setFileName(msg.fileName);
         setMetadata(msg.metadata);
         if (typeof msg.logUri === 'string' && msg.logUri.length > 0) {
-          const requestId = ++latestRequestId.current;
-          setLoading(true);
-          setError(undefined);
-          void fetch(msg.logUri)
-            .then(response => {
-              if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-              }
-              return response.text();
-            })
-            .then(text => {
-              if (latestRequestId.current !== requestId) {
-                return;
-              }
-              const lines = text.split(/\r?\n/);
-              if (lines.length > 0 && lines[lines.length - 1] === '') {
-                lines.pop();
-              }
-              setEntries(parseLogLines(lines));
-              setLoading(false);
-            })
-            .catch(err => {
-              if (latestRequestId.current !== requestId) {
-                return;
-              }
-              setEntries([]);
-              const message = err instanceof Error ? err.message : String(err);
-              setError(`Failed to load log content: ${message}`);
-              setLoading(false);
-            });
+          if (resolvedFetch) {
+            const requestId = ++latestRequestId.current;
+            setLoading(true);
+            setError(undefined);
+            void resolvedFetch(msg.logUri)
+              .then(response => {
+                if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+                }
+                return response.text();
+              })
+              .then(text => {
+                if (latestRequestId.current !== requestId) {
+                  return;
+                }
+                const lines = text.split(/\r?\n/);
+                if (lines.length > 0 && lines[lines.length - 1] === '') {
+                  lines.pop();
+                }
+                setEntries(parseLogLines(lines));
+                setLoading(false);
+              })
+              .catch(err => {
+                if (latestRequestId.current !== requestId) {
+                  return;
+                }
+                setEntries([]);
+                const message = err instanceof Error ? err.message : String(err);
+                setError(`Failed to load log content: ${message}`);
+                setLoading(false);
+              });
+          } else {
+            setEntries([]);
+            setLoading(false);
+            setError('Failed to load log content: Fetch API unavailable');
+          }
         } else {
           const parsed = parseLogLines(Array.isArray(msg.lines) ? msg.lines : []);
           setEntries(parsed);
@@ -98,10 +112,10 @@ function App() {
         setLoading(false);
       }
     };
-    window.addEventListener('message', handler);
+    messageBus.addEventListener('message', handler as EventListener);
     vscode.postMessage({ type: 'logViewerReady' });
-    return () => window.removeEventListener('message', handler);
-  }, []);
+    return () => messageBus.removeEventListener('message', handler as EventListener);
+  }, [messageBus, resolvedFetch, vscode]);
 
   const counts = useMemo(() => {
     let debug = 0;
@@ -187,5 +201,24 @@ function App() {
   );
 }
 
-const root = createRoot(document.getElementById('root')!);
-root.render(<App />);
+export function mountLogViewerApp(
+  container: HTMLElement,
+  options: { vscode?: VsCodeWebviewApi<LogViewerFromWebviewMessage>; messageBus?: MessageBus; fetchImpl?: typeof fetch } = {}
+) {
+  const root = createRoot(container);
+  root.render(
+    <LogViewerApp
+      vscode={options.vscode ?? getDefaultVsCodeApi<LogViewerFromWebviewMessage>()}
+      messageBus={options.messageBus ?? getDefaultMessageBus()}
+      fetchImpl={options.fetchImpl}
+    />
+  );
+  return root;
+}
+
+if (typeof document !== 'undefined') {
+  const host = document.getElementById('root');
+  if (host) {
+    mountLogViewerApp(host);
+  }
+}

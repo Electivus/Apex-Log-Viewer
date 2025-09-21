@@ -1,0 +1,135 @@
+import assert from 'assert/strict';
+import React from 'react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+
+import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
+import type { VsCodeWebviewApi } from '../webview/vscodeApi';
+import { LogsApp } from '../webview/main';
+
+suite('Logs webview App', () => {
+  function createVsCodeMock() {
+    const posted: WebviewToExtensionMessage[] = [];
+    const vscode: VsCodeWebviewApi<WebviewToExtensionMessage> = {
+      postMessage: msg => {
+        posted.push(msg);
+      },
+      getState: () => undefined,
+      setState: () => {}
+    };
+    return { vscode, posted };
+  }
+
+  function sendMessage(bus: EventTarget, message: ExtensionToWebviewMessage) {
+    act(() => {
+      bus.dispatchEvent(new MessageEvent('message', { data: message }));
+    });
+  }
+
+  test('responds to extension messages and exposes key actions', async () => {
+    const { vscode, posted } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<LogsApp vscode={vscode} messageBus={bus} />);
+
+    assert.deepEqual(posted[0], { type: 'ready' }, 'posts ready on mount');
+
+    sendMessage(bus, { type: 'init', locale: 'pt-BR' });
+    await screen.findByText('Atualizar');
+
+    sendMessage(bus, { type: 'loading', value: true });
+    await screen.findByText('Carregando…');
+
+    sendMessage(bus, {
+      type: 'orgs',
+      data: [{ username: 'user@example.com', alias: 'Dev', isDefaultUsername: true }],
+      selected: 'user@example.com'
+    });
+
+    sendMessage(bus, {
+      type: 'logHead',
+      logId: '07L0000001',
+      codeUnitStarted: 'AccountService.handle'
+    });
+
+    sendMessage(bus, { type: 'error', message: 'Falhou ao carregar' });
+    await screen.findByText('Falhou ao carregar');
+
+    const baseLogs = [
+      {
+        Id: '07L0000001',
+        StartTime: '2025-09-21T18:40:00.000Z',
+        Operation: 'ExecuteAnonymous',
+        Application: 'Developer Console',
+        DurationMilliseconds: 125,
+        Status: 'Success',
+        Request: 'XYZ',
+        LogLength: 2048,
+        LogUser: { Name: 'Alice' }
+      },
+      {
+        Id: '07L0000002',
+        StartTime: '2025-09-21T18:45:00.000Z',
+        Operation: 'Test.run',
+        Application: 'VS Code',
+        DurationMilliseconds: 220,
+        Status: 'Success',
+        Request: 'ABC',
+        LogLength: 512,
+        LogUser: { Name: 'Bob' }
+      }
+    ];
+
+    sendMessage(bus, { type: 'logs', data: baseLogs, hasMore: true });
+    sendMessage(bus, { type: 'loading', value: false });
+    await waitFor(() => {
+      assert.equal(screen.queryByText('Falhou ao carregar'), null);
+    });
+
+    await screen.findByText('ExecuteAnonymous');
+    await screen.findByText('Test.run');
+
+    sendMessage(bus, {
+      type: 'appendLogs',
+      data: [
+        {
+          Id: '07L0000003',
+          StartTime: '2025-09-21T18:55:00.000Z',
+          Operation: 'BatchJob',
+          Application: 'Salesforce',
+          DurationMilliseconds: 75,
+          Status: 'Success',
+          Request: 'REQ',
+          LogLength: 4096,
+          LogUser: { Name: 'Alice' }
+        }
+      ],
+      hasMore: false
+    });
+
+    await screen.findByText('BatchJob');
+
+    fireEvent.change(screen.getByLabelText('Buscar logs…'), { target: { value: 'Sem resultados' } });
+    await screen.findByText('Nenhum log encontrado.');
+    fireEvent.change(screen.getByLabelText('Buscar logs…'), { target: { value: '' } });
+    await screen.findByText('ExecuteAnonymous');
+
+    const timeHeader = screen.getByRole('columnheader', { name: /Tempo/i });
+    const timeButton = within(timeHeader).getByRole('button');
+    fireEvent.click(timeButton);
+    await waitFor(() => {
+      assert.equal(screen.getByRole('columnheader', { name: /Tempo/i }).getAttribute('aria-sort'), 'ascending');
+    });
+
+    const openButtons = await screen.findAllByRole('button', { name: 'Abrir' });
+    fireEvent.click(openButtons[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Apex Replay' })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
+
+    await waitFor(() => {
+      const types = posted.map(m => m.type);
+      assert.equal(types[0], 'ready');
+      assert(types.includes('openLog'), 'openLog message emitted');
+      assert(types.includes('replay'), 'replay message emitted');
+      assert(types.includes('refresh'), 'refresh message emitted');
+    });
+  });
+});

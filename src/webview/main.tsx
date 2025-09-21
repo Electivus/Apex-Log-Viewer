@@ -6,21 +6,20 @@ import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../sh
 import { Toolbar } from './components/Toolbar';
 import { LogsTable } from './components/LogsTable';
 import { LoadingOverlay } from './components/LoadingOverlay';
-
-declare global {
-  // Provided by VS Code webview runtime
-  var acquireVsCodeApi: <T = unknown>() => {
-    postMessage: (msg: T) => void;
-    getState: <S = any>() => S | undefined;
-    setState: (state: any) => void;
-  };
-}
-
-const vscode = acquireVsCodeApi<WebviewToExtensionMessage>();
+import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
+import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
 type SortKey = 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit';
 
-function App() {
+export interface LogsAppProps {
+  vscode?: VsCodeWebviewApi<WebviewToExtensionMessage>;
+  messageBus?: MessageBus;
+}
+
+export function LogsApp({
+  vscode = getDefaultVsCodeApi<WebviewToExtensionMessage>(),
+  messageBus = getDefaultMessageBus()
+}: LogsAppProps = {}) {
   const [locale, setLocale] = useState('en');
   const [t, setT] = useState<Messages>(() => getMessages('en'));
   const [loading, setLoading] = useState(false);
@@ -44,6 +43,10 @@ function App() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
+    if (!messageBus) {
+      vscode.postMessage({ type: 'ready' });
+      return;
+    }
     const onMsg = (event: MessageEvent) => {
       const msg = event.data as ExtensionToWebviewMessage;
       if (!msg || typeof msg !== 'object') {
@@ -81,10 +84,10 @@ function App() {
           break;
       }
     };
-    window.addEventListener('message', onMsg);
+    messageBus.addEventListener('message', onMsg as EventListener);
     vscode.postMessage({ type: 'ready' });
-    return () => window.removeEventListener('message', onMsg);
-  }, []);
+    return () => messageBus.removeEventListener('message', onMsg as EventListener);
+  }, [messageBus, vscode]);
 
   const onRefresh = () => {
     vscode.postMessage({ type: 'refresh' });
@@ -244,5 +247,24 @@ function App() {
   );
 }
 
-const root = createRoot(document.getElementById('root')!);
-root.render(<App />);
+export function mountLogsApp(
+  container: HTMLElement,
+  options: { vscode?: VsCodeWebviewApi<WebviewToExtensionMessage>; messageBus?: MessageBus } = {}
+) {
+  const root = createRoot(container);
+  const messageBus = options.messageBus ?? getDefaultMessageBus();
+  root.render(
+    <LogsApp
+      vscode={options.vscode ?? getDefaultVsCodeApi<WebviewToExtensionMessage>()}
+      messageBus={messageBus}
+    />
+  );
+  return root;
+}
+
+if (typeof document !== 'undefined') {
+  const host = document.getElementById('root');
+  if (host) {
+    mountLogsApp(host);
+  }
+}

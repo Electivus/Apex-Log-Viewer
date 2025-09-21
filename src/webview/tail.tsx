@@ -7,20 +7,20 @@ import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../sh
 import { TailToolbar } from './components/tail/TailToolbar';
 import { TailList } from './components/tail/TailList';
 import { LoadingOverlay } from './components/LoadingOverlay';
-
-declare global {
-  var acquireVsCodeApi: <T = unknown>() => {
-    postMessage: (msg: T) => void;
-    getState: <S = any>() => S | undefined;
-    setState: (state: any) => void;
-  };
-}
-
-const vscode = acquireVsCodeApi<WebviewToExtensionMessage>();
+import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
+import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
 type TailMessage = ExtensionToWebviewMessage;
 
-function App() {
+export interface TailAppProps {
+  vscode?: VsCodeWebviewApi<WebviewToExtensionMessage>;
+  messageBus?: MessageBus;
+}
+
+export function TailApp({
+  vscode = getDefaultVsCodeApi<WebviewToExtensionMessage>(),
+  messageBus = getDefaultMessageBus()
+}: TailAppProps = {}) {
   const [locale, setLocale] = useState('en');
   const [orgs, setOrgs] = useState<OrgItem[]>([]);
   const [selectedOrg, setSelectedOrg] = useState<string | undefined>(undefined);
@@ -41,6 +41,10 @@ function App() {
   const listRef = useRef<ListImperativeAPI | null>(null);
 
   useEffect(() => {
+    if (!messageBus) {
+      vscode.postMessage({ type: 'ready' });
+      return;
+    }
     const handler = (event: MessageEvent) => {
       const msg = event.data as TailMessage;
       if (!msg || typeof msg !== 'object') {
@@ -92,10 +96,10 @@ function App() {
         setError(msg.message);
       }
     };
-    window.addEventListener('message', handler);
+    messageBus.addEventListener('message', handler as EventListener);
     vscode.postMessage({ type: 'ready' });
-    return () => window.removeEventListener('message', handler);
-  }, []);
+    return () => messageBus.removeEventListener('message', handler as EventListener);
+  }, [messageBus, vscode, tailMaxLines]);
 
   const filteredIndexes = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -259,5 +263,23 @@ function App() {
   );
 }
 
-const container = document.getElementById('root')!;
-createRoot(container).render(<App />);
+export function mountTailApp(
+  container: HTMLElement,
+  options: { vscode?: VsCodeWebviewApi<WebviewToExtensionMessage>; messageBus?: MessageBus } = {}
+) {
+  const root = createRoot(container);
+  root.render(
+    <TailApp
+      vscode={options.vscode ?? getDefaultVsCodeApi<WebviewToExtensionMessage>()}
+      messageBus={options.messageBus ?? getDefaultMessageBus()}
+    />
+  );
+  return root;
+}
+
+if (typeof document !== 'undefined') {
+  const container = document.getElementById('root');
+  if (container) {
+    mountTailApp(container);
+  }
+}
