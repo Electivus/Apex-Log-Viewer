@@ -57,4 +57,19 @@ for (const { type, options } of reporterConfigs) {
   console.log(`[coverage-merge] emitted ${type} report`);
 }
 
+const summary = coverageMap.getCoverageSummary();
+const stats = [
+  ['Lines', summary.lines],
+  ['Statements', summary.statements],
+  ['Functions', summary.functions],
+  ['Branches', summary.branches]
+];
 console.log('[coverage-merge] combined coverage reports are ready.');
+for (const [label, stat] of stats) {
+  if (!stat || typeof stat.total !== 'number' || stat.total === 0) {
+    console.log(`[coverage-merge]   ${label}: n/a`);
+    continue;
+  }
+  const pct = Number.isFinite(stat.pct) ? stat.pct.toFixed(2) : '0.00';
+  console.log(`[coverage-merge]   ${label}: ${pct}% (${stat.covered}/${stat.total})`);
+}
