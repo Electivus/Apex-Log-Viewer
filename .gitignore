@@ -5,6 +5,7 @@ media/webview.css
 media/webview-dev.css
 *.vsix
 *.zip
+coverage/
 
 # allow tracking webview entrypoints
 *.log

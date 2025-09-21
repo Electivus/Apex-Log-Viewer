@@ -2,22 +2,38 @@ const { rmSync } = require('fs');
 const { join } = require('path');
 const { tmpdir } = require('os');
 
-function safeRm(p) {
+function safeRm(p, { quiet } = {}) {
   try {
     rmSync(p, { recursive: true, force: true });
-    // eslint-disable-next-line no-empty
   } catch (e) {
-    console.warn('[test-clean] Failed to remove', p, e && e.message ? e.message : e);
+    if (!quiet) {
+      console.warn('[test-clean] Failed to remove', p, e && e.message ? e.message : e);
+    }
   }
 }
 
-const cwd = process.cwd();
-const cleanCache = /^1|true$/i.test(String(process.env.CLEAN_VSCODE_CACHE || ''));
-if (cleanCache) {
-  safeRm(join(cwd, '.vscode-test'));
-} else {
-  console.log('[test-clean] Skipping removal of .vscode-test cache. Set CLEAN_VSCODE_CACHE=true to purge.');
+function cleanVsCodeTest({ quiet = false, force = false } = {}) {
+  const cwd = process.cwd();
+  const keepCache = !force && /^1|true$/i.test(String(process.env.KEEP_VSCODE_TEST_CACHE || process.env.KEEP_VSCODE_CACHE || ''));
+  if (keepCache) {
+    if (!quiet) {
+      console.log('[test-clean] KEEP_VSCODE_TEST_CACHE is set; preserving .vscode-test cache.');
+    }
+  } else {
+    safeRm(join(cwd, '.vscode-test'), { quiet });
+    if (!quiet) {
+      console.log('[test-clean] Removed .vscode-test cache.');
+    }
+  }
+  safeRm(join(tmpdir(), 'alv-user-data'), { quiet });
+  safeRm(join(tmpdir(), 'alv-extensions'), { quiet });
+  if (!quiet) {
+    console.log('[test-clean] Cleaned temp VS Code dirs.');
+  }
 }
-safeRm(join(tmpdir(), 'alv-user-data'));
-safeRm(join(tmpdir(), 'alv-extensions'));
-console.log('[test-clean] Cleaned temp VS Code dirs.');
+
+if (require.main === module) {
+  cleanVsCodeTest();
+}
+
+module.exports = { cleanVsCodeTest };
