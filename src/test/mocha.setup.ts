@@ -19,10 +19,6 @@ class ResizeObserverMock {
 // Log test start/finish to help diagnose failures in the VS Code host
 let executedCount = 0;
 
-if (process.env.ENABLE_COVERAGE) {
-  console.log('[coverage] ENABLE_COVERAGE detected. NODE_V8_COVERAGE=', process.env.NODE_V8_COVERAGE ?? '<undefined>');
-}
-
 export const mochaHooks = {
   beforeEach(this: any) {
     const name = this.currentTest?.fullTitle?.() ?? 'unknown';
