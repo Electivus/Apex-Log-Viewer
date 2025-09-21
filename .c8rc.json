@@ -15,9 +15,7 @@
   "exclude-after-remap": true,
   "exclude": [
     "out/test/**",
-    "out/webview/**",
     "src/test/**",
-    "src/webview/**",
     "**/*.d.ts"
   ]
 }
