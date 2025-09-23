@@ -1,70 +1,12 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 20
-    groups:
-      salesforce-sdk:
-        patterns:
-          - "@salesforce/*"
-      vscode-platform:
-        patterns:
-          - "@vscode/*"
-          - "vscode-nls"
-          - "vscode-nls-dev"
-      react-ui:
-        patterns:
-          - "react"
-          - "react-dom"
-          - "react-window"
-          - "lucide-react"
-          - "@radix-ui/*"
-      linting-and-formatting:
-        patterns:
-          - "eslint*"
-          - "@typescript-eslint/*"
-          - "prettier"
-          - "lint-staged"
-          - "husky"
-      testing:
-        patterns:
-          - "mocha"
-          - "jsdom"
-          - "@types/mocha"
-          - "@types/jsdom"
-          - "@testing-library/*"
-      react-types:
-        patterns:
-          - "@types/react"
-          - "@types/react-dom"
-      vscode-types:
-        patterns:
-          - "@types/vscode"
-      types:
-        patterns:
-          - "@types/node"
-          - "@types/proxyquire"
-      tailwind:
-        patterns:
-          - "tailwindcss"
-          - "tailwindcss-animate"
-          - "@tailwindcss/*"
-          - "autoprefixer"
-          - "postcss"
-      tooling:
-        patterns:
-          - "esbuild"
-          - "typescript"
-          - "npm-run-all"
-          - "sharp"
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 20
-    groups:
-      actions-all:
-        patterns:
-          - "*"
