@@ -26,14 +26,20 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private cursorStartTime: string | undefined;
   private cursorId: string | undefined;
   private prefetchLogBodies: boolean;
+  private readonly logService: LogService;
+  private readonly orgManager: OrgManager;
+  private readonly configManager: ConfigManager;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
-    private readonly logService = new LogService(),
-    private readonly orgManager = new OrgManager(context),
-    private readonly configManager = new ConfigManager(5, 100)
+    logService: LogService = new LogService(),
+    orgManager?: OrgManager,
+    configManager?: ConfigManager
   ) {
     this.prefetchLogBodies = restorePrefetchSetting(context);
+    this.logService = logService;
+    this.orgManager = orgManager ?? new OrgManager(context);
+    this.configManager = configManager ?? new ConfigManager(5, 100);
     const org = this.orgManager.getSelectedOrg();
     if (org) {
       logInfo('Logs: restored selected org from globalState:', org || '(default)');
