@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getMessages, type Messages } from './i18n';
 import type { OrgItem, ApexLogRow } from '../shared/types';
@@ -31,6 +31,8 @@ export function LogsApp({
   const [hasMore, setHasMore] = useState(false);
   const [logHead, setLogHead] = useState<Record<string, { codeUnitStarted?: string }>>({});
   const [logSearchContent, setLogSearchContent] = useState<Record<string, string>>({});
+  const [prefetchLogBodies, setPrefetchLogBodies] = useState(false);
+  const prefetchRef = useRef(prefetchLogBodies);
 
   // Search + filters
   const [query, setQuery] = useState('');
@@ -42,6 +44,10 @@ export function LogsApp({
   // Sorting
   const [sortBy, setSortBy] = useState<SortKey>('time');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  useEffect(() => {
+    prefetchRef.current = prefetchLogBodies;
+  }, [prefetchLogBodies]);
 
   useEffect(() => {
     if (!messageBus) {
@@ -95,6 +101,9 @@ export function LogsApp({
           }));
           break;
         case 'logSearchContent': {
+          if (!prefetchRef.current) {
+            break;
+          }
           const normalized = (msg.content || '').toLowerCase();
           setLogSearchContent(prev => {
             if (prev[msg.logId] === normalized) {
@@ -120,6 +129,13 @@ export function LogsApp({
 
   const onRefresh = () => {
     vscode.postMessage({ type: 'refresh' });
+  };
+  const onTogglePrefetch = (value: boolean) => {
+    setPrefetchLogBodies(value);
+    if (!value) {
+      setLogSearchContent({});
+    }
+    vscode.postMessage({ type: 'setPrefetchLogBodies', value });
   };
   const onSelectOrg = (v: string) => {
     setSelectedOrg(v);
@@ -262,6 +278,8 @@ export function LogsApp({
         onFilterStatusChange={setFilterStatus}
         onFilterCodeUnitChange={setFilterCodeUnit}
         onClearFilters={clearFilters}
+        prefetchLogBodies={prefetchLogBodies}
+        onPrefetchChange={onTogglePrefetch}
       />
 
       <div className="relative rounded-lg border border-border bg-card/60 p-2">

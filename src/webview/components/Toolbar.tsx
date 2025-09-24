@@ -4,6 +4,7 @@ import type { OrgItem } from '../../shared/types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { Switch } from './ui/switch';
 import { FilterSelect } from './FilterSelect';
 import { OrgSelect } from './OrgSelect';
 
@@ -35,6 +36,8 @@ type ToolbarProps = {
   onFilterStatusChange: (v: string) => void;
   onFilterCodeUnitChange: (v: string) => void;
   onClearFilters: () => void;
+  prefetchLogBodies: boolean;
+  onPrefetchChange: (value: boolean) => void;
 };
 
 export function Toolbar({
@@ -59,9 +62,12 @@ export function Toolbar({
   onFilterOperationChange,
   onFilterStatusChange,
   onFilterCodeUnitChange,
-  onClearFilters
+  onClearFilters,
+  prefetchLogBodies,
+  onPrefetchChange
 }: ToolbarProps) {
   const searchInputId = useStableId('logs-search');
+  const prefetchSwitchId = useStableId('prefetch');
   const hasFilters = Boolean(filterUser || filterOperation || filterStatus || filterCodeUnit);
   const errorLabel = t?.tail?.errorLabel ?? t?.errors?.generic ?? 'Error';
 
@@ -102,6 +108,24 @@ export function Toolbar({
             placeholder={t.searchPlaceholder ?? 'Search logs…'}
             disabled={loading}
           />
+        </div>
+
+        <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background/60 px-3 py-2 text-sm">
+          <Switch
+            id={prefetchSwitchId}
+            checked={prefetchLogBodies}
+            onCheckedChange={value => onPrefetchChange(!!value)}
+            disabled={loading}
+            aria-label={t.prefetchLabel ?? 'Download full log bodies'}
+          />
+          <div className="flex flex-col leading-tight">
+            <Label htmlFor={prefetchSwitchId} className="text-xs font-semibold text-muted-foreground">
+              {t.prefetchLabel ?? 'Download full log bodies'}
+            </Label>
+            {t.prefetchDescription && (
+              <span className="text-xs text-muted-foreground">{t.prefetchDescription}</span>
+            )}
+          </div>
         </div>
 
         <FilterSelect

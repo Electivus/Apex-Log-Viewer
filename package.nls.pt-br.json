@@ -12,7 +12,6 @@
   "configuration.title": "Electivus Apex Logs",
   "configuration.electivus.apexLogs.pageSize.description": "Quantidade de logs por página (máximo efetivo: 200). Valores maiores trazem mais por requisição, mas podem deixar a UI mais lenta ou aumentar a carga nas APIs.",
   "configuration.electivus.apexLogs.headConcurrency.description": "Número máximo de requisições concorrentes para buscar cabeçalhos. Valores muito altos podem sobrecarregar as APIs do Salesforce ou atingir limites de rate.",
-  "configuration.electivus.apexLogs.prefetchLogBodies.description": "Baixa o conteúdo completo dos logs Apex ao listar para permitir buscas no texto. Isso aumenta o uso de banda e pode deixar as atualizações mais lentas.",
   "configuration.electivus.apexLogs.saveDirName.description": "Pasta dentro do workspace onde os logs Apex são salvos. Se vazio, a extensão tenta detectar uma pasta existente 'apexlog' ou usa 'apexlogs'.",
   "configuration.electivus.apexLogs.tailBufferSize.description": "Quantidade de linhas mantidas no buffer do Tail. Buffers maiores consomem mais memória e CPU.",
   "configuration.electivus.apexLogs.cliCache.enabled.description": "Ativa cache persistente para chamadas do Salesforce CLI (lista de orgs, etc.).",

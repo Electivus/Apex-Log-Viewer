@@ -8,6 +8,7 @@ export type WebviewToExtensionMessage =
   | { type: 'openLog'; logId: string }
   | { type: 'replay'; logId: string }
   | { type: 'loadMore' }
+  | { type: 'setPrefetchLogBodies'; value: boolean }
   // Tail view messages
   | { type: 'tailStart'; debugLevel?: string }
   | { type: 'tailStop' }

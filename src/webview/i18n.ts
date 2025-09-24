@@ -8,6 +8,8 @@ export type Messages = {
   defaultOrg: string;
   searchPlaceholder?: string;
   noOrgsDetected?: string;
+  prefetchLabel?: string;
+  prefetchDescription?: string;
   tail?: {
     start: string;
     stop: string;
@@ -56,6 +58,8 @@ const en: Messages = {
   defaultOrg: 'Default Org',
   searchPlaceholder: 'Search logs…',
   noOrgsDetected: 'No orgs detected. Run "sf org list".',
+  prefetchLabel: 'Download full log bodies',
+  prefetchDescription: 'Fetch complete Apex log text when listing logs so search can match everything. May impact performance.',
   tail: {
     start: 'Start',
     stop: 'Stop',
@@ -104,6 +108,8 @@ const ptBR: Messages = {
   defaultOrg: 'Org Padrão',
   searchPlaceholder: 'Buscar logs…',
   noOrgsDetected: 'Nenhuma org detectada. Execute "sf org list".',
+  prefetchLabel: 'Baixar conteúdo completo dos logs',
+  prefetchDescription: 'Baixa o texto inteiro do log ao listar para permitir buscas completas. Pode impactar o desempenho.',
   tail: {
     start: 'Iniciar',
     stop: 'Parar',

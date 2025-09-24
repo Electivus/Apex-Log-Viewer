@@ -6,6 +6,7 @@ export class LogsMessageHandler {
     private readonly refresh: () => Promise<void>,
     private readonly sendOrgs: () => Promise<void>,
     private readonly setSelectedOrg: (org?: string) => void,
+    private readonly setPrefetchLogBodies: (enabled: boolean) => Promise<void>,
     private readonly openLog: (logId: string) => Promise<void>,
     private readonly debugLog: (logId: string) => Promise<void>,
     private readonly loadMore: () => Promise<void>,
@@ -32,6 +33,10 @@ export class LogsMessageHandler {
         this.setSelectedOrg(typeof message.target === 'string' ? message.target.trim() : undefined);
         logInfo('Logs: selected org set');
         await this.refresh();
+        break;
+      case 'setPrefetchLogBodies':
+        logInfo('Logs: setPrefetchLogBodies', message.value);
+        await this.setPrefetchLogBodies(!!message.value);
         break;
       case 'openLog':
         if (message.logId) {

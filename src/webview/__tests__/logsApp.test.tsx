@@ -131,7 +131,7 @@ describe('Logs webview App', () => {
   }, 10000);
 
   it('uses prefetched log content when searching', async () => {
-    const { vscode } = createVsCodeMock();
+    const { vscode, posted } = createVsCodeMock();
     const bus = new EventTarget();
     render(<LogsApp vscode={vscode} messageBus={bus} />);
 
@@ -150,24 +150,20 @@ describe('Logs webview App', () => {
     ];
 
     sendMessage(bus, { type: 'logs', data: messageLogs, hasMore: false });
-
     await screen.findByText('ExecuteAnonymous');
+
+    const toggle = screen.getByRole('switch', { name: 'Download full log bodies' });
+    fireEvent.click(toggle);
+    expect(posted).toContainEqual({ type: 'setPrefetchLogBodies', value: true });
 
     sendMessage(bus, { type: 'logSearchContent', logId: 'a1', content: 'DEBUG | error happened inside controller' });
 
     const searchInput = screen.getByLabelText('Search logs…');
     fireEvent.change(searchInput, { target: { value: 'error' } });
-
     await screen.findByText('ExecuteAnonymous');
 
-    // simulate a refresh with the same rows but no new body content
-    sendMessage(bus, { type: 'logs', data: messageLogs, hasMore: false });
-    await screen.findByText('No logs found.');
-
-    fireEvent.change(searchInput, { target: { value: '' } });
-    await screen.findByText('ExecuteAnonymous');
-
-    fireEvent.change(searchInput, { target: { value: 'missing' } });
+    fireEvent.click(toggle);
+    expect(posted).toContainEqual({ type: 'setPrefetchLogBodies', value: false });
     await screen.findByText('No logs found.');
   });
 });

@@ -24,12 +24,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private messageHandler: LogsMessageHandler;
   private cursorStartTime: string | undefined;
   private cursorId: string | undefined;
+  private prefetchLogBodies = false;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly logService = new LogService(),
     private readonly orgManager = new OrgManager(context),
-    private readonly configManager = new ConfigManager(5, 100, false)
+    private readonly configManager = new ConfigManager(5, 100)
   ) {
     const org = this.orgManager.getSelectedOrg();
     if (org) {
@@ -40,6 +41,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       () => this.refresh(),
       () => this.sendOrgs(),
       o => this.setSelectedOrg(o),
+      enabled => this.setPrefetchLogBodies(enabled),
       id => this.logService.openLog(id, this.orgManager.getSelectedOrg()),
       id => this.logService.debugLog(id, this.orgManager.getSelectedOrg()),
       () => this.loadMore(),
@@ -83,6 +85,16 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         void this.messageHandler.handle(message);
       })
     );
+  }
+
+  private async setPrefetchLogBodies(enabled: boolean): Promise<void> {
+    if (this.prefetchLogBodies === enabled) {
+      return;
+    }
+    this.prefetchLogBodies = enabled;
+    if (this.view) {
+      await this.refresh();
+    }
   }
 
   public async refresh() {
@@ -133,7 +145,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           this.post({ type: 'init', locale: vscode.env.language });
           const hasMore = logs.length === this.pageLimit;
           this.post({ type: 'logs', data: logs, hasMore });
-          const prefetchBodies = this.configManager.getPrefetchLogBodies();
           this.logService.loadLogHeads(
             logs,
             auth,
@@ -144,7 +155,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
               }
             },
             controller.signal,
-            prefetchBodies
+            this.prefetchLogBodies
               ? {
                   includeBodies: true,
                   onBody: (logId, content) => {
@@ -206,8 +217,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       }
       const hasMore = logs.length === this.pageLimit;
       this.post({ type: 'appendLogs', data: logs, hasMore });
-      const prefetchBodies = this.configManager.getPrefetchLogBodies();
-      this.logService.loadLogHeads(
+          this.logService.loadLogHeads(
         logs,
         auth,
         token,
@@ -217,7 +227,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           }
         },
         undefined,
-        prefetchBodies
+        this.prefetchLogBodies
           ? {
               includeBodies: true,
               onBody: (logId, content) => {
