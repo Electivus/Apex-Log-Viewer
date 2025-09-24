@@ -29,7 +29,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     private readonly context: vscode.ExtensionContext,
     private readonly logService = new LogService(),
     private readonly orgManager = new OrgManager(context),
-    private readonly configManager = new ConfigManager(5, 100)
+    private readonly configManager = new ConfigManager(5, 100, false)
   ) {
     const org = this.orgManager.getSelectedOrg();
     if (org) {
@@ -133,6 +133,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           this.post({ type: 'init', locale: vscode.env.language });
           const hasMore = logs.length === this.pageLimit;
           this.post({ type: 'logs', data: logs, hasMore });
+          const prefetchBodies = this.configManager.getPrefetchLogBodies();
           this.logService.loadLogHeads(
             logs,
             auth,
@@ -142,7 +143,17 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
                 this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
               }
             },
-            controller.signal
+            controller.signal,
+            prefetchBodies
+              ? {
+                  includeBodies: true,
+                  onBody: (logId, content) => {
+                    if (token === this.refreshToken && !this.disposed) {
+                      this.post({ type: 'logSearchContent', logId, content });
+                    }
+                  }
+                }
+              : undefined
           );
           try {
             const durationMs = Date.now() - t0;
@@ -195,11 +206,28 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       }
       const hasMore = logs.length === this.pageLimit;
       this.post({ type: 'appendLogs', data: logs, hasMore });
-      this.logService.loadLogHeads(logs, auth, token, (logId, codeUnit) => {
-        if (token === this.refreshToken && !this.disposed) {
-          this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
-        }
-      });
+      const prefetchBodies = this.configManager.getPrefetchLogBodies();
+      this.logService.loadLogHeads(
+        logs,
+        auth,
+        token,
+        (logId, codeUnit) => {
+          if (token === this.refreshToken && !this.disposed) {
+            this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
+          }
+        },
+        undefined,
+        prefetchBodies
+          ? {
+              includeBodies: true,
+              onBody: (logId, content) => {
+                if (token === this.refreshToken && !this.disposed) {
+                  this.post({ type: 'logSearchContent', logId, content });
+                }
+              }
+            }
+          : undefined
+      );
       try {
         const durationMs = Date.now() - t0;
         safeSendEvent('logs.loadMore', { outcome: 'ok' }, { durationMs, count: logs.length });

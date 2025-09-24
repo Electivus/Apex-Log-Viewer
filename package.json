@@ -77,6 +77,11 @@
           "minimum": 1,
           "markdownDescription": "%configuration.electivus.apexLogs.headConcurrency.description%"
         },
+        "electivus.apexLogs.prefetchLogBodies": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "%configuration.electivus.apexLogs.prefetchLogBodies.description%"
+        },
         "electivus.apexLogs.saveDirName": {
           "type": "string",
           "default": "apexlogs",
@@ -135,6 +140,12 @@
           "minimum": 1,
           "markdownDescription": "%configuration.electivus.apexLogs.headConcurrency.description%",
           "deprecationMessage": "Deprecated: use electivus.apexLogs.headConcurrency"
+        },
+        "sfLogs.prefetchLogBodies": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "%configuration.electivus.apexLogs.prefetchLogBodies.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.prefetchLogBodies"
         },
         "sfLogs.saveDirName": {
           "type": "string",

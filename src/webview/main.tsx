@@ -30,6 +30,7 @@ export function LogsApp({
   const [rows, setRows] = useState<ApexLogRow[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [logHead, setLogHead] = useState<Record<string, { codeUnitStarted?: string }>>({});
+  const [logSearchContent, setLogSearchContent] = useState<Record<string, string>>({});
 
   // Search + filters
   const [query, setQuery] = useState('');
@@ -67,6 +68,21 @@ export function LogsApp({
           setRows(msg.data || []);
           setHasMore(!!msg.hasMore);
           setError(undefined);
+          setLogHead(prev => {
+            const data = msg.data || [];
+            if (!data.length) {
+              return {};
+            }
+            const next: typeof prev = {};
+            for (const row of data) {
+              const existing = row?.Id ? prev[row.Id] : undefined;
+              if (row?.Id && existing) {
+                next[row.Id] = existing;
+              }
+            }
+            return next;
+          });
+          setLogSearchContent({});
           break;
         case 'appendLogs':
           setRows(prev => [...prev, ...(msg.data || [])]);
@@ -78,6 +94,19 @@ export function LogsApp({
             [msg.logId]: { codeUnitStarted: msg.codeUnitStarted }
           }));
           break;
+        case 'logSearchContent': {
+          const normalized = (msg.content || '').toLowerCase();
+          setLogSearchContent(prev => {
+            if (prev[msg.logId] === normalized) {
+              return prev;
+            }
+            return {
+              ...prev,
+              [msg.logId]: normalized
+            };
+          });
+          break;
+        }
         case 'orgs':
           setOrgs(msg.data || []);
           setSelectedOrg(msg.selected);
@@ -156,7 +185,11 @@ export function LogsApp({
       ]
         .join(' ')
         .toLowerCase();
-      return hay.includes(q);
+      if (hay.includes(q)) {
+        return true;
+      }
+      const bodyIndex = logSearchContent[r.Id];
+      return bodyIndex ? bodyIndex.includes(q) : false;
     });
 
     const compare = (a: ApexLogRow, b: ApexLogRow) => {
@@ -191,7 +224,18 @@ export function LogsApp({
     };
 
     return items.slice().sort(compare);
-  }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead]);
+  }, [
+    rows,
+    query,
+    filterUser,
+    filterOperation,
+    filterStatus,
+    filterCodeUnit,
+    sortBy,
+    sortDir,
+    logHead,
+    logSearchContent
+  ]);
 
   return (
     <div className="relative flex min-h-[120px] flex-col gap-4 p-4 text-sm">

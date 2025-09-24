@@ -129,4 +129,45 @@ describe('Logs webview App', () => {
       expect(types).toEqual(expect.arrayContaining(['openLog', 'replay', 'refresh']));
     });
   }, 10000);
+
+  it('uses prefetched log content when searching', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<LogsApp vscode={vscode} messageBus={bus} />);
+
+    const messageLogs = [
+      {
+        Id: 'a1',
+        StartTime: '2025-09-21T18:40:00.000Z',
+        Operation: 'ExecuteAnonymous',
+        Application: 'Developer Console',
+        DurationMilliseconds: 125,
+        Status: 'Success',
+        Request: 'XYZ',
+        LogLength: 2048,
+        LogUser: { Name: 'Alice' }
+      }
+    ];
+
+    sendMessage(bus, { type: 'logs', data: messageLogs, hasMore: false });
+
+    await screen.findByText('ExecuteAnonymous');
+
+    sendMessage(bus, { type: 'logSearchContent', logId: 'a1', content: 'DEBUG | error happened inside controller' });
+
+    const searchInput = screen.getByLabelText('Search logs…');
+    fireEvent.change(searchInput, { target: { value: 'error' } });
+
+    await screen.findByText('ExecuteAnonymous');
+
+    // simulate a refresh with the same rows but no new body content
+    sendMessage(bus, { type: 'logs', data: messageLogs, hasMore: false });
+    await screen.findByText('No logs found.');
+
+    fireEvent.change(searchInput, { target: { value: '' } });
+    await screen.findByText('ExecuteAnonymous');
+
+    fireEvent.change(searchInput, { target: { value: 'missing' } });
+    await screen.findByText('No logs found.');
+  });
 });
