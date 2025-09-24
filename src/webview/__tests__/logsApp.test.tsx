@@ -152,9 +152,11 @@ describe('Logs webview App', () => {
     sendMessage(bus, { type: 'logs', data: messageLogs, hasMore: false });
     await screen.findByText('ExecuteAnonymous');
 
-    const toggle = screen.getByRole('switch', { name: 'Download full log bodies' });
+    const toggle = screen.getByRole('switch', { name: 'Search entire log text' });
     fireEvent.click(toggle);
     expect(posted).toContainEqual({ type: 'setPrefetchLogBodies', value: true });
+
+    sendMessage(bus, { type: 'prefetchState', value: true });
 
     sendMessage(bus, { type: 'logSearchContent', logId: 'a1', content: 'DEBUG | error happened inside controller' });
 
@@ -164,6 +166,7 @@ describe('Logs webview App', () => {
 
     fireEvent.click(toggle);
     expect(posted).toContainEqual({ type: 'setPrefetchLogBodies', value: false });
+    sendMessage(bus, { type: 'prefetchState', value: false });
     await screen.findByText('No logs found.');
   });
 });

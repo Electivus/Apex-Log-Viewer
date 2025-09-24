@@ -153,7 +153,7 @@ describe('Toolbar webview component', () => {
 
   it('notifies when prefetch toggle changes', () => {
     const utils = renderToolbar();
-    const toggle = screen.getByRole('switch', { name: 'Download full log bodies' });
+    const toggle = screen.getByRole('switch', { name: 'Search entire log text' });
     fireEvent.click(toggle);
     expect(utils.prefetchChanges).toEqual([true]);
   });

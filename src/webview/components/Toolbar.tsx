@@ -116,15 +116,16 @@ export function Toolbar({
             checked={prefetchLogBodies}
             onCheckedChange={value => onPrefetchChange(!!value)}
             disabled={loading}
-            aria-label={t.prefetchLabel ?? 'Download full log bodies'}
+            aria-label={t.prefetchLabel ?? 'Search entire log text'}
           />
           <div className="flex flex-col leading-tight">
-            <Label htmlFor={prefetchSwitchId} className="text-xs font-semibold text-muted-foreground">
-              {t.prefetchLabel ?? 'Download full log bodies'}
+            <Label
+              htmlFor={prefetchSwitchId}
+              className="text-xs font-semibold text-muted-foreground"
+              title={t.prefetchDescription}
+            >
+              {t.prefetchLabel ?? 'Search entire log text'}
             </Label>
-            {t.prefetchDescription && (
-              <span className="text-xs text-muted-foreground">{t.prefetchDescription}</span>
-            )}
           </div>
         </div>
 

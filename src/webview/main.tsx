@@ -116,6 +116,12 @@ export function LogsApp({
           });
           break;
         }
+        case 'prefetchState':
+          setPrefetchLogBodies(msg.value);
+          if (!msg.value) {
+            setLogSearchContent({});
+          }
+          break;
         case 'orgs':
           setOrgs(msg.data || []);
           setSelectedOrg(msg.selected);
@@ -131,10 +137,6 @@ export function LogsApp({
     vscode.postMessage({ type: 'refresh' });
   };
   const onTogglePrefetch = (value: boolean) => {
-    setPrefetchLogBodies(value);
-    if (!value) {
-      setLogSearchContent({});
-    }
     vscode.postMessage({ type: 'setPrefetchLogBodies', value });
   };
   const onSelectOrg = (v: string) => {
