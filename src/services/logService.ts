@@ -49,7 +49,8 @@ export class LogService {
     auth: OrgAuth,
     token: number,
     post: (logId: string, codeUnit: string) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: { includeBodies?: boolean; onBody?: (logId: string, content: string) => void }
   ): void {
     for (const log of logs) {
       void this.headLimiter(async () => {
@@ -74,6 +75,20 @@ export class LogService {
           }
         } catch (e) {
           logWarn('LogService: loadLogHead failed for', log.Id, '->', e);
+        }
+        if (options?.includeBodies && typeof options.onBody === 'function') {
+          if (signal?.aborted) {
+            return;
+          }
+          try {
+            const body = await fetchApexLogBody(auth, log.Id, undefined, signal);
+            if (signal?.aborted) {
+              return;
+            }
+            options.onBody(log.Id, body);
+          } catch (e) {
+            logWarn('LogService: prefetch log body failed for', log.Id, '->', e);
+          }
         }
       });
     }

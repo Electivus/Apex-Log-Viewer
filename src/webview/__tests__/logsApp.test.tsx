@@ -129,4 +129,44 @@ describe('Logs webview App', () => {
       expect(types).toEqual(expect.arrayContaining(['openLog', 'replay', 'refresh']));
     });
   }, 10000);
+
+  it('uses prefetched log content when searching', async () => {
+    const { vscode, posted } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<LogsApp vscode={vscode} messageBus={bus} />);
+
+    const messageLogs = [
+      {
+        Id: 'a1',
+        StartTime: '2025-09-21T18:40:00.000Z',
+        Operation: 'ExecuteAnonymous',
+        Application: 'Developer Console',
+        DurationMilliseconds: 125,
+        Status: 'Success',
+        Request: 'XYZ',
+        LogLength: 2048,
+        LogUser: { Name: 'Alice' }
+      }
+    ];
+
+    sendMessage(bus, { type: 'logs', data: messageLogs, hasMore: false });
+    await screen.findByText('ExecuteAnonymous');
+
+    const toggle = screen.getByRole('switch', { name: 'Search entire log text' });
+    fireEvent.click(toggle);
+    expect(posted).toContainEqual({ type: 'setPrefetchLogBodies', value: true });
+
+    sendMessage(bus, { type: 'prefetchState', value: true });
+
+    sendMessage(bus, { type: 'logSearchContent', logId: 'a1', content: 'DEBUG | error happened inside controller' });
+
+    const searchInput = screen.getByLabelText('Search logs…');
+    fireEvent.change(searchInput, { target: { value: 'error' } });
+    await screen.findByText('ExecuteAnonymous');
+
+    fireEvent.click(toggle);
+    expect(posted).toContainEqual({ type: 'setPrefetchLogBodies', value: false });
+    sendMessage(bus, { type: 'prefetchState', value: false });
+    await screen.findByText('No logs found.');
+  });
 });

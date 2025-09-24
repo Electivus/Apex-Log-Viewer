@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getMessages, type Messages } from './i18n';
 import type { OrgItem, ApexLogRow } from '../shared/types';
@@ -30,6 +30,9 @@ export function LogsApp({
   const [rows, setRows] = useState<ApexLogRow[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [logHead, setLogHead] = useState<Record<string, { codeUnitStarted?: string }>>({});
+  const [logSearchContent, setLogSearchContent] = useState<Record<string, string>>({});
+  const [prefetchLogBodies, setPrefetchLogBodies] = useState(false);
+  const prefetchRef = useRef(prefetchLogBodies);
 
   // Search + filters
   const [query, setQuery] = useState('');
@@ -41,6 +44,10 @@ export function LogsApp({
   // Sorting
   const [sortBy, setSortBy] = useState<SortKey>('time');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  useEffect(() => {
+    prefetchRef.current = prefetchLogBodies;
+  }, [prefetchLogBodies]);
 
   useEffect(() => {
     if (!messageBus) {
@@ -67,6 +74,21 @@ export function LogsApp({
           setRows(msg.data || []);
           setHasMore(!!msg.hasMore);
           setError(undefined);
+          setLogHead(prev => {
+            const data = msg.data || [];
+            if (!data.length) {
+              return {};
+            }
+            const next: typeof prev = {};
+            for (const row of data) {
+              const existing = row?.Id ? prev[row.Id] : undefined;
+              if (row?.Id && existing) {
+                next[row.Id] = existing;
+              }
+            }
+            return next;
+          });
+          setLogSearchContent({});
           break;
         case 'appendLogs':
           setRows(prev => [...prev, ...(msg.data || [])]);
@@ -77,6 +99,28 @@ export function LogsApp({
             ...prev,
             [msg.logId]: { codeUnitStarted: msg.codeUnitStarted }
           }));
+          break;
+        case 'logSearchContent': {
+          if (!prefetchRef.current) {
+            break;
+          }
+          const normalized = (msg.content || '').toLowerCase();
+          setLogSearchContent(prev => {
+            if (prev[msg.logId] === normalized) {
+              return prev;
+            }
+            return {
+              ...prev,
+              [msg.logId]: normalized
+            };
+          });
+          break;
+        }
+        case 'prefetchState':
+          setPrefetchLogBodies(msg.value);
+          if (!msg.value) {
+            setLogSearchContent({});
+          }
           break;
         case 'orgs':
           setOrgs(msg.data || []);
@@ -91,6 +135,9 @@ export function LogsApp({
 
   const onRefresh = () => {
     vscode.postMessage({ type: 'refresh' });
+  };
+  const onTogglePrefetch = (value: boolean) => {
+    vscode.postMessage({ type: 'setPrefetchLogBodies', value });
   };
   const onSelectOrg = (v: string) => {
     setSelectedOrg(v);
@@ -156,7 +203,11 @@ export function LogsApp({
       ]
         .join(' ')
         .toLowerCase();
-      return hay.includes(q);
+      if (hay.includes(q)) {
+        return true;
+      }
+      const bodyIndex = logSearchContent[r.Id];
+      return bodyIndex ? bodyIndex.includes(q) : false;
     });
 
     const compare = (a: ApexLogRow, b: ApexLogRow) => {
@@ -191,7 +242,18 @@ export function LogsApp({
     };
 
     return items.slice().sort(compare);
-  }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead]);
+  }, [
+    rows,
+    query,
+    filterUser,
+    filterOperation,
+    filterStatus,
+    filterCodeUnit,
+    sortBy,
+    sortDir,
+    logHead,
+    logSearchContent
+  ]);
 
   return (
     <div className="relative flex min-h-[120px] flex-col gap-4 p-4 text-sm">
@@ -218,6 +280,8 @@ export function LogsApp({
         onFilterStatusChange={setFilterStatus}
         onFilterCodeUnitChange={setFilterCodeUnit}
         onClearFilters={clearFilters}
+        prefetchLogBodies={prefetchLogBodies}
+        onPrefetchChange={onTogglePrefetch}
       />
 
       <div className="relative rounded-lg border border-border bg-card/60 p-2">

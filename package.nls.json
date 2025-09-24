@@ -24,5 +24,9 @@
   "openLogInViewer.unsupportedScheme": "Electivus Apex Logs: Unable to open Apex logs from this location.",
   "openLogInViewer.notApex": "Electivus Apex Logs: The active document is not recognized as a Salesforce Apex log.",
   "openLogInViewer.failed": "Failed to open Apex log: {0}",
-  "openLogInViewer.codeLensTitle": "Open in Apex Log Viewer"
+  "openLogInViewer.codeLensTitle": "Open in Apex Log Viewer",
+  "logs.prefetch.enablePrompt": "Enable searching entire log text? This downloads full log bodies so search can match everything, which may impact performance.",
+  "logs.prefetch.disablePrompt": "Disable searching entire log text? Searches will fall back to header metadata only.",
+  "logs.prefetch.enableConfirm": "Enable",
+  "logs.prefetch.disableConfirm": "Disable"
 }

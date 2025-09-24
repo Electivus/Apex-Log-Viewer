@@ -36,6 +36,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
   let clearCount = 0;
   const queryChanges: string[] = [];
   const userChanges: string[] = [];
+  const prefetchChanges: boolean[] = [];
 
   const docRef = globalThis as unknown as { DocumentFragment: typeof DocumentFragment | undefined };
   const originalDocumentFragment = docRef.DocumentFragment;
@@ -81,6 +82,10 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
         onClearFilters={() => {
           clearCount++;
         }}
+        prefetchLogBodies={false}
+        onPrefetchChange={value => {
+          prefetchChanges.push(value);
+        }}
       />
     );
   } finally {
@@ -92,7 +97,8 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
     refreshCount: () => refreshCount,
     clearCount: () => clearCount,
     queryChanges,
-    userChanges
+    userChanges,
+    prefetchChanges
   };
 }
 
@@ -143,5 +149,12 @@ describe('Toolbar webview component', () => {
     const searchInput = screen.getByLabelText('Search logs…') as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: 'new search' } });
     expect(utils.queryChanges).toEqual(['new search']);
+  });
+
+  it('notifies when prefetch toggle changes', () => {
+    const utils = renderToolbar();
+    const toggle = screen.getByRole('switch', { name: 'Search entire log text' });
+    fireEvent.click(toggle);
+    expect(utils.prefetchChanges).toEqual([true]);
   });
 });
