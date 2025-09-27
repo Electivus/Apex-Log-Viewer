@@ -61,7 +61,7 @@ export async function ripgrepSearch(pattern: string, cwd: string): Promise<strin
     return [];
   }
 
-  const args = [...RG_ARGS_BASE, pattern, '.'];
+  const args = [...RG_ARGS_BASE, '--', pattern, '.'];
   return new Promise((resolve, reject) => {
     let stdout = '';
     let stderr = '';
