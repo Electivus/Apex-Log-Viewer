@@ -8,7 +8,6 @@ export type WebviewToExtensionMessage =
   | { type: 'openLog'; logId: string }
   | { type: 'replay'; logId: string }
   | { type: 'loadMore' }
-  | { type: 'setPrefetchLogBodies'; value: boolean }
   // Tail view messages
   | { type: 'tailStart'; debugLevel?: string }
   | { type: 'tailStop' }
@@ -22,8 +21,6 @@ export type ExtensionToWebviewMessage =
   | { type: 'logs'; data: ApexLogRow[]; hasMore: boolean }
   | { type: 'appendLogs'; data: ApexLogRow[]; hasMore: boolean }
   | { type: 'logHead'; logId: string; codeUnitStarted?: string }
-  | { type: 'logSearchContent'; logId: string; content: string }
-  | { type: 'prefetchState'; value: boolean }
   | { type: 'orgs'; data: OrgItem[]; selected: string | undefined }
   | { type: 'debugLevels'; data: string[]; active?: string }
   // Tail view messages
