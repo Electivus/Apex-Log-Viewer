@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getMessages, type Messages } from './i18n';
 import type { OrgItem, ApexLogRow } from '../shared/types';
@@ -34,7 +34,7 @@ export function LogsApp({
   const queryRef = useRef('');
 
   // Search + filters
-  const [query, setQuery] = useState('');
+  const [query, setQueryState] = useState('');
   const [filterUser, setFilterUser] = useState('');
   const [filterOperation, setFilterOperation] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -100,12 +100,20 @@ export function LogsApp({
     return () => messageBus.removeEventListener('message', onMsg as EventListener);
   }, [messageBus, vscode]);
 
-  useEffect(() => {
-    if (!messageBus) {
-      return;
-    }
-    vscode.postMessage({ type: 'searchQuery', value: query });
-  }, [query, messageBus, vscode]);
+  const updateQuery = useCallback(
+    (value: string) => {
+      const next = value ?? '';
+      queryRef.current = next;
+      if (!next.trim()) {
+        setMatchingIds(new Set());
+      }
+      setQueryState(next);
+      if (messageBus) {
+        vscode.postMessage({ type: 'searchQuery', value: next });
+      }
+    },
+    [messageBus, setMatchingIds, setQueryState, vscode]
+  );
 
   useEffect(() => {
     queryRef.current = query;
@@ -136,7 +144,7 @@ export function LogsApp({
   };
 
   const clearFilters = () => {
-    setQuery('');
+    updateQuery('');
     setFilterUser('');
     setFilterOperation('');
     setFilterStatus('');
@@ -235,7 +243,7 @@ export function LogsApp({
         selectedOrg={selectedOrg}
         onSelectOrg={onSelectOrg}
         query={query}
-        onQueryChange={setQuery}
+        onQueryChange={updateQuery}
         users={users}
         operations={operations}
         statuses={statuses}

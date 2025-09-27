@@ -99,6 +99,15 @@ export function Toolbar({
             type="search"
             value={query}
             onChange={e => onQueryChange(e.target.value)}
+            onPaste={event => {
+              const input = event.currentTarget;
+              setTimeout(() => {
+                // Re-run search when the pasted content keeps the same value.
+                if (input.value === query) {
+                  onQueryChange(input.value);
+                }
+              }, 0);
+            }}
             placeholder={t.searchPlaceholder ?? 'Search logs…'}
             disabled={loading}
           />

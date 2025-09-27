@@ -114,6 +114,13 @@ describe('Logs webview App', () => {
     sendMessage(bus, { type: 'searchMatches', query: 'error', logIds: ['07L000000000001AA'] });
     await screen.findByText('ExecuteAnonymous');
 
+    const repeatedSearchCount = posted.filter(msg => msg.type === 'searchQuery' && msg.value === 'error').length;
+    fireEvent.paste(searchInput);
+    await waitFor(() => {
+      const searchMessages = posted.filter(msg => msg.type === 'searchQuery' && msg.value === 'error');
+      expect(searchMessages.length).toBeGreaterThan(repeatedSearchCount);
+    });
+
     fireEvent.change(searchInput, { target: { value: 'Sem resultados' } });
     await waitFor(() => {
       expect(posted.some(msg => msg.type === 'searchQuery' && msg.value === 'Sem resultados')).toBe(true);
