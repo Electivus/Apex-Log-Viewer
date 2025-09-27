@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { localize } from '../utils/localize';
 import { getOrgAuth } from '../salesforce/cli';
 import { clearListCache } from '../salesforce/http';
@@ -13,6 +14,8 @@ import { LogService } from '../services/logService';
 import { LogsMessageHandler } from './logsMessageHandler';
 import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../utils/configManager';
+import { ensureApexLogsDir } from '../utils/workspace';
+import { ripgrepSearch } from '../utils/ripgrep';
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
@@ -24,6 +27,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private messageHandler: LogsMessageHandler;
   private cursorStartTime: string | undefined;
   private cursorId: string | undefined;
+  private currentLogs: ApexLogRow[] = [];
+  private lastSearchQuery = '';
+  private searchToken = 0;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -43,7 +49,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       id => this.logService.openLog(id, this.orgManager.getSelectedOrg()),
       id => this.logService.debugLog(id, this.orgManager.getSelectedOrg()),
       () => this.loadMore(),
-      v => this.post({ type: 'loading', value: v })
+      v => this.post({ type: 'loading', value: v }),
+      value => this.setSearchQuery(value)
     );
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
@@ -137,6 +144,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           this.post({ type: 'init', locale: vscode.env.language });
           const hasMore = logs.length === this.pageLimit;
           this.post({ type: 'logs', data: logs, hasMore });
+          this.currentLogs = logs.slice();
           this.logService.loadLogHeads(
             logs,
             auth,
@@ -148,18 +156,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             },
             controller.signal
           );
-          if (this.configManager.shouldLoadFullLogBodies()) {
-            this.logService.loadLogBodies(
-              logs,
-              auth,
-              token,
-              (logId, body) => {
-                if (token === this.refreshToken && !this.disposed) {
-                  this.post({ type: 'logBody', logId, body });
-                }
-              },
-              controller.signal
-            );
+          if (this.lastSearchQuery.trim()) {
+            const searchToken = ++this.searchToken;
+            void this.executeSearch(this.lastSearchQuery, searchToken);
+          } else {
+            this.post({ type: 'searchMatches', query: '', logIds: [] });
           }
           try {
             const durationMs = Date.now() - t0;
@@ -212,17 +213,15 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       }
       const hasMore = logs.length === this.pageLimit;
       this.post({ type: 'appendLogs', data: logs, hasMore });
+      this.currentLogs = [...this.currentLogs, ...logs];
       this.logService.loadLogHeads(logs, auth, token, (logId, codeUnit) => {
         if (token === this.refreshToken && !this.disposed) {
           this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
         }
       });
-      if (this.configManager.shouldLoadFullLogBodies()) {
-        this.logService.loadLogBodies(logs, auth, token, (logId, body) => {
-          if (token === this.refreshToken && !this.disposed) {
-            this.post({ type: 'logBody', logId, body });
-          }
-        });
+      if (this.lastSearchQuery.trim()) {
+        const searchToken = ++this.searchToken;
+        void this.executeSearch(this.lastSearchQuery, searchToken);
       }
       try {
         const durationMs = Date.now() - t0;
@@ -239,6 +238,77 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     } finally {
       this.post({ type: 'loading', value: false });
     }
+  }
+
+  private async setSearchQuery(value: string): Promise<void> {
+    this.lastSearchQuery = value ?? '';
+    const token = ++this.searchToken;
+    await this.executeSearch(this.lastSearchQuery, token);
+  }
+
+  private async executeSearch(query: string, token: number): Promise<void> {
+    if (!this.view || this.disposed) {
+      return;
+    }
+    const trimmed = (query ?? '').trim();
+    if (!trimmed) {
+      if (token === this.searchToken && !this.disposed) {
+        this.post({ type: 'searchMatches', query: '', logIds: [] });
+      }
+      return;
+    }
+    if (!this.configManager.shouldLoadFullLogBodies()) {
+      if (token === this.searchToken && !this.disposed) {
+        this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
+      }
+      return;
+    }
+    const logsSnapshot = [...this.currentLogs];
+    if (logsSnapshot.length === 0) {
+      if (token === this.searchToken && !this.disposed) {
+        this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
+      }
+      return;
+    }
+    try {
+      await this.logService.ensureLogsSaved(logsSnapshot, this.orgManager.getSelectedOrg());
+      if (token !== this.searchToken || this.disposed) {
+        return;
+      }
+      const dir = await ensureApexLogsDir();
+      const files = await ripgrepSearch(trimmed, dir);
+      if (token !== this.searchToken || this.disposed) {
+        return;
+      }
+      const known = new Set(logsSnapshot.map(l => l.Id));
+      const matches = new Set<string>();
+      for (const file of files) {
+        const logId = this.extractLogIdFromPath(file);
+        if (logId && known.has(logId)) {
+          matches.add(logId);
+        }
+      }
+      this.post({ type: 'searchMatches', query: trimmed, logIds: Array.from(matches) });
+    } catch (e) {
+      logWarn('Logs: search failed ->', getErrorMessage(e));
+      if (token === this.searchToken && !this.disposed) {
+        this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
+      }
+    }
+  }
+
+  private extractLogIdFromPath(filePath: string): string | undefined {
+    const base = path.basename(filePath);
+    if (!base.toLowerCase().endsWith('.log')) {
+      return undefined;
+    }
+    const withoutExt = base.slice(0, -4);
+    const idx = withoutExt.lastIndexOf('_');
+    const candidate = idx !== -1 ? withoutExt.slice(idx + 1) : withoutExt;
+    if (/^[a-zA-Z0-9]{15,18}$/.test(candidate)) {
+      return candidate;
+    }
+    return undefined;
   }
 
 

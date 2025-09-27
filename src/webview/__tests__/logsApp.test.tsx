@@ -45,7 +45,7 @@ describe('Logs webview App', () => {
 
     sendMessage(bus, {
       type: 'logHead',
-      logId: '07L0000001',
+      logId: '07L000000000001AA',
       codeUnitStarted: 'AccountService.handle'
     });
 
@@ -54,7 +54,7 @@ describe('Logs webview App', () => {
 
     const baseLogs = [
       {
-        Id: '07L0000001',
+        Id: '07L000000000001AA',
         StartTime: '2025-09-21T18:40:00.000Z',
         Operation: 'ExecuteAnonymous',
         Application: 'Developer Console',
@@ -65,7 +65,7 @@ describe('Logs webview App', () => {
         LogUser: { Name: 'Alice' }
       },
       {
-        Id: '07L0000002',
+        Id: '07L000000000002AA',
         StartTime: '2025-09-21T18:45:00.000Z',
         Operation: 'Test.run',
         Application: 'VS Code',
@@ -87,16 +87,10 @@ describe('Logs webview App', () => {
     await screen.findByText('Test.run');
 
     sendMessage(bus, {
-      type: 'logBody',
-      logId: '07L0000001',
-      body: 'DEBUG | CreditCardFormController.PopulateOrderCCSuffix() - jsonError {"error": "Attempt to de-reference a null"}'
-    });
-
-    sendMessage(bus, {
       type: 'appendLogs',
       data: [
         {
-          Id: '07L0000003',
+          Id: '07L000000000003AA',
           StartTime: '2025-09-21T18:55:00.000Z',
           Operation: 'BatchJob',
           Application: 'Salesforce',
@@ -114,11 +108,20 @@ describe('Logs webview App', () => {
 
     const searchInput = screen.getByLabelText('Buscar logs…');
     fireEvent.change(searchInput, { target: { value: 'error' } });
+    await waitFor(() => {
+      expect(posted.some(msg => msg.type === 'searchQuery' && msg.value === 'error')).toBe(true);
+    });
+    sendMessage(bus, { type: 'searchMatches', query: 'error', logIds: ['07L000000000001AA'] });
     await screen.findByText('ExecuteAnonymous');
 
     fireEvent.change(searchInput, { target: { value: 'Sem resultados' } });
+    await waitFor(() => {
+      expect(posted.some(msg => msg.type === 'searchQuery' && msg.value === 'Sem resultados')).toBe(true);
+    });
+    sendMessage(bus, { type: 'searchMatches', query: 'Sem resultados', logIds: [] });
     await screen.findByText('Nenhum log encontrado.');
     fireEvent.change(searchInput, { target: { value: '' } });
+    sendMessage(bus, { type: 'searchMatches', query: '', logIds: [] });
     await screen.findByText('ExecuteAnonymous');
 
     const timeHeader = screen.getByRole('columnheader', { name: /Tempo/i });

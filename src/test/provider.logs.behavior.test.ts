@@ -5,6 +5,8 @@ import * as fs from 'fs/promises';
 import { SfLogsViewProvider } from '../provider/SfLogsViewProvider';
 import * as cli from '../salesforce/cli';
 import * as http from '../salesforce/http';
+import * as workspace from '../utils/workspace';
+import * as ripgrep from '../utils/ripgrep';
 
 function makeContext() {
   const context = {
@@ -20,6 +22,8 @@ suite('SfLogsViewProvider behavior', () => {
   const origFetchHead = http.fetchApexLogHead;
   const origFetchBody = http.fetchApexLogBody;
   const origExtract = http.extractCodeUnitStartedFromLines;
+  const origEnsureApexLogsDir = workspace.ensureApexLogsDir;
+  const origRipgrepSearch = ripgrep.ripgrepSearch;
   const origOpenTextDocument = vscode.workspace.openTextDocument;
   const origShowTextDocument = vscode.window.showTextDocument;
   const origGetCommands = vscode.commands.getCommands;
@@ -31,6 +35,8 @@ suite('SfLogsViewProvider behavior', () => {
     (http as any).fetchApexLogHead = origFetchHead;
     (http as any).fetchApexLogBody = origFetchBody;
     (http as any).extractCodeUnitStartedFromLines = origExtract;
+    (workspace as any).ensureApexLogsDir = origEnsureApexLogsDir;
+    (ripgrep as any).ripgrepSearch = origRipgrepSearch;
     (vscode.workspace as any).openTextDocument = origOpenTextDocument;
     (vscode.window as any).showTextDocument = origShowTextDocument;
     (vscode.commands as any).getCommands = origGetCommands;
@@ -70,12 +76,16 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(heads[0]?.codeUnitStarted, 'MyClass.myMethod');
   });
 
-  test('refresh posts logBody when full search is enabled', async () => {
+  test('searchQuery posts searchMatches when ripgrep finds logs', async () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    (http as any).fetchApexLogs = async () => [{ Id: '1', LogLength: 10 }];
+    (http as any).fetchApexLogs = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
     (http as any).fetchApexLogHead = async () => [];
-    (http as any).fetchApexLogBody = async () => 'First line\nERROR something happened';
+    (http as any).fetchApexLogBody = async () => 'Body';
     (http as any).extractCodeUnitStartedFromLines = () => undefined;
+
+    const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests');
+    await fs.mkdir(tmpDir, { recursive: true });
+    (workspace as any).ensureApexLogsDir = async () => tmpDir;
 
     const context = makeContext();
     const posted: any[] = [];
@@ -90,13 +100,29 @@ suite('SfLogsViewProvider behavior', () => {
       }
     } as any;
 
-    await provider.refresh();
-    await new Promise(r => setTimeout(r, 20));
+    let saved = false;
+    (provider as any).logService.ensureLogsSaved = async () => {
+      saved = true;
+      const file = path.join(tmpDir, 'default_07L000000000001AA.log');
+      await fs.writeFile(file, 'error line', 'utf8');
+    };
+    (ripgrep as any).ripgrepSearch = async () => [path.join(tmpDir, 'default_07L000000000001AA.log')];
 
-    const bodies = posted.filter(m => m?.type === 'logBody');
-    assert.equal(bodies.length, 1, 'should post one logBody message');
-    assert.equal(bodies[0]?.logId, '1');
-    assert.ok((bodies[0]?.body || '').includes('ERROR something happened'));
+    try {
+      await provider.refresh();
+      await new Promise(r => setTimeout(r, 20));
+      await (provider as any).setSearchQuery('error');
+      await new Promise(r => setTimeout(r, 20));
+
+      assert.ok(saved, 'ensureLogsSaved should be called');
+      const matches = posted
+        .filter(m => m?.type === 'searchMatches' && Array.isArray(m.logIds) && m.logIds.includes('07L000000000001AA'))
+        .pop();
+      assert.ok(matches, 'should post searchMatches');
+      assert.deepEqual(matches?.logIds, ['07L000000000001AA']);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
   });
 
   test('loadMore appends logs', async () => {
