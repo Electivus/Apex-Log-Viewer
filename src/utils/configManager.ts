@@ -5,7 +5,7 @@ export class ConfigManager {
   private enableFullLogSearch: boolean;
 
   constructor(private headConcurrency: number, private pageLimit: number) {
-    this.enableFullLogSearch = getBooleanConfig('electivus.apexLogs.enableFullLogSearch', false);
+    this.enableFullLogSearch = getBooleanConfig('electivus.apexLogs.enableFullLogSearch', true);
   }
 
   handleChange(e: vscode.ConfigurationChangeEvent): void {

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+- Logs: enable full log search by default so the list view always loads log bodies for content filtering; removed the legacy `sfLogs.enableFullLogSearch` setting in favor of `electivus.apexLogs.enableFullLogSearch`.
+
 ## [0.12.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.10.0...v0.12.0) (2025-09-20)
 
 ### ⚠ BREAKING CHANGES

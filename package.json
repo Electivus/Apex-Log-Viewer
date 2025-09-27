@@ -124,7 +124,7 @@
         },
         "electivus.apexLogs.enableFullLogSearch": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "markdownDescription": "%configuration.electivus.apexLogs.enableFullLogSearch.description%"
         },
         "sfLogs.pageSize": {
@@ -193,12 +193,6 @@
           "minimum": 0,
           "markdownDescription": "%configuration.electivus.apexLogs.cliCache.debugLevelsTtlSeconds.description%",
           "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.debugLevelsTtlSeconds"
-        },
-        "sfLogs.enableFullLogSearch": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "%configuration.electivus.apexLogs.enableFullLogSearch.description%",
-          "deprecationMessage": "Deprecated: use electivus.apexLogs.enableFullLogSearch"
         }
       }
     },
