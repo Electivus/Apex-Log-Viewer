@@ -13,7 +13,6 @@ import { LogService } from '../services/logService';
 import { LogsMessageHandler } from './logsMessageHandler';
 import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../utils/configManager';
-import { persistPrefetchSetting, restorePrefetchSetting } from '../utils/prefetch';
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
@@ -25,34 +24,22 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private messageHandler: LogsMessageHandler;
   private cursorStartTime: string | undefined;
   private cursorId: string | undefined;
-  private prefetchLogBodies: boolean;
-  private readonly logService: LogService;
-  private readonly orgManager: OrgManager;
-  private readonly configManager: ConfigManager;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
-    logService: LogService = new LogService(),
-    orgManager?: OrgManager,
-    configManager?: ConfigManager
+    private readonly logService = new LogService(),
+    private readonly orgManager = new OrgManager(context),
+    private readonly configManager = new ConfigManager(5, 100)
   ) {
-    this.prefetchLogBodies = restorePrefetchSetting(context);
-    this.logService = logService;
-    this.orgManager = orgManager ?? new OrgManager(context);
-    this.configManager = configManager ?? new ConfigManager(5, 100);
     const org = this.orgManager.getSelectedOrg();
     if (org) {
       logInfo('Logs: restored selected org from globalState:', org || '(default)');
-    }
-    if (this.prefetchLogBodies) {
-      logInfo('Logs: restored prefetch setting from globalState: enabled');
     }
     this.logService.setHeadConcurrency(this.configManager.getHeadConcurrency());
     this.messageHandler = new LogsMessageHandler(
       () => this.refresh(),
       () => this.sendOrgs(),
       o => this.setSelectedOrg(o),
-      enabled => this.setPrefetchLogBodies(enabled),
       id => this.logService.openLog(id, this.orgManager.getSelectedOrg()),
       id => this.logService.debugLog(id, this.orgManager.getSelectedOrg()),
       () => this.loadMore(),
@@ -96,40 +83,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         void this.messageHandler.handle(message);
       })
     );
-  }
-
-  private async setPrefetchLogBodies(enabled: boolean): Promise<void> {
-    if (this.prefetchLogBodies === enabled) {
-      return;
-    }
-    const confirmed = await this.confirmPrefetchChange(enabled);
-    if (!confirmed) {
-      this.postPrefetchState();
-      return;
-    }
-    this.prefetchLogBodies = enabled;
-    persistPrefetchSetting(this.context, enabled);
-    this.postPrefetchState();
-    if (this.view) {
-      await this.refresh();
-    }
-  }
-
-  private async confirmPrefetchChange(enabled: boolean): Promise<boolean> {
-    const message = enabled
-      ? localize(
-          'logs.prefetch.enablePrompt',
-          'Enable searching entire log text? This downloads full log bodies so search can match everything, which may impact performance.'
-        )
-      : localize(
-          'logs.prefetch.disablePrompt',
-          'Disable searching entire log text? Searches will fall back to header metadata only.'
-        );
-    const confirmLabel = enabled
-      ? localize('logs.prefetch.enableConfirm', 'Enable')
-      : localize('logs.prefetch.disableConfirm', 'Disable');
-    const selection = await vscode.window.showWarningMessage(message, { modal: true }, confirmLabel);
-    return selection === confirmLabel;
   }
 
   public async refresh() {
@@ -180,7 +133,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           this.post({ type: 'init', locale: vscode.env.language });
           const hasMore = logs.length === this.pageLimit;
           this.post({ type: 'logs', data: logs, hasMore });
-          this.postPrefetchState();
           this.logService.loadLogHeads(
             logs,
             auth,
@@ -190,17 +142,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
                 this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
               }
             },
-            controller.signal,
-            this.prefetchLogBodies
-              ? {
-                  includeBodies: true,
-                  onBody: (logId, content) => {
-                    if (token === this.refreshToken && !this.disposed) {
-                      this.post({ type: 'logSearchContent', logId, content });
-                    }
-                  }
-                }
-              : undefined
+            controller.signal
           );
           try {
             const durationMs = Date.now() - t0;
@@ -253,27 +195,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       }
       const hasMore = logs.length === this.pageLimit;
       this.post({ type: 'appendLogs', data: logs, hasMore });
-          this.logService.loadLogHeads(
-        logs,
-        auth,
-        token,
-        (logId, codeUnit) => {
-          if (token === this.refreshToken && !this.disposed) {
-            this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
-          }
-        },
-        undefined,
-        this.prefetchLogBodies
-          ? {
-              includeBodies: true,
-              onBody: (logId, content) => {
-                if (token === this.refreshToken && !this.disposed) {
-                  this.post({ type: 'logSearchContent', logId, content });
-                }
-              }
-            }
-          : undefined
-      );
+      this.logService.loadLogHeads(logs, auth, token, (logId, codeUnit) => {
+        if (token === this.refreshToken && !this.disposed) {
+          this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
+        }
+      });
       try {
         const durationMs = Date.now() - t0;
         safeSendEvent('logs.loadMore', { outcome: 'ok' }, { durationMs, count: logs.length });
@@ -348,10 +274,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public async tailLogs() {
     await vscode.commands.executeCommand('workbench.view.extension.salesforceTailPanel');
     await vscode.commands.executeCommand('workbench.viewsService.openView', 'sfLogTail');
-  }
-
-  private postPrefetchState(): void {
-    this.post({ type: 'prefetchState', value: this.prefetchLogBodies });
   }
 
   private post(msg: ExtensionToWebviewMessage): void {

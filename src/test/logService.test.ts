@@ -53,37 +53,6 @@ suite('LogService', () => {
     assert.deepEqual(seen, [{ id: '1', code: 'Unit' }]);
   });
 
-  test('loadLogHeads optionally prefetches bodies', async () => {
-    const bodyCalls: any[] = [];
-    const { LogService } = proxyquire('../services/logService', {
-      '../salesforce/http': {
-        fetchApexLogHead: async () => ['line'],
-        extractCodeUnitStartedFromLines: () => undefined,
-        fetchApexLogs: async () => [],
-        fetchApexLogBody: async () => 'Body contents'
-      },
-      '../utils/workspace': {
-        getLogFilePathWithUsername: async () => ({ dir: '', filePath: '' }),
-        findExistingLogFile: async () => undefined
-      }
-    });
-    const svc = new LogService(1);
-    const logs: ApexLogRow[] = [{ Id: '1', LogLength: 10 } as any];
-    svc.loadLogHeads(
-      logs,
-      {} as OrgAuth,
-      0,
-      () => {},
-      undefined,
-      {
-        includeBodies: true,
-        onBody: (logId: string, content: string) => bodyCalls.push({ logId, content })
-      }
-    );
-    await new Promise(r => setTimeout(r, 10));
-    assert.deepEqual(bodyCalls, [{ logId: '1', content: 'Body contents' }]);
-  });
-
   test('openLog delegates to LogViewerPanel', async () => {
     const calls: any[] = [];
     const origWithProgress = vscode.window.withProgress;
