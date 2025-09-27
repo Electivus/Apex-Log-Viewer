@@ -31,6 +31,7 @@ export function LogsApp({
   const [hasMore, setHasMore] = useState(false);
   const [logHead, setLogHead] = useState<Record<string, { codeUnitStarted?: string }>>({});
   const [matchingIds, setMatchingIds] = useState<Set<string>>(new Set());
+  const [matchSnippets, setMatchSnippets] = useState<Record<string, { text: string; ranges: [number, number][] }>>({});
   const queryRef = useRef('');
 
   // Search + filters
@@ -87,6 +88,11 @@ export function LogsApp({
           }
           const ids = Array.isArray(msg.logIds) ? msg.logIds.filter(Boolean) : [];
           setMatchingIds(new Set(ids));
+          if (msg.snippets && typeof msg.snippets === 'object') {
+            setMatchSnippets(msg.snippets);
+          } else {
+            setMatchSnippets({});
+          }
           break;
         }
         case 'orgs':
@@ -104,8 +110,10 @@ export function LogsApp({
     (value: string) => {
       const next = value ?? '';
       queryRef.current = next;
+      setMatchSnippets({});
       if (!next.trim()) {
         setMatchingIds(new Set());
+        setMatchSnippets({});
       }
       setQueryState(next);
       if (messageBus) {
@@ -272,8 +280,9 @@ export function LogsApp({
           onLoadMore={onLoadMore}
           sortBy={sortBy}
           sortDir={sortDir}
-          onSort={onSort}
-        />
+        onSort={onSort}
+        matchSnippets={matchSnippets}
+      />
         <LoadingOverlay show={loading} label={t.loading} />
       </div>
 

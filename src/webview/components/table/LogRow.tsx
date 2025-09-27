@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef } from 'react';
+import React, { useLayoutEffect, useMemo, useRef } from 'react';
 import { BugPlay, FileText, Loader2 } from 'lucide-react';
 import type { ApexLogRow } from '../../../shared/types';
 import type { LogHeadMap } from '../LogsTable';
@@ -9,6 +9,7 @@ import { cn } from '../../lib/utils';
 type Props = {
   r: ApexLogRow;
   logHead: LogHeadMap;
+  matchSnippet?: { text: string; ranges: [number, number][] };
   locale: string;
   t: any;
   loading: boolean;
@@ -23,6 +24,7 @@ type Props = {
 export function LogRow({
   r,
   logHead,
+  matchSnippet,
   locale,
   t,
   loading,
@@ -56,10 +58,42 @@ export function LogRow({
         console.warn('LogRow: failed to disconnect ResizeObserver', e);
       }
     };
-  }, [index, setRowHeight, logHead[r.Id]?.codeUnitStarted, r]);
+  }, [index, setRowHeight, logHead[r.Id]?.codeUnitStarted, matchSnippet?.text, r]);
 
   const cellClass =
     'min-w-0 px-3 py-2 text-sm leading-relaxed text-foreground/90 transition-colors break-words';
+
+  const renderSnippet = useMemo(() => {
+    if (!matchSnippet || !matchSnippet.text) {
+      return <span className="text-muted-foreground/70">—</span>;
+    }
+    const { text, ranges } = matchSnippet;
+    if (!ranges?.length) {
+      return <span>{text}</span>;
+    }
+    const pieces: React.ReactNode[] = [];
+    const sorted = [...ranges].sort((a, b) => a[0] - b[0]);
+    let cursor = 0;
+    sorted.forEach(([start, end], idx) => {
+      const safeStart = Math.max(0, Math.min(start, text.length));
+      const safeEnd = Math.max(safeStart, Math.min(end, text.length));
+      if (safeStart > cursor) {
+        pieces.push(
+          <span key={`snippet-pre-${idx}`}>{text.slice(cursor, safeStart)}</span>
+        );
+      }
+      pieces.push(
+        <mark key={`snippet-hit-${idx}`} className="match-highlight">
+          {text.slice(safeStart, safeEnd)}
+        </mark>
+      );
+      cursor = safeEnd;
+    });
+    if (cursor < text.length) {
+      pieces.push(<span key="snippet-post">{text.slice(cursor)}</span>);
+    }
+    return pieces;
+  }, [matchSnippet]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.currentTarget !== e.target) return;
@@ -116,6 +150,11 @@ export function LogRow({
         </div>
         <div className={cn(cellClass, 'text-right font-medium tabular-nums text-foreground')}>
           {formatBytes(r.LogLength)}
+        </div>
+        <div className={cn(cellClass, 'text-muted-foreground/90')} title={matchSnippet?.text ?? ''}>
+          <span className="block max-h-[4.5rem] overflow-hidden whitespace-pre-wrap text-left text-sm leading-relaxed">
+            {renderSnippet}
+          </span>
         </div>
         <div className={cn(cellClass, 'flex items-center justify-center gap-2 text-center')}>
           <div className="flex items-center gap-2">

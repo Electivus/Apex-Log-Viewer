@@ -111,8 +111,20 @@ describe('Logs webview App', () => {
     await waitFor(() => {
       expect(posted.some(msg => msg.type === 'searchQuery' && msg.value === 'error')).toBe(true);
     });
-    sendMessage(bus, { type: 'searchMatches', query: 'error', logIds: ['07L000000000001AA'] });
+    sendMessage(bus, {
+      type: 'searchMatches',
+      query: 'error',
+      logIds: ['07L000000000001AA'],
+      snippets: {
+        '07L000000000001AA': {
+          text: '...error line in body...',
+          ranges: [[3, 8]]
+        }
+      }
+    });
     await screen.findByText('ExecuteAnonymous');
+    const highlight = await screen.findByText('error', { selector: 'mark' });
+    expect(highlight).toBeInTheDocument();
 
     const repeatedSearchCount = posted.filter(msg => msg.type === 'searchQuery' && msg.value === 'error').length;
     fireEvent.paste(searchInput);
@@ -125,10 +137,10 @@ describe('Logs webview App', () => {
     await waitFor(() => {
       expect(posted.some(msg => msg.type === 'searchQuery' && msg.value === 'Sem resultados')).toBe(true);
     });
-    sendMessage(bus, { type: 'searchMatches', query: 'Sem resultados', logIds: [] });
+    sendMessage(bus, { type: 'searchMatches', query: 'Sem resultados', logIds: [], snippets: {} });
     await screen.findByText('Nenhum log encontrado.');
     fireEvent.change(searchInput, { target: { value: '' } });
-    sendMessage(bus, { type: 'searchMatches', query: '', logIds: [] });
+    sendMessage(bus, { type: 'searchMatches', query: '', logIds: [], snippets: {} });
     await screen.findByText('ExecuteAnonymous');
 
     const timeHeader = screen.getByRole('columnheader', { name: /Tempo/i });

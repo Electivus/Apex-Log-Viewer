@@ -15,7 +15,7 @@ import { LogsMessageHandler } from './logsMessageHandler';
 import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../utils/configManager';
 import { ensureApexLogsDir } from '../utils/workspace';
-import { ripgrepSearch } from '../utils/ripgrep';
+import { ripgrepSearch, type RipgrepMatch } from '../utils/ripgrep';
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
@@ -276,19 +276,24 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       const dir = await ensureApexLogsDir();
-      const files = await ripgrepSearch(trimmed, dir);
+      const matchesInfo = await ripgrepSearch(trimmed, dir);
       if (token !== this.searchToken || this.disposed) {
         return;
       }
       const known = new Set(logsSnapshot.map(l => l.Id));
       const matches = new Set<string>();
-      for (const file of files) {
-        const logId = this.extractLogIdFromPath(file);
+      const snippets: Record<string, { text: string; ranges: [number, number][] }> = {};
+      for (const info of matchesInfo) {
+        const logId = this.extractLogIdFromPath(info.filePath);
         if (logId && known.has(logId)) {
           matches.add(logId);
+          const snippet = this.buildSnippet(info);
+          if (snippet) {
+            snippets[logId] = snippet;
+          }
         }
       }
-      this.post({ type: 'searchMatches', query: trimmed, logIds: Array.from(matches) });
+      this.post({ type: 'searchMatches', query: trimmed, logIds: Array.from(matches), snippets });
     } catch (e) {
       logWarn('Logs: search failed ->', getErrorMessage(e));
       if (token === this.searchToken && !this.disposed) {
@@ -309,6 +314,42 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       return candidate;
     }
     return undefined;
+  }
+
+  private buildSnippet(match: RipgrepMatch): { text: string; ranges: [number, number][] } | undefined {
+    const rawLine = typeof match.lineText === 'string' ? match.lineText : '';
+    const line = rawLine.replace(/\r?\n$/, '');
+    if (!line) {
+      return undefined;
+    }
+    const ranges = Array.isArray(match.submatches) ? match.submatches : [];
+    const context = 60;
+    const earliest = ranges.length > 0 ? Math.min(...ranges.map(r => r.start)) : 0;
+    const latest = ranges.length > 0 ? Math.max(...ranges.map(r => r.end)) : Math.min(line.length, earliest + context);
+    const sliceStart = Math.max(0, earliest - context);
+    const sliceEnd = Math.min(line.length, latest + context);
+    const core = line.slice(sliceStart, sliceEnd);
+    const prefix = sliceStart > 0 ? '...' : '';
+    const suffix = sliceEnd < line.length ? '...' : '';
+    const prefixLength = prefix.length;
+    const snippetLength = core.length + prefixLength + suffix.length;
+    const mappedRanges = ranges
+      .map(({ start, end }) => {
+        const adjustedStart = Math.max(0, start - sliceStart) + prefixLength;
+        const adjustedEnd = Math.min(core.length, end - sliceStart) + prefixLength;
+        return [adjustedStart, Math.max(adjustedStart, adjustedEnd)] as [number, number];
+      })
+      .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > start);
+    const finalSnippet = `${prefix}${core}${suffix}`;
+    const boundedRanges = mappedRanges.map(([start, end]) => {
+      const boundedStart = Math.max(0, Math.min(start, snippetLength));
+      const boundedEnd = Math.max(0, Math.min(end, snippetLength));
+      return [boundedStart, Math.max(boundedStart, boundedEnd)] as [number, number];
+    });
+    return {
+      text: finalSnippet,
+      ranges: boundedRanges
+    };
   }
 
 

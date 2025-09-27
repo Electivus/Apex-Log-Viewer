@@ -22,7 +22,12 @@ export type ExtensionToWebviewMessage =
   | { type: 'logs'; data: ApexLogRow[]; hasMore: boolean }
   | { type: 'appendLogs'; data: ApexLogRow[]; hasMore: boolean }
   | { type: 'logHead'; logId: string; codeUnitStarted?: string }
-  | { type: 'searchMatches'; query: string; logIds: string[] }
+  | {
+      type: 'searchMatches';
+      query: string;
+      logIds: string[];
+      snippets?: Record<string, { text: string; ranges: [number, number][] }>;
+    }
   | { type: 'orgs'; data: OrgItem[]; selected: string | undefined }
   | { type: 'debugLevels'; data: string[]; active?: string }
   // Tail view messages

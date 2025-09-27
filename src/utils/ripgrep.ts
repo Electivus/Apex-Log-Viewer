@@ -5,14 +5,13 @@ import { rgPath } from '@vscode/ripgrep';
 
 let cachedBinary: string | null | undefined;
 
-const RG_ARGS_BASE = [
-  '--files-with-matches',
-  '--no-messages',
-  '--ignore-case',
-  '--fixed-strings',
-  '--glob',
-  '*.log'
-];
+const RG_ARGS_BASE = ['--no-messages', '--ignore-case', '--fixed-strings', '--glob', '*.log'];
+
+export type RipgrepMatch = {
+  filePath: string;
+  lineText: string;
+  submatches: Array<{ start: number; end: number }>;
+};
 
 async function resolveRipgrepBinary(): Promise<string> {
   if (cachedBinary && cachedBinary !== 'rg') {
@@ -53,7 +52,7 @@ function trySpawn(binary: string, args: string[], cwd?: string): Promise<boolean
   });
 }
 
-export async function ripgrepSearch(pattern: string, cwd: string): Promise<string[]> {
+export async function ripgrepSearch(pattern: string, cwd: string): Promise<RipgrepMatch[]> {
   let binary: string;
   try {
     binary = await resolveRipgrepBinary();
@@ -61,13 +60,24 @@ export async function ripgrepSearch(pattern: string, cwd: string): Promise<strin
     return [];
   }
 
-  const args = [...RG_ARGS_BASE, '--', pattern, '.'];
+  const args = [...RG_ARGS_BASE, '--json', '--max-count', '1', '--', pattern, '.'];
   return new Promise((resolve, reject) => {
-    let stdout = '';
+    const matches: RipgrepMatch[] = [];
     let stderr = '';
+    let buffer = '';
     const child = spawn(binary, args, { cwd });
+    const flushBuffer = () => {
+      let newlineIndex = buffer.indexOf('\n');
+      while (newlineIndex !== -1) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        processJsonLine(line, matches, cwd);
+        newlineIndex = buffer.indexOf('\n');
+      }
+    };
     child.stdout.on('data', chunk => {
-      stdout += chunk.toString();
+      buffer += chunk.toString();
+      flushBuffer();
     });
     child.stderr.on('data', chunk => {
       stderr += chunk.toString();
@@ -81,16 +91,45 @@ export async function ripgrepSearch(pattern: string, cwd: string): Promise<strin
       reject(err);
     });
     child.on('close', code => {
+      flushBuffer();
+      if (buffer.trim().length > 0) {
+        processJsonLine(buffer, matches, cwd);
+        buffer = '';
+      }
       if (code === 0 || code === 1) {
-        const files = stdout
-          .split(/\r?\n/)
-          .map(line => line.trim())
-          .filter(Boolean)
-          .map(p => path.resolve(cwd, p));
-        resolve(files);
+        resolve(matches);
       } else {
         reject(new Error(stderr || `ripgrep exited with code ${code}`));
       }
     });
   });
+}
+
+function processJsonLine(line: string, matches: RipgrepMatch[], cwd: string): void {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return;
+  }
+  try {
+    const event = JSON.parse(trimmed);
+    if (event?.type !== 'match') {
+      return;
+    }
+    const pathText: unknown = event?.data?.path?.text;
+    const lineText: unknown = event?.data?.lines?.text;
+    const submatchesRaw: unknown = event?.data?.submatches;
+    if (typeof pathText !== 'string' || typeof lineText !== 'string' || !Array.isArray(submatchesRaw)) {
+      return;
+    }
+    const submatches = submatchesRaw
+      .map((sm: any) => ({ start: Number(sm?.start) ?? 0, end: Number(sm?.end) ?? 0 }))
+      .filter(sm => Number.isFinite(sm.start) && Number.isFinite(sm.end) && sm.end > sm.start);
+    matches.push({
+      filePath: path.resolve(cwd, pathText),
+      lineText,
+      submatches
+    });
+  } catch (error) {
+    console.warn('ripgrep: failed to parse json line', error);
+  }
 }

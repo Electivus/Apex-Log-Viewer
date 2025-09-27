@@ -9,6 +9,7 @@ export type LogHeadMap = Record<string, { codeUnitStarted?: string }>;
 type ListRowProps = {
   rows: ApexLogRow[];
   logHead: LogHeadMap;
+  matchSnippets: Record<string, { text: string; ranges: [number, number][] }>;
   locale: string;
   t: any;
   loading: boolean;
@@ -31,6 +32,7 @@ type VirtualRowArgs = ListRowProps & {
 export function LogsTable({
   rows,
   logHead,
+  matchSnippets,
   t,
   onOpen,
   onReplay,
@@ -45,6 +47,7 @@ export function LogsTable({
 }: {
   rows: ApexLogRow[];
   logHead: LogHeadMap;
+  matchSnippets: Record<string, { text: string; ranges: [number, number][] }>;
   t: any;
   onOpen: (logId: string) => void;
   onReplay: (logId: string) => void;
@@ -81,7 +84,7 @@ export function LogsTable({
   const loadingRef = useRef<boolean>(loading);
   const lastLoadTsRef = useRef<number>(0);
   const gridTemplate =
-    'minmax(160px,1fr) minmax(140px,1fr) minmax(200px,1.2fr) minmax(200px,1fr) minmax(110px,0.6fr) minmax(120px,0.8fr) minmax(260px,1.4fr) minmax(90px,0.6fr) 72px';
+    'minmax(160px,1fr) minmax(140px,1fr) minmax(200px,1.2fr) minmax(200px,1fr) minmax(110px,0.6fr) minmax(120px,0.8fr) minmax(260px,1.4fr) minmax(90px,0.6fr) minmax(320px,1.6fr) 96px';
   // Header is rendered by LogsHeader; keep container simple
 
   // autoPagingActivated will be flipped by the adaptive overscan listener below
@@ -118,8 +121,8 @@ export function LogsTable({
   const getItemSize = (index: number) => rowHeightsRef.current[index] ?? defaultRowHeight;
 
   const listRowProps = useMemo<ListRowProps>(
-    () => ({ rows, logHead, locale, t, loading, onOpen, onReplay, gridTemplate, setRowHeight }),
-    [rows, logHead, locale, t, loading, onOpen, onReplay, gridTemplate, setRowHeight]
+    () => ({ rows, logHead, matchSnippets, locale, t, loading, onOpen, onReplay, gridTemplate, setRowHeight }),
+    [rows, logHead, matchSnippets, locale, t, loading, onOpen, onReplay, gridTemplate, setRowHeight]
   );
 
   const renderRow = useCallback(({
@@ -127,6 +130,7 @@ export function LogsTable({
     style,
     rows: rowList,
     logHead: logHeadMap,
+    matchSnippets: snippetMap,
     locale: rowLocale,
     t: messages,
     loading: isLoading,
@@ -141,6 +145,7 @@ export function LogsTable({
         <LogRow
           r={row}
           logHead={logHeadMap}
+          matchSnippet={snippetMap[row.Id]}
           locale={rowLocale}
           t={messages}
           loading={isLoading}

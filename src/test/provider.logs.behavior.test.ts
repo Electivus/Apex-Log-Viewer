@@ -106,7 +106,13 @@ suite('SfLogsViewProvider behavior', () => {
       const file = path.join(tmpDir, 'default_07L000000000001AA.log');
       await fs.writeFile(file, 'error line', 'utf8');
     };
-    (ripgrep as any).ripgrepSearch = async () => [path.join(tmpDir, 'default_07L000000000001AA.log')];
+    (ripgrep as any).ripgrepSearch = async () => [
+      {
+        filePath: path.join(tmpDir, 'default_07L000000000001AA.log'),
+        lineText: 'error line in body',
+        submatches: [{ start: 0, end: 5 }]
+      }
+    ];
 
     try {
       await provider.refresh();
@@ -120,6 +126,8 @@ suite('SfLogsViewProvider behavior', () => {
         .pop();
       assert.ok(matches, 'should post searchMatches');
       assert.deepEqual(matches?.logIds, ['07L000000000001AA']);
+      assert.ok(matches?.snippets, 'should include snippets payload');
+      assert.match(matches?.snippets?.['07L000000000001AA']?.text ?? '', /error line/i);
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
