@@ -10,6 +10,7 @@ import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
 type SortKey = 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit';
+type LogBodyIndex = Record<string, { raw: string; lower: string }>;
 
 export interface LogsAppProps {
   vscode?: VsCodeWebviewApi<WebviewToExtensionMessage>;
@@ -30,6 +31,7 @@ export function LogsApp({
   const [rows, setRows] = useState<ApexLogRow[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [logHead, setLogHead] = useState<Record<string, { codeUnitStarted?: string }>>({});
+  const [logBodies, setLogBodies] = useState<LogBodyIndex>({});
 
   // Search + filters
   const [query, setQuery] = useState('');
@@ -67,6 +69,22 @@ export function LogsApp({
           setRows(msg.data || []);
           setHasMore(!!msg.hasMore);
           setError(undefined);
+          setLogBodies(prev => {
+            if (!msg.data || msg.data.length === 0) {
+              return {};
+            }
+            const next: LogBodyIndex = {};
+            for (const log of msg.data) {
+              if (!log?.Id) {
+                continue;
+              }
+              const cached = prev[log.Id];
+              if (cached) {
+                next[log.Id] = cached;
+              }
+            }
+            return next;
+          });
           break;
         case 'appendLogs':
           setRows(prev => [...prev, ...(msg.data || [])]);
@@ -78,6 +96,24 @@ export function LogsApp({
             [msg.logId]: { codeUnitStarted: msg.codeUnitStarted }
           }));
           break;
+        case 'logBody': {
+          const logId = msg.logId;
+          if (!logId) {
+            break;
+          }
+          setLogBodies(prev => {
+            const body = (msg.body ?? '').toString();
+            const current = prev[logId];
+            if (current && current.raw === body) {
+              return prev;
+            }
+            return {
+              ...prev,
+              [logId]: { raw: body, lower: body.toLowerCase() }
+            };
+          });
+          break;
+        }
         case 'orgs':
           setOrgs(msg.data || []);
           setSelectedOrg(msg.selected);
@@ -146,7 +182,7 @@ export function LogsApp({
       if (!q) {
         return true;
       }
-      const hay = [
+      const metadataHaystack = [
         r.LogUser?.Name || '',
         r.Application || '',
         r.Operation || '',
@@ -156,7 +192,14 @@ export function LogsApp({
       ]
         .join(' ')
         .toLowerCase();
-      return hay.includes(q);
+      if (metadataHaystack.includes(q)) {
+        return true;
+      }
+      const bodyEntry = logBodies[r.Id];
+      if (bodyEntry?.lower.includes(q)) {
+        return true;
+      }
+      return false;
     });
 
     const compare = (a: ApexLogRow, b: ApexLogRow) => {
@@ -191,7 +234,7 @@ export function LogsApp({
     };
 
     return items.slice().sort(compare);
-  }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead]);
+  }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead, logBodies]);
 
   return (
     <div className="relative flex min-h-[120px] flex-col gap-4 p-4 text-sm">

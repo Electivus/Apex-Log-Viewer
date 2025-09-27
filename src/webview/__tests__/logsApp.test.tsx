@@ -87,6 +87,12 @@ describe('Logs webview App', () => {
     await screen.findByText('Test.run');
 
     sendMessage(bus, {
+      type: 'logBody',
+      logId: '07L0000001',
+      body: 'DEBUG | CreditCardFormController.PopulateOrderCCSuffix() - jsonError {"error": "Attempt to de-reference a null"}'
+    });
+
+    sendMessage(bus, {
       type: 'appendLogs',
       data: [
         {
@@ -106,9 +112,13 @@ describe('Logs webview App', () => {
 
     await screen.findByText('BatchJob');
 
-    fireEvent.change(screen.getByLabelText('Buscar logs…'), { target: { value: 'Sem resultados' } });
+    const searchInput = screen.getByLabelText('Buscar logs…');
+    fireEvent.change(searchInput, { target: { value: 'error' } });
+    await screen.findByText('ExecuteAnonymous');
+
+    fireEvent.change(searchInput, { target: { value: 'Sem resultados' } });
     await screen.findByText('Nenhum log encontrado.');
-    fireEvent.change(screen.getByLabelText('Buscar logs…'), { target: { value: '' } });
+    fireEvent.change(searchInput, { target: { value: '' } });
     await screen.findByText('ExecuteAnonymous');
 
     const timeHeader = screen.getByRole('columnheader', { name: /Tempo/i });

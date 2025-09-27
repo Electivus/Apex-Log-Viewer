@@ -21,6 +21,7 @@ export type ExtensionToWebviewMessage =
   | { type: 'logs'; data: ApexLogRow[]; hasMore: boolean }
   | { type: 'appendLogs'; data: ApexLogRow[]; hasMore: boolean }
   | { type: 'logHead'; logId: string; codeUnitStarted?: string }
+  | { type: 'logBody'; logId: string; body: string }
   | { type: 'orgs'; data: OrgItem[]; selected: string | undefined }
   | { type: 'debugLevels'; data: string[]; active?: string }
   // Tail view messages

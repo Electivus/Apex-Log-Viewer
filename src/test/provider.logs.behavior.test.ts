@@ -18,6 +18,7 @@ suite('SfLogsViewProvider behavior', () => {
   const origGetOrgAuth = cli.getOrgAuth;
   const origFetchLogs = http.fetchApexLogs;
   const origFetchHead = http.fetchApexLogHead;
+  const origFetchBody = http.fetchApexLogBody;
   const origExtract = http.extractCodeUnitStartedFromLines;
   const origOpenTextDocument = vscode.workspace.openTextDocument;
   const origShowTextDocument = vscode.window.showTextDocument;
@@ -28,6 +29,7 @@ suite('SfLogsViewProvider behavior', () => {
     (cli as any).getOrgAuth = origGetOrgAuth;
     (http as any).fetchApexLogs = origFetchLogs;
     (http as any).fetchApexLogHead = origFetchHead;
+    (http as any).fetchApexLogBody = origFetchBody;
     (http as any).extractCodeUnitStartedFromLines = origExtract;
     (vscode.workspace as any).openTextDocument = origOpenTextDocument;
     (vscode.window as any).showTextDocument = origShowTextDocument;
@@ -66,6 +68,35 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal((logs?.data || []).length, 2, 'should include two logs');
     assert.equal(heads.length, 2, 'should post head for each log');
     assert.equal(heads[0]?.codeUnitStarted, 'MyClass.myMethod');
+  });
+
+  test('refresh posts logBody when full search is enabled', async () => {
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    (http as any).fetchApexLogs = async () => [{ Id: '1', LogLength: 10 }];
+    (http as any).fetchApexLogHead = async () => [];
+    (http as any).fetchApexLogBody = async () => 'First line\nERROR something happened';
+    (http as any).extractCodeUnitStartedFromLines = () => undefined;
+
+    const context = makeContext();
+    const posted: any[] = [];
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
+    (provider as any).view = {
+      webview: {
+        postMessage: (m: any) => {
+          posted.push(m);
+          return Promise.resolve(true);
+        }
+      }
+    } as any;
+
+    await provider.refresh();
+    await new Promise(r => setTimeout(r, 20));
+
+    const bodies = posted.filter(m => m?.type === 'logBody');
+    assert.equal(bodies.length, 1, 'should post one logBody message');
+    assert.equal(bodies[0]?.logId, '1');
+    assert.ok((bodies[0]?.body || '').includes('ERROR something happened'));
   });
 
   test('loadMore appends logs', async () => {

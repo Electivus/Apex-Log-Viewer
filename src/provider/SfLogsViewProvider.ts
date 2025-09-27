@@ -47,8 +47,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     );
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
+        const prevFullBodies = this.configManager.shouldLoadFullLogBodies();
         this.configManager.handleChange(e);
         this.logService.setHeadConcurrency(this.configManager.getHeadConcurrency());
+        if (prevFullBodies !== this.configManager.shouldLoadFullLogBodies()) {
+          void this.refresh();
+        }
       })
     );
   }
@@ -144,6 +148,19 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             },
             controller.signal
           );
+          if (this.configManager.shouldLoadFullLogBodies()) {
+            this.logService.loadLogBodies(
+              logs,
+              auth,
+              token,
+              (logId, body) => {
+                if (token === this.refreshToken && !this.disposed) {
+                  this.post({ type: 'logBody', logId, body });
+                }
+              },
+              controller.signal
+            );
+          }
           try {
             const durationMs = Date.now() - t0;
             safeSendEvent('logs.refresh', { outcome: 'ok' }, { durationMs, pageSize: this.pageLimit });
@@ -200,6 +217,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
         }
       });
+      if (this.configManager.shouldLoadFullLogBodies()) {
+        this.logService.loadLogBodies(logs, auth, token, (logId, body) => {
+          if (token === this.refreshToken && !this.disposed) {
+            this.post({ type: 'logBody', logId, body });
+          }
+        });
+      }
       try {
         const durationMs = Date.now() - t0;
         safeSendEvent('logs.loadMore', { outcome: 'ok' }, { durationMs, count: logs.length });

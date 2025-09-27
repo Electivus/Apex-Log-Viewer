@@ -21,16 +21,27 @@ import { LogViewerPanel } from '../panel/LogViewerPanel';
 export class LogService {
   private headLimiter: Limiter;
   private headConcurrency: number;
+  private bodyLimiter: Limiter;
+  private bodyConcurrency: number;
+  private readonly bodyCache = new Map<string, string>();
+  private readonly bodyCacheLimit = 50;
 
   constructor(headConcurrency = 5) {
     this.headConcurrency = headConcurrency;
     this.headLimiter = createLimiter(this.headConcurrency);
+    this.bodyConcurrency = Math.max(1, Math.min(3, Math.ceil(this.headConcurrency / 2)));
+    this.bodyLimiter = createLimiter(this.bodyConcurrency);
   }
 
   setHeadConcurrency(conc: number): void {
     if (conc !== this.headConcurrency) {
       this.headConcurrency = conc;
       this.headLimiter = createLimiter(this.headConcurrency);
+    }
+    const nextBodyConcurrency = Math.max(1, Math.min(3, Math.ceil(this.headConcurrency / 2)));
+    if (nextBodyConcurrency !== this.bodyConcurrency) {
+      this.bodyConcurrency = nextBodyConcurrency;
+      this.bodyLimiter = createLimiter(this.bodyConcurrency);
     }
   }
 
@@ -74,6 +85,47 @@ export class LogService {
           }
         } catch (e) {
           logWarn('LogService: loadLogHead failed for', log.Id, '->', e);
+        }
+      });
+    }
+  }
+
+  loadLogBodies(
+    logs: ApexLogRow[],
+    auth: OrgAuth,
+    _token: number,
+    post: (logId: string, body: string) => void,
+    signal?: AbortSignal
+  ): void {
+    for (const log of logs) {
+      if (!log?.Id || !log.LogLength || log.LogLength <= 0) {
+        continue;
+      }
+      void this.bodyLimiter(async () => {
+        if (signal?.aborted) {
+          return;
+        }
+        const cacheKey = `${auth.instanceUrl}|${auth.username ?? ''}|${log.Id}`;
+        const cached = this.bodyCache.get(cacheKey);
+        if (cached !== undefined) {
+          post(log.Id, cached);
+          return;
+        }
+        try {
+          const body = await fetchApexLogBody(auth, log.Id, undefined, signal);
+          if (signal?.aborted) {
+            return;
+          }
+          this.bodyCache.set(cacheKey, body);
+          if (this.bodyCache.size > this.bodyCacheLimit) {
+            const firstKey = this.bodyCache.keys().next().value as string | undefined;
+            if (firstKey) {
+              this.bodyCache.delete(firstKey);
+            }
+          }
+          post(log.Id, body);
+        } catch (e) {
+          logWarn('LogService: loadLogBody failed for', log.Id, '->', getErrorMessage(e));
         }
       });
     }
