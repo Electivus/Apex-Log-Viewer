@@ -34,7 +34,8 @@ const t = {
     time: 'Time',
     status: 'Status',
     codeUnitStarted: 'Code Unit',
-    size: 'Size'
+    size: 'Size',
+    match: 'Match'
   }
 };
 
@@ -89,6 +90,7 @@ describe('LogsTable', () => {
     const baseProps = {
       rows,
       logHead: {},
+      matchSnippets: {},
       t: t as any,
       onOpen: () => {},
       onReplay: () => {},

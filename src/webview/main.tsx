@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getMessages, type Messages } from './i18n';
 import type { OrgItem, ApexLogRow } from '../shared/types';
@@ -30,9 +30,12 @@ export function LogsApp({
   const [rows, setRows] = useState<ApexLogRow[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [logHead, setLogHead] = useState<Record<string, { codeUnitStarted?: string }>>({});
+  const [matchingIds, setMatchingIds] = useState<Set<string>>(new Set());
+  const [matchSnippets, setMatchSnippets] = useState<Record<string, { text: string; ranges: [number, number][] }>>({});
+  const queryRef = useRef('');
 
   // Search + filters
-  const [query, setQuery] = useState('');
+  const [query, setQueryState] = useState('');
   const [filterUser, setFilterUser] = useState('');
   const [filterOperation, setFilterOperation] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -78,6 +81,20 @@ export function LogsApp({
             [msg.logId]: { codeUnitStarted: msg.codeUnitStarted }
           }));
           break;
+        case 'searchMatches': {
+          const target = (msg.query ?? '').trim().toLowerCase();
+          if (target !== queryRef.current.trim().toLowerCase()) {
+            break;
+          }
+          const ids = Array.isArray(msg.logIds) ? msg.logIds.filter(Boolean) : [];
+          setMatchingIds(new Set(ids));
+          if (msg.snippets && typeof msg.snippets === 'object') {
+            setMatchSnippets(msg.snippets);
+          } else {
+            setMatchSnippets({});
+          }
+          break;
+        }
         case 'orgs':
           setOrgs(msg.data || []);
           setSelectedOrg(msg.selected);
@@ -88,6 +105,30 @@ export function LogsApp({
     vscode.postMessage({ type: 'ready' });
     return () => messageBus.removeEventListener('message', onMsg as EventListener);
   }, [messageBus, vscode]);
+
+  const updateQuery = useCallback(
+    (value: string) => {
+      const next = value ?? '';
+      queryRef.current = next;
+      setMatchSnippets({});
+      if (!next.trim()) {
+        setMatchingIds(new Set());
+        setMatchSnippets({});
+      }
+      setQueryState(next);
+      if (messageBus) {
+        vscode.postMessage({ type: 'searchQuery', value: next });
+      }
+    },
+    [messageBus, setMatchingIds, setQueryState, vscode]
+  );
+
+  useEffect(() => {
+    queryRef.current = query;
+    if (!query.trim()) {
+      setMatchingIds(new Set());
+    }
+  }, [query]);
 
   const onRefresh = () => {
     vscode.postMessage({ type: 'refresh' });
@@ -111,7 +152,7 @@ export function LogsApp({
   };
 
   const clearFilters = () => {
-    setQuery('');
+    updateQuery('');
     setFilterUser('');
     setFilterOperation('');
     setFilterStatus('');
@@ -146,7 +187,7 @@ export function LogsApp({
       if (!q) {
         return true;
       }
-      const hay = [
+      const metadataHaystack = [
         r.LogUser?.Name || '',
         r.Application || '',
         r.Operation || '',
@@ -156,7 +197,13 @@ export function LogsApp({
       ]
         .join(' ')
         .toLowerCase();
-      return hay.includes(q);
+      if (metadataHaystack.includes(q)) {
+        return true;
+      }
+      if (matchingIds.has(r.Id)) {
+        return true;
+      }
+      return false;
     });
 
     const compare = (a: ApexLogRow, b: ApexLogRow) => {
@@ -191,7 +238,7 @@ export function LogsApp({
     };
 
     return items.slice().sort(compare);
-  }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead]);
+  }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead, matchingIds]);
 
   return (
     <div className="relative flex min-h-[120px] flex-col gap-4 p-4 text-sm">
@@ -204,7 +251,7 @@ export function LogsApp({
         selectedOrg={selectedOrg}
         onSelectOrg={onSelectOrg}
         query={query}
-        onQueryChange={setQuery}
+        onQueryChange={updateQuery}
         users={users}
         operations={operations}
         statuses={statuses}
@@ -233,8 +280,9 @@ export function LogsApp({
           onLoadMore={onLoadMore}
           sortBy={sortBy}
           sortDir={sortDir}
-          onSort={onSort}
-        />
+        onSort={onSort}
+        matchSnippets={matchSnippets}
+      />
         <LoadingOverlay show={loading} label={t.loading} />
       </div>
 

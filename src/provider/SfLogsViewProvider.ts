@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { localize } from '../utils/localize';
 import { getOrgAuth } from '../salesforce/cli';
 import { clearListCache } from '../salesforce/http';
@@ -13,6 +14,8 @@ import { LogService } from '../services/logService';
 import { LogsMessageHandler } from './logsMessageHandler';
 import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../utils/configManager';
+import { ensureApexLogsDir } from '../utils/workspace';
+import { ripgrepSearch, type RipgrepMatch } from '../utils/ripgrep';
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
@@ -24,6 +27,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private messageHandler: LogsMessageHandler;
   private cursorStartTime: string | undefined;
   private cursorId: string | undefined;
+  private currentLogs: ApexLogRow[] = [];
+  private lastSearchQuery = '';
+  private searchToken = 0;
+  private searchAbortController: AbortController | undefined;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -43,12 +50,17 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       id => this.logService.openLog(id, this.orgManager.getSelectedOrg()),
       id => this.logService.debugLog(id, this.orgManager.getSelectedOrg()),
       () => this.loadMore(),
-      v => this.post({ type: 'loading', value: v })
+      v => this.post({ type: 'loading', value: v }),
+      value => this.setSearchQuery(value)
     );
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
+        const prevFullBodies = this.configManager.shouldLoadFullLogBodies();
         this.configManager.handleChange(e);
         this.logService.setHeadConcurrency(this.configManager.getHeadConcurrency());
+        if (prevFullBodies !== this.configManager.shouldLoadFullLogBodies()) {
+          void this.refresh();
+        }
       })
     );
   }
@@ -133,6 +145,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           this.post({ type: 'init', locale: vscode.env.language });
           const hasMore = logs.length === this.pageLimit;
           this.post({ type: 'logs', data: logs, hasMore });
+          this.currentLogs = logs.slice();
           this.logService.loadLogHeads(
             logs,
             auth,
@@ -144,6 +157,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             },
             controller.signal
           );
+          if (this.lastSearchQuery.trim()) {
+            const searchToken = ++this.searchToken;
+            void this.executeSearch(this.lastSearchQuery, searchToken);
+          } else {
+            this.post({ type: 'searchMatches', query: '', logIds: [] });
+          }
           try {
             const durationMs = Date.now() - t0;
             safeSendEvent('logs.refresh', { outcome: 'ok' }, { durationMs, pageSize: this.pageLimit });
@@ -195,11 +214,16 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       }
       const hasMore = logs.length === this.pageLimit;
       this.post({ type: 'appendLogs', data: logs, hasMore });
+      this.currentLogs = [...this.currentLogs, ...logs];
       this.logService.loadLogHeads(logs, auth, token, (logId, codeUnit) => {
         if (token === this.refreshToken && !this.disposed) {
           this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
         }
       });
+      if (this.lastSearchQuery.trim()) {
+        const searchToken = ++this.searchToken;
+        void this.executeSearch(this.lastSearchQuery, searchToken);
+      }
       try {
         const durationMs = Date.now() - t0;
         safeSendEvent('logs.loadMore', { outcome: 'ok' }, { durationMs, count: logs.length });
@@ -215,6 +239,174 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     } finally {
       this.post({ type: 'loading', value: false });
     }
+  }
+
+  private async setSearchQuery(value: string): Promise<void> {
+    this.lastSearchQuery = value ?? '';
+    const token = ++this.searchToken;
+    if (this.searchAbortController) {
+      this.searchAbortController.abort();
+    }
+    const controller = new AbortController();
+    this.searchAbortController = controller;
+    try {
+      await this.executeSearch(this.lastSearchQuery, token, controller.signal);
+    } finally {
+      if (this.searchAbortController === controller) {
+        this.searchAbortController = undefined;
+      }
+    }
+  }
+
+  private async executeSearch(query: string, token: number, signal?: AbortSignal): Promise<void> {
+    if (!this.view || this.disposed) {
+      return;
+    }
+    if (signal?.aborted) {
+      return;
+    }
+    const trimmed = (query ?? '').trim();
+    if (!trimmed) {
+      if (token === this.searchToken && !this.disposed) {
+        this.post({ type: 'searchMatches', query: '', logIds: [] });
+      }
+      return;
+    }
+    if (!this.configManager.shouldLoadFullLogBodies()) {
+      if (token === this.searchToken && !this.disposed) {
+        this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
+      }
+      return;
+    }
+    const logsSnapshot = [...this.currentLogs];
+    if (logsSnapshot.length === 0) {
+      if (token === this.searchToken && !this.disposed) {
+        this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
+      }
+      return;
+    }
+    try {
+      await this.logService.ensureLogsSaved(logsSnapshot, this.orgManager.getSelectedOrg(), signal);
+      if (token !== this.searchToken || this.disposed || signal?.aborted) {
+        return;
+      }
+      const dir = await ensureApexLogsDir();
+      if (signal?.aborted) {
+        return;
+      }
+      const matchesInfo = await ripgrepSearch(trimmed, dir, signal);
+      if (token !== this.searchToken || this.disposed || signal?.aborted) {
+        return;
+      }
+      const known = new Set(logsSnapshot.map(l => l.Id));
+      const matches = new Set<string>();
+      const snippets: Record<string, { text: string; ranges: [number, number][] }> = {};
+      for (const info of matchesInfo) {
+        const logId = this.extractLogIdFromPath(info.filePath);
+        if (logId && known.has(logId)) {
+          matches.add(logId);
+          const snippet = this.buildSnippet(info);
+          if (snippet) {
+            snippets[logId] = snippet;
+          }
+        }
+      }
+      this.post({ type: 'searchMatches', query: trimmed, logIds: Array.from(matches), snippets });
+    } catch (e) {
+      logWarn('Logs: search failed ->', getErrorMessage(e));
+      if (token === this.searchToken && !this.disposed && !signal?.aborted) {
+        this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
+      }
+    }
+  }
+
+  private extractLogIdFromPath(filePath: string): string | undefined {
+    const base = path.basename(filePath);
+    if (!base.toLowerCase().endsWith('.log')) {
+      return undefined;
+    }
+    const withoutExt = base.slice(0, -4);
+    const idx = withoutExt.lastIndexOf('_');
+    const candidate = idx !== -1 ? withoutExt.slice(idx + 1) : withoutExt;
+    if (/^[a-zA-Z0-9]{15,18}$/.test(candidate)) {
+      return candidate;
+    }
+    return undefined;
+  }
+
+  private buildSnippet(match: RipgrepMatch): { text: string; ranges: [number, number][] } | undefined {
+    const rawLine = typeof match.lineText === 'string' ? match.lineText : '';
+    const line = rawLine.replace(/\r?\n$/, '');
+    if (!line) {
+      return undefined;
+    }
+    const rawRanges = Array.isArray(match.submatches) ? match.submatches : [];
+    const charRanges = rawRanges
+      .map(({ start, end }) => {
+        const charStart = this.byteOffsetToStringIndex(line, start ?? 0);
+        const charEnd = this.byteOffsetToStringIndex(line, end ?? 0);
+        return [charStart, Math.max(charStart, charEnd)] as [number, number];
+      })
+      .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > start);
+
+    const context = 60;
+    const earliest = charRanges.length > 0 ? Math.min(...charRanges.map(r => r[0])) : 0;
+    const latest = charRanges.length > 0 ? Math.max(...charRanges.map(r => r[1])) : Math.min(line.length, earliest + context);
+    const sliceStart = Math.max(0, earliest - context);
+    const sliceEnd = Math.min(line.length, latest + context);
+    const core = line.slice(sliceStart, sliceEnd);
+    const prefix = sliceStart > 0 ? '...' : '';
+    const suffix = sliceEnd < line.length ? '...' : '';
+    const prefixLength = prefix.length;
+    const snippetLength = core.length + prefixLength + suffix.length;
+    const adjustedRanges = charRanges
+      .map(([start, end], idx) => {
+        const adjustedStart = Math.max(0, start - sliceStart) + prefixLength;
+        const adjustedEnd = Math.max(adjustedStart, Math.min(core.length, end - sliceStart) + prefixLength);
+        return [adjustedStart, Math.max(adjustedStart, adjustedEnd)] as [number, number];
+      })
+      .filter(([start, end]) => end > start);
+
+    const finalSnippet = `${prefix}${core}${suffix}`;
+    const boundedRanges = adjustedRanges.map(([start, end]) => {
+      const boundedStart = Math.max(0, Math.min(start, snippetLength));
+      const boundedEnd = Math.max(0, Math.min(end, snippetLength));
+      return [boundedStart, Math.max(boundedStart, boundedEnd)] as [number, number];
+    });
+
+    return {
+      text: finalSnippet,
+      ranges: boundedRanges
+    };
+  }
+
+  private byteOffsetToStringIndex(text: string, byteOffset: number): number {
+    if (!text || !Number.isFinite(byteOffset) || byteOffset <= 0) {
+      return 0;
+    }
+    let byteTally = 0;
+    let index = 0;
+    while (index < text.length) {
+      const codePoint = text.codePointAt(index);
+      if (codePoint === undefined) {
+        break;
+      }
+      const codeUnitLength = codePoint > 0xffff ? 2 : 1;
+      const utf8Length = this.utf8ByteLength(codePoint);
+      if (byteTally + utf8Length > byteOffset) {
+        break;
+      }
+      byteTally += utf8Length;
+      index += codeUnitLength;
+    }
+    return index;
+  }
+
+  private utf8ByteLength(codePoint: number): number {
+    if (codePoint <= 0x7f) return 1;
+    if (codePoint <= 0x7ff) return 2;
+    if (codePoint <= 0xffff) return 3;
+    return 4;
   }
 
 

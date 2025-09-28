@@ -68,6 +68,9 @@ export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
         {renderHeader('status', t.columns.status)}
         {renderHeader('codeUnit', t.columns.codeUnitStarted)}
         {renderHeader('size', t.columns.size, 'end')}
+        <div className={cn(headerClass, 'justify-start text-left text-muted-foreground')} role="columnheader">
+          <span className="truncate">{t.columns.match ?? 'Match'}</span>
+        </div>
         <div aria-hidden="true" />
       </div>
     );

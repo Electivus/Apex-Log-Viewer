@@ -45,7 +45,7 @@ describe('Logs webview App', () => {
 
     sendMessage(bus, {
       type: 'logHead',
-      logId: '07L0000001',
+      logId: '07L000000000001AA',
       codeUnitStarted: 'AccountService.handle'
     });
 
@@ -54,7 +54,7 @@ describe('Logs webview App', () => {
 
     const baseLogs = [
       {
-        Id: '07L0000001',
+        Id: '07L000000000001AA',
         StartTime: '2025-09-21T18:40:00.000Z',
         Operation: 'ExecuteAnonymous',
         Application: 'Developer Console',
@@ -65,7 +65,7 @@ describe('Logs webview App', () => {
         LogUser: { Name: 'Alice' }
       },
       {
-        Id: '07L0000002',
+        Id: '07L000000000002AA',
         StartTime: '2025-09-21T18:45:00.000Z',
         Operation: 'Test.run',
         Application: 'VS Code',
@@ -90,7 +90,7 @@ describe('Logs webview App', () => {
       type: 'appendLogs',
       data: [
         {
-          Id: '07L0000003',
+          Id: '07L000000000003AA',
           StartTime: '2025-09-21T18:55:00.000Z',
           Operation: 'BatchJob',
           Application: 'Salesforce',
@@ -106,9 +106,41 @@ describe('Logs webview App', () => {
 
     await screen.findByText('BatchJob');
 
-    fireEvent.change(screen.getByLabelText('Buscar logs…'), { target: { value: 'Sem resultados' } });
+    const searchInput = screen.getByLabelText('Buscar logs…');
+    fireEvent.change(searchInput, { target: { value: 'error' } });
+    await waitFor(() => {
+      expect(posted.some(msg => msg.type === 'searchQuery' && msg.value === 'error')).toBe(true);
+    });
+    sendMessage(bus, {
+      type: 'searchMatches',
+      query: 'error',
+      logIds: ['07L000000000001AA'],
+      snippets: {
+        '07L000000000001AA': {
+          text: '...error line in body...',
+          ranges: [[3, 8]]
+        }
+      }
+    });
+    await screen.findByText('ExecuteAnonymous');
+    const highlight = await screen.findByText('error', { selector: 'mark' });
+    expect(highlight).toBeInTheDocument();
+
+    const repeatedSearchCount = posted.filter(msg => msg.type === 'searchQuery' && msg.value === 'error').length;
+    fireEvent.paste(searchInput);
+    await waitFor(() => {
+      const searchMessages = posted.filter(msg => msg.type === 'searchQuery' && msg.value === 'error');
+      expect(searchMessages.length).toBeGreaterThan(repeatedSearchCount);
+    });
+
+    fireEvent.change(searchInput, { target: { value: 'Sem resultados' } });
+    await waitFor(() => {
+      expect(posted.some(msg => msg.type === 'searchQuery' && msg.value === 'Sem resultados')).toBe(true);
+    });
+    sendMessage(bus, { type: 'searchMatches', query: 'Sem resultados', logIds: [], snippets: {} });
     await screen.findByText('Nenhum log encontrado.');
-    fireEvent.change(screen.getByLabelText('Buscar logs…'), { target: { value: '' } });
+    fireEvent.change(searchInput, { target: { value: '' } });
+    sendMessage(bus, { type: 'searchMatches', query: '', logIds: [], snippets: {} });
     await screen.findByText('ExecuteAnonymous');
 
     const timeHeader = screen.getByRole('columnheader', { name: /Tempo/i });

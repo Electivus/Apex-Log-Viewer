@@ -43,6 +43,7 @@ export type Messages = {
     status: string;
     size: string;
     codeUnitStarted: string;
+    match?: string;
   };
 };
 
@@ -90,7 +91,8 @@ const en: Messages = {
     duration: 'Duration',
     status: 'Status',
     size: 'Size',
-    codeUnitStarted: 'Code Unit'
+    codeUnitStarted: 'Code Unit',
+    match: 'Match'
   }
 };
 
@@ -138,7 +140,8 @@ const ptBR: Messages = {
     duration: 'Duração',
     status: 'Status',
     size: 'Tamanho',
-    codeUnitStarted: 'Code Unit'
+    codeUnitStarted: 'Code Unit',
+    match: 'Trecho'
   }
 };
 

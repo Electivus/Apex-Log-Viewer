@@ -19,6 +19,7 @@
   "configuration.electivus.apexLogs.cliCache.authTtlSeconds.description": "TTL curto em memória (segundos) para cachear credenciais obtidas via CLI. Tokens NÃO são persistidos. Valores maiores reduzem chamadas ao CLI, mas aumentam a janela de reutilização.",
   "configuration.electivus.apexLogs.cliCache.authPersistentTtlSeconds.description": "TTL persistente (segundos) para o cache de 'sf org display'. Armazena o token no VS Code para evitar chamadas repetidas entre recarregamentos. Valores maiores reduzem chamadas ao CLI, mas mantêm o auth em cache por mais tempo; defina 0 para desativar.",
   "configuration.electivus.apexLogs.cliCache.debugLevelsTtlSeconds.description": "TTL em segundos para o cache de consultas DebugLevel. Defina 0 para desativar. TTLs grandes reduzem chamadas à API, mas podem servir dados desatualizados.",
+  "configuration.electivus.apexLogs.enableFullLogSearch.description": "Baixa o conteúdo completo dos logs Apex na lista para que a busca encontre trechos do log. Isso consome mais banda e memória; desative se precisar apenas de buscas pelos cabeçalhos.",
   "tailSaveFailed": "Tail: falha ao salvar log no workspace (melhor esforço).",
   "openLogInViewer.noDocument": "Electivus Apex Logs: Nenhum log Apex está ativo.",
   "openLogInViewer.unsupportedScheme": "Electivus Apex Logs: Não é possível abrir logs Apex a partir desta origem.",

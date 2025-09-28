@@ -21,16 +21,25 @@ import { LogViewerPanel } from '../panel/LogViewerPanel';
 export class LogService {
   private headLimiter: Limiter;
   private headConcurrency: number;
+  private saveLimiter: Limiter;
+  private saveConcurrency: number;
 
   constructor(headConcurrency = 5) {
     this.headConcurrency = headConcurrency;
     this.headLimiter = createLimiter(this.headConcurrency);
+    this.saveConcurrency = Math.max(1, Math.min(3, Math.ceil(this.headConcurrency / 2)));
+    this.saveLimiter = createLimiter(this.saveConcurrency);
   }
 
   setHeadConcurrency(conc: number): void {
     if (conc !== this.headConcurrency) {
       this.headConcurrency = conc;
       this.headLimiter = createLimiter(this.headConcurrency);
+    }
+    const nextSaveConcurrency = Math.max(1, Math.min(3, Math.ceil(this.headConcurrency / 2)));
+    if (nextSaveConcurrency !== this.saveConcurrency) {
+      this.saveConcurrency = nextSaveConcurrency;
+      this.saveLimiter = createLimiter(this.saveConcurrency);
     }
   }
 
@@ -121,6 +130,28 @@ export class LogService {
         }
       }
     );
+  }
+
+  async ensureLogsSaved(logs: ApexLogRow[], selectedOrg?: string, signal?: AbortSignal): Promise<void> {
+    const tasks: Promise<void>[] = [];
+    for (const log of logs) {
+      if (!log?.Id) {
+        continue;
+      }
+      tasks.push(
+        this.saveLimiter(async () => {
+          if (signal?.aborted) {
+            return;
+          }
+          try {
+            await this.ensureLogFile(log.Id, selectedOrg, signal);
+          } catch (e) {
+            logWarn('LogService: ensureLogFile failed ->', getErrorMessage(e));
+          }
+        })
+      );
+    }
+    await Promise.all(tasks);
   }
 
   async debugLog(logId: string, selectedOrg?: string): Promise<void> {

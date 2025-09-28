@@ -74,4 +74,21 @@
   .surface {
     @apply rounded-md border border-border bg-card/70 backdrop-blur;
   }
+
+  .match-highlight {
+    background-color: var(
+      --vscode-editor-findMatchHighlightBackground,
+      color-mix(in srgb, #facc15 45%, transparent)
+    );
+    color: var(--vscode-editor-findMatchHighlightForeground, #111827);
+    border-radius: 0.35rem;
+    padding: 0 0.35rem;
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 12%, transparent);
+  }
+
+  body.vscode-dark .match-highlight,
+  body.vscode-high-contrast .match-highlight {
+    color: var(--vscode-editor-findMatchHighlightForeground, #020617);
+  }
 }
