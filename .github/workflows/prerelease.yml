@@ -178,7 +178,6 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       PRE_RELEASE: 'true'
       CHANNEL_SUFFIX: pre
-      npm_config_arch: ${{ matrix.npm_arch }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -198,6 +197,11 @@ jobs:
 
       - name: Build for packaging
         run: npm run package
+
+      - name: Download ripgrep binary for target architecture
+        env:
+          npm_config_arch: ${{ matrix.npm_arch }}
+        run: node node_modules/@vscode/ripgrep/lib/postinstall.js --force
 
       - name: Clean previous VSIX artifacts
         run: |
