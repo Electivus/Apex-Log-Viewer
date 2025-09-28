@@ -9,6 +9,7 @@
     "type": "git",
     "url": "https://github.com/Electivus/Apex-Log-Viewer"
   },
+  "telemetryConnectionString": "",
   "engines": {
     "vscode": "^1.90.0",
     "node": ">=20"

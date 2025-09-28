@@ -26,16 +26,14 @@ Opt‑out
 
 For maintainers
 
-- No secrets are committed. The telemetry connection string must be provided via environment variable during packaging/publish and injected temporarily into the VSIX metadata:
-  - Environment variable `APPLICATIONINSIGHTS_CONNECTION_STRING` (preferred) or `VSCODE_TELEMETRY_CONNECTION_STRING`.
-  - Our CI writes this value to `package.json.telemetryConnectionString` just before packaging, and removes it afterwards.
-- If no connection string is provided, telemetry is a no‑op.
+- The connection string is checked in with the extension (we surface it via `package.json.telemetryConnectionString`). No CI-time injection is required anymore; the bundler simply reads the value during activation.
+- If the field is left empty, telemetry becomes a no-op automatically.
 - When adding events, avoid PII. Prefer counts, booleans, and coarse buckets. Never include usernames, org IDs, file paths, or log content.
 
 GitHub Actions integration
 
-- Adicione uma variável de repositório (Actions → Variables) chamada `APPLICATIONINSIGHTS_CONNECTION_STRING` contendo sua Application Insights connection string (não sensível segundo a documentação da Microsoft).
-- Exporte-a como variável de ambiente no workflow antes do empacotamento. Os scripts irão injetá-la em `package.json` durante o empacotamento e removê-la depois.
+- Workflows can package or publish the VSIX without providing any telemetry environment variables.
+- Optional: if you need to override the baked-in connection string for an experiment, set `APPLICATIONINSIGHTS_CONNECTION_STRING` or `VSCODE_TELEMETRY_CONNECTION_STRING` in the job environment; the runtime still prefers that when present.
 
 Example job snippet:
 
@@ -51,19 +49,8 @@ jobs:
       - run: npm ci
       - name: Build (extension + webview)
         run: npm run package
-      - name: Ensure telemetry variable present
-        env:
-          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
-        run: |
-          if [ -z "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}" ]; then
-            echo "Missing APPLICATIONINSIGHTS_CONNECTION_STRING variable. Refusing to package without telemetry." >&2
-            exit 1
-          fi
-
       - name: Package VSIX
-        run: npm run vsce:package
-        env:
-          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+        run: npx --yes @vscode/vsce package
       # Optionally upload the VSIX artifact here
 ```
 

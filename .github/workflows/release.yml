@@ -12,9 +12,6 @@ concurrency:
 permissions:
   contents: write
 
-env:
-  VSCE_TARGETS: linux-x64 linux-arm64 win32-x64 win32-arm64 darwin-x64 darwin-arm64
-
 jobs:
   build_and_test:
     name: Build and Test (Node ${{ matrix.node }} • ${{ matrix.os }})
@@ -47,15 +44,37 @@ jobs:
   package:
     name: Package VSIX
     needs: build_and_test
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            npm_arch: x64
+          - os: ubuntu-latest
+            target: linux-arm64
+            npm_arch: arm64
+          - os: windows-latest
+            target: win32-x64
+            npm_arch: x64
+          - os: windows-latest
+            target: win32-arm64
+            npm_arch: arm64
+          - os: macos-latest
+            target: darwin-x64
+            npm_arch: x64
+          - os: macos-latest
+            target: darwin-arm64
+            npm_arch: arm64
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     permissions:
       contents: write
       actions: write
     env:
-      VSCE_PAT: ${{ secrets.VSCE_PAT }}
       TAG_NAME: ${{ github.ref_name }}
       GH_TOKEN: ${{ github.token }}
+      npm_config_arch: ${{ matrix.npm_arch }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -83,63 +102,55 @@ jobs:
         run: npm run package
 
       - name: Determine channel (stable vs pre-release)
-        id: channel
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          MINOR=$(node -p "require('./package.json').version.split('.')[1]")
-          TAG_NAME="${TAG_NAME}"
-          # default: even minor => stable, odd minor => pre-release
-          if [ $((MINOR % 2)) -eq 1 ]; then
-            PRE_RELEASE=true
-          else
-            PRE_RELEASE=false
-          fi
-          # allow explicit override via tag suffix (e.g., v0.7.0-pre, v0.7.0-beta.1)
-          if [[ "$TAG_NAME" == *"-pre"* || "$TAG_NAME" == *"-beta"* || "$TAG_NAME" == *"-alpha"* || "$TAG_NAME" == *"-rc"* ]]; then
-            PRE_RELEASE=true
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "pre_release=$PRE_RELEASE" >> $GITHUB_OUTPUT
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "PRE_RELEASE=$PRE_RELEASE" >> $GITHUB_ENV
-          if [ "$PRE_RELEASE" = "true" ]; then echo "CHANNEL_SUFFIX=pre" >> $GITHUB_ENV; else echo "CHANNEL_SUFFIX=stable" >> $GITHUB_ENV; fi
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = require('./package.json').version;
+            const minor = Number(version.split('.')[1] || 0);
+            const tagName = process.env.TAG_NAME || '';
+            let preRelease = minor % 2 === 1;
+            if (/-pre|-beta|-alpha|-rc/.test(tagName)) {
+              preRelease = true;
+            }
+            core.exportVariable('VERSION', version);
+            core.exportVariable('PRE_RELEASE', preRelease ? 'true' : 'false');
+            core.exportVariable('CHANNEL_SUFFIX', preRelease ? 'pre' : 'stable');
 
-      - name: Ensure telemetry variable present
-        env:
-          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+      - name: Clean previous VSIX artifacts
         run: |
-          set -euo pipefail
-          if [ -z "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}" ]; then
-            echo "Missing APPLICATIONINSIGHTS_CONNECTION_STRING variable. Refusing to package without telemetry." >&2
-            exit 1
-          fi
+          node -e "const fs=require('fs');for (const f of fs.readdirSync('.')) if (f.endsWith('.vsix')) fs.rmSync(f);"
 
-      - name: Create VSIX (multi-target)
-        env:
-          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+      - name: Package VSIX target
         shell: bash
+        env:
+          MATRIX_TARGET: ${{ matrix.target }}
         run: |
-          set -euo pipefail
-          cleanup() {
-            npm run telemetry:strip || true
+          node <<'NODE'
+          const { spawnSync } = require('child_process');
+          const fs = require('fs');
+          const target = process.env.MATRIX_TARGET;
+          const version = process.env.VERSION;
+          const suffix = process.env.CHANNEL_SUFFIX;
+          const preRelease = process.env.PRE_RELEASE === 'true';
+          const outName = `apex-log-viewer-${version}-${suffix}-${target}.vsix`;
+          const args = ['--yes', '@vscode/vsce', 'package', '--no-yarn', '--target', target, '--out', outName];
+          if (preRelease) {
+            args.push('--pre-release');
           }
-          trap cleanup EXIT
-          npm run telemetry:inject
-          rm -f ./*.vsix
-          for TARGET in ${VSCE_TARGETS}; do
-            OUT="apex-log-viewer-${VERSION}-${TARGET}.vsix"
-            echo "Packaging ${TARGET} -> ${OUT}"
-            if [ "${PRE_RELEASE}" = "true" ]; then
-              npx --yes @vscode/vsce package --no-yarn --target "${TARGET}" --out "${OUT}" --pre-release
-            else
-              npx --yes @vscode/vsce package --no-yarn --target "${TARGET}" --out "${OUT}"
-            fi
-          done
+          const result = spawnSync('npx', args, { stdio: 'inherit', shell: process.platform === 'win32' });
+          if (result.status !== 0) {
+            process.exit(result.status ?? 1);
+          }
+          if (!fs.existsSync(outName)) {
+            console.error(`Expected VSIX ${outName} was not created.`);
+            process.exit(1);
+          }
+          NODE
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: apex-log-viewer-${{ github.ref_name }}-${{ env.CHANNEL_SUFFIX }}-vsix
+          name: apex-log-viewer-${{ env.VERSION }}-${{ env.CHANNEL_SUFFIX }}-vsix-${{ matrix.target }}
           path: |
             ./*.vsix
           if-no-files-found: error
@@ -183,24 +194,47 @@ jobs:
         run: npm run package
 
       - name: Determine channel (stable vs pre-release)
-        id: channel
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          MINOR=$(node -p "require('./package.json').version.split('.')[1]")
-          TAG_NAME="${TAG_NAME}"
-          if [ $((MINOR % 2)) -eq 1 ]; then PRE_RELEASE=true; else PRE_RELEASE=false; fi
-          if [[ "$TAG_NAME" == *"-pre"* || "$TAG_NAME" == *"-beta"* || "$TAG_NAME" == *"-alpha"* || "$TAG_NAME" == *"-rc"* ]]; then PRE_RELEASE=true; fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "pre_release=$PRE_RELEASE" >> $GITHUB_OUTPUT
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "PRE_RELEASE=$PRE_RELEASE" >> $GITHUB_ENV
-          if [ "$PRE_RELEASE" = "true" ]; then echo "CHANNEL_SUFFIX=pre" >> $GITHUB_ENV; else echo "CHANNEL_SUFFIX=stable" >> $GITHUB_ENV; fi
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = require('./package.json').version;
+            const minor = Number(version.split('.')[1] || 0);
+            const tagName = process.env.TAG_NAME || '';
+            let preRelease = minor % 2 === 1;
+            if (/-pre|-beta|-alpha|-rc/.test(tagName)) {
+              preRelease = true;
+            }
+            core.exportVariable('VERSION', version);
+            core.exportVariable('PRE_RELEASE', preRelease ? 'true' : 'false');
+            core.exportVariable('CHANNEL_SUFFIX', preRelease ? 'pre' : 'stable');
 
-      - name: Download VSIX artifact from package job
+      - name: Set GitHub Release prerelease flag automatically
+        env:
+          TAG_NAME: ${{ env.TAG_NAME }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Setting prerelease=${PRE_RELEASE} for ${TAG_NAME}"
+          RID=$(gh api -X GET repos/${{ github.repository }}/releases/tags/${TAG_NAME} -q .id)
+          if [ "${PRE_RELEASE}" = "true" ]; then
+            gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=true
+          else
+            gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=false
+          fi
+
+      - name: Download packaged VSIX artifacts
         uses: actions/download-artifact@v5
         with:
-          name: apex-log-viewer-${{ github.ref_name }}-${{ env.CHANNEL_SUFFIX }}-vsix
-          path: .
+          pattern: apex-log-viewer-${{ env.VERSION }}-${{ env.CHANNEL_SUFFIX }}-vsix-*
+          path: vsix
+          if-no-files-found: error
+
+      - name: Collect VSIX files
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          find vsix -name '*.vsix' -exec mv {} . \;
 
       - name: Publish from VSIX artifact
         env:
