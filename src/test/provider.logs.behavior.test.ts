@@ -1,4 +1,5 @@
 import assert from 'assert/strict';
+import { Buffer } from 'node:buffer';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -101,18 +102,25 @@ suite('SfLogsViewProvider behavior', () => {
     } as any;
 
     let saved = false;
+    const sampleLine = 'Usuário João gerou erro crítico 323301606';
+    const needle = '323301606';
     (provider as any).logService.ensureLogsSaved = async () => {
       saved = true;
       const file = path.join(tmpDir, 'default_07L000000000001AA.log');
-      await fs.writeFile(file, 'error line', 'utf8');
+      await fs.writeFile(file, sampleLine, 'utf8');
     };
-    (ripgrep as any).ripgrepSearch = async () => [
-      {
-        filePath: path.join(tmpDir, 'default_07L000000000001AA.log'),
-        lineText: 'error line in body',
-        submatches: [{ start: 0, end: 5 }]
-      }
-    ];
+    (ripgrep as any).ripgrepSearch = async () => {
+      const prefix = sampleLine.slice(0, sampleLine.indexOf(needle));
+      const start = Buffer.from(prefix, 'utf8').length;
+      const end = start + Buffer.from(needle, 'utf8').length;
+      return [
+        {
+          filePath: path.join(tmpDir, 'default_07L000000000001AA.log'),
+          lineText: sampleLine,
+          submatches: [{ start, end }]
+        }
+      ];
+    };
 
     try {
       await provider.refresh();
@@ -127,7 +135,10 @@ suite('SfLogsViewProvider behavior', () => {
       assert.ok(matches, 'should post searchMatches');
       assert.deepEqual(matches?.logIds, ['07L000000000001AA']);
       assert.ok(matches?.snippets, 'should include snippets payload');
-      assert.match(matches?.snippets?.['07L000000000001AA']?.text ?? '', /error line/i);
+      const snippet = matches?.snippets?.['07L000000000001AA'];
+      assert.ok(snippet, 'should include snippet for match');
+      assert.ok(snippet?.ranges?.length, 'snippet should include highlight ranges');
+      assert.ok(snippet?.text.includes(needle), 'snippet should contain the matched text');
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
