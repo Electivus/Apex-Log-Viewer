@@ -162,17 +162,27 @@ jobs:
             gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=false
           fi
 
-      - name: Create VSIX
+      - name: Create VSIX (multi-target)
         env:
           APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+        shell: bash
         run: |
-          if [ "${PRE_RELEASE}" = "true" ]; then
-            echo "Packaging pre-release VSIX (${VERSION})"
-            npm run vsce:package:pre
-          else
-            echo "Packaging stable VSIX (${VERSION})"
-            npm run vsce:package
-          fi
+          set -euo pipefail
+          cleanup() {
+            npm run telemetry:strip || true
+          }
+          trap cleanup EXIT
+          npm run telemetry:inject
+          rm -f ./*.vsix
+          for TARGET in ${VSCE_TARGETS}; do
+            OUT="apex-log-viewer-${VERSION}-${TARGET}.vsix"
+            echo "Packaging ${TARGET} -> ${OUT}"
+            if [ "${PRE_RELEASE}" = "true" ]; then
+              npx --yes @vscode/vsce package --no-yarn --target "${TARGET}" --out "${OUT}" --pre-release
+            else
+              npx --yes @vscode/vsce package --no-yarn --target "${TARGET}" --out "${OUT}"
+            fi
+          done
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
@@ -249,17 +259,21 @@ jobs:
       - name: Publish from VSIX artifact
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        shell: bash
         run: |
           set -euo pipefail
-          FILE=$(ls *.vsix | head -n1)
-          if [ -z "${FILE}" ]; then
+          shopt -s nullglob
+          FILES=( *.vsix )
+          if [ ${#FILES[@]} -eq 0 ]; then
             echo "No VSIX found to publish" >&2
             exit 1
           fi
-          if [ "${PRE_RELEASE}" = "true" ]; then
-            echo "Publishing pre-release ${VERSION} from ${FILE}"
-            npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release
-          else
-            echo "Publishing stable ${VERSION} from ${FILE}"
-            npx --yes @vscode/vsce publish --packagePath "${FILE}"
-          fi
+          for FILE in "${FILES[@]}"; do
+            if [ "${PRE_RELEASE}" = "true" ]; then
+              echo "Publishing pre-release ${VERSION} from ${FILE}"
+              npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release
+            else
+              echo "Publishing stable ${VERSION} from ${FILE}"
+              npx --yes @vscode/vsce publish --packagePath "${FILE}"
+            fi
+          done

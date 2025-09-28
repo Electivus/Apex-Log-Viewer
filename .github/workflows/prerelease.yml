@@ -18,6 +18,9 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  VSCE_TARGETS: linux-x64 linux-arm64 win32-x64 win32-arm64 darwin-x64 darwin-arm64
+
 jobs:
   check_changes:
     name: Check for changes since last pre-release
@@ -152,10 +155,24 @@ jobs:
           node -e "const fs=require('fs');const p='./package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version='${NEW_VERSION}';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Package VSIX (pre-release)
+      - name: Package VSIX (pre-release, multi-target)
         env:
           APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ vars.APPLICATIONINSIGHTS_CONNECTION_STRING }}
-        run: npm run vsce:package:pre
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            npm run telemetry:strip || true
+          }
+          trap cleanup EXIT
+          npm run telemetry:inject
+          VERSION=$(node -p "require('./package.json').version")
+          rm -f ./*.vsix
+          for TARGET in ${VSCE_TARGETS}; do
+            OUT="apex-log-viewer-${VERSION}-${TARGET}.vsix"
+            echo "Packaging ${TARGET} -> ${OUT}"
+            npx --yes @vscode/vsce package --no-yarn --target "${TARGET}" --out "${OUT}" --pre-release
+          done
 
       - name: Rename VSIX with timestamp
         id: meta
@@ -167,19 +184,29 @@ jobs:
           SHORTSHA=$(git rev-parse --short HEAD)
           LABEL=${{ github.event.inputs.label || '' }}
           if [ -z "$LABEL" ]; then LABEL=$DATE; fi
-          FILE=$(ls *.vsix | head -n1)
-          NEW_NAME="apex-log-viewer-${VERSION}-pre-${LABEL}-${SHORTSHA}.vsix"
-          mv "$FILE" "$NEW_NAME"
+          shopt -s nullglob
+          FILES=(apex-log-viewer-${VERSION}-*.vsix)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No VSIX files found to rename" >&2
+            exit 1
+          fi
+          for FILE in "${FILES[@]}"; do
+            TARGET=${FILE#apex-log-viewer-${VERSION}-}
+            TARGET=${TARGET%.vsix}
+            NEW_NAME="apex-log-viewer-${VERSION}-pre-${LABEL}-${SHORTSHA}-${TARGET}.vsix"
+            mv "$FILE" "$NEW_NAME"
+            echo "Renamed $FILE -> $NEW_NAME"
+          done
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "file=$NEW_NAME" >> $GITHUB_OUTPUT
-          # Use standard v* tag, mark release as pre-release via flag
           echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "label=$LABEL" >> $GITHUB_OUTPUT
 
       - name: Upload VSIX artifact for publish
         uses: actions/upload-artifact@v4
         with:
           name: nightly-vsix
-          path: ${{ steps.meta.outputs.file }}
+          path: |
+            ./*.vsix
           if-no-files-found: error
 
       - name: Create or update GitHub pre-release
@@ -201,12 +228,22 @@ jobs:
       - name: Upload VSIX to GitHub release
         env:
           TAG: ${{ steps.meta.outputs.tag }}
-          FILE: ${{ steps.meta.outputs.file }}
+        shell: bash
         run: |
           set -euo pipefail
-          # Remove old asset with same name if exists
-          gh release view "$TAG" --json assets --jq ".assets[].name" | grep -x "$FILE" && gh release delete-asset "$TAG" "$FILE" -y || true
-          gh release upload "$TAG" "$FILE" --clobber
+          shopt -s nullglob
+          FILES=( *.vsix )
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No VSIX files found to upload" >&2
+            exit 1
+          fi
+          existing=$(gh release view "$TAG" --json assets --jq '.assets[].name' || true)
+          for FILE in "${FILES[@]}"; do
+            if echo "$existing" | grep -x "$FILE" >/dev/null 2>&1; then
+              gh release delete-asset "$TAG" "$FILE" -y || true
+            fi
+            gh release upload "$TAG" "$FILE" --clobber
+          done
 
   marketplace:
     name: Publish to Marketplace (pre-release channel)
@@ -259,13 +296,18 @@ jobs:
           path: .
 
       - name: Publish pre-release to Marketplace from VSIX
+        shell: bash
         run: |
           if [ -z "${VSCE_PAT}" ]; then
             echo "VSCE_PAT not set; skipping publish." && exit 0
           fi
-          FILE=$(ls *.vsix | head -n1)
-          if [ -z "${FILE}" ]; then
+          shopt -s nullglob
+          FILES=( *.vsix )
+          if [ ${#FILES[@]} -eq 0 ]; then
             echo "No VSIX found to publish" >&2
             exit 1
           fi
-          npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release
+          for FILE in "${FILES[@]}"; do
+            echo "Publishing ${FILE}"
+            npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release
+          done

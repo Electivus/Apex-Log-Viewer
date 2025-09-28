@@ -416,6 +416,7 @@
     "media/tail.js",
     "media/logViewer.js",
     "media/icon.png",
+    "node_modules/@vscode/ripgrep/**",
     "README.md",
     "CHANGELOG.md",
     "LICENSE",
