@@ -109,7 +109,11 @@ suite('SfLogsViewProvider behavior', () => {
       const file = path.join(tmpDir, 'default_07L000000000001AA.log');
       await fs.writeFile(file, sampleLine, 'utf8');
     };
-    (ripgrep as any).ripgrepSearch = async () => {
+    (ripgrep as any).ripgrepSearch = async (
+      _pattern: string,
+      _cwd: string,
+      _signal?: AbortSignal
+    ) => {
       const prefix = sampleLine.slice(0, sampleLine.indexOf(needle));
       const start = Buffer.from(prefix, 'utf8').length;
       const end = start + Buffer.from(needle, 'utf8').length;
@@ -139,6 +143,83 @@ suite('SfLogsViewProvider behavior', () => {
       assert.ok(snippet, 'should include snippet for match');
       assert.ok(snippet?.ranges?.length, 'snippet should include highlight ranges');
       assert.ok(snippet?.text.includes(needle), 'snippet should contain the matched text');
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('setSearchQuery aborts previous search before running a new one', async () => {
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    (http as any).fetchApexLogs = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
+    (http as any).fetchApexLogHead = async () => [];
+    (http as any).fetchApexLogBody = async () => 'Body';
+
+    const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests-cancel');
+    await fs.mkdir(tmpDir, { recursive: true });
+    (workspace as any).ensureApexLogsDir = async () => tmpDir;
+
+    const context = makeContext();
+    const posted: any[] = [];
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
+    (provider as any).view = {
+      webview: {
+        postMessage: (m: any) => {
+          posted.push(m);
+          return Promise.resolve(true);
+        }
+      }
+    } as any;
+
+    await provider.refresh();
+    await new Promise(r => setTimeout(r, 20));
+
+    const logPath = path.join(tmpDir, 'default_07L000000000001AA.log');
+    await fs.writeFile(logPath, 'Example line', 'utf8');
+
+    const ensureSignals: AbortSignal[] = [];
+    (provider as any).logService.ensureLogsSaved = async (
+      _logs: any,
+      _org: any,
+      signal?: AbortSignal
+    ) => {
+      if (signal) {
+        ensureSignals.push(signal);
+      }
+      if (ensureSignals.length === 1 && signal) {
+        await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
+      }
+    };
+
+    let ripgrepCalls = 0;
+    (ripgrep as any).ripgrepSearch = async (
+      _pattern: string,
+      _cwd: string,
+      signal?: AbortSignal
+    ) => {
+      ripgrepCalls++;
+      if (signal?.aborted) {
+        return [];
+      }
+      return [
+        {
+          filePath: logPath,
+          lineText: 'Example line',
+          submatches: []
+        }
+      ];
+    };
+
+    try {
+      const firstSearch = (provider as any).setSearchQuery('first');
+      await new Promise(r => setTimeout(r, 10));
+      await (provider as any).setSearchQuery('second');
+      await firstSearch;
+      await new Promise(r => setTimeout(r, 10));
+
+      assert.ok(ensureSignals[0]?.aborted, 'first search should be aborted');
+      assert.equal(ensureSignals.length, 2, 'should issue ensureLogsSaved twice');
+      assert.ok(ripgrepCalls >= 1, 'second search should invoke ripgrep');
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }

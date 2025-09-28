@@ -52,7 +52,11 @@ function trySpawn(binary: string, args: string[], cwd?: string): Promise<boolean
   });
 }
 
-export async function ripgrepSearch(pattern: string, cwd: string): Promise<RipgrepMatch[]> {
+export async function ripgrepSearch(
+  pattern: string,
+  cwd: string,
+  signal?: AbortSignal
+): Promise<RipgrepMatch[]> {
   let binary: string;
   try {
     binary = await resolveRipgrepBinary();
@@ -62,10 +66,47 @@ export async function ripgrepSearch(pattern: string, cwd: string): Promise<Ripgr
 
   const args = [...RG_ARGS_BASE, '--json', '--max-count', '1', '--', pattern, '.'];
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      resolve([]);
+      return;
+    }
     const matches: RipgrepMatch[] = [];
     let stderr = '';
     let buffer = '';
     const child = spawn(binary, args, { cwd });
+    let settled = false;
+    let abortHandler: (() => void) | undefined;
+    const removeAbortListener = () => {
+      if (abortHandler) {
+        signal?.removeEventListener('abort', abortHandler);
+      }
+    };
+    const finishResolve = (value: RipgrepMatch[]) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      removeAbortListener();
+      resolve(value);
+    };
+    const finishReject = (error: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      removeAbortListener();
+      reject(error);
+    };
+    abortHandler = () => {
+      if (settled) {
+        return;
+      }
+      child.kill();
+      settled = true;
+      removeAbortListener();
+      resolve([]);
+    };
+    signal?.addEventListener('abort', abortHandler, { once: true });
     const flushBuffer = () => {
       let newlineIndex = buffer.indexOf('\n');
       while (newlineIndex !== -1) {
@@ -85,10 +126,10 @@ export async function ripgrepSearch(pattern: string, cwd: string): Promise<Ripgr
     child.on('error', err => {
       if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
         cachedBinary = null;
-        resolve([]);
+        finishResolve([]);
         return;
       }
-      reject(err);
+      finishReject(err as Error);
     });
     child.on('close', code => {
       flushBuffer();
@@ -97,9 +138,9 @@ export async function ripgrepSearch(pattern: string, cwd: string): Promise<Ripgr
         buffer = '';
       }
       if (code === 0 || code === 1) {
-        resolve(matches);
+        finishResolve(matches);
       } else {
-        reject(new Error(stderr || `ripgrep exited with code ${code}`));
+        finishReject(new Error(stderr || `ripgrep exited with code ${code}`));
       }
     });
   });

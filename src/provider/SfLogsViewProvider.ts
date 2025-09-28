@@ -30,6 +30,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private currentLogs: ApexLogRow[] = [];
   private lastSearchQuery = '';
   private searchToken = 0;
+  private searchAbortController: AbortController | undefined;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -243,11 +244,25 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private async setSearchQuery(value: string): Promise<void> {
     this.lastSearchQuery = value ?? '';
     const token = ++this.searchToken;
-    await this.executeSearch(this.lastSearchQuery, token);
+    if (this.searchAbortController) {
+      this.searchAbortController.abort();
+    }
+    const controller = new AbortController();
+    this.searchAbortController = controller;
+    try {
+      await this.executeSearch(this.lastSearchQuery, token, controller.signal);
+    } finally {
+      if (this.searchAbortController === controller) {
+        this.searchAbortController = undefined;
+      }
+    }
   }
 
-  private async executeSearch(query: string, token: number): Promise<void> {
+  private async executeSearch(query: string, token: number, signal?: AbortSignal): Promise<void> {
     if (!this.view || this.disposed) {
+      return;
+    }
+    if (signal?.aborted) {
       return;
     }
     const trimmed = (query ?? '').trim();
@@ -271,13 +286,16 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     try {
-      await this.logService.ensureLogsSaved(logsSnapshot, this.orgManager.getSelectedOrg());
-      if (token !== this.searchToken || this.disposed) {
+      await this.logService.ensureLogsSaved(logsSnapshot, this.orgManager.getSelectedOrg(), signal);
+      if (token !== this.searchToken || this.disposed || signal?.aborted) {
         return;
       }
       const dir = await ensureApexLogsDir();
-      const matchesInfo = await ripgrepSearch(trimmed, dir);
-      if (token !== this.searchToken || this.disposed) {
+      if (signal?.aborted) {
+        return;
+      }
+      const matchesInfo = await ripgrepSearch(trimmed, dir, signal);
+      if (token !== this.searchToken || this.disposed || signal?.aborted) {
         return;
       }
       const known = new Set(logsSnapshot.map(l => l.Id));
@@ -296,7 +314,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       this.post({ type: 'searchMatches', query: trimmed, logIds: Array.from(matches), snippets });
     } catch (e) {
       logWarn('Logs: search failed ->', getErrorMessage(e));
-      if (token === this.searchToken && !this.disposed) {
+      if (token === this.searchToken && !this.disposed && !signal?.aborted) {
         this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
       }
     }
