@@ -4,7 +4,7 @@
 
 ### Features
 
-- Logs: enable full log search by default so the list view always loads log bodies for content filtering, removed the legacy `sfLogs.enableFullLogSearch` setting in favor of `electivus.apexLogs.enableFullLogSearch`, and surface a highlighted match snippet in the table when search results come from log content.
+- Logs: keep header-only loading by default again—`electivus.apexLogs.enableFullLogSearch` now defaults to false, but you can opt in to download full log bodies for content filtering. The highlighted match snippet in the table still appears when full content search is enabled.
 
 ## [0.12.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.10.0...v0.12.0) (2025-09-20)
 
