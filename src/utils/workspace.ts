@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';
 import { promises as fs } from 'fs';
+import { logInfo, logWarn } from './logger';
 
 /** Return the first workspace folder path, if any. */
 export function getWorkspaceRoot(): string | undefined {
@@ -80,6 +81,72 @@ export async function findExistingLogFile(logId: string): Promise<string | undef
     // ignore
   }
   return undefined;
+}
+
+const LOG_FILE_REGEX = /^(?:[a-zA-Z0-9_.@-]+_)?([a-zA-Z0-9]{15,18})\.log$/;
+
+function extractLogIdFromFileName(fileName: string): string | undefined {
+  if (!fileName.toLowerCase().endsWith('.log')) {
+    return undefined;
+  }
+  const match = LOG_FILE_REGEX.exec(fileName);
+  return match ? match[1] : undefined;
+}
+
+export async function purgeSavedLogs(options: {
+  keepIds?: Set<string>;
+  maxAgeMs?: number;
+  signal?: AbortSignal;
+} = {}): Promise<number> {
+  const { keepIds, maxAgeMs = 1000 * 60 * 60 * 24, signal } = options;
+  if (signal?.aborted) {
+    throw new Error('aborted');
+  }
+  const dir = getApexLogsDir();
+  let entries: import('fs').Dirent[];
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch (e: any) {
+    if (e && e.code === 'ENOENT') {
+      return 0;
+    }
+    throw e;
+  }
+  let removed = 0;
+  const now = Date.now();
+  for (const entry of entries) {
+    if (signal?.aborted) {
+      throw new Error('aborted');
+    }
+    if (!entry.isFile() || entry.isSymbolicLink()) {
+      continue;
+    }
+    const logId = extractLogIdFromFileName(entry.name);
+    if (!logId) {
+      continue;
+    }
+    if (keepIds?.has(logId)) {
+      continue;
+    }
+    const filePath = path.join(dir, entry.name);
+    try {
+      if (typeof maxAgeMs === 'number' && Number.isFinite(maxAgeMs)) {
+        const stat = await fs.stat(filePath);
+        const ageMs = now - stat.mtimeMs;
+        if (ageMs < maxAgeMs) {
+          continue;
+        }
+      }
+      await fs.unlink(filePath);
+      removed++;
+    } catch (err) {
+      logWarn('Workspace: failed to purge cached log', filePath, '->', err);
+    }
+  }
+  if (removed > 0) {
+    logInfo('Workspace: purged', removed, 'cached Apex log files');
+  }
+  return removed;
 }
 
 /** Heuristic check whether a TextDocument appears to be a Salesforce Apex log. */

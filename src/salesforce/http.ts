@@ -1,5 +1,6 @@
 import * as https from 'https';
 import { URL } from 'url';
+import { gunzip, inflate } from 'zlib';
 import { logTrace, logWarn } from '../utils/logger';
 import { getOrgAuth } from './cli';
 import type { ApexLogRow, OrgAuth } from './types';
@@ -15,6 +16,47 @@ export function __setHttpsRequestImplForTests(fn: HttpsRequestFn): void {
 
 export function __resetHttpsRequestImplForTests(): void {
   httpsRequestImpl = https.request;
+}
+
+function chooseEncoding(value: string | string[] | undefined): string {
+  if (!value) {
+    return '';
+  }
+  const raw = Array.isArray(value) ? value.find(Boolean) ?? '' : value;
+  return raw
+    .split(',')[0]
+    ?.trim()
+    .toLowerCase() ?? '';
+}
+
+function decompressBody(buffer: Buffer, encodingHeader: string | string[] | undefined): Promise<Buffer> {
+  const encoding = chooseEncoding(encodingHeader);
+  if (!encoding || encoding === 'identity') {
+    return Promise.resolve(buffer);
+  }
+  if (encoding === 'gzip' || encoding === 'x-gzip') {
+    return new Promise((resolve, reject) => {
+      gunzip(buffer, (err, decoded) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(decoded);
+      });
+    });
+  }
+  if (encoding === 'deflate' || encoding === 'x-deflate') {
+    return new Promise((resolve, reject) => {
+      inflate(buffer, (err, decoded) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(decoded);
+      });
+    });
+  }
+  return Promise.resolve(buffer);
 }
 
 function httpsRequest(
@@ -40,8 +82,11 @@ function httpsRequest(
         const chunks: Buffer[] = [];
         res.on('data', (chunk: Buffer) => chunks.push(chunk));
         res.on('end', () => {
-          const data = Buffer.concat(chunks).toString('utf8');
-          resolve({ statusCode: res.statusCode || 0, headers: res.headers, body: data });
+          const raw = Buffer.concat(chunks);
+          decompressBody(raw, res.headers?.['content-encoding'])
+            .then(decoded => decoded.toString('utf8'))
+            .then(data => resolve({ statusCode: res.statusCode || 0, headers: res.headers, body: data }))
+            .catch(reject);
         });
       }
     );
@@ -234,7 +279,8 @@ export async function fetchApexLogBody(
     url,
     {
       Authorization: `Bearer ${auth.accessToken}`,
-      'Content-Type': 'text/plain'
+      'Content-Type': 'text/plain',
+      'Accept-Encoding': 'gzip'
     },
     undefined,
     timeoutMs,

@@ -24,6 +24,7 @@ suite('SfLogsViewProvider behavior', () => {
   const origFetchBody = http.fetchApexLogBody;
   const origExtract = http.extractCodeUnitStartedFromLines;
   const origEnsureApexLogsDir = workspace.ensureApexLogsDir;
+  const origPurgeSavedLogs = workspace.purgeSavedLogs;
   const origRipgrepSearch = ripgrep.ripgrepSearch;
   const origOpenTextDocument = vscode.workspace.openTextDocument;
   const origShowTextDocument = vscode.window.showTextDocument;
@@ -37,6 +38,7 @@ suite('SfLogsViewProvider behavior', () => {
     (http as any).fetchApexLogBody = origFetchBody;
     (http as any).extractCodeUnitStartedFromLines = origExtract;
     (workspace as any).ensureApexLogsDir = origEnsureApexLogsDir;
+    (workspace as any).purgeSavedLogs = origPurgeSavedLogs;
     (ripgrep as any).ripgrepSearch = origRipgrepSearch;
     (vscode.workspace as any).openTextDocument = origOpenTextDocument;
     (vscode.window as any).showTextDocument = origShowTextDocument;
@@ -49,6 +51,7 @@ suite('SfLogsViewProvider behavior', () => {
     (http as any).fetchApexLogs = async () => [{ Id: '1', LogLength: 10 }, { Id: '2', LogLength: 20 }];
     (http as any).fetchApexLogHead = async () => ['|CODE_UNIT_STARTED|Foo|MyClass.myMethod'];
     (http as any).extractCodeUnitStartedFromLines = () => 'MyClass.myMethod';
+    (workspace as any).purgeSavedLogs = async () => 0;
 
     const context = makeContext();
     const posted: any[] = [];
@@ -77,6 +80,51 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(heads[0]?.codeUnitStarted, 'MyClass.myMethod');
   });
 
+  test('refresh preloads full log bodies when enabled', async () => {
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    (http as any).fetchApexLogs = async () => [{ Id: '1' }, { Id: '2' }];
+    (http as any).fetchApexLogHead = async () => [];
+    (http as any).extractCodeUnitStartedFromLines = () => undefined;
+
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
+    (provider as any).view = {
+      webview: {
+        postMessage: () => Promise.resolve(true)
+      }
+    } as any;
+    (provider as any).logService.loadLogHeads = () => {};
+
+    const calls: Array<{ logs: any[]; signal?: AbortSignal }> = [];
+    (provider as any).logService.ensureLogsSaved = async (
+      logs: any[],
+      _org: string | undefined,
+      signal?: AbortSignal
+    ) => {
+      calls.push({ logs, signal });
+    };
+    const purged: Array<{ keepIds?: Set<string>; maxAgeMs?: number; signal?: AbortSignal }> = [];
+    (workspace as any).purgeSavedLogs = async (opts: any) => {
+      purged.push(opts);
+      return 3;
+    };
+
+    await provider.refresh();
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.equal(calls.length, 1, 'should preload log bodies once');
+    assert.deepEqual(
+      calls[0]?.logs.map(l => l.Id),
+      ['1', '2'],
+      'should pass fetched logs to ensureLogsSaved'
+    );
+    assert.equal(typeof calls[0]?.signal?.aborted, 'boolean', 'should pass abort signal to ensureLogsSaved');
+    assert.equal(purged.length, 1, 'should purge cached logs after refresh');
+    const keepIds = Array.from(purged[0]?.keepIds ?? []);
+    assert.deepEqual(keepIds.sort(), ['1', '2'], 'purge should keep current log ids');
+  });
+
   test('searchQuery posts searchMatches when ripgrep finds logs', async () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     (http as any).fetchApexLogs = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
@@ -87,6 +135,7 @@ suite('SfLogsViewProvider behavior', () => {
     const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests');
     await fs.mkdir(tmpDir, { recursive: true });
     (workspace as any).ensureApexLogsDir = async () => tmpDir;
+    (workspace as any).purgeSavedLogs = async () => 0;
 
     const context = makeContext();
     const posted: any[] = [];
@@ -157,6 +206,7 @@ suite('SfLogsViewProvider behavior', () => {
     const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests-cancel');
     await fs.mkdir(tmpDir, { recursive: true });
     (workspace as any).ensureApexLogsDir = async () => tmpDir;
+    (workspace as any).purgeSavedLogs = async () => 0;
 
     const context = makeContext();
     const posted: any[] = [];

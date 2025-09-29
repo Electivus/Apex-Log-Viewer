@@ -127,6 +127,13 @@ describe('Logs webview App', () => {
     expect(highlight).toBeInTheDocument();
 
     const repeatedSearchCount = posted.filter(msg => msg.type === 'searchQuery' && msg.value === 'error').length;
+    sendMessage(bus, { type: 'searchStatus', state: 'loading' });
+    await screen.findByText('Baixando logs completos para executar a busca…');
+    sendMessage(bus, { type: 'searchStatus', state: 'idle' });
+    await waitFor(() => {
+      expect(screen.queryByText('Baixando logs completos para executar a busca…')).toBeNull();
+    });
+
     fireEvent.paste(searchInput);
     await waitFor(() => {
       const searchMessages = posted.filter(msg => msg.type === 'searchQuery' && msg.value === 'error');

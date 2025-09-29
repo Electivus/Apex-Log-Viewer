@@ -33,6 +33,7 @@ export function LogsApp({
   const [matchingIds, setMatchingIds] = useState<Set<string>>(new Set());
   const [matchSnippets, setMatchSnippets] = useState<Record<string, { text: string; ranges: [number, number][] }>>({});
   const queryRef = useRef('');
+  const [searchStatus, setSearchStatus] = useState<'idle' | 'loading'>('idle');
 
   // Search + filters
   const [query, setQueryState] = useState('');
@@ -95,6 +96,9 @@ export function LogsApp({
           }
           break;
         }
+        case 'searchStatus':
+          setSearchStatus(msg.state === 'loading' ? 'loading' : 'idle');
+          break;
         case 'orgs':
           setOrgs(msg.data || []);
           setSelectedOrg(msg.selected);
@@ -252,6 +256,8 @@ export function LogsApp({
         onSelectOrg={onSelectOrg}
         query={query}
         onQueryChange={updateQuery}
+        searchLoading={searchStatus === 'loading'}
+        searchMessage={t.searchPreparing ?? t.loading}
         users={users}
         operations={operations}
         statuses={statuses}
