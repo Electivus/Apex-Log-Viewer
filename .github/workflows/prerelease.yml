@@ -260,7 +260,6 @@ jobs:
         with:
           pattern: nightly-vsix-*
           path: staging
-          if-no-files-found: error
 
       - name: Collect VSIX files
         shell: bash
@@ -335,9 +334,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: marketplace
-    env:
-      VSCE_PAT: ${{ secrets.VSCE_PAT }}
-      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -352,6 +348,8 @@ jobs:
         run: npm ci
 
       - name: Set nightly version in package.json
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           node -e "const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));pkg.version=process.env.VERSION;fs.writeFileSync('package.json',JSON.stringify(pkg,null,2)+'\n')"
 
@@ -360,9 +358,10 @@ jobs:
         with:
           name: nightly-vsix
           path: .
-          if-no-files-found: error
 
       - name: Publish pre-release to Marketplace from VSIX
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         shell: bash
         run: |
           if [ -z "${VSCE_PAT}" ]; then
