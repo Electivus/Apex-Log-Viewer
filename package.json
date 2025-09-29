@@ -123,8 +123,8 @@
           "markdownDescription": "%configuration.electivus.apexLogs.cliCache.debugLevelsTtlSeconds.description%"
         },
         "electivus.apexLogs.enableFullLogSearch": {
-          "type": "boolean",
-          "default": true,
+        "type": "boolean",
+        "default": false,
           "markdownDescription": "%configuration.electivus.apexLogs.enableFullLogSearch.description%"
         },
         "sfLogs.pageSize": {
