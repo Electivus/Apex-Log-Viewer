@@ -1,12 +1,13 @@
 import type * as vscode from 'vscode';
-import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from './orgs';
+import { pickSelectedOrg } from './orgs';
 import { listOrgs } from '../salesforce/cli';
 import type { OrgItem } from '../shared/types';
 
 export class OrgManager {
   private selectedOrg: string | undefined;
-  constructor(private readonly context: vscode.ExtensionContext) {
-    this.selectedOrg = restoreSelectedOrg(this.context) || undefined;
+  constructor(context?: vscode.ExtensionContext) {
+    void context;
+    this.selectedOrg = undefined;
   }
 
   getSelectedOrg(): string | undefined {
@@ -15,7 +16,6 @@ export class OrgManager {
 
   setSelectedOrg(org?: string): void {
     this.selectedOrg = org;
-    persistSelectedOrg(this.context, org);
   }
 
   async list(forceRefresh = false, signal?: AbortSignal): Promise<{ orgs: OrgItem[]; selected?: string }> {

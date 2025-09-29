@@ -4,7 +4,7 @@ import { SfLogTailViewProvider } from './provider/SfLogTailViewProvider';
 import type { OrgItem } from './shared/types';
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { setApiVersion, getApiVersion } from './salesforce/http';
+import { setApiVersion, getApiVersion, clearListCache } from './salesforce/http';
 import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger } from './utils/logger';
 import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';
@@ -28,6 +28,10 @@ export async function activate(context: vscode.ExtensionContext) {
   try {
     CacheManager.init(context.globalState);
     await CacheManager.clearExpired();
+    await CacheManager.delete('cli');
+  } catch {}
+  try {
+    clearListCache();
   } catch {}
   // Initialize telemetry (no-op if no key/conn configured)
   try {
@@ -131,7 +135,6 @@ export async function activate(context: vscode.ExtensionContext) {
         const orgs: OrgItem[] = await listOrgs(true);
         const items: OrgQuickPick[] = orgs.map(o => ({
           label: o.alias ?? o.username,
-          description: o.isDefaultUsername ? localize('selectOrgDefault', 'Default') : undefined,
           detail: o.instanceUrl || undefined,
           username: o.username
         }));

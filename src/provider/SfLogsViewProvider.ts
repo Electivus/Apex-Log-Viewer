@@ -38,10 +38,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     private readonly orgManager = new OrgManager(context),
     private readonly configManager = new ConfigManager(5, 100)
   ) {
-    const org = this.orgManager.getSelectedOrg();
-    if (org) {
-      logInfo('Logs: restored selected org from globalState:', org || '(default)');
-    }
     this.logService.setHeadConcurrency(this.configManager.getHeadConcurrency());
     this.messageHandler = new LogsMessageHandler(
       () => this.refresh(),
