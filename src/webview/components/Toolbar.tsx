@@ -22,6 +22,8 @@ type ToolbarProps = {
   onSelectOrg: (v: string) => void;
   query: string;
   onQueryChange: (v: string) => void;
+  searchLoading: boolean;
+  searchMessage?: string;
   users: string[];
   operations: string[];
   statuses: string[];
@@ -47,6 +49,8 @@ export function Toolbar({
   onSelectOrg,
   query,
   onQueryChange,
+  searchLoading,
+  searchMessage,
   users,
   operations,
   statuses,
@@ -111,6 +115,12 @@ export function Toolbar({
             placeholder={t.searchPlaceholder ?? 'Search logs…'}
             disabled={loading}
           />
+          {searchLoading && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              <span>{searchMessage ?? t.loading}</span>
+            </div>
+          )}
         </div>
 
         <FilterSelect

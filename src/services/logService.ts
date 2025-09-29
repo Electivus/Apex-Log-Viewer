@@ -23,6 +23,7 @@ export class LogService {
   private headConcurrency: number;
   private saveLimiter: Limiter;
   private saveConcurrency: number;
+  private inFlightSaves = new Map<string, Promise<string>>();
 
   constructor(headConcurrency = 5) {
     this.headConcurrency = headConcurrency;
@@ -58,26 +59,38 @@ export class LogService {
     auth: OrgAuth,
     token: number,
     post: (logId: string, codeUnit: string) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: { preferLocalBodies?: boolean; selectedOrg?: string }
   ): void {
+    const preferLocalBodies = options?.preferLocalBodies ?? false;
+    const selectedOrg = options?.selectedOrg;
     for (const log of logs) {
       void this.headLimiter(async () => {
         if (signal?.aborted) {
           return;
         }
         try {
-          const headLines = await fetchApexLogHead(
-            auth,
-            log.Id,
-            10,
-            typeof log.LogLength === 'number' ? log.LogLength : undefined,
-            undefined,
-            signal
-          );
-          if (signal?.aborted) {
-            return;
+          let codeUnit: string | undefined;
+          if (preferLocalBodies) {
+            codeUnit = await this.loadCodeUnitFromLocalFile(log.Id, selectedOrg, signal);
+            if (signal?.aborted) {
+              return;
+            }
           }
-          const codeUnit = extractCodeUnitStartedFromLines(headLines);
+          if (!codeUnit) {
+            const headLines = await fetchApexLogHead(
+              auth,
+              log.Id,
+              10,
+              typeof log.LogLength === 'number' ? log.LogLength : undefined,
+              undefined,
+              signal
+            );
+            if (signal?.aborted) {
+              return;
+            }
+            codeUnit = extractCodeUnitStartedFromLines(headLines);
+          }
           if (codeUnit) {
             post(log.Id, codeUnit);
           }
@@ -94,10 +107,65 @@ export class LogService {
       return existing;
     }
     const auth = await getOrgAuth(selectedOrg, undefined, signal);
-    const { filePath } = await getLogFilePathWithUsername(auth.username, logId);
-    const body = await fetchApexLogBody(auth, logId, undefined, signal);
-    await fs.writeFile(filePath, body, 'utf8');
-    return filePath;
+    const key = `${auth.username ?? ''}:${logId}`;
+    const pending = this.inFlightSaves.get(key);
+    if (pending) {
+      return pending;
+    }
+    const task = (async () => {
+      const maybeExisting = await findExistingLogFile(logId);
+      if (maybeExisting) {
+        return maybeExisting;
+      }
+      const { filePath } = await getLogFilePathWithUsername(auth.username, logId);
+      const body = await fetchApexLogBody(auth, logId, undefined, signal);
+      await fs.writeFile(filePath, body, 'utf8');
+      return filePath;
+    })();
+    this.inFlightSaves.set(key, task);
+    try {
+      const result = await task;
+      return result;
+    } finally {
+      this.inFlightSaves.delete(key);
+    }
+  }
+
+  private async loadCodeUnitFromLocalFile(
+    logId: string | undefined,
+    selectedOrg?: string,
+    signal?: AbortSignal
+  ): Promise<string | undefined> {
+    if (!logId) {
+      return undefined;
+    }
+    if (signal?.aborted) {
+      return undefined;
+    }
+    try {
+      const filePath = await this.ensureLogFile(logId, selectedOrg, signal);
+      if (signal?.aborted) {
+        return undefined;
+      }
+      const handle = await fs.open(filePath, 'r');
+      try {
+        const buffer = Buffer.alloc(8192);
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+        if (bytesRead <= 0) {
+          return undefined;
+        }
+        const text = buffer.slice(0, bytesRead).toString('utf8');
+        const lines = text.split(/\r?\n/).slice(0, 10);
+        return extractCodeUnitStartedFromLines(lines);
+      } finally {
+        await handle.close();
+      }
+    } catch (e) {
+      if (!signal?.aborted) {
+        logWarn('LogService: loadCodeUnitFromLocalFile failed ->', getErrorMessage(e));
+      }
+    }
+    return undefined;
   }
 
   async openLog(logId: string, selectedOrg?: string): Promise<void> {

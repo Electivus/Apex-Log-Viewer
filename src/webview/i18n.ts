@@ -1,6 +1,7 @@
 export type Messages = {
   refresh: string;
   loading: string;
+  searchPreparing?: string;
   noLogs: string;
   replay: string;
   open?: string;
@@ -50,6 +51,7 @@ export type Messages = {
 const en: Messages = {
   refresh: 'Refresh',
   loading: 'Loading…',
+  searchPreparing: 'Downloading log bodies so this search can run…',
   noLogs: 'No logs found.',
   replay: 'Apex Replay',
   open: 'Open',
@@ -99,6 +101,7 @@ const en: Messages = {
 const ptBR: Messages = {
   refresh: 'Atualizar',
   loading: 'Carregando…',
+  searchPreparing: 'Baixando logs completos para executar a busca…',
   noLogs: 'Nenhum log encontrado.',
   replay: 'Apex Replay',
   open: 'Abrir',

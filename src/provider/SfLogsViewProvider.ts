@@ -14,8 +14,10 @@ import { LogService } from '../services/logService';
 import { LogsMessageHandler } from './logsMessageHandler';
 import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../utils/configManager';
-import { ensureApexLogsDir } from '../utils/workspace';
+import { ensureApexLogsDir, purgeSavedLogs } from '../utils/workspace';
 import { ripgrepSearch, type RipgrepMatch } from '../utils/ripgrep';
+
+const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
@@ -31,6 +33,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private lastSearchQuery = '';
   private searchToken = 0;
   private searchAbortController: AbortController | undefined;
+  private purgePromise: Promise<void> | undefined;
+  private readonly logCacheMaxAgeMs = 1000 * 60 * 60 * 24;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -138,10 +142,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           if (token !== this.refreshToken || this.disposed) {
             return;
           }
+          this.preloadFullLogBodies(logs, controller.signal);
           this.post({ type: 'init', locale: vscode.env.language });
           const hasMore = logs.length === this.pageLimit;
           this.post({ type: 'logs', data: logs, hasMore });
           this.currentLogs = logs.slice();
+          this.purgeLogCache(controller.signal);
           this.logService.loadLogHeads(
             logs,
             auth,
@@ -151,7 +157,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
                 this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
               }
             },
-            controller.signal
+            controller.signal,
+            {
+              preferLocalBodies: this.configManager.shouldLoadFullLogBodies(),
+              selectedOrg: this.orgManager.getSelectedOrg()
+            }
           );
           if (this.lastSearchQuery.trim()) {
             const searchToken = ++this.searchToken;
@@ -208,13 +218,18 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       if (token !== this.refreshToken || this.disposed) {
         return;
       }
+      this.preloadFullLogBodies(logs);
       const hasMore = logs.length === this.pageLimit;
       this.post({ type: 'appendLogs', data: logs, hasMore });
       this.currentLogs = [...this.currentLogs, ...logs];
+      this.purgeLogCache();
       this.logService.loadLogHeads(logs, auth, token, (logId, codeUnit) => {
         if (token === this.refreshToken && !this.disposed) {
           this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
         }
+      }, undefined, {
+        preferLocalBodies: this.configManager.shouldLoadFullLogBodies(),
+        selectedOrg: this.orgManager.getSelectedOrg()
       });
       if (this.lastSearchQuery.trim()) {
         const searchToken = ++this.searchToken;
@@ -235,6 +250,53 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     } finally {
       this.post({ type: 'loading', value: false });
     }
+  }
+
+  private preloadFullLogBodies(logs: ApexLogRow[], signal?: AbortSignal): void {
+    if (!this.configManager.shouldLoadFullLogBodies()) {
+      return;
+    }
+    if (!Array.isArray(logs) || logs.length === 0) {
+      return;
+    }
+    void this.logService
+      .ensureLogsSaved(logs, this.orgManager.getSelectedOrg(), signal)
+      .catch(e => {
+        if (!signal?.aborted) {
+          logWarn('Logs: preload full log bodies failed ->', getErrorMessage(e));
+        }
+      });
+  }
+
+  private postSearchStatus(state: 'idle' | 'loading'): void {
+    this.post({ type: 'searchStatus', state });
+  }
+
+  private purgeLogCache(signal?: AbortSignal): void {
+    if (signal?.aborted) {
+      return;
+    }
+    const keepIds = new Set(
+      this.currentLogs
+        .map(log => log.Id)
+        .filter((id): id is string => typeof id === 'string' && SALESFORCE_ID_REGEX.test(id))
+    );
+    if (this.purgePromise) {
+      return;
+    }
+    const purgeTask = purgeSavedLogs({ keepIds, maxAgeMs: this.logCacheMaxAgeMs, signal })
+      .then(() => undefined)
+      .catch(err => {
+        if (!signal?.aborted) {
+          logWarn('Logs: purge cached log files failed ->', getErrorMessage(err));
+        }
+      })
+      .finally(() => {
+        if (this.purgePromise === purgeTask) {
+          this.purgePromise = undefined;
+        }
+      });
+    this.purgePromise = purgeTask;
   }
 
   private async setSearchQuery(value: string): Promise<void> {
@@ -262,28 +324,35 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const trimmed = (query ?? '').trim();
+    const isActive = () => token === this.searchToken && !this.disposed;
     if (!trimmed) {
-      if (token === this.searchToken && !this.disposed) {
+      if (isActive()) {
         this.post({ type: 'searchMatches', query: '', logIds: [] });
+        this.postSearchStatus('idle');
       }
       return;
     }
     if (!this.configManager.shouldLoadFullLogBodies()) {
-      if (token === this.searchToken && !this.disposed) {
+      if (isActive()) {
         this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
+        this.postSearchStatus('idle');
       }
       return;
     }
     const logsSnapshot = [...this.currentLogs];
     if (logsSnapshot.length === 0) {
-      if (token === this.searchToken && !this.disposed) {
+      if (isActive()) {
         this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
+        this.postSearchStatus('idle');
       }
       return;
     }
+    if (isActive()) {
+      this.postSearchStatus('loading');
+    }
     try {
       await this.logService.ensureLogsSaved(logsSnapshot, this.orgManager.getSelectedOrg(), signal);
-      if (token !== this.searchToken || this.disposed || signal?.aborted) {
+      if (!isActive() || signal?.aborted) {
         return;
       }
       const dir = await ensureApexLogsDir();
@@ -291,7 +360,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       const matchesInfo = await ripgrepSearch(trimmed, dir, signal);
-      if (token !== this.searchToken || this.disposed || signal?.aborted) {
+      if (!isActive() || signal?.aborted) {
         return;
       }
       const known = new Set(logsSnapshot.map(l => l.Id));
@@ -312,6 +381,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       logWarn('Logs: search failed ->', getErrorMessage(e));
       if (token === this.searchToken && !this.disposed && !signal?.aborted) {
         this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
+      }
+    } finally {
+      if (isActive()) {
+        this.postSearchStatus('idle');
       }
     }
   }

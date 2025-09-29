@@ -237,7 +237,6 @@ jobs:
           name: nightly-vsix-${{ matrix.target }}
           path: |
             ./*.vsix
-          if-no-files-found: error
 
   assemble_release:
     name: Create GitHub pre-release + VSIX artifact
@@ -293,7 +292,6 @@ jobs:
           name: nightly-vsix
           path: |
             ./*.vsix
-          if-no-files-found: error
 
       - name: Create or update GitHub pre-release
         shell: bash

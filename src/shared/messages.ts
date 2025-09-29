@@ -28,6 +28,7 @@ export type ExtensionToWebviewMessage =
       logIds: string[];
       snippets?: Record<string, { text: string; ranges: [number, number][] }>;
     }
+  | { type: 'searchStatus'; state: 'idle' | 'loading' }
   | { type: 'orgs'; data: OrgItem[]; selected: string | undefined }
   | { type: 'debugLevels'; data: string[]; active?: string }
   // Tail view messages
