@@ -178,6 +178,7 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       PRE_RELEASE: 'true'
       CHANNEL_SUFFIX: pre
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
