@@ -48,7 +48,10 @@ suite('SfLogsViewProvider behavior', () => {
 
   test('refresh posts logs and logHead with code unit', async () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    (http as any).fetchApexLogs = async () => [{ Id: '1', LogLength: 10 }, { Id: '2', LogLength: 20 }];
+    (http as any).fetchApexLogs = async () => [
+      { Id: '07L000000000001AA', LogLength: 10 },
+      { Id: '07L000000000002AA', LogLength: 20 }
+    ];
     (http as any).fetchApexLogHead = async () => ['|CODE_UNIT_STARTED|Foo|MyClass.myMethod'];
     (http as any).extractCodeUnitStartedFromLines = () => 'MyClass.myMethod';
     (workspace as any).purgeSavedLogs = async () => 0;
@@ -82,7 +85,10 @@ suite('SfLogsViewProvider behavior', () => {
 
   test('refresh preloads full log bodies when enabled', async () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    (http as any).fetchApexLogs = async () => [{ Id: '1' }, { Id: '2' }];
+    (http as any).fetchApexLogs = async () => [
+      { Id: '07L000000000001AA' },
+      { Id: '07L000000000002AA' }
+    ];
     (http as any).fetchApexLogHead = async () => [];
     (http as any).extractCodeUnitStartedFromLines = () => undefined;
 
@@ -116,13 +122,17 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(calls.length, 1, 'should preload log bodies once');
     assert.deepEqual(
       calls[0]?.logs.map(l => l.Id),
-      ['1', '2'],
+      ['07L000000000001AA', '07L000000000002AA'],
       'should pass fetched logs to ensureLogsSaved'
     );
     assert.equal(typeof calls[0]?.signal?.aborted, 'boolean', 'should pass abort signal to ensureLogsSaved');
     assert.equal(purged.length, 1, 'should purge cached logs after refresh');
     const keepIds = Array.from(purged[0]?.keepIds ?? []);
-    assert.deepEqual(keepIds.sort(), ['1', '2'], 'purge should keep current log ids');
+    assert.deepEqual(
+      keepIds.sort(),
+      ['07L000000000001AA', '07L000000000002AA'],
+      'purge should keep current log ids'
+    );
   });
 
   test('searchQuery posts searchMatches when ripgrep finds logs', async () => {
