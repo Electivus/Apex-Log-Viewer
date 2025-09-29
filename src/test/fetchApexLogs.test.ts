@@ -14,7 +14,7 @@ suite('fetchApexLogs', () => {
     clearListCache();
   });
 
-  test('uses cache for repeated calls', async () => {
+  test('performs network request for repeated calls', async () => {
     const auth: OrgAuth = {
       accessToken: 'tok',
       instanceUrl: 'https://example.com',
@@ -49,8 +49,8 @@ suite('fetchApexLogs', () => {
 
     const first = await fetchApexLogs(auth, 50, 0);
     const second = await fetchApexLogs(auth, 50, 0);
-    assert.deepEqual(second, first, 'cached result should match');
-    assert.equal(calls, 1, 'network should be called once due to cache');
+    assert.deepEqual(second, first, 'second call returns matching payload');
+    assert.equal(calls, 2, 'network should be called for each request');
   });
 
   test('respects limit and offset', async () => {

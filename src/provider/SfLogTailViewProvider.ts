@@ -9,7 +9,7 @@ import { safeSendEvent } from '../shared/telemetry';
 import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { TailService } from '../utils/tailService';
-import { persistSelectedOrg, restoreSelectedOrg, pickSelectedOrg } from '../utils/orgs';
+import { pickSelectedOrg } from '../utils/orgs';
 import { getNumberConfig, affectsConfiguration } from '../utils/config';
 import { getErrorMessage } from '../utils/error';
 import { LogViewerPanel } from '../panel/LogViewerPanel';
@@ -22,11 +22,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   private tailService = new TailService(m => this.post(m));
 
   constructor(private readonly context: vscode.ExtensionContext) {
-    const persisted = restoreSelectedOrg(this.context);
-    if (persisted) {
-      this.selectedOrg = persisted;
-      logInfo('Tail: restored selected org from globalState:', this.selectedOrg || '(default)');
-    }
     this.tailService.setOrg(this.selectedOrg);
 
     // React to tail buffer size changes live
@@ -194,7 +189,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
 
   private setSelectedOrg(username?: string): void {
     this.selectedOrg = username;
-    persistSelectedOrg(this.context, username);
   }
 
   private async sendDebugLevels(): Promise<void> {

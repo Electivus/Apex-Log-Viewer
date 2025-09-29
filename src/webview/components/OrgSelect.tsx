@@ -19,7 +19,7 @@ export function OrgSelect({
 }) {
   const options = orgs.map(o => ({
     value: o.username,
-    label: `${o.alias ?? o.username}${o.isDefaultUsername ? ' *' : ''}`
+    label: o.alias ?? o.username
   }));
   const value = selected ?? '';
   return (

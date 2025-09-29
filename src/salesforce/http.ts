@@ -152,19 +152,10 @@ export function getApiVersion(): string {
   return API_VERSION;
 }
 
-// In-memory cache
-// - Log list: short TTL (avoid immediate refetch)
-// - Each log's head: no TTL (logs are immutable after creation)
-type ListCacheEntry = { expiresAt: number; data: ApexLogRow[] };
-const listCache = new Map<string, ListCacheEntry>();
 // Store the largest prefix of lines fetched per log; smaller requests return a slice
 const headCacheByLog = new Map<string, string[]>();
 const HEAD_CACHE_LIMIT = 200;
 const HEAD_MAX_LINES = 100;
-
-function makeListKey(auth: OrgAuth, limit: number, offset: number): string {
-  return `${auth.instanceUrl}|${auth.username ?? ''}|${limit}|${offset}`;
-}
 
 function makeLogKey(auth: OrgAuth, logId: string): string {
   // Include username to avoid cache collisions between orgs on the same instanceUrl
@@ -172,7 +163,7 @@ function makeLogKey(auth: OrgAuth, logId: string): string {
 }
 
 export function clearListCache(): void {
-  listCache.clear();
+  // Log list caching removed; function kept for backwards compatibility.
 }
 
 export type ApexLogCursor = {
@@ -192,15 +183,6 @@ export async function fetchApexLogs(
 ): Promise<ApexLogRow[]> {
   const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
   const safeOffset = Math.max(0, Math.floor(offset));
-  // Attempt cache with short TTL when no debug level filter and no cursor-based pagination
-  const cacheKey = debugLevel || cursor ? undefined : makeListKey(auth, safeLimit, safeOffset);
-  const now = Date.now();
-  if (cacheKey) {
-    const cached = listCache.get(cacheKey);
-    if (cached && cached.expiresAt > now) {
-      return cached.data;
-    }
-  }
   // Build query using keyset pagination when a cursor is provided. This avoids the 2000 OFFSET limit in SOQL.
   const baseSelect =
     'SELECT Id, StartTime, Operation, Application, DurationMilliseconds, Status, Request, LogLength, LogUser.Name FROM ApexLog';
@@ -236,10 +218,6 @@ export async function fetchApexLogs(
   // DebugLevel information, and filtering by Application was dropping
   // valid results causing 0 logs to appear even with a 200 response.
   // If needed, filtering should be applied client-side based on content.
-  // Set a 3-second TTL for the specific page
-  if (cacheKey) {
-    listCache.set(cacheKey, { data: records, expiresAt: now + 3000 });
-  }
   return records;
 }
 

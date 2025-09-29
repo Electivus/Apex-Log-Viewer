@@ -16,10 +16,14 @@ describe('OrgSelect', () => {
     globalDoc.DocumentFragment = undefined;
     try {
       render(
-        <OrgSelect label="Org" orgs={orgs} selected={undefined} onChange={v => changes.push(v)} disabled={false} />
+        <OrgSelect label="Org" orgs={orgs} selected="u1" onChange={v => changes.push(v)} disabled={false} />
       );
       const select = screen.getByRole('combobox') as HTMLSelectElement;
       expect(select.value).toBe('u1');
+
+      // Ensure no default marker is appended
+      const options = Array.from(select.options).map(o => o.textContent);
+      expect(options).toEqual(['Org One', 'Two']);
 
       fireEvent.change(select, { target: { value: 'u2' } });
       expect(changes).toEqual(['u2']);
