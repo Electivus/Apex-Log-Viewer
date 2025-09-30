@@ -21,6 +21,7 @@ export class OrgManager {
   async list(forceRefresh = false, signal?: AbortSignal): Promise<{ orgs: OrgItem[]; selected?: string }> {
     const orgs = await listOrgs(forceRefresh, signal);
     const selected = pickSelectedOrg(orgs, this.selectedOrg);
+    this.selectedOrg = selected;
     return { orgs, selected };
   }
 }

@@ -29,5 +29,23 @@ suite('OrgManager', () => {
     const res = await mgr.list();
     assert.equal(res.selected, 'u1');
     assert.equal(res.orgs.length, 1);
+    assert.equal(mgr.getSelectedOrg(), 'u1');
+  });
+
+  test('list clears selected org when none returned', async () => {
+    const { OrgManager } = proxyquire('../utils/orgManager', {
+      './orgs': {
+        pickSelectedOrg: () => undefined
+      },
+      '../salesforce/cli': {
+        listOrgs: async () => []
+      }
+    });
+    const mgr = new OrgManager({} as any);
+    mgr.setSelectedOrg('existing');
+    const res = await mgr.list();
+    assert.equal(res.selected, undefined);
+    assert.equal(res.orgs.length, 0);
+    assert.equal(mgr.getSelectedOrg(), undefined);
   });
 });
