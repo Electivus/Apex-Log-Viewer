@@ -151,4 +151,107 @@ suite('LogService', () => {
       (vscode.window as any).withProgress = origWithProgress;
     }
   });
+
+  test('debugLog routes through ensureLogFile before launching debugger', async () => {
+    const origWithProgress = vscode.window.withProgress;
+    const origExecuteCommand = vscode.commands.executeCommand;
+    (vscode.window as any).withProgress = async (_opts: any, task: any) => {
+      return task({} as any, {
+        onCancellationRequested: () => {},
+        isCancellationRequested: false
+      });
+    };
+    const commandCalls: any[] = [];
+    (vscode.commands as any).executeCommand = async (command: string, uri: any) => {
+      commandCalls.push({ command, uri });
+    };
+    try {
+      const { LogService } = proxyquire('../services/logService', {
+        '../salesforce/http': {
+          fetchApexLogs: async () => [],
+          fetchApexLogHead: async () => [],
+          extractCodeUnitStartedFromLines: () => undefined,
+          fetchApexLogBody: async () => ''
+        },
+        '../utils/workspace': {
+          getLogFilePathWithUsername: async () => ({ dir: '', filePath: '/tmp/test.log' }),
+          findExistingLogFile: async () => '/tmp/test.log'
+        },
+        '../utils/warmup': {
+          ensureReplayDebuggerAvailable: async () => true
+        }
+      });
+      const svc = new LogService();
+      const ensureCalls: string[] = [];
+      (svc as any).ensureLogFile = async (logId: string) => {
+        ensureCalls.push(logId);
+        return '/tmp/test.log';
+      };
+      await svc.debugLog('abc', 'default');
+      assert.deepEqual(ensureCalls, ['abc']);
+      assert.equal(commandCalls.length, 1);
+      assert.equal(commandCalls[0]?.command, 'sf.launch.replay.debugger.logfile');
+    } finally {
+      (vscode.window as any).withProgress = origWithProgress;
+      (vscode.commands as any).executeCommand = origExecuteCommand;
+    }
+  });
+
+  test('debugLog benefits from ensureLogFile caching for concurrent requests', async () => {
+    const origWithProgress = vscode.window.withProgress;
+    const origExecuteCommand = vscode.commands.executeCommand;
+    (vscode.window as any).withProgress = async (_opts: any, task: any) => {
+      return task({} as any, {
+        onCancellationRequested: () => {},
+        isCancellationRequested: false
+      });
+    };
+    const commandCalls: any[] = [];
+    (vscode.commands as any).executeCommand = async (command: string, uri: any) => {
+      commandCalls.push({ command, uri });
+    };
+    try {
+      let storedPath: string | undefined;
+      const fetchCalls: string[] = [];
+      const filePath = path.join(os.tmpdir(), 'replay-debug.log');
+      const { LogService } = proxyquire('../services/logService', {
+        '../salesforce/http': {
+          fetchApexLogs: async () => [],
+          fetchApexLogHead: async () => [],
+          extractCodeUnitStartedFromLines: () => undefined,
+          fetchApexLogBody: async (_auth: OrgAuth, logId: string) => {
+            fetchCalls.push(logId);
+            await new Promise(resolve => setTimeout(resolve, 5));
+            return 'body';
+          }
+        },
+        '../salesforce/cli': {
+          getOrgAuth: async () => ({ username: 'user', accessToken: 'token', instanceUrl: 'url' })
+        },
+        '../utils/workspace': {
+          getLogFilePathWithUsername: async () => ({ dir: path.dirname(filePath), filePath }),
+          findExistingLogFile: async () => storedPath
+        },
+        '../utils/warmup': {
+          ensureReplayDebuggerAvailable: async () => true
+        },
+        fs: {
+          promises: {
+            writeFile: async (target: string) => {
+              await new Promise(resolve => setTimeout(resolve, 1));
+              storedPath = target;
+            }
+          }
+        }
+      });
+      const svc = new LogService();
+      await Promise.all([svc.debugLog('abc', 'default'), svc.debugLog('abc', 'default')]);
+      assert.equal(fetchCalls.length, 1, 'should only download the log body once');
+      assert.equal(commandCalls.length, 2, 'both debugger launches should still occur');
+      assert.equal(storedPath, filePath);
+    } finally {
+      (vscode.window as any).withProgress = origWithProgress;
+      (vscode.commands as any).executeCommand = origExecuteCommand;
+    }
+  });
 });

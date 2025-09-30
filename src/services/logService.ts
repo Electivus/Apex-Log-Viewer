@@ -237,20 +237,7 @@ export class LogService {
           if (!ok || ct.isCancellationRequested) {
             return;
           }
-          let targetPath = await findExistingLogFile(logId);
-          if (!targetPath) {
-            const auth = await getOrgAuth(selectedOrg, undefined, controller.signal);
-            if (ct.isCancellationRequested) {
-              return;
-            }
-            const { filePath } = await getLogFilePathWithUsername(auth.username, logId);
-            const body = await fetchApexLogBody(auth, logId, undefined, controller.signal);
-            if (ct.isCancellationRequested) {
-              return;
-            }
-            await fs.writeFile(filePath, body, 'utf8');
-            targetPath = filePath;
-          }
+          const targetPath = await this.ensureLogFile(logId, selectedOrg, controller.signal);
           if (ct.isCancellationRequested) {
             return;
           }
