@@ -5,6 +5,36 @@ import {
   __setListOrgsCacheTTLForTests,
   __resetListOrgsCacheForTests
 } from '../salesforce/cli';
+import { CacheManager } from '../utils/cacheManager';
+import type * as vscode from 'vscode';
+import { __test__ as extensionTestUtils } from '../extension';
+
+class MemoryMemento implements vscode.Memento {
+  private store = new Map<string, unknown>();
+  get<T>(key: string, defaultValue?: T): T {
+    if (this.store.has(key)) {
+      return this.store.get(key) as T;
+    }
+    return defaultValue as T;
+  }
+  keys(): readonly string[] {
+    return Array.from(this.store.keys());
+  }
+  async update(key: string, value: unknown): Promise<void> {
+    if (value === undefined) {
+      this.store.delete(key);
+    } else {
+      this.store.set(key, value);
+    }
+  }
+}
+
+function makeContext(memento: MemoryMemento): vscode.ExtensionContext {
+  return {
+    subscriptions: [],
+    globalState: memento
+  } as unknown as vscode.ExtensionContext;
+}
 import { __resetExecFileImplForTests } from '../salesforce/exec';
 
 suite('listOrgs caching', () => {
@@ -44,5 +74,34 @@ suite('listOrgs caching', () => {
     assert.equal(first[0]!.username, 'a@example.com');
     assert.equal(second[0]!.username, 'b@example.com');
     assert.equal(called, 2, 'expected cache refresh after TTL');
+  });
+
+  test('non-expired CLI cache persists through activation init', async () => {
+    const memento = new MemoryMemento();
+    const entry = { value: [{ username: 'persisted@example.com' }], expiresAt: Date.now() + 60_000 };
+    await memento.update('__cacheKeys', ['cli:orgList']);
+    await memento.update('cli:orgList', entry);
+    const context = makeContext(memento);
+
+    await extensionTestUtils.initializePersistentCache(context);
+
+    const stored = memento.get<typeof entry>('cli:orgList');
+    assert.deepEqual(stored, entry, 'expected CLI cache entry to remain after init');
+    assert.deepEqual(CacheManager.get('cli', 'orgList'), entry.value);
+  });
+
+  test('manual CLI cache reset clears entries after init', async () => {
+    const memento = new MemoryMemento();
+    const entry = { value: [{ username: 'manual@example.com' }], expiresAt: Date.now() + 60_000 };
+    await memento.update('__cacheKeys', ['cli:orgList']);
+    await memento.update('cli:orgList', entry);
+    const context = makeContext(memento);
+
+    await extensionTestUtils.initializePersistentCache(context);
+    await CacheManager.delete('cli');
+
+    assert.equal(memento.get('cli:orgList'), undefined, 'expected persisted entry to be removed');
+    assert.deepEqual(memento.get('__cacheKeys'), [], 'expected cache index to be cleared');
+    assert.equal(CacheManager.get('cli', 'orgList'), undefined, 'expected cache manager to drop CLI cache');
   });
 });

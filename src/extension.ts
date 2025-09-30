@@ -21,14 +21,17 @@ interface OrgQuickPick extends vscode.QuickPickItem {
   username: string;
 }
 
+async function initializePersistentCache(context: vscode.ExtensionContext): Promise<void> {
+  CacheManager.init(context.globalState);
+  await CacheManager.clearExpired();
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   const activationStart = Date.now();
   LogViewerPanel.initialize(context);
   // Init TTL cache (best-effort; no-op if unavailable)
   try {
-    CacheManager.init(context.globalState);
-    await CacheManager.clearExpired();
-    await CacheManager.delete('cli');
+    await initializePersistentCache(context);
   } catch {}
   try {
     clearListCache();
@@ -326,3 +329,7 @@ export function deactivate() {
     // ignore
   }
 }
+
+export const __test__ = {
+  initializePersistentCache
+};
