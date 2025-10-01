@@ -50,6 +50,9 @@ export class OrgManager {
       if (!trimmed) {
         return;
       }
+      if (this.selectedOrg !== undefined) {
+        return;
+      }
       this.selectedOrg = trimmed;
       const match = orgs.find(o => o.username === trimmed || o.alias === trimmed);
       if (match?.username) {
