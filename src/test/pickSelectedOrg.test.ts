@@ -23,4 +23,13 @@ suite('pickSelectedOrg', () => {
     assert.equal(pickSelectedOrg(orgs), 'foo');
     assert.equal(pickSelectedOrg(orgs, 'baz'), 'foo');
   });
+
+  test('resolves alias to username when present', () => {
+    const orgs: OrgItem[] = [
+      { username: 'alpha@example.com', alias: 'Alpha' },
+      { username: 'beta@example.com', alias: 'ProjectDefault' }
+    ];
+    assert.equal(pickSelectedOrg(orgs, 'ProjectDefault'), 'beta@example.com');
+    assert.equal(pickSelectedOrg(orgs, '  ProjectDefault  '), 'beta@example.com');
+  });
 });
