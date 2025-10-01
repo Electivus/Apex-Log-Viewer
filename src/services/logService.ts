@@ -200,7 +200,13 @@ export class LogService {
     );
   }
 
-  async ensureLogsSaved(logs: ApexLogRow[], selectedOrg?: string, signal?: AbortSignal): Promise<void> {
+  async ensureLogsSaved(
+    logs: ApexLogRow[],
+    selectedOrg?: string,
+    signal?: AbortSignal,
+    options?: { downloadMissing?: boolean; onMissing?: (logId: string) => void }
+  ): Promise<void> {
+    const downloadMissing = options?.downloadMissing !== false;
     const tasks: Promise<void>[] = [];
     for (const log of logs) {
       if (!log?.Id) {
@@ -212,7 +218,14 @@ export class LogService {
             return;
           }
           try {
-            await this.ensureLogFile(log.Id, selectedOrg, signal);
+            if (downloadMissing) {
+              await this.ensureLogFile(log.Id, selectedOrg, signal);
+            } else {
+              const existing = await findExistingLogFile(log.Id);
+              if (!existing) {
+                options?.onMissing?.(log.Id);
+              }
+            }
           } catch (e) {
             logWarn('LogService: ensureLogFile failed ->', getErrorMessage(e));
           }

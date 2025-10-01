@@ -350,8 +350,21 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     if (isActive()) {
       this.postSearchStatus('loading');
     }
+    const missingLogIds = new Set<string>();
     try {
-      await this.logService.ensureLogsSaved(logsSnapshot, this.orgManager.getSelectedOrg(), signal);
+      await this.logService.ensureLogsSaved(
+        logsSnapshot,
+        this.orgManager.getSelectedOrg(),
+        signal,
+        {
+          downloadMissing: false,
+          onMissing: id => {
+            if (typeof id === 'string') {
+              missingLogIds.add(id);
+            }
+          }
+        }
+      );
       if (!isActive() || signal?.aborted) {
         return;
       }
@@ -376,7 +389,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           }
         }
       }
-      this.post({ type: 'searchMatches', query: trimmed, logIds: Array.from(matches), snippets });
+      this.post({
+        type: 'searchMatches',
+        query: trimmed,
+        logIds: Array.from(matches),
+        snippets,
+        pendingLogIds: Array.from(missingLogIds)
+      });
     } catch (e) {
       logWarn('Logs: search failed ->', getErrorMessage(e));
       if (token === this.searchToken && !this.disposed && !signal?.aborted) {

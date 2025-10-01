@@ -43,7 +43,8 @@ export function LogsTable({
   sortBy,
   sortDir,
   onSort,
-  virtualListComponent
+  virtualListComponent,
+  autoLoadEnabled = true
 }: {
   rows: ApexLogRow[];
   logHead: LogHeadMap;
@@ -61,6 +62,7 @@ export function LogsTable({
     key: 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit'
   ) => void;
   virtualListComponent?: typeof List;
+  autoLoadEnabled?: boolean;
 }) {
   const listRef = useRef<ListImperativeAPI | null>(null);
   const outerRef = useRef<HTMLDivElement | null>(null);
@@ -82,6 +84,7 @@ export function LogsTable({
   // Track latest paging flags for scroll handler without re-binding listeners
   const hasMoreRef = useRef<boolean>(hasMore);
   const loadingRef = useRef<boolean>(loading);
+  const autoLoadRef = useRef<boolean>(autoLoadEnabled);
   const lastLoadTsRef = useRef<number>(0);
   const gridTemplate =
     'minmax(160px,1fr) minmax(140px,1fr) minmax(200px,1.2fr) minmax(200px,1fr) minmax(110px,0.6fr) minmax(120px,0.8fr) minmax(260px,1.4fr) minmax(90px,0.6fr) minmax(320px,1.6fr) 96px';
@@ -91,10 +94,15 @@ export function LogsTable({
 
   const handleRowsRendered = (props: { startIndex: number; stopIndex: number }) => {
     const { stopIndex: visibleStopIndex } = props;
-    // Trigger load more when within ~one screenful from the end
     const approxVisible = Math.max(5, Math.ceil(measuredListHeight / defaultRowHeight));
+    if (!autoLoadEnabled || !hasMore || loading) {
+      return;
+    }
+    if (!Number.isFinite(visibleStopIndex) || visibleStopIndex < 0) {
+      return;
+    }
     const threshold = Math.max(0, rows.length - (approxVisible + 5));
-    if (hasMore && !loading && visibleStopIndex >= threshold) {
+    if (visibleStopIndex >= threshold) {
       onLoadMore();
     }
   };
@@ -191,6 +199,9 @@ export function LogsTable({
   useEffect(() => {
     loadingRef.current = loading;
   }, [loading]);
+  useEffect(() => {
+    autoLoadRef.current = autoLoadEnabled;
+  }, [autoLoadEnabled]);
 
   // Adaptive overscan based on scroll velocity
   useEffect(() => {
@@ -220,7 +231,12 @@ export function LogsTable({
         }, 200);
       }
       // Also trigger load-more when very near the bottom, as a safety net
-      if (hasMoreRef.current && !loadingRef.current) {
+      if (
+        autoLoadRef.current &&
+        hasMoreRef.current &&
+        !loadingRef.current &&
+        el.scrollHeight > el.clientHeight
+      ) {
         const remaining = el.scrollHeight - (el.scrollTop + el.clientHeight);
         if (remaining <= defaultRowHeight * 2) {
           if (now - lastLoadTsRef.current > 300) {

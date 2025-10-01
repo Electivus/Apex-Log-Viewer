@@ -6,6 +6,7 @@ import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../sh
 import { Toolbar } from './components/Toolbar';
 import { LogsTable } from './components/LogsTable';
 import { LoadingOverlay } from './components/LoadingOverlay';
+import { Button } from './components/ui/button';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
@@ -244,6 +245,17 @@ export function LogsApp({
     return items.slice().sort(compare);
   }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead, matchingIds]);
 
+  const searchLoading = searchStatus === 'loading';
+  const searchMessage = searchLoading ? t.searchPreparing ?? t.loading : undefined;
+
+  const hasFilters = Boolean(
+    query.trim() ||
+      filterUser ||
+      filterOperation ||
+      filterStatus ||
+      filterCodeUnit
+  );
+
   return (
     <div className="relative flex min-h-[120px] flex-col gap-4 p-4 text-sm">
       <Toolbar
@@ -256,8 +268,8 @@ export function LogsApp({
         onSelectOrg={onSelectOrg}
         query={query}
         onQueryChange={updateQuery}
-        searchLoading={searchStatus === 'loading'}
-        searchMessage={t.searchPreparing ?? t.loading}
+        searchLoading={searchLoading}
+        searchMessage={searchMessage}
         users={users}
         operations={operations}
         statuses={statuses}
@@ -286,9 +298,23 @@ export function LogsApp({
           onLoadMore={onLoadMore}
           sortBy={sortBy}
           sortDir={sortDir}
-        onSort={onSort}
-        matchSnippets={matchSnippets}
-      />
+          onSort={onSort}
+          matchSnippets={matchSnippets}
+          autoLoadEnabled={!hasFilters}
+        />
+        {hasFilters && hasMore && (
+          <div className="mt-2 flex justify-center">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={onLoadMore}
+              disabled={loading}
+            >
+              {t.loadMoreFiltered ?? t.loadMore ?? 'Load more results'}
+            </Button>
+          </div>
+        )}
         <LoadingOverlay show={loading} label={t.loading} />
       </div>
 

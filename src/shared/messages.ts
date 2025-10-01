@@ -27,6 +27,7 @@ export type ExtensionToWebviewMessage =
       query: string;
       logIds: string[];
       snippets?: Record<string, { text: string; ranges: [number, number][] }>;
+      pendingLogIds?: string[];
     }
   | { type: 'searchStatus'; state: 'idle' | 'loading' }
   | { type: 'orgs'; data: OrgItem[]; selected: string | undefined }

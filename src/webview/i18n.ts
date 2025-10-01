@@ -2,8 +2,12 @@ export type Messages = {
   refresh: string;
   loading: string;
   searchPreparing?: string;
+  searchPending?: string;
+  searchPendingPlural?: string;
   noLogs: string;
   replay: string;
+  loadMore?: string;
+  loadMoreFiltered?: string;
   open?: string;
   orgLabel: string;
   defaultOrg: string;
@@ -51,9 +55,13 @@ export type Messages = {
 const en: Messages = {
   refresh: 'Refresh',
   loading: 'Loading…',
-  searchPreparing: 'Downloading log bodies so this search can run…',
+  searchPreparing: 'Preparing search results…',
+  searchPending: 'Waiting for {count} log to finish downloading…',
+  searchPendingPlural: 'Waiting for {count} logs to finish downloading…',
   noLogs: 'No logs found.',
   replay: 'Apex Replay',
+  loadMore: 'Load more logs',
+  loadMoreFiltered: 'Load more results',
   open: 'Open',
   orgLabel: 'Org',
   defaultOrg: 'Default Org',
@@ -101,9 +109,13 @@ const en: Messages = {
 const ptBR: Messages = {
   refresh: 'Atualizar',
   loading: 'Carregando…',
-  searchPreparing: 'Baixando logs completos para executar a busca…',
+  searchPreparing: 'Preparando resultados da busca…',
+  searchPending: 'Aguardando o download de {count} log…',
+  searchPendingPlural: 'Aguardando o download de {count} logs…',
   noLogs: 'Nenhum log encontrado.',
   replay: 'Apex Replay',
+  loadMore: 'Carregar mais logs',
+  loadMoreFiltered: 'Carregar mais resultados',
   open: 'Abrir',
   orgLabel: 'Org',
   defaultOrg: 'Org Padrão',

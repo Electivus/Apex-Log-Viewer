@@ -120,7 +120,8 @@ describe('Logs webview App', () => {
           text: '...error line in body...',
           ranges: [[3, 8]]
         }
-      }
+      },
+      pendingLogIds: []
     });
     await screen.findByText('ExecuteAnonymous');
     const highlight = await screen.findByText('error', { selector: 'mark' });
@@ -128,10 +129,10 @@ describe('Logs webview App', () => {
 
     const repeatedSearchCount = posted.filter(msg => msg.type === 'searchQuery' && msg.value === 'error').length;
     sendMessage(bus, { type: 'searchStatus', state: 'loading' });
-    await screen.findByText('Baixando logs completos para executar a busca…');
+    await screen.findByText('Preparando resultados da busca…');
     sendMessage(bus, { type: 'searchStatus', state: 'idle' });
     await waitFor(() => {
-      expect(screen.queryByText('Baixando logs completos para executar a busca…')).toBeNull();
+      expect(screen.queryByText('Preparando resultados da busca…')).toBeNull();
     });
 
     fireEvent.paste(searchInput);
@@ -168,4 +169,39 @@ describe('Logs webview App', () => {
       expect(types).toEqual(expect.arrayContaining(['openLog', 'replay', 'refresh']));
     });
   }, 10000);
+
+  it('surfaces manual pagination when filters are active', async () => {
+    const { vscode, posted } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<LogsApp vscode={vscode} messageBus={bus} />);
+
+    const searchInput = screen.getByPlaceholderText('Search logs…');
+    fireEvent.change(searchInput, { target: { value: 'error' } });
+
+    const sampleLogs = [
+      {
+        Id: '07L00000000000AAW',
+        StartTime: '2025-09-21T22:10:00.000Z',
+        Operation: 'ExecuteAnonymous',
+        Application: 'Developer Console',
+        DurationMilliseconds: 90,
+        Status: 'Success',
+        Request: 'XYZ',
+        LogLength: 1024,
+        LogUser: { Name: 'Alice' }
+      }
+    ];
+    sendMessage(bus, { type: 'logs', data: sampleLogs, hasMore: true });
+    sendMessage(bus, { type: 'loading', value: false });
+
+    const loadMoreButton = await screen.findByRole('button', { name: 'Load more results' });
+    const baselineLoads = posted.filter(msg => msg.type === 'loadMore').length;
+
+    fireEvent.click(loadMoreButton);
+
+    await waitFor(() => {
+      const loadCalls = posted.filter(msg => msg.type === 'loadMore').length;
+      expect(loadCalls).toBeGreaterThan(baselineLoads);
+    });
+  });
 });
