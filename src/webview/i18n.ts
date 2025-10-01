@@ -6,6 +6,8 @@ export type Messages = {
   searchPendingPlural?: string;
   noLogs: string;
   replay: string;
+  loadMore?: string;
+  loadMoreFiltered?: string;
   open?: string;
   orgLabel: string;
   defaultOrg: string;
@@ -58,6 +60,8 @@ const en: Messages = {
   searchPendingPlural: 'Waiting for {count} logs to finish downloading…',
   noLogs: 'No logs found.',
   replay: 'Apex Replay',
+  loadMore: 'Load more logs',
+  loadMoreFiltered: 'Load more results',
   open: 'Open',
   orgLabel: 'Org',
   defaultOrg: 'Default Org',
@@ -110,6 +114,8 @@ const ptBR: Messages = {
   searchPendingPlural: 'Aguardando o download de {count} logs…',
   noLogs: 'Nenhum log encontrado.',
   replay: 'Apex Replay',
+  loadMore: 'Carregar mais logs',
+  loadMoreFiltered: 'Carregar mais resultados',
   open: 'Abrir',
   orgLabel: 'Org',
   defaultOrg: 'Org Padrão',

@@ -169,4 +169,39 @@ describe('Logs webview App', () => {
       expect(types).toEqual(expect.arrayContaining(['openLog', 'replay', 'refresh']));
     });
   }, 10000);
+
+  it('surfaces manual pagination when filters are active', async () => {
+    const { vscode, posted } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<LogsApp vscode={vscode} messageBus={bus} />);
+
+    const searchInput = screen.getByPlaceholderText('Search logs…');
+    fireEvent.change(searchInput, { target: { value: 'error' } });
+
+    const sampleLogs = [
+      {
+        Id: '07L00000000000AAW',
+        StartTime: '2025-09-21T22:10:00.000Z',
+        Operation: 'ExecuteAnonymous',
+        Application: 'Developer Console',
+        DurationMilliseconds: 90,
+        Status: 'Success',
+        Request: 'XYZ',
+        LogLength: 1024,
+        LogUser: { Name: 'Alice' }
+      }
+    ];
+    sendMessage(bus, { type: 'logs', data: sampleLogs, hasMore: true });
+    sendMessage(bus, { type: 'loading', value: false });
+
+    const loadMoreButton = await screen.findByRole('button', { name: 'Load more results' });
+    const baselineLoads = posted.filter(msg => msg.type === 'loadMore').length;
+
+    fireEvent.click(loadMoreButton);
+
+    await waitFor(() => {
+      const loadCalls = posted.filter(msg => msg.type === 'loadMore').length;
+      expect(loadCalls).toBeGreaterThan(baselineLoads);
+    });
+  });
 });
