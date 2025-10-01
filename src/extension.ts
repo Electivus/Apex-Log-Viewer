@@ -14,7 +14,7 @@ import { LogViewerPanel } from './panel/LogViewerPanel';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { getErrorMessage } from './utils/error';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
-import { isApexLogDocument } from './utils/workspace';
+import { isApexLogDocument, getLogIdFromLogFilePath } from './utils/workspace';
 import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
@@ -212,7 +212,7 @@ export async function activate(context: vscode.ExtensionContext) {
           return;
         }
         const filePath = doc.uri.fsPath;
-        const logId = path.basename(filePath).replace(/\.log$/i, '');
+        const logId = getLogIdFromLogFilePath(filePath) ?? path.parse(filePath).name;
         await LogViewerPanel.show({ logId, filePath });
         logInfo('Command sfLogs.openLogInViewer opened log viewer for', logId);
       } catch (e) {

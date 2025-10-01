@@ -93,6 +93,11 @@ function extractLogIdFromFileName(fileName: string): string | undefined {
   return match ? match[1] : undefined;
 }
 
+export function getLogIdFromLogFilePath(filePath: string): string | undefined {
+  const fileName = path.basename(filePath);
+  return extractLogIdFromFileName(fileName);
+}
+
 export async function purgeSavedLogs(options: {
   keepIds?: Set<string>;
   maxAgeMs?: number;
