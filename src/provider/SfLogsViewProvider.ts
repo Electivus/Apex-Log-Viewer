@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { localize } from '../utils/localize';
 import { getOrgAuth } from '../salesforce/cli';
 import { clearListCache } from '../salesforce/http';
@@ -14,7 +13,7 @@ import { LogService } from '../services/logService';
 import { LogsMessageHandler } from './logsMessageHandler';
 import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../utils/configManager';
-import { ensureApexLogsDir, purgeSavedLogs } from '../utils/workspace';
+import { ensureApexLogsDir, purgeSavedLogs, getLogIdFromLogFilePath } from '../utils/workspace';
 import { ripgrepSearch, type RipgrepMatch } from '../utils/ripgrep';
 
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
@@ -380,7 +379,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       const matches = new Set<string>();
       const snippets: Record<string, { text: string; ranges: [number, number][] }> = {};
       for (const info of matchesInfo) {
-        const logId = this.extractLogIdFromPath(info.filePath);
+        const logId = getLogIdFromLogFilePath(info.filePath);
         if (logId && known.has(logId)) {
           matches.add(logId);
           const snippet = this.buildSnippet(info);
@@ -406,20 +405,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         this.postSearchStatus('idle');
       }
     }
-  }
-
-  private extractLogIdFromPath(filePath: string): string | undefined {
-    const base = path.basename(filePath);
-    if (!base.toLowerCase().endsWith('.log')) {
-      return undefined;
-    }
-    const withoutExt = base.slice(0, -4);
-    const idx = withoutExt.lastIndexOf('_');
-    const candidate = idx !== -1 ? withoutExt.slice(idx + 1) : withoutExt;
-    if (/^[a-zA-Z0-9]{15,18}$/.test(candidate)) {
-      return candidate;
-    }
-    return undefined;
   }
 
   private buildSnippet(match: RipgrepMatch): { text: string; ranges: [number, number][] } | undefined {
