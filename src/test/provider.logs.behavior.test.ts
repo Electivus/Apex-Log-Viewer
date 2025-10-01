@@ -106,7 +106,8 @@ suite('SfLogsViewProvider behavior', () => {
     (provider as any).logService.ensureLogsSaved = async (
       logs: any[],
       _org: string | undefined,
-      signal?: AbortSignal
+      signal?: AbortSignal,
+      _options?: any
     ) => {
       calls.push({ logs, signal });
     };
@@ -160,13 +161,21 @@ suite('SfLogsViewProvider behavior', () => {
       }
     } as any;
 
-    let saved = false;
+    const ensureOptions: any[] = [];
     const sampleLine = 'Usuário João gerou erro crítico 323301606';
     const needle = '323301606';
-    (provider as any).logService.ensureLogsSaved = async () => {
-      saved = true;
-      const file = path.join(tmpDir, 'default_07L000000000001AA.log');
-      await fs.writeFile(file, sampleLine, 'utf8');
+    const filePath = path.join(tmpDir, 'default_07L000000000001AA.log');
+    (provider as any).logService.ensureLogsSaved = async (
+      _logs: any[],
+      _org: string | undefined,
+      _signal?: AbortSignal,
+      options?: { downloadMissing?: boolean }
+    ) => {
+      ensureOptions.push(options);
+      if (options?.downloadMissing === false) {
+        return;
+      }
+      await fs.writeFile(filePath, sampleLine, 'utf8');
     };
     (ripgrep as any).ripgrepSearch = async (
       _pattern: string,
@@ -191,7 +200,11 @@ suite('SfLogsViewProvider behavior', () => {
       await (provider as any).setSearchQuery('error');
       await new Promise(r => setTimeout(r, 20));
 
-      assert.ok(saved, 'ensureLogsSaved should be called');
+      assert.equal(ensureOptions.length >= 1, true, 'ensureLogsSaved should be called');
+      assert.ok(
+        ensureOptions.some(opt => opt && opt.downloadMissing === false),
+        'search ensureLogsSaved call should skip downloads'
+      );
       const matches = posted
         .filter(m => m?.type === 'searchMatches' && Array.isArray(m.logIds) && m.logIds.includes('07L000000000001AA'))
         .pop();
@@ -202,6 +215,65 @@ suite('SfLogsViewProvider behavior', () => {
       assert.ok(snippet, 'should include snippet for match');
       assert.ok(snippet?.ranges?.length, 'snippet should include highlight ranges');
       assert.ok(snippet?.text.includes(needle), 'snippet should contain the matched text');
+      assert.ok(Array.isArray(matches?.pendingLogIds), 'should include pendingLogIds array');
+      assert.equal((matches?.pendingLogIds || []).length, 0, 'pendingLogIds should be empty when cached');
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('searchQuery posts pendingLogIds when bodies are missing', async () => {
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    (http as any).fetchApexLogs = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
+    (http as any).fetchApexLogHead = async () => [];
+    (http as any).fetchApexLogBody = async () => 'Body';
+
+    const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests-missing');
+    await fs.mkdir(tmpDir, { recursive: true });
+    (workspace as any).ensureApexLogsDir = async () => tmpDir;
+    (workspace as any).purgeSavedLogs = async () => 0;
+
+    const context = makeContext();
+    const posted: any[] = [];
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
+    (provider as any).view = {
+      webview: {
+        postMessage: (m: any) => {
+          posted.push(m);
+          return Promise.resolve(true);
+        }
+      }
+    } as any;
+
+    (provider as any).logService.ensureLogsSaved = async (
+      logs: any[],
+      _org: string | undefined,
+      _signal?: AbortSignal,
+      options?: { downloadMissing?: boolean; onMissing?: (id: string) => void }
+    ) => {
+      if (options?.downloadMissing === false && typeof options.onMissing === 'function') {
+        for (const log of logs) {
+          if (log?.Id) {
+            options.onMissing(log.Id);
+          }
+        }
+      }
+    };
+    (ripgrep as any).ripgrepSearch = async () => [];
+
+    try {
+      await provider.refresh();
+      await new Promise(r => setTimeout(r, 20));
+      await (provider as any).setSearchQuery('anything');
+      await new Promise(r => setTimeout(r, 20));
+
+      const matches = posted
+        .filter(m => m?.type === 'searchMatches')
+        .pop();
+      assert.ok(matches, 'should post searchMatches even when missing');
+      assert.ok(Array.isArray(matches?.pendingLogIds), 'pendingLogIds should be an array');
+      assert.deepEqual(matches?.pendingLogIds, ['07L000000000001AA']);
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
@@ -241,7 +313,8 @@ suite('SfLogsViewProvider behavior', () => {
     (provider as any).logService.ensureLogsSaved = async (
       _logs: any,
       _org: any,
-      signal?: AbortSignal
+      signal?: AbortSignal,
+      _options?: any
     ) => {
       if (signal) {
         ensureSignals.push(signal);

@@ -244,6 +244,17 @@ export function LogsApp({
     return items.slice().sort(compare);
   }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead, matchingIds]);
 
+  const searchLoading = searchStatus === 'loading';
+  const searchMessage = searchLoading ? t.searchPreparing ?? t.loading : undefined;
+
+  const hasFilters = Boolean(
+    query.trim() ||
+      filterUser ||
+      filterOperation ||
+      filterStatus ||
+      filterCodeUnit
+  );
+
   return (
     <div className="relative flex min-h-[120px] flex-col gap-4 p-4 text-sm">
       <Toolbar
@@ -256,8 +267,8 @@ export function LogsApp({
         onSelectOrg={onSelectOrg}
         query={query}
         onQueryChange={updateQuery}
-        searchLoading={searchStatus === 'loading'}
-        searchMessage={t.searchPreparing ?? t.loading}
+        searchLoading={searchLoading}
+        searchMessage={searchMessage}
         users={users}
         operations={operations}
         statuses={statuses}
@@ -286,9 +297,10 @@ export function LogsApp({
           onLoadMore={onLoadMore}
           sortBy={sortBy}
           sortDir={sortDir}
-        onSort={onSort}
-        matchSnippets={matchSnippets}
-      />
+          onSort={onSort}
+          matchSnippets={matchSnippets}
+          autoLoadEnabled={!hasFilters}
+        />
         <LoadingOverlay show={loading} label={t.loading} />
       </div>
 

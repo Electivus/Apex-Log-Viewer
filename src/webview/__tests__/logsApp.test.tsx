@@ -120,7 +120,8 @@ describe('Logs webview App', () => {
           text: '...error line in body...',
           ranges: [[3, 8]]
         }
-      }
+      },
+      pendingLogIds: []
     });
     await screen.findByText('ExecuteAnonymous');
     const highlight = await screen.findByText('error', { selector: 'mark' });
@@ -128,10 +129,10 @@ describe('Logs webview App', () => {
 
     const repeatedSearchCount = posted.filter(msg => msg.type === 'searchQuery' && msg.value === 'error').length;
     sendMessage(bus, { type: 'searchStatus', state: 'loading' });
-    await screen.findByText('Baixando logs completos para executar a busca…');
+    await screen.findByText('Preparando resultados da busca…');
     sendMessage(bus, { type: 'searchStatus', state: 'idle' });
     await waitFor(() => {
-      expect(screen.queryByText('Baixando logs completos para executar a busca…')).toBeNull();
+      expect(screen.queryByText('Preparando resultados da busca…')).toBeNull();
     });
 
     fireEvent.paste(searchInput);

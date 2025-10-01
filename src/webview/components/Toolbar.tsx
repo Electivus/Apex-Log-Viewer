@@ -115,9 +115,13 @@ export function Toolbar({
             placeholder={t.searchPlaceholder ?? 'Search logs…'}
             disabled={loading}
           />
-          {searchLoading && (
+          {(searchLoading || searchMessage) && (
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              {searchLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              ) : (
+                <AlertCircle className="h-3 w-3" aria-hidden="true" />
+              )}
               <span>{searchMessage ?? t.loading}</span>
             </div>
           )}

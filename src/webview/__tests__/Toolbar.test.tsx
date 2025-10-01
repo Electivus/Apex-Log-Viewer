@@ -11,6 +11,8 @@ type ToolbarRenderOptions = {
   filterOperation?: string;
   filterStatus?: string;
   filterCodeUnit?: string;
+  searchLoading?: boolean;
+  searchMessage?: string;
 };
 
 function renderToolbar(overrides: ToolbarRenderOptions = {}) {
@@ -20,7 +22,9 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
     filterUser = '',
     filterOperation = '',
     filterStatus = '',
-    filterCodeUnit = ''
+    filterCodeUnit = '',
+    searchLoading = false,
+    searchMessage
   } = overrides;
 
   const t = getMessages('en');
@@ -58,6 +62,8 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
         onQueryChange={value => {
           queryChanges.push(value);
         }}
+        searchLoading={searchLoading}
+        searchMessage={searchMessage}
         users={users}
         operations={operations}
         statuses={statuses}
@@ -143,5 +149,20 @@ describe('Toolbar webview component', () => {
     const searchInput = screen.getByLabelText('Search logs…') as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: 'new search' } });
     expect(utils.queryChanges).toEqual(['new search']);
+  });
+
+  it('shows spinner when searchLoading is true', () => {
+    renderToolbar({ searchLoading: true, searchMessage: 'Preparing…' });
+    const notice = screen.getByText('Preparing…');
+    const container = notice.closest('div');
+    expect(container?.querySelector('.animate-spin')).not.toBeNull();
+  });
+
+  it('shows informational notice without spinner when only searchMessage is present', () => {
+    renderToolbar({ searchLoading: false, searchMessage: 'Waiting for logs…' });
+    const notice = screen.getByText('Waiting for logs…');
+    expect(notice).toBeInTheDocument();
+    const container = notice.closest('div');
+    expect(container?.querySelector('.animate-spin')).toBeNull();
   });
 });

@@ -78,12 +78,14 @@ describe('LogsTable', () => {
     rows = createRows(10),
     hasMore = true,
     loading = false,
-    captured
+    captured,
+    autoLoadEnabled
   }: {
     rows?: ApexLogRow[];
     hasMore?: boolean;
     loading?: boolean;
     captured: CapturedList;
+    autoLoadEnabled?: boolean;
   }) {
     const loadMoreMock = jest.fn();
     const virtualList = createVirtualList(captured);
@@ -102,7 +104,12 @@ describe('LogsTable', () => {
       onSort: () => {}
     };
     const view = render(
-      <LogsTable {...baseProps} onLoadMore={loadMoreMock} virtualListComponent={virtualList} />
+      <LogsTable
+        {...baseProps}
+        autoLoadEnabled={autoLoadEnabled}
+        onLoadMore={loadMoreMock}
+        virtualListComponent={virtualList}
+      />
     );
     return {
       loadMoreMock,
@@ -111,6 +118,7 @@ describe('LogsTable', () => {
           <LogsTable
             {...baseProps}
             {...next}
+            autoLoadEnabled={autoLoadEnabled}
             onLoadMore={loadMoreMock}
             virtualListComponent={virtualList}
           />
@@ -126,16 +134,34 @@ describe('LogsTable', () => {
     expect(loadMoreMock).toHaveBeenCalled();
   });
 
+  it('does not auto-load when the list fits within the viewport and auto load is disabled', () => {
+    const rows = createRows(5);
+    const captured: CapturedList = {};
+    const { loadMoreMock } = renderTable({ rows, captured, autoLoadEnabled: false });
+    captured.onRowsRendered?.({ startIndex: 0, stopIndex: rows.length - 1 });
+    expect(loadMoreMock).not.toHaveBeenCalled();
+  });
+
+  it('auto-loads when viewport is short but auto load is enabled', () => {
+    const rows = createRows(5);
+    const captured: CapturedList = {};
+    const { loadMoreMock } = renderTable({ rows, captured, autoLoadEnabled: true });
+    captured.onRowsRendered?.({ startIndex: 0, stopIndex: rows.length - 1 });
+    expect(loadMoreMock).toHaveBeenCalled();
+  });
+
   it('requests more data after user scrolls near the end', async () => {
-    const rows = createRows(20);
+    const rows = createRows(80);
     const captured: CapturedList = {};
     const { loadMoreMock } = renderTable({ rows, captured });
     const outer = captured.outer as HTMLDivElement;
+    Object.defineProperty(outer, 'clientHeight', { value: 300, configurable: true });
+    Object.defineProperty(outer, 'scrollHeight', { value: 1200, configurable: true });
     await act(async () => {
       outer.scrollTop = 10;
       fireEvent.scroll(outer);
     });
-    captured.onRowsRendered?.({ startIndex: 0, stopIndex: rows.length - 1 });
+    captured.onRowsRendered?.({ startIndex: rows.length - 10, stopIndex: rows.length - 1 });
     expect(loadMoreMock).toHaveBeenCalled();
   });
 
