@@ -1,3 +1,8 @@
+function formatNumber(value: number): string {
+  const s = value.toFixed(1);
+  return s.endsWith('.0') ? s.slice(0, -2) : s;
+}
+
 export function formatBytes(size: number): string {
   const n = typeof size === 'number' && isFinite(size) ? Math.max(0, Math.floor(size)) : 0;
   const KB = 1024;
@@ -17,9 +22,7 @@ export function formatBytes(size: number): string {
 }
 
 function formatUnit(value: number, unit: 'KB' | 'MB' | 'GB'): string {
-  const s = value.toFixed(1);
-  const trimmed = s.endsWith('.0') ? s.slice(0, -2) : s;
-  return `${trimmed} ${unit}`;
+  return `${formatNumber(value)} ${unit}`;
 }
 
 export function formatDuration(ms: number): string {
@@ -27,8 +30,19 @@ export function formatDuration(ms: number): string {
   if (n < 1000) {
     return `${n} ms`;
   }
-  const seconds = n / 1000;
-  const s = seconds.toFixed(1);
-  const trimmed = s.endsWith('.0') ? s.slice(0, -2) : s;
-  return `${trimmed} s`;
+  const SECOND = 1000;
+  const MINUTE = 60 * SECOND;
+  const HOUR = 60 * MINUTE;
+  const DAY = 24 * HOUR;
+
+  if (n < MINUTE) {
+    return `${formatNumber(n / SECOND)} s`;
+  }
+  if (n < HOUR) {
+    return `${formatNumber(n / MINUTE)} min`;
+  }
+  if (n < DAY) {
+    return `${formatNumber(n / HOUR)} h`;
+  }
+  return `${formatNumber(n / DAY)} d`;
 }
