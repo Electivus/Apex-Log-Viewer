@@ -224,6 +224,26 @@ jobs:
             core.setOutput('pre_release', preRelease ? 'true' : 'false');
             core.setOutput('channel_suffix', preRelease ? 'pre' : 'stable');
 
+      - name: Ensure GitHub release exists
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          PRE_RELEASE: ${{ steps.determine_channel.outputs.pre_release }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Release ${TAG_NAME} already exists"
+          else
+            TITLE="${TAG_NAME}"
+            NOTES="Automated placeholder release created by CI."
+            if [ "${PRE_RELEASE}" = "true" ]; then
+              gh release create "${TAG_NAME}" --title "${TITLE}" --notes "${NOTES}" --prerelease
+            else
+              gh release create "${TAG_NAME}" --title "${TITLE}" --notes "${NOTES}"
+            fi
+          fi
+
       - name: Set GitHub Release prerelease flag automatically
         env:
           TAG_NAME: ${{ github.ref_name }}
