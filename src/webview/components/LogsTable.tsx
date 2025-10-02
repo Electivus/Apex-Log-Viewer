@@ -104,7 +104,7 @@ export function LogsTable({
     }
     const threshold = Math.max(0, rows.length - (approxVisible + 5));
     if (visibleStopIndex >= threshold) {
-      onLoadMoreRef.current?.();
+      onLoadMore();
     }
   };
 
