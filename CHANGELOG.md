@@ -2,9 +2,42 @@
 
 ## Unreleased
 
+## [0.14.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.12.0...v0.14.0) (2025-10-02)
+
 ### Features
 
-- Logs: keep header-only loading by default again—`electivus.apexLogs.enableFullLogSearch` now defaults to false, but you can opt in to download full log bodies for content filtering. The highlighted match snippet in the table still appears when full content search is enabled.
+- Logs: enable optional full log body search backed by ripgrep, with improved query handling, highlighted matches, and packaging updates for architecture-specific binaries. ([#273](https://github.com/Electivus/Apex-Log-Viewer/pull/273)) ([55b04fd](https://github.com/Electivus/Apex-Log-Viewer/commit/55b04fd))
+- Logs: preload log bodies and purge caches to keep filtered results fresh during search workflows. ([#280](https://github.com/Electivus/Apex-Log-Viewer/pull/280)) ([c87e304](https://github.com/Electivus/Apex-Log-Viewer/commit/c87e304))
+- Logs: track missing downloads, offer auto-load toggles, and expose manual pagination for filtered tables. ([#292](https://github.com/Electivus/Apex-Log-Viewer/pull/292)) ([68bf881](https://github.com/Electivus/Apex-Log-Viewer/commit/68bf881))
+- Orgs: rebuild selection by removing persisted global state, resolving aliases, and honoring project default orgs when picking connections. ([#276](https://github.com/Electivus/Apex-Log-Viewer/pull/276), [#293](https://github.com/Electivus/Apex-Log-Viewer/pull/293)) ([408a1dd](https://github.com/Electivus/Apex-Log-Viewer/commit/408a1dd), [e84ad02](https://github.com/Electivus/Apex-Log-Viewer/commit/e84ad02))
+- Logs: detect log IDs from saved file paths to support reopening local log files. ([#295](https://github.com/Electivus/Apex-Log-Viewer/pull/295)) ([233f9d5](https://github.com/Electivus/Apex-Log-Viewer/commit/233f9d5))
+- Logs: refine duration formatting for consistent units and add targeted unit tests. ([#298](https://github.com/Electivus/Apex-Log-Viewer/pull/298)) ([ccbec2c](https://github.com/Electivus/Apex-Log-Viewer/commit/ccbec2c))
+
+### Bug Fixes
+
+- Logs: keep header-only loading as the default so full content search remains opt-in. ([#277](https://github.com/Electivus/Apex-Log-Viewer/pull/277)) ([c7c0794](https://github.com/Electivus/Apex-Log-Viewer/commit/c7c0794))
+- Logs: ensure load-more uses the latest callback to prevent stale pagination in the table. ([#297](https://github.com/Electivus/Apex-Log-Viewer/pull/297)) ([436de1d](https://github.com/Electivus/Apex-Log-Viewer/commit/436de1d))
+- Logs: reuse `ensureLogFile` when launching replay debugging so the viewer opens the freshest copy. ([#283](https://github.com/Electivus/Apex-Log-Viewer/pull/283)) ([05d5119](https://github.com/Electivus/Apex-Log-Viewer/commit/05d5119))
+- Config: scope the tail head concurrency setting under the `electivus` namespace for compatibility. ([#294](https://github.com/Electivus/Apex-Log-Viewer/pull/294)) ([87654ef](https://github.com/Electivus/Apex-Log-Viewer/commit/87654ef))
+- Orgs: sync the selected org with the list to avoid dangling selections after refresh. ([#282](https://github.com/Electivus/Apex-Log-Viewer/pull/282)) ([efcf1aa](https://github.com/Electivus/Apex-Log-Viewer/commit/efcf1aa))
+
+### Performance
+
+- Extension: stop resetting the Salesforce CLI org cache on activation to reuse cached org listings. ([#291](https://github.com/Electivus/Apex-Log-Viewer/pull/291)) ([80e97c7](https://github.com/Electivus/Apex-Log-Viewer/commit/80e97c7))
+
+### Build
+
+- Workflows: inject `GITHUB_TOKEN` into release and prerelease jobs to unblock publishing. ([#275](https://github.com/Electivus/Apex-Log-Viewer/pull/275)) ([7ae70ca](https://github.com/Electivus/Apex-Log-Viewer/commit/7ae70ca))
+- Workflows: streamline release versioning logic and channel determination. ([#278](https://github.com/Electivus/Apex-Log-Viewer/pull/278)) ([e265394](https://github.com/Electivus/Apex-Log-Viewer/commit/e265394))
+
+### Tests
+
+- Coverage: add c8-based coverage reporting and improve cleanup of VS Code test instances. ([#252](https://github.com/Electivus/Apex-Log-Viewer/pull/252)) ([ceac94d](https://github.com/Electivus/Apex-Log-Viewer/commit/ceac94d))
+- Webview: add comprehensive unit tests for log and tail components and supporting utilities. ([#255](https://github.com/Electivus/Apex-Log-Viewer/pull/255)) ([04344dc](https://github.com/Electivus/Apex-Log-Viewer/commit/04344dc))
+
+### Chores
+
+- Dependabot: remove grouped update configuration to resume individual dependency alerts. ([#264](https://github.com/Electivus/Apex-Log-Viewer/pull/264)) ([fa80fd0](https://github.com/Electivus/Apex-Log-Viewer/commit/fa80fd0))
 
 ## [0.12.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.10.0...v0.12.0) (2025-09-20)
 
