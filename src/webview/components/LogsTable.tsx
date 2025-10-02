@@ -85,6 +85,7 @@ export function LogsTable({
   const hasMoreRef = useRef<boolean>(hasMore);
   const loadingRef = useRef<boolean>(loading);
   const autoLoadRef = useRef<boolean>(autoLoadEnabled);
+  const onLoadMoreRef = useRef(onLoadMore);
   const lastLoadTsRef = useRef<number>(0);
   const gridTemplate =
     'minmax(160px,1fr) minmax(140px,1fr) minmax(200px,1.2fr) minmax(200px,1fr) minmax(110px,0.6fr) minmax(120px,0.8fr) minmax(260px,1.4fr) minmax(90px,0.6fr) minmax(320px,1.6fr) 96px';
@@ -202,6 +203,9 @@ export function LogsTable({
   useEffect(() => {
     autoLoadRef.current = autoLoadEnabled;
   }, [autoLoadEnabled]);
+  useEffect(() => {
+    onLoadMoreRef.current = onLoadMore;
+  }, [onLoadMore]);
 
   // Adaptive overscan based on scroll velocity
   useEffect(() => {
@@ -241,7 +245,7 @@ export function LogsTable({
         if (remaining <= defaultRowHeight * 2) {
           if (now - lastLoadTsRef.current > 300) {
             lastLoadTsRef.current = now;
-            onLoadMore();
+            onLoadMoreRef.current?.();
           }
         }
       }

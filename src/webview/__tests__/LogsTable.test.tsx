@@ -222,4 +222,61 @@ describe('LogsTable', () => {
     captured.onRowsRendered?.({ startIndex: 0, stopIndex: rows.length - 1 });
     expect(loadMoreMock).not.toHaveBeenCalled();
   });
+
+  it('uses the latest onLoadMore callback inside the scroll fallback', async () => {
+    const rows = createRows(120);
+    const captured: CapturedList = {};
+    const VirtualList = createVirtualList(captured);
+    const baseProps = {
+      rows,
+      logHead: {},
+      matchSnippets: {},
+      t: t as any,
+      onOpen: () => {},
+      onReplay: () => {},
+      loading: false,
+      locale: 'en-US',
+      sortBy: 'time' as const,
+      sortDir: 'asc' as const,
+      onSort: () => {}
+    };
+
+    const initialLoadMore = jest.fn();
+    const nextLoadMore = jest.fn();
+
+    const view = render(
+      <LogsTable
+        {...baseProps}
+        hasMore={false}
+        onLoadMore={initialLoadMore}
+        virtualListComponent={VirtualList}
+      />
+    );
+
+    view.rerender(
+      <LogsTable
+        {...baseProps}
+        hasMore={true}
+        onLoadMore={nextLoadMore}
+        virtualListComponent={VirtualList}
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const el = captured.outer as HTMLDivElement;
+    expect(el).toBeTruthy();
+    Object.defineProperty(el, 'clientHeight', { value: 300, configurable: true });
+    Object.defineProperty(el, 'scrollHeight', { value: 1000, configurable: true });
+
+    await act(async () => {
+      el.scrollTop = 1000 - 300 - 24;
+      fireEvent.scroll(el);
+    });
+
+    expect(initialLoadMore).not.toHaveBeenCalled();
+    expect(nextLoadMore).toHaveBeenCalled();
+  });
 });
