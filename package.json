@@ -2,7 +2,7 @@
   "name": "apex-log-viewer",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "publisher": "electivus",
   "license": "MIT",
   "repository": {
