@@ -1,0 +1,27 @@
+name: Dependabot Codex Review
+
+on:
+  pull_request:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  request-codex-review:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip when PAT secret missing
+        if: ${{ secrets.CODEX_REVIEW_COMMENTER_TOKEN == '' }}
+        run: |
+          echo "Dependabot Codex review trigger skipped: set CODEX_REVIEW_COMMENTER_TOKEN secret to enable @codex review comments." >&2
+      - name: Ensure Codex review comment
+        if: ${{ secrets.CODEX_REVIEW_COMMENTER_TOKEN != '' }}
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          token: ${{ secrets.CODEX_REVIEW_COMMENTER_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: '@codex review'
+          edit-mode: replace
+          body-includes: '@codex review'
