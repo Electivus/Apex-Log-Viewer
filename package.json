@@ -11,7 +11,7 @@
   },
   "engines": {
     "vscode": "^1.90.0",
-    "node": ">=20"
+    "node": ">=20.17.0"
   },
   "icon": "media/icon.png",
   "galleryBanner": {
@@ -123,8 +123,8 @@
           "markdownDescription": "%configuration.electivus.apexLogs.cliCache.debugLevelsTtlSeconds.description%"
         },
         "electivus.apexLogs.enableFullLogSearch": {
-        "type": "boolean",
-        "default": false,
+          "type": "boolean",
+          "default": false,
           "markdownDescription": "%configuration.electivus.apexLogs.enableFullLogSearch.description%"
         },
         "sfLogs.pageSize": {
