@@ -45,7 +45,7 @@ jobs:
           body-includes: '<!-- codex:dependabot-auto -->'
       - name: Ensure Codex review comment
         if: steps.guard.outputs.skip != 'true'
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           token: ${{ env.CODEX_REVIEW_COMMENTER_TOKEN }}
           issue-number: ${{ github.event.pull_request.number }}
