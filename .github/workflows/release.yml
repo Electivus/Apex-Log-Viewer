@@ -109,7 +109,7 @@ jobs:
 
       - name: Determine channel (stable vs pre-release)
         id: determine_channel
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const version = require('./package.json').version;
@@ -207,7 +207,7 @@ jobs:
         id: determine_channel
         env:
           TAG_NAME: ${{ github.ref_name }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const version = require('./package.json').version;
