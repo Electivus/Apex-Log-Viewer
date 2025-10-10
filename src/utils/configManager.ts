@@ -6,7 +6,7 @@ export class ConfigManager {
 
   constructor(private headConcurrency: number, private pageLimit: number) {
     this.headConcurrency = getNumberConfig('electivus.apexLogs.headConcurrency', this.headConcurrency, 1, Number.MAX_SAFE_INTEGER);
-    this.enableFullLogSearch = getBooleanConfig('electivus.apexLogs.enableFullLogSearch', false);
+    this.enableFullLogSearch = getBooleanConfig('electivus.apexLogs.enableFullLogSearch', true);
   }
 
   handleChange(e: vscode.ConfigurationChangeEvent): void {

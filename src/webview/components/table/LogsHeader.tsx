@@ -10,10 +10,12 @@ type Props = {
   sortDir: 'asc' | 'desc';
   onSort: (key: SortKey) => void;
   gridTemplate: string;
+  showCodeUnitColumn: boolean;
+  showMatchColumn: boolean;
 };
 
 export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
-  ({ t, sortBy, sortDir, onSort, gridTemplate }, ref) => {
+  ({ t, sortBy, sortDir, onSort, gridTemplate, showCodeUnitColumn, showMatchColumn }, ref) => {
     const renderSortIcon = (key: SortKey) => {
       if (sortBy !== key) {
         return <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" aria-hidden="true" />;
@@ -66,11 +68,13 @@ export const LogsHeader = React.forwardRef<HTMLDivElement, Props>(
         {renderHeader('time', t.columns.time)}
         {renderHeader('duration', t.columns.duration)}
         {renderHeader('status', t.columns.status)}
-        {renderHeader('codeUnit', t.columns.codeUnitStarted)}
+        {showCodeUnitColumn && renderHeader('codeUnit', t.columns.codeUnitStarted)}
         {renderHeader('size', t.columns.size, 'end')}
-        <div className={cn(headerClass, 'justify-start text-left text-muted-foreground')} role="columnheader">
-          <span className="truncate">{t.columns.match ?? 'Match'}</span>
-        </div>
+        {showMatchColumn && (
+          <div className={cn(headerClass, 'justify-start text-left text-muted-foreground')} role="columnheader">
+            <span className="truncate">{t.columns.match ?? 'Match'}</span>
+          </div>
+        )}
         <div aria-hidden="true" />
       </div>
     );

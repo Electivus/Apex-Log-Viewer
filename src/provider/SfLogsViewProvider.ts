@@ -142,7 +142,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             return;
           }
           this.preloadFullLogBodies(logs, controller.signal);
-          this.post({ type: 'init', locale: vscode.env.language });
+          this.post({
+            type: 'init',
+            locale: vscode.env.language,
+            fullLogSearchEnabled: this.configManager.shouldLoadFullLogBodies()
+          });
           const hasMore = logs.length === this.pageLimit;
           this.post({ type: 'logs', data: logs, hasMore });
           this.currentLogs = logs.slice();

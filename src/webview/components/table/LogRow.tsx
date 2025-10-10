@@ -10,6 +10,8 @@ type Props = {
   r: ApexLogRow;
   logHead: LogHeadMap;
   matchSnippet?: { text: string; ranges: [number, number][] };
+  showCodeUnitColumn: boolean;
+  showMatchColumn: boolean;
   locale: string;
   t: any;
   loading: boolean;
@@ -25,6 +27,8 @@ export function LogRow({
   r,
   logHead,
   matchSnippet,
+  showCodeUnitColumn,
+  showMatchColumn,
   locale,
   t,
   loading,
@@ -58,7 +62,15 @@ export function LogRow({
         console.warn('LogRow: failed to disconnect ResizeObserver', e);
       }
     };
-  }, [index, setRowHeight, logHead[r.Id]?.codeUnitStarted, matchSnippet?.text, r]);
+  }, [
+    index,
+    setRowHeight,
+    logHead[r.Id]?.codeUnitStarted,
+    matchSnippet?.text,
+    r,
+    showCodeUnitColumn,
+    showMatchColumn
+  ]);
 
   const cellClass =
     'min-w-0 px-3 py-2 text-sm leading-relaxed text-foreground/90 transition-colors break-words';
@@ -145,17 +157,21 @@ export function LogRow({
         <div className={cellClass}>{new Date(r.StartTime).toLocaleString(locale)}</div>
         <div className={cellClass}>{formatDuration(r.DurationMilliseconds)}</div>
         <div className={cellClass}>{r.Status}</div>
-        <div className={cellClass} title={logHead[r.Id]?.codeUnitStarted ?? ''}>
-          {logHead[r.Id]?.codeUnitStarted ?? ''}
-        </div>
+        {showCodeUnitColumn && (
+          <div className={cellClass} title={logHead[r.Id]?.codeUnitStarted ?? ''}>
+            {logHead[r.Id]?.codeUnitStarted ?? ''}
+          </div>
+        )}
         <div className={cn(cellClass, 'text-right font-medium tabular-nums text-foreground')}>
           {formatBytes(r.LogLength)}
         </div>
-        <div className={cn(cellClass, 'text-muted-foreground/90')} title={matchSnippet?.text ?? ''}>
-          <span className="block max-h-[4.5rem] overflow-hidden whitespace-pre-wrap text-left text-sm leading-relaxed">
-            {renderSnippet}
-          </span>
-        </div>
+        {showMatchColumn && (
+          <div className={cn(cellClass, 'text-muted-foreground/90')} title={matchSnippet?.text ?? ''}>
+            <span className="block max-h-[4.5rem] overflow-hidden whitespace-pre-wrap text-left text-sm leading-relaxed">
+              {renderSnippet}
+            </span>
+          </div>
+        )}
         <div className={cn(cellClass, 'flex items-center justify-center gap-2 text-center')}>
           <div className="flex items-center gap-2">
             {actionButton(

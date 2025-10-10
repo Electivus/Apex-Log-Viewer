@@ -31,7 +31,7 @@ describe('Logs webview App', () => {
 
     expect(posted[0]).toEqual({ type: 'ready' });
 
-    sendMessage(bus, { type: 'init', locale: 'pt-BR' });
+    sendMessage(bus, { type: 'init', locale: 'pt-BR', fullLogSearchEnabled: true });
     await screen.findByText('Atualizar');
 
     sendMessage(bus, { type: 'loading', value: true });

@@ -59,6 +59,7 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => false;
     // Inject minimal view so refresh proceeds
     (provider as any).view = {
       webview: {

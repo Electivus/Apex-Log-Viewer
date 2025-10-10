@@ -18,7 +18,7 @@ export type WebviewToExtensionMessage =
 export type ExtensionToWebviewMessage =
   | { type: 'loading'; value: boolean }
   | { type: 'error'; message: string }
-  | { type: 'init'; locale: string }
+  | { type: 'init'; locale: string; fullLogSearchEnabled?: boolean }
   | { type: 'logs'; data: ApexLogRow[]; hasMore: boolean }
   | { type: 'appendLogs'; data: ApexLogRow[]; hasMore: boolean }
   | { type: 'logHead'; logId: string; codeUnitStarted?: string }

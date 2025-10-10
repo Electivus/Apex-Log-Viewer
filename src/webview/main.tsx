@@ -33,6 +33,7 @@ export function LogsApp({
   const [logHead, setLogHead] = useState<Record<string, { codeUnitStarted?: string }>>({});
   const [matchingIds, setMatchingIds] = useState<Set<string>>(new Set());
   const [matchSnippets, setMatchSnippets] = useState<Record<string, { text: string; ranges: [number, number][] }>>({});
+  const [fullLogSearchEnabled, setFullLogSearchEnabled] = useState(false);
   const queryRef = useRef('');
   const [searchStatus, setSearchStatus] = useState<'idle' | 'loading'>('idle');
 
@@ -67,6 +68,7 @@ export function LogsApp({
         case 'init':
           setLocale(msg.locale);
           setT(getMessages(msg.locale));
+          setFullLogSearchEnabled(!!msg.fullLogSearchEnabled);
           break;
         case 'logs':
           setRows(msg.data || []);
@@ -155,6 +157,13 @@ export function LogsApp({
       setSortDir(key === 'time' || key === 'size' || key === 'duration' ? 'desc' : 'asc');
     }
   };
+
+  useEffect(() => {
+    if (fullLogSearchEnabled && sortBy === 'codeUnit') {
+      setSortBy('time');
+      setSortDir('desc');
+    }
+  }, [fullLogSearchEnabled, sortBy]);
 
   const clearFilters = () => {
     updateQuery('');
@@ -300,6 +309,7 @@ export function LogsApp({
           sortDir={sortDir}
           onSort={onSort}
           matchSnippets={matchSnippets}
+          fullLogSearchEnabled={fullLogSearchEnabled}
           autoLoadEnabled={!hasFilters}
         />
         {hasFilters && hasMore && (
