@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import type { ApexLogRow } from '../shared/types';
 import { LogsTable } from '../components/LogsTable';
@@ -32,6 +32,7 @@ const t = {
     application: 'Application',
     operation: 'Operation',
     time: 'Time',
+    duration: 'Duration',
     status: 'Status',
     codeUnitStarted: 'Code Unit',
     size: 'Size',
@@ -79,13 +80,15 @@ describe('LogsTable', () => {
     hasMore = true,
     loading = false,
     captured,
-    autoLoadEnabled
+    autoLoadEnabled,
+    fullLogSearchEnabled = true
   }: {
     rows?: ApexLogRow[];
     hasMore?: boolean;
     loading?: boolean;
     captured: CapturedList;
     autoLoadEnabled?: boolean;
+    fullLogSearchEnabled?: boolean;
   }) {
     const loadMoreMock = jest.fn();
     const virtualList = createVirtualList(captured);
@@ -109,11 +112,12 @@ describe('LogsTable', () => {
         autoLoadEnabled={autoLoadEnabled}
         onLoadMore={loadMoreMock}
         virtualListComponent={virtualList}
+        fullLogSearchEnabled={fullLogSearchEnabled}
       />
     );
     return {
       loadMoreMock,
-      rerender: (next: Partial<typeof baseProps>) =>
+      rerender: (next: Partial<typeof baseProps> & { fullLogSearchEnabled?: boolean }) =>
         view.rerender(
           <LogsTable
             {...baseProps}
@@ -121,6 +125,7 @@ describe('LogsTable', () => {
             autoLoadEnabled={autoLoadEnabled}
             onLoadMore={loadMoreMock}
             virtualListComponent={virtualList}
+            fullLogSearchEnabled={next.fullLogSearchEnabled ?? fullLogSearchEnabled}
           />
         )
     };
@@ -191,6 +196,20 @@ describe('LogsTable', () => {
     });
     expect(captured.overscanCount).toBe(8);
     (performance as any).now = originalNow;
+  });
+
+  it('shows match column and hides code unit when full log search is enabled', () => {
+    const captured: CapturedList = {};
+    renderTable({ captured, fullLogSearchEnabled: true });
+    expect(screen.queryByText('Code Unit')).toBeNull();
+    expect(screen.getByText('Match')).toBeInTheDocument();
+  });
+
+  it('shows code unit column and hides match when full log search is disabled', () => {
+    const captured: CapturedList = {};
+    renderTable({ captured, fullLogSearchEnabled: false });
+    expect(screen.getByText('Code Unit')).toBeInTheDocument();
+    expect(screen.queryByText('Match')).toBeNull();
   });
 
   it('uses bottom proximity as a fallback trigger for pagination', async () => {

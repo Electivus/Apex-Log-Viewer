@@ -10,6 +10,8 @@ type ListRowProps = {
   rows: ApexLogRow[];
   logHead: LogHeadMap;
   matchSnippets: Record<string, { text: string; ranges: [number, number][] }>;
+  showCodeUnitColumn: boolean;
+  showMatchColumn: boolean;
   locale: string;
   t: any;
   loading: boolean;
@@ -44,7 +46,8 @@ export function LogsTable({
   sortDir,
   onSort,
   virtualListComponent,
-  autoLoadEnabled = true
+  autoLoadEnabled = true,
+  fullLogSearchEnabled
 }: {
   rows: ApexLogRow[];
   logHead: LogHeadMap;
@@ -63,6 +66,7 @@ export function LogsTable({
   ) => void;
   virtualListComponent?: typeof List;
   autoLoadEnabled?: boolean;
+  fullLogSearchEnabled: boolean;
 }) {
   const listRef = useRef<ListImperativeAPI | null>(null);
   const outerRef = useRef<HTMLDivElement | null>(null);
@@ -87,8 +91,27 @@ export function LogsTable({
   const autoLoadRef = useRef<boolean>(autoLoadEnabled);
   const onLoadMoreRef = useRef(onLoadMore);
   const lastLoadTsRef = useRef<number>(0);
-  const gridTemplate =
-    'minmax(160px,1fr) minmax(140px,1fr) minmax(200px,1.2fr) minmax(200px,1fr) minmax(110px,0.6fr) minmax(120px,0.8fr) minmax(260px,1.4fr) minmax(90px,0.6fr) minmax(320px,1.6fr) 96px';
+  const showMatchColumn = fullLogSearchEnabled;
+  const showCodeUnitColumn = !fullLogSearchEnabled;
+  const gridTemplate = useMemo(() => {
+    const columns = [
+      'minmax(160px,1fr)',
+      'minmax(140px,1fr)',
+      'minmax(200px,1.2fr)',
+      'minmax(200px,1fr)',
+      'minmax(110px,0.6fr)',
+      'minmax(120px,0.8fr)'
+    ];
+    if (showCodeUnitColumn) {
+      columns.push('minmax(260px,1.4fr)');
+    }
+    columns.push('minmax(90px,0.6fr)');
+    if (showMatchColumn) {
+      columns.push('minmax(320px,1.6fr)');
+    }
+    columns.push('96px');
+    return columns.join(' ');
+  }, [showCodeUnitColumn, showMatchColumn]);
   // Header is rendered by LogsHeader; keep container simple
 
   // autoPagingActivated will be flipped by the adaptive overscan listener below
@@ -130,8 +153,34 @@ export function LogsTable({
   const getItemSize = (index: number) => rowHeightsRef.current[index] ?? defaultRowHeight;
 
   const listRowProps = useMemo<ListRowProps>(
-    () => ({ rows, logHead, matchSnippets, locale, t, loading, onOpen, onReplay, gridTemplate, setRowHeight }),
-    [rows, logHead, matchSnippets, locale, t, loading, onOpen, onReplay, gridTemplate, setRowHeight]
+    () => ({
+      rows,
+      logHead,
+      matchSnippets,
+      showCodeUnitColumn,
+      showMatchColumn,
+      locale,
+      t,
+      loading,
+      onOpen,
+      onReplay,
+      gridTemplate,
+      setRowHeight
+    }),
+    [
+      rows,
+      logHead,
+      matchSnippets,
+      showCodeUnitColumn,
+      showMatchColumn,
+      locale,
+      t,
+      loading,
+      onOpen,
+      onReplay,
+      gridTemplate,
+      setRowHeight
+    ]
   );
 
   const renderRow = useCallback(({
@@ -140,6 +189,8 @@ export function LogsTable({
     rows: rowList,
     logHead: logHeadMap,
     matchSnippets: snippetMap,
+    showCodeUnitColumn: includeCodeUnit,
+    showMatchColumn: includeMatch,
     locale: rowLocale,
     t: messages,
     loading: isLoading,
@@ -155,6 +206,8 @@ export function LogsTable({
           r={row}
           logHead={logHeadMap}
           matchSnippet={snippetMap[row.Id]}
+          showCodeUnitColumn={includeCodeUnit}
+          showMatchColumn={includeMatch}
           locale={rowLocale}
           t={messages}
           loading={isLoading}
@@ -258,7 +311,16 @@ export function LogsTable({
 
   return (
     <div ref={outerRef} className="relative overflow-hidden">
-      <LogsHeader ref={headerRef} t={t} sortBy={sortBy} sortDir={sortDir} onSort={onSort} gridTemplate={gridTemplate} />
+      <LogsHeader
+        ref={headerRef}
+        t={t}
+        sortBy={sortBy}
+        sortDir={sortDir}
+        onSort={onSort}
+        gridTemplate={gridTemplate}
+        showCodeUnitColumn={showCodeUnitColumn}
+        showMatchColumn={showMatchColumn}
+      />
       <VirtualList
         style={{ height: measuredListHeight, width: '100%' }}
         rowCount={rows.length}

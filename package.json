@@ -124,7 +124,7 @@
         },
         "electivus.apexLogs.enableFullLogSearch": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "markdownDescription": "%configuration.electivus.apexLogs.enableFullLogSearch.description%"
         },
         "sfLogs.pageSize": {
