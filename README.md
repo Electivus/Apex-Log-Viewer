@@ -13,7 +13,7 @@ Fast, searchable, telemetry-conscious Salesforce Apex logs—right inside Visual
 ![Rating](https://img.shields.io/visual-studio-marketplace/r/electivus.apex-log-viewer)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 
-> Updated on October 12, 2025 — release automation applies the semantic version during packaging; the repository stays at 0.0.0 between releases.
+> Release automation applies the semantic version during packaging; the repository stays at 0.0.0 between releases.
 
 ## Why Salesforce developers choose Electivus
 

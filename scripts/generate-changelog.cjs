@@ -16,9 +16,7 @@ async function run() {
     'conventionalcommits',
     '-i',
     'CHANGELOG.md',
-    '-s',
-    '--release-count',
-    '1'
+    '-s'
   ];
 
   await new Promise((resolve, reject) => {
