@@ -1,50 +1,73 @@
-name: Pre-release (manual)
+name: Pre-release (nightly)
 
 on:
+  schedule:
+    - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
-      base_branch:
-        description: 'Branch to build from'
-        required: false
-        default: 'main'
-        type: string
       label:
-        description: 'Optional label for the pre-release (defaults to UTC date)'
+        description: 'Optional label for the nightly tag/title (defaults to date)'
         required: false
         type: string
-      publish_marketplace:
-        description: 'Publish to VS Code Marketplace'
-        required: true
-        default: true
-        type: boolean
-      publish_github:
-        description: 'Create GitHub pre-release (tag + release)'
-        required: true
-        default: true
-        type: boolean
+
+concurrency:
+  group: prerelease-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
-concurrency:
-  group: prerelease-${{ github.event.inputs.base_branch || 'main' }}
-  cancel-in-progress: false
-
 jobs:
-  prerelease:
-    name: Build Pre-release
+  check_changes:
+    name: Check for changes since last pre-release
     runs-on: ubuntu-latest
-    env:
-      INPUT_LABEL: ${{ github.event.inputs.label || '' }}
-      BASE_BRANCH: ${{ github.event.inputs.base_branch || 'main' }}
-      PUBLISH_MARKETPLACE: ${{ github.event.inputs.publish_marketplace || 'true' }}
-      PUBLISH_GITHUB: ${{ github.event.inputs.publish_github || 'true' }}
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ env.BASE_BRANCH }}
+
+      - name: Detect changes since last pre-release
+        id: check
+        run: |
+          set -euo pipefail
+          HEAD_SHA=$(git rev-parse HEAD)
+          AT_HEAD=$(git tag --points-at "$HEAD_SHA" | grep -E '^(v[0-9]+\.[0-9]+\.[0-9]+|pre-[0-9]+\.[0-9]+\.[0-9]+)$' || true)
+          if [ -n "$AT_HEAD" ]; then
+            echo "HEAD already tagged: $AT_HEAD (skipping nightly)"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          LAST_TAG=$(git tag --list 'v*' --sort=-v:refname | (grep -E '^v[0-9]+\.[0-9]*[13579]\.[0-9]+$' || true) | head -n 1)
+          if [ -z "$LAST_TAG" ]; then
+            LAST_TAG=$(git tag --list 'pre-*' --sort=-v:refname | head -n 1)
+          fi
+          if [ -z "$LAST_TAG" ]; then
+            echo "No pre-release tags found; proceeding"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "Latest pre-release tag: $LAST_TAG"
+            TAG_SHA=$(git rev-list -n1 "$LAST_TAG")
+            if [ "$TAG_SHA" = "$HEAD_SHA" ]; then
+              echo "No changes since last pre-release"
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            else
+              echo "Changes detected since $LAST_TAG"
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  build_and_test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: check_changes
+    if: needs.check_changes.outputs.has_changes == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
 
       - name: Setup Node.js 20.17.0
         uses: actions/setup-node@v5
@@ -55,183 +78,300 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Compute pre-release version
-        id: meta
-        shell: bash
-        run: |
-          set -euo pipefail
-          VERSION_JSON=$(node <<'NODE'
-          const { execSync, spawnSync } = require('child_process');
-          const fs = require('fs');
-          const inputLabel = process.env.INPUT_LABEL?.trim() ?? '';
-          const tagsRaw = execSync("git tag --list 'v*' --sort=-v:refname", { encoding: 'utf8' }).trim();
-          const tags = tagsRaw ? tagsRaw.split(/\r?\n/).filter(Boolean) : [];
-          let major = 0;
-          let minor = 1;
-          let basePatch = -1;
-          if (tags.length) {
-            const latestParts = tags[0].replace(/^v/, '').split('.').map(Number);
-            if (latestParts.length !== 3 || latestParts.some(Number.isNaN)) {
-              throw new Error(`Unable to parse latest tag ${tags[0]}`);
-            }
-            const [maj, min, patch] = latestParts;
-            major = maj;
-            if (min % 2 === 0) {
-              minor = min + 1;
-            } else {
-              minor = min;
-              basePatch = patch;
-            }
-          }
-          const parseTag = tag => {
-            const [maj, min, pat] = tag.replace(/^v/, '').split('.').map(Number);
-            return { major: maj, minor: min, patch: pat };
-          };
-          let localMaxPatch = basePatch;
-          for (const tag of tags) {
-            const info = parseTag(tag);
-            if (Number.isNaN(info.major) || Number.isNaN(info.minor) || Number.isNaN(info.patch)) {
-              continue;
-            }
-            if (info.major === major && info.minor === minor) {
-              if (info.patch > localMaxPatch) {
-                localMaxPatch = info.patch;
-              }
-            }
-          }
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          const extId = `${pkg.publisher}.${pkg.name}`;
-          let marketplacePatch = -1;
-          try {
-            const res = spawnSync('./node_modules/.bin/vsce', ['show', extId, '--json'], { encoding: 'utf8' });
-            if (res.status === 0 && res.stdout) {
-              const meta = JSON.parse(res.stdout);
-              const versions = Array.isArray(meta.versions) ? meta.versions : [];
-              for (const v of versions) {
-                const props = Array.isArray(v.properties) ? v.properties : [];
-                const isPre = props.some(p => p.key === 'Microsoft.VisualStudio.Code.PreRelease' && String(p.value) === 'true');
-                if (!isPre) continue;
-                const parts = String(v.version || '').split('.').map(Number);
-                if (parts.length !== 3 || parts.some(Number.isNaN)) continue;
-                const [maj, min, pat] = parts;
-                if (maj === major && min === minor && pat > marketplacePatch) {
-                  marketplacePatch = pat;
-                }
-              }
-            }
-          } catch (err) {
-            console.warn('vsce show failed:', err.message ?? err);
-          }
-          const newPatch = Math.max(localMaxPatch, marketplacePatch) + 1;
-          const version = `${major}.${minor}.${newPatch}`;
-          const tag = `v${version}`;
-          const shortSha = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
-          let label;
-          if (inputLabel) {
-            label = inputLabel;
-          } else {
-            const now = new Date();
-            const yyyy = now.getUTCFullYear();
-            const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-            const dd = String(now.getUTCDate()).padStart(2, '0');
-            label = `${yyyy}${mm}${dd}`;
-          }
-          process.stdout.write(JSON.stringify({ version, tag, label, shortSha }));
-          NODE
-          )
-          printf '%s' "$VERSION_JSON" > version.json
-          VERSION=$(jq -r '.version' version.json)
-          TAG=$(jq -r '.tag' version.json)
-          LABEL=$(jq -r '.label' version.json)
-          SHORTSHA=$(jq -r '.shortSha' version.json)
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "label=$LABEL" >> "$GITHUB_OUTPUT"
-          echo "shortsha=$SHORTSHA" >> "$GITHUB_OUTPUT"
-          {
-            echo "VERSION=$VERSION"
-            echo "TAG=$TAG"
-            echo "LABEL=$LABEL"
-            echo "SHORT_SHA=$SHORTSHA"
-          } >> "$GITHUB_ENV"
-
-      - name: Show computed version
-        run: |
-          echo "Pre-release version: $VERSION"
-          echo "Tag: $TAG"
-          echo "Label: $LABEL"
-
-      - name: Apply pre-release version
-        run: npm run version:set -- "$VERSION"
-
-      - name: Build extension bundle
+      - name: Build (type-check + lint + bundle)
         run: npm run package
 
-      - name: Run fast tests
+      - name: Run unit tests (fast)
         run: npm run test:unit:ci
 
-      - name: Package VSIX
-        id: package
+  prepare:
+    name: Prepare nightly metadata
+    needs: [check_changes]
+    if: needs.check_changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      label: ${{ steps.meta.outputs.label }}
+      shortsha: ${{ steps.meta.outputs.shortsha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 20.17.0
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.17.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compute nightly version
+        id: meta
         shell: bash
+        env:
+          INPUT_LABEL: ${{ github.event.inputs.label || '' }}
         run: |
           set -euo pipefail
-          rm -f *.vsix
-          npx --yes @vscode/vsce package --no-yarn --pre-release
-          VSIX=$(echo apex-log-viewer-*.vsix)
-          if [ -z "$VSIX" ]; then
-            echo "VSIX package not found" >&2
-            exit 1
+          BASE_VERSION=$(node -p "require('./package.json').version")
+          MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
+          MINOR=$(node -p "require('./package.json').version.split('.')[1]")
+          if [ $((MINOR % 2)) -eq 0 ]; then MINOR=$((MINOR+1)); fi
+          BASE_PATCH=$(node -p "require('./package.json').version.split('.')[2]")
+          EXT_ID=$(node -p "require('./package.json').publisher + '.' + require('./package.json').name")
+          export EXT_ID MAJOR MINOR
+          LATEST_PATCH=$(node -e "const {spawnSync}=require('child_process');const ext=process.env.EXT_ID;const r=spawnSync('./node_modules/.bin/vsce',['show',ext,'--json'],{encoding:'utf8'});try{if(r.status!==0)throw new Error(r.stderr||String(r.status));const meta=JSON.parse(r.stdout||'{}');const versions=Array.isArray(meta.versions)?meta.versions:[];const mj=+process.env.MAJOR,mn=+process.env.MINOR;let max=-1;for(const v of versions){const pre=(v.properties||[]).some(p=>p.key==='Microsoft.VisualStudio.Code.PreRelease'&&String(p.value)==='true');const parts=String(v.version||'').split('.').map(Number);if(!pre||parts.length<3)continue;const [M,m,p]=parts;if(M===mj&&m===mn&&Number.isFinite(p)&&p>max)max=p;}process.stdout.write(max>=0?String(max):'');}catch(e){process.stdout.write('');}")
+          if [ -z "$LATEST_PATCH" ]; then LATEST_PATCH=-1; fi
+          if [ $LATEST_PATCH -gt $BASE_PATCH ]; then
+            NEW_PATCH=$((LATEST_PATCH + 1))
+          else
+            NEW_PATCH=$((BASE_PATCH + 1))
           fi
-          echo "vsix=$VSIX" >> "$GITHUB_OUTPUT"
-          echo "VSIX=$VSIX" >> "$GITHUB_ENV"
+          if [ $NEW_PATCH -gt 2147483647 ]; then NEW_PATCH=2147483647; fi
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          SHORTSHA=$(git rev-parse --short HEAD)
+          if [ -z "$INPUT_LABEL" ]; then
+            LABEL=$(date -u +%Y%m%d)
+          else
+            LABEL="$INPUT_LABEL"
+          fi
+          echo "Computed nightly version: $BASE_VERSION -> $NEW_VERSION"
+          {
+            echo "version=$NEW_VERSION"
+            echo "tag=v$NEW_VERSION"
+            echo "label=$LABEL"
+            echo "shortsha=$SHORTSHA"
+          } >> "$GITHUB_OUTPUT"
+
+  package_vsix:
+    name: Package VSIX
+    needs: [prepare, build_and_test, check_changes]
+    if: needs.check_changes.outputs.has_changes == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            npm_arch: x64
+          - os: ubuntu-latest
+            target: linux-arm64
+            npm_arch: arm64
+          - os: windows-latest
+            target: win32-x64
+            npm_arch: x64
+          - os: windows-latest
+            target: win32-arm64
+            npm_arch: arm64
+          - os: macos-latest
+            target: darwin-x64
+            npm_arch: x64
+          - os: macos-latest
+            target: darwin-arm64
+            npm_arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PRE_RELEASE: 'true'
+      CHANNEL_SUFFIX: pre
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 20.17.0
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.17.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set nightly version in package.json
+        run: |
+          node -e "const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));pkg.version=process.env.VERSION;fs.writeFileSync('package.json',JSON.stringify(pkg,null,2)+'\n')"
+
+      - name: Build for packaging
+        run: npm run package
+
+      - name: Download ripgrep binary for target architecture
+        env:
+          npm_config_arch: ${{ matrix.npm_arch }}
+        run: node node_modules/@vscode/ripgrep/lib/postinstall.js --force
+
+      - name: Clean previous VSIX artifacts
+        run: |
+          node -e "const fs=require('fs');for (const f of fs.readdirSync('.')) if (f.endsWith('.vsix')) fs.rmSync(f);"
+
+      - name: Package VSIX target
+        shell: bash
+        env:
+          MATRIX_TARGET: ${{ matrix.target }}
+        run: |
+          node <<'NODE'
+          const { spawnSync } = require('child_process');
+          const fs = require('fs');
+          const target = process.env.MATRIX_TARGET;
+          const version = process.env.VERSION;
+          const suffix = process.env.CHANNEL_SUFFIX;
+          const outName = `apex-log-viewer-${version}-${suffix}-${target}.vsix`;
+          const args = ['--yes', '@vscode/vsce', 'package', '--no-yarn', '--target', target, '--out', outName, '--pre-release'];
+          const result = spawnSync('npx', args, { stdio: 'inherit', shell: process.platform === 'win32' });
+          if (result.status !== 0) {
+            process.exit(result.status ?? 1);
+          }
+          if (!fs.existsSync(outName)) {
+            console.error(`Expected VSIX ${outName} was not created.`);
+            process.exit(1);
+          }
+          NODE
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: apex-log-viewer-${{ env.VERSION }}-pre
-          path: ${{ steps.package.outputs.vsix }}
+          name: nightly-vsix-${{ matrix.target }}
+          path: |
+            ./*.vsix
 
-      - name: Publish to Marketplace
-        if: env.PUBLISH_MARKETPLACE == 'true'
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-          VERSION: ${{ env.VERSION }}
-        run: |
-          set -euo pipefail
-          if [ -z "${VSCE_PAT}" ]; then
-            echo "VSCE_PAT not configured; aborting publish." >&2
-            exit 1
-          fi
-          npx --yes @vscode/vsce publish --no-yarn --pre-release
+  assemble_release:
+    name: Create GitHub pre-release + VSIX artifact
+    needs: [package_vsix, prepare, check_changes]
+    if: needs.check_changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      LABEL: ${{ needs.prepare.outputs.label }}
+      SHORTSHA: ${{ needs.prepare.outputs.shortsha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
 
-      - name: Publish GitHub pre-release
-        if: env.PUBLISH_GITHUB == 'true'
-        env:
-          VERSION: ${{ env.VERSION }}
-          TAG: ${{ env.TAG }}
-          LABEL: ${{ env.LABEL }}
-          VSIX: ${{ env.VSIX }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download packaged VSIX artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: nightly-vsix-*
+          path: staging
+
+      - name: Collect VSIX files
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions"
-          git config user.email "github-actions@users.noreply.github.com"
-          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
-            git tag "$TAG"
-            git push origin "$TAG"
+          shopt -s nullglob
+          find staging -name '*.vsix' -exec mv {} . \;
+
+      - name: Rename VSIX with timestamp
+        id: rename
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          FILES=(apex-log-viewer-${VERSION}-pre-*.vsix)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No VSIX files found to rename" >&2
+            exit 1
           fi
-          TITLE="Pre-release $TAG"
-          if [ -n "$LABEL" ]; then
-            TITLE="$TITLE ($LABEL)"
-          fi
-          NOTES="Pre-release build from $SHORT_SHA"
+          for FILE in "${FILES[@]}"; do
+            TARGET=${FILE#apex-log-viewer-${VERSION}-pre-}
+            TARGET=${TARGET%.vsix}
+            NEW_NAME="apex-log-viewer-${VERSION}-pre-${LABEL}-${SHORTSHA}-${TARGET}.vsix"
+            mv "$FILE" "$NEW_NAME"
+            echo "Renamed $FILE -> $NEW_NAME"
+          done
+
+      - name: Upload VSIX artifact for publish
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-vsix
+          path: |
+            ./*.vsix
+
+      - name: Create or update GitHub pre-release
+        shell: bash
+        run: |
+          set -euo pipefail
+          TITLE="$TAG"
+          BODY="Automated nightly build.\n\nCommit: $GITHUB_SHA\nRun: $GITHUB_RUN_NUMBER"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$VSIX" --clobber
-            gh release edit "$TAG" --prerelease --notes "$NOTES" --title "$TITLE"
+            echo "Updating existing pre-release $TAG"
+            gh release edit "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
           else
-            gh release create "$TAG" "$VSIX" --prerelease --notes "$NOTES" --title "$TITLE"
+            echo "Creating pre-release $TAG"
+            gh release create "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
           fi
 
-      - name: Restore development version
-        run: npm run version:set -- 0.0.0
+      - name: Upload VSIX to GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          FILES=( *.vsix )
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No VSIX files found to upload" >&2
+            exit 1
+          fi
+          existing=$(gh release view "$TAG" --json assets --jq '.assets[].name' || true)
+          for FILE in "${FILES[@]}"; do
+            if echo "$existing" | grep -x "$FILE" >/dev/null 2>&1; then
+              gh release delete-asset "$TAG" "$FILE" -y || true
+            fi
+            gh release upload "$TAG" "$FILE" --clobber
+          done
+
+  marketplace:
+    name: Publish to Marketplace (pre-release channel)
+    needs: [assemble_release, prepare, check_changes]
+    if: github.repository == 'Electivus/Apex-Log-Viewer' && needs.check_changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: marketplace
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 20.17.0
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.17.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set nightly version in package.json
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          node -e "const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));pkg.version=process.env.VERSION;fs.writeFileSync('package.json',JSON.stringify(pkg,null,2)+'\n')"
+
+      - name: Download VSIX artifact from prerelease job
+        uses: actions/download-artifact@v5
+        with:
+          name: nightly-vsix
+          path: .
+
+      - name: Publish pre-release to Marketplace from VSIX
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        shell: bash
+        run: |
+          if [ -z "${VSCE_PAT}" ]; then
+            echo "VSCE_PAT not set; skipping publish." && exit 0
+          fi
+          shopt -s nullglob
+          FILES=( *.vsix )
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No VSIX found to publish" >&2
+            exit 1
+          fi
+          for FILE in "${FILES[@]}"; do
+            echo "Publishing ${FILE}"
+            npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release
+          done
