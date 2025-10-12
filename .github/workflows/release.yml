@@ -1,85 +1,179 @@
-name: Release (tags)
+name: Release (manual)
 
 on:
-  push:
-    tags:
-      - 'v*'
-
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (major.minor.patch) — even minor recommended for stable releases'
+        required: true
+        type: string
+      base_branch:
+        description: 'Branch to release from'
+        required: false
+        default: 'main'
+        type: string
+      publish_marketplace:
+        description: 'Publish to VS Code Marketplace'
+        required: true
+        default: true
+        type: boolean
+      publish_github:
+        description: 'Create/Update GitHub release'
+        required: true
+        default: true
+        type: boolean
+      changelog_pr:
+        description: 'Open PR with updated CHANGELOG.md'
+        required: true
+        default: true
+        type: boolean
+      release_notes_override:
+        description: 'Optional custom release notes (Markdown)'
+        required: false
+        type: string
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
-  build_and_test:
-    name: Build and Test (Node ${{ matrix.node }} • ${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest]
-        node: ['20.17.0']
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      sha: ${{ steps.meta.outputs.sha }}
+      release_notes_b64: ${{ steps.notes.outputs.encoded }}
+      release_notes_text: ${{ steps.notes.outputs.plain }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.base_branch }}
 
-      - name: Setup Node.js ${{ matrix.node }}
+      - name: Validate version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.event.inputs.version }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must follow major.minor.patch" >&2
+            exit 1
+          fi
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag v${VERSION} already exists" >&2
+            exit 1
+          fi
+          HEAD_SHA=$(git rev-parse HEAD)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 20.17.0
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build (type-check + lint + bundle)
+      - name: Apply release version
+        run: npm run version:set -- "${{ steps.meta.outputs.version }}"
+
+      - name: Build
         run: npm run build
 
-      - name: Run tests (unit + integration)
+      - name: Test
         run: npm run test:ci
+
+      - name: Generate changelog entry
+        run: npm run changelog:generate
+
+      - name: Extract release notes
+        id: notes
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          OVERRIDE: ${{ github.event.inputs.release_notes_override }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$OVERRIDE" ]]; then
+            printf '%s' "$OVERRIDE" > RELEASE_NOTES.md
+          else
+            node <<'NODE'
+            const fs = require('fs');
+            const version = process.env.VERSION;
+            const file = fs.readFileSync('CHANGELOG.md', 'utf8');
+            const regex = new RegExp('^##\\s.*' + version.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&') + '.*$', 'm');
+            const match = file.match(regex);
+            if (!match) {
+              console.error(`Unable to locate changelog entry for ${version}`);
+              process.exit(1);
+            }
+            const start = match.index;
+            const rest = file.slice(start);
+            const next = rest.indexOf('\n## ');
+            const section = (next === -1 ? rest : rest.slice(0, next)).trim();
+            fs.writeFileSync('RELEASE_NOTES.md', section ? section + '\n' : '');
+            NODE
+          fi
+          NOTES=$(cat RELEASE_NOTES.md)
+          # Ensure non-empty release notes
+          if [[ -z "$NOTES" ]]; then
+            NOTES="## ${VERSION}\n\nNo release notes generated."
+            printf '%s\n' "$NOTES" > RELEASE_NOTES.md
+          fi
+          ENCODED=$(python -c "import base64,sys;print(base64.b64encode(open('RELEASE_NOTES.md','rb').read()).decode(), end='')")
+          echo "plain<<'EOF'" >> "$GITHUB_OUTPUT"
+          cat RELEASE_NOTES.md >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "encoded=$ENCODED" >> "$GITHUB_OUTPUT"
+
+      - name: Reset development version
+        run: npm run version:set -- 0.0.0
+
+      - name: Detect changelog update
+        id: changelog_diff
+        run: |
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create changelog PR
+        if: github.event.inputs.changelog_pr == 'true' && steps.changelog_diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'docs: update changelog for v${{ steps.meta.outputs.version }}'
+          title: 'docs: update changelog for v${{ steps.meta.outputs.version }}'
+          branch: automation/changelog-v${{ steps.meta.outputs.version }}
+          delete-branch: true
+          base: ${{ github.event.inputs.base_branch }}
+          add-paths: |
+            CHANGELOG.md
+          body: |
+            Automated changelog update for v${{ steps.meta.outputs.version }}.
 
   package:
     name: Package VSIX
-    needs: build_and_test
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: linux-x64
-            npm_arch: x64
-          - os: ubuntu-latest
-            target: linux-arm64
-            npm_arch: arm64
-          - os: windows-latest
-            target: win32-x64
-            npm_arch: x64
-          - os: windows-latest
-            target: win32-arm64
-            npm_arch: arm64
-          - os: macos-latest
-            target: darwin-x64
-            npm_arch: x64
-          - os: macos-latest
-            target: darwin-arm64
-            npm_arch: arm64
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    permissions:
-      contents: write
-      actions: write
-    env:
-      TAG_NAME: ${{ github.ref_name }}
-      GH_TOKEN: ${{ github.token }}
-      GITHUB_TOKEN: ${{ github.token }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      artifact: ${{ steps.package.outputs.vsix }}
     steps:
-      - name: Checkout
+      - name: Checkout target commit
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.sha }}
 
-      - name: Setup Node.js 20.17.0
+      - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 20.17.0
@@ -88,255 +182,117 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify tag matches package.json version
-        shell: bash
-        run: |
-          set -euo pipefail
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "Tag $GITHUB_REF_NAME != package.json version $PKG_VERSION" >&2
-            exit 1
-          fi
+      - name: Apply release version
+        run: npm run version:set -- "${{ needs.prepare.outputs.version }}"
 
-      - name: Build + generate NLS assets
+      - name: Build (package prerequisites)
         run: npm run package
 
-      - name: Download ripgrep binary for target architecture
-        env:
-          npm_config_arch: ${{ matrix.npm_arch }}
-        run: node node_modules/@vscode/ripgrep/lib/postinstall.js --force
-
-      - name: Determine channel (stable vs pre-release)
-        id: determine_channel
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const version = require('./package.json').version;
-            const minor = Number(version.split('.')[1] || 0);
-            const tagName = process.env.TAG_NAME || '';
-            let preRelease = minor % 2 === 1;
-            if (/-pre|-beta|-alpha|-rc/.test(tagName)) {
-              preRelease = true;
-            }
-            core.exportVariable('VERSION', version);
-            core.exportVariable('PRE_RELEASE', preRelease ? 'true' : 'false');
-            core.exportVariable('CHANNEL_SUFFIX', preRelease ? 'pre' : 'stable');
-            core.setOutput('version', version);
-            core.setOutput('pre_release', preRelease ? 'true' : 'false');
-            core.setOutput('channel_suffix', preRelease ? 'pre' : 'stable');
-
-      - name: Clean previous VSIX artifacts
-        run: |
-          node -e "const fs=require('fs');for (const f of fs.readdirSync('.')) if (f.endsWith('.vsix')) fs.rmSync(f);"
-
-      - name: Package VSIX target
+      - name: Package VSIX
+        id: package
         shell: bash
         env:
-          MATRIX_TARGET: ${{ matrix.target }}
-          VERSION: ${{ steps.determine_channel.outputs.version }}
-          CHANNEL_SUFFIX: ${{ steps.determine_channel.outputs.channel_suffix }}
-          PRE_RELEASE: ${{ steps.determine_channel.outputs.pre_release }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          node <<'NODE'
-          const { spawnSync } = require('child_process');
-          const fs = require('fs');
-          const target = process.env.MATRIX_TARGET;
-          const version = process.env.VERSION;
-          const suffix = process.env.CHANNEL_SUFFIX;
-          const preRelease = process.env.PRE_RELEASE === 'true';
-          const outName = `apex-log-viewer-${version}-${suffix}-${target}.vsix`;
-          const args = ['--yes', '@vscode/vsce', 'package', '--no-yarn', '--target', target, '--out', outName];
-          if (preRelease) {
-            args.push('--pre-release');
-          }
-          const result = spawnSync('npx', args, { stdio: 'inherit', shell: process.platform === 'win32' });
-          if (result.status !== 0) {
-            process.exit(result.status ?? 1);
-          }
-          if (!fs.existsSync(outName)) {
-            console.error(`Expected VSIX ${outName} was not created.`);
-            process.exit(1);
-          }
-          NODE
+          set -euo pipefail
+          rm -f *.vsix
+          MINOR=$(python -c "import sys; print(int(sys.argv[1].split('.')[1]))" "$VERSION")
+          PRE_FLAG=""
+          if (( MINOR % 2 == 1 )); then
+            PRE_FLAG="--pre-release"
+          fi
+          npx --yes @vscode/vsce package --no-yarn $PRE_FLAG
+          VSIX=$(echo apex-log-viewer-*.vsix)
+          echo "vsix=$VSIX" >> "$GITHUB_OUTPUT"
 
-      - name: Upload VSIX artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: apex-log-viewer-${{ steps.determine_channel.outputs.version }}-${{ steps.determine_channel.outputs.channel_suffix }}-vsix-${{ matrix.target }}
-          path: |
-            ./*.vsix
-          if-no-files-found: error
+          name: apex-log-viewer-${{ needs.prepare.outputs.version }}-vsix
+          path: ${{ steps.package.outputs.vsix }}
 
-  publish:
-    name: Publish to Marketplace
-    if: github.repository == 'Electivus/Apex-Log-Viewer'
-    needs: package
+  publish-marketplace:
+    name: Publish Marketplace
+    needs: [prepare, package]
+    if: github.event.inputs.publish_marketplace == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: write
     environment: marketplace
     steps:
-      - name: Checkout
+      - name: Checkout target commit
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.sha }}
 
-      - name: Setup Node.js 20.17.0
+      - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 20.17.0
           cache: npm
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify tag matches package.json version
-        shell: bash
-        run: |
-          set -euo pipefail
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "Tag $GITHUB_REF_NAME != package.json version $PKG_VERSION" >&2
-            exit 1
-          fi
+      - name: Apply release version
+        run: npm run version:set -- "${{ needs.prepare.outputs.version }}"
 
-      - name: Build + generate NLS assets
+      - name: Build (package prerequisites)
         run: npm run package
 
-      - name: Determine channel (stable vs pre-release)
-        id: determine_channel
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const version = require('./package.json').version;
-            const minor = Number(version.split('.')[1] || 0);
-            const tagName = process.env.TAG_NAME || '';
-            let preRelease = minor % 2 === 1;
-            if (/-pre|-beta|-alpha|-rc/.test(tagName)) {
-              preRelease = true;
-            }
-            core.exportVariable('VERSION', version);
-            core.exportVariable('PRE_RELEASE', preRelease ? 'true' : 'false');
-            core.exportVariable('CHANNEL_SUFFIX', preRelease ? 'pre' : 'stable');
-            core.setOutput('version', version);
-            core.setOutput('pre_release', preRelease ? 'true' : 'false');
-            core.setOutput('channel_suffix', preRelease ? 'pre' : 'stable');
-
-      - name: Ensure GitHub release exists
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-          PRE_RELEASE: ${{ steps.determine_channel.outputs.pre_release }}
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
-            echo "Release ${TAG_NAME} already exists"
-          else
-            TITLE="${TAG_NAME}"
-            NOTES="Automated placeholder release created by CI."
-            if [ "${PRE_RELEASE}" = "true" ]; then
-              gh release create "${TAG_NAME}" --title "${TITLE}" --notes "${NOTES}" --prerelease
-            else
-              gh release create "${TAG_NAME}" --title "${TITLE}" --notes "${NOTES}"
-            fi
-          fi
-
-      - name: Set GitHub Release prerelease flag automatically
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-          PRE_RELEASE: ${{ steps.determine_channel.outputs.pre_release }}
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Setting prerelease=${PRE_RELEASE} for ${TAG_NAME}"
-          RID=$(gh api -X GET repos/${{ github.repository }}/releases/tags/${TAG_NAME} -q .id)
-          if [ "${PRE_RELEASE}" = "true" ]; then
-            gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=true
-          else
-            gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=false
-          fi
-
-      - name: Download packaged VSIX artifacts
-        uses: actions/download-artifact@v5
-        with:
-          pattern: apex-log-viewer-${{ steps.determine_channel.outputs.version }}-${{ steps.determine_channel.outputs.channel_suffix }}-vsix-*
-          path: vsix
-
-      - name: Collect VSIX files
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          find vsix -name '*.vsix' -exec mv {} . \;
-
-      - name: Publish from VSIX artifact
+      - name: Publish to Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-          PRE_RELEASE: ${{ steps.determine_channel.outputs.pre_release }}
-          VERSION: ${{ steps.determine_channel.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          MINOR=$(python -c "import sys; print(int(sys.argv[1].split('.')[1]))" "$VERSION")
+          FLAGS=("publish" "--no-yarn")
+          if (( MINOR % 2 == 1 )); then
+            FLAGS+=("--pre-release")
+          fi
+          npx --yes @vscode/vsce "${FLAGS[@]}"
+
+  github-release:
+    name: GitHub Release
+    needs: [prepare, package]
+    if: github.event.inputs.publish_github == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Download VSIX artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: apex-log-viewer-${{ needs.prepare.outputs.version }}-vsix
+          path: dist
+
+      - name: Create or update tag and release
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG_NAME: ${{ needs.prepare.outputs.tag }}
+          RELEASE_NOTES_B64: ${{ needs.prepare.outputs.release_notes_b64 }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${VSCE_PAT}" ]; then
-            echo "VSCE_PAT not set; skipping Marketplace publish."
-            exit 0
-          fi
-          shopt -s nullglob
-          FILES=( *.vsix )
-          if [ ${#FILES[@]} -eq 0 ]; then
-            echo "No VSIX found to publish" >&2
-            exit 1
-          fi
-          for FILE in "${FILES[@]}"; do
-            if [ "${PRE_RELEASE}" = "true" ]; then
-              echo "Publishing pre-release ${VERSION} from ${FILE}"
-              npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release
-            else
-              echo "Publishing stable ${VERSION} from ${FILE}"
-              npx --yes @vscode/vsce publish --packagePath "${FILE}"
-            fi
-          done
-
-      - name: Create or update GitHub release (pre-release)
-        if: steps.determine_channel.outputs.pre_release == 'true'
-        env:
-          TAG: ${{ github.ref_name }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TITLE="$TAG"
-          BODY="Automated pre-release."
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Updating existing pre-release $TAG"
-            gh release edit "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
+          NOTES_FILE=$(mktemp)
+          export NOTES_FILE
+          python -c "import base64, os; data = base64.b64decode(os.environ.get('RELEASE_NOTES_B64', '').encode() or b''); open(os.environ['NOTES_FILE'],'wb').write(data)"
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Tag $TAG_NAME already exists"
           else
-            echo "Creating pre-release $TAG"
-            gh release create "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
+            git tag "$TAG_NAME" "${{ needs.prepare.outputs.sha }}"
+            git push origin "$TAG_NAME"
           fi
-          # Upload VSIX(es) built in the package job
-          gh release upload "$TAG" ./*.vsix --clobber
-
-      - name: Create or update GitHub release (stable)
-        if: steps.determine_channel.outputs.pre_release != 'true'
-        env:
-          TAG: ${{ github.ref_name }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TITLE="$TAG"
-          BODY="Automated stable release."
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Updating existing release $TAG"
-            gh release edit "$TAG" --title "$TITLE" --notes "$BODY"
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" dist/*.vsix --clobber
+            gh release edit "$TAG_NAME" --notes-file "$NOTES_FILE" --title "$TAG_NAME"
           else
-            echo "Creating release $TAG"
-            gh release create "$TAG" --title "$TITLE" --notes "$BODY"
+            gh release create "$TAG_NAME" dist/*.vsix --notes-file "$NOTES_FILE" --title "$TAG_NAME"
           fi
-          # Upload VSIX(es) built in the package job
-          gh release upload "$TAG" ./*.vsix --clobber
-
-  # Note: CHANGELOG.md is maintained manually by the project.
