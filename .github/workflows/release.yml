@@ -290,9 +290,22 @@ jobs:
             git tag "$TAG_NAME" "${{ needs.prepare.outputs.sha }}"
             git push origin "$TAG_NAME"
           fi
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+          MINOR=$(python -c "import sys; print(int(sys.argv[1].split('.')[1]))" "$VERSION")
+          IS_PRE=false
+          if (( MINOR % 2 == 1 )); then
+            IS_PRE=true
+          fi
+          if gh release view "$TAG_NAME" >/tmp/release.json >/dev/null 2>&1; then
+            if [ "$IS_PRE" = true ]; then
+              gh release edit "$TAG_NAME" --notes-file "$NOTES_FILE" --title "$TAG_NAME" --prerelease
+            else
+              gh release edit "$TAG_NAME" --notes-file "$NOTES_FILE" --title "$TAG_NAME" --prerelease=false
+            fi
             gh release upload "$TAG_NAME" dist/*.vsix --clobber
-            gh release edit "$TAG_NAME" --notes-file "$NOTES_FILE" --title "$TAG_NAME"
           else
-            gh release create "$TAG_NAME" dist/*.vsix --notes-file "$NOTES_FILE" --title "$TAG_NAME"
+            if [ "$IS_PRE" = true ]; then
+              gh release create "$TAG_NAME" dist/*.vsix --notes-file "$NOTES_FILE" --title "$TAG_NAME" --prerelease
+            else
+              gh release create "$TAG_NAME" dist/*.vsix --notes-file "$NOTES_FILE" --title "$TAG_NAME"
+            fi
           fi
