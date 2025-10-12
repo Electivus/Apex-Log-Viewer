@@ -104,22 +104,7 @@ jobs:
           if [[ -n "$OVERRIDE" ]]; then
             printf '%s' "$OVERRIDE" > RELEASE_NOTES.md
           else
-            node <<'NODE'
-            const fs = require('fs');
-            const version = process.env.VERSION;
-            const file = fs.readFileSync('CHANGELOG.md', 'utf8');
-            const regex = new RegExp('^##\\s.*' + version.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&') + '.*$', 'm');
-            const match = file.match(regex);
-            if (!match) {
-              console.error(`Unable to locate changelog entry for ${version}`);
-              process.exit(1);
-            }
-            const start = match.index;
-            const rest = file.slice(start);
-            const next = rest.indexOf('\n## ');
-            const section = (next === -1 ? rest : rest.slice(0, next)).trim();
-            fs.writeFileSync('RELEASE_NOTES.md', section ? section + '\n' : '');
-            NODE
+            node -e "const fs=require('fs');const version=process.env.VERSION;const escaped=version.replace(/[.*+?^${}()|[\\]\\]/g,'\\\\$&');const file=fs.readFileSync('CHANGELOG.md','utf8');const regex=new RegExp('^##\\\\s.*'+escaped+'.*$', 'm');const match=file.match(regex);if(!match){console.error('Unable to locate changelog entry for '+version);process.exit(1);}const rest=file.slice(match.index);const next=rest.indexOf('\\n## ');const section=(next===-1?rest:rest.slice(0,next)).trim();fs.writeFileSync('RELEASE_NOTES.md', section?section+'\\n':'');"
           fi
           NOTES=$(cat RELEASE_NOTES.md)
           # Ensure non-empty release notes
