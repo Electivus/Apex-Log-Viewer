@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.15.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.14.1...v0.15.0) (2025-10-13)
+
+
+### Features
+
+* add scripts for setting version and generating changelog ([f1af7ed](https://github.com/Electivus/Apex-Log-Viewer/commit/f1af7edf0d19fb83511df8cc87b07a3030e5d382))
+* **logs:** enable full log search by default ([#326](https://github.com/Electivus/Apex-Log-Viewer/issues/326)) ([6fb2b8e](https://github.com/Electivus/Apex-Log-Viewer/commit/6fb2b8e818461a6b6a363d8479f034c31362a3eb))
+
 ## [0.14.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.12.0...v0.14.0) (2025-10-02)
 
 ### Features
