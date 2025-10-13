@@ -3,8 +3,7 @@
 This repository uses GitHub Actions to build, test, package, and publish the extension.
 
 - Workflow CI (`.github/workflows/ci.yml`): build/test only on `push` and `pull_request`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`).
-- Workflow release-please (`.github/workflows/release-please.yml`): runs on pushes to `main` and manual dispatch. Uses [googleapis/release-please](https://github.com/googleapis/release-please) to maintain a release PR, update `package.json`/`package-lock.json`, refresh `CHANGELOG.md`, and create GitHub releases and tags automatically once the PR merges.
-- Workflow Release (`.github/workflows/release.yml`): runs on tag pushes `v*` and when a GitHub release is published. Packages the VSIX and publishes to Marketplace automatically (if `VSCE_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
+- Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace automatically (if `VSCE_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
 - Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes automatically to the Marketplace pre‑release channel (when `VSCE_PAT` is set).
 
 Build & Test basics:
@@ -16,15 +15,14 @@ Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref.
 
 ## Release Flow
 
-Standard releases are driven by the release-please workflow.
+Standard releases are driven by git tags `v*`.
 
 1. Merge PRs using Conventional Commits (e.g., `feat:`, `fix:`, `docs:`).
-2. Dispatch `release-please` (or wait for the next push to `main`) to refresh the automated release PR.
-3. Review and merge the release PR that bumps version + changelog. The merge commit is conventional (`chore: release X.Y.Z`) so it passes PR checks.
-4. Once merged, the workflow creates a GitHub release, tag (`vX.Y.Z`), and curated release notes automatically.
-5. The Release workflow (triggered by the new tag/release) packages and publishes to the Marketplace automatically when `VSCE_PAT` is configured.
+2. Bump the version in `package.json` and push a tag `vX.Y.Z` for that commit.
+3. On tag push, the Release workflow packages and publishes to the Marketplace automatically (when `VSCE_PAT` is configured).
+4. The changelog (`CHANGELOG.md`) is maintained manually. Update it as part of preparing the release commit.
 
-Pre‑releases: nightly builds run daily and are published automatically to the Marketplace pre‑release channel when `VSCE_PAT` is configured; the VSIX is also attached to a GitHub pre‑release. release-please will default to bumping the patch version within the active minor; trigger the workflow after merging pre-release scoped work to generate the next candidate.
+Pre‑releases: nightly builds run daily and are published automatically to the Marketplace pre‑release channel when `VSCE_PAT` is configured; the VSIX is also attached to a GitHub pre‑release.
 
 See also: `docs/PUBLISHING.md` for the full Marketplace publishing flow and guidance.
 
@@ -41,4 +39,4 @@ See also: `docs/PUBLISHING.md` for the full Marketplace publishing flow and guid
 
 ## Changelog
 
-- Updated automatically by release-please in the generated release PR. Add hand-written context there if needed before merging.
+- Maintained manually in `CHANGELOG.md`. Follow SemVer and include notable changes and any BREAKING CHANGES.
