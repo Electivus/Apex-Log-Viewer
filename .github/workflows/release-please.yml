@@ -25,8 +25,53 @@ jobs:
     name: Prepare release PR or publish release
     runs-on: ubuntu-latest
     steps:
-      - name: Run release-please
-        uses: googleapis/release-please-action@v4
+      - name: Checkout repository
+        uses: actions/checkout@v5
         with:
-          command: manifest
-          release-as: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release-as || '' }}
+          fetch-depth: 0
+
+      - name: Run release-please (release PR)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_AS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release-as || '' }}
+          TARGET_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONFIG_FILE=".release-please-config.json"
+          MANIFEST_FILE=".release-please-manifest.json"
+          TARGET="${TARGET_BRANCH:-main}"
+          if [ -n "${RELEASE_AS}" ]; then
+            echo "Forcing next release version to ${RELEASE_AS}"
+            npx --yes release-please@17.1.2 release-pr \
+              --repo-url "${GITHUB_REPOSITORY}" \
+              --target-branch "${TARGET}" \
+              --config-file "${CONFIG_FILE}" \
+              --manifest-file "${MANIFEST_FILE}" \
+              --token "${GITHUB_TOKEN}" \
+              --release-as "${RELEASE_AS}"
+          else
+            npx --yes release-please@17.1.2 release-pr \
+              --repo-url "${GITHUB_REPOSITORY}" \
+              --target-branch "${TARGET}" \
+              --config-file "${CONFIG_FILE}" \
+              --manifest-file "${MANIFEST_FILE}" \
+              --token "${GITHUB_TOKEN}"
+          fi
+
+      - name: Run release-please (publish GitHub release)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONFIG_FILE=".release-please-config.json"
+          MANIFEST_FILE=".release-please-manifest.json"
+          TARGET="${TARGET_BRANCH:-main}"
+          npx --yes release-please@17.1.2 github-release \
+            --repo-url "${GITHUB_REPOSITORY}" \
+            --target-branch "${TARGET}" \
+            --config-file "${CONFIG_FILE}" \
+            --manifest-file "${MANIFEST_FILE}" \
+            --token "${GITHUB_TOKEN}"
