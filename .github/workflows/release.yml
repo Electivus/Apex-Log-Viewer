@@ -4,9 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+  release:
+    types: [published]
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -72,7 +74,7 @@ jobs:
       contents: write
       actions: write
     env:
-      TAG_NAME: ${{ github.ref_name }}
+      TAG_NAME: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
       GH_TOKEN: ${{ github.token }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
@@ -93,9 +95,10 @@ jobs:
         run: |
           set -euo pipefail
           PKG_VERSION=$(node -p "require('./package.json').version")
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG="${TAG_NAME:-${GITHUB_REF_NAME:-${GITHUB_REF:-}}}"
+          TAG_VERSION="${TAG#v}"
           if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "Tag $GITHUB_REF_NAME != package.json version $PKG_VERSION" >&2
+            echo "Tag ${TAG:-<unset>} != package.json version $PKG_VERSION" >&2
             exit 1
           fi
 
@@ -176,6 +179,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+    env:
+      TAG_NAME: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
     environment: marketplace
     steps:
       - name: Checkout
@@ -194,9 +199,10 @@ jobs:
         run: |
           set -euo pipefail
           PKG_VERSION=$(node -p "require('./package.json').version")
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG="${TAG_NAME:-${GITHUB_REF_NAME:-${GITHUB_REF:-}}}"
+          TAG_VERSION="${TAG#v}"
           if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "Tag $GITHUB_REF_NAME != package.json version $PKG_VERSION" >&2
+            echo "Tag ${TAG:-<unset>} != package.json version $PKG_VERSION" >&2
             exit 1
           fi
 
@@ -206,7 +212,7 @@ jobs:
       - name: Determine channel (stable vs pre-release)
         id: determine_channel
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
         uses: actions/github-script@v8
         with:
           script: |
@@ -225,8 +231,9 @@ jobs:
             core.setOutput('channel_suffix', preRelease ? 'pre' : 'stable');
 
       - name: Ensure GitHub release exists
+        if: github.event_name != 'release'
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
           PRE_RELEASE: ${{ steps.determine_channel.outputs.pre_release }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -246,7 +253,7 @@ jobs:
 
       - name: Set GitHub Release prerelease flag automatically
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
           PRE_RELEASE: ${{ steps.determine_channel.outputs.pre_release }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -304,18 +311,22 @@ jobs:
       - name: Create or update GitHub release (pre-release)
         if: steps.determine_channel.outputs.pre_release == 'true'
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           TITLE="$TAG"
           BODY="Automated pre-release."
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Updating existing pre-release $TAG"
-            gh release edit "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
+          if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
+            echo "Release event detected; preserving existing release notes for $TAG"
           else
-            echo "Creating pre-release $TAG"
-            gh release create "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "Updating existing pre-release $TAG"
+              gh release edit "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
+            else
+              echo "Creating pre-release $TAG"
+              gh release create "$TAG" --title "$TITLE" --notes "$BODY" --prerelease
+            fi
           fi
           # Upload VSIX(es) built in the package job
           gh release upload "$TAG" ./*.vsix --clobber
@@ -323,20 +334,24 @@ jobs:
       - name: Create or update GitHub release (stable)
         if: steps.determine_channel.outputs.pre_release != 'true'
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           TITLE="$TAG"
           BODY="Automated stable release."
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Updating existing release $TAG"
-            gh release edit "$TAG" --title "$TITLE" --notes "$BODY"
+          if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
+            echo "Release event detected; preserving existing release notes for $TAG"
           else
-            echo "Creating release $TAG"
-            gh release create "$TAG" --title "$TITLE" --notes "$BODY"
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "Updating existing release $TAG"
+              gh release edit "$TAG" --title "$TITLE" --notes "$BODY"
+            else
+              echo "Creating release $TAG"
+              gh release create "$TAG" --title "$TITLE" --notes "$BODY"
+            fi
           fi
           # Upload VSIX(es) built in the package job
           gh release upload "$TAG" ./*.vsix --clobber
 
-  # Note: CHANGELOG.md is maintained manually by the project.
+  # Note: CHANGELOG.md is updated automatically by release-please.
