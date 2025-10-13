@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## [0.16.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.14.1...v0.16.0) (2025-10-13)
+
+### Features
+
+- Logs: enable full log body search by default and surface highlighted match snippets directly in the table to streamline investigations. ([#326](https://github.com/Electivus/Apex-Log-Viewer/pull/326)) ([6fb2b8e](https://github.com/Electivus/Apex-Log-Viewer/commit/6fb2b8e))
+
+### Developer Experience
+
+- Devcontainer: add a ready-to-code VS Code development container with Salesforce CLI tooling preinstalled for contributors. ([#327](https://github.com/Electivus/Apex-Log-Viewer/pull/327)) ([7df5248](https://github.com/Electivus/Apex-Log-Viewer/commit/7df5248))
+
+### Build
+
+- Tooling: refresh TypeScript 5.9.3, React 19.2, Jest 30, Mocha 11.7.4, ESLint 9.37, Tailwind CLI 4.1.14, lint-staged 16.2.3, commitlint 20, vsce 3.6.2, and supporting type definitions to stay current with upstream changes. ([6d0a560](https://github.com/Electivus/Apex-Log-Viewer/commit/6d0a560), [dca2054](https://github.com/Electivus/Apex-Log-Viewer/commit/dca2054), [5f926b9](https://github.com/Electivus/Apex-Log-Viewer/commit/5f926b9), [3dd4893](https://github.com/Electivus/Apex-Log-Viewer/commit/3dd4893), [a103c46](https://github.com/Electivus/Apex-Log-Viewer/commit/a103c46), [3fdb68b](https://github.com/Electivus/Apex-Log-Viewer/commit/3fdb68b), [a4cb847](https://github.com/Electivus/Apex-Log-Viewer/commit/a4cb847), [275d092](https://github.com/Electivus/Apex-Log-Viewer/commit/275d092), [cbdeb33](https://github.com/Electivus/Apex-Log-Viewer/commit/cbdeb33), [85a073b](https://github.com/Electivus/Apex-Log-Viewer/commit/85a073b), [f6395ff](https://github.com/Electivus/Apex-Log-Viewer/commit/f6395ff), [9ff407a](https://github.com/Electivus/Apex-Log-Viewer/commit/9ff407a), [cfed608](https://github.com/Electivus/Apex-Log-Viewer/commit/cfed608), [360270a](https://github.com/Electivus/Apex-Log-Viewer/commit/360270a), [8b039c7](https://github.com/Electivus/Apex-Log-Viewer/commit/8b039c7), [29059f3](https://github.com/Electivus/Apex-Log-Viewer/commit/29059f3))
+- Actions: upgrade GitHub workflow helpers for comment management to their latest revisions for reliability. ([6af58ed](https://github.com/Electivus/Apex-Log-Viewer/commit/6af58ed), [baeafb5](https://github.com/Electivus/Apex-Log-Viewer/commit/baeafb5), [f3424f7](https://github.com/Electivus/Apex-Log-Viewer/commit/f3424f7))
+- Security: bump tar-fs to incorporate upstream fixes. ([03be988](https://github.com/Electivus/Apex-Log-Viewer/commit/03be988))
+
+### CI
+
+- Automation: ensure Codex review requests and comment guards run automatically on Dependabot updates. ([#303](https://github.com/Electivus/Apex-Log-Viewer/pull/303), [#316](https://github.com/Electivus/Apex-Log-Viewer/pull/316), [#317](https://github.com/Electivus/Apex-Log-Viewer/pull/317)) ([c17b1e1](https://github.com/Electivus/Apex-Log-Viewer/commit/c17b1e1), [d251e0c](https://github.com/Electivus/Apex-Log-Viewer/commit/d251e0c), [231e851](https://github.com/Electivus/Apex-Log-Viewer/commit/231e851))
+
 ## [0.14.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.12.0...v0.14.0) (2025-10-02)
 
 ### Features
