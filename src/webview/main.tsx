@@ -158,13 +158,6 @@ export function LogsApp({
     }
   };
 
-  useEffect(() => {
-    if (fullLogSearchEnabled && sortBy === 'codeUnit') {
-      setSortBy('time');
-      setSortDir('desc');
-    }
-  }, [fullLogSearchEnabled, sortBy]);
-
   const clearFilters = () => {
     updateQuery('');
     setFilterUser('');
