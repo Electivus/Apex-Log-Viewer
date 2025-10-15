@@ -198,10 +198,10 @@ describe('LogsTable', () => {
     (performance as any).now = originalNow;
   });
 
-  it('shows match column and hides code unit when full log search is enabled', () => {
+  it('shows match column while keeping code unit when full log search is enabled', () => {
     const captured: CapturedList = {};
     renderTable({ captured, fullLogSearchEnabled: true });
-    expect(screen.queryByText('Code Unit')).toBeNull();
+    expect(screen.getByText('Code Unit')).toBeInTheDocument();
     expect(screen.getByText('Match')).toBeInTheDocument();
   });
 

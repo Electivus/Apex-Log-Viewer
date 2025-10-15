@@ -92,7 +92,7 @@ export function LogsTable({
   const onLoadMoreRef = useRef(onLoadMore);
   const lastLoadTsRef = useRef<number>(0);
   const showMatchColumn = fullLogSearchEnabled;
-  const showCodeUnitColumn = !fullLogSearchEnabled;
+  const showCodeUnitColumn = true;
   const gridTemplate = useMemo(() => {
     const columns = [
       'minmax(160px,1fr)',
