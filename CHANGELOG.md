@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.18.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.17.0...v0.18.0) (2025-10-16)
+
+### Miscellaneous
+
+- Promote v0.17.0 changes to the stable channel without additional code updates.
+
 ## [0.17.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.16.0...v0.17.0) (2025-10-15)
 
 ### Bug Fixes
