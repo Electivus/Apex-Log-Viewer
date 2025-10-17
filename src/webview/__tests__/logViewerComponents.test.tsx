@@ -10,7 +10,7 @@ import { LogEntryList } from '../components/log-viewer/LogEntryList';
 
 describe('Log viewer components', () => {
   describe('LogViewerHeader', () => {
-    it('handles search updates and disables controls', () => {
+    it('handles search updates, disables controls, and exposes navigation', () => {
       const changes: string[] = [];
       const viewCalls: number[] = [];
       const { unmount } = render(
@@ -31,12 +31,18 @@ describe('Log viewer components', () => {
 
       const enabledChanges: string[] = [];
       const enabledView: number[] = [];
+      const nextCalls: number[] = [];
+      const prevCalls: number[] = [];
       render(
         <LogViewerHeader
           fileName=""
           search="debug"
           onSearchChange={value => enabledChanges.push(value)}
           onViewRaw={() => enabledView.push(1)}
+          matchCount={2}
+          activeMatchIndex={1}
+          onNextMatch={() => nextCalls.push(1)}
+          onPreviousMatch={() => prevCalls.push(1)}
         />
       );
       screen.getByText('Debug Log Analysis');
@@ -47,6 +53,22 @@ describe('Log viewer components', () => {
 
       fireEvent.click(screen.getByText('View Raw'));
       expect(enabledView).toHaveLength(1);
+
+      // Navigation controls show match counts and are enabled
+      screen.getByText('2/2');
+      const prev = screen.getByLabelText('Previous match');
+      const next = screen.getByLabelText('Next match');
+      expect(prev).not.toBeDisabled();
+      expect(next).not.toBeDisabled();
+      fireEvent.click(prev);
+      fireEvent.click(next);
+      expect(prevCalls).toHaveLength(1);
+      expect(nextCalls).toHaveLength(1);
+
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(nextCalls).toHaveLength(2);
+      fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+      expect(prevCalls).toHaveLength(2);
     });
   });
 
@@ -170,6 +192,24 @@ describe('Log viewer components', () => {
         expect(badge.className.length).toBeGreaterThan(0);
       }
     );
+
+    it('highlights matches and active match tokens', () => {
+      render(
+        <LogEntryRow
+          entry={baseEntry}
+          highlighted={false}
+          isMatch
+          isActiveMatch
+          searchTerm="debug"
+          onMeasured={() => {}}
+        />
+      );
+      const candidates = screen.getAllByText(/Debug/i);
+      const mark = candidates.find(node => node.tagName === 'MARK');
+      expect(mark).toBeDefined();
+      const highlightedRow = document.querySelector('.ring-1');
+      expect(highlightedRow).not.toBeNull();
+    });
   });
 
   describe('LogEntryList', () => {
@@ -225,13 +265,15 @@ describe('Log viewer components', () => {
         );
       };
 
-      const StubRow = ({ entry, highlighted, onMeasured }: any) => {
+      const StubRow = ({ entry, highlighted, onMeasured, isMatch, isActiveMatch }: any) => {
         React.useEffect(() => {
           const value = 72 + entry.id;
           captured.measured.push(value);
           onMeasured(value);
         }, [entry, onMeasured]);
         captured.highlighted[entry.id] = highlighted;
+        captured.highlighted[`${entry.id}-match`] = isMatch;
+        captured.highlighted[`${entry.id}-active`] = isActiveMatch;
         return <div data-testid={`row-${entry.id}`}>{entry.message}</div>;
       };
 
@@ -241,12 +283,17 @@ describe('Log viewer components', () => {
           highlightCategory="debug"
           virtualListComponent={VirtualList}
           RowComponent={StubRow}
+          matchIndices={[0]}
+          activeMatchIndex={0}
+          searchTerm="debug"
         />
       );
 
       await waitFor(() => {
         expect(captured.highlighted[0]).toBe(true);
         expect(captured.highlighted[1]).toBe(false);
+        expect(captured.highlighted['0-match']).toBe(true);
+        expect(captured.highlighted['0-active']).toBe(true);
       });
 
       await waitFor(() => {

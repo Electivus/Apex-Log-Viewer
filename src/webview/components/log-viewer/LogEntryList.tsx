@@ -6,15 +6,29 @@ import { LogEntryRow } from './LogEntryRow';
 interface Props {
   entries: ParsedLogEntry[];
   highlightCategory?: LogCategory;
+  matchIndices?: number[];
+  activeMatchIndex?: number;
+  searchTerm?: string;
+  listRef?: React.RefObject<ListImperativeAPI | null>;
   virtualListComponent?: typeof List;
   RowComponent?: typeof LogEntryRow;
 }
 
-export function LogEntryList({ entries, highlightCategory, virtualListComponent, RowComponent }: Props) {
+export function LogEntryList({
+  entries,
+  highlightCategory,
+  matchIndices,
+  activeMatchIndex,
+  searchTerm,
+  listRef,
+  virtualListComponent,
+  RowComponent
+}: Props) {
   const defaultRowHeight = 64;
   const rowHeightsRef = useRef<Record<number, number>>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const listRef = useRef<ListImperativeAPI | null>(null);
+  const internalListRef = useRef<ListImperativeAPI | null>(null);
+  const resolvedListRef = listRef ?? internalListRef;
   const [height, setHeight] = useState<number>(420);
   const rafRef = useRef<number | null>(null);
   const [, forceRender] = useState(0);
@@ -65,16 +79,51 @@ export function LogEntryList({ entries, highlightCategory, virtualListComponent,
     };
   }, []);
 
-  const data = useMemo(() => ({ entries, highlightCategory, setRowHeight }), [entries, highlightCategory, setRowHeight]);
+  const matchSet = useMemo(() => {
+    if (!matchIndices || matchIndices.length === 0) {
+      return null;
+    }
+    return new Set(matchIndices);
+  }, [matchIndices]);
+
+  const activeMatchEntryIndex = useMemo(() => {
+    if (activeMatchIndex === undefined || activeMatchIndex === null || activeMatchIndex < 0) {
+      return undefined;
+    }
+    return matchIndices?.[activeMatchIndex];
+  }, [activeMatchIndex, matchIndices]);
+
+  const data = useMemo(
+    () => ({ entries, highlightCategory, setRowHeight, matchSet, activeMatchEntryIndex, searchTerm }),
+    [entries, highlightCategory, setRowHeight, matchSet, activeMatchEntryIndex, searchTerm]
+  );
 
   const renderRow = useCallback(
-    ({ index, style, entries: listEntries, highlightCategory: target, setRowHeight: measure }: any) => {
+    ({
+      index,
+      style,
+      entries: listEntries,
+      highlightCategory: target,
+      setRowHeight: measure,
+      matchSet: matchLookup,
+      activeMatchEntryIndex: activeIndex,
+      searchTerm: term
+    }: any) => {
       const entry = listEntries[index] as ParsedLogEntry | undefined;
       if (!entry) return null;
       const highlighted = target ? entry.category === target : false;
+      const isMatch = matchLookup ? matchLookup.has(index) : false;
+      const isActiveMatch = isMatch && activeIndex === index;
       return (
         <div style={style}>
-          <Row entry={entry} highlighted={highlighted} onMeasured={h => measure(index, h)} />
+          <Row
+            entry={entry}
+            highlighted={highlighted}
+            isMatch={isMatch}
+            isActiveMatch={isActiveMatch}
+            searchTerm={term}
+            onMeasured={h => measure(index, h)}
+          />
         </div>
       );
     },
@@ -88,7 +137,7 @@ export function LogEntryList({ entries, highlightCategory, virtualListComponent,
           <div className="px-6 py-8 text-sm text-muted-foreground">No entries match the current filters.</div>
         ) : (
           <VirtualList
-            listRef={listRef}
+            listRef={resolvedListRef}
             style={{ height, width: '100%' }}
             rowCount={entries.length}
             rowHeight={(index: number) => getItemSize(index)}

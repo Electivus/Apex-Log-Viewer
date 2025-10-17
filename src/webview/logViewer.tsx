@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { LogViewerFromWebviewMessage, LogViewerToWebviewMessage } from '../shared/logViewerMessages';
 import { parseLogLines, type ParsedLogEntry, type LogCategory } from './utils/logViewerParser';
@@ -8,6 +8,7 @@ import { LogEntryList } from './components/log-viewer/LogEntryList';
 import { LogViewerStatusBar } from './components/log-viewer/LogViewerStatusBar';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
+import type { ListImperativeAPI } from 'react-window';
 
 type Metadata = {
   sizeBytes?: number;
@@ -47,6 +48,8 @@ export function LogViewerApp({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>(undefined);
   const latestRequestId = useRef(0);
+  const listRef = useRef<ListImperativeAPI | null>(null);
+  const [activeMatchIndex, setActiveMatchIndex] = useState<number>(-1);
 
   const resolvedFetch = fetchImpl ?? (typeof fetch === 'function' ? fetch : undefined);
 
@@ -143,7 +146,6 @@ export function LogViewerApp({
   }, [entries]);
 
   const filteredEntries = useMemo(() => {
-    const needle = search.trim().toLowerCase();
     return entries.filter(entry => {
       switch (filter) {
         case 'debug':
@@ -156,16 +158,83 @@ export function LogViewerApp({
           if (entry.category !== 'dml') return false;
           break;
       }
-      if (!needle) {
-        return true;
-      }
+      return true;
+    });
+  }, [entries, filter]);
+
+  const trimmedSearch = useMemo(() => search.trim(), [search]);
+
+  const matchIndices = useMemo(() => {
+    const needle = trimmedSearch.toLowerCase();
+    if (!needle) {
+      return [] as number[];
+    }
+    const matches: number[] = [];
+    filteredEntries.forEach((entry, index) => {
       const haystack = [entry.timestamp, entry.type, entry.message, entry.details, entry.raw]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
-      return haystack.includes(needle);
+      if (haystack.includes(needle)) {
+        matches.push(index);
+      }
     });
-  }, [entries, search, filter]);
+    return matches;
+  }, [filteredEntries, trimmedSearch]);
+
+  useEffect(() => {
+    setActiveMatchIndex(prev => {
+      if (!trimmedSearch || matchIndices.length === 0) {
+        return -1;
+      }
+      if (prev >= 0 && prev < matchIndices.length) {
+        return prev;
+      }
+      return 0;
+    });
+  }, [matchIndices, trimmedSearch]);
+
+  const previousSearchRef = useRef<string>(trimmedSearch);
+
+  useEffect(() => {
+    if (activeMatchIndex < 0) {
+      previousSearchRef.current = trimmedSearch;
+      return;
+    }
+    const target = matchIndices[activeMatchIndex];
+    if (target === undefined) {
+      previousSearchRef.current = trimmedSearch;
+      return;
+    }
+    const previousSearch = previousSearchRef.current;
+    const behavior: ScrollBehavior = previousSearch === trimmedSearch ? 'smooth' : 'auto';
+    listRef.current?.scrollToRow({ index: target, align: 'center', behavior });
+    previousSearchRef.current = trimmedSearch;
+  }, [activeMatchIndex, matchIndices, trimmedSearch]);
+
+  const goToNextMatch = useCallback(() => {
+    if (matchIndices.length === 0) {
+      return;
+    }
+    setActiveMatchIndex(prev => {
+      if (prev < 0) {
+        return 0;
+      }
+      return (prev + 1) % matchIndices.length;
+    });
+  }, [matchIndices.length]);
+
+  const goToPreviousMatch = useCallback(() => {
+    if (matchIndices.length === 0) {
+      return;
+    }
+    setActiveMatchIndex(prev => {
+      if (prev < 0) {
+        return matchIndices.length - 1;
+      }
+      return (prev - 1 + matchIndices.length) % matchIndices.length;
+    });
+  }, [matchIndices.length]);
 
   const highlightCategory = mapFilterToCategory(filter);
 
@@ -181,6 +250,10 @@ export function LogViewerApp({
         onSearchChange={setSearch}
         onViewRaw={onViewRaw}
         disabled={loading}
+        matchCount={matchIndices.length}
+        activeMatchIndex={activeMatchIndex}
+        onNextMatch={goToNextMatch}
+        onPreviousMatch={goToPreviousMatch}
       />
       <LogViewerFilters active={filter} onChange={setFilter} counts={counts} locale={locale} />
       <main className="flex min-h-0 flex-1 flex-col bg-background/40">
@@ -193,7 +266,14 @@ export function LogViewerApp({
             Loading log entries…
           </div>
         ) : (
-          <LogEntryList entries={filteredEntries} highlightCategory={highlightCategory} />
+          <LogEntryList
+            entries={filteredEntries}
+            highlightCategory={highlightCategory}
+            matchIndices={matchIndices}
+            activeMatchIndex={activeMatchIndex >= 0 ? activeMatchIndex : undefined}
+            searchTerm={trimmedSearch}
+            listRef={listRef}
+          />
         )}
       </main>
       <LogViewerStatusBar counts={counts} locale={locale} metadata={metadata} />
