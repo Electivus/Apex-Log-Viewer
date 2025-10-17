@@ -72,9 +72,13 @@ describe('Log Viewer App', () => {
     fireEvent.click(screen.getByText('Debug Only'));
     fireEvent.click(screen.getByText('Debug Only'));
 
-    fireEvent.change(screen.getByPlaceholderText('Search entries…'), { target: { value: 'sem resultado' } });
-    await screen.findByText('No entries match the current filters.');
-    fireEvent.change(screen.getByPlaceholderText('Search entries…'), { target: { value: '' } });
+    const searchInput = screen.getByPlaceholderText('Search entries…');
+    fireEvent.change(searchInput, { target: { value: 'sem resultado' } });
+    await screen.findByText('Olá Mundo | Detalhe');
+    screen.getByText('0/0');
+    expect(screen.getByLabelText('Next match')).toBeDisabled();
+    fireEvent.change(searchInput, { target: { value: '' } });
+    await waitFor(() => expect(screen.queryByText('0/0')).toBeNull());
 
     fireEvent.click(screen.getByText('View Raw'));
 

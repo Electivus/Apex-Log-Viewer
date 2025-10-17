@@ -7,10 +7,13 @@ import { Bug, Database, Edit3, Settings, Info, AlertTriangle, Cpu } from 'lucide
 interface Props {
   entry: ParsedLogEntry;
   highlighted: boolean;
+  isMatch?: boolean;
+  isActiveMatch?: boolean;
+  searchTerm?: string;
   onMeasured: (height: number) => void;
 }
 
-export function LogEntryRow({ entry, highlighted, onMeasured }: Props) {
+export function LogEntryRow({ entry, highlighted, isMatch, isActiveMatch, searchTerm, onMeasured }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
@@ -29,13 +32,18 @@ export function LogEntryRow({ entry, highlighted, onMeasured }: Props) {
   }, [entry, onMeasured]);
 
   const { badgeClass, icon: Icon, iconClass } = getCategoryVisuals(entry.category);
+  const normalizedTerm = (searchTerm ?? '').trim();
+  const showMatchHighlight = normalizedTerm.length > 0 && isMatch;
 
   return (
     <div
       ref={ref}
       className={cn(
         'flex items-start gap-3 border-b border-border/40 px-4 py-2 text-xs transition-colors',
-        highlighted ? 'bg-sky-500/10' : 'hover:bg-muted/20'
+        !(highlighted || showMatchHighlight || isActiveMatch) && 'hover:bg-muted/20',
+        highlighted && 'bg-sky-500/10',
+        showMatchHighlight && 'bg-amber-500/10',
+        isActiveMatch && 'bg-amber-500/20 ring-1 ring-amber-400'
       )}
     >
       <div className="mt-0.5 min-w-[84px] font-mono text-[11px] text-muted-foreground">
@@ -51,15 +59,51 @@ export function LogEntryRow({ entry, highlighted, onMeasured }: Props) {
         {entry.lineNumber ? `[${entry.lineNumber}]` : ''}
       </div>
       <div className="flex-1 space-y-1 text-[12px] leading-relaxed text-foreground">
-        <div className="break-words text-sm">{entry.message || entry.raw}</div>
+        <div className="break-words text-sm">{highlightText(entry.message || entry.raw, normalizedTerm)}</div>
         {entry.details && (
           <div className="rounded-md bg-muted/15 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-inner">
-            {entry.details}
+            {highlightText(entry.details, normalizedTerm)}
           </div>
         )}
       </div>
     </div>
   );
+}
+
+function highlightText(text: string | undefined, term: string) {
+  if (!text) {
+    return null;
+  }
+  const trimmed = term.trim();
+  if (!trimmed) {
+    return text;
+  }
+  const lower = text.toLowerCase();
+  const needle = trimmed.toLowerCase();
+  if (!lower.includes(needle)) {
+    return text;
+  }
+  const parts: React.ReactNode[] = [];
+  let index = 0;
+  let matchIndex = lower.indexOf(needle, index);
+  let key = 0;
+  while (matchIndex !== -1) {
+    if (matchIndex > index) {
+      parts.push(text.slice(index, matchIndex));
+    }
+    const matchText = text.slice(matchIndex, matchIndex + trimmed.length);
+    parts.push(
+      <mark key={`match-${key++}`} className="rounded-sm bg-amber-500/40 px-[1px] text-foreground">
+        {matchText}
+      </mark>
+    );
+    index = matchIndex + trimmed.length;
+    matchIndex = lower.indexOf(needle, index);
+  }
+  if (index < text.length) {
+    parts.push(text.slice(index));
+  }
+  return <>{parts}</>;
 }
 
 function getCategoryVisuals(category: LogCategory) {
