@@ -79,7 +79,7 @@ describe('Log viewer components', () => {
         <LogViewerFilters
           active="all"
           onChange={next => calls.push(next)}
-          counts={{ total: 1234, debug: 12, soql: 5, dml: 3 }}
+          counts={{ total: 1234, debug: 12, errors: 2, soql: 5, dml: 3 }}
           locale="en-US"
         />
       );
@@ -89,6 +89,9 @@ describe('Log viewer components', () => {
 
       fireEvent.click(screen.getByText('SOQL'));
       expect(calls[1]).toBe('soql');
+
+      fireEvent.click(screen.getByText('Errors'));
+      expect(calls[2]).toBe('error');
 
       const showing = screen.getByText(/entries$/);
       expect(showing.textContent?.includes('1,234 entries')).toBe(true);
@@ -107,7 +110,7 @@ describe('Log viewer components', () => {
           <LogViewerFilters
             active="debug"
             onChange={() => {}}
-            counts={{ total: 999, debug: 456, soql: 0, dml: 0 }}
+            counts={{ total: 999, debug: 456, errors: 78, soql: 0, dml: 0 }}
             locale="zz-ZZ"
           />
         );
@@ -123,7 +126,7 @@ describe('Log viewer components', () => {
     it('renders metadata and formatted values', () => {
       render(
         <LogViewerStatusBar
-          counts={{ total: 2048, debug: 20, soql: 10, dml: 4 }}
+          counts={{ total: 2048, debug: 20, errors: 3, soql: 10, dml: 4 }}
           locale="en-US"
           metadata={{ sizeBytes: 1536, modifiedAt: '2025-09-21T17:30:00.000Z' }}
         />
@@ -131,6 +134,7 @@ describe('Log viewer components', () => {
 
       screen.getByText('Total Lines: 2,048');
       screen.getByText('Debug Statements: 20');
+      screen.getByText('Error Events: 3');
       screen.getByText('SOQL Queries: 10');
       screen.getByText('DML Operations: 4');
       screen.getByText('Size: 1.5 KB');
@@ -149,11 +153,12 @@ describe('Log viewer components', () => {
       try {
         render(
           <LogViewerStatusBar
-            counts={{ total: 12, debug: 1, soql: 2, dml: 3 }}
+            counts={{ total: 12, debug: 1, errors: 0, soql: 2, dml: 3 }}
             locale="bad-locale"
             metadata={{ sizeBytes: 512, modifiedAt: 'not-a-date' }}
           />
         );
+        screen.getByText('Error Events: 0');
         expect(screen.queryByText(/Updated:/)).toBeNull();
         screen.getByText('Size: 512 B');
       } finally {
@@ -182,7 +187,7 @@ describe('Log viewer components', () => {
       expect(screen.getByText('Context info')).toBeInTheDocument();
     });
 
-    it.each(['debug', 'soql', 'dml', 'code', 'limit', 'system', 'other'] as LogCategory[])(
+    it.each(['debug', 'soql', 'dml', 'code', 'limit', 'system', 'error', 'other'] as LogCategory[])(
       'applies visuals for %s entries',
       category => {
         const entry = { ...baseEntry, category, type: category.toUpperCase(), details: undefined };

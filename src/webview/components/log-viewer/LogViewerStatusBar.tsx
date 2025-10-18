@@ -5,6 +5,7 @@ interface Props {
   counts: {
     total: number;
     debug: number;
+    errors: number;
     soql: number;
     dml: number;
   };
@@ -30,6 +31,7 @@ export function LogViewerStatusBar({ counts, locale, metadata }: Props) {
       <div className="flex flex-wrap items-center gap-4">
         <span>Total Lines: {formatNumber(counts.total, locale)}</span>
         <span>Debug Statements: {formatNumber(counts.debug, locale)}</span>
+        <span>Error Events: {formatNumber(counts.errors, locale)}</span>
         <span>SOQL Queries: {formatNumber(counts.soql, locale)}</span>
         <span>DML Operations: {formatNumber(counts.dml, locale)}</span>
       </div>
