@@ -19,6 +19,8 @@ function mapFilterToCategory(filter: LogFilter): LogCategory | undefined {
   switch (filter) {
     case 'debug':
       return 'debug';
+    case 'error':
+      return 'error';
     case 'soql':
       return 'soql';
     case 'dml':
@@ -122,12 +124,16 @@ export function LogViewerApp({
 
   const counts = useMemo(() => {
     let debug = 0;
+    let errors = 0;
     let soql = 0;
     let dml = 0;
     for (const entry of entries) {
       switch (entry.category) {
         case 'debug':
           debug++;
+          break;
+        case 'error':
+          errors++;
           break;
         case 'soql':
           soql++;
@@ -140,6 +146,7 @@ export function LogViewerApp({
     return {
       total: entries.length,
       debug,
+      errors,
       soql,
       dml
     };
@@ -150,6 +157,9 @@ export function LogViewerApp({
       switch (filter) {
         case 'debug':
           if (entry.category !== 'debug') return false;
+          break;
+        case 'error':
+          if (entry.category !== 'error') return false;
           break;
         case 'soql':
           if (entry.category !== 'soql') return false;

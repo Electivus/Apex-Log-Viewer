@@ -1,10 +1,10 @@
 import React from 'react';
-import { Bug, Database, Edit3, Filter, Eye } from 'lucide-react';
+import { AlertOctagon, Bug, Database, Edit3, Filter, Eye } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
 
-export type LogFilter = 'all' | 'debug' | 'soql' | 'dml';
+export type LogFilter = 'all' | 'debug' | 'error' | 'soql' | 'dml';
 
 interface Props {
   active: LogFilter;
@@ -12,6 +12,7 @@ interface Props {
   counts: {
     total: number;
     debug: number;
+    errors: number;
     soql: number;
     dml: number;
   };
@@ -30,11 +31,13 @@ export function LogViewerFilters({ active, onChange, counts, locale }: Props) {
   const showing =
     active === 'debug'
       ? counts.debug
-      : active === 'soql'
-        ? counts.soql
-        : active === 'dml'
-          ? counts.dml
-          : counts.total;
+      : active === 'error'
+        ? counts.errors
+        : active === 'soql'
+          ? counts.soql
+          : active === 'dml'
+            ? counts.dml
+            : counts.total;
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-background/40 px-5 py-3 text-sm">
@@ -54,6 +57,20 @@ export function LogViewerFilters({ active, onChange, counts, locale }: Props) {
         >
           <Bug className="h-3.5 w-3.5" />
           Debug Only
+        </Button>
+        <Button
+          size="sm"
+          variant={active === 'error' ? 'default' : 'ghost'}
+          onClick={() => onChange(active === 'error' ? 'all' : 'error')}
+          className={cn(
+            'flex items-center gap-2',
+            active === 'error'
+              ? 'bg-rose-600 text-white hover:bg-rose-700'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <AlertOctagon className="h-3.5 w-3.5" />
+          Errors
         </Button>
         <Button
           size="sm"

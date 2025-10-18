@@ -2,7 +2,7 @@ import React, { useLayoutEffect, useRef } from 'react';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
 import type { LogCategory, ParsedLogEntry } from '../../utils/logViewerParser';
-import { Bug, Database, Edit3, Settings, Info, AlertTriangle, Cpu } from 'lucide-react';
+import { Bug, Database, Edit3, Settings, Info, AlertTriangle, AlertOctagon, Cpu } from 'lucide-react';
 
 interface Props {
   entry: ParsedLogEntry;
@@ -133,6 +133,12 @@ function getCategoryVisuals(category: LogCategory) {
         badgeClass: 'border-yellow-500/40 bg-yellow-500/15 text-yellow-200',
         icon: AlertTriangle,
         iconClass: 'text-yellow-400'
+      };
+    case 'error':
+      return {
+        badgeClass: 'border-red-500/40 bg-red-500/15 text-red-200',
+        icon: AlertOctagon,
+        iconClass: 'text-red-400'
       };
     case 'system':
       return {
