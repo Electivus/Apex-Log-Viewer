@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## [0.20.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.18.0...v0.20.0) (2025-10-22)
+
+### Features
+
+- Logs: add an error filter toggle to spotlight entries with error-level log lines. ([#351](https://github.com/Electivus/Apex-Log-Viewer/pull/351)) ([5a03c2c](https://github.com/Electivus/Apex-Log-Viewer/commit/5a03c2c))
+- Logs: support in-log navigation controls so search results can jump between matches. ([#350](https://github.com/Electivus/Apex-Log-Viewer/pull/350)) ([dd5203d](https://github.com/Electivus/Apex-Log-Viewer/commit/dd5203d))
+
 ## [0.18.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.17.0...v0.18.0) (2025-10-16)
 
 ### Miscellaneous
