@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Build
+
+- Workflows: publish VSIX artifacts to Open VSX when `OVSX_PAT` is configured.
+
 ## [0.20.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.18.0...v0.20.0) (2025-10-22)
 
 ### Features

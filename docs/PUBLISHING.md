@@ -3,11 +3,12 @@
 Maintainer quick start
 
 1. Create a Marketplace publisher and PAT, add secret `VSCE_PAT` in GitHub.
-2. For standard releases, update `CHANGELOG.md` manually, bump `package.json`, and push a tag `vX.Y.Z`.
-3. The Release workflow on the tag builds, attaches the `.vsix`, and—if `VSCE_PAT` exists—publishes automatically.
-4. Alternatively, publish locally with `npm run vsce:publish` (or `:pre`).
+2. Create an Open VSX namespace + PAT, add secret `OVSX_PAT` in GitHub.
+3. For standard releases, update `CHANGELOG.md` manually, bump `package.json`, and push a tag `vX.Y.Z`.
+4. The Release workflow on the tag builds, attaches the `.vsix`, and—if `VSCE_PAT`/`OVSX_PAT` exist—publishes automatically.
+5. Alternatively, publish locally with `npm run vsce:publish` (or `:pre`) and `npx --yes ovsx publish`.
 
-This repository includes an automated publish flow for the Visual Studio Code Marketplace with first‑class support for pre‑releases. It uses GitHub Actions and `vsce` and follows a simple semver convention:
+This repository includes automated publish flows for the Visual Studio Code Marketplace and Open VSX with first‑class support for pre‑releases. It uses GitHub Actions, `vsce`, and `ovsx` and follows a simple semver convention:
 
 - Stable: even minor versions (e.g., 0.6.0, 0.6.1).
 - Pre‑release: odd minor versions (e.g., 0.7.0, 0.7.1).
@@ -18,6 +19,8 @@ Prerequisites
 
 - Create a publisher and PAT on the VS Code Marketplace.
 - Add the PAT as the repository secret `VSCE_PAT` (Settings → Secrets and variables → Actions).
+- Create a namespace + PAT on Open VSX.
+- Add the PAT as the repository secret `OVSX_PAT` (Settings → Secrets and variables → Actions).
 
 How it works
 
@@ -26,6 +29,7 @@ How it works
   - Odd minor → pre‑release → `vsce publish --pre-release`.
   - Even minor → stable → `vsce publish`.
 - If `VSCE_PAT` is present, it publishes to Marketplace; otherwise it only attaches the `.vsix` artifact to the workflow run.
+- If `OVSX_PAT` is present, it publishes the same VSIX artifacts to Open VSX.
 
 Quick recipes
 
@@ -43,6 +47,8 @@ Local packaging/publish
 - Package a VSIX (pre‑release flag): `npm run vsce:package:pre`
 - Publish to Marketplace (stable): `npm run vsce:publish`
 - Publish to Marketplace (pre‑release): `npm run vsce:publish:pre`
+- Publish to Open VSX (stable): `npx --yes ovsx publish --pat <token>`
+- Publish to Open VSX (pre‑release): `npx --yes ovsx publish --pat <token> --pre-release`
 
 Notes
 

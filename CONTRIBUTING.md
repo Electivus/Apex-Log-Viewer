@@ -47,12 +47,14 @@ docs: improve README with Marketplace badges and usage
 - Merge PRs to `main` using Conventional Commits.
 - Update `CHANGELOG.md` manually for the new version (follow SemVer; include notable changes and any BREAKING CHANGES).
 - Bump `package.json` to the release version and push a tag `vX.Y.Z` pointing to that commit.
-- The Release workflow (on tag push) builds, packages, and publishes automatically to the Marketplace (when `VSCE_PAT` is configured).
+- The Release workflow (on tag push) builds, packages, and publishes automatically to the Marketplace (`VSCE_PAT`) and Open VSX (`OVSX_PAT`) when configured.
 
 Manual packaging (rare):
 
 - Stable: `npm run vsce:package` then `npm run vsce:publish`.
 - Pre‑release: `npm run vsce:package:pre` then `npm run vsce:publish:pre`.
+- Open VSX (stable): `npx --yes ovsx publish --pat <token>`.
+- Open VSX (pre‑release): `npx --yes ovsx publish --pat <token> --pre-release`.
 
 ## Pull Request Checklist
 
