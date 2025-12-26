@@ -391,7 +391,7 @@
     "@salesforce/apex-node": "^8.3.6",
     "@salesforce/core": "^8.23.1",
     "@vscode/extension-telemetry": "^1.1.0",
-    "@vscode/ripgrep": "^1.15.14",
+    "@vscode/ripgrep": "^1.17.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cross-spawn": "^7.0.6",
