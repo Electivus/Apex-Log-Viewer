@@ -261,7 +261,7 @@ jobs:
           fi
 
       - name: Download packaged VSIX artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           pattern: apex-log-viewer-${{ steps.determine_channel.outputs.version }}-${{ steps.determine_channel.outputs.channel_suffix }}-vsix-*
           path: vsix
