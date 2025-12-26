@@ -169,7 +169,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish to Marketplace
+    name: Publish to Marketplaces
     if: github.repository == 'Electivus/Apex-Log-Viewer'
     needs: package
     runs-on: ubuntu-latest
@@ -298,6 +298,34 @@ jobs:
             else
               echo "Publishing stable ${VERSION} from ${FILE}"
               npx --yes @vscode/vsce publish --packagePath "${FILE}"
+            fi
+          done
+
+      - name: Publish to Open VSX from VSIX artifact
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+          PRE_RELEASE: ${{ steps.determine_channel.outputs.pre_release }}
+          VERSION: ${{ steps.determine_channel.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${OVSX_PAT}" ]; then
+            echo "OVSX_PAT not set; skipping Open VSX publish."
+            exit 0
+          fi
+          shopt -s nullglob
+          FILES=( *.vsix )
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No VSIX found to publish" >&2
+            exit 1
+          fi
+          for FILE in "${FILES[@]}"; do
+            if [ "${PRE_RELEASE}" = "true" ]; then
+              echo "Publishing pre-release ${VERSION} to Open VSX from ${FILE}"
+              npx --yes ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}" --pre-release
+            else
+              echo "Publishing stable ${VERSION} to Open VSX from ${FILE}"
+              npx --yes ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}"
             fi
           done
 
