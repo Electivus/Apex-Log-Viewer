@@ -9,7 +9,6 @@ permissions:
 
 jobs:
   request-codex-review:
-    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     env:
       CODEX_REVIEW_COMMENTER_TOKEN: ${{ secrets.CODEX_REVIEW_COMMENTER_TOKEN }}
