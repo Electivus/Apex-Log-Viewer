@@ -1,6 +1,6 @@
 const { spawn, execFile, spawnSync } = require('child_process');
 const { platform, tmpdir } = require('os');
-const { mkdtempSync, writeFileSync, mkdirSync, rmSync } = require('fs');
+const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } = require('fs');
 const { join, resolve } = require('path');
 const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } = require('@vscode/test-electron');
 const { cleanVsCodeTest } = require('./clean-vscode-test.js');
@@ -9,11 +9,28 @@ function execFileAsync(file, args, opts = {}) {
   return new Promise((resolve, reject) => {
     execFile(file, args, { maxBuffer: 1024 * 1024 * 10, encoding: 'utf8', ...opts }, (err, stdout, stderr) => {
       if (err) {
-        const e = new Error(stderr || err.message);
+        const output = [stderr, stdout].filter(Boolean).join('\n').trim();
+        const e = new Error(output || err.message);
         e.code = err.code;
         return reject(e);
       }
       resolve({ stdout, stderr });
+    });
+  });
+}
+
+function execStreaming(file, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, args, { stdio: 'inherit', ...opts });
+    child.on('error', reject);
+    child.on('exit', code => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      const e = new Error(`Command failed: ${file} ${args.join(' ')}`);
+      e.code = code;
+      reject(e);
     });
   });
 }
@@ -158,17 +175,38 @@ async function whichSf() {
   }
 }
 
+async function resolveGlobalNpmBin() {
+  const attempts = [
+    ['npm', ['bin', '-g'], bin => bin],
+    ['npm', ['prefix', '-g'], prefix => (platform() === 'win32' ? prefix : join(prefix, 'bin'))],
+    ['npm', ['config', 'get', 'prefix'], prefix => (platform() === 'win32' ? prefix : join(prefix, 'bin'))]
+  ];
+  for (const [cmd, args, mapper] of attempts) {
+    try {
+      const { stdout } = await execFileAsync(cmd, args);
+      const raw = (stdout || '').trim();
+      if (raw) {
+        return mapper(raw);
+      }
+    } catch {
+      // try next option
+    }
+  }
+  return '';
+}
+
 async function addGlobalBinToPath() {
   try {
-    const { stdout } = await execFileAsync('npm', ['bin', '-g']);
-    const bin = (stdout || '').trim();
+    const bin = await resolveGlobalNpmBin();
     if (bin) {
       const sep = platform() === 'win32' ? ';' : ':';
       const pathNow = process.env.PATH || '';
       if (!pathNow.split(sep).includes(bin)) {
         process.env.PATH = bin + sep + pathNow;
       }
+      return;
     }
+    console.warn('Failed to locate global npm bin; continuing without it.');
   } catch (e) {
     console.warn('Failed to add global npm bin to PATH:', e && e.message ? e.message : e);
   }
@@ -316,7 +354,9 @@ async function ensureDefaultScratch(cli, { alias, durationDays, definitionJson, 
   }
 }
 
-async function pretestSetup(scope = 'all') {
+async function pretestSetup(scope = 'all', opts = {}) {
+  const smokeVsix = !!opts.smokeVsix;
+  const normalizedScope = String(scope || '').trim().toLowerCase();
   const devhubAuthUrl = process.env.SF_DEVHUB_AUTH_URL || process.env.SFDX_AUTH_URL;
   const devhubAlias = process.env.SF_DEVHUB_ALIAS || 'DevHub';
   const scratchAlias = process.env.SF_SCRATCH_ALIAS || 'ALV_Test_Scratch';
@@ -325,7 +365,7 @@ async function pretestSetup(scope = 'all') {
   // When running unit tests, skip any Salesforce CLI/Dev Hub setup.
   // Keep only the temporary workspace preparation below.
   let cleanup = async () => {};
-  if (String(scope) !== 'unit') {
+  if (normalizedScope !== 'unit' && !smokeVsix) {
     const cli = await ensureSfCliInstalled();
     if (!cli) {
       console.warn('[test-setup] Salesforce CLI not found; skipping org setup.');
@@ -336,7 +376,7 @@ async function pretestSetup(scope = 'all') {
         await ensureDevHub(cli, { authUrl: devhubAuthUrl, alias: devhubAlias });
       }
 
-      const toggle = process.env.SF_SETUP_SCRATCH || process.env.CI || devhubAuthUrl;
+      const toggle = process.env.SF_SETUP_SCRATCH || devhubAuthUrl;
       if (toggle) {
         const res = await ensureDefaultScratch(cli, {
           alias: scratchAlias,
@@ -438,7 +478,7 @@ async function run() {
     }
   }
 
-  const { cleanup } = await pretestSetup(args.scope);
+  const { cleanup } = await pretestSetup(args.scope, { smokeVsix: args.smokeVsix });
 
   // Hint Electron to avoid GPU issues in headless envs
   process.env.ELECTRON_DISABLE_GPU = process.env.ELECTRON_DISABLE_GPU || '1';
@@ -538,7 +578,17 @@ async function run() {
       await execFileAsync('npm', ['run', '-s', 'nls:write']);
     } catch {}
     // Create the VSIX (this will also run vscode:prepublish)
-    await execFileAsync('npx', ['--no-install', 'vsce', 'package', '--no-yarn']);
+    const localVsce = join(
+      process.cwd(),
+      'node_modules',
+      '.bin',
+      platform() === 'win32' ? 'vsce.cmd' : 'vsce'
+    );
+    if (existsSync(localVsce)) {
+      await execStreaming(localVsce, ['package', '--no-yarn']);
+    } else {
+      await execStreaming('npx', ['--yes', '@vscode/vsce', 'package', '--no-yarn']);
+    }
     const vsix = require('fs')
       .readdirSync(process.cwd())
       .find(f => /\.vsix$/.test(f));
