@@ -9,11 +9,28 @@ function execFileAsync(file, args, opts = {}) {
   return new Promise((resolve, reject) => {
     execFile(file, args, { maxBuffer: 1024 * 1024 * 10, encoding: 'utf8', ...opts }, (err, stdout, stderr) => {
       if (err) {
-        const e = new Error(stderr || err.message);
+        const output = [stderr, stdout].filter(Boolean).join('\n').trim();
+        const e = new Error(output || err.message);
         e.code = err.code;
         return reject(e);
       }
       resolve({ stdout, stderr });
+    });
+  });
+}
+
+function execStreaming(file, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, args, { stdio: 'inherit', ...opts });
+    child.on('error', reject);
+    child.on('exit', code => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      const e = new Error(`Command failed: ${file} ${args.join(' ')}`);
+      e.code = code;
+      reject(e);
     });
   });
 }
@@ -568,9 +585,9 @@ async function run() {
       platform() === 'win32' ? 'vsce.cmd' : 'vsce'
     );
     if (existsSync(localVsce)) {
-      await execFileAsync(localVsce, ['package', '--no-yarn']);
+      await execStreaming(localVsce, ['package', '--no-yarn']);
     } else {
-      await execFileAsync('npx', ['--yes', '@vscode/vsce', 'package', '--no-yarn']);
+      await execStreaming('npx', ['--yes', '@vscode/vsce', 'package', '--no-yarn']);
     }
     const vsix = require('fs')
       .readdirSync(process.cwd())
