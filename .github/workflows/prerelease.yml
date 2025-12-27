@@ -25,7 +25,7 @@ jobs:
       has_changes: ${{ steps.check.outputs.has_changes }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -67,7 +67,7 @@ jobs:
     if: needs.check_changes.outputs.has_changes == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup Node.js 20.17.0
         uses: actions/setup-node@v6
@@ -96,7 +96,7 @@ jobs:
       shortsha: ${{ steps.meta.outputs.shortsha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -181,7 +181,7 @@ jobs:
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup Node.js 20.17.0
         uses: actions/setup-node@v6
@@ -252,7 +252,7 @@ jobs:
       SHORTSHA: ${{ needs.prepare.outputs.shortsha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Download packaged VSIX artifacts
         uses: actions/download-artifact@v7
@@ -334,7 +334,7 @@ jobs:
     environment: marketplace
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup Node.js 20.17.0
         uses: actions/setup-node@v6
