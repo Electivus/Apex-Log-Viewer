@@ -7,7 +7,7 @@
 - Local Apex log captures belong in `apexlogs/` (gitignored). Supporting docs and prototypes live in `docs/` and `Visual Prototype for Apex Log/`. Automation scripts sit in `scripts/`.
 
 ## Build, Test, and Development Commands
-- `npm install` – install pinned dependencies (Node 20+).
+- `npm install` – install pinned dependencies (Node 22+).
 - `npm run watch` – incremental build for extension, tests, and webview; launch via VS Code `F5` for live debugging.
 - `npm run build` – run `build:extension` and `build:webview` for a release bundle.
 - `npm run lint` / `npm run format` – enforce ESLint (`eslint.config.mjs`) and Prettier across sources.

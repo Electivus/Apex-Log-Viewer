@@ -69,10 +69,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Node.js 20.17.0
+      - name: Setup Node.js 22.x
         uses: actions/setup-node@v6
         with:
-          node-version: 20.17.0
+          node-version: 22.x
           cache: npm
 
       - name: Install dependencies
@@ -100,10 +100,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js 20.17.0
+      - name: Setup Node.js 22.x
         uses: actions/setup-node@v6
         with:
-          node-version: 20.17.0
+          node-version: 22.x
           cache: npm
 
       - name: Install dependencies
@@ -183,10 +183,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Node.js 20.17.0
+      - name: Setup Node.js 22.x
         uses: actions/setup-node@v6
         with:
-          node-version: 20.17.0
+          node-version: 22.x
           cache: npm
 
       - name: Install dependencies
@@ -336,10 +336,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Node.js 20.17.0
+      - name: Setup Node.js 22.x
         uses: actions/setup-node@v6
         with:
-          node-version: 20.17.0
+          node-version: 22.x
           cache: npm
 
       - name: Install dependencies
