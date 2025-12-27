@@ -10,8 +10,8 @@
     "url": "https://github.com/Electivus/Apex-Log-Viewer"
   },
   "engines": {
-    "vscode": "^1.90.0",
-    "node": ">=20.17.0"
+    "vscode": "^1.101.0",
+    "node": "^22.0.0"
   },
   "icon": "media/icon.png",
   "galleryBanner": {
@@ -347,11 +347,11 @@
     "@types/jest": "^30.0.0",
     "@types/jsdom": "^27.0.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "24.x",
+    "@types/node": "^22.0.0",
     "@types/proxyquire": "^1.3.4",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.0",
-    "@types/vscode": "1.90.0",
+    "@types/vscode": "1.101.0",
     "@typescript-eslint/eslint-plugin": "^8.50.1",
     "@typescript-eslint/parser": "^8.46.3",
     "@vscode/test-electron": "^2.5.2",

@@ -8,7 +8,7 @@ This repository uses GitHub Actions to build, test, package, and publish the ext
 
 Build & Test basics:
 
-- Node 20 on `ubuntu-latest` with npm cache.
+- Node 22 on `ubuntu-latest` with npm cache.
 - `npm ci` → `npm run build` → tests. CI defaults to unit tests on manual runs; Release runs all tests.
 
 Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref.
