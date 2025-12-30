@@ -396,3 +396,27 @@ jobs:
             echo "Publishing ${FILE} to Open VSX"
             npx --yes ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}" --pre-release
           done
+
+  rollback_prerelease:
+    name: Roll back GitHub pre-release (if publish failed)
+    needs: [assemble_release, marketplace, prepare, check_changes]
+    if: >
+      always() && needs.check_changes.outputs.has_changes == 'true' &&
+      (needs.assemble_release.result == 'failure' || needs.assemble_release.result == 'cancelled' ||
+      needs.marketplace.result == 'failure' || needs.marketplace.result == 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Delete GitHub pre-release and tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Deleting pre-release $TAG due to downstream failure"
+            gh release delete "$TAG" --yes --cleanup-tag
+          else
+            echo "Pre-release $TAG does not exist; nothing to delete"
+          fi
