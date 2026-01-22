@@ -1,0 +1,26 @@
+{
+  "name": "Apex Log Viewer Dev",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "remoteUser": "node",
+  "updateRemoteUserUID": true,
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "salesforce.salesforcedx-vscode"
+      ],
+      "settings": {
+        "npm.packageManager": "npm",
+        "editor.formatOnSave": true
+      }
+    }
+  },
+  "postCreateCommand": "bash -lc \"INSTALL_LINUX_DEPS=true bash scripts/install-linux-deps.sh && npm install\"",
+  "containerEnv": {
+    "FORCE_COLOR": "1"
+  }
+}

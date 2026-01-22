@@ -1,145 +1,29 @@
-![Apex Log Viewer banner](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/media/banner.png)
+# Apex Log Viewer Tools
 
-# Electivus Apex Log Viewer
+Monorepo for the Electivus Apex Log Viewer ecosystem.
 
-Fast, searchable Salesforce Apex logs — right inside VS Code. Browse, filter, open, tail, and debug logs from your default or selected org with a streamlined VS Code panel and Apex Replay integration.
+## Structure
 
-[Install from Marketplace](https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer) · [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/Electivus/Apex-Log-Viewer/issues)
+- `apps/vscode-extension/` – VS Code extension.
+- `apps/cli/` – Rust CLI (`apex-log-viewer`).
+- `docs/` – shared documentation and design notes.
 
-![CI](https://github.com/Electivus/Apex-Log-Viewer/actions/workflows/ci.yml/badge.svg?branch=main)
-![VS Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/electivus.apex-log-viewer?label=Marketplace)
-![Installs](https://img.shields.io/visual-studio-marketplace/i/electivus.apex-log-viewer)
-![Downloads](https://img.shields.io/visual-studio-marketplace/d/electivus.apex-log-viewer)
-![Rating](https://img.shields.io/visual-studio-marketplace/r/electivus.apex-log-viewer)
-![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+## CLI (Rust)
 
-## Features
+Build:
 
-- Log explorer: Paginated table of Apex logs with columns for User, App, Operation, Time, Status, Code Unit, and Size.
-- Quick find and filters: Type to filter visible rows and combine with filters by User, Operation, Status, and Code Unit.
-- Sorting and infinite scroll: Click any header to sort; more logs load automatically as you scroll.
-- Open and debug: Open a log in the editor or start Apex Replay Debugger directly from the list.
-- Real‑time tail: Start tailing logs from the toolbar using your Salesforce CLI.
-- Org selector: Quickly switch between your authenticated orgs or use the CLI default.
-- Configurable: Tune `electivus.apexLogs.pageSize`, `electivus.apexLogs.headConcurrency`, and other options to fit your workflow. (Legacy `sfLogs.*` keys still work for backward compatibility.)
-- Localization: English and Brazilian Portuguese (pt‑BR).
+```bash
+cargo build -p apex-log-viewer-cli
+```
 
-Why developers like it
+Run:
 
-- Minimal clicks to find the right log.
-- Fast, responsive UI that scales to large orgs.
-- Works with both `sf` and legacy `sfdx` CLIs.
+```bash
+apex-log-viewer logs sync --limit 100 --target <alias|username>
+```
 
-## Screenshots
+`logs sync` creates `apexlogs/` under the current working directory and stores the latest logs there.
 
-![Overview](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/media/docs/hero.gif)
+## VS Code Extension
 
-![Apex Logs Tail](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/media/docs/apex-tail-log.gif)
-
-## Requirements
-
-- Salesforce CLI: Install either `sf` (recommended) or legacy `sfdx` and authenticate to an org.
-  - Login example: `sf org login web` (or `sfdx force:auth:web:login`).
-- VS Code 1.101+.
-- Required for Replay: Salesforce Extension Pack (salesforce.salesforcedx-vscode), which includes Apex Replay Debugger.
-  - A extensão não depende nem instala o pack automaticamente; se você tentar usar Replay sem o pack, abriremos a aba de Extensões apontando para o pacote para você instalar manualmente.
-
-## Install
-
-- From VS Code: open Extensions (Ctrl/Cmd+Shift+X), search for “Electivus Apex Log Viewer”, and click Install.
-- From the Marketplace: click “Install from Marketplace” above.
-- From the CLI: `code --install-extension electivus.apex-log-viewer`
-
-## Usage
-
-### Open the Apex Logs panel
-
-1. In VS Code, choose `View` > `Appearance` > `Panel`.
-2. Switch to the **Electivus Apex Logs** container to load recent logs.
-
-### Refresh logs
-
-- Click **Refresh** in the toolbar or run the command `Apex Logs: Refresh Logs`.
-
-### Search and filter
-
-- Type in the search box to narrow visible rows.
-- Use the filter buttons to limit by User, Operation, Status, or Code Unit. Combine search and filters for precise results.
-
-### Sort and paginate
-
-- Click any column header to toggle ascending or descending.
-- Additional logs load automatically as you scroll.
-
-### Open or debug a log
-
-- Double-click a row to open the log in the editor.
-- Use the action button on a row to launch Apex Replay Debugger.
-
-### Tail logs in real time
-
-- Choose **Tail Logs** from the toolbar to start streaming new logs. Run the command again to stop.
-
-### Select an org
-
-- Use the toolbar dropdown to switch between authenticated orgs or choose **Default Org**.
-
-## Commands
-
-- Electivus Apex Logs: Refresh Logs (`sfLogs.refresh`)
-- Electivus Apex Logs: Select Org (`sfLogs.selectOrg`)
-- Electivus Apex Logs: Tail Logs (`sfLogs.tail`)
-- Electivus Apex Logs: Show Extension Output (`sfLogs.showOutput`)
-
-## Settings
-
-- `electivus.apexLogs.pageSize`: Number of logs fetched per page (>= 10; default 100). Higher values may impact performance.
-- `electivus.apexLogs.headConcurrency`: Max concurrent requests to fetch log headers (>= 1; default 5). Very high values can overload APIs.
-- `electivus.apexLogs.saveDirName`: Folder name used when saving logs to disk (default `apexlogs`).
-- `electivus.apexLogs.trace`: Enable verbose trace logging of CLI and HTTP calls.
-
-See [docs/SETTINGS.md](docs/SETTINGS.md) for more details on configuration.
-
-API version is automatically taken from your workspace `sfdx-project.json` (`sourceApiVersion`).
-
-## Localization
-
-The extension uses localized strings for the extension UI and the in‑panel interface. English (en) and Brazilian Portuguese (pt-BR) are included.
-
-## Troubleshooting
-
-- “CLI not found”: Ensure `sf` (or `sfdx`) is installed and available on PATH. On macOS/Linux, ensure your login shell PATH includes the CLI (e.g., launch VS Code from the shell or configure the shell integration).
-- “Failed to launch Apex Replay Debugger”: Install the Salesforce Apex Replay Debugger extension.
-- “No orgs detected”: Ensure you’re authenticated (`sf org login web`) and try `sf org list`.
-
-## Architecture
-
-For a deeper dive into how the extension pieces fit together, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
-## Contributing
-
-See CONTRIBUTING.md for development setup, Conventional Commits, and our tag‑based release flow. Note: `CHANGELOG.md` is maintained manually.
-
-### Testing
-
-See docs/TESTING.md for how to run unit and integration tests (`npm run test:unit`, `npm run test:integration`, `npm run test:all`) and for environment variables such as `VSCODE_TEST_VERSION`, `VSCODE_TEST_INSTALL_DEPS`, `VSCODE_TEST_GREP`, and `VSCODE_TEST_TOTAL_TIMEOUT_MS`. Tests open a temporary workspace with an `sfdx-project.json` generated during the run.
-
-## Privacy & Security
-
-- No tokens are logged by default. When `electivus.apexLogs.trace` is enabled, verbose output is sent to the “Electivus Apex Log Viewer” output channel; review logs before sharing.
-- Telemetry: the extension may collect minimal, anonymized usage and error telemetry to help improve quality and performance. VS Code’s telemetry setting controls this behavior (see `settings.json` key `telemetry.telemetryLevel`).
-- We do not send your source code or Apex log content in telemetry.
-- The extension shells out to `sf`/`sfdx` for org access and reads logs locally.
-
-## Telemetry
-
-To help improve quality and performance, the extension may emit minimal, anonymized usage and error telemetry (for example: command invocation counts, non‑PII error categories like `ENOENT`/`ETIMEDOUT`, and coarse performance timings). We never include source code, Apex log content, access tokens, usernames, org IDs, or instance URLs in telemetry. Telemetry is disabled automatically in Development and Test modes (Extension Development Host and automated tests).
-
-Respecting your preferences:
-- VS Code’s `telemetry.telemetryLevel` setting controls whether telemetry is sent (values: `off`, `crash`, `error`, `all`). If set to `off`, the extension does not send telemetry.
-
-For details and implementer guidance, see `docs/TELEMETRY.md`.
-
-## License
-
-MIT © Electivus
+See `apps/vscode-extension/README.md` for development and usage.
