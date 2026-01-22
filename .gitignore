@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 node_modules
 out
 media/*.js
@@ -21,3 +22,4 @@ src/**/*.js.map
 apexlogs/
 memory.json
 Visual Prototype for Apex Log
+.worktrees/
