@@ -25,3 +25,5 @@ Visual Prototype for Apex Log
 .worktrees/
 
 apexlogs/
+
+target/
