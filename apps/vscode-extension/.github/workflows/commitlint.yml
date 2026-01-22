@@ -1,0 +1,34 @@
+name: commitlint
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited, reopened]
+
+permissions:
+  contents: read
+jobs:
+  lint-commits:
+    name: Validate commit messages
+    runs-on: ubuntu-latest
+    # Skip commitlint for automated bot PRs (e.g., Dependabot), since their bodies
+    # include long lines/links that violate our wrapping rules and are not human-authored.
+    if: ${{ github.actor != 'dependabot[bot]' && github.actor != 'github-actions[bot]' }}
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+
+      - name: Install commitlint deps
+        run: |
+          npm i -D @commitlint/cli @commitlint/config-conventional
+
+      - name: Run commitlint on PR commits
+        uses: wagoid/commitlint-github-action@v6
+        with:
+          configFile: commitlint.config.mjs
