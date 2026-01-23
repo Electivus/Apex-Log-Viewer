@@ -82,6 +82,11 @@
           "default": "apexlogs",
           "markdownDescription": "%configuration.electivus.apexLogs.saveDirName.description%"
         },
+        "electivus.apexLogs.cliPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "%configuration.electivus.apexLogs.cliPath.description%"
+        },
         "electivus.apexLogs.trace": {
           "type": "boolean",
           "default": false,

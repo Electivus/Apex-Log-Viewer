@@ -3,7 +3,6 @@ import { promises as fs } from 'fs';
 import { createLimiter, type Limiter } from '../utils/limiter';
 import { getOrgAuth } from '../salesforce/cli';
 import {
-  fetchApexLogs,
   fetchApexLogHead,
   fetchApexLogBody,
   extractCodeUnitStartedFromLines
@@ -11,12 +10,13 @@ import {
 import type { ApexLogCursor } from '../salesforce/http';
 import type { OrgAuth } from '../salesforce/types';
 import type { ApexLogRow } from '../shared/types';
-import { getLogFilePathWithUsername, findExistingLogFile } from '../utils/workspace';
+import { getLogFilePathWithUsername, findExistingLogFile, getWorkspaceRoot } from '../utils/workspace';
 import { ensureReplayDebuggerAvailable } from '../utils/warmup';
 import { getErrorMessage } from '../utils/error';
 import { logWarn, logInfo } from '../utils/logger';
 import { localize } from '../utils/localize';
 import { LogViewerPanel } from '../panel/LogViewerPanel';
+import { syncLogs } from '../utils/cliClient';
 
 export class LogService {
   private headLimiter: Limiter;
@@ -49,9 +49,20 @@ export class LogService {
     limit: number,
     offset: number,
     signal?: AbortSignal,
-    cursor?: ApexLogCursor
+    _cursor?: ApexLogCursor
   ): Promise<ApexLogRow[]> {
-    return fetchApexLogs(auth, limit, offset, undefined, undefined, signal, cursor);
+    const safeLimit = Math.max(1, Math.floor(limit));
+    const safeOffset = Math.max(0, Math.floor(offset));
+    const totalLimit = safeOffset + safeLimit;
+    const cwd = getWorkspaceRoot();
+    const output = await syncLogs({
+      limit: totalLimit,
+      target: auth.username,
+      cwd: cwd || undefined,
+      signal
+    });
+    const logs = Array.isArray(output.logs) ? output.logs : [];
+    return logs.slice(safeOffset, safeOffset + safeLimit);
   }
 
   loadLogHeads(

@@ -4,10 +4,11 @@ This document explains the internal structure of the Apex Log Viewer extension a
 
 ## High-level overview
 
-The extension has two main sides:
+The extension has two main sides (plus a shared CLI):
 
 1. **Extension host** – runs in Node.js inside VS Code and handles commands, log retrieval, and communication with Salesforce CLI.
 2. **Webview UI** – a React application bundled to `media/main.js` and rendered inside a VS Code webview. It presents logs, filters, and user interactions.
+3. **Apex Log Viewer CLI** – a Rust CLI (`apex-log-viewer`) that synchronizes Apex logs to `apexlogs/` and provides JSON output consumed by the extension.
 
 Both sides exchange messages using the `vscode` webview API with shared TypeScript interfaces defined in `src/shared`.
 
@@ -17,7 +18,8 @@ The activation entry point is `src/extension.ts`. It registers commands such as 
 
 Key responsibilities:
 
-- Execute Salesforce CLI commands (`sf` or `sfdx`) to list, tail, and download logs.
+- Execute Salesforce CLI commands (`sf` or `sfdx`) to retrieve auth details.
+- Invoke the `apex-log-viewer` CLI to sync logs and read the JSON results.
 - Maintain per-org state such as selected org and log cache.
 - Forward trace output to the "Electivus Apex Log Viewer" output channel when `electivus.apexLogs.trace` is enabled.
 

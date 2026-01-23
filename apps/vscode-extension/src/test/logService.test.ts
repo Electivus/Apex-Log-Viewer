@@ -8,21 +8,26 @@ import type { OrgAuth } from '../salesforce/types';
 import type { ApexLogRow } from '../shared/types';
 
 suite('LogService', () => {
-  test('fetchLogs delegates to fetchApexLogs', async () => {
+  test('fetchLogs delegates to cli sync', async () => {
     const calls: any[] = [];
     const { LogService } = proxyquire('../services/logService', {
-      '../salesforce/http': {
-        fetchApexLogs: (auth: OrgAuth, limit: number, offset: number) => {
-          calls.push({ auth, limit, offset });
-          return Promise.resolve([{ Id: '1' }] as ApexLogRow[]);
-        },
-        fetchApexLogHead: async () => [],
-        extractCodeUnitStartedFromLines: () => undefined,
-        fetchApexLogBody: async () => ''
+      '../utils/cliClient': {
+        syncLogs: async ({ limit, target }: { limit: number; target?: string }) => {
+          calls.push({ limit, target });
+          return {
+            ok: true,
+            apiVersion: '64.0',
+            limit,
+            savedDir: 'apexlogs',
+            org: { username: target, instanceUrl: 'https://example.my.salesforce.com' },
+            logs: [{ Id: '1' }]
+          };
+        }
       },
       '../utils/workspace': {
         getLogFilePathWithUsername: async () => ({ dir: '', filePath: '' }),
-        findExistingLogFile: async () => undefined
+        findExistingLogFile: async () => undefined,
+        getWorkspaceRoot: () => undefined
       }
     });
     const svc = new LogService();
@@ -30,7 +35,7 @@ suite('LogService', () => {
     const res = await svc.fetchLogs(auth, 2, 0);
     assert.equal(res.length, 1);
     assert.equal(calls.length, 1);
-    assert.deepEqual(calls[0], { auth, limit: 2, offset: 0 });
+    assert.deepEqual(calls[0], { limit: 2, target: 'u' });
   });
 
   test('loadLogHeads posts code units', async () => {
