@@ -26,7 +26,7 @@
 - Create `Cargo.toml`:
 ```toml
 [workspace]
-members = ["apps/cli"]
+members = ["crates/cli"]
 resolver = "2"
 ```
 - No tests yet.
@@ -52,16 +52,16 @@ git commit -m "chore: adopt monorepo layout"
 ### Task 2: Scaffold Rust CLI crate
 
 **Files:**
-- Create: `apps/cli/Cargo.toml`
-- Create: `apps/cli/src/main.rs`
-- Create: `apps/cli/src/lib.rs`
-- Create: `apps/cli/src/commands/mod.rs`
-- Create: `apps/cli/src/commands/logs_sync.rs`
-- Create: `apps/cli/src/sfdx_project.rs`
-- Create: `apps/cli/src/auth.rs`
-- Create: `apps/cli/src/http.rs`
-- Create: `apps/cli/src/output.rs`
-- Test: `apps/cli/src/sfdx_project.test.rs` (or `tests/`)
+- Create: `crates/cli/Cargo.toml`
+- Create: `crates/cli/src/main.rs`
+- Create: `crates/cli/src/lib.rs`
+- Create: `crates/cli/src/commands/mod.rs`
+- Create: `crates/cli/src/commands/logs_sync.rs`
+- Create: `crates/cli/src/sfdx_project.rs`
+- Create: `crates/cli/src/auth.rs`
+- Create: `crates/cli/src/http.rs`
+- Create: `crates/cli/src/output.rs`
+- Test: `crates/cli/src/sfdx_project.test.rs` (or `tests/`)
 
 **Step 1: Write failing tests for sfdx-project discovery**
 - Test: `find_project_root` returns None when missing.
@@ -69,7 +69,7 @@ git commit -m "chore: adopt monorepo layout"
 - Expected: tests fail (functions not implemented).
 
 **Step 2: Implement sfdx-project discovery + API version parsing**
-- Implement in `apps/cli/src/sfdx_project.rs`.
+- Implement in `crates/cli/src/sfdx_project.rs`.
 - Parse `sourceApiVersion` (string) and validate `\d+\.\d+`.
 
 **Step 3: Run tests**
@@ -84,7 +84,7 @@ Expected: PASS.
 
 **Step 5: Commit**
 ```bash
-git add apps/cli/Cargo.toml apps/cli/src apps/cli/tests
+git add crates/cli/Cargo.toml crates/cli/src crates/cli/tests
 git commit -m "feat(cli): scaffold logs sync command"
 ```
 
@@ -93,8 +93,8 @@ git commit -m "feat(cli): scaffold logs sync command"
 ### Task 3: Implement auth retrieval via sf/sfdx (TDD)
 
 **Files:**
-- Modify: `apps/cli/src/auth.rs`
-- Test: `apps/cli/src/auth.test.rs` (or `tests/auth.rs`)
+- Modify: `crates/cli/src/auth.rs`
+- Test: `crates/cli/src/auth.test.rs` (or `tests/auth.rs`)
 
 **Step 1: Write failing tests for JSON parsing**
 - Provide sample `sf org display --json` and `sfdx force:org:display --json` payloads.
@@ -115,7 +115,7 @@ Expected: PASS.
 
 **Step 4: Commit**
 ```bash
-git add apps/cli/src/auth.rs apps/cli/tests/auth.rs
+git add crates/cli/src/auth.rs crates/cli/tests/auth.rs
 git commit -m "feat(cli): resolve sf/sfdx auth"
 ```
 
@@ -124,10 +124,10 @@ git commit -m "feat(cli): resolve sf/sfdx auth"
 ### Task 4: Implement Tooling API calls + file writing (TDD)
 
 **Files:**
-- Modify: `apps/cli/src/http.rs`
-- Modify: `apps/cli/src/commands/logs_sync.rs`
-- Modify: `apps/cli/src/output.rs`
-- Test: `apps/cli/tests/logs_sync.rs`
+- Modify: `crates/cli/src/http.rs`
+- Modify: `crates/cli/src/commands/logs_sync.rs`
+- Modify: `crates/cli/src/output.rs`
+- Test: `crates/cli/tests/logs_sync.rs`
 
 **Step 1: Write failing tests for filename sanitation + output shape**
 - Test `make_log_filename(username, id)` -> `username_id.log` with safe chars.
@@ -152,7 +152,7 @@ Expected: PASS.
 
 **Step 5: Commit**
 ```bash
-git add apps/cli/src apps/cli/tests
+git add crates/cli/src crates/cli/tests
 git commit -m "feat(cli): implement logs sync"
 ```
 
