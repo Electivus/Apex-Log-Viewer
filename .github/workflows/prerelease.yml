@@ -65,6 +65,9 @@ jobs:
     timeout-minutes: 30
     needs: check_changes
     if: needs.check_changes.outputs.has_changes == 'true'
+    defaults:
+      run:
+        working-directory: apps/vscode-extension
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -74,6 +77,7 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -94,6 +98,9 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
       label: ${{ steps.meta.outputs.label }}
       shortsha: ${{ steps.meta.outputs.shortsha }}
+    defaults:
+      run:
+        working-directory: apps/vscode-extension
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -105,6 +112,7 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -179,6 +187,9 @@ jobs:
       PRE_RELEASE: 'true'
       CHANNEL_SUFFIX: pre
       GITHUB_TOKEN: ${{ github.token }}
+    defaults:
+      run:
+        working-directory: apps/vscode-extension
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -188,6 +199,7 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -236,7 +248,7 @@ jobs:
         with:
           name: nightly-vsix-${{ matrix.target }}
           path: |
-            ./*.vsix
+            apps/vscode-extension/*.vsix
 
   assemble_release:
     name: Create GitHub pre-release + VSIX artifact
@@ -332,6 +344,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: marketplace
+    defaults:
+      run:
+        working-directory: apps/vscode-extension
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -341,6 +356,7 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -355,7 +371,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: nightly-vsix
-          path: .
+          path: apps/vscode-extension
 
       - name: Publish pre-release to Marketplace from VSIX
         env:
