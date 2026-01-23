@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-mod logs_sync;
+pub mod logs_sync;
 
 #[derive(Parser)]
 #[command(name = "apex-log-viewer", version, about = "Apex Log Viewer CLI")]
