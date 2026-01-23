@@ -13,6 +13,9 @@ jobs:
     env:
       CODEX_REVIEW_COMMENTER_TOKEN: ${{ secrets.CODEX_REVIEW_COMMENTER_TOKEN }}
       CODEX_SKIP_AUTHOR: ${{ vars.CODEX_SKIP_AUTHOR }}
+    defaults:
+      run:
+        working-directory: apps/vscode-extension
     steps:
       - name: Determine whether to request Codex review
         id: guard

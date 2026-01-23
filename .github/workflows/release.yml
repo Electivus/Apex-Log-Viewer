@@ -22,6 +22,9 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         node: ['22.x']
+    defaults:
+      run:
+        working-directory: apps/vscode-extension
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -31,6 +34,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -75,6 +79,9 @@ jobs:
       TAG_NAME: ${{ github.ref_name }}
       GH_TOKEN: ${{ github.token }}
       GITHUB_TOKEN: ${{ github.token }}
+    defaults:
+      run:
+        working-directory: apps/vscode-extension
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -84,6 +91,7 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -165,7 +173,7 @@ jobs:
         with:
           name: apex-log-viewer-${{ steps.determine_channel.outputs.version }}-${{ steps.determine_channel.outputs.channel_suffix }}-vsix-${{ matrix.target }}
           path: |
-            ./*.vsix
+            apps/vscode-extension/*.vsix
           if-no-files-found: error
 
   publish:
@@ -177,6 +185,9 @@ jobs:
     permissions:
       contents: write
     environment: marketplace
+    defaults:
+      run:
+        working-directory: apps/vscode-extension
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -186,6 +197,7 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
       - name: Install dependencies
         run: npm ci
 
