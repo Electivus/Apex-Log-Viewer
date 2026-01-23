@@ -91,10 +91,10 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: apps/vscode-extension/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --workspaces=false
 
       - name: Build (type-check + lint + bundle)
         run: npm run build
@@ -127,9 +127,9 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: apps/vscode-extension/package-lock.json
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --workspaces=false
       - name: Build and run VSIX smoke
         run: npm run test:smoke:vsix
         env:
