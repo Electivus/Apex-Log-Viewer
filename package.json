@@ -1,0 +1,16 @@
+{
+  "name": "apex-log-viewer-monorepo",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "ext:install": "npm --prefix apps/vscode-extension ci",
+    "ext:build": "npm --prefix apps/vscode-extension run build",
+    "ext:watch": "npm --prefix apps/vscode-extension run watch",
+    "ext:watch-tests": "npm --prefix apps/vscode-extension run watch-tests",
+    "ext:lint": "npm --prefix apps/vscode-extension run lint",
+    "ext:test": "npm --prefix apps/vscode-extension test",
+    "ext:test:unit": "npm --prefix apps/vscode-extension run test:unit",
+    "ext:test:integration": "npm --prefix apps/vscode-extension run test:integration",
+    "ext:package": "npm --prefix apps/vscode-extension run package"
+  }
+}
