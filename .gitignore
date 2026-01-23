@@ -11,6 +11,7 @@ coverage/
 *.log
 *.txt
 dist
+.worktrees/
 .vscode-test/
 sample-workspace/
 .sfdx/
@@ -21,5 +22,4 @@ src/**/*.js.map
 apexlogs/
 memory.json
 Visual Prototype for Apex Log
-.worktrees/
 target/
