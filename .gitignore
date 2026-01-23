@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 node_modules
 out
 media/*.js
@@ -23,7 +22,4 @@ apexlogs/
 memory.json
 Visual Prototype for Apex Log
 .worktrees/
-
-apexlogs/
-
 target/
