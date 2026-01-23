@@ -34,7 +34,9 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-          cache-dependency-path: apps/vscode-extension/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            apps/vscode-extension/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -91,7 +93,9 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
-          cache-dependency-path: apps/vscode-extension/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            apps/vscode-extension/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -197,7 +201,9 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
-          cache-dependency-path: apps/vscode-extension/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            apps/vscode-extension/package-lock.json
       - name: Install dependencies
         run: npm ci
 
