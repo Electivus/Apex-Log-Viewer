@@ -1,0 +1,21 @@
+{
+  "reporter": ["text", "lcov"],
+  "all": true,
+  "check-coverage": true,
+  "branches": 60,
+  "functions": 9,
+  "lines": 40,
+  "statements": 40,
+  "include": [
+    "dist/**/*.js",
+    "out/**/*.js",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude-after-remap": true,
+  "exclude": [
+    "out/test/**",
+    "src/test/**",
+    "**/*.d.ts"
+  ]
+}

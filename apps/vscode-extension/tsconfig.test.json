@@ -1,0 +1,29 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "out",
+    "rootDir": "src",
+    "noEmit": false,
+    "sourceMap": true,
+    "lib": ["ES2022", "DOM"],
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "react-window": [
+        "src/test/stubs/react-window"
+      ]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "media",
+    "out",
+    "src/extension.ts",
+    "src/webview/__tests__",
+    "src/webview/__tests__/**/*",
+    "Visual Prototype for Apex Log",
+    "Visual Prototype for Apex Log/**/*"
+  ]
+}

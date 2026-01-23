@@ -5,7 +5,23 @@ on:
     # Trunk-based: run CI on any branch (no packaging here)
     branches:
       - '**'
+    paths:
+      - '.github/**'
+      - 'apps/vscode-extension/**'
+      - 'crates/cli/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'package.json'
+      - 'package-lock.json'
   pull_request:
+    paths:
+      - '.github/**'
+      - 'apps/vscode-extension/**'
+      - 'crates/cli/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'package.json'
+      - 'package-lock.json'
   workflow_dispatch:
     inputs:
       scope:
@@ -27,15 +43,45 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      extension: ${{ steps.filter.outputs.extension }}
+      cli: ${{ steps.filter.outputs.cli }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            extension:
+              - 'apps/vscode-extension/**'
+              - '.github/**'
+              - 'package.json'
+              - 'package-lock.json'
+            cli:
+              - 'crates/cli/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/**'
+
   build_and_test:
     name: Build and Test (Node ${{ matrix.node }} • ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.extension == 'true' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
         node: ['22.x']
+    defaults:
+      run:
+        working-directory: apps/vscode-extension
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -45,9 +91,10 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --workspaces=false
 
       - name: Build (type-check + lint + bundle)
         run: npm run build
@@ -66,8 +113,12 @@ jobs:
     needs: build_and_test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    if: needs.build_and_test.result == 'success'
     permissions:
       contents: read
+    defaults:
+      run:
+        working-directory: apps/vscode-extension
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -76,9 +127,24 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --workspaces=false
       - name: Build and run VSIX smoke
         run: npm run test:smoke:vsix
         env:
           ALWAYS_SMOKE_VSIX: "1"
+
+  cli_tests:
+    name: Rust CLI Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.cli == 'true' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run CLI tests
+        run: cargo test -p apex-log-viewer-cli

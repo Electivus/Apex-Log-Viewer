@@ -2,23 +2,17 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "watch",
+      "label": "ext:watch",
       "type": "npm",
-      "script": "watch",
+      "script": "ext:watch",
       "isBackground": true,
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
+      "group": { "kind": "build", "isDefault": true },
       "problemMatcher": [
         "$tsc-watch",
         {
           "owner": "esbuild",
-          "fileLocation": ["relative", "${workspaceFolder}"],
-          "pattern": {
-            "regexp": "^✘ \\[ERROR\\] (.*)$",
-            "message": 1
-          },
+          "fileLocation": ["relative", "${workspaceFolder}/apps/vscode-extension"],
+          "pattern": { "regexp": "^✘ \\u005bERROR\\u005d (.*)$", "message": 1 },
           "background": {
             "activeOnStart": true,
             "beginsPattern": "^\\[watch\\] build started$",
@@ -28,43 +22,19 @@
       ]
     },
     {
-      "label": "compile",
+      "label": "ext:watch-tests",
       "type": "npm",
-      "script": "compile",
-      "group": "build",
-      "problemMatcher": ["$tsc"]
-    },
-    {
-      "label": "watch-tests",
-      "type": "npm",
-      "script": "watch-tests",
+      "script": "ext:watch-tests",
       "isBackground": true,
       "group": "test",
       "problemMatcher": ["$tsc-watch"]
     },
     {
-      "label": "Test: Integration (Full)",
+      "label": "ext:compile",
       "type": "npm",
-      "script": "test:integration",
-      "group": "test",
-      "problemMatcher": [],
-      "options": {
-        "env": {
-          "VSCODE_TEST_VERSION": "stable"
-        }
-      }
-    },
-    {
-      "label": "Test: All (Full)",
-      "type": "npm",
-      "script": "test:all",
-      "group": "test",
-      "problemMatcher": [],
-      "options": {
-        "env": {
-          "VSCODE_TEST_VERSION": "stable"
-        }
-      }
+      "script": "ext:build",
+      "group": "build",
+      "problemMatcher": []
     }
   ]
 }
