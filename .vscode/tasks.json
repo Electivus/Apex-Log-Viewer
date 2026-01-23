@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ext:watch",
+      "type": "npm",
+      "script": "ext:watch",
+      "isBackground": true,
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": [
+        "$tsc-watch",
+        {
+          "owner": "esbuild",
+          "fileLocation": ["relative", "${workspaceFolder}/apps/vscode-extension"],
+          "pattern": { "regexp": "^✘ \\u005bERROR\\u005d (.*)$", "message": 1 },
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "^\\[watch\\] build started$",
+            "endsPattern": "^\\[watch\\] build finished$"
+          }
+        }
+      ]
+    },
+    {
+      "label": "ext:watch-tests",
+      "type": "npm",
+      "script": "ext:watch-tests",
+      "isBackground": true,
+      "group": "test",
+      "problemMatcher": ["$tsc-watch"]
+    },
+    {
+      "label": "ext:compile",
+      "type": "npm",
+      "script": "ext:build",
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}
