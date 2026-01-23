@@ -40,9 +40,6 @@ Why developers like it
 
 - Salesforce CLI: Install either `sf` (recommended) or legacy `sfdx` and authenticate to an org.
   - Login example: `sf org login web` (or `sfdx force:auth:web:login`).
-- Apex Log Viewer CLI (`apex-log-viewer`): the extension delegates log sync to this CLI.
-  - Ensure it is on your `PATH`, set `APEX_LOG_VIEWER_CLI`, or configure `electivus.apexLogs.cliPath`.
-  - The CLI must run inside a valid SFDX project (requires `sfdx-project.json`).
 - VS Code 1.101+.
 - Required for Replay: Salesforce Extension Pack (salesforce.salesforcedx-vscode), which includes Apex Replay Debugger.
   - A extensão não depende nem instala o pack automaticamente; se você tentar usar Replay sem o pack, abriremos a aba de Extensões apontando para o pacote para você instalar manualmente.
@@ -99,7 +96,6 @@ Why developers like it
 - `electivus.apexLogs.pageSize`: Number of logs fetched per page (>= 10; default 100). Higher values may impact performance.
 - `electivus.apexLogs.headConcurrency`: Max concurrent requests to fetch log headers (>= 1; default 5). Very high values can overload APIs.
 - `electivus.apexLogs.saveDirName`: Folder name used when saving logs to disk (default `apexlogs`).
-- `electivus.apexLogs.cliPath`: Path to the `apex-log-viewer` CLI binary (leave empty to use `APEX_LOG_VIEWER_CLI` or PATH).
 - `electivus.apexLogs.trace`: Enable verbose trace logging of CLI and HTTP calls.
 
 See [docs/SETTINGS.md](docs/SETTINGS.md) for more details on configuration.
@@ -112,7 +108,6 @@ The extension uses localized strings for the extension UI and the in‑panel int
 
 ## Troubleshooting
 
-- “CLI not found”: Ensure `apex-log-viewer` is installed and available on PATH (or configure `electivus.apexLogs.cliPath` / `APEX_LOG_VIEWER_CLI`).
 - “Salesforce CLI not found”: Ensure `sf` (or `sfdx`) is installed and available on PATH. On macOS/Linux, ensure your login shell PATH includes the CLI (e.g., launch VS Code from the shell or configure the shell integration).
 - “Failed to launch Apex Replay Debugger”: Install the Salesforce Apex Replay Debugger extension.
 - “No orgs detected”: Ensure you’re authenticated (`sf org login web`) and try `sf org list`.

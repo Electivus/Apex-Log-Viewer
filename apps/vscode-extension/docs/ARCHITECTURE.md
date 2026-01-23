@@ -4,12 +4,10 @@ This document explains the internal structure of the Apex Log Viewer extension a
 
 ## High-level overview
 
-The extension has two main sides (plus a shared CLI):
+The extension has two main sides:
 
 1. **Extension host** – runs in Node.js inside VS Code and handles commands, log retrieval, and communication with Salesforce CLI.
 2. **Webview UI** – a React application bundled to `media/main.js` and rendered inside a VS Code webview. It presents logs, filters, and user interactions.
-3. **Apex Log Viewer CLI** – a Rust CLI (`apex-log-viewer`) that synchronizes Apex logs to `apexlogs/` and provides JSON output consumed by the extension.
-
 Both sides exchange messages using the `vscode` webview API with shared TypeScript interfaces defined in `src/shared`.
 
 ## Extension host
@@ -19,7 +17,7 @@ The activation entry point is `src/extension.ts`. It registers commands such as 
 Key responsibilities:
 
 - Execute Salesforce CLI commands (`sf` or `sfdx`) to retrieve auth details.
-- Invoke the `apex-log-viewer` CLI to sync logs and read the JSON results.
+- Call Salesforce Tooling APIs over HTTP to fetch log metadata and bodies.
 - Maintain per-org state such as selected org and log cache.
 - Forward trace output to the "Electivus Apex Log Viewer" output channel when `electivus.apexLogs.trace` is enabled.
 
@@ -42,7 +40,7 @@ Messages from the extension arrive via `onDidReceiveMessage` and are dispatched 
 ## Data flow summary
 
 1. The user triggers a command (e.g., refresh).
-2. The extension invokes the Salesforce CLI to fetch log metadata.
+2. The extension invokes the Salesforce CLI to fetch auth and then calls the Tooling API over HTTP to retrieve log metadata.
 3. Results are sent to the webview over the messaging channel.
 4. The React UI updates the table and exposes actions like open or tail.
 5. Actions from the UI send messages back to the extension for further processing.

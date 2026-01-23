@@ -6,7 +6,6 @@ The Electivus Apex Log Viewer extension exposes several settings under the `Elec
 "electivus.apexLogs.pageSize": 100,
 "electivus.apexLogs.headConcurrency": 5,
 "electivus.apexLogs.saveDirName": "apexlogs",
-"electivus.apexLogs.cliPath": "",
 "electivus.apexLogs.trace": false,
 "electivus.apexLogs.tailBufferSize": 10000
 ```
@@ -28,12 +27,6 @@ The Electivus Apex Log Viewer extension exposes several settings under the `Elec
 - **Type**: string
 - **Default**: `"apexlogs"`
 - Folder name used when saving logs to disk. Files are placed under `${workspaceFolder}/.sflogs/<saveDirName>`.
-
-## `electivus.apexLogs.cliPath`
-
-- **Type**: string
-- **Default**: `""` (empty)
-- Path to the `apex-log-viewer` CLI binary. Leave empty to use `APEX_LOG_VIEWER_CLI` or the system PATH.
 
 ## `electivus.apexLogs.trace`
 
