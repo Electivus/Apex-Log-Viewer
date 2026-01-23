@@ -95,7 +95,8 @@ pub fn run(args: LogsSyncArgs) -> Result<(), String> {
   let api_version = read_source_api_version(&project_root).map_err(map_project_error)?;
 
   let auth = get_auth(args.target.as_deref()).map_err(map_auth_error)?;
-  let logs = query_apex_logs(&auth, &api_version, args.limit).map_err(map_http_error)?;
+  let safe_limit = args.limit.max(1).min(200);
+  let logs = query_apex_logs(&auth, &api_version, safe_limit).map_err(map_http_error)?;
   let dir = ensure_apexlogs_dir()?;
 
   let mut saved: Vec<SavedLog> = Vec::new();
@@ -139,7 +140,7 @@ pub fn run(args: LogsSyncArgs) -> Result<(), String> {
       instance_url: auth.instance_url.clone(),
     },
     api_version,
-    limit: args.limit,
+    limit: safe_limit,
     saved_dir: "apexlogs".to_string(),
     logs,
     saved,
