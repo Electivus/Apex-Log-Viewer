@@ -6,7 +6,6 @@ import * as fs from 'fs/promises';
 import { SfLogsViewProvider } from '../provider/SfLogsViewProvider';
 import * as cli from '../salesforce/cli';
 import * as http from '../salesforce/http';
-import * as cliClient from '../utils/cliClient';
 import * as workspace from '../utils/workspace';
 import * as ripgrep from '../utils/ripgrep';
 
@@ -20,7 +19,7 @@ function makeContext() {
 
 suite('SfLogsViewProvider behavior', () => {
   const origGetOrgAuth = cli.getOrgAuth;
-  const origSyncLogs = cliClient.syncLogs;
+  const origFetchApexLogs = http.fetchApexLogs;
   const origFetchHead = http.fetchApexLogHead;
   const origFetchBody = http.fetchApexLogBody;
   const origExtract = http.extractCodeUnitStartedFromLines;
@@ -34,7 +33,7 @@ suite('SfLogsViewProvider behavior', () => {
 
   teardown(() => {
     (cli as any).getOrgAuth = origGetOrgAuth;
-    (cliClient as any).syncLogs = origSyncLogs;
+    (http as any).fetchApexLogs = origFetchApexLogs;
     (http as any).fetchApexLogHead = origFetchHead;
     (http as any).fetchApexLogBody = origFetchBody;
     (http as any).extractCodeUnitStartedFromLines = origExtract;
@@ -49,17 +48,10 @@ suite('SfLogsViewProvider behavior', () => {
 
   test('refresh posts logs and logHead with code unit', async () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    (cliClient as any).syncLogs = async () => ({
-      ok: true,
-      apiVersion: '64.0',
-      limit: 2,
-      savedDir: 'apexlogs',
-      org: { username: 'u', instanceUrl: 'i' },
-      logs: [
-        { Id: '07L000000000001AA', LogLength: 10 },
-        { Id: '07L000000000002AA', LogLength: 20 }
-      ]
-    });
+    (http as any).fetchApexLogs = async () => ([
+      { Id: '07L000000000001AA', LogLength: 10 },
+      { Id: '07L000000000002AA', LogLength: 20 }
+    ]);
     (http as any).fetchApexLogHead = async () => ['|CODE_UNIT_STARTED|Foo|MyClass.myMethod'];
     (http as any).extractCodeUnitStartedFromLines = () => 'MyClass.myMethod';
     (workspace as any).purgeSavedLogs = async () => 0;
@@ -94,14 +86,10 @@ suite('SfLogsViewProvider behavior', () => {
 
   test('refresh preloads full log bodies when enabled', async () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    (cliClient as any).syncLogs = async () => ({
-      ok: true,
-      apiVersion: '64.0',
-      limit: 2,
-      savedDir: 'apexlogs',
-      org: { username: 'u', instanceUrl: 'i' },
-      logs: [{ Id: '07L000000000001AA' }, { Id: '07L000000000002AA' }]
-    });
+    (http as any).fetchApexLogs = async () => ([
+      { Id: '07L000000000001AA' },
+      { Id: '07L000000000002AA' }
+    ]);
     (http as any).fetchApexLogHead = async () => [];
     (http as any).extractCodeUnitStartedFromLines = () => undefined;
 
@@ -151,14 +139,7 @@ suite('SfLogsViewProvider behavior', () => {
 
   test('searchQuery posts searchMatches when ripgrep finds logs', async () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    (cliClient as any).syncLogs = async () => ({
-      ok: true,
-      apiVersion: '64.0',
-      limit: 1,
-      savedDir: 'apexlogs',
-      org: { username: 'u', instanceUrl: 'i' },
-      logs: [{ Id: '07L000000000001AA', LogLength: 10 }]
-    });
+    (http as any).fetchApexLogs = async () => ([{ Id: '07L000000000001AA', LogLength: 10 }]);
     (http as any).fetchApexLogHead = async () => [];
     (http as any).fetchApexLogBody = async () => 'Body';
     (http as any).extractCodeUnitStartedFromLines = () => undefined;
@@ -244,14 +225,7 @@ suite('SfLogsViewProvider behavior', () => {
 
   test('searchQuery posts pendingLogIds when bodies are missing', async () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    (cliClient as any).syncLogs = async () => ({
-      ok: true,
-      apiVersion: '64.0',
-      limit: 1,
-      savedDir: 'apexlogs',
-      org: { username: 'u', instanceUrl: 'i' },
-      logs: [{ Id: '07L000000000001AA', LogLength: 10 }]
-    });
+    (http as any).fetchApexLogs = async () => ([{ Id: '07L000000000001AA', LogLength: 10 }]);
     (http as any).fetchApexLogHead = async () => [];
     (http as any).fetchApexLogBody = async () => 'Body';
 
@@ -308,14 +282,7 @@ suite('SfLogsViewProvider behavior', () => {
 
   test('setSearchQuery aborts previous search before running a new one', async () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    (cliClient as any).syncLogs = async () => ({
-      ok: true,
-      apiVersion: '64.0',
-      limit: 1,
-      savedDir: 'apexlogs',
-      org: { username: 'u', instanceUrl: 'i' },
-      logs: [{ Id: '07L000000000001AA', LogLength: 10 }]
-    });
+    (http as any).fetchApexLogs = async () => ([{ Id: '07L000000000001AA', LogLength: 10 }]);
     (http as any).fetchApexLogHead = async () => [];
     (http as any).fetchApexLogBody = async () => 'Body';
 
@@ -394,17 +361,11 @@ suite('SfLogsViewProvider behavior', () => {
 
   test('loadMore appends logs', async () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    let call = 0;
-    (cliClient as any).syncLogs = async () => {
-      call++;
-      return {
-        ok: true,
-        apiVersion: '64.0',
-        limit: 100,
-        savedDir: 'apexlogs',
-        org: { username: 'u', instanceUrl: 'i' },
-        logs: call === 1 ? [{ Id: '1', LogLength: 10 }] : [{ Id: '1', LogLength: 10 }, { Id: '2', LogLength: 20 }]
-      };
+    (http as any).fetchApexLogs = async (_auth: any, limit: number, offset: number) => {
+      if (offset > 0) {
+        return [{ Id: '2', LogLength: 20 }].slice(0, limit);
+      }
+      return [{ Id: '1', LogLength: 10 }].slice(0, limit);
     };
     (http as any).fetchApexLogHead = async () => ['|CODE_UNIT_STARTED|Foo|C.m'];
     (http as any).extractCodeUnitStartedFromLines = () => 'C.m';
