@@ -12,6 +12,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'package.json'
+      - 'package-lock.json'
   pull_request:
     paths:
       - '.github/**'
@@ -20,6 +21,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'package.json'
+      - 'package-lock.json'
   workflow_dispatch:
     inputs:
       scope:
@@ -59,6 +61,7 @@ jobs:
               - 'apps/vscode-extension/**'
               - '.github/**'
               - 'package.json'
+              - 'package-lock.json'
             cli:
               - 'crates/cli/**'
               - 'Cargo.toml'
