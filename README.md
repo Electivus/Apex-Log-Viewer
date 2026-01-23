@@ -5,7 +5,7 @@ Monorepo for the Electivus Apex Log Viewer ecosystem.
 ## Structure
 
 - `apps/vscode-extension/` – VS Code extension.
-- `apps/cli/` – Rust CLI (`apex-log-viewer`).
+- `crates/cli/` – Rust CLI (`apex-log-viewer`).
 - `docs/` – shared documentation and design notes.
 
 ## CLI (Rust)
