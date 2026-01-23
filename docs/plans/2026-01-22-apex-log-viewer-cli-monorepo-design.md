@@ -1,7 +1,7 @@
 # Apex Log Viewer CLI + Monorepo Design
 
 ## Goals
-- Convert the repository into a monorepo with `apps/vscode-extension` and `apps/cli`.
+- Convert the repository into a monorepo with `apps/vscode-extension` and `crates/cli`.
 - Introduce a Rust CLI that performs `logs sync` and serves as the single source of truth for log retrieval.
 - Refactor the VS Code extension to call the CLI (CLI-first) instead of querying Salesforce directly for log lists.
 - Keep `apexlogs/` local and gitignored, created automatically by the CLI.
@@ -14,8 +14,8 @@
 
 ## Repository Structure
 - `apps/vscode-extension/` — current extension code moved from `Apex-Log-Viewer/`.
-- `apps/cli/` — new Rust CLI crate.
-- Root `Cargo.toml` with workspace `members = ["apps/cli"]`.
+- `crates/cli/` — new Rust CLI crate.
+- Root `Cargo.toml` with workspace `members = ["crates/cli"]`.
 - Optional root `package.json` with workspaces for Node (if needed).
 - `docs/` for shared documentation; design stored in `docs/plans/`.
 - Root `.gitignore` includes `apexlogs/`.
