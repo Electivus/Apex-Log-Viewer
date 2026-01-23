@@ -1,6 +1,6 @@
 const { spawn, execFile, spawnSync } = require('child_process');
 const { platform, tmpdir } = require('os');
-const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } = require('fs');
+const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, chmodSync } = require('fs');
 const { join, resolve } = require('path');
 const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } = require('@vscode/test-electron');
 const { cleanVsCodeTest } = require('./clean-vscode-test.js');
@@ -46,6 +46,55 @@ function addLocalBinToPath() {
   } catch (e) {
     console.warn('Failed to add local bin to PATH:', e && e.message ? e.message : e);
   }
+}
+
+function resolveNpmBinary() {
+  const cmd = platform() === 'win32' ? 'where' : 'which';
+  const result = spawnSync(cmd, ['npm'], { encoding: 'utf8' });
+  if (result.status !== 0) {
+    return null;
+  }
+  const line = (result.stdout || '').split(/\r?\n/).map(v => v.trim()).find(Boolean);
+  return line || null;
+}
+
+function createNpmListWrapper() {
+  const realNpm = resolveNpmBinary();
+  if (!realNpm) {
+    return null;
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'alv-npm-wrapper-'));
+  if (platform() === 'win32') {
+    const wrapperPath = join(dir, 'npm.cmd');
+    const script = [
+      '@echo off',
+      `set "REAL_NPM=${realNpm}"`,
+      'if /I "%~1"=="list" (',
+      '  shift',
+      '  "%REAL_NPM%" list --workspaces=false %*',
+      ') else (',
+      '  "%REAL_NPM%" %*',
+      ')',
+      ''
+    ].join('\r\n');
+    writeFileSync(wrapperPath, script, 'utf8');
+    return dir;
+  }
+  const wrapperPath = join(dir, 'npm');
+  const quoted = realNpm.replace(/'/g, `'\"'\"'`);
+  const script = [
+    '#!/usr/bin/env sh',
+    `REAL_NPM='${quoted}'`,
+    'if [ "$1" = "list" ]; then',
+    '  shift',
+    '  exec "$REAL_NPM" list --workspaces=false "$@"',
+    'fi',
+    'exec "$REAL_NPM" "$@"',
+    ''
+  ].join('\n');
+  writeFileSync(wrapperPath, script, 'utf8');
+  chmodSync(wrapperPath, 0o755);
+  return dir;
 }
 
 function normalizeForMatch(value) {
@@ -584,10 +633,15 @@ async function run() {
       '.bin',
       platform() === 'win32' ? 'vsce.cmd' : 'vsce'
     );
+    const npmWrapperDir = createNpmListWrapper();
+    const sep = platform() === 'win32' ? ';' : ':';
+    const vsceEnv = npmWrapperDir
+      ? { ...process.env, PATH: npmWrapperDir + sep + (process.env.PATH || '') }
+      : process.env;
     if (existsSync(localVsce)) {
-      await execStreaming(localVsce, ['package', '--no-yarn']);
+      await execStreaming(localVsce, ['package', '--no-yarn'], { env: vsceEnv });
     } else {
-      await execStreaming('npx', ['--yes', '@vscode/vsce', 'package', '--no-yarn']);
+      await execStreaming('npx', ['--yes', '@vscode/vsce', 'package', '--no-yarn'], { env: vsceEnv });
     }
     const vsix = require('fs')
       .readdirSync(process.cwd())
