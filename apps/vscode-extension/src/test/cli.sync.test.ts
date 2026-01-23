@@ -14,7 +14,8 @@ suite('cliClient', () => {
     const parsed = parseSyncOutput(raw);
     assert.equal(parsed.ok, true);
     assert.equal(parsed.logs.length, 2);
-    assert.equal(parsed.logs[0].Id, '1');
+    assert.ok(parsed.logs[0], 'expected first log entry');
+    assert.equal(parsed.logs[0]?.Id, '1');
   });
 
   test('parseSyncOutput throws on error payload', () => {
