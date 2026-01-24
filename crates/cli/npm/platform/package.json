@@ -1,0 +1,16 @@
+{
+  "name": "@electivus/apex-log-viewer-cli-__PLATFORM__",
+  "version": "0.0.0",
+  "private": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Electivus/Apex-Log-Viewer"
+  },
+  "os": ["__OS__"],
+  "cpu": ["__CPU__"],
+  "bin": {
+    "apex-log-viewer": "bin/__BIN__"
+  },
+  "files": ["bin/**"]
+}
