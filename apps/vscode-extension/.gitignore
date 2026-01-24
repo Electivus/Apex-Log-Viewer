@@ -1,0 +1,23 @@
+node_modules
+out
+media/*.js
+media/webview.css
+media/webview-dev.css
+*.vsix
+*.zip
+coverage/
+
+# allow tracking webview entrypoints
+*.log
+*.txt
+dist
+.vscode-test/
+sample-workspace/
+.sfdx/
+.sf/
+media/*.js.map
+src/**/*.js
+src/**/*.js.map
+apexlogs/
+memory.json
+Visual Prototype for Apex Log
