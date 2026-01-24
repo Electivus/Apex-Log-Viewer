@@ -149,16 +149,49 @@ jobs:
           node <<'NODE'
           const { spawnSync } = require('child_process');
           const fs = require('fs');
+          const os = require('os');
+          const path = require('path');
           const target = process.env.MATRIX_TARGET;
           const version = process.env.VERSION;
           const suffix = process.env.CHANNEL_SUFFIX;
           const preRelease = process.env.PRE_RELEASE === 'true';
           const outName = `apex-log-viewer-${version}-${suffix}-${target}.vsix`;
+          const whichCmd = process.platform === 'win32' ? 'where' : 'which';
+          const whichResult = spawnSync(whichCmd, ['npm'], { encoding: 'utf8' });
+          const realNpm = (whichResult.stdout || '').split(/\r?\n/).find(Boolean) || 'npm';
+          const wrapperDir = fs.mkdtempSync(path.join(os.tmpdir(), 'npm-wrapper-'));
+          const npmWrapper = path.join(wrapperDir, process.platform === 'win32' ? 'npm.cmd' : 'npm');
+          const wrapperBody = process.platform === 'win32'
+            ? [
+              '@echo off',
+              'if /I \"%1\"==\"ls\" goto withflag',
+              'if /I \"%1\"==\"list\" goto withflag',
+              '\"%REAL_NPM%\" %*',
+              'exit /b %ERRORLEVEL%',
+              ':withflag',
+              '\"%REAL_NPM%\" %* --workspaces=false',
+              'exit /b %ERRORLEVEL%'
+            ].join('\r\n')
+            : [
+              '#!/usr/bin/env bash',
+              'set -euo pipefail',
+              'cmd=\"${1:-}\"',
+              'if [[ \"$cmd\" == \"ls\" || \"$cmd\" == \"list\" ]]; then',
+              '  exec \"$REAL_NPM\" \"$@\" --workspaces=false',
+              'fi',
+              'exec \"$REAL_NPM\" \"$@\"'
+            ].join('\n');
+          fs.writeFileSync(npmWrapper, wrapperBody, { mode: 0o755 });
+          const env = {
+            ...process.env,
+            PATH: `${wrapperDir}${path.delimiter}${process.env.PATH ?? ''}`,
+            REAL_NPM: realNpm
+          };
           const args = ['--yes', '@vscode/vsce', 'package', '--no-yarn', '--target', target, '--out', outName];
           if (preRelease) {
             args.push('--pre-release');
           }
-          const result = spawnSync('npx', args, { stdio: 'inherit', shell: process.platform === 'win32' });
+          const result = spawnSync('npx', args, { stdio: 'inherit', shell: process.platform === 'win32', env });
           if (result.status !== 0) {
             process.exit(result.status ?? 1);
           }
