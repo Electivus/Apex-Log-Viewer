@@ -21,6 +21,7 @@ Prerequisites
 - Add the PAT as the repository secret `VSCE_PAT` (Settings → Secrets and variables → Actions).
 - Create a namespace + PAT on Open VSX.
 - Add the PAT as the repository secret `OVSX_PAT` (Settings → Secrets and variables → Actions).
+- For CLI npm releases, create an npm access token and add it as `NPM_TOKEN` in GitHub (Settings → Secrets and variables → Actions).
 
 How it works
 
@@ -30,6 +31,13 @@ How it works
   - Even minor → stable → `vsce publish`.
 - If `VSCE_PAT` is present, it publishes to Marketplace; otherwise it only attaches the `.vsix` artifact to the workflow run.
 - If `OVSX_PAT` is present, it publishes the same VSIX artifacts to Open VSX.
+
+CLI npm publishing
+
+- Tags matching `cli-v*` trigger the CLI publish workflow (`.github/workflows/cli-npm-release.yml`).
+- The tag version must match `crates/cli/Cargo.toml`.
+- The workflow builds platform packages (`@electivus/apex-log-viewer-cli-<platform>`) and then publishes the wrapper package `@electivus/apex-log-viewer-cli`.
+- Publishing requires the `NPM_TOKEN` secret and uses npm provenance.
 
 Quick recipes
 
@@ -49,6 +57,11 @@ Local packaging/publish
 - Publish to Marketplace (pre‑release): `npm run vsce:publish:pre`
 - Publish to Open VSX (stable): `npx --yes ovsx publish --pat <token>`
 - Publish to Open VSX (pre‑release): `npx --yes ovsx publish --pat <token> --pre-release`
+
+- Publish the CLI to npm (automated):
+  - Bump `crates/cli/Cargo.toml` version.
+  - Push tag `cli-vX.Y.Z`.
+  - CI builds and publishes the wrapper + platform packages to npm.
 
 Notes
 
