@@ -349,7 +349,7 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.0.0",
     "@types/proxyquire": "^1.3.4",
-    "@types/react": "^19.2.7",
+    "@types/react": "^19.2.9",
     "@types/react-dom": "^19.2.3",
     "@types/vscode": "1.101.0",
     "@typescript-eslint/eslint-plugin": "^8.50.1",
