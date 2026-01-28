@@ -47,6 +47,7 @@ jobs:
         working-directory: apps/sf-plugin-apex-log-viewer
         env:
           HUSKY: 0
+          NPM_CONFIG_LEGACY_PEER_DEPS: true
         run: npm ci --workspaces=false
 
       - name: Run tests
