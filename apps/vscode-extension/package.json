@@ -339,7 +339,7 @@
     "coverage:merge": "node scripts/merge-coverage.cjs"
   },
   "devDependencies": {
-    "@commitlint/cli": "^20.2.0",
+    "@commitlint/cli": "^20.3.1",
     "@commitlint/config-conventional": "^20.2.0",
     "@tailwindcss/cli": "^4.1.18",
     "@testing-library/dom": "^10.4.1",
