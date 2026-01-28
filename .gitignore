@@ -22,4 +22,3 @@ src/**/*.js.map
 apexlogs/
 memory.json
 Visual Prototype for Apex Log
-target/

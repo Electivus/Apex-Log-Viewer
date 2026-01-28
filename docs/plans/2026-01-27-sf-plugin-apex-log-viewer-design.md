@@ -1,7 +1,7 @@
 # SF Plugin Migration — Apex Log Viewer
 
 ## Goal
-Migrate the Rust CLI functionality into a Salesforce `sf` plugin (TypeScript) using Salesforce CLI best practices and documentation. Keep the existing Rust CLI intact for now and avoid changes to the VS Code extension.
+Migrate the CLI functionality into a Salesforce `sf` plugin (TypeScript) using Salesforce CLI best practices and documentation. Avoid changes to the VS Code extension.
 
 ## Summary of Decisions
 - **Plugin location:** `apps/sf-plugin-apex-log-viewer/`.
@@ -91,7 +91,6 @@ Migrate the Rust CLI functionality into a Salesforce `sf` plugin (TypeScript) us
 ## Rollout
 - Publish `@electivus/sf-plugin-apex-log-viewer`.
 - Document usage in plugin README and root README.
-- Keep Rust CLI in `crates/cli` as legacy/alternative (no removal in phase 1).
 
 ## Risks & Mitigations
 - **Large log bodies:** limit concurrency (5) and write to disk incrementally.

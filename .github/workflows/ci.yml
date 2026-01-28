@@ -8,18 +8,12 @@ on:
     paths:
       - '.github/**'
       - 'apps/vscode-extension/**'
-      - 'crates/cli/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
       - 'package.json'
       - 'package-lock.json'
   pull_request:
     paths:
       - '.github/**'
       - 'apps/vscode-extension/**'
-      - 'crates/cli/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
       - 'package.json'
       - 'package-lock.json'
   workflow_dispatch:
@@ -48,7 +42,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       extension: ${{ steps.filter.outputs.extension }}
-      cli: ${{ steps.filter.outputs.cli }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -62,11 +55,6 @@ jobs:
               - '.github/**'
               - 'package.json'
               - 'package-lock.json'
-            cli:
-              - 'crates/cli/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - '.github/**'
 
   build_and_test:
     name: Build and Test (Node ${{ matrix.node }} • ${{ matrix.os }})
@@ -134,17 +122,3 @@ jobs:
         run: npm run test:smoke:vsix
         env:
           ALWAYS_SMOKE_VSIX: "1"
-
-  cli_tests:
-    name: Rust CLI Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: changes
-    if: needs.changes.outputs.cli == 'true' || github.event_name == 'workflow_dispatch'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Run CLI tests
-        run: cargo test -p apex-log-viewer-cli

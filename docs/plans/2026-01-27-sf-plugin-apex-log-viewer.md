@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Implement `sf apex-log-viewer logs sync` as a TypeScript Salesforce CLI plugin that mirrors the Rust CLI behavior and outputs a new `sf`-style JSON schema.
+**Goal:** Implement `sf apex-log-viewer logs sync` as a TypeScript Salesforce CLI plugin that mirrors the legacy CLI behavior and outputs a new `sf`-style JSON schema.
 
 **Architecture:** Use `SfCommand` from `@salesforce/sf-plugins-core` with `@salesforce/core` for auth, org access, project config, and messages. Implement small libraries for formatting, file naming, and API access; the command orchestrates query + parallel download + output.
 
