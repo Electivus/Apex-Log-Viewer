@@ -23,6 +23,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22.x
+          registry-url: https://registry.npmjs.org
+          scope: '@electivus'
           cache: npm
           cache-dependency-path: apps/sf-plugin-apex-log-viewer/package-lock.json
 
