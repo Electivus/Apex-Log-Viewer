@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   publish:
+    environment: marketplace
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
