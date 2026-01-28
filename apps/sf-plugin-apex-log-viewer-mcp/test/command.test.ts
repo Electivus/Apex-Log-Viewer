@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { buildSfArgs, normalizeParams } from '../src/command.js';
+import { parseSfJson } from '../src/run-sf.js';
 
 test('normalizeParams defaults and clamps', () => {
   const cwd = '/tmp/work';
@@ -35,4 +36,16 @@ test('buildSfArgs builds full command', () => {
     '--limit',
     '5'
   ]);
+});
+
+test('parseSfJson parses JSON output', () => {
+  assert.deepEqual(parseSfJson('{\"status\":0}'), { status: 0 });
+});
+
+test('parseSfJson throws on empty output', () => {
+  assert.throws(() => parseSfJson(''), /Invalid JSON output/);
+});
+
+test('parseSfJson throws on invalid JSON', () => {
+  assert.throws(() => parseSfJson('nope'), /Invalid JSON output/);
 });
