@@ -59,7 +59,7 @@
     "format": "wireit",
     "link-check": "wireit",
     "lint": "wireit",
-    "postinstall": "yarn husky install",
+    "postinstall": "node -e \"if (process.env.CI || process.env.HUSKY === '0') process.exit(0); require('child_process').execSync('yarn husky install', { stdio: 'inherit' });\"",
     "postpack": "sf-clean --ignore-signing-artifacts",
     "prepack": "sf-prepack",
     "test": "wireit",
