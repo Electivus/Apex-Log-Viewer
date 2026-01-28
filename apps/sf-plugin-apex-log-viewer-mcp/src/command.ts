@@ -1,4 +1,6 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
+import { parseSfJson, runSfCommand, type RunResult, type RunSfOptions } from './run-sf.js';
 
 export type ApexLogsSyncParams = {
   targetOrg?: string;
@@ -43,4 +45,25 @@ export function buildSfArgs(params: NormalizedParams): string[] {
   args.push('--limit', String(params.limit));
 
   return args;
+}
+
+export type RunSf = (args: string[], options: RunSfOptions) => Promise<RunResult>;
+
+export async function runApexLogsSync(
+  params: ApexLogsSyncParams,
+  options: { cwd: string; env: NodeJS.ProcessEnv; runSf?: RunSf }
+): Promise<unknown> {
+  const normalized = normalizeParams(params, options.cwd);
+  await fs.mkdir(normalized.outputDir, { recursive: true });
+
+  const args = buildSfArgs(normalized);
+  const runSf = options.runSf ?? runSfCommand;
+  const result = await runSf(args, { cwd: options.cwd, env: options.env });
+
+  if (result.exitCode !== 0) {
+    const message = result.stderr.trim() || 'sf command failed';
+    throw new Error(`sf command failed: ${message}`);
+  }
+
+  return parseSfJson(result.stdout);
 }

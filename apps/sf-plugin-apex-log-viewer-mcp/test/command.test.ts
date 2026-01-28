@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { buildSfArgs, normalizeParams } from '../src/command.js';
+import { buildSfArgs, normalizeParams, runApexLogsSync } from '../src/command.js';
 import { parseSfJson } from '../src/run-sf.js';
 
 test('normalizeParams defaults and clamps', () => {
@@ -48,4 +48,35 @@ test('parseSfJson throws on empty output', () => {
 
 test('parseSfJson throws on invalid JSON', () => {
   assert.throws(() => parseSfJson('nope'), /Invalid JSON output/);
+});
+
+test('runApexLogsSync returns parsed JSON', async () => {
+  const runSf = async () => ({ stdout: '{\"status\":0}', stderr: '', exitCode: 0 });
+  const result = await runApexLogsSync(
+    { limit: 2 },
+    {
+      cwd: '/tmp/work',
+      env: {},
+      runSf
+    }
+  );
+
+  assert.deepEqual(result, { status: 0 });
+});
+
+test('runApexLogsSync throws on sf failure', async () => {
+  const runSf = async () => ({ stdout: '', stderr: 'boom', exitCode: 1 });
+
+  await assert.rejects(
+    () =>
+      runApexLogsSync(
+        { limit: 2 },
+        {
+          cwd: '/tmp/work',
+          env: {},
+          runSf
+        }
+      ),
+    /sf command failed/
+  );
 });
