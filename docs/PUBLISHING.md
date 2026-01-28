@@ -31,6 +31,13 @@ How it works
 - If `VSCE_PAT` is present, it publishes to Marketplace; otherwise it only attaches the `.vsix` artifact to the workflow run.
 - If `OVSX_PAT` is present, it publishes the same VSIX artifacts to Open VSX.
 
+sf plugin npm publishing
+
+- Tags matching `sf-plugin-v*` trigger the npm publish workflow (`.github/workflows/sf-plugin-npm-release.yml`).
+- The tag version must match `apps/sf-plugin-apex-log-viewer/package.json`.
+- The workflow runs plugin tests, then publishes `@electivus/sf-plugin-apex-log-viewer` to npm using provenance.
+- Publishing requires the `NPM_TOKEN` secret.
+
 Quick recipes
 
 - Prepare a stable release (automated):
