@@ -53,6 +53,11 @@
     "sfdx",
     "sfdx-plugin"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Electivus/Apex-Log-Viewer",
+    "directory": "apps/sf-plugin-apex-log-viewer"
+  },
   "license": "BSD-3-Clause",
   "oclif": {
     "commands": "./lib/commands",
