@@ -45,6 +45,8 @@ jobs:
 
       - name: Install dependencies
         working-directory: apps/sf-plugin-apex-log-viewer
+        env:
+          HUSKY: 0
         run: npm ci --workspaces=false
 
       - name: Run tests
