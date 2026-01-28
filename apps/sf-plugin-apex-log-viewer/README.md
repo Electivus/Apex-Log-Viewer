@@ -53,7 +53,13 @@ We always recommend using the latest version of these commands bundled with the 
 ## Install
 
 ```bash
-sf plugins install sf-plugin-apex-log-viewer@x.y.z
+sf plugins install @electivus/sf-plugin-apex-log-viewer@x.y.z
+```
+
+## Usage
+
+```bash
+sf apex-log-viewer logs sync --target-org myOrg --limit 100 --output-dir apexlogs
 ```
 
 ## Issues

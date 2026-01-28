@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+- Added Salesforce CLI plugin: `sf apex-log-viewer logs sync`.
+
 ### Build
 
 - Workflows: publish VSIX artifacts to Open VSX when `OVSX_PAT` is configured.
