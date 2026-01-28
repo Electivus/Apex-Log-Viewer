@@ -12,17 +12,15 @@ updates:
           - "react-dom"
           - "@types/react"
           - "@types/react-dom"
+      testing-library:
+        patterns:
+          - "@testing-library/*"
     ignore:
       - dependency-name: "@types/vscode"
         update-types:
           - "version-update:semver-major"
           - "version-update:semver-minor"
           - "version-update:semver-patch"
-  - package-ecosystem: "cargo"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 20
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

@@ -1,0 +1,57 @@
+name: sf Plugin NPM Release
+
+on:
+  push:
+    tags:
+      - 'sf-plugin-v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: apps/sf-plugin-apex-log-viewer/package-lock.json
+
+      - name: Verify tag matches package version
+        working-directory: apps/sf-plugin-apex-log-viewer
+        run: |
+          TAG="${GITHUB_REF_NAME#sf-plugin-v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$PKG_VERSION" ]; then
+            echo "Tag version ($TAG) does not match package.json version ($PKG_VERSION)"
+            exit 1
+          fi
+
+      - name: Ensure tag commit is on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Tag commit is not on origin/main"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        working-directory: apps/sf-plugin-apex-log-viewer
+        run: npm ci --workspaces=false
+
+      - name: Run tests
+        run: npm --prefix apps/sf-plugin-apex-log-viewer test
+
+      - name: Publish
+        working-directory: apps/sf-plugin-apex-log-viewer
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance

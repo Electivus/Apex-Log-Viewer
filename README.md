@@ -5,24 +5,21 @@ Monorepo for the Electivus Apex Log Viewer ecosystem.
 ## Structure
 
 - `apps/vscode-extension/` – VS Code extension.
-- `crates/cli/` – Rust CLI (`apex-log-viewer`).
 - `docs/` – shared documentation and design notes.
 
-## CLI (Rust)
+## CLI (sf plugin)
 
-Build:
+Install:
 
 ```bash
-cargo build -p apex-log-viewer-cli
+sf plugins install @electivus/sf-plugin-apex-log-viewer
 ```
 
 Run:
 
 ```bash
-apex-log-viewer logs sync --limit 100 --target <alias|username>
+sf apex-log-viewer logs sync --target-org myOrg --limit 100 --output-dir apexlogs
 ```
-
-`logs sync` creates `apexlogs/` under the current working directory and stores the latest logs there.
 
 ## VS Code Extension
 
