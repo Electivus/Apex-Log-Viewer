@@ -78,7 +78,7 @@
     "link-check": "wireit",
     "lint": "wireit",
     "postinstall": "node -e \"if (process.env.CI || process.env.HUSKY === '0') process.exit(0); require('child_process').execSync('yarn husky install', { stdio: 'inherit' });\"",
-    "postpack": "sf-clean --ignore-signing-artifacts",
+    "postpack": "node ./scripts/postpack.js",
     "prepack": "node ./scripts/sf-prepack.js",
     "test": "wireit",
     "test:nuts": "nyc mocha \"**/*.nut.ts\" --slow 4500 --timeout 600000 --parallel",
