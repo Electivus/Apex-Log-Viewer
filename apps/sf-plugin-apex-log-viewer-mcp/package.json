@@ -1,0 +1,26 @@
+{
+  "name": "@electivus/sf-plugin-apex-log-viewer-mcp",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "bin": {
+    "apex-log-viewer-mcp": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "node --test --import tsx",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.12",
+    "tsx": "^4.16.2",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

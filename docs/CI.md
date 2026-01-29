@@ -3,6 +3,7 @@
 This repository uses GitHub Actions to build, test, package, and publish the extension.
 
 - Workflow CI (`.github/workflows/ci.yml`): build/test only on `push` and `pull_request`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`).
+- Workflow MCP CI (`.github/workflows/mcp-ci.yml`): builds/tests the MCP package on `push` and `pull_request` when `apps/sf-plugin-apex-log-viewer-mcp/**` or `.github/**` change.
 - Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace (if `VSCE_PAT` is configured) and Open VSX (if `OVSX_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
 - Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes automatically to the Marketplace and Open VSX pre‑release channels (when `VSCE_PAT`/`OVSX_PAT` are set).
 - Workflow sf Plugin NPM Release (`.github/workflows/sf-plugin-npm-release.yml`): runs on tag push `sf-plugin-v*`. Validates the plugin version, runs plugin tests, and publishes `@electivus/sf-plugin-apex-log-viewer` to npm (requires `NPM_TOKEN`).
