@@ -22,3 +22,27 @@ apex-log-viewer-mcp --project-dir /path/to/sf-project --sf-bin /path/to/sf
 - `limit` (number, optional, clamped 1-200)
 
 Returns: JSON output from `sf apex-log-viewer logs sync --json`.
+
+## LLM / Agent Usage
+
+### Tool name
+- `apexLogsSync`
+
+### When to use
+- Sync Apex logs for local inspection or troubleshooting.
+
+### Inputs
+- `targetOrg` (string, optional): username or alias.
+- `outputDir` (string, optional): directory to write logs. Defaults to `./apexlogs` relative to server cwd.
+- `limit` (number, optional): max logs to sync. Clamped 1–200.
+
+### Behavior
+- Creates the output directory if missing.
+- Executes `sf apex-log-viewer logs sync --json`.
+- Returns the parsed JSON in `structuredContent` and stringified JSON in `content`.
+
+### Example
+
+```json
+{"tool":"apexLogsSync","args":{"targetOrg":"my-org","outputDir":"/tmp/apexlogs","limit":50}}
+```
