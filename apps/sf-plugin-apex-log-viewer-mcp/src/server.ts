@@ -12,12 +12,23 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     version: '0.1.0'
   });
 
-  server.tool(
+  server.registerTool(
     'apexLogsSync',
     {
-      targetOrg: z.string().optional(),
-      outputDir: z.string().optional(),
-      limit: z.coerce.number().int().optional()
+      title: 'Apex Log Viewer: Sync Logs',
+      description:
+        'Syncs Apex log files from a Salesforce org to a local folder using the sf plugin (apex-log-viewer logs sync --json). ' +
+        'Use this to retrieve logs for debugging; it does not modify org data. Creates outputDir if missing and returns JSON in structuredContent.',
+      inputSchema: {
+        targetOrg: z.string().optional(),
+        outputDir: z.string().optional(),
+        limit: z.coerce.number().int().optional()
+      },
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: false,
+        openWorldHint: true
+      }
     },
     async (params) => {
       const runSync = options.runApexLogsSync ?? runApexLogsSync;

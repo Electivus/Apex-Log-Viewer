@@ -10,6 +10,21 @@ test('createServer registers apexLogsSync tool', () => {
   assert.ok(tools.apexLogsSync);
 });
 
+test('apexLogsSync tool includes title, description, and annotations', () => {
+  const server = createServer();
+  const tools = (server as unknown as { _registeredTools: Record<string, unknown> })._registeredTools;
+  const tool = tools.apexLogsSync as {
+    title?: string;
+    description?: string;
+    annotations?: { readOnlyHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean };
+  };
+
+  assert.ok(tool.title?.includes('Apex Log Viewer'));
+  assert.ok(tool.description?.includes('Apex log'));
+  assert.equal(tool.annotations?.readOnlyHint, true);
+  assert.equal(tool.annotations?.openWorldHint, true);
+});
+
 test('apexLogsSync tool returns structuredContent', async () => {
   const runApexLogsSync = async () => ({ status: 0 });
   const server = createServer({ runApexLogsSync });
