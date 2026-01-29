@@ -4,7 +4,7 @@
   "private": false,
   "type": "module",
   "bin": {
-    "apex-log-viewer-mcp": "dist/index.js"
+    "apex-log-viewer-mcp": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc -p .",

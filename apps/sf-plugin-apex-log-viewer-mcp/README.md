@@ -10,7 +10,8 @@ Exposes `sf apex-log-viewer logs sync` as an MCP stdio tool.
 
 ```bash
 npm --prefix apps/sf-plugin-apex-log-viewer-mcp run build
-node apps/sf-plugin-apex-log-viewer-mcp/dist/index.js
+node apps/sf-plugin-apex-log-viewer-mcp/dist/cli.js --project-dir /path/to/sf-project
+apex-log-viewer-mcp --project-dir /path/to/sf-project --sf-bin /path/to/sf
 ```
 
 ## Tool
