@@ -38,6 +38,13 @@ sf plugin npm publishing
 - The workflow runs plugin tests, then publishes `@electivus/sf-plugin-apex-log-viewer` to npm using provenance.
 - Publishing requires the `NPM_TOKEN` secret.
 
+mcp npm publishing
+
+- Tags matching `mcp-v*` trigger the npm publish workflow (`.github/workflows/mcp-npm-release.yml`).
+- The tag version must match `apps/sf-plugin-apex-log-viewer-mcp/package.json`.
+- The workflow builds/tests the MCP package, then publishes `@electivus/sf-plugin-apex-log-viewer-mcp` to npm using provenance.
+- Publishing requires the `NPM_TOKEN` secret.
+
 Quick recipes
 
 - Prepare a stable release (automated):
