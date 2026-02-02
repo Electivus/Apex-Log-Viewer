@@ -1,5 +1,15 @@
-use apex_log_viewer_cli::commands::logs_sync::make_log_filename;
+use apex_log_viewer_cli::commands::logs_sync::{make_log_filename, sync, LogsSyncArgs};
 use apex_log_viewer_cli::output::{ApexLogSummary, ApexLogUser, OrgSummary, SavedLog, SyncOutput};
+use std::path::PathBuf;
+use tempfile::tempdir;
+
+struct DirGuard(PathBuf);
+
+impl Drop for DirGuard {
+  fn drop(&mut self) {
+    let _ = std::env::set_current_dir(&self.0);
+  }
+}
 
 #[test]
 fn make_log_filename_sanitizes_username() {
@@ -49,4 +59,17 @@ fn sync_output_serializes_expected_shape() {
   assert_eq!(value["logs"][0]["Id"], "07Lxx0000000001");
   assert_eq!(value["logs"][0]["LogLength"], 1234);
   assert_eq!(value["logs"][0]["LogUser"]["Name"], "User Name");
+}
+
+#[test]
+fn logs_sync_returns_error_output_when_missing_project() {
+  let temp = tempdir().expect("tempdir");
+  let prev = std::env::current_dir().expect("cwd");
+  let _guard = DirGuard(prev);
+
+  std::env::set_current_dir(temp.path()).expect("set cwd");
+
+  let err = sync(LogsSyncArgs { limit: 1, target: None }).expect_err("expected error");
+  assert!(!err.ok);
+  assert_eq!(err.error_code, "NO_SFDX_PROJECT");
 }

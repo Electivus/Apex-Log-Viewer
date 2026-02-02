@@ -32,17 +32,23 @@ pub fn make_log_filename(username: &str, log_id: &str) -> String {
   format!("{safe}_{log_id}.log")
 }
 
-fn error_output(code: &str, message: &str, details: Option<String>) -> String {
-  let payload = ErrorOutput {
+fn error_output(code: &str, message: &str, details: Option<String>) -> ErrorOutput {
+  ErrorOutput {
     ok: false,
     error_code: code.to_string(),
     message: message.to_string(),
     details,
-  };
-  serde_json::to_string(&payload).unwrap_or_else(|_| format!("{{\"ok\":false,\"errorCode\":\"{code}\",\"message\":\"{message}\"}}"))
+  }
 }
 
-fn map_project_error(err: ProjectError) -> String {
+fn serialize_error(err: ErrorOutput) -> String {
+  let code = err.error_code.clone();
+  let message = err.message.clone();
+  serde_json::to_string(&err)
+    .unwrap_or_else(|_| format!("{{\"ok\":false,\"errorCode\":\"{code}\",\"message\":\"{message}\"}}"))
+}
+
+fn map_project_error(err: ProjectError) -> ErrorOutput {
   match err {
     ProjectError::MissingProject => error_output(
       "NO_SFDX_PROJECT",
@@ -62,19 +68,19 @@ fn map_project_error(err: ProjectError) -> String {
   }
 }
 
-fn map_auth_error(err: AuthError) -> String {
+fn map_auth_error(err: AuthError) -> ErrorOutput {
   error_output("AUTH_FAILED", "Failed to retrieve Salesforce auth.", Some(err.to_string()))
 }
 
-fn map_http_error(err: HttpError) -> String {
+fn map_http_error(err: HttpError) -> ErrorOutput {
   error_output("LOGS_QUERY_FAILED", "Failed to query Apex logs.", Some(err.to_string()))
 }
 
-fn map_io_error(err: std::io::Error) -> String {
+fn map_io_error(err: std::io::Error) -> ErrorOutput {
   error_output("IO_ERROR", "Failed to write log file.", Some(err.to_string()))
 }
 
-fn ensure_apexlogs_dir() -> Result<PathBuf, String> {
+fn ensure_apexlogs_dir() -> Result<PathBuf, ErrorOutput> {
   let cwd = std::env::current_dir()
     .map_err(|err| error_output("CWD_FAILED", "Failed to resolve current directory.", Some(err.to_string())))?;
   let dir = cwd.join("apexlogs");
@@ -82,7 +88,7 @@ fn ensure_apexlogs_dir() -> Result<PathBuf, String> {
   Ok(dir)
 }
 
-pub fn run(args: LogsSyncArgs) -> Result<(), String> {
+pub fn sync(args: LogsSyncArgs) -> Result<SyncOutput, ErrorOutput> {
   let cwd = std::env::current_dir()
     .map_err(|err| error_output("CWD_FAILED", "Failed to resolve current directory.", Some(err.to_string())))?;
   let project_root = find_project_root(&cwd).ok_or_else(|| {
@@ -147,9 +153,13 @@ pub fn run(args: LogsSyncArgs) -> Result<(), String> {
     skipped,
     errors,
   };
+  Ok(output)
+}
 
+pub fn run(args: LogsSyncArgs) -> Result<(), String> {
+  let output = sync(args).map_err(serialize_error)?;
   let json = serde_json::to_string(&output)
-    .map_err(|err| error_output("SERIALIZE_FAILED", "Failed to serialize output.", Some(err.to_string())))?;
+    .map_err(|err| serialize_error(error_output("SERIALIZE_FAILED", "Failed to serialize output.", Some(err.to_string()))))?;
   println!("{json}");
   Ok(())
 }
