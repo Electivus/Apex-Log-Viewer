@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+- MCP: add `apex-log-viewer-mcp` server exposing the `apex_logs_sync` tool.
+
 ### Build
 
 - Workflows: publish VSIX artifacts to Open VSX when `OVSX_PAT` is configured.
