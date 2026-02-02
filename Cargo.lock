@@ -72,6 +72,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "apex-log-viewer-mcp"
+version = "0.1.0"
+dependencies = [
+ "apex-log-viewer-cli",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "async-compression"
 version = "0.4.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
