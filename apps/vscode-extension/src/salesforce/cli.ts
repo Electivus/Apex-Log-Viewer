@@ -20,6 +20,7 @@ const authCacheByUser = new Map<string, AuthCache>();
 const MAX_AUTH_CACHE_ITEMS = 50;
 const AUTH_CACHE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 let authCacheCleanupTimer: NodeJS.Timeout | undefined;
+const EMPTY_ORG_LIST_PERSIST_TTL_MS = 30 * 1000;
 
 function purgeExpiredAuthCache(now: number = Date.now()): void {
   for (const [key, { expiresAt }] of authCacheByUser) {
@@ -61,6 +62,29 @@ function getCliCacheConfig() {
     return { enabled, authTtl, orgsTtl, authPersistTtl };
   } catch {
     return { enabled: true, authTtl: 0, orgsTtl: 86400000, authPersistTtl: 86400000 };
+  }
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/g, '');
+}
+
+function parseCliJson(stdout: string): any {
+  const raw = String(stdout || '').trim();
+  if (!raw) {
+    throw new Error('empty CLI output');
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Some CLI/plugin combinations may print non-JSON noise before/after JSON.
+    const cleaned = stripAnsi(raw);
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    }
+    throw new Error('invalid CLI JSON output');
   }
 }
 
@@ -116,7 +140,7 @@ export async function getOrgAuth(
         logTrace('getOrgAuth: trying', program, args.join(' '));
       } catch {}
       const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS, signal);
-      const parsed = JSON.parse(stdout);
+      const parsed = parseCliJson(stdout);
       const result = parsed.result || parsed;
       const accessToken: string | undefined = result.accessToken || result.access_token;
       const instanceUrl: string | undefined = result.instanceUrl || result.instance_url || result.loginUrl;
@@ -166,7 +190,7 @@ export async function getOrgAuth(
             logTrace('getOrgAuth(login PATH): trying', program, args.join(' '));
           } catch {}
           const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS, signal);
-          const parsed = JSON.parse(stdout);
+          const parsed = parseCliJson(stdout);
           const result = parsed.result || parsed;
           const accessToken: string | undefined = result.accessToken || result.access_token;
           const instanceUrl: string | undefined = result.instanceUrl || result.instance_url || result.loginUrl;
@@ -246,17 +270,31 @@ export async function listOrgs(forceRefresh = false, signal?: AbortSignal): Prom
   const now = Date.now();
   const { enabled, orgsTtl } = getCliCacheConfig();
   const persistentKey = 'orgList';
+  const persistOrgList = async (orgs: OrgItem[]): Promise<void> => {
+    if (!enabled || orgsTtl <= 0 || execOverriddenForTests) {
+      return;
+    }
+    const ttl = orgs.length > 0 ? orgsTtl : Math.min(orgsTtl, EMPTY_ORG_LIST_PERSIST_TTL_MS);
+    try {
+      await CacheManager.set('cli', persistentKey, orgs, ttl);
+    } catch {}
+  };
   if (!forceRefresh && enabled && orgsTtl > 0 && !execOverriddenForTests) {
     const persisted = CacheManager.get<OrgItem[]>('cli', persistentKey);
     if (persisted && Array.isArray(persisted)) {
-      try {
-        logTrace('listOrgs: hit persistent cache');
-      } catch {}
-      // Para produção, evitamos cache em memória; para testes, mantemos
-      if (execOverriddenForTests) {
-        orgsCache = { data: persisted, expiresAt: now + Math.max(0, orgsCacheTtl), gen: execOverrideGeneration };
+      if (persisted.length > 0) {
+        try {
+          logTrace('listOrgs: hit persistent cache');
+        } catch {}
+        // Para produção, evitamos cache em memória; para testes, mantemos
+        if (execOverriddenForTests) {
+          orgsCache = { data: persisted, expiresAt: now + Math.max(0, orgsCacheTtl), gen: execOverrideGeneration };
+        }
+        return persisted;
       }
-      return persisted;
+      try {
+        logTrace('listOrgs: persistent cache is empty; refreshing from CLI');
+      } catch {}
     }
   }
   if (execOverriddenForTests && !forceRefresh && orgsCache && orgsCache.expiresAt > now) {
@@ -277,6 +315,8 @@ export async function listOrgs(forceRefresh = false, signal?: AbortSignal): Prom
     { program: 'sfdx', args: ['force:org:list', '--json'] }
   ];
   let sawEnoent = false;
+  let hadNonEnoentError = false;
+  let lastNonEnoentError: unknown;
   for (const { program, args } of candidates) {
     try {
       try {
@@ -287,11 +327,7 @@ export async function listOrgs(forceRefresh = false, signal?: AbortSignal): Prom
       if (execOverriddenForTests) {
         orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
       }
-      if (enabled && orgsTtl > 0 && !execOverriddenForTests) {
-        try {
-          await CacheManager.set('cli', persistentKey, res, orgsTtl);
-        } catch {}
-      }
+      await persistOrgList(res);
       return res;
     } catch (_e) {
       const e: any = _e;
@@ -302,6 +338,9 @@ export async function listOrgs(forceRefresh = false, signal?: AbortSignal): Prom
         sawEnoent = true;
       } else if (e && e.code === 'ETIMEDOUT') {
         throw e;
+      } else {
+        hadNonEnoentError = true;
+        lastNonEnoentError = e;
       }
       try {
         logTrace('listOrgs: attempt failed for', program);
@@ -322,11 +361,7 @@ export async function listOrgs(forceRefresh = false, signal?: AbortSignal): Prom
           if (execOverriddenForTests) {
             orgsCache = { data: res, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
           }
-          if (enabled && orgsTtl > 0 && !execOverriddenForTests) {
-            try {
-              await CacheManager.set('cli', persistentKey, res, orgsTtl);
-            } catch {}
-          }
+          await persistOrgList(res);
           return res;
         } catch (_e) {
           const e: any = _e;
@@ -335,6 +370,10 @@ export async function listOrgs(forceRefresh = false, signal?: AbortSignal): Prom
           }
           if (e && e.code === 'ETIMEDOUT') {
             throw e;
+          }
+          if (!(e && e.code === 'ENOENT')) {
+            hadNonEnoentError = true;
+            lastNonEnoentError = e;
           }
           try {
             logTrace('listOrgs(login PATH): attempt failed for', program);
@@ -346,20 +385,22 @@ export async function listOrgs(forceRefresh = false, signal?: AbortSignal): Prom
       localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).')
     );
   }
+  if (hadNonEnoentError) {
+    if (lastNonEnoentError instanceof Error) {
+      throw lastNonEnoentError;
+    }
+    throw new Error(localize('listOrgsFailed', 'Failed to list Salesforce orgs.'));
+  }
   const empty: OrgItem[] = [];
   if (execOverriddenForTests) {
     orgsCache = { data: empty, expiresAt: now + orgsCacheTtl, gen: execOverrideGeneration };
   }
-  if (enabled && orgsTtl > 0 && !execOverriddenForTests) {
-    try {
-      await CacheManager.set('cli', persistentKey, empty, orgsTtl);
-    } catch {}
-  }
+  await persistOrgList(empty);
   return empty;
 }
 
 function parseOrgList(json: string): OrgItem[] {
-  const parsed = JSON.parse(json);
+  const parsed = parseCliJson(json);
   const result = parsed.result || parsed;
   const all: OrgItem[] = [];
   if (Array.isArray(result.orgs)) {
