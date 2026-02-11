@@ -22,6 +22,7 @@ suite('SfLogsViewProvider behavior', () => {
   const origFetchApexLogs = http.fetchApexLogs;
   const origFetchHead = http.fetchApexLogHead;
   const origFetchBody = http.fetchApexLogBody;
+  const origGetApiVersionFallbackWarning = (http as any).getApiVersionFallbackWarning;
   const origExtract = http.extractCodeUnitStartedFromLines;
   const origEnsureApexLogsDir = workspace.ensureApexLogsDir;
   const origPurgeSavedLogs = workspace.purgeSavedLogs;
@@ -36,6 +37,7 @@ suite('SfLogsViewProvider behavior', () => {
     (http as any).fetchApexLogs = origFetchApexLogs;
     (http as any).fetchApexLogHead = origFetchHead;
     (http as any).fetchApexLogBody = origFetchBody;
+    (http as any).getApiVersionFallbackWarning = origGetApiVersionFallbackWarning;
     (http as any).extractCodeUnitStartedFromLines = origExtract;
     (workspace as any).ensureApexLogsDir = origEnsureApexLogsDir;
     (workspace as any).purgeSavedLogs = origPurgeSavedLogs;
@@ -134,6 +136,39 @@ suite('SfLogsViewProvider behavior', () => {
       keepIds.sort(),
       ['07L000000000001AA', '07L000000000002AA'],
       'purge should keep current log ids'
+    );
+  });
+
+  test('refresh posts API version fallback warning when available', async () => {
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    (http as any).fetchApexLogs = async () => ([{ Id: '07L000000000001AA', LogLength: 10 }]);
+    (http as any).fetchApexLogHead = async () => [];
+    (http as any).extractCodeUnitStartedFromLines = () => undefined;
+    (http as any).getApiVersionFallbackWarning = () =>
+      'sourceApiVersion 66.0 > org max 64.0; falling back to 64.0';
+    (workspace as any).purgeSavedLogs = async () => 0;
+
+    const context = makeContext();
+    const posted: any[] = [];
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => false;
+    (provider as any).view = {
+      webview: {
+        postMessage: (m: any) => {
+          posted.push(m);
+          return Promise.resolve(true);
+        }
+      }
+    } as any;
+
+    await provider.refresh();
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    const warnings = posted.filter(m => m?.type === 'warning');
+    assert.ok(warnings.some(m => m.message === undefined), 'should clear warning before refresh');
+    assert.ok(
+      warnings.some(m => m.message === 'sourceApiVersion 66.0 > org max 64.0; falling back to 64.0'),
+      'should post fallback warning when available'
     );
   });
 

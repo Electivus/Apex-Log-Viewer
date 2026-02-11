@@ -1,7 +1,7 @@
 import { logTrace } from '../utils/logger';
 import { CacheManager } from '../utils/cacheManager';
 import { getBooleanConfig, getNumberConfig } from '../utils/config';
-import { httpsRequestWith401Retry, getApiVersion } from './http';
+import { httpsRequestWith401Retry, getEffectiveApiVersion } from './http';
 import type { OrgAuth } from './types';
 
 const userIdCache = new Map<string, string>();
@@ -31,7 +31,7 @@ export async function listDebugLevels(auth: OrgAuth): Promise<string[]> {
     }
   }
   const soql = encodeURIComponent('SELECT DeveloperName FROM DebugLevel ORDER BY DeveloperName');
-  const url = `${auth.instanceUrl}/services/data/v${getApiVersion()}/tooling/query?q=${soql}`;
+  const url = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/query?q=${soql}`;
   const body = await httpsRequestWith401Retry(auth, 'GET', url, {
     Authorization: `Bearer ${auth.accessToken}`,
     'Content-Type': 'application/json'
@@ -54,7 +54,7 @@ export async function getActiveUserDebugLevel(auth: OrgAuth): Promise<string | u
   const tfSoql = encodeURIComponent(
     `SELECT DebugLevel.DeveloperName FROM TraceFlag WHERE TracedEntityId = '${userId}' ORDER BY CreatedDate DESC LIMIT 1`
   );
-  const tfUrl = `${auth.instanceUrl}/services/data/v${getApiVersion()}/tooling/query?q=${tfSoql}`;
+  const tfUrl = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/query?q=${tfSoql}`;
   const tfBody = await httpsRequestWith401Retry(auth, 'GET', tfUrl, {
     Authorization: `Bearer ${auth.accessToken}`,
     'Content-Type': 'application/json'
@@ -90,7 +90,7 @@ export async function getCurrentUserId(auth: OrgAuth): Promise<string | undefine
   }
   const esc = username.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   const userSoql = encodeURIComponent(`SELECT Id FROM User WHERE Username = '${esc}' LIMIT 1`);
-  const userUrl = `${auth.instanceUrl}/services/data/v${getApiVersion()}/query?q=${userSoql}`;
+  const userUrl = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/query?q=${userSoql}`;
   const userBody = await httpsRequestWith401Retry(auth, 'GET', userUrl, {
     Authorization: `Bearer ${auth.accessToken}`,
     'Content-Type': 'application/json'
@@ -114,7 +114,7 @@ async function getDebugLevelIdByName(auth: OrgAuth, developerName: string): Prom
   }
   const esc = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   const soql = encodeURIComponent(`SELECT Id FROM DebugLevel WHERE DeveloperName = '${esc}' LIMIT 1`);
-  const url = `${auth.instanceUrl}/services/data/v${getApiVersion()}/tooling/query?q=${soql}`;
+  const url = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/query?q=${soql}`;
   const body = await httpsRequestWith401Retry(auth, 'GET', url, {
     Authorization: `Bearer ${auth.accessToken}`,
     'Content-Type': 'application/json'
@@ -132,7 +132,7 @@ async function findExistingUserDebugTraceFlagId(
   const soql = encodeURIComponent(
     `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'USER_DEBUG' AND DebugLevelId = '${debugLevelId}' ORDER BY CreatedDate DESC LIMIT 1`
   );
-  const url = `${auth.instanceUrl}/services/data/v${getApiVersion()}/tooling/query?q=${soql}`;
+  const url = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/query?q=${soql}`;
   const body = await httpsRequestWith401Retry(auth, 'GET', url, {
     Authorization: `Bearer ${auth.accessToken}`,
     'Content-Type': 'application/json'
@@ -172,7 +172,7 @@ export async function ensureUserTraceFlag(
     const existingId = await findExistingUserDebugTraceFlagId(auth, userId, debugLevelId);
     if (existingId) {
       // Update existing TraceFlag window (PATCH returns 204 No Content on success)
-      const patchUrl = `${auth.instanceUrl}/services/data/v${getApiVersion()}/tooling/sobjects/TraceFlag/${existingId}`;
+      const patchUrl = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/TraceFlag/${existingId}`;
       await httpsRequestWith401Retry(
         auth,
         'PATCH',
@@ -190,7 +190,7 @@ export async function ensureUserTraceFlag(
     }
 
     // Create a new USER_DEBUG TraceFlag
-    const createUrl = `${auth.instanceUrl}/services/data/v${getApiVersion()}/tooling/sobjects/TraceFlag`;
+    const createUrl = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/TraceFlag`;
     const payload = {
       TracedEntityId: userId,
       LogType: 'USER_DEBUG',

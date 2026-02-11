@@ -15,6 +15,7 @@ function useStableId(prefix: string) {
 type ToolbarProps = {
   loading: boolean;
   error?: string;
+  warning?: string;
   onRefresh: () => void;
   t: any;
   orgs: OrgItem[];
@@ -42,6 +43,7 @@ type ToolbarProps = {
 export function Toolbar({
   loading,
   error,
+  warning,
   onRefresh,
   t,
   orgs,
@@ -68,6 +70,7 @@ export function Toolbar({
   const searchInputId = useStableId('logs-search');
   const hasFilters = Boolean(filterUser || filterOperation || filterStatus || filterCodeUnit);
   const errorLabel = t?.tail?.errorLabel ?? t?.errors?.generic ?? 'Error';
+  const warningLabel = t?.warningLabel ?? 'Warning';
 
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border bg-card/60 p-4 shadow-sm">
@@ -180,7 +183,18 @@ export function Toolbar({
         </div>
       )}
 
-      {!error && loading && (
+      {!error && warning && (
+        <div
+          className="flex items-center gap-2 text-sm text-[color:var(--vscode-editorWarning-foreground,var(--vscode-charts-yellow))]"
+          role="status"
+        >
+          <AlertCircle className="h-4 w-4" aria-hidden="true" />
+          <span className="font-semibold">{warningLabel}:</span>
+          <span>{warning}</span>
+        </div>
+      )}
+
+      {!error && !warning && loading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           <span>{t.loading}</span>
