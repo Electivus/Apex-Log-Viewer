@@ -83,6 +83,13 @@ describe('Logs webview App', () => {
       expect(screen.queryByText('Falhou ao carregar')).toBeNull();
     });
 
+    sendMessage(bus, {
+      type: 'warning',
+      message: 'sourceApiVersion 66.0 > org max 64.0; falling back to 64.0'
+    });
+    await screen.findByText('Aviso:');
+    await screen.findByText('sourceApiVersion 66.0 > org max 64.0; falling back to 64.0');
+
     await screen.findByText('ExecuteAnonymous');
     await screen.findByText('Test.run');
 

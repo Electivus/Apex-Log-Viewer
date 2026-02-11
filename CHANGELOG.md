@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Bug Fixes
+
+- API versioning: automatically fall back to each org's max supported Salesforce API version when `sourceApiVersion` is higher, preventing 404 failures in logs and trace-flag calls and surfacing a warning in Output + Logs UI.
+
 ### Build
 
 - Workflows: publish VSIX artifacts to Open VSX when `OVSX_PAT` is configured.

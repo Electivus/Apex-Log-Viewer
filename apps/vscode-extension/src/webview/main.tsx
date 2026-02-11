@@ -25,6 +25,7 @@ export function LogsApp({
   const [t, setT] = useState<Messages>(() => getMessages('en'));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [warning, setWarning] = useState<string | undefined>(undefined);
   const [orgs, setOrgs] = useState<OrgItem[]>([]);
   const [selectedOrg, setSelectedOrg] = useState<string | undefined>(undefined);
 
@@ -64,6 +65,9 @@ export function LogsApp({
           break;
         case 'error':
           setError(msg.message);
+          break;
+        case 'warning':
+          setWarning(msg.message);
           break;
         case 'init':
           setLocale(msg.locale);
@@ -263,6 +267,7 @@ export function LogsApp({
       <Toolbar
         loading={loading}
         error={error}
+        warning={warning}
         onRefresh={onRefresh}
         t={t}
         orgs={orgs}

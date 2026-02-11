@@ -1,6 +1,7 @@
 export type Messages = {
   refresh: string;
   loading: string;
+  warningLabel?: string;
   searchPreparing?: string;
   searchPending?: string;
   searchPendingPlural?: string;
@@ -55,6 +56,7 @@ export type Messages = {
 const en: Messages = {
   refresh: 'Refresh',
   loading: 'Loading…',
+  warningLabel: 'Warning',
   searchPreparing: 'Preparing search results…',
   searchPending: 'Waiting for {count} log to finish downloading…',
   searchPendingPlural: 'Waiting for {count} logs to finish downloading…',
@@ -109,6 +111,7 @@ const en: Messages = {
 const ptBR: Messages = {
   refresh: 'Atualizar',
   loading: 'Carregando…',
+  warningLabel: 'Aviso',
   searchPreparing: 'Preparando resultados da busca…',
   searchPending: 'Aguardando o download de {count} log…',
   searchPendingPlural: 'Aguardando o download de {count} logs…',

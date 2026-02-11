@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { localize } from '../utils/localize';
 import { getOrgAuth } from '../salesforce/cli';
-import { clearListCache } from '../salesforce/http';
+import { clearListCache, getApiVersionFallbackWarning } from '../salesforce/http';
 import type { ApexLogRow } from '../shared/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn, logError } from '../utils/logger';
@@ -112,10 +112,15 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         const controller = new AbortController();
         ct.onCancellationRequested(() => controller.abort());
         this.post({ type: 'loading', value: true });
+        this.post({ type: 'warning', message: undefined });
         try {
           clearListCache();
           this.pageLimit = this.configManager.getPageLimit();
           const auth = await getOrgAuth(this.orgManager.getSelectedOrg(), undefined, controller.signal);
+          const existingWarning = getApiVersionFallbackWarning(auth);
+          if (existingWarning) {
+            this.post({ type: 'warning', message: existingWarning });
+          }
           if (ct.isCancellationRequested) {
             return;
           }
@@ -137,6 +142,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             const last = logs[logs.length - 1];
             this.cursorStartTime = last?.StartTime;
             this.cursorId = last?.Id;
+          }
+          const warning = getApiVersionFallbackWarning(auth);
+          if (warning) {
+            this.post({ type: 'warning', message: warning });
           }
           if (token !== this.refreshToken || this.disposed) {
             return;
@@ -200,8 +209,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     const token = this.refreshToken;
     const t0 = Date.now();
     this.post({ type: 'loading', value: true });
+    this.post({ type: 'warning', message: undefined });
     try {
       const auth = await getOrgAuth(this.orgManager.getSelectedOrg());
+      const existingWarning = getApiVersionFallbackWarning(auth);
+      if (existingWarning) {
+        this.post({ type: 'warning', message: existingWarning });
+      }
       const logs: ApexLogRow[] = await this.logService.fetchLogs(
         auth,
         this.pageLimit,
@@ -217,6 +231,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         const last = logs[logs.length - 1];
         this.cursorStartTime = last?.StartTime;
         this.cursorId = last?.Id;
+      }
+      const warning = getApiVersionFallbackWarning(auth);
+      if (warning) {
+        this.post({ type: 'warning', message: warning });
       }
       if (token !== this.refreshToken || this.disposed) {
         return;

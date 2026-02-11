@@ -141,7 +141,73 @@ async function refreshAuthInPlace(auth: OrgAuth): Promise<void> {
   }
 }
 
-export async function httpsRequestWith401Retry(
+type HttpResponse = {
+  statusCode: number;
+  headers: Record<string, string | string[] | undefined>;
+  body: string;
+};
+
+type ApiVersionMismatchResolution = {
+  retryUrl: string;
+};
+
+function stripTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function normalizeOrgKey(auth: OrgAuth): string {
+  const instance = stripTrailingSlash(String(auth.instanceUrl || '').trim()).toLowerCase();
+  if (instance) {
+    return instance;
+  }
+  return String(auth.username || '').trim().toLowerCase();
+}
+
+function parseApiVersion(value: string | undefined): number | undefined {
+  const s = String(value || '').trim();
+  if (!/^\d+\.\d+$/.test(s)) {
+    return undefined;
+  }
+  const n = Number(s);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function isVersionNotFound404(statusCode: number, body: string): boolean {
+  if (statusCode !== 404) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(body);
+    if (Array.isArray(parsed)) {
+      for (const item of parsed) {
+        if (item && typeof item === 'object' && String((item as any).errorCode || '').toUpperCase() === 'NOT_FOUND') {
+          return true;
+        }
+      }
+    }
+  } catch {
+    // no-op
+  }
+  return /not[_\s-]?found|requested resource does not exist/i.test(body);
+}
+
+function extractApiVersionFromUrl(urlString: string): string | undefined {
+  try {
+    const url = new URL(urlString);
+    const m = url.pathname.match(/\/services\/data\/v(\d+\.\d+)(?:\/|$)/i);
+    return m?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
+function replaceApiVersionInUrl(urlString: string, version: string): string {
+  const url = new URL(urlString);
+  url.pathname = url.pathname.replace(/\/services\/data\/v\d+\.\d+(?=\/|$)/i, `/services/data/v${version}`);
+  return url.toString();
+}
+
+async function sendHttpWith401Retry(
   auth: OrgAuth,
   method: string,
   urlString: string,
@@ -149,7 +215,7 @@ export async function httpsRequestWith401Retry(
   body?: string,
   timeoutMs?: number,
   signal?: AbortSignal
-): Promise<string> {
+): Promise<HttpResponse> {
   try {
     logTrace('HTTP', method, urlString);
   } catch {}
@@ -173,28 +239,145 @@ export async function httpsRequestWith401Retry(
     try {
       logTrace('HTTP(retry) <-', second.statusCode, urlString);
     } catch {}
-    if (second.statusCode >= 200 && second.statusCode < 300) {
-      return second.body;
+    return second;
+  }
+  return first;
+}
+
+async function discoverOrgMaxApiVersion(auth: OrgAuth, timeoutMs?: number, signal?: AbortSignal): Promise<string | undefined> {
+  const base = stripTrailingSlash(String(auth.instanceUrl || '').trim());
+  if (!base) {
+    return undefined;
+  }
+  const url = `${base}/services/data`;
+  const body = await httpsRequestWith401Retry(
+    auth,
+    'GET',
+    url,
+    {
+      Authorization: `Bearer ${auth.accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    undefined,
+    timeoutMs,
+    signal
+  );
+  const parsed = JSON.parse(body);
+  if (!Array.isArray(parsed)) {
+    return undefined;
+  }
+  let maxVersion: string | undefined;
+  let maxNumeric = -1;
+  for (const item of parsed) {
+    const version = item?.version;
+    const numeric = parseApiVersion(version);
+    if (numeric !== undefined && numeric > maxNumeric) {
+      maxNumeric = numeric;
+      maxVersion = version;
     }
-    throw new Error(`HTTP ${second.statusCode}: ${second.body}`);
   }
-  if (first.statusCode >= 200 && first.statusCode < 300) {
-    return first.body;
+  return maxVersion;
+}
+
+export async function httpsRequestWith401Retry(
+  auth: OrgAuth,
+  method: string,
+  urlString: string,
+  headers: Record<string, string>,
+  body?: string,
+  timeoutMs?: number,
+  signal?: AbortSignal
+): Promise<string> {
+  const attemptResolveMismatch = async (response: HttpResponse, requestUrl: string): Promise<ApiVersionMismatchResolution | undefined> => {
+    if (!isVersionNotFound404(response.statusCode, response.body)) {
+      return undefined;
+    }
+    const requestedVersion = extractApiVersionFromUrl(requestUrl);
+    const requestedNumeric = parseApiVersion(requestedVersion);
+    if (!requestedVersion || requestedNumeric === undefined) {
+      return undefined;
+    }
+    const orgMaxVersion = await discoverOrgMaxApiVersion(auth, timeoutMs, signal).catch(() => undefined);
+    const orgMaxNumeric = parseApiVersion(orgMaxVersion);
+    if (!orgMaxVersion || orgMaxNumeric === undefined || requestedNumeric <= orgMaxNumeric) {
+      return undefined;
+    }
+    const orgKey = normalizeOrgKey(auth);
+    orgApiVersionOverrideByOrg.set(orgKey, orgMaxVersion);
+    const warning = `sourceApiVersion ${API_VERSION} > org max ${orgMaxVersion}; falling back to ${orgMaxVersion}`;
+    const prevWarning = orgApiVersionWarningByOrg.get(orgKey);
+    orgApiVersionWarningByOrg.set(orgKey, warning);
+    if (prevWarning !== warning) {
+      logWarn(warning);
+    }
+    const retryUrl = replaceApiVersionInUrl(requestUrl, orgMaxVersion);
+    try {
+      logTrace('HTTP version fallback', requestedVersion, '->', orgMaxVersion);
+    } catch {}
+    return { retryUrl };
+  };
+
+  let attemptedVersionFallback = false;
+  let activeUrl = urlString;
+  let response = await sendHttpWith401Retry(auth, method, activeUrl, headers, body, timeoutMs, signal);
+  while (true) {
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response.body;
+    }
+    if (!attemptedVersionFallback) {
+      const resolved = await attemptResolveMismatch(response, activeUrl).catch(() => undefined);
+      if (resolved) {
+        attemptedVersionFallback = true;
+        activeUrl = resolved.retryUrl;
+        response = await sendHttpWith401Retry(auth, method, activeUrl, headers, body, timeoutMs, signal);
+        continue;
+      }
+    }
+    throw new Error(`HTTP ${response.statusCode}: ${response.body}`);
   }
-  throw new Error(`HTTP ${first.statusCode}: ${first.body}`);
 }
 
 let API_VERSION = '64.0';
+const orgApiVersionOverrideByOrg = new Map<string, string>();
+const orgApiVersionWarningByOrg = new Map<string, string>();
+
+function clearApiVersionFallbackState(): void {
+  orgApiVersionOverrideByOrg.clear();
+  orgApiVersionWarningByOrg.clear();
+}
 
 export function setApiVersion(v?: string): void {
   const s = (v || '').trim();
   if (/^\d+\.\d+$/.test(s)) {
+    const changed = API_VERSION !== s;
     API_VERSION = s;
+    if (changed) {
+      clearApiVersionFallbackState();
+    }
   }
 }
 
 export function getApiVersion(): string {
   return API_VERSION;
+}
+
+export function getEffectiveApiVersion(auth?: OrgAuth): string {
+  if (!auth) {
+    return API_VERSION;
+  }
+  const orgKey = normalizeOrgKey(auth);
+  return orgApiVersionOverrideByOrg.get(orgKey) || API_VERSION;
+}
+
+export function getApiVersionFallbackWarning(auth?: OrgAuth): string | undefined {
+  if (!auth) {
+    return undefined;
+  }
+  return orgApiVersionWarningByOrg.get(normalizeOrgKey(auth));
+}
+
+export function __resetApiVersionFallbackStateForTests(): void {
+  clearApiVersionFallbackState();
 }
 
 // Store the largest prefix of lines fetched per log; smaller requests return a slice
@@ -244,7 +427,7 @@ export async function fetchApexLogs(
     query = `${baseSelect} ORDER BY StartTime DESC, Id DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`;
   }
   const soql = encodeURIComponent(query);
-  const url = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/query?q=${soql}`;
+  const url = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/query?q=${soql}`;
   const body = await httpsRequestWith401Retry(
     auth,
     'GET',
@@ -272,7 +455,7 @@ export async function fetchApexLogBody(
   timeoutMs?: number,
   signal?: AbortSignal
 ): Promise<string> {
-  const url = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/sobjects/ApexLog/${logId}/Body`;
+  const url = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/ApexLog/${logId}/Body`;
   const text = await httpsRequestWith401Retry(
     auth,
     'GET',
@@ -299,7 +482,7 @@ async function fetchApexLogBytesRange(
   timeoutMs?: number,
   signal?: AbortSignal
 ): Promise<RangeResponse> {
-  const urlString = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/sobjects/ApexLog/${logId}/Body`;
+  const urlString = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/ApexLog/${logId}/Body`;
   const first = await httpsRequest(
     'GET',
     urlString,
@@ -377,7 +560,7 @@ export async function fetchApexLogHead(
 
   // 2) Fallback: stream and stop early when reaching maxLines
   return new Promise((resolve, reject) => {
-    const urlString = `${auth.instanceUrl}/services/data/v${API_VERSION}/tooling/sobjects/ApexLog/${logId}/Body`;
+    const urlString = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/ApexLog/${logId}/Body`;
     const urlObj = new URL(urlString);
     try {
       logTrace('HTTP stream GET ApexLog head', logId, '-> until', maxLines, 'lines');

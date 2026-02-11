@@ -7,6 +7,7 @@ import type { OrgItem } from '../../shared/types';
 type ToolbarRenderOptions = {
   loading?: boolean;
   error?: string;
+  warning?: string;
   filterUser?: string;
   filterOperation?: string;
   filterStatus?: string;
@@ -19,6 +20,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
   const {
     loading = false,
     error,
+    warning,
     filterUser = '',
     filterOperation = '',
     filterStatus = '',
@@ -51,6 +53,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
       <Toolbar
         loading={loading}
         error={error}
+        warning={warning}
         onRefresh={() => {
           refreshCount++;
         }}
@@ -164,5 +167,11 @@ describe('Toolbar webview component', () => {
     expect(notice).toBeInTheDocument();
     const container = notice.closest('div');
     expect(container?.querySelector('.animate-spin')).toBeNull();
+  });
+
+  it('shows warning banner when warning message is provided', () => {
+    renderToolbar({ warning: 'sourceApiVersion 66.0 > org max 64.0; falling back to 64.0' });
+    screen.getByText('Warning:');
+    screen.getByText('sourceApiVersion 66.0 > org max 64.0; falling back to 64.0');
   });
 });
