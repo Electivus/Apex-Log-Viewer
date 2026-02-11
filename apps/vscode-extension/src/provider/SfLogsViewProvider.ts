@@ -109,6 +109,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         cancellable: true
       },
       async (_progress, ct) => {
+        const isCurrentRefresh = () => token === this.refreshToken && !this.disposed;
         const controller = new AbortController();
         ct.onCancellationRequested(() => controller.abort());
         this.post({ type: 'loading', value: true });
@@ -117,11 +118,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           clearListCache();
           this.pageLimit = this.configManager.getPageLimit();
           const auth = await getOrgAuth(this.orgManager.getSelectedOrg(), undefined, controller.signal);
-          const existingWarning = getApiVersionFallbackWarning(auth);
-          if (existingWarning) {
-            this.post({ type: 'warning', message: existingWarning });
+          if (isCurrentRefresh()) {
+            const existingWarning = getApiVersionFallbackWarning(auth);
+            if (existingWarning) {
+              this.post({ type: 'warning', message: existingWarning });
+            }
           }
-          if (ct.isCancellationRequested) {
+          if (ct.isCancellationRequested || !isCurrentRefresh()) {
             return;
           }
           this.currentOffset = 0;
@@ -143,11 +146,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             this.cursorStartTime = last?.StartTime;
             this.cursorId = last?.Id;
           }
-          const warning = getApiVersionFallbackWarning(auth);
-          if (warning) {
-            this.post({ type: 'warning', message: warning });
+          if (isCurrentRefresh()) {
+            const warning = getApiVersionFallbackWarning(auth);
+            if (warning) {
+              this.post({ type: 'warning', message: warning });
+            }
           }
-          if (token !== this.refreshToken || this.disposed) {
+          if (!isCurrentRefresh()) {
             return;
           }
           this.preloadFullLogBodies(logs, controller.signal);
@@ -207,14 +212,20 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const token = this.refreshToken;
+    const isCurrentRefresh = () => token === this.refreshToken && !this.disposed;
     const t0 = Date.now();
     this.post({ type: 'loading', value: true });
     this.post({ type: 'warning', message: undefined });
     try {
       const auth = await getOrgAuth(this.orgManager.getSelectedOrg());
-      const existingWarning = getApiVersionFallbackWarning(auth);
-      if (existingWarning) {
-        this.post({ type: 'warning', message: existingWarning });
+      if (isCurrentRefresh()) {
+        const existingWarning = getApiVersionFallbackWarning(auth);
+        if (existingWarning) {
+          this.post({ type: 'warning', message: existingWarning });
+        }
+      }
+      if (!isCurrentRefresh()) {
+        return;
       }
       const logs: ApexLogRow[] = await this.logService.fetchLogs(
         auth,
@@ -232,11 +243,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         this.cursorStartTime = last?.StartTime;
         this.cursorId = last?.Id;
       }
-      const warning = getApiVersionFallbackWarning(auth);
-      if (warning) {
-        this.post({ type: 'warning', message: warning });
+      if (isCurrentRefresh()) {
+        const warning = getApiVersionFallbackWarning(auth);
+        if (warning) {
+          this.post({ type: 'warning', message: warning });
+        }
       }
-      if (token !== this.refreshToken || this.disposed) {
+      if (!isCurrentRefresh()) {
         return;
       }
       this.preloadFullLogBodies(logs);
