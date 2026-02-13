@@ -4,14 +4,35 @@
 
 ## [0.22.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.20.0...v0.22.0) (2026-02-13)
 
+### ⚠ BREAKING CHANGES
+
+- Build: require Node 22 and VS Code 1.101 for extension development and installation compatibility. ([#412](https://github.com/Electivus/Apex-Log-Viewer/pull/412)) ([bc8acb7](https://github.com/Electivus/Apex-Log-Viewer/commit/bc8acb7))
+
+### Features
+
+- Repo: migrate to a monorepo layout and add the Rust CLI package `apex-log-viewer-cli`. ([#439](https://github.com/Electivus/Apex-Log-Viewer/pull/439)) ([230d324](https://github.com/Electivus/Apex-Log-Viewer/commit/230d324))
+- Distribution: add Open VSX publishing support to workflows and documentation. ([#386](https://github.com/Electivus/Apex-Log-Viewer/pull/386)) ([5042e14](https://github.com/Electivus/Apex-Log-Viewer/commit/5042e14))
+
 ### Bug Fixes
 
-- API versioning: automatically fall back to each org's max supported Salesforce API version when `sourceApiVersion` is higher, preventing 404 failures in logs and trace-flag calls and surfacing a warning in Output + Logs UI.
+- API versioning: automatically fall back to each org's max supported Salesforce API version when `sourceApiVersion` is higher, preventing 404 failures in logs and trace-flag calls and surfacing a warning in Output + Logs UI. ([#497](https://github.com/Electivus/Apex-Log-Viewer/pull/497)) ([7c91387](https://github.com/Electivus/Apex-Log-Viewer/commit/7c91387))
+- CLI: recover gracefully from an empty persisted org cache. ([#496](https://github.com/Electivus/Apex-Log-Viewer/pull/496)) ([1749cd7](https://github.com/Electivus/Apex-Log-Viewer/commit/1749cd7))
+- Workflows: roll back prerelease state when publish fails. ([#416](https://github.com/Electivus/Apex-Log-Viewer/pull/416)) ([4c9771d](https://github.com/Electivus/Apex-Log-Viewer/commit/4c9771d))
+
+### Refactors
+
+- Webview: remove unused components and styles. ([64a3690](https://github.com/Electivus/Apex-Log-Viewer/commit/64a3690))
 
 ### Build
 
-- Workflows: publish VSIX artifacts to Open VSX when `OVSX_PAT` is configured.
-- Tooling: align CI/dev on Node 22 and require VS Code 1.101 for extension installs.
+- CLI: add npm release workflow for platform packages and wrapper package publishing. ([#459](https://github.com/Electivus/Apex-Log-Viewer/pull/459)) ([4ab71fe](https://github.com/Electivus/Apex-Log-Viewer/commit/4ab71fe))
+- Workflows: prevent `vsce` from packaging the workspace root during release packaging. ([#458](https://github.com/Electivus/Apex-Log-Viewer/pull/458)) ([ced9280](https://github.com/Electivus/Apex-Log-Viewer/commit/ced9280))
+- Workflows: publish VSIX artifacts to Open VSX when `OVSX_PAT` is configured. ([#386](https://github.com/Electivus/Apex-Log-Viewer/pull/386)) ([5042e14](https://github.com/Electivus/Apex-Log-Viewer/commit/5042e14))
+- Dependencies: upgrade runtime/dev dependencies and GitHub Actions versions across the extension toolchain.
+
+### Chores
+
+- Repo hygiene: ignore generated docs artifacts and Rust build output, and remove outdated internal docs files. ([2f2c245](https://github.com/Electivus/Apex-Log-Viewer/commit/2f2c245)) ([7980a78](https://github.com/Electivus/Apex-Log-Viewer/commit/7980a78)) ([05326a5](https://github.com/Electivus/Apex-Log-Viewer/commit/05326a5)) ([a4e82ec](https://github.com/Electivus/Apex-Log-Viewer/commit/a4e82ec))
 
 ## [0.20.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.18.0...v0.20.0) (2025-10-22)
 
