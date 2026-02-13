@@ -304,7 +304,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Setting prerelease=${PRE_RELEASE} for ${TAG_NAME}"
-          RID=$(gh api -X GET repos/${{ github.repository }}/releases/tags/${TAG_NAME} -q .id)
+          RID=$(gh release view "${TAG_NAME}" --json databaseId -q .databaseId)
           if [ "${PRE_RELEASE}" = "true" ]; then
             gh api -X PATCH repos/${{ github.repository }}/releases/$RID -f prerelease=true
           else
