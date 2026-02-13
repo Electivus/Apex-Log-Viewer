@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.22.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.20.0...v0.22.0) (2026-02-13)
+
 ### Bug Fixes
 
 - API versioning: automatically fall back to each org's max supported Salesforce API version when `sourceApiVersion` is higher, preventing 404 failures in logs and trace-flag calls and surfacing a warning in Output + Logs UI.
