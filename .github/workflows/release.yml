@@ -120,8 +120,11 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
-            const version = require('./package.json').version;
-            const minor = Number(version.split('.')[1] || 0);
+            const fs = require('fs');
+            const path = require('path');
+            const pkgPath = path.join(process.env.GITHUB_WORKSPACE || process.cwd(), 'apps', 'vscode-extension', 'package.json');
+            const version = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version;
+            const minor = Number((version || '').split('.')[1] || 0);
             const tagName = process.env.TAG_NAME || '';
             let preRelease = minor % 2 === 1;
             if (/-pre|-beta|-alpha|-rc/.test(tagName)) {
@@ -255,8 +258,11 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
-            const version = require('./package.json').version;
-            const minor = Number(version.split('.')[1] || 0);
+            const fs = require('fs');
+            const path = require('path');
+            const pkgPath = path.join(process.env.GITHUB_WORKSPACE || process.cwd(), 'apps', 'vscode-extension', 'package.json');
+            const version = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version;
+            const minor = Number((version || '').split('.')[1] || 0);
             const tagName = process.env.TAG_NAME || '';
             let preRelease = minor % 2 === 1;
             if (/-pre|-beta|-alpha|-rc/.test(tagName)) {
