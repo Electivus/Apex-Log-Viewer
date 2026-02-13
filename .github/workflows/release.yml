@@ -315,14 +315,18 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           pattern: apex-log-viewer-${{ steps.determine_channel.outputs.version }}-${{ steps.determine_channel.outputs.channel_suffix }}-vsix-*
-          path: vsix
+          path: ${{ github.workspace }}/vsix
 
       - name: Collect VSIX files
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          find vsix -name '*.vsix' -exec mv {} . \;
+          VSIX_DIR="${GITHUB_WORKSPACE}/vsix"
+          if [ ! -d "${VSIX_DIR}" ]; then
+            echo "VSIX artifact directory not found: ${VSIX_DIR}" >&2
+            exit 1
+          fi
+          find "${VSIX_DIR}" -name '*.vsix' -exec mv {} . \;
 
       - name: Publish from VSIX artifact
         env:
