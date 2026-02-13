@@ -388,7 +388,7 @@
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
-    "@salesforce/apex-node": "^8.4.2",
+    "@salesforce/apex-node": "^8.4.7",
     "@salesforce/core": "^8.24.0",
     "@vscode/extension-telemetry": "^1.2.0",
     "@vscode/ripgrep": "^1.17.0",
