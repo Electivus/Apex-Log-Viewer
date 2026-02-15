@@ -51,6 +51,15 @@ export type Messages = {
     codeUnitStarted: string;
     match?: string;
   };
+  columnsConfig?: {
+    button: string;
+    title: string;
+    subtitle?: string;
+    reset: string;
+    matchRequiresFullSearch: string;
+    moveUp: string;
+    moveDown: string;
+  };
 };
 
 const en: Messages = {
@@ -105,6 +114,15 @@ const en: Messages = {
     size: 'Size',
     codeUnitStarted: 'Code Unit',
     match: 'Match'
+  },
+  columnsConfig: {
+    button: 'Columns',
+    title: 'Columns',
+    subtitle: 'Show/hide and reorder columns',
+    reset: 'Reset to defaults',
+    matchRequiresFullSearch: 'Requires full log search',
+    moveUp: 'Move up',
+    moveDown: 'Move down'
   }
 };
 
@@ -160,6 +178,15 @@ const ptBR: Messages = {
     size: 'Tamanho',
     codeUnitStarted: 'Code Unit',
     match: 'Trecho'
+  },
+  columnsConfig: {
+    button: 'Colunas',
+    title: 'Colunas',
+    subtitle: 'Mostrar/ocultar e reordenar colunas',
+    reset: 'Restaurar padrão',
+    matchRequiresFullSearch: 'Requer busca completa',
+    moveUp: 'Mover para cima',
+    moveDown: 'Mover para baixo'
   }
 };
 

@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useMemo, useRef } from 'react';
 import { BugPlay, FileText, Loader2 } from 'lucide-react';
 import type { ApexLogRow } from '../../../shared/types';
 import type { LogHeadMap } from '../LogsTable';
+import type { LogsColumnKey } from '../../../shared/logsColumns';
 import { formatBytes, formatDuration } from '../../utils/format';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
@@ -10,8 +11,7 @@ type Props = {
   r: ApexLogRow;
   logHead: LogHeadMap;
   matchSnippet?: { text: string; ranges: [number, number][] };
-  showCodeUnitColumn: boolean;
-  showMatchColumn: boolean;
+  columns: LogsColumnKey[];
   locale: string;
   t: any;
   loading: boolean;
@@ -27,8 +27,7 @@ export function LogRow({
   r,
   logHead,
   matchSnippet,
-  showCodeUnitColumn,
-  showMatchColumn,
+  columns,
   locale,
   t,
   loading,
@@ -68,8 +67,7 @@ export function LogRow({
     logHead[r.Id]?.codeUnitStarted,
     matchSnippet?.text,
     r,
-    showCodeUnitColumn,
-    showMatchColumn
+    columns
   ]);
 
   const cellClass =
@@ -151,27 +149,66 @@ export function LogRow({
         style={{ gridTemplateColumns: gridTemplate }}
         className="grid items-stretch border-b border-border bg-background/40 text-sm transition-colors hover:bg-muted/40"
       >
-        <div className={cellClass}>{r.LogUser?.Name ?? ''}</div>
-        <div className={cellClass}>{r.Application}</div>
-        <div className={cellClass}>{r.Operation}</div>
-        <div className={cellClass}>{new Date(r.StartTime).toLocaleString(locale)}</div>
-        <div className={cellClass}>{formatDuration(r.DurationMilliseconds)}</div>
-        <div className={cellClass}>{r.Status}</div>
-        {showCodeUnitColumn && (
-          <div className={cellClass} title={logHead[r.Id]?.codeUnitStarted ?? ''}>
-            {logHead[r.Id]?.codeUnitStarted ?? ''}
-          </div>
-        )}
-        <div className={cn(cellClass, 'text-right font-medium tabular-nums text-foreground')}>
-          {formatBytes(r.LogLength)}
-        </div>
-        {showMatchColumn && (
-          <div className={cn(cellClass, 'text-muted-foreground/90')} title={matchSnippet?.text ?? ''}>
-            <span className="block max-h-[4.5rem] overflow-hidden whitespace-pre-wrap text-left text-sm leading-relaxed">
-              {renderSnippet}
-            </span>
-          </div>
-        )}
+        {columns.map(key => {
+          switch (key) {
+            case 'user':
+              return (
+                <div key={key} className={cellClass}>
+                  {r.LogUser?.Name ?? ''}
+                </div>
+              );
+            case 'application':
+              return (
+                <div key={key} className={cellClass}>
+                  {r.Application}
+                </div>
+              );
+            case 'operation':
+              return (
+                <div key={key} className={cellClass}>
+                  {r.Operation}
+                </div>
+              );
+            case 'time':
+              return (
+                <div key={key} className={cellClass}>
+                  {new Date(r.StartTime).toLocaleString(locale)}
+                </div>
+              );
+            case 'duration':
+              return (
+                <div key={key} className={cellClass}>
+                  {formatDuration(r.DurationMilliseconds)}
+                </div>
+              );
+            case 'status':
+              return (
+                <div key={key} className={cellClass}>
+                  {r.Status}
+                </div>
+              );
+            case 'codeUnit':
+              return (
+                <div key={key} className={cellClass} title={logHead[r.Id]?.codeUnitStarted ?? ''}>
+                  {logHead[r.Id]?.codeUnitStarted ?? ''}
+                </div>
+              );
+            case 'size':
+              return (
+                <div key={key} className={cn(cellClass, 'text-right font-medium tabular-nums text-foreground')}>
+                  {formatBytes(r.LogLength)}
+                </div>
+              );
+            case 'match':
+              return (
+                <div key={key} className={cn(cellClass, 'text-muted-foreground/90')} title={matchSnippet?.text ?? ''}>
+                  <span className="block max-h-[4.5rem] overflow-hidden whitespace-pre-wrap text-left text-sm leading-relaxed">
+                    {renderSnippet}
+                  </span>
+                </div>
+              );
+          }
+        })}
         <div className={cn(cellClass, 'flex items-center justify-center gap-2 text-center')}>
           <div className="flex items-center gap-2">
             {actionButton(

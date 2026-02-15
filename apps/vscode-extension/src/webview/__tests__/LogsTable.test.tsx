@@ -40,6 +40,32 @@ const t = {
   }
 };
 
+const defaultColumnsConfig = {
+  order: [
+    'user',
+    'application',
+    'operation',
+    'time',
+    'duration',
+    'status',
+    'codeUnit',
+    'size',
+    'match'
+  ],
+  visibility: {
+    user: true,
+    application: true,
+    operation: true,
+    time: true,
+    duration: true,
+    status: true,
+    codeUnit: true,
+    size: true,
+    match: true
+  },
+  widths: {}
+} as const;
+
 function createVirtualList(captured: CapturedList) {
   return function VirtualList({
     listRef,
@@ -104,7 +130,9 @@ describe('LogsTable', () => {
       hasMore,
       sortBy: 'time' as const,
       sortDir: 'asc' as const,
-      onSort: () => {}
+      onSort: () => {},
+      columnsConfig: defaultColumnsConfig as any,
+      onColumnsConfigChange: () => {}
     };
     const view = render(
       <LogsTable
@@ -257,7 +285,10 @@ describe('LogsTable', () => {
       locale: 'en-US',
       sortBy: 'time' as const,
       sortDir: 'asc' as const,
-      onSort: () => {}
+      onSort: () => {},
+      columnsConfig: defaultColumnsConfig as any,
+      onColumnsConfigChange: () => {},
+      fullLogSearchEnabled: true
     };
 
     const initialLoadMore = jest.fn();

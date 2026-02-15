@@ -6,6 +6,8 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { FilterSelect } from './FilterSelect';
 import { OrgSelect } from './OrgSelect';
+import { ColumnsPopover } from './ColumnsPopover';
+import type { NormalizedLogsColumnsConfig } from '../../shared/logsColumns';
 
 function useStableId(prefix: string) {
   const id = React.useId();
@@ -38,6 +40,12 @@ type ToolbarProps = {
   onFilterStatusChange: (v: string) => void;
   onFilterCodeUnitChange: (v: string) => void;
   onClearFilters: () => void;
+  columnsConfig: NormalizedLogsColumnsConfig;
+  fullLogSearchEnabled: boolean;
+  onColumnsConfigChange: (
+    updater: (prev: NormalizedLogsColumnsConfig) => NormalizedLogsColumnsConfig,
+    options?: { persist?: boolean }
+  ) => void;
 };
 
 export function Toolbar({
@@ -65,7 +73,10 @@ export function Toolbar({
   onFilterOperationChange,
   onFilterStatusChange,
   onFilterCodeUnitChange,
-  onClearFilters
+  onClearFilters,
+  columnsConfig,
+  fullLogSearchEnabled,
+  onColumnsConfigChange
 }: ToolbarProps) {
   const searchInputId = useStableId('logs-search');
   const hasFilters = Boolean(filterUser || filterOperation || filterStatus || filterCodeUnit);
@@ -161,6 +172,13 @@ export function Toolbar({
           options={codeUnits}
           allLabel={t.filters?.all ?? 'All'}
           disabled={loading}
+        />
+
+        <ColumnsPopover
+          t={t}
+          columnsConfig={columnsConfig}
+          fullLogSearchEnabled={fullLogSearchEnabled}
+          onColumnsConfigChange={onColumnsConfigChange}
         />
 
         <Button

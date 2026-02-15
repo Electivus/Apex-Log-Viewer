@@ -24,6 +24,7 @@ describe('LogRow', () => {
         logHead={{ '1': { codeUnitStarted: 'CU' } }}
         locale="en-US"
         t={{ open: 'Open', replay: 'Replay' }}
+        columns={['user']}
         loading={false}
         onOpen={id => {
           opened = id;
@@ -31,7 +32,7 @@ describe('LogRow', () => {
         onReplay={id => {
           replayed = id;
         }}
-        gridTemplate="1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr"
+        gridTemplate="1fr 96px"
         style={{}}
         index={0}
         setRowHeight={() => {}}

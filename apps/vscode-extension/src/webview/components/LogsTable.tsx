@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import { List, type ListImperativeAPI } from 'react-window';
 import type { ApexLogRow } from '../../shared/types';
+import type { LogsColumnKey, NormalizedLogsColumnsConfig } from '../../shared/logsColumns';
+import { LOGS_COLUMN_DEFAULT_TRACK, LOGS_COLUMN_MIN_WIDTH_PX } from '../utils/logsColumns';
 import { LogsHeader } from './table/LogsHeader';
 import { LogRow } from './table/LogRow';
 
@@ -10,8 +12,7 @@ type ListRowProps = {
   rows: ApexLogRow[];
   logHead: LogHeadMap;
   matchSnippets: Record<string, { text: string; ranges: [number, number][] }>;
-  showCodeUnitColumn: boolean;
-  showMatchColumn: boolean;
+  columns: LogsColumnKey[];
   locale: string;
   t: any;
   loading: boolean;
@@ -45,6 +46,8 @@ export function LogsTable({
   sortBy,
   sortDir,
   onSort,
+  columnsConfig,
+  onColumnsConfigChange,
   virtualListComponent,
   autoLoadEnabled = true,
   fullLogSearchEnabled
@@ -59,10 +62,15 @@ export function LogsTable({
   locale: string;
   hasMore: boolean;
   onLoadMore: () => void;
-  sortBy: 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit';
+  sortBy: Exclude<LogsColumnKey, 'match'>;
   sortDir: 'asc' | 'desc';
   onSort: (
-    key: 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit'
+    key: Exclude<LogsColumnKey, 'match'>
+  ) => void;
+  columnsConfig: NormalizedLogsColumnsConfig;
+  onColumnsConfigChange: (
+    updater: (prev: NormalizedLogsColumnsConfig) => NormalizedLogsColumnsConfig,
+    options?: { persist?: boolean }
   ) => void;
   virtualListComponent?: typeof List;
   autoLoadEnabled?: boolean;
@@ -91,27 +99,46 @@ export function LogsTable({
   const autoLoadRef = useRef<boolean>(autoLoadEnabled);
   const onLoadMoreRef = useRef(onLoadMore);
   const lastLoadTsRef = useRef<number>(0);
-  const showMatchColumn = fullLogSearchEnabled;
-  const showCodeUnitColumn = true;
-  const gridTemplate = useMemo(() => {
-    const columns = [
-      'minmax(160px,1fr)',
-      'minmax(140px,1fr)',
-      'minmax(200px,1.2fr)',
-      'minmax(200px,1fr)',
-      'minmax(110px,0.6fr)',
-      'minmax(120px,0.8fr)'
+  const columns = useMemo<LogsColumnKey[]>(() => {
+    const visible = columnsConfig.order.filter(key => {
+      if (!columnsConfig.visibility[key]) return false;
+      if (key === 'match' && !fullLogSearchEnabled) return false;
+      return true;
+    });
+    return visible;
+  }, [columnsConfig.order, columnsConfig.visibility, fullLogSearchEnabled]);
+
+  const flexColumn = useMemo<LogsColumnKey | undefined>(() => {
+    const preferred: LogsColumnKey[] = [
+      'operation',
+      'match',
+      'application',
+      'user',
+      'codeUnit',
+      'time',
+      'status',
+      'duration',
+      'size'
     ];
-    if (showCodeUnitColumn) {
-      columns.push('minmax(260px,1.4fr)');
-    }
-    columns.push('minmax(90px,0.6fr)');
-    if (showMatchColumn) {
-      columns.push('minmax(320px,1.6fr)');
-    }
-    columns.push('96px');
-    return columns.join(' ');
-  }, [showCodeUnitColumn, showMatchColumn]);
+    return preferred.find(k => columns.includes(k));
+  }, [columns]);
+
+  const gridTemplate = useMemo(() => {
+    const tracks = columns.map(key => {
+      const minWidth = LOGS_COLUMN_MIN_WIDTH_PX[key] ?? 80;
+      const rawWidth = columnsConfig.widths[key];
+      const width = typeof rawWidth === 'number' && Number.isFinite(rawWidth) ? Math.floor(rawWidth) : undefined;
+      const clamped = width !== undefined ? Math.max(minWidth, width) : undefined;
+      if (key === flexColumn) {
+        if (clamped !== undefined) return `minmax(${clamped}px, 1fr)`;
+        return LOGS_COLUMN_DEFAULT_TRACK[key];
+      }
+      if (clamped !== undefined) return `${clamped}px`;
+      return LOGS_COLUMN_DEFAULT_TRACK[key];
+    });
+    tracks.push('96px');
+    return tracks.join(' ');
+  }, [columns, columnsConfig.widths, flexColumn]);
   // Header is rendered by LogsHeader; keep container simple
 
   // autoPagingActivated will be flipped by the adaptive overscan listener below
@@ -157,8 +184,7 @@ export function LogsTable({
       rows,
       logHead,
       matchSnippets,
-      showCodeUnitColumn,
-      showMatchColumn,
+      columns,
       locale,
       t,
       loading,
@@ -171,8 +197,7 @@ export function LogsTable({
       rows,
       logHead,
       matchSnippets,
-      showCodeUnitColumn,
-      showMatchColumn,
+      columns,
       locale,
       t,
       loading,
@@ -189,8 +214,7 @@ export function LogsTable({
     rows: rowList,
     logHead: logHeadMap,
     matchSnippets: snippetMap,
-    showCodeUnitColumn: includeCodeUnit,
-    showMatchColumn: includeMatch,
+    columns: rowColumns,
     locale: rowLocale,
     t: messages,
     loading: isLoading,
@@ -206,8 +230,7 @@ export function LogsTable({
           r={row}
           logHead={logHeadMap}
           matchSnippet={snippetMap[row.Id]}
-          showCodeUnitColumn={includeCodeUnit}
-          showMatchColumn={includeMatch}
+          columns={rowColumns}
           locale={rowLocale}
           t={messages}
           loading={isLoading}
@@ -268,6 +291,9 @@ export function LogsTable({
       const now = performance.now();
       const dt = now - (overscanLastTsRef.current || now);
       const dy = Math.abs(el.scrollTop - (overscanLastTopRef.current || 0));
+      if (headerRef.current && headerRef.current.scrollLeft !== el.scrollLeft) {
+        headerRef.current.scrollLeft = el.scrollLeft;
+      }
       if (dt > 16) {
         const v = dy / dt; // px per ms
         let next = overscanBaseRef.current;
@@ -318,8 +344,21 @@ export function LogsTable({
         sortDir={sortDir}
         onSort={onSort}
         gridTemplate={gridTemplate}
-        showCodeUnitColumn={showCodeUnitColumn}
-        showMatchColumn={showMatchColumn}
+        columns={columns}
+        onResizeColumn={(key, widthPx, options) => {
+          const minWidth = LOGS_COLUMN_MIN_WIDTH_PX[key] ?? 80;
+          const clamped = Math.max(minWidth, Math.floor(widthPx));
+          onColumnsConfigChange(
+            prev => ({ ...prev, widths: { ...prev.widths, [key]: clamped } }),
+            { persist: options.persist }
+          );
+        }}
+        onClearColumnWidth={key => {
+          onColumnsConfigChange(prev => {
+            const { [key]: _removed, ...rest } = prev.widths;
+            return { ...prev, widths: rest };
+          });
+        }}
       />
       <VirtualList
         style={{ height: measuredListHeight, width: '100%' }}

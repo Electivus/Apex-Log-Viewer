@@ -10,7 +10,8 @@ export class LogsMessageHandler {
     private readonly debugLog: (logId: string) => Promise<void>,
     private readonly loadMore: () => Promise<void>,
     private readonly setLoading: (val: boolean) => void,
-    private readonly setSearchQuery: (value: string) => Promise<void>
+    private readonly setSearchQuery: (value: string) => Promise<void>,
+    private readonly setLogsColumns: (value: unknown) => Promise<void>
   ) {}
 
   async handle(message: WebviewToExtensionMessage): Promise<void> {
@@ -52,6 +53,9 @@ export class LogsMessageHandler {
         break;
       case 'searchQuery':
         await this.setSearchQuery(typeof message.value === 'string' ? message.value : '');
+        break;
+      case 'setLogsColumns':
+        await this.setLogsColumns(message.value);
         break;
     }
   }

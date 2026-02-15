@@ -3,6 +3,12 @@ import { createRoot } from 'react-dom/client';
 import { getMessages, type Messages } from './i18n';
 import type { OrgItem, ApexLogRow } from '../shared/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
+import {
+  DEFAULT_LOGS_COLUMNS_CONFIG,
+  normalizeLogsColumnsConfig,
+  type LogsColumnKey,
+  type NormalizedLogsColumnsConfig
+} from '../shared/logsColumns';
 import { Toolbar } from './components/Toolbar';
 import { LogsTable } from './components/LogsTable';
 import { LoadingOverlay } from './components/LoadingOverlay';
@@ -10,7 +16,7 @@ import { Button } from './components/ui/button';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
-type SortKey = 'user' | 'application' | 'operation' | 'time' | 'duration' | 'status' | 'size' | 'codeUnit';
+type SortKey = Exclude<LogsColumnKey, 'match'>;
 
 export interface LogsAppProps {
   vscode?: VsCodeWebviewApi<WebviewToExtensionMessage>;
@@ -35,6 +41,7 @@ export function LogsApp({
   const [matchingIds, setMatchingIds] = useState<Set<string>>(new Set());
   const [matchSnippets, setMatchSnippets] = useState<Record<string, { text: string; ranges: [number, number][] }>>({});
   const [fullLogSearchEnabled, setFullLogSearchEnabled] = useState(false);
+  const [logsColumns, setLogsColumns] = useState<NormalizedLogsColumnsConfig>(DEFAULT_LOGS_COLUMNS_CONFIG);
   const queryRef = useRef('');
   const [searchStatus, setSearchStatus] = useState<'idle' | 'loading'>('idle');
 
@@ -48,6 +55,22 @@ export function LogsApp({
   // Sorting
   const [sortBy, setSortBy] = useState<SortKey>('time');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const onColumnsConfigChange = useCallback(
+    (updater: (prev: NormalizedLogsColumnsConfig) => NormalizedLogsColumnsConfig, options?: { persist?: boolean }) => {
+      setLogsColumns(prev => {
+        const next = updater(prev);
+        if (options?.persist === false) {
+          return next;
+        }
+        if (messageBus) {
+          vscode.postMessage({ type: 'setLogsColumns', value: next });
+        }
+        return next;
+      });
+    },
+    [messageBus, vscode]
+  );
 
   useEffect(() => {
     if (!messageBus) {
@@ -73,6 +96,12 @@ export function LogsApp({
           setLocale(msg.locale);
           setT(getMessages(msg.locale));
           setFullLogSearchEnabled(!!msg.fullLogSearchEnabled);
+          if (msg.logsColumns) {
+            setLogsColumns(normalizeLogsColumnsConfig(msg.logsColumns));
+          }
+          break;
+        case 'logsColumns':
+          setLogsColumns(normalizeLogsColumnsConfig(msg.value));
           break;
         case 'logs':
           setRows(msg.data || []);
@@ -290,6 +319,9 @@ export function LogsApp({
         onFilterStatusChange={setFilterStatus}
         onFilterCodeUnitChange={setFilterCodeUnit}
         onClearFilters={clearFilters}
+        columnsConfig={logsColumns}
+        fullLogSearchEnabled={fullLogSearchEnabled}
+        onColumnsConfigChange={onColumnsConfigChange}
       />
 
       <div className="relative rounded-lg border border-border bg-card/60 p-2">
@@ -309,6 +341,8 @@ export function LogsApp({
           matchSnippets={matchSnippets}
           fullLogSearchEnabled={fullLogSearchEnabled}
           autoLoadEnabled={!hasFilters}
+          columnsConfig={logsColumns}
+          onColumnsConfigChange={onColumnsConfigChange}
         />
         {hasFilters && hasMore && (
           <div className="mt-2 flex justify-center">

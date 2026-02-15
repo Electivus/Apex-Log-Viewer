@@ -20,6 +20,7 @@
   "configuration.electivus.apexLogs.cliCache.authPersistentTtlSeconds.description": "Persistent TTL in seconds for cached results of 'sf org display'. Stores the token in VS Code storage to avoid repeated CLI calls across reloads. Larger values reduce CLI calls but keep cached auth longer; set 0 to disable.",
   "configuration.electivus.apexLogs.cliCache.debugLevelsTtlSeconds.description": "TTL in seconds for cached DebugLevel queries. Set 0 to disable. Large TTLs reduce API calls but may serve stale data.",
   "configuration.electivus.apexLogs.enableFullLogSearch.description": "Download full Apex log bodies in the list view so the search box can match log content. This consumes more bandwidth and memory; disable if you only need header searches.",
+  "configuration.electivus.apexLogs.logsColumns.description": "Persisted column layout for the Logs table (managed by the Logs panel UI). Stores visibility/order/widths in user settings so it survives reloads and can sync across machines.",
   "tailSaveFailed": "Tail: failed to save log to workspace (best-effort).",
   "openLogInViewer.noDocument": "Electivus Apex Logs: No Apex log is active.",
   "openLogInViewer.unsupportedScheme": "Electivus Apex Logs: Unable to open Apex logs from this location.",

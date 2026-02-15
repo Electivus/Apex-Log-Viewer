@@ -4,6 +4,32 @@ import { Toolbar } from '../components/Toolbar';
 import { getMessages } from '../i18n';
 import type { OrgItem } from '../../shared/types';
 
+const defaultColumnsConfig = {
+  order: [
+    'user',
+    'application',
+    'operation',
+    'time',
+    'duration',
+    'status',
+    'codeUnit',
+    'size',
+    'match'
+  ],
+  visibility: {
+    user: true,
+    application: true,
+    operation: true,
+    time: true,
+    duration: true,
+    status: true,
+    codeUnit: true,
+    size: true,
+    match: true
+  },
+  widths: {}
+} as const;
+
 type ToolbarRenderOptions = {
   loading?: boolean;
   error?: string;
@@ -90,6 +116,9 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
         onClearFilters={() => {
           clearCount++;
         }}
+        columnsConfig={defaultColumnsConfig as any}
+        fullLogSearchEnabled={true}
+        onColumnsConfigChange={() => {}}
       />
     );
   } finally {
