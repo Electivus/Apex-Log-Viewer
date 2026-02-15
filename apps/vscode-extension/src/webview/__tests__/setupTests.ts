@@ -19,3 +19,14 @@ if (typeof globalThis.ResizeObserver !== 'function') {
   }
   (globalThis as unknown as { ResizeObserver: typeof ResizeObserver }).ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
 }
+
+if (typeof (globalThis as any).PointerEvent !== 'function') {
+  class PointerEventMock extends MouseEvent {
+    pointerId: number;
+    constructor(type: string, params: any = {}) {
+      super(type, params);
+      this.pointerId = typeof params.pointerId === 'number' ? params.pointerId : 0;
+    }
+  }
+  (globalThis as any).PointerEvent = PointerEventMock;
+}

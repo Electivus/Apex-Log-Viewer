@@ -41,6 +41,14 @@ The Electivus Apex Log Viewer extension exposes several settings under the `Elec
 - Number of lines retained in the Tail view's rolling buffer. Higher values keep more history visible to filters and search, at the cost of additional memory and CPU.
 - Changes take effect immediately in an open Tail view; no reload required.
 
+## `electivus.apexLogs.logsColumns`
+
+- Type: object
+- Default: managed by extension defaults
+- Persisted column layout for the **Electivus Apex Logs** table (visibility, order, and optional column widths).
+- This setting is typically updated via the Logs panel UI (the **Columns** button in the toolbar), not edited by hand.
+- When changed via the UI, it applies immediately and is stored in **User** settings so it survives reloads and can sync across machines.
+
 ## Applying changes
 
 After adjusting settings, reload the VS Code window to ensure the extension picks up the new configuration (`Developer: Reload Window`).

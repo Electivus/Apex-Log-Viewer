@@ -13,8 +13,10 @@ import { LogService } from '../services/logService';
 import { LogsMessageHandler } from './logsMessageHandler';
 import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../utils/configManager';
+import { affectsConfiguration, getConfig } from '../utils/config';
 import { ensureApexLogsDir, purgeSavedLogs, getLogIdFromLogFilePath } from '../utils/workspace';
 import { ripgrepSearch, type RipgrepMatch } from '../utils/ripgrep';
+import { DEFAULT_LOGS_COLUMNS_CONFIG, normalizeLogsColumnsConfig, type NormalizedLogsColumnsConfig } from '../shared/logsColumns';
 
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 
@@ -34,6 +36,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private searchAbortController: AbortController | undefined;
   private purgePromise: Promise<void> | undefined;
   private readonly logCacheMaxAgeMs = 1000 * 60 * 60 * 24;
+  private logsColumns: NormalizedLogsColumnsConfig = DEFAULT_LOGS_COLUMNS_CONFIG;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -42,6 +45,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     private readonly configManager = new ConfigManager(5, 100)
   ) {
     this.logService.setHeadConcurrency(this.configManager.getHeadConcurrency());
+    this.logsColumns = this.readLogsColumns();
     this.messageHandler = new LogsMessageHandler(
       () => this.refresh(),
       () => this.sendOrgs(),
@@ -50,13 +54,18 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       id => this.logService.debugLog(id, this.orgManager.getSelectedOrg()),
       () => this.loadMore(),
       v => this.post({ type: 'loading', value: v }),
-      value => this.setSearchQuery(value)
+      value => this.setSearchQuery(value),
+      value => this.saveLogsColumns(value)
     );
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
         const prevFullBodies = this.configManager.shouldLoadFullLogBodies();
         this.configManager.handleChange(e);
         this.logService.setHeadConcurrency(this.configManager.getHeadConcurrency());
+        if (affectsConfiguration(e, 'electivus.apexLogs.logsColumns')) {
+          this.logsColumns = this.readLogsColumns();
+          this.post({ type: 'logsColumns', value: this.logsColumns });
+        }
         if (prevFullBodies !== this.configManager.shouldLoadFullLogBodies()) {
           void this.refresh();
         }
@@ -159,7 +168,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           this.post({
             type: 'init',
             locale: vscode.env.language,
-            fullLogSearchEnabled: this.configManager.shouldLoadFullLogBodies()
+            fullLogSearchEnabled: this.configManager.shouldLoadFullLogBodies(),
+            logsColumns: this.logsColumns
           });
           const hasMore = logs.length === this.pageLimit;
           this.post({ type: 'logs', data: logs, hasMore });
@@ -300,6 +310,22 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           logWarn('Logs: preload full log bodies failed ->', getErrorMessage(e));
         }
       });
+  }
+
+  private readLogsColumns(): NormalizedLogsColumnsConfig {
+    const raw = getConfig<unknown>('electivus.apexLogs.logsColumns', DEFAULT_LOGS_COLUMNS_CONFIG);
+    return normalizeLogsColumnsConfig(raw);
+  }
+
+  private async saveLogsColumns(value: unknown): Promise<void> {
+    try {
+      const normalized = normalizeLogsColumnsConfig(value);
+      await vscode.workspace
+        .getConfiguration()
+        .update('electivus.apexLogs.logsColumns', normalized, vscode.ConfigurationTarget.Global);
+    } catch (e) {
+      logWarn('Logs: failed to persist logsColumns ->', getErrorMessage(e));
+    }
   }
 
   private postSearchStatus(state: 'idle' | 'loading'): void {

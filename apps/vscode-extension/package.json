@@ -127,6 +127,82 @@
           "default": true,
           "markdownDescription": "%configuration.electivus.apexLogs.enableFullLogSearch.description%"
         },
+        "electivus.apexLogs.logsColumns": {
+          "type": "object",
+          "default": {
+            "order": [
+              "user",
+              "application",
+              "operation",
+              "time",
+              "duration",
+              "status",
+              "codeUnit",
+              "size",
+              "match"
+            ],
+            "visibility": {
+              "user": true,
+              "application": true,
+              "operation": true,
+              "time": true,
+              "duration": true,
+              "status": true,
+              "codeUnit": true,
+              "size": true,
+              "match": true
+            },
+            "widths": {}
+          },
+          "markdownDescription": "%configuration.electivus.apexLogs.logsColumns.description%",
+          "properties": {
+            "order": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "application",
+                  "operation",
+                  "time",
+                  "duration",
+                  "status",
+                  "codeUnit",
+                  "size",
+                  "match"
+                ]
+              }
+            },
+            "visibility": {
+              "type": "object",
+              "properties": {
+                "user": { "type": "boolean" },
+                "application": { "type": "boolean" },
+                "operation": { "type": "boolean" },
+                "time": { "type": "boolean" },
+                "duration": { "type": "boolean" },
+                "status": { "type": "boolean" },
+                "codeUnit": { "type": "boolean" },
+                "size": { "type": "boolean" },
+                "match": { "type": "boolean" }
+              }
+            },
+            "widths": {
+              "type": "object",
+              "properties": {
+                "user": { "type": "number", "minimum": 1 },
+                "application": { "type": "number", "minimum": 1 },
+                "operation": { "type": "number", "minimum": 1 },
+                "time": { "type": "number", "minimum": 1 },
+                "duration": { "type": "number", "minimum": 1 },
+                "status": { "type": "number", "minimum": 1 },
+                "codeUnit": { "type": "number", "minimum": 1 },
+                "size": { "type": "number", "minimum": 1 },
+                "match": { "type": "number", "minimum": 1 }
+              }
+            }
+          }
+        },
         "sfLogs.pageSize": {
           "type": "number",
           "default": 100,
@@ -385,6 +461,7 @@
     "vscode-nls-dev": "^4.0.4"
   },
   "dependencies": {
+    "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
