@@ -3,6 +3,7 @@ import { defineConfig } from '@playwright/test';
 
 const repoRoot = path.join(__dirname, '..', '..');
 const artifactsRoot = path.join(repoRoot, 'output', 'playwright');
+const resultsRoot = path.join(artifactsRoot, 'test-results');
 
 export default defineConfig({
   testDir: path.join(__dirname, 'test', 'e2e', 'specs'),
@@ -11,7 +12,7 @@ export default defineConfig({
   timeout: 15 * 60 * 1000,
   expect: { timeout: 60 * 1000 },
   retries: process.env.CI ? 1 : 0,
-  outputDir: artifactsRoot,
+  outputDir: resultsRoot,
   reporter: process.env.CI
     ? [
         ['list'],
@@ -24,4 +25,3 @@ export default defineConfig({
     screenshot: 'only-on-failure'
   }
 });
-

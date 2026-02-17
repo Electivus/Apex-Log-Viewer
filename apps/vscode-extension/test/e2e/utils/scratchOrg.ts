@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { runSfJson } from './sfCli';
@@ -86,6 +86,7 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
 
   const tmp = await mkdtemp(path.join(tmpdir(), 'alv-scratch-'));
   const defFile = path.join(tmp, 'project-scratch-def.json');
+  const projectFile = path.join(tmp, 'sfdx-project.json');
   const def = {
     orgName: 'apex-log-viewer-e2e',
     edition: 'Developer',
@@ -93,34 +94,69 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
   };
   await writeFile(defFile, JSON.stringify(def), 'utf8');
 
-  await runSfJson([
-    'org',
-    'create',
-    'scratch',
-    '--target-dev-hub',
-    devHubAlias,
-    '--alias',
-    scratchAlias,
-    '--definition-file',
-    defFile,
-    '--duration-days',
-    String(durationDays),
-    '--wait',
-    '15'
-  ]);
-
-  await rm(tmp, { recursive: true, force: true });
-
   const cleanup = async () => {
-    if (keep) {
-      return;
-    }
     try {
-      await runSfJson(['org', 'delete', 'scratch', '-o', scratchAlias, '--no-prompt']);
+      if (!keep) {
+        try {
+          await runSfJson(['org', 'delete', 'scratch', '-o', scratchAlias, '--no-prompt'], { cwd: tmp });
+        } catch {
+          // Best-effort cleanup.
+        }
+      }
     } catch {
       // Best-effort cleanup.
+    } finally {
+      try {
+        await rm(tmp, { recursive: true, force: true });
+      } catch {
+        // Best-effort cleanup.
+      }
     }
   };
+
+  // `sf org create scratch` requires a Salesforce DX project. This repo is not
+  // itself a Salesforce project, so create a minimal temporary project context.
+  await mkdir(path.join(tmp, 'force-app'), { recursive: true });
+  await writeFile(
+    projectFile,
+    JSON.stringify(
+      {
+        packageDirectories: [{ path: 'force-app', default: true }],
+        name: 'apex-log-viewer-e2e',
+        namespace: '',
+        sfdcLoginUrl: 'https://login.salesforce.com',
+        sourceApiVersion: '61.0'
+      },
+      null,
+      2
+    ),
+    'utf8'
+  );
+
+  try {
+    await runSfJson(
+      [
+        'org',
+        'create',
+        'scratch',
+        '--target-dev-hub',
+        devHubAlias,
+        '--alias',
+        scratchAlias,
+        '--definition-file',
+        defFile,
+        '--duration-days',
+        String(durationDays),
+        '--wait',
+        '15'
+      ],
+      { cwd: tmp }
+    );
+  } catch (_e) {
+    await cleanup();
+    const msg = _e instanceof Error ? _e.message : String(_e);
+    throw new Error(`Failed to create scratch org '${scratchAlias}': ${msg}`);
+  }
 
   return {
     devHubAlias,

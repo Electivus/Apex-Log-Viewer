@@ -67,7 +67,10 @@ jobs:
           SF_DEVHUB_ALIAS: InsuranceOrgTrialCreme6DevHub
           SF_SCRATCH_ALIAS: ALV_E2E_Scratch_${{ github.run_id }}_${{ github.run_attempt }}
           SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || '1' }}
-          SF_TEST_KEEP_ORG: ${{ github.event.inputs.keep_scratch_org == 'false' && '' || '1' }}
+          # Default behavior:
+          # - pull_request: delete scratch org (avoid leaking scratch orgs on every PR update)
+          # - workflow_dispatch: keep unless explicitly disabled
+          SF_TEST_KEEP_ORG: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.keep_scratch_org == 'false' && '' || '1') || '' }}
 
       - name: Upload Playwright artifacts
         if: ${{ !cancelled() }}
