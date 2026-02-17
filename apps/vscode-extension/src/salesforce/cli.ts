@@ -4,7 +4,7 @@ import { safeSendException } from '../shared/telemetry';
 import type { OrgAuth, OrgItem } from './types';
 import * as vscode from 'vscode';
 import { CacheManager } from '../utils/cacheManager';
-import { getBooleanConfig, getNumberConfig } from '../utils/config';
+import { getBooleanConfig, getConfig, getNumberConfig } from '../utils/config';
 import {
   execCommand,
   CLI_TIMEOUT_MS,
@@ -88,6 +88,12 @@ function parseCliJson(stdout: string): any {
   }
 }
 
+function getSfCliProgramCandidates(): string[] {
+  const configured = String(getConfig<string | undefined>('sfLogs.cliPath', undefined) || '').trim();
+  const programs = [configured, 'sf'].filter(Boolean);
+  return Array.from(new Set(programs));
+}
+
 export async function getOrgAuth(
   targetUsernameOrAlias?: string,
   forceRefresh?: boolean,
@@ -127,10 +133,12 @@ export async function getOrgAuth(
     }
   }
   const candidates: Array<{ program: string; args: string[] }> = [
-    { program: 'sf', args: ['org', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
-    { program: 'sf', args: ['org', 'user', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
-    { program: 'sf', args: ['org', 'user', 'display', '--json', ...(t ? ['-o', t] : [])] },
-    { program: 'sf', args: ['org', 'display', '--json', ...(t ? ['-o', t] : [])] },
+    ...getSfCliProgramCandidates().flatMap(program => [
+      { program, args: ['org', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
+      { program, args: ['org', 'user', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
+      { program, args: ['org', 'user', 'display', '--json', ...(t ? ['-o', t] : [])] },
+      { program, args: ['org', 'display', '--json', ...(t ? ['-o', t] : [])] }
+    ]),
     { program: 'sfdx', args: ['force:org:display', '--json', ...(t ? ['-u', t] : [])] }
   ];
   let sawEnoent = false;
@@ -311,7 +319,7 @@ export async function listOrgs(forceRefresh = false, signal?: AbortSignal): Prom
     return res;
   }
   const candidates: Array<{ program: string; args: string[] }> = [
-    { program: 'sf', args: ['org', 'list', '--json'] },
+    ...getSfCliProgramCandidates().map(program => ({ program, args: ['org', 'list', '--json'] })),
     { program: 'sfdx', args: ['force:org:list', '--json'] }
   ];
   let sawEnoent = false;

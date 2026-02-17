@@ -11,6 +11,7 @@
     "ext:test": "npm --prefix apps/vscode-extension test",
     "ext:test:unit": "npm --prefix apps/vscode-extension run test:unit",
     "ext:test:integration": "npm --prefix apps/vscode-extension run test:integration",
+    "ext:test:e2e": "npm --prefix apps/vscode-extension run test:e2e",
     "ext:package": "npm --prefix apps/vscode-extension run package"
   }
 }

@@ -125,8 +125,14 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.refresh', () => {
+    vscode.commands.registerCommand('sfLogs.refresh', async () => {
       safeSendEvent('command.refresh');
+      try {
+        await vscode.commands.executeCommand('workbench.view.extension.salesforceLogsPanel');
+        await vscode.commands.executeCommand('workbench.viewsService.openView', 'sfLogViewer');
+      } catch (e) {
+        logWarn('Command sfLogs.refresh: failed to open logs view ->', getErrorMessage(e));
+      }
       return provider.refresh();
     })
   );

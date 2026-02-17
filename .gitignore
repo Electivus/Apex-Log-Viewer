@@ -6,6 +6,7 @@ media/webview-dev.css
 *.vsix
 *.zip
 coverage/
+output/playwright/
 
 # allow tracking webview entrypoints
 *.log
