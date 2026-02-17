@@ -1,0 +1,81 @@
+name: E2E (Playwright • Real Org)
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      vscode_version:
+        description: VS Code version (stable recommended)
+        required: false
+        default: stable
+        type: choice
+        options:
+          - stable
+          - insiders
+      scratch_duration_days:
+        description: Scratch org duration in days
+        required: false
+        default: "1"
+        type: string
+      keep_scratch_org:
+        description: Keep the scratch org after the run
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  playwright_e2e:
+    name: Playwright E2E (scratch org)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
+
+      - name: Install Salesforce CLI
+        run: npm install -g @salesforce/cli
+
+      - name: Install extension dependencies
+        run: npm ci --workspaces=false
+        working-directory: apps/vscode-extension
+
+      - name: Install Linux deps for Electron (best-effort)
+        run: INSTALL_LINUX_DEPS=true bash scripts/install-linux-deps.sh
+        working-directory: apps/vscode-extension
+
+      - name: Run Playwright E2E
+        run: npm run ext:test:e2e -- openLogViewer.e2e.spec.ts
+        env:
+          VSCODE_TEST_VERSION: ${{ github.event.inputs.vscode_version || 'stable' }}
+          SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
+          SF_DEVHUB_ALIAS: InsuranceOrgTrialCreme6DevHub
+          SF_SCRATCH_ALIAS: ALV_E2E_Scratch_${{ github.run_id }}_${{ github.run_attempt }}
+          SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || '1' }}
+          # Default behavior:
+          # - pull_request: delete scratch org (avoid leaking scratch orgs on every PR update)
+          # - workflow_dispatch: keep unless explicitly disabled
+          SF_TEST_KEEP_ORG: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.keep_scratch_org == 'false' && '' || '1') || '' }}
+
+      - name: Upload Playwright artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-e2e
+          path: output/playwright/
+          if-no-files-found: ignore

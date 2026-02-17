@@ -8,6 +8,7 @@ This project uses VS Code integration tests (Mocha running inside the Extension 
 - `npm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
 - `npm run test:integration`: installs dependency extensions if needed and runs integration tests.
 - `npm run test:all`: runs the Jest webview suites, then both unit and integration scopes.
+- `npm run ext:test:e2e`: runs Playwright E2E tests against a real scratch org (creates a scratch org + seeds an Apex log).
 
 The test orchestrator lives in `scripts/run-tests.js` and the Mocha programmatic runner in `src/test/runner.ts`.
 
@@ -36,12 +37,41 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 
 Tests do not require an authenticated org by default. If you want the runner to authenticate a Dev Hub and create a scratch org automatically:
 
-- `SF_DEVHUB_AUTH_URL`: SFDX URL for the Dev Hub auth (or `SFDX_AUTH_URL`).
+- `SF_DEVHUB_AUTH_URL`: SFDX URL for the Dev Hub auth.
 - `SF_DEVHUB_ALIAS`: Alias for the Dev Hub (default `DevHub`).
 - `SF_SETUP_SCRATCH=1`: Enables scratch org creation when a Dev Hub is available.
 - `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_Test_Scratch`).
 - `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
 - `SF_TEST_KEEP_ORG=1`: Skip deleting the scratch org during cleanup.
+
+## Playwright E2E (real org)
+
+The Playwright suite validates the webview UX end-to-end by:
+
+1. Authenticating a Dev Hub (CI via `SF_DEVHUB_AUTH_URL`, local via an existing auth)
+2. Creating/reusing a scratch org
+3. Seeding an Apex log (anonymous Apex with a unique marker)
+4. Launching VS Code and verifying the Logs panel + Log Viewer show that log
+
+### Run locally
+
+From the repo root:
+
+- `SF_TEST_KEEP_ORG=1 npm run ext:test:e2e`
+
+Useful env vars:
+
+- `SF_DEVHUB_AUTH_URL`: Optional locally; required in CI. If not set, the E2E suite assumes you already have a Dev Hub authenticated locally.
+- `SF_DEVHUB_ALIAS`: Dev Hub alias to use. If unset, local runs prefer `InsuranceOrgTrialCreme6DevHub` when available.
+- `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_E2E_Scratch`).
+- `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
+- `SF_TEST_KEEP_ORG=1`: Keep the scratch org after the run (recommended while iterating).
+
+Troubleshooting:
+
+- If the Logs panel shows **“Salesforce CLI not found”**, set the VS Code setting `electivus.apexLogs.cliPath` to the absolute path of your `sf` executable.
+
+Artifacts (screenshots/traces/videos on failure) are written under `output/playwright/`.
 
 ## Debugging
 

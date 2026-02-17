@@ -27,6 +27,7 @@ function loadCliWithStubs(params: {
   const cli = proxyquire('../salesforce/cli', {
     '../utils/cacheManager': { CacheManager, '@noCallThru': true },
     '../utils/config': {
+      getConfig: (_key: string, def: unknown) => def,
       getBooleanConfig: () => true,
       getNumberConfig: (_key: string, def: number) => def,
       '@noCallThru': true

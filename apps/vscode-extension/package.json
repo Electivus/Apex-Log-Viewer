@@ -87,6 +87,11 @@
           "default": false,
           "markdownDescription": "Enable verbose trace logging for CLI and HTTP calls (Output: Electivus Apex Log Viewer)."
         },
+        "electivus.apexLogs.cliPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "%configuration.electivus.apexLogs.cliPath.description%"
+        },
         "electivus.apexLogs.tailBufferSize": {
           "type": "number",
           "default": 10000,
@@ -176,29 +181,74 @@
             "visibility": {
               "type": "object",
               "properties": {
-                "user": { "type": "boolean" },
-                "application": { "type": "boolean" },
-                "operation": { "type": "boolean" },
-                "time": { "type": "boolean" },
-                "duration": { "type": "boolean" },
-                "status": { "type": "boolean" },
-                "codeUnit": { "type": "boolean" },
-                "size": { "type": "boolean" },
-                "match": { "type": "boolean" }
+                "user": {
+                  "type": "boolean"
+                },
+                "application": {
+                  "type": "boolean"
+                },
+                "operation": {
+                  "type": "boolean"
+                },
+                "time": {
+                  "type": "boolean"
+                },
+                "duration": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "boolean"
+                },
+                "codeUnit": {
+                  "type": "boolean"
+                },
+                "size": {
+                  "type": "boolean"
+                },
+                "match": {
+                  "type": "boolean"
+                }
               }
             },
             "widths": {
               "type": "object",
               "properties": {
-                "user": { "type": "number", "minimum": 1 },
-                "application": { "type": "number", "minimum": 1 },
-                "operation": { "type": "number", "minimum": 1 },
-                "time": { "type": "number", "minimum": 1 },
-                "duration": { "type": "number", "minimum": 1 },
-                "status": { "type": "number", "minimum": 1 },
-                "codeUnit": { "type": "number", "minimum": 1 },
-                "size": { "type": "number", "minimum": 1 },
-                "match": { "type": "number", "minimum": 1 }
+                "user": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "application": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "operation": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "time": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "status": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "codeUnit": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "size": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "match": {
+                  "type": "number",
+                  "minimum": 1
+                }
               }
             }
           }
@@ -406,6 +456,8 @@
     "test:webview:watch": "npm run test:webview -- --watch",
     "test:ci": "npm run test:unit:ci && npm run test:integration:ci",
     "test:smoke:vsix": "node scripts/run-tests.js --scope=unit --smoke-vsix",
+    "pretest:e2e": "npm run build",
+    "test:e2e": "node scripts/run-playwright-e2e.js",
     "format": "prettier --write .",
     "prepare": "husky",
     "tailwind:build": "tailwindcss -c tailwind.config.js -i ./src/webview/styles/tailwind.css -o ./media/webview.css --minify",
@@ -417,6 +469,7 @@
   "devDependencies": {
     "@commitlint/cli": "^20.2.0",
     "@commitlint/config-conventional": "^20.2.0",
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/cli": "^4.1.18",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Features
+
+- Testing: add Playwright E2E coverage against a real scratch org (Dev Hub + seeded Apex log). Also adds a manual GitHub Actions workflow for opt-in validation.
+
+### Bug Fixes
+
+- CLI: add an optional `electivus.apexLogs.cliPath` setting to help VS Code find the Salesforce CLI (`sf`) when PATH inheritance is limited (for example when launched from the OS GUI).
+
 ## [0.22.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.20.0...v0.22.0) (2026-02-13)
 
 ### ⚠ BREAKING CHANGES
