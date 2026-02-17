@@ -520,7 +520,7 @@
     "@radix-ui/react-switch": "^1.2.6",
     "@salesforce/apex-node": "^8.4.2",
     "@salesforce/core": "^8.24.0",
-    "@vscode/extension-telemetry": "^1.2.0",
+    "@vscode/extension-telemetry": "^1.5.0",
     "@vscode/ripgrep": "^1.17.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
