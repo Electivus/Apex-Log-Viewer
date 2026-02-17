@@ -11,6 +11,45 @@ export type ExecResult = {
   stderr: string;
 };
 
+function tryParseSfJson(raw: string): any | undefined {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // fall through
+  }
+  // Some CLI/plugin combinations may print non-JSON noise before/after JSON.
+  const cleaned = trimmed.replace(/\u001b\[[0-9;]*m/g, '');
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    try {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function formatSfErrorDetails(stdout: string, stderr: string): string | undefined {
+  for (const raw of [stdout, stderr]) {
+    const parsed = tryParseSfJson(raw);
+    if (!parsed) {
+      continue;
+    }
+    const name = typeof parsed.name === 'string' ? parsed.name : undefined;
+    const message = typeof parsed.message === 'string' ? parsed.message : undefined;
+    if (message) {
+      return name ? `${name}: ${message}` : message;
+    }
+  }
+  return undefined;
+}
+
 function sfBin(): string {
   return process.platform === 'win32' ? 'sf.cmd' : 'sf';
 }
@@ -62,8 +101,11 @@ export function execFileAsync(file: string, args: string[], options: ExecOptions
       },
       (error, stdout, stderr) => {
         if (error) {
-          // Avoid echoing stdout/stderr to prevent leaking auth tokens.
-          const msg = `Command failed: ${file} ${args.join(' ')}`.trim();
+          const details = formatSfErrorDetails(String(stdout || ''), String(stderr || ''));
+          // Avoid echoing stdout/stderr directly to prevent leaking auth tokens.
+          const msg = details
+            ? `Command failed: ${file} ${args.join(' ')}\n${details}`.trim()
+            : `Command failed: ${file} ${args.join(' ')}`.trim();
           const err = new Error(msg) as Error & { code?: unknown };
           (err as any).code = (error as any).code;
           reject(err);
