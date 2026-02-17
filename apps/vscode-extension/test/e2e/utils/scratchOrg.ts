@@ -11,7 +11,10 @@ type ScratchOrgResult = {
 };
 
 function envFlag(name: string): boolean {
-  return /^1|true$/i.test(String(process.env[name] || ''));
+  const value = String(process.env[name] || '')
+    .trim()
+    .toLowerCase();
+  return value === '1' || value === 'true';
 }
 
 async function tryOrgDisplay(alias: string): Promise<boolean> {

@@ -19,6 +19,19 @@ function execFileAsync(file, args, options = {}) {
   });
 }
 
+function exitWithChildResult(code, signal) {
+  if (typeof code === 'number') {
+    process.exit(code);
+    return;
+  }
+  if (signal) {
+    console.error(`[e2e] Child process exited via signal: ${signal}`);
+  } else {
+    console.error('[e2e] Child process exited with null exit code.');
+  }
+  process.exit(1);
+}
+
 async function main() {
   // Some environments leak ELECTRON_RUN_AS_NODE=1; VS Code won't boot properly.
   try {
@@ -37,7 +50,7 @@ async function main() {
           env: { ...process.env, __ALV_XVFB_RAN: '1' }
         }
       );
-      child.on('exit', code => process.exit(code ?? 0));
+      child.on('exit', exitWithChildResult);
       return;
     } catch {
       // no xvfb-run; continue and let Electron try (may fail)
@@ -48,11 +61,10 @@ async function main() {
   const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
   const args = ['playwright', 'test', ...process.argv.slice(2)];
   const child = spawn(cmd, args, { stdio: 'inherit', cwd: repoRoot, env: process.env });
-  child.on('exit', code => process.exit(code ?? 0));
+  child.on('exit', exitWithChildResult);
 }
 
 main().catch(err => {
   console.error('[e2e] Failed to run Playwright E2E tests:', err && err.message ? err.message : err);
   process.exit(1);
 });
-
