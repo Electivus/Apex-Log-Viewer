@@ -10,6 +10,11 @@
 
 - CLI: add an optional `electivus.apexLogs.cliPath` setting to help VS Code find the Salesforce CLI (`sf`) when PATH inheritance is limited (for example when launched from the OS GUI).
 
+### Chores
+
+- Repo: revert monorepo layout back to a single-root extension structure.
+- CLI: remove the Rust CLI package, Cargo workspace files, and CLI npm release workflow.
+
 ## [0.22.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.20.0...v0.22.0) (2026-02-13)
 
 ### ⚠ BREAKING CHANGES

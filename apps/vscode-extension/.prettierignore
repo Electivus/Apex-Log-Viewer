@@ -1,4 +1,0 @@
-
-# Exclude Salesforce local workspace folders
-.sfdx/
-.sf/

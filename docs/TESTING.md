@@ -8,7 +8,7 @@ This project uses VS Code integration tests (Mocha running inside the Extension 
 - `npm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
 - `npm run test:integration`: installs dependency extensions if needed and runs integration tests.
 - `npm run test:all`: runs the Jest webview suites, then both unit and integration scopes.
-- `npm run ext:test:e2e`: runs Playwright E2E tests against a real scratch org (creates a scratch org + seeds an Apex log).
+- `npm run test:e2e`: runs Playwright E2E tests against a real scratch org (creates a scratch org + seeds an Apex log).
 
 The test orchestrator lives in `scripts/run-tests.js` and the Mocha programmatic runner in `src/test/runner.ts`.
 
@@ -57,12 +57,12 @@ The Playwright suite validates the webview UX end-to-end by:
 
 From the repo root:
 
-- `SF_TEST_KEEP_ORG=1 npm run ext:test:e2e`
+- `SF_TEST_KEEP_ORG=1 npm run test:e2e`
 
 Useful env vars:
 
 - `SF_DEVHUB_AUTH_URL`: Optional locally; required in CI. If not set, the E2E suite assumes you already have a Dev Hub authenticated locally.
-- `SF_DEVHUB_ALIAS`: Dev Hub alias to use. If unset, local runs prefer `InsuranceOrgTrialCreme6DevHub` when available.
+- `SF_DEVHUB_ALIAS`: Dev Hub alias to use. If unset, local runs prefer `DevHubElectivus` when available.
 - `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_E2E_Scratch`).
 - `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
 - `SF_TEST_KEEP_ORG=1`: Keep the scratch org after the run (recommended while iterating).
