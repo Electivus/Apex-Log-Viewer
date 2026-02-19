@@ -1,17 +1,565 @@
 {
-  "name": "apex-log-viewer-monorepo",
-  "private": true,
-  "workspaces": ["apps/*"],
+  "name": "apex-log-viewer",
+  "displayName": "%extension.displayName%",
+  "description": "%extension.description%",
+  "version": "0.22.0",
+  "publisher": "electivus",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Electivus/Apex-Log-Viewer"
+  },
+  "engines": {
+    "vscode": "^1.101.0",
+    "node": "^22.0.0"
+  },
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#2563eb",
+    "theme": "dark"
+  },
+  "badges": [
+    {
+      "url": "https://img.shields.io/visual-studio-marketplace/v/electivus.apex-log-viewer?label=Marketplace",
+      "href": "https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer",
+      "description": "Marketplace Version"
+    },
+    {
+      "url": "https://img.shields.io/visual-studio-marketplace/i/electivus.apex-log-viewer",
+      "href": "https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer",
+      "description": "Installs"
+    },
+    {
+      "url": "https://img.shields.io/visual-studio-marketplace/d/electivus.apex-log-viewer",
+      "href": "https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer",
+      "description": "Downloads"
+    },
+    {
+      "url": "https://img.shields.io/visual-studio-marketplace/r/electivus.apex-log-viewer",
+      "href": "https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer",
+      "description": "Rating"
+    },
+    {
+      "url": "https://github.com/Electivus/Apex-Log-Viewer/actions/workflows/ci.yml/badge.svg?branch=main",
+      "href": "https://github.com/Electivus/Apex-Log-Viewer/actions/workflows/ci.yml?query=branch%3Amain",
+      "description": "CI"
+    }
+  ],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:sfLogViewer",
+    "onView:sfLogTail",
+    "onCommand:sfLogs.refresh",
+    "onCommand:sfLogs.selectOrg",
+    "onCommand:sfLogs.tail",
+    "onCommand:sfLogs.showOutput",
+    "onCommand:sfLogs.resetCliCache",
+    "onCommand:sfLogs.openLogInViewer",
+    "onLanguage:apexlog"
+  ],
+  "extensionDependencies": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "%configuration.title%",
+      "properties": {
+        "electivus.apexLogs.pageSize": {
+          "type": "number",
+          "default": 100,
+          "minimum": 10,
+          "markdownDescription": "%configuration.electivus.apexLogs.pageSize.description%"
+        },
+        "electivus.apexLogs.headConcurrency": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "markdownDescription": "%configuration.electivus.apexLogs.headConcurrency.description%"
+        },
+        "electivus.apexLogs.saveDirName": {
+          "type": "string",
+          "default": "apexlogs",
+          "markdownDescription": "%configuration.electivus.apexLogs.saveDirName.description%"
+        },
+        "electivus.apexLogs.trace": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Enable verbose trace logging for CLI and HTTP calls (Output: Electivus Apex Log Viewer)."
+        },
+        "electivus.apexLogs.cliPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "%configuration.electivus.apexLogs.cliPath.description%"
+        },
+        "electivus.apexLogs.tailBufferSize": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1000,
+          "markdownDescription": "%configuration.electivus.apexLogs.tailBufferSize.description%"
+        },
+        "electivus.apexLogs.cliCache.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.enabled.description%"
+        },
+        "electivus.apexLogs.cliCache.orgListTtlSeconds": {
+          "type": "number",
+          "default": 86400,
+          "minimum": 0,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.orgListTtlSeconds.description%"
+        },
+        "electivus.apexLogs.cliCache.authTtlSeconds": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authTtlSeconds.description%"
+        },
+        "electivus.apexLogs.cliCache.authPersistentTtlSeconds": {
+          "type": "number",
+          "default": 86400,
+          "minimum": 0,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authPersistentTtlSeconds.description%"
+        },
+        "electivus.apexLogs.cliCache.debugLevelsTtlSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.debugLevelsTtlSeconds.description%"
+        },
+        "electivus.apexLogs.enableFullLogSearch": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "%configuration.electivus.apexLogs.enableFullLogSearch.description%"
+        },
+        "electivus.apexLogs.logsColumns": {
+          "type": "object",
+          "default": {
+            "order": [
+              "user",
+              "application",
+              "operation",
+              "time",
+              "duration",
+              "status",
+              "codeUnit",
+              "size",
+              "match"
+            ],
+            "visibility": {
+              "user": true,
+              "application": true,
+              "operation": true,
+              "time": true,
+              "duration": true,
+              "status": true,
+              "codeUnit": true,
+              "size": true,
+              "match": true
+            },
+            "widths": {}
+          },
+          "markdownDescription": "%configuration.electivus.apexLogs.logsColumns.description%",
+          "properties": {
+            "order": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "application",
+                  "operation",
+                  "time",
+                  "duration",
+                  "status",
+                  "codeUnit",
+                  "size",
+                  "match"
+                ]
+              }
+            },
+            "visibility": {
+              "type": "object",
+              "properties": {
+                "user": {
+                  "type": "boolean"
+                },
+                "application": {
+                  "type": "boolean"
+                },
+                "operation": {
+                  "type": "boolean"
+                },
+                "time": {
+                  "type": "boolean"
+                },
+                "duration": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "boolean"
+                },
+                "codeUnit": {
+                  "type": "boolean"
+                },
+                "size": {
+                  "type": "boolean"
+                },
+                "match": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "widths": {
+              "type": "object",
+              "properties": {
+                "user": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "application": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "operation": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "time": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "status": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "codeUnit": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "size": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "match": {
+                  "type": "number",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "sfLogs.pageSize": {
+          "type": "number",
+          "default": 100,
+          "minimum": 10,
+          "markdownDescription": "%configuration.electivus.apexLogs.pageSize.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.pageSize"
+        },
+        "sfLogs.headConcurrency": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "markdownDescription": "%configuration.electivus.apexLogs.headConcurrency.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.headConcurrency"
+        },
+        "sfLogs.saveDirName": {
+          "type": "string",
+          "default": "apexlogs",
+          "markdownDescription": "%configuration.electivus.apexLogs.saveDirName.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.saveDirName"
+        },
+        "sfLogs.trace": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Enable verbose trace logging for CLI and HTTP calls (Output: Electivus Apex Log Viewer).",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.trace"
+        },
+        "sfLogs.tailBufferSize": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1000,
+          "markdownDescription": "%configuration.electivus.apexLogs.tailBufferSize.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.tailBufferSize"
+        },
+        "sfLogs.cliCache.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.enabled.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.enabled"
+        },
+        "sfLogs.cliCache.orgListTtlSeconds": {
+          "type": "number",
+          "default": 86400,
+          "minimum": 0,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.orgListTtlSeconds.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.orgListTtlSeconds"
+        },
+        "sfLogs.cliCache.authTtlSeconds": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authTtlSeconds.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.authTtlSeconds"
+        },
+        "sfLogs.cliCache.authPersistentTtlSeconds": {
+          "type": "number",
+          "default": 86400,
+          "minimum": 0,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authPersistentTtlSeconds.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.authPersistentTtlSeconds"
+        },
+        "sfLogs.cliCache.debugLevelsTtlSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.debugLevelsTtlSeconds.description%",
+          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.debugLevelsTtlSeconds"
+        }
+      }
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "salesforceLogsPanel",
+          "title": "%salesforce.panel.title%",
+          "icon": "media/icon.png"
+        },
+        {
+          "id": "salesforceTailPanel",
+          "title": "%salesforce.tail.panel.title%",
+          "icon": "media/icon.png"
+        }
+      ]
+    },
+    "views": {
+      "salesforceLogsPanel": [
+        {
+          "id": "sfLogViewer",
+          "name": "%salesforce.logs.view.name%",
+          "type": "webview"
+        }
+      ],
+      "salesforceTailPanel": [
+        {
+          "id": "sfLogTail",
+          "name": "%salesforce.tail.view.name%",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "sfLogs.refresh",
+        "title": "%command.refresh.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
+        "command": "sfLogs.selectOrg",
+        "title": "%command.selectOrg.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
+        "command": "sfLogs.tail",
+        "title": "%command.tail.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
+        "command": "sfLogs.openLogInViewer",
+        "title": "%command.openLogInViewer.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
+        "command": "sfLogs.showOutput",
+        "title": "Show Extension Output",
+        "category": "Electivus Apex Logs"
+      },
+      {
+        "command": "sfLogs.resetCliCache",
+        "title": "Reset CLI Cache",
+        "category": "Electivus Apex Logs"
+      }
+    ],
+    "languages": [
+      {
+        "id": "apexlog",
+        "aliases": [
+          "ApexLog",
+          "Salesforce Apex Log"
+        ],
+        "firstLine": "^\\d{2}\\.\\d{2}.+?APEX_CODE,\\w.+$"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "sfLogs.resetCliCache",
+          "when": "view == sfLogViewer || view == sfLogTail",
+          "group": "navigation@98"
+        },
+        {
+          "command": "sfLogs.showOutput",
+          "when": "view == sfLogViewer || view == sfLogTail",
+          "group": "navigation@99"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "sfLogs.openLogInViewer",
+          "when": "resourceLangId == apexlog",
+          "group": "navigation@50",
+          "icon": "$(open-preview)"
+        }
+      ]
+    }
+  },
   "scripts": {
-    "ext:install": "npm --prefix apps/vscode-extension ci",
-    "ext:build": "npm --prefix apps/vscode-extension run build",
-    "ext:watch": "npm --prefix apps/vscode-extension run watch",
-    "ext:watch-tests": "npm --prefix apps/vscode-extension run watch-tests",
-    "ext:lint": "npm --prefix apps/vscode-extension run lint",
-    "ext:test": "npm --prefix apps/vscode-extension test",
-    "ext:test:unit": "npm --prefix apps/vscode-extension run test:unit",
-    "ext:test:integration": "npm --prefix apps/vscode-extension run test:integration",
-    "ext:test:e2e": "npm --prefix apps/vscode-extension run test:e2e",
-    "ext:package": "npm --prefix apps/vscode-extension run package"
-  }
+    "test:clean": "node scripts/clean-vscode-test.js",
+    "clean": "node -e \"const fs=require('fs');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('dist');del('out');for(const f of ['media/main.js','media/main.js.map','media/tail.js','media/tail.js.map','media/webview.css']){try{fs.unlinkSync(f)}catch{}}\"",
+    "prebuild": "npm run clean",
+    "vscode:prepublish": "npm run build && npm run nls:write",
+    "check-types": "tsc --noEmit -p tsconfig.extension.json",
+    "compile": "npm run lint && tsc -p tsconfig.extension.json --noEmit",
+    "watch": "npm-run-all -p watch:*",
+    "watch:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --sourcemap --external:vscode --external:@vscode/ripgrep --alias:bfj=./src/shims/bfj.ts --watch",
+    "watch:tsc": "tsc -p tsconfig.extension.json --watch --noEmit",
+    "watch:webview": "npm-run-all -p tailwind:watch watch:webview:bundle",
+    "build:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --minify --sourcemap --external:vscode --external:@vscode/ripgrep --alias:bfj=./src/shims/bfj.ts",
+    "build:webview": "npm-run-all -s tailwind:build build:webview:bundle",
+    "build": "npm run build:extension && npm run build:webview",
+    "build:icon": "node scripts/gen-icon.mjs",
+    "build:assets": "node scripts/gen-assets.mjs",
+    "nls:extract": "vscl \"dist/**/*.js\"",
+    "nls:write": "node scripts/gen-nls.cjs",
+    "prepackage": "npm run clean",
+    "package": "npm run build:extension && (npm run -s nls:extract || true) && npm run nls:write && npm run build:webview",
+    "lint": "eslint src",
+    "vsce:package": "vsce package",
+    "vsce:package:pre": "vsce package --pre-release",
+    "vsce:publish": "vsce publish",
+    "vsce:publish:pre": "vsce publish --pre-release",
+    "compile-tests": "node -e \"try{require('fs').rmSync('out/test',{recursive:true,force:true})}catch(e){}\" && tsc -p tsconfig.test.json",
+    "watch-tests": "tsc -p tsconfig.test.json -w",
+    "pretest": "npm run test:clean && npm run test:linux-deps && npm run compile && npm run build:extension && npm run compile-tests",
+    "test": "npm run test:webview && ENABLE_COVERAGE=1 bash scripts/run-tests.sh --scope=unit && npm run coverage:merge",
+    "test:unit": "npm run test:webview && npm run pretest && bash scripts/run-tests.sh --scope=unit",
+    "test:integration": "npm run pretest && bash scripts/run-tests.sh --scope=integration --install-deps --timeout=900000",
+    "test:all": "npm run test:webview && npm run pretest && bash scripts/run-tests.sh --scope=all",
+    "test:linux-deps": "bash scripts/install-linux-deps.sh",
+    "test:unit:ci": "npm run test:webview -- --ci --runInBand && npm run pretest && bash scripts/run-tests.sh --scope=unit --vscode=stable",
+    "test:integration:ci": "npm run pretest && bash scripts/run-tests.sh --scope=integration --vscode=stable --install-deps --timeout=900000",
+    "test:webview": "jest --config jest.config.webview.cjs",
+    "test:webview:watch": "npm run test:webview -- --watch",
+    "test:ci": "npm run test:unit:ci && npm run test:integration:ci",
+    "test:smoke:vsix": "node scripts/run-tests.js --scope=unit --smoke-vsix",
+    "pretest:e2e": "npm run build",
+    "test:e2e": "node scripts/run-playwright-e2e.js",
+    "format": "prettier --write .",
+    "prepare": "husky",
+    "tailwind:build": "tailwindcss -c tailwind.config.js -i ./src/webview/styles/tailwind.css -o ./media/webview.css --minify",
+    "tailwind:watch": "tailwindcss -c tailwind.config.js -i ./src/webview/styles/tailwind.css -o ./media/webview.css --watch",
+    "build:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/logViewer.tsx --bundle --outdir=media --platform=browser --format=iife --minify",
+    "watch:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/logViewer.tsx --bundle --outdir=media --platform=browser --format=iife --sourcemap --watch",
+    "coverage:merge": "node scripts/merge-coverage.cjs"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^20.4.1",
+    "@commitlint/config-conventional": "^20.4.1",
+    "@playwright/test": "^1.58.2",
+    "@tailwindcss/cli": "^4.1.18",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/jest": "^30.0.0",
+    "@types/jsdom": "^27.0.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^25.2.3",
+    "@types/proxyquire": "^1.3.4",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/vscode": "1.101.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.0",
+    "@typescript-eslint/parser": "^8.55.0",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.1",
+    "autoprefixer": "^10.4.24",
+    "c8": "^10.1.3",
+    "esbuild": "^0.27.3",
+    "eslint": "^10.0.0",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-report": "^3.0.1",
+    "istanbul-reports": "^3.2.0",
+    "jest": "^30.2.0",
+    "jest-environment-jsdom": "^30.2.0",
+    "jsdom": "^28.1.0",
+    "lint-staged": "^16.2.7",
+    "mocha": "^11.7.5",
+    "npm-run-all": "^4.1.5",
+    "postcss": "^8.5.6",
+    "prettier": "^3.8.1",
+    "proxyquire": "^2.1.3",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-window": "^2.2.7",
+    "sharp": "^0.34.5",
+    "tailwindcss": "^4.1.18",
+    "tailwindcss-animate": "^1.0.7",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.9.3",
+    "vscode-nls-dev": "^4.0.4"
+  },
+  "dependencies": {
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-switch": "^1.2.6",
+    "@salesforce/apex-node": "^8.4.8",
+    "@salesforce/core": "^8.26.2",
+    "@vscode/extension-telemetry": "^1.5.0",
+    "@vscode/ripgrep": "^1.17.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cross-spawn": "^7.0.6",
+    "lucide-react": "^0.574.0",
+    "tailwind-merge": "^3.4.1",
+    "vscode-nls": "^5.2.0"
+  },
+  "files": [
+    "dist/**",
+    "media/main.js",
+    "media/webview.css",
+    "media/tail.js",
+    "media/logViewer.js",
+    "media/icon.png",
+    "node_modules/@vscode/ripgrep/**",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "package.json",
+    "package.nls.json",
+    "package.nls.pt-br.json"
+  ],
+  "lint-staged": {
+    "*.{js,ts,jsx,tsx,json,md,css,scss}": "prettier --write",
+    "*.log": "node scripts/guard-forbidden-staged.cjs --label=.log",
+    "*.txt": "node scripts/guard-forbidden-staged.cjs --label=.txt"
+  },
+  "homepage": "https://github.com/Electivus/Apex-Log-Viewer#readme",
+  "bugs": {
+    "url": "https://github.com/Electivus/Apex-Log-Viewer/issues"
+  },
+  "keywords": [
+    "salesforce",
+    "apex",
+    "logs",
+    "developer",
+    "tooling",
+    "tail",
+    "debug"
+  ]
 }

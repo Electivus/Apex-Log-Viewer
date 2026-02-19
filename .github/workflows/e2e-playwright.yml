@@ -46,25 +46,23 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
-          cache-dependency-path: apps/vscode-extension/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install Salesforce CLI
         run: npm install -g @salesforce/cli
 
       - name: Install extension dependencies
-        run: npm ci --workspaces=false
-        working-directory: apps/vscode-extension
+        run: npm ci
 
       - name: Install Linux deps for Electron (best-effort)
         run: INSTALL_LINUX_DEPS=true bash scripts/install-linux-deps.sh
-        working-directory: apps/vscode-extension
 
       - name: Run Playwright E2E
-        run: npm run ext:test:e2e -- openLogViewer.e2e.spec.ts
+        run: npm run test:e2e -- openLogViewer.e2e.spec.ts
         env:
           VSCODE_TEST_VERSION: ${{ github.event.inputs.vscode_version || 'stable' }}
           SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
-          SF_DEVHUB_ALIAS: InsuranceOrgTrialCreme6DevHub
+          SF_DEVHUB_ALIAS: DevHubElectivus
           SF_SCRATCH_ALIAS: ALV_E2E_Scratch_${{ github.run_id }}_${{ github.run_attempt }}
           SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || '1' }}
           # Default behavior:

@@ -22,9 +22,6 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         node: ['22.x']
-    defaults:
-      run:
-        working-directory: apps/vscode-extension
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -34,7 +31,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-          cache-dependency-path: apps/vscode-extension/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci --workspaces=false
@@ -79,9 +76,6 @@ jobs:
       TAG_NAME: ${{ github.ref_name }}
       GH_TOKEN: ${{ github.token }}
       GITHUB_TOKEN: ${{ github.token }}
-    defaults:
-      run:
-        working-directory: apps/vscode-extension
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -91,7 +85,7 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
-          cache-dependency-path: apps/vscode-extension/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci --workspaces=false
@@ -122,7 +116,7 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const pkgPath = path.join(process.env.GITHUB_WORKSPACE || process.cwd(), 'apps', 'vscode-extension', 'package.json');
+            const pkgPath = path.join(process.env.GITHUB_WORKSPACE || process.cwd(), 'package.json');
             const version = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version;
             const minor = Number((version || '').split('.')[1] || 0);
             const tagName = process.env.TAG_NAME || '';
@@ -209,7 +203,7 @@ jobs:
         with:
           name: apex-log-viewer-${{ steps.determine_channel.outputs.version }}-${{ steps.determine_channel.outputs.channel_suffix }}-vsix-${{ matrix.target }}
           path: |
-            apps/vscode-extension/*.vsix
+            *.vsix
           if-no-files-found: error
 
   publish:
@@ -221,9 +215,6 @@ jobs:
     permissions:
       contents: write
     environment: marketplace
-    defaults:
-      run:
-        working-directory: apps/vscode-extension
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -233,7 +224,7 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
-          cache-dependency-path: apps/vscode-extension/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci --workspaces=false
 
@@ -260,7 +251,7 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const pkgPath = path.join(process.env.GITHUB_WORKSPACE || process.cwd(), 'apps', 'vscode-extension', 'package.json');
+            const pkgPath = path.join(process.env.GITHUB_WORKSPACE || process.cwd(), 'package.json');
             const version = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version;
             const minor = Number((version || '').split('.')[1] || 0);
             const tagName = process.env.TAG_NAME || '';
