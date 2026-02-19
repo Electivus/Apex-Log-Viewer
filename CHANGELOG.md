@@ -5,6 +5,7 @@
 ### Features
 
 - Testing: add Playwright E2E coverage against a real scratch org (Dev Hub + seeded Apex log). Also adds a manual GitHub Actions workflow for opt-in validation.
+- Debug Flags: add a dedicated editor panel to configure `USER_DEBUG` TraceFlags for active users, accessible from both Logs and Tail toolbars.
 
 ### Bug Fixes
 
@@ -14,6 +15,10 @@
 
 - Repo: revert monorepo layout back to a single-root extension structure.
 - CLI: remove the Rust CLI package, Cargo workspace files, and CLI npm release workflow.
+
+### Tests
+
+- Debug Flags: add unit/webview coverage for user trace-flag apply/remove flows and add a Playwright E2E scenario for the new editor panel.
 
 ## [0.22.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.20.0...v0.22.0) (2026-02-13)
 

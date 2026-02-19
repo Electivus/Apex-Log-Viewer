@@ -168,12 +168,13 @@ describe('Logs webview App', () => {
     const openButtons = await screen.findAllByRole('button', { name: 'Abrir' });
     fireEvent.click(openButtons[0]!);
     fireEvent.click(screen.getAllByRole('button', { name: 'Apex Replay' })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: 'Debug Flags' }));
     fireEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
 
     await waitFor(() => {
       const types = posted.map(m => m.type);
       expect(types[0]).toBe('ready');
-      expect(types).toEqual(expect.arrayContaining(['openLog', 'replay', 'refresh']));
+      expect(types).toEqual(expect.arrayContaining(['openLog', 'replay', 'refresh', 'openDebugFlags']));
     });
   }, 10000);
 

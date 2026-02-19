@@ -6,6 +6,7 @@ import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
 import * as cli from '../salesforce/cli';
 import * as http from '../salesforce/http';
 import * as traceflags from '../salesforce/traceflags';
+import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 
 class MockDisposable implements vscode.Disposable {
   dispose(): void {
@@ -51,6 +52,12 @@ class MockWebviewView implements vscode.WebviewView {
 }
 
 suite('TailService', () => {
+  const originalDebugFlagsShow = DebugFlagsPanel.show;
+
+  teardown(() => {
+    (DebugFlagsPanel as any).show = originalDebugFlagsShow;
+  });
+
   test('requires debug level', async () => {
     const posted: any[] = [];
     const service = new TailService(m => posted.push(m));
@@ -177,5 +184,30 @@ suite('TailService', () => {
     assert.equal(calls, 2);
     assert.equal((service as any).seenLogIds.has('1'), true);
     (http as any).fetchApexLogBody = origFetch;
+  });
+
+  test('openDebugFlags opens debug flags panel from tail view', async () => {
+    const opened: Array<{ selectedOrg?: string; sourceView?: string }> = [];
+    (DebugFlagsPanel as any).show = async (options: any) => {
+      opened.push(options || {});
+    };
+
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const provider = new SfLogTailViewProvider(context);
+    const webview = new MockWebview();
+    const view = new MockWebviewView(webview);
+    (provider as any).sendOrgs = async () => {};
+    (provider as any).sendDebugLevels = async () => {};
+    await provider.resolveWebviewView(view);
+
+    await webview.emit({ type: 'selectOrg', target: 'tail-user@example.com' });
+    await webview.emit({ type: 'openDebugFlags' });
+
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0]?.selectedOrg, 'tail-user@example.com');
+    assert.equal(opened[0]?.sourceView, 'tail');
   });
 });

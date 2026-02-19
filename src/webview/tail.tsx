@@ -202,6 +202,9 @@ export function TailApp({
             vscode.postMessage({ type: 'replay', logId: selectedLogId });
           }
         }}
+        onOpenDebugFlags={() => {
+          vscode.postMessage({ type: 'openDebugFlags' });
+        }}
         actionsEnabled={!!selectedLogId}
         orgs={orgs}
         selectedOrg={selectedOrg}

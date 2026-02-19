@@ -65,6 +65,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
   const statuses = ['Success', 'Failed'];
   const codeUnits = ['UnitA', 'UnitB'];
   let refreshCount = 0;
+  let openDebugFlagsCount = 0;
   let clearCount = 0;
   const queryChanges: string[] = [];
   const userChanges: string[] = [];
@@ -82,6 +83,9 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
         warning={warning}
         onRefresh={() => {
           refreshCount++;
+        }}
+        onOpenDebugFlags={() => {
+          openDebugFlagsCount++;
         }}
         t={t}
         orgs={orgs}
@@ -128,6 +132,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
   return {
     view,
     refreshCount: () => refreshCount,
+    openDebugFlagsCount: () => openDebugFlagsCount,
     clearCount: () => clearCount,
     queryChanges,
     userChanges
@@ -202,5 +207,12 @@ describe('Toolbar webview component', () => {
     renderToolbar({ warning: 'sourceApiVersion 66.0 > org max 64.0; falling back to 64.0' });
     screen.getByText('Warning:');
     screen.getByText('sourceApiVersion 66.0 > org max 64.0; falling back to 64.0');
+  });
+
+  it('triggers debug flags entrypoint from toolbar button', () => {
+    const utils = renderToolbar();
+    const btn = screen.getByRole('button', { name: 'Debug Flags' });
+    fireEvent.click(btn);
+    expect(utils.openDebugFlagsCount()).toBe(1);
   });
 });

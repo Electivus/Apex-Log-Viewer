@@ -419,7 +419,7 @@
   },
   "scripts": {
     "test:clean": "node scripts/clean-vscode-test.js",
-    "clean": "node -e \"const fs=require('fs');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('dist');del('out');for(const f of ['media/main.js','media/main.js.map','media/tail.js','media/tail.js.map','media/webview.css']){try{fs.unlinkSync(f)}catch{}}\"",
+    "clean": "node -e \"const fs=require('fs');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('dist');del('out');for(const f of ['media/main.js','media/main.js.map','media/tail.js','media/tail.js.map','media/logViewer.js','media/logViewer.js.map','media/debugFlags.js','media/debugFlags.js.map','media/webview.css']){try{fs.unlinkSync(f)}catch{}}\"",
     "prebuild": "npm run clean",
     "vscode:prepublish": "npm run build && npm run nls:write",
     "check-types": "tsc --noEmit -p tsconfig.extension.json",
@@ -462,8 +462,8 @@
     "prepare": "husky",
     "tailwind:build": "tailwindcss -c tailwind.config.js -i ./src/webview/styles/tailwind.css -o ./media/webview.css --minify",
     "tailwind:watch": "tailwindcss -c tailwind.config.js -i ./src/webview/styles/tailwind.css -o ./media/webview.css --watch",
-    "build:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/logViewer.tsx --bundle --outdir=media --platform=browser --format=iife --minify",
-    "watch:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/logViewer.tsx --bundle --outdir=media --platform=browser --format=iife --sourcemap --watch",
+    "build:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/logViewer.tsx src/webview/debugFlags.tsx --bundle --outdir=media --platform=browser --format=iife --minify",
+    "watch:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/logViewer.tsx src/webview/debugFlags.tsx --bundle --outdir=media --platform=browser --format=iife --sourcemap --watch",
     "coverage:merge": "node scripts/merge-coverage.cjs"
   },
   "devDependencies": {
@@ -535,6 +535,7 @@
     "media/webview.css",
     "media/tail.js",
     "media/logViewer.js",
+    "media/debugFlags.js",
     "media/icon.png",
     "node_modules/@vscode/ripgrep/**",
     "README.md",

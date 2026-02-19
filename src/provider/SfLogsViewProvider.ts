@@ -13,6 +13,7 @@ import { LogService } from '../services/logService';
 import { LogsMessageHandler } from './logsMessageHandler';
 import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../utils/configManager';
+import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { affectsConfiguration, getConfig } from '../utils/config';
 import { ensureApexLogsDir, purgeSavedLogs, getLogIdFromLogFilePath } from '../utils/workspace';
 import { ripgrepSearch, type RipgrepMatch } from '../utils/ripgrep';
@@ -50,6 +51,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       () => this.refresh(),
       () => this.sendOrgs(),
       o => this.setSelectedOrg(o),
+      () => this.openDebugFlags(),
       id => this.logService.openLog(id, this.orgManager.getSelectedOrg()),
       id => this.logService.debugLog(id, this.orgManager.getSelectedOrg()),
       () => this.loadMore(),
@@ -599,7 +601,24 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
 
   public async tailLogs() {
     await vscode.commands.executeCommand('workbench.view.extension.salesforceTailPanel');
-    await vscode.commands.executeCommand('workbench.viewsService.openView', 'sfLogTail');
+    try {
+      await vscode.commands.executeCommand('workbench.viewsService.openView', 'sfLogTail');
+    } catch {
+      // Compatibility fallback for VS Code versions where workbench.viewsService.openView
+      // is unavailable.
+      try {
+        await vscode.commands.executeCommand('workbench.action.openView', 'sfLogTail');
+      } catch {
+        // Container command above already focused the Tail panel; keep it best-effort.
+      }
+    }
+  }
+
+  private async openDebugFlags(): Promise<void> {
+    await DebugFlagsPanel.show({
+      selectedOrg: this.orgManager.getSelectedOrg(),
+      sourceView: 'logs'
+    });
   }
 
   private post(msg: ExtensionToWebviewMessage): void {

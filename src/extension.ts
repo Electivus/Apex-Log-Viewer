@@ -11,6 +11,7 @@ import { localize } from './utils/localize';
 import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry } from './shared/telemetry';
 import { CacheManager } from './utils/cacheManager';
 import { LogViewerPanel } from './panel/LogViewerPanel';
+import { DebugFlagsPanel } from './panel/DebugFlagsPanel';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { getErrorMessage } from './utils/error';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
@@ -29,6 +30,7 @@ async function initializePersistentCache(context: vscode.ExtensionContext): Prom
 export async function activate(context: vscode.ExtensionContext) {
   const activationStart = Date.now();
   LogViewerPanel.initialize(context);
+  DebugFlagsPanel.initialize(context);
   // Init TTL cache (best-effort; no-op if unavailable)
   try {
     await initializePersistentCache(context);
@@ -129,7 +131,11 @@ export async function activate(context: vscode.ExtensionContext) {
       safeSendEvent('command.refresh');
       try {
         await vscode.commands.executeCommand('workbench.view.extension.salesforceLogsPanel');
-        await vscode.commands.executeCommand('workbench.viewsService.openView', 'sfLogViewer');
+        try {
+          await vscode.commands.executeCommand('workbench.viewsService.openView', 'sfLogViewer');
+        } catch {
+          await vscode.commands.executeCommand('workbench.action.openView', 'sfLogViewer');
+        }
       } catch (e) {
         logWarn('Command sfLogs.refresh: failed to open logs view ->', getErrorMessage(e));
       }
@@ -178,7 +184,11 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('sfLogs.tail', async () => {
       logInfo('Command sfLogs.tail invoked. Opening Tail view and starting…');
       safeSendEvent('command.tail');
-      await provider.tailLogs();
+      try {
+        await provider.tailLogs();
+      } catch (e) {
+        logWarn('Command sfLogs.tail: failed to open tail view ->', getErrorMessage(e));
+      }
     })
   );
 
