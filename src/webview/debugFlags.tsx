@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '../shared/debugFlagsMessages';
 import type { DebugFlagUser, UserTraceFlagStatus } from '../shared/debugFlagsTypes';
@@ -63,12 +63,17 @@ export function DebugFlagsApp({
   const [error, setError] = useState<string | undefined>(undefined);
   const [notice, setNotice] = useState<NoticeState | undefined>(undefined);
   const [initialized, setInitialized] = useState(false);
+  const selectedUserIdRef = useRef<string | undefined>(undefined);
   const [loading, setLoading] = useState<LoadingState>({
     orgs: false,
     users: false,
     status: false,
     action: false
   });
+
+  useEffect(() => {
+    selectedUserIdRef.current = selectedUserId;
+  }, [selectedUserId]);
 
   useEffect(() => {
     if (!messageBus) {
@@ -111,7 +116,7 @@ export function DebugFlagsApp({
           break;
         }
         case 'debugFlagsUserStatus':
-          if (msg.userId === selectedUserId) {
+          if (msg.userId === selectedUserIdRef.current) {
             setStatus(msg.status);
           }
           break;
@@ -131,7 +136,7 @@ export function DebugFlagsApp({
     messageBus.addEventListener('message', handler as EventListener);
     vscode.postMessage({ type: 'debugFlagsReady' });
     return () => messageBus.removeEventListener('message', handler as EventListener);
-  }, [messageBus, selectedUserId, vscode]);
+  }, [messageBus, vscode]);
 
   useEffect(() => {
     if (!initialized) {
