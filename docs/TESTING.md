@@ -25,7 +25,7 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 
 ## Environment variables
 
-- `VSCODE_TEST_VERSION`: VS Code build to test against. Defaults to `insiders` locally. In CI we pin to `stable` to avoid flakiness.
+- `VSCODE_TEST_VERSION`: VS Code build to test against. Defaults to `stable` (local e CI); sobrescreva quando precisar validar outra versão.
 - `VSCODE_TEST_INSTALL_DEPS=1`: Forces installing dependency extensions even in non‑integration scopes.
 - `VSCODE_TEST_GREP`: Mocha grep filter (string or regexp); use with `VSCODE_TEST_INVERT=1` to invert.
 - `VSCODE_TEST_MOCHA_TIMEOUT_MS`: Per‑test timeout (default 120000ms).

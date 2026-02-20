@@ -439,7 +439,13 @@ async function pretestSetup(scope = 'all', opts = {}) {
 }
 
 function parseArgs(argv) {
-  const out = { scope: 'all', vscode: 'insiders', installDeps: false, timeoutMs: undefined, smokeVsix: false };
+  const out = {
+    scope: 'all',
+    vscode: String(process.env.VSCODE_TEST_VERSION || 'stable'),
+    installDeps: false,
+    timeoutMs: undefined,
+    smokeVsix: false
+  };
   for (const a of argv.slice(2)) {
     if (a.startsWith('--scope=')) out.scope = a.split('=')[1];
     else if (a.startsWith('--vscode=')) out.vscode = a.split('=')[1];
@@ -493,9 +499,9 @@ async function run() {
   const defaultMs = scope === 'unit' ? 8 * 60 * 1000 : 15 * 60 * 1000;
   const totalTimeout = Number(args.timeoutMs || defaultMs);
 
-  // Download VS Code: prefer stable for unit tests to maximize cache reuse
-  // (avoid frequent Insiders updates triggering re-downloads). Can be overridden via --vscode.
-  const vsVer = String(args.vscode || (scope === 'unit' ? 'stable' : 'insiders'));
+  // Download VS Code: default to stable for all test scopes.
+  // Can be overridden via --vscode or VSCODE_TEST_VERSION.
+  const vsVer = String(args.vscode || 'stable');
   const vscodeExecutablePath = await downloadAndUnzipVSCode(vsVer);
   const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, {
     reuseMachineInstall: true
@@ -711,8 +717,6 @@ async function run() {
     try {
       const cleanupMarkers = [
         vscodeExecutablePath,
-        'code-insiders',
-        'vscode-linux-x64-insiders',
         'chrome_crashpad_handler'
       ];
       await killLeakedVSCodeProcesses(cleanupMarkers);

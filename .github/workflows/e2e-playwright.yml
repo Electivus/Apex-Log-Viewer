@@ -7,13 +7,12 @@ on:
   workflow_dispatch:
     inputs:
       vscode_version:
-        description: VS Code version (stable recommended)
+        description: VS Code version
         required: false
         default: stable
         type: choice
         options:
           - stable
-          - insiders
       scratch_duration_days:
         description: Scratch org duration in days
         required: false
