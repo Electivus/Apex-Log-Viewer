@@ -5,7 +5,8 @@ import {
   Eraser,
   ExternalLink,
   RotateCcw,
-  Loader2
+  Loader2,
+  Bug
 } from 'lucide-react';
 import type { OrgItem } from '../../../shared/types';
 import { Button } from '../ui/button';
@@ -27,6 +28,7 @@ type TailToolbarProps = {
   onClear: () => void;
   onOpenSelected: () => void;
   onReplaySelected: () => void;
+  onOpenDebugFlags: () => void;
   actionsEnabled: boolean;
   disabled?: boolean;
   orgs: OrgItem[];
@@ -54,6 +56,7 @@ export function TailToolbar({
   onClear,
   onOpenSelected,
   onReplaySelected,
+  onOpenDebugFlags,
   actionsEnabled,
   disabled = false,
   orgs,
@@ -134,6 +137,19 @@ export function TailToolbar({
         >
           <RotateCcw className="h-4 w-4" aria-hidden="true" />
           <span>{t.tail?.replayDebugger ?? 'Replay Debugger'}</span>
+        </Button>
+
+        <Button
+          type="button"
+          onClick={onOpenDebugFlags}
+          disabled={disabled}
+          variant="ghost"
+          className="flex items-center gap-2"
+          title={t.debugFlags?.openTitle ?? 'Open debug flags editor'}
+          data-testid="tail-open-debug-flags"
+        >
+          <Bug className="h-4 w-4" aria-hidden="true" />
+          <span>{t.debugFlags?.open ?? 'Debug Flags'}</span>
         </Button>
 
         <OrgSelect

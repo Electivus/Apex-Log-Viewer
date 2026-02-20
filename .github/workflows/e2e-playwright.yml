@@ -53,6 +53,8 @@ jobs:
 
       - name: Install extension dependencies
         run: npm ci
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Install Linux deps for Electron (best-effort)
         run: INSTALL_LINUX_DEPS=true bash scripts/install-linux-deps.sh

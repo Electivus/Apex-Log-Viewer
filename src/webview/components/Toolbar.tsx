@@ -1,5 +1,5 @@
 import React from 'react';
-import { RefreshCw, FilterX, Loader2, AlertCircle } from 'lucide-react';
+import { RefreshCw, FilterX, Loader2, AlertCircle, Bug } from 'lucide-react';
 import type { OrgItem } from '../../shared/types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -19,6 +19,7 @@ type ToolbarProps = {
   error?: string;
   warning?: string;
   onRefresh: () => void;
+  onOpenDebugFlags: () => void;
   t: any;
   orgs: OrgItem[];
   selectedOrg?: string;
@@ -53,6 +54,7 @@ export function Toolbar({
   error,
   warning,
   onRefresh,
+  onOpenDebugFlags,
   t,
   orgs,
   selectedOrg,
@@ -109,6 +111,19 @@ export function Toolbar({
           disabled={loading}
           emptyText={t.noOrgsDetected ?? 'No orgs detected. Run "sf org list".'}
         />
+
+        <Button
+          type="button"
+          onClick={onOpenDebugFlags}
+          disabled={loading}
+          variant="ghost"
+          className="flex items-center gap-2"
+          title={t.debugFlags?.openTitle ?? 'Open debug flags editor'}
+          data-testid="logs-open-debug-flags"
+        >
+          <Bug className="h-4 w-4" aria-hidden="true" />
+          <span>{t.debugFlags?.open ?? 'Debug Flags'}</span>
+        </Button>
 
         <div className="flex min-w-[220px] flex-1 flex-col gap-1">
           <Label htmlFor={searchInputId}>{t.searchPlaceholder ?? 'Search logs…'}</Label>

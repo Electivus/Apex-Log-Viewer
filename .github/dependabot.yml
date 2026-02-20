@@ -12,6 +12,11 @@ updates:
           - "react-dom"
           - "@types/react"
           - "@types/react-dom"
+      tailwind:
+        patterns:
+          - "tailwindcss"
+          - "@tailwindcss/*"
+          - "tailwind-*"
     ignore:
       - dependency-name: "@types/vscode"
         update-types:

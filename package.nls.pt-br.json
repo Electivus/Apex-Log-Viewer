@@ -27,5 +27,17 @@
   "openLogInViewer.unsupportedScheme": "Electivus Apex Logs: Não é possível abrir logs Apex a partir desta origem.",
   "openLogInViewer.notApex": "Electivus Apex Logs: O documento ativo não é reconhecido como um log Apex do Salesforce.",
   "openLogInViewer.failed": "Falha ao abrir log Apex: {0}",
-  "openLogInViewer.codeLensTitle": "Abrir no Apex Log Viewer"
+  "openLogInViewer.codeLensTitle": "Abrir no Apex Log Viewer",
+  "debugFlags.panel.title": "Apex Debug Flags",
+  "debugFlags.unavailable": "O painel Debug Flags não está disponível antes da ativação da extensão.",
+  "debugFlags.loadOrgsFailed": "Falha ao carregar dados de org e níveis de depuração: {0}",
+  "debugFlags.loadUsersFailed": "Falha ao carregar usuários: {0}",
+  "debugFlags.loadStatusFailed": "Falha ao carregar status da debug flag: {0}",
+  "debugFlags.applyCreated": "Debug flag criada com sucesso.",
+  "debugFlags.applyUpdated": "Debug flag atualizada com sucesso.",
+  "debugFlags.applyFailed": "Falha ao aplicar debug flag: {0}",
+  "debugFlags.removeSuccess": "Debug flag removida com sucesso.",
+  "debugFlags.removeNone": "Nenhuma trace flag USER_DEBUG ativa foi encontrada para este usuário.",
+  "debugFlags.removeFailed": "Falha ao remover debug flag: {0}",
+  "debugFlags.noOrg": "Nenhuma org Salesforce foi selecionada."
 }

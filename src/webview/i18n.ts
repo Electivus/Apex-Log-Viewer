@@ -60,6 +60,35 @@ export type Messages = {
     moveUp: string;
     moveDown: string;
   };
+  debugFlags?: {
+    open: string;
+    openTitle: string;
+    panelTitle: string;
+    panelSubtitle: string;
+    org: string;
+    userSearchLabel: string;
+    userSearchPlaceholder: string;
+    users: string;
+    noUsers: string;
+    loadingUsers: string;
+    selectUserHint: string;
+    debugLevel: string;
+    ttlMinutes: string;
+    apply: string;
+    remove: string;
+    currentStatus: string;
+    statusActive: string;
+    statusInactive: string;
+    statusLevel: string;
+    statusExpiration: string;
+    statusStart: string;
+    noStatus: string;
+    noticeCreated: string;
+    noticeUpdated: string;
+    noticeRemoved: string;
+    noticeNone: string;
+    ttlHelper: string;
+  };
 };
 
 const en: Messages = {
@@ -123,6 +152,35 @@ const en: Messages = {
     matchRequiresFullSearch: 'Requires full log search',
     moveUp: 'Move up',
     moveDown: 'Move down'
+  },
+  debugFlags: {
+    open: 'Debug Flags',
+    openTitle: 'Open debug flags editor',
+    panelTitle: 'Apex Debug Flags',
+    panelSubtitle: 'Configure USER_DEBUG trace flags with room to focus.',
+    org: 'Org',
+    userSearchLabel: 'Find user',
+    userSearchPlaceholder: 'Type name or username…',
+    users: 'Active users',
+    noUsers: 'No active users found for this query.',
+    loadingUsers: 'Loading users…',
+    selectUserHint: 'Select an active user to inspect and configure debug flags.',
+    debugLevel: 'Debug level',
+    ttlMinutes: 'TTL (minutes)',
+    apply: 'Apply debug flag',
+    remove: 'Remove debug flag',
+    currentStatus: 'Current status',
+    statusActive: 'Active',
+    statusInactive: 'Inactive',
+    statusLevel: 'Debug level',
+    statusExpiration: 'Expires',
+    statusStart: 'Starts',
+    noStatus: 'No active USER_DEBUG trace flag for this user.',
+    noticeCreated: 'Debug flag created successfully.',
+    noticeUpdated: 'Debug flag updated successfully.',
+    noticeRemoved: 'Debug flag removed successfully.',
+    noticeNone: 'No USER_DEBUG trace flag found for this user.',
+    ttlHelper: 'Default is 30 minutes. Allowed range: 1-1440.'
   }
 };
 
@@ -187,6 +245,35 @@ const ptBR: Messages = {
     matchRequiresFullSearch: 'Requer busca completa',
     moveUp: 'Mover para cima',
     moveDown: 'Mover para baixo'
+  },
+  debugFlags: {
+    open: 'Debug Flags',
+    openTitle: 'Abrir editor de debug flags',
+    panelTitle: 'Apex Debug Flags',
+    panelSubtitle: 'Configure trace flags USER_DEBUG com mais espaço e foco.',
+    org: 'Org',
+    userSearchLabel: 'Buscar usuário',
+    userSearchPlaceholder: 'Digite nome ou username…',
+    users: 'Usuários ativos',
+    noUsers: 'Nenhum usuário ativo encontrado para esta busca.',
+    loadingUsers: 'Carregando usuários…',
+    selectUserHint: 'Selecione um usuário ativo para inspecionar e configurar debug flags.',
+    debugLevel: 'Nível de depuração',
+    ttlMinutes: 'TTL (minutos)',
+    apply: 'Aplicar debug flag',
+    remove: 'Remover debug flag',
+    currentStatus: 'Status atual',
+    statusActive: 'Ativa',
+    statusInactive: 'Inativa',
+    statusLevel: 'Nível de depuração',
+    statusExpiration: 'Expira em',
+    statusStart: 'Inicia em',
+    noStatus: 'Nenhuma trace flag USER_DEBUG ativa para este usuário.',
+    noticeCreated: 'Debug flag criada com sucesso.',
+    noticeUpdated: 'Debug flag atualizada com sucesso.',
+    noticeRemoved: 'Debug flag removida com sucesso.',
+    noticeNone: 'Nenhuma trace flag USER_DEBUG encontrada para este usuário.',
+    ttlHelper: 'Padrão de 30 minutos. Faixa permitida: 1-1440.'
   }
 };
 
