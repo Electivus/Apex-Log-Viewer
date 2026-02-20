@@ -6,6 +6,7 @@ export class LogsMessageHandler {
     private readonly refresh: () => Promise<void>,
     private readonly sendOrgs: () => Promise<void>,
     private readonly setSelectedOrg: (org?: string) => void,
+    private readonly openDebugFlags: () => Promise<void>,
     private readonly openLog: (logId: string) => Promise<void>,
     private readonly debugLog: (logId: string) => Promise<void>,
     private readonly loadMore: () => Promise<void>,
@@ -34,6 +35,10 @@ export class LogsMessageHandler {
         this.setSelectedOrg(typeof message.target === 'string' ? message.target.trim() : undefined);
         logInfo('Logs: selected org set');
         await this.refresh();
+        break;
+      case 'openDebugFlags':
+        logInfo('Logs: openDebugFlags');
+        await this.openDebugFlags();
         break;
       case 'openLog':
         if (message.logId) {

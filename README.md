@@ -20,6 +20,7 @@ Fast, searchable Salesforce Apex logs — right inside VS Code. Browse, filter, 
 - Sorting and infinite scroll: Click any header to sort; more logs load automatically as you scroll.
 - Open and debug: Open a log in the editor or start Apex Replay Debugger directly from the list.
 - Real‑time tail: Start tailing logs from the toolbar using your Salesforce CLI.
+- Debug Flags editor: Configure `USER_DEBUG` TraceFlags for active users in a dedicated editor panel with more space.
 - Org selector: Quickly switch between your authenticated orgs or use the CLI default.
 - Configurable: Tune `electivus.apexLogs.pageSize`, `electivus.apexLogs.headConcurrency`, and other options to fit your workflow. (Legacy `sfLogs.*` keys still work for backward compatibility.)
 - Localization: English and Brazilian Portuguese (pt‑BR).
@@ -79,6 +80,15 @@ Why developers like it
 ### Tail logs in real time
 
 - Choose **Tail Logs** from the toolbar to start streaming new logs. Run the command again to stop.
+
+### Configure Debug Flags
+
+- Click **Debug Flags** in either the Logs or Tail toolbar.
+- The extension opens **Apex Debug Flags** in the editor area, where you can:
+- Search active users by name/username.
+- Inspect current `USER_DEBUG` status (level + expiration).
+- Apply/update a debug level with custom TTL.
+- Remove existing `USER_DEBUG` flags for the selected user.
 
 ### Select an org
 

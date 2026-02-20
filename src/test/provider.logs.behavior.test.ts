@@ -8,6 +8,7 @@ import * as cli from '../salesforce/cli';
 import * as http from '../salesforce/http';
 import * as workspace from '../utils/workspace';
 import * as ripgrep from '../utils/ripgrep';
+import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 
 function makeContext() {
   const context = {
@@ -31,6 +32,7 @@ suite('SfLogsViewProvider behavior', () => {
   const origShowTextDocument = vscode.window.showTextDocument;
   const origGetCommands = vscode.commands.getCommands;
   const origExecCommand = vscode.commands.executeCommand;
+  const origDebugFlagsShow = DebugFlagsPanel.show;
 
   teardown(() => {
     (cli as any).getOrgAuth = origGetOrgAuth;
@@ -46,6 +48,7 @@ suite('SfLogsViewProvider behavior', () => {
     (vscode.window as any).showTextDocument = origShowTextDocument;
     (vscode.commands as any).getCommands = origGetCommands;
     (vscode.commands as any).executeCommand = origExecCommand;
+    (DebugFlagsPanel as any).show = origDebugFlagsShow;
   });
 
   test('refresh posts logs and logHead with code unit', async () => {
@@ -428,71 +431,131 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(append.data[0]?.Id, '2');
   });
 
-    test('openLog forwards to logService', async () => {
-      const opened: string[] = [];
-      const context = makeContext();
-      const provider = new SfLogsViewProvider(context);
-      (provider as any).logService.openLog = async (logId: string) => {
-        opened.push(logId);
-      };
-      class MockWebview implements vscode.Webview {
-        html = '';
-        options: vscode.WebviewOptions = {};
-        cspSource = 'vscode-resource://test';
-        private handler: ((e: any) => any) | undefined;
-        asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
-        postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
-        onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
-          this.handler = listener; return { dispose() {} } as any;
-        }
-        emit(message: any) { return this.handler?.(message); }
+  test('openLog forwards to logService', async () => {
+    const opened: string[] = [];
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).logService.openLog = async (logId: string) => {
+      opened.push(logId);
+    };
+    class MockWebview implements vscode.Webview {
+      html = '';
+      options: vscode.WebviewOptions = {};
+      cspSource = 'vscode-resource://test';
+      private handler: ((e: any) => any) | undefined;
+      asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
+      postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
+      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
+        this.handler = listener; return { dispose() {} } as any;
       }
-      class MockWebviewView implements vscode.WebviewView {
-        visible = true; title = 'Test'; viewType = 'sfLogViewer';
-        description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
-        webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
-        show(): void { /* noop */ }
-        onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
-        onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
-      }
-      const webview = new MockWebview();
-      const view = new MockWebviewView(webview);
-      await provider.resolveWebviewView(view);
-      await (webview as any).emit({ type: 'openLog', logId: 'abc' });
-      assert.equal(opened[0], 'abc');
-    });
+      emit(message: any) { return this.handler?.(message); }
+    }
+    class MockWebviewView implements vscode.WebviewView {
+      visible = true; title = 'Test'; viewType = 'sfLogViewer';
+      description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
+      webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
+      show(): void { /* noop */ }
+      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
+      onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
+    }
+    const webview = new MockWebview();
+    const view = new MockWebviewView(webview);
+    await provider.resolveWebviewView(view);
+    await (webview as any).emit({ type: 'openLog', logId: 'abc' });
+    assert.equal(opened[0], 'abc');
+  });
 
-    test('debugLog forwards to logService', async () => {
-      const executed: string[] = [];
-      const context = makeContext();
-      const provider = new SfLogsViewProvider(context);
-      (provider as any).logService.debugLog = async (logId: string) => {
-        executed.push(logId);
-      };
-      class MockWebview implements vscode.Webview {
-        html = '';
-        options: vscode.WebviewOptions = {};
-        cspSource = 'vscode-resource://test';
-        private handler: ((e: any) => any) | undefined;
-        asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
-        postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
-        onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
-          this.handler = listener; return { dispose() {} } as any;
-        }
-        emit(message: any) { return this.handler?.(message); }
+  test('debugLog forwards to logService', async () => {
+    const executed: string[] = [];
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).logService.debugLog = async (logId: string) => {
+      executed.push(logId);
+    };
+    class MockWebview implements vscode.Webview {
+      html = '';
+      options: vscode.WebviewOptions = {};
+      cspSource = 'vscode-resource://test';
+      private handler: ((e: any) => any) | undefined;
+      asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
+      postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
+      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
+        this.handler = listener; return { dispose() {} } as any;
       }
-      class MockWebviewView implements vscode.WebviewView {
-        visible = true; title = 'Test'; viewType = 'sfLogViewer';
-        description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
-        webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
-        show(): void { /* noop */ }
-        onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
-        onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
+      emit(message: any) { return this.handler?.(message); }
+    }
+    class MockWebviewView implements vscode.WebviewView {
+      visible = true; title = 'Test'; viewType = 'sfLogViewer';
+      description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
+      webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
+      show(): void { /* noop */ }
+      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
+      onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
+    }
+    const webview = new MockWebview();
+    const view = new MockWebviewView(webview);
+    await provider.resolveWebviewView(view);
+    await (webview as any).emit({ type: 'replay', logId: 'abc' });
+    assert.equal(executed[0], 'abc');
+  });
+
+  test('openDebugFlags opens debug flags panel', async () => {
+    const opened: Array<{ selectedOrg?: string; sourceView?: string }> = [];
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    provider.setSelectedOrg('user@example.com');
+    (DebugFlagsPanel as any).show = async (options: any) => {
+      opened.push(options || {});
+    };
+
+    class MockWebview implements vscode.Webview {
+      html = '';
+      options: vscode.WebviewOptions = {};
+      cspSource = 'vscode-resource://test';
+      private handler: ((e: any) => any) | undefined;
+      asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
+      postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
+      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
+        this.handler = listener; return { dispose() {} } as any;
       }
-      const webview = new MockWebview();
-      const view = new MockWebviewView(webview);
-      await provider.resolveWebviewView(view);
-      await (webview as any).emit({ type: 'replay', logId: 'abc' });
-      assert.equal(executed[0], 'abc');
-    });
+      emit(message: any) { return this.handler?.(message); }
+    }
+    class MockWebviewView implements vscode.WebviewView {
+      visible = true; title = 'Test'; viewType = 'sfLogViewer';
+      description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
+      webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
+      show(): void { /* noop */ }
+      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
+      onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
+    }
+    const webview = new MockWebview();
+    const view = new MockWebviewView(webview);
+    await provider.resolveWebviewView(view);
+    await (webview as any).emit({ type: 'openDebugFlags' });
+
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0]?.selectedOrg, 'user@example.com');
+    assert.equal(opened[0]?.sourceView, 'logs');
+  });
+
+  test('tailLogs falls back when viewsService command is unavailable', async () => {
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    const executed: string[] = [];
+    (vscode.commands as any).executeCommand = async (command: string) => {
+      executed.push(command);
+      if (command === 'workbench.viewsService.openView') {
+        throw new Error('Command not found');
+      }
+      return undefined;
+    };
+
+    await provider.tailLogs();
+
+    assert.deepEqual(executed, [
+      'workbench.view.extension.salesforceTailPanel',
+      'workbench.viewsService.openView',
+      'workbench.action.openView'
+    ]);
+  });
 });

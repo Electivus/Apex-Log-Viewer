@@ -13,6 +13,7 @@ import { pickSelectedOrg } from '../utils/orgs';
 import { getNumberConfig, affectsConfiguration } from '../utils/config';
 import { getErrorMessage } from '../utils/error';
 import { LogViewerPanel } from '../panel/LogViewerPanel';
+import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogTail';
@@ -119,6 +120,14 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         const id = (message as any).logId;
         logInfo('Tail: openLog requested for', id);
         await this.openLog(id);
+        return;
+      }
+      if (message?.type === 'openDebugFlags') {
+        logInfo('Tail: openDebugFlags requested');
+        await DebugFlagsPanel.show({
+          selectedOrg: this.selectedOrg,
+          sourceView: 'tail'
+        });
         return;
       }
       if (message?.type === 'replay' && (message as any).logId) {
