@@ -63,6 +63,70 @@ async function requestJson(
   }
 }
 
+function isSfId(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-zA-Z0-9]{15,18}$/.test(value);
+}
+
+export async function getCurrentUserId(auth: OrgAuth): Promise<string> {
+  if (!auth.username) {
+    throw new Error('Cannot resolve current user id without username.');
+  }
+  const usernameEsc = escapeSoqlLiteral(auth.username);
+  const userSoql = encodeURIComponent(`SELECT Id FROM User WHERE Username = '${usernameEsc}' LIMIT 1`);
+  const userRes = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${userSoql}`);
+  const userId: string | undefined = Array.isArray(userRes?.records) ? userRes.records[0]?.Id : undefined;
+  if (!isSfId(userId)) {
+    throw new Error('Failed to resolve current user id for tooling operations.');
+  }
+  return userId;
+}
+
+export async function getUserDebugTraceFlag(
+  auth: OrgAuth,
+  userId: string
+): Promise<
+  | {
+      id: string;
+      debugLevelName?: string;
+      startDate?: string;
+      expirationDate?: string;
+    }
+  | undefined
+> {
+  const userEsc = escapeSoqlLiteral(userId);
+  const tfSoql = encodeURIComponent(
+    `SELECT Id, StartDate, ExpirationDate, DebugLevel.DeveloperName FROM TraceFlag WHERE TracedEntityId = '${userEsc}' AND LogType = 'USER_DEBUG' ORDER BY CreatedDate DESC LIMIT 1`
+  );
+  const tfRes = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/tooling/query?q=${tfSoql}`);
+  const rec = Array.isArray(tfRes?.records) ? tfRes.records[0] : undefined;
+  if (!isSfId(rec?.Id)) {
+    return undefined;
+  }
+  return {
+    id: rec.Id,
+    debugLevelName: typeof rec?.DebugLevel?.DeveloperName === 'string' ? rec.DebugLevel.DeveloperName : undefined,
+    startDate: typeof rec?.StartDate === 'string' ? rec.StartDate : undefined,
+    expirationDate: typeof rec?.ExpirationDate === 'string' ? rec.ExpirationDate : undefined
+  };
+}
+
+export async function removeUserDebugTraceFlags(auth: OrgAuth, userId: string): Promise<number> {
+  const userEsc = escapeSoqlLiteral(userId);
+  const tfSoql = encodeURIComponent(
+    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userEsc}' AND LogType = 'USER_DEBUG' ORDER BY CreatedDate DESC LIMIT 200`
+  );
+  const tfRes = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/tooling/query?q=${tfSoql}`);
+  const ids = (Array.isArray(tfRes?.records) ? tfRes.records : [])
+    .map((record: any) => record?.Id)
+    .filter((id: unknown): id is string => isSfId(id));
+
+  for (const id of ids) {
+    await requestJson(auth, 'DELETE', `/services/data/v${auth.apiVersion}/tooling/sobjects/TraceFlag/${id}`);
+  }
+
+  return ids.length;
+}
+
 export async function getOrgAuth(targetOrg: string): Promise<OrgAuth> {
   const apiVersion = getApiVersion();
   const display = await runSfJson(['org', 'display', '-o', targetOrg]);
@@ -84,18 +148,8 @@ export async function getOrgAuth(targetOrg: string): Promise<OrgAuth> {
 export async function ensureE2eTraceFlag(auth: OrgAuth, options?: { debugLevelName?: string; ttlMinutes?: number }) {
   const debugLevelName = String(options?.debugLevelName || process.env.SF_E2E_DEBUG_LEVEL || 'ALV_E2E').trim();
   const ttlMinutes = Math.max(5, Number(options?.ttlMinutes || process.env.SF_E2E_TRACE_TTL_MINUTES || 60) || 60);
-  if (!auth.username) {
-    throw new Error('Cannot ensure TraceFlag without org username.');
-  }
-
   const apiVersion = auth.apiVersion;
-  const usernameEsc = escapeSoqlLiteral(auth.username);
-  const userSoql = encodeURIComponent(`SELECT Id FROM User WHERE Username = '${usernameEsc}' LIMIT 1`);
-  const userRes = await requestJson(auth, 'GET', `/services/data/v${apiVersion}/query?q=${userSoql}`);
-  const userId: string | undefined = Array.isArray(userRes?.records) ? userRes.records[0]?.Id : undefined;
-  if (!userId) {
-    throw new Error('Failed to resolve current user id for TraceFlag setup.');
-  }
+  const userId = await getCurrentUserId(auth);
 
   const dlEsc = escapeSoqlLiteral(debugLevelName);
   const dlSoql = encodeURIComponent(`SELECT Id FROM DebugLevel WHERE DeveloperName = '${dlEsc}' LIMIT 1`);
@@ -150,4 +204,3 @@ export async function ensureE2eTraceFlag(auth: OrgAuth, options?: { debugLevelNa
     throw new Error('Failed to create TraceFlag for E2E.');
   }
 }
-

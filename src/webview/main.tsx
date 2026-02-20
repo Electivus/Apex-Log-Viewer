@@ -177,6 +177,7 @@ export function LogsApp({
     setSelectedOrg(v);
     vscode.postMessage({ type: 'selectOrg', target: v });
   };
+  const onOpenDebugFlags = () => vscode.postMessage({ type: 'openDebugFlags' });
   const onOpen = (logId: string) => vscode.postMessage({ type: 'openLog', logId });
   const onReplay = (logId: string) => vscode.postMessage({ type: 'replay', logId });
   const onLoadMore = () => hasMore && vscode.postMessage({ type: 'loadMore' });
@@ -298,6 +299,7 @@ export function LogsApp({
         error={error}
         warning={warning}
         onRefresh={onRefresh}
+        onOpenDebugFlags={onOpenDebugFlags}
         t={t}
         orgs={orgs}
         selectedOrg={selectedOrg}

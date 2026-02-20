@@ -73,6 +73,7 @@ describe('Tail webview App', () => {
     await waitFor(() => expect(openBtn.hasAttribute('disabled')).toBe(false));
     fireEvent.click(openBtn);
     fireEvent.click(screen.getByRole('button', { name: 'Replay Debugger' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Debug Flags' }));
 
     fireEvent.click(screen.getByLabelText('Somente USER_DEBUG'));
     await waitFor(() => {
@@ -91,7 +92,9 @@ describe('Tail webview App', () => {
 
     await waitFor(() => {
       const types = posted.map(m => m.type);
-      expect(types).toEqual(expect.arrayContaining(['tailStart', 'tailStop', 'tailClear', 'openLog', 'replay']));
+      expect(types).toEqual(
+        expect.arrayContaining(['tailStart', 'tailStop', 'tailClear', 'openLog', 'replay', 'openDebugFlags'])
+      );
     });
   });
 });

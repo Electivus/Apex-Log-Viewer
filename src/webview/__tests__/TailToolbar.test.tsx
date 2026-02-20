@@ -45,6 +45,7 @@ describe('TailToolbar webview component', () => {
         onClear={() => {}}
         onOpenSelected={() => {}}
         onReplaySelected={() => {}}
+        onOpenDebugFlags={() => {}}
         actionsEnabled={false}
         disabled={false}
         orgs={orgs}
@@ -81,6 +82,7 @@ describe('TailToolbar webview component', () => {
         onClear={() => {}}
         onOpenSelected={() => {}}
         onReplaySelected={() => {}}
+        onOpenDebugFlags={() => {}}
         actionsEnabled
         disabled={false}
         orgs={orgs}
@@ -117,6 +119,7 @@ describe('TailToolbar webview component', () => {
         onClear={() => {}}
         onOpenSelected={() => openCalls.push('open')}
         onReplaySelected={() => openCalls.push('replay')}
+        onOpenDebugFlags={() => openCalls.push('debugFlags')}
         actionsEnabled
         disabled
         orgs={orgs}
@@ -162,6 +165,7 @@ describe('TailToolbar webview component', () => {
         onClear={() => {}}
         onOpenSelected={() => {}}
         onReplaySelected={() => {}}
+        onOpenDebugFlags={() => {}}
         actionsEnabled={true}
         disabled={false}
         orgs={orgs}
@@ -209,5 +213,40 @@ describe('TailToolbar webview component', () => {
       { type: 'color', value: true },
       { type: 'auto', value: true }
     ]);
+  });
+
+  it('opens debug flags from tail toolbar', () => {
+    const calls: string[] = [];
+    renderWithNativeSelect(
+      <TailToolbar
+        running={false}
+        onStart={() => {}}
+        onStop={() => {}}
+        onClear={() => {}}
+        onOpenSelected={() => {}}
+        onReplaySelected={() => {}}
+        onOpenDebugFlags={() => calls.push('open')}
+        actionsEnabled={false}
+        disabled={false}
+        orgs={orgs}
+        selectedOrg="user@example.com"
+        onSelectOrg={() => {}}
+        query=""
+        onQueryChange={() => {}}
+        onlyUserDebug={false}
+        onToggleOnlyUserDebug={() => {}}
+        colorize={false}
+        onToggleColorize={() => {}}
+        debugLevels={['LevelA']}
+        debugLevel="LevelA"
+        onDebugLevelChange={() => {}}
+        autoScroll={false}
+        onToggleAutoScroll={() => {}}
+        t={t}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Debug Flags' }));
+    expect(calls).toEqual(['open']);
   });
 });
