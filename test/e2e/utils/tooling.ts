@@ -7,6 +7,11 @@ export type OrgAuth = {
   apiVersion: string;
 };
 
+export type E2eDebugFlagsUser = {
+  id: string;
+  username: string;
+};
+
 function getApiVersion(): string {
   const v = String(process.env.SF_TEST_API_VERSION || process.env.SF_API_VERSION || '60.0').trim();
   return /^\d+\.\d+$/.test(v) ? v : '60.0';
@@ -65,6 +70,95 @@ async function requestJson(
 
 function isSfId(value: unknown): value is string {
   return typeof value === 'string' && /^[a-zA-Z0-9]{15,18}$/.test(value);
+}
+
+function normalizeOrgIdForEmail(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+async function getOrganizationId(auth: OrgAuth): Promise<string> {
+  const soql = encodeURIComponent('SELECT Id FROM Organization LIMIT 1');
+  const json = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
+  const orgId = Array.isArray(json?.records) ? json.records[0]?.Id : undefined;
+  if (!isSfId(orgId)) {
+    throw new Error('Failed to resolve Organization Id for E2E user provisioning.');
+  }
+  return orgId;
+}
+
+async function getUserByUsername(auth: OrgAuth, username: string): Promise<{ id: string; isActive: boolean } | undefined> {
+  const usernameEsc = escapeSoqlLiteral(username);
+  const soql = encodeURIComponent(`SELECT Id, IsActive FROM User WHERE Username = '${usernameEsc}' LIMIT 1`);
+  const json = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
+  const rec = Array.isArray(json?.records) ? json.records[0] : undefined;
+  if (!isSfId(rec?.Id)) {
+    return undefined;
+  }
+  return { id: rec.Id, isActive: Boolean(rec.IsActive) };
+}
+
+async function getCurrentUserSeedSettings(auth: OrgAuth): Promise<{
+  profileId: string;
+  localeSidKey: string;
+  timeZoneSidKey: string;
+  languageLocaleKey: string;
+  emailEncodingKey: string;
+}> {
+  if (!auth.username) {
+    throw new Error('Cannot derive user seed settings without authenticated username.');
+  }
+  const usernameEsc = escapeSoqlLiteral(auth.username);
+  const soql = encodeURIComponent(
+    `SELECT ProfileId, LocaleSidKey, TimeZoneSidKey, LanguageLocaleKey, EmailEncodingKey FROM User WHERE Username = '${usernameEsc}' LIMIT 1`
+  );
+  const json = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
+  const rec = Array.isArray(json?.records) ? json.records[0] : undefined;
+  if (!isSfId(rec?.ProfileId)) {
+    throw new Error('Failed to resolve current user profile for E2E user provisioning.');
+  }
+  return {
+    profileId: rec.ProfileId,
+    localeSidKey: typeof rec?.LocaleSidKey === 'string' && rec.LocaleSidKey ? rec.LocaleSidKey : 'en_US',
+    timeZoneSidKey: typeof rec?.TimeZoneSidKey === 'string' && rec.TimeZoneSidKey ? rec.TimeZoneSidKey : 'America/Los_Angeles',
+    languageLocaleKey:
+      typeof rec?.LanguageLocaleKey === 'string' && rec.LanguageLocaleKey ? rec.LanguageLocaleKey : 'en_US',
+    emailEncodingKey:
+      typeof rec?.EmailEncodingKey === 'string' && rec.EmailEncodingKey ? rec.EmailEncodingKey : 'UTF-8'
+  };
+}
+
+export async function ensureDebugFlagsTestUser(auth: OrgAuth): Promise<E2eDebugFlagsUser> {
+  const orgId = await getOrganizationId(auth);
+  const normalizedOrgId = normalizeOrgIdForEmail(orgId);
+  const username = `alv.e2e.debugflags+${normalizedOrgId}@electivus.invalid`;
+
+  const existing = await getUserByUsername(auth, username);
+  if (existing?.isActive) {
+    return { id: existing.id, username };
+  }
+
+  if (existing && !existing.isActive) {
+    await requestJson(auth, 'PATCH', `/services/data/v${auth.apiVersion}/sobjects/User/${existing.id}`, { IsActive: true });
+    return { id: existing.id, username };
+  }
+
+  const seed = await getCurrentUserSeedSettings(auth);
+  const created = await requestJson(auth, 'POST', `/services/data/v${auth.apiVersion}/sobjects/User`, {
+    Username: username,
+    LastName: 'ALV E2E Debug Flags',
+    Email: username,
+    Alias: 'alve2e',
+    TimeZoneSidKey: seed.timeZoneSidKey,
+    LocaleSidKey: seed.localeSidKey,
+    EmailEncodingKey: seed.emailEncodingKey,
+    LanguageLocaleKey: seed.languageLocaleKey,
+    ProfileId: seed.profileId
+  });
+  const createdId = created?.id;
+  if (!isSfId(createdId)) {
+    throw new Error('Failed to create E2E debug flags user.');
+  }
+  return { id: createdId, username };
 }
 
 export async function getCurrentUserId(auth: OrgAuth): Promise<string> {

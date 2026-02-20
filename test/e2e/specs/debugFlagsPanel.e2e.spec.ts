@@ -1,11 +1,12 @@
 import { expect, test } from '../fixtures/alvE2E';
 import { runCommand, waitForCommandAvailable } from '../utils/commandPalette';
-import { getCurrentUserId, getOrgAuth, getUserDebugTraceFlag, removeUserDebugTraceFlags } from '../utils/tooling';
+import { ensureDebugFlagsTestUser, getOrgAuth, getUserDebugTraceFlag, removeUserDebugTraceFlags } from '../utils/tooling';
 import { waitForWebviewFrame } from '../utils/webviews';
 
 test('configures and removes debug flags from logs and tail entrypoints', async ({ vscodePage, scratchAlias }) => {
   const auth = await getOrgAuth(scratchAlias);
-  const userId = await getCurrentUserId(auth);
+  const debugUser = await ensureDebugFlagsTestUser(auth);
+  const userId = debugUser.id;
   await removeUserDebugTraceFlags(auth, userId);
 
   try {
@@ -27,7 +28,7 @@ test('configures and removes debug flags from logs and tail entrypoints', async 
 
     const searchInput = debugFlagsFrame.locator('[data-testid="debug-flags-user-search"]');
     await searchInput.waitFor({ state: 'visible', timeout: 60_000 });
-    await searchInput.fill(auth.username || '');
+    await searchInput.fill(debugUser.username);
 
     const userRow = debugFlagsFrame.locator(`[data-testid="debug-flags-user-row-${userId}"]`);
     await userRow.waitFor({ state: 'visible', timeout: 60_000 });
@@ -73,4 +74,38 @@ test('configures and removes debug flags from logs and tail entrypoints', async 
   } finally {
     await removeUserDebugTraceFlags(auth, userId).catch(() => {});
   }
+});
+
+test('filters users in debug flags search', async ({ vscodePage, scratchAlias }) => {
+  const auth = await getOrgAuth(scratchAlias);
+  const debugUser = await ensureDebugFlagsTestUser(auth);
+  const userId = debugUser.id;
+  await waitForCommandAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
+  await runCommand(vscodePage, 'Electivus Apex Logs: Refresh Logs');
+
+  const logsFrame = await waitForWebviewFrame(
+    vscodePage,
+    async frame => await frame.locator('[data-testid="logs-open-debug-flags"]').first().isVisible(),
+    { timeoutMs: 180_000 }
+  );
+  await logsFrame.locator('[data-testid="logs-open-debug-flags"]').first().click();
+
+  const debugFlagsFrame = await waitForWebviewFrame(
+    vscodePage,
+    async frame => await frame.locator('text=Apex Debug Flags').first().isVisible(),
+    { timeoutMs: 180_000 }
+  );
+
+  const searchInput = debugFlagsFrame.locator('[data-testid="debug-flags-user-search"]');
+  await searchInput.waitFor({ state: 'visible', timeout: 60_000 });
+
+  const userRow = debugFlagsFrame.locator(`[data-testid="debug-flags-user-row-${userId}"]`);
+  await searchInput.fill(debugUser.username);
+  await userRow.waitFor({ state: 'visible', timeout: 60_000 });
+
+  await searchInput.fill(`zzzz_alv_e2e_no_match_${Date.now()}`);
+  await expect(userRow).toHaveCount(0, { timeout: 60_000 });
+
+  await searchInput.fill(debugUser.username);
+  await userRow.waitFor({ state: 'visible', timeout: 60_000 });
 });
