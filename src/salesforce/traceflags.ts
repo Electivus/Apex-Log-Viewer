@@ -94,16 +94,23 @@ export async function listDebugLevels(auth: OrgAuth): Promise<string[]> {
 export async function listActiveUsers(auth: OrgAuth, query = '', limit = 50): Promise<DebugFlagUser[]> {
   const safeLimit = Math.max(1, Math.min(200, Math.floor(Number(limit) || 50)));
   const trimmed = String(query || '').trim();
+  const terms = trimmed
+    .split(/\s+/)
+    .map(part => part.trim())
+    .filter(Boolean);
   const clauses = ['IsActive = true'];
-  if (trimmed) {
-    const escaped = escapeSoqlLikeLiteral(trimmed);
-    clauses.push(`(Name LIKE '%${escaped}%' ESCAPE '\\\\' OR Username LIKE '%${escaped}%' ESCAPE '\\\\')`);
+  if (terms.length > 0) {
+    const tokenClauses = terms.map(term => {
+      const escaped = escapeSoqlLikeLiteral(term);
+      return `(Name LIKE '%${escaped}%' ESCAPE '\\\\' OR Username LIKE '%${escaped}%' ESCAPE '\\\\')`;
+    });
+    clauses.push(tokenClauses.join(' AND '));
   }
   const soql =
     `SELECT Id, Name, Username, IsActive FROM User ` +
     `WHERE ${clauses.join(' AND ')} ORDER BY Name NULLS LAST LIMIT ${safeLimit}`;
   const json = await queryStandard<{ Id?: string; Name?: string; Username?: string; IsActive?: boolean }>(auth, soql);
-  return (json.records || [])
+  const users = (json.records || [])
     .filter(record => isSalesforceId(record?.Id))
     .map(record => ({
       id: record.Id!,
@@ -111,6 +118,16 @@ export async function listActiveUsers(auth: OrgAuth, query = '', limit = 50): Pr
       username: typeof record.Username === 'string' ? record.Username : '',
       active: Boolean(record.IsActive)
     }));
+
+  if (terms.length === 0) {
+    return users;
+  }
+
+  const loweredTerms = terms.map(term => term.toLowerCase());
+  return users.filter(user => {
+    const haystack = `${user.name} ${user.username}`.toLowerCase();
+    return loweredTerms.every(term => haystack.includes(term));
+  });
 }
 
 export async function getActiveUserDebugLevel(auth: OrgAuth): Promise<string | undefined> {

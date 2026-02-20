@@ -124,4 +124,44 @@ describe('DebugFlags webview App', () => {
       { timeout: 1000 }
     );
   });
+
+  it('filters users locally while typing', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<DebugFlagsApp vscode={vscode} messageBus={bus} />);
+
+    sendMessage(bus, { type: 'debugFlagsInit', locale: 'en', defaultTtlMinutes: 30 });
+    sendMessage(bus, {
+      type: 'debugFlagsOrgs',
+      data: [{ username: 'user@example.com', alias: 'Main', isDefaultUsername: true }],
+      selected: 'user@example.com'
+    });
+    sendMessage(bus, {
+      type: 'debugFlagsUsers',
+      query: '',
+      data: [
+        {
+          id: '005000000000001AAA',
+          name: 'Ada Lovelace',
+          username: 'ada@example.com',
+          active: true
+        },
+        {
+          id: '005000000000002AAA',
+          name: 'Grace Hopper',
+          username: 'grace@example.com',
+          active: true
+        }
+      ]
+    });
+
+    expect(screen.getByTestId('debug-flags-user-row-005000000000001AAA')).toBeTruthy();
+    expect(screen.getByTestId('debug-flags-user-row-005000000000002AAA')).toBeTruthy();
+
+    const search = screen.getByTestId('debug-flags-user-search');
+    fireEvent.change(search, { target: { value: 'ada' } });
+
+    expect(screen.getByTestId('debug-flags-user-row-005000000000001AAA')).toBeTruthy();
+    expect(screen.queryByTestId('debug-flags-user-row-005000000000002AAA')).toBeNull();
+  });
 });

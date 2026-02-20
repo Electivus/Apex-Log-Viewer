@@ -152,6 +152,20 @@ export function DebugFlagsApp({
     () => users.find(user => user.id === selectedUserId),
     [users, selectedUserId]
   );
+  const visibleUsers = useMemo(() => {
+    const terms = query
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (terms.length === 0) {
+      return users;
+    }
+    return users.filter(user => {
+      const haystack = `${user.name} ${user.username}`.toLowerCase();
+      return terms.every(term => haystack.includes(term));
+    });
+  }, [users, query]);
 
   const canApply = Boolean(selectedUserId && debugLevel && !loading.action && !loading.orgs);
   const canRemove = Boolean(selectedUserId && !loading.action && !loading.orgs);
@@ -256,13 +270,13 @@ export function DebugFlagsApp({
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               <span>{t.debugFlags?.loadingUsers ?? 'Loading users…'}</span>
             </div>
-          ) : users.length === 0 ? (
+          ) : visibleUsers.length === 0 ? (
             <p className="text-muted-foreground">
               {t.debugFlags?.noUsers ?? 'No active users found for this query.'}
             </p>
           ) : (
             <ul className="max-h-[460px] space-y-2 overflow-auto pr-1" data-testid="debug-flags-users-list">
-              {users.map(user => {
+              {visibleUsers.map(user => {
                 const selected = user.id === selectedUserId;
                 return (
                   <li key={user.id}>

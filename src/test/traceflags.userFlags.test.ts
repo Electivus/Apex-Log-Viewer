@@ -106,8 +106,8 @@ suite('traceflags user management', () => {
       throw new Error(`Unexpected request: ${req.method} ${req.path}`);
     });
 
-    const users = await listActiveUsers(auth, 'ada', 25);
-    assert.equal(users.length, 2);
+    const users = await listActiveUsers(auth, 'ada lovelace', 25);
+    assert.equal(users.length, 1);
     assert.equal(users[0]?.id, '005000000000001AAA');
     assert.equal(users[0]?.username, 'ada@example.com');
     assert.equal(users[0]?.active, true);
@@ -116,6 +116,7 @@ suite('traceflags user management', () => {
     assert.match(soql, /FROM User/);
     assert.match(soql, /IsActive = true/);
     assert.match(soql, /Name LIKE '%ada%'/i);
+    assert.match(soql, /Name LIKE '%lovelace%'/i);
   });
 
   test('getUserTraceFlagStatus parses active status and metadata', async () => {
