@@ -470,7 +470,7 @@
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
     "@playwright/test": "^1.58.2",
-    "@tailwindcss/cli": "^4.1.18",
+    "@tailwindcss/cli": "^4.2.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/jest": "^30.0.0",
@@ -526,7 +526,7 @@
     "clsx": "^2.1.1",
     "cross-spawn": "^7.0.6",
     "lucide-react": "^0.574.0",
-    "tailwind-merge": "^3.4.1",
+    "tailwind-merge": "^3.5.0",
     "vscode-nls": "^5.2.0"
   },
   "files": [
