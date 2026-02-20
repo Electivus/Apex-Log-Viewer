@@ -467,7 +467,7 @@
     "coverage:merge": "node scripts/merge-coverage.cjs"
   },
   "devDependencies": {
-    "@commitlint/cli": "^20.4.1",
+    "@commitlint/cli": "^20.4.2",
     "@commitlint/config-conventional": "^20.4.1",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/cli": "^4.2.0",
