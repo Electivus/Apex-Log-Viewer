@@ -139,14 +139,14 @@ export function DebugFlagsApp({
   }, [messageBus, vscode]);
 
   useEffect(() => {
-    if (!initialized) {
+    if (!initialized || !selectedOrg) {
       return;
     }
     const handle = setTimeout(() => {
       vscode.postMessage({ type: 'debugFlagsSearchUsers', query });
     }, 300);
     return () => clearTimeout(handle);
-  }, [initialized, query, vscode]);
+  }, [initialized, selectedOrg, query, vscode]);
 
   const selectedUser = useMemo(
     () => users.find(user => user.id === selectedUserId),

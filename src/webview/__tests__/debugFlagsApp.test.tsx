@@ -105,6 +105,16 @@ describe('DebugFlags webview App', () => {
     render(<DebugFlagsApp vscode={vscode} messageBus={bus} />);
 
     sendMessage(bus, { type: 'debugFlagsInit', locale: 'en', defaultTtlMinutes: 30 });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 350));
+    });
+    expect(posted.some(msg => msg.type === 'debugFlagsSearchUsers')).toBe(false);
+
+    sendMessage(bus, {
+      type: 'debugFlagsOrgs',
+      data: [{ username: 'user@example.com', alias: 'Main', isDefaultUsername: true }],
+      selected: 'user@example.com'
+    });
     const search = screen.getByTestId('debug-flags-user-search');
     fireEvent.change(search, { target: { value: 'ada' } });
     await waitFor(
