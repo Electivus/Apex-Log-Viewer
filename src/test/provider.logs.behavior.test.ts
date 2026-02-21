@@ -150,6 +150,33 @@ suite('SfLogsViewProvider behavior', () => {
     );
   });
 
+  test('preloadFullLogBodies re-runs active search after downloads complete', async () => {
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
+    (provider as any).lastSearchQuery = 'error';
+
+    const searchCalls: string[] = [];
+    (provider as any).executeSearch = async (query: string) => {
+      searchCalls.push(query);
+    };
+    (provider as any).logService.ensureLogsSaved = async () => ({
+      total: 1,
+      success: 1,
+      downloaded: 1,
+      existing: 0,
+      missing: 0,
+      failed: 0,
+      cancelled: 0,
+      failedLogIds: []
+    });
+
+    (provider as any).preloadFullLogBodies([{ Id: '07L000000000001AA' }]);
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.deepEqual(searchCalls, ['error'], 'should re-run active search after preload saves logs');
+  });
+
   test('refresh posts API version fallback warning when available', async () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     (http as any).fetchApexLogs = async () => ([{ Id: '07L000000000001AA', LogLength: 10 }]);
@@ -519,8 +546,17 @@ suite('SfLogsViewProvider behavior', () => {
     (provider as any).lastSearchQuery = 'error';
 
     const callOrder: string[] = [];
-    (provider as any).logService.fetchLogs = async () => {
+    const fetchSignals: AbortSignal[] = [];
+    (provider as any).logService.fetchLogs = async (
+      _auth: any,
+      _limit: number,
+      _offset: number,
+      signal?: AbortSignal
+    ) => {
       callOrder.push('fetch');
+      if (signal) {
+        fetchSignals.push(signal);
+      }
       return [
         { Id: '07L000000000001AA', StartTime: '2026-01-01T00:00:00.000Z', LogLength: 10 },
         { Id: '07L000000000002AA', StartTime: '2025-12-31T23:59:59.000Z', LogLength: 20 }
@@ -606,7 +642,104 @@ suite('SfLogsViewProvider behavior', () => {
     assert.ok(warningCalls.length >= 1, 'should request user confirmation');
     assert.ok(infoCalls.length >= 1, 'should show completion summary');
     assert.equal(callOrder[0], 'confirm', 'should confirm before listing org logs');
+    assert.equal(typeof fetchSignals[0]?.aborted, 'boolean', 'should pass cancellation signal while listing logs');
     assert.ok(searchCalls.includes('error'), 'should re-run active search query after bulk download');
+  });
+
+  test('downloadAllLogs supports cancellation while listing org logs', async () => {
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+
+    const fetchSignals: AbortSignal[] = [];
+    (provider as any).logService.fetchLogs = async (
+      _auth: any,
+      _limit: number,
+      _offset: number,
+      signal?: AbortSignal
+    ) => {
+      if (signal) {
+        fetchSignals.push(signal);
+      }
+      await new Promise(resolve => setTimeout(resolve, 30));
+      return [
+        { Id: '07L000000000001AA', StartTime: '2026-01-01T00:00:00.000Z', LogLength: 10 }
+      ] as any;
+    };
+
+    let ensureCalled = false;
+    (provider as any).logService.ensureLogsSaved = async () => {
+      ensureCalled = true;
+      return {
+        total: 0,
+        success: 0,
+        downloaded: 0,
+        existing: 0,
+        missing: 0,
+        failed: 0,
+        cancelled: 0,
+        failedLogIds: []
+      };
+    };
+
+    const warningCalls: string[] = [];
+    (vscode.window as any).showWarningMessage = async (...args: any[]) => {
+      warningCalls.push(String(args[0]));
+      if (typeof args[2] === 'string') {
+        return args[2];
+      }
+      return undefined;
+    };
+    (vscode.window as any).showInformationMessage = async () => undefined;
+    (vscode.window as any).showErrorMessage = async () => undefined;
+    (vscode.window as any).withProgress = async (_opts: any, task: any) => {
+      let cancel: (() => void) | undefined;
+      const resultPromise = task(
+        { report: () => {} },
+        {
+          onCancellationRequested: (listener: () => void) => {
+            cancel = listener;
+          },
+          isCancellationRequested: false
+        }
+      );
+      cancel?.();
+      return resultPromise;
+    };
+
+    class MockWebview implements vscode.Webview {
+      html = '';
+      options: vscode.WebviewOptions = {};
+      cspSource = 'vscode-resource://test';
+      private handler: ((e: any) => any) | undefined;
+      asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
+      postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
+      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
+        this.handler = listener; return { dispose() {} } as any;
+      }
+      emit(message: any) { return this.handler?.(message); }
+    }
+    class MockWebviewView implements vscode.WebviewView {
+      visible = true; title = 'Test'; viewType = 'sfLogViewer';
+      description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
+      webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
+      show(): void { /* noop */ }
+      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
+      onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
+    }
+    const webview = new MockWebview();
+    const view = new MockWebviewView(webview);
+    await provider.resolveWebviewView(view);
+    await (webview as any).emit({ type: 'downloadAllLogs' });
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    assert.equal(ensureCalled, false, 'should not start downloads when cancelled during listing');
+    assert.equal(fetchSignals.length >= 1, true, 'should pass signal to listing calls');
+    assert.equal(fetchSignals[0]?.aborted, true, 'listing signal should be aborted after cancellation');
+    assert.ok(
+      warningCalls.some(msg => msg.includes('cancelled while listing logs')),
+      'should show cancellation summary for listing stage'
+    );
   });
 
   test('openDebugFlags opens debug flags panel', async () => {
