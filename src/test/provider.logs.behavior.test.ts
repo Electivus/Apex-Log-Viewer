@@ -223,6 +223,69 @@ suite('SfLogsViewProvider behavior', () => {
     assert.ok(errorHead, 'should mark visible error log in logHead stream');
   });
 
+  test('refresh cancellation aborts background error scan', async () => {
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    (http as any).fetchApexLogs = async () => ([
+      { Id: '07L000000000001AA', LogLength: 10 }
+    ]);
+    (workspace as any).purgeSavedLogs = async () => 0;
+
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => false;
+    (provider as any).logService.loadLogHeads = () => {};
+
+    const posted: any[] = [];
+    (provider as any).view = {
+      webview: {
+        postMessage: (m: any) => {
+          posted.push(m);
+          return Promise.resolve(true);
+        }
+      }
+    } as any;
+
+    let classifySignal: AbortSignal | undefined;
+    let classifyStarted!: () => void;
+    const started = new Promise<void>(resolve => {
+      classifyStarted = resolve;
+    });
+    (provider as any).logService.classifyLogsForErrors = async (
+      _logs: Array<{ Id: string }>,
+      _selectedOrg: string | undefined,
+      signal: AbortSignal | undefined
+    ) => {
+      if (signal) {
+        classifySignal = signal;
+      }
+      classifyStarted();
+      await new Promise(resolve => setTimeout(resolve, 30));
+      return new Map<string, boolean>();
+    };
+
+    (vscode.window as any).withProgress = async (_opts: any, task: any) => {
+      let cancel: (() => void) | undefined;
+      const token: any = {
+        onCancellationRequested: (listener: () => void) => {
+          cancel = listener;
+        },
+        isCancellationRequested: false
+      };
+      const resultPromise = task({ report: () => {} }, token);
+      await Promise.race([started, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 200))]);
+      token.isCancellationRequested = true;
+      cancel?.();
+      return resultPromise;
+    };
+
+    await provider.refresh();
+    await new Promise(resolve => setTimeout(resolve, 60));
+
+    assert.ok(classifySignal, 'should start error scan classification');
+    assert.equal(classifySignal?.aborted, true, 'scan signal should be aborted when refresh is cancelled');
+    assert.ok(posted.some(m => m?.type === 'errorScanStatus' && m?.state === 'running'), 'should have started scan status');
+  });
+
   test('preloadFullLogBodies re-runs active search after downloads complete', async () => {
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);

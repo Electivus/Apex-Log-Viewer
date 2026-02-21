@@ -213,7 +213,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
               selectedOrg: this.orgManager.getSelectedOrg()
             }
           );
-          this.startErrorScanForCurrentLogs(auth, token);
+          this.startErrorScanForCurrentLogs(auth, token, controller.signal);
           if (this.lastSearchQuery.trim()) {
             this.rerunActiveSearch();
           } else {
@@ -429,11 +429,27 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private startErrorScanForCurrentLogs(auth: OrgAuth, refreshToken: number): void {
+  private startErrorScanForCurrentLogs(auth: OrgAuth, refreshToken: number, parentSignal?: AbortSignal): void {
     this.cancelErrorScan();
     const scanToken = this.errorScanToken;
+    if (parentSignal?.aborted) {
+      return;
+    }
     const controller = new AbortController();
     this.errorScanAbortController = controller;
+    if (parentSignal) {
+      const onAbort = () => controller.abort();
+      parentSignal.addEventListener('abort', onAbort, { once: true });
+      controller.signal.addEventListener(
+        'abort',
+        () => {
+          try {
+            parentSignal.removeEventListener('abort', onAbort);
+          } catch {}
+        },
+        { once: true }
+      );
+    }
     const selectedOrg = this.orgManager.getSelectedOrg();
     const toScan = this.currentLogs.filter(
       (log): log is ApexLogRow & { Id: string } =>
