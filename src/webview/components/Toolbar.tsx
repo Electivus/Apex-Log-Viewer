@@ -210,6 +210,7 @@ export function Toolbar({
         <div className="flex min-w-[160px] items-center gap-2 rounded-md border border-input bg-input px-3 py-2">
           <Switch
             id={errorsOnlyId}
+            data-testid="logs-errors-only-switch"
             checked={errorsOnly}
             onCheckedChange={onErrorsOnlyChange}
             disabled={loading}

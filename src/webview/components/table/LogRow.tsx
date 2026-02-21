@@ -191,6 +191,7 @@ export function LogRow({
                     <span>{r.Status}</span>
                     {hasErrors && (
                       <Badge
+                        data-testid="logs-error-badge"
                         variant="outline"
                         className="gap-1 border-destructive/50 bg-destructive/10 text-destructive"
                         title={errorBadge}
