@@ -516,11 +516,20 @@ suite('SfLogsViewProvider behavior', () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
+    (provider as any).lastSearchQuery = 'error';
 
-    (provider as any).logService.fetchLogs = async () => ([
-      { Id: '07L000000000001AA', StartTime: '2026-01-01T00:00:00.000Z', LogLength: 10 },
-      { Id: '07L000000000002AA', StartTime: '2025-12-31T23:59:59.000Z', LogLength: 20 }
-    ]);
+    const callOrder: string[] = [];
+    (provider as any).logService.fetchLogs = async () => {
+      callOrder.push('fetch');
+      return [
+        { Id: '07L000000000001AA', StartTime: '2026-01-01T00:00:00.000Z', LogLength: 10 },
+        { Id: '07L000000000002AA', StartTime: '2025-12-31T23:59:59.000Z', LogLength: 20 }
+      ] as any;
+    };
+    const searchCalls: string[] = [];
+    (provider as any).executeSearch = async (query: string) => {
+      searchCalls.push(query);
+    };
 
     const ensureCalls: Array<{ count: number; selectedOrg?: string }> = [];
     (provider as any).logService.ensureLogsSaved = async (
@@ -547,6 +556,7 @@ suite('SfLogsViewProvider behavior', () => {
 
     const warningCalls: any[] = [];
     (vscode.window as any).showWarningMessage = async (...args: any[]) => {
+      callOrder.push('confirm');
       warningCalls.push(args);
       return args[2];
     };
@@ -595,6 +605,8 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(ensureCalls[0]?.count, 2, 'should include all logs fetched for the org');
     assert.ok(warningCalls.length >= 1, 'should request user confirmation');
     assert.ok(infoCalls.length >= 1, 'should show completion summary');
+    assert.equal(callOrder[0], 'confirm', 'should confirm before listing org logs');
+    assert.ok(searchCalls.includes('error'), 'should re-run active search query after bulk download');
   });
 
   test('openDebugFlags opens debug flags panel', async () => {

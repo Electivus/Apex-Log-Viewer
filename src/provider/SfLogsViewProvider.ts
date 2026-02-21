@@ -613,6 +613,28 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     const t0 = Date.now();
     try {
       const selectedOrg = this.orgManager.getSelectedOrg();
+      const confirmAction = localize('downloadAllLogsConfirmAction', 'Download');
+      const confirmation = await vscode.window.showWarningMessage(
+        localize(
+          'downloadAllLogsPreflightConfirm',
+          'Download all Apex logs for the selected org?'
+        ),
+        {
+          modal: true,
+          detail: localize(
+            'downloadAllLogsPreflightConfirmDetail',
+            'This action can perform many API calls and may download a large amount of data.'
+          )
+        },
+        confirmAction
+      );
+      if (confirmation !== confirmAction) {
+        try {
+          safeSendEvent('logs.downloadAll', { outcome: 'cancel' }, { durationMs: Date.now() - t0 });
+        } catch {}
+        return;
+      }
+
       this.pageLimit = this.configManager.getPageLimit();
       const auth = await getOrgAuth(selectedOrg);
       const logs = await this.fetchAllOrgLogs(auth);
@@ -622,29 +644,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         );
         try {
           safeSendEvent('logs.downloadAll', { outcome: 'empty' }, { durationMs: Date.now() - t0 });
-        } catch {}
-        return;
-      }
-
-      const confirmAction = localize('downloadAllLogsConfirmAction', 'Download');
-      const confirmation = await vscode.window.showWarningMessage(
-        localize(
-          'downloadAllLogsConfirm',
-          'Download all {0} Apex logs for the selected org to the local apexlogs folder?',
-          logs.length
-        ),
-        {
-          modal: true,
-          detail: localize(
-            'downloadAllLogsConfirmDetail',
-            'This can take a while and may download a large amount of data.'
-          )
-        },
-        confirmAction
-      );
-      if (confirmation !== confirmAction) {
-        try {
-          safeSendEvent('logs.downloadAll', { outcome: 'cancel' }, { durationMs: Date.now() - t0, total: logs.length });
         } catch {}
         return;
       }
@@ -685,6 +684,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       );
 
       const success = summary.success;
+      if (this.lastSearchQuery.trim()) {
+        const searchToken = ++this.searchToken;
+        void this.executeSearch(this.lastSearchQuery, searchToken);
+      }
       if (summary.cancelled > 0) {
         void vscode.window.showWarningMessage(
           localize(
