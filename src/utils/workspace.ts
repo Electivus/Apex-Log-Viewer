@@ -4,6 +4,14 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { logInfo, logWarn } from './logger';
 
+let gitignoreUpdateQueue: Promise<void> = Promise.resolve();
+
+async function withGitignoreUpdateLock(operation: () => Promise<void>): Promise<void> {
+  const current = gitignoreUpdateQueue.then(operation, operation);
+  gitignoreUpdateQueue = current.catch(() => undefined);
+  await current;
+}
+
 /** Return the first workspace folder path, if any. */
 export function getWorkspaceRoot(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
@@ -30,18 +38,20 @@ export async function ensureApexLogsDir(): Promise<string> {
   // Best-effort: add to .gitignore if present
   if (workspaceRoot) {
     try {
-      const gitignorePath = path.join(workspaceRoot, '.gitignore');
-      const stat = await fs.stat(gitignorePath).catch(() => undefined as any);
-      if (stat && stat.isFile()) {
-        const content = await fs.readFile(gitignorePath, 'utf8').catch(() => '');
-        const lines = content.split(/\r?\n/).map(l => l.trim());
-        const hasEntry = lines.some(
-          l => l === 'apexlogs' || l === 'apexlogs/' || l === '/apexlogs' || l === '/apexlogs/'
-        );
-        if (!hasEntry) {
-          await fs.appendFile(gitignorePath, (content.endsWith('\n') ? '' : '\n') + 'apexlogs/\n', 'utf8');
+      await withGitignoreUpdateLock(async () => {
+        const gitignorePath = path.join(workspaceRoot, '.gitignore');
+        const stat = await fs.stat(gitignorePath).catch(() => undefined as any);
+        if (stat && stat.isFile()) {
+          const content = await fs.readFile(gitignorePath, 'utf8').catch(() => '');
+          const lines = content.split(/\r?\n/).map(l => l.trim());
+          const hasEntry = lines.some(
+            l => l === 'apexlogs' || l === 'apexlogs/' || l === '/apexlogs' || l === '/apexlogs/'
+          );
+          if (!hasEntry) {
+            await fs.appendFile(gitignorePath, (content.endsWith('\n') ? '' : '\n') + 'apexlogs/\n', 'utf8');
+          }
         }
-      }
+      });
     } catch {
       // ignore – non-blocking convenience
     }
