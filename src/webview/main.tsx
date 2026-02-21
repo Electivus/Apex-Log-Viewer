@@ -44,6 +44,7 @@ export function LogsApp({
   const [logsColumns, setLogsColumns] = useState<NormalizedLogsColumnsConfig>(DEFAULT_LOGS_COLUMNS_CONFIG);
   const queryRef = useRef('');
   const [searchStatus, setSearchStatus] = useState<'idle' | 'loading'>('idle');
+  const [pendingLogCount, setPendingLogCount] = useState(0);
 
   // Search + filters
   const [query, setQueryState] = useState('');
@@ -124,7 +125,9 @@ export function LogsApp({
             break;
           }
           const ids = Array.isArray(msg.logIds) ? msg.logIds.filter(Boolean) : [];
+          const pending = Array.isArray(msg.pendingLogIds) ? msg.pendingLogIds.filter(Boolean) : [];
           setMatchingIds(new Set(ids));
+          setPendingLogCount(pending.length);
           if (msg.snippets && typeof msg.snippets === 'object') {
             setMatchSnippets(msg.snippets);
           } else {
@@ -154,6 +157,7 @@ export function LogsApp({
       if (!next.trim()) {
         setMatchingIds(new Set());
         setMatchSnippets({});
+        setPendingLogCount(0);
       }
       setQueryState(next);
       if (messageBus) {
@@ -167,11 +171,15 @@ export function LogsApp({
     queryRef.current = query;
     if (!query.trim()) {
       setMatchingIds(new Set());
+      setPendingLogCount(0);
     }
   }, [query]);
 
   const onRefresh = () => {
     vscode.postMessage({ type: 'refresh' });
+  };
+  const onDownloadAllLogs = () => {
+    vscode.postMessage({ type: 'downloadAllLogs' });
   };
   const onSelectOrg = (v: string) => {
     setSelectedOrg(v);
@@ -282,7 +290,19 @@ export function LogsApp({
   }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead, matchingIds]);
 
   const searchLoading = searchStatus === 'loading';
-  const searchMessage = searchLoading ? t.searchPreparing ?? t.loading : undefined;
+  const searchMessage = useMemo(() => {
+    if (searchLoading) {
+      return t.searchPreparing ?? t.loading;
+    }
+    if (pendingLogCount <= 0) {
+      return undefined;
+    }
+    const template =
+      pendingLogCount === 1
+        ? (t.searchPending ?? 'Waiting for {count} log to finish downloading…')
+        : (t.searchPendingPlural ?? 'Waiting for {count} logs to finish downloading…');
+    return template.replace('{count}', String(pendingLogCount));
+  }, [pendingLogCount, searchLoading, t]);
 
   const hasFilters = Boolean(
     query.trim() ||
@@ -299,6 +319,7 @@ export function LogsApp({
         error={error}
         warning={warning}
         onRefresh={onRefresh}
+        onDownloadAllLogs={onDownloadAllLogs}
         onOpenDebugFlags={onOpenDebugFlags}
         t={t}
         orgs={orgs}

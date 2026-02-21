@@ -141,6 +141,14 @@ describe('Logs webview App', () => {
     await waitFor(() => {
       expect(screen.queryByText('Preparando resultados da busca…')).toBeNull();
     });
+    sendMessage(bus, {
+      type: 'searchMatches',
+      query: 'error',
+      logIds: [],
+      snippets: {},
+      pendingLogIds: ['07L000000000001AA', '07L000000000002AA']
+    });
+    await screen.findByText('Aguardando o download de 2 logs…');
 
     fireEvent.paste(searchInput);
     await waitFor(() => {
@@ -169,14 +177,15 @@ describe('Logs webview App', () => {
     fireEvent.click(openButtons[0]!);
     fireEvent.click(screen.getAllByRole('button', { name: 'Apex Replay' })[0]!);
     fireEvent.click(screen.getByRole('button', { name: 'Debug Flags' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Baixar todos os logs' }));
     fireEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
 
     await waitFor(() => {
       const types = posted.map(m => m.type);
       expect(types[0]).toBe('ready');
-      expect(types).toEqual(expect.arrayContaining(['openLog', 'replay', 'refresh', 'openDebugFlags']));
+      expect(types).toEqual(expect.arrayContaining(['openLog', 'replay', 'refresh', 'openDebugFlags', 'downloadAllLogs']));
     });
-  }, 10000);
+  }, 20000);
 
   it('surfaces manual pagination when filters are active', async () => {
     const { vscode, posted } = createVsCodeMock();

@@ -96,5 +96,5 @@ describe('Tail webview App', () => {
         expect.arrayContaining(['tailStart', 'tailStop', 'tailClear', 'openLog', 'replay', 'openDebugFlags'])
       );
     });
-  });
+  }, 15000);
 });

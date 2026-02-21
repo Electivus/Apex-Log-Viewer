@@ -6,6 +6,7 @@
 
 - Testing: add Playwright E2E coverage against a real scratch org (Dev Hub + seeded Apex log). Also adds a manual GitHub Actions workflow for opt-in validation.
 - Debug Flags: add a dedicated editor panel to configure `USER_DEBUG` TraceFlags for active users, accessible from both Logs and Tail toolbars.
+- Logs: add an explicit `Download all logs` action with confirmation, progress feedback, and completion summary; search now reports pending logs without implicit multi-log fallback. ([#541](https://github.com/Electivus/Apex-Log-Viewer/issues/541))
 
 ### Bug Fixes
 
