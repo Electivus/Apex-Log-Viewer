@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "lib": ["ES2022", "DOM"],
+    "types": ["node", "jest"],
+    "isolatedModules": true
+  },
+  "include": ["test/e2e/utils/**/*.ts"],
+  "exclude": ["node_modules", "dist", "media", "out", "test/e2e/specs/**/*"]
+}

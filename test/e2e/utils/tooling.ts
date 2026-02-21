@@ -148,6 +148,25 @@ async function getCurrentUserCreateDefaults(auth: OrgAuth): Promise<{
   };
 }
 
+function isLicenseLimitExceeded(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('LICENSE_LIMIT_EXCEEDED');
+}
+
+async function resolveLicenseLimitFallbackUser(auth: OrgAuth, operationLabel: string): Promise<DebugFlagsE2eUser> {
+  // Some scratch/org setups have no spare Salesforce licenses. In this case,
+  // fallback to the authenticated user so E2E can still validate debug-flag flows.
+  const fallbackUserId = await getCurrentUserId(auth);
+  const fallbackUsername = String(auth.username || '').trim();
+  if (!fallbackUsername) {
+    throw new Error(`${operationLabel} due to license limits and could not resolve fallback username.`);
+  }
+  return {
+    id: fallbackUserId,
+    username: fallbackUsername
+  };
+}
+
 export async function ensureDebugFlagsTestUser(auth: OrgAuth): Promise<DebugFlagsE2eUser> {
   const configuredUsername = String(process.env.SF_E2E_DEBUG_FLAGS_USERNAME || '').trim();
   const targetUsername = configuredUsername || (await resolveDefaultDebugFlagsUsername(auth));
@@ -158,9 +177,19 @@ export async function ensureDebugFlagsTestUser(auth: OrgAuth): Promise<DebugFlag
   const existing = await findUserByUsername(auth, targetUsername);
   if (existing) {
     if (!existing.active) {
-      await requestJson(auth, 'PATCH', `/services/data/v${auth.apiVersion}/sobjects/User/${existing.id}`, {
-        IsActive: true
-      });
+      try {
+        await requestJson(auth, 'PATCH', `/services/data/v${auth.apiVersion}/sobjects/User/${existing.id}`, {
+          IsActive: true
+        });
+      } catch (error) {
+        if (!isLicenseLimitExceeded(error)) {
+          throw error;
+        }
+        return resolveLicenseLimitFallbackUser(
+          auth,
+          'Failed to reactivate existing E2E debug flags test user'
+        );
+      }
     }
     return {
       id: existing.id,
@@ -194,24 +223,10 @@ export async function ensureDebugFlagsTestUser(auth: OrgAuth): Promise<DebugFlag
       username: targetUsername
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.includes('LICENSE_LIMIT_EXCEEDED')) {
+    if (!isLicenseLimitExceeded(error)) {
       throw error;
     }
-
-    // Some scratch/org setups have no spare Salesforce licenses. In this case,
-    // fallback to the authenticated user so E2E can still validate debug-flag flows.
-    const fallbackUserId = await getCurrentUserId(auth);
-    const fallbackUsername = String(auth.username || '').trim();
-    if (!fallbackUsername) {
-      throw new Error(
-        `Failed to create E2E debug flags test user due to license limits and could not resolve fallback username.`
-      );
-    }
-    return {
-      id: fallbackUserId,
-      username: fallbackUsername
-    };
+    return resolveLicenseLimitFallbackUser(auth, 'Failed to create E2E debug flags test user');
   }
 }
 
