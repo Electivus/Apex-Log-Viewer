@@ -142,6 +142,41 @@ suite('traceflags user management', () => {
     assert.equal(users[0]?.username, 'manoel@example.com');
   });
 
+  test('listActiveUsers local filtering is locale-stable for dotted-i scenarios', async () => {
+    installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/services/data/v')) {
+        return {
+          statusCode: 200,
+          body: {
+            records: [
+              { Id: '005000000000001AAA', Name: 'ILKER', Username: 'lk@example.com', IsActive: true },
+              { Id: '005000000000002AAA', Name: 'GRACE', Username: 'grace@example.com', IsActive: true }
+            ]
+          }
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const originalToLocaleLowerCase = String.prototype.toLocaleLowerCase;
+    (String.prototype as any).toLocaleLowerCase = function (locales?: string | string[]): string {
+      if (locales !== undefined) {
+        return originalToLocaleLowerCase.call(this, locales);
+      }
+      // Simulate a locale where 'I' lowercases to a non-ASCII dotted variant.
+      return String(this).replace(/I/g, 'ı').toLowerCase();
+    };
+
+    try {
+      const users = await listActiveUsers(auth, 'i', 50);
+      assert.equal(users.length, 1);
+      assert.equal(users[0]?.id, '005000000000001AAA');
+      assert.equal(users[0]?.username, 'lk@example.com');
+    } finally {
+      (String.prototype as any).toLocaleLowerCase = originalToLocaleLowerCase;
+    }
+  });
+
   test('getUserTraceFlagStatus parses active status and metadata', async () => {
     installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/tooling/query')) {

@@ -120,10 +120,10 @@ export async function listActiveUsers(auth: OrgAuth, query = '', limit = 50): Pr
 
   // Defensive fallback: some org/API combinations may return broader User sets than requested.
   // Keep the UI behavior consistent by enforcing the query on the mapped payload too.
-  const needle = trimmed.toLocaleLowerCase();
+  const needle = trimmed.toLowerCase();
   return users.filter(user => {
-    const name = user.name.toLocaleLowerCase();
-    const username = user.username.toLocaleLowerCase();
+    const name = user.name.toLowerCase();
+    const username = user.username.toLowerCase();
     return name.includes(needle) || username.includes(needle);
   });
 }
