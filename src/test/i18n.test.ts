@@ -5,6 +5,7 @@ suite('i18n messages', () => {
   test('defaults to english and exposes expected keys', () => {
     const messages = getMessages(undefined);
     assert.equal(messages.refresh, 'Refresh');
+    assert.equal(messages.downloadAllLogs, 'Download all logs');
     assert.equal(messages.tail?.debugTag, 'debug');
   });
 

@@ -65,6 +65,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
   const statuses = ['Success', 'Failed'];
   const codeUnits = ['UnitA', 'UnitB'];
   let refreshCount = 0;
+  let downloadAllCount = 0;
   let openDebugFlagsCount = 0;
   let clearCount = 0;
   const queryChanges: string[] = [];
@@ -83,6 +84,9 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
         warning={warning}
         onRefresh={() => {
           refreshCount++;
+        }}
+        onDownloadAllLogs={() => {
+          downloadAllCount++;
         }}
         onOpenDebugFlags={() => {
           openDebugFlagsCount++;
@@ -132,6 +136,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
   return {
     view,
     refreshCount: () => refreshCount,
+    downloadAllCount: () => downloadAllCount,
     openDebugFlagsCount: () => openDebugFlagsCount,
     clearCount: () => clearCount,
     queryChanges,
@@ -214,5 +219,12 @@ describe('Toolbar webview component', () => {
     const btn = screen.getByRole('button', { name: 'Debug Flags' });
     fireEvent.click(btn);
     expect(utils.openDebugFlagsCount()).toBe(1);
+  });
+
+  it('triggers download all logs entrypoint from toolbar button', () => {
+    const utils = renderToolbar();
+    const btn = screen.getByRole('button', { name: 'Download all logs' });
+    fireEvent.click(btn);
+    expect(utils.downloadAllCount()).toBe(1);
   });
 });

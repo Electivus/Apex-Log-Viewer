@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type { OrgAuth } from '../salesforce/types';
 import type { ApexLogRow } from '../shared/types';
+import type { EnsureLogsSavedItemResult } from '../services/logService';
 
 suite('LogService', () => {
   test('fetchLogs delegates to http fetch', async () => {
@@ -256,5 +257,100 @@ suite('LogService', () => {
       (vscode.window as any).withProgress = origWithProgress;
       (vscode.commands as any).executeCommand = origExecuteCommand;
     }
+  });
+
+  test('ensureLogsSaved returns summary and per-item statuses for bulk downloads', async () => {
+    const itemStatuses: string[] = [];
+    const { LogService } = proxyquire('../services/logService', {
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        fetchApexLogHead: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async (_auth: OrgAuth, logId: string) => {
+          if (logId === '3') {
+            throw new Error('failed download');
+          }
+          return 'body';
+        }
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
+      },
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async (_username: string | undefined, logId: string) => ({
+          dir: '/tmp',
+          filePath: `/tmp/${logId}.log`
+        }),
+        findExistingLogFile: async (logId: string) => (logId === '1' ? '/tmp/1.log' : undefined)
+      },
+      fs: {
+        promises: {
+          writeFile: async () => {}
+        }
+      }
+    });
+
+    const svc = new LogService(2);
+    const summary = await svc.ensureLogsSaved(
+      [{ Id: '1' } as ApexLogRow, { Id: '2' } as ApexLogRow, { Id: '3' } as ApexLogRow],
+      'default',
+      undefined,
+      {
+        onItemComplete: (result: EnsureLogsSavedItemResult) => {
+          itemStatuses.push(result.status);
+        }
+      }
+    );
+
+    assert.equal(summary.total, 3);
+    assert.equal(summary.success, 2);
+    assert.equal(summary.existing, 1);
+    assert.equal(summary.downloaded, 1);
+    assert.equal(summary.failed, 1);
+    assert.deepEqual(summary.failedLogIds, ['3']);
+    assert.ok(itemStatuses.includes('existing'));
+    assert.ok(itemStatuses.includes('downloaded'));
+    assert.ok(itemStatuses.includes('failed'));
+  });
+
+  test('ensureLogsSaved reports missing logs when downloadMissing is disabled', async () => {
+    const missing: string[] = [];
+    const statuses: string[] = [];
+    const { LogService } = proxyquire('../services/logService', {
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        fetchApexLogHead: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async () => 'body'
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
+      },
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async () => ({ dir: '/tmp', filePath: '/tmp/x.log' }),
+        findExistingLogFile: async (logId: string) => (logId === '2' ? '/tmp/2.log' : undefined)
+      }
+    });
+
+    const svc = new LogService(1);
+    const summary = await svc.ensureLogsSaved(
+      [{ Id: '1' } as ApexLogRow, { Id: '2' } as ApexLogRow],
+      'default',
+      undefined,
+      {
+        downloadMissing: false,
+        onMissing: (logId: string) => missing.push(logId),
+        onItemComplete: (result: EnsureLogsSavedItemResult) => statuses.push(result.status)
+      }
+    );
+
+    assert.equal(summary.total, 2);
+    assert.equal(summary.success, 1);
+    assert.equal(summary.existing, 1);
+    assert.equal(summary.missing, 1);
+    assert.equal(summary.failed, 0);
+    assert.deepEqual(missing, ['1']);
+    assert.ok(statuses.includes('missing'));
+    assert.ok(statuses.includes('existing'));
   });
 });

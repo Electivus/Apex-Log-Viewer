@@ -1,5 +1,5 @@
 import React from 'react';
-import { RefreshCw, FilterX, Loader2, AlertCircle, Bug } from 'lucide-react';
+import { RefreshCw, FilterX, Loader2, AlertCircle, Bug, Download } from 'lucide-react';
 import type { OrgItem } from '../../shared/types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -19,6 +19,7 @@ type ToolbarProps = {
   error?: string;
   warning?: string;
   onRefresh: () => void;
+  onDownloadAllLogs: () => void;
   onOpenDebugFlags: () => void;
   t: any;
   orgs: OrgItem[];
@@ -54,6 +55,7 @@ export function Toolbar({
   error,
   warning,
   onRefresh,
+  onDownloadAllLogs,
   onOpenDebugFlags,
   t,
   orgs,
@@ -101,6 +103,17 @@ export function Toolbar({
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
           )}
           <span>{loading ? t.loading : t.refresh}</span>
+        </Button>
+
+        <Button
+          type="button"
+          onClick={onDownloadAllLogs}
+          disabled={loading}
+          variant="secondary"
+          className="flex items-center gap-2"
+        >
+          <Download className="h-4 w-4" aria-hidden="true" />
+          <span>{t.downloadAllLogs ?? 'Download all logs'}</span>
         </Button>
 
         <OrgSelect
