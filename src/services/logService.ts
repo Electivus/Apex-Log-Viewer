@@ -17,6 +17,7 @@ import { logWarn, logInfo } from '../utils/logger';
 import { localize } from '../utils/localize';
 import { LogViewerPanel } from '../panel/LogViewerPanel';
 import { fetchApexLogs } from '../salesforce/http';
+import { lineHasErrorSignal } from '../shared/logErrorSignals';
 
 export type EnsureLogsSavedItemStatus = 'downloaded' | 'existing' | 'missing' | 'failed' | 'cancelled';
 
@@ -41,6 +42,18 @@ export type EnsureLogsSavedOptions = {
   downloadMissing?: boolean;
   onMissing?: (logId: string) => void;
   onItemComplete?: (result: EnsureLogsSavedItemResult) => void;
+};
+
+export type ClassifyLogsForErrorsProgress = {
+  logId: string;
+  hasErrors: boolean;
+  processed: number;
+  total: number;
+  errorsFound: number;
+};
+
+export type ClassifyLogsForErrorsOptions = {
+  onProgress?: (progress: ClassifyLogsForErrorsProgress) => void;
 };
 
 export class LogService {
@@ -193,6 +206,94 @@ export class LogService {
       }
     }
     return undefined;
+  }
+
+  private async scanLogFileForErrors(filePath: string, signal?: AbortSignal): Promise<boolean> {
+    const handle = await fs.open(filePath, 'r');
+    const buffer = Buffer.alloc(64 * 1024);
+    let remainder = '';
+    try {
+      for (;;) {
+        if (signal?.aborted) {
+          return false;
+        }
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+        if (bytesRead <= 0) {
+          break;
+        }
+        const chunk = remainder + buffer.slice(0, bytesRead).toString('utf8');
+        const lines = chunk.split(/\r?\n/);
+        remainder = lines.pop() ?? '';
+        for (const line of lines) {
+          if (lineHasErrorSignal(line)) {
+            return true;
+          }
+        }
+      }
+      if (remainder && lineHasErrorSignal(remainder)) {
+        return true;
+      }
+      return false;
+    } finally {
+      await handle.close();
+    }
+  }
+
+  async classifyLogsForErrors(
+    logs: ApexLogRow[],
+    selectedOrg?: string,
+    signal?: AbortSignal,
+    options?: ClassifyLogsForErrorsOptions
+  ): Promise<Map<string, boolean>> {
+    const validLogs = logs.filter(
+      (log): log is ApexLogRow & { Id: string } => typeof log?.Id === 'string' && log.Id.length > 0
+    );
+    const total = validLogs.length;
+    let processed = 0;
+    let errorsFound = 0;
+    const result = new Map<string, boolean>();
+    const tasks: Promise<void>[] = [];
+
+    for (const log of validLogs) {
+      tasks.push(
+        this.saveLimiter(async () => {
+          let hasErrors = false;
+          try {
+            if (signal?.aborted) {
+              return;
+            }
+            const filePath = await this.ensureLogFile(log.Id, selectedOrg, signal);
+            if (signal?.aborted) {
+              return;
+            }
+            hasErrors = await this.scanLogFileForErrors(filePath, signal);
+            result.set(log.Id, hasErrors);
+            if (hasErrors) {
+              errorsFound++;
+            }
+          } catch (e) {
+            if (!signal?.aborted) {
+              logWarn('LogService: classifyLogsForErrors failed for', log.Id, '->', getErrorMessage(e));
+            }
+          } finally {
+            if (signal?.aborted) {
+              return;
+            }
+            processed++;
+            options?.onProgress?.({
+              logId: log.Id,
+              hasErrors,
+              processed,
+              total,
+              errorsFound
+            });
+          }
+        })
+      );
+    }
+
+    await Promise.all(tasks);
+    return result;
   }
 
   async openLog(logId: string, selectedOrg?: string): Promise<void> {

@@ -7,6 +7,7 @@ import * as path from 'path';
 import type { OrgAuth } from '../salesforce/types';
 import type { ApexLogRow } from '../shared/types';
 import type { EnsureLogsSavedItemResult } from '../services/logService';
+import type { ClassifyLogsForErrorsProgress } from '../services/logService';
 
 suite('LogService', () => {
   test('fetchLogs delegates to http fetch', async () => {
@@ -352,5 +353,62 @@ suite('LogService', () => {
     assert.deepEqual(missing, ['1']);
     assert.ok(statuses.includes('missing'));
     assert.ok(statuses.includes('existing'));
+  });
+
+  test('classifyLogsForErrors scans full log body and reports progress', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-errors-'));
+    const errPath = path.join(tmpDir, 'default_err.log');
+    const okPath = path.join(tmpDir, 'default_ok.log');
+    await fs.writeFile(errPath, '12:00:00.000 | EXCEPTION_THROWN | [6] | boom\n', 'utf8');
+    await fs.writeFile(okPath, '12:00:00.000 | USER_DEBUG | [6] | all good\n', 'utf8');
+
+    const { LogService } = proxyquire('../services/logService', {
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        fetchApexLogHead: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async () => ''
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
+      },
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath: path.join(tmpDir, 'unused.log') }),
+        findExistingLogFile: async (logId: string) => {
+          if (logId === 'err') return errPath;
+          if (logId === 'ok') return okPath;
+          return undefined;
+        }
+      }
+    });
+
+    try {
+      const svc = new LogService(2);
+      const progress: Array<{ processed: number; total: number; errorsFound: number; logId: string }> = [];
+      const result = await svc.classifyLogsForErrors(
+        [{ Id: 'err' } as ApexLogRow, { Id: 'ok' } as ApexLogRow],
+        'default',
+        undefined,
+        {
+          onProgress: (entry: ClassifyLogsForErrorsProgress) => {
+            progress.push({
+              processed: entry.processed,
+              total: entry.total,
+              errorsFound: entry.errorsFound,
+              logId: entry.logId
+            });
+          }
+        }
+      );
+
+      assert.equal(result.get('err'), true);
+      assert.equal(result.get('ok'), false);
+      assert.equal(progress.length, 2);
+      assert.ok(progress.every(entry => entry.total === 2));
+      assert.equal(progress[progress.length - 1]?.processed, 2);
+      assert.equal(progress[progress.length - 1]?.errorsFound, 1);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
   });
 });

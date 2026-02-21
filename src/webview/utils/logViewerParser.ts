@@ -1,3 +1,5 @@
+import { isErrorEventType } from '../../shared/logErrorSignals';
+
 export type LogCategory = 'debug' | 'soql' | 'dml' | 'code' | 'limit' | 'system' | 'error' | 'other';
 
 export interface ParsedLogEntry {
@@ -100,18 +102,7 @@ function parseLogLine(raw: string, index: number): ParsedLogEntry | undefined {
 
 function categorize(type: string): LogCategory {
   const upper = type.toUpperCase();
-  const tokens = upper.split(/[^A-Z]+/).filter(Boolean);
-  if (
-    tokens.some(token =>
-      token === 'EXCEPTION' ||
-      token === 'ERROR' ||
-      token === 'FATAL' ||
-      token === 'FAIL' ||
-      token === 'FAILED' ||
-      token === 'FAILURE' ||
-      token === 'FAULT'
-    )
-  ) {
+  if (isErrorEventType(type)) {
     return 'error';
   }
   if (upper === 'USER_DEBUG') {

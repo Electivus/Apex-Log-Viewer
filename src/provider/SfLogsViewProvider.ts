@@ -33,6 +33,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private cursorStartTime: string | undefined;
   private cursorId: string | undefined;
   private currentLogs: ApexLogRow[] = [];
+  private currentLogIds = new Set<string>();
+  private errorByLogId = new Map<string, boolean>();
+  private errorScanAbortController: AbortController | undefined;
+  private errorScanToken = 0;
+  private errorScanLastPostedAt = 0;
   private lastSearchQuery = '';
   private searchToken = 0;
   private searchAbortController: AbortController | undefined;
@@ -99,6 +104,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         this.disposed = true;
         this.view = undefined;
         this.refreshToken++;
+        this.cancelErrorScan();
         logInfo('Logs webview disposed.');
       })
     );
@@ -126,6 +132,17 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         const isCurrentRefresh = () => token === this.refreshToken && !this.disposed;
         const controller = new AbortController();
         ct.onCancellationRequested(() => controller.abort());
+        this.cancelErrorScan();
+        this.errorByLogId.clear();
+        this.postErrorScanStatus(
+          {
+            state: 'idle',
+            processed: 0,
+            total: 0,
+            errorsFound: 0
+          },
+          { force: true }
+        );
         this.post({ type: 'loading', value: true });
         this.post({ type: 'warning', message: undefined });
         try {
@@ -178,7 +195,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           });
           const hasMore = logs.length === this.pageLimit;
           this.post({ type: 'logs', data: logs, hasMore });
-          this.currentLogs = logs.slice();
+          this.setCurrentLogs(logs);
+          this.postKnownErrorStateForLogs(logs);
           this.purgeLogCache(controller.signal);
           this.logService.loadLogHeads(
             logs,
@@ -195,6 +213,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
               selectedOrg: this.orgManager.getSelectedOrg()
             }
           );
+          this.startOrgErrorScan(auth, token);
           if (this.lastSearchQuery.trim()) {
             this.rerunActiveSearch();
           } else {
@@ -269,7 +288,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       this.preloadFullLogBodies(logs);
       const hasMore = logs.length === this.pageLimit;
       this.post({ type: 'appendLogs', data: logs, hasMore });
-      this.currentLogs = [...this.currentLogs, ...logs];
+      this.setCurrentLogs([...this.currentLogs, ...logs]);
+      this.postKnownErrorStateForLogs(logs);
       this.purgeLogCache();
       this.logService.loadLogHeads(logs, auth, token, (logId, codeUnit) => {
         if (token === this.refreshToken && !this.disposed) {
@@ -361,6 +381,174 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     } catch (e) {
       logWarn('Logs: failed to persist logsColumns ->', getErrorMessage(e));
     }
+  }
+
+  private setCurrentLogs(logs: ApexLogRow[]): void {
+    this.currentLogs = logs.slice();
+    this.currentLogIds = new Set(
+      logs
+        .map(log => log?.Id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    );
+  }
+
+  private cancelErrorScan(): void {
+    this.errorScanToken++;
+    if (this.errorScanAbortController) {
+      this.errorScanAbortController.abort();
+      this.errorScanAbortController = undefined;
+    }
+    this.errorScanLastPostedAt = 0;
+  }
+
+  private postErrorScanStatus(
+    status: { state: 'idle' | 'running'; processed: number; total: number; errorsFound: number },
+    options?: { force?: boolean }
+  ): void {
+    const force = options?.force ?? false;
+    if (!force) {
+      const now = Date.now();
+      if (now - this.errorScanLastPostedAt < 150 && status.state === 'running' && status.processed < status.total) {
+        return;
+      }
+      this.errorScanLastPostedAt = now;
+    }
+    this.post({ type: 'errorScanStatus', ...status });
+  }
+
+  private postKnownErrorStateForLogs(logs: ApexLogRow[]): void {
+    for (const log of logs) {
+      if (!log?.Id) {
+        continue;
+      }
+      const hasErrors = this.errorByLogId.get(log.Id);
+      if (hasErrors === true) {
+        this.post({ type: 'logHead', logId: log.Id, hasErrors: true });
+      }
+    }
+  }
+
+  private startOrgErrorScan(auth: OrgAuth, refreshToken: number): void {
+    this.cancelErrorScan();
+    const scanToken = this.errorScanToken;
+    const controller = new AbortController();
+    this.errorScanAbortController = controller;
+    const selectedOrg = this.orgManager.getSelectedOrg();
+    this.postErrorScanStatus(
+      {
+        state: 'running',
+        processed: 0,
+        total: 0,
+        errorsFound: 0
+      },
+      { force: true }
+    );
+
+    void (async () => {
+      try {
+        const allLogs = await this.fetchAllOrgLogs(auth, controller.signal);
+        if (
+          controller.signal.aborted ||
+          scanToken !== this.errorScanToken ||
+          refreshToken !== this.refreshToken ||
+          this.disposed
+        ) {
+          return;
+        }
+        const total = allLogs.length;
+        this.postErrorScanStatus(
+          {
+            state: 'running',
+            processed: 0,
+            total,
+            errorsFound: 0
+          },
+          { force: true }
+        );
+        if (total === 0) {
+          this.postErrorScanStatus(
+            {
+              state: 'idle',
+              processed: 0,
+              total: 0,
+              errorsFound: 0
+            },
+            { force: true }
+          );
+          return;
+        }
+        await this.logService.classifyLogsForErrors(
+          allLogs,
+          selectedOrg,
+          controller.signal,
+          {
+            onProgress: progress => {
+              if (
+                controller.signal.aborted ||
+                scanToken !== this.errorScanToken ||
+                refreshToken !== this.refreshToken ||
+                this.disposed
+              ) {
+                return;
+              }
+              this.errorByLogId.set(progress.logId, progress.hasErrors);
+              if (progress.hasErrors && this.currentLogIds.has(progress.logId)) {
+                this.post({ type: 'logHead', logId: progress.logId, hasErrors: true });
+              }
+              this.postErrorScanStatus({
+                state: 'running',
+                processed: progress.processed,
+                total: progress.total,
+                errorsFound: progress.errorsFound
+              });
+            }
+          }
+        );
+        if (
+          controller.signal.aborted ||
+          scanToken !== this.errorScanToken ||
+          refreshToken !== this.refreshToken ||
+          this.disposed
+        ) {
+          return;
+        }
+        const errorsFound = Array.from(this.errorByLogId.values()).filter(v => v === true).length;
+        this.postErrorScanStatus(
+          {
+            state: 'idle',
+            processed: total,
+            total,
+            errorsFound
+          },
+          { force: true }
+        );
+      } catch (e) {
+        if (!controller.signal.aborted) {
+          logWarn('Logs: org error scan failed ->', getErrorMessage(e));
+        }
+        if (
+          !controller.signal.aborted &&
+          scanToken === this.errorScanToken &&
+          refreshToken === this.refreshToken &&
+          !this.disposed
+        ) {
+          const errorsFound = Array.from(this.errorByLogId.values()).filter(v => v === true).length;
+          this.postErrorScanStatus(
+            {
+              state: 'idle',
+              processed: 0,
+              total: 0,
+              errorsFound
+            },
+            { force: true }
+          );
+        }
+      } finally {
+        if (this.errorScanAbortController === controller) {
+          this.errorScanAbortController = undefined;
+        }
+      }
+    })();
   }
 
   private postSearchStatus(state: 'idle' | 'loading'): void {

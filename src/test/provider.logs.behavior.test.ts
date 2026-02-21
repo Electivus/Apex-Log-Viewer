@@ -150,6 +150,66 @@ suite('SfLogsViewProvider behavior', () => {
     );
   });
 
+  test('refresh posts progressive error scan status and marks visible logs with errors', async () => {
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    (http as any).fetchApexLogs = async () => ([
+      { Id: '07L000000000001AA', LogLength: 10 },
+      { Id: '07L000000000002AA', LogLength: 20 }
+    ]);
+    (http as any).fetchApexLogHead = async () => [];
+    (http as any).extractCodeUnitStartedFromLines = () => undefined;
+    (workspace as any).purgeSavedLogs = async () => 0;
+
+    const context = makeContext();
+    const posted: any[] = [];
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => false;
+    (provider as any).logService.classifyLogsForErrors = async (
+      logs: Array<{ Id: string }>,
+      _selectedOrg: string | undefined,
+      _signal: AbortSignal | undefined,
+      options?: { onProgress?: (entry: any) => void }
+    ) => {
+      options?.onProgress?.({
+        logId: logs[0]!.Id,
+        hasErrors: true,
+        processed: 1,
+        total: logs.length,
+        errorsFound: 1
+      });
+      options?.onProgress?.({
+        logId: logs[1]!.Id,
+        hasErrors: false,
+        processed: 2,
+        total: logs.length,
+        errorsFound: 1
+      });
+      return new Map<string, boolean>([
+        [logs[0]!.Id, true],
+        [logs[1]!.Id, false]
+      ]);
+    };
+    (provider as any).view = {
+      webview: {
+        postMessage: (m: any) => {
+          posted.push(m);
+          return Promise.resolve(true);
+        }
+      }
+    } as any;
+
+    await provider.refresh();
+    await new Promise(resolve => setTimeout(resolve, 30));
+
+    const scanRunning = posted.find(m => m?.type === 'errorScanStatus' && m?.state === 'running');
+    const scanIdle = posted.find(m => m?.type === 'errorScanStatus' && m?.state === 'idle' && m?.total === 2);
+    const errorHead = posted.find(m => m?.type === 'logHead' && m?.logId === '07L000000000001AA' && m?.hasErrors === true);
+
+    assert.ok(scanRunning, 'should post running scan status');
+    assert.ok(scanIdle, 'should post idle scan status after completion');
+    assert.ok(errorHead, 'should mark visible error log in logHead stream');
+  });
+
   test('preloadFullLogBodies re-runs active search after downloads complete', async () => {
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);

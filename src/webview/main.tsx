@@ -37,7 +37,18 @@ export function LogsApp({
 
   const [rows, setRows] = useState<ApexLogRow[]>([]);
   const [hasMore, setHasMore] = useState(false);
-  const [logHead, setLogHead] = useState<Record<string, { codeUnitStarted?: string }>>({});
+  const [logHead, setLogHead] = useState<Record<string, { codeUnitStarted?: string; hasErrors?: boolean }>>({});
+  const [errorScanStatus, setErrorScanStatus] = useState<{
+    state: 'idle' | 'running';
+    processed: number;
+    total: number;
+    errorsFound: number;
+  }>({
+    state: 'idle',
+    processed: 0,
+    total: 0,
+    errorsFound: 0
+  });
   const [matchingIds, setMatchingIds] = useState<Set<string>>(new Set());
   const [matchSnippets, setMatchSnippets] = useState<Record<string, { text: string; ranges: [number, number][] }>>({});
   const [fullLogSearchEnabled, setFullLogSearchEnabled] = useState(false);
@@ -52,6 +63,7 @@ export function LogsApp({
   const [filterOperation, setFilterOperation] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterCodeUnit, setFilterCodeUnit] = useState('');
+  const [errorsOnly, setErrorsOnly] = useState(false);
 
   // Sorting
   const [sortBy, setSortBy] = useState<SortKey>('time');
@@ -116,8 +128,20 @@ export function LogsApp({
         case 'logHead':
           setLogHead(prev => ({
             ...prev,
-            [msg.logId]: { codeUnitStarted: msg.codeUnitStarted }
+            [msg.logId]: {
+              ...prev[msg.logId],
+              ...(msg.codeUnitStarted !== undefined ? { codeUnitStarted: msg.codeUnitStarted } : {}),
+              ...(msg.hasErrors !== undefined ? { hasErrors: msg.hasErrors } : {})
+            }
           }));
+          break;
+        case 'errorScanStatus':
+          setErrorScanStatus({
+            state: msg.state,
+            processed: msg.processed,
+            total: msg.total,
+            errorsFound: msg.errorsFound
+          });
           break;
         case 'searchMatches': {
           const target = (msg.query ?? '').trim().toLowerCase();
@@ -206,6 +230,7 @@ export function LogsApp({
     setFilterOperation('');
     setFilterStatus('');
     setFilterCodeUnit('');
+    setErrorsOnly(false);
   };
 
   // Compute filter options
@@ -231,6 +256,9 @@ export function LogsApp({
         return false;
       }
       if (filterCodeUnit && (logHead[r.Id]?.codeUnitStarted || '') !== filterCodeUnit) {
+        return false;
+      }
+      if (errorsOnly && logHead[r.Id]?.hasErrors !== true) {
         return false;
       }
       if (!q) {
@@ -287,7 +315,7 @@ export function LogsApp({
     };
 
     return items.slice().sort(compare);
-  }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, sortBy, sortDir, logHead, matchingIds]);
+  }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, errorsOnly, sortBy, sortDir, logHead, matchingIds]);
 
   const searchLoading = searchStatus === 'loading';
   const searchMessage = useMemo(() => {
@@ -309,8 +337,25 @@ export function LogsApp({
       filterUser ||
       filterOperation ||
       filterStatus ||
-      filterCodeUnit
+      filterCodeUnit ||
+      errorsOnly
   );
+  const errorScanMessage = useMemo(() => {
+    if (errorScanStatus.state !== 'running') {
+      return undefined;
+    }
+    const template = t.filters?.scanningErrorsProgress ?? 'Scanning logs for errors… ({processed}/{total}, found: {errorsFound})';
+    if (errorScanStatus.total <= 0) {
+      return t.filters?.scanningErrors ?? 'Scanning logs for errors…';
+    }
+    return template
+      .replace('{processed}', String(errorScanStatus.processed))
+      .replace('{total}', String(errorScanStatus.total))
+      .replace('{errorsFound}', String(errorScanStatus.errorsFound));
+  }, [errorScanStatus, t]);
+  const noLogsMessage = errorsOnly && errorScanStatus.state === 'running'
+    ? (errorScanMessage ?? t.noLogs)
+    : t.noLogs;
 
   return (
     <div className="relative flex min-h-[120px] flex-col gap-4 p-4 text-sm">
@@ -337,10 +382,12 @@ export function LogsApp({
         filterOperation={filterOperation}
         filterStatus={filterStatus}
         filterCodeUnit={filterCodeUnit}
+        errorsOnly={errorsOnly}
         onFilterUserChange={setFilterUser}
         onFilterOperationChange={setFilterOperation}
         onFilterStatusChange={setFilterStatus}
         onFilterCodeUnitChange={setFilterCodeUnit}
+        onErrorsOnlyChange={setErrorsOnly}
         onClearFilters={clearFilters}
         columnsConfig={logsColumns}
         fullLogSearchEnabled={fullLogSearchEnabled}
@@ -382,10 +429,13 @@ export function LogsApp({
         )}
         <LoadingOverlay show={loading} label={t.loading} />
       </div>
+      {errorScanMessage && (
+        <p className="text-xs text-muted-foreground">{errorScanMessage}</p>
+      )}
 
       {!loading && filteredRows.length === 0 && (
         <p className="mt-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-          {t.noLogs}
+          {noLogsMessage}
         </p>
       )}
     </div>
