@@ -10,6 +10,7 @@
 ### Bug Fixes
 
 - CLI: add an optional `electivus.apexLogs.cliPath` setting to help VS Code find the Salesforce CLI (`sf`) when PATH inheritance is limited (for example when launched from the OS GUI).
+- Debug Flags: fix user search queries for orgs that reject SOQL `ESCAPE` in `LIKE` clauses, avoiding HTTP 400/MALFORMED_QUERY and keeping filtered results consistent.
 
 ### Chores
 
@@ -19,6 +20,7 @@
 ### Tests
 
 - Debug Flags: add unit/webview coverage for user trace-flag apply/remove flows and add a Playwright E2E scenario for the new editor panel.
+- Debug Flags: split filter behavior into a dedicated Playwright E2E spec and assert that search interactions do not surface backend error banners.
 
 ## [0.22.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.20.0...v0.22.0) (2026-02-13)
 

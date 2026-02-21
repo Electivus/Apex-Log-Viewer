@@ -1,11 +1,12 @@
 import { expect, test } from '../fixtures/alvE2E';
 import { runCommand, waitForCommandAvailable } from '../utils/commandPalette';
-import { getCurrentUserId, getOrgAuth, getUserDebugTraceFlag, removeUserDebugTraceFlags } from '../utils/tooling';
+import { ensureDebugFlagsTestUser, getOrgAuth, getUserDebugTraceFlag, removeUserDebugTraceFlags } from '../utils/tooling';
 import { waitForWebviewFrame } from '../utils/webviews';
 
 test('configures and removes debug flags from logs and tail entrypoints', async ({ vscodePage, scratchAlias }) => {
   const auth = await getOrgAuth(scratchAlias);
-  const userId = await getCurrentUserId(auth);
+  const testUser = await ensureDebugFlagsTestUser(auth);
+  const userId = testUser.id;
   await removeUserDebugTraceFlags(auth, userId);
 
   try {
@@ -27,7 +28,7 @@ test('configures and removes debug flags from logs and tail entrypoints', async 
 
     const searchInput = debugFlagsFrame.locator('[data-testid="debug-flags-user-search"]');
     await searchInput.waitFor({ state: 'visible', timeout: 60_000 });
-    await searchInput.fill(auth.username || '');
+    await searchInput.fill(testUser.username);
 
     const userRow = debugFlagsFrame.locator(`[data-testid="debug-flags-user-row-${userId}"]`);
     await userRow.waitFor({ state: 'visible', timeout: 60_000 });

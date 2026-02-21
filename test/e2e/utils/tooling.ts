@@ -7,6 +7,11 @@ export type OrgAuth = {
   apiVersion: string;
 };
 
+export type DebugFlagsE2eUser = {
+  id: string;
+  username: string;
+};
+
 function getApiVersion(): string {
   const v = String(process.env.SF_TEST_API_VERSION || process.env.SF_API_VERSION || '60.0').trim();
   return /^\d+\.\d+$/.test(v) ? v : '60.0';
@@ -51,7 +56,8 @@ async function requestJson(
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Tooling API request failed (${res.status}) for ${resourcePath}`);
+    const detail = text ? ` -> ${text}` : '';
+    throw new Error(`Tooling API request failed (${res.status}) for ${resourcePath}${detail}`);
   }
   if (!text) {
     return undefined;
@@ -79,6 +85,149 @@ export async function getCurrentUserId(auth: OrgAuth): Promise<string> {
     throw new Error('Failed to resolve current user id for tooling operations.');
   }
   return userId;
+}
+
+async function findUserByUsername(
+  auth: OrgAuth,
+  username: string
+): Promise<{ id: string; username: string; active: boolean } | undefined> {
+  const usernameEsc = escapeSoqlLiteral(username);
+  const soql = encodeURIComponent(`SELECT Id, Username, IsActive FROM User WHERE Username = '${usernameEsc}' LIMIT 1`);
+  const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
+  const record = Array.isArray(response?.records) ? response.records[0] : undefined;
+  if (!isSfId(record?.Id)) {
+    return undefined;
+  }
+  return {
+    id: record.Id,
+    username: typeof record?.Username === 'string' ? record.Username : username,
+    active: Boolean(record?.IsActive)
+  };
+}
+
+function toUserAlias(username: string): string {
+  const compact = username.split('@')[0]?.replace(/[^a-zA-Z0-9]/g, '') || 'alve2e';
+  const alias = compact.slice(0, 8);
+  if (alias.length >= 2) {
+    return alias;
+  }
+  return `${alias}e2`.slice(0, 8);
+}
+
+async function resolveDefaultDebugFlagsUsername(auth: OrgAuth): Promise<string> {
+  const soql = encodeURIComponent('SELECT Id FROM Organization LIMIT 1');
+  const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
+  const orgId: string | undefined = Array.isArray(response?.records) ? response.records[0]?.Id : undefined;
+  const suffix = (typeof orgId === 'string' ? orgId : 'unknownorg').replace(/[^a-zA-Z0-9]/g, '').slice(0, 15).toLowerCase();
+  return `alv.debugflags.${suffix}@example.com`;
+}
+
+async function getCurrentUserCreateDefaults(auth: OrgAuth): Promise<{
+  profileId: string;
+  timeZoneSidKey: string;
+  localeSidKey: string;
+  emailEncodingKey: string;
+  languageLocaleKey: string;
+}> {
+  const currentUserId = await getCurrentUserId(auth);
+  const soql = encodeURIComponent(
+    `SELECT ProfileId, TimeZoneSidKey, LocaleSidKey, EmailEncodingKey, LanguageLocaleKey FROM User WHERE Id = '${currentUserId}' LIMIT 1`
+  );
+  const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
+  const record = Array.isArray(response?.records) ? response.records[0] : undefined;
+  const profileId = typeof record?.ProfileId === 'string' ? record.ProfileId : '';
+  if (!isSfId(profileId)) {
+    throw new Error('Failed to resolve current user profile for E2E debug flags test user creation.');
+  }
+  return {
+    profileId,
+    timeZoneSidKey: typeof record?.TimeZoneSidKey === 'string' ? record.TimeZoneSidKey : 'America/Los_Angeles',
+    localeSidKey: typeof record?.LocaleSidKey === 'string' ? record.LocaleSidKey : 'en_US',
+    emailEncodingKey: typeof record?.EmailEncodingKey === 'string' ? record.EmailEncodingKey : 'UTF-8',
+    languageLocaleKey: typeof record?.LanguageLocaleKey === 'string' ? record.LanguageLocaleKey : 'en_US'
+  };
+}
+
+function isLicenseLimitExceeded(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('LICENSE_LIMIT_EXCEEDED');
+}
+
+async function resolveLicenseLimitFallbackUser(auth: OrgAuth, operationLabel: string): Promise<DebugFlagsE2eUser> {
+  // Some scratch/org setups have no spare Salesforce licenses. In this case,
+  // fallback to the authenticated user so E2E can still validate debug-flag flows.
+  const fallbackUserId = await getCurrentUserId(auth);
+  const fallbackUsername = String(auth.username || '').trim();
+  if (!fallbackUsername) {
+    throw new Error(`${operationLabel} due to license limits and could not resolve fallback username.`);
+  }
+  return {
+    id: fallbackUserId,
+    username: fallbackUsername
+  };
+}
+
+export async function ensureDebugFlagsTestUser(auth: OrgAuth): Promise<DebugFlagsE2eUser> {
+  const configuredUsername = String(process.env.SF_E2E_DEBUG_FLAGS_USERNAME || '').trim();
+  const targetUsername = configuredUsername || (await resolveDefaultDebugFlagsUsername(auth));
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(targetUsername)) {
+    throw new Error(`Invalid SF_E2E_DEBUG_FLAGS_USERNAME value: '${targetUsername}'.`);
+  }
+
+  const existing = await findUserByUsername(auth, targetUsername);
+  if (existing) {
+    if (!existing.active) {
+      try {
+        await requestJson(auth, 'PATCH', `/services/data/v${auth.apiVersion}/sobjects/User/${existing.id}`, {
+          IsActive: true
+        });
+      } catch (error) {
+        if (!isLicenseLimitExceeded(error)) {
+          throw error;
+        }
+        return resolveLicenseLimitFallbackUser(
+          auth,
+          'Failed to reactivate existing E2E debug flags test user'
+        );
+      }
+    }
+    return {
+      id: existing.id,
+      username: existing.username
+    };
+  }
+
+  try {
+    const defaults = await getCurrentUserCreateDefaults(auth);
+    const alias = toUserAlias(targetUsername);
+    const createResponse = await requestJson(auth, 'POST', `/services/data/v${auth.apiVersion}/sobjects/User`, {
+      Username: targetUsername,
+      FirstName: 'ALV',
+      LastName: 'Debug Flags E2E',
+      Alias: alias,
+      Email: targetUsername,
+      ProfileId: defaults.profileId,
+      TimeZoneSidKey: defaults.timeZoneSidKey,
+      LocaleSidKey: defaults.localeSidKey,
+      EmailEncodingKey: defaults.emailEncodingKey,
+      LanguageLocaleKey: defaults.languageLocaleKey
+    });
+
+    const createdId: unknown = createResponse?.id;
+    if (!isSfId(createdId)) {
+      throw new Error('Failed to create E2E debug flags test user.');
+    }
+
+    return {
+      id: createdId,
+      username: targetUsername
+    };
+  } catch (error) {
+    if (!isLicenseLimitExceeded(error)) {
+      throw error;
+    }
+    return resolveLicenseLimitFallbackUser(auth, 'Failed to create E2E debug flags test user');
+  }
 }
 
 export async function getUserDebugTraceFlag(

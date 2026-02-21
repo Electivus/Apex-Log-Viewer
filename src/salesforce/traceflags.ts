@@ -97,13 +97,15 @@ export async function listActiveUsers(auth: OrgAuth, query = '', limit = 50): Pr
   const clauses = ['IsActive = true'];
   if (trimmed) {
     const escaped = escapeSoqlLikeLiteral(trimmed);
-    clauses.push(`(Name LIKE '%${escaped}%' ESCAPE '\\\\' OR Username LIKE '%${escaped}%' ESCAPE '\\\\')`);
+    // Some orgs reject the SOQL ESCAPE clause with MALFORMED_QUERY.
+    // Keep LIKE portable and rely on local fallback filtering below for consistency.
+    clauses.push(`(Name LIKE '%${escaped}%' OR Username LIKE '%${escaped}%')`);
   }
   const soql =
     `SELECT Id, Name, Username, IsActive FROM User ` +
     `WHERE ${clauses.join(' AND ')} ORDER BY Name NULLS LAST LIMIT ${safeLimit}`;
   const json = await queryStandard<{ Id?: string; Name?: string; Username?: string; IsActive?: boolean }>(auth, soql);
-  return (json.records || [])
+  const users = (json.records || [])
     .filter(record => isSalesforceId(record?.Id))
     .map(record => ({
       id: record.Id!,
@@ -111,6 +113,19 @@ export async function listActiveUsers(auth: OrgAuth, query = '', limit = 50): Pr
       username: typeof record.Username === 'string' ? record.Username : '',
       active: Boolean(record.IsActive)
     }));
+
+  if (!trimmed) {
+    return users;
+  }
+
+  // Defensive fallback: some org/API combinations may return broader User sets than requested.
+  // Keep the UI behavior consistent by enforcing the query on the mapped payload too.
+  const needle = trimmed.toLowerCase();
+  return users.filter(user => {
+    const name = user.name.toLowerCase();
+    const username = user.username.toLowerCase();
+    return name.includes(needle) || username.includes(needle);
+  });
 }
 
 export async function getActiveUserDebugLevel(auth: OrgAuth): Promise<string | undefined> {

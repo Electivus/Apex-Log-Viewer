@@ -66,6 +66,7 @@ Useful env vars:
 - `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_E2E_Scratch`).
 - `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
 - `SF_TEST_KEEP_ORG=1`: Keep the scratch org after the run (recommended while iterating).
+- `SF_E2E_DEBUG_FLAGS_USERNAME`: Optional username for the Debug Flags E2E user. If unset, tests auto-manage `alv.debugflags.<orgid>@example.com` (create if missing, reuse if present). If the org has no spare Salesforce licenses, tests fall back to the authenticated user.
 
 Troubleshooting:
 
