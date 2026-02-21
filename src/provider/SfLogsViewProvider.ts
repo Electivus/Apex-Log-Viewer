@@ -339,6 +339,14 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  private isAbortLikeError(err: unknown, message?: string): boolean {
+    if ((err as { name?: string } | undefined)?.name === 'AbortError') {
+      return true;
+    }
+    const normalized = String(message ?? getErrorMessage(err) ?? '').toLowerCase();
+    return normalized.includes('abort') || normalized.includes('canceled') || normalized.includes('cancelled');
+  }
+
   private readLogsColumns(): NormalizedLogsColumnsConfig {
     const raw = getConfig<unknown>('electivus.apexLogs.logsColumns', DEFAULT_LOGS_COLUMNS_CONFIG);
     return normalizeLogsColumnsConfig(raw);
@@ -681,7 +689,16 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           progress.report({
             message: localize('downloadAllLogsProgressListing', 'Listing logs from the selected org…')
           });
-          const logs = await this.fetchAllOrgLogs(auth, controller.signal);
+          let logs: ApexLogRow[] = [];
+          try {
+            logs = await this.fetchAllOrgLogs(auth, controller.signal);
+          } catch (e) {
+            const msg = getErrorMessage(e);
+            if (controller.signal.aborted || this.isAbortLikeError(e, msg)) {
+              return { kind: 'cancelled-before-download', listed: 0 };
+            }
+            throw e;
+          }
           if (controller.signal.aborted) {
             return { kind: 'cancelled-before-download', listed: logs.length };
           }

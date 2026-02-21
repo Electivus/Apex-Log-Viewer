@@ -662,6 +662,11 @@ suite('SfLogsViewProvider behavior', () => {
         fetchSignals.push(signal);
       }
       await new Promise(resolve => setTimeout(resolve, 30));
+      if (signal?.aborted) {
+        const error = new Error('The operation was aborted');
+        (error as { name?: string }).name = 'AbortError';
+        throw error;
+      }
       return [
         { Id: '07L000000000001AA', StartTime: '2026-01-01T00:00:00.000Z', LogLength: 10 }
       ] as any;
@@ -683,6 +688,7 @@ suite('SfLogsViewProvider behavior', () => {
     };
 
     const warningCalls: string[] = [];
+    const errorCalls: string[] = [];
     (vscode.window as any).showWarningMessage = async (...args: any[]) => {
       warningCalls.push(String(args[0]));
       if (typeof args[2] === 'string') {
@@ -691,7 +697,10 @@ suite('SfLogsViewProvider behavior', () => {
       return undefined;
     };
     (vscode.window as any).showInformationMessage = async () => undefined;
-    (vscode.window as any).showErrorMessage = async () => undefined;
+    (vscode.window as any).showErrorMessage = async (message: string) => {
+      errorCalls.push(message);
+      return undefined;
+    };
     (vscode.window as any).withProgress = async (_opts: any, task: any) => {
       let cancel: (() => void) | undefined;
       const resultPromise = task(
@@ -740,6 +749,7 @@ suite('SfLogsViewProvider behavior', () => {
       warningCalls.some(msg => msg.includes('cancelled while listing logs')),
       'should show cancellation summary for listing stage'
     );
+    assert.equal(errorCalls.length, 0, 'should not show hard error toast for listing abort');
   });
 
   test('openDebugFlags opens debug flags panel', async () => {
