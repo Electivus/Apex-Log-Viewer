@@ -6,6 +6,7 @@ suite('i18n messages', () => {
     const messages = getMessages(undefined);
     assert.equal(messages.refresh, 'Refresh');
     assert.equal(messages.downloadAllLogs, 'Download all logs');
+    assert.equal(messages.filters?.errorsOnly, 'Errors only');
     assert.equal(messages.tail?.debugTag, 'debug');
   });
 
@@ -15,6 +16,7 @@ suite('i18n messages', () => {
 
     assert.equal(pt.refresh, 'Atualizar');
     assert.equal(pt.tail?.debugOnly, 'Somente USER_DEBUG');
+    assert.equal(pt.filters?.errorsOnly, 'Somente erros');
     assert.equal(ptBr.tail?.waiting, 'Aguardando logs…');
   });
 });

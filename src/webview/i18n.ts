@@ -38,6 +38,10 @@ export type Messages = {
     user: string;
     operation: string;
     status: string;
+    errorsOnly: string;
+    errorDetectedBadge: string;
+    scanningErrors: string;
+    scanningErrorsProgress: string;
     all: string;
     clear: string;
   };
@@ -132,6 +136,10 @@ const en: Messages = {
     user: 'User',
     operation: 'Operation',
     status: 'Status',
+    errorsOnly: 'Errors only',
+    errorDetectedBadge: 'Error',
+    scanningErrors: 'Scanning logs for errors…',
+    scanningErrorsProgress: 'Scanning logs for errors… ({processed}/{total}, found: {errorsFound})',
     all: 'All',
     clear: 'Clear filters'
   },
@@ -226,6 +234,10 @@ const ptBR: Messages = {
     user: 'Usuário',
     operation: 'Operação',
     status: 'Status',
+    errorsOnly: 'Somente erros',
+    errorDetectedBadge: 'Erro',
+    scanningErrors: 'Analisando logs em busca de erros…',
+    scanningErrorsProgress: 'Analisando logs em busca de erros… ({processed}/{total}, encontrados: {errorsFound})',
     all: 'Todos',
     clear: 'Limpar filtros'
   },

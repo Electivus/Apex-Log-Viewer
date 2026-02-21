@@ -38,6 +38,7 @@ type ToolbarRenderOptions = {
   filterOperation?: string;
   filterStatus?: string;
   filterCodeUnit?: string;
+  errorsOnly?: boolean;
   searchLoading?: boolean;
   searchMessage?: string;
 };
@@ -51,6 +52,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
     filterOperation = '',
     filterStatus = '',
     filterCodeUnit = '',
+    errorsOnly = false,
     searchLoading = false,
     searchMessage
   } = overrides;
@@ -70,6 +72,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
   let clearCount = 0;
   const queryChanges: string[] = [];
   const userChanges: string[] = [];
+  const errorsOnlyChanges: boolean[] = [];
 
   const docRef = globalThis as unknown as { DocumentFragment: typeof DocumentFragment | undefined };
   const originalDocumentFragment = docRef.DocumentFragment;
@@ -109,6 +112,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
         filterOperation={filterOperation}
         filterStatus={filterStatus}
         filterCodeUnit={filterCodeUnit}
+        errorsOnly={errorsOnly}
         onFilterUserChange={value => {
           userChanges.push(`user:${value}`);
         }}
@@ -120,6 +124,9 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
         }}
         onFilterCodeUnitChange={value => {
           userChanges.push(`code:${value}`);
+        }}
+        onErrorsOnlyChange={value => {
+          errorsOnlyChanges.push(value);
         }}
         onClearFilters={() => {
           clearCount++;
@@ -140,7 +147,8 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
     openDebugFlagsCount: () => openDebugFlagsCount,
     clearCount: () => clearCount,
     queryChanges,
-    userChanges
+    userChanges,
+    errorsOnlyChanges
   };
 }
 
@@ -191,6 +199,13 @@ describe('Toolbar webview component', () => {
     const searchInput = screen.getByLabelText('Search logs…') as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: 'new search' } });
     expect(utils.queryChanges).toEqual(['new search']);
+  });
+
+  it('toggles errors-only filter and reports changes', () => {
+    const utils = renderToolbar();
+    const toggle = screen.getByRole('switch', { name: 'Errors only' });
+    fireEvent.click(toggle);
+    expect(utils.errorsOnlyChanges).toEqual([true]);
   });
 
   it('shows spinner when searchLoading is true', () => {

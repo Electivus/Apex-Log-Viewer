@@ -7,6 +7,7 @@ import * as path from 'path';
 import type { OrgAuth } from '../salesforce/types';
 import type { ApexLogRow } from '../shared/types';
 import type { EnsureLogsSavedItemResult } from '../services/logService';
+import type { ClassifyLogsForErrorsProgress } from '../services/logService';
 
 suite('LogService', () => {
   test('fetchLogs delegates to http fetch', async () => {
@@ -17,7 +18,6 @@ suite('LogService', () => {
           calls.push({ auth, limit, offset });
           return [{ Id: '1' } as ApexLogRow];
         },
-        fetchApexLogHead: async () => [],
         fetchApexLogBody: async () => '',
         extractCodeUnitStartedFromLines: () => undefined
       },
@@ -38,44 +38,44 @@ suite('LogService', () => {
   });
 
   test('loadLogHeads posts code units', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-heads-'));
+    const logPath = path.join(tmpDir, 'default_1.log');
     const { LogService } = proxyquire('../services/logService', {
       '../salesforce/http': {
-        fetchApexLogHead: async () => ['line'],
-        extractCodeUnitStartedFromLines: () => 'Unit',
         fetchApexLogs: async () => [],
-        fetchApexLogBody: async () => ''
+        fetchApexLogBody: async () => '\n|CODE_UNIT_STARTED|Foo|Unit\n',
+        extractCodeUnitStartedFromLines: () => 'Unit'
       },
       '../salesforce/cli': {
         getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
       },
       '../utils/workspace': {
-        getLogFilePathWithUsername: async () => ({ dir: '', filePath: '' }),
+        getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath: logPath }),
         findExistingLogFile: async () => undefined
       }
     });
-    const svc = new LogService(1);
-    const logs: ApexLogRow[] = [{ Id: '1', LogLength: 10 } as any];
-    const seen: any[] = [];
-    svc.loadLogHeads(logs, {} as OrgAuth, 0, (id: string, code: string) => {
-      seen.push({ id, code });
-    }, undefined);
-    await new Promise(r => setTimeout(r, 10));
-    assert.deepEqual(seen, [{ id: '1', code: 'Unit' }]);
+    try {
+      const svc = new LogService(1);
+      const logs: ApexLogRow[] = [{ Id: '1', LogLength: 10 } as any];
+      const seen: any[] = [];
+      svc.loadLogHeads(logs, {} as OrgAuth, 0, (id: string, code: string) => {
+        seen.push({ id, code });
+      }, undefined, { selectedOrg: 'default' });
+      await new Promise(r => setTimeout(r, 30));
+      assert.deepEqual(seen, [{ id: '1', code: 'Unit' }]);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
   });
 
-  test('loadLogHeads prefers local full bodies when available', async () => {
+  test('loadLogHeads reads code units from existing log files', async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-'));
     const filePath = path.join(tmpDir, 'default_1.log');
     await fs.writeFile(filePath, '\n|CODE_UNIT_STARTED|Foo|Class.method\n', 'utf8');
 
-    const fetchHeadCalls: string[] = [];
     const fetchBodyCalls: string[] = [];
     const { LogService } = proxyquire('../services/logService', {
       '../salesforce/http': {
-        fetchApexLogHead: async () => {
-          fetchHeadCalls.push('called');
-          return [];
-        },
         extractCodeUnitStartedFromLines: (lines: string[]) => {
           const target = lines.find(l => l.includes('|CODE_UNIT_STARTED|'));
           return target ? 'Class.method' : undefined;
@@ -110,7 +110,6 @@ suite('LogService', () => {
       );
       await new Promise(r => setTimeout(r, 20));
       assert.deepEqual(seen, [{ id: '1', code: 'Class.method' }]);
-      assert.equal(fetchHeadCalls.length, 0, 'should not fall back to remote head');
       assert.equal(fetchBodyCalls.length, 0, 'should not re-download body when file exists');
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
@@ -352,5 +351,115 @@ suite('LogService', () => {
     assert.deepEqual(missing, ['1']);
     assert.ok(statuses.includes('missing'));
     assert.ok(statuses.includes('existing'));
+  });
+
+  test('classifyLogsForErrors scans full log body and reports progress', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-errors-'));
+    const errPath = path.join(tmpDir, 'default_err.log');
+    const okPath = path.join(tmpDir, 'default_ok.log');
+    await fs.writeFile(errPath, '12:00:00.000 | EXCEPTION_THROWN | [6] | boom\n', 'utf8');
+    await fs.writeFile(okPath, '12:00:00.000 | USER_DEBUG | [6] | all good\n', 'utf8');
+
+    const { LogService } = proxyquire('../services/logService', {
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        fetchApexLogHead: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async () => ''
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
+      },
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath: path.join(tmpDir, 'unused.log') }),
+        findExistingLogFile: async (logId: string) => {
+          if (logId === 'err') return errPath;
+          if (logId === 'ok') return okPath;
+          return undefined;
+        }
+      }
+    });
+
+    try {
+      const svc = new LogService(2);
+      const progress: Array<{ processed: number; total: number; errorsFound: number; logId: string }> = [];
+      const result = await svc.classifyLogsForErrors(
+        [{ Id: 'err' } as ApexLogRow, { Id: 'ok' } as ApexLogRow],
+        'default',
+        undefined,
+        {
+          onProgress: (entry: ClassifyLogsForErrorsProgress) => {
+            progress.push({
+              processed: entry.processed,
+              total: entry.total,
+              errorsFound: entry.errorsFound,
+              logId: entry.logId
+            });
+          }
+        }
+      );
+
+      assert.equal(result.get('err'), true);
+      assert.equal(result.get('ok'), false);
+      assert.equal(progress.length, 2);
+      assert.ok(progress.every(entry => entry.total === 2));
+      assert.equal(progress[progress.length - 1]?.processed, 2);
+      assert.equal(progress[progress.length - 1]?.errorsFound, 1);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('classifyLogsForErrors treats read failures as potential errors to avoid false negatives', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-errors-fallback-'));
+    const okPath = path.join(tmpDir, 'default_ok.log');
+
+    const { LogService } = proxyquire('../services/logService', {
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        fetchApexLogHead: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async (_auth: OrgAuth, logId: string) => {
+          if (logId === 'missing') {
+            throw new Error('log disappeared');
+          }
+          return '12:00:00.000 | USER_DEBUG | [6] | all good\n';
+        }
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
+      },
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async (_username: string | undefined, logId: string) => ({
+          dir: tmpDir,
+          filePath: path.join(tmpDir, `default_${logId}.log`)
+        }),
+        findExistingLogFile: async (logId: string) => (logId === 'ok' ? okPath : undefined)
+      }
+    });
+
+    try {
+      await fs.writeFile(okPath, '12:00:00.000 | USER_DEBUG | [6] | all good\n', 'utf8');
+      const svc = new LogService(2);
+      const progress: ClassifyLogsForErrorsProgress[] = [];
+      const result = await svc.classifyLogsForErrors(
+        [{ Id: 'missing' } as ApexLogRow, { Id: 'ok' } as ApexLogRow],
+        'default',
+        undefined,
+        {
+          onProgress: (entry: ClassifyLogsForErrorsProgress) => {
+            progress.push(entry);
+          }
+        }
+      );
+
+      assert.equal(result.get('missing'), true, 'failed scans should be considered potential errors');
+      assert.equal(result.get('ok'), false);
+      const missingProgress = progress.find(entry => entry.logId === 'missing');
+      assert.equal(missingProgress?.hasErrors, true);
+      assert.equal(missingProgress?.inferredFromFailure, true);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
   });
 });

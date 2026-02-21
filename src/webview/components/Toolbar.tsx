@@ -4,6 +4,7 @@ import type { OrgItem } from '../../shared/types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { Switch } from './ui/switch';
 import { FilterSelect } from './FilterSelect';
 import { OrgSelect } from './OrgSelect';
 import { ColumnsPopover } from './ColumnsPopover';
@@ -37,10 +38,12 @@ type ToolbarProps = {
   filterOperation: string;
   filterStatus: string;
   filterCodeUnit: string;
+  errorsOnly: boolean;
   onFilterUserChange: (v: string) => void;
   onFilterOperationChange: (v: string) => void;
   onFilterStatusChange: (v: string) => void;
   onFilterCodeUnitChange: (v: string) => void;
+  onErrorsOnlyChange: (v: boolean) => void;
   onClearFilters: () => void;
   columnsConfig: NormalizedLogsColumnsConfig;
   fullLogSearchEnabled: boolean;
@@ -73,17 +76,20 @@ export function Toolbar({
   filterOperation,
   filterStatus,
   filterCodeUnit,
+  errorsOnly,
   onFilterUserChange,
   onFilterOperationChange,
   onFilterStatusChange,
   onFilterCodeUnitChange,
+  onErrorsOnlyChange,
   onClearFilters,
   columnsConfig,
   fullLogSearchEnabled,
   onColumnsConfigChange
 }: ToolbarProps) {
   const searchInputId = useStableId('logs-search');
-  const hasFilters = Boolean(filterUser || filterOperation || filterStatus || filterCodeUnit);
+  const errorsOnlyId = useStableId('logs-errors-only');
+  const hasFilters = Boolean(filterUser || filterOperation || filterStatus || filterCodeUnit || errorsOnly);
   const errorLabel = t?.tail?.errorLabel ?? t?.errors?.generic ?? 'Error';
   const warningLabel = t?.warningLabel ?? 'Warning';
 
@@ -201,6 +207,21 @@ export function Toolbar({
           allLabel={t.filters?.all ?? 'All'}
           disabled={loading}
         />
+        <div className="flex min-w-[160px] items-center gap-2 rounded-md border border-input bg-input px-3 py-2">
+          <Switch
+            id={errorsOnlyId}
+            data-testid="logs-errors-only-switch"
+            checked={errorsOnly}
+            onCheckedChange={onErrorsOnlyChange}
+            disabled={loading}
+          />
+          <Label
+            htmlFor={errorsOnlyId}
+            className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+          >
+            {t.filters?.errorsOnly ?? 'Errors only'}
+          </Label>
+        </div>
 
         <ColumnsPopover
           t={t}

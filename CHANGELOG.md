@@ -7,6 +7,8 @@
 - Testing: add Playwright E2E coverage against a real scratch org (Dev Hub + seeded Apex log). Also adds a manual GitHub Actions workflow for opt-in validation.
 - Debug Flags: add a dedicated editor panel to configure `USER_DEBUG` TraceFlags for active users, accessible from both Logs and Tail toolbars.
 - Logs: add an explicit `Download all logs` action with confirmation, progress feedback, and completion summary; search now reports pending logs without implicit multi-log fallback. ([#541](https://github.com/Electivus/Apex-Log-Viewer/issues/541))
+- Logs: always download full Apex log bodies in the Logs view so content search and derived metadata no longer depend on partial-header requests; removes the `electivus.apexLogs.enableFullLogSearch` setting.
+- Logs: add an `Errors only` filter with progressive full-body scanning across the current log listing (including additional pages) and inline row badges for detected errors. ([#542](https://github.com/Electivus/Apex-Log-Viewer/issues/542))
 
 ### Bug Fixes
 

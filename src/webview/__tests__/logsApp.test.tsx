@@ -221,4 +221,54 @@ describe('Logs webview App', () => {
       expect(loadCalls).toBeGreaterThan(baselineLoads);
     });
   });
+
+  it('applies errors-only filter with progressive scan status updates', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<LogsApp vscode={vscode} messageBus={bus} />);
+
+    sendMessage(bus, { type: 'init', locale: 'en', fullLogSearchEnabled: true });
+    sendMessage(bus, {
+      type: 'logs',
+      data: [
+        {
+          Id: '07L00000000000EAA',
+          StartTime: '2025-09-21T20:00:00.000Z',
+          Operation: 'ErrorCandidate',
+          Application: 'VS Code',
+          DurationMilliseconds: 50,
+          Status: 'Success',
+          Request: 'ERR',
+          LogLength: 300,
+          LogUser: { Name: 'Alice' }
+        },
+        {
+          Id: '07L00000000000FAA',
+          StartTime: '2025-09-21T20:01:00.000Z',
+          Operation: 'NormalCandidate',
+          Application: 'VS Code',
+          DurationMilliseconds: 40,
+          Status: 'Success',
+          Request: 'OK',
+          LogLength: 200,
+          LogUser: { Name: 'Bob' }
+        }
+      ],
+      hasMore: false
+    });
+    sendMessage(bus, { type: 'loading', value: false });
+    await screen.findByText('ErrorCandidate');
+    await screen.findByText('NormalCandidate');
+
+    sendMessage(bus, { type: 'logHead', logId: '07L00000000000EAA', hasErrors: true });
+    sendMessage(bus, { type: 'errorScanStatus', state: 'running', processed: 1, total: 2, errorsFound: 1 });
+    await screen.findByText('Scanning logs for errors… (1/2, found: 1)');
+
+    const toggle = screen.getByRole('switch', { name: 'Errors only' });
+    fireEvent.click(toggle);
+
+    await screen.findByText('ErrorCandidate');
+    expect(screen.queryByText('NormalCandidate')).toBeNull();
+    expect(screen.getByText('Error')).toBeInTheDocument();
+  });
 });

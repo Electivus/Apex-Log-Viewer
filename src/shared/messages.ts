@@ -27,7 +27,8 @@ export type ExtensionToWebviewMessage =
   | { type: 'logsColumns'; value: NormalizedLogsColumnsConfig }
   | { type: 'logs'; data: ApexLogRow[]; hasMore: boolean }
   | { type: 'appendLogs'; data: ApexLogRow[]; hasMore: boolean }
-  | { type: 'logHead'; logId: string; codeUnitStarted?: string }
+  | { type: 'logHead'; logId: string; codeUnitStarted?: string; hasErrors?: boolean }
+  | { type: 'errorScanStatus'; state: 'idle' | 'running'; processed: number; total: number; errorsFound: number }
   | {
       type: 'searchMatches';
       query: string;

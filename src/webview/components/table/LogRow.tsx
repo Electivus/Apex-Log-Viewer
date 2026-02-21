@@ -1,10 +1,11 @@
 import React, { useLayoutEffect, useMemo, useRef } from 'react';
-import { BugPlay, FileText, Loader2 } from 'lucide-react';
+import { AlertOctagon, BugPlay, FileText, Loader2 } from 'lucide-react';
 import type { ApexLogRow } from '../../../shared/types';
 import type { LogHeadMap } from '../LogsTable';
 import type { LogsColumnKey } from '../../../shared/logsColumns';
 import { formatBytes, formatDuration } from '../../utils/format';
 import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
 
 type Props = {
@@ -182,11 +183,26 @@ export function LogRow({
                 </div>
               );
             case 'status':
-              return (
-                <div key={key} className={cellClass}>
-                  {r.Status}
-                </div>
-              );
+              {
+                const hasErrors = logHead[r.Id]?.hasErrors === true;
+                const errorBadge = t?.filters?.errorDetectedBadge ?? 'Error';
+                return (
+                  <div key={key} className={cn(cellClass, 'flex items-center gap-2')}>
+                    <span>{r.Status}</span>
+                    {hasErrors && (
+                      <Badge
+                        data-testid="logs-error-badge"
+                        variant="outline"
+                        className="gap-1 border-destructive/50 bg-destructive/10 text-destructive"
+                        title={errorBadge}
+                      >
+                        <AlertOctagon className="h-3 w-3" aria-hidden="true" />
+                        <span>{errorBadge}</span>
+                      </Badge>
+                    )}
+                  </div>
+                );
+              }
             case 'codeUnit':
               return (
                 <div key={key} className={cellClass} title={logHead[r.Id]?.codeUnitStarted ?? ''}>

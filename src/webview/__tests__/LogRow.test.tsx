@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, screen } from '@testing-library/react';
 import { LogRow } from '../components/table/LogRow';
 import type { ApexLogRow } from '../../shared/types';
 
@@ -54,5 +54,36 @@ describe('LogRow', () => {
     expect(opened).toBe('1');
     fireEvent.keyDown(rowEl, { key: 'Enter', shiftKey: true });
     expect(replayed).toBe('1');
+  });
+
+  it('shows error badge on status column when error is detected', () => {
+    const row: ApexLogRow = {
+      Id: 'err-1',
+      StartTime: new Date().toISOString(),
+      Operation: 'Op',
+      Application: 'App',
+      DurationMilliseconds: 1,
+      Status: 'Success',
+      Request: '',
+      LogLength: 2048,
+      LogUser: { Name: 'User' }
+    };
+    render(
+      <LogRow
+        r={row}
+        logHead={{ 'err-1': { hasErrors: true } }}
+        locale="en-US"
+        t={{ open: 'Open', replay: 'Replay', filters: { errorDetectedBadge: 'Error' } }}
+        columns={['status']}
+        loading={false}
+        onOpen={() => {}}
+        onReplay={() => {}}
+        gridTemplate="1fr 96px"
+        style={{}}
+        index={0}
+        setRowHeight={() => {}}
+      />
+    );
+    expect(screen.getByText('Error')).toBeInTheDocument();
   });
 });

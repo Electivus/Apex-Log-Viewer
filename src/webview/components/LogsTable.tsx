@@ -6,7 +6,7 @@ import { LOGS_COLUMN_DEFAULT_TRACK, LOGS_COLUMN_MIN_WIDTH_PX } from '../utils/lo
 import { LogsHeader } from './table/LogsHeader';
 import { LogRow } from './table/LogRow';
 
-export type LogHeadMap = Record<string, { codeUnitStarted?: string }>;
+export type LogHeadMap = Record<string, { codeUnitStarted?: string; hasErrors?: boolean }>;
 
 type ListRowProps = {
   rows: ApexLogRow[];

@@ -2,11 +2,7 @@ import * as vscode from 'vscode';
 import { promises as fs } from 'fs';
 import { createLimiter, type Limiter } from '../utils/limiter';
 import { getOrgAuth } from '../salesforce/cli';
-import {
-  fetchApexLogHead,
-  fetchApexLogBody,
-  extractCodeUnitStartedFromLines
-} from '../salesforce/http';
+import { fetchApexLogBody, extractCodeUnitStartedFromLines } from '../salesforce/http';
 import type { ApexLogCursor } from '../salesforce/http';
 import type { OrgAuth } from '../salesforce/types';
 import type { ApexLogRow } from '../shared/types';
@@ -17,6 +13,7 @@ import { logWarn, logInfo } from '../utils/logger';
 import { localize } from '../utils/localize';
 import { LogViewerPanel } from '../panel/LogViewerPanel';
 import { fetchApexLogs } from '../salesforce/http';
+import { lineHasErrorSignal } from '../shared/logErrorSignals';
 
 export type EnsureLogsSavedItemStatus = 'downloaded' | 'existing' | 'missing' | 'failed' | 'cancelled';
 
@@ -43,11 +40,26 @@ export type EnsureLogsSavedOptions = {
   onItemComplete?: (result: EnsureLogsSavedItemResult) => void;
 };
 
+export type ClassifyLogsForErrorsProgress = {
+  logId: string;
+  hasErrors: boolean;
+  inferredFromFailure?: boolean;
+  processed: number;
+  total: number;
+  errorsFound: number;
+};
+
+export type ClassifyLogsForErrorsOptions = {
+  onProgress?: (progress: ClassifyLogsForErrorsProgress) => void;
+};
+
 export class LogService {
   private headLimiter: Limiter;
   private headConcurrency: number;
   private saveLimiter: Limiter;
   private saveConcurrency: number;
+  private classifyLimiter: Limiter;
+  private classifyConcurrency: number;
   private inFlightSaves = new Map<string, Promise<string>>();
 
   constructor(headConcurrency = 5) {
@@ -55,6 +67,9 @@ export class LogService {
     this.headLimiter = createLimiter(this.headConcurrency);
     this.saveConcurrency = Math.max(1, Math.min(3, Math.ceil(this.headConcurrency / 2)));
     this.saveLimiter = createLimiter(this.saveConcurrency);
+    // Keep error scans from starving interactive save/download work.
+    this.classifyConcurrency = Math.max(1, Math.min(2, this.saveConcurrency));
+    this.classifyLimiter = createLimiter(this.classifyConcurrency);
   }
 
   setHeadConcurrency(conc: number): void {
@@ -66,6 +81,11 @@ export class LogService {
     if (nextSaveConcurrency !== this.saveConcurrency) {
       this.saveConcurrency = nextSaveConcurrency;
       this.saveLimiter = createLimiter(this.saveConcurrency);
+    }
+    const nextClassifyConcurrency = Math.max(1, Math.min(2, this.saveConcurrency));
+    if (nextClassifyConcurrency !== this.classifyConcurrency) {
+      this.classifyConcurrency = nextClassifyConcurrency;
+      this.classifyLimiter = createLimiter(this.classifyConcurrency);
     }
   }
 
@@ -89,7 +109,6 @@ export class LogService {
     signal?: AbortSignal,
     options?: { preferLocalBodies?: boolean; selectedOrg?: string }
   ): void {
-    const preferLocalBodies = options?.preferLocalBodies ?? false;
     const selectedOrg = options?.selectedOrg;
     for (const log of logs) {
       void this.headLimiter(async () => {
@@ -97,27 +116,7 @@ export class LogService {
           return;
         }
         try {
-          let codeUnit: string | undefined;
-          if (preferLocalBodies) {
-            codeUnit = await this.loadCodeUnitFromLocalFile(log.Id, selectedOrg, signal);
-            if (signal?.aborted) {
-              return;
-            }
-          }
-          if (!codeUnit) {
-            const headLines = await fetchApexLogHead(
-              auth,
-              log.Id,
-              10,
-              typeof log.LogLength === 'number' ? log.LogLength : undefined,
-              undefined,
-              signal
-            );
-            if (signal?.aborted) {
-              return;
-            }
-            codeUnit = extractCodeUnitStartedFromLines(headLines);
-          }
+          const codeUnit = await this.loadCodeUnitFromLocalFile(log.Id, selectedOrg, signal);
           if (codeUnit) {
             post(log.Id, codeUnit);
           }
@@ -193,6 +192,103 @@ export class LogService {
       }
     }
     return undefined;
+  }
+
+  private async scanLogFileForErrors(filePath: string, signal?: AbortSignal): Promise<boolean> {
+    const handle = await fs.open(filePath, 'r');
+    const buffer = Buffer.alloc(64 * 1024);
+    let remainder = '';
+    try {
+      for (;;) {
+        if (signal?.aborted) {
+          return false;
+        }
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+        if (bytesRead <= 0) {
+          break;
+        }
+        const chunk = remainder + buffer.slice(0, bytesRead).toString('utf8');
+        const lines = chunk.split(/\r?\n/);
+        remainder = lines.pop() ?? '';
+        for (const line of lines) {
+          if (lineHasErrorSignal(line)) {
+            return true;
+          }
+        }
+      }
+      if (remainder && lineHasErrorSignal(remainder)) {
+        return true;
+      }
+      return false;
+    } finally {
+      await handle.close();
+    }
+  }
+
+  async classifyLogsForErrors(
+    logs: ApexLogRow[],
+    selectedOrg?: string,
+    signal?: AbortSignal,
+    options?: ClassifyLogsForErrorsOptions
+  ): Promise<Map<string, boolean>> {
+    const validLogs = logs.filter(
+      (log): log is ApexLogRow & { Id: string } => typeof log?.Id === 'string' && log.Id.length > 0
+    );
+    const total = validLogs.length;
+    let processed = 0;
+    let errorsFound = 0;
+    const result = new Map<string, boolean>();
+    const tasks: Promise<void>[] = [];
+
+    for (const log of validLogs) {
+      tasks.push(
+        this.classifyLimiter(async () => {
+          let hasErrors = false;
+          let inferredFromFailure = false;
+          try {
+            if (signal?.aborted) {
+              return;
+            }
+            const existingPath = await findExistingLogFile(log.Id);
+            const filePath = existingPath ?? (await this.ensureLogFile(log.Id, selectedOrg, signal));
+            if (signal?.aborted) {
+              return;
+            }
+            hasErrors = await this.scanLogFileForErrors(filePath, signal);
+            result.set(log.Id, hasErrors);
+            if (hasErrors) {
+              errorsFound++;
+            }
+          } catch (e) {
+            if (!signal?.aborted) {
+              // Conservative fallback: unreadable/unavailable logs are treated as potentially erroneous
+              // to avoid false negatives in the "Errors only" filter.
+              hasErrors = true;
+              inferredFromFailure = true;
+              result.set(log.Id, true);
+              errorsFound++;
+              logWarn('LogService: classifyLogsForErrors failed for', log.Id, '->', getErrorMessage(e));
+            }
+          } finally {
+            if (signal?.aborted) {
+              return;
+            }
+            processed++;
+            options?.onProgress?.({
+              logId: log.Id,
+              hasErrors,
+              inferredFromFailure,
+              processed,
+              total,
+              errorsFound
+            });
+          }
+        })
+      );
+    }
+
+    await Promise.all(tasks);
+    return result;
   }
 
   async openLog(logId: string, selectedOrg?: string): Promise<void> {
