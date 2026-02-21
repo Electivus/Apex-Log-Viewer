@@ -3,13 +3,14 @@ import { localize } from '../utils/localize';
 import { getOrgAuth } from '../salesforce/cli';
 import { clearListCache, getApiVersionFallbackWarning } from '../salesforce/http';
 import type { ApexLogRow } from '../shared/types';
+import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn, logError } from '../utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
 import { warmUpReplayDebugger } from '../utils/warmup';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { getErrorMessage } from '../utils/error';
-import { LogService } from '../services/logService';
+import { LogService, type EnsureLogsSavedSummary } from '../services/logService';
 import { LogsMessageHandler } from './logsMessageHandler';
 import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../utils/configManager';
@@ -38,6 +39,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private purgePromise: Promise<void> | undefined;
   private readonly logCacheMaxAgeMs = 1000 * 60 * 60 * 24;
   private logsColumns: NormalizedLogsColumnsConfig = DEFAULT_LOGS_COLUMNS_CONFIG;
+  private bulkDownloadInProgress = false;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -49,6 +51,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     this.logsColumns = this.readLogsColumns();
     this.messageHandler = new LogsMessageHandler(
       () => this.refresh(),
+      () => this.downloadAllLogs(),
       () => this.sendOrgs(),
       o => this.setSelectedOrg(o),
       () => this.openDebugFlags(),
@@ -193,8 +196,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             }
           );
           if (this.lastSearchQuery.trim()) {
-            const searchToken = ++this.searchToken;
-            void this.executeSearch(this.lastSearchQuery, searchToken);
+            this.rerunActiveSearch();
           } else {
             this.post({ type: 'searchMatches', query: '', logIds: [] });
           }
@@ -277,10 +279,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         preferLocalBodies: this.configManager.shouldLoadFullLogBodies(),
         selectedOrg: this.orgManager.getSelectedOrg()
       });
-      if (this.lastSearchQuery.trim()) {
-        const searchToken = ++this.searchToken;
-        void this.executeSearch(this.lastSearchQuery, searchToken);
-      }
+      this.rerunActiveSearch();
       try {
         const durationMs = Date.now() - t0;
         safeSendEvent('logs.loadMore', { outcome: 'ok' }, { durationMs, count: logs.length });
@@ -307,11 +306,45 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     }
     void this.logService
       .ensureLogsSaved(logs, this.orgManager.getSelectedOrg(), signal)
+      .then(summary => {
+        if (signal?.aborted || this.disposed) {
+          return;
+        }
+        if (summary.downloaded > 0) {
+          this.rerunActiveSearch();
+        }
+      })
       .catch(e => {
         if (!signal?.aborted) {
           logWarn('Logs: preload full log bodies failed ->', getErrorMessage(e));
         }
       });
+  }
+
+  private rerunActiveSearch(): void {
+    if (this.disposed || !this.lastSearchQuery.trim()) {
+      return;
+    }
+    if (this.searchAbortController) {
+      this.searchAbortController.abort();
+      this.searchAbortController = undefined;
+    }
+    const searchToken = ++this.searchToken;
+    const controller = new AbortController();
+    this.searchAbortController = controller;
+    void this.executeSearch(this.lastSearchQuery, searchToken, controller.signal).finally(() => {
+      if (this.searchAbortController === controller) {
+        this.searchAbortController = undefined;
+      }
+    });
+  }
+
+  private isAbortLikeError(err: unknown, message?: string): boolean {
+    if ((err as { name?: string } | undefined)?.name === 'AbortError') {
+      return true;
+    }
+    const normalized = String(message ?? getErrorMessage(err) ?? '').toLowerCase();
+    return normalized.includes('abort') || normalized.includes('canceled') || normalized.includes('cancelled');
   }
 
   private readLogsColumns(): NormalizedLogsColumnsConfig {
@@ -430,6 +463,16 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       if (!isActive() || signal?.aborted) {
         return;
       }
+      if (missingLogIds.size > 0) {
+        this.post({
+          type: 'searchMatches',
+          query: trimmed,
+          logIds: [],
+          snippets: {},
+          pendingLogIds: Array.from(missingLogIds)
+        });
+        return;
+      }
       const dir = await ensureApexLogsDir();
       if (signal?.aborted) {
         return;
@@ -543,6 +586,255 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     if (codePoint <= 0x7ff) return 2;
     if (codePoint <= 0xffff) return 3;
     return 4;
+  }
+
+  private async fetchAllOrgLogs(auth: OrgAuth, signal?: AbortSignal): Promise<ApexLogRow[]> {
+    const all: ApexLogRow[] = [];
+    const seen = new Set<string>();
+    let cursorStartTime: string | undefined;
+    let cursorId: string | undefined;
+    let lastCursorKey: string | undefined;
+    while (!signal?.aborted) {
+      const batch = await this.logService.fetchLogs(
+        auth,
+        this.pageLimit,
+        0,
+        signal,
+        cursorStartTime && cursorId
+          ? { beforeStartTime: cursorStartTime, beforeId: cursorId }
+          : undefined
+      );
+      if (!Array.isArray(batch) || batch.length === 0) {
+        break;
+      }
+      for (const log of batch) {
+        if (!log?.Id || seen.has(log.Id)) {
+          continue;
+        }
+        seen.add(log.Id);
+        all.push(log);
+      }
+      if (batch.length < this.pageLimit) {
+        break;
+      }
+      const last = batch[batch.length - 1];
+      if (!last?.StartTime || !last?.Id) {
+        break;
+      }
+      const cursorKey = `${last.StartTime}|${last.Id}`;
+      if (cursorKey === lastCursorKey) {
+        break;
+      }
+      lastCursorKey = cursorKey;
+      cursorStartTime = last.StartTime;
+      cursorId = last.Id;
+    }
+    return all;
+  }
+
+  private async downloadAllLogs(): Promise<void> {
+    if (this.bulkDownloadInProgress) {
+      void vscode.window.showInformationMessage(
+        localize('downloadAllLogsAlreadyRunning', 'A log bulk download is already in progress.')
+      );
+      return;
+    }
+    this.bulkDownloadInProgress = true;
+    const t0 = Date.now();
+    try {
+      const selectedOrg = this.orgManager.getSelectedOrg();
+      const confirmAction = localize('downloadAllLogsConfirmAction', 'Download');
+      const confirmation = await vscode.window.showWarningMessage(
+        localize(
+          'downloadAllLogsPreflightConfirm',
+          'Download all Apex logs for the selected org?'
+        ),
+        {
+          modal: true,
+          detail: localize(
+            'downloadAllLogsPreflightConfirmDetail',
+            'This action can perform many API calls and may download a large amount of data.'
+          )
+        },
+        confirmAction
+      );
+      if (confirmation !== confirmAction) {
+        try {
+          safeSendEvent('logs.downloadAll', { outcome: 'cancel' }, { durationMs: Date.now() - t0 });
+        } catch {}
+        return;
+      }
+
+      this.pageLimit = this.configManager.getPageLimit();
+      const auth = await getOrgAuth(selectedOrg);
+      type BulkDownloadRunResult =
+        | { kind: 'cancelled-before-download'; listed: number }
+        | { kind: 'empty' }
+        | {
+            kind: 'done';
+            total: number;
+            processed: number;
+            summary: EnsureLogsSavedSummary;
+          };
+      const runResult = await vscode.window.withProgress<BulkDownloadRunResult>(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: localize('downloadAllLogsProgressTitle', 'Downloading all org logs…'),
+          cancellable: true
+        },
+        async (progress, ct) => {
+          const controller = new AbortController();
+          ct.onCancellationRequested(() => controller.abort());
+
+          progress.report({
+            message: localize('downloadAllLogsProgressListing', 'Listing logs from the selected org…')
+          });
+          let logs: ApexLogRow[] = [];
+          try {
+            logs = await this.fetchAllOrgLogs(auth, controller.signal);
+          } catch (e) {
+            const msg = getErrorMessage(e);
+            if (controller.signal.aborted || this.isAbortLikeError(e, msg)) {
+              return { kind: 'cancelled-before-download', listed: 0 };
+            }
+            throw e;
+          }
+          if (controller.signal.aborted) {
+            return { kind: 'cancelled-before-download', listed: logs.length };
+          }
+          if (logs.length === 0) {
+            return { kind: 'empty' };
+          }
+
+          let processed = 0;
+          let progressPct = 0;
+          const total = logs.length;
+          progress.report({
+            message: localize(
+              'downloadAllLogsProgressMessage',
+              'Processed {0}/{1} logs…',
+              processed,
+              total
+            )
+          });
+          const summary = await this.logService.ensureLogsSaved(logs, selectedOrg, controller.signal, {
+            onItemComplete: () => {
+              processed += 1;
+              const nextPct = Math.floor((processed / total) * 100);
+              const increment = nextPct > progressPct ? nextPct - progressPct : undefined;
+              progressPct = Math.max(progressPct, nextPct);
+              progress.report({
+                increment,
+                message: localize(
+                  'downloadAllLogsProgressMessage',
+                  'Processed {0}/{1} logs…',
+                  processed,
+                  total
+                )
+              });
+            }
+          });
+          return { kind: 'done', total, processed, summary };
+        }
+      );
+
+      if (runResult.kind === 'cancelled-before-download') {
+        void vscode.window.showWarningMessage(
+          localize(
+            'downloadAllLogsSummaryCancelledBeforeDownload',
+            'Bulk download cancelled while listing logs for the selected org.'
+          )
+        );
+        try {
+          safeSendEvent(
+            'logs.downloadAll',
+            { outcome: 'cancelled' },
+            {
+              durationMs: Date.now() - t0,
+              total: runResult.listed,
+              success: 0,
+              failed: 0,
+              cancelled: runResult.listed
+            }
+          );
+        } catch {}
+        return;
+      }
+
+      if (runResult.kind === 'empty') {
+        void vscode.window.showInformationMessage(
+          localize('downloadAllLogsNoLogs', 'No Apex logs were found for the selected org.')
+        );
+        try {
+          safeSendEvent('logs.downloadAll', { outcome: 'empty' }, { durationMs: Date.now() - t0 });
+        } catch {}
+        return;
+      }
+
+      const total = runResult.total;
+      const processed = runResult.processed;
+      const summary = runResult.summary;
+      const success = summary.success;
+      this.rerunActiveSearch();
+      if (summary.cancelled > 0) {
+        void vscode.window.showWarningMessage(
+          localize(
+            'downloadAllLogsSummaryCancelled',
+            'Bulk download cancelled. Processed {0}/{1}. Success: {2}, failed: {3}.',
+            processed,
+            total,
+            success,
+            summary.failed
+          )
+        );
+        try {
+          safeSendEvent(
+            'logs.downloadAll',
+            { outcome: 'cancelled' },
+            { durationMs: Date.now() - t0, total, success, failed: summary.failed, cancelled: summary.cancelled }
+          );
+        } catch {}
+        return;
+      }
+      if (summary.failed > 0) {
+        void vscode.window.showWarningMessage(
+          localize(
+            'downloadAllLogsSummaryPartial',
+            'Bulk download finished with partial success. Success: {0}, failed: {1}.',
+            success,
+            summary.failed
+          )
+        );
+        try {
+          safeSendEvent('logs.downloadAll', { outcome: 'partial' }, { durationMs: Date.now() - t0, total, success, failed: summary.failed });
+        } catch {}
+        return;
+      }
+
+      void vscode.window.showInformationMessage(
+        localize(
+          'downloadAllLogsSummarySuccess',
+          'Bulk download finished. {0} logs are available locally ({1} downloaded, {2} already cached).',
+          success,
+          summary.downloaded,
+          summary.existing
+        )
+      );
+      try {
+        safeSendEvent('logs.downloadAll', { outcome: 'ok' }, { durationMs: Date.now() - t0, total, success });
+      } catch {}
+    } catch (e) {
+      const msg = getErrorMessage(e);
+      logWarn('Logs: downloadAllLogs failed ->', msg);
+      void vscode.window.showErrorMessage(
+        localize('downloadAllLogsFailed', 'Failed to download all org logs: {0}', msg)
+      );
+      try {
+        safeSendEvent('logs.downloadAll', { outcome: 'error' }, { durationMs: Date.now() - t0 });
+      } catch {}
+    } finally {
+      this.bulkDownloadInProgress = false;
+    }
   }
 
 

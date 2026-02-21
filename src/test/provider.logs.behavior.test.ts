@@ -30,6 +30,10 @@ suite('SfLogsViewProvider behavior', () => {
   const origRipgrepSearch = ripgrep.ripgrepSearch;
   const origOpenTextDocument = vscode.workspace.openTextDocument;
   const origShowTextDocument = vscode.window.showTextDocument;
+  const origShowWarningMessage = vscode.window.showWarningMessage;
+  const origShowInformationMessage = vscode.window.showInformationMessage;
+  const origShowErrorMessage = vscode.window.showErrorMessage;
+  const origWithProgress = vscode.window.withProgress;
   const origGetCommands = vscode.commands.getCommands;
   const origExecCommand = vscode.commands.executeCommand;
   const origDebugFlagsShow = DebugFlagsPanel.show;
@@ -46,6 +50,10 @@ suite('SfLogsViewProvider behavior', () => {
     (ripgrep as any).ripgrepSearch = origRipgrepSearch;
     (vscode.workspace as any).openTextDocument = origOpenTextDocument;
     (vscode.window as any).showTextDocument = origShowTextDocument;
+    (vscode.window as any).showWarningMessage = origShowWarningMessage;
+    (vscode.window as any).showInformationMessage = origShowInformationMessage;
+    (vscode.window as any).showErrorMessage = origShowErrorMessage;
+    (vscode.window as any).withProgress = origWithProgress;
     (vscode.commands as any).getCommands = origGetCommands;
     (vscode.commands as any).executeCommand = origExecCommand;
     (DebugFlagsPanel as any).show = origDebugFlagsShow;
@@ -140,6 +148,33 @@ suite('SfLogsViewProvider behavior', () => {
       ['07L000000000001AA', '07L000000000002AA'],
       'purge should keep current log ids'
     );
+  });
+
+  test('preloadFullLogBodies re-runs active search after downloads complete', async () => {
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
+    (provider as any).lastSearchQuery = 'error';
+
+    const searchCalls: string[] = [];
+    (provider as any).executeSearch = async (query: string) => {
+      searchCalls.push(query);
+    };
+    (provider as any).logService.ensureLogsSaved = async () => ({
+      total: 1,
+      success: 1,
+      downloaded: 1,
+      existing: 0,
+      missing: 0,
+      failed: 0,
+      cancelled: 0,
+      failedLogIds: []
+    });
+
+    (provider as any).preloadFullLogBodies([{ Id: '07L000000000001AA' }]);
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.deepEqual(searchCalls, ['error'], 'should re-run active search after preload saves logs');
   });
 
   test('refresh posts API version fallback warning when available', async () => {
@@ -299,7 +334,11 @@ suite('SfLogsViewProvider behavior', () => {
         }
       }
     };
-    (ripgrep as any).ripgrepSearch = async () => [];
+    let ripgrepCalls = 0;
+    (ripgrep as any).ripgrepSearch = async () => {
+      ripgrepCalls++;
+      return [];
+    };
 
     try {
       await provider.refresh();
@@ -313,6 +352,7 @@ suite('SfLogsViewProvider behavior', () => {
       assert.ok(matches, 'should post searchMatches even when missing');
       assert.ok(Array.isArray(matches?.pendingLogIds), 'pendingLogIds should be an array');
       assert.deepEqual(matches?.pendingLogIds, ['07L000000000001AA']);
+      assert.equal(ripgrepCalls, 0, 'should not run ripgrep while logs are pending');
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
@@ -497,6 +537,219 @@ suite('SfLogsViewProvider behavior', () => {
     await provider.resolveWebviewView(view);
     await (webview as any).emit({ type: 'replay', logId: 'abc' });
     assert.equal(executed[0], 'abc');
+  });
+
+  test('downloadAllLogs message performs explicit bulk download flow', async () => {
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).lastSearchQuery = 'error';
+
+    const callOrder: string[] = [];
+    const fetchSignals: AbortSignal[] = [];
+    (provider as any).logService.fetchLogs = async (
+      _auth: any,
+      _limit: number,
+      _offset: number,
+      signal?: AbortSignal
+    ) => {
+      callOrder.push('fetch');
+      if (signal) {
+        fetchSignals.push(signal);
+      }
+      return [
+        { Id: '07L000000000001AA', StartTime: '2026-01-01T00:00:00.000Z', LogLength: 10 },
+        { Id: '07L000000000002AA', StartTime: '2025-12-31T23:59:59.000Z', LogLength: 20 }
+      ] as any;
+    };
+    const searchCalls: string[] = [];
+    (provider as any).executeSearch = async (query: string) => {
+      searchCalls.push(query);
+    };
+
+    const ensureCalls: Array<{ count: number; selectedOrg?: string }> = [];
+    (provider as any).logService.ensureLogsSaved = async (
+      logs: any[],
+      selectedOrg?: string,
+      _signal?: AbortSignal,
+      options?: { onItemComplete?: (result: { logId: string; status: string }) => void }
+    ) => {
+      ensureCalls.push({ count: logs.length, selectedOrg });
+      for (const log of logs) {
+        options?.onItemComplete?.({ logId: log.Id, status: 'downloaded' });
+      }
+      return {
+        total: logs.length,
+        success: logs.length,
+        downloaded: logs.length,
+        existing: 0,
+        missing: 0,
+        failed: 0,
+        cancelled: 0,
+        failedLogIds: []
+      };
+    };
+
+    const warningCalls: any[] = [];
+    (vscode.window as any).showWarningMessage = async (...args: any[]) => {
+      callOrder.push('confirm');
+      warningCalls.push(args);
+      return args[2];
+    };
+    const infoCalls: any[] = [];
+    (vscode.window as any).showInformationMessage = async (...args: any[]) => {
+      infoCalls.push(args);
+      return undefined;
+    };
+    (vscode.window as any).showErrorMessage = async () => undefined;
+    (vscode.window as any).withProgress = async (_opts: any, task: any) =>
+      task(
+        { report: () => {} },
+        {
+          onCancellationRequested: () => {},
+          isCancellationRequested: false
+        }
+      );
+
+    class MockWebview implements vscode.Webview {
+      html = '';
+      options: vscode.WebviewOptions = {};
+      cspSource = 'vscode-resource://test';
+      private handler: ((e: any) => any) | undefined;
+      asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
+      postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
+      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
+        this.handler = listener; return { dispose() {} } as any;
+      }
+      emit(message: any) { return this.handler?.(message); }
+    }
+    class MockWebviewView implements vscode.WebviewView {
+      visible = true; title = 'Test'; viewType = 'sfLogViewer';
+      description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
+      webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
+      show(): void { /* noop */ }
+      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
+      onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
+    }
+    const webview = new MockWebview();
+    const view = new MockWebviewView(webview);
+    await provider.resolveWebviewView(view);
+    await (webview as any).emit({ type: 'downloadAllLogs' });
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.equal(ensureCalls.length, 1, 'should perform one bulk save run');
+    assert.equal(ensureCalls[0]?.count, 2, 'should include all logs fetched for the org');
+    assert.ok(warningCalls.length >= 1, 'should request user confirmation');
+    assert.ok(infoCalls.length >= 1, 'should show completion summary');
+    assert.equal(callOrder[0], 'confirm', 'should confirm before listing org logs');
+    assert.equal(typeof fetchSignals[0]?.aborted, 'boolean', 'should pass cancellation signal while listing logs');
+    assert.ok(searchCalls.includes('error'), 'should re-run active search query after bulk download');
+  });
+
+  test('downloadAllLogs supports cancellation while listing org logs', async () => {
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+
+    const fetchSignals: AbortSignal[] = [];
+    (provider as any).logService.fetchLogs = async (
+      _auth: any,
+      _limit: number,
+      _offset: number,
+      signal?: AbortSignal
+    ) => {
+      if (signal) {
+        fetchSignals.push(signal);
+      }
+      await new Promise(resolve => setTimeout(resolve, 30));
+      if (signal?.aborted) {
+        const error = new Error('The operation was aborted');
+        (error as { name?: string }).name = 'AbortError';
+        throw error;
+      }
+      return [
+        { Id: '07L000000000001AA', StartTime: '2026-01-01T00:00:00.000Z', LogLength: 10 }
+      ] as any;
+    };
+
+    let ensureCalled = false;
+    (provider as any).logService.ensureLogsSaved = async () => {
+      ensureCalled = true;
+      return {
+        total: 0,
+        success: 0,
+        downloaded: 0,
+        existing: 0,
+        missing: 0,
+        failed: 0,
+        cancelled: 0,
+        failedLogIds: []
+      };
+    };
+
+    const warningCalls: string[] = [];
+    const errorCalls: string[] = [];
+    (vscode.window as any).showWarningMessage = async (...args: any[]) => {
+      warningCalls.push(String(args[0]));
+      if (typeof args[2] === 'string') {
+        return args[2];
+      }
+      return undefined;
+    };
+    (vscode.window as any).showInformationMessage = async () => undefined;
+    (vscode.window as any).showErrorMessage = async (message: string) => {
+      errorCalls.push(message);
+      return undefined;
+    };
+    (vscode.window as any).withProgress = async (_opts: any, task: any) => {
+      let cancel: (() => void) | undefined;
+      const resultPromise = task(
+        { report: () => {} },
+        {
+          onCancellationRequested: (listener: () => void) => {
+            cancel = listener;
+          },
+          isCancellationRequested: false
+        }
+      );
+      cancel?.();
+      return resultPromise;
+    };
+
+    class MockWebview implements vscode.Webview {
+      html = '';
+      options: vscode.WebviewOptions = {};
+      cspSource = 'vscode-resource://test';
+      private handler: ((e: any) => any) | undefined;
+      asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
+      postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
+      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
+        this.handler = listener; return { dispose() {} } as any;
+      }
+      emit(message: any) { return this.handler?.(message); }
+    }
+    class MockWebviewView implements vscode.WebviewView {
+      visible = true; title = 'Test'; viewType = 'sfLogViewer';
+      description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
+      webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
+      show(): void { /* noop */ }
+      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
+      onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
+    }
+    const webview = new MockWebview();
+    const view = new MockWebviewView(webview);
+    await provider.resolveWebviewView(view);
+    await (webview as any).emit({ type: 'downloadAllLogs' });
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    assert.equal(ensureCalled, false, 'should not start downloads when cancelled during listing');
+    assert.equal(fetchSignals.length >= 1, true, 'should pass signal to listing calls');
+    assert.equal(fetchSignals[0]?.aborted, true, 'listing signal should be aborted after cancellation');
+    assert.ok(
+      warningCalls.some(msg => msg.includes('cancelled while listing logs')),
+      'should show cancellation summary for listing stage'
+    );
+    assert.equal(errorCalls.length, 0, 'should not show hard error toast for listing abort');
   });
 
   test('openDebugFlags opens debug flags panel', async () => {

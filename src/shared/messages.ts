@@ -5,6 +5,7 @@ import type { LogsColumnsConfig, NormalizedLogsColumnsConfig } from './logsColum
 export type WebviewToExtensionMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
+  | { type: 'downloadAllLogs' }
   | { type: 'selectOrg'; target: string }
   | { type: 'openDebugFlags' }
   | { type: 'openLog'; logId: string }

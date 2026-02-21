@@ -9,6 +9,7 @@ export type Messages = {
   replay: string;
   loadMore?: string;
   loadMoreFiltered?: string;
+  downloadAllLogs?: string;
   open?: string;
   orgLabel: string;
   defaultOrg: string;
@@ -102,6 +103,7 @@ const en: Messages = {
   replay: 'Apex Replay',
   loadMore: 'Load more logs',
   loadMoreFiltered: 'Load more results',
+  downloadAllLogs: 'Download all logs',
   open: 'Open',
   orgLabel: 'Org',
   defaultOrg: 'Default Org',
@@ -195,6 +197,7 @@ const ptBR: Messages = {
   replay: 'Apex Replay',
   loadMore: 'Carregar mais logs',
   loadMoreFiltered: 'Carregar mais resultados',
+  downloadAllLogs: 'Baixar todos os logs',
   open: 'Abrir',
   orgLabel: 'Org',
   defaultOrg: 'Org Padrão',

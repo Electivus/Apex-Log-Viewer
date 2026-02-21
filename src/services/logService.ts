@@ -18,6 +18,31 @@ import { localize } from '../utils/localize';
 import { LogViewerPanel } from '../panel/LogViewerPanel';
 import { fetchApexLogs } from '../salesforce/http';
 
+export type EnsureLogsSavedItemStatus = 'downloaded' | 'existing' | 'missing' | 'failed' | 'cancelled';
+
+export type EnsureLogsSavedItemResult = {
+  logId: string;
+  status: EnsureLogsSavedItemStatus;
+  error?: string;
+};
+
+export type EnsureLogsSavedSummary = {
+  total: number;
+  success: number;
+  downloaded: number;
+  existing: number;
+  missing: number;
+  failed: number;
+  cancelled: number;
+  failedLogIds: string[];
+};
+
+export type EnsureLogsSavedOptions = {
+  downloadMissing?: boolean;
+  onMissing?: (logId: string) => void;
+  onItemComplete?: (result: EnsureLogsSavedItemResult) => void;
+};
+
 export class LogService {
   private headLimiter: Limiter;
   private headConcurrency: number;
@@ -206,35 +231,84 @@ export class LogService {
     logs: ApexLogRow[],
     selectedOrg?: string,
     signal?: AbortSignal,
-    options?: { downloadMissing?: boolean; onMissing?: (logId: string) => void }
-  ): Promise<void> {
+    options?: EnsureLogsSavedOptions
+  ): Promise<EnsureLogsSavedSummary> {
     const downloadMissing = options?.downloadMissing !== false;
+    const validLogs = logs.filter((log): log is ApexLogRow & { Id: string } => typeof log?.Id === 'string' && log.Id.length > 0);
+    const summary: EnsureLogsSavedSummary = {
+      total: validLogs.length,
+      success: 0,
+      downloaded: 0,
+      existing: 0,
+      missing: 0,
+      failed: 0,
+      cancelled: 0,
+      failedLogIds: []
+    };
     const tasks: Promise<void>[] = [];
-    for (const log of logs) {
-      if (!log?.Id) {
-        continue;
-      }
+    for (const log of validLogs) {
       tasks.push(
         this.saveLimiter(async () => {
           if (signal?.aborted) {
+            summary.cancelled++;
+            options?.onItemComplete?.({ logId: log.Id, status: 'cancelled' });
             return;
           }
           try {
             if (downloadMissing) {
+              const existing = await findExistingLogFile(log.Id);
+              if (existing) {
+                summary.success++;
+                summary.existing++;
+                options?.onItemComplete?.({ logId: log.Id, status: 'existing' });
+                return;
+              }
               await this.ensureLogFile(log.Id, selectedOrg, signal);
+              if (signal?.aborted) {
+                summary.cancelled++;
+                options?.onItemComplete?.({ logId: log.Id, status: 'cancelled' });
+                return;
+              }
+              summary.success++;
+              summary.downloaded++;
+              options?.onItemComplete?.({ logId: log.Id, status: 'downloaded' });
             } else {
               const existing = await findExistingLogFile(log.Id);
               if (!existing) {
+                summary.missing++;
                 options?.onMissing?.(log.Id);
+                options?.onItemComplete?.({ logId: log.Id, status: 'missing' });
+              } else {
+                summary.success++;
+                summary.existing++;
+                options?.onItemComplete?.({ logId: log.Id, status: 'existing' });
               }
             }
           } catch (e) {
-            logWarn('LogService: ensureLogFile failed ->', getErrorMessage(e));
+            const msg = getErrorMessage(e);
+            if (signal?.aborted || this.isAbortLikeError(msg, e)) {
+              summary.cancelled++;
+              options?.onItemComplete?.({ logId: log.Id, status: 'cancelled' });
+              return;
+            }
+            summary.failed++;
+            summary.failedLogIds.push(log.Id);
+            options?.onItemComplete?.({ logId: log.Id, status: 'failed', error: msg });
+            logWarn('LogService: ensureLogFile failed for', log.Id, '->', msg);
           }
         })
       );
     }
     await Promise.all(tasks);
+    return summary;
+  }
+
+  private isAbortLikeError(message: string, err: unknown): boolean {
+    if ((err as { name?: string } | undefined)?.name === 'AbortError') {
+      return true;
+    }
+    const normalized = String(message || '').toLowerCase();
+    return normalized.includes('abort') || normalized.includes('canceled') || normalized.includes('cancelled');
   }
 
   async debugLog(logId: string, selectedOrg?: string): Promise<void> {

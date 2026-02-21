@@ -4,6 +4,7 @@ import { logInfo } from '../utils/logger';
 export class LogsMessageHandler {
   constructor(
     private readonly refresh: () => Promise<void>,
+    private readonly downloadAllLogs: () => Promise<void>,
     private readonly sendOrgs: () => Promise<void>,
     private readonly setSelectedOrg: (org?: string) => void,
     private readonly openDebugFlags: () => Promise<void>,
@@ -30,6 +31,10 @@ export class LogsMessageHandler {
       case 'refresh':
         logInfo('Logs: message refresh');
         await this.refresh();
+        break;
+      case 'downloadAllLogs':
+        logInfo('Logs: downloadAllLogs');
+        await this.downloadAllLogs();
         break;
       case 'selectOrg':
         this.setSelectedOrg(typeof message.target === 'string' ? message.target.trim() : undefined);
