@@ -3,6 +3,7 @@ import { Buffer } from 'node:buffer';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import * as os from 'node:os';
 import { SfLogsViewProvider } from '../provider/SfLogsViewProvider';
 import * as cli from '../salesforce/cli';
 import * as http from '../salesforce/http';
@@ -60,19 +61,24 @@ suite('SfLogsViewProvider behavior', () => {
   });
 
   test('refresh posts logs and logHead with code unit', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-provider-heads-'));
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     (http as any).fetchApexLogs = async () => ([
       { Id: '07L000000000001AA', LogLength: 10 },
       { Id: '07L000000000002AA', LogLength: 20 }
     ]);
-    (http as any).fetchApexLogHead = async () => ['|CODE_UNIT_STARTED|Foo|MyClass.myMethod'];
+    (http as any).fetchApexLogBody = async () => '\n|CODE_UNIT_STARTED|Foo|MyClass.myMethod\n';
     (http as any).extractCodeUnitStartedFromLines = () => 'MyClass.myMethod';
     (workspace as any).purgeSavedLogs = async () => 0;
+    (workspace as any).findExistingLogFile = async () => undefined;
+    (workspace as any).getLogFilePathWithUsername = async (_username: string | undefined, logId: string) => ({
+      dir: tmpDir,
+      filePath: path.join(tmpDir, `u_${logId}.log`)
+    });
 
     const context = makeContext();
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
-    (provider as any).configManager.shouldLoadFullLogBodies = () => false;
     // Inject minimal view so refresh proceeds
     (provider as any).view = {
       webview: {
@@ -83,18 +89,25 @@ suite('SfLogsViewProvider behavior', () => {
       }
     } as any;
 
-    await provider.refresh();
-    // Allow head limiter tasks to complete
-    await new Promise(r => setTimeout(r, 20));
+    try {
+      await provider.refresh();
+      // Allow background tasks to complete
+      await new Promise(r => setTimeout(r, 50));
 
-    const init = posted.find(m => m?.type === 'init');
-    const logs = posted.find(m => m?.type === 'logs');
-    const heads = posted.filter(m => m?.type === 'logHead');
-    assert.ok(init, 'should post init');
-    assert.ok(logs, 'should post logs');
-    assert.equal((logs?.data || []).length, 2, 'should include two logs');
-    assert.equal(heads.length, 2, 'should post head for each log');
-    assert.equal(heads[0]?.codeUnitStarted, 'MyClass.myMethod');
+      const init = posted.find(m => m?.type === 'init');
+      const logs = posted.find(m => m?.type === 'logs');
+      const heads = posted.filter(m => m?.type === 'logHead');
+      const codeUnitHeads = heads.filter(m => typeof m?.codeUnitStarted === 'string' && m.codeUnitStarted.length > 0);
+      assert.ok(init, 'should post init');
+      assert.ok(logs, 'should post logs');
+      assert.equal((logs?.data || []).length, 2, 'should include two logs');
+      assert.equal(codeUnitHeads.length, 2, 'should post code unit head for each log');
+      const byId = new Map(codeUnitHeads.map(m => [m.logId, m.codeUnitStarted]));
+      assert.equal(byId.get('07L000000000001AA'), 'MyClass.myMethod');
+      assert.equal(byId.get('07L000000000002AA'), 'MyClass.myMethod');
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
   });
 
   test('refresh preloads full log bodies when enabled', async () => {

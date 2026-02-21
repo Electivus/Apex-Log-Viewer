@@ -213,7 +213,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
               selectedOrg: this.orgManager.getSelectedOrg()
             }
           );
-          this.startOrgErrorScan(auth, token);
+          this.startErrorScanForCurrentLogs(auth, token);
           if (this.lastSearchQuery.trim()) {
             this.rerunActiveSearch();
           } else {
@@ -299,6 +299,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         preferLocalBodies: this.configManager.shouldLoadFullLogBodies(),
         selectedOrg: this.orgManager.getSelectedOrg()
       });
+      this.startErrorScanForCurrentLogs(auth, token);
       this.rerunActiveSearch();
       try {
         const durationMs = Date.now() - t0;
@@ -422,23 +423,27 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         continue;
       }
       const hasErrors = this.errorByLogId.get(log.Id);
-      if (hasErrors === true) {
-        this.post({ type: 'logHead', logId: log.Id, hasErrors: true });
+      if (typeof hasErrors === 'boolean') {
+        this.post({ type: 'logHead', logId: log.Id, hasErrors });
       }
     }
   }
 
-  private startOrgErrorScan(auth: OrgAuth, refreshToken: number): void {
+  private startErrorScanForCurrentLogs(auth: OrgAuth, refreshToken: number): void {
     this.cancelErrorScan();
     const scanToken = this.errorScanToken;
     const controller = new AbortController();
     this.errorScanAbortController = controller;
     const selectedOrg = this.orgManager.getSelectedOrg();
+    const toScan = this.currentLogs.filter(
+      (log): log is ApexLogRow & { Id: string } =>
+        typeof log?.Id === 'string' && log.Id.length > 0 && !this.errorByLogId.has(log.Id)
+    );
     this.postErrorScanStatus(
       {
         state: 'running',
         processed: 0,
-        total: 0,
+        total: toScan.length,
         errorsFound: 0
       },
       { force: true }
@@ -446,7 +451,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
 
     void (async () => {
       try {
-        const allLogs = await this.fetchAllOrgLogs(auth, controller.signal);
         if (
           controller.signal.aborted ||
           scanToken !== this.errorScanToken ||
@@ -455,16 +459,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         ) {
           return;
         }
-        const total = allLogs.length;
-        this.postErrorScanStatus(
-          {
-            state: 'running',
-            processed: 0,
-            total,
-            errorsFound: 0
-          },
-          { force: true }
-        );
+        const total = toScan.length;
         if (total === 0) {
           this.postErrorScanStatus(
             {
@@ -478,7 +473,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           return;
         }
         await this.logService.classifyLogsForErrors(
-          allLogs,
+          toScan,
           selectedOrg,
           controller.signal,
           {
@@ -492,8 +487,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
                 return;
               }
               this.errorByLogId.set(progress.logId, progress.hasErrors);
-              if (progress.hasErrors && this.currentLogIds.has(progress.logId)) {
-                this.post({ type: 'logHead', logId: progress.logId, hasErrors: true });
+              if (this.currentLogIds.has(progress.logId)) {
+                this.post({ type: 'logHead', logId: progress.logId, hasErrors: progress.hasErrors });
               }
               this.postErrorScanStatus({
                 state: 'running',
@@ -512,7 +507,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         ) {
           return;
         }
-        const errorsFound = Array.from(this.errorByLogId.values()).filter(v => v === true).length;
+        const errorsFound = toScan
+          .map(log => this.errorByLogId.get(log.Id))
+          .filter(v => v === true).length;
         this.postErrorScanStatus(
           {
             state: 'idle',
@@ -532,7 +529,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           refreshToken === this.refreshToken &&
           !this.disposed
         ) {
-          const errorsFound = Array.from(this.errorByLogId.values()).filter(v => v === true).length;
+          const errorsFound = toScan
+            .map(log => this.errorByLogId.get(log.Id))
+            .filter(v => v === true).length;
           this.postErrorScanStatus(
             {
               state: 'idle',

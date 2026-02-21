@@ -127,11 +127,6 @@
           "minimum": 0,
           "markdownDescription": "%configuration.electivus.apexLogs.cliCache.debugLevelsTtlSeconds.description%"
         },
-        "electivus.apexLogs.enableFullLogSearch": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "%configuration.electivus.apexLogs.enableFullLogSearch.description%"
-        },
         "electivus.apexLogs.logsColumns": {
           "type": "object",
           "default": {

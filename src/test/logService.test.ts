@@ -18,7 +18,6 @@ suite('LogService', () => {
           calls.push({ auth, limit, offset });
           return [{ Id: '1' } as ApexLogRow];
         },
-        fetchApexLogHead: async () => [],
         fetchApexLogBody: async () => '',
         extractCodeUnitStartedFromLines: () => undefined
       },
@@ -39,44 +38,44 @@ suite('LogService', () => {
   });
 
   test('loadLogHeads posts code units', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-heads-'));
+    const logPath = path.join(tmpDir, 'default_1.log');
     const { LogService } = proxyquire('../services/logService', {
       '../salesforce/http': {
-        fetchApexLogHead: async () => ['line'],
-        extractCodeUnitStartedFromLines: () => 'Unit',
         fetchApexLogs: async () => [],
-        fetchApexLogBody: async () => ''
+        fetchApexLogBody: async () => '\n|CODE_UNIT_STARTED|Foo|Unit\n',
+        extractCodeUnitStartedFromLines: () => 'Unit'
       },
       '../salesforce/cli': {
         getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
       },
       '../utils/workspace': {
-        getLogFilePathWithUsername: async () => ({ dir: '', filePath: '' }),
+        getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath: logPath }),
         findExistingLogFile: async () => undefined
       }
     });
-    const svc = new LogService(1);
-    const logs: ApexLogRow[] = [{ Id: '1', LogLength: 10 } as any];
-    const seen: any[] = [];
-    svc.loadLogHeads(logs, {} as OrgAuth, 0, (id: string, code: string) => {
-      seen.push({ id, code });
-    }, undefined);
-    await new Promise(r => setTimeout(r, 10));
-    assert.deepEqual(seen, [{ id: '1', code: 'Unit' }]);
+    try {
+      const svc = new LogService(1);
+      const logs: ApexLogRow[] = [{ Id: '1', LogLength: 10 } as any];
+      const seen: any[] = [];
+      svc.loadLogHeads(logs, {} as OrgAuth, 0, (id: string, code: string) => {
+        seen.push({ id, code });
+      }, undefined, { selectedOrg: 'default' });
+      await new Promise(r => setTimeout(r, 30));
+      assert.deepEqual(seen, [{ id: '1', code: 'Unit' }]);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
   });
 
-  test('loadLogHeads prefers local full bodies when available', async () => {
+  test('loadLogHeads reads code units from existing log files', async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-'));
     const filePath = path.join(tmpDir, 'default_1.log');
     await fs.writeFile(filePath, '\n|CODE_UNIT_STARTED|Foo|Class.method\n', 'utf8');
 
-    const fetchHeadCalls: string[] = [];
     const fetchBodyCalls: string[] = [];
     const { LogService } = proxyquire('../services/logService', {
       '../salesforce/http': {
-        fetchApexLogHead: async () => {
-          fetchHeadCalls.push('called');
-          return [];
-        },
         extractCodeUnitStartedFromLines: (lines: string[]) => {
           const target = lines.find(l => l.includes('|CODE_UNIT_STARTED|'));
           return target ? 'Class.method' : undefined;
@@ -111,7 +110,6 @@ suite('LogService', () => {
       );
       await new Promise(r => setTimeout(r, 20));
       assert.deepEqual(seen, [{ id: '1', code: 'Class.method' }]);
-      assert.equal(fetchHeadCalls.length, 0, 'should not fall back to remote head');
       assert.equal(fetchBodyCalls.length, 0, 'should not re-download body when file exists');
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });

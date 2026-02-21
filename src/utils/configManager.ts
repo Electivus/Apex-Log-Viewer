@@ -1,12 +1,9 @@
-import { getNumberConfig, affectsConfiguration, getBooleanConfig } from './config';
+import { getNumberConfig, affectsConfiguration } from './config';
 import type * as vscode from 'vscode';
 
 export class ConfigManager {
-  private enableFullLogSearch: boolean;
-
   constructor(private headConcurrency: number, private pageLimit: number) {
     this.headConcurrency = getNumberConfig('electivus.apexLogs.headConcurrency', this.headConcurrency, 1, Number.MAX_SAFE_INTEGER);
-    this.enableFullLogSearch = getBooleanConfig('electivus.apexLogs.enableFullLogSearch', true);
   }
 
   handleChange(e: vscode.ConfigurationChangeEvent): void {
@@ -16,12 +13,6 @@ export class ConfigManager {
         this.headConcurrency,
         1,
         Number.MAX_SAFE_INTEGER
-      );
-    }
-    if (affectsConfiguration(e, 'electivus.apexLogs.enableFullLogSearch')) {
-      this.enableFullLogSearch = getBooleanConfig(
-        'electivus.apexLogs.enableFullLogSearch',
-        this.enableFullLogSearch
       );
     }
   }
@@ -37,6 +28,6 @@ export class ConfigManager {
   }
 
   shouldLoadFullLogBodies(): boolean {
-    return this.enableFullLogSearch;
+    return true;
   }
 }
