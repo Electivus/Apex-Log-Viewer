@@ -47,6 +47,7 @@ export type EnsureLogsSavedOptions = {
 export type ClassifyLogsForErrorsProgress = {
   logId: string;
   hasErrors: boolean;
+  inferredFromFailure?: boolean;
   processed: number;
   total: number;
   errorsFound: number;
@@ -258,6 +259,7 @@ export class LogService {
       tasks.push(
         this.saveLimiter(async () => {
           let hasErrors = false;
+          let inferredFromFailure = false;
           try {
             if (signal?.aborted) {
               return;
@@ -273,6 +275,12 @@ export class LogService {
             }
           } catch (e) {
             if (!signal?.aborted) {
+              // Conservative fallback: unreadable/unavailable logs are treated as potentially erroneous
+              // to avoid false negatives in the "Errors only" filter.
+              hasErrors = true;
+              inferredFromFailure = true;
+              result.set(log.Id, true);
+              errorsFound++;
               logWarn('LogService: classifyLogsForErrors failed for', log.Id, '->', getErrorMessage(e));
             }
           } finally {
@@ -283,6 +291,7 @@ export class LogService {
             options?.onProgress?.({
               logId: log.Id,
               hasErrors,
+              inferredFromFailure,
               processed,
               total,
               errorsFound

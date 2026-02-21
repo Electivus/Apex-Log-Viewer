@@ -411,4 +411,57 @@ suite('LogService', () => {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   });
+
+  test('classifyLogsForErrors treats read failures as potential errors to avoid false negatives', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-errors-fallback-'));
+    const okPath = path.join(tmpDir, 'default_ok.log');
+
+    const { LogService } = proxyquire('../services/logService', {
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        fetchApexLogHead: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async (_auth: OrgAuth, logId: string) => {
+          if (logId === 'missing') {
+            throw new Error('log disappeared');
+          }
+          return '12:00:00.000 | USER_DEBUG | [6] | all good\n';
+        }
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
+      },
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async (_username: string | undefined, logId: string) => ({
+          dir: tmpDir,
+          filePath: path.join(tmpDir, `default_${logId}.log`)
+        }),
+        findExistingLogFile: async (logId: string) => (logId === 'ok' ? okPath : undefined)
+      }
+    });
+
+    try {
+      await fs.writeFile(okPath, '12:00:00.000 | USER_DEBUG | [6] | all good\n', 'utf8');
+      const svc = new LogService(2);
+      const progress: ClassifyLogsForErrorsProgress[] = [];
+      const result = await svc.classifyLogsForErrors(
+        [{ Id: 'missing' } as ApexLogRow, { Id: 'ok' } as ApexLogRow],
+        'default',
+        undefined,
+        {
+          onProgress: (entry: ClassifyLogsForErrorsProgress) => {
+            progress.push(entry);
+          }
+        }
+      );
+
+      assert.equal(result.get('missing'), true, 'failed scans should be considered potential errors');
+      assert.equal(result.get('ok'), false);
+      const missingProgress = progress.find(entry => entry.logId === 'missing');
+      assert.equal(missingProgress?.hasErrors, true);
+      assert.equal(missingProgress?.inferredFromFailure, true);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
