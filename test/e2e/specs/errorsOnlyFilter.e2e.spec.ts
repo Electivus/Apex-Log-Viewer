@@ -16,7 +16,7 @@ async function setErrorsOnlyEnabled(
   await expect(errorsOnlySwitch).toHaveAttribute('data-state', enabled ? 'checked' : 'unchecked');
 }
 
-test('filters logs using errors-only toggle with real exception logs', async ({ vscodePage, scratchAlias, seededLog }) => {
+test('filters logs using errors-only toggle', async ({ vscodePage, scratchAlias, seededLog }) => {
   const seededErrorLog = await seedApexErrorLog(scratchAlias);
 
   await waitForCommandAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
@@ -34,6 +34,7 @@ test('filters logs using errors-only toggle with real exception logs', async ({ 
   const errorBadges = logsFrame.locator('[data-testid="logs-error-badge"]');
 
   await searchInput.waitFor({ state: 'visible', timeout: 60_000 });
+  await expect(searchInput).toBeEnabled({ timeout: 180_000 });
 
   await setErrorsOnlyEnabled(errorsOnlySwitch, false);
   await searchInput.fill(seededLog.marker);

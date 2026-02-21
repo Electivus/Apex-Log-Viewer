@@ -42,9 +42,16 @@ export async function seedApexErrorLog(targetOrg: string): Promise<SeedResult> {
   const beforeIds = new Set(parseLogIds(before));
 
   const marker = `ALV_E2E_ERROR_MARKER_${Date.now()}`;
-  const anonymousApex = `System.debug('${marker}');\nInteger __alvFail = 1 / 0;\nSystem.debug(__alvFail);\n`;
-  // Intentionally throw at runtime so the generated log includes exception/fatal events.
-  await runAnonymousApex(targetOrg, anonymousApex, { allowFailure: true });
+  const anonymousApex =
+    `System.debug('${marker}');\n` +
+    'try {\n' +
+    '  Object alvFail = null;\n' +
+    '  System.debug(alvFail.toString());\n' +
+    '} catch (Exception e) {\n' +
+    "  System.debug('ALV_E2E_ERROR_CAUGHT:' + e.getMessage());\n" +
+    '}\n';
+  // Generate a real log with EXCEPTION_* events but keep the anonymous Apex run successful.
+  await runAnonymousApex(targetOrg, anonymousApex);
   const logId = await waitForCreatedLogId(targetOrg, beforeIds);
   return { marker, logId };
 }
