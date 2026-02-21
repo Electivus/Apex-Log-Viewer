@@ -36,7 +36,7 @@ async function resolveDefaultDevHubAlias(): Promise<string> {
 
   // Local convenience: prefer the current team DevHub alias when available.
   // Keep legacy aliases as fallbacks for older local setups.
-  const preferredAliases = ['DevHubElectivus', 'InsuranceOrgTrialCreme6DevHub'];
+  const preferredAliases = ['ElectivusDevHub', 'DevHubElectivus', 'InsuranceOrgTrialCreme6DevHub'];
   for (const alias of preferredAliases) {
     if (await tryOrgDisplay(alias)) {
       return alias;
