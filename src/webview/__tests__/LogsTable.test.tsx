@@ -105,12 +105,14 @@ describe('LogsTable', () => {
     rows = createRows(10),
     loading = false,
     captured,
-    fullLogSearchEnabled = true
+    fullLogSearchEnabled = true,
+    viewportBottomInsetPx
   }: {
     rows?: ApexLogRow[];
     loading?: boolean;
     captured: CapturedList;
     fullLogSearchEnabled?: boolean;
+    viewportBottomInsetPx?: number;
   }) {
     const virtualList = createVirtualList(captured);
     const baseProps = {
@@ -133,6 +135,7 @@ describe('LogsTable', () => {
         {...baseProps}
         virtualListComponent={virtualList}
         fullLogSearchEnabled={fullLogSearchEnabled}
+        {...(typeof viewportBottomInsetPx === 'number' ? ({ viewportBottomInsetPx } as any) : {})}
       />
     );
     return {
@@ -143,6 +146,7 @@ describe('LogsTable', () => {
             {...next}
             virtualListComponent={virtualList}
             fullLogSearchEnabled={next.fullLogSearchEnabled ?? fullLogSearchEnabled}
+            {...(typeof viewportBottomInsetPx === 'number' ? ({ viewportBottomInsetPx } as any) : {})}
           />
         )
     };
@@ -152,6 +156,21 @@ describe('LogsTable', () => {
     const captured: CapturedList = {};
     renderTable({ rows: createRows(30), captured });
     expect(captured.onRowsRendered).toBeUndefined();
+  });
+
+  it('reduces the measured list height when a viewport bottom inset is provided', () => {
+    const originalInnerHeight = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', { value: 500, configurable: true });
+
+    const capturedBaseline: CapturedList = {};
+    renderTable({ captured: capturedBaseline });
+    expect(capturedBaseline.outer?.style.height).toBe('488px');
+
+    const capturedInset: CapturedList = {};
+    renderTable({ captured: capturedInset, viewportBottomInsetPx: 40 });
+    expect(capturedInset.outer?.style.height).toBe('448px');
+
+    Object.defineProperty(window, 'innerHeight', { value: originalInnerHeight, configurable: true });
   });
 
   it('adjusts overscan while scrolling quickly', async () => {

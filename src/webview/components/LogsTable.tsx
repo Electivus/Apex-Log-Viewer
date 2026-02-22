@@ -47,6 +47,7 @@ export function LogsTable({
   columnsConfig,
   onColumnsConfigChange,
   virtualListComponent,
+  viewportBottomInsetPx = 0,
   fullLogSearchEnabled
 }: {
   rows: ApexLogRow[];
@@ -68,6 +69,7 @@ export function LogsTable({
     options?: { persist?: boolean }
   ) => void;
   virtualListComponent?: typeof List;
+  viewportBottomInsetPx?: number;
   fullLogSearchEnabled: boolean;
 }) {
   const listRef = useRef<ListImperativeAPI | null>(null);
@@ -213,11 +215,12 @@ export function LogsTable({
 
   useLayoutEffect(() => {
     const recompute = () => {
+      const bottomInset = Number.isFinite(viewportBottomInsetPx) ? Math.max(0, Math.floor(viewportBottomInsetPx)) : 0;
       const outerRect = outerRef.current?.getBoundingClientRect();
       const headerRect = headerRef.current?.getBoundingClientRect();
       const top = outerRect?.top ?? 0;
       const headerH = headerRect?.height ?? 0;
-      const available = Math.max(160, Math.floor(window.innerHeight - top - headerH - 12));
+      const available = Math.max(160, Math.floor(window.innerHeight - top - headerH - bottomInset - 12));
       setMeasuredListHeight(available);
     };
     recompute();
@@ -234,7 +237,7 @@ export function LogsTable({
       }
       window.removeEventListener('resize', recompute);
     };
-  }, []);
+  }, [viewportBottomInsetPx]);
 
   // Adaptive overscan based on scroll velocity
   useEffect(() => {
