@@ -103,20 +103,15 @@ function createVirtualList(captured: CapturedList) {
 describe('LogsTable', () => {
   function renderTable({
     rows = createRows(10),
-    hasMore = true,
     loading = false,
     captured,
-    autoLoadEnabled,
     fullLogSearchEnabled = true
   }: {
     rows?: ApexLogRow[];
-    hasMore?: boolean;
     loading?: boolean;
     captured: CapturedList;
-    autoLoadEnabled?: boolean;
     fullLogSearchEnabled?: boolean;
   }) {
-    const loadMoreMock = jest.fn();
     const virtualList = createVirtualList(captured);
     const baseProps = {
       rows,
@@ -127,7 +122,6 @@ describe('LogsTable', () => {
       onReplay: () => {},
       loading,
       locale: 'en-US',
-      hasMore,
       sortBy: 'time' as const,
       sortDir: 'asc' as const,
       onSort: () => {},
@@ -137,21 +131,16 @@ describe('LogsTable', () => {
     const view = render(
       <LogsTable
         {...baseProps}
-        autoLoadEnabled={autoLoadEnabled}
-        onLoadMore={loadMoreMock}
         virtualListComponent={virtualList}
         fullLogSearchEnabled={fullLogSearchEnabled}
       />
     );
     return {
-      loadMoreMock,
       rerender: (next: Partial<typeof baseProps> & { fullLogSearchEnabled?: boolean }) =>
         view.rerender(
           <LogsTable
             {...baseProps}
             {...next}
-            autoLoadEnabled={autoLoadEnabled}
-            onLoadMore={loadMoreMock}
             virtualListComponent={virtualList}
             fullLogSearchEnabled={next.fullLogSearchEnabled ?? fullLogSearchEnabled}
           />
@@ -159,36 +148,15 @@ describe('LogsTable', () => {
     };
   }
 
-  it('does not auto-load more data via onRowsRendered', () => {
-    const rows = createRows(30);
+  it('does not provide pagination hooks via onRowsRendered', () => {
     const captured: CapturedList = {};
-    const { loadMoreMock } = renderTable({ rows, captured });
-    captured.onRowsRendered?.({ startIndex: 0, stopIndex: rows.length - 1 });
-    expect(loadMoreMock).not.toHaveBeenCalled();
-  });
-
-  it('does not auto-load more data when scrolled near the bottom', async () => {
-    const rows = createRows(200);
-    const captured: CapturedList = {};
-    const { loadMoreMock } = renderTable({ rows, captured });
-    const el = captured.outer as HTMLDivElement;
-    Object.defineProperty(el, 'clientHeight', { value: 300, configurable: true });
-    Object.defineProperty(el, 'scrollHeight', { value: 1000, configurable: true });
-    const originalNow = performance.now.bind(performance);
-    (performance as any).now = () => 1000;
-
-    await act(async () => {
-      el.scrollTop = 1000 - 300 - 20;
-      fireEvent.scroll(el);
-    });
-
-    expect(loadMoreMock).not.toHaveBeenCalled();
-    (performance as any).now = originalNow;
+    renderTable({ rows: createRows(30), captured });
+    expect(captured.onRowsRendered).toBeUndefined();
   });
 
   it('adjusts overscan while scrolling quickly', async () => {
     const captured: CapturedList = {};
-    renderTable({ rows: createRows(5), hasMore: false, captured });
+    renderTable({ rows: createRows(5), captured });
     const outer = captured.outer as HTMLDivElement;
     const originalNow = performance.now.bind(performance);
     let now = 0;

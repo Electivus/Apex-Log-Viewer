@@ -403,18 +403,15 @@ export function LogsApp({
           onReplay={onReplay}
           loading={loading}
           locale={locale}
-          hasMore={hasMore}
-          onLoadMore={onLoadMore}
           sortBy={sortBy}
           sortDir={sortDir}
           onSort={onSort}
           matchSnippets={matchSnippets}
           fullLogSearchEnabled={fullLogSearchEnabled}
-          autoLoadEnabled={!hasFilters}
           columnsConfig={logsColumns}
           onColumnsConfigChange={onColumnsConfigChange}
         />
-        {hasFilters && hasMore && (
+        {hasMore && (
           <div className="mt-2 flex justify-center">
             <Button
               type="button"
@@ -423,7 +420,9 @@ export function LogsApp({
               onClick={onLoadMore}
               disabled={loading}
             >
-              {t.loadMoreFiltered ?? t.loadMore ?? 'Load more results'}
+              {hasFilters
+                ? (t.loadMoreFiltered ?? t.loadMore ?? 'Load more results')
+                : (t.loadMore ?? 'Load more logs')}
             </Button>
           </div>
         )}

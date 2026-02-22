@@ -41,15 +41,12 @@ export function LogsTable({
   onReplay,
   loading,
   locale,
-  hasMore,
-  onLoadMore,
   sortBy,
   sortDir,
   onSort,
   columnsConfig,
   onColumnsConfigChange,
   virtualListComponent,
-  autoLoadEnabled = true,
   fullLogSearchEnabled
 }: {
   rows: ApexLogRow[];
@@ -60,8 +57,6 @@ export function LogsTable({
   onReplay: (logId: string) => void;
   loading: boolean;
   locale: string;
-  hasMore: boolean;
-  onLoadMore: () => void;
   sortBy: Exclude<LogsColumnKey, 'match'>;
   sortDir: 'asc' | 'desc';
   onSort: (
@@ -73,7 +68,6 @@ export function LogsTable({
     options?: { persist?: boolean }
   ) => void;
   virtualListComponent?: typeof List;
-  autoLoadEnabled?: boolean;
   fullLogSearchEnabled: boolean;
 }) {
   const listRef = useRef<ListImperativeAPI | null>(null);
