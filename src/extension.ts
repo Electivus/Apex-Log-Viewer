@@ -129,6 +129,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.refresh', async () => {
       safeSendEvent('command.refresh');
+      const viewAlreadyResolved = provider.hasResolvedView();
       try {
         await vscode.commands.executeCommand('workbench.view.extension.salesforceLogsPanel');
         try {
@@ -139,7 +140,11 @@ export async function activate(context: vscode.ExtensionContext) {
       } catch (e) {
         logWarn('Command sfLogs.refresh: failed to open logs view ->', getErrorMessage(e));
       }
-      return provider.refresh();
+      // The logs webview runs an initial refresh when it posts the "ready" message.
+      // Avoid triggering a second refresh (and duplicate notifications) on the first open.
+      if (viewAlreadyResolved) {
+        return provider.refresh();
+      }
     })
   );
 

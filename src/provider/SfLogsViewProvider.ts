@@ -116,6 +116,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     );
   }
 
+  public hasResolvedView(): boolean {
+    return Boolean(this.view) && !this.disposed;
+  }
+
   public async refresh() {
     if (!this.view) {
       return;
