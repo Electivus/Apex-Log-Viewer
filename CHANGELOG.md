@@ -15,6 +15,7 @@
 - CLI: add an optional `electivus.apexLogs.cliPath` setting to help VS Code find the Salesforce CLI (`sf`) when PATH inheritance is limited (for example when launched from the OS GUI).
 - Debug Flags: fix user search queries for orgs that reject SOQL `ESCAPE` in `LIKE` clauses, avoiding HTTP 400/MALFORMED_QUERY and keeping filtered results consistent.
 - Workspace: serialize `.gitignore` updates for `apexlogs/` so concurrent log-directory setup no longer appends duplicate entries. ([#503](https://github.com/Electivus/Apex-Log-Viewer/issues/503))
+- Replay: install the Salesforce Extension Pack automatically via VS Code extension dependencies (no manual activation/install prompts).
 
 ### Chores
 

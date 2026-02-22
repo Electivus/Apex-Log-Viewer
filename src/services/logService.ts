@@ -7,7 +7,7 @@ import type { ApexLogCursor } from '../salesforce/http';
 import type { OrgAuth } from '../salesforce/types';
 import type { ApexLogRow } from '../shared/types';
 import { getLogFilePathWithUsername, findExistingLogFile } from '../utils/workspace';
-import { ensureReplayDebuggerAvailable } from '../utils/warmup';
+import { ensureReplayDebuggerAvailable } from '../utils/replayDebugger';
 import { getErrorMessage } from '../utils/error';
 import { logWarn, logInfo } from '../utils/logger';
 import { localize } from '../utils/localize';

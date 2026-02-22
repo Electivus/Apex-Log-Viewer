@@ -6,7 +6,7 @@ import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn } from '../utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
-import { warmUpReplayDebugger, ensureReplayDebuggerAvailable } from '../utils/warmup';
+import { ensureReplayDebuggerAvailable } from '../utils/replayDebugger';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { TailService } from '../utils/tailService';
 import { pickSelectedOrg } from '../utils/orgs';
@@ -49,12 +49,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     };
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
     logInfo('Tail webview resolved.');
-    // Fire-and-forget warm-up of Replay Debugger when the Tail view opens
-    try {
-      setTimeout(() => void warmUpReplayDebugger(), 0);
-    } catch (e) {
-      logWarn('Tail: warm-up of Apex Replay Debugger failed ->', getErrorMessage(e));
-    }
 
     this.context.subscriptions.push(
       webviewView.onDidDispose(() => {

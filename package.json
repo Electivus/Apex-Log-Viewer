@@ -59,7 +59,7 @@
     "onCommand:sfLogs.openLogInViewer",
     "onLanguage:apexlog"
   ],
-  "extensionDependencies": [],
+  "extensionDependencies": ["salesforce.salesforcedx-vscode"],
   "main": "./dist/extension.js",
   "contributes": {
     "configuration": {

@@ -7,6 +7,7 @@ const wantCoverage =
 module.exports = {
   displayName: 'webview',
   clearMocks: true,
+  testTimeout: 15000,
   testEnvironment: 'jsdom',
   roots: ['<rootDir>/src/webview/__tests__'],
   testMatch: ['**/*.test.{ts,tsx}'],

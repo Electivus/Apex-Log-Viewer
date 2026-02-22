@@ -43,7 +43,8 @@ Why developers like it
   - Login example: `sf org login web` (or `sfdx force:auth:web:login`).
 - VS Code 1.101+.
 - Required for Replay: Salesforce Extension Pack (salesforce.salesforcedx-vscode), which includes Apex Replay Debugger.
-  - A extensão não depende nem instala o pack automaticamente; se você tentar usar Replay sem o pack, abriremos a aba de Extensões apontando para o pacote para você instalar manualmente.
+  - Installed automatically as an extension dependency.
+  - Instalado automaticamente como dependência da extensão.
 
 ## Install
 
@@ -119,7 +120,7 @@ The extension uses localized strings for the extension UI and the in‑panel int
 ## Troubleshooting
 
 - “Salesforce CLI not found”: Ensure `sf` (or `sfdx`) is installed and available on PATH. On macOS/Linux, ensure your login shell PATH includes the CLI (e.g., launch VS Code from the shell or configure the shell integration).
-- “Failed to launch Apex Replay Debugger”: Install the Salesforce Apex Replay Debugger extension.
+- “Failed to launch Apex Replay Debugger”: Ensure the Salesforce Extension Pack is installed and enabled.
 - “No orgs detected”: Ensure you’re authenticated (`sf org login web`) and try `sf org list`.
 
 ## Architecture
