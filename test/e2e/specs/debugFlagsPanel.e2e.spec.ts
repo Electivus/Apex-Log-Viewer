@@ -63,6 +63,7 @@ test('configures and removes debug flags from logs and tail entrypoints', async 
       async frame => await frame.locator('[data-testid="tail-open-debug-flags"]').first().isVisible(),
       { timeoutMs: 180_000 }
     );
+    await expect(tailFrame.locator('[data-testid="tail-open-debug-flags"]').first()).toBeEnabled({ timeout: 180_000 });
     await tailFrame.locator('[data-testid="tail-open-debug-flags"]').first().click();
 
     const debugFlagsFrameFromTail = await waitForWebviewFrame(

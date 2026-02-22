@@ -12,6 +12,10 @@ export type VscodeLaunch = {
   cleanup: () => Promise<void>;
 };
 
+function getModifierKey(): 'Control' | 'Meta' {
+  return process.platform === 'darwin' ? 'Meta' : 'Control';
+}
+
 function getVsCodeVersion(): string {
   const v = String(process.env.VSCODE_TEST_VERSION || 'stable').trim();
   return v || 'stable';
@@ -52,6 +56,15 @@ export async function launchVsCode(options: { workspacePath: string; extensionDe
 
   const page = await app.firstWindow();
   await page.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
+
+  // Close the auxiliary (right) sidebar if it opens by default (e.g., Copilot Chat),
+  // as it can overlap/push custom panels and introduce E2E flakiness.
+  try {
+    const modifier = getModifierKey();
+    await page.keyboard.press(`${modifier}+Alt+B`);
+  } catch {
+    // best-effort
+  }
 
   const cleanup = async () => {
     try {

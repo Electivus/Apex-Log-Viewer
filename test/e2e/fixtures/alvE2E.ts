@@ -21,14 +21,17 @@ type Fixtures = {
 };
 
 export const test = base.extend<Fixtures>({
-  scratchAlias: async ({}, use) => {
-    const scratch = await ensureScratchOrg();
-    try {
-      await use(scratch.scratchAlias);
-    } finally {
-      await scratch.cleanup();
-    }
-  },
+  scratchAlias: [
+    async ({}, use) => {
+      const scratch = await ensureScratchOrg();
+      try {
+        await use(scratch.scratchAlias);
+      } finally {
+        await scratch.cleanup();
+      }
+    },
+    { scope: 'worker' }
+  ],
 
   seededLog: async ({ scratchAlias }, use) => {
     const seeded = await seedApexLog(scratchAlias);
