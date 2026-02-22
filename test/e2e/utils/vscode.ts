@@ -21,6 +21,23 @@ function getVsCodeVersion(): string {
   return v || 'stable';
 }
 
+async function isAuxiliaryBarOpen(page: Page): Promise<boolean> {
+  try {
+    return await page.evaluate(() => {
+      const selectors = ['#workbench\\.parts\\.auxiliarybar', '.part.auxiliarybar', '.auxiliarybar'];
+      for (const selector of selectors) {
+        const el = document.querySelector(selector) as HTMLElement | null;
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) return true;
+      }
+      return false;
+    });
+  } catch {
+    return false;
+  }
+}
+
 export async function launchVsCode(options: { workspacePath: string; extensionDevelopmentPath: string }): Promise<VscodeLaunch> {
   const vscodeCachePath = process.env.VSCODE_TEST_CACHE_PATH
     ? path.resolve(process.env.VSCODE_TEST_CACHE_PATH)
@@ -60,8 +77,10 @@ export async function launchVsCode(options: { workspacePath: string; extensionDe
   // Close the auxiliary (right) sidebar if it opens by default (e.g., Copilot Chat),
   // as it can overlap/push custom panels and introduce E2E flakiness.
   try {
-    const modifier = getModifierKey();
-    await page.keyboard.press(`${modifier}+Alt+B`);
+    if (await isAuxiliaryBarOpen(page)) {
+      const modifier = getModifierKey();
+      await page.keyboard.press(`${modifier}+Alt+B`);
+    }
   } catch {
     // best-effort
   }

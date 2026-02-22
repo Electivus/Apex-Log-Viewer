@@ -44,7 +44,9 @@ test('filters users correctly in debug flags panel from logs and tail entrypoint
     async frame => await frame.locator('[data-testid="logs-open-debug-flags"]').first().isVisible(),
     { timeoutMs: 180_000 }
   );
-  await logsFrame.locator('[data-testid="logs-open-debug-flags"]').first().click();
+  const openDebugFlags = logsFrame.locator('[data-testid="logs-open-debug-flags"]').first();
+  await expect(openDebugFlags).toBeEnabled({ timeout: 180_000 });
+  await openDebugFlags.click();
 
   const debugFlagsFrame = await waitForWebviewFrame(
     vscodePage,
