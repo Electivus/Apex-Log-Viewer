@@ -180,7 +180,7 @@ suite('LogService', () => {
           getLogFilePathWithUsername: async () => ({ dir: '', filePath: '/tmp/test.log' }),
           findExistingLogFile: async () => '/tmp/test.log'
         },
-        '../utils/warmup': {
+        '../utils/replayDebugger': {
           ensureReplayDebuggerAvailable: async () => true
         }
       });
@@ -235,7 +235,7 @@ suite('LogService', () => {
           getLogFilePathWithUsername: async () => ({ dir: path.dirname(filePath), filePath }),
           findExistingLogFile: async () => storedPath
         },
-        '../utils/warmup': {
+        '../utils/replayDebugger': {
           ensureReplayDebuggerAvailable: async () => true
         },
         fs: {

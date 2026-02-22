@@ -7,7 +7,6 @@ import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn, logError } from '../utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
-import { warmUpReplayDebugger } from '../utils/warmup';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { getErrorMessage } from '../utils/error';
 import { LogService, type EnsureLogsSavedSummary } from '../services/logService';
@@ -92,12 +91,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     };
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
     logInfo('Logs webview resolved.');
-    // Fire-and-forget warm-up of Replay Debugger when the view opens
-    try {
-      setTimeout(() => void warmUpReplayDebugger(), 0);
-    } catch (e) {
-      logWarn('Logs: warm-up of Apex Replay Debugger failed ->', getErrorMessage(e));
-    }
     // Dispose handling: stop posting and bump token to invalidate in-flight work
     this.context.subscriptions.push(
       webviewView.onDidDispose(() => {

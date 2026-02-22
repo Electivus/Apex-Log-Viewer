@@ -6,7 +6,6 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { setApiVersion, getApiVersion, clearListCache } from './salesforce/http';
 import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger } from './utils/logger';
-import { detectReplayDebuggerAvailable } from './utils/warmup';
 import { localize } from './utils/localize';
 import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry } from './shared/telemetry';
 import { CacheManager } from './utils/cacheManager';
@@ -73,22 +72,6 @@ export async function activate(context: vscode.ExtensionContext) {
   } catch (e) {
     const msg = getErrorMessage(e);
     logWarn('Failed to configure trace logging ->', msg);
-  }
-  // Soft advice: if Apex Replay Debugger (via Salesforce Extension Pack) is missing, log a tip in Output
-  try {
-    setTimeout(async () => {
-      const hasReplay = await detectReplayDebuggerAvailable();
-      if (!hasReplay) {
-        logInfo(
-          localize(
-            'replayPackAdvice',
-            'Tip: To use Apex Replay, install the Salesforce Extension Pack (salesforce.salesforcedx-vscode).'
-          )
-        );
-      }
-    }, 0);
-  } catch (e) {
-    logWarn('Failed to detect Apex Replay Debugger availability ->', getErrorMessage(e));
   }
   // Try to read sourceApiVersion from sfdx-project.json (first workspace folder)
   const folders = vscode.workspace.workspaceFolders;
@@ -270,35 +253,6 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // Removed legacy openTailPanel command to avoid focus changes
-
-  // Warm up Apex Replay Debugger in the background so the first
-  // user-triggered replay opens faster. Fire-and-forget and ignore failures
-  // (e.g., dependency not installed in this environment).
-  try {
-    const warmUp = async () => {
-      const candidates = [
-        'salesforce.salesforcedx-vscode-apex-replay-debugger',
-        // Fallback: meta extension (may indirectly activate dependencies)
-        'salesforce.salesforcedx-vscode'
-      ];
-      for (const id of candidates) {
-        const ext = vscode.extensions.getExtension(id);
-        if (ext) {
-          try {
-            await ext.activate();
-            logInfo('Warmed up extension:', id);
-            break;
-          } catch (e) {
-            logWarn('Warm-up failed for', id, '->', getErrorMessage(e));
-          }
-        }
-      }
-    };
-    // Defer to avoid impacting our own activation time
-    setTimeout(() => void warmUp(), 0);
-  } catch (e) {
-    logWarn('Failed to warm up Apex Replay Debugger ->', getErrorMessage(e));
-  }
 
   // Preload CLI caches (org list and default org auth) in background
   try {

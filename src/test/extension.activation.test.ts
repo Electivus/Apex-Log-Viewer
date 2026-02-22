@@ -1,7 +1,7 @@
 import assert from 'assert/strict';
 import * as vscode from 'vscode';
 
-suite('extension activation and commands', () => {
+suite('integration: extension activation and commands', () => {
   test('activates the extension and registers commands', async () => {
     const ext = vscode.extensions.getExtension('electivus.apex-log-viewer');
     assert.ok(ext, 'extension should be discovered by id');
