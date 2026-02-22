@@ -560,9 +560,14 @@ async function run() {
           '--extensions-dir',
           extensionsDir
         ],
-        { encoding: 'utf8' }
+        {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          encoding: 'utf8',
+          input: 'y\n',
+          env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
+        }
       );
-      const out = (list.stdout || '').trim();
+      const out = [list.stdout, list.stderr].filter(Boolean).join('\n').trim();
       for (const line of out.split(/\r?\n/)) {
         const trimmed = (line || '').trim();
         if (!trimmed) continue;
@@ -614,9 +619,14 @@ async function run() {
           '--extensions-dir',
           extensionsDir
         ],
-        { encoding: 'utf8' }
+        {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          encoding: 'utf8',
+          input: 'y\n',
+          env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
+        }
       );
-      const out = (list.stdout || '').trim();
+      const out = [list.stdout, list.stderr].filter(Boolean).join('\n').trim();
       console.log('[deps] Extensions installed in test dir:\n' + out);
       if (
         /^salesforce\.salesforcedx-vscode(?:@|$)/m.test(out) ||
