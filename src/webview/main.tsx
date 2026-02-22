@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getMessages, type Messages } from './i18n';
 import type { OrgItem, ApexLogRow } from '../shared/types';
@@ -68,6 +68,9 @@ export function LogsApp({
   // Sorting
   const [sortBy, setSortBy] = useState<SortKey>('time');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const loadMoreFooterRef = useRef<HTMLDivElement | null>(null);
+  const [loadMoreFooterHeightPx, setLoadMoreFooterHeightPx] = useState(0);
 
   const onColumnsConfigChange = useCallback(
     (updater: (prev: NormalizedLogsColumnsConfig) => NormalizedLogsColumnsConfig, options?: { persist?: boolean }) => {
@@ -354,8 +357,37 @@ export function LogsApp({
       .replace('{errorsFound}', String(errorScanStatus.errorsFound));
   }, [errorScanStatus, t]);
   const noLogsMessage = errorsOnly && errorScanStatus.state === 'running'
-    ? (errorScanMessage ?? t.noLogs)
-    : t.noLogs;
+      ? (errorScanMessage ?? t.noLogs)
+      : t.noLogs;
+
+  useLayoutEffect(() => {
+    if (!hasMore) {
+      setLoadMoreFooterHeightPx(0);
+      return;
+    }
+    const el = loadMoreFooterRef.current;
+    if (!el) {
+      setLoadMoreFooterHeightPx(0);
+      return;
+    }
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      const next = rect && Number.isFinite(rect.height) ? Math.max(0, Math.floor(rect.height)) : 0;
+      setLoadMoreFooterHeightPx(next);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => {
+      try {
+        ro.disconnect();
+      } catch (e) {
+        console.warn('LogsApp: failed to disconnect ResizeObserver', e);
+      }
+    };
+  }, [hasMore, hasFilters, locale]);
+
+  const viewportBottomInsetPx = hasMore ? Math.max(loadMoreFooterHeightPx, 42) : 0;
 
   return (
     <div className="relative flex min-h-[120px] flex-col gap-4 p-4 text-sm">
@@ -403,19 +435,17 @@ export function LogsApp({
           onReplay={onReplay}
           loading={loading}
           locale={locale}
-          hasMore={hasMore}
-          onLoadMore={onLoadMore}
           sortBy={sortBy}
           sortDir={sortDir}
           onSort={onSort}
           matchSnippets={matchSnippets}
           fullLogSearchEnabled={fullLogSearchEnabled}
-          autoLoadEnabled={!hasFilters}
+          viewportBottomInsetPx={viewportBottomInsetPx}
           columnsConfig={logsColumns}
           onColumnsConfigChange={onColumnsConfigChange}
         />
-        {hasFilters && hasMore && (
-          <div className="mt-2 flex justify-center">
+        {hasMore && (
+          <div ref={loadMoreFooterRef} className="flex justify-center pt-2">
             <Button
               type="button"
               size="sm"
@@ -423,7 +453,9 @@ export function LogsApp({
               onClick={onLoadMore}
               disabled={loading}
             >
-              {t.loadMoreFiltered ?? t.loadMore ?? 'Load more results'}
+              {hasFilters
+                ? (t.loadMoreFiltered ?? t.loadMore ?? 'Load more results')
+                : (t.loadMore ?? 'Load more logs')}
             </Button>
           </div>
         )}
