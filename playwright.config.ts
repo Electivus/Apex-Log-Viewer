@@ -1,7 +1,7 @@
 import path from 'path';
 import { defineConfig } from '@playwright/test';
 
-const repoRoot = path.join(__dirname, '..', '..');
+const repoRoot = __dirname;
 const artifactsRoot = path.join(repoRoot, 'output', 'playwright');
 const resultsRoot = path.join(artifactsRoot, 'test-results');
 

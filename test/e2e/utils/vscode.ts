@@ -12,13 +12,37 @@ export type VscodeLaunch = {
   cleanup: () => Promise<void>;
 };
 
+function getModifierKey(): 'Control' | 'Meta' {
+  return process.platform === 'darwin' ? 'Meta' : 'Control';
+}
+
 function getVsCodeVersion(): string {
   const v = String(process.env.VSCODE_TEST_VERSION || 'stable').trim();
   return v || 'stable';
 }
 
+async function isAuxiliaryBarOpen(page: Page): Promise<boolean> {
+  try {
+    return await page.evaluate(() => {
+      const selectors = ['#workbench\\.parts\\.auxiliarybar', '.part.auxiliarybar', '.auxiliarybar'];
+      for (const selector of selectors) {
+        const el = document.querySelector(selector) as HTMLElement | null;
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) return true;
+      }
+      return false;
+    });
+  } catch {
+    return false;
+  }
+}
+
 export async function launchVsCode(options: { workspacePath: string; extensionDevelopmentPath: string }): Promise<VscodeLaunch> {
-  const vscodeExecutablePath = await downloadAndUnzipVSCode(getVsCodeVersion());
+  const vscodeCachePath = process.env.VSCODE_TEST_CACHE_PATH
+    ? path.resolve(process.env.VSCODE_TEST_CACHE_PATH)
+    : path.join(options.extensionDevelopmentPath, '.vscode-test');
+  const vscodeExecutablePath = await downloadAndUnzipVSCode({ version: getVsCodeVersion(), cachePath: vscodeCachePath });
 
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
   const extensionsDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-exts-'));
@@ -50,6 +74,17 @@ export async function launchVsCode(options: { workspacePath: string; extensionDe
   const page = await app.firstWindow();
   await page.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
 
+  // Close the auxiliary (right) sidebar if it opens by default (e.g., Copilot Chat),
+  // as it can overlap/push custom panels and introduce E2E flakiness.
+  try {
+    if (await isAuxiliaryBarOpen(page)) {
+      const modifier = getModifierKey();
+      await page.keyboard.press(`${modifier}+Alt+B`);
+    }
+  } catch {
+    // best-effort
+  }
+
   const cleanup = async () => {
     try {
       await app.close();
@@ -60,4 +95,3 @@ export async function launchVsCode(options: { workspacePath: string; extensionDe
 
   return { app, page, userDataDir, extensionsDir, cleanup };
 }
-

@@ -414,6 +414,7 @@
   },
   "scripts": {
     "test:clean": "node scripts/clean-vscode-test.js",
+    "test:clean:all": "node scripts/clean-vscode-test.js --force",
     "clean": "node -e \"const fs=require('fs');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('dist');del('out');for(const f of ['media/main.js','media/main.js.map','media/tail.js','media/tail.js.map','media/logViewer.js','media/logViewer.js.map','media/debugFlags.js','media/debugFlags.js.map','media/webview.css']){try{fs.unlinkSync(f)}catch{}}\"",
     "prebuild": "npm run clean",
     "vscode:prepublish": "npm run build && npm run nls:write",
@@ -439,7 +440,7 @@
     "vsce:publish:pre": "vsce publish --pre-release",
     "compile-tests": "node -e \"try{require('fs').rmSync('out/test',{recursive:true,force:true})}catch(e){}\" && tsc -p tsconfig.test.json",
     "watch-tests": "tsc -p tsconfig.test.json -w",
-    "pretest": "npm run test:clean && npm run test:linux-deps && npm run compile && npm run build:extension && npm run compile-tests",
+    "pretest": "npm run test:linux-deps && npm run build:extension && npm run compile-tests",
     "test": "npm run test:webview && ENABLE_COVERAGE=1 bash scripts/run-tests.sh --scope=unit && npm run coverage:merge",
     "test:unit": "npm run test:webview && npm run test:e2e:utils && npm run pretest && bash scripts/run-tests.sh --scope=unit",
     "test:integration": "npm run pretest && bash scripts/run-tests.sh --scope=integration --install-deps --timeout=900000",

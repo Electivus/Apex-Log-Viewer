@@ -10,6 +10,10 @@ type ScratchOrgResult = {
   cleanup: () => Promise<void>;
 };
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function envFlag(name: string): boolean {
   const value = String(process.env[name] || '')
     .trim()
@@ -68,6 +72,39 @@ async function ensureDevHubAuth(devHubAlias: string): Promise<void> {
   }
 }
 
+async function waitForScratchOrgReady(targetOrg: string): Promise<void> {
+  const timeoutMs = Math.max(30_000, Number(process.env.SF_SCRATCH_READY_TIMEOUT_MS || 240_000) || 240_000);
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+
+  while (Date.now() < deadline) {
+    try {
+      // Some scratch orgs return interstitial HTML ("Stay tuned...") for a short
+      // period after creation. Poll a lightweight Tooling API query until it
+      // returns JSON successfully.
+      await runSfJson(
+        [
+          'data',
+          'query',
+          '--query',
+          'SELECT Id FROM DebugLevel LIMIT 1',
+          '--use-tooling-api',
+          '--target-org',
+          targetOrg,
+        ],
+        { timeoutMs: 30_000 }
+      );
+      return;
+    } catch (error) {
+      lastError = error;
+      await sleep(5_000);
+    }
+  }
+
+  const detail = lastError instanceof Error ? lastError.message : String(lastError || '');
+  throw new Error(`Scratch org '${targetOrg}' was not ready after ${timeoutMs}ms. ${detail}`.trim());
+}
+
 export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
   const devHubAlias = await resolveDefaultDevHubAlias();
   await ensureDevHubAuth(devHubAlias);
@@ -79,6 +116,7 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
   // Reuse existing scratch org when possible to make local runs faster.
   const alreadyExists = await tryOrgDisplay(scratchAlias);
   if (alreadyExists) {
+    await waitForScratchOrgReady(scratchAlias);
     return {
       devHubAlias,
       scratchAlias,
@@ -160,6 +198,8 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
     const msg = _e instanceof Error ? _e.message : String(_e);
     throw new Error(`Failed to create scratch org '${scratchAlias}': ${msg}`);
   }
+
+  await waitForScratchOrgReady(scratchAlias);
 
   return {
     devHubAlias,
