@@ -1,7 +1,8 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { downloadAndUnzipVSCode } from '@vscode/test-electron';
+import { spawnSync } from 'node:child_process';
+import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from '@vscode/test-electron';
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright';
 
 export type VscodeLaunch = {
@@ -19,6 +20,133 @@ function getModifierKey(): 'Control' | 'Meta' {
 function getVsCodeVersion(): string {
   const v = String(process.env.VSCODE_TEST_VERSION || 'stable').trim();
   return v || 'stable';
+}
+
+async function readExtensionDependencies(extensionDevelopmentPath: string): Promise<string[]> {
+  try {
+    const pkgPath = path.join(extensionDevelopmentPath, 'package.json');
+    const raw = await readFile(pkgPath, 'utf8');
+    const json = JSON.parse(raw) as { extensionDependencies?: unknown };
+    if (!Array.isArray(json.extensionDependencies)) {
+      return [];
+    }
+    return json.extensionDependencies.map(String).map(s => s.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function listInstalledExtensions(args: {
+  cliPath: string;
+  cliArgs: string[];
+  userDataDir: string;
+  extensionsDir: string;
+}): Set<string> {
+  try {
+    const res = spawnSync(
+      args.cliPath,
+      [
+        ...args.cliArgs,
+        '--list-extensions',
+        '--show-versions',
+        '--user-data-dir',
+        args.userDataDir,
+        '--extensions-dir',
+        args.extensionsDir
+      ],
+      {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        encoding: 'utf8',
+        input: 'y\n',
+        env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
+      }
+    );
+    const out = [res.stdout, res.stderr].filter(Boolean).join('\n').trim();
+    const installed = new Set<string>();
+    for (const line of out.split(/\r?\n/)) {
+      const trimmed = (line || '').trim();
+      if (!trimmed) continue;
+      const id = trimmed.split('@')[0]?.trim().toLowerCase();
+      if (id) installed.add(id);
+    }
+    return installed;
+  } catch {
+    return new Set();
+  }
+}
+
+function installExtensions(args: {
+  cliPath: string;
+  cliArgs: string[];
+  userDataDir: string;
+  extensionsDir: string;
+  extensionIds: string[];
+}): void {
+  for (const id of args.extensionIds) {
+    console.log(`[e2e] Installing VS Code extension dependency: ${id}`);
+    const res = spawnSync(
+      args.cliPath,
+      [
+        ...args.cliArgs,
+        '--install-extension',
+        id,
+        '--force',
+        '--user-data-dir',
+        args.userDataDir,
+        '--extensions-dir',
+        args.extensionsDir
+      ],
+      {
+        stdio: ['pipe', 'inherit', 'inherit'],
+        encoding: 'utf8',
+        input: 'y\n',
+        env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
+      }
+    );
+    if (res.status !== 0) {
+      console.warn(`[e2e] Failed to install VS Code extension dependency: ${id}`);
+    }
+  }
+}
+
+async function ensureExtensionDependenciesInstalled(args: {
+  vscodeExecutablePath: string;
+  extensionDevelopmentPath: string;
+  userDataDir: string;
+  extensionsDir: string;
+}): Promise<void> {
+  const deps = await readExtensionDependencies(args.extensionDevelopmentPath);
+  if (!deps.length) {
+    return;
+  }
+
+  const cli = resolveCliArgsFromVSCodeExecutablePath(args.vscodeExecutablePath, { reuseMachineInstall: true });
+  const cliPath = cli[0];
+  const cliArgs = cli.slice(1);
+  if (!cliPath) {
+    console.warn('[e2e] Could not resolve VS Code CLI path; skipping dependency install.');
+    return;
+  }
+
+  const installed = listInstalledExtensions({
+    cliPath,
+    cliArgs,
+    userDataDir: args.userDataDir,
+    extensionsDir: args.extensionsDir
+  });
+
+  const toInstall = deps.filter(id => !installed.has(String(id).toLowerCase()));
+  if (!toInstall.length) {
+    return;
+  }
+
+  installExtensions({
+    cliPath,
+    cliArgs,
+    userDataDir: args.userDataDir,
+    extensionsDir: args.extensionsDir,
+    extensionIds: toInstall
+  });
 }
 
 async function isAuxiliaryBarOpen(page: Page): Promise<boolean> {
@@ -46,6 +174,20 @@ export async function launchVsCode(options: { workspacePath: string; extensionDe
 
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
   const extensionsDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-exts-'));
+
+  // The extension is loaded via --extensionDevelopmentPath, but VS Code still enforces
+  // `extensionDependencies` at activation time. Install those dependencies into the
+  // isolated extensions dir so contributed commands can activate the extension.
+  try {
+    await ensureExtensionDependenciesInstalled({
+      vscodeExecutablePath,
+      extensionDevelopmentPath: options.extensionDevelopmentPath,
+      userDataDir,
+      extensionsDir
+    });
+  } catch (e) {
+    console.warn('[e2e] Failed to ensure VS Code extension dependencies are installed:', e);
+  }
 
   const args = [
     options.workspacePath,
