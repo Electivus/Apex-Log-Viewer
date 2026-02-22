@@ -50,7 +50,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Build (type-check + lint + bundle)
+      - name: Type-check and lint
+        run: npm run compile
+
+      - name: Build (bundle)
         run: npm run build
 
       - name: Run tests

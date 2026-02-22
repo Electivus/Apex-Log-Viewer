@@ -1,4 +1,9 @@
 /** @type {import('jest').Config} */
+const wantCoverage =
+  /^1|true$/i.test(String(process.env.JEST_COVERAGE || '')) ||
+  /^1|true$/i.test(String(process.env.ENABLE_COVERAGE || '')) ||
+  /^1|true$/i.test(String(process.env.CI || ''));
+
 module.exports = {
   displayName: 'webview',
   clearMocks: true,
@@ -15,7 +20,7 @@ module.exports = {
     ]
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
-  collectCoverage: true,
+  collectCoverage: wantCoverage,
   coverageDirectory: '<rootDir>/coverage/webview',
   collectCoverageFrom: [
     '<rootDir>/src/webview/components/**/*.{ts,tsx}',

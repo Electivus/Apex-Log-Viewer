@@ -18,7 +18,10 @@ function getVsCodeVersion(): string {
 }
 
 export async function launchVsCode(options: { workspacePath: string; extensionDevelopmentPath: string }): Promise<VscodeLaunch> {
-  const vscodeExecutablePath = await downloadAndUnzipVSCode(getVsCodeVersion());
+  const vscodeCachePath = process.env.VSCODE_TEST_CACHE_PATH
+    ? path.resolve(process.env.VSCODE_TEST_CACHE_PATH)
+    : path.join(options.extensionDevelopmentPath, '.vscode-test');
+  const vscodeExecutablePath = await downloadAndUnzipVSCode({ version: getVsCodeVersion(), cachePath: vscodeCachePath });
 
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
   const extensionsDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-exts-'));
@@ -60,4 +63,3 @@ export async function launchVsCode(options: { workspacePath: string; extensionDe
 
   return { app, page, userDataDir, extensionsDir, cleanup };
 }
-

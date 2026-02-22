@@ -443,6 +443,7 @@ function parseArgs(argv) {
     scope: 'all',
     vscode: String(process.env.VSCODE_TEST_VERSION || 'stable'),
     installDeps: false,
+    forceInstallDeps: false,
     timeoutMs: undefined,
     smokeVsix: false
   };
@@ -450,17 +451,36 @@ function parseArgs(argv) {
     if (a.startsWith('--scope=')) out.scope = a.split('=')[1];
     else if (a.startsWith('--vscode=')) out.vscode = a.split('=')[1];
     else if (a === '--install-deps') out.installDeps = true;
+    else if (a === '--force-install-deps') out.forceInstallDeps = true;
     else if (a.startsWith('--timeout=')) out.timeoutMs = Number(a.split('=')[1]) || undefined;
     else if (a === '--smoke-vsix') out.smokeVsix = true;
   }
   if (/^1|true$/i.test(String(process.env.ALWAYS_SMOKE_VSIX || ''))) {
     out.smokeVsix = true;
   }
+  if (/^1|true$/i.test(String(process.env.VSCODE_TEST_FORCE_INSTALL_DEPS || ''))) {
+    out.forceInstallDeps = true;
+  }
   return out;
 }
 
 async function run() {
   const args = parseArgs(process.argv);
+
+  const repoRoot = resolve(__dirname, '..');
+  try {
+    process.chdir(repoRoot);
+  } catch (e) {
+    console.warn('[test-runner] Failed to chdir to repo root:', e && e.message ? e.message : e);
+  }
+
+  // Ensure a clean user-data-dir before running. Cache is preserved by default.
+  try {
+    cleanVsCodeTest({ quiet: true });
+  } catch (e) {
+    console.warn('[test-runner] Pre-clean failed:', e && e.message ? e.message : e);
+  }
+
   // Ensure Electron launches as a GUI app, not Node.
   // Some environments leak ELECTRON_RUN_AS_NODE=1 which breaks VS Code when
   // passed common flags like --user-data-dir. Explicitly unset it here.
@@ -502,13 +522,16 @@ async function run() {
   // Download VS Code: default to stable for all test scopes.
   // Can be overridden via --vscode or VSCODE_TEST_VERSION.
   const vsVer = String(args.vscode || 'stable');
-  const vscodeExecutablePath = await downloadAndUnzipVSCode(vsVer);
+  const vscodeCachePath = join(repoRoot, '.vscode-test');
+  const vscodeExecutablePath = await downloadAndUnzipVSCode({ version: vsVer, cachePath: vscodeCachePath });
   const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, {
     reuseMachineInstall: true
   });
 
   // Install dependency extensions directly (docs approach) when running integration or all
   const shouldInstall = scope === 'integration' || scope === 'all' || !!args.installDeps;
+  const unitExtensionsDir = join(tmpdir(), 'alv-extensions-unit');
+  const cachedExtensionsDir = join(vscodeCachePath, 'extensions');
   let sfExtPresent = false;
   if (shouldInstall) {
     const toInstall = (process.env.VSCODE_TEST_EXTENSIONS || 'salesforce.salesforcedx-vscode')
@@ -516,9 +539,47 @@ async function run() {
       .map(s => s.trim())
       .filter(Boolean);
     const userDataDir = join(tmpdir(), 'alv-user-data');
-    const extensionsDir = join(tmpdir(), 'alv-extensions');
+    const extensionsDir = cachedExtensionsDir;
+    try {
+      mkdirSync(extensionsDir, { recursive: true });
+    } catch (e) {
+      console.warn('[deps] Failed to ensure cached extensions dir exists:', e && e.message ? e.message : e);
+    }
+
+    const forceInstall = !!args.forceInstallDeps;
+    const installed = new Set();
+    try {
+      const list = spawnSync(
+        cliPath,
+        [
+          ...cliArgs,
+          '--list-extensions',
+          '--show-versions',
+          '--user-data-dir',
+          userDataDir,
+          '--extensions-dir',
+          extensionsDir
+        ],
+        { encoding: 'utf8' }
+      );
+      const out = (list.stdout || '').trim();
+      for (const line of out.split(/\r?\n/)) {
+        const trimmed = (line || '').trim();
+        if (!trimmed) continue;
+        const id = trimmed.split('@')[0].trim().toLowerCase();
+        if (id) installed.add(id);
+      }
+    } catch (e) {
+      // ignore and try installing anyway
+    }
+
     for (const id of toInstall) {
-      console.log(`[deps] Installing extension: ${id}`);
+      const key = String(id).toLowerCase();
+      if (!forceInstall && installed.has(key)) {
+        console.log(`[deps] Extension already installed; skipping: ${id}`);
+        continue;
+      }
+      console.log(`[deps] Installing extension: ${id}${forceInstall ? ' (forced)' : ''}`);
       // In WSL, code CLI prompts; feed 'y' automatically. Also isolate dirs.
       const args = [
         ...cliArgs,
@@ -549,9 +610,9 @@ async function run() {
           '--list-extensions',
           '--show-versions',
           '--user-data-dir',
-          join(tmpdir(), 'alv-user-data'),
+          userDataDir,
           '--extensions-dir',
-          join(tmpdir(), 'alv-extensions')
+          extensionsDir
         ],
         { encoding: 'utf8' }
       );
@@ -665,12 +726,19 @@ async function run() {
     process.exit(124);
   }, totalTimeout);
 
-  let userDataDir = process.env.__ALV_SMOKE_USER_DIR || join(tmpdir(), 'alv-user-data');
-  let extensionsDir = process.env.__ALV_SMOKE_EXT_DIR || join(tmpdir(), 'alv-extensions');
+  const defaultUserDataDir = join(tmpdir(), 'alv-user-data');
+  const defaultExtensionsDir = shouldInstall ? cachedExtensionsDir : unitExtensionsDir;
+  try {
+    mkdirSync(defaultExtensionsDir, { recursive: true });
+  } catch (e) {
+    console.warn('[test-runner] Failed to create extensions dir:', e && e.message ? e.message : e);
+  }
+  let userDataDir = process.env.__ALV_SMOKE_USER_DIR || defaultUserDataDir;
+  let extensionsDir = process.env.__ALV_SMOKE_EXT_DIR || defaultExtensionsDir;
 
   try {
-    userDataDir = process.env.__ALV_SMOKE_USER_DIR || join(tmpdir(), 'alv-user-data');
-    extensionsDir = process.env.__ALV_SMOKE_EXT_DIR || join(tmpdir(), 'alv-extensions');
+    userDataDir = process.env.__ALV_SMOKE_USER_DIR || defaultUserDataDir;
+    extensionsDir = process.env.__ALV_SMOKE_EXT_DIR || defaultExtensionsDir;
 
     const launch = [
       '--user-data-dir',
