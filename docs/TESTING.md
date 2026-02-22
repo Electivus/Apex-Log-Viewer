@@ -26,12 +26,20 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 ## Environment variables
 
 - `VSCODE_TEST_VERSION`: VS Code build to test against. Defaults to `stable` (local e CI); sobrescreva quando precisar validar outra versão.
-- `VSCODE_TEST_INSTALL_DEPS=1`: Forces installing dependency extensions even in non‑integration scopes.
+- `VSCODE_TEST_EXTENSIONS`: Comma-separated list of VS Code extension IDs to install for integration tests (default: `salesforce.salesforcedx-vscode`).
+- `VSCODE_TEST_FORCE_INSTALL_DEPS=1`: Forces reinstalling dependency extensions even if already present in the cache (useful when debugging flaky installs).
 - `VSCODE_TEST_GREP`: Mocha grep filter (string or regexp); use with `VSCODE_TEST_INVERT=1` to invert.
 - `VSCODE_TEST_MOCHA_TIMEOUT_MS`: Per‑test timeout (default 120000ms).
 - `VSCODE_TEST_TOTAL_TIMEOUT_MS`: Global hard timeout for the whole run.
 - `VSCODE_TEST_WORKSPACE`: If set, path opened by the test host. Normally the runner creates one for you.
 - `SF_LOG_TRACE=1`: Enables verbose trace logging in the temporary workspace settings.
+
+### Test cache cleanup
+
+- `npm run test:clean`: cleans temp test dirs (user data, legacy temp extension dirs) but preserves `.vscode-test/` (VS Code download cache) by default.
+- `npm run test:clean:all`: fully removes `.vscode-test/` too (forces a re-download on the next run).
+- `CLEAN_VSCODE_TEST_CACHE=1`: removes `.vscode-test/` (same effect as `test:clean:all`).
+- `KEEP_VSCODE_TEST_CACHE=1`: preserves `.vscode-test/` (default behavior; useful to override `CLEAN_*`).
 
 ### Salesforce CLI and scratch org (optional)
 
