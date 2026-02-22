@@ -159,43 +159,31 @@ describe('LogsTable', () => {
     };
   }
 
-  it('requests more data via onRowsRendered before any scroll occurs', () => {
+  it('does not auto-load more data via onRowsRendered', () => {
     const rows = createRows(30);
     const captured: CapturedList = {};
     const { loadMoreMock } = renderTable({ rows, captured });
     captured.onRowsRendered?.({ startIndex: 0, stopIndex: rows.length - 1 });
-    expect(loadMoreMock).toHaveBeenCalled();
-  });
-
-  it('does not auto-load when the list fits within the viewport and auto load is disabled', () => {
-    const rows = createRows(5);
-    const captured: CapturedList = {};
-    const { loadMoreMock } = renderTable({ rows, captured, autoLoadEnabled: false });
-    captured.onRowsRendered?.({ startIndex: 0, stopIndex: rows.length - 1 });
     expect(loadMoreMock).not.toHaveBeenCalled();
   });
 
-  it('auto-loads when viewport is short but auto load is enabled', () => {
-    const rows = createRows(5);
-    const captured: CapturedList = {};
-    const { loadMoreMock } = renderTable({ rows, captured, autoLoadEnabled: true });
-    captured.onRowsRendered?.({ startIndex: 0, stopIndex: rows.length - 1 });
-    expect(loadMoreMock).toHaveBeenCalled();
-  });
-
-  it('requests more data after user scrolls near the end', async () => {
-    const rows = createRows(80);
+  it('does not auto-load more data when scrolled near the bottom', async () => {
+    const rows = createRows(200);
     const captured: CapturedList = {};
     const { loadMoreMock } = renderTable({ rows, captured });
-    const outer = captured.outer as HTMLDivElement;
-    Object.defineProperty(outer, 'clientHeight', { value: 300, configurable: true });
-    Object.defineProperty(outer, 'scrollHeight', { value: 1200, configurable: true });
+    const el = captured.outer as HTMLDivElement;
+    Object.defineProperty(el, 'clientHeight', { value: 300, configurable: true });
+    Object.defineProperty(el, 'scrollHeight', { value: 1000, configurable: true });
+    const originalNow = performance.now.bind(performance);
+    (performance as any).now = () => 1000;
+
     await act(async () => {
-      outer.scrollTop = 10;
-      fireEvent.scroll(outer);
+      el.scrollTop = 1000 - 300 - 20;
+      fireEvent.scroll(el);
     });
-    captured.onRowsRendered?.({ startIndex: rows.length - 10, stopIndex: rows.length - 1 });
-    expect(loadMoreMock).toHaveBeenCalled();
+
+    expect(loadMoreMock).not.toHaveBeenCalled();
+    (performance as any).now = originalNow;
   });
 
   it('adjusts overscan while scrolling quickly', async () => {
@@ -238,95 +226,5 @@ describe('LogsTable', () => {
     renderTable({ captured, fullLogSearchEnabled: false });
     expect(screen.getByText('Code Unit')).toBeInTheDocument();
     expect(screen.queryByText('Match')).toBeNull();
-  });
-
-  it('uses bottom proximity as a fallback trigger for pagination', async () => {
-    const captured: CapturedList = {};
-    const { loadMoreMock } = renderTable({ rows: createRows(200), captured });
-    const el = captured.outer as HTMLDivElement;
-    Object.defineProperty(el, 'clientHeight', { value: 300, configurable: true });
-    Object.defineProperty(el, 'scrollHeight', { value: 1000, configurable: true });
-    const originalNow = performance.now.bind(performance);
-    (performance as any).now = () => 1000;
-
-    await act(async () => {
-      el.scrollTop = 1000 - 300 - 20;
-      fireEvent.scroll(el);
-    });
-    expect(loadMoreMock).toHaveBeenCalled();
-    (performance as any).now = originalNow;
-  });
-
-  it('avoids loading more when already loading or when hasMore is false', () => {
-    const rows = createRows(50);
-    const captured: CapturedList = {};
-    const { loadMoreMock, rerender } = renderTable({ rows, loading: true, hasMore: true, captured });
-    captured.onRowsRendered?.({ startIndex: 0, stopIndex: rows.length - 1 });
-    expect(loadMoreMock).not.toHaveBeenCalled();
-
-    loadMoreMock.mockClear();
-    rerender({ loading: false, hasMore: false });
-    captured.onRowsRendered?.({ startIndex: 0, stopIndex: rows.length - 1 });
-    expect(loadMoreMock).not.toHaveBeenCalled();
-  });
-
-  it('uses the latest onLoadMore callback inside the scroll fallback', async () => {
-    const rows = createRows(120);
-    const captured: CapturedList = {};
-    const VirtualList = createVirtualList(captured);
-    const baseProps = {
-      rows,
-      logHead: {},
-      matchSnippets: {},
-      t: t as any,
-      onOpen: () => {},
-      onReplay: () => {},
-      loading: false,
-      locale: 'en-US',
-      sortBy: 'time' as const,
-      sortDir: 'asc' as const,
-      onSort: () => {},
-      columnsConfig: defaultColumnsConfig as any,
-      onColumnsConfigChange: () => {},
-      fullLogSearchEnabled: true
-    };
-
-    const initialLoadMore = jest.fn();
-    const nextLoadMore = jest.fn();
-
-    const view = render(
-      <LogsTable
-        {...baseProps}
-        hasMore={false}
-        onLoadMore={initialLoadMore}
-        virtualListComponent={VirtualList}
-      />
-    );
-
-    view.rerender(
-      <LogsTable
-        {...baseProps}
-        hasMore={true}
-        onLoadMore={nextLoadMore}
-        virtualListComponent={VirtualList}
-      />
-    );
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    const el = captured.outer as HTMLDivElement;
-    expect(el).toBeTruthy();
-    Object.defineProperty(el, 'clientHeight', { value: 300, configurable: true });
-    Object.defineProperty(el, 'scrollHeight', { value: 1000, configurable: true });
-
-    await act(async () => {
-      el.scrollTop = 1000 - 300 - 24;
-      fireEvent.scroll(el);
-    });
-
-    expect(initialLoadMore).not.toHaveBeenCalled();
-    expect(nextLoadMore).toHaveBeenCalled();
   });
 });
