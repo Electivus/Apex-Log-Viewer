@@ -207,7 +207,7 @@ export function Toolbar({
           allLabel={t.filters?.all ?? 'All'}
           disabled={loading}
         />
-        <div className="flex min-w-[160px] items-center gap-2 rounded-md border border-input bg-input px-3 py-2">
+        <div className="flex h-[28px] min-w-[160px] items-center gap-2 rounded-md border border-input bg-input px-3">
           <Switch
             id={errorsOnlyId}
             data-testid="logs-errors-only-switch"
@@ -217,7 +217,7 @@ export function Toolbar({
           />
           <Label
             htmlFor={errorsOnlyId}
-            className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            className="cursor-pointer text-[13px] font-medium leading-none text-muted-foreground"
           >
             {t.filters?.errorsOnly ?? 'Errors only'}
           </Label>
