@@ -208,6 +208,20 @@ describe('Toolbar webview component', () => {
     expect(utils.errorsOnlyChanges).toEqual([true]);
   });
 
+  it('renders errors-only control with compact inline sizing styles', () => {
+    renderToolbar();
+    const toggle = screen.getByRole('switch', { name: 'Errors only' });
+    const control = toggle.closest('div');
+    const label = screen.getByText('Errors only');
+
+    expect(control).not.toBeNull();
+    expect(control).toHaveClass('h-[28px]');
+    expect(control).not.toHaveClass('py-2');
+
+    expect(label).toHaveClass('text-[13px]', 'font-medium');
+    expect(label).not.toHaveClass('uppercase', 'tracking-wide', 'text-xs');
+  });
+
   it('shows spinner when searchLoading is true', () => {
     renderToolbar({ searchLoading: true, searchMessage: 'Preparing…' });
     const notice = screen.getByText('Preparing…');
