@@ -136,6 +136,22 @@ suite('apex logs deletion', () => {
     assert.equal(calls.length, 1);
   });
 
+  test('fetchAllApexLogIds does not add an implicit LIMIT when limit is not provided', async () => {
+    const calls = installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/tooling/query')) {
+        const soql = decodeSoql(req.path);
+        assert.match(soql, /FROM ApexLog/);
+        assert.doesNotMatch(soql, /\bLIMIT\b/i);
+        return { statusCode: 200, body: { done: true, records: [] } };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const ids = await fetchAllApexLogIds(auth);
+    assert.deepEqual(ids, []);
+    assert.equal(calls.length, 1);
+  });
+
   test('deleteApexLogs returns summary with failed ids', async () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'DELETE' && req.path.includes('/composite/sobjects')) {

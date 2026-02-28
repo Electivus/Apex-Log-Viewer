@@ -88,10 +88,11 @@ export type FetchAllApexLogIdsOptions = {
 
 export async function fetchAllApexLogIds(auth: OrgAuth, options: FetchAllApexLogIdsOptions = {}): Promise<string[]> {
   const signal = options.signal;
-  // Allow larger deletions; ApexLog volumes vary by org and "clear all" should be able to clear more than a single
-  // query page. Still apply a reasonable safety cap to avoid runaway deletion if something goes wrong.
-  const safeLimit = Math.max(1, Math.min(50000, Math.floor(Number(options.limit) || 50000)));
   const userId = typeof options.userId === 'string' ? options.userId.trim() : '';
+  const limit =
+    typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0
+      ? Math.max(1, Math.floor(options.limit))
+      : undefined;
 
   const ids: string[] = [];
   const seen = new Set<string>();
@@ -103,7 +104,8 @@ export async function fetchAllApexLogIds(auth: OrgAuth, options: FetchAllApexLog
     clauses.push(`LogUserId = '${escapeSoqlLiteral(userId)}'`);
   }
   const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
-  const soql = `${baseSelect}${where} ORDER BY StartTime DESC, Id DESC LIMIT ${safeLimit}`;
+  const limitClause = typeof limit === 'number' ? ` LIMIT ${limit}` : '';
+  const soql = `${baseSelect}${where} ORDER BY StartTime DESC, Id DESC${limitClause}`;
 
   let json = await queryTooling<ApexLogIdRecord>(auth, soql, signal);
   while (!signal?.aborted) {
