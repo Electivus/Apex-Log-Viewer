@@ -208,6 +208,9 @@ export function LogsApp({
   const onDownloadAllLogs = () => {
     vscode.postMessage({ type: 'downloadAllLogs' });
   };
+  const onClearLogs = (scope: 'all' | 'mine') => {
+    vscode.postMessage({ type: 'clearLogs', scope });
+  };
   const onSelectOrg = (v: string) => {
     setSelectedOrg(v);
     vscode.postMessage({ type: 'selectOrg', target: v });
@@ -397,6 +400,7 @@ export function LogsApp({
         warning={warning}
         onRefresh={onRefresh}
         onDownloadAllLogs={onDownloadAllLogs}
+        onClearLogs={onClearLogs}
         onOpenDebugFlags={onOpenDebugFlags}
         t={t}
         orgs={orgs}

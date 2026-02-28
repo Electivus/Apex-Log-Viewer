@@ -4,11 +4,18 @@
 
 ### Features
 
+- Logs: add a `Clear logs` action (delete all org logs or only the authenticated user's logs) with confirmation + progress.
+- Debug Flags: add a `Clear logs` menu to quickly delete Apex logs without leaving the panel.
+
 ### Bug Fixes
+
+- Debug Flags: surface apply/remove failures as VS Code error notifications (not just in-panel banners), and add a storage-full hint + shortcut to clear org logs.
 
 ### Chores
 
 ### Tests
+
+- Logs: add unit coverage for ApexLog cleanup listing + deletion workflows.
 
 ## [0.24.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.22.0...v0.24.0) (2026-02-24)
 

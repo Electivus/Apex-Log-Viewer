@@ -8,6 +8,7 @@ import {
   removeUserTraceFlags,
   upsertUserTraceFlag
 } from '../salesforce/traceflags';
+import { clearApexLogs } from '../services/apexLogCleanup';
 import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '../shared/debugFlagsMessages';
 import { safeSendEvent } from '../shared/telemetry';
 import { pickSelectedOrg } from '../utils/orgs';
@@ -62,6 +63,7 @@ export class DebugFlagsPanel {
   private statusToken = 0;
   private orgBootstrapToken = 0;
   private lastSourceView: 'logs' | 'tail' | 'unknown' = 'unknown';
+  private clearLogsInProgress = false;
 
   private constructor(extensionUri: vscode.Uri, options?: ShowOptions) {
     this.selectedOrg = typeof options?.selectedOrg === 'string' ? options.selectedOrg.trim() || undefined : undefined;
@@ -139,6 +141,9 @@ export class DebugFlagsPanel {
         break;
       case 'debugFlagsRemove':
         await this.removeUserTraceFlag(message.userId);
+        break;
+      case 'debugFlagsClearLogs':
+        await this.clearLogs(message.scope === 'mine' ? 'mine' : 'all');
         break;
     }
   }
@@ -296,10 +301,25 @@ export class DebugFlagsPanel {
     } catch (e) {
       const msg = getErrorMessage(e);
       logWarn('DebugFlagsPanel: apply failed ->', msg);
-      this.post({
-        type: 'debugFlagsError',
-        message: localize('debugFlags.applyFailed', 'Failed to apply debug flag: {0}', msg)
-      });
+      const base = localize('debugFlags.applyFailed', 'Failed to apply debug flag: {0}', msg);
+      const hint = this.isLogStorageFullErrorMessage(msg)
+        ? localize(
+            'logsCleanup.hintStorageFull',
+            'Org log storage appears to be full. Use “Clear logs” → “All org logs” to free up space.'
+          )
+        : '';
+      const fullMessage = hint ? `${base}\n\n${hint}` : base;
+      this.post({ type: 'debugFlagsError', message: fullMessage });
+      if (hint) {
+        const clearAction = localize('logsCleanup.actionClearAll', 'Clear org logs…');
+        void vscode.window.showErrorMessage(fullMessage, clearAction).then(selection => {
+          if (selection === clearAction) {
+            void this.clearLogs('all');
+          }
+        });
+      } else {
+        void vscode.window.showErrorMessage(fullMessage);
+      }
       safeSendEvent(
         'debugFlags.apply',
         {
@@ -342,10 +362,25 @@ export class DebugFlagsPanel {
     } catch (e) {
       const msg = getErrorMessage(e);
       logWarn('DebugFlagsPanel: remove failed ->', msg);
-      this.post({
-        type: 'debugFlagsError',
-        message: localize('debugFlags.removeFailed', 'Failed to remove debug flag: {0}', msg)
-      });
+      const base = localize('debugFlags.removeFailed', 'Failed to remove debug flag: {0}', msg);
+      const hint = this.isLogStorageFullErrorMessage(msg)
+        ? localize(
+            'logsCleanup.hintStorageFull',
+            'Org log storage appears to be full. Use “Clear logs” → “All org logs” to free up space.'
+          )
+        : '';
+      const fullMessage = hint ? `${base}\n\n${hint}` : base;
+      this.post({ type: 'debugFlagsError', message: fullMessage });
+      if (hint) {
+        const clearAction = localize('logsCleanup.actionClearAll', 'Clear org logs…');
+        void vscode.window.showErrorMessage(fullMessage, clearAction).then(selection => {
+          if (selection === clearAction) {
+            void this.clearLogs('all');
+          }
+        });
+      } else {
+        void vscode.window.showErrorMessage(fullMessage);
+      }
       safeSendEvent(
         'debugFlags.remove',
         {
@@ -359,12 +394,231 @@ export class DebugFlagsPanel {
     }
   }
 
-  private async getSelectedAuth() {
+  private isAbortLikeError(err: unknown, message?: string): boolean {
+    if ((err as { name?: string } | undefined)?.name === 'AbortError') {
+      return true;
+    }
+    const normalized = String(message ?? getErrorMessage(err) ?? '').toLowerCase();
+    return normalized.includes('abort') || normalized.includes('canceled') || normalized.includes('cancelled');
+  }
+
+  private isLogStorageFullErrorMessage(message: string): boolean {
+    const m = String(message || '').toLowerCase();
+    if (!m) {
+      return false;
+    }
+    if (m.includes('storage_limit_exceeded')) {
+      return true;
+    }
+    if (m.includes('log storage') && (m.includes('full') || m.includes('limit') || m.includes('exceed'))) {
+      return true;
+    }
+    if (m.includes('debug log') && (m.includes('full') || m.includes('limit') || m.includes('exceed'))) {
+      return true;
+    }
+    if (m.includes('apexlog') && (m.includes('full') || m.includes('limit') || m.includes('exceed'))) {
+      return true;
+    }
+    if (m.includes('apex log') && (m.includes('full') || m.includes('limit') || m.includes('exceed'))) {
+      return true;
+    }
+    return false;
+  }
+
+  private async clearLogs(scope: 'all' | 'mine'): Promise<void> {
+    if (this.clearLogsInProgress) {
+      this.post({
+        type: 'debugFlagsNotice',
+        tone: 'info',
+        message: localize('logsCleanup.alreadyRunning', 'A log cleanup is already in progress.')
+      });
+      return;
+    }
+    this.clearLogsInProgress = true;
+    const t0 = Date.now();
+    this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
+    try {
+      const confirmAction = localize('logsCleanup.confirmAction', 'Delete');
+      const confirmation = await vscode.window.showWarningMessage(
+        scope === 'mine'
+          ? localize('logsCleanup.confirmMine.title', 'Delete your Apex logs for the selected org?')
+          : localize('logsCleanup.confirmAll.title', 'Delete all Apex logs for the selected org?'),
+        {
+          modal: true,
+          detail:
+            scope === 'mine'
+              ? localize(
+                  'logsCleanup.confirmMine.detail',
+                  "This permanently deletes ApexLog records whose LogUser matches the currently authenticated org user. It can't be undone."
+                )
+              : localize(
+                  'logsCleanup.confirmAll.detail',
+                  "This permanently deletes ApexLog records stored in the org. It can't be undone."
+                )
+        },
+        confirmAction
+      );
+      if (confirmation !== confirmAction) {
+        safeSendEvent(
+          'logs.cleanup',
+          { outcome: 'cancel', scope, sourceView: this.lastSourceView },
+          { durationMs: Date.now() - t0 }
+        );
+        return;
+      }
+
+      type CleanupRunResult =
+        | { kind: 'cancelled'; deleted: number; failed: number; total: number }
+        | { kind: 'empty' }
+        | { kind: 'done'; deleted: number; failed: number; cancelled: number; total: number };
+      const runResult = await vscode.window.withProgress<CleanupRunResult>(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title:
+            scope === 'mine'
+              ? localize('logsCleanup.progressTitleMine', 'Deleting my org logs…')
+              : localize('logsCleanup.progressTitleAll', 'Deleting org logs…'),
+          cancellable: true
+        },
+        async (progress, ct) => {
+          const controller = new AbortController();
+          ct.onCancellationRequested(() => controller.abort());
+
+          progress.report({
+            message:
+              scope === 'mine'
+                ? localize('logsCleanup.progressListingMine', 'Listing your Apex logs…')
+                : localize('logsCleanup.progressListingAll', 'Listing Apex logs in the org…')
+          });
+
+          let progressPct = 0;
+          let auth;
+          try {
+            auth = await this.getSelectedAuth(controller.signal);
+          } catch (e) {
+            const msg = getErrorMessage(e);
+            if (controller.signal.aborted || this.isAbortLikeError(e, msg)) {
+              return { kind: 'cancelled', deleted: 0, failed: 0, total: 0 };
+            }
+            throw e;
+          }
+
+          let cleanup;
+          try {
+            cleanup = await clearApexLogs(auth, scope, {
+              signal: controller.signal,
+              concurrency: 3,
+              onProgress: p => {
+                if (p.stage !== 'deleting' || p.total <= 0) {
+                  return;
+                }
+                const nextPct = Math.max(0, Math.min(100, Math.floor((p.processed / p.total) * 100)));
+                const increment = nextPct - progressPct;
+                progressPct = nextPct;
+                progress.report({
+                  message: localize('logsCleanup.progressDeleting', 'Deleting logs ({0}/{1})…', p.processed, p.total),
+                  increment: increment > 0 ? increment : undefined
+                });
+              }
+            });
+          } catch (e) {
+            const msg = getErrorMessage(e);
+            if (controller.signal.aborted || this.isAbortLikeError(e, msg)) {
+              return { kind: 'cancelled', deleted: 0, failed: 0, total: 0 };
+            }
+            throw e;
+          }
+
+          if (controller.signal.aborted || ct.isCancellationRequested) {
+            return {
+              kind: 'cancelled',
+              deleted: cleanup.deleted,
+              failed: cleanup.failed,
+              total: cleanup.total
+            };
+          }
+          if (cleanup.total === 0) {
+            return { kind: 'empty' };
+          }
+          return {
+            kind: 'done',
+            deleted: cleanup.deleted,
+            failed: cleanup.failed,
+            cancelled: cleanup.cancelled,
+            total: cleanup.total
+          };
+        }
+      );
+
+      if (runResult.kind === 'empty') {
+        this.post({
+          type: 'debugFlagsNotice',
+          tone: 'info',
+          message:
+            scope === 'mine'
+              ? localize('logsCleanup.emptyMine', 'No Apex logs were found for the authenticated user.')
+              : localize('logsCleanup.emptyAll', 'No Apex logs were found in the org.')
+        });
+      } else if (runResult.kind === 'cancelled') {
+        this.post({
+          type: 'debugFlagsNotice',
+          tone: 'info',
+          message: localize(
+            'logsCleanup.cancelledCounts',
+            'Log cleanup cancelled (deleted {0}, failed {1}).',
+            runResult.deleted,
+            runResult.failed
+          )
+        });
+      } else if (runResult.failed > 0) {
+        this.post({
+          type: 'debugFlagsNotice',
+          tone: 'warning',
+          message: localize(
+            'logsCleanup.partial',
+            'Deleted {0} log(s), but {1} failed.',
+            runResult.deleted,
+            runResult.failed
+          )
+        });
+      } else {
+        this.post({
+          type: 'debugFlagsNotice',
+          tone: 'success',
+          message: localize('logsCleanup.done', 'Deleted {0} Apex log(s).', runResult.deleted)
+        });
+      }
+
+      safeSendEvent(
+        'logs.cleanup',
+        { outcome: runResult.kind, scope, sourceView: this.lastSourceView },
+        { durationMs: Date.now() - t0 }
+      );
+    } catch (e) {
+      const msg = getErrorMessage(e);
+      logWarn('DebugFlagsPanel: clear logs failed ->', msg);
+      vscode.window.showErrorMessage(localize('logsCleanup.failed', 'Failed to clear logs: {0}', msg));
+      this.post({
+        type: 'debugFlagsError',
+        message: localize('logsCleanup.failed', 'Failed to clear logs: {0}', msg)
+      });
+      safeSendEvent(
+        'logs.cleanup',
+        { outcome: 'error', scope, sourceView: this.lastSourceView },
+        { durationMs: Date.now() - t0 }
+      );
+    } finally {
+      this.clearLogsInProgress = false;
+      this.post({ type: 'debugFlagsLoading', scope: 'action', value: false });
+    }
+  }
+
+  private async getSelectedAuth(signal?: AbortSignal) {
     const selected = (this.selectedOrg || '').trim();
     if (!selected) {
       throw new Error(localize('debugFlags.noOrg', 'No Salesforce org is selected.'));
     }
-    return getOrgAuth(selected);
+    return getOrgAuth(selected, undefined, signal);
   }
 
   private dispose(): void {

@@ -10,6 +10,21 @@ import type { EnsureLogsSavedItemResult } from '../services/logService';
 import type { ClassifyLogsForErrorsProgress } from '../services/logService';
 
 suite('LogService', () => {
+  async function waitForCondition(
+    predicate: () => boolean,
+    options: { timeoutMs?: number; intervalMs?: number } = {}
+  ): Promise<void> {
+    const timeoutMs = Math.max(0, Math.floor(options.timeoutMs ?? 250));
+    const intervalMs = Math.max(1, Math.floor(options.intervalMs ?? 10));
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (predicate()) {
+        return;
+      }
+      await new Promise(r => setTimeout(r, intervalMs));
+    }
+  }
+
   test('fetchLogs delegates to http fetch', async () => {
     const calls: any[] = [];
     const { LogService } = proxyquire('../services/logService', {
@@ -108,7 +123,7 @@ suite('LogService', () => {
         undefined,
         { preferLocalBodies: true, selectedOrg: 'default' }
       );
-      await new Promise(r => setTimeout(r, 20));
+      await waitForCondition(() => seen.length === 1, { timeoutMs: 500, intervalMs: 10 });
       assert.deepEqual(seen, [{ id: '1', code: 'Class.method' }]);
       assert.equal(fetchBodyCalls.length, 0, 'should not re-download body when file exists');
     } finally {

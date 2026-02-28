@@ -12,7 +12,8 @@ import { Label } from './components/ui/label';
 import { Button } from './components/ui/button';
 import { LabeledSelect } from './components/LabeledSelect';
 import { cn } from './lib/utils';
-import { AlertCircle, CheckCircle2, Info, Loader2, UserRound } from 'lucide-react';
+import * as Popover from '@radix-ui/react-popover';
+import { AlertCircle, CheckCircle2, Info, Loader2, Trash2, UserRound } from 'lucide-react';
 
 export interface DebugFlagsAppProps {
   vscode?: VsCodeWebviewApi<DebugFlagsFromWebviewMessage>;
@@ -201,6 +202,15 @@ export function DebugFlagsApp({
     vscode.postMessage({
       type: 'debugFlagsRemove',
       userId: selectedUserId
+    });
+  };
+
+  const handleClearLogs = (scope: 'all' | 'mine') => {
+    setNotice(undefined);
+    setError(undefined);
+    vscode.postMessage({
+      type: 'debugFlagsClearLogs',
+      scope
     });
   };
 
@@ -400,6 +410,56 @@ export function DebugFlagsApp({
             >
               {t.debugFlags?.remove ?? 'Remove debug flag'}
             </Button>
+
+            <Popover.Root>
+              <Popover.Trigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={loading.orgs || loading.action}
+                  title={t.logsCleanup?.openTitle ?? 'Delete Apex logs from the selected org'}
+                  className="flex items-center gap-2"
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  <span>{t.logsCleanup?.open ?? 'Clear logs'}</span>
+                </Button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  align="start"
+                  sideOffset={8}
+                  className={cn(
+                    'z-50 w-[260px] rounded-lg border border-border bg-card p-2 shadow-lg outline-none',
+                    'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
+                  )}
+                >
+                  <div className="flex flex-col gap-1">
+                    <Popover.Close asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="w-full justify-start"
+                        onClick={() => handleClearLogs('mine')}
+                        disabled={loading.orgs || loading.action}
+                      >
+                        {t.logsCleanup?.deleteMine ?? 'Delete my logs'}
+                      </Button>
+                    </Popover.Close>
+                    <Popover.Close asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="w-full justify-start text-destructive hover:text-destructive"
+                        onClick={() => handleClearLogs('all')}
+                        disabled={loading.orgs || loading.action}
+                      >
+                        {t.logsCleanup?.deleteAll ?? 'Delete all org logs'}
+                      </Button>
+                    </Popover.Close>
+                  </div>
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
           </div>
         </article>
       </section>
