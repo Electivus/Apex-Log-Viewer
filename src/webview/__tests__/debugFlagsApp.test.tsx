@@ -124,4 +124,25 @@ describe('DebugFlags webview App', () => {
       { timeout: 1000 }
     );
   });
+
+  it('triggers clear logs actions from menu', async () => {
+    const { vscode, posted } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<DebugFlagsApp vscode={vscode} messageBus={bus} />);
+
+    sendMessage(bus, { type: 'debugFlagsInit', locale: 'en', defaultTtlMinutes: 30 });
+    sendMessage(bus, {
+      type: 'debugFlagsOrgs',
+      data: [{ username: 'user@example.com', alias: 'Main', isDefaultUsername: true }],
+      selected: 'user@example.com'
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear logs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete my logs' }));
+    expect(posted.some(msg => msg.type === 'debugFlagsClearLogs' && msg.scope === 'mine')).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear logs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete all org logs' }));
+    expect(posted.some(msg => msg.type === 'debugFlagsClearLogs' && msg.scope === 'all')).toBe(true);
+  });
 });

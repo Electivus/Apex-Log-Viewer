@@ -10,6 +10,13 @@ export type Messages = {
   loadMore?: string;
   loadMoreFiltered?: string;
   downloadAllLogs?: string;
+  logsCleanup?: {
+    open: string;
+    openTitle: string;
+    deleteAll: string;
+    deleteMine: string;
+    hintStorageFull: string;
+  };
   open?: string;
   orgLabel: string;
   defaultOrg: string;
@@ -108,6 +115,13 @@ const en: Messages = {
   loadMore: 'Load more logs',
   loadMoreFiltered: 'Load more results',
   downloadAllLogs: 'Download all logs',
+  logsCleanup: {
+    open: 'Clear logs',
+    openTitle: 'Delete Apex logs from the selected org',
+    deleteAll: 'Delete all org logs',
+    deleteMine: 'Delete my logs',
+    hintStorageFull: 'Org log storage appears full. Use Clear logs → Delete all org logs.'
+  },
   open: 'Open',
   orgLabel: 'Org',
   defaultOrg: 'Default Org',
@@ -206,6 +220,13 @@ const ptBR: Messages = {
   loadMore: 'Carregar mais logs',
   loadMoreFiltered: 'Carregar mais resultados',
   downloadAllLogs: 'Baixar todos os logs',
+  logsCleanup: {
+    open: 'Limpar logs',
+    openTitle: 'Deletar logs Apex da org selecionada',
+    deleteAll: 'Deletar todos os logs da org',
+    deleteMine: 'Deletar meus logs',
+    hintStorageFull: 'O armazenamento de logs da org parece cheio. Use Limpar logs → Deletar todos os logs da org.'
+  },
   open: 'Abrir',
   orgLabel: 'Org',
   defaultOrg: 'Org Padrão',

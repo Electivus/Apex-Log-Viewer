@@ -7,7 +7,8 @@ export type DebugFlagsFromWebviewMessage =
   | { type: 'debugFlagsSearchUsers'; query: string }
   | { type: 'debugFlagsSelectUser'; userId: string }
   | { type: 'debugFlagsApply'; userId: string; debugLevelName: string; ttlMinutes: number }
-  | { type: 'debugFlagsRemove'; userId: string };
+  | { type: 'debugFlagsRemove'; userId: string }
+  | { type: 'debugFlagsClearLogs'; scope: 'all' | 'mine' };
 
 export type DebugFlagsToWebviewMessage =
   | { type: 'debugFlagsInit'; locale: string; defaultTtlMinutes: number }

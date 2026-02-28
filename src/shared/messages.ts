@@ -6,6 +6,7 @@ export type WebviewToExtensionMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
   | { type: 'downloadAllLogs' }
+  | { type: 'clearLogs'; scope: 'all' | 'mine' }
   | { type: 'selectOrg'; target: string }
   | { type: 'openDebugFlags' }
   | { type: 'openLog'; logId: string }

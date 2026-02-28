@@ -69,6 +69,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
   let refreshCount = 0;
   let downloadAllCount = 0;
   let openDebugFlagsCount = 0;
+  const clearLogsCalls: Array<'all' | 'mine'> = [];
   let clearCount = 0;
   const queryChanges: string[] = [];
   const userChanges: string[] = [];
@@ -93,6 +94,9 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
         }}
         onOpenDebugFlags={() => {
           openDebugFlagsCount++;
+        }}
+        onClearLogs={scope => {
+          clearLogsCalls.push(scope);
         }}
         t={t}
         orgs={orgs}
@@ -145,6 +149,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
     refreshCount: () => refreshCount,
     downloadAllCount: () => downloadAllCount,
     openDebugFlagsCount: () => openDebugFlagsCount,
+    clearLogsCalls,
     clearCount: () => clearCount,
     queryChanges,
     userChanges,
@@ -255,5 +260,17 @@ describe('Toolbar webview component', () => {
     const btn = screen.getByRole('button', { name: 'Download all logs' });
     fireEvent.click(btn);
     expect(utils.downloadAllCount()).toBe(1);
+  });
+
+  it('opens clear logs menu and triggers selected action', () => {
+    const utils = renderToolbar();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear logs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete my logs' }));
+    expect(utils.clearLogsCalls).toEqual(['mine']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear logs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete all org logs' }));
+    expect(utils.clearLogsCalls).toEqual(['mine', 'all']);
   });
 });

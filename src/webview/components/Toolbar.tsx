@@ -1,5 +1,6 @@
 import React from 'react';
-import { RefreshCw, FilterX, Loader2, AlertCircle, Bug, Download } from 'lucide-react';
+import * as Popover from '@radix-ui/react-popover';
+import { RefreshCw, FilterX, Loader2, AlertCircle, Bug, Download, Trash2 } from 'lucide-react';
 import type { OrgItem } from '../../shared/types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -9,6 +10,7 @@ import { FilterSelect } from './FilterSelect';
 import { OrgSelect } from './OrgSelect';
 import { ColumnsPopover } from './ColumnsPopover';
 import type { NormalizedLogsColumnsConfig } from '../../shared/logsColumns';
+import { cn } from '../lib/utils';
 
 function useStableId(prefix: string) {
   const id = React.useId();
@@ -21,6 +23,7 @@ type ToolbarProps = {
   warning?: string;
   onRefresh: () => void;
   onDownloadAllLogs: () => void;
+  onClearLogs: (scope: 'all' | 'mine') => void;
   onOpenDebugFlags: () => void;
   t: any;
   orgs: OrgItem[];
@@ -59,6 +62,7 @@ export function Toolbar({
   warning,
   onRefresh,
   onDownloadAllLogs,
+  onClearLogs,
   onOpenDebugFlags,
   t,
   orgs,
@@ -92,6 +96,10 @@ export function Toolbar({
   const hasFilters = Boolean(filterUser || filterOperation || filterStatus || filterCodeUnit || errorsOnly);
   const errorLabel = t?.tail?.errorLabel ?? t?.errors?.generic ?? 'Error';
   const warningLabel = t?.warningLabel ?? 'Warning';
+  const clearLogsLabel = t?.logsCleanup?.open ?? 'Clear logs';
+  const clearLogsTitle = t?.logsCleanup?.openTitle ?? 'Delete Apex logs from the selected org';
+  const deleteAllLabel = t?.logsCleanup?.deleteAll ?? 'Delete all org logs';
+  const deleteMineLabel = t?.logsCleanup?.deleteMine ?? 'Delete my logs';
 
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border bg-card/60 p-4 shadow-sm">
@@ -121,6 +129,56 @@ export function Toolbar({
           <Download className="h-4 w-4" aria-hidden="true" />
           <span>{t.downloadAllLogs ?? 'Download all logs'}</span>
         </Button>
+
+        <Popover.Root>
+          <Popover.Trigger asChild>
+            <Button
+              type="button"
+              disabled={loading}
+              variant="outline"
+              className="flex items-center gap-2"
+              title={clearLogsTitle}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              <span>{clearLogsLabel}</span>
+            </Button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              align="start"
+              sideOffset={8}
+              className={cn(
+                'z-50 w-[260px] rounded-lg border border-border bg-card p-2 shadow-lg outline-none',
+                'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
+              )}
+            >
+              <div className="flex flex-col gap-1">
+                <Popover.Close asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full justify-start"
+                    onClick={() => onClearLogs('mine')}
+                    disabled={loading}
+                  >
+                    {deleteMineLabel}
+                  </Button>
+                </Popover.Close>
+                <Popover.Close asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full justify-start text-destructive hover:text-destructive"
+                    onClick={() => onClearLogs('all')}
+                    disabled={loading}
+                  >
+                    {deleteAllLabel}
+                  </Button>
+                </Popover.Close>
+              </div>
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
 
         <OrgSelect
           label={t.orgLabel}

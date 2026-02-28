@@ -5,6 +5,7 @@ export class LogsMessageHandler {
   constructor(
     private readonly refresh: () => Promise<void>,
     private readonly downloadAllLogs: () => Promise<void>,
+    private readonly clearLogs: (scope: 'all' | 'mine') => Promise<void>,
     private readonly sendOrgs: () => Promise<void>,
     private readonly setSelectedOrg: (org?: string) => void,
     private readonly openDebugFlags: () => Promise<void>,
@@ -35,6 +36,10 @@ export class LogsMessageHandler {
       case 'downloadAllLogs':
         logInfo('Logs: downloadAllLogs');
         await this.downloadAllLogs();
+        break;
+      case 'clearLogs':
+        logInfo('Logs: clearLogs', (message as any)?.scope);
+        await this.clearLogs(message.scope === 'mine' ? 'mine' : 'all');
         break;
       case 'selectOrg':
         this.setSelectedOrg(typeof message.target === 'string' ? message.target.trim() : undefined);
