@@ -291,7 +291,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download packaged VSIX artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: nightly-vsix-*
           path: staging
@@ -389,7 +389,7 @@ jobs:
           node -e "const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));pkg.version=process.env.VERSION;fs.writeFileSync('package.json',JSON.stringify(pkg,null,2)+'\n')"
 
       - name: Download VSIX artifact from prerelease job
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: nightly-vsix
           path: .
