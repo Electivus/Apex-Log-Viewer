@@ -534,7 +534,7 @@ async function run() {
   const cachedExtensionsDir = join(vscodeCachePath, 'extensions');
   let sfExtPresent = false;
   if (shouldInstall) {
-    const toInstall = (process.env.VSCODE_TEST_EXTENSIONS || 'salesforce.salesforcedx-vscode')
+    const toInstall = (process.env.VSCODE_TEST_EXTENSIONS || 'salesforce.salesforcedx-vscode-apex-replay-debugger')
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
@@ -629,6 +629,7 @@ async function run() {
       const out = [list.stdout, list.stderr].filter(Boolean).join('\n').trim();
       console.log('[deps] Extensions installed in test dir:\n' + out);
       if (
+        /^salesforce\.salesforcedx-vscode-apex-replay-debugger(?:@|$)/m.test(out) ||
         /^salesforce\.salesforcedx-vscode(?:@|$)/m.test(out) ||
         /^salesforce\.salesforcedx-vscode-core(?:@|$)/m.test(out) ||
         /^salesforce\.salesforcedx-vscode-apex(?:@|$)/m.test(out)

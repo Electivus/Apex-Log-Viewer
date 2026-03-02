@@ -148,6 +148,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         try {
           clearListCache();
           this.pageLimit = this.configManager.getPageLimit();
+          await this.orgManager.ensureProjectDefaultSelected();
           const auth = await getOrgAuth(this.orgManager.getSelectedOrg(), undefined, controller.signal);
           if (isCurrentRefresh()) {
             const existingWarning = getApiVersionFallbackWarning(auth);
