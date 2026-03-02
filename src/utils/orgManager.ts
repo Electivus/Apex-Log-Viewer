@@ -27,13 +27,13 @@ export class OrgManager {
 
   async list(forceRefresh = false, signal?: AbortSignal): Promise<{ orgs: OrgItem[]; selected?: string }> {
     const orgs = await listOrgs(forceRefresh, signal);
-    await this.ensureInitialSelection(orgs);
+    await this.ensureProjectDefaultSelected(orgs);
     const selected = pickSelectedOrg(orgs, this.selectedOrg);
     this.selectedOrg = selected;
     return { orgs, selected };
   }
 
-  private async ensureInitialSelection(orgs: OrgItem[]): Promise<void> {
+  async ensureProjectDefaultSelected(orgs?: OrgItem[]): Promise<void> {
     if (this.initialSelectionLoaded) {
       return;
     }
@@ -54,9 +54,11 @@ export class OrgManager {
         return;
       }
       this.selectedOrg = trimmed;
-      const match = orgs.find(o => o.username === trimmed || o.alias === trimmed);
-      if (match?.username) {
-        this.selectedOrg = match.username;
+      if (Array.isArray(orgs) && orgs.length > 0) {
+        const match = orgs.find(o => o.username === trimmed || o.alias === trimmed);
+        if (match?.username) {
+          this.selectedOrg = match.username;
+        }
       }
     })()
       .catch(e => {

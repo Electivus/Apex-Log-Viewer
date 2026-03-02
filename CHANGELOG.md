@@ -10,12 +10,17 @@
 ### Bug Fixes
 
 - Debug Flags: surface apply/remove failures as VS Code error notifications (not just in-panel banners), and add a storage-full hint + shortcut to clear org logs.
+- Logs: ensure initial Refresh honors the project default org from `.sf/.sfdx` config when present.
+- Replay: avoid false “Apex Replay Debugger is unavailable” toasts when the dependency extension is installed but not yet activated (and clarify remote install guidance).
 
 ### Chores
+
+- Replay: narrow VS Code `extensionDependencies` to the Apex Replay Debugger extension (instead of the full Salesforce Extension Pack).
 
 ### Tests
 
 - Logs: add unit coverage for ApexLog cleanup listing + deletion workflows.
+- Replay: add unit + Playwright E2E coverage for launching replay debugger from the Logs table.
 
 ## [0.24.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.22.0...v0.24.0) (2026-02-24)
 
