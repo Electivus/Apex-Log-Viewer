@@ -24,6 +24,33 @@
 - Update `CHANGELOG.md` for user-facing changes.
 - Add screenshots/GIFs for UI changes.
 
+## Releases (stable vs pre-release)
+
+This repo follows the VS Code Marketplace pre-release convention:
+- **Even minor versions** (for example `0.26.x`) are **stable** releases.
+- **Odd minor versions** (for example `0.25.x`) are **pre-releases**.
+
+### Stable release checklist (even minor only)
+
+1. **Collect changes since the last stable release** (previous even minor).
+   - Release notes in `CHANGELOG.md` should cover *everything* since the last stable tag, even if some changes shipped earlier as odd-minor pre-releases.
+2. **Update `CHANGELOG.md`**
+   - Move items from `Unreleased` into a new version section `## [X.Y.Z]`.
+3. **Bump versions**
+   - Update `package.json#version` and `package-lock.json` to `X.Y.Z`.
+   - The release workflow validates `git tag vX.Y.Z` matches `package.json#version`.
+4. **Open a release PR**
+   - Conventional commit message usually `chore(release): prepare X.Y.Z`.
+   - Include verification (recommended): `npm run build` + `npm run test:ci`.
+5. **After merge, create + push the tag**
+   - `git checkout main && git pull --ff-only`
+   - `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
+6. **Monitor CI**
+   - Tag push triggers `.github/workflows/release.yml` (packages VSIX + creates GitHub Release; publishes to Marketplace/Open VSX when tokens are configured).
+   - Useful: `gh run list --workflow release.yml --limit 5`
+
+See also: `docs/PUBLISHING.md` and `docs/CI.md`.
+
 ## Security and Configuration Tips
 - Salesforce CLI (`sf`/`sfdx`) is required for runtime usage.
 - Never commit tokens or org-sensitive data.
