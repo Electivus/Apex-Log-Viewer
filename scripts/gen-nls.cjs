@@ -23,6 +23,8 @@ const en = {
   openError: 'Failed to open log: ',
   replayError: 'Failed to launch Apex Replay Debugger: ',
   replayStarting: 'Starting Apex Replay Debugger…',
+  replayCommandsUnavailableMessage:
+    'Apex Replay Debugger is installed (salesforce.salesforcedx-vscode-apex-replay-debugger), but its commands are unavailable. Ensure it is enabled in this VS Code environment (Local/WSL/SSH/Dev Containers), then reload the window and try again.',
   replayMissingExtMessage:
     'Apex Replay Debugger is unavailable. Install the Apex Replay Debugger extension (salesforce.salesforcedx-vscode-apex-replay-debugger) or the Salesforce Extension Pack (salesforce.salesforcedx-vscode) and ensure it is enabled in this VS Code environment (Local/WSL/SSH/Dev Containers).',
   tailSelectDebugLevel: 'Select a debug level',
@@ -47,6 +49,8 @@ const ptBr = {
   openError: 'Falha ao abrir o log: ',
   replayError: 'Falha ao iniciar o Apex Replay Debugger: ',
   replayStarting: 'Iniciando o Apex Replay Debugger…',
+  replayCommandsUnavailableMessage:
+    'Apex Replay Debugger está instalado (salesforce.salesforcedx-vscode-apex-replay-debugger), mas seus comandos não estão disponíveis. Garanta que esteja habilitado neste ambiente do VS Code (Local/WSL/SSH/Dev Containers), recarregue a janela e tente novamente.',
   replayMissingExtMessage:
     'Apex Replay Debugger não está disponível. Instale a extensão Apex Replay Debugger (salesforce.salesforcedx-vscode-apex-replay-debugger) ou o Salesforce Extension Pack (salesforce.salesforcedx-vscode) e garanta que esteja habilitado neste ambiente do VS Code (Local/WSL/SSH/Dev Containers).',
   tailSelectDebugLevel: 'Selecione um nível de depuração',
