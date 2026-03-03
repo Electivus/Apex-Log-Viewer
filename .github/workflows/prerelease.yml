@@ -268,7 +268,7 @@ jobs:
           NODE
 
       - name: Upload VSIX artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-vsix-${{ matrix.target }}
           path: |
@@ -323,7 +323,7 @@ jobs:
           done
 
       - name: Upload VSIX artifact for publish
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: nightly-vsix
           path: |
