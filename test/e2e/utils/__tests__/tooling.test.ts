@@ -1,4 +1,4 @@
-import { ensureDebugFlagsTestUser, type OrgAuth } from '../tooling';
+import { ensureDebugFlagsTestUser, getDebugLevelByDeveloperName, type OrgAuth } from '../tooling';
 
 type MockFetchResponse = {
   status: number;
@@ -85,5 +85,50 @@ describe('ensureDebugFlagsTestUser', () => {
       id: '005000000000999AAA',
       username: 'auth.user@example.com'
     });
+  });
+
+  test('queries DebugLevel records with a compatible tooling API version', async () => {
+    const auth: OrgAuth = {
+      accessToken: 'token',
+      instanceUrl: 'https://example.my.salesforce.com',
+      username: 'auth.user@example.com',
+      apiVersion: '60.0'
+    };
+    const calls: string[] = [];
+
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      return responseFrom({
+        status: 200,
+        body: {
+          records: [
+            {
+              Id: '7dl000000000001AAA',
+              DeveloperName: 'ALV_POST_64',
+              MasterLabel: 'ALV POST 64',
+              Language: 'en_US',
+              Workflow: 'INFO',
+              Validation: 'WARN',
+              Callout: 'DEBUG',
+              ApexCode: 'DEBUG',
+              ApexProfiling: 'INFO',
+              Visualforce: 'WARN',
+              System: 'DEBUG',
+              Database: 'INFO',
+              Wave: 'DEBUG',
+              Nba: 'ERROR',
+              DataAccess: 'WARN'
+            }
+          ]
+        }
+      });
+    });
+
+    const record = await getDebugLevelByDeveloperName(auth, 'ALV_POST_64');
+
+    expect(record?.id).toBe('7dl000000000001AAA');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('/services/data/v63.0/tooling/query');
   });
 });

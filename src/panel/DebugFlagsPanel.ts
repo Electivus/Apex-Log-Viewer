@@ -181,7 +181,7 @@ export class DebugFlagsPanel {
         return;
       }
 
-      await this.sendDebugLevelData(auth);
+      await this.sendDebugLevelData(auth, undefined, token);
       await this.searchUsers();
     } catch (e) {
       const msg = getErrorMessage(e);
@@ -197,7 +197,11 @@ export class DebugFlagsPanel {
     }
   }
 
-  private async sendDebugLevelData(auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>, selectedId?: string): Promise<void> {
+  private async sendDebugLevelData(
+    auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>,
+    selectedId?: string,
+    bootstrapToken?: number
+  ): Promise<void> {
     const [details, active] = await Promise.all([
       listDebugLevelDetails(auth).catch(err => {
         logWarn('DebugFlagsPanel: failed to load debug level details ->', getErrorMessage(err));
@@ -205,6 +209,13 @@ export class DebugFlagsPanel {
       }),
       getActiveUserDebugLevel(auth).catch(() => undefined as string | undefined)
     ]);
+
+    if (
+      this.disposed ||
+      (typeof bootstrapToken === 'number' && bootstrapToken !== this.orgBootstrapToken)
+    ) {
+      return;
+    }
 
     const output = details.map(record => record.developerName).filter(Boolean);
     if (active && !output.includes(active)) {

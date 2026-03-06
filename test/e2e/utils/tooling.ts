@@ -30,9 +30,30 @@ export type DebugLevelToolingRecord = {
   dataAccess?: string;
 };
 
+const DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION = '63.0';
+
 function getApiVersion(): string {
   const v = String(process.env.SF_TEST_API_VERSION || process.env.SF_API_VERSION || '60.0').trim();
   return /^\d+\.\d+$/.test(v) ? v : '60.0';
+}
+
+function parseApiVersionNumber(value: string | undefined): number | undefined {
+  const raw = String(value || '').trim();
+  if (!/^\d+\.\d+$/.test(raw)) {
+    return undefined;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function getDebugLevelToolingApiVersion(auth: OrgAuth): string {
+  const current = String(auth.apiVersion || '').trim() || getApiVersion();
+  const currentNumeric = parseApiVersionNumber(current);
+  const requiredNumeric = parseApiVersionNumber(DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION);
+  if (currentNumeric === undefined || requiredNumeric === undefined || currentNumeric >= requiredNumeric) {
+    return current;
+  }
+  return DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION;
 }
 
 function stripTrailingSlash(value: string): string {
@@ -321,11 +342,12 @@ export async function getDebugLevelByDeveloperName(
   auth: OrgAuth,
   developerName: string
 ): Promise<DebugLevelToolingRecord | undefined> {
+  const apiVersion = getDebugLevelToolingApiVersion(auth);
   const esc = escapeSoqlLiteral(developerName);
   const soql = encodeURIComponent(
     `SELECT Id, DeveloperName, Language, MasterLabel, Workflow, Validation, Callout, ApexCode, ApexProfiling, Visualforce, System, Database, Wave, Nba, DataAccess FROM DebugLevel WHERE DeveloperName = '${esc}' LIMIT 1`
   );
-  const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/tooling/query?q=${soql}`);
+  const response = await requestJson(auth, 'GET', `/services/data/v${apiVersion}/tooling/query?q=${soql}`);
   return mapDebugLevelRecord(Array.isArray(response?.records) ? response.records[0] : undefined);
 }
 
@@ -333,11 +355,12 @@ export async function getDebugLevelById(
   auth: OrgAuth,
   debugLevelId: string
 ): Promise<DebugLevelToolingRecord | undefined> {
+  const apiVersion = getDebugLevelToolingApiVersion(auth);
   const esc = escapeSoqlLiteral(debugLevelId);
   const soql = encodeURIComponent(
     `SELECT Id, DeveloperName, Language, MasterLabel, Workflow, Validation, Callout, ApexCode, ApexProfiling, Visualforce, System, Database, Wave, Nba, DataAccess FROM DebugLevel WHERE Id = '${esc}' LIMIT 1`
   );
-  const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/tooling/query?q=${soql}`);
+  const response = await requestJson(auth, 'GET', `/services/data/v${apiVersion}/tooling/query?q=${soql}`);
   return mapDebugLevelRecord(Array.isArray(response?.records) ? response.records[0] : undefined);
 }
 
