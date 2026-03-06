@@ -114,6 +114,9 @@ export type Messages = {
     managerSave?: string;
     managerReset?: string;
     managerDelete?: string;
+    managerDeleteConfirmPrompt?: string;
+    managerDeleteConfirmAction?: string;
+    managerDeleteCancel?: string;
     managerValidation?: string;
   };
 };
@@ -234,6 +237,9 @@ const en: Messages = {
     managerSave: 'Save',
     managerReset: 'Reset changes',
     managerDelete: 'Delete',
+    managerDeleteConfirmPrompt: 'Delete this DebugLevel from the org?',
+    managerDeleteConfirmAction: 'Delete',
+    managerDeleteCancel: 'Cancel',
     managerValidation: 'DeveloperName and MasterLabel are required to save a DebugLevel.'
   }
 };
@@ -354,6 +360,9 @@ const ptBR: Messages = {
     managerSave: 'Salvar',
     managerReset: 'Restaurar alterações',
     managerDelete: 'Excluir',
+    managerDeleteConfirmPrompt: 'Excluir este DebugLevel da org?',
+    managerDeleteConfirmAction: 'Excluir',
+    managerDeleteCancel: 'Cancelar',
     managerValidation: 'DeveloperName e MasterLabel são obrigatórios para salvar um DebugLevel.'
   }
 };

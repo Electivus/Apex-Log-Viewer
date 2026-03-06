@@ -36,6 +36,8 @@ type DebugLevelQueryRecord = {
 const DEBUG_LEVEL_FIELDS =
   'Id, DeveloperName, Language, MasterLabel, Workflow, Validation, Callout, ApexCode, ApexProfiling, ' +
   'Visualforce, System, Database, Wave, Nba, DataAccess';
+const DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION = '63.0';
+const debugLevelApiVersionByOrg = new Map<string, string>();
 
 function getDebugLevelsCacheConfig() {
   try {
@@ -82,11 +84,83 @@ function getDebugLevelDetailsCacheKey(auth: OrgAuth): string {
   return `debugLevelDetails:${key}`;
 }
 
+function getDebugLevelApiVersionCacheKey(auth: OrgAuth): string {
+  return `${String(auth.instanceUrl || '').trim().toLowerCase()}|${String(auth.username || '').trim().toLowerCase()}`;
+}
+
+function parseApiVersionNumber(value: string | undefined): number | undefined {
+  const raw = String(value || '').trim();
+  if (!/^\d+\.\d+$/.test(raw)) {
+    return undefined;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+async function getDebugLevelApiVersion(auth: OrgAuth): Promise<string> {
+  const currentVersion = getEffectiveApiVersion(auth);
+  const currentNumeric = parseApiVersionNumber(currentVersion);
+  const requiredNumeric = parseApiVersionNumber(DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION);
+  if (currentNumeric === undefined || requiredNumeric === undefined || currentNumeric >= requiredNumeric) {
+    return currentVersion;
+  }
+
+  const cacheKey = getDebugLevelApiVersionCacheKey(auth);
+  const cached = debugLevelApiVersionByOrg.get(cacheKey);
+  const cachedNumeric = parseApiVersionNumber(cached);
+  if (cached && cachedNumeric !== undefined && cachedNumeric >= requiredNumeric) {
+    return cached;
+  }
+
+  try {
+    const url = `${auth.instanceUrl}/services/data`;
+    const body = await httpsRequestWith401Retry(
+      auth,
+      'GET',
+      url,
+      {
+        Authorization: `Bearer ${auth.accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    );
+    const parsed = JSON.parse(body);
+    if (!Array.isArray(parsed)) {
+      return currentVersion;
+    }
+
+    let maxVersion = currentVersion;
+    let maxNumeric = currentNumeric;
+    for (const item of parsed) {
+      const candidate = String(item?.version || '').trim();
+      const candidateNumeric = parseApiVersionNumber(candidate);
+      if (candidateNumeric !== undefined && (maxNumeric === undefined || candidateNumeric > maxNumeric)) {
+        maxVersion = candidate;
+        maxNumeric = candidateNumeric;
+      }
+    }
+
+    if (maxNumeric !== undefined && maxNumeric >= requiredNumeric) {
+      debugLevelApiVersionByOrg.set(cacheKey, maxVersion);
+      return maxVersion;
+    }
+  } catch (e) {
+    try {
+      logTrace('getDebugLevelApiVersion: failed to discover org max API version ->', String((e as Error)?.message || e));
+    } catch {}
+  }
+
+  return currentVersion;
+}
+
 async function invalidateDebugLevelsCache(auth: OrgAuth): Promise<void> {
   await Promise.all([
     CacheManager.delete('cli', getDebugLevelsCacheKey(auth)),
     CacheManager.delete('cli', getDebugLevelDetailsCacheKey(auth))
   ]);
+}
+
+export function __resetDebugLevelApiVersionCacheForTests(): void {
+  debugLevelApiVersionByOrg.clear();
 }
 
 function mapDebugLevelRecord(record: DebugLevelQueryRecord): DebugLevelRecord {
@@ -233,8 +307,16 @@ function buildSfValuesArg(payload: Record<string, string>): string {
 }
 
 function queryTooling<TRecord>(auth: OrgAuth, soql: string): Promise<QueryResponse<TRecord>> {
+  return queryToolingWithVersion(auth, soql, getEffectiveApiVersion(auth));
+}
+
+function queryToolingWithVersion<TRecord>(
+  auth: OrgAuth,
+  soql: string,
+  apiVersion: string
+): Promise<QueryResponse<TRecord>> {
   const encoded = encodeURIComponent(soql);
-  const url = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/query?q=${encoded}`;
+  const url = `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/query?q=${encoded}`;
   return httpsRequestWith401Retry(auth, 'GET', url, {
     Authorization: `Bearer ${auth.accessToken}`,
     'Content-Type': 'application/json'
@@ -286,7 +368,8 @@ export async function listDebugLevelDetails(auth: OrgAuth): Promise<DebugLevelRe
   }
 
   const soql = `SELECT ${DEBUG_LEVEL_FIELDS} FROM DebugLevel ORDER BY DeveloperName`;
-  const json = await queryTooling<DebugLevelQueryRecord>(auth, soql);
+  const apiVersion = await getDebugLevelApiVersion(auth);
+  const json = await queryToolingWithVersion<DebugLevelQueryRecord>(auth, soql, apiVersion);
   const records = (json.records || []).map(mapDebugLevelRecord);
 
   if (enabled && ttl > 0) {
@@ -407,6 +490,7 @@ export async function createDebugLevel(
   input: DebugLevelRecord
 ): Promise<{ id: string }> {
   const payload = buildDebugLevelPayload(input);
+  const apiVersion = await getDebugLevelApiVersion(auth);
   if (auth.username) {
     try {
       const cli = await runSfJson([
@@ -417,7 +501,7 @@ export async function createDebugLevel(
         '--target-org',
         auth.username,
         '--api-version',
-        getEffectiveApiVersion(auth),
+        apiVersion,
         '--sobject',
         'DebugLevel',
         '--values',
@@ -435,7 +519,7 @@ export async function createDebugLevel(
     }
   }
 
-  const createUrl = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/DebugLevel`;
+  const createUrl = `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/sobjects/DebugLevel`;
   const resBody = await httpsRequestWith401Retry(
     auth,
     'POST',
@@ -463,6 +547,7 @@ export async function updateDebugLevel(
     throw new Error('Invalid DebugLevel id.');
   }
   const payload = buildDebugLevelPayload(input);
+  const apiVersion = await getDebugLevelApiVersion(auth);
   if (auth.username) {
     try {
       const cli = await runSfJson([
@@ -473,7 +558,7 @@ export async function updateDebugLevel(
         '--target-org',
         auth.username,
         '--api-version',
-        getEffectiveApiVersion(auth),
+        apiVersion,
         '--sobject',
         'DebugLevel',
         '--record-id',
@@ -494,7 +579,7 @@ export async function updateDebugLevel(
   }
 
   const updateUrl =
-    `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/DebugLevel/${debugLevelId}`;
+    `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/sobjects/DebugLevel/${debugLevelId}`;
   await httpsRequestWith401Retry(
     auth,
     'PATCH',
@@ -512,6 +597,7 @@ export async function deleteDebugLevel(auth: OrgAuth, debugLevelId: string): Pro
   if (!isSalesforceId(debugLevelId)) {
     throw new Error('Invalid DebugLevel id.');
   }
+  const apiVersion = await getDebugLevelApiVersion(auth);
   if (auth.username) {
     try {
       const cli = await runSfJson([
@@ -522,7 +608,7 @@ export async function deleteDebugLevel(auth: OrgAuth, debugLevelId: string): Pro
         '--target-org',
         auth.username,
         '--api-version',
-        getEffectiveApiVersion(auth),
+        apiVersion,
         '--sobject',
         'DebugLevel',
         '--record-id',
@@ -541,7 +627,7 @@ export async function deleteDebugLevel(auth: OrgAuth, debugLevelId: string): Pro
   }
 
   const deleteUrl =
-    `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/DebugLevel/${debugLevelId}`;
+    `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/sobjects/DebugLevel/${debugLevelId}`;
   await httpsRequestWith401Retry(auth, 'DELETE', deleteUrl, {
     Authorization: `Bearer ${auth.accessToken}`,
     'Content-Type': 'application/json'

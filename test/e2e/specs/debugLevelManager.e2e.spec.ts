@@ -95,9 +95,11 @@ test('creates, updates and deletes DebugLevel records from the manager UI', asyn
       });
 
     await debugFlagsFrame.locator('[data-testid="debug-level-delete"]').click({ force: true });
-    const confirmDeleteButton = vscodePage.getByRole('button', { name: /^Delete$/ }).last();
-    await confirmDeleteButton.waitFor({ state: 'visible', timeout: 60_000 });
-    await confirmDeleteButton.click();
+    await debugFlagsFrame.locator('[data-testid="debug-level-delete-confirmation"]').waitFor({
+      state: 'visible',
+      timeout: 60_000
+    });
+    await debugFlagsFrame.locator('[data-testid="debug-level-delete-confirm"]').click({ force: true });
     await expect(debugFlagsFrame.locator('[data-testid="debug-flags-notice"]')).toBeVisible({ timeout: 60_000 });
 
     await expect

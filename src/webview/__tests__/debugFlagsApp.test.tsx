@@ -126,6 +126,12 @@ describe('DebugFlags webview App', () => {
     expect(managerDeveloperName.value).toBe('ALV_E2E');
 
     fireEvent.click(screen.getByTestId('debug-level-delete'));
+    expect(screen.getByTestId('debug-level-delete-confirmation')).toBeTruthy();
+    expect(
+      posted.some(msg => msg.type === 'debugFlagsManagerDelete' && msg.debugLevelId === '7dl000000000001AAA')
+    ).toBe(false);
+
+    fireEvent.click(screen.getByTestId('debug-level-delete-confirm'));
     await waitFor(() => {
       expect(
         posted.some(

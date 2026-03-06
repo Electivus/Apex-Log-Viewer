@@ -427,22 +427,6 @@ export class DebugFlagsPanel {
     if (!debugLevelId) {
       return;
     }
-    const confirmAction = localize('debugFlags.managerDeleteConfirmAction', 'Delete');
-    const confirmation = await vscode.window.showWarningMessage(
-      localize('debugFlags.managerDeleteConfirmTitle', 'Delete this DebugLevel?'),
-      {
-        modal: true,
-        detail: localize(
-          'debugFlags.managerDeleteConfirmDetail',
-          "This permanently removes the DebugLevel from the org. Salesforce may block deletion if it's still referenced by a TraceFlag."
-        )
-      },
-      confirmAction
-    );
-    if (confirmation !== confirmAction) {
-      return;
-    }
-
     this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
     try {
       const auth = await this.getSelectedAuth();

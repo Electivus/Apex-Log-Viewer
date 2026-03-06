@@ -85,6 +85,7 @@ export function DebugFlagsApp({
   const [selectedPresetId, setSelectedPresetId] = useState('');
   const [loadedManagerDraft, setLoadedManagerDraft] = useState<DebugLevelRecord>(() => createEmptyDebugLevelRecord());
   const [managerDraft, setManagerDraft] = useState<DebugLevelRecord>(() => createEmptyDebugLevelRecord());
+  const [confirmDeleteManager, setConfirmDeleteManager] = useState(false);
   const [ttlMinutes, setTtlMinutes] = useState('30');
   const [error, setError] = useState<string | undefined>(undefined);
   const [notice, setNotice] = useState<NoticeState | undefined>(undefined);
@@ -158,6 +159,7 @@ export function DebugFlagsApp({
           setSelectedPresetId('');
           setLoadedManagerDraft(nextDraft);
           setManagerDraft(nextDraft);
+          setConfirmDeleteManager(false);
           break;
         }
         case 'debugFlagsUserStatus':
@@ -274,6 +276,7 @@ export function DebugFlagsApp({
     const nextDraft = cloneDebugLevelRecord(selectedRecord);
     setLoadedManagerDraft(nextDraft);
     setManagerDraft(nextDraft);
+    setConfirmDeleteManager(false);
     setNotice(undefined);
     setError(undefined);
   };
@@ -284,6 +287,7 @@ export function DebugFlagsApp({
     setSelectedPresetId('');
     setLoadedManagerDraft(nextDraft);
     setManagerDraft(nextDraft);
+    setConfirmDeleteManager(false);
     setNotice(undefined);
     setError(undefined);
   };
@@ -297,11 +301,13 @@ export function DebugFlagsApp({
       ...cloneDebugLevelRecord(preset.record),
       id: prev.id
     }));
+    setConfirmDeleteManager(false);
     setNotice(undefined);
     setError(undefined);
   };
 
   const handleManagerFieldChange = <K extends keyof DebugLevelRecord>(field: K, value: DebugLevelRecord[K]) => {
+    setConfirmDeleteManager(false);
     setManagerDraft(prev => ({
       ...prev,
       [field]: value
@@ -311,6 +317,7 @@ export function DebugFlagsApp({
   const handleResetManager = () => {
     setSelectedPresetId('');
     setManagerDraft(cloneDebugLevelRecord(loadedManagerDraft));
+    setConfirmDeleteManager(false);
     setNotice(undefined);
     setError(undefined);
   };
@@ -325,6 +332,7 @@ export function DebugFlagsApp({
     }
     setNotice(undefined);
     setError(undefined);
+    setConfirmDeleteManager(false);
     vscode.postMessage({
       type: 'debugFlagsManagerSave',
       draft: managerDraft
@@ -335,12 +343,23 @@ export function DebugFlagsApp({
     if (!selectedManagerId) {
       return;
     }
+    if (!confirmDeleteManager) {
+      setConfirmDeleteManager(true);
+      setNotice(undefined);
+      setError(undefined);
+      return;
+    }
+    setConfirmDeleteManager(false);
     setNotice(undefined);
     setError(undefined);
     vscode.postMessage({
       type: 'debugFlagsManagerDelete',
       debugLevelId: selectedManagerId
     });
+  };
+
+  const handleCancelDeleteManager = () => {
+    setConfirmDeleteManager(false);
   };
 
   const noticeIcon = notice?.tone === 'success' ? CheckCircle2 : notice?.tone === 'warning' ? AlertCircle : Info;
@@ -767,6 +786,34 @@ export function DebugFlagsApp({
             {t.debugFlags?.managerDelete ?? 'Delete'}
           </Button>
         </div>
+
+        {confirmDeleteManager && (
+          <div
+            className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            data-testid="debug-level-delete-confirmation"
+          >
+            <AlertCircle className="h-4 w-4" aria-hidden="true" />
+            <span>{t.debugFlags?.managerDeleteConfirmPrompt ?? 'Delete this DebugLevel from the org?'}</span>
+            <Button
+              type="button"
+              onClick={handleDeleteManager}
+              disabled={!canDeleteManager}
+              variant="destructive"
+              data-testid="debug-level-delete-confirm"
+            >
+              {t.debugFlags?.managerDeleteConfirmAction ?? 'Delete'}
+            </Button>
+            <Button
+              type="button"
+              onClick={handleCancelDeleteManager}
+              disabled={loading.action || loading.orgs}
+              variant="outline"
+              data-testid="debug-level-delete-cancel"
+            >
+              {t.debugFlags?.managerDeleteCancel ?? 'Cancel'}
+            </Button>
+          </div>
+        )}
       </section>
 
       {error && (
