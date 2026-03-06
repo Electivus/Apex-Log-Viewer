@@ -1,8 +1,11 @@
-import type { ApplyUserTraceFlagInput, DebugFlagUser, UserTraceFlagStatus } from '../shared/debugFlagsTypes';
+import type { ApplyUserTraceFlagInput, DebugFlagUser, DebugLevelRecord, UserTraceFlagStatus } from '../shared/debugFlagsTypes';
 import { CacheManager } from '../utils/cacheManager';
-import { getBooleanConfig, getNumberConfig } from '../utils/config';
+import { getBooleanConfig, getConfig, getNumberConfig } from '../utils/config';
 import { logTrace } from '../utils/logger';
+import path from 'path';
+import { CLI_TIMEOUT_MS, execCommand } from './exec';
 import { getEffectiveApiVersion, httpsRequestWith401Retry } from './http';
+import { resolvePATHFromLoginShell } from './path';
 import type { OrgAuth } from './types';
 
 const userIdCache = new Map<string, string>();
@@ -11,6 +14,30 @@ const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 type QueryResponse<TRecord = any> = {
   records?: TRecord[];
 };
+
+type DebugLevelQueryRecord = {
+  Id?: string;
+  DeveloperName?: string;
+  MasterLabel?: string;
+  Language?: string;
+  Workflow?: string;
+  Validation?: string;
+  Callout?: string;
+  ApexCode?: string;
+  ApexProfiling?: string;
+  Visualforce?: string;
+  System?: string;
+  Database?: string;
+  Wave?: string;
+  Nba?: string;
+  DataAccess?: string;
+};
+
+const DEBUG_LEVEL_FIELDS =
+  'Id, DeveloperName, Language, MasterLabel, Workflow, Validation, Callout, ApexCode, ApexProfiling, ' +
+  'Visualforce, System, Database, Wave, Nba, DataAccess';
+const DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION = '63.0';
+const debugLevelApiVersionByOrg = new Map<string, string>();
 
 function getDebugLevelsCacheConfig() {
   try {
@@ -47,9 +74,249 @@ function clampTtlMinutes(value: number | undefined): number {
   return Math.max(1, Math.min(1440, Math.floor(raw)));
 }
 
+function getDebugLevelsCacheKey(auth: OrgAuth): string {
+  const key = auth.instanceUrl || auth.username || '';
+  return `debugLevels:${key}`;
+}
+
+function getDebugLevelDetailsCacheKey(auth: OrgAuth): string {
+  const key = auth.instanceUrl || auth.username || '';
+  return `debugLevelDetails:${key}`;
+}
+
+function getDebugLevelApiVersionCacheKey(auth: OrgAuth): string {
+  return `${String(auth.instanceUrl || '').trim().toLowerCase()}|${String(auth.username || '').trim().toLowerCase()}`;
+}
+
+function parseApiVersionNumber(value: string | undefined): number | undefined {
+  const raw = String(value || '').trim();
+  if (!/^\d+\.\d+$/.test(raw)) {
+    return undefined;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+async function getDebugLevelApiVersion(auth: OrgAuth): Promise<string> {
+  const currentVersion = getEffectiveApiVersion(auth);
+  const currentNumeric = parseApiVersionNumber(currentVersion);
+  const requiredNumeric = parseApiVersionNumber(DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION);
+  if (currentNumeric === undefined || requiredNumeric === undefined || currentNumeric >= requiredNumeric) {
+    return currentVersion;
+  }
+
+  const cacheKey = getDebugLevelApiVersionCacheKey(auth);
+  const cached = debugLevelApiVersionByOrg.get(cacheKey);
+  const cachedNumeric = parseApiVersionNumber(cached);
+  if (cached && cachedNumeric !== undefined && cachedNumeric >= requiredNumeric) {
+    return cached;
+  }
+
+  try {
+    const url = `${auth.instanceUrl}/services/data`;
+    const body = await httpsRequestWith401Retry(
+      auth,
+      'GET',
+      url,
+      {
+        Authorization: `Bearer ${auth.accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    );
+    const parsed = JSON.parse(body);
+    if (!Array.isArray(parsed)) {
+      return currentVersion;
+    }
+
+    let maxVersion = currentVersion;
+    let maxNumeric = currentNumeric;
+    for (const item of parsed) {
+      const candidate = String(item?.version || '').trim();
+      const candidateNumeric = parseApiVersionNumber(candidate);
+      if (candidateNumeric !== undefined && (maxNumeric === undefined || candidateNumeric > maxNumeric)) {
+        maxVersion = candidate;
+        maxNumeric = candidateNumeric;
+      }
+    }
+
+    if (maxNumeric !== undefined && maxNumeric >= requiredNumeric) {
+      debugLevelApiVersionByOrg.set(cacheKey, maxVersion);
+      return maxVersion;
+    }
+  } catch (e) {
+    try {
+      logTrace('getDebugLevelApiVersion: failed to discover org max API version ->', String((e as Error)?.message || e));
+    } catch {}
+  }
+
+  return currentVersion;
+}
+
+async function invalidateDebugLevelsCache(auth: OrgAuth): Promise<void> {
+  await Promise.all([
+    CacheManager.delete('cli', getDebugLevelsCacheKey(auth)),
+    CacheManager.delete('cli', getDebugLevelDetailsCacheKey(auth))
+  ]);
+}
+
+export function __resetDebugLevelApiVersionCacheForTests(): void {
+  debugLevelApiVersionByOrg.clear();
+}
+
+function mapDebugLevelRecord(record: DebugLevelQueryRecord): DebugLevelRecord {
+  return {
+    id: typeof record.Id === 'string' ? record.Id : undefined,
+    developerName: typeof record.DeveloperName === 'string' ? record.DeveloperName : '',
+    masterLabel: typeof record.MasterLabel === 'string' ? record.MasterLabel : '',
+    language: typeof record.Language === 'string' ? record.Language : '',
+    workflow: typeof record.Workflow === 'string' ? record.Workflow : '',
+    validation: typeof record.Validation === 'string' ? record.Validation : '',
+    callout: typeof record.Callout === 'string' ? record.Callout : '',
+    apexCode: typeof record.ApexCode === 'string' ? record.ApexCode : '',
+    apexProfiling: typeof record.ApexProfiling === 'string' ? record.ApexProfiling : '',
+    visualforce: typeof record.Visualforce === 'string' ? record.Visualforce : '',
+    system: typeof record.System === 'string' ? record.System : '',
+    database: typeof record.Database === 'string' ? record.Database : '',
+    wave: typeof record.Wave === 'string' ? record.Wave : '',
+    nba: typeof record.Nba === 'string' ? record.Nba : '',
+    dataAccess: typeof record.DataAccess === 'string' ? record.DataAccess : ''
+  };
+}
+
+function buildDebugLevelPayload(input: DebugLevelRecord) {
+  return {
+    DeveloperName: String(input.developerName || '').trim(),
+    MasterLabel: String(input.masterLabel || '').trim(),
+    Language: String(input.language || '').trim(),
+    Workflow: String(input.workflow || '').trim(),
+    Validation: String(input.validation || '').trim(),
+    Callout: String(input.callout || '').trim(),
+    ApexCode: String(input.apexCode || '').trim(),
+    ApexProfiling: String(input.apexProfiling || '').trim(),
+    Visualforce: String(input.visualforce || '').trim(),
+    System: String(input.system || '').trim(),
+    Database: String(input.database || '').trim(),
+    Wave: String(input.wave || '').trim(),
+    Nba: String(input.nba || '').trim(),
+    DataAccess: String(input.dataAccess || '').trim()
+  };
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/g, '');
+}
+
+function parseCliJson(stdout: string): any {
+  const raw = String(stdout || '').trim();
+  if (!raw) {
+    throw new Error('empty CLI output');
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const cleaned = stripAnsi(raw);
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    }
+    throw new Error('invalid CLI JSON output');
+  }
+}
+
+function quoteWindowsCmdArg(value: string): string {
+  const raw = String(value ?? '');
+  return `"${raw.replace(/"/g, '""')}"`;
+}
+
+async function execSfCommand(
+  program: string,
+  args: string[],
+  envOverride?: NodeJS.ProcessEnv
+): Promise<{ stdout: string; stderr: string }> {
+  if (process.platform === 'win32' && /\.cmd$/i.test(program)) {
+    const command = [program, ...args].map(quoteWindowsCmdArg).join(' ');
+    return execCommand('cmd.exe', ['/d', '/s', '/c', command], envOverride, CLI_TIMEOUT_MS);
+  }
+  return execCommand(program, args, envOverride, CLI_TIMEOUT_MS);
+}
+
+function getSfCliProgramCandidates(): string[] {
+  const configured = String(getConfig<string | undefined>('sfLogs.cliPath', undefined) || '').trim();
+  const windowsAppDataSf =
+    process.platform === 'win32' && process.env.APPDATA
+      ? path.join(process.env.APPDATA, 'npm', 'sf.cmd')
+      : '';
+  const windowsUserProfileSf =
+    process.platform === 'win32' && process.env.USERPROFILE
+      ? path.join(process.env.USERPROFILE, 'AppData', 'Roaming', 'npm', 'sf.cmd')
+      : '';
+  return Array.from(
+    new Set([configured, windowsAppDataSf, windowsUserProfileSf, process.platform === 'win32' ? 'sf.cmd' : '', 'sf'].filter(Boolean))
+  );
+}
+
+async function runSfJson(args: string[]): Promise<any> {
+  let lastError: unknown;
+  let sawEnoent = false;
+  for (const program of getSfCliProgramCandidates()) {
+    try {
+      const { stdout } = await execSfCommand(program, [...args, '--json']);
+      return parseCliJson(stdout);
+    } catch (e) {
+      lastError = e;
+      if ((e as any)?.code === 'ENOENT') {
+        sawEnoent = true;
+      }
+    }
+  }
+
+  if (sawEnoent) {
+    const loginPath = await resolvePATHFromLoginShell();
+    if (loginPath) {
+      const envOverride: NodeJS.ProcessEnv = { ...process.env, PATH: loginPath };
+      for (const program of getSfCliProgramCandidates()) {
+        try {
+          const { stdout } = await execSfCommand(program, [...args, '--json'], envOverride);
+          return parseCliJson(stdout);
+        } catch (e) {
+          lastError = e;
+        }
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Failed to execute Salesforce CLI JSON command.');
+}
+
+function encodeSfValue(value: string): string {
+  const normalized = String(value ?? '');
+  if (!normalized) {
+    return "''";
+  }
+  if (/[\s'"]/.test(normalized)) {
+    return `'${normalized.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  }
+  return normalized;
+}
+
+function buildSfValuesArg(payload: Record<string, string>): string {
+  return Object.entries(payload)
+    .map(([field, value]) => `${field}=${encodeSfValue(value)}`)
+    .join(' ');
+}
+
 function queryTooling<TRecord>(auth: OrgAuth, soql: string): Promise<QueryResponse<TRecord>> {
+  return queryToolingWithVersion(auth, soql, getEffectiveApiVersion(auth));
+}
+
+function queryToolingWithVersion<TRecord>(
+  auth: OrgAuth,
+  soql: string,
+  apiVersion: string
+): Promise<QueryResponse<TRecord>> {
   const encoded = encodeURIComponent(soql);
-  const url = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/query?q=${encoded}`;
+  const url = `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/query?q=${encoded}`;
   return httpsRequestWith401Retry(auth, 'GET', url, {
     Authorization: `Bearer ${auth.accessToken}`,
     'Content-Type': 'application/json'
@@ -67,13 +334,12 @@ function queryStandard<TRecord>(auth: OrgAuth, soql: string): Promise<QueryRespo
 
 export async function listDebugLevels(auth: OrgAuth): Promise<string[]> {
   const { enabled, ttl } = getDebugLevelsCacheConfig();
-  const key = auth.instanceUrl || auth.username || '';
-  const cacheKey = `debugLevels:${key}`;
+  const cacheKey = getDebugLevelsCacheKey(auth);
   if (enabled && ttl > 0) {
     const cached = CacheManager.get<string[]>('cli', cacheKey);
     if (Array.isArray(cached)) {
       try {
-        logTrace('listDebugLevels: cache hit for', key);
+        logTrace('listDebugLevels: cache hit for', auth.instanceUrl || auth.username || '');
       } catch {}
       return cached;
     }
@@ -89,6 +355,27 @@ export async function listDebugLevels(auth: OrgAuth): Promise<string[]> {
     await CacheManager.set('cli', cacheKey, names, ttl);
   }
   return names;
+}
+
+export async function listDebugLevelDetails(auth: OrgAuth): Promise<DebugLevelRecord[]> {
+  const { enabled, ttl } = getDebugLevelsCacheConfig();
+  const cacheKey = getDebugLevelDetailsCacheKey(auth);
+  if (enabled && ttl > 0) {
+    const cached = CacheManager.get<DebugLevelRecord[]>('cli', cacheKey);
+    if (Array.isArray(cached)) {
+      return cached;
+    }
+  }
+
+  const soql = `SELECT ${DEBUG_LEVEL_FIELDS} FROM DebugLevel ORDER BY DeveloperName`;
+  const apiVersion = await getDebugLevelApiVersion(auth);
+  const json = await queryToolingWithVersion<DebugLevelQueryRecord>(auth, soql, apiVersion);
+  const records = (json.records || []).map(mapDebugLevelRecord);
+
+  if (enabled && ttl > 0) {
+    await CacheManager.set('cli', cacheKey, records, ttl);
+  }
+  return records;
 }
 
 export async function listActiveUsers(auth: OrgAuth, query = '', limit = 50): Promise<DebugFlagUser[]> {
@@ -196,6 +483,156 @@ async function getDebugLevelIdByName(auth: OrgAuth, developerName: string): Prom
   const json = await queryTooling<{ Id?: string }>(auth, soql);
   const rec = (json.records || [])[0];
   return rec?.Id;
+}
+
+export async function createDebugLevel(
+  auth: OrgAuth,
+  input: DebugLevelRecord
+): Promise<{ id: string }> {
+  const payload = buildDebugLevelPayload(input);
+  const apiVersion = await getDebugLevelApiVersion(auth);
+  if (auth.username) {
+    try {
+      const cli = await runSfJson([
+        'data',
+        'create',
+        'record',
+        '--use-tooling-api',
+        '--target-org',
+        auth.username,
+        '--api-version',
+        apiVersion,
+        '--sobject',
+        'DebugLevel',
+        '--values',
+        buildSfValuesArg(payload)
+      ]);
+      const result = cli?.result || cli;
+      if (result?.success && result?.id) {
+        await invalidateDebugLevelsCache(auth);
+        return { id: String(result.id) };
+      }
+    } catch (e) {
+      try {
+        logTrace('createDebugLevel: CLI mutation failed, falling back to HTTP ->', String((e as Error)?.message || e));
+      } catch {}
+    }
+  }
+
+  const createUrl = `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/sobjects/DebugLevel`;
+  const resBody = await httpsRequestWith401Retry(
+    auth,
+    'POST',
+    createUrl,
+    {
+      Authorization: `Bearer ${auth.accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    JSON.stringify(payload)
+  );
+  const res = JSON.parse(resBody);
+  if (!res?.success || !res?.id) {
+    throw new Error('Failed to create DebugLevel.');
+  }
+  await invalidateDebugLevelsCache(auth);
+  return { id: String(res.id) };
+}
+
+export async function updateDebugLevel(
+  auth: OrgAuth,
+  debugLevelId: string,
+  input: DebugLevelRecord
+): Promise<void> {
+  if (!isSalesforceId(debugLevelId)) {
+    throw new Error('Invalid DebugLevel id.');
+  }
+  const payload = buildDebugLevelPayload(input);
+  const apiVersion = await getDebugLevelApiVersion(auth);
+  if (auth.username) {
+    try {
+      const cli = await runSfJson([
+        'data',
+        'update',
+        'record',
+        '--use-tooling-api',
+        '--target-org',
+        auth.username,
+        '--api-version',
+        apiVersion,
+        '--sobject',
+        'DebugLevel',
+        '--record-id',
+        debugLevelId,
+        '--values',
+        buildSfValuesArg(payload)
+      ]);
+      const result = cli?.result || cli;
+      if (result?.success !== false) {
+        await invalidateDebugLevelsCache(auth);
+        return;
+      }
+    } catch (e) {
+      try {
+        logTrace('updateDebugLevel: CLI mutation failed, falling back to HTTP ->', String((e as Error)?.message || e));
+      } catch {}
+    }
+  }
+
+  const updateUrl =
+    `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/sobjects/DebugLevel/${debugLevelId}`;
+  await httpsRequestWith401Retry(
+    auth,
+    'PATCH',
+    updateUrl,
+    {
+      Authorization: `Bearer ${auth.accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    JSON.stringify(payload)
+  );
+  await invalidateDebugLevelsCache(auth);
+}
+
+export async function deleteDebugLevel(auth: OrgAuth, debugLevelId: string): Promise<void> {
+  if (!isSalesforceId(debugLevelId)) {
+    throw new Error('Invalid DebugLevel id.');
+  }
+  const apiVersion = await getDebugLevelApiVersion(auth);
+  if (auth.username) {
+    try {
+      const cli = await runSfJson([
+        'data',
+        'delete',
+        'record',
+        '--use-tooling-api',
+        '--target-org',
+        auth.username,
+        '--api-version',
+        apiVersion,
+        '--sobject',
+        'DebugLevel',
+        '--record-id',
+        debugLevelId
+      ]);
+      const result = cli?.result || cli;
+      if (result?.success !== false) {
+        await invalidateDebugLevelsCache(auth);
+        return;
+      }
+    } catch (e) {
+      try {
+        logTrace('deleteDebugLevel: CLI mutation failed, falling back to HTTP ->', String((e as Error)?.message || e));
+      } catch {}
+    }
+  }
+
+  const deleteUrl =
+    `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/sobjects/DebugLevel/${debugLevelId}`;
+  await httpsRequestWith401Retry(auth, 'DELETE', deleteUrl, {
+    Authorization: `Bearer ${auth.accessToken}`,
+    'Content-Type': 'application/json'
+  });
+  await invalidateDebugLevelsCache(auth);
 }
 
 async function getLatestUserDebugTraceFlagRecord(auth: OrgAuth, userId: string): Promise<any | undefined> {

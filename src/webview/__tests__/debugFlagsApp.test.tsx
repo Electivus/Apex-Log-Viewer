@@ -68,7 +68,102 @@ describe('DebugFlags webview App', () => {
         isActive: true
       }
     });
+    sendMessage(bus, {
+      type: 'debugFlagsManagerData',
+      records: [
+        {
+          id: '7dl000000000001AAA',
+          developerName: 'ALV_E2E',
+          masterLabel: 'ALV E2E',
+          language: 'en_US',
+          workflow: 'ERROR',
+          validation: 'INFO',
+          callout: 'WARN',
+          apexCode: 'DEBUG',
+          apexProfiling: 'INFO',
+          visualforce: 'WARN',
+          system: 'DEBUG',
+          database: 'FINE',
+          wave: 'INFO',
+          nba: 'WARN',
+          dataAccess: 'INFO'
+        }
+      ],
+      presets: [
+        {
+          id: 'integration',
+          label: 'Integration Troubleshooting',
+          description: 'Useful defaults for callouts and integration diagnosis.',
+          record: {
+            developerName: 'ALV_INTEGRATION',
+            masterLabel: 'ALV Integration',
+            language: 'en_US',
+            workflow: 'INFO',
+            validation: 'WARN',
+            callout: 'DEBUG',
+            apexCode: 'DEBUG',
+            apexProfiling: 'INFO',
+            visualforce: 'WARN',
+            system: 'DEBUG',
+            database: 'INFO',
+            wave: 'INFO',
+            nba: 'INFO',
+            dataAccess: 'WARN'
+          }
+        }
+      ],
+      selectedId: '7dl000000000001AAA'
+    });
     await screen.findByTestId('debug-flags-status-level');
+    await screen.findByTestId('debug-level-manager');
+
+    const managerDeveloperName = screen.getByTestId('debug-level-draft-developer-name') as HTMLInputElement;
+    expect(managerDeveloperName.value).toBe('ALV_E2E');
+
+    fireEvent.change(managerDeveloperName, { target: { value: 'ALV_CHANGED' } });
+    expect(managerDeveloperName.value).toBe('ALV_CHANGED');
+    fireEvent.click(screen.getByTestId('debug-level-reset'));
+    expect(managerDeveloperName.value).toBe('ALV_E2E');
+
+    fireEvent.click(screen.getByTestId('debug-level-delete'));
+    expect(screen.getByTestId('debug-level-delete-confirmation')).toBeTruthy();
+    expect(
+      posted.some(msg => msg.type === 'debugFlagsManagerDelete' && msg.debugLevelId === '7dl000000000001AAA')
+    ).toBe(false);
+
+    fireEvent.click(screen.getByTestId('debug-level-delete-confirm'));
+    await waitFor(() => {
+      expect(
+        posted.some(
+          msg => msg.type === 'debugFlagsManagerDelete' && msg.debugLevelId === '7dl000000000001AAA'
+        )
+      ).toBe(true);
+    });
+
+    fireEvent.click(screen.getByTestId('debug-level-manager-new'));
+    expect(managerDeveloperName.value).toBe('');
+
+    fireEvent.change(screen.getByTestId('debug-level-preset-select'), {
+      target: { value: 'integration' }
+    });
+    fireEvent.click(screen.getByTestId('debug-level-apply-preset'));
+    expect(managerDeveloperName.value).toBe('ALV_INTEGRATION');
+
+    fireEvent.change(managerDeveloperName, { target: { value: 'ALV_INTEGRATION_CUSTOM' } });
+    fireEvent.change(screen.getByTestId('debug-level-field-wave'), {
+      target: { value: 'DEBUG' }
+    });
+    fireEvent.click(screen.getByTestId('debug-level-save'));
+    await waitFor(() => {
+      expect(
+        posted.some(
+          msg =>
+            msg.type === 'debugFlagsManagerSave' &&
+            msg.draft.developerName === 'ALV_INTEGRATION_CUSTOM' &&
+            msg.draft.wave === 'DEBUG'
+        )
+      ).toBe(true);
+    });
 
     const ttl = screen.getByTestId('debug-flags-ttl') as HTMLInputElement;
     fireEvent.change(ttl, { target: { value: '45' } });

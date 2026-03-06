@@ -100,6 +100,24 @@ export type Messages = {
     noticeRemoved: string;
     noticeNone: string;
     ttlHelper: string;
+    managerTitle?: string;
+    managerSubtitle?: string;
+    managerExisting?: string;
+    managerNewPlaceholder?: string;
+    managerNew?: string;
+    managerPreset?: string;
+    managerPresetPlaceholder?: string;
+    managerApplyPreset?: string;
+    managerDeveloperName?: string;
+    managerMasterLabel?: string;
+    managerLanguage?: string;
+    managerSave?: string;
+    managerReset?: string;
+    managerDelete?: string;
+    managerDeleteConfirmPrompt?: string;
+    managerDeleteConfirmAction?: string;
+    managerDeleteCancel?: string;
+    managerValidation?: string;
   };
 };
 
@@ -204,7 +222,25 @@ const en: Messages = {
     noticeUpdated: 'Debug flag updated successfully.',
     noticeRemoved: 'Debug flag removed successfully.',
     noticeNone: 'No USER_DEBUG trace flag found for this user.',
-    ttlHelper: 'Default is 30 minutes. Allowed range: 1-1440.'
+    ttlHelper: 'Default is 30 minutes. Allowed range: 1-1440.',
+    managerTitle: 'Debug Level Manager',
+    managerSubtitle: 'Create from scratch, apply a preset, or edit an existing DebugLevel field by field.',
+    managerExisting: 'Existing DebugLevel',
+    managerNewPlaceholder: 'New draft',
+    managerNew: 'New',
+    managerPreset: 'Preset',
+    managerPresetPlaceholder: 'Select a preset',
+    managerApplyPreset: 'Apply preset',
+    managerDeveloperName: 'DeveloperName',
+    managerMasterLabel: 'MasterLabel',
+    managerLanguage: 'Language',
+    managerSave: 'Save',
+    managerReset: 'Reset changes',
+    managerDelete: 'Delete',
+    managerDeleteConfirmPrompt: 'Delete this DebugLevel from the org?',
+    managerDeleteConfirmAction: 'Delete',
+    managerDeleteCancel: 'Cancel',
+    managerValidation: 'DeveloperName and MasterLabel are required to save a DebugLevel.'
   }
 };
 
@@ -309,7 +345,25 @@ const ptBR: Messages = {
     noticeUpdated: 'Debug flag atualizada com sucesso.',
     noticeRemoved: 'Debug flag removida com sucesso.',
     noticeNone: 'Nenhuma trace flag USER_DEBUG encontrada para este usuário.',
-    ttlHelper: 'Padrão de 30 minutos. Faixa permitida: 1-1440.'
+    ttlHelper: 'Padrão de 30 minutos. Faixa permitida: 1-1440.',
+    managerTitle: 'Gerenciador de DebugLevel',
+    managerSubtitle: 'Crie do zero, aplique um preset ou edite um DebugLevel existente campo por campo.',
+    managerExisting: 'DebugLevel existente',
+    managerNewPlaceholder: 'Novo rascunho',
+    managerNew: 'Novo',
+    managerPreset: 'Preset',
+    managerPresetPlaceholder: 'Selecione um preset',
+    managerApplyPreset: 'Aplicar preset',
+    managerDeveloperName: 'DeveloperName',
+    managerMasterLabel: 'MasterLabel',
+    managerLanguage: 'Language',
+    managerSave: 'Salvar',
+    managerReset: 'Restaurar alterações',
+    managerDelete: 'Excluir',
+    managerDeleteConfirmPrompt: 'Excluir este DebugLevel da org?',
+    managerDeleteConfirmAction: 'Excluir',
+    managerDeleteCancel: 'Cancelar',
+    managerValidation: 'DeveloperName e MasterLabel são obrigatórios para salvar um DebugLevel.'
   }
 };
 

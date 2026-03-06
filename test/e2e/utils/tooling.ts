@@ -12,9 +12,48 @@ export type DebugFlagsE2eUser = {
   username: string;
 };
 
+export type DebugLevelToolingRecord = {
+  id: string;
+  developerName: string;
+  masterLabel?: string;
+  language?: string;
+  workflow?: string;
+  validation?: string;
+  callout?: string;
+  apexCode?: string;
+  apexProfiling?: string;
+  visualforce?: string;
+  system?: string;
+  database?: string;
+  wave?: string;
+  nba?: string;
+  dataAccess?: string;
+};
+
+const DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION = '63.0';
+
 function getApiVersion(): string {
   const v = String(process.env.SF_TEST_API_VERSION || process.env.SF_API_VERSION || '60.0').trim();
   return /^\d+\.\d+$/.test(v) ? v : '60.0';
+}
+
+function parseApiVersionNumber(value: string | undefined): number | undefined {
+  const raw = String(value || '').trim();
+  if (!/^\d+\.\d+$/.test(raw)) {
+    return undefined;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function getDebugLevelToolingApiVersion(auth: OrgAuth): string {
+  const current = String(auth.apiVersion || '').trim() || getApiVersion();
+  const currentNumeric = parseApiVersionNumber(current);
+  const requiredNumeric = parseApiVersionNumber(DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION);
+  if (currentNumeric === undefined || requiredNumeric === undefined || currentNumeric >= requiredNumeric) {
+    return current;
+  }
+  return DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION;
 }
 
 function stripTrailingSlash(value: string): string {
@@ -276,7 +315,83 @@ export async function removeUserDebugTraceFlags(auth: OrgAuth, userId: string): 
   return ids.length;
 }
 
+function mapDebugLevelRecord(record: any): DebugLevelToolingRecord | undefined {
+  if (!isSfId(record?.Id)) {
+    return undefined;
+  }
+  return {
+    id: record.Id,
+    developerName: typeof record?.DeveloperName === 'string' ? record.DeveloperName : '',
+    masterLabel: typeof record?.MasterLabel === 'string' ? record.MasterLabel : undefined,
+    language: typeof record?.Language === 'string' ? record.Language : undefined,
+    workflow: typeof record?.Workflow === 'string' ? record.Workflow : undefined,
+    validation: typeof record?.Validation === 'string' ? record.Validation : undefined,
+    callout: typeof record?.Callout === 'string' ? record.Callout : undefined,
+    apexCode: typeof record?.ApexCode === 'string' ? record.ApexCode : undefined,
+    apexProfiling: typeof record?.ApexProfiling === 'string' ? record.ApexProfiling : undefined,
+    visualforce: typeof record?.Visualforce === 'string' ? record.Visualforce : undefined,
+    system: typeof record?.System === 'string' ? record.System : undefined,
+    database: typeof record?.Database === 'string' ? record.Database : undefined,
+    wave: typeof record?.Wave === 'string' ? record.Wave : undefined,
+    nba: typeof record?.Nba === 'string' ? record.Nba : undefined,
+    dataAccess: typeof record?.DataAccess === 'string' ? record.DataAccess : undefined
+  };
+}
+
+export async function getDebugLevelByDeveloperName(
+  auth: OrgAuth,
+  developerName: string
+): Promise<DebugLevelToolingRecord | undefined> {
+  const apiVersion = getDebugLevelToolingApiVersion(auth);
+  const esc = escapeSoqlLiteral(developerName);
+  const soql = encodeURIComponent(
+    `SELECT Id, DeveloperName, Language, MasterLabel, Workflow, Validation, Callout, ApexCode, ApexProfiling, Visualforce, System, Database, Wave, Nba, DataAccess FROM DebugLevel WHERE DeveloperName = '${esc}' LIMIT 1`
+  );
+  const response = await requestJson(auth, 'GET', `/services/data/v${apiVersion}/tooling/query?q=${soql}`);
+  return mapDebugLevelRecord(Array.isArray(response?.records) ? response.records[0] : undefined);
+}
+
+export async function getDebugLevelById(
+  auth: OrgAuth,
+  debugLevelId: string
+): Promise<DebugLevelToolingRecord | undefined> {
+  const apiVersion = getDebugLevelToolingApiVersion(auth);
+  const esc = escapeSoqlLiteral(debugLevelId);
+  const soql = encodeURIComponent(
+    `SELECT Id, DeveloperName, Language, MasterLabel, Workflow, Validation, Callout, ApexCode, ApexProfiling, Visualforce, System, Database, Wave, Nba, DataAccess FROM DebugLevel WHERE Id = '${esc}' LIMIT 1`
+  );
+  const response = await requestJson(auth, 'GET', `/services/data/v${apiVersion}/tooling/query?q=${soql}`);
+  return mapDebugLevelRecord(Array.isArray(response?.records) ? response.records[0] : undefined);
+}
+
+export async function deleteDebugLevelById(auth: OrgAuth, debugLevelId: string): Promise<void> {
+  if (!isSfId(debugLevelId)) {
+    return;
+  }
+  await requestJson(auth, 'DELETE', `/services/data/v${auth.apiVersion}/tooling/sobjects/DebugLevel/${debugLevelId}`);
+}
+
+export async function deleteDebugLevelByDeveloperName(auth: OrgAuth, developerName: string): Promise<void> {
+  const record = await getDebugLevelByDeveloperName(auth, developerName);
+  if (!record?.id) {
+    return;
+  }
+  await deleteDebugLevelById(auth, record.id);
+}
+
 export async function getOrgAuth(targetOrg: string): Promise<OrgAuth> {
+  const envAlias = String(process.env.SF_E2E_TARGET_ORG_ALIAS || process.env.SF_SCRATCH_ALIAS || '').trim();
+  const envAccessToken = String(process.env.SF_E2E_ACCESS_TOKEN || '').trim();
+  const envInstanceUrl = String(process.env.SF_E2E_INSTANCE_URL || '').trim();
+  if (envAccessToken && envInstanceUrl && (!envAlias || envAlias === targetOrg)) {
+    return {
+      accessToken: envAccessToken,
+      instanceUrl: envInstanceUrl,
+      username: String(process.env.SF_E2E_USERNAME || '').trim() || undefined,
+      apiVersion: String(process.env.SF_E2E_API_VERSION || getApiVersion()).trim() || getApiVersion()
+    };
+  }
+
   const apiVersion = getApiVersion();
   const display = await runSfJson(['org', 'display', '-o', targetOrg]);
   const result = display?.result || display;

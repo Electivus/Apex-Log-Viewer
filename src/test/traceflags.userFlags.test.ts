@@ -1,11 +1,22 @@
 import assert from 'assert/strict';
 import { EventEmitter } from 'events';
+import { __resetExecFileImplForTests, __setExecFileImplForTests } from '../salesforce/exec';
 import type { OrgAuth } from '../salesforce/types';
-import { __resetHttpsRequestImplForTests, __setHttpsRequestImplForTests } from '../salesforce/http';
 import {
+  __resetApiVersionFallbackStateForTests,
+  __resetHttpsRequestImplForTests,
+  __setHttpsRequestImplForTests,
+  setApiVersion
+} from '../salesforce/http';
+import {
+  __resetDebugLevelApiVersionCacheForTests,
+  createDebugLevel,
+  deleteDebugLevel,
   getUserTraceFlagStatus,
+  listDebugLevelDetails,
   listActiveUsers,
   removeUserTraceFlags,
+  updateDebugLevel,
   upsertUserTraceFlag
 } from '../salesforce/traceflags';
 
@@ -79,6 +90,38 @@ function decodeSoql(path: string): string {
   return decodeURIComponent(path.slice(idx + qMarker.length));
 }
 
+type ExecCall = {
+  program: string;
+  args: string[];
+};
+
+function installExecStub(
+  responder: (call: ExecCall) => { stdout?: string; stderr?: string; code?: number }
+): ExecCall[] {
+  const calls: ExecCall[] = [];
+  __setExecFileImplForTests(((program: string, args: readonly string[] | undefined, _opts: any, cb: any) => {
+    const call: ExecCall = {
+      program,
+      args: Array.isArray(args) ? [...args] : []
+    };
+    calls.push(call);
+    try {
+      const response = responder(call);
+      if (response.code && response.code !== 0) {
+        const err: any = new Error(response.stderr || 'command failed');
+        err.code = response.code;
+        cb(err, response.stdout || '', response.stderr || '');
+      } else {
+        cb(null, response.stdout || '', response.stderr || '');
+      }
+    } catch (e) {
+      cb(e, '', '');
+    }
+    return undefined as any;
+  }) as any);
+  return calls;
+}
+
 suite('traceflags user management', () => {
   const auth: OrgAuth = {
     accessToken: 'token',
@@ -88,6 +131,10 @@ suite('traceflags user management', () => {
 
   teardown(() => {
     __resetHttpsRequestImplForTests();
+    __resetExecFileImplForTests();
+    __resetApiVersionFallbackStateForTests();
+    __resetDebugLevelApiVersionCacheForTests();
+    setApiVersion('64.0');
   });
 
   test('listActiveUsers returns active users filtered by query', async () => {
@@ -202,6 +249,245 @@ suite('traceflags user management', () => {
     assert.equal(status?.traceFlagId, '7tf000000000001AAA');
     assert.equal(status?.debugLevelName, 'ALV_E2E');
     assert.equal(status?.isActive, true);
+  });
+
+  test('listDebugLevelDetails parses all editable DebugLevel fields', async () => {
+    installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/tooling/query')) {
+        return {
+          statusCode: 200,
+          body: {
+            records: [
+              {
+                Id: '7dl000000000001AAA',
+                DeveloperName: 'ALV_VERBOSE',
+                MasterLabel: 'ALV Verbose',
+                Language: 'en_US',
+                Workflow: 'WARN',
+                Validation: 'INFO',
+                Callout: 'ERROR',
+                ApexCode: 'DEBUG',
+                ApexProfiling: 'INFO',
+                Visualforce: 'WARN',
+                System: 'DEBUG',
+                Database: 'FINE',
+                Wave: 'ERROR',
+                Nba: 'WARN',
+                DataAccess: 'INFO'
+              }
+            ]
+          }
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const records = await listDebugLevelDetails(auth);
+    assert.equal(records.length, 1);
+    assert.deepEqual(records[0], {
+      id: '7dl000000000001AAA',
+      developerName: 'ALV_VERBOSE',
+      masterLabel: 'ALV Verbose',
+      language: 'en_US',
+      workflow: 'WARN',
+      validation: 'INFO',
+      callout: 'ERROR',
+      apexCode: 'DEBUG',
+      apexProfiling: 'INFO',
+      visualforce: 'WARN',
+      system: 'DEBUG',
+      database: 'FINE',
+      wave: 'ERROR',
+      nba: 'WARN',
+      dataAccess: 'INFO'
+    });
+  });
+
+  test('listDebugLevelDetails upgrades the API version when extended fields require a newer one', async () => {
+    setApiVersion('60.0');
+    const legacyAuth: OrgAuth = {
+      ...auth,
+      instanceUrl: 'https://legacy-api.example.my.salesforce.com',
+      username: 'legacy.user@example.com'
+    };
+    const calls = installHttpsStub(req => {
+      if (req.method === 'GET' && req.path === '/services/data') {
+        return {
+          statusCode: 200,
+          body: [{ version: '60.0' }, { version: '66.0' }]
+        };
+      }
+      if (req.method === 'GET' && req.path.includes('/services/data/v66.0/tooling/query')) {
+        return {
+          statusCode: 200,
+          body: {
+            records: [
+              {
+                Id: '7dl000000000001AAA',
+                DeveloperName: 'ALV_VERBOSE',
+                MasterLabel: 'ALV Verbose',
+                Language: 'en_US',
+                Workflow: 'WARN',
+                Validation: 'INFO',
+                Callout: 'ERROR',
+                ApexCode: 'DEBUG',
+                ApexProfiling: 'INFO',
+                Visualforce: 'WARN',
+                System: 'DEBUG',
+                Database: 'FINE',
+                Wave: 'ERROR',
+                Nba: 'WARN',
+                DataAccess: 'INFO'
+              }
+            ]
+          }
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const records = await listDebugLevelDetails(legacyAuth);
+
+    assert.equal(records.length, 1);
+    assert.ok(calls.some(call => call.path === '/services/data'), 'expected org API discovery request');
+    assert.ok(
+      calls.some(call => call.path.includes('/services/data/v66.0/tooling/query')),
+      'expected DebugLevel query to use upgraded API version'
+    );
+  });
+
+  test('createDebugLevel uses sf CLI with the full editable DebugLevel payload', async () => {
+    setApiVersion('60.0');
+    const httpCalls = installHttpsStub(req => {
+      if (req.method === 'GET' && req.path === '/services/data') {
+        return {
+          statusCode: 200,
+          body: [{ version: '60.0' }, { version: '66.0' }]
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+    const calls = installExecStub(call => {
+      if (call.program === 'sf' && call.args[0] === 'data' && call.args[1] === 'create' && call.args[2] === 'record') {
+        return {
+          stdout: JSON.stringify({
+            result: {
+              success: true,
+              id: '7dl000000000999AAA'
+            }
+          })
+        };
+      }
+      throw new Error(`Unexpected command: ${call.program} ${call.args.join(' ')}`);
+    });
+
+    const created = await createDebugLevel(auth, {
+      developerName: 'ALV_CUSTOM',
+      masterLabel: 'ALV Custom',
+      language: 'en_US',
+      workflow: 'WARN',
+      validation: 'INFO',
+      callout: 'ERROR',
+      apexCode: 'DEBUG',
+      apexProfiling: 'INFO',
+      visualforce: 'WARN',
+      system: 'DEBUG',
+      database: 'FINE',
+      wave: 'ERROR',
+      nba: 'WARN',
+      dataAccess: 'INFO'
+    });
+
+    assert.equal(created.id, '7dl000000000999AAA');
+    const createCall = calls.find(call => call.args[0] === 'data' && call.args[1] === 'create');
+    const createCommandText = calls.map(call => [call.program, ...call.args].join(' ')).join('\n');
+    assert.ok(createCall || /data create record/.test(createCommandText), 'expected DebugLevel create command');
+    assert.match(createCommandText, /--use-tooling-api/);
+    assert.match(createCommandText, /--target-org/);
+    assert.match(createCommandText, /user@example\.com/);
+    assert.match(createCommandText, /--api-version 66\.0/);
+    assert.match(createCommandText, /--sobject/);
+    assert.match(createCommandText, /DebugLevel/);
+    assert.match(createCommandText, /DeveloperName=ALV_CUSTOM/);
+    assert.match(createCommandText, /MasterLabel='ALV Custom'/);
+    assert.match(createCommandText, /DataAccess=INFO/);
+    assert.ok(httpCalls.some(call => call.path === '/services/data'), 'expected org API discovery before CLI create');
+  });
+
+  test('updateDebugLevel uses sf CLI with the full editable DebugLevel payload', async () => {
+    const calls = installExecStub(call => {
+      if (call.program === 'sf' && call.args[0] === 'data' && call.args[1] === 'update' && call.args[2] === 'record') {
+        return {
+          stdout: JSON.stringify({
+            result: {
+              success: true
+            }
+          })
+        };
+      }
+      throw new Error(`Unexpected command: ${call.program} ${call.args.join(' ')}`);
+    });
+
+    await updateDebugLevel(auth, '7dl000000000001AAA', {
+      developerName: 'ALV_CUSTOM',
+      masterLabel: 'ALV Custom',
+      language: 'pt_BR',
+      workflow: 'INFO',
+      validation: 'WARN',
+      callout: 'ERROR',
+      apexCode: 'FINEST',
+      apexProfiling: 'DEBUG',
+      visualforce: 'WARN',
+      system: 'DEBUG',
+      database: 'ERROR',
+      wave: 'NONE',
+      nba: 'INFO',
+      dataAccess: 'WARN'
+    });
+
+    const updateCall = calls.find(call => call.args[0] === 'data' && call.args[1] === 'update');
+    const updateCommandText = calls.map(call => [call.program, ...call.args].join(' ')).join('\n');
+    assert.ok(updateCall || /data update record/.test(updateCommandText), 'expected DebugLevel update command');
+    assert.match(updateCommandText, /--record-id/);
+    assert.match(updateCommandText, /7dl000000000001AAA/);
+    assert.match(updateCommandText, /DeveloperName=ALV_CUSTOM/);
+    assert.match(updateCommandText, /MasterLabel='ALV Custom'/);
+    assert.match(updateCommandText, /Language=pt_BR/);
+    assert.match(updateCommandText, /DataAccess=WARN/);
+  });
+
+  test('deleteDebugLevel deletes the tooling record with sf CLI', async () => {
+    setApiVersion('60.0');
+    const httpCalls = installHttpsStub(req => {
+      if (req.method === 'GET' && req.path === '/services/data') {
+        return {
+          statusCode: 200,
+          body: [{ version: '60.0' }, { version: '66.0' }]
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+    const calls = installExecStub(call => {
+      if (call.program === 'sf' && call.args[0] === 'data' && call.args[1] === 'delete' && call.args[2] === 'record') {
+        return {
+          stdout: JSON.stringify({
+            result: {
+              success: true
+            }
+          })
+        };
+      }
+      throw new Error(`Unexpected command: ${call.program} ${call.args.join(' ')}`);
+    });
+
+    await deleteDebugLevel(auth, '7dl000000000001AAA');
+    const deleteCall = calls.find(call => call.args[0] === 'data' && call.args[1] === 'delete');
+    const deleteCommandText = calls.map(call => [call.program, ...call.args].join(' ')).join('\n');
+    assert.ok(deleteCall || /data delete record/.test(deleteCommandText), 'expected DebugLevel delete command');
+    assert.match(deleteCommandText, /--record-id/);
+    assert.match(deleteCommandText, /7dl000000000001AAA/);
+    assert.match(deleteCommandText, /--api-version 66\.0/);
+    assert.ok(httpCalls.some(call => call.path === '/services/data'), 'expected org API discovery before CLI delete');
   });
 
   test('upsertUserTraceFlag updates existing USER_DEBUG flag', async () => {

@@ -58,15 +58,21 @@ export function getSfBinPath(): string {
   return sfBin();
 }
 
+function quoteWindowsCmdArg(value: string): string {
+  const raw = String(value ?? '');
+  return `"${raw.replace(/"/g, '""')}"`;
+}
+
 export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
   try {
     if (process.platform === 'win32') {
       const { stdout } = await execFileAsync('cmd.exe', ['/d', '/s', '/c', 'where sf'], { timeoutMs: 10_000 });
-      const first = String(stdout || '')
+      const candidates = String(stdout || '')
         .split(/\r?\n/)
         .map(l => l.trim())
-        .filter(Boolean)[0];
-      return first || undefined;
+        .filter(Boolean);
+      const preferred = candidates.find(value => /\.cmd$/i.test(value));
+      return preferred || candidates[0] || undefined;
     }
     const { stdout } = await execFileAsync('bash', ['-lc', 'command -v sf'], { timeoutMs: 10_000 });
     const resolved = String(stdout || '').trim();
@@ -89,40 +95,46 @@ export async function resolveSfCliInvocation(): Promise<{ sfBinPath: string; nod
 
 export function execFileAsync(file: string, args: string[], options: ExecOptions = {}): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
-    execFile(
-      file,
-      args,
-      {
-        cwd: options.cwd,
-        env: options.env,
-        encoding: 'utf8',
-        timeout: options.timeoutMs,
-        maxBuffer: 1024 * 1024 * 20
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          const details = formatSfErrorDetails(String(stdout || ''), String(stderr || ''));
-          // Avoid echoing stdout/stderr directly to prevent leaking auth tokens.
-          const msg = details
-            ? `Command failed: ${file} ${args.join(' ')}\n${details}`.trim()
-            : `Command failed: ${file} ${args.join(' ')}`.trim();
-          const err = new Error(msg) as Error & { code?: unknown };
-          (err as any).code = (error as any).code;
-          reject(err);
-          return;
-        }
-        resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') });
+    const callback = (error: unknown, stdout: string, stderr: string) => {
+      if (error) {
+        const details = formatSfErrorDetails(String(stdout || ''), String(stderr || ''));
+        // Avoid echoing stdout/stderr directly to prevent leaking auth tokens.
+        const msg = details
+          ? `Command failed: ${file} ${args.join(' ')}\n${details}`.trim()
+          : `Command failed: ${file} ${args.join(' ')}`.trim();
+        const err = new Error(msg) as Error & { code?: unknown };
+        (err as any).code = (error as any).code;
+        reject(err);
+        return;
       }
-    );
+      resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') });
+    };
+
+    const execOptions = {
+      cwd: options.cwd,
+      env: options.env,
+      encoding: 'utf8' as BufferEncoding,
+      timeout: options.timeoutMs,
+      maxBuffer: 1024 * 1024 * 20
+    };
+
+    if (process.platform === 'win32' && /\.cmd$/i.test(file)) {
+      const command = [file, ...args].map(quoteWindowsCmdArg).join(' ');
+      execFile('cmd.exe', ['/d', '/s', '/c', command], execOptions, callback);
+      return;
+    }
+
+    execFile(file, args, execOptions, callback);
   });
 }
 
 export async function runSfJson(args: string[], options: ExecOptions = {}): Promise<any> {
   const withJson = args.includes('--json') ? args : [...args, '--json'];
-  const { stdout } = await execFileAsync(getSfBinPath(), withJson, options);
+  const sfPath = (await resolveSfBinAbsolutePath()) || getSfBinPath();
+  const { stdout } = await execFileAsync(sfPath, withJson, options);
   const raw = String(stdout || '').trim();
   if (!raw) {
-    throw new Error(`Empty JSON output from sf ${withJson.join(' ')}`.trim());
+    throw new Error(`Empty JSON output from ${sfPath} ${withJson.join(' ')}`.trim());
   }
   try {
     return JSON.parse(raw);
@@ -138,6 +150,6 @@ export async function runSfJson(args: string[], options: ExecOptions = {}): Prom
         // fall through
       }
     }
-    throw new Error(`Invalid JSON output from sf ${withJson.join(' ')}`.trim());
+    throw new Error(`Invalid JSON output from ${sfPath} ${withJson.join(' ')}`.trim());
   }
 }

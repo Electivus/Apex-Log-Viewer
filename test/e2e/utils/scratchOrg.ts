@@ -25,7 +25,10 @@ async function tryOrgDisplay(alias: string): Promise<boolean> {
   try {
     await runSfJson(['org', 'display', '-o', alias]);
     return true;
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[e2e] sf org display failed for alias '${alias}': ${error instanceof Error ? error.message : String(error)}`
+    );
     return false;
   }
 }
@@ -107,8 +110,6 @@ async function waitForScratchOrgReady(targetOrg: string): Promise<void> {
 
 export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
   const devHubAlias = await resolveDefaultDevHubAlias();
-  await ensureDevHubAuth(devHubAlias);
-
   const scratchAlias = String(process.env.SF_SCRATCH_ALIAS || 'ALV_E2E_Scratch').trim();
   const durationDays = Number(process.env.SF_SCRATCH_DURATION || 1) || 1;
   const keep = envFlag('SF_TEST_KEEP_ORG');
@@ -124,6 +125,8 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
       cleanup: async () => {}
     };
   }
+
+  await ensureDevHubAuth(devHubAlias);
 
   const tmp = await mkdtemp(path.join(tmpdir(), 'alv-scratch-'));
   const defFile = path.join(tmp, 'project-scratch-def.json');

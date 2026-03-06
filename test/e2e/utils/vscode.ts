@@ -1,4 +1,4 @@
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, cp, access, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -22,18 +22,127 @@ function getVsCodeVersion(): string {
   return v || 'stable';
 }
 
-async function readExtensionDependencies(extensionDevelopmentPath: string): Promise<string[]> {
+async function readExtensionReferences(extensionDevelopmentPath: string): Promise<string[]> {
   try {
     const pkgPath = path.join(extensionDevelopmentPath, 'package.json');
     const raw = await readFile(pkgPath, 'utf8');
-    const json = JSON.parse(raw) as { extensionDependencies?: unknown };
-    if (!Array.isArray(json.extensionDependencies)) {
-      return [];
-    }
-    return json.extensionDependencies.map(String).map(s => s.trim()).filter(Boolean);
+    const json = JSON.parse(raw) as { extensionDependencies?: unknown; extensionPack?: unknown };
+    const refs = [
+      ...(Array.isArray(json.extensionDependencies) ? json.extensionDependencies : []),
+      ...(Array.isArray(json.extensionPack) ? json.extensionPack : [])
+    ];
+    return Array.from(new Set(refs.map(String).map(s => s.trim()).filter(Boolean)));
   } catch {
     return [];
   }
+}
+
+function expandPreferredSalesforceExtensions(extensionIds: string[]): string[] {
+  const normalized = extensionIds.map(id => String(id || '').trim()).filter(Boolean);
+  const touchesSalesforcePack = normalized.some(id => /^salesforce\.salesforcedx-vscode(?:-|$)/i.test(id));
+  if (!touchesSalesforcePack) {
+    return normalized;
+  }
+  return Array.from(new Set(['salesforce.salesforcedx-vscode', ...normalized]));
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getExtensionSearchRoots(): string[] {
+  const roots = [
+    path.join(process.env.USERPROFILE || '', '.vscode', 'extensions'),
+    path.join(process.env.HOME || '', '.vscode', 'extensions')
+  ];
+  return Array.from(new Set(roots.filter(Boolean)));
+}
+
+async function findExtensionDirectoryInRoot(root: string, extensionId: string): Promise<string | undefined> {
+  const normalizedId = extensionId.toLowerCase();
+  const prefix = `${normalizedId}-`;
+  const matches: string[] = [];
+
+  if (!(await pathExists(root))) {
+    return undefined;
+  }
+
+  try {
+    const entries = await readdir(root, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const entryName = entry.name.toLowerCase();
+      if (entryName === normalizedId || entryName.startsWith(prefix)) {
+        matches.push(path.join(root, entry.name));
+      }
+    }
+  } catch {
+    // best-effort
+  }
+
+  return matches.sort((a, b) => a.localeCompare(b)).at(-1);
+}
+
+async function findLocalExtensionDirectory(extensionId: string): Promise<string | undefined> {
+  for (const root of getExtensionSearchRoots()) {
+    const match = await findExtensionDirectoryInRoot(root, extensionId);
+    if (match) {
+      return match;
+    }
+  }
+  return undefined;
+}
+
+async function findLocalExtensionsRootForDependencies(extensionIds: string[]): Promise<string | undefined> {
+  for (const root of getExtensionSearchRoots()) {
+    let allPresent = true;
+    for (const extensionId of extensionIds) {
+      const match = await findExtensionDirectoryInRoot(root, extensionId);
+      if (!match) {
+        allPresent = false;
+        break;
+      }
+    }
+    if (allPresent) {
+      return root;
+    }
+  }
+  return undefined;
+}
+
+async function copyLocalExtensionWithDependencies(
+  extensionId: string,
+  extensionsDir: string,
+  seen = new Set<string>()
+): Promise<boolean> {
+  const normalizedId = extensionId.toLowerCase();
+  if (seen.has(normalizedId)) {
+    return false;
+  }
+  seen.add(normalizedId);
+
+  const sourceDir = await findLocalExtensionDirectory(extensionId);
+  if (!sourceDir) {
+    return false;
+  }
+
+  const destDir = path.join(extensionsDir, path.basename(sourceDir));
+  await cp(sourceDir, destDir, { recursive: true, force: true });
+  console.log(`[e2e] Reused locally installed VS Code extension dependency: ${extensionId}`);
+
+  const nestedDeps = await readExtensionReferences(sourceDir);
+  for (const dep of nestedDeps) {
+    await copyLocalExtensionWithDependencies(dep, extensionsDir, seen);
+  }
+
+  return true;
 }
 
 function listInstalledExtensions(args: {
@@ -114,10 +223,10 @@ async function ensureExtensionDependenciesInstalled(args: {
   extensionDevelopmentPath: string;
   userDataDir: string;
   extensionsDir: string;
-}): Promise<void> {
-  const deps = await readExtensionDependencies(args.extensionDevelopmentPath);
+}): Promise<string> {
+  const deps = expandPreferredSalesforceExtensions(await readExtensionReferences(args.extensionDevelopmentPath));
   if (!deps.length) {
-    return;
+    return args.extensionsDir;
   }
 
   const cli = resolveCliArgsFromVSCodeExecutablePath(args.vscodeExecutablePath, { reuseMachineInstall: true });
@@ -125,10 +234,22 @@ async function ensureExtensionDependenciesInstalled(args: {
   const cliArgs = cli.slice(1);
   if (!cliPath) {
     console.warn('[e2e] Could not resolve VS Code CLI path; skipping dependency install.');
-    return;
+    return (await findLocalExtensionsRootForDependencies(deps)) || args.extensionsDir;
   }
 
-  const installed = listInstalledExtensions({
+  let installed = listInstalledExtensions({
+    cliPath,
+    cliArgs,
+    userDataDir: args.userDataDir,
+    extensionsDir: args.extensionsDir
+  });
+
+  const missingAfterInitialCheck = deps.filter(id => !installed.has(String(id).toLowerCase()));
+  for (const dep of missingAfterInitialCheck) {
+    await copyLocalExtensionWithDependencies(dep, args.extensionsDir);
+  }
+
+  installed = listInstalledExtensions({
     cliPath,
     cliArgs,
     userDataDir: args.userDataDir,
@@ -137,7 +258,7 @@ async function ensureExtensionDependenciesInstalled(args: {
 
   const toInstall = deps.filter(id => !installed.has(String(id).toLowerCase()));
   if (!toInstall.length) {
-    return;
+    return args.extensionsDir;
   }
 
   installExtensions({
@@ -147,6 +268,26 @@ async function ensureExtensionDependenciesInstalled(args: {
     extensionsDir: args.extensionsDir,
     extensionIds: toInstall
   });
+
+  installed = listInstalledExtensions({
+    cliPath,
+    cliArgs,
+    userDataDir: args.userDataDir,
+    extensionsDir: args.extensionsDir
+  });
+
+  const stillMissing = deps.filter(id => !installed.has(String(id).toLowerCase()));
+  if (!stillMissing.length) {
+    return args.extensionsDir;
+  }
+
+  const localRoot = await findLocalExtensionsRootForDependencies(deps);
+  if (localRoot) {
+    console.warn(`[e2e] Falling back to local VS Code extensions dir: ${localRoot}`);
+    return localRoot;
+  }
+
+  return args.extensionsDir;
 }
 
 async function isAuxiliaryBarOpen(page: Page): Promise<boolean> {
@@ -173,18 +314,24 @@ export async function launchVsCode(options: { workspacePath: string; extensionDe
   const vscodeExecutablePath = await downloadAndUnzipVSCode({ version: getVsCodeVersion(), cachePath: vscodeCachePath });
 
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
-  const extensionsDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-exts-'));
+  let extensionsDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-exts-'));
+  let shouldCleanupExtensionsDir = true;
 
   // The extension is loaded via --extensionDevelopmentPath, but VS Code still enforces
   // `extensionDependencies` at activation time. Install those dependencies into the
   // isolated extensions dir so contributed commands can activate the extension.
   try {
-    await ensureExtensionDependenciesInstalled({
+    const resolvedExtensionsDir = await ensureExtensionDependenciesInstalled({
       vscodeExecutablePath,
       extensionDevelopmentPath: options.extensionDevelopmentPath,
       userDataDir,
       extensionsDir
     });
+    if (resolvedExtensionsDir !== extensionsDir) {
+      await rm(extensionsDir, { recursive: true, force: true });
+      extensionsDir = resolvedExtensionsDir;
+      shouldCleanupExtensionsDir = false;
+    }
   } catch (e) {
     console.warn('[e2e] Failed to ensure VS Code extension dependencies are installed:', e);
   }
@@ -232,7 +379,9 @@ export async function launchVsCode(options: { workspacePath: string; extensionDe
       await app.close();
     } catch {}
     await rm(userDataDir, { recursive: true, force: true });
-    await rm(extensionsDir, { recursive: true, force: true });
+    if (shouldCleanupExtensionsDir) {
+      await rm(extensionsDir, { recursive: true, force: true });
+    }
   };
 
   return { app, page, userDataDir, extensionsDir, cleanup };
