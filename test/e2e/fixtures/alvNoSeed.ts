@@ -16,11 +16,6 @@ type Fixtures = {
 export const test = base.extend<Fixtures>({
   scratchAlias: [
     async ({}, use) => {
-      const explicitScratchAlias = String(process.env.SF_SCRATCH_ALIAS || '').trim();
-      if (explicitScratchAlias) {
-        await use(explicitScratchAlias);
-        return;
-      }
       const scratch = await ensureScratchOrg();
       try {
         await use(scratch.scratchAlias);
