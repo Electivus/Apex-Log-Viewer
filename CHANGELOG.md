@@ -8,6 +8,8 @@
 
 ### Chores
 
+- Replay/testing: default development and integration-test dependency installs to the Salesforce Extension Pack, while still installing Apex Replay Debugger explicitly for isolated hosts and keeping the published runtime dependency narrowed.
+
 ### Tests
 
 ## [0.26.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.24.0...v0.26.0) (2026-03-02)

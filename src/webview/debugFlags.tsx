@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { DEBUG_LEVEL_FIELDS, DEBUG_LEVEL_LOG_LEVELS, createEmptyDebugLevelRecord } from '../shared/debugLevelPresets';
 import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '../shared/debugFlagsMessages';
-import type { DebugFlagUser, UserTraceFlagStatus } from '../shared/debugFlagsTypes';
+import type { DebugFlagUser, DebugLevelPreset, DebugLevelRecord, UserTraceFlagStatus } from '../shared/debugFlagsTypes';
 import type { OrgItem } from '../shared/types';
 import type { MessageBus, VsCodeWebviewApi } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
@@ -32,6 +33,24 @@ type NoticeState = {
   message: string;
 };
 
+function cloneDebugLevelRecord(record?: DebugLevelRecord): DebugLevelRecord {
+  const base = createEmptyDebugLevelRecord();
+  if (!record) {
+    return base;
+  }
+  return {
+    ...base,
+    ...record,
+    id: record.id
+  };
+}
+
+function debugLevelDraftEquals(left: DebugLevelRecord, right: DebugLevelRecord): boolean {
+  const { id: _leftId, ...leftComparable } = left;
+  const { id: _rightId, ...rightComparable } = right;
+  return JSON.stringify(leftComparable) === JSON.stringify(rightComparable);
+}
+
 function formatDate(value: string | undefined, locale: string): string {
   if (!value) {
     return '-';
@@ -60,11 +79,18 @@ export function DebugFlagsApp({
   const [status, setStatus] = useState<UserTraceFlagStatus | undefined>(undefined);
   const [debugLevels, setDebugLevels] = useState<string[]>([]);
   const [debugLevel, setDebugLevel] = useState('');
+  const [managerRecords, setManagerRecords] = useState<DebugLevelRecord[]>([]);
+  const [managerPresets, setManagerPresets] = useState<DebugLevelPreset[]>([]);
+  const [selectedManagerId, setSelectedManagerId] = useState('');
+  const [selectedPresetId, setSelectedPresetId] = useState('');
+  const [loadedManagerDraft, setLoadedManagerDraft] = useState<DebugLevelRecord>(() => createEmptyDebugLevelRecord());
+  const [managerDraft, setManagerDraft] = useState<DebugLevelRecord>(() => createEmptyDebugLevelRecord());
   const [ttlMinutes, setTtlMinutes] = useState('30');
   const [error, setError] = useState<string | undefined>(undefined);
   const [notice, setNotice] = useState<NoticeState | undefined>(undefined);
   const [initialized, setInitialized] = useState(false);
   const selectedUserIdRef = useRef<string | undefined>(undefined);
+  const selectedManagerIdRef = useRef<string>('');
   const [loading, setLoading] = useState<LoadingState>({
     orgs: false,
     users: false,
@@ -75,6 +101,10 @@ export function DebugFlagsApp({
   useEffect(() => {
     selectedUserIdRef.current = selectedUserId;
   }, [selectedUserId]);
+
+  useEffect(() => {
+    selectedManagerIdRef.current = selectedManagerId;
+  }, [selectedManagerId]);
 
   useEffect(() => {
     if (!messageBus) {
@@ -116,6 +146,20 @@ export function DebugFlagsApp({
           }
           break;
         }
+        case 'debugFlagsManagerData': {
+          const records = msg.records || [];
+          const presets = msg.presets || [];
+          const preferredId = msg.selectedId || selectedManagerIdRef.current;
+          const selectedRecord = records.find(record => record.id === preferredId) || records[0];
+          const nextDraft = cloneDebugLevelRecord(selectedRecord);
+          setManagerRecords(records);
+          setManagerPresets(presets);
+          setSelectedManagerId(selectedRecord?.id || '');
+          setSelectedPresetId('');
+          setLoadedManagerDraft(nextDraft);
+          setManagerDraft(nextDraft);
+          break;
+        }
         case 'debugFlagsUserStatus':
           if (msg.userId === selectedUserIdRef.current) {
             setStatus(msg.status);
@@ -153,9 +197,18 @@ export function DebugFlagsApp({
     () => users.find(user => user.id === selectedUserId),
     [users, selectedUserId]
   );
+  const managerDraftDirty = !debugLevelDraftEquals(managerDraft, loadedManagerDraft);
 
   const canApply = Boolean(selectedUserId && debugLevel && !loading.action && !loading.orgs);
   const canRemove = Boolean(selectedUserId && !loading.action && !loading.orgs);
+  const canSaveManager = Boolean(
+    !loading.action &&
+      !loading.orgs &&
+      managerDraft.developerName.trim() &&
+      managerDraft.masterLabel.trim() &&
+      managerDraftDirty
+  );
+  const canDeleteManager = Boolean(selectedManagerId && !loading.action && !loading.orgs);
 
   const handleSelectOrg = (nextOrg: string) => {
     setSelectedOrg(nextOrg);
@@ -211,6 +264,82 @@ export function DebugFlagsApp({
     vscode.postMessage({
       type: 'debugFlagsClearLogs',
       scope
+    });
+  };
+
+  const handleSelectManager = (nextId: string) => {
+    setSelectedManagerId(nextId);
+    setSelectedPresetId('');
+    const selectedRecord = managerRecords.find(record => record.id === nextId);
+    const nextDraft = cloneDebugLevelRecord(selectedRecord);
+    setLoadedManagerDraft(nextDraft);
+    setManagerDraft(nextDraft);
+    setNotice(undefined);
+    setError(undefined);
+  };
+
+  const handleNewManager = () => {
+    const nextDraft = createEmptyDebugLevelRecord();
+    setSelectedManagerId('');
+    setSelectedPresetId('');
+    setLoadedManagerDraft(nextDraft);
+    setManagerDraft(nextDraft);
+    setNotice(undefined);
+    setError(undefined);
+  };
+
+  const handleApplyPreset = () => {
+    const preset = managerPresets.find(item => item.id === selectedPresetId);
+    if (!preset) {
+      return;
+    }
+    setManagerDraft(prev => ({
+      ...cloneDebugLevelRecord(preset.record),
+      id: prev.id
+    }));
+    setNotice(undefined);
+    setError(undefined);
+  };
+
+  const handleManagerFieldChange = <K extends keyof DebugLevelRecord>(field: K, value: DebugLevelRecord[K]) => {
+    setManagerDraft(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleResetManager = () => {
+    setSelectedPresetId('');
+    setManagerDraft(cloneDebugLevelRecord(loadedManagerDraft));
+    setNotice(undefined);
+    setError(undefined);
+  };
+
+  const handleSaveManager = () => {
+    if (!managerDraft.developerName.trim() || !managerDraft.masterLabel.trim()) {
+      setNotice(undefined);
+      setError(
+        t.debugFlags?.managerValidation ?? 'DeveloperName and MasterLabel are required to save a DebugLevel.'
+      );
+      return;
+    }
+    setNotice(undefined);
+    setError(undefined);
+    vscode.postMessage({
+      type: 'debugFlagsManagerSave',
+      draft: managerDraft
+    });
+  };
+
+  const handleDeleteManager = () => {
+    if (!selectedManagerId) {
+      return;
+    }
+    setNotice(undefined);
+    setError(undefined);
+    vscode.postMessage({
+      type: 'debugFlagsManagerDelete',
+      debugLevelId: selectedManagerId
     });
   };
 
@@ -462,6 +591,182 @@ export function DebugFlagsApp({
             </Popover.Root>
           </div>
         </article>
+      </section>
+
+      <section
+        className="rounded-lg border border-border bg-card/70 p-4 shadow-sm"
+        data-testid="debug-level-manager"
+      >
+        <div className="flex flex-col gap-1">
+          <h2 className="text-base font-semibold text-foreground">
+            {t.debugFlags?.managerTitle ?? 'Debug Level Manager'}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {t.debugFlags?.managerSubtitle ??
+              'Create from scratch, apply a preset, or edit an existing DebugLevel field by field.'}
+          </p>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto_1fr_auto]">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="debug-level-manager-select">
+              {t.debugFlags?.managerExisting ?? 'Existing DebugLevel'}
+            </Label>
+            <select
+              id="debug-level-manager-select"
+              data-testid="debug-level-manager-select"
+              value={selectedManagerId}
+              onChange={event => handleSelectManager(event.target.value)}
+              disabled={loading.orgs || loading.action || managerRecords.length === 0}
+              className="flex min-h-[28px] w-full rounded-md border border-input bg-input px-3 py-1 text-[13px] shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">{t.debugFlags?.managerNewPlaceholder ?? 'New draft'}</option>
+              {managerRecords.map(record => (
+                <option key={record.id || record.developerName} value={record.id}>
+                  {record.developerName}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleNewManager}
+              disabled={loading.orgs || loading.action}
+              data-testid="debug-level-manager-new"
+            >
+              {t.debugFlags?.managerNew ?? 'New'}
+            </Button>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="debug-level-preset-select">
+              {t.debugFlags?.managerPreset ?? 'Preset'}
+            </Label>
+            <select
+              id="debug-level-preset-select"
+              data-testid="debug-level-preset-select"
+              value={selectedPresetId}
+              onChange={event => setSelectedPresetId(event.target.value)}
+              disabled={loading.orgs || loading.action || managerPresets.length === 0}
+              className="flex min-h-[28px] w-full rounded-md border border-input bg-input px-3 py-1 text-[13px] shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">{t.debugFlags?.managerPresetPlaceholder ?? 'Select a preset'}</option>
+              {managerPresets.map(preset => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleApplyPreset}
+              disabled={!selectedPresetId || loading.orgs || loading.action}
+              data-testid="debug-level-apply-preset"
+            >
+              {t.debugFlags?.managerApplyPreset ?? 'Apply preset'}
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="debug-level-draft-developer-name">
+              {t.debugFlags?.managerDeveloperName ?? 'DeveloperName'}
+            </Label>
+            <Input
+              id="debug-level-draft-developer-name"
+              data-testid="debug-level-draft-developer-name"
+              value={managerDraft.developerName}
+              onChange={event => handleManagerFieldChange('developerName', event.target.value)}
+              disabled={loading.orgs || loading.action}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="debug-level-draft-master-label">
+              {t.debugFlags?.managerMasterLabel ?? 'MasterLabel'}
+            </Label>
+            <Input
+              id="debug-level-draft-master-label"
+              data-testid="debug-level-draft-master-label"
+              value={managerDraft.masterLabel}
+              onChange={event => handleManagerFieldChange('masterLabel', event.target.value)}
+              disabled={loading.orgs || loading.action}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="debug-level-draft-language">
+              {t.debugFlags?.managerLanguage ?? 'Language'}
+            </Label>
+            <Input
+              id="debug-level-draft-language"
+              data-testid="debug-level-draft-language"
+              value={managerDraft.language}
+              onChange={event => handleManagerFieldChange('language', event.target.value)}
+              disabled={loading.orgs || loading.action}
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {DEBUG_LEVEL_FIELDS.map(field => (
+            <div key={field.key} className="flex flex-col gap-1">
+              <Label htmlFor={`debug-level-field-${field.key}`}>{field.label}</Label>
+              <select
+                id={`debug-level-field-${field.key}`}
+                data-testid={`debug-level-field-${field.key}`}
+                value={managerDraft[field.key]}
+                onChange={event => handleManagerFieldChange(field.key, event.target.value)}
+                disabled={loading.orgs || loading.action}
+                className="flex min-h-[28px] w-full rounded-md border border-input bg-input px-3 py-1 text-[13px] shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {DEBUG_LEVEL_LOG_LEVELS.map(level => (
+                  <option key={level} value={level}>
+                    {level}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            onClick={handleSaveManager}
+            disabled={!canSaveManager}
+            variant="secondary"
+            data-testid="debug-level-save"
+          >
+            {t.debugFlags?.managerSave ?? 'Save'}
+          </Button>
+          <Button
+            type="button"
+            onClick={handleResetManager}
+            disabled={!managerDraftDirty || loading.orgs || loading.action}
+            variant="outline"
+            data-testid="debug-level-reset"
+          >
+            {t.debugFlags?.managerReset ?? 'Reset changes'}
+          </Button>
+          <Button
+            type="button"
+            onClick={handleDeleteManager}
+            disabled={!canDeleteManager}
+            variant="outline"
+            data-testid="debug-level-delete"
+          >
+            {t.debugFlags?.managerDelete ?? 'Delete'}
+          </Button>
+        </div>
       </section>
 
       {error && (

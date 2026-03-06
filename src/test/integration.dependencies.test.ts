@@ -15,7 +15,7 @@ suite('integration: dependencies', () => {
     const viaEnv = process.env.SF_EXT_PRESENT === '1';
     assert.ok(
       replay || pack || viaEnv,
-      'Apex Replay Debugger extension not detected. Ensure salesforce.salesforcedx-vscode-apex-replay-debugger (or the Salesforce extension pack) is installed. Use `npm run test:integration` to auto-install.'
+      'Apex Replay Debugger support not detected. Ensure the Salesforce Extension Pack (recommended) or salesforce.salesforcedx-vscode-apex-replay-debugger is installed. Use `npm run test:integration` to auto-install.'
     );
   });
 });

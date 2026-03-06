@@ -1,15 +1,21 @@
 import * as vscode from 'vscode';
 import { getOrgAuth, listOrgs } from '../salesforce/cli';
 import {
+  createDebugLevel,
+  deleteDebugLevel,
   getActiveUserDebugLevel,
   getUserTraceFlagStatus,
   listActiveUsers,
+  listDebugLevelDetails,
   listDebugLevels,
   removeUserTraceFlags,
+  updateDebugLevel,
   upsertUserTraceFlag
 } from '../salesforce/traceflags';
+import { DEBUG_LEVEL_PRESETS } from '../shared/debugLevelPresets';
 import { clearApexLogs } from '../services/apexLogCleanup';
 import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '../shared/debugFlagsMessages';
+import type { DebugLevelRecord } from '../shared/debugFlagsTypes';
 import { safeSendEvent } from '../shared/telemetry';
 import { pickSelectedOrg } from '../utils/orgs';
 import { localize } from '../utils/localize';
@@ -139,6 +145,12 @@ export class DebugFlagsPanel {
       case 'debugFlagsApply':
         await this.applyUserTraceFlag(message.userId, message.debugLevelName, message.ttlMinutes);
         break;
+      case 'debugFlagsManagerSave':
+        await this.saveDebugLevel(message.draft);
+        break;
+      case 'debugFlagsManagerDelete':
+        await this.removeDebugLevel(message.debugLevelId);
+        break;
       case 'debugFlagsRemove':
         await this.removeUserTraceFlag(message.userId);
         break;
@@ -169,25 +181,7 @@ export class DebugFlagsPanel {
         return;
       }
 
-      const [levels, active] = await Promise.all([
-        listDebugLevels(auth).catch(err => {
-          logWarn('DebugFlagsPanel: failed to load debug levels ->', getErrorMessage(err));
-          return [] as string[];
-        }),
-        getActiveUserDebugLevel(auth).catch(() => undefined as string | undefined)
-      ]);
-      if (token !== this.orgBootstrapToken || this.disposed) {
-        return;
-      }
-      const output = [...levels];
-      if (active && !output.includes(active)) {
-        output.unshift(active);
-      }
-      this.post({
-        type: 'debugFlagsDebugLevels',
-        data: output,
-        active
-      });
+      await this.sendDebugLevelData(auth);
       await this.searchUsers();
     } catch (e) {
       const msg = getErrorMessage(e);
@@ -201,6 +195,38 @@ export class DebugFlagsPanel {
         this.post({ type: 'debugFlagsLoading', scope: 'orgs', value: false });
       }
     }
+  }
+
+  private async sendDebugLevelData(auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>, selectedId?: string): Promise<void> {
+    const [details, active] = await Promise.all([
+      listDebugLevelDetails(auth).catch(err => {
+        logWarn('DebugFlagsPanel: failed to load debug level details ->', getErrorMessage(err));
+        return [] as DebugLevelRecord[];
+      }),
+      getActiveUserDebugLevel(auth).catch(() => undefined as string | undefined)
+    ]);
+
+    const output = details.map(record => record.developerName).filter(Boolean);
+    if (active && !output.includes(active)) {
+      output.unshift(active);
+    }
+    this.post({
+      type: 'debugFlagsDebugLevels',
+      data: output,
+      active
+    });
+
+    const preferredId =
+      selectedId && details.some(record => record.id === selectedId)
+        ? selectedId
+        : details[0]?.id;
+
+    this.post({
+      type: 'debugFlagsManagerData',
+      records: details,
+      presets: DEBUG_LEVEL_PRESETS,
+      selectedId: preferredId
+    });
   }
 
   private async searchUsers(): Promise<void> {
@@ -328,6 +354,112 @@ export class DebugFlagsPanel {
         },
         { durationMs: Date.now() - t0 }
       );
+    } finally {
+      this.post({ type: 'debugFlagsLoading', scope: 'action', value: false });
+    }
+  }
+
+  private normalizeDebugLevelDraft(draft: DebugLevelRecord): DebugLevelRecord {
+    return {
+      ...draft,
+      developerName: String(draft.developerName || '').trim(),
+      masterLabel: String(draft.masterLabel || '').trim(),
+      language: String(draft.language || '').trim() || 'en_US',
+      workflow: String(draft.workflow || '').trim(),
+      validation: String(draft.validation || '').trim(),
+      callout: String(draft.callout || '').trim(),
+      apexCode: String(draft.apexCode || '').trim(),
+      apexProfiling: String(draft.apexProfiling || '').trim(),
+      visualforce: String(draft.visualforce || '').trim(),
+      system: String(draft.system || '').trim(),
+      database: String(draft.database || '').trim(),
+      wave: String(draft.wave || '').trim(),
+      nba: String(draft.nba || '').trim(),
+      dataAccess: String(draft.dataAccess || '').trim()
+    };
+  }
+
+  private async saveDebugLevel(draft: DebugLevelRecord): Promise<void> {
+    const normalized = this.normalizeDebugLevelDraft(draft);
+    if (!normalized.developerName) {
+      this.post({
+        type: 'debugFlagsError',
+        message: localize('debugFlags.managerDeveloperNameRequired', 'DeveloperName is required.')
+      });
+      return;
+    }
+    if (!normalized.masterLabel) {
+      this.post({
+        type: 'debugFlagsError',
+        message: localize('debugFlags.managerMasterLabelRequired', 'MasterLabel is required.')
+      });
+      return;
+    }
+
+    this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
+    try {
+      const auth = await this.getSelectedAuth();
+      const savedId = normalized.id
+        ? (await updateDebugLevel(auth, normalized.id, normalized), normalized.id)
+        : (await createDebugLevel(auth, normalized)).id;
+
+      await this.sendDebugLevelData(auth, savedId);
+      this.post({
+        type: 'debugFlagsNotice',
+        tone: 'success',
+        message: normalized.id
+          ? localize('debugFlags.managerUpdated', 'Debug level updated successfully.')
+          : localize('debugFlags.managerCreated', 'Debug level created successfully.')
+      });
+    } catch (e) {
+      const msg = getErrorMessage(e);
+      logWarn('DebugFlagsPanel: save DebugLevel failed ->', msg);
+      this.post({
+        type: 'debugFlagsError',
+        message: localize('debugFlags.managerSaveFailed', 'Failed to save debug level: {0}', msg)
+      });
+    } finally {
+      this.post({ type: 'debugFlagsLoading', scope: 'action', value: false });
+    }
+  }
+
+  private async removeDebugLevel(debugLevelId: string): Promise<void> {
+    if (!debugLevelId) {
+      return;
+    }
+    const confirmAction = localize('debugFlags.managerDeleteConfirmAction', 'Delete');
+    const confirmation = await vscode.window.showWarningMessage(
+      localize('debugFlags.managerDeleteConfirmTitle', 'Delete this DebugLevel?'),
+      {
+        modal: true,
+        detail: localize(
+          'debugFlags.managerDeleteConfirmDetail',
+          "This permanently removes the DebugLevel from the org. Salesforce may block deletion if it's still referenced by a TraceFlag."
+        )
+      },
+      confirmAction
+    );
+    if (confirmation !== confirmAction) {
+      return;
+    }
+
+    this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
+    try {
+      const auth = await this.getSelectedAuth();
+      await deleteDebugLevel(auth, debugLevelId);
+      await this.sendDebugLevelData(auth);
+      this.post({
+        type: 'debugFlagsNotice',
+        tone: 'success',
+        message: localize('debugFlags.managerDeleted', 'Debug level deleted successfully.')
+      });
+    } catch (e) {
+      const msg = getErrorMessage(e);
+      logWarn('DebugFlagsPanel: delete DebugLevel failed ->', msg);
+      this.post({
+        type: 'debugFlagsError',
+        message: localize('debugFlags.managerDeleteFailed', 'Failed to delete debug level: {0}', msg)
+      });
     } finally {
       this.post({ type: 'debugFlagsLoading', scope: 'action', value: false });
     }

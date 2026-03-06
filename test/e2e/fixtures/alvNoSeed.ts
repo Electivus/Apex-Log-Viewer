@@ -2,19 +2,12 @@ import path from 'node:path';
 import { test as base, expect, type Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
 import { ensureScratchOrg } from '../utils/scratchOrg';
-import { seedApexLog } from '../utils/seedLog';
 import { resolveSfCliInvocation } from '../utils/sfCli';
 import { createTempWorkspace } from '../utils/tempWorkspace';
 import { launchVsCode } from '../utils/vscode';
 
-type SeededLog = {
-  marker: string;
-  logId: string;
-};
-
 type Fixtures = {
   scratchAlias: string;
-  seededLog: SeededLog;
   workspacePath: string;
   vscodeApp: ElectronApplication;
   vscodePage: Page;
@@ -37,11 +30,6 @@ export const test = base.extend<Fixtures>({
     },
     { scope: 'worker' }
   ],
-
-  seededLog: async ({ scratchAlias }, use) => {
-    const seeded = await seedApexLog(scratchAlias);
-    await use(seeded);
-  },
 
   workspacePath: async ({ scratchAlias }, use) => {
     const sfCli = await resolveSfCliInvocation();

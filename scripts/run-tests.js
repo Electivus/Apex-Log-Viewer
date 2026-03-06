@@ -1,6 +1,6 @@
 const { spawn, execFile, spawnSync } = require('child_process');
 const { platform, tmpdir } = require('os');
-const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } = require('fs');
+const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync } = require('fs');
 const { join, resolve } = require('path');
 const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } = require('@vscode/test-electron');
 const { cleanVsCodeTest } = require('./clean-vscode-test.js');
@@ -46,6 +46,52 @@ function addLocalBinToPath() {
   } catch (e) {
     console.warn('Failed to add local bin to PATH:', e && e.message ? e.message : e);
   }
+}
+
+function getExtensionSearchRoots() {
+  return Array.from(
+    new Set(
+      [join(process.env.USERPROFILE || '', '.vscode', 'extensions'), join(process.env.HOME || '', '.vscode', 'extensions')].filter(
+        Boolean
+      )
+    )
+  );
+}
+
+function findExtensionDirectoryInRoot(root, extensionId) {
+  if (!root || !existsSync(root)) {
+    return undefined;
+  }
+
+  const normalizedId = String(extensionId || '').trim().toLowerCase();
+  const prefix = `${normalizedId}-`;
+  const matches = [];
+  try {
+    const entries = readdirSync(root, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const entryName = entry.name.toLowerCase();
+      if (entryName === normalizedId || entryName.startsWith(prefix)) {
+        matches.push(join(root, entry.name));
+      }
+    }
+  } catch {
+    return undefined;
+  }
+
+  return matches.sort((a, b) => a.localeCompare(b)).at(-1);
+}
+
+function findLocalExtensionsRootForDependencies(extensionIds) {
+  for (const root of getExtensionSearchRoots()) {
+    const allPresent = extensionIds.every(extensionId => !!findExtensionDirectoryInRoot(root, extensionId));
+    if (allPresent) {
+      return root;
+    }
+  }
+  return undefined;
 }
 
 function normalizeForMatch(value) {
@@ -532,9 +578,13 @@ async function run() {
   const shouldInstall = scope === 'integration' || scope === 'all' || !!args.installDeps;
   const unitExtensionsDir = join(tmpdir(), 'alv-extensions-unit');
   const cachedExtensionsDir = join(vscodeCachePath, 'extensions');
+  let resolvedExtensionsDir = cachedExtensionsDir;
   let sfExtPresent = false;
   if (shouldInstall) {
-    const toInstall = (process.env.VSCODE_TEST_EXTENSIONS || 'salesforce.salesforcedx-vscode-apex-replay-debugger')
+    const toInstall = (
+      process.env.VSCODE_TEST_EXTENSIONS ||
+      'salesforce.salesforcedx-vscode,salesforce.salesforcedx-vscode-apex-replay-debugger'
+    )
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
@@ -639,6 +689,15 @@ async function run() {
     } catch (e) {
       console.warn('[deps] Failed to list installed extensions:', e && e.message ? e.message : e);
     }
+
+    if (!sfExtPresent) {
+      const localRoot = findLocalExtensionsRootForDependencies(toInstall);
+      if (localRoot) {
+        console.warn(`[deps] Falling back to locally installed VS Code extensions: ${localRoot}`);
+        resolvedExtensionsDir = localRoot;
+        sfExtPresent = true;
+      }
+    }
   }
 
   // Run tests via @vscode/test-electron with our programmatic Mocha runner
@@ -738,7 +797,7 @@ async function run() {
   }, totalTimeout);
 
   const defaultUserDataDir = join(tmpdir(), 'alv-user-data');
-  const defaultExtensionsDir = shouldInstall ? cachedExtensionsDir : unitExtensionsDir;
+  const defaultExtensionsDir = shouldInstall ? resolvedExtensionsDir : unitExtensionsDir;
   try {
     mkdirSync(defaultExtensionsDir, { recursive: true });
   } catch (e) {
