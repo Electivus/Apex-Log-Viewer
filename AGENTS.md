@@ -14,9 +14,18 @@
 ## Build and Development
 - Use Node `22` via `.nvmrc`.
 - Install deps with `npm ci`.
+- Type-check only with `npm run check-types`.
+- Lint + extension TypeScript validation with `npm run compile`.
 - Build with `npm run build`.
+- Prepare a publishable package with `npm run package`.
 - Watch mode: `npm run watch`.
-- Test suite: `npm run test`.
+- Unit-focused local test suite: `npm run test:unit`.
+- Integration suite: `npm run test:integration`.
+- Full CI-equivalent suite: `npm run test:ci`.
+- Webview-only Jest suite: `npm run test:webview`.
+- Playwright scratch-org E2E: `npm run test:e2e`.
+- VSIX smoke test: `npm run test:smoke:vsix`.
+- Test cache cleanup: `npm run test:clean` or `npm run test:clean:all`.
 
 ## Commit and Pull Request Guidelines
 - Use Conventional Commits (for example `feat(logs): add filter`, `fix(tail): handle missing CLI`).
@@ -48,6 +57,9 @@ This repo follows the VS Code Marketplace pre-release convention:
 6. **Monitor CI**
    - Tag push triggers `.github/workflows/release.yml` (packages VSIX + creates GitHub Release; publishes to Marketplace/Open VSX when tokens are configured).
    - Useful: `gh run list --workflow release.yml --limit 5`
+7. **Local packaging/publishing helpers**
+   - Package stable/pre-release VSIX with `npm run vsce:package` / `npm run vsce:package:pre`.
+   - Publish stable/pre-release locally with `npm run vsce:publish` / `npm run vsce:publish:pre`.
 
 See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 
