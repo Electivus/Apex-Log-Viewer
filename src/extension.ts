@@ -3,7 +3,6 @@ import { SfLogsViewProvider } from './provider/SfLogsViewProvider';
 import { SfLogTailViewProvider } from './provider/SfLogTailViewProvider';
 import type { OrgItem } from './shared/types';
 import * as path from 'path';
-import { promises as fs } from 'fs';
 import { setApiVersion, getApiVersion, clearListCache } from './salesforce/http';
 import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger } from './utils/logger';
 import { localize } from './utils/localize';
@@ -14,7 +13,7 @@ import { DebugFlagsPanel } from './panel/DebugFlagsPanel';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { getErrorMessage } from './utils/error';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
-import { isApexLogDocument, getLogIdFromLogFilePath } from './utils/workspace';
+import { findSalesforceProjectInfo, isApexLogDocument, getLogIdFromLogFilePath } from './utils/workspace';
 import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
@@ -30,6 +29,8 @@ export async function activate(context: vscode.ExtensionContext) {
   const activationStart = Date.now();
   LogViewerPanel.initialize(context);
   DebugFlagsPanel.initialize(context);
+  const salesforceProject = await findSalesforceProjectInfo();
+  const hasSalesforceProject = !!salesforceProject;
   // Init TTL cache (best-effort; no-op if unavailable)
   try {
     await initializePersistentCache(context);
@@ -46,7 +47,8 @@ export async function activate(context: vscode.ExtensionContext) {
   safeSendEvent('extension.activate', {
     vscodeVersion: vscode.version,
     platform: process.platform,
-    hasWorkspace: String(!!vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0)
+    hasWorkspace: String(!!vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0),
+    hasSalesforceProject: String(hasSalesforceProject)
   });
   // Avoid @salesforce/core attempting to spawn Pino transports that fail when bundled
   try {
@@ -73,26 +75,11 @@ export async function activate(context: vscode.ExtensionContext) {
     const msg = getErrorMessage(e);
     logWarn('Failed to configure trace logging ->', msg);
   }
-  // Try to read sourceApiVersion from sfdx-project.json (first workspace folder)
-  const folders = vscode.workspace.workspaceFolders;
-  if (folders && folders.length > 0) {
-    const root = folders[0]!.uri.fsPath;
-    const proj = path.join(root, 'sfdx-project.json');
-    try {
-      const txt = await fs.readFile(proj, 'utf8');
-      try {
-        const json = JSON.parse(txt);
-        const v = (json && json.sourceApiVersion) as string | undefined;
-        if (v) {
-          setApiVersion(v);
-          logInfo('Detected sourceApiVersion from sfdx-project.json:', v);
-        }
-      } catch (e) {
-        logWarn('Could not parse sfdx-project.json for sourceApiVersion ->', getErrorMessage(e));
-      }
-    } catch (e) {
-      logInfo('No sfdx-project.json found in first workspace folder ->', getErrorMessage(e));
-    }
+  if (salesforceProject?.sourceApiVersion) {
+    setApiVersion(salesforceProject.sourceApiVersion);
+    logInfo('Detected sourceApiVersion from sfdx-project.json:', salesforceProject.sourceApiVersion);
+  } else if (hasSalesforceProject) {
+    logInfo('Detected Salesforce project workspace at', salesforceProject.workspaceRoot);
   }
   const provider = new SfLogsViewProvider(context);
   context.subscriptions.push(
@@ -259,7 +246,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const enabled = getBooleanConfig('sfLogs.cliCache.enabled', true);
     // Heuristic: skip when running inside VS Code test harness to avoid interfering with unit tests
     const isVsCodeTestHost = /\.vscode-test\b/i.test(String((vscode.env as any)?.appRoot || ''));
-    if (enabled && !isVsCodeTestHost) {
+    if (enabled && hasSalesforceProject && !isVsCodeTestHost) {
       setTimeout(async () => {
         try {
           logInfo('Preloading CLI caches (org list, default auth)…');
@@ -281,6 +268,8 @@ export async function activate(context: vscode.ExtensionContext) {
           logWarn('Preloading CLI caches failed ->', getErrorMessage(e));
         }
       }, 0);
+    } else if (enabled && !hasSalesforceProject) {
+      logInfo('Skipping CLI cache preload because no sfdx-project.json was found in the workspace.');
     }
   } catch (e) {
     logWarn('Failed to schedule CLI cache preload ->', getErrorMessage(e));

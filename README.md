@@ -54,6 +54,8 @@ Why developers like it
 
 ## Usage
 
+The extension activates automatically when the open workspace contains `sfdx-project.json`. Outside a Salesforce workspace, opening a standalone Apex log or running one of the Apex Logs commands still activates it on demand.
+
 ### Open the Apex Logs panel
 
 1. In VS Code, choose `View` > `Appearance` > `Panel`.
@@ -111,7 +113,7 @@ Why developers like it
 
 See [docs/SETTINGS.md](docs/SETTINGS.md) for more details on configuration.
 
-API version is automatically taken from your workspace `sfdx-project.json` (`sourceApiVersion`).
+API version is automatically taken from the first workspace folder that contains `sfdx-project.json` (`sourceApiVersion`).
 
 ## Localization
 
