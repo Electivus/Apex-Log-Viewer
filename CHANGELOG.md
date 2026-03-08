@@ -4,13 +4,17 @@
 
 ### Features
 
-- Telemetry: enable the published VSIX to send production App Insights events through the checked-in connection string while preserving VS Code opt-out and environment-variable overrides.
-
 ### Bug Fixes
 
 ### Chores
 
 ### Tests
+
+## [0.30.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.28.0...v0.30.0) (2026-03-08)
+
+### Features
+
+- Telemetry: enable the published VSIX to send production App Insights events through the checked-in connection string while preserving VS Code opt-out and environment-variable overrides. ([#572](https://github.com/Electivus/Apex-Log-Viewer/pull/572))
 
 ## [0.28.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.26.0...v0.28.0) (2026-03-08)
 
