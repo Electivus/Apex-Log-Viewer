@@ -45,6 +45,8 @@ export function getWorkspaceRoot(): string | undefined {
 export async function findSalesforceProjectInfo(
   workspaceFolders: readonly Pick<vscode.WorkspaceFolder, 'uri'>[] | undefined = vscode.workspace.workspaceFolders
 ): Promise<SalesforceProjectInfo | undefined> {
+  let firstProjectIssue: SalesforceProjectInfo | undefined;
+
   for (const folder of workspaceFolders ?? []) {
     const workspaceRoot = folder.uri.fsPath;
     const projectFilePath = path.join(workspaceRoot, 'sfdx-project.json');
@@ -57,11 +59,12 @@ export async function findSalesforceProjectInfo(
       if (code === 'ENOENT' || code === 'ENOTDIR') {
         continue;
       }
-      return {
+      firstProjectIssue ??= {
         workspaceRoot,
         projectFilePath,
         readErrorMessage: getErrorMessage(error)
       };
+      continue;
     }
 
     try {
@@ -76,7 +79,7 @@ export async function findSalesforceProjectInfo(
         sourceApiVersion
       };
     } catch (error) {
-      return {
+      firstProjectIssue ??= {
         workspaceRoot,
         projectFilePath,
         parseErrorMessage: getErrorMessage(error)
@@ -84,7 +87,7 @@ export async function findSalesforceProjectInfo(
     }
   }
 
-  return undefined;
+  return firstProjectIssue;
 }
 
 /** Resolve the `apexlogs` directory path (workspace or temp) without creating it. */

@@ -19,10 +19,10 @@ function createVscodeStub(workspaceFolders: Array<{ uri: { fsPath: string } }>) 
 }
 
 suite('findSalesforceProjectInfo', () => {
-  test('finds the first Salesforce project across multi-root workspaces', async () => {
-    const plainRoot = path.join('/tmp', 'alv-plain-root');
+  test('keeps scanning later roots when an earlier project file is unreadable', async () => {
+    const blockedRoot = path.join('/tmp', 'alv-blocked-root');
     const sfRoot = path.join('/tmp', 'alv-salesforce-root');
-    const plainProject = path.join(plainRoot, 'sfdx-project.json');
+    const blockedProject = path.join(blockedRoot, 'sfdx-project.json');
     const sfProject = path.join(sfRoot, 'sfdx-project.json');
     const readCalls: string[] = [];
 
@@ -31,15 +31,15 @@ suite('findSalesforceProjectInfo', () => {
         logInfo: () => undefined,
         logWarn: () => undefined
       },
-      vscode: createVscodeStub([{ uri: { fsPath: plainRoot } }, { uri: { fsPath: sfRoot } }]),
+      vscode: createVscodeStub([{ uri: { fsPath: blockedRoot } }, { uri: { fsPath: sfRoot } }]),
       fs: {
         promises: {
           readFile: async (filePath: string, encoding: string): Promise<string> => {
             assert.equal(encoding, 'utf8');
             readCalls.push(filePath);
-            if (filePath === plainProject) {
-              const error: NodeJS.ErrnoException = new Error('missing project file');
-              error.code = 'ENOENT';
+            if (filePath === blockedProject) {
+              const error: NodeJS.ErrnoException = new Error('project file is unreadable');
+              error.code = 'EACCES';
               throw error;
             }
             if (filePath === sfProject) {
@@ -57,7 +57,7 @@ suite('findSalesforceProjectInfo', () => {
       projectFilePath: sfProject,
       sourceApiVersion: '62.0'
     });
-    assert.deepEqual(readCalls, [plainProject, sfProject]);
+    assert.deepEqual(readCalls, [blockedProject, sfProject]);
   });
 
   test('returns undefined when no workspace folder has sfdx-project.json', async () => {
