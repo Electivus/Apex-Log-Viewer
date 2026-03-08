@@ -27,6 +27,8 @@ Opt‑out
 For maintainers
 
 - The connection string is checked in with the extension (we surface it via `package.json.telemetryConnectionString`). No CI-time injection is required anymore; the bundler simply reads the value during activation.
+- Production telemetry resources live in Azure subscription `c1b4d537-c3dc-4d64-b022-a97fd1826665`, resource group `rg-apex-log-viewer-telemetry-eastus`, Application Insights `appi-apex-log-viewer-telemetry-eastus`, and Log Analytics workspace `law-apex-log-viewer-telemetry-eastus`.
+- To inspect recent events with Azure CLI, run `az monitor app-insights query -a appi-apex-log-viewer-telemetry-eastus -g rg-apex-log-viewer-telemetry-eastus --analytics-query "customEvents | order by timestamp desc | take 20"`.
 - If the field is left empty, telemetry becomes a no-op automatically.
 - When adding events, avoid PII. Prefer counts, booleans, and coarse buckets. Never include usernames, org IDs, file paths, or log content.
 

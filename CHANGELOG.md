@@ -4,6 +4,8 @@
 
 ### Features
 
+- Telemetry: enable the published VSIX to send production App Insights events through the checked-in connection string while preserving VS Code opt-out and environment-variable overrides.
+
 ### Bug Fixes
 
 ### Chores
