@@ -84,4 +84,28 @@ suite('findSalesforceProjectInfo', () => {
     const info = await workspaceModule.findSalesforceProjectInfo();
     assert.equal(info, undefined);
   });
+
+  test('returns undefined when only unreadable project files are seen', async () => {
+    const blockedRoot = path.join('/tmp', 'alv-blocked-root');
+
+    const workspaceModule: typeof import('../utils/workspace') = proxyquireStrict('../utils/workspace', {
+      './logger': {
+        logInfo: () => undefined,
+        logWarn: () => undefined
+      },
+      vscode: createVscodeStub([{ uri: { fsPath: blockedRoot } }]),
+      fs: {
+        promises: {
+          readFile: async (): Promise<string> => {
+            const error: NodeJS.ErrnoException = new Error('project file is unreadable');
+            error.code = 'EACCES';
+            throw error;
+          }
+        }
+      }
+    });
+
+    const info = await workspaceModule.findSalesforceProjectInfo();
+    assert.equal(info, undefined);
+  });
 });

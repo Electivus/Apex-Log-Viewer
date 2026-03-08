@@ -78,10 +78,6 @@ export async function activate(context: vscode.ExtensionContext) {
   if (salesforceProject?.sourceApiVersion) {
     setApiVersion(salesforceProject.sourceApiVersion);
     logInfo('Detected sourceApiVersion from sfdx-project.json:', salesforceProject.sourceApiVersion);
-  } else if (salesforceProject?.parseErrorMessage) {
-    logWarn('Could not parse sfdx-project.json for sourceApiVersion ->', salesforceProject.parseErrorMessage);
-  } else if (salesforceProject?.readErrorMessage) {
-    logWarn('Could not read sfdx-project.json for sourceApiVersion ->', salesforceProject.readErrorMessage);
   } else if (hasSalesforceProject) {
     logInfo('Detected Salesforce project workspace at', salesforceProject.workspaceRoot);
   }

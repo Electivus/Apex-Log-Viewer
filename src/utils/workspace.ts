@@ -8,8 +8,6 @@ export interface SalesforceProjectInfo {
   workspaceRoot: string;
   projectFilePath: string;
   sourceApiVersion?: string;
-  readErrorMessage?: string;
-  parseErrorMessage?: string;
 }
 
 let gitignoreUpdateQueue: Promise<void> = Promise.resolve();
@@ -45,8 +43,6 @@ export function getWorkspaceRoot(): string | undefined {
 export async function findSalesforceProjectInfo(
   workspaceFolders: readonly Pick<vscode.WorkspaceFolder, 'uri'>[] | undefined = vscode.workspace.workspaceFolders
 ): Promise<SalesforceProjectInfo | undefined> {
-  let firstProjectIssue: SalesforceProjectInfo | undefined;
-
   for (const folder of workspaceFolders ?? []) {
     const workspaceRoot = folder.uri.fsPath;
     const projectFilePath = path.join(workspaceRoot, 'sfdx-project.json');
@@ -59,11 +55,6 @@ export async function findSalesforceProjectInfo(
       if (code === 'ENOENT' || code === 'ENOTDIR') {
         continue;
       }
-      firstProjectIssue ??= {
-        workspaceRoot,
-        projectFilePath,
-        readErrorMessage: getErrorMessage(error)
-      };
       continue;
     }
 
@@ -79,15 +70,11 @@ export async function findSalesforceProjectInfo(
         sourceApiVersion
       };
     } catch (error) {
-      firstProjectIssue ??= {
-        workspaceRoot,
-        projectFilePath,
-        parseErrorMessage: getErrorMessage(error)
-      };
+      logWarn('Could not parse sfdx-project.json while scanning workspace roots ->', getErrorMessage(error));
     }
   }
 
-  return firstProjectIssue;
+  return undefined;
 }
 
 /** Resolve the `apexlogs` directory path (workspace or temp) without creating it. */
