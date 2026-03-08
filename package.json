@@ -50,15 +50,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:sfLogViewer",
-    "onView:sfLogTail",
-    "onCommand:sfLogs.refresh",
-    "onCommand:sfLogs.selectOrg",
-    "onCommand:sfLogs.tail",
-    "onCommand:sfLogs.showOutput",
-    "onCommand:sfLogs.resetCliCache",
-    "onCommand:sfLogs.openLogInViewer",
-    "onLanguage:apexlog"
+    "workspaceContains:sfdx-project.json"
   ],
   "extensionDependencies": ["salesforce.salesforcedx-vscode-apex-replay-debugger"],
   "main": "./dist/extension.js",

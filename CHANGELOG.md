@@ -4,11 +4,15 @@
 
 ### Features
 
+- Activation: auto-activate when the open workspace contains `sfdx-project.json`, while keeping standalone Apex log files and explicit Apex Logs commands working on demand.
+
 ### Bug Fixes
 
 ### Chores
 
 ### Tests
+
+- Activation: add unit coverage for multi-root Salesforce project detection and for gating `sourceApiVersion`/CLI preload work behind Salesforce-project-aware activation.
 
 ## [0.30.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.28.0...v0.30.0) (2026-03-08)
 

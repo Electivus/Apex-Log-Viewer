@@ -4,7 +4,22 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { logInfo, logWarn } from './logger';
 
+export interface SalesforceProjectInfo {
+  workspaceRoot: string;
+  projectFilePath: string;
+  sourceApiVersion?: string;
+  readErrorMessage?: string;
+  parseErrorMessage?: string;
+}
+
 let gitignoreUpdateQueue: Promise<void> = Promise.resolve();
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
 
 async function withGitignoreUpdateLock(operation: () => Promise<void>): Promise<void> {
   const current = gitignoreUpdateQueue.then(operation, operation);
@@ -18,6 +33,57 @@ export function getWorkspaceRoot(): string | undefined {
   if (folders && folders.length > 0) {
     return folders[0]!.uri.fsPath;
   }
+  return undefined;
+}
+
+/**
+ * Find the first workspace folder that contains `sfdx-project.json`.
+ *
+ * The search order follows VS Code's multi-root workspace folder order so the
+ * runtime matches the `workspaceContains:sfdx-project.json` activation behavior.
+ */
+export async function findSalesforceProjectInfo(
+  workspaceFolders: readonly Pick<vscode.WorkspaceFolder, 'uri'>[] | undefined = vscode.workspace.workspaceFolders
+): Promise<SalesforceProjectInfo | undefined> {
+  for (const folder of workspaceFolders ?? []) {
+    const workspaceRoot = folder.uri.fsPath;
+    const projectFilePath = path.join(workspaceRoot, 'sfdx-project.json');
+
+    let rawProject: string;
+    try {
+      rawProject = await fs.readFile(projectFilePath, 'utf8');
+    } catch (error: any) {
+      const code = String(error?.code || '');
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        continue;
+      }
+      return {
+        workspaceRoot,
+        projectFilePath,
+        readErrorMessage: getErrorMessage(error)
+      };
+    }
+
+    try {
+      const parsed = JSON.parse(rawProject);
+      const sourceApiVersion =
+        typeof parsed?.sourceApiVersion === 'string' && parsed.sourceApiVersion.trim().length > 0
+          ? parsed.sourceApiVersion.trim()
+          : undefined;
+      return {
+        workspaceRoot,
+        projectFilePath,
+        sourceApiVersion
+      };
+    } catch (error) {
+      return {
+        workspaceRoot,
+        projectFilePath,
+        parseErrorMessage: getErrorMessage(error)
+      };
+    }
+  }
+
   return undefined;
 }
 
