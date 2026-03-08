@@ -8,9 +8,23 @@
 
 ### Chores
 
-- Replay/testing: default development and integration-test dependency installs to the Salesforce Extension Pack, while still installing Apex Replay Debugger explicitly for isolated hosts and keeping the published runtime dependency narrowed.
+### Tests
+
+## [0.28.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.26.0...v0.28.0) (2026-03-08)
+
+### Features
+
+- Debug Flags: add a `Debug Level Manager` to create, edit, preset, and delete `DebugLevel` records directly in the panel while keeping the existing `USER_DEBUG` trace-flag flow intact. ([#569](https://github.com/Electivus/Apex-Log-Viewer/pull/569))
+
+### Chores
+
+- Replay/testing: default development and integration-test dependency installs to the Salesforce Extension Pack, while still installing Apex Replay Debugger explicitly for isolated hosts and keeping the published runtime dependency narrowed. ([#569](https://github.com/Electivus/Apex-Log-Viewer/pull/569))
+- Dependencies/workflows: update selected runtime/dev packages and GitHub Actions artifact steps across CI and nightly pre-release packaging. ([#550](https://github.com/Electivus/Apex-Log-Viewer/pull/550)) ([#552](https://github.com/Electivus/Apex-Log-Viewer/pull/552)) ([#553](https://github.com/Electivus/Apex-Log-Viewer/pull/553)) ([#554](https://github.com/Electivus/Apex-Log-Viewer/pull/554)) ([#555](https://github.com/Electivus/Apex-Log-Viewer/pull/555)) ([#557](https://github.com/Electivus/Apex-Log-Viewer/pull/557)) ([#558](https://github.com/Electivus/Apex-Log-Viewer/pull/558)) ([#559](https://github.com/Electivus/Apex-Log-Viewer/pull/559)) ([#560](https://github.com/Electivus/Apex-Log-Viewer/pull/560)) ([#561](https://github.com/Electivus/Apex-Log-Viewer/pull/561)) ([#562](https://github.com/Electivus/Apex-Log-Viewer/pull/562)) ([#563](https://github.com/Electivus/Apex-Log-Viewer/pull/563)) ([#564](https://github.com/Electivus/Apex-Log-Viewer/pull/564)) ([#565](https://github.com/Electivus/Apex-Log-Viewer/pull/565))
+- Docs: document the stable release checklist for maintainers. ([#568](https://github.com/Electivus/Apex-Log-Viewer/pull/568))
 
 ### Tests
+
+- Debug Flags: add unit, webview, and Playwright E2E coverage for `DebugLevel` CRUD and compatible tooling queries used by the new manager flow. ([#569](https://github.com/Electivus/Apex-Log-Viewer/pull/569))
 
 ## [0.26.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.24.0...v0.26.0) (2026-03-02)
 
