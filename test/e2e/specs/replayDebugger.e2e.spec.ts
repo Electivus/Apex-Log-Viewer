@@ -1,6 +1,9 @@
 import { test, expect } from '../fixtures/alvE2E';
 import { runCommand, waitForCommandAvailable } from '../utils/commandPalette';
+import { dismissAllNotifications } from '../utils/notifications';
 import { waitForWebviewFrame } from '../utils/webviews';
+
+test.use({ supportExtensionIds: ['salesforce.salesforcedx-vscode-apex-replay-debugger'] });
 
 test('launches replay debugger from logs table without missing-extension toast', async ({ vscodePage, seededLog }) => {
   void seededLog;
@@ -27,6 +30,7 @@ test('launches replay debugger from logs table without missing-extension toast',
   // Click the per-row "Apex Replay" icon button.
   const replayButton = logsFrame.locator('button[aria-label="Apex Replay"]').first();
   await replayButton.waitFor({ state: 'visible', timeout: 60_000 });
+  await dismissAllNotifications(vscodePage);
   await replayButton.click();
 
   // Historically we surfaced a toast claiming Replay Debugger was unavailable even when installed,

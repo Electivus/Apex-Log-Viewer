@@ -52,7 +52,6 @@
   "activationEvents": [
     "workspaceContains:sfdx-project.json"
   ],
-  "extensionDependencies": ["salesforce.salesforcedx-vscode-apex-replay-debugger"],
   "main": "./dist/extension.js",
   "contributes": {
     "configuration": {
