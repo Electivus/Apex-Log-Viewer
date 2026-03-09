@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from '@vscode/test-electron';
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright';
+import { dismissAllNotifications } from './notifications';
 
 export type VscodeLaunch = {
   app: ElectronApplication;
@@ -22,28 +23,27 @@ function getVsCodeVersion(): string {
   return v || 'stable';
 }
 
-async function readExtensionReferences(extensionDevelopmentPath: string): Promise<string[]> {
+export function resolveSupportExtensionIds(extensionIds: unknown[] = [], extraExtensionIds: string[] = []): string[] {
+  return Array.from(
+    new Set([...extensionIds, ...extraExtensionIds].map(String).map(value => value.trim()).filter(Boolean))
+  );
+}
+
+async function readExtensionReferences(extensionDevelopmentPath: string, extraExtensionIds: string[] = []): Promise<string[]> {
   try {
     const pkgPath = path.join(extensionDevelopmentPath, 'package.json');
     const raw = await readFile(pkgPath, 'utf8');
     const json = JSON.parse(raw) as { extensionDependencies?: unknown; extensionPack?: unknown };
-    const refs = [
-      ...(Array.isArray(json.extensionDependencies) ? json.extensionDependencies : []),
-      ...(Array.isArray(json.extensionPack) ? json.extensionPack : [])
-    ];
-    return Array.from(new Set(refs.map(String).map(s => s.trim()).filter(Boolean)));
+    return resolveSupportExtensionIds(
+      [
+        ...(Array.isArray(json.extensionDependencies) ? json.extensionDependencies : []),
+        ...(Array.isArray(json.extensionPack) ? json.extensionPack : [])
+      ],
+      extraExtensionIds
+    );
   } catch {
-    return [];
+    return resolveSupportExtensionIds([], extraExtensionIds);
   }
-}
-
-function expandPreferredSalesforceExtensions(extensionIds: string[]): string[] {
-  const normalized = extensionIds.map(id => String(id || '').trim()).filter(Boolean);
-  const touchesSalesforcePack = normalized.some(id => /^salesforce\.salesforcedx-vscode(?:-|$)/i.test(id));
-  if (!touchesSalesforcePack) {
-    return normalized;
-  }
-  return Array.from(new Set(['salesforce.salesforcedx-vscode', ...normalized]));
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -135,7 +135,7 @@ async function copyLocalExtensionWithDependencies(
 
   const destDir = path.join(extensionsDir, path.basename(sourceDir));
   await cp(sourceDir, destDir, { recursive: true, force: true });
-  console.log(`[e2e] Reused locally installed VS Code extension dependency: ${extensionId}`);
+  console.log(`[e2e] Reused locally installed VS Code support extension: ${extensionId}`);
 
   const nestedDeps = await readExtensionReferences(sourceDir);
   for (const dep of nestedDeps) {
@@ -192,7 +192,7 @@ function installExtensions(args: {
   extensionIds: string[];
 }): void {
   for (const id of args.extensionIds) {
-    console.log(`[e2e] Installing VS Code extension dependency: ${id}`);
+    console.log(`[e2e] Installing VS Code support extension: ${id}`);
     const res = spawnSync(
       args.cliPath,
       [
@@ -213,7 +213,7 @@ function installExtensions(args: {
       }
     );
     if (res.status !== 0) {
-      console.warn(`[e2e] Failed to install VS Code extension dependency: ${id}`);
+      console.warn(`[e2e] Failed to install VS Code support extension: ${id}`);
     }
   }
 }
@@ -223,8 +223,9 @@ async function ensureExtensionDependenciesInstalled(args: {
   extensionDevelopmentPath: string;
   userDataDir: string;
   extensionsDir: string;
+  extraExtensionIds?: string[];
 }): Promise<string> {
-  const deps = expandPreferredSalesforceExtensions(await readExtensionReferences(args.extensionDevelopmentPath));
+  const deps = await readExtensionReferences(args.extensionDevelopmentPath, args.extraExtensionIds ?? []);
   if (!deps.length) {
     return args.extensionsDir;
   }
@@ -307,7 +308,11 @@ async function isAuxiliaryBarOpen(page: Page): Promise<boolean> {
   }
 }
 
-export async function launchVsCode(options: { workspacePath: string; extensionDevelopmentPath: string }): Promise<VscodeLaunch> {
+export async function launchVsCode(options: {
+  workspacePath: string;
+  extensionDevelopmentPath: string;
+  extensionIds?: string[];
+}): Promise<VscodeLaunch> {
   const vscodeCachePath = process.env.VSCODE_TEST_CACHE_PATH
     ? path.resolve(process.env.VSCODE_TEST_CACHE_PATH)
     : path.join(options.extensionDevelopmentPath, '.vscode-test');
@@ -317,15 +322,16 @@ export async function launchVsCode(options: { workspacePath: string; extensionDe
   let extensionsDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-exts-'));
   let shouldCleanupExtensionsDir = true;
 
-  // The extension is loaded via --extensionDevelopmentPath, but VS Code still enforces
-  // `extensionDependencies` at activation time. Install those dependencies into the
-  // isolated extensions dir so contributed commands can activate the extension.
+  // The extension is loaded via --extensionDevelopmentPath. Some E2E scenarios still
+  // need support extensions in the isolated profile (for example Replay Debugger),
+  // so install manifest references plus scenario-specific ids.
   try {
     const resolvedExtensionsDir = await ensureExtensionDependenciesInstalled({
       vscodeExecutablePath,
       extensionDevelopmentPath: options.extensionDevelopmentPath,
       userDataDir,
-      extensionsDir
+      extensionsDir,
+      extraExtensionIds: options.extensionIds
     });
     if (resolvedExtensionsDir !== extensionsDir) {
       await rm(extensionsDir, { recursive: true, force: true });
@@ -370,6 +376,12 @@ export async function launchVsCode(options: { workspacePath: string; extensionDe
       const modifier = getModifierKey();
       await page.keyboard.press(`${modifier}+Alt+B`);
     }
+  } catch {
+    // best-effort
+  }
+
+  try {
+    await dismissAllNotifications(page);
   } catch {
     // best-effort
   }

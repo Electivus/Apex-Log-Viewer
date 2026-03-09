@@ -8,6 +8,7 @@ import {
   getOrgAuth,
   removeUserDebugTraceFlags
 } from '../utils/tooling';
+import { dismissAllNotifications } from '../utils/notifications';
 import { waitForWebviewFrame } from '../utils/webviews';
 
 test('creates, updates and deletes DebugLevel records from the manager UI', async ({ vscodePage, scratchAlias }) => {
@@ -33,6 +34,7 @@ test('creates, updates and deletes DebugLevel records from the manager UI', asyn
     );
     const openDebugFlags = logsFrame.locator('[data-testid="logs-open-debug-flags"]').first();
     await expect(openDebugFlags).toBeEnabled({ timeout: 180_000 });
+    await dismissAllNotifications(vscodePage);
     await openDebugFlags.click({ force: true });
 
     const debugFlagsFrame = await waitForWebviewFrame(
