@@ -1,5 +1,6 @@
 import { expect, test } from '../fixtures/alvE2E';
 import { runCommand, waitForCommandAvailable } from '../utils/commandPalette';
+import { dismissAllNotifications } from '../utils/notifications';
 import { ensureDebugFlagsTestUser, getOrgAuth } from '../utils/tooling';
 import { waitForWebviewFrame } from '../utils/webviews';
 
@@ -46,6 +47,7 @@ test('filters users correctly in debug flags panel from logs and tail entrypoint
   );
   const openDebugFlags = logsFrame.locator('[data-testid="logs-open-debug-flags"]').first();
   await expect(openDebugFlags).toBeEnabled({ timeout: 180_000 });
+  await dismissAllNotifications(vscodePage);
   await openDebugFlags.click();
 
   const debugFlagsFrame = await waitForWebviewFrame(
@@ -65,6 +67,7 @@ test('filters users correctly in debug flags panel from logs and tail entrypoint
     { timeoutMs: 180_000 }
   );
   await expect(tailFrame.locator('[data-testid="tail-open-debug-flags"]').first()).toBeEnabled({ timeout: 180_000 });
+  await dismissAllNotifications(vscodePage);
   await tailFrame.locator('[data-testid="tail-open-debug-flags"]').first().click();
 
   const debugFlagsFrameFromTail = await waitForWebviewFrame(

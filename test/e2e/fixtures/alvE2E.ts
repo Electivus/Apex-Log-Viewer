@@ -20,7 +20,13 @@ type Fixtures = {
   vscodePage: Page;
 };
 
-export const test = base.extend<Fixtures>({
+type Options = {
+  supportExtensionIds: string[];
+};
+
+export const test = base.extend<Fixtures & Options>({
+  supportExtensionIds: [[], { option: true }],
+
   scratchAlias: [
     async ({}, use) => {
       const scratch = await ensureScratchOrg();
@@ -48,9 +54,13 @@ export const test = base.extend<Fixtures>({
     }
   },
 
-  vscodeApp: async ({ workspacePath }, use) => {
+  vscodeApp: async ({ workspacePath, supportExtensionIds }, use) => {
     const extensionDevelopmentPath = path.join(__dirname, '..', '..', '..');
-    const launch = await launchVsCode({ workspacePath, extensionDevelopmentPath });
+    const launch = await launchVsCode({
+      workspacePath,
+      extensionDevelopmentPath,
+      extensionIds: supportExtensionIds
+    });
     try {
       await use(launch.app);
     } finally {

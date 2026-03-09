@@ -8,10 +8,16 @@
 
 ### Bug Fixes
 
+- Replay: remove the Apex Replay Debugger as a hard startup dependency so the extension activates without waiting on Replay Debugger and still loads replay support lazily on demand.
+
 ### Chores
+
+- Testing: keep Playwright E2E support extensions minimal per scenario instead of installing the full Salesforce Extension Pack by default, which avoids intrusive Agentforce Vibes UI noise in the test host.
 
 ### Tests
 
+- Activation/replay: add manifest coverage for the lazy Replay Debugger startup contract and keep replay-specific environments installing support extensions explicitly.
+- E2E: add launcher coverage for per-scenario support extensions and dismiss visible VS Code notifications before sensitive debug-flags/replay interactions.
 - Activation: add unit coverage for multi-root Salesforce project detection and for gating `sourceApiVersion`/CLI preload work behind Salesforce-project-aware activation.
 
 ## [0.30.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.28.0...v0.30.0) (2026-03-08)

@@ -20,7 +20,7 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 
 - VS Code is downloaded via `@vscode/test-electron` and launched with `--extensionDevelopmentPath` and `--extensionTestsPath` (the compiled runner).
 - A temporary workspace is created with a minimal `sfdx-project.json` (including `sourceApiVersion`) and opened during tests.
-- On integration runs, the Salesforce Extension Pack (`salesforce.salesforcedx-vscode`) is installed via the VS Code CLI by default so tests mirror a typical Salesforce developer environment. The runner also installs the standalone Apex Replay Debugger explicitly to satisfy this extension's narrowed runtime dependency when the pack alone is not enough in the isolated host. You can still override this with `VSCODE_TEST_EXTENSIONS` if you want a different setup.
+- Playwright E2E runs keep the isolated VS Code profile intentionally minimal. Support extensions are installed per scenario instead of pulling the full Salesforce Extension Pack by default. Replay-specific specs opt into `salesforce.salesforcedx-vscode-apex-replay-debugger`, and the harness dismisses visible VS Code notifications during startup to reduce click interception flakiness.
 - On headless Linux, the script re‑executes under `xvfb-run` if available and sets Electron flags to reduce GPU/DBus issues.
 
 ## Environment variables
