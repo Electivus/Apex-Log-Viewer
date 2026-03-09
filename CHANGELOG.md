@@ -4,15 +4,26 @@
 
 ### Features
 
-- Activation: auto-activate when the open workspace contains `sfdx-project.json`, while keeping standalone Apex log files and explicit Apex Logs commands working on demand.
-
 ### Bug Fixes
 
 ### Chores
 
 ### Tests
 
-- Activation: add unit coverage for multi-root Salesforce project detection and for gating `sourceApiVersion`/CLI preload work behind Salesforce-project-aware activation.
+## [0.32.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.30.0...v0.32.0) (2026-03-09)
+
+### Features
+
+- Activation: auto-activate when the open workspace contains `sfdx-project.json`, while keeping standalone Apex log files and explicit Apex Logs commands working on demand. ([#575](https://github.com/Electivus/Apex-Log-Viewer/pull/575))
+
+### Bug Fixes
+
+- Activation: continue scanning multi-root workspaces after project read errors and ignore unusable Salesforce project roots before CLI/API preload work starts. ([#575](https://github.com/Electivus/Apex-Log-Viewer/pull/575))
+
+### Tests
+
+- Activation: add unit coverage for multi-root Salesforce project detection and for gating `sourceApiVersion`/CLI preload work behind Salesforce-project-aware activation. ([#575](https://github.com/Electivus/Apex-Log-Viewer/pull/575))
+- Telemetry: add unit coverage for production-only reporter activation, connection-string precedence, and send-failure handling. ([#574](https://github.com/Electivus/Apex-Log-Viewer/pull/574))
 
 ## [0.30.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.28.0...v0.30.0) (2026-03-08)
 
