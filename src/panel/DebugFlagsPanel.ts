@@ -209,10 +209,7 @@ export class DebugFlagsPanel {
       getActiveUserDebugLevel(auth).catch(() => undefined as string | undefined)
     ]);
 
-    if (
-      this.disposed ||
-      (typeof bootstrapToken === 'number' && bootstrapToken !== this.orgBootstrapToken)
-    ) {
+    if (this.disposed || (typeof bootstrapToken === 'number' && bootstrapToken !== this.orgBootstrapToken)) {
       return;
     }
 
@@ -226,10 +223,7 @@ export class DebugFlagsPanel {
       active
     });
 
-    const preferredId =
-      selectedId && details.some(record => record.id === selectedId)
-        ? selectedId
-        : details[0]?.id;
+    const preferredId = selectedId && details.some(record => record.id === selectedId) ? selectedId : details[0]?.id;
 
     this.post({
       type: 'debugFlagsManagerData',
@@ -303,7 +297,11 @@ export class DebugFlagsPanel {
       logWarn('DebugFlagsPanel: failed loading target status ->', msg);
       this.post({
         type: 'debugFlagsError',
-        message: localize('debugFlags.loadStatusFailed', 'Failed to load debug flag status for the selected target: {0}', msg)
+        message: localize(
+          'debugFlags.loadStatusFailed',
+          'Failed to load debug flag status for the selected target: {0}',
+          msg
+        )
       });
     } finally {
       if (token === this.statusToken && !this.disposed) {
@@ -326,12 +324,21 @@ export class DebugFlagsPanel {
         ttlMinutes
       });
       await this.loadSelectedTargetStatus(target);
+      const isAggregatedTarget = target.type !== 'user' && result.resolvedTargetCount > 1;
       this.post({
         type: 'debugFlagsNotice',
         tone: 'success',
-        message: result.created
-          ? localize('debugFlags.applyCreated', 'Debug flag created successfully.')
-          : localize('debugFlags.applyUpdated', 'Debug flag updated successfully.')
+        message: isAggregatedTarget
+          ? localize(
+              'debugFlags.applySummary',
+              'Applied debug flags to {0} matched targets ({1} created, {2} updated).',
+              result.resolvedTargetCount,
+              result.createdCount,
+              result.updatedCount
+            )
+          : result.created
+            ? localize('debugFlags.applyCreated', 'Debug flag created successfully.')
+            : localize('debugFlags.applyUpdated', 'Debug flag updated successfully.')
       });
       safeSendEvent(
         'debugFlags.apply',
@@ -476,13 +483,26 @@ export class DebugFlagsPanel {
     this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
     try {
       const auth = await this.getSelectedAuth();
-      const removed = await removeTraceFlags(auth, target);
+      const result = await removeTraceFlags(auth, target);
       await this.loadSelectedTargetStatus(target);
+      const isAggregatedTarget = target.type !== 'user' && result.resolvedTargetCount > 1;
       this.post({
         type: 'debugFlagsNotice',
-        tone: removed > 0 ? 'success' : 'info',
-        message:
-          removed > 0
+        tone: result.removedCount > 0 ? 'success' : 'info',
+        message: isAggregatedTarget
+          ? result.removedCount > 0
+            ? localize(
+                'debugFlags.removeSummary',
+                'Removed {0} USER_DEBUG trace flag records across {1} matched targets.',
+                result.removedCount,
+                result.resolvedTargetCount
+              )
+            : localize(
+                'debugFlags.removeNoneSummary',
+                'No USER_DEBUG trace flags were found across {0} matched targets.',
+                result.resolvedTargetCount
+              )
+          : result.removedCount > 0
             ? localize('debugFlags.removeSuccess', 'Debug flag removed successfully.')
             : localize('debugFlags.removeNone', 'No active USER_DEBUG trace flag was found for this target.')
       });
@@ -493,7 +513,7 @@ export class DebugFlagsPanel {
           sourceView: this.lastSourceView,
           targetType: target.type
         },
-        { durationMs: Date.now() - t0, removedCount: removed }
+        { durationMs: Date.now() - t0, removedCount: result.removedCount }
       );
     } catch (e) {
       const msg = getErrorMessage(e);

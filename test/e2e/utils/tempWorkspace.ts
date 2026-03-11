@@ -1,6 +1,7 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { removePathBestEffort } from './fsCleanup';
 
 export type TempWorkspace = {
   workspacePath: string;
@@ -59,7 +60,7 @@ export async function createTempWorkspace(options: {
   return {
     workspacePath,
     cleanup: async () => {
-      await rm(workspacePath, { recursive: true, force: true });
+      await removePathBestEffort(workspacePath);
     }
   };
 }

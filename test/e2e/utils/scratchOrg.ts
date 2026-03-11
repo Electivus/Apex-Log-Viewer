@@ -10,6 +10,13 @@ type ScratchOrgResult = {
   cleanup: () => Promise<void>;
 };
 
+const LOCAL_DEV_HUB_FALLBACK_ALIASES = [
+  'DevHub',
+  'ElectivusDevHub',
+  'DevHubElectivus',
+  'InsuranceOrgTrialCreme6DevHub'
+] as const;
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -21,15 +28,68 @@ function envFlag(name: string): boolean {
   return value === '1' || value === 'true';
 }
 
-async function tryOrgDisplay(alias: string): Promise<boolean> {
+type OrgDisplaySummary = {
+  status?: string;
+  expirationDate?: string;
+};
+
+async function getOrgDisplay(alias: string): Promise<OrgDisplaySummary | undefined> {
   try {
-    await runSfJson(['org', 'display', '-o', alias]);
-    return true;
+    const result = await runSfJson(['org', 'display', '-o', alias]);
+    const org = result?.result ?? {};
+    return {
+      status: typeof org.status === 'string' ? org.status.trim() : undefined,
+      expirationDate: typeof org.expirationDate === 'string' ? org.expirationDate.trim() : undefined
+    };
   } catch (error) {
     console.warn(
       `[e2e] sf org display failed for alias '${alias}': ${error instanceof Error ? error.message : String(error)}`
     );
+    return undefined;
+  }
+}
+
+async function tryOrgDisplay(alias: string): Promise<boolean> {
+  return Boolean(await getOrgDisplay(alias));
+}
+
+function isReusableScratchOrg(display: OrgDisplaySummary | undefined, nowMs = Date.now()): boolean {
+  if (!display) {
     return false;
+  }
+
+  const normalizedStatus = String(display.status || '')
+    .trim()
+    .toLowerCase();
+  if (normalizedStatus === 'deleted' || normalizedStatus === 'expired') {
+    return false;
+  }
+
+  if (display.expirationDate) {
+    const expiresAt = Date.parse(display.expirationDate);
+    if (Number.isFinite(expiresAt) && expiresAt < nowMs) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function clearStaleScratchOrg(alias: string): Promise<void> {
+  try {
+    await runSfJson(['org', 'logout', '--target-org', alias, '--no-prompt']);
+  } catch (error) {
+    console.warn(
+      `[e2e] sf org logout failed for stale alias '${alias}': ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  try {
+    await runSfJson(['alias', 'unset', alias]);
+  } catch (error) {
+    console.warn(
+      `[e2e] sf alias unset failed for stale alias '${alias}': ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 
@@ -43,13 +103,92 @@ async function resolveDefaultDevHubAlias(): Promise<string> {
 
   // Local convenience: prefer the current team DevHub alias when available.
   // Keep legacy aliases as fallbacks for older local setups.
-  const preferredAliases = ['ElectivusDevHub', 'DevHubElectivus', 'InsuranceOrgTrialCreme6DevHub'];
-  for (const alias of preferredAliases) {
+  for (const alias of LOCAL_DEV_HUB_FALLBACK_ALIASES) {
     if (await tryOrgDisplay(alias)) {
       return alias;
     }
   }
   return 'DevHub';
+}
+
+async function getFallbackDevHubAliases(primaryAlias: string): Promise<string[]> {
+  const normalizedPrimary = String(primaryAlias || '').trim().toLowerCase();
+  const candidates = Array.from(
+    new Set(
+      LOCAL_DEV_HUB_FALLBACK_ALIASES.map(alias => String(alias || '').trim()).filter(Boolean).filter(
+        alias => alias.toLowerCase() !== normalizedPrimary
+      )
+    )
+  );
+
+  const available: string[] = [];
+  for (const alias of candidates) {
+    if (await tryOrgDisplay(alias)) {
+      available.push(alias);
+    }
+  }
+  return available;
+}
+
+function shouldKeepScratchOrg(): boolean {
+  if (process.env.SF_TEST_KEEP_ORG !== undefined) {
+    return envFlag('SF_TEST_KEEP_ORG');
+  }
+  return !envFlag('CI');
+}
+
+function isScratchOrgSignupLimitError(error: unknown): boolean {
+  const message = String(error instanceof Error ? error.message : error || '').toLowerCase();
+  return message.includes('limit_exceeded') && message.includes('scratch org signup limit');
+}
+
+async function createScratchOrgWithFallback(options: {
+  devHubAlias: string;
+  scratchAlias: string;
+  definitionFile: string;
+  durationDays: number;
+  cwd: string;
+}): Promise<string> {
+  const fallbackAliases = await getFallbackDevHubAliases(options.devHubAlias);
+  const candidates = [options.devHubAlias, ...fallbackAliases];
+  let lastError: unknown;
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index]!;
+    try {
+      await runSfJson(
+        [
+          'org',
+          'create',
+          'scratch',
+          '--target-dev-hub',
+          candidate,
+          '--alias',
+          options.scratchAlias,
+          '--definition-file',
+          options.definitionFile,
+          '--duration-days',
+          String(options.durationDays),
+          '--wait',
+          '15'
+        ],
+        { cwd: options.cwd }
+      );
+      return candidate;
+    } catch (error) {
+      lastError = error;
+      const hasNextCandidate = index + 1 < candidates.length;
+      if (!hasNextCandidate || !isScratchOrgSignupLimitError(error)) {
+        throw error;
+      }
+      const nextCandidate = candidates[index + 1]!;
+      console.warn(
+        `[e2e] scratch org signup limit reached for Dev Hub '${candidate}'; trying fallback '${nextCandidate}'.`
+      );
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError || 'Unknown scratch org creation failure'));
 }
 
 async function ensureDevHubAuth(devHubAlias: string): Promise<void> {
@@ -109,14 +248,14 @@ async function waitForScratchOrgReady(targetOrg: string): Promise<void> {
 }
 
 export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
-  const devHubAlias = await resolveDefaultDevHubAlias();
+  let devHubAlias = await resolveDefaultDevHubAlias();
   const scratchAlias = String(process.env.SF_SCRATCH_ALIAS || 'ALV_E2E_Scratch').trim();
   const durationDays = Number(process.env.SF_SCRATCH_DURATION || 1) || 1;
-  const keep = envFlag('SF_TEST_KEEP_ORG');
+  const keep = shouldKeepScratchOrg();
 
   // Reuse existing scratch org when possible to make local runs faster.
-  const alreadyExists = await tryOrgDisplay(scratchAlias);
-  if (alreadyExists) {
+  const existingScratch = await getOrgDisplay(scratchAlias);
+  if (isReusableScratchOrg(existingScratch)) {
     await waitForScratchOrgReady(scratchAlias);
     return {
       devHubAlias,
@@ -124,6 +263,12 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
       created: false,
       cleanup: async () => {}
     };
+  }
+  if (existingScratch) {
+    console.warn(
+      `[e2e] scratch alias '${scratchAlias}' points to a stale org (status='${existingScratch.status || 'unknown'}', expiration='${existingScratch.expirationDate || 'unknown'}'); recreating.`
+    );
+    await clearStaleScratchOrg(scratchAlias);
   }
 
   await ensureDevHubAuth(devHubAlias);
@@ -178,24 +323,13 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
   );
 
   try {
-    await runSfJson(
-      [
-        'org',
-        'create',
-        'scratch',
-        '--target-dev-hub',
-        devHubAlias,
-        '--alias',
-        scratchAlias,
-        '--definition-file',
-        defFile,
-        '--duration-days',
-        String(durationDays),
-        '--wait',
-        '15'
-      ],
-      { cwd: tmp }
-    );
+    devHubAlias = await createScratchOrgWithFallback({
+      devHubAlias,
+      scratchAlias,
+      definitionFile: defFile,
+      durationDays,
+      cwd: tmp
+    });
   } catch (_e) {
     await cleanup();
     const msg = _e instanceof Error ? _e.message : String(_e);

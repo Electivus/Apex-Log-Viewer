@@ -20,12 +20,29 @@ export interface TraceFlagTargetStatus {
   startDate?: string;
   expirationDate?: string;
   isActive: boolean;
+  resolvedTargetCount?: number;
+  activeTargetCount?: number;
+  debugLevelMixed?: boolean;
 }
 
 export interface ApplyTraceFlagTargetInput {
   target: TraceFlagTarget;
   debugLevelName: string;
   ttlMinutes: number;
+}
+
+export interface ApplyTraceFlagTargetResult {
+  created: boolean;
+  traceFlagId?: string;
+  traceFlagIds: string[];
+  createdCount: number;
+  updatedCount: number;
+  resolvedTargetCount: number;
+}
+
+export interface RemoveTraceFlagsResult {
+  removedCount: number;
+  resolvedTargetCount: number;
 }
 
 export function getTraceFlagTargetKey(target: TraceFlagTarget | undefined): string {

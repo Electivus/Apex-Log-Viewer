@@ -1,9 +1,10 @@
-import { mkdtemp, rm, readFile, cp, access, readdir } from 'node:fs/promises';
+import { mkdtemp, readFile, cp, access, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from '@vscode/test-electron';
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright';
+import { removePathBestEffort } from './fsCleanup';
 import { dismissAllNotifications } from './notifications';
 
 export type VscodeLaunch = {
@@ -334,7 +335,7 @@ export async function launchVsCode(options: {
       extraExtensionIds: options.extensionIds
     });
     if (resolvedExtensionsDir !== extensionsDir) {
-      await rm(extensionsDir, { recursive: true, force: true });
+      await removePathBestEffort(extensionsDir);
       extensionsDir = resolvedExtensionsDir;
       shouldCleanupExtensionsDir = false;
     }
@@ -390,9 +391,9 @@ export async function launchVsCode(options: {
     try {
       await app.close();
     } catch {}
-    await rm(userDataDir, { recursive: true, force: true });
+    await removePathBestEffort(userDataDir);
     if (shouldCleanupExtensionsDir) {
-      await rm(extensionsDir, { recursive: true, force: true });
+      await removePathBestEffort(extensionsDir);
     }
   };
 

@@ -144,9 +144,7 @@ describe('DebugFlags webview App', () => {
     fireEvent.click(screen.getByTestId('debug-level-delete-confirm'));
     await waitFor(() => {
       expect(
-        posted.some(
-          msg => msg.type === 'debugFlagsManagerDelete' && msg.debugLevelId === '7dl000000000001AAA'
-        )
+        posted.some(msg => msg.type === 'debugFlagsManagerDelete' && msg.debugLevelId === '7dl000000000001AAA')
       ).toBe(true);
     });
 
@@ -204,15 +202,13 @@ describe('DebugFlags webview App', () => {
       expect(
         posted.some(
           msg =>
-            msg.type === 'debugFlagsRemove' &&
-            msg.target.type === 'user' &&
-            msg.target.userId === '005000000000001AAA'
+            msg.type === 'debugFlagsRemove' && msg.target.type === 'user' && msg.target.userId === '005000000000001AAA'
         )
       ).toBe(true);
     });
   });
 
-  it('supports special targets and disables actions when a special target is unavailable', async () => {
+  it('supports aggregated special-target status and disables actions when a special target is unavailable', async () => {
     const { vscode, posted } = createVsCodeMock();
     const bus = new EventTarget();
     render(<DebugFlagsApp vscode={vscode} messageBus={bus} />);
@@ -227,11 +223,9 @@ describe('DebugFlags webview App', () => {
 
     fireEvent.click(screen.getByTestId('debug-flags-special-target-automated-process'));
     await waitFor(() => {
-      expect(
-        posted.some(
-          msg => msg.type === 'debugFlagsSelectTarget' && msg.target.type === 'automatedProcess'
-        )
-      ).toBe(true);
+      expect(posted.some(msg => msg.type === 'debugFlagsSelectTarget' && msg.target.type === 'automatedProcess')).toBe(
+        true
+      );
     });
 
     sendMessage(bus, {
@@ -253,9 +247,7 @@ describe('DebugFlags webview App', () => {
     fireEvent.click(screen.getByTestId('debug-flags-special-target-platform-integration'));
     await waitFor(() => {
       expect(
-        posted.some(
-          msg => msg.type === 'debugFlagsSelectTarget' && msg.target.type === 'platformIntegration'
-        )
+        posted.some(msg => msg.type === 'debugFlagsSelectTarget' && msg.target.type === 'platformIntegration')
       ).toBe(true);
     });
 
@@ -266,9 +258,17 @@ describe('DebugFlags webview App', () => {
         target: { type: 'platformIntegration' },
         targetLabel: 'Platform Integration',
         targetAvailable: true,
-        isActive: false
+        resolvedTargetCount: 2,
+        activeTargetCount: 1,
+        debugLevelMixed: true,
+        isActive: true
       }
     });
+
+    await screen.findByTestId('debug-flags-status-resolved-count');
+    expect(screen.getByTestId('debug-flags-status-resolved-count')).toHaveTextContent('2');
+    expect(screen.getByTestId('debug-flags-status-active-count')).toHaveTextContent('1/2');
+    expect(screen.getByTestId('debug-flags-status-level')).toHaveTextContent('Mixed');
 
     fireEvent.click(screen.getByTestId('debug-flags-apply'));
     await waitFor(() => {
@@ -285,11 +285,9 @@ describe('DebugFlags webview App', () => {
 
     fireEvent.click(screen.getByTestId('debug-flags-remove'));
     await waitFor(() => {
-      expect(
-        posted.some(
-          msg => msg.type === 'debugFlagsRemove' && msg.target.type === 'platformIntegration'
-        )
-      ).toBe(true);
+      expect(posted.some(msg => msg.type === 'debugFlagsRemove' && msg.target.type === 'platformIntegration')).toBe(
+        true
+      );
     });
   });
 

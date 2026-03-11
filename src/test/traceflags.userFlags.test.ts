@@ -30,9 +30,7 @@ type StubRequest = {
   body: string;
 };
 
-function installHttpsStub(
-  responder: (req: StubRequest) => { statusCode: number; body?: unknown }
-): StubRequest[] {
+function installHttpsStub(responder: (req: StubRequest) => { statusCode: number; body?: unknown }): StubRequest[] {
   const calls: StubRequest[] = [];
   __setHttpsRequestImplForTests((options: any, cb: any) => {
     const req = new EventEmitter() as any;
@@ -256,26 +254,42 @@ suite('traceflags user management', () => {
     assert.equal(status?.isActive, true);
   });
 
-  test('getTraceFlagTargetStatus resolves Automated Process with the expected system user type and reads USER_DEBUG status', async () => {
+  test('getTraceFlagTargetStatus resolves Automated Process across all active matches and aggregates USER_DEBUG status', async () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
         if (
           soql.includes("FROM User WHERE Name IN ('Automated Process')") &&
-          soql.includes("UserType = 'AutomatedProcess'")
+          soql.includes("UserType = 'AutomatedProcess'") &&
+          soql.includes('IsActive = true')
         ) {
           return {
             statusCode: 200,
-            body: { records: [{ Id: '005000000000003AAA' }] }
+            body: { records: [{ Id: '005000000000003AAA' }, { Id: '005000000000004AAA' }] }
           };
         }
-        if (soql.includes('FROM TraceFlag')) {
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000003AAA'")) {
           return {
             statusCode: 200,
             body: {
               records: [
                 {
                   Id: '7tf000000000003AAA',
+                  StartDate: '2026-02-19T16:00:00.000Z',
+                  ExpirationDate: '2099-02-19T18:00:00.000Z',
+                  DebugLevel: { DeveloperName: 'ALV_AUTOPROC' }
+                }
+              ]
+            }
+          };
+        }
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000004AAA'")) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [
+                {
+                  Id: '7tf000000000004AAA',
                   StartDate: '2026-02-19T16:00:00.000Z',
                   ExpirationDate: '2099-02-19T18:00:00.000Z',
                   DebugLevel: { DeveloperName: 'ALV_AUTOPROC' }
@@ -292,13 +306,20 @@ suite('traceflags user management', () => {
     assert.equal(status.target.type, 'automatedProcess');
     assert.equal(status.targetLabel, 'Automated Process');
     assert.equal(status.targetAvailable, true);
-    assert.equal(status.traceFlagId, '7tf000000000003AAA');
+    assert.equal(status.traceFlagId, undefined);
     assert.equal(status.debugLevelName, 'ALV_AUTOPROC');
+    assert.equal(status.resolvedTargetCount, 2);
+    assert.equal(status.activeTargetCount, 2);
+    assert.equal(status.debugLevelMixed, false);
     assert.equal(status.isActive, true);
     assert.ok(
       calls.some(call => {
         const soql = decodeSoql(call.path);
-        return soql.includes("FROM User WHERE Name IN ('Automated Process')") && soql.includes("UserType = 'AutomatedProcess'");
+        return (
+          soql.includes("FROM User WHERE Name IN ('Automated Process')") &&
+          soql.includes("UserType = 'AutomatedProcess'") &&
+          soql.includes('IsActive = true')
+        );
       }),
       'expected Automated Process user resolution query with system user type'
     );
@@ -310,7 +331,8 @@ suite('traceflags user management', () => {
         const soql = decodeSoql(req.path);
         if (
           soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
-          soql.includes("UserType = 'CloudIntegrationUser'")
+          soql.includes("UserType = 'CloudIntegrationUser'") &&
+          soql.includes('IsActive = true')
         ) {
           return {
             statusCode: 200,
@@ -331,32 +353,86 @@ suite('traceflags user management', () => {
     assert.equal(status.target.type, 'platformIntegration');
     assert.equal(status.targetAvailable, true);
     assert.equal(status.traceFlagId, undefined);
+    assert.equal(status.resolvedTargetCount, 1);
+    assert.equal(status.activeTargetCount, 0);
     assert.equal(status.isActive, false);
     assert.ok(
       calls.some(call => {
         const soql = decodeSoql(call.path);
-        return soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") && soql.includes("UserType = 'CloudIntegrationUser'");
+        return (
+          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
+          soql.includes("UserType = 'CloudIntegrationUser'") &&
+          soql.includes('IsActive = true')
+        );
       }),
       'expected Platform Integration lookup across accepted names with cloud integration user type'
     );
   });
 
-  test('getTraceFlagTargetStatus treats ambiguous special-target matches as unavailable', async () => {
+  test('getTraceFlagTargetStatus reports mixed special-target status when resolved users differ', async () => {
     installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
         if (
           soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
-          soql.includes("UserType = 'CloudIntegrationUser'")
+          soql.includes("UserType = 'CloudIntegrationUser'") &&
+          soql.includes('IsActive = true')
         ) {
           return {
             statusCode: 200,
             body: {
+              records: [{ Id: '005000000000003AAA' }, { Id: '005000000000004AAA' }]
+            }
+          };
+        }
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000003AAA'")) {
+          return {
+            statusCode: 200,
+            body: {
               records: [
-                { Id: '005000000000003AAA' },
-                { Id: '005000000000004AAA' }
+                {
+                  Id: '7tf000000000003AAA',
+                  StartDate: '2026-02-19T16:00:00.000Z',
+                  ExpirationDate: '2099-02-19T18:00:00.000Z',
+                  DebugLevel: { DeveloperName: 'ALV_PLATFORM_A' }
+                }
               ]
             }
+          };
+        }
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000004AAA'")) {
+          return {
+            statusCode: 200,
+            body: { records: [] }
+          };
+        }
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const status = await getTraceFlagTargetStatus(auth, { type: 'platformIntegration' });
+    assert.equal(status.target.type, 'platformIntegration');
+    assert.equal(status.targetAvailable, true);
+    assert.equal(status.traceFlagId, undefined);
+    assert.equal(status.resolvedTargetCount, 2);
+    assert.equal(status.activeTargetCount, 1);
+    assert.equal(status.debugLevelMixed, true);
+    assert.equal(status.debugLevelName, undefined);
+    assert.equal(status.isActive, true);
+  });
+
+  test('getTraceFlagTargetStatus marks special target unavailable when no active users match', async () => {
+    installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/query?q=')) {
+        const soql = decodeSoql(req.path);
+        if (
+          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
+          soql.includes("UserType = 'CloudIntegrationUser'") &&
+          soql.includes('IsActive = true')
+        ) {
+          return {
+            statusCode: 200,
+            body: { records: [] }
           };
         }
       }
@@ -367,6 +443,8 @@ suite('traceflags user management', () => {
     assert.equal(status.target.type, 'platformIntegration');
     assert.equal(status.targetAvailable, false);
     assert.equal(status.traceFlagId, undefined);
+    assert.equal(status.resolvedTargetCount, 0);
+    assert.equal(status.activeTargetCount, 0);
     assert.equal(status.isActive, false);
   });
 
@@ -468,7 +546,10 @@ suite('traceflags user management', () => {
     const records = await listDebugLevelDetails(legacyAuth);
 
     assert.equal(records.length, 1);
-    assert.ok(calls.some(call => call.path === '/services/data'), 'expected org API discovery request');
+    assert.ok(
+      calls.some(call => call.path === '/services/data'),
+      'expected org API discovery request'
+    );
     assert.ok(
       calls.some(call => call.path.includes('/services/data/v66.0/tooling/query')),
       'expected DebugLevel query to use upgraded API version'
@@ -530,7 +611,10 @@ suite('traceflags user management', () => {
     assert.match(createCommandText, /DeveloperName=ALV_CUSTOM/);
     assert.match(createCommandText, /MasterLabel='ALV Custom'/);
     assert.match(createCommandText, /DataAccess=INFO/);
-    assert.ok(httpCalls.some(call => call.path === '/services/data'), 'expected org API discovery before CLI create');
+    assert.ok(
+      httpCalls.some(call => call.path === '/services/data'),
+      'expected org API discovery before CLI create'
+    );
   });
 
   test('updateDebugLevel uses sf CLI with the full editable DebugLevel payload', async () => {
@@ -606,7 +690,10 @@ suite('traceflags user management', () => {
     assert.match(deleteCommandText, /--record-id/);
     assert.match(deleteCommandText, /7dl000000000001AAA/);
     assert.match(deleteCommandText, /--api-version 66\.0/);
-    assert.ok(httpCalls.some(call => call.path === '/services/data'), 'expected org API discovery before CLI delete');
+    assert.ok(
+      httpCalls.some(call => call.path === '/services/data'),
+      'expected org API discovery before CLI delete'
+    );
   });
 
   test('upsertUserTraceFlag updates existing USER_DEBUG flag', async () => {
@@ -669,31 +756,40 @@ suite('traceflags user management', () => {
     assert.equal(result.traceFlagId, '7tf000000000999AAA');
   });
 
-  test('upsertTraceFlag creates USER_DEBUG flag for Automated Process target', async () => {
-    installHttpsStub(req => {
+  test('upsertTraceFlag applies USER_DEBUG flags across all resolved Automated Process targets', async () => {
+    const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
         if (
           soql.includes("FROM User WHERE Name IN ('Automated Process')") &&
-          soql.includes("UserType = 'AutomatedProcess'")
+          soql.includes("UserType = 'AutomatedProcess'") &&
+          soql.includes('IsActive = true')
         ) {
           return {
             statusCode: 200,
-            body: { records: [{ Id: '005000000000003AAA' }] }
+            body: { records: [{ Id: '005000000000003AAA' }, { Id: '005000000000004AAA' }] }
           };
         }
         if (soql.includes('FROM DebugLevel')) {
           return { statusCode: 200, body: { records: [{ Id: '7dl000000000001AAA' }] } };
         }
-        if (soql.includes('FROM TraceFlag')) {
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000003AAA'")) {
+          return { statusCode: 200, body: { records: [{ Id: '7tf000000000003AAA' }] } };
+        }
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000004AAA'")) {
           return { statusCode: 200, body: { records: [] } };
         }
       }
+      if (req.method === 'PATCH' && req.path.includes('/tooling/sobjects/TraceFlag/7tf000000000003AAA')) {
+        const parsed = JSON.parse(req.body);
+        assert.equal(parsed.DebugLevelId, '7dl000000000001AAA');
+        return { statusCode: 204 };
+      }
       if (req.method === 'POST' && req.path.endsWith('/tooling/sobjects/TraceFlag')) {
         const parsed = JSON.parse(req.body);
-        assert.equal(parsed.TracedEntityId, '005000000000003AAA');
+        assert.equal(parsed.TracedEntityId, '005000000000004AAA');
         assert.equal(parsed.LogType, 'USER_DEBUG');
-        return { statusCode: 201, body: { success: true, id: '7tf000000000003AAA' } };
+        return { statusCode: 201, body: { success: true, id: '7tf000000000004AAA' } };
       }
       throw new Error(`Unexpected request: ${req.method} ${req.path}`);
     });
@@ -703,8 +799,14 @@ suite('traceflags user management', () => {
       debugLevelName: 'ALV_E2E',
       ttlMinutes: 30
     });
-    assert.equal(result.created, true);
-    assert.equal(result.traceFlagId, '7tf000000000003AAA');
+    assert.equal(result.created, false);
+    assert.equal(result.traceFlagId, undefined);
+    assert.deepEqual(result.traceFlagIds, ['7tf000000000003AAA', '7tf000000000004AAA']);
+    assert.equal(result.createdCount, 1);
+    assert.equal(result.updatedCount, 1);
+    assert.equal(result.resolvedTargetCount, 2);
+    assert.equal(calls.filter(call => call.method === 'PATCH').length, 1);
+    assert.equal(calls.filter(call => call.method === 'POST').length, 1);
   });
 
   test('removeUserTraceFlags deletes all USER_DEBUG flags for user', async () => {
@@ -724,6 +826,44 @@ suite('traceflags user management', () => {
     const removed = await removeUserTraceFlags(auth, '005000000000001AAA');
     assert.equal(removed, 2);
     assert.equal(calls.filter(call => call.method === 'DELETE').length, 2);
+  });
+
+  test('removeTraceFlags deletes USER_DEBUG flags across all resolved Platform Integration targets', async () => {
+    const calls = installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/query?q=')) {
+        const soql = decodeSoql(req.path);
+        if (
+          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
+          soql.includes("UserType = 'CloudIntegrationUser'") &&
+          soql.includes('IsActive = true')
+        ) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [{ Id: '005000000000003AAA' }, { Id: '005000000000004AAA' }]
+            }
+          };
+        }
+      }
+      if (req.method === 'GET' && req.path.includes('/tooling/query')) {
+        const soql = decodeSoql(req.path);
+        if (soql.includes("TracedEntityId = '005000000000003AAA'")) {
+          return { statusCode: 200, body: { records: [{ Id: '7tf000000000101AAA' }, { Id: '7tf000000000102AAA' }] } };
+        }
+        if (soql.includes("TracedEntityId = '005000000000004AAA'")) {
+          return { statusCode: 200, body: { records: [{ Id: '7tf000000000201AAA' }] } };
+        }
+      }
+      if (req.method === 'DELETE' && req.path.includes('/tooling/sobjects/TraceFlag/')) {
+        return { statusCode: 204 };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const result = await removeTraceFlags(auth, { type: 'platformIntegration' });
+    assert.equal(result.removedCount, 3);
+    assert.equal(result.resolvedTargetCount, 2);
+    assert.equal(calls.filter(call => call.method === 'DELETE').length, 3);
   });
 
   test('removeTraceFlags surfaces a friendly error when Platform Integration is unavailable', async () => {
