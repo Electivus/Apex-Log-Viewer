@@ -2,7 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DEBUG_LEVEL_FIELDS, DEBUG_LEVEL_LOG_LEVELS, createEmptyDebugLevelRecord } from '../shared/debugLevelPresets';
 import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '../shared/debugFlagsMessages';
-import type { DebugFlagUser, DebugLevelPreset, DebugLevelRecord, UserTraceFlagStatus } from '../shared/debugFlagsTypes';
+import {
+  getTraceFlagTargetKey,
+  type DebugFlagUser,
+  type DebugLevelPreset,
+  type DebugLevelRecord,
+  type TraceFlagTarget,
+  type TraceFlagTargetStatus
+} from '../shared/debugFlagsTypes';
 import type { OrgItem } from '../shared/types';
 import type { MessageBus, VsCodeWebviewApi } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
@@ -75,8 +82,8 @@ export function DebugFlagsApp({
   const [selectedOrg, setSelectedOrg] = useState<string | undefined>(undefined);
   const [query, setQuery] = useState('');
   const [users, setUsers] = useState<DebugFlagUser[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string | undefined>(undefined);
-  const [status, setStatus] = useState<UserTraceFlagStatus | undefined>(undefined);
+  const [selectedTarget, setSelectedTarget] = useState<TraceFlagTarget | undefined>(undefined);
+  const [status, setStatus] = useState<TraceFlagTargetStatus | undefined>(undefined);
   const [debugLevels, setDebugLevels] = useState<string[]>([]);
   const [debugLevel, setDebugLevel] = useState('');
   const [managerRecords, setManagerRecords] = useState<DebugLevelRecord[]>([]);
@@ -90,7 +97,7 @@ export function DebugFlagsApp({
   const [error, setError] = useState<string | undefined>(undefined);
   const [notice, setNotice] = useState<NoticeState | undefined>(undefined);
   const [initialized, setInitialized] = useState(false);
-  const selectedUserIdRef = useRef<string | undefined>(undefined);
+  const selectedTargetRef = useRef<TraceFlagTarget | undefined>(undefined);
   const selectedManagerIdRef = useRef<string>('');
   const [loading, setLoading] = useState<LoadingState>({
     orgs: false,
@@ -100,8 +107,8 @@ export function DebugFlagsApp({
   });
 
   useEffect(() => {
-    selectedUserIdRef.current = selectedUserId;
-  }, [selectedUserId]);
+    selectedTargetRef.current = selectedTarget;
+  }, [selectedTarget]);
 
   useEffect(() => {
     selectedManagerIdRef.current = selectedManagerId;
@@ -162,8 +169,8 @@ export function DebugFlagsApp({
           setConfirmDeleteManager(false);
           break;
         }
-        case 'debugFlagsUserStatus':
-          if (msg.userId === selectedUserIdRef.current) {
+        case 'debugFlagsTargetStatus':
+          if (getTraceFlagTargetKey(msg.target) === getTraceFlagTargetKey(selectedTargetRef.current)) {
             setStatus(msg.status);
           }
           break;
@@ -195,14 +202,28 @@ export function DebugFlagsApp({
     return () => clearTimeout(handle);
   }, [initialized, selectedOrg, query, vscode]);
 
+  const selectedUserId = selectedTarget?.type === 'user' ? selectedTarget.userId : undefined;
   const selectedUser = useMemo(
     () => users.find(user => user.id === selectedUserId),
     [users, selectedUserId]
   );
+  const selectedTargetLabel = useMemo(() => {
+    if (!selectedTarget) {
+      return '';
+    }
+    if (selectedTarget.type === 'user') {
+      return selectedUser?.name || selectedUser?.username || 'User';
+    }
+    return selectedTarget.type === 'automatedProcess'
+      ? t.debugFlags?.specialTargetAutomatedProcess ?? 'Automated Process'
+      : t.debugFlags?.specialTargetPlatformIntegration ?? 'Platform Integration';
+  }, [selectedTarget, selectedUser, t]);
+  const specialTargetSelected = Boolean(selectedTarget && selectedTarget.type !== 'user');
+  const specialTargetReady = !specialTargetSelected || status?.targetAvailable === true;
   const managerDraftDirty = !debugLevelDraftEquals(managerDraft, loadedManagerDraft);
 
-  const canApply = Boolean(selectedUserId && debugLevel && !loading.action && !loading.orgs);
-  const canRemove = Boolean(selectedUserId && !loading.action && !loading.orgs);
+  const canApply = Boolean(selectedTarget && debugLevel && !loading.action && !loading.orgs && specialTargetReady);
+  const canRemove = Boolean(selectedTarget && !loading.action && !loading.orgs && specialTargetReady);
   const canSaveManager = Boolean(
     !loading.action &&
       !loading.orgs &&
@@ -214,7 +235,7 @@ export function DebugFlagsApp({
 
   const handleSelectOrg = (nextOrg: string) => {
     setSelectedOrg(nextOrg);
-    setSelectedUserId(undefined);
+    setSelectedTarget(undefined);
     setStatus(undefined);
     setNotice(undefined);
     setError(undefined);
@@ -222,15 +243,23 @@ export function DebugFlagsApp({
   };
 
   const handleSelectUser = (userId: string) => {
-    setSelectedUserId(userId);
+    setSelectedTarget({ type: 'user', userId });
     setStatus(undefined);
     setNotice(undefined);
     setError(undefined);
-    vscode.postMessage({ type: 'debugFlagsSelectUser', userId });
+    vscode.postMessage({ type: 'debugFlagsSelectTarget', target: { type: 'user', userId } });
+  };
+
+  const handleSelectSpecialTarget = (target: Extract<TraceFlagTarget, { type: 'automatedProcess' | 'platformIntegration' }>) => {
+    setSelectedTarget(target);
+    setStatus(undefined);
+    setNotice(undefined);
+    setError(undefined);
+    vscode.postMessage({ type: 'debugFlagsSelectTarget', target });
   };
 
   const handleApply = () => {
-    if (!selectedUserId || !debugLevel) {
+    if (!selectedTarget || !debugLevel) {
       return;
     }
     const ttl = Number(ttlMinutes);
@@ -242,21 +271,21 @@ export function DebugFlagsApp({
     setError(undefined);
     vscode.postMessage({
       type: 'debugFlagsApply',
-      userId: selectedUserId,
+      target: selectedTarget,
       debugLevelName: debugLevel,
       ttlMinutes: Math.floor(ttl)
     });
   };
 
   const handleRemove = () => {
-    if (!selectedUserId) {
+    if (!selectedTarget) {
       return;
     }
     setNotice(undefined);
     setError(undefined);
     vscode.postMessage({
       type: 'debugFlagsRemove',
-      userId: selectedUserId
+      target: selectedTarget
     });
   };
 
@@ -386,66 +415,116 @@ export function DebugFlagsApp({
             disabled={loading.orgs || loading.action}
             emptyText={t.noOrgsDetected ?? 'No orgs detected. Run "sf org list".'}
           />
-
-          <div className="flex min-w-[260px] flex-1 flex-col gap-1">
-            <Label htmlFor="debug-flags-user-search">
-              {t.debugFlags?.userSearchLabel ?? 'Find user'}
-            </Label>
-            <Input
-              id="debug-flags-user-search"
-              type="search"
-              value={query}
-              onChange={event => setQuery(event.target.value)}
-              placeholder={t.debugFlags?.userSearchPlaceholder ?? 'Type name or username…'}
-              disabled={loading.orgs || loading.action}
-              data-testid="debug-flags-user-search"
-            />
-          </div>
         </div>
       </section>
 
       <section className="grid min-h-[420px] grid-cols-1 gap-4 lg:grid-cols-[1fr_1.4fr]">
         <article className="rounded-lg border border-border bg-card/70 p-3 shadow-sm">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            {t.debugFlags?.users ?? 'Active users'}
-          </h2>
-          {loading.users ? (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              <span>{t.debugFlags?.loadingUsers ?? 'Loading users…'}</span>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                {t.debugFlags?.specialTargets ?? 'Special targets'}
+              </h2>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  className={cn(
+                    'rounded-md border px-3 py-3 text-left transition-colors',
+                    selectedTarget?.type === 'automatedProcess'
+                      ? 'border-primary bg-primary/15 text-foreground'
+                      : 'border-border bg-background/50 hover:bg-muted/60'
+                  )}
+                  onClick={() => handleSelectSpecialTarget({ type: 'automatedProcess' })}
+                  disabled={loading.orgs || loading.action}
+                  data-testid="debug-flags-special-target-automated-process"
+                >
+                  <span className="block font-medium">
+                    {t.debugFlags?.specialTargetAutomatedProcess ?? 'Automated Process'}
+                  </span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {t.debugFlags?.specialTargetAutomatedProcessHint ?? 'Capture callbacks and system automation logs.'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    'rounded-md border px-3 py-3 text-left transition-colors',
+                    selectedTarget?.type === 'platformIntegration'
+                      ? 'border-primary bg-primary/15 text-foreground'
+                      : 'border-border bg-background/50 hover:bg-muted/60'
+                  )}
+                  onClick={() => handleSelectSpecialTarget({ type: 'platformIntegration' })}
+                  disabled={loading.orgs || loading.action}
+                  data-testid="debug-flags-special-target-platform-integration"
+                >
+                  <span className="block font-medium">
+                    {t.debugFlags?.specialTargetPlatformIntegration ?? 'Platform Integration'}
+                  </span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {t.debugFlags?.specialTargetPlatformIntegrationHint ?? 'Capture asynchronous integration callback logs.'}
+                  </span>
+                </button>
+              </div>
             </div>
-          ) : users.length === 0 ? (
-            <p className="text-muted-foreground">
-              {t.debugFlags?.noUsers ?? 'No active users found for this query.'}
-            </p>
-          ) : (
-            <ul className="max-h-[460px] space-y-2 overflow-auto pr-1" data-testid="debug-flags-users-list">
-              {users.map(user => {
-                const selected = user.id === selectedUserId;
-                return (
-                  <li key={user.id}>
-                    <button
-                      type="button"
-                      className={cn(
-                        'flex w-full items-center justify-between rounded-md border px-3 py-2 text-left transition-colors',
-                        selected
-                          ? 'border-primary bg-primary/15 text-foreground'
-                          : 'border-border bg-background/50 hover:bg-muted/60'
-                      )}
-                      onClick={() => handleSelectUser(user.id)}
-                      data-testid={`debug-flags-user-row-${user.id}`}
-                    >
-                      <span className="flex min-w-0 flex-col">
-                        <span className="truncate font-medium">{user.name}</span>
-                        <span className="truncate text-xs text-muted-foreground">{user.username}</span>
-                      </span>
-                      <UserRound className="h-4 w-4 shrink-0 opacity-70" aria-hidden="true" />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="debug-flags-user-search">
+                {t.debugFlags?.userSearchLabel ?? 'Find user'}
+              </Label>
+              <Input
+                id="debug-flags-user-search"
+                type="search"
+                value={query}
+                onChange={event => setQuery(event.target.value)}
+                placeholder={t.debugFlags?.userSearchPlaceholder ?? 'Type name or username…'}
+                disabled={loading.orgs || loading.action}
+                data-testid="debug-flags-user-search"
+              />
+            </div>
+
+            <div>
+              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                {t.debugFlags?.users ?? 'Active users'}
+              </h2>
+              {loading.users ? (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  <span>{t.debugFlags?.loadingUsers ?? 'Loading users…'}</span>
+                </div>
+              ) : users.length === 0 ? (
+                <p className="text-muted-foreground">
+                  {t.debugFlags?.noUsers ?? 'No active users found for this query.'}
+                </p>
+              ) : (
+                <ul className="max-h-[420px] space-y-2 overflow-auto pr-1" data-testid="debug-flags-users-list">
+                  {users.map(user => {
+                    const selected = user.id === selectedUserId;
+                    return (
+                      <li key={user.id}>
+                        <button
+                          type="button"
+                          className={cn(
+                            'flex w-full items-center justify-between rounded-md border px-3 py-2 text-left transition-colors',
+                            selected
+                              ? 'border-primary bg-primary/15 text-foreground'
+                              : 'border-border bg-background/50 hover:bg-muted/60'
+                          )}
+                          onClick={() => handleSelectUser(user.id)}
+                          data-testid={`debug-flags-user-row-${user.id}`}
+                        >
+                          <span className="flex min-w-0 flex-col">
+                            <span className="truncate font-medium">{user.name}</span>
+                            <span className="truncate text-xs text-muted-foreground">{user.username}</span>
+                          </span>
+                          <UserRound className="h-4 w-4 shrink-0 opacity-70" aria-hidden="true" />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
         </article>
 
         <article className="flex flex-col gap-4 rounded-lg border border-border bg-card/70 p-4 shadow-sm">
@@ -454,17 +533,31 @@ export function DebugFlagsApp({
               {t.debugFlags?.currentStatus ?? 'Current status'}
             </h2>
 
-            {!selectedUser ? (
+            {!selectedTarget ? (
               <p className="mt-2 text-muted-foreground">
-                {t.debugFlags?.selectUserHint ?? 'Select an active user to inspect and configure debug flags.'}
+                {t.debugFlags?.selectTargetHint ?? 'Select a special target or an active user to inspect and configure debug flags.'}
               </p>
             ) : loading.status ? (
               <div className="mt-2 flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 <span>{t.loading}</span>
               </div>
-            ) : status ? (
+            ) : status?.targetAvailable === false ? (
               <div className="mt-2 space-y-2">
+                <p>
+                  <span className="font-semibold">{t.debugFlags?.selectedTarget ?? 'Selected target'}:</span>{' '}
+                  <span data-testid="debug-flags-selected-target-label">{selectedTargetLabel}</span>
+                </p>
+                <p className="text-amber-300" data-testid="debug-flags-target-unavailable">
+                  {status.unavailableReason ?? t.debugFlags?.targetUnavailable ?? 'This trace flag target is not available in this org.'}
+                </p>
+              </div>
+            ) : status?.traceFlagId ? (
+              <div className="mt-2 space-y-2">
+                <p>
+                  <span className="font-semibold">{t.debugFlags?.selectedTarget ?? 'Selected target'}:</span>{' '}
+                  <span data-testid="debug-flags-selected-target-label">{selectedTargetLabel}</span>
+                </p>
                 <div className="flex items-center gap-2">
                   <span
                     className={cn(
@@ -482,7 +575,7 @@ export function DebugFlagsApp({
                 </div>
                 <p>
                   <span className="font-semibold">{t.debugFlags?.statusLevel ?? 'Debug level'}:</span>{' '}
-                  <span data-testid="debug-flags-status-level">{status.debugLevelName}</span>
+                  <span data-testid="debug-flags-status-level">{status.debugLevelName || '-'}</span>
                 </p>
                 <p>
                   <span className="font-semibold">{t.debugFlags?.statusStart ?? 'Starts'}:</span>{' '}
@@ -496,9 +589,15 @@ export function DebugFlagsApp({
                 </p>
               </div>
             ) : (
-              <p className="mt-2 text-muted-foreground">
-                {t.debugFlags?.noStatus ?? 'No active USER_DEBUG trace flag for this user.'}
-              </p>
+              <div className="mt-2 space-y-2 text-muted-foreground">
+                <p>
+                  <span className="font-semibold">{t.debugFlags?.selectedTarget ?? 'Selected target'}:</span>{' '}
+                  <span className="text-foreground" data-testid="debug-flags-selected-target-label">
+                    {selectedTargetLabel}
+                  </span>
+                </p>
+                <p>{t.debugFlags?.noStatus ?? 'No active USER_DEBUG trace flag for this target.'}</p>
+              </div>
             )}
           </div>
 

@@ -1,4 +1,10 @@
-import type { ApplyUserTraceFlagInput, DebugFlagUser, DebugLevelRecord, UserTraceFlagStatus } from '../shared/debugFlagsTypes';
+import type {
+  ApplyTraceFlagTargetInput,
+  DebugFlagUser,
+  DebugLevelRecord,
+  TraceFlagTarget,
+  TraceFlagTargetStatus
+} from '../shared/debugFlagsTypes';
 import { CacheManager } from '../utils/cacheManager';
 import { getBooleanConfig, getConfig, getNumberConfig } from '../utils/config';
 import { logTrace } from '../utils/logger';
@@ -9,7 +15,12 @@ import { resolvePATHFromLoginShell } from './path';
 import type { OrgAuth } from './types';
 
 const userIdCache = new Map<string, string>();
+const specialTargetIdCache = new Map<string, string | null>();
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
+const AUTOMATED_PROCESS_TARGET_NAME = 'Automated Process';
+const PLATFORM_INTEGRATION_TARGET_NAMES = ['Platform Integration', 'Platform Integration User'] as const;
+const AUTOMATED_PROCESS_USER_TYPE = 'AutomatedProcess';
+const PLATFORM_INTEGRATION_USER_TYPE = 'CloudIntegrationUser';
 
 type QueryResponse<TRecord = any> = {
   records?: TRecord[];
@@ -86,6 +97,22 @@ function getDebugLevelDetailsCacheKey(auth: OrgAuth): string {
 
 function getDebugLevelApiVersionCacheKey(auth: OrgAuth): string {
   return `${String(auth.instanceUrl || '').trim().toLowerCase()}|${String(auth.username || '').trim().toLowerCase()}`;
+}
+
+function getSpecialTargetCacheKey(auth: OrgAuth, targetType: Exclude<TraceFlagTarget['type'], 'user'>): string {
+  const orgKey = `${String(auth.instanceUrl || '').trim().toLowerCase()}|${String(auth.username || '').trim().toLowerCase()}`;
+  return `${targetType}:${orgKey}`;
+}
+
+function getTraceFlagTargetLabel(target: TraceFlagTarget): string {
+  switch (target.type) {
+    case 'user':
+      return 'User';
+    case 'automatedProcess':
+      return AUTOMATED_PROCESS_TARGET_NAME;
+    case 'platformIntegration':
+      return 'Platform Integration';
+  }
 }
 
 function parseApiVersionNumber(value: string | undefined): number | undefined {
@@ -420,8 +447,8 @@ export async function getActiveUserDebugLevel(auth: OrgAuth): Promise<string | u
   if (!userId) {
     return undefined;
   }
-  const status = await getUserTraceFlagStatus(auth, userId);
-  return status?.debugLevelName;
+  const status = await getTraceFlagTargetStatus(auth, { type: 'user', userId });
+  return status.traceFlagId ? status.debugLevelName : undefined;
 }
 
 // Format date as Salesforce datetime: YYYY-MM-DDTHH:mm:ss.SSS+0000 (UTC)
@@ -448,6 +475,32 @@ function isTraceFlagActive(startDate: string | undefined, expirationDate: string
   return startMs <= now && now <= expMs;
 }
 
+async function queryUserIdByExactNamesAndType(
+  auth: OrgAuth,
+  names: readonly string[],
+  userType: string
+): Promise<{ userId?: string; ambiguous: boolean }> {
+  const normalizedNames = names.map(name => String(name || '').trim()).filter(Boolean);
+  const normalizedUserType = String(userType || '').trim();
+  if (normalizedNames.length === 0 || !normalizedUserType) {
+    return { ambiguous: false };
+  }
+
+  const escapedNames = normalizedNames.map(name => `'${escapeSoqlLiteral(name)}'`).join(', ');
+  const escapedUserType = escapeSoqlLiteral(normalizedUserType);
+  const soql = `SELECT Id FROM User WHERE Name IN (${escapedNames}) AND UserType = '${escapedUserType}' ORDER BY Id LIMIT 3`;
+  const json = await queryStandard<{ Id?: string }>(auth, soql);
+  const ids = (Array.isArray(json.records) ? json.records : [])
+    .map(record => record?.Id)
+    .filter((value): value is string => isSalesforceId(value));
+
+  if (ids.length > 1) {
+    return { ambiguous: true };
+  }
+
+  return { userId: ids[0], ambiguous: false };
+}
+
 export async function getCurrentUserId(auth: OrgAuth): Promise<string | undefined> {
   const username = (auth.username || '').trim();
   if (!username) {
@@ -469,8 +522,56 @@ export async function getCurrentUserId(auth: OrgAuth): Promise<string | undefine
   return userId;
 }
 
+async function getSpecialTraceFlagTargetId(
+  auth: OrgAuth,
+  targetType: Exclude<TraceFlagTarget['type'], 'user'>
+): Promise<string | undefined> {
+  const cacheKey = getSpecialTargetCacheKey(auth, targetType);
+  if (specialTargetIdCache.has(cacheKey)) {
+    return specialTargetIdCache.get(cacheKey) || undefined;
+  }
+
+  const candidateNames =
+    targetType === 'automatedProcess' ? [AUTOMATED_PROCESS_TARGET_NAME] : [...PLATFORM_INTEGRATION_TARGET_NAMES];
+  const expectedUserType =
+    targetType === 'automatedProcess' ? AUTOMATED_PROCESS_USER_TYPE : PLATFORM_INTEGRATION_USER_TYPE;
+  const { userId, ambiguous } = await queryUserIdByExactNamesAndType(auth, candidateNames, expectedUserType);
+  if (ambiguous) {
+    specialTargetIdCache.set(cacheKey, null);
+    return undefined;
+  }
+  if (userId) {
+    specialTargetIdCache.set(cacheKey, userId);
+    return userId;
+  }
+
+  specialTargetIdCache.set(cacheKey, null);
+  return undefined;
+}
+
+async function resolveTraceFlagTarget(
+  auth: OrgAuth,
+  target: TraceFlagTarget
+): Promise<{ targetLabel: string; tracedEntityId?: string; targetAvailable: boolean }> {
+  if (target.type === 'user') {
+    return {
+      targetLabel: getTraceFlagTargetLabel(target),
+      tracedEntityId: isSalesforceId(target.userId) ? target.userId : undefined,
+      targetAvailable: isSalesforceId(target.userId)
+    };
+  }
+
+  const tracedEntityId = await getSpecialTraceFlagTargetId(auth, target.type);
+  return {
+    targetLabel: getTraceFlagTargetLabel(target),
+    tracedEntityId,
+    targetAvailable: Boolean(tracedEntityId)
+  };
+}
+
 export function __resetUserIdCacheForTests(): void {
   userIdCache.clear();
+  specialTargetIdCache.clear();
 }
 
 async function getDebugLevelIdByName(auth: OrgAuth, developerName: string): Promise<string | undefined> {
@@ -635,37 +736,69 @@ export async function deleteDebugLevel(auth: OrgAuth, debugLevelId: string): Pro
   await invalidateDebugLevelsCache(auth);
 }
 
-async function getLatestUserDebugTraceFlagRecord(auth: OrgAuth, userId: string): Promise<any | undefined> {
-  if (!isSalesforceId(userId)) {
+async function getLatestTraceFlagRecord(auth: OrgAuth, tracedEntityId: string): Promise<any | undefined> {
+  if (!isSalesforceId(tracedEntityId)) {
     return undefined;
   }
   const soql =
     `SELECT Id, DebugLevel.DeveloperName, StartDate, ExpirationDate ` +
-    `FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'USER_DEBUG' ` +
+    `FROM TraceFlag WHERE TracedEntityId = '${tracedEntityId}' AND LogType = 'USER_DEBUG' ` +
     `ORDER BY CreatedDate DESC LIMIT 1`;
   const json = await queryTooling<any>(auth, soql);
   return (json.records || [])[0];
 }
 
-async function getLatestUserDebugTraceFlagId(auth: OrgAuth, userId: string): Promise<string | undefined> {
-  if (!isSalesforceId(userId)) {
+async function getLatestTraceFlagId(auth: OrgAuth, tracedEntityId: string): Promise<string | undefined> {
+  if (!isSalesforceId(tracedEntityId)) {
     return undefined;
   }
   const soql =
-    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'USER_DEBUG' ` +
+    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${tracedEntityId}' AND LogType = 'USER_DEBUG' ` +
     `ORDER BY CreatedDate DESC LIMIT 1`;
   const json = await queryTooling<{ Id?: string }>(auth, soql);
   return (json.records || [])[0]?.Id;
 }
 
-export async function getUserTraceFlagStatus(auth: OrgAuth, userId: string): Promise<UserTraceFlagStatus | undefined> {
-  const record = await getLatestUserDebugTraceFlagRecord(auth, userId);
-  if (!record?.Id) {
-    return undefined;
+async function listTraceFlagIds(auth: OrgAuth, tracedEntityId: string): Promise<string[]> {
+  if (!isSalesforceId(tracedEntityId)) {
+    return [];
   }
+  const soql =
+    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${tracedEntityId}' AND LogType = 'USER_DEBUG' ` +
+    `ORDER BY CreatedDate DESC LIMIT 200`;
+  const json = await queryTooling<{ Id?: string }>(auth, soql);
+  return (json.records || [])
+    .map(record => record?.Id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+}
+
+export async function getTraceFlagTargetStatus(auth: OrgAuth, target: TraceFlagTarget): Promise<TraceFlagTargetStatus> {
+  const resolved = await resolveTraceFlagTarget(auth, target);
+  if (!resolved.targetAvailable || !resolved.tracedEntityId) {
+    return {
+      target,
+      targetLabel: resolved.targetLabel,
+      targetAvailable: false,
+      isActive: false
+    };
+  }
+
+  const record = await getLatestTraceFlagRecord(auth, resolved.tracedEntityId);
+  if (!record?.Id) {
+    return {
+      target,
+      targetLabel: resolved.targetLabel,
+      targetAvailable: true,
+      isActive: false
+    };
+  }
+
   const startDate = typeof record.StartDate === 'string' ? record.StartDate : undefined;
   const expirationDate = typeof record.ExpirationDate === 'string' ? record.ExpirationDate : undefined;
   return {
+    target,
+    targetLabel: resolved.targetLabel,
+    targetAvailable: true,
     traceFlagId: String(record.Id),
     debugLevelName:
       typeof record.DebugLevel?.DeveloperName === 'string' ? record.DebugLevel.DeveloperName : '(unknown)',
@@ -675,12 +808,13 @@ export async function getUserTraceFlagStatus(auth: OrgAuth, userId: string): Pro
   };
 }
 
-export async function upsertUserTraceFlag(
+export async function upsertTraceFlag(
   auth: OrgAuth,
-  input: ApplyUserTraceFlagInput
+  input: ApplyTraceFlagTargetInput
 ): Promise<{ created: boolean; traceFlagId?: string }> {
-  if (!isSalesforceId(input?.userId)) {
-    throw new Error('Invalid Salesforce user id.');
+  const resolved = await resolveTraceFlagTarget(auth, input.target);
+  if (!resolved.targetAvailable || !resolved.tracedEntityId) {
+    throw new Error(`Trace flag target '${resolved.targetLabel}' was not found.`);
   }
   const debugLevelName = String(input.debugLevelName || '').trim();
   if (!debugLevelName) {
@@ -697,7 +831,7 @@ export async function upsertUserTraceFlag(
   const start = toSfDateTimeUTC(new Date(now.getTime() - 1000));
   const exp = toSfDateTimeUTC(new Date(now.getTime() + ttlMinutes * 60 * 1000));
 
-  const existingId = await getLatestUserDebugTraceFlagId(auth, input.userId);
+  const existingId = await getLatestTraceFlagId(auth, resolved.tracedEntityId);
   if (existingId) {
     const patchUrl = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/TraceFlag/${existingId}`;
     await httpsRequestWith401Retry(
@@ -719,7 +853,7 @@ export async function upsertUserTraceFlag(
 
   const createUrl = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/TraceFlag`;
   const payload = {
-    TracedEntityId: input.userId,
+    TracedEntityId: resolved.tracedEntityId,
     LogType: 'USER_DEBUG',
     DebugLevelId: debugLevelId,
     StartDate: start,
@@ -742,17 +876,12 @@ export async function upsertUserTraceFlag(
   throw new Error('Failed to create USER_DEBUG TraceFlag.');
 }
 
-export async function removeUserTraceFlags(auth: OrgAuth, userId: string): Promise<number> {
-  if (!isSalesforceId(userId)) {
-    throw new Error('Invalid Salesforce user id.');
+export async function removeTraceFlags(auth: OrgAuth, target: TraceFlagTarget): Promise<number> {
+  const resolved = await resolveTraceFlagTarget(auth, target);
+  if (!resolved.targetAvailable || !resolved.tracedEntityId) {
+    throw new Error(`Trace flag target '${resolved.targetLabel}' was not found.`);
   }
-  const soql =
-    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'USER_DEBUG' ` +
-    `ORDER BY CreatedDate DESC LIMIT 200`;
-  const json = await queryTooling<{ Id?: string }>(auth, soql);
-  const ids = (json.records || [])
-    .map(record => record?.Id)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+  const ids = await listTraceFlagIds(auth, resolved.tracedEntityId);
 
   for (const id of ids) {
     const deleteUrl = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/TraceFlag/${id}`;
@@ -763,6 +892,25 @@ export async function removeUserTraceFlags(auth: OrgAuth, userId: string): Promi
   }
 
   return ids.length;
+}
+
+export async function getUserTraceFlagStatus(auth: OrgAuth, userId: string): Promise<TraceFlagTargetStatus> {
+  return getTraceFlagTargetStatus(auth, { type: 'user', userId });
+}
+
+export async function upsertUserTraceFlag(
+  auth: OrgAuth,
+  input: { userId: string; debugLevelName: string; ttlMinutes: number }
+): Promise<{ created: boolean; traceFlagId?: string }> {
+  return upsertTraceFlag(auth, {
+    target: { type: 'user', userId: input.userId },
+    debugLevelName: input.debugLevelName,
+    ttlMinutes: input.ttlMinutes
+  });
+}
+
+export async function removeUserTraceFlags(auth: OrgAuth, userId: string): Promise<number> {
+  return removeTraceFlags(auth, { type: 'user', userId });
 }
 
 export async function ensureUserTraceFlag(
@@ -779,8 +927,8 @@ export async function ensureUserTraceFlag(
       } catch {}
       return false;
     }
-    const result = await upsertUserTraceFlag(auth, {
-      userId,
+    const result = await upsertTraceFlag(auth, {
+      target: { type: 'user', userId },
       debugLevelName: developerName,
       ttlMinutes
     });

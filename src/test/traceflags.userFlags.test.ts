@@ -10,13 +10,17 @@ import {
 } from '../salesforce/http';
 import {
   __resetDebugLevelApiVersionCacheForTests,
+  __resetUserIdCacheForTests,
   createDebugLevel,
   deleteDebugLevel,
+  getTraceFlagTargetStatus,
   getUserTraceFlagStatus,
   listDebugLevelDetails,
   listActiveUsers,
+  removeTraceFlags,
   removeUserTraceFlags,
   updateDebugLevel,
+  upsertTraceFlag,
   upsertUserTraceFlag
 } from '../salesforce/traceflags';
 
@@ -134,6 +138,7 @@ suite('traceflags user management', () => {
     __resetExecFileImplForTests();
     __resetApiVersionFallbackStateForTests();
     __resetDebugLevelApiVersionCacheForTests();
+    __resetUserIdCacheForTests();
     setApiVersion('64.0');
   });
 
@@ -249,6 +254,120 @@ suite('traceflags user management', () => {
     assert.equal(status?.traceFlagId, '7tf000000000001AAA');
     assert.equal(status?.debugLevelName, 'ALV_E2E');
     assert.equal(status?.isActive, true);
+  });
+
+  test('getTraceFlagTargetStatus resolves Automated Process with the expected system user type and reads USER_DEBUG status', async () => {
+    const calls = installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/query?q=')) {
+        const soql = decodeSoql(req.path);
+        if (
+          soql.includes("FROM User WHERE Name IN ('Automated Process')") &&
+          soql.includes("UserType = 'AutomatedProcess'")
+        ) {
+          return {
+            statusCode: 200,
+            body: { records: [{ Id: '005000000000003AAA' }] }
+          };
+        }
+        if (soql.includes('FROM TraceFlag')) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [
+                {
+                  Id: '7tf000000000003AAA',
+                  StartDate: '2026-02-19T16:00:00.000Z',
+                  ExpirationDate: '2099-02-19T18:00:00.000Z',
+                  DebugLevel: { DeveloperName: 'ALV_AUTOPROC' }
+                }
+              ]
+            }
+          };
+        }
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const status = await getTraceFlagTargetStatus(auth, { type: 'automatedProcess' });
+    assert.equal(status.target.type, 'automatedProcess');
+    assert.equal(status.targetLabel, 'Automated Process');
+    assert.equal(status.targetAvailable, true);
+    assert.equal(status.traceFlagId, '7tf000000000003AAA');
+    assert.equal(status.debugLevelName, 'ALV_AUTOPROC');
+    assert.equal(status.isActive, true);
+    assert.ok(
+      calls.some(call => {
+        const soql = decodeSoql(call.path);
+        return soql.includes("FROM User WHERE Name IN ('Automated Process')") && soql.includes("UserType = 'AutomatedProcess'");
+      }),
+      'expected Automated Process user resolution query with system user type'
+    );
+  });
+
+  test('getTraceFlagTargetStatus falls back to Platform Integration User when needed', async () => {
+    const calls = installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/query?q=')) {
+        const soql = decodeSoql(req.path);
+        if (
+          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
+          soql.includes("UserType = 'CloudIntegrationUser'")
+        ) {
+          return {
+            statusCode: 200,
+            body: { records: [{ Id: '005000000000004AAA' }] }
+          };
+        }
+        if (soql.includes('FROM TraceFlag')) {
+          return {
+            statusCode: 200,
+            body: { records: [] }
+          };
+        }
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const status = await getTraceFlagTargetStatus(auth, { type: 'platformIntegration' });
+    assert.equal(status.target.type, 'platformIntegration');
+    assert.equal(status.targetAvailable, true);
+    assert.equal(status.traceFlagId, undefined);
+    assert.equal(status.isActive, false);
+    assert.ok(
+      calls.some(call => {
+        const soql = decodeSoql(call.path);
+        return soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") && soql.includes("UserType = 'CloudIntegrationUser'");
+      }),
+      'expected Platform Integration lookup across accepted names with cloud integration user type'
+    );
+  });
+
+  test('getTraceFlagTargetStatus treats ambiguous special-target matches as unavailable', async () => {
+    installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/query?q=')) {
+        const soql = decodeSoql(req.path);
+        if (
+          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
+          soql.includes("UserType = 'CloudIntegrationUser'")
+        ) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [
+                { Id: '005000000000003AAA' },
+                { Id: '005000000000004AAA' }
+              ]
+            }
+          };
+        }
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const status = await getTraceFlagTargetStatus(auth, { type: 'platformIntegration' });
+    assert.equal(status.target.type, 'platformIntegration');
+    assert.equal(status.targetAvailable, false);
+    assert.equal(status.traceFlagId, undefined);
+    assert.equal(status.isActive, false);
   });
 
   test('listDebugLevelDetails parses all editable DebugLevel fields', async () => {
@@ -550,6 +669,44 @@ suite('traceflags user management', () => {
     assert.equal(result.traceFlagId, '7tf000000000999AAA');
   });
 
+  test('upsertTraceFlag creates USER_DEBUG flag for Automated Process target', async () => {
+    installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/query?q=')) {
+        const soql = decodeSoql(req.path);
+        if (
+          soql.includes("FROM User WHERE Name IN ('Automated Process')") &&
+          soql.includes("UserType = 'AutomatedProcess'")
+        ) {
+          return {
+            statusCode: 200,
+            body: { records: [{ Id: '005000000000003AAA' }] }
+          };
+        }
+        if (soql.includes('FROM DebugLevel')) {
+          return { statusCode: 200, body: { records: [{ Id: '7dl000000000001AAA' }] } };
+        }
+        if (soql.includes('FROM TraceFlag')) {
+          return { statusCode: 200, body: { records: [] } };
+        }
+      }
+      if (req.method === 'POST' && req.path.endsWith('/tooling/sobjects/TraceFlag')) {
+        const parsed = JSON.parse(req.body);
+        assert.equal(parsed.TracedEntityId, '005000000000003AAA');
+        assert.equal(parsed.LogType, 'USER_DEBUG');
+        return { statusCode: 201, body: { success: true, id: '7tf000000000003AAA' } };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const result = await upsertTraceFlag(auth, {
+      target: { type: 'automatedProcess' },
+      debugLevelName: 'ALV_E2E',
+      ttlMinutes: 30
+    });
+    assert.equal(result.created, true);
+    assert.equal(result.traceFlagId, '7tf000000000003AAA');
+  });
+
   test('removeUserTraceFlags deletes all USER_DEBUG flags for user', async () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/tooling/query')) {
@@ -567,5 +724,25 @@ suite('traceflags user management', () => {
     const removed = await removeUserTraceFlags(auth, '005000000000001AAA');
     assert.equal(removed, 2);
     assert.equal(calls.filter(call => call.method === 'DELETE').length, 2);
+  });
+
+  test('removeTraceFlags surfaces a friendly error when Platform Integration is unavailable', async () => {
+    installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/query?q=')) {
+        const soql = decodeSoql(req.path);
+        if (
+          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
+          soql.includes("UserType = 'CloudIntegrationUser'")
+        ) {
+          return { statusCode: 200, body: { records: [] } };
+        }
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    await assert.rejects(
+      async () => await removeTraceFlags(auth, { type: 'platformIntegration' }),
+      /Platform Integration/
+    );
   });
 });
