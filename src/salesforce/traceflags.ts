@@ -19,6 +19,8 @@ const specialTargetIdCache = new Map<string, string | null>();
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 const AUTOMATED_PROCESS_TARGET_NAME = 'Automated Process';
 const PLATFORM_INTEGRATION_TARGET_NAMES = ['Platform Integration', 'Platform Integration User'] as const;
+const AUTOMATED_PROCESS_USER_TYPE = 'AutomatedProcess';
+const PLATFORM_INTEGRATION_USER_TYPE = 'CloudIntegrationUser';
 
 type QueryResponse<TRecord = any> = {
   records?: TRecord[];
@@ -473,16 +475,30 @@ function isTraceFlagActive(startDate: string | undefined, expirationDate: string
   return startMs <= now && now <= expMs;
 }
 
-async function queryUserIdByExactName(auth: OrgAuth, name: string): Promise<string | undefined> {
-  const normalized = String(name || '').trim();
-  if (!normalized) {
-    return undefined;
+async function queryUserIdByExactNameAndType(
+  auth: OrgAuth,
+  name: string,
+  userType: string
+): Promise<{ userId?: string; ambiguous: boolean }> {
+  const normalizedName = String(name || '').trim();
+  const normalizedUserType = String(userType || '').trim();
+  if (!normalizedName || !normalizedUserType) {
+    return { ambiguous: false };
   }
-  const esc = escapeSoqlLiteral(normalized);
-  const soql = `SELECT Id FROM User WHERE Name = '${esc}' ORDER BY Id LIMIT 1`;
+
+  const escapedName = escapeSoqlLiteral(normalizedName);
+  const escapedUserType = escapeSoqlLiteral(normalizedUserType);
+  const soql = `SELECT Id FROM User WHERE Name = '${escapedName}' AND UserType = '${escapedUserType}' ORDER BY Id LIMIT 2`;
   const json = await queryStandard<{ Id?: string }>(auth, soql);
-  const userId = Array.isArray(json.records) ? json.records[0]?.Id : undefined;
-  return isSalesforceId(userId) ? userId : undefined;
+  const ids = (Array.isArray(json.records) ? json.records : [])
+    .map(record => record?.Id)
+    .filter((value): value is string => isSalesforceId(value));
+
+  if (ids.length > 1) {
+    return { ambiguous: true };
+  }
+
+  return { userId: ids[0], ambiguous: false };
 }
 
 export async function getCurrentUserId(auth: OrgAuth): Promise<string | undefined> {
@@ -517,8 +533,14 @@ async function getSpecialTraceFlagTargetId(
 
   const candidateNames =
     targetType === 'automatedProcess' ? [AUTOMATED_PROCESS_TARGET_NAME] : [...PLATFORM_INTEGRATION_TARGET_NAMES];
+  const expectedUserType =
+    targetType === 'automatedProcess' ? AUTOMATED_PROCESS_USER_TYPE : PLATFORM_INTEGRATION_USER_TYPE;
   for (const candidateName of candidateNames) {
-    const userId = await queryUserIdByExactName(auth, candidateName);
+    const { userId, ambiguous } = await queryUserIdByExactNameAndType(auth, candidateName, expectedUserType);
+    if (ambiguous) {
+      specialTargetIdCache.set(cacheKey, null);
+      return undefined;
+    }
     if (userId) {
       specialTargetIdCache.set(cacheKey, userId);
       return userId;

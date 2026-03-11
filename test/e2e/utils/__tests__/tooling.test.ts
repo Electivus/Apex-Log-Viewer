@@ -137,7 +137,7 @@ describe('ensureDebugFlagsTestUser', () => {
     expect(calls[0]).toContain('/services/data/v63.0/tooling/query');
   });
 
-  test('resolves Platform Integration via the fallback user name', async () => {
+  test('resolves Platform Integration via the fallback user name and cloud integration user type', async () => {
     const auth: OrgAuth = {
       accessToken: 'token',
       instanceUrl: 'https://example.my.salesforce.com',
@@ -149,14 +149,20 @@ describe('ensureDebugFlagsTestUser', () => {
       const url = String(input);
       const soql = decodeURIComponent(url.slice(url.indexOf('?q=') + 3));
 
-      if (soql.includes("Name = 'Platform Integration'")) {
+      if (
+        soql.includes("Name = 'Platform Integration'") &&
+        soql.includes("UserType = 'CloudIntegrationUser'")
+      ) {
         return responseFrom({
           status: 200,
           body: { records: [] }
         });
       }
 
-      if (soql.includes("Name = 'Platform Integration User'")) {
+      if (
+        soql.includes("Name = 'Platform Integration User'") &&
+        soql.includes("UserType = 'CloudIntegrationUser'")
+      ) {
         return responseFrom({
           status: 200,
           body: { records: [{ Id: '005000000000777AAA', Name: 'Platform Integration User' }] }
@@ -173,6 +179,38 @@ describe('ensureDebugFlagsTestUser', () => {
       label: 'Platform Integration',
       matchedName: 'Platform Integration User'
     });
+  });
+
+  test('returns undefined when a special target query is ambiguous', async () => {
+    const auth: OrgAuth = {
+      accessToken: 'token',
+      instanceUrl: 'https://example.my.salesforce.com',
+      username: 'auth.user@example.com',
+      apiVersion: '62.0'
+    };
+
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const soql = decodeURIComponent(url.slice(url.indexOf('?q=') + 3));
+      if (
+        soql.includes("Name = 'Automated Process'") &&
+        soql.includes("UserType = 'AutomatedProcess'")
+      ) {
+        return responseFrom({
+          status: 200,
+          body: {
+            records: [
+              { Id: '005000000000111AAA', Name: 'Automated Process' },
+              { Id: '005000000000222AAA', Name: 'Automated Process' }
+            ]
+          }
+        });
+      }
+
+      throw new Error(`Unexpected request GET ${url}`);
+    });
+
+    await expect(resolveSpecialTraceFlagTarget(auth, 'automatedProcess')).resolves.toBeUndefined();
   });
 
   test('returns undefined when a special trace-flag target is not available', async () => {

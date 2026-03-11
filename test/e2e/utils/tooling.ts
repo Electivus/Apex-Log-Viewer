@@ -43,6 +43,10 @@ const SPECIAL_TRACE_FLAG_TARGET_NAMES: Record<SpecialTraceFlagTargetType, readon
   automatedProcess: ['Automated Process'],
   platformIntegration: ['Platform Integration', 'Platform Integration User']
 };
+const SPECIAL_TRACE_FLAG_TARGET_USER_TYPES: Record<SpecialTraceFlagTargetType, string> = {
+  automatedProcess: 'AutomatedProcess',
+  platformIntegration: 'CloudIntegrationUser'
+};
 const SPECIAL_TRACE_FLAG_TARGET_LABELS: Record<SpecialTraceFlagTargetType, string> = {
   automatedProcess: 'Automated Process',
   platformIntegration: 'Platform Integration'
@@ -162,18 +166,30 @@ async function findUserByUsername(
 
 async function findUserByExactName(
   auth: OrgAuth,
-  name: string
-): Promise<{ id: string; name: string } | undefined> {
+  name: string,
+  userType: string
+): Promise<{ ambiguous: boolean; user?: { id: string; name: string } }> {
   const nameEsc = escapeSoqlLiteral(name);
-  const soql = encodeURIComponent(`SELECT Id, Name FROM User WHERE Name = '${nameEsc}' ORDER BY Id LIMIT 1`);
+  const userTypeEsc = escapeSoqlLiteral(userType);
+  const soql = encodeURIComponent(
+    `SELECT Id, Name FROM User WHERE Name = '${nameEsc}' AND UserType = '${userTypeEsc}' ORDER BY Id LIMIT 2`
+  );
   const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
-  const record = Array.isArray(response?.records) ? response.records[0] : undefined;
+  const records = Array.isArray(response?.records) ? response.records : [];
+  const matchingRecords = records.filter((record: any) => isSfId(record?.Id));
+  if (matchingRecords.length > 1) {
+    return { ambiguous: true };
+  }
+  const record = matchingRecords[0];
   if (!isSfId(record?.Id)) {
-    return undefined;
+    return { ambiguous: false };
   }
   return {
-    id: record.Id,
-    name: typeof record?.Name === 'string' ? record.Name : name
+    ambiguous: false,
+    user: {
+      id: record.Id,
+      name: typeof record?.Name === 'string' ? record.Name : name
+    }
   };
 }
 
@@ -372,8 +388,13 @@ export async function resolveSpecialTraceFlagTarget(
   targetType: SpecialTraceFlagTargetType
 ): Promise<ResolvedSpecialTraceFlagTarget | undefined> {
   const candidateNames = SPECIAL_TRACE_FLAG_TARGET_NAMES[targetType];
+  const userType = SPECIAL_TRACE_FLAG_TARGET_USER_TYPES[targetType];
   for (const candidateName of candidateNames) {
-    const user = await findUserByExactName(auth, candidateName);
+    const result = await findUserByExactName(auth, candidateName, userType);
+    if (result.ambiguous) {
+      return undefined;
+    }
+    const user = result.user;
     if (user) {
       return {
         id: user.id,
