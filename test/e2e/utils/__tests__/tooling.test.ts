@@ -150,17 +150,7 @@ describe('ensureDebugFlagsTestUser', () => {
       const soql = decodeURIComponent(url.slice(url.indexOf('?q=') + 3));
 
       if (
-        soql.includes("Name = 'Platform Integration'") &&
-        soql.includes("UserType = 'CloudIntegrationUser'")
-      ) {
-        return responseFrom({
-          status: 200,
-          body: { records: [] }
-        });
-      }
-
-      if (
-        soql.includes("Name = 'Platform Integration User'") &&
+        soql.includes("Name IN ('Platform Integration', 'Platform Integration User')") &&
         soql.includes("UserType = 'CloudIntegrationUser'")
       ) {
         return responseFrom({
@@ -193,15 +183,15 @@ describe('ensureDebugFlagsTestUser', () => {
       const url = String(input);
       const soql = decodeURIComponent(url.slice(url.indexOf('?q=') + 3));
       if (
-        soql.includes("Name = 'Automated Process'") &&
-        soql.includes("UserType = 'AutomatedProcess'")
+        soql.includes("Name IN ('Platform Integration', 'Platform Integration User')") &&
+        soql.includes("UserType = 'CloudIntegrationUser'")
       ) {
         return responseFrom({
           status: 200,
           body: {
             records: [
-              { Id: '005000000000111AAA', Name: 'Automated Process' },
-              { Id: '005000000000222AAA', Name: 'Automated Process' }
+              { Id: '005000000000111AAA', Name: 'Platform Integration' },
+              { Id: '005000000000222AAA', Name: 'Platform Integration User' }
             ]
           }
         });
@@ -210,7 +200,7 @@ describe('ensureDebugFlagsTestUser', () => {
       throw new Error(`Unexpected request GET ${url}`);
     });
 
-    await expect(resolveSpecialTraceFlagTarget(auth, 'automatedProcess')).resolves.toBeUndefined();
+    await expect(resolveSpecialTraceFlagTarget(auth, 'platformIntegration')).resolves.toBeUndefined();
   });
 
   test('returns undefined when a special trace-flag target is not available', async () => {

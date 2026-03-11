@@ -261,7 +261,7 @@ suite('traceflags user management', () => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
         if (
-          soql.includes("FROM User WHERE Name = 'Automated Process'") &&
+          soql.includes("FROM User WHERE Name IN ('Automated Process')") &&
           soql.includes("UserType = 'AutomatedProcess'")
         ) {
           return {
@@ -298,7 +298,7 @@ suite('traceflags user management', () => {
     assert.ok(
       calls.some(call => {
         const soql = decodeSoql(call.path);
-        return soql.includes("FROM User WHERE Name = 'Automated Process'") && soql.includes("UserType = 'AutomatedProcess'");
+        return soql.includes("FROM User WHERE Name IN ('Automated Process')") && soql.includes("UserType = 'AutomatedProcess'");
       }),
       'expected Automated Process user resolution query with system user type'
     );
@@ -309,16 +309,7 @@ suite('traceflags user management', () => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
         if (
-          soql.includes("FROM User WHERE Name = 'Platform Integration'") &&
-          soql.includes("UserType = 'CloudIntegrationUser'")
-        ) {
-          return {
-            statusCode: 200,
-            body: { records: [] }
-          };
-        }
-        if (
-          soql.includes("FROM User WHERE Name = 'Platform Integration User'") &&
+          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
           soql.includes("UserType = 'CloudIntegrationUser'")
         ) {
           return {
@@ -344,12 +335,9 @@ suite('traceflags user management', () => {
     assert.ok(
       calls.some(call => {
         const soql = decodeSoql(call.path);
-        return (
-          soql.includes("FROM User WHERE Name = 'Platform Integration User'") &&
-          soql.includes("UserType = 'CloudIntegrationUser'")
-        );
+        return soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") && soql.includes("UserType = 'CloudIntegrationUser'");
       }),
-      'expected Platform Integration fallback query with cloud integration user type'
+      'expected Platform Integration lookup across accepted names with cloud integration user type'
     );
   });
 
@@ -358,20 +346,25 @@ suite('traceflags user management', () => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
         if (
-          soql.includes("FROM User WHERE Name = 'Automated Process'") &&
-          soql.includes("UserType = 'AutomatedProcess'")
+          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
+          soql.includes("UserType = 'CloudIntegrationUser'")
         ) {
           return {
             statusCode: 200,
-            body: { records: [{ Id: '005000000000003AAA' }, { Id: '005000000000004AAA' }] }
+            body: {
+              records: [
+                { Id: '005000000000003AAA' },
+                { Id: '005000000000004AAA' }
+              ]
+            }
           };
         }
       }
       throw new Error(`Unexpected request: ${req.method} ${req.path}`);
     });
 
-    const status = await getTraceFlagTargetStatus(auth, { type: 'automatedProcess' });
-    assert.equal(status.target.type, 'automatedProcess');
+    const status = await getTraceFlagTargetStatus(auth, { type: 'platformIntegration' });
+    assert.equal(status.target.type, 'platformIntegration');
     assert.equal(status.targetAvailable, false);
     assert.equal(status.traceFlagId, undefined);
     assert.equal(status.isActive, false);
@@ -681,7 +674,7 @@ suite('traceflags user management', () => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
         if (
-          soql.includes("FROM User WHERE Name = 'Automated Process'") &&
+          soql.includes("FROM User WHERE Name IN ('Automated Process')") &&
           soql.includes("UserType = 'AutomatedProcess'")
         ) {
           return {
@@ -738,13 +731,7 @@ suite('traceflags user management', () => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
         if (
-          soql.includes("FROM User WHERE Name = 'Platform Integration'") &&
-          soql.includes("UserType = 'CloudIntegrationUser'")
-        ) {
-          return { statusCode: 200, body: { records: [] } };
-        }
-        if (
-          soql.includes("FROM User WHERE Name = 'Platform Integration User'") &&
+          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
           soql.includes("UserType = 'CloudIntegrationUser'")
         ) {
           return { statusCode: 200, body: { records: [] } };

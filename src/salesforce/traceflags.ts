@@ -475,20 +475,20 @@ function isTraceFlagActive(startDate: string | undefined, expirationDate: string
   return startMs <= now && now <= expMs;
 }
 
-async function queryUserIdByExactNameAndType(
+async function queryUserIdByExactNamesAndType(
   auth: OrgAuth,
-  name: string,
+  names: readonly string[],
   userType: string
 ): Promise<{ userId?: string; ambiguous: boolean }> {
-  const normalizedName = String(name || '').trim();
+  const normalizedNames = names.map(name => String(name || '').trim()).filter(Boolean);
   const normalizedUserType = String(userType || '').trim();
-  if (!normalizedName || !normalizedUserType) {
+  if (normalizedNames.length === 0 || !normalizedUserType) {
     return { ambiguous: false };
   }
 
-  const escapedName = escapeSoqlLiteral(normalizedName);
+  const escapedNames = normalizedNames.map(name => `'${escapeSoqlLiteral(name)}'`).join(', ');
   const escapedUserType = escapeSoqlLiteral(normalizedUserType);
-  const soql = `SELECT Id FROM User WHERE Name = '${escapedName}' AND UserType = '${escapedUserType}' ORDER BY Id LIMIT 2`;
+  const soql = `SELECT Id FROM User WHERE Name IN (${escapedNames}) AND UserType = '${escapedUserType}' ORDER BY Id LIMIT 3`;
   const json = await queryStandard<{ Id?: string }>(auth, soql);
   const ids = (Array.isArray(json.records) ? json.records : [])
     .map(record => record?.Id)
@@ -535,16 +535,14 @@ async function getSpecialTraceFlagTargetId(
     targetType === 'automatedProcess' ? [AUTOMATED_PROCESS_TARGET_NAME] : [...PLATFORM_INTEGRATION_TARGET_NAMES];
   const expectedUserType =
     targetType === 'automatedProcess' ? AUTOMATED_PROCESS_USER_TYPE : PLATFORM_INTEGRATION_USER_TYPE;
-  for (const candidateName of candidateNames) {
-    const { userId, ambiguous } = await queryUserIdByExactNameAndType(auth, candidateName, expectedUserType);
-    if (ambiguous) {
-      specialTargetIdCache.set(cacheKey, null);
-      return undefined;
-    }
-    if (userId) {
-      specialTargetIdCache.set(cacheKey, userId);
-      return userId;
-    }
+  const { userId, ambiguous } = await queryUserIdByExactNamesAndType(auth, candidateNames, expectedUserType);
+  if (ambiguous) {
+    specialTargetIdCache.set(cacheKey, null);
+    return undefined;
+  }
+  if (userId) {
+    specialTargetIdCache.set(cacheKey, userId);
+    return userId;
   }
 
   specialTargetIdCache.set(cacheKey, null);

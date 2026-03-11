@@ -164,15 +164,19 @@ async function findUserByUsername(
   };
 }
 
-async function findUserByExactName(
+async function findUserByExactNames(
   auth: OrgAuth,
-  name: string,
+  names: readonly string[],
   userType: string
 ): Promise<{ ambiguous: boolean; user?: { id: string; name: string } }> {
-  const nameEsc = escapeSoqlLiteral(name);
+  const normalizedNames = names.map(name => String(name || '').trim()).filter(Boolean);
+  if (normalizedNames.length === 0) {
+    return { ambiguous: false };
+  }
+  const namesEsc = normalizedNames.map(name => `'${escapeSoqlLiteral(name)}'`).join(', ');
   const userTypeEsc = escapeSoqlLiteral(userType);
   const soql = encodeURIComponent(
-    `SELECT Id, Name FROM User WHERE Name = '${nameEsc}' AND UserType = '${userTypeEsc}' ORDER BY Id LIMIT 2`
+    `SELECT Id, Name FROM User WHERE Name IN (${namesEsc}) AND UserType = '${userTypeEsc}' ORDER BY Id LIMIT 3`
   );
   const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
   const records = Array.isArray(response?.records) ? response.records : [];
@@ -389,19 +393,17 @@ export async function resolveSpecialTraceFlagTarget(
 ): Promise<ResolvedSpecialTraceFlagTarget | undefined> {
   const candidateNames = SPECIAL_TRACE_FLAG_TARGET_NAMES[targetType];
   const userType = SPECIAL_TRACE_FLAG_TARGET_USER_TYPES[targetType];
-  for (const candidateName of candidateNames) {
-    const result = await findUserByExactName(auth, candidateName, userType);
-    if (result.ambiguous) {
-      return undefined;
-    }
-    const user = result.user;
-    if (user) {
-      return {
-        id: user.id,
-        label: SPECIAL_TRACE_FLAG_TARGET_LABELS[targetType],
-        matchedName: user.name
-      };
-    }
+  const result = await findUserByExactNames(auth, candidateNames, userType);
+  if (result.ambiguous) {
+    return undefined;
+  }
+  const user = result.user;
+  if (user) {
+    return {
+      id: user.id,
+      label: SPECIAL_TRACE_FLAG_TARGET_LABELS[targetType],
+      matchedName: user.name
+    };
   }
   return undefined;
 }
