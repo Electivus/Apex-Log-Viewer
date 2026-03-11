@@ -171,6 +171,40 @@ describe('ensureDebugFlagsTestUser', () => {
     });
   });
 
+  test('falls back to the first candidate name when Salesforce omits the special target name', async () => {
+    const auth: OrgAuth = {
+      accessToken: 'token',
+      instanceUrl: 'https://example.my.salesforce.com',
+      username: 'auth.user@example.com',
+      apiVersion: '62.0'
+    };
+
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const soql = decodeURIComponent(url.slice(url.indexOf('?q=') + 3));
+
+      if (
+        soql.includes("Name IN ('Platform Integration', 'Platform Integration User')") &&
+        soql.includes("UserType = 'CloudIntegrationUser'")
+      ) {
+        return responseFrom({
+          status: 200,
+          body: { records: [{ Id: '005000000000777AAA' }] }
+        });
+      }
+
+      throw new Error(`Unexpected request GET ${url}`);
+    });
+
+    const resolved = await resolveSpecialTraceFlagTarget(auth, 'platformIntegration');
+
+    expect(resolved).toEqual({
+      id: '005000000000777AAA',
+      label: 'Platform Integration',
+      matchedName: 'Platform Integration'
+    });
+  });
+
   test('returns undefined when a special target query is ambiguous', async () => {
     const auth: OrgAuth = {
       accessToken: 'token',

@@ -192,7 +192,7 @@ async function findUserByExactNames(
     ambiguous: false,
     user: {
       id: record.Id,
-      name: typeof record?.Name === 'string' ? record.Name : name
+      name: typeof record?.Name === 'string' ? record.Name : normalizedNames[0]!
     }
   };
 }
