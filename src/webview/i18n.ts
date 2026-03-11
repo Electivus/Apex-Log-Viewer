@@ -78,23 +78,30 @@ export type Messages = {
     panelTitle: string;
     panelSubtitle: string;
     org: string;
+    specialTargets?: string;
+    specialTargetAutomatedProcess?: string;
+    specialTargetAutomatedProcessHint?: string;
+    specialTargetPlatformIntegration?: string;
+    specialTargetPlatformIntegrationHint?: string;
     userSearchLabel: string;
     userSearchPlaceholder: string;
     users: string;
     noUsers: string;
     loadingUsers: string;
-    selectUserHint: string;
+    selectTargetHint?: string;
     debugLevel: string;
     ttlMinutes: string;
     apply: string;
     remove: string;
     currentStatus: string;
+    selectedTarget?: string;
     statusActive: string;
     statusInactive: string;
     statusLevel: string;
     statusExpiration: string;
     statusStart: string;
     noStatus: string;
+    targetUnavailable?: string;
     noticeCreated: string;
     noticeUpdated: string;
     noticeRemoved: string;
@@ -199,29 +206,36 @@ const en: Messages = {
     open: 'Debug Flags',
     openTitle: 'Open debug flags editor',
     panelTitle: 'Apex Debug Flags',
-    panelSubtitle: 'Configure USER_DEBUG trace flags with room to focus.',
+    panelSubtitle: 'Configure USER_DEBUG trace flags for active users and special Salesforce targets.',
     org: 'Org',
+    specialTargets: 'Special targets',
+    specialTargetAutomatedProcess: 'Automated Process',
+    specialTargetAutomatedProcessHint: 'Capture callbacks and system automation logs.',
+    specialTargetPlatformIntegration: 'Platform Integration',
+    specialTargetPlatformIntegrationHint: 'Capture asynchronous integration callback logs.',
     userSearchLabel: 'Find user',
     userSearchPlaceholder: 'Type name or username…',
     users: 'Active users',
     noUsers: 'No active users found for this query.',
     loadingUsers: 'Loading users…',
-    selectUserHint: 'Select an active user to inspect and configure debug flags.',
+    selectTargetHint: 'Select a special target or an active user to inspect and configure debug flags.',
     debugLevel: 'Debug level',
     ttlMinutes: 'TTL (minutes)',
     apply: 'Apply debug flag',
     remove: 'Remove debug flag',
     currentStatus: 'Current status',
+    selectedTarget: 'Selected target',
     statusActive: 'Active',
     statusInactive: 'Inactive',
     statusLevel: 'Debug level',
     statusExpiration: 'Expires',
     statusStart: 'Starts',
-    noStatus: 'No active USER_DEBUG trace flag for this user.',
+    noStatus: 'No active USER_DEBUG trace flag for this target.',
+    targetUnavailable: 'This trace flag target is not available in this org.',
     noticeCreated: 'Debug flag created successfully.',
     noticeUpdated: 'Debug flag updated successfully.',
     noticeRemoved: 'Debug flag removed successfully.',
-    noticeNone: 'No USER_DEBUG trace flag found for this user.',
+    noticeNone: 'No USER_DEBUG trace flag found for this target.',
     ttlHelper: 'Default is 30 minutes. Allowed range: 1-1440.',
     managerTitle: 'Debug Level Manager',
     managerSubtitle: 'Create from scratch, apply a preset, or edit an existing DebugLevel field by field.',
@@ -322,29 +336,36 @@ const ptBR: Messages = {
     open: 'Debug Flags',
     openTitle: 'Abrir editor de debug flags',
     panelTitle: 'Apex Debug Flags',
-    panelSubtitle: 'Configure trace flags USER_DEBUG com mais espaço e foco.',
+    panelSubtitle: 'Configure trace flags USER_DEBUG para usuários ativos e alvos especiais do Salesforce.',
     org: 'Org',
+    specialTargets: 'Alvos especiais',
+    specialTargetAutomatedProcess: 'Automated Process',
+    specialTargetAutomatedProcessHint: 'Capture logs de callbacks e automações do sistema.',
+    specialTargetPlatformIntegration: 'Platform Integration',
+    specialTargetPlatformIntegrationHint: 'Capture logs de callbacks assíncronos de integração.',
     userSearchLabel: 'Buscar usuário',
     userSearchPlaceholder: 'Digite nome ou username…',
     users: 'Usuários ativos',
     noUsers: 'Nenhum usuário ativo encontrado para esta busca.',
     loadingUsers: 'Carregando usuários…',
-    selectUserHint: 'Selecione um usuário ativo para inspecionar e configurar debug flags.',
+    selectTargetHint: 'Selecione um alvo especial ou um usuário ativo para inspecionar e configurar debug flags.',
     debugLevel: 'Nível de depuração',
     ttlMinutes: 'TTL (minutos)',
     apply: 'Aplicar debug flag',
     remove: 'Remover debug flag',
     currentStatus: 'Status atual',
+    selectedTarget: 'Alvo selecionado',
     statusActive: 'Ativa',
     statusInactive: 'Inativa',
     statusLevel: 'Nível de depuração',
     statusExpiration: 'Expira em',
     statusStart: 'Inicia em',
-    noStatus: 'Nenhuma trace flag USER_DEBUG ativa para este usuário.',
+    noStatus: 'Nenhuma trace flag USER_DEBUG ativa para este alvo.',
+    targetUnavailable: 'Este alvo de trace flag não está disponível nesta org.',
     noticeCreated: 'Debug flag criada com sucesso.',
     noticeUpdated: 'Debug flag atualizada com sucesso.',
     noticeRemoved: 'Debug flag removida com sucesso.',
-    noticeNone: 'Nenhuma trace flag USER_DEBUG encontrada para este usuário.',
+    noticeNone: 'Nenhuma trace flag USER_DEBUG encontrada para este alvo.',
     ttlHelper: 'Padrão de 30 minutos. Faixa permitida: 1-1440.',
     managerTitle: 'Gerenciador de DebugLevel',
     managerSubtitle: 'Crie do zero, aplique um preset ou edite um DebugLevel existente campo por campo.',

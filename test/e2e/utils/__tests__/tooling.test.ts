@@ -1,4 +1,9 @@
-import { ensureDebugFlagsTestUser, getDebugLevelByDeveloperName, type OrgAuth } from '../tooling';
+import {
+  ensureDebugFlagsTestUser,
+  getDebugLevelByDeveloperName,
+  resolveSpecialTraceFlagTarget,
+  type OrgAuth
+} from '../tooling';
 
 type MockFetchResponse = {
   status: number;
@@ -130,5 +135,61 @@ describe('ensureDebugFlagsTestUser', () => {
     expect(record?.id).toBe('7dl000000000001AAA');
     expect(calls).toHaveLength(1);
     expect(calls[0]).toContain('/services/data/v63.0/tooling/query');
+  });
+
+  test('resolves Platform Integration via the fallback user name', async () => {
+    const auth: OrgAuth = {
+      accessToken: 'token',
+      instanceUrl: 'https://example.my.salesforce.com',
+      username: 'auth.user@example.com',
+      apiVersion: '62.0'
+    };
+
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const soql = decodeURIComponent(url.slice(url.indexOf('?q=') + 3));
+
+      if (soql.includes("Name = 'Platform Integration'")) {
+        return responseFrom({
+          status: 200,
+          body: { records: [] }
+        });
+      }
+
+      if (soql.includes("Name = 'Platform Integration User'")) {
+        return responseFrom({
+          status: 200,
+          body: { records: [{ Id: '005000000000777AAA', Name: 'Platform Integration User' }] }
+        });
+      }
+
+      throw new Error(`Unexpected request GET ${url}`);
+    });
+
+    const resolved = await resolveSpecialTraceFlagTarget(auth, 'platformIntegration');
+
+    expect(resolved).toEqual({
+      id: '005000000000777AAA',
+      label: 'Platform Integration',
+      matchedName: 'Platform Integration User'
+    });
+  });
+
+  test('returns undefined when a special trace-flag target is not available', async () => {
+    const auth: OrgAuth = {
+      accessToken: 'token',
+      instanceUrl: 'https://example.my.salesforce.com',
+      username: 'auth.user@example.com',
+      apiVersion: '62.0'
+    };
+
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      return responseFrom({
+        status: 200,
+        body: { records: [] }
+      });
+    });
+
+    await expect(resolveSpecialTraceFlagTarget(auth, 'automatedProcess')).resolves.toBeUndefined();
   });
 });

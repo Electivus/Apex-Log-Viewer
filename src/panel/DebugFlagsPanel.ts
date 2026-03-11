@@ -4,18 +4,17 @@ import {
   createDebugLevel,
   deleteDebugLevel,
   getActiveUserDebugLevel,
-  getUserTraceFlagStatus,
+  getTraceFlagTargetStatus,
   listActiveUsers,
   listDebugLevelDetails,
-  listDebugLevels,
-  removeUserTraceFlags,
+  removeTraceFlags,
   updateDebugLevel,
-  upsertUserTraceFlag
+  upsertTraceFlag
 } from '../salesforce/traceflags';
 import { DEBUG_LEVEL_PRESETS } from '../shared/debugLevelPresets';
 import { clearApexLogs } from '../services/apexLogCleanup';
 import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '../shared/debugFlagsMessages';
-import type { DebugLevelRecord } from '../shared/debugFlagsTypes';
+import type { DebugLevelRecord, TraceFlagTarget, TraceFlagTargetStatus } from '../shared/debugFlagsTypes';
 import { safeSendEvent } from '../shared/telemetry';
 import { pickSelectedOrg } from '../utils/orgs';
 import { localize } from '../utils/localize';
@@ -62,7 +61,7 @@ export class DebugFlagsPanel {
 
   private readonly panel: vscode.WebviewPanel;
   private selectedOrg: string | undefined;
-  private selectedUserId: string | undefined;
+  private selectedTarget: TraceFlagTarget | undefined;
   private usersQuery = '';
   private disposed = false;
   private usersToken = 0;
@@ -107,7 +106,7 @@ export class DebugFlagsPanel {
       return;
     }
     this.selectedOrg = normalized;
-    this.selectedUserId = undefined;
+    this.selectedTarget = undefined;
     await this.bootstrapData();
   }
 
@@ -135,15 +134,15 @@ export class DebugFlagsPanel {
         this.usersQuery = typeof message.query === 'string' ? message.query : '';
         await this.searchUsers();
         break;
-      case 'debugFlagsSelectUser':
-        if (!message.userId) {
+      case 'debugFlagsSelectTarget':
+        if (!message.target) {
           return;
         }
-        this.selectedUserId = message.userId;
-        await this.loadSelectedUserStatus(message.userId);
+        this.selectedTarget = message.target;
+        await this.loadSelectedTargetStatus(message.target);
         break;
       case 'debugFlagsApply':
-        await this.applyUserTraceFlag(message.userId, message.debugLevelName, message.ttlMinutes);
+        await this.applyTraceFlag(message.target, message.debugLevelName, message.ttlMinutes);
         break;
       case 'debugFlagsManagerSave':
         await this.saveDebugLevel(message.draft);
@@ -152,7 +151,7 @@ export class DebugFlagsPanel {
         await this.removeDebugLevel(message.debugLevelId);
         break;
       case 'debugFlagsRemove':
-        await this.removeUserTraceFlag(message.userId);
+        await this.removeTraceFlag(message.target);
         break;
       case 'debugFlagsClearLogs':
         await this.clearLogs(message.scope === 'mine' ? 'mine' : 'all');
@@ -250,10 +249,11 @@ export class DebugFlagsPanel {
         return;
       }
       this.post({ type: 'debugFlagsUsers', query: this.usersQuery, data: users });
-      if (this.selectedUserId && !users.some(user => user.id === this.selectedUserId)) {
-        const previous = this.selectedUserId;
-        this.selectedUserId = undefined;
-        this.post({ type: 'debugFlagsUserStatus', userId: previous, status: undefined });
+      const selectedUserTarget = this.selectedTarget?.type === 'user' ? this.selectedTarget : undefined;
+      if (selectedUserTarget && !users.some(user => user.id === selectedUserTarget.userId)) {
+        const previous = selectedUserTarget;
+        this.selectedTarget = undefined;
+        this.post({ type: 'debugFlagsTargetStatus', target: previous, status: undefined });
       }
     } catch (e) {
       if (token !== this.usersToken || this.disposed) {
@@ -272,32 +272,38 @@ export class DebugFlagsPanel {
     }
   }
 
-  private async loadSelectedUserStatus(userId: string): Promise<void> {
-    if (!userId) {
+  private async loadSelectedTargetStatus(target: TraceFlagTarget): Promise<void> {
+    if (!target) {
       return;
     }
     const token = ++this.statusToken;
     this.post({ type: 'debugFlagsLoading', scope: 'status', value: true });
     try {
       const auth = await this.getSelectedAuth();
-      const status = await getUserTraceFlagStatus(auth, userId);
+      const status = await getTraceFlagTargetStatus(auth, target);
       if (token !== this.statusToken || this.disposed) {
         return;
       }
+      const localizedStatus: TraceFlagTargetStatus = status.targetAvailable
+        ? status
+        : {
+            ...status,
+            unavailableReason: this.getTargetUnavailableReason(status.targetLabel)
+          };
       this.post({
-        type: 'debugFlagsUserStatus',
-        userId,
-        status
+        type: 'debugFlagsTargetStatus',
+        target,
+        status: localizedStatus
       });
     } catch (e) {
       if (token !== this.statusToken || this.disposed) {
         return;
       }
       const msg = getErrorMessage(e);
-      logWarn('DebugFlagsPanel: failed loading user status ->', msg);
+      logWarn('DebugFlagsPanel: failed loading target status ->', msg);
       this.post({
         type: 'debugFlagsError',
-        message: localize('debugFlags.loadStatusFailed', 'Failed to load debug flag status: {0}', msg)
+        message: localize('debugFlags.loadStatusFailed', 'Failed to load debug flag status for the selected target: {0}', msg)
       });
     } finally {
       if (token === this.statusToken && !this.disposed) {
@@ -306,20 +312,20 @@ export class DebugFlagsPanel {
     }
   }
 
-  private async applyUserTraceFlag(userId: string, debugLevelName: string, ttlMinutes: number): Promise<void> {
-    if (!userId) {
+  private async applyTraceFlag(target: TraceFlagTarget, debugLevelName: string, ttlMinutes: number): Promise<void> {
+    if (!target) {
       return;
     }
     const t0 = Date.now();
     this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
     try {
       const auth = await this.getSelectedAuth();
-      const result = await upsertUserTraceFlag(auth, {
-        userId,
+      const result = await upsertTraceFlag(auth, {
+        target,
         debugLevelName,
         ttlMinutes
       });
-      await this.loadSelectedUserStatus(userId);
+      await this.loadSelectedTargetStatus(target);
       this.post({
         type: 'debugFlagsNotice',
         tone: 'success',
@@ -331,7 +337,8 @@ export class DebugFlagsPanel {
         'debugFlags.apply',
         {
           outcome: 'ok',
-          sourceView: this.lastSourceView
+          sourceView: this.lastSourceView,
+          targetType: target.type
         },
         { durationMs: Date.now() - t0 }
       );
@@ -361,7 +368,8 @@ export class DebugFlagsPanel {
         'debugFlags.apply',
         {
           outcome: 'error',
-          sourceView: this.lastSourceView
+          sourceView: this.lastSourceView,
+          targetType: target.type
         },
         { durationMs: Date.now() - t0 }
       );
@@ -460,29 +468,30 @@ export class DebugFlagsPanel {
     }
   }
 
-  private async removeUserTraceFlag(userId: string): Promise<void> {
-    if (!userId) {
+  private async removeTraceFlag(target: TraceFlagTarget): Promise<void> {
+    if (!target) {
       return;
     }
     const t0 = Date.now();
     this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
     try {
       const auth = await this.getSelectedAuth();
-      const removed = await removeUserTraceFlags(auth, userId);
-      await this.loadSelectedUserStatus(userId);
+      const removed = await removeTraceFlags(auth, target);
+      await this.loadSelectedTargetStatus(target);
       this.post({
         type: 'debugFlagsNotice',
         tone: removed > 0 ? 'success' : 'info',
         message:
           removed > 0
             ? localize('debugFlags.removeSuccess', 'Debug flag removed successfully.')
-            : localize('debugFlags.removeNone', 'No active USER_DEBUG trace flag was found for this user.')
+            : localize('debugFlags.removeNone', 'No active USER_DEBUG trace flag was found for this target.')
       });
       safeSendEvent(
         'debugFlags.remove',
         {
           outcome: 'ok',
-          sourceView: this.lastSourceView
+          sourceView: this.lastSourceView,
+          targetType: target.type
         },
         { durationMs: Date.now() - t0, removedCount: removed }
       );
@@ -512,13 +521,22 @@ export class DebugFlagsPanel {
         'debugFlags.remove',
         {
           outcome: 'error',
-          sourceView: this.lastSourceView
+          sourceView: this.lastSourceView,
+          targetType: target.type
         },
         { durationMs: Date.now() - t0 }
       );
     } finally {
       this.post({ type: 'debugFlagsLoading', scope: 'action', value: false });
     }
+  }
+
+  private getTargetUnavailableReason(targetLabel: string): string {
+    return localize(
+      'debugFlags.targetUnavailable',
+      'The trace flag target "{0}" is not available in this org.',
+      targetLabel
+    );
   }
 
   private isAbortLikeError(err: unknown, message?: string): boolean {

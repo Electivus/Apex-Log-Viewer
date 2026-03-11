@@ -58,6 +58,17 @@ async function clickVisibleNotificationCloseButton(page: Page): Promise<boolean>
   }, notificationCloseSelectors);
 }
 
+async function closeQuickInputIfOpen(page: Page): Promise<void> {
+  const widget = page.locator('div.quick-input-widget');
+  const visible = await widget.isVisible().catch(() => false);
+  if (!visible) {
+    return;
+  }
+
+  await page.keyboard.press('Escape').catch(() => {});
+  await widget.waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
+}
+
 export async function dismissAllNotifications(page: Page, options?: { timeoutMs?: number }): Promise<void> {
   const deadline = Date.now() + (options?.timeoutMs ?? 5_000);
 
@@ -71,6 +82,7 @@ export async function dismissAllNotifications(page: Page, options?: { timeoutMs?
 
     try {
       await runCommand(page, 'Notifications: Clear All Notifications');
+      await closeQuickInputIfOpen(page);
       acted = true;
     } catch {
       // Fall through to direct interaction.
@@ -86,4 +98,6 @@ export async function dismissAllNotifications(page: Page, options?: { timeoutMs?
 
     await page.waitForTimeout(150);
   }
+
+  await closeQuickInputIfOpen(page);
 }

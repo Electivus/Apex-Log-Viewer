@@ -12,6 +12,14 @@ export type DebugFlagsE2eUser = {
   username: string;
 };
 
+export type SpecialTraceFlagTargetType = 'automatedProcess' | 'platformIntegration';
+
+export type ResolvedSpecialTraceFlagTarget = {
+  id: string;
+  label: string;
+  matchedName: string;
+};
+
 export type DebugLevelToolingRecord = {
   id: string;
   developerName: string;
@@ -31,6 +39,14 @@ export type DebugLevelToolingRecord = {
 };
 
 const DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION = '63.0';
+const SPECIAL_TRACE_FLAG_TARGET_NAMES: Record<SpecialTraceFlagTargetType, readonly string[]> = {
+  automatedProcess: ['Automated Process'],
+  platformIntegration: ['Platform Integration', 'Platform Integration User']
+};
+const SPECIAL_TRACE_FLAG_TARGET_LABELS: Record<SpecialTraceFlagTargetType, string> = {
+  automatedProcess: 'Automated Process',
+  platformIntegration: 'Platform Integration'
+};
 
 function getApiVersion(): string {
   const v = String(process.env.SF_TEST_API_VERSION || process.env.SF_API_VERSION || '60.0').trim();
@@ -141,6 +157,23 @@ async function findUserByUsername(
     id: record.Id,
     username: typeof record?.Username === 'string' ? record.Username : username,
     active: Boolean(record?.IsActive)
+  };
+}
+
+async function findUserByExactName(
+  auth: OrgAuth,
+  name: string
+): Promise<{ id: string; name: string } | undefined> {
+  const nameEsc = escapeSoqlLiteral(name);
+  const soql = encodeURIComponent(`SELECT Id, Name FROM User WHERE Name = '${nameEsc}' ORDER BY Id LIMIT 1`);
+  const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
+  const record = Array.isArray(response?.records) ? response.records[0] : undefined;
+  if (!isSfId(record?.Id)) {
+    return undefined;
+  }
+  return {
+    id: record.Id,
+    name: typeof record?.Name === 'string' ? record.Name : name
   };
 }
 
@@ -281,7 +314,22 @@ export async function getUserDebugTraceFlag(
     }
   | undefined
 > {
-  const userEsc = escapeSoqlLiteral(userId);
+  return getDebugTraceFlagByTracedEntityId(auth, userId);
+}
+
+export async function getDebugTraceFlagByTracedEntityId(
+  auth: OrgAuth,
+  tracedEntityId: string
+): Promise<
+  | {
+      id: string;
+      debugLevelName?: string;
+      startDate?: string;
+      expirationDate?: string;
+    }
+  | undefined
+> {
+  const userEsc = escapeSoqlLiteral(tracedEntityId);
   const tfSoql = encodeURIComponent(
     `SELECT Id, StartDate, ExpirationDate, DebugLevel.DeveloperName FROM TraceFlag WHERE TracedEntityId = '${userEsc}' AND LogType = 'USER_DEBUG' ORDER BY CreatedDate DESC LIMIT 1`
   );
@@ -299,7 +347,11 @@ export async function getUserDebugTraceFlag(
 }
 
 export async function removeUserDebugTraceFlags(auth: OrgAuth, userId: string): Promise<number> {
-  const userEsc = escapeSoqlLiteral(userId);
+  return removeDebugTraceFlagsByTracedEntityId(auth, userId);
+}
+
+export async function removeDebugTraceFlagsByTracedEntityId(auth: OrgAuth, tracedEntityId: string): Promise<number> {
+  const userEsc = escapeSoqlLiteral(tracedEntityId);
   const tfSoql = encodeURIComponent(
     `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userEsc}' AND LogType = 'USER_DEBUG' ORDER BY CreatedDate DESC LIMIT 200`
   );
@@ -313,6 +365,24 @@ export async function removeUserDebugTraceFlags(auth: OrgAuth, userId: string): 
   }
 
   return ids.length;
+}
+
+export async function resolveSpecialTraceFlagTarget(
+  auth: OrgAuth,
+  targetType: SpecialTraceFlagTargetType
+): Promise<ResolvedSpecialTraceFlagTarget | undefined> {
+  const candidateNames = SPECIAL_TRACE_FLAG_TARGET_NAMES[targetType];
+  for (const candidateName of candidateNames) {
+    const user = await findUserByExactName(auth, candidateName);
+    if (user) {
+      return {
+        id: user.id,
+        label: SPECIAL_TRACE_FLAG_TARGET_LABELS[targetType],
+        matchedName: user.name
+      };
+    }
+  }
+  return undefined;
 }
 
 function mapDebugLevelRecord(record: any): DebugLevelToolingRecord | undefined {

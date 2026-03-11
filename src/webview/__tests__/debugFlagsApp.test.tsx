@@ -54,13 +54,23 @@ describe('DebugFlags webview App', () => {
 
     fireEvent.click(screen.getByTestId('debug-flags-user-row-005000000000001AAA'));
     await waitFor(() => {
-      expect(posted.some(msg => msg.type === 'debugFlagsSelectUser' && msg.userId === '005000000000001AAA')).toBe(true);
+      expect(
+        posted.some(
+          msg =>
+            msg.type === 'debugFlagsSelectTarget' &&
+            msg.target.type === 'user' &&
+            msg.target.userId === '005000000000001AAA'
+        )
+      ).toBe(true);
     });
 
     sendMessage(bus, {
-      type: 'debugFlagsUserStatus',
-      userId: '005000000000001AAA',
+      type: 'debugFlagsTargetStatus',
+      target: { type: 'user', userId: '005000000000001AAA' },
       status: {
+        target: { type: 'user', userId: '005000000000001AAA' },
+        targetLabel: 'Ada Lovelace',
+        targetAvailable: true,
         traceFlagId: '7tf000000000001AAA',
         debugLevelName: 'ALV_E2E',
         startDate: '2026-02-19T17:00:00.000Z',
@@ -174,7 +184,8 @@ describe('DebugFlags webview App', () => {
         posted.some(
           msg =>
             msg.type === 'debugFlagsApply' &&
-            msg.userId === '005000000000001AAA' &&
+            msg.target.type === 'user' &&
+            msg.target.userId === '005000000000001AAA' &&
             msg.debugLevelName === 'ALV_E2E' &&
             msg.ttlMinutes === 45
         )
@@ -190,7 +201,95 @@ describe('DebugFlags webview App', () => {
 
     fireEvent.click(screen.getByTestId('debug-flags-remove'));
     await waitFor(() => {
-      expect(posted.some(msg => msg.type === 'debugFlagsRemove' && msg.userId === '005000000000001AAA')).toBe(true);
+      expect(
+        posted.some(
+          msg =>
+            msg.type === 'debugFlagsRemove' &&
+            msg.target.type === 'user' &&
+            msg.target.userId === '005000000000001AAA'
+        )
+      ).toBe(true);
+    });
+  });
+
+  it('supports special targets and disables actions when a special target is unavailable', async () => {
+    const { vscode, posted } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<DebugFlagsApp vscode={vscode} messageBus={bus} />);
+
+    sendMessage(bus, { type: 'debugFlagsInit', locale: 'en', defaultTtlMinutes: 30 });
+    sendMessage(bus, {
+      type: 'debugFlagsOrgs',
+      data: [{ username: 'user@example.com', alias: 'Main', isDefaultUsername: true }],
+      selected: 'user@example.com'
+    });
+    sendMessage(bus, { type: 'debugFlagsDebugLevels', data: ['ALV_E2E'], active: 'ALV_E2E' });
+
+    fireEvent.click(screen.getByTestId('debug-flags-special-target-automated-process'));
+    await waitFor(() => {
+      expect(
+        posted.some(
+          msg => msg.type === 'debugFlagsSelectTarget' && msg.target.type === 'automatedProcess'
+        )
+      ).toBe(true);
+    });
+
+    sendMessage(bus, {
+      type: 'debugFlagsTargetStatus',
+      target: { type: 'automatedProcess' },
+      status: {
+        target: { type: 'automatedProcess' },
+        targetLabel: 'Automated Process',
+        targetAvailable: false,
+        unavailableReason: 'Automated Process is not available in this org.',
+        isActive: false
+      }
+    });
+
+    await screen.findByTestId('debug-flags-target-unavailable');
+    expect(screen.getByTestId('debug-flags-apply')).toBeDisabled();
+    expect(screen.getByTestId('debug-flags-remove')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('debug-flags-special-target-platform-integration'));
+    await waitFor(() => {
+      expect(
+        posted.some(
+          msg => msg.type === 'debugFlagsSelectTarget' && msg.target.type === 'platformIntegration'
+        )
+      ).toBe(true);
+    });
+
+    sendMessage(bus, {
+      type: 'debugFlagsTargetStatus',
+      target: { type: 'platformIntegration' },
+      status: {
+        target: { type: 'platformIntegration' },
+        targetLabel: 'Platform Integration',
+        targetAvailable: true,
+        isActive: false
+      }
+    });
+
+    fireEvent.click(screen.getByTestId('debug-flags-apply'));
+    await waitFor(() => {
+      expect(
+        posted.some(
+          msg =>
+            msg.type === 'debugFlagsApply' &&
+            msg.target.type === 'platformIntegration' &&
+            msg.debugLevelName === 'ALV_E2E' &&
+            msg.ttlMinutes === 30
+        )
+      ).toBe(true);
+    });
+
+    fireEvent.click(screen.getByTestId('debug-flags-remove'));
+    await waitFor(() => {
+      expect(
+        posted.some(
+          msg => msg.type === 'debugFlagsRemove' && msg.target.type === 'platformIntegration'
+        )
+      ).toBe(true);
     });
   });
 

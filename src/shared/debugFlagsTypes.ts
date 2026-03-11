@@ -5,18 +5,37 @@ export interface DebugFlagUser {
   active: boolean;
 }
 
-export interface UserTraceFlagStatus {
-  traceFlagId: string;
-  debugLevelName: string;
+export type TraceFlagTarget =
+  | { type: 'user'; userId: string }
+  | { type: 'automatedProcess' }
+  | { type: 'platformIntegration' };
+
+export interface TraceFlagTargetStatus {
+  target: TraceFlagTarget;
+  targetLabel: string;
+  targetAvailable: boolean;
+  unavailableReason?: string;
+  traceFlagId?: string;
+  debugLevelName?: string;
   startDate?: string;
   expirationDate?: string;
   isActive: boolean;
 }
 
-export interface ApplyUserTraceFlagInput {
-  userId: string;
+export interface ApplyTraceFlagTargetInput {
+  target: TraceFlagTarget;
   debugLevelName: string;
   ttlMinutes: number;
+}
+
+export function getTraceFlagTargetKey(target: TraceFlagTarget | undefined): string {
+  if (!target) {
+    return '';
+  }
+  if (target.type === 'user') {
+    return `user:${target.userId}`;
+  }
+  return target.type;
 }
 
 export interface DebugLevelRecord {
