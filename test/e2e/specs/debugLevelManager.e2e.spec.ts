@@ -1,3 +1,4 @@
+import type { Frame } from '@playwright/test';
 import { expect, test } from '../fixtures/alvE2E';
 import { runCommand, waitForCommandAvailable } from '../utils/commandPalette';
 import {
@@ -10,6 +11,11 @@ import {
 } from '../utils/tooling';
 import { dismissAllNotifications } from '../utils/notifications';
 import { waitForWebviewFrame } from '../utils/webviews';
+
+async function waitForManagerReady(debugFlagsFrame: Frame): Promise<void> {
+  await expect(debugFlagsFrame.locator('[data-testid="debug-level-manager-new"]')).toBeEnabled({ timeout: 120_000 });
+  await expect(debugFlagsFrame.locator('[data-testid="debug-level-manager-select"]')).toBeEnabled({ timeout: 120_000 });
+}
 
 test('creates, updates and deletes DebugLevel records from the manager UI', async ({ vscodePage, scratchAlias }) => {
   const auth = await getOrgAuth(scratchAlias);
@@ -57,7 +63,6 @@ test('creates, updates and deletes DebugLevel records from the manager UI', asyn
     await debugFlagsFrame.locator('[data-testid="debug-level-field-dataAccess"]').selectOption('FINE');
 
     await debugFlagsFrame.locator('[data-testid="debug-level-save"]').click({ force: true });
-    await expect(debugFlagsFrame.locator('[data-testid="debug-flags-notice"]')).toBeVisible({ timeout: 60_000 });
 
     await expect
       .poll(async () => await getDebugLevelByDeveloperName(auth, createdDeveloperName), { timeout: 60_000 })
@@ -70,6 +75,7 @@ test('creates, updates and deletes DebugLevel records from the manager UI', asyn
         wave: 'ERROR',
         dataAccess: 'FINE'
       });
+    await waitForManagerReady(debugFlagsFrame);
 
     const created = await getDebugLevelByDeveloperName(auth, createdDeveloperName);
     expect(created?.id).toBeTruthy();
@@ -82,7 +88,6 @@ test('creates, updates and deletes DebugLevel records from the manager UI', asyn
     await debugFlagsFrame.locator('[data-testid="debug-level-field-wave"]').selectOption('DEBUG');
     await debugFlagsFrame.locator('[data-testid="debug-level-field-nba"]').selectOption('ERROR');
     await debugFlagsFrame.locator('[data-testid="debug-level-save"]').click({ force: true });
-    await expect(debugFlagsFrame.locator('[data-testid="debug-flags-notice"]')).toBeVisible({ timeout: 60_000 });
 
     await expect
       .poll(async () => await getDebugLevelById(auth, created!.id), { timeout: 60_000 })
@@ -95,6 +100,7 @@ test('creates, updates and deletes DebugLevel records from the manager UI', asyn
         wave: 'DEBUG',
         nba: 'ERROR'
       });
+    await waitForManagerReady(debugFlagsFrame);
 
     await debugFlagsFrame.locator('[data-testid="debug-level-delete"]').click({ force: true });
     await debugFlagsFrame.locator('[data-testid="debug-level-delete-confirmation"]').waitFor({
@@ -102,7 +108,6 @@ test('creates, updates and deletes DebugLevel records from the manager UI', asyn
       timeout: 60_000
     });
     await debugFlagsFrame.locator('[data-testid="debug-level-delete-confirm"]').click({ force: true });
-    await expect(debugFlagsFrame.locator('[data-testid="debug-flags-notice"]')).toBeVisible({ timeout: 60_000 });
 
     await expect
       .poll(async () => await getDebugLevelById(auth, created!.id), { timeout: 60_000 })

@@ -6,7 +6,8 @@
 ## Project Structure
 - `src/` contains extension host, services, providers, and shared types.
 - `src/webview/` contains the webview React UI.
-- `test/` contains VS Code extension integration/unit tests.
+- `src/test/` contains VS Code extension unit/integration tests and test harness code.
+- `test/e2e/` contains Playwright scratch-org E2E specs, fixtures, and utilities.
 - `docs/` holds architecture/testing/publishing notes and plan docs.
 - `media/` stores bundled webview assets.
 - `scripts/` contains build/test helper scripts.
@@ -15,12 +16,15 @@
 - Use Node `22` via `.nvmrc`.
 - Install deps with `npm ci`.
 - Type-check only with `npm run check-types`.
+- Lint with `npm run lint`.
 - Lint + extension TypeScript validation with `npm run compile`.
 - Build with `npm run build`.
 - Prepare a publishable package with `npm run package`.
 - Watch mode: `npm run watch`.
+- Default local test command: `npm test`.
 - Unit-focused local test suite: `npm run test:unit`.
 - Integration suite: `npm run test:integration`.
+- Combined local test sweep: `npm run test:all`.
 - Full CI-equivalent suite: `npm run test:ci`.
 - Webview-only Jest suite: `npm run test:webview`.
 - Playwright scratch-org E2E: `npm run test:e2e`.
@@ -60,6 +64,9 @@ This repo follows the VS Code Marketplace pre-release convention:
 7. **Local packaging/publishing helpers**
    - Package stable/pre-release VSIX with `npm run vsce:package` / `npm run vsce:package:pre`.
    - Publish stable/pre-release locally with `npm run vsce:publish` / `npm run vsce:publish:pre`.
+   - Publish to Open VSX locally with `npx --yes ovsx publish --pat <token>` or add `--pre-release` for the odd-minor channel.
+
+Nightly pre-releases are managed by `.github/workflows/prerelease.yml`, which packages and publishes the odd-minor pre-release channel when publishing secrets are configured.
 
 See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 

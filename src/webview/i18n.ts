@@ -97,9 +97,12 @@ export type Messages = {
     selectedTarget?: string;
     statusActive: string;
     statusInactive: string;
+    statusMatchedTargets?: string;
+    statusActiveTargets?: string;
     statusLevel: string;
     statusExpiration: string;
     statusStart: string;
+    statusMixed?: string;
     noStatus: string;
     targetUnavailable?: string;
     noticeCreated: string;
@@ -227,9 +230,12 @@ const en: Messages = {
     selectedTarget: 'Selected target',
     statusActive: 'Active',
     statusInactive: 'Inactive',
+    statusMatchedTargets: 'Matched targets',
+    statusActiveTargets: 'Active flags',
     statusLevel: 'Debug level',
     statusExpiration: 'Expires',
     statusStart: 'Starts',
+    statusMixed: 'Mixed',
     noStatus: 'No active USER_DEBUG trace flag for this target.',
     targetUnavailable: 'This trace flag target is not available in this org.',
     noticeCreated: 'Debug flag created successfully.',
@@ -357,9 +363,12 @@ const ptBR: Messages = {
     selectedTarget: 'Alvo selecionado',
     statusActive: 'Ativa',
     statusInactive: 'Inativa',
+    statusMatchedTargets: 'Alvos correspondentes',
+    statusActiveTargets: 'Flags ativas',
     statusLevel: 'Nível de depuração',
     statusExpiration: 'Expira em',
     statusStart: 'Inicia em',
+    statusMixed: 'Misto',
     noStatus: 'Nenhuma trace flag USER_DEBUG ativa para este alvo.',
     targetUnavailable: 'Este alvo de trace flag não está disponível nesta org.',
     noticeCreated: 'Debug flag criada com sucesso.',

@@ -11,8 +11,7 @@ type MockFetchResponse = {
 };
 
 function responseFrom(spec: MockFetchResponse): Response {
-  const text =
-    spec.body === undefined ? '' : typeof spec.body === 'string' ? spec.body : JSON.stringify(spec.body);
+  const text = spec.body === undefined ? '' : typeof spec.body === 'string' ? spec.body : JSON.stringify(spec.body);
   return {
     ok: spec.status >= 200 && spec.status < 300,
     status: spec.status,
@@ -137,7 +136,7 @@ describe('ensureDebugFlagsTestUser', () => {
     expect(calls[0]).toContain('/services/data/v63.0/tooling/query');
   });
 
-  test('resolves Platform Integration via the fallback user name and cloud integration user type', async () => {
+  test('resolves Platform Integration via accepted names and returns all active matches', async () => {
     const auth: OrgAuth = {
       accessToken: 'token',
       instanceUrl: 'https://example.my.salesforce.com',
@@ -165,9 +164,9 @@ describe('ensureDebugFlagsTestUser', () => {
     const resolved = await resolveSpecialTraceFlagTarget(auth, 'platformIntegration');
 
     expect(resolved).toEqual({
-      id: '005000000000777AAA',
+      ids: ['005000000000777AAA'],
       label: 'Platform Integration',
-      matchedName: 'Platform Integration User'
+      matchedNames: ['Platform Integration User']
     });
   });
 
@@ -199,13 +198,13 @@ describe('ensureDebugFlagsTestUser', () => {
     const resolved = await resolveSpecialTraceFlagTarget(auth, 'platformIntegration');
 
     expect(resolved).toEqual({
-      id: '005000000000777AAA',
+      ids: ['005000000000777AAA'],
       label: 'Platform Integration',
-      matchedName: 'Platform Integration'
+      matchedNames: ['Platform Integration']
     });
   });
 
-  test('returns undefined when a special target query is ambiguous', async () => {
+  test('returns all active matches when a special target query finds multiple users', async () => {
     const auth: OrgAuth = {
       accessToken: 'token',
       instanceUrl: 'https://example.my.salesforce.com',
@@ -234,7 +233,11 @@ describe('ensureDebugFlagsTestUser', () => {
       throw new Error(`Unexpected request GET ${url}`);
     });
 
-    await expect(resolveSpecialTraceFlagTarget(auth, 'platformIntegration')).resolves.toBeUndefined();
+    await expect(resolveSpecialTraceFlagTarget(auth, 'platformIntegration')).resolves.toEqual({
+      ids: ['005000000000111AAA', '005000000000222AAA'],
+      label: 'Platform Integration',
+      matchedNames: ['Platform Integration', 'Platform Integration User']
+    });
   });
 
   test('returns undefined when a special trace-flag target is not available', async () => {

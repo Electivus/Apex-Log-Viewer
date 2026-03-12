@@ -32,6 +32,23 @@ function exitWithChildResult(code, signal) {
   process.exit(1);
 }
 
+function resolvePlaywrightInvocation(extraArgs) {
+  try {
+    // Prefer the local Playwright CLI directly. On Windows under Git Bash,
+    // spawning npx.cmd can throw EINVAL before Playwright even starts.
+    const cliPath = require.resolve('@playwright/test/cli');
+    return {
+      command: process.execPath,
+      args: [cliPath, 'test', ...extraArgs]
+    };
+  } catch {}
+
+  return {
+    command: process.platform === 'win32' ? 'npx.cmd' : 'npx',
+    args: ['playwright', 'test', ...extraArgs]
+  };
+}
+
 async function main() {
   // Some environments leak ELECTRON_RUN_AS_NODE=1; VS Code won't boot properly.
   try {
@@ -58,9 +75,12 @@ async function main() {
   }
 
   const repoRoot = path.join(__dirname, '..');
-  const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  const args = ['playwright', 'test', ...process.argv.slice(2)];
-  const child = spawn(cmd, args, { stdio: 'inherit', cwd: repoRoot, env: process.env });
+  const invocation = resolvePlaywrightInvocation(process.argv.slice(2));
+  const child = spawn(invocation.command, invocation.args, {
+    stdio: 'inherit',
+    cwd: repoRoot,
+    env: process.env
+  });
   child.on('exit', exitWithChildResult);
 }
 

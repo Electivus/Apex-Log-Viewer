@@ -14,10 +14,7 @@ import {
 } from '../utils/tooling';
 import { waitForWebviewFrame } from '../utils/webviews';
 
-const SPECIAL_TARGET_UI: Record<
-  SpecialTraceFlagTargetType,
-  { buttonTestId: string; expectedLabel: string }
-> = {
+const SPECIAL_TARGET_UI: Record<SpecialTraceFlagTargetType, { buttonTestId: string; expectedLabel: string }> = {
   automatedProcess: {
     buttonTestId: 'debug-flags-special-target-automated-process',
     expectedLabel: 'Automated Process'
@@ -97,12 +94,14 @@ async function assertSpecialTargetBehavior(
   await expect
     .poll(
       async () => {
-        const status = await getDebugTraceFlagByTracedEntityId(auth, resolvedTarget.id);
-        return status?.id || '';
+        const statuses = await Promise.all(
+          resolvedTarget.ids.map(async tracedEntityId => await getDebugTraceFlagByTracedEntityId(auth, tracedEntityId))
+        );
+        return statuses.every(status => Boolean(status?.id));
       },
       { timeout: 60_000 }
     )
-    .not.toBe('');
+    .toBe(true);
 
   await removeButton.click();
   await expect(notice).toBeVisible({ timeout: 60_000 });
@@ -110,12 +109,14 @@ async function assertSpecialTargetBehavior(
   await expect
     .poll(
       async () => {
-        const status = await getDebugTraceFlagByTracedEntityId(auth, resolvedTarget.id);
-        return status?.id || '';
+        const statuses = await Promise.all(
+          resolvedTarget.ids.map(async tracedEntityId => await getDebugTraceFlagByTracedEntityId(auth, tracedEntityId))
+        );
+        return statuses.every(status => !status?.id);
       },
       { timeout: 60_000 }
     )
-    .toBe('');
+    .toBe(true);
 }
 
 test('configures and removes debug flags from logs and tail entrypoints', async ({ vscodePage, scratchAlias }) => {
@@ -142,20 +143,26 @@ test('configures and removes debug flags from logs and tail entrypoints', async 
     await expect(debugFlagsFrame.locator('[data-testid="debug-flags-notice"]')).toBeVisible({ timeout: 60_000 });
 
     await expect
-      .poll(async () => {
-        const status = await getUserDebugTraceFlag(auth, userId);
-        return status?.id || '';
-      }, { timeout: 60_000 })
+      .poll(
+        async () => {
+          const status = await getUserDebugTraceFlag(auth, userId);
+          return status?.id || '';
+        },
+        { timeout: 60_000 }
+      )
       .not.toBe('');
 
     await debugFlagsFrame.locator('[data-testid="debug-flags-remove"]').click();
     await expect(debugFlagsFrame.locator('[data-testid="debug-flags-notice"]')).toBeVisible({ timeout: 60_000 });
 
     await expect
-      .poll(async () => {
-        const status = await getUserDebugTraceFlag(auth, userId);
-        return status?.id || '';
-      }, { timeout: 60_000 })
+      .poll(
+        async () => {
+          const status = await getUserDebugTraceFlag(auth, userId);
+          return status?.id || '';
+        },
+        { timeout: 60_000 }
+      )
       .toBe('');
 
     await runCommand(vscodePage, 'Electivus Apex Logs: Tail Logs');
@@ -185,11 +192,15 @@ test('supports special trace flag targets in the debug flags panel', async ({ vs
   const automatedProcessTarget = await resolveSpecialTraceFlagTarget(auth, 'automatedProcess');
   const platformIntegrationTarget = await resolveSpecialTraceFlagTarget(auth, 'platformIntegration');
 
-  if (automatedProcessTarget?.id) {
-    await removeDebugTraceFlagsByTracedEntityId(auth, automatedProcessTarget.id).catch(() => {});
+  if (automatedProcessTarget?.ids?.length) {
+    for (const tracedEntityId of automatedProcessTarget.ids) {
+      await removeDebugTraceFlagsByTracedEntityId(auth, tracedEntityId).catch(() => {});
+    }
   }
-  if (platformIntegrationTarget?.id) {
-    await removeDebugTraceFlagsByTracedEntityId(auth, platformIntegrationTarget.id).catch(() => {});
+  if (platformIntegrationTarget?.ids?.length) {
+    for (const tracedEntityId of platformIntegrationTarget.ids) {
+      await removeDebugTraceFlagsByTracedEntityId(auth, tracedEntityId).catch(() => {});
+    }
   }
 
   try {
@@ -198,11 +209,15 @@ test('supports special trace flag targets in the debug flags panel', async ({ vs
     await assertSpecialTargetBehavior(debugFlagsFrame, auth, 'automatedProcess');
     await assertSpecialTargetBehavior(debugFlagsFrame, auth, 'platformIntegration');
   } finally {
-    if (automatedProcessTarget?.id) {
-      await removeDebugTraceFlagsByTracedEntityId(auth, automatedProcessTarget.id).catch(() => {});
+    if (automatedProcessTarget?.ids?.length) {
+      for (const tracedEntityId of automatedProcessTarget.ids) {
+        await removeDebugTraceFlagsByTracedEntityId(auth, tracedEntityId).catch(() => {});
+      }
     }
-    if (platformIntegrationTarget?.id) {
-      await removeDebugTraceFlagsByTracedEntityId(auth, platformIntegrationTarget.id).catch(() => {});
+    if (platformIntegrationTarget?.ids?.length) {
+      for (const tracedEntityId of platformIntegrationTarget.ids) {
+        await removeDebugTraceFlagsByTracedEntityId(auth, tracedEntityId).catch(() => {});
+      }
     }
   }
 });

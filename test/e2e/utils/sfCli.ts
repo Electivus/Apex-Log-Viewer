@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 
 export type ExecOptions = {
   cwd?: string;
@@ -120,7 +120,7 @@ export function execFileAsync(file: string, args: string[], options: ExecOptions
 
     if (process.platform === 'win32' && /\.cmd$/i.test(file)) {
       const command = [file, ...args].map(quoteWindowsCmdArg).join(' ');
-      execFile('cmd.exe', ['/d', '/s', '/c', command], execOptions, callback);
+      exec(command, { ...execOptions, shell: process.env.ComSpec || 'cmd.exe' }, callback);
       return;
     }
 
