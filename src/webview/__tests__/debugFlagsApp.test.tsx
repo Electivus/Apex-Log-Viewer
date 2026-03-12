@@ -291,6 +291,79 @@ describe('DebugFlags webview App', () => {
     });
   });
 
+  it('clears the selected target status when the extension switches orgs', async () => {
+    const { vscode, posted } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<DebugFlagsApp vscode={vscode} messageBus={bus} />);
+
+    sendMessage(bus, { type: 'debugFlagsInit', locale: 'en', defaultTtlMinutes: 30 });
+    sendMessage(bus, {
+      type: 'debugFlagsOrgs',
+      data: [
+        { username: 'user@example.com', alias: 'Main', isDefaultUsername: true },
+        { username: 'other@example.com', alias: 'Other', isDefaultUsername: false }
+      ],
+      selected: 'user@example.com'
+    });
+    sendMessage(bus, { type: 'debugFlagsDebugLevels', data: ['ALV_E2E'], active: 'ALV_E2E' });
+    sendMessage(bus, {
+      type: 'debugFlagsUsers',
+      query: '',
+      data: [
+        {
+          id: '005000000000001AAA',
+          name: 'Ada Lovelace',
+          username: 'ada@example.com',
+          active: true
+        }
+      ]
+    });
+
+    fireEvent.click(screen.getByTestId('debug-flags-user-row-005000000000001AAA'));
+    await waitFor(() => {
+      expect(
+        posted.some(
+          msg =>
+            msg.type === 'debugFlagsSelectTarget' &&
+            msg.target.type === 'user' &&
+            msg.target.userId === '005000000000001AAA'
+        )
+      ).toBe(true);
+    });
+
+    sendMessage(bus, {
+      type: 'debugFlagsTargetStatus',
+      target: { type: 'user', userId: '005000000000001AAA' },
+      status: {
+        target: { type: 'user', userId: '005000000000001AAA' },
+        targetLabel: 'Ada Lovelace',
+        targetAvailable: true,
+        traceFlagId: '7tf000000000001AAA',
+        debugLevelName: 'ALV_E2E',
+        startDate: '2026-02-19T17:00:00.000Z',
+        expirationDate: '2026-02-19T18:00:00.000Z',
+        isActive: true
+      }
+    });
+
+    await screen.findByTestId('debug-flags-status-level');
+    expect(screen.getByTestId('debug-flags-selected-target-label')).toHaveTextContent('Ada Lovelace');
+
+    sendMessage(bus, {
+      type: 'debugFlagsOrgs',
+      data: [
+        { username: 'user@example.com', alias: 'Main', isDefaultUsername: true },
+        { username: 'other@example.com', alias: 'Other', isDefaultUsername: false }
+      ],
+      selected: 'other@example.com'
+    });
+
+    await screen.findByText('Select a special target or an active user to inspect and configure debug flags.');
+    expect(screen.queryByTestId('debug-flags-status-level')).toBeNull();
+    expect(screen.queryByTestId('debug-flags-selected-target-label')).toBeNull();
+    expect(screen.queryByTestId('debug-flags-user-row-005000000000001AAA')).toBeNull();
+  });
+
   it('sends debounced user search queries', async () => {
     const { vscode, posted } = createVsCodeMock();
     const bus = new EventTarget();

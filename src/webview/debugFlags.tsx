@@ -97,6 +97,7 @@ export function DebugFlagsApp({
   const [error, setError] = useState<string | undefined>(undefined);
   const [notice, setNotice] = useState<NoticeState | undefined>(undefined);
   const [initialized, setInitialized] = useState(false);
+  const selectedOrgRef = useRef<string | undefined>(undefined);
   const selectedTargetRef = useRef<TraceFlagTarget | undefined>(undefined);
   const selectedManagerIdRef = useRef<string>('');
   const [loading, setLoading] = useState<LoadingState>({
@@ -105,6 +106,10 @@ export function DebugFlagsApp({
     status: false,
     action: false
   });
+
+  useEffect(() => {
+    selectedOrgRef.current = selectedOrg;
+  }, [selectedOrg]);
 
   useEffect(() => {
     selectedTargetRef.current = selectedTarget;
@@ -138,6 +143,13 @@ export function DebugFlagsApp({
           }));
           break;
         case 'debugFlagsOrgs':
+          if (selectedOrgRef.current !== msg.selected) {
+            setUsers([]);
+            setSelectedTarget(undefined);
+            setStatus(undefined);
+            setNotice(undefined);
+            setError(undefined);
+          }
           setOrgs(msg.data || []);
           setSelectedOrg(msg.selected);
           break;
@@ -237,6 +249,7 @@ export function DebugFlagsApp({
 
   const handleSelectOrg = (nextOrg: string) => {
     setSelectedOrg(nextOrg);
+    setUsers([]);
     setSelectedTarget(undefined);
     setStatus(undefined);
     setNotice(undefined);
