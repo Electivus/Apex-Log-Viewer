@@ -363,6 +363,7 @@ describe('DebugFlags webview App', () => {
     await screen.findByText('Select a special target or an active user to inspect and configure debug flags.');
     expect(screen.queryByTestId('debug-flags-status-level')).toBeNull();
     expect(screen.queryByTestId('debug-flags-selected-target-label')).toBeNull();
+    expect(screen.queryByTestId('debug-flags-user-row-005000000000001AAA')).toBeNull();
   });
 
   it('sends debounced user search queries', async () => {

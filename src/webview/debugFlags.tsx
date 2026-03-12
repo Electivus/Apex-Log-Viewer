@@ -144,6 +144,7 @@ export function DebugFlagsApp({
           break;
         case 'debugFlagsOrgs':
           if (selectedOrgRef.current !== msg.selected) {
+            setUsers([]);
             setSelectedTarget(undefined);
             setStatus(undefined);
             setNotice(undefined);
@@ -246,6 +247,7 @@ export function DebugFlagsApp({
 
   const handleSelectOrg = (nextOrg: string) => {
     setSelectedOrg(nextOrg);
+    setUsers([]);
     setSelectedTarget(undefined);
     setStatus(undefined);
     setNotice(undefined);
