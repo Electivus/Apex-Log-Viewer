@@ -421,6 +421,128 @@ suite('traceflags user management', () => {
     assert.equal(status.isActive, true);
   });
 
+  test('getTraceFlagTargetStatus keeps a shared start time when active special-target flags only differ by expiration', async () => {
+    installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/query?q=')) {
+        const soql = decodeSoql(req.path);
+        if (
+          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
+          soql.includes("UserType = 'CloudIntegrationUser'") &&
+          soql.includes('IsActive = true')
+        ) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [{ Id: '005000000000003AAA' }, { Id: '005000000000004AAA' }]
+            }
+          };
+        }
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000003AAA'")) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [
+                {
+                  Id: '7tf000000000003AAA',
+                  StartDate: '2026-02-19T16:00:00.000Z',
+                  ExpirationDate: '2099-02-19T18:00:00.000Z',
+                  DebugLevel: { DeveloperName: 'ALV_PLATFORM_SHARED' }
+                }
+              ]
+            }
+          };
+        }
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000004AAA'")) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [
+                {
+                  Id: '7tf000000000004AAA',
+                  StartDate: '2026-02-19T16:00:00.000Z',
+                  ExpirationDate: '2099-02-19T19:00:00.000Z',
+                  DebugLevel: { DeveloperName: 'ALV_PLATFORM_SHARED' }
+                }
+              ]
+            }
+          };
+        }
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const status = await getTraceFlagTargetStatus(auth, { type: 'platformIntegration' });
+    assert.equal(status.target.type, 'platformIntegration');
+    assert.equal(status.targetAvailable, true);
+    assert.equal(status.resolvedTargetCount, 2);
+    assert.equal(status.activeTargetCount, 2);
+    assert.equal(status.debugLevelMixed, false);
+    assert.equal(status.debugLevelName, 'ALV_PLATFORM_SHARED');
+    assert.equal(status.startDate, '2026-02-19T16:00:00.000Z');
+    assert.equal(status.expirationDate, undefined);
+    assert.equal(status.isActive, true);
+  });
+
+  test('getTraceFlagTargetStatus keeps a shared expiration when active special-target flags only differ by start time', async () => {
+    installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/query?q=')) {
+        const soql = decodeSoql(req.path);
+        if (
+          soql.includes("FROM User WHERE Name IN ('Automated Process')") &&
+          soql.includes("UserType = 'AutomatedProcess'") &&
+          soql.includes('IsActive = true')
+        ) {
+          return {
+            statusCode: 200,
+            body: { records: [{ Id: '005000000000003AAA' }, { Id: '005000000000004AAA' }] }
+          };
+        }
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000003AAA'")) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [
+                {
+                  Id: '7tf000000000003AAA',
+                  StartDate: '2026-02-19T16:00:00.000Z',
+                  ExpirationDate: '2099-02-19T18:00:00.000Z',
+                  DebugLevel: { DeveloperName: 'ALV_AUTOPROC_SHARED' }
+                }
+              ]
+            }
+          };
+        }
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000004AAA'")) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [
+                {
+                  Id: '7tf000000000004AAA',
+                  StartDate: '2026-02-19T17:00:00.000Z',
+                  ExpirationDate: '2099-02-19T18:00:00.000Z',
+                  DebugLevel: { DeveloperName: 'ALV_AUTOPROC_SHARED' }
+                }
+              ]
+            }
+          };
+        }
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const status = await getTraceFlagTargetStatus(auth, { type: 'automatedProcess' });
+    assert.equal(status.target.type, 'automatedProcess');
+    assert.equal(status.targetAvailable, true);
+    assert.equal(status.resolvedTargetCount, 2);
+    assert.equal(status.activeTargetCount, 2);
+    assert.equal(status.debugLevelMixed, false);
+    assert.equal(status.debugLevelName, 'ALV_AUTOPROC_SHARED');
+    assert.equal(status.startDate, undefined);
+    assert.equal(status.expirationDate, '2099-02-19T18:00:00.000Z');
+    assert.equal(status.isActive, true);
+  });
+
   test('getTraceFlagTargetStatus marks special target unavailable when no active users match', async () => {
     installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
