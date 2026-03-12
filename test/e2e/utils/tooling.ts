@@ -180,7 +180,7 @@ async function findUsersByExactNames(
     .filter((record: any) => isSfId(record?.Id))
     .map((record: any) => ({
       id: record.Id,
-      name: typeof record?.Name === 'string' ? record.Name : ''
+      name: typeof record?.Name === 'string' ? record.Name : normalizedNames[0]!
     }))
     .filter(record => {
       if (seen.has(record.id)) {
