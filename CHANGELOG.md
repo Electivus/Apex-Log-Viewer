@@ -8,9 +8,13 @@
 
 ### Bug Fixes
 
+- Webview: add a built-in troubleshooting command for the recurring VS Code webview service-worker failure, including direct guidance to the correct `Service Worker` cache folder for `Code` vs `Code - Insiders`.
+
 ### Chores
 
 ### Tests
+
+- Webview: add coverage for platform-specific `Service Worker` cache path resolution and keep activation tests asserting the troubleshooting command stays registered.
 
 ## [0.32.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.30.0...v0.32.0) (2026-03-09)
 

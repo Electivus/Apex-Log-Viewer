@@ -242,6 +242,7 @@ suite('extension activation gating', () => {
     assert.equal(harness.timeoutCallbacks.length, 0, 'should not schedule CLI preload outside Salesforce projects');
     assert.ok(harness.commands.has('sfLogs.refresh'), 'refresh command should stay registered');
     assert.ok(harness.commands.has('sfLogs.openLogInViewer'), 'open log viewer command should stay registered');
+    assert.ok(harness.commands.has('sfLogs.troubleshootWebview'), 'webview troubleshooting command should stay registered');
 
     const activationEvent = harness.events.find(event => event.name === 'extension.activate');
     assert.equal(activationEvent?.props?.hasSalesforceProject, 'false');

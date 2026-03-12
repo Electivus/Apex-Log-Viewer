@@ -9,6 +9,7 @@
   "command.selectOrg.title": "Selecionar Org",
   "command.tail.title": "Tail de Logs",
   "command.openLogInViewer.title": "Abrir no Apex Log Viewer",
+  "command.troubleshootWebview.title": "Corrigir Erro de Webview",
   "configuration.title": "Electivus Apex Logs",
   "configuration.electivus.apexLogs.pageSize.description": "Quantidade de logs por página (máximo efetivo: 200). Valores maiores trazem mais por requisição, mas podem deixar a UI mais lenta ou aumentar a carga nas APIs.",
   "configuration.electivus.apexLogs.headConcurrency.description": "Número máximo de requisições concorrentes para buscar cabeçalhos. Valores muito altos podem sobrecarregar as APIs do Salesforce ou atingir limites de rate.",

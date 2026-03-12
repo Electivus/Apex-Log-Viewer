@@ -366,6 +366,11 @@
         "category": "Electivus Apex Logs"
       },
       {
+        "command": "sfLogs.troubleshootWebview",
+        "title": "%command.troubleshootWebview.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
         "command": "sfLogs.resetCliCache",
         "title": "Reset CLI Cache",
         "category": "Electivus Apex Logs"
@@ -383,6 +388,11 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "sfLogs.troubleshootWebview",
+          "when": "view == sfLogViewer || view == sfLogTail",
+          "group": "navigation@97"
+        },
         {
           "command": "sfLogs.resetCliCache",
           "when": "view == sfLogViewer || view == sfLogTail",
