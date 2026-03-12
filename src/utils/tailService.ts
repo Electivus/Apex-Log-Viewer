@@ -19,6 +19,7 @@ import {
   type StreamProcessor,
   type StreamingClient
 } from '../salesforce/streaming';
+import { requestTextWithConnection } from '../salesforce/jsforce';
 
 /**
  * Handles Apex log tailing mechanics independent of the webview.
@@ -85,8 +86,6 @@ export class TailService {
       this.currentAuth = auth;
       logInfo('Tail: acquired auth for', auth.username || '(default)', 'at', auth.instanceUrl);
 
-      this.connection = await createConnectionFromAuth(auth, getEffectiveApiVersion(auth));
-
       try {
         // Ensure TraceFlag using USER_DEBUG and update existing if present
         const created = await ensureUserTraceFlag(auth, debugLevel);
@@ -116,6 +115,7 @@ export class TailService {
         return;
       }
 
+      this.connection = await this.getActiveConnection(auth);
       this.post({ type: 'tailStatus', running: true });
       logInfo('Tail: started; subscribing to /systemTopic/Logging…');
 
@@ -287,7 +287,13 @@ export class TailService {
     try {
       const auth = this.currentAuth ?? (await getOrgAuth(this.selectedOrg));
       this.currentAuth = auth;
-      const conn = this.connection;
+      const conn =
+        this.connection
+          ? await this.getActiveConnection(auth).catch(error => {
+              logWarn('Tail: failed to refresh active connection; falling back to HTTP path ->', getErrorMessage(error));
+              return undefined;
+            })
+          : undefined;
       if (!conn) {
         // fallback: use existing HTTP path
         const body = await fetchApexLogBody(auth, id);
@@ -360,9 +366,16 @@ export class TailService {
     }
     const auth = this.currentAuth ?? (await getOrgAuth(this.selectedOrg, undefined, signal));
     this.currentAuth = auth;
-    const body =
+    const connection =
       this.connection && !signal?.aborted
-        ? await this.fetchLogBodyFromConnection(auth, this.connection, logId).catch(() =>
+        ? await this.getActiveConnection(auth).catch(error => {
+            logWarn('Tail: failed to refresh active connection for save; falling back to HTTP path ->', getErrorMessage(error));
+            return undefined;
+          })
+        : undefined;
+    const body =
+      connection
+        ? await this.fetchLogBodyFromConnection(auth, connection, logId, signal).catch(() =>
             fetchApexLogBody(auth, logId, undefined, signal)
           )
         : await fetchApexLogBody(auth, logId, undefined, signal);
@@ -381,8 +394,14 @@ export class TailService {
     return Array.isArray((result as any)?.records) ? ((result as any).records[0] as Record<string, unknown> | undefined) : undefined;
   }
 
-  private async fetchLogBodyFromConnection(auth: OrgAuth, connection: Connection, logId: string): Promise<string> {
-    const response = await connection.request<string>(
+  private async fetchLogBodyFromConnection(
+    auth: OrgAuth,
+    connection: Connection,
+    logId: string,
+    signal?: AbortSignal
+  ): Promise<string> {
+    return requestTextWithConnection(
+      connection,
       {
         method: 'GET',
         url: `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/ApexLog/${logId}/Body`,
@@ -390,12 +409,19 @@ export class TailService {
           'Content-Type': 'text/plain'
         }
       },
-      {
-        responseType: 'text/plain',
-        encoding: 'utf8'
-      }
+      { signal }
     );
-    return typeof response === 'string' ? response : response === undefined ? '' : String(response);
+  }
+
+  private async getActiveConnection(auth: OrgAuth): Promise<Connection> {
+    const effectiveVersion = getEffectiveApiVersion(auth);
+    if (!this.connection || this.connection.version !== effectiveVersion) {
+      if (this.connection && this.connection.version !== effectiveVersion) {
+        logInfo('Tail: refreshing connection for API version', effectiveVersion);
+      }
+      this.connection = await createConnectionFromAuth(auth, effectiveVersion);
+    }
+    return this.connection;
   }
 
   private getWorkspaceRoot(): string | undefined {

@@ -455,6 +455,14 @@ export async function requestText(
 
   const version = extractApiVersionFromUrl(request.url);
   const connection = await createConnectionFromAuth(auth, version || '64.0');
+  return requestTextWithConnection(connection, request, options);
+}
+
+export async function requestTextWithConnection(
+  connection: JsforceConnectionLike,
+  request: HttpRequest,
+  options: LegacyRequestOptions = {}
+): Promise<string> {
   const response = await awaitRequestWithAbort(
     connection.request<string>(request, {
       responseType: 'text/plain',

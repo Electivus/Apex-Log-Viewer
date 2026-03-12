@@ -1,6 +1,7 @@
 import assert from 'assert/strict';
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { PassThrough } from 'stream';
 import { TailService } from '../utils/tailService';
 import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
 import * as cli from '../salesforce/cli';
@@ -8,6 +9,7 @@ import * as http from '../salesforce/http';
 import * as jsforce from '../salesforce/jsforce';
 import * as streaming from '../salesforce/streaming';
 import * as traceflags from '../salesforce/traceflags';
+import { __resetApiVersionFallbackStateForTests, recordApiVersionFallback, setApiVersion } from '../salesforce/apiVersion';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 
 class MockDisposable implements vscode.Disposable {
@@ -60,6 +62,8 @@ suite('TailService', () => {
     (DebugFlagsPanel as any).show = originalDebugFlagsShow;
     streaming.__resetStreamingClientFactoryForTests();
     jsforce.__resetConnectionFactoryForTests();
+    __resetApiVersionFallbackStateForTests();
+    setApiVersion('64.0');
   });
 
   test('requires debug level', async () => {
@@ -108,6 +112,56 @@ suite('TailService', () => {
     await service.start('DEBUG');
     assert.equal((service as any).seenLogIds.size, 0);
     assert.equal((service as any).logIdToPath.size, 0);
+    (cli as any).getOrgAuth = origGetAuth;
+    (traceflags as any).ensureUserTraceFlag = origEnsure;
+    (http as any).fetchApexLogs = origFetch;
+    service.stop();
+  });
+
+  test('start recreates the tail connection after API-version fallback', async () => {
+    setApiVersion('66.0');
+    const service = new TailService(() => {});
+    const auth = { username: 'legacy-user', instanceUrl: 'https://legacy.example.com', accessToken: 't' };
+    const requestedVersions: string[] = [];
+    const origGetAuth = cli.getOrgAuth;
+    const origEnsure = traceflags.ensureUserTraceFlag;
+    const origFetch = http.fetchApexLogs;
+    (cli as any).getOrgAuth = async () => auth;
+    (traceflags as any).ensureUserTraceFlag = async () => {
+      recordApiVersionFallback(auth as any, '66.0', '64.0');
+      return false;
+    };
+    (http as any).fetchApexLogs = async () => [];
+    jsforce.__setConnectionFactoryForTests((async (_auth: any, apiVersion: string) => {
+      requestedVersions.push(apiVersion);
+      return {
+        version: apiVersion,
+        instanceUrl: auth.instanceUrl,
+        accessToken: auth.accessToken,
+        request: async () => '',
+        query: async () => ({ records: [] }),
+        queryMore: async () => ({ records: [] }),
+        tooling: {
+          query: async () => ({ records: [] }),
+          create: async () => ({ success: true, id: '1', errors: [] }),
+          update: async () => ({ success: true, id: '1', errors: [] }),
+          destroy: async () => ({ success: true, id: '1', errors: [] })
+        },
+        streaming: {} as any
+      };
+    }) as any);
+    streaming.__setStreamingClientFactoryForTests(async () => ({
+      handshake: async () => {},
+      replay: () => {},
+      subscribe: async () => {},
+      disconnect: () => {}
+    }));
+
+    await service.start('DEBUG');
+
+    assert.deepEqual(requestedVersions, ['64.0']);
+    assert.equal((service as any).connection?.version, '64.0');
+
     (cli as any).getOrgAuth = origGetAuth;
     (traceflags as any).ensureUserTraceFlag = origEnsure;
     (http as any).fetchApexLogs = origFetch;
@@ -177,13 +231,57 @@ suite('TailService', () => {
       return 'body';
     };
     (service as any).emitLogWithHeader = async () => {};
-    await (service as any).handleIncomingLogId('1');
-    assert.equal(calls, 1);
-    assert.equal((service as any).seenLogIds.has('1'), false);
-    await (service as any).handleIncomingLogId('1');
-    assert.equal(calls, 2);
-    assert.equal((service as any).seenLogIds.has('1'), true);
-    (http as any).fetchApexLogBody = origFetch;
+    try {
+      await (service as any).handleIncomingLogId('1');
+      assert.equal(calls, 1);
+      assert.equal((service as any).seenLogIds.has('1'), false);
+      await (service as any).handleIncomingLogId('1');
+      assert.equal(calls, 2);
+      assert.equal((service as any).seenLogIds.has('1'), true);
+    } finally {
+      (http as any).fetchApexLogBody = origFetch;
+    }
+  });
+
+  test('ensureLogSaved preserves abortability when using the active tail connection', async () => {
+    setApiVersion('64.0');
+    const service = new TailService(() => {});
+    const auth = { username: 'u', instanceUrl: 'https://example.com', accessToken: 't' };
+    const controller = new AbortController();
+    const stream = new PassThrough();
+    let destroyed = false;
+    const originalDestroy = stream.destroy.bind(stream);
+    (stream as any).destroy = (...args: any[]) => {
+      destroyed = true;
+      return originalDestroy(...args);
+    };
+
+    (service as any).currentAuth = auth;
+    (service as any).connection = {
+      version: '64.0',
+      instanceUrl: auth.instanceUrl,
+      accessToken: auth.accessToken,
+      request: () => {
+        const promise = new Promise<string>(() => {}) as Promise<string> & { stream: () => PassThrough };
+        promise.stream = () => stream;
+        return promise;
+      },
+      query: async () => ({ records: [] }),
+      queryMore: async () => ({ records: [] }),
+      tooling: {
+        query: async () => ({ records: [] }),
+        create: async () => ({ success: true, id: '1', errors: [] }),
+        update: async () => ({ success: true, id: '1', errors: [] }),
+        destroy: async () => ({ success: true, id: '1', errors: [] })
+      },
+      streaming: {} as any
+    };
+
+    const pending = service.ensureLogSaved('07Lxx0000000001', controller.signal);
+    controller.abort();
+
+    await assert.rejects(pending, /aborted/i);
+    assert.equal(destroyed, true);
   });
 
   test('openDebugFlags opens debug flags panel from tail view', async () => {
