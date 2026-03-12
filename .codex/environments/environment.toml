@@ -5,5 +5,5 @@ name = "Apex-Log-Viewer"
 [setup]
 script = '''
 npm ci
-npm build
+npm run build
 '''
