@@ -16,7 +16,13 @@ import { getErrorMessage } from './utils/error';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
 import { findSalesforceProjectInfo, isApexLogDocument, getLogIdFromLogFilePath } from './utils/workspace';
 import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
-import { buildWebviewTroubleshootingMessage, getWebviewServiceWorkerPath } from './utils/webviewTroubleshooting';
+import {
+  buildRemoteWebviewTroubleshootingMessage,
+  buildWebviewTroubleshootingMessage,
+  getLocalUiWebviewCachePaths,
+  getRemoteEnvironmentLabel,
+  getWebviewServiceWorkerPath
+} from './utils/webviewTroubleshooting';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
   username: string;
@@ -230,6 +236,43 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('sfLogs.troubleshootWebview', async () => {
       safeSendEvent('command.troubleshootWebview');
       const appName = vscode.env.appName || 'VS Code';
+      const remoteName = vscode.env.remoteName;
+      const showOutputLabel = localize('webviewTroubleshooting.showOutput', 'Show Extension Output');
+
+      if (remoteName) {
+        const cachePaths = getLocalUiWebviewCachePaths(appName);
+        const remoteLabel = getRemoteEnvironmentLabel(remoteName);
+        const message = localize(
+          'webviewTroubleshooting.remoteMessage',
+          buildRemoteWebviewTroubleshootingMessage(appName, remoteLabel, cachePaths),
+          appName,
+          remoteLabel,
+          cachePaths.windows,
+          cachePaths.macos,
+          cachePaths.linux
+        );
+        const copyStepsLabel = localize('webviewTroubleshooting.copySteps', 'Copy Recovery Steps');
+        const choice = await vscode.window.showWarningMessage(
+          message,
+          { modal: true },
+          copyStepsLabel,
+          showOutputLabel
+        );
+
+        if (choice === copyStepsLabel) {
+          await vscode.env.clipboard.writeText(message);
+          void vscode.window.showInformationMessage(
+            localize('webviewTroubleshooting.remoteCopied', 'Copied webview recovery steps.')
+          );
+          return;
+        }
+
+        if (choice === showOutputLabel) {
+          showOutput(true);
+        }
+        return;
+      }
+
       const serviceWorkerPath = getWebviewServiceWorkerPath({ appName });
       const message = localize(
         'webviewTroubleshooting.message',
@@ -239,7 +282,6 @@ export async function activate(context: vscode.ExtensionContext) {
       );
       const openFolderLabel = localize('webviewTroubleshooting.openFolder', 'Open Cache Folder');
       const copyPathLabel = localize('webviewTroubleshooting.copyPath', 'Copy Cache Path');
-      const showOutputLabel = localize('webviewTroubleshooting.showOutput', 'Show Extension Output');
       const choice = await vscode.window.showWarningMessage(
         message,
         { modal: true },

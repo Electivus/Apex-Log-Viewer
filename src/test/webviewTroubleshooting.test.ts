@@ -1,6 +1,11 @@
 import assert from 'assert/strict';
 import path from 'node:path';
-import { buildWebviewTroubleshootingMessage, getWebviewServiceWorkerPath } from '../utils/webviewTroubleshooting';
+import {
+  buildRemoteWebviewTroubleshootingMessage,
+  buildWebviewTroubleshootingMessage,
+  getLocalUiWebviewCachePaths,
+  getWebviewServiceWorkerPath
+} from '../utils/webviewTroubleshooting';
 
 suite('webview troubleshooting', () => {
   test('uses the Insiders profile path on Windows', () => {
@@ -64,6 +69,16 @@ suite('webview troubleshooting', () => {
     assert.equal(ossTarget, 'C:\\Users\\k2\\AppData\\Roaming\\Code - OSS\\Service Worker');
   });
 
+  test('builds local UI cache paths without using the remote extension host filesystem', () => {
+    const cachePaths = getLocalUiWebviewCachePaths('Code - Insiders');
+
+    assert.deepEqual(cachePaths, {
+      windows: '%APPDATA%\\Code - Insiders\\Service Worker',
+      macos: '~/Library/Application Support/Code - Insiders/Service Worker',
+      linux: '~/.config/Code - Insiders/Service Worker'
+    });
+  });
+
   test('builds a troubleshooting message with the app label and cache path', () => {
     const message = buildWebviewTroubleshootingMessage(
       'Code - Insiders',
@@ -73,5 +88,19 @@ suite('webview troubleshooting', () => {
     assert.match(message, /Code - Insiders/);
     assert.match(message, /Service Worker/);
     assert.match(message, /not the extension CLI cache/);
+  });
+
+  test('builds a remote troubleshooting message with local UI cache locations', () => {
+    const message = buildRemoteWebviewTroubleshootingMessage('Code - Insiders', 'WSL', {
+      windows: '%APPDATA%\\Code - Insiders\\Service Worker',
+      macos: '~/Library/Application Support/Code - Insiders/Service Worker',
+      linux: '~/.config/Code - Insiders/Service Worker'
+    });
+
+    assert.match(message, /while connected to WSL/);
+    assert.match(message, /Windows: %APPDATA%\\Code - Insiders\\Service Worker/);
+    assert.match(message, /macOS: ~\/Library\/Application Support\/Code - Insiders\/Service Worker/);
+    assert.match(message, /Linux: ~\/\.config\/Code - Insiders\/Service Worker/);
+    assert.match(message, /local to the VS Code UI machine/);
   });
 });
