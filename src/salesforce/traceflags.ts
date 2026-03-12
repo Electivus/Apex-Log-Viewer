@@ -8,12 +8,16 @@ import type {
   TraceFlagTargetStatus
 } from '../shared/debugFlagsTypes';
 import { CacheManager } from '../utils/cacheManager';
-import { getBooleanConfig, getConfig, getNumberConfig } from '../utils/config';
+import { getBooleanConfig, getNumberConfig } from '../utils/config';
 import { logTrace } from '../utils/logger';
-import path from 'path';
-import { CLI_TIMEOUT_MS, execCommand } from './exec';
 import { getEffectiveApiVersion, httpsRequestWith401Retry } from './http';
-import { resolvePATHFromLoginShell } from './path';
+import {
+  createToolingRecord,
+  deleteToolingRecord,
+  queryStandard as queryStandardViaJsforce,
+  queryTooling as queryToolingViaJsforce,
+  updateToolingRecord
+} from './jsforce';
 import type { OrgAuth } from './types';
 
 const userIdCache = new Map<string, string>();
@@ -255,136 +259,20 @@ function buildDebugLevelPayload(input: DebugLevelRecord) {
   };
 }
 
-function stripAnsi(value: string): string {
-  return value.replace(/\u001b\[[0-9;]*m/g, '');
-}
-
-function parseCliJson(stdout: string): any {
-  const raw = String(stdout || '').trim();
-  if (!raw) {
-    throw new Error('empty CLI output');
-  }
-  try {
-    return JSON.parse(raw);
-  } catch {
-    const cleaned = stripAnsi(raw);
-    const start = cleaned.indexOf('{');
-    const end = cleaned.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      return JSON.parse(cleaned.slice(start, end + 1));
-    }
-    throw new Error('invalid CLI JSON output');
-  }
-}
-
-function quoteWindowsCmdArg(value: string): string {
-  const raw = String(value ?? '');
-  return `"${raw.replace(/"/g, '""')}"`;
-}
-
-async function execSfCommand(
-  program: string,
-  args: string[],
-  envOverride?: NodeJS.ProcessEnv
-): Promise<{ stdout: string; stderr: string }> {
-  if (process.platform === 'win32' && /\.cmd$/i.test(program)) {
-    const command = [program, ...args].map(quoteWindowsCmdArg).join(' ');
-    return execCommand('cmd.exe', ['/d', '/s', '/c', command], envOverride, CLI_TIMEOUT_MS);
-  }
-  return execCommand(program, args, envOverride, CLI_TIMEOUT_MS);
-}
-
-function getSfCliProgramCandidates(): string[] {
-  const configured = String(getConfig<string | undefined>('sfLogs.cliPath', undefined) || '').trim();
-  const windowsAppDataSf =
-    process.platform === 'win32' && process.env.APPDATA ? path.join(process.env.APPDATA, 'npm', 'sf.cmd') : '';
-  const windowsUserProfileSf =
-    process.platform === 'win32' && process.env.USERPROFILE
-      ? path.join(process.env.USERPROFILE, 'AppData', 'Roaming', 'npm', 'sf.cmd')
-      : '';
-  return Array.from(
-    new Set(
-      [configured, windowsAppDataSf, windowsUserProfileSf, process.platform === 'win32' ? 'sf.cmd' : '', 'sf'].filter(
-        Boolean
-      )
-    )
-  );
-}
-
-async function runSfJson(args: string[]): Promise<any> {
-  let lastError: unknown;
-  let sawEnoent = false;
-  for (const program of getSfCliProgramCandidates()) {
-    try {
-      const { stdout } = await execSfCommand(program, [...args, '--json']);
-      return parseCliJson(stdout);
-    } catch (e) {
-      lastError = e;
-      if ((e as any)?.code === 'ENOENT') {
-        sawEnoent = true;
-      }
-    }
-  }
-
-  if (sawEnoent) {
-    const loginPath = await resolvePATHFromLoginShell();
-    if (loginPath) {
-      const envOverride: NodeJS.ProcessEnv = { ...process.env, PATH: loginPath };
-      for (const program of getSfCliProgramCandidates()) {
-        try {
-          const { stdout } = await execSfCommand(program, [...args, '--json'], envOverride);
-          return parseCliJson(stdout);
-        } catch (e) {
-          lastError = e;
-        }
-      }
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error('Failed to execute Salesforce CLI JSON command.');
-}
-
-function encodeSfValue(value: string): string {
-  const normalized = String(value ?? '');
-  if (!normalized) {
-    return "''";
-  }
-  if (/[\s'"]/.test(normalized)) {
-    return `'${normalized.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
-  }
-  return normalized;
-}
-
-function buildSfValuesArg(payload: Record<string, string>): string {
-  return Object.entries(payload)
-    .map(([field, value]) => `${field}=${encodeSfValue(value)}`)
-    .join(' ');
-}
-
-function queryTooling<TRecord>(auth: OrgAuth, soql: string): Promise<QueryResponse<TRecord>> {
+function queryTooling<TRecord extends Record<string, unknown>>(auth: OrgAuth, soql: string): Promise<QueryResponse<TRecord>> {
   return queryToolingWithVersion(auth, soql, getEffectiveApiVersion(auth));
 }
 
-function queryToolingWithVersion<TRecord>(
+function queryToolingWithVersion<TRecord extends Record<string, unknown>>(
   auth: OrgAuth,
   soql: string,
   apiVersion: string
 ): Promise<QueryResponse<TRecord>> {
-  const encoded = encodeURIComponent(soql);
-  const url = `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/query?q=${encoded}`;
-  return httpsRequestWith401Retry(auth, 'GET', url, {
-    Authorization: `Bearer ${auth.accessToken}`,
-    'Content-Type': 'application/json'
-  }).then(body => JSON.parse(body) as QueryResponse<TRecord>);
+  return queryToolingViaJsforce<TRecord>(auth, soql, apiVersion);
 }
 
-function queryStandard<TRecord>(auth: OrgAuth, soql: string): Promise<QueryResponse<TRecord>> {
-  const encoded = encodeURIComponent(soql);
-  const url = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/query?q=${encoded}`;
-  return httpsRequestWith401Retry(auth, 'GET', url, {
-    Authorization: `Bearer ${auth.accessToken}`,
-    'Content-Type': 'application/json'
-  }).then(body => JSON.parse(body) as QueryResponse<TRecord>);
+function queryStandard<TRecord extends Record<string, unknown>>(auth: OrgAuth, soql: string): Promise<QueryResponse<TRecord>> {
+  return queryStandardViaJsforce<TRecord>(auth, soql, getEffectiveApiVersion(auth));
 }
 
 export async function listDebugLevels(auth: OrgAuth): Promise<string[]> {
@@ -622,46 +510,7 @@ async function getDebugLevelIdByName(auth: OrgAuth, developerName: string): Prom
 export async function createDebugLevel(auth: OrgAuth, input: DebugLevelRecord): Promise<{ id: string }> {
   const payload = buildDebugLevelPayload(input);
   const apiVersion = await getDebugLevelApiVersion(auth);
-  if (auth.username) {
-    try {
-      const cli = await runSfJson([
-        'data',
-        'create',
-        'record',
-        '--use-tooling-api',
-        '--target-org',
-        auth.username,
-        '--api-version',
-        apiVersion,
-        '--sobject',
-        'DebugLevel',
-        '--values',
-        buildSfValuesArg(payload)
-      ]);
-      const result = cli?.result || cli;
-      if (result?.success && result?.id) {
-        await invalidateDebugLevelsCache(auth);
-        return { id: String(result.id) };
-      }
-    } catch (e) {
-      try {
-        logTrace('createDebugLevel: CLI mutation failed, falling back to HTTP ->', String((e as Error)?.message || e));
-      } catch {}
-    }
-  }
-
-  const createUrl = `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/sobjects/DebugLevel`;
-  const resBody = await httpsRequestWith401Retry(
-    auth,
-    'POST',
-    createUrl,
-    {
-      Authorization: `Bearer ${auth.accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    JSON.stringify(payload)
-  );
-  const res = JSON.parse(resBody);
+  const res = await createToolingRecord(auth, apiVersion, 'DebugLevel', payload);
   if (!res?.success || !res?.id) {
     throw new Error('Failed to create DebugLevel.');
   }
@@ -675,47 +524,10 @@ export async function updateDebugLevel(auth: OrgAuth, debugLevelId: string, inpu
   }
   const payload = buildDebugLevelPayload(input);
   const apiVersion = await getDebugLevelApiVersion(auth);
-  if (auth.username) {
-    try {
-      const cli = await runSfJson([
-        'data',
-        'update',
-        'record',
-        '--use-tooling-api',
-        '--target-org',
-        auth.username,
-        '--api-version',
-        apiVersion,
-        '--sobject',
-        'DebugLevel',
-        '--record-id',
-        debugLevelId,
-        '--values',
-        buildSfValuesArg(payload)
-      ]);
-      const result = cli?.result || cli;
-      if (result?.success !== false) {
-        await invalidateDebugLevelsCache(auth);
-        return;
-      }
-    } catch (e) {
-      try {
-        logTrace('updateDebugLevel: CLI mutation failed, falling back to HTTP ->', String((e as Error)?.message || e));
-      } catch {}
-    }
+  const result = await updateToolingRecord(auth, apiVersion, 'DebugLevel', debugLevelId, payload);
+  if (result?.success === false) {
+    throw new Error('Failed to update DebugLevel.');
   }
-
-  const updateUrl = `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/sobjects/DebugLevel/${debugLevelId}`;
-  await httpsRequestWith401Retry(
-    auth,
-    'PATCH',
-    updateUrl,
-    {
-      Authorization: `Bearer ${auth.accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    JSON.stringify(payload)
-  );
   await invalidateDebugLevelsCache(auth);
 }
 
@@ -724,39 +536,10 @@ export async function deleteDebugLevel(auth: OrgAuth, debugLevelId: string): Pro
     throw new Error('Invalid DebugLevel id.');
   }
   const apiVersion = await getDebugLevelApiVersion(auth);
-  if (auth.username) {
-    try {
-      const cli = await runSfJson([
-        'data',
-        'delete',
-        'record',
-        '--use-tooling-api',
-        '--target-org',
-        auth.username,
-        '--api-version',
-        apiVersion,
-        '--sobject',
-        'DebugLevel',
-        '--record-id',
-        debugLevelId
-      ]);
-      const result = cli?.result || cli;
-      if (result?.success !== false) {
-        await invalidateDebugLevelsCache(auth);
-        return;
-      }
-    } catch (e) {
-      try {
-        logTrace('deleteDebugLevel: CLI mutation failed, falling back to HTTP ->', String((e as Error)?.message || e));
-      } catch {}
-    }
+  const result = await deleteToolingRecord(auth, apiVersion, 'DebugLevel', debugLevelId);
+  if (result?.success === false) {
+    throw new Error('Failed to delete DebugLevel.');
   }
-
-  const deleteUrl = `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/sobjects/DebugLevel/${debugLevelId}`;
-  await httpsRequestWith401Retry(auth, 'DELETE', deleteUrl, {
-    Authorization: `Bearer ${auth.accessToken}`,
-    'Content-Type': 'application/json'
-  });
   await invalidateDebugLevelsCache(auth);
 }
 
@@ -937,31 +720,24 @@ export async function upsertTraceFlag(
   let createdCount = 0;
   let updatedCount = 0;
   const traceFlagIds: string[] = [];
+  const apiVersion = getEffectiveApiVersion(auth);
 
   for (const tracedEntityId of resolved.tracedEntityIds) {
     const existingId = await getLatestTraceFlagId(auth, tracedEntityId);
     if (existingId) {
-      const patchUrl = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/TraceFlag/${existingId}`;
-      await httpsRequestWith401Retry(
-        auth,
-        'PATCH',
-        patchUrl,
-        {
-          Authorization: `Bearer ${auth.accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        JSON.stringify({
-          DebugLevelId: debugLevelId,
-          StartDate: start,
-          ExpirationDate: exp
-        })
-      );
+      const updateResult = await updateToolingRecord(auth, apiVersion, 'TraceFlag', existingId, {
+        DebugLevelId: debugLevelId,
+        StartDate: start,
+        ExpirationDate: exp
+      });
+      if (updateResult?.success === false) {
+        throw new Error('Failed to update USER_DEBUG TraceFlag.');
+      }
       updatedCount += 1;
       traceFlagIds.push(existingId);
       continue;
     }
 
-    const createUrl = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/TraceFlag`;
     const payload = {
       TracedEntityId: tracedEntityId,
       LogType: 'USER_DEBUG',
@@ -969,17 +745,7 @@ export async function upsertTraceFlag(
       StartDate: start,
       ExpirationDate: exp
     };
-    const resBody = await httpsRequestWith401Retry(
-      auth,
-      'POST',
-      createUrl,
-      {
-        Authorization: `Bearer ${auth.accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      JSON.stringify(payload)
-    );
-    const res = JSON.parse(resBody);
+    const res = await createToolingRecord(auth, apiVersion, 'TraceFlag', payload);
     if (!res || !res.success || !res.id) {
       throw new Error('Failed to create USER_DEBUG TraceFlag.');
     }
@@ -1005,14 +771,14 @@ export async function removeTraceFlags(auth: OrgAuth, target: TraceFlagTarget): 
   }
 
   let removedCount = 0;
+  const apiVersion = getEffectiveApiVersion(auth);
   for (const tracedEntityId of resolved.tracedEntityIds) {
     const ids = await listTraceFlagIds(auth, tracedEntityId);
     for (const id of ids) {
-      const deleteUrl = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/TraceFlag/${id}`;
-      await httpsRequestWith401Retry(auth, 'DELETE', deleteUrl, {
-        Authorization: `Bearer ${auth.accessToken}`,
-        'Content-Type': 'application/json'
-      });
+      const result = await deleteToolingRecord(auth, apiVersion, 'TraceFlag', id);
+      if (result?.success === false) {
+        throw new Error(`Failed to delete USER_DEBUG TraceFlag '${id}'.`);
+      }
     }
     removedCount += ids.length;
   }

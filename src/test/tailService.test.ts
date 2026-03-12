@@ -5,6 +5,8 @@ import { TailService } from '../utils/tailService';
 import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
 import * as cli from '../salesforce/cli';
 import * as http from '../salesforce/http';
+import * as jsforce from '../salesforce/jsforce';
+import * as streaming from '../salesforce/streaming';
 import * as traceflags from '../salesforce/traceflags';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 
@@ -56,6 +58,8 @@ suite('TailService', () => {
 
   teardown(() => {
     (DebugFlagsPanel as any).show = originalDebugFlagsShow;
+    streaming.__resetStreamingClientFactoryForTests();
+    jsforce.__resetConnectionFactoryForTests();
   });
 
   test('requires debug level', async () => {
@@ -80,7 +84,27 @@ suite('TailService', () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     (traceflags as any).ensureUserTraceFlag = async () => false;
     (http as any).fetchApexLogs = async () => [];
-    (service as any).pollOnce = async () => {};
+    jsforce.__setConnectionFactoryForTests(async () => ({
+      version: '64.0',
+      instanceUrl: 'i',
+      accessToken: 't',
+      request: async () => '',
+      query: async () => ({ records: [] }),
+      queryMore: async () => ({ records: [] }),
+      tooling: {
+        query: async () => ({ records: [] }),
+        create: async () => ({ success: true, id: '1', errors: [] }),
+        update: async () => ({ success: true, id: '1', errors: [] }),
+        destroy: async () => ({ success: true, id: '1', errors: [] })
+      },
+      streaming: {} as any
+    }) as any);
+    streaming.__setStreamingClientFactoryForTests(async () => ({
+      handshake: async () => {},
+      replay: () => {},
+      subscribe: async () => {},
+      disconnect: () => {}
+    }));
     await service.start('DEBUG');
     assert.equal((service as any).seenLogIds.size, 0);
     assert.equal((service as any).logIdToPath.size, 0);
@@ -99,45 +123,21 @@ suite('TailService', () => {
     assert.equal((service as any).logIdToPath.size, 0);
   });
 
-  test('stop cleans streaming client, connection and log service', () => {
+  test('stop cleans streaming client and connection state', () => {
     const service = new TailService(() => {});
     let streamDisconnect = false;
-    let connLogout = false;
-    let connDispose = false;
-    let logLogout = false;
-    let logDispose = false;
     (service as any).streamingClient = {
       disconnect() {
         streamDisconnect = true;
       }
     };
-    (service as any).connection = {
-      logout() {
-        connLogout = true;
-      },
-      dispose() {
-        connDispose = true;
-      }
-    };
-    (service as any).logService = {
-      logout() {
-        logLogout = true;
-      },
-      dispose() {
-        logDispose = true;
-      }
-    };
+    (service as any).connection = { instanceUrl: 'i' };
     (service as any).currentAuth = { username: 'u' } as any;
     (service as any).lastReplayId = 1;
     service.stop();
     assert.equal(streamDisconnect, true);
-    assert.equal(connLogout, true);
-    assert.equal(connDispose, true);
-    assert.equal(logLogout, true);
-    assert.equal(logDispose, true);
     assert.equal((service as any).streamingClient, undefined);
     assert.equal((service as any).connection, undefined);
-    assert.equal((service as any).logService, undefined);
     assert.equal((service as any).currentAuth, undefined);
     assert.equal((service as any).lastReplayId, undefined);
   });
