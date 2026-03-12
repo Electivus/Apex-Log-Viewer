@@ -4,7 +4,7 @@
 
 ### Features
 
-- Debug Flags: add special-target facilitators for `Automated Process` and `Platform Integration` directly in the panel, including status, apply, and remove flows for their `USER_DEBUG` trace flags.
+- Debug Flags: add special-target facilitators for `Automated Process` and `Platform Integration` directly in the panel, including aggregated status plus apply/remove flows across all matching active `USER_DEBUG` trace-flag targets.
 
 ### Bug Fixes
 

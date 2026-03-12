@@ -203,10 +203,7 @@ export function DebugFlagsApp({
   }, [initialized, selectedOrg, query, vscode]);
 
   const selectedUserId = selectedTarget?.type === 'user' ? selectedTarget.userId : undefined;
-  const selectedUser = useMemo(
-    () => users.find(user => user.id === selectedUserId),
-    [users, selectedUserId]
-  );
+  const selectedUser = useMemo(() => users.find(user => user.id === selectedUserId), [users, selectedUserId]);
   const selectedTargetLabel = useMemo(() => {
     if (!selectedTarget) {
       return '';
@@ -215,21 +212,26 @@ export function DebugFlagsApp({
       return selectedUser?.name || selectedUser?.username || 'User';
     }
     return selectedTarget.type === 'automatedProcess'
-      ? t.debugFlags?.specialTargetAutomatedProcess ?? 'Automated Process'
-      : t.debugFlags?.specialTargetPlatformIntegration ?? 'Platform Integration';
+      ? (t.debugFlags?.specialTargetAutomatedProcess ?? 'Automated Process')
+      : (t.debugFlags?.specialTargetPlatformIntegration ?? 'Platform Integration');
   }, [selectedTarget, selectedUser, t]);
   const specialTargetSelected = Boolean(selectedTarget && selectedTarget.type !== 'user');
   const specialTargetReady = !specialTargetSelected || status?.targetAvailable === true;
+  const specialTargetResolvedCount = specialTargetSelected ? (status?.resolvedTargetCount ?? 0) : 0;
+  const specialTargetActiveCount = specialTargetSelected ? (status?.activeTargetCount ?? 0) : 0;
+  const shouldRenderStatusDetails = Boolean(
+    status?.traceFlagId || (specialTargetSelected && specialTargetActiveCount > 0)
+  );
   const managerDraftDirty = !debugLevelDraftEquals(managerDraft, loadedManagerDraft);
 
   const canApply = Boolean(selectedTarget && debugLevel && !loading.action && !loading.orgs && specialTargetReady);
   const canRemove = Boolean(selectedTarget && !loading.action && !loading.orgs && specialTargetReady);
   const canSaveManager = Boolean(
     !loading.action &&
-      !loading.orgs &&
-      managerDraft.developerName.trim() &&
-      managerDraft.masterLabel.trim() &&
-      managerDraftDirty
+    !loading.orgs &&
+    managerDraft.developerName.trim() &&
+    managerDraft.masterLabel.trim() &&
+    managerDraftDirty
   );
   const canDeleteManager = Boolean(selectedManagerId && !loading.action && !loading.orgs);
 
@@ -250,7 +252,9 @@ export function DebugFlagsApp({
     vscode.postMessage({ type: 'debugFlagsSelectTarget', target: { type: 'user', userId } });
   };
 
-  const handleSelectSpecialTarget = (target: Extract<TraceFlagTarget, { type: 'automatedProcess' | 'platformIntegration' }>) => {
+  const handleSelectSpecialTarget = (
+    target: Extract<TraceFlagTarget, { type: 'automatedProcess' | 'platformIntegration' }>
+  ) => {
     setSelectedTarget(target);
     setStatus(undefined);
     setNotice(undefined);
@@ -354,9 +358,7 @@ export function DebugFlagsApp({
   const handleSaveManager = () => {
     if (!managerDraft.developerName.trim() || !managerDraft.masterLabel.trim()) {
       setNotice(undefined);
-      setError(
-        t.debugFlags?.managerValidation ?? 'DeveloperName and MasterLabel are required to save a DebugLevel.'
-      );
+      setError(t.debugFlags?.managerValidation ?? 'DeveloperName and MasterLabel are required to save a DebugLevel.');
       return;
     }
     setNotice(undefined);
@@ -397,9 +399,7 @@ export function DebugFlagsApp({
   return (
     <div className="flex min-h-screen flex-col gap-4 p-4 text-sm">
       <header className="rounded-lg border border-border bg-card/70 p-4 shadow-sm">
-        <h1 className="text-lg font-semibold text-foreground">
-          {t.debugFlags?.panelTitle ?? 'Apex Debug Flags'}
-        </h1>
+        <h1 className="text-lg font-semibold text-foreground">{t.debugFlags?.panelTitle ?? 'Apex Debug Flags'}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {t.debugFlags?.panelSubtitle ?? 'Configure USER_DEBUG trace flags with room to focus.'}
         </p>
@@ -461,16 +461,15 @@ export function DebugFlagsApp({
                     {t.debugFlags?.specialTargetPlatformIntegration ?? 'Platform Integration'}
                   </span>
                   <span className="mt-1 block text-xs text-muted-foreground">
-                    {t.debugFlags?.specialTargetPlatformIntegrationHint ?? 'Capture asynchronous integration callback logs.'}
+                    {t.debugFlags?.specialTargetPlatformIntegrationHint ??
+                      'Capture asynchronous integration callback logs.'}
                   </span>
                 </button>
               </div>
             </div>
 
             <div className="flex flex-col gap-1">
-              <Label htmlFor="debug-flags-user-search">
-                {t.debugFlags?.userSearchLabel ?? 'Find user'}
-              </Label>
+              <Label htmlFor="debug-flags-user-search">{t.debugFlags?.userSearchLabel ?? 'Find user'}</Label>
               <Input
                 id="debug-flags-user-search"
                 type="search"
@@ -535,7 +534,8 @@ export function DebugFlagsApp({
 
             {!selectedTarget ? (
               <p className="mt-2 text-muted-foreground">
-                {t.debugFlags?.selectTargetHint ?? 'Select a special target or an active user to inspect and configure debug flags.'}
+                {t.debugFlags?.selectTargetHint ??
+                  'Select a special target or an active user to inspect and configure debug flags.'}
               </p>
             ) : loading.status ? (
               <div className="mt-2 flex items-center gap-2 text-muted-foreground">
@@ -549,33 +549,49 @@ export function DebugFlagsApp({
                   <span data-testid="debug-flags-selected-target-label">{selectedTargetLabel}</span>
                 </p>
                 <p className="text-amber-300" data-testid="debug-flags-target-unavailable">
-                  {status.unavailableReason ?? t.debugFlags?.targetUnavailable ?? 'This trace flag target is not available in this org.'}
+                  {status.unavailableReason ??
+                    t.debugFlags?.targetUnavailable ??
+                    'This trace flag target is not available in this org.'}
                 </p>
               </div>
-            ) : status?.traceFlagId ? (
+            ) : shouldRenderStatusDetails && status ? (
               <div className="mt-2 space-y-2">
                 <p>
                   <span className="font-semibold">{t.debugFlags?.selectedTarget ?? 'Selected target'}:</span>{' '}
                   <span data-testid="debug-flags-selected-target-label">{selectedTargetLabel}</span>
                 </p>
+                {specialTargetSelected ? (
+                  <>
+                    <p>
+                      <span className="font-semibold">{t.debugFlags?.statusMatchedTargets ?? 'Matched targets'}:</span>{' '}
+                      <span data-testid="debug-flags-status-resolved-count">{specialTargetResolvedCount}</span>
+                    </p>
+                    <p>
+                      <span className="font-semibold">{t.debugFlags?.statusActiveTargets ?? 'Active flags'}:</span>{' '}
+                      <span data-testid="debug-flags-status-active-count">
+                        {specialTargetActiveCount}/{specialTargetResolvedCount}
+                      </span>
+                    </p>
+                  </>
+                ) : null}
                 <div className="flex items-center gap-2">
                   <span
                     className={cn(
                       'inline-flex rounded-full px-2 py-0.5 text-xs font-semibold',
-                      status.isActive
-                        ? 'bg-emerald-500/15 text-emerald-300'
-                        : 'bg-zinc-500/20 text-zinc-300'
+                      status.isActive ? 'bg-emerald-500/15 text-emerald-300' : 'bg-zinc-500/20 text-zinc-300'
                     )}
                     data-testid="debug-flags-status-pill"
                   >
                     {status.isActive
-                      ? t.debugFlags?.statusActive ?? 'Active'
-                      : t.debugFlags?.statusInactive ?? 'Inactive'}
+                      ? (t.debugFlags?.statusActive ?? 'Active')
+                      : (t.debugFlags?.statusInactive ?? 'Inactive')}
                   </span>
                 </div>
                 <p>
                   <span className="font-semibold">{t.debugFlags?.statusLevel ?? 'Debug level'}:</span>{' '}
-                  <span data-testid="debug-flags-status-level">{status.debugLevelName || '-'}</span>
+                  <span data-testid="debug-flags-status-level">
+                    {status.debugLevelMixed ? (t.debugFlags?.statusMixed ?? 'Mixed') : status.debugLevelName || '-'}
+                  </span>
                 </p>
                 <p>
                   <span className="font-semibold">{t.debugFlags?.statusStart ?? 'Starts'}:</span>{' '}
@@ -583,9 +599,7 @@ export function DebugFlagsApp({
                 </p>
                 <p>
                   <span className="font-semibold">{t.debugFlags?.statusExpiration ?? 'Expires'}:</span>{' '}
-                  <span data-testid="debug-flags-status-expiration">
-                    {formatDate(status.expirationDate, locale)}
-                  </span>
+                  <span data-testid="debug-flags-status-expiration">{formatDate(status.expirationDate, locale)}</span>
                 </p>
               </div>
             ) : (
@@ -596,6 +610,22 @@ export function DebugFlagsApp({
                     {selectedTargetLabel}
                   </span>
                 </p>
+                {specialTargetSelected ? (
+                  <>
+                    <p>
+                      <span className="font-semibold">{t.debugFlags?.statusMatchedTargets ?? 'Matched targets'}:</span>{' '}
+                      <span className="text-foreground" data-testid="debug-flags-status-resolved-count">
+                        {specialTargetResolvedCount}
+                      </span>
+                    </p>
+                    <p>
+                      <span className="font-semibold">{t.debugFlags?.statusActiveTargets ?? 'Active flags'}:</span>{' '}
+                      <span className="text-foreground" data-testid="debug-flags-status-active-count">
+                        {specialTargetActiveCount}/{specialTargetResolvedCount}
+                      </span>
+                    </p>
+                  </>
+                ) : null}
                 <p>{t.debugFlags?.noStatus ?? 'No active USER_DEBUG trace flag for this target.'}</p>
               </div>
             )}
@@ -611,9 +641,7 @@ export function DebugFlagsApp({
               disabled={loading.orgs || loading.action}
             />
             <div className="flex flex-col gap-1">
-              <Label htmlFor="debug-flags-ttl">
-                {t.debugFlags?.ttlMinutes ?? 'TTL (minutes)'}
-              </Label>
+              <Label htmlFor="debug-flags-ttl">{t.debugFlags?.ttlMinutes ?? 'TTL (minutes)'}</Label>
               <Input
                 id="debug-flags-ttl"
                 type="number"
@@ -711,10 +739,7 @@ export function DebugFlagsApp({
         </article>
       </section>
 
-      <section
-        className="rounded-lg border border-border bg-card/70 p-4 shadow-sm"
-        data-testid="debug-level-manager"
-      >
+      <section className="rounded-lg border border-border bg-card/70 p-4 shadow-sm" data-testid="debug-level-manager">
         <div className="flex flex-col gap-1">
           <h2 className="text-base font-semibold text-foreground">
             {t.debugFlags?.managerTitle ?? 'Debug Level Manager'}
@@ -727,9 +752,7 @@ export function DebugFlagsApp({
 
         <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto_1fr_auto]">
           <div className="flex flex-col gap-1">
-            <Label htmlFor="debug-level-manager-select">
-              {t.debugFlags?.managerExisting ?? 'Existing DebugLevel'}
-            </Label>
+            <Label htmlFor="debug-level-manager-select">{t.debugFlags?.managerExisting ?? 'Existing DebugLevel'}</Label>
             <select
               id="debug-level-manager-select"
               data-testid="debug-level-manager-select"
@@ -760,9 +783,7 @@ export function DebugFlagsApp({
           </div>
 
           <div className="flex flex-col gap-1">
-            <Label htmlFor="debug-level-preset-select">
-              {t.debugFlags?.managerPreset ?? 'Preset'}
-            </Label>
+            <Label htmlFor="debug-level-preset-select">{t.debugFlags?.managerPreset ?? 'Preset'}</Label>
             <select
               id="debug-level-preset-select"
               data-testid="debug-level-preset-select"
@@ -808,9 +829,7 @@ export function DebugFlagsApp({
           </div>
 
           <div className="flex flex-col gap-1">
-            <Label htmlFor="debug-level-draft-master-label">
-              {t.debugFlags?.managerMasterLabel ?? 'MasterLabel'}
-            </Label>
+            <Label htmlFor="debug-level-draft-master-label">{t.debugFlags?.managerMasterLabel ?? 'MasterLabel'}</Label>
             <Input
               id="debug-level-draft-master-label"
               data-testid="debug-level-draft-master-label"
@@ -821,9 +840,7 @@ export function DebugFlagsApp({
           </div>
 
           <div className="flex flex-col gap-1">
-            <Label htmlFor="debug-level-draft-language">
-              {t.debugFlags?.managerLanguage ?? 'Language'}
-            </Label>
+            <Label htmlFor="debug-level-draft-language">{t.debugFlags?.managerLanguage ?? 'Language'}</Label>
             <Input
               id="debug-level-draft-language"
               data-testid="debug-level-draft-language"

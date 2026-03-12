@@ -15,9 +15,9 @@ export type DebugFlagsE2eUser = {
 export type SpecialTraceFlagTargetType = 'automatedProcess' | 'platformIntegration';
 
 export type ResolvedSpecialTraceFlagTarget = {
-  id: string;
+  ids: string[];
   label: string;
-  matchedName: string;
+  matchedNames: string[];
 };
 
 export type DebugLevelToolingRecord = {
@@ -97,12 +97,7 @@ function toSfDateTimeUTC(d: Date): string {
   );
 }
 
-async function requestJson(
-  auth: OrgAuth,
-  method: string,
-  resourcePath: string,
-  body?: unknown
-): Promise<any> {
+async function requestJson(auth: OrgAuth, method: string, resourcePath: string, body?: unknown): Promise<any> {
   const base = stripTrailingSlash(auth.instanceUrl);
   const url = `${base}${resourcePath}`;
   const res = await fetch(url, {
@@ -164,37 +159,36 @@ async function findUserByUsername(
   };
 }
 
-async function findUserByExactNames(
+async function findUsersByExactNames(
   auth: OrgAuth,
   names: readonly string[],
   userType: string
-): Promise<{ ambiguous: boolean; user?: { id: string; name: string } }> {
+): Promise<Array<{ id: string; name: string }>> {
   const normalizedNames = names.map(name => String(name || '').trim()).filter(Boolean);
   if (normalizedNames.length === 0) {
-    return { ambiguous: false };
+    return [];
   }
   const namesEsc = normalizedNames.map(name => `'${escapeSoqlLiteral(name)}'`).join(', ');
   const userTypeEsc = escapeSoqlLiteral(userType);
   const soql = encodeURIComponent(
-    `SELECT Id, Name FROM User WHERE Name IN (${namesEsc}) AND UserType = '${userTypeEsc}' ORDER BY Id LIMIT 3`
+    `SELECT Id, Name FROM User WHERE Name IN (${namesEsc}) AND UserType = '${userTypeEsc}' AND IsActive = true ORDER BY Id LIMIT 200`
   );
   const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
   const records = Array.isArray(response?.records) ? response.records : [];
-  const matchingRecords = records.filter((record: any) => isSfId(record?.Id));
-  if (matchingRecords.length > 1) {
-    return { ambiguous: true };
-  }
-  const record = matchingRecords[0];
-  if (!isSfId(record?.Id)) {
-    return { ambiguous: false };
-  }
-  return {
-    ambiguous: false,
-    user: {
+  const seen = new Set<string>();
+  return records
+    .filter((record: any) => isSfId(record?.Id))
+    .map((record: any) => ({
       id: record.Id,
-      name: typeof record?.Name === 'string' ? record.Name : name
-    }
-  };
+      name: typeof record?.Name === 'string' ? record.Name : ''
+    }))
+    .filter(record => {
+      if (seen.has(record.id)) {
+        return false;
+      }
+      seen.add(record.id);
+      return true;
+    });
 }
 
 function toUserAlias(username: string): string {
@@ -210,7 +204,10 @@ async function resolveDefaultDebugFlagsUsername(auth: OrgAuth): Promise<string> 
   const soql = encodeURIComponent('SELECT Id FROM Organization LIMIT 1');
   const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
   const orgId: string | undefined = Array.isArray(response?.records) ? response.records[0]?.Id : undefined;
-  const suffix = (typeof orgId === 'string' ? orgId : 'unknownorg').replace(/[^a-zA-Z0-9]/g, '').slice(0, 15).toLowerCase();
+  const suffix = (typeof orgId === 'string' ? orgId : 'unknownorg')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 15)
+    .toLowerCase();
   return `alv.debugflags.${suffix}@example.com`;
 }
 
@@ -277,10 +274,7 @@ export async function ensureDebugFlagsTestUser(auth: OrgAuth): Promise<DebugFlag
         if (!isLicenseLimitExceeded(error)) {
           throw error;
         }
-        return resolveLicenseLimitFallbackUser(
-          auth,
-          'Failed to reactivate existing E2E debug flags test user'
-        );
+        return resolveLicenseLimitFallbackUser(auth, 'Failed to reactivate existing E2E debug flags test user');
       }
     }
     return {
@@ -393,16 +387,12 @@ export async function resolveSpecialTraceFlagTarget(
 ): Promise<ResolvedSpecialTraceFlagTarget | undefined> {
   const candidateNames = SPECIAL_TRACE_FLAG_TARGET_NAMES[targetType];
   const userType = SPECIAL_TRACE_FLAG_TARGET_USER_TYPES[targetType];
-  const result = await findUserByExactNames(auth, candidateNames, userType);
-  if (result.ambiguous) {
-    return undefined;
-  }
-  const user = result.user;
-  if (user) {
+  const users = await findUsersByExactNames(auth, candidateNames, userType);
+  if (users.length > 0) {
     return {
-      id: user.id,
+      ids: users.map(user => user.id),
       label: SPECIAL_TRACE_FLAG_TARGET_LABELS[targetType],
-      matchedName: user.name
+      matchedNames: users.map(user => user.name)
     };
   }
   return undefined;
