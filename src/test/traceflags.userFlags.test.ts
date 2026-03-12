@@ -1,9 +1,10 @@
 import assert from 'assert/strict';
 import { EventEmitter } from 'events';
-import { __resetExecFileImplForTests, __setExecFileImplForTests } from '../salesforce/exec';
 import type { OrgAuth } from '../salesforce/types';
 import {
   __resetApiVersionFallbackStateForTests,
+  getApiVersionFallbackWarning,
+  getEffectiveApiVersion,
   __resetHttpsRequestImplForTests,
   __setHttpsRequestImplForTests,
   setApiVersion
@@ -15,6 +16,7 @@ import {
   deleteDebugLevel,
   getTraceFlagTargetStatus,
   getUserTraceFlagStatus,
+  listDebugLevels,
   listDebugLevelDetails,
   listActiveUsers,
   removeTraceFlags,
@@ -92,38 +94,6 @@ function decodeSoql(path: string): string {
   return decodeURIComponent(path.slice(idx + qMarker.length));
 }
 
-type ExecCall = {
-  program: string;
-  args: string[];
-};
-
-function installExecStub(
-  responder: (call: ExecCall) => { stdout?: string; stderr?: string; code?: number }
-): ExecCall[] {
-  const calls: ExecCall[] = [];
-  __setExecFileImplForTests(((program: string, args: readonly string[] | undefined, _opts: any, cb: any) => {
-    const call: ExecCall = {
-      program,
-      args: Array.isArray(args) ? [...args] : []
-    };
-    calls.push(call);
-    try {
-      const response = responder(call);
-      if (response.code && response.code !== 0) {
-        const err: any = new Error(response.stderr || 'command failed');
-        err.code = response.code;
-        cb(err, response.stdout || '', response.stderr || '');
-      } else {
-        cb(null, response.stdout || '', response.stderr || '');
-      }
-    } catch (e) {
-      cb(e, '', '');
-    }
-    return undefined as any;
-  }) as any);
-  return calls;
-}
-
 suite('traceflags user management', () => {
   const auth: OrgAuth = {
     accessToken: 'token',
@@ -133,7 +103,6 @@ suite('traceflags user management', () => {
 
   teardown(() => {
     __resetHttpsRequestImplForTests();
-    __resetExecFileImplForTests();
     __resetApiVersionFallbackStateForTests();
     __resetDebugLevelApiVersionCacheForTests();
     __resetUserIdCacheForTests();
@@ -227,6 +196,49 @@ suite('traceflags user management', () => {
     }
   });
 
+  test('listActiveUsers falls back to the org max API version for standard queries', async () => {
+    setApiVersion('66.0');
+    const legacyAuth: OrgAuth = {
+      ...auth,
+      instanceUrl: 'https://standard-fallback.example.my.salesforce.com',
+      username: 'standard.fallback@example.com'
+    };
+    const calls = installHttpsStub(req => {
+      if (req.method === 'GET' && req.path === '/services/data') {
+        return {
+          statusCode: 200,
+          body: [{ version: '64.0' }]
+        };
+      }
+      if (req.method === 'GET' && req.path.includes('/services/data/v66.0/query')) {
+        return {
+          statusCode: 404,
+          body: [{ errorCode: 'NOT_FOUND', message: 'The requested resource does not exist' }]
+        };
+      }
+      if (req.method === 'GET' && req.path.includes('/services/data/v64.0/query')) {
+        return {
+          statusCode: 200,
+          body: {
+            records: [{ Id: '005000000000001AAA', Name: 'Ada Lovelace', Username: 'ada@example.com', IsActive: true }]
+          }
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const users = await listActiveUsers(legacyAuth, 'ada', 25);
+
+    assert.equal(users.length, 1);
+    assert.equal(getEffectiveApiVersion(legacyAuth), '64.0');
+    assert.ok(
+      getApiVersionFallbackWarning(legacyAuth)?.includes('sourceApiVersion 66.0 > org max 64.0'),
+      'expected API version fallback warning for standard query flow'
+    );
+    assert.equal(calls.filter(call => call.path.includes('/services/data/v66.0/query')).length, 1);
+    assert.equal(calls.filter(call => call.path.includes('/services/data/v64.0/query')).length, 1);
+  });
+
   test('getUserTraceFlagStatus parses active status and metadata', async () => {
     installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/tooling/query')) {
@@ -252,6 +264,49 @@ suite('traceflags user management', () => {
     assert.equal(status?.traceFlagId, '7tf000000000001AAA');
     assert.equal(status?.debugLevelName, 'ALV_E2E');
     assert.equal(status?.isActive, true);
+  });
+
+  test('listDebugLevels falls back to the org max API version for tooling queries', async () => {
+    setApiVersion('66.0');
+    const legacyAuth: OrgAuth = {
+      ...auth,
+      instanceUrl: 'https://tooling-fallback.example.my.salesforce.com',
+      username: 'tooling.fallback@example.com'
+    };
+    const calls = installHttpsStub(req => {
+      if (req.method === 'GET' && req.path === '/services/data') {
+        return {
+          statusCode: 200,
+          body: [{ version: '64.0' }]
+        };
+      }
+      if (req.method === 'GET' && req.path.includes('/services/data/v66.0/tooling/query')) {
+        return {
+          statusCode: 404,
+          body: [{ errorCode: 'NOT_FOUND', message: 'The requested resource does not exist' }]
+        };
+      }
+      if (req.method === 'GET' && req.path.includes('/services/data/v64.0/tooling/query')) {
+        return {
+          statusCode: 200,
+          body: {
+            records: [{ DeveloperName: 'ALV_VERBOSE' }]
+          }
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const names = await listDebugLevels(legacyAuth);
+
+    assert.deepEqual(names, ['ALV_VERBOSE']);
+    assert.equal(getEffectiveApiVersion(legacyAuth), '64.0');
+    assert.ok(
+      getApiVersionFallbackWarning(legacyAuth)?.includes('sourceApiVersion 66.0 > org max 64.0'),
+      'expected API version fallback warning for tooling query flow'
+    );
+    assert.equal(calls.filter(call => call.path.includes('/services/data/v66.0/tooling/query')).length, 1);
+    assert.equal(calls.filter(call => call.path.includes('/services/data/v64.0/tooling/query')).length, 1);
   });
 
   test('getTraceFlagTargetStatus resolves Automated Process across all active matches and aggregates USER_DEBUG status', async () => {
@@ -556,7 +611,7 @@ suite('traceflags user management', () => {
     );
   });
 
-  test('createDebugLevel uses sf CLI with the full editable DebugLevel payload', async () => {
+  test('createDebugLevel creates the tooling record with the full editable DebugLevel payload', async () => {
     setApiVersion('60.0');
     const httpCalls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path === '/services/data') {
@@ -565,20 +620,19 @@ suite('traceflags user management', () => {
           body: [{ version: '60.0' }, { version: '66.0' }]
         };
       }
-      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
-    });
-    const calls = installExecStub(call => {
-      if (call.program === 'sf' && call.args[0] === 'data' && call.args[1] === 'create' && call.args[2] === 'record') {
+      if (req.method === 'POST' && req.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel')) {
+        const parsed = JSON.parse(req.body);
+        assert.equal(parsed.DeveloperName, 'ALV_CUSTOM');
+        assert.equal(parsed.MasterLabel, 'ALV Custom');
         return {
-          stdout: JSON.stringify({
-            result: {
-              success: true,
-              id: '7dl000000000999AAA'
-            }
-          })
+          statusCode: 201,
+          body: {
+            success: true,
+            id: '7dl000000000999AAA'
+          }
         };
       }
-      throw new Error(`Unexpected command: ${call.program} ${call.args.join(' ')}`);
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
     });
 
     const created = await createDebugLevel(auth, {
@@ -599,36 +653,81 @@ suite('traceflags user management', () => {
     });
 
     assert.equal(created.id, '7dl000000000999AAA');
-    const createCall = calls.find(call => call.args[0] === 'data' && call.args[1] === 'create');
-    const createCommandText = calls.map(call => [call.program, ...call.args].join(' ')).join('\n');
-    assert.ok(createCall || /data create record/.test(createCommandText), 'expected DebugLevel create command');
-    assert.match(createCommandText, /--use-tooling-api/);
-    assert.match(createCommandText, /--target-org/);
-    assert.match(createCommandText, /user@example\.com/);
-    assert.match(createCommandText, /--api-version 66\.0/);
-    assert.match(createCommandText, /--sobject/);
-    assert.match(createCommandText, /DebugLevel/);
-    assert.match(createCommandText, /DeveloperName=ALV_CUSTOM/);
-    assert.match(createCommandText, /MasterLabel='ALV Custom'/);
-    assert.match(createCommandText, /DataAccess=INFO/);
+    assert.ok(
+      httpCalls.some(call => call.method === 'POST' && call.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel')),
+      'expected DebugLevel tooling create request'
+    );
     assert.ok(
       httpCalls.some(call => call.path === '/services/data'),
-      'expected org API discovery before CLI create'
+      'expected org API discovery before DebugLevel create'
     );
   });
 
-  test('updateDebugLevel uses sf CLI with the full editable DebugLevel payload', async () => {
-    const calls = installExecStub(call => {
-      if (call.program === 'sf' && call.args[0] === 'data' && call.args[1] === 'update' && call.args[2] === 'record') {
+  test('createDebugLevel falls back to the org max API version for tooling writes', async () => {
+    setApiVersion('66.0');
+    const legacyAuth: OrgAuth = {
+      ...auth,
+      instanceUrl: 'https://tooling-write-create.example.my.salesforce.com',
+      username: 'tooling.write.create@example.com'
+    };
+    const calls = installHttpsStub(req => {
+      if (req.method === 'POST' && req.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel')) {
         return {
-          stdout: JSON.stringify({
-            result: {
-              success: true
-            }
-          })
+          statusCode: 404,
+          body: [{ errorCode: 'NOT_FOUND', message: 'The requested resource does not exist' }]
         };
       }
-      throw new Error(`Unexpected command: ${call.program} ${call.args.join(' ')}`);
+      if (req.method === 'GET' && req.path === '/services/data') {
+        return {
+          statusCode: 200,
+          body: [{ version: '64.0' }]
+        };
+      }
+      if (req.method === 'POST' && req.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel')) {
+        return {
+          statusCode: 201,
+          body: { success: true, id: '7dl000000000fallbackAAA' }
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const created = await createDebugLevel(legacyAuth, {
+      developerName: 'ALV_FALLBACK_CREATE',
+      masterLabel: 'ALV Fallback Create',
+      language: 'en_US',
+      workflow: 'WARN',
+      validation: 'INFO',
+      callout: 'ERROR',
+      apexCode: 'DEBUG',
+      apexProfiling: 'INFO',
+      visualforce: 'WARN',
+      system: 'DEBUG',
+      database: 'FINE',
+      wave: 'ERROR',
+      nba: 'WARN',
+      dataAccess: 'INFO'
+    });
+
+    assert.equal(created.id, '7dl000000000fallbackAAA');
+    assert.equal(getEffectiveApiVersion(legacyAuth), '64.0');
+    assert.equal(calls.filter(call => call.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel')).length, 1);
+    assert.equal(calls.filter(call => call.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel')).length, 1);
+  });
+
+  test('updateDebugLevel updates the tooling record with the full editable DebugLevel payload', async () => {
+    const calls = installHttpsStub(req => {
+      if (req.method === 'PATCH' && req.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')) {
+        const parsed = JSON.parse(req.body);
+        assert.equal(parsed.DeveloperName, 'ALV_CUSTOM');
+        assert.equal(parsed.MasterLabel, 'ALV Custom');
+        assert.equal(parsed.Language, 'pt_BR');
+        assert.equal(parsed.DataAccess, 'WARN');
+        return {
+          statusCode: 204
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
     });
 
     await updateDebugLevel(auth, '7dl000000000001AAA', {
@@ -648,18 +747,64 @@ suite('traceflags user management', () => {
       dataAccess: 'WARN'
     });
 
-    const updateCall = calls.find(call => call.args[0] === 'data' && call.args[1] === 'update');
-    const updateCommandText = calls.map(call => [call.program, ...call.args].join(' ')).join('\n');
-    assert.ok(updateCall || /data update record/.test(updateCommandText), 'expected DebugLevel update command');
-    assert.match(updateCommandText, /--record-id/);
-    assert.match(updateCommandText, /7dl000000000001AAA/);
-    assert.match(updateCommandText, /DeveloperName=ALV_CUSTOM/);
-    assert.match(updateCommandText, /MasterLabel='ALV Custom'/);
-    assert.match(updateCommandText, /Language=pt_BR/);
-    assert.match(updateCommandText, /DataAccess=WARN/);
+    assert.equal(calls.filter(call => call.method === 'PATCH').length, 1);
   });
 
-  test('deleteDebugLevel deletes the tooling record with sf CLI', async () => {
+  test('updateDebugLevel falls back to the org max API version for tooling writes', async () => {
+    setApiVersion('66.0');
+    const legacyAuth: OrgAuth = {
+      ...auth,
+      instanceUrl: 'https://tooling-write-update.example.my.salesforce.com',
+      username: 'tooling.write.update@example.com'
+    };
+    const calls = installHttpsStub(req => {
+      if (req.method === 'PATCH' && req.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')) {
+        return {
+          statusCode: 404,
+          body: [{ errorCode: 'NOT_FOUND', message: 'The requested resource does not exist' }]
+        };
+      }
+      if (req.method === 'GET' && req.path === '/services/data') {
+        return {
+          statusCode: 200,
+          body: [{ version: '64.0' }]
+        };
+      }
+      if (req.method === 'PATCH' && req.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')) {
+        return { statusCode: 204 };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    await updateDebugLevel(legacyAuth, '7dl000000000001AAA', {
+      developerName: 'ALV_FALLBACK_UPDATE',
+      masterLabel: 'ALV Fallback Update',
+      language: 'pt_BR',
+      workflow: 'INFO',
+      validation: 'WARN',
+      callout: 'ERROR',
+      apexCode: 'FINEST',
+      apexProfiling: 'DEBUG',
+      visualforce: 'WARN',
+      system: 'DEBUG',
+      database: 'ERROR',
+      wave: 'NONE',
+      nba: 'INFO',
+      dataAccess: 'WARN'
+    });
+
+    assert.equal(getEffectiveApiVersion(legacyAuth), '64.0');
+    assert.equal(
+      calls.filter(call => call.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')).length,
+      1
+    );
+    assert.equal(
+      calls.filter(call => call.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')).length,
+      1
+    );
+  });
+
+  test('deleteDebugLevel deletes the tooling record via the Tooling API client', async () => {
     setApiVersion('60.0');
     const httpCalls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path === '/services/data') {
@@ -668,31 +813,61 @@ suite('traceflags user management', () => {
           body: [{ version: '60.0' }, { version: '66.0' }]
         };
       }
-      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
-    });
-    const calls = installExecStub(call => {
-      if (call.program === 'sf' && call.args[0] === 'data' && call.args[1] === 'delete' && call.args[2] === 'record') {
-        return {
-          stdout: JSON.stringify({
-            result: {
-              success: true
-            }
-          })
-        };
+      if (req.method === 'DELETE' && req.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')) {
+        return { statusCode: 204 };
       }
-      throw new Error(`Unexpected command: ${call.program} ${call.args.join(' ')}`);
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
     });
 
     await deleteDebugLevel(auth, '7dl000000000001AAA');
-    const deleteCall = calls.find(call => call.args[0] === 'data' && call.args[1] === 'delete');
-    const deleteCommandText = calls.map(call => [call.program, ...call.args].join(' ')).join('\n');
-    assert.ok(deleteCall || /data delete record/.test(deleteCommandText), 'expected DebugLevel delete command');
-    assert.match(deleteCommandText, /--record-id/);
-    assert.match(deleteCommandText, /7dl000000000001AAA/);
-    assert.match(deleteCommandText, /--api-version 66\.0/);
     assert.ok(
       httpCalls.some(call => call.path === '/services/data'),
-      'expected org API discovery before CLI delete'
+      'expected org API discovery before DebugLevel delete'
+    );
+    assert.ok(
+      httpCalls.some(
+        call => call.method === 'DELETE' && call.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')
+      ),
+      'expected DebugLevel tooling delete request'
+    );
+  });
+
+  test('deleteDebugLevel falls back to the org max API version for tooling writes', async () => {
+    setApiVersion('66.0');
+    const legacyAuth: OrgAuth = {
+      ...auth,
+      instanceUrl: 'https://tooling-write-delete.example.my.salesforce.com',
+      username: 'tooling.write.delete@example.com'
+    };
+    const calls = installHttpsStub(req => {
+      if (req.method === 'DELETE' && req.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')) {
+        return {
+          statusCode: 404,
+          body: [{ errorCode: 'NOT_FOUND', message: 'The requested resource does not exist' }]
+        };
+      }
+      if (req.method === 'GET' && req.path === '/services/data') {
+        return {
+          statusCode: 200,
+          body: [{ version: '64.0' }]
+        };
+      }
+      if (req.method === 'DELETE' && req.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')) {
+        return { statusCode: 204 };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    await deleteDebugLevel(legacyAuth, '7dl000000000001AAA');
+
+    assert.equal(getEffectiveApiVersion(legacyAuth), '64.0');
+    assert.equal(
+      calls.filter(call => call.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')).length,
+      1
+    );
+    assert.equal(
+      calls.filter(call => call.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')).length,
+      1
     );
   });
 

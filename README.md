@@ -142,7 +142,7 @@ See docs/TESTING.md for how to run unit and integration tests (`npm run test:uni
 - No tokens are logged by default. When `electivus.apexLogs.trace` is enabled, verbose output is sent to the “Electivus Apex Log Viewer” output channel; review logs before sharing.
 - Telemetry: the extension may collect minimal, anonymized usage and error telemetry to help improve quality and performance. VS Code’s telemetry setting controls this behavior (see `settings.json` key `telemetry.telemetryLevel`).
 - We do not send your source code or Apex log content in telemetry.
-- The extension shells out to `sf`/`sfdx` for org access and reads logs locally.
+- The extension reuses `sf`/`sfdx` authentication for org access, then talks to Salesforce through jsforce-backed API calls and reads logs locally.
 
 ## Telemetry
 

@@ -50,7 +50,7 @@ export async function activate(context: vscode.ExtensionContext) {
     hasWorkspace: String(!!vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0),
     hasSalesforceProject: String(hasSalesforceProject)
   });
-  // Avoid @salesforce/core attempting to spawn Pino transports that fail when bundled
+  // Keep Salesforce SDKs and CLI helpers from attempting on-disk log files inside the VS Code host.
   try {
     if (!process.env.SF_DISABLE_LOG_FILE) process.env.SF_DISABLE_LOG_FILE = 'true';
     if (!process.env.SFDX_DISABLE_LOG_FILE) process.env.SFDX_DISABLE_LOG_FILE = 'true';

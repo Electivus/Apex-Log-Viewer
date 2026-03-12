@@ -1,5 +1,5 @@
 import { promises as fs } from 'fs';
-import { fetchApexLogs, fetchApexLogBody } from '../salesforce/http';
+import { fetchApexLogs, fetchApexLogBody, getEffectiveApiVersion } from '../salesforce/http';
 import { getOrgAuth } from '../salesforce/cli';
 import { ensureUserTraceFlag } from '../salesforce/traceflags';
 import type { OrgAuth } from '../salesforce/types';
@@ -15,12 +15,11 @@ import {
 import {
   createConnectionFromAuth,
   createLoggingStreamingClient,
-  createOrgFromConnection,
+  type Connection,
   type StreamProcessor,
   type StreamingClient
 } from '../salesforce/streaming';
-import { LogService } from '@salesforce/apex-node';
-import type { Connection } from '@salesforce/core';
+import { requestTextWithConnection } from '../salesforce/jsforce';
 
 /**
  * Handles Apex log tailing mechanics independent of the webview.
@@ -39,7 +38,6 @@ export class TailService {
   private windowActive = true;
   private streamingClient: StreamingClient | undefined;
   private connection: Connection | undefined;
-  private logService: LogService | undefined;
   private lastReplayId: number | undefined;
 
   constructor(private readonly post: (msg: ExtensionToWebviewMessage) => void) {}
@@ -88,11 +86,6 @@ export class TailService {
       this.currentAuth = auth;
       logInfo('Tail: acquired auth for', auth.username || '(default)', 'at', auth.instanceUrl);
 
-      // Build core connection/org from existing CLI OAuth (no extra login)
-      this.connection = await createConnectionFromAuth(auth);
-      const org = await createOrgFromConnection(this.connection);
-      this.logService = new (LogService as any)(this.connection as any);
-
       try {
         // Ensure TraceFlag using USER_DEBUG and update existing if present
         const created = await ensureUserTraceFlag(auth, debugLevel);
@@ -122,6 +115,7 @@ export class TailService {
         return;
       }
 
+      this.connection = await this.getActiveConnection(auth);
       this.post({ type: 'tailStatus', running: true });
       logInfo('Tail: started; subscribing to /systemTopic/Logging…');
 
@@ -163,7 +157,7 @@ export class TailService {
         }
         return { completed: false };
       };
-      this.streamingClient = await createLoggingStreamingClient(org, processor);
+      this.streamingClient = await createLoggingStreamingClient(this.connection, processor);
       try {
         await this.streamingClient.handshake();
       } catch (e) {
@@ -267,32 +261,7 @@ export class TailService {
       const msg = getErrorMessage(e);
       logWarn('Tail: streaming disconnect error ->', msg);
     }
-    try {
-      (this.connection as any)?.logout?.();
-    } catch (e) {
-      const msg = getErrorMessage(e);
-      logWarn('Tail: connection logout error ->', msg);
-    }
-    try {
-      (this.connection as any)?.dispose?.();
-    } catch (e) {
-      const msg = getErrorMessage(e);
-      logWarn('Tail: connection dispose error ->', msg);
-    }
     this.connection = undefined;
-    try {
-      (this.logService as any)?.logout?.();
-    } catch (e) {
-      const msg = getErrorMessage(e);
-      logWarn('Tail: log service logout error ->', msg);
-    }
-    try {
-      (this.logService as any)?.dispose?.();
-    } catch (e) {
-      const msg = getErrorMessage(e);
-      logWarn('Tail: log service dispose error ->', msg);
-    }
-    this.logService = undefined;
     this.currentAuth = undefined;
     this.lastReplayId = undefined;
     if (this.tailHardStopTimer) {
@@ -309,7 +278,7 @@ export class TailService {
     this.logIdToPath.clear();
   }
 
-  // Streaming handler: fetch body via apex-node and header fields via Tooling API
+  // Streaming handler: fetch body and header fields through the active jsforce connection when available.
   private async handleIncomingLogId(id: string): Promise<void> {
     if (!this.tailRunning || this.disposed) {
       return;
@@ -318,22 +287,24 @@ export class TailService {
     try {
       const auth = this.currentAuth ?? (await getOrgAuth(this.selectedOrg));
       this.currentAuth = auth;
-      const svc = this.logService;
-      const conn = this.connection;
-      if (!svc || !conn) {
+      const conn =
+        this.connection
+          ? await this.getActiveConnection(auth).catch(error => {
+              logWarn('Tail: failed to refresh active connection; falling back to HTTP path ->', getErrorMessage(error));
+              return undefined;
+            })
+          : undefined;
+      if (!conn) {
         // fallback: use existing HTTP path
         const body = await fetchApexLogBody(auth, id);
         await this.emitLogWithHeader(auth, { Id: id }, body);
         return;
       }
-      const [{ log }, meta] = await Promise.all([
-        (svc as any).getLogById(id),
-        conn.singleRecordQuery(
-          "SELECT Id, StartTime, Operation, Status, LogLength FROM ApexLog WHERE Id = '" + id + "'",
-          { tooling: true }
-        )
+      const [body, meta] = await Promise.all([
+        this.fetchLogBodyFromConnection(auth, conn, id),
+        this.fetchLogMetadataFromConnection(conn, id)
       ]);
-      await this.emitLogWithHeader(auth, meta as any, log || '');
+      await this.emitLogWithHeader(auth, meta || { Id: id }, body);
     } catch (e) {
       // Ensure failures don't permanently mark the log ID as seen
       this.seenLogIds.delete(id);
@@ -395,12 +366,62 @@ export class TailService {
     }
     const auth = this.currentAuth ?? (await getOrgAuth(this.selectedOrg, undefined, signal));
     this.currentAuth = auth;
-    const body = await fetchApexLogBody(auth, logId, undefined, signal);
+    const connection =
+      this.connection && !signal?.aborted
+        ? await this.getActiveConnection(auth).catch(error => {
+            logWarn('Tail: failed to refresh active connection for save; falling back to HTTP path ->', getErrorMessage(error));
+            return undefined;
+          })
+        : undefined;
+    const body =
+      connection
+        ? await this.fetchLogBodyFromConnection(auth, connection, logId, signal).catch(() =>
+            fetchApexLogBody(auth, logId, undefined, signal)
+          )
+        : await fetchApexLogBody(auth, logId, undefined, signal);
     const { filePath } = await this.getLogFilePathWithUsername(auth.username, logId);
     await fs.writeFile(filePath, body, 'utf8');
     this.addLogPath(logId, filePath);
     logInfo('Tail: ensured log saved at', filePath);
     return filePath;
+  }
+
+  private async fetchLogMetadataFromConnection(connection: Connection, logId: string): Promise<Record<string, unknown> | undefined> {
+    const escapedId = String(logId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const result = await connection.tooling.query<Record<string, unknown>>(
+      `SELECT Id, StartTime, Operation, Status, LogLength FROM ApexLog WHERE Id = '${escapedId}' LIMIT 1`
+    );
+    return Array.isArray((result as any)?.records) ? ((result as any).records[0] as Record<string, unknown> | undefined) : undefined;
+  }
+
+  private async fetchLogBodyFromConnection(
+    auth: OrgAuth,
+    connection: Connection,
+    logId: string,
+    signal?: AbortSignal
+  ): Promise<string> {
+    return requestTextWithConnection(
+      connection,
+      {
+        method: 'GET',
+        url: `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/ApexLog/${logId}/Body`,
+        headers: {
+          'Content-Type': 'text/plain'
+        }
+      },
+      { signal }
+    );
+  }
+
+  private async getActiveConnection(auth: OrgAuth): Promise<Connection> {
+    const effectiveVersion = getEffectiveApiVersion(auth);
+    if (!this.connection || this.connection.version !== effectiveVersion) {
+      if (this.connection && this.connection.version !== effectiveVersion) {
+        logInfo('Tail: refreshing connection for API version', effectiveVersion);
+      }
+      this.connection = await createConnectionFromAuth(auth, effectiveVersion);
+    }
+    return this.connection;
   }
 
   private getWorkspaceRoot(): string | undefined {
