@@ -225,7 +225,7 @@ async function discoverOrgMaxApiVersion(auth: OrgAuth, timeoutMs?: number, signa
   return maxVersion;
 }
 
-async function withQueryVersionFallback<T>(
+async function withApiVersionFallback<T>(
   auth: OrgAuth,
   apiVersion: string,
   execute: (version: string) => Promise<T>
@@ -343,6 +343,60 @@ type LegacyRequestOptions = {
   signal?: AbortSignal;
 };
 
+type AbortableRequest<T> = Promise<T> & {
+  stream?: () => {
+    destroy?: (error?: Error) => unknown;
+  };
+};
+
+async function awaitRequestWithAbort<T>(request: AbortableRequest<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) {
+    return request;
+  }
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      try {
+        signal.removeEventListener('abort', onAbort);
+      } catch {}
+    };
+    const onAbort = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      try {
+        request.stream?.().destroy?.();
+      } catch {}
+      reject(new Error('aborted'));
+    };
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+    request.then(
+      value => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        resolve(value);
+      },
+      error => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        reject(error);
+      }
+    );
+  });
+}
+
 async function requestLegacyJson<T>(
   auth: OrgAuth,
   request: HttpRequest,
@@ -401,11 +455,14 @@ export async function requestText(
 
   const version = extractApiVersionFromUrl(request.url);
   const connection = await createConnectionFromAuth(auth, version || '64.0');
-  const response = await connection.request<string>(request, {
-    responseType: 'text/plain',
-    encoding: 'utf8',
-    timeout: options.timeoutMs
-  });
+  const response = await awaitRequestWithAbort(
+    connection.request<string>(request, {
+      responseType: 'text/plain',
+      encoding: 'utf8',
+      timeout: options.timeoutMs
+    }) as AbortableRequest<string>,
+    options.signal
+  );
   return typeof response === 'string' ? response : response === undefined ? '' : String(response);
 }
 
@@ -420,7 +477,10 @@ export async function requestJson<T>(
 
   const version = extractApiVersionFromUrl(request.url);
   const connection = await createConnectionFromAuth(auth, version || '64.0');
-  return connection.request<T>(request, { timeout: options.timeoutMs }) as Promise<T>;
+  return awaitRequestWithAbort(
+    connection.request<T>(request, { timeout: options.timeoutMs }) as AbortableRequest<T>,
+    options.signal
+  );
 }
 
 export async function queryStandard<TRecord extends Record<string, unknown>>(
@@ -428,7 +488,7 @@ export async function queryStandard<TRecord extends Record<string, unknown>>(
   soql: string,
   apiVersion: string
 ): Promise<QueryResponse<TRecord>> {
-  return withQueryVersionFallback(auth, apiVersion, async activeVersion => {
+  return withApiVersionFallback(auth, apiVersion, async activeVersion => {
     if (hasLegacyHttpsRequestOverrideForTests()) {
       const encoded = encodeURIComponent(soql);
       return requestLegacyJson<QueryResponse<TRecord>>(auth, {
@@ -453,7 +513,7 @@ export async function queryTooling<TRecord extends Record<string, unknown>>(
   soql: string,
   apiVersion: string
 ): Promise<QueryResponse<TRecord>> {
-  return withQueryVersionFallback(auth, apiVersion, async activeVersion => {
+  return withApiVersionFallback(auth, apiVersion, async activeVersion => {
     if (hasLegacyHttpsRequestOverrideForTests()) {
       const encoded = encodeURIComponent(soql);
       return requestLegacyJson<QueryResponse<TRecord>>(auth, {
@@ -497,19 +557,21 @@ export async function createToolingRecord(
   type: string,
   record: Record<string, unknown>
 ): Promise<SaveResult> {
-  if (hasLegacyHttpsRequestOverrideForTests()) {
-    const result = await requestLegacyJson<any>(auth, {
-      method: 'POST',
-      url: `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/sobjects/${type}`,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(record)
-    });
-    return normalizeSaveResult(result);
-  }
+  return withApiVersionFallback(auth, apiVersion, async activeVersion => {
+    if (hasLegacyHttpsRequestOverrideForTests()) {
+      const result = await requestLegacyJson<any>(auth, {
+        method: 'POST',
+        url: `${auth.instanceUrl}/services/data/v${activeVersion}/tooling/sobjects/${type}`,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(record)
+      });
+      return normalizeSaveResult(result);
+    }
 
-  const connection = await createConnectionFromAuth(auth, apiVersion);
-  const result = await connection.tooling.create(type as any, record as any);
-  return normalizeSaveResult(result);
+    const connection = await createConnectionFromAuth(auth, activeVersion);
+    const result = await connection.tooling.create(type as any, record as any);
+    return normalizeSaveResult(result);
+  });
 }
 
 export async function updateToolingRecord(
@@ -519,19 +581,21 @@ export async function updateToolingRecord(
   id: string,
   record: Record<string, unknown>
 ): Promise<SaveResult> {
-  if (hasLegacyHttpsRequestOverrideForTests()) {
-    const result = await requestLegacyJson<any>(auth, {
-      method: 'PATCH',
-      url: `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/sobjects/${type}/${id}`,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(record)
-    });
-    return normalizeSaveResult(result, id);
-  }
+  return withApiVersionFallback(auth, apiVersion, async activeVersion => {
+    if (hasLegacyHttpsRequestOverrideForTests()) {
+      const result = await requestLegacyJson<any>(auth, {
+        method: 'PATCH',
+        url: `${auth.instanceUrl}/services/data/v${activeVersion}/tooling/sobjects/${type}/${id}`,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(record)
+      });
+      return normalizeSaveResult(result, id);
+    }
 
-  const connection = await createConnectionFromAuth(auth, apiVersion);
-  const result = await connection.tooling.update(type as any, { Id: id, ...(record as any) });
-  return normalizeSaveResult(result, id);
+    const connection = await createConnectionFromAuth(auth, activeVersion);
+    const result = await connection.tooling.update(type as any, { Id: id, ...(record as any) });
+    return normalizeSaveResult(result, id);
+  });
 }
 
 export async function deleteToolingRecord(
@@ -540,19 +604,21 @@ export async function deleteToolingRecord(
   type: string,
   id: string
 ): Promise<SaveResult> {
-  if (hasLegacyHttpsRequestOverrideForTests()) {
-    const response = await legacyRequest(
-      'DELETE',
-      `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/sobjects/${type}/${id}`,
-      { 'Content-Type': 'application/json' }
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw new Error(`HTTP ${response.statusCode}: ${response.body}`);
+  return withApiVersionFallback(auth, apiVersion, async activeVersion => {
+    if (hasLegacyHttpsRequestOverrideForTests()) {
+      const response = await legacyRequest(
+        'DELETE',
+        `${auth.instanceUrl}/services/data/v${activeVersion}/tooling/sobjects/${type}/${id}`,
+        { 'Content-Type': 'application/json' }
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw new Error(`HTTP ${response.statusCode}: ${response.body}`);
+      }
+      return normalizeSaveResult(undefined, id);
     }
-    return normalizeSaveResult(undefined, id);
-  }
 
-  const connection = await createConnectionFromAuth(auth, apiVersion);
-  const result = await connection.tooling.destroy(type as any, id);
-  return normalizeSaveResult(result, id);
+    const connection = await createConnectionFromAuth(auth, activeVersion);
+    const result = await connection.tooling.destroy(type as any, id);
+    return normalizeSaveResult(result, id);
+  });
 }

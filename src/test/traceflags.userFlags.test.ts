@@ -663,6 +663,58 @@ suite('traceflags user management', () => {
     );
   });
 
+  test('createDebugLevel falls back to the org max API version for tooling writes', async () => {
+    setApiVersion('66.0');
+    const legacyAuth: OrgAuth = {
+      ...auth,
+      instanceUrl: 'https://tooling-write-create.example.my.salesforce.com',
+      username: 'tooling.write.create@example.com'
+    };
+    const calls = installHttpsStub(req => {
+      if (req.method === 'POST' && req.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel')) {
+        return {
+          statusCode: 404,
+          body: [{ errorCode: 'NOT_FOUND', message: 'The requested resource does not exist' }]
+        };
+      }
+      if (req.method === 'GET' && req.path === '/services/data') {
+        return {
+          statusCode: 200,
+          body: [{ version: '64.0' }]
+        };
+      }
+      if (req.method === 'POST' && req.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel')) {
+        return {
+          statusCode: 201,
+          body: { success: true, id: '7dl000000000fallbackAAA' }
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const created = await createDebugLevel(legacyAuth, {
+      developerName: 'ALV_FALLBACK_CREATE',
+      masterLabel: 'ALV Fallback Create',
+      language: 'en_US',
+      workflow: 'WARN',
+      validation: 'INFO',
+      callout: 'ERROR',
+      apexCode: 'DEBUG',
+      apexProfiling: 'INFO',
+      visualforce: 'WARN',
+      system: 'DEBUG',
+      database: 'FINE',
+      wave: 'ERROR',
+      nba: 'WARN',
+      dataAccess: 'INFO'
+    });
+
+    assert.equal(created.id, '7dl000000000fallbackAAA');
+    assert.equal(getEffectiveApiVersion(legacyAuth), '64.0');
+    assert.equal(calls.filter(call => call.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel')).length, 1);
+    assert.equal(calls.filter(call => call.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel')).length, 1);
+  });
+
   test('updateDebugLevel updates the tooling record with the full editable DebugLevel payload', async () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'PATCH' && req.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')) {
@@ -698,6 +750,60 @@ suite('traceflags user management', () => {
     assert.equal(calls.filter(call => call.method === 'PATCH').length, 1);
   });
 
+  test('updateDebugLevel falls back to the org max API version for tooling writes', async () => {
+    setApiVersion('66.0');
+    const legacyAuth: OrgAuth = {
+      ...auth,
+      instanceUrl: 'https://tooling-write-update.example.my.salesforce.com',
+      username: 'tooling.write.update@example.com'
+    };
+    const calls = installHttpsStub(req => {
+      if (req.method === 'PATCH' && req.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')) {
+        return {
+          statusCode: 404,
+          body: [{ errorCode: 'NOT_FOUND', message: 'The requested resource does not exist' }]
+        };
+      }
+      if (req.method === 'GET' && req.path === '/services/data') {
+        return {
+          statusCode: 200,
+          body: [{ version: '64.0' }]
+        };
+      }
+      if (req.method === 'PATCH' && req.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')) {
+        return { statusCode: 204 };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    await updateDebugLevel(legacyAuth, '7dl000000000001AAA', {
+      developerName: 'ALV_FALLBACK_UPDATE',
+      masterLabel: 'ALV Fallback Update',
+      language: 'pt_BR',
+      workflow: 'INFO',
+      validation: 'WARN',
+      callout: 'ERROR',
+      apexCode: 'FINEST',
+      apexProfiling: 'DEBUG',
+      visualforce: 'WARN',
+      system: 'DEBUG',
+      database: 'ERROR',
+      wave: 'NONE',
+      nba: 'INFO',
+      dataAccess: 'WARN'
+    });
+
+    assert.equal(getEffectiveApiVersion(legacyAuth), '64.0');
+    assert.equal(
+      calls.filter(call => call.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')).length,
+      1
+    );
+    assert.equal(
+      calls.filter(call => call.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')).length,
+      1
+    );
+  });
+
   test('deleteDebugLevel deletes the tooling record via the Tooling API client', async () => {
     setApiVersion('60.0');
     const httpCalls = installHttpsStub(req => {
@@ -723,6 +829,45 @@ suite('traceflags user management', () => {
         call => call.method === 'DELETE' && call.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')
       ),
       'expected DebugLevel tooling delete request'
+    );
+  });
+
+  test('deleteDebugLevel falls back to the org max API version for tooling writes', async () => {
+    setApiVersion('66.0');
+    const legacyAuth: OrgAuth = {
+      ...auth,
+      instanceUrl: 'https://tooling-write-delete.example.my.salesforce.com',
+      username: 'tooling.write.delete@example.com'
+    };
+    const calls = installHttpsStub(req => {
+      if (req.method === 'DELETE' && req.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')) {
+        return {
+          statusCode: 404,
+          body: [{ errorCode: 'NOT_FOUND', message: 'The requested resource does not exist' }]
+        };
+      }
+      if (req.method === 'GET' && req.path === '/services/data') {
+        return {
+          statusCode: 200,
+          body: [{ version: '64.0' }]
+        };
+      }
+      if (req.method === 'DELETE' && req.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')) {
+        return { statusCode: 204 };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    await deleteDebugLevel(legacyAuth, '7dl000000000001AAA');
+
+    assert.equal(getEffectiveApiVersion(legacyAuth), '64.0');
+    assert.equal(
+      calls.filter(call => call.path.endsWith('/services/data/v66.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')).length,
+      1
+    );
+    assert.equal(
+      calls.filter(call => call.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')).length,
+      1
     );
   });
 
