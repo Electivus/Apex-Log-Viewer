@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as fs from 'node:fs';
 import { SfLogsViewProvider } from './provider/SfLogsViewProvider';
 import { SfLogTailViewProvider } from './provider/SfLogTailViewProvider';
 import type { OrgItem } from './shared/types';
@@ -15,6 +16,7 @@ import { getErrorMessage } from './utils/error';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
 import { findSalesforceProjectInfo, isApexLogDocument, getLogIdFromLogFilePath } from './utils/workspace';
 import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
+import { buildWebviewTroubleshootingMessage, getWebviewServiceWorkerPath } from './utils/webviewTroubleshooting';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
   username: string;
@@ -221,6 +223,48 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('sfLogs.showOutput', () => {
       safeSendEvent('command.showOutput');
       showOutput(true);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.troubleshootWebview', async () => {
+      safeSendEvent('command.troubleshootWebview');
+      const appName = vscode.env.appName || 'VS Code';
+      const serviceWorkerPath = getWebviewServiceWorkerPath({ appName });
+      const message = localize(
+        'webviewTroubleshooting.message',
+        buildWebviewTroubleshootingMessage(appName, serviceWorkerPath),
+        appName,
+        serviceWorkerPath
+      );
+      const openFolderLabel = localize('webviewTroubleshooting.openFolder', 'Open Cache Folder');
+      const copyPathLabel = localize('webviewTroubleshooting.copyPath', 'Copy Cache Path');
+      const showOutputLabel = localize('webviewTroubleshooting.showOutput', 'Show Extension Output');
+      const choice = await vscode.window.showWarningMessage(
+        message,
+        { modal: true },
+        openFolderLabel,
+        copyPathLabel,
+        showOutputLabel
+      );
+
+      if (choice === openFolderLabel) {
+        const target = fs.existsSync(serviceWorkerPath) ? serviceWorkerPath : path.dirname(serviceWorkerPath);
+        await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(target));
+        return;
+      }
+
+      if (choice === copyPathLabel) {
+        await vscode.env.clipboard.writeText(serviceWorkerPath);
+        void vscode.window.showInformationMessage(
+          localize('webviewTroubleshooting.copied', 'Copied webview cache path: {0}', serviceWorkerPath)
+        );
+        return;
+      }
+
+      if (choice === showOutputLabel) {
+        showOutput(true);
+      }
     })
   );
 
