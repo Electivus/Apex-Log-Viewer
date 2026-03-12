@@ -1,5 +1,16 @@
 import type { HttpRequest } from '@jsforce/jsforce-node';
 import { createConnectionFromAuth, __resetHttpsRequestImplForTests, __setHttpsRequestImplForTests, requestText } from './jsforce';
+import {
+  __resetApiVersionFallbackStateForTests as resetApiVersionFallbackStateForTests,
+  extractApiVersionFromUrl,
+  getApiVersion as getConfiguredApiVersion,
+  getApiVersionFallbackWarning as getApiVersionFallbackWarningFromState,
+  getEffectiveApiVersion as getEffectiveApiVersionFromState,
+  parseApiVersion,
+  recordApiVersionFallback,
+  replaceApiVersionInUrl,
+  setApiVersion as setConfiguredApiVersion
+} from './apiVersion';
 import { logTrace, logWarn } from '../utils/logger';
 import type { ApexLogRow, OrgAuth } from './types';
 
@@ -13,31 +24,6 @@ function normalizeOrgKey(auth: OrgAuth): string {
     return instance;
   }
   return String(auth.username || '').trim().toLowerCase();
-}
-
-function parseApiVersion(value: string | undefined): number | undefined {
-  const s = String(value || '').trim();
-  if (!/^\d+\.\d+$/.test(s)) {
-    return undefined;
-  }
-  const n = Number(s);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function extractApiVersionFromUrl(urlString: string): string | undefined {
-  try {
-    const url = new URL(urlString);
-    const m = url.pathname.match(/\/services\/data\/v(\d+\.\d+)(?:\/|$)/i);
-    return m?.[1];
-  } catch {
-    return undefined;
-  }
-}
-
-function replaceApiVersionInUrl(urlString: string, version: string): string {
-  const url = new URL(urlString);
-  url.pathname = url.pathname.replace(/\/services\/data\/v\d+\.\d+(?=\/|$)/i, `/services/data/v${version}`);
-  return url.toString();
 }
 
 function errorText(error: unknown): string {
@@ -121,12 +107,8 @@ async function requestTextWithVersionFallback(
           requestedNumeric > orgMaxNumeric
         ) {
           attemptedVersionFallback = true;
-          const orgKey = normalizeOrgKey(auth);
-          orgApiVersionOverrideByOrg.set(orgKey, orgMaxVersion);
-          const warning = `sourceApiVersion ${API_VERSION} > org max ${orgMaxVersion}; falling back to ${orgMaxVersion}`;
-          const prevWarning = orgApiVersionWarningByOrg.get(orgKey);
-          orgApiVersionWarningByOrg.set(orgKey, warning);
-          if (prevWarning !== warning) {
+          const { warning, changed } = recordApiVersionFallback(auth, requestedVersion, orgMaxVersion);
+          if (changed) {
             logWarn(warning);
           }
           activeRequest = {
@@ -142,6 +124,26 @@ async function requestTextWithVersionFallback(
       throw error;
     }
   }
+}
+
+export function setApiVersion(v?: string): void {
+  setConfiguredApiVersion(v);
+}
+
+export function getApiVersion(): string {
+  return getConfiguredApiVersion();
+}
+
+export function getEffectiveApiVersion(auth?: OrgAuth): string {
+  return getEffectiveApiVersionFromState(auth);
+}
+
+export function getApiVersionFallbackWarning(auth?: OrgAuth): string | undefined {
+  return getApiVersionFallbackWarningFromState(auth);
+}
+
+export function __resetApiVersionFallbackStateForTests(): void {
+  resetApiVersionFallbackStateForTests();
 }
 
 export async function httpsRequestWith401Retry(
@@ -164,49 +166,6 @@ export async function httpsRequestWith401Retry(
     timeoutMs,
     signal
   );
-}
-
-let API_VERSION = '64.0';
-const orgApiVersionOverrideByOrg = new Map<string, string>();
-const orgApiVersionWarningByOrg = new Map<string, string>();
-
-function clearApiVersionFallbackState(): void {
-  orgApiVersionOverrideByOrg.clear();
-  orgApiVersionWarningByOrg.clear();
-}
-
-export function setApiVersion(v?: string): void {
-  const s = (v || '').trim();
-  if (/^\d+\.\d+$/.test(s)) {
-    const changed = API_VERSION !== s;
-    API_VERSION = s;
-    if (changed) {
-      clearApiVersionFallbackState();
-    }
-  }
-}
-
-export function getApiVersion(): string {
-  return API_VERSION;
-}
-
-export function getEffectiveApiVersion(auth?: OrgAuth): string {
-  if (!auth) {
-    return API_VERSION;
-  }
-  const orgKey = normalizeOrgKey(auth);
-  return orgApiVersionOverrideByOrg.get(orgKey) || API_VERSION;
-}
-
-export function getApiVersionFallbackWarning(auth?: OrgAuth): string | undefined {
-  if (!auth) {
-    return undefined;
-  }
-  return orgApiVersionWarningByOrg.get(normalizeOrgKey(auth));
-}
-
-export function __resetApiVersionFallbackStateForTests(): void {
-  clearApiVersionFallbackState();
 }
 
 const headCacheByLog = new Map<string, string[]>();

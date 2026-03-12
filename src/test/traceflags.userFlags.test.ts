@@ -3,6 +3,8 @@ import { EventEmitter } from 'events';
 import type { OrgAuth } from '../salesforce/types';
 import {
   __resetApiVersionFallbackStateForTests,
+  getApiVersionFallbackWarning,
+  getEffectiveApiVersion,
   __resetHttpsRequestImplForTests,
   __setHttpsRequestImplForTests,
   setApiVersion
@@ -14,6 +16,7 @@ import {
   deleteDebugLevel,
   getTraceFlagTargetStatus,
   getUserTraceFlagStatus,
+  listDebugLevels,
   listDebugLevelDetails,
   listActiveUsers,
   removeTraceFlags,
@@ -193,6 +196,49 @@ suite('traceflags user management', () => {
     }
   });
 
+  test('listActiveUsers falls back to the org max API version for standard queries', async () => {
+    setApiVersion('66.0');
+    const legacyAuth: OrgAuth = {
+      ...auth,
+      instanceUrl: 'https://standard-fallback.example.my.salesforce.com',
+      username: 'standard.fallback@example.com'
+    };
+    const calls = installHttpsStub(req => {
+      if (req.method === 'GET' && req.path === '/services/data') {
+        return {
+          statusCode: 200,
+          body: [{ version: '64.0' }]
+        };
+      }
+      if (req.method === 'GET' && req.path.includes('/services/data/v66.0/query')) {
+        return {
+          statusCode: 404,
+          body: [{ errorCode: 'NOT_FOUND', message: 'The requested resource does not exist' }]
+        };
+      }
+      if (req.method === 'GET' && req.path.includes('/services/data/v64.0/query')) {
+        return {
+          statusCode: 200,
+          body: {
+            records: [{ Id: '005000000000001AAA', Name: 'Ada Lovelace', Username: 'ada@example.com', IsActive: true }]
+          }
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const users = await listActiveUsers(legacyAuth, 'ada', 25);
+
+    assert.equal(users.length, 1);
+    assert.equal(getEffectiveApiVersion(legacyAuth), '64.0');
+    assert.ok(
+      getApiVersionFallbackWarning(legacyAuth)?.includes('sourceApiVersion 66.0 > org max 64.0'),
+      'expected API version fallback warning for standard query flow'
+    );
+    assert.equal(calls.filter(call => call.path.includes('/services/data/v66.0/query')).length, 1);
+    assert.equal(calls.filter(call => call.path.includes('/services/data/v64.0/query')).length, 1);
+  });
+
   test('getUserTraceFlagStatus parses active status and metadata', async () => {
     installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/tooling/query')) {
@@ -218,6 +264,49 @@ suite('traceflags user management', () => {
     assert.equal(status?.traceFlagId, '7tf000000000001AAA');
     assert.equal(status?.debugLevelName, 'ALV_E2E');
     assert.equal(status?.isActive, true);
+  });
+
+  test('listDebugLevels falls back to the org max API version for tooling queries', async () => {
+    setApiVersion('66.0');
+    const legacyAuth: OrgAuth = {
+      ...auth,
+      instanceUrl: 'https://tooling-fallback.example.my.salesforce.com',
+      username: 'tooling.fallback@example.com'
+    };
+    const calls = installHttpsStub(req => {
+      if (req.method === 'GET' && req.path === '/services/data') {
+        return {
+          statusCode: 200,
+          body: [{ version: '64.0' }]
+        };
+      }
+      if (req.method === 'GET' && req.path.includes('/services/data/v66.0/tooling/query')) {
+        return {
+          statusCode: 404,
+          body: [{ errorCode: 'NOT_FOUND', message: 'The requested resource does not exist' }]
+        };
+      }
+      if (req.method === 'GET' && req.path.includes('/services/data/v64.0/tooling/query')) {
+        return {
+          statusCode: 200,
+          body: {
+            records: [{ DeveloperName: 'ALV_VERBOSE' }]
+          }
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const names = await listDebugLevels(legacyAuth);
+
+    assert.deepEqual(names, ['ALV_VERBOSE']);
+    assert.equal(getEffectiveApiVersion(legacyAuth), '64.0');
+    assert.ok(
+      getApiVersionFallbackWarning(legacyAuth)?.includes('sourceApiVersion 66.0 > org max 64.0'),
+      'expected API version fallback warning for tooling query flow'
+    );
+    assert.equal(calls.filter(call => call.path.includes('/services/data/v66.0/tooling/query')).length, 1);
+    assert.equal(calls.filter(call => call.path.includes('/services/data/v64.0/tooling/query')).length, 1);
   });
 
   test('getTraceFlagTargetStatus resolves Automated Process across all active matches and aggregates USER_DEBUG status', async () => {

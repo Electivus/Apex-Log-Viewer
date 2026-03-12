@@ -3,7 +3,9 @@ import * as https from 'https';
 import { gunzip, inflate } from 'zlib';
 import { URL } from 'url';
 import { getOrgAuth } from './cli';
+import { parseApiVersion, recordApiVersionFallback } from './apiVersion';
 import type { OrgAuth } from './types';
+import { logWarn } from '../utils/logger';
 
 type HttpsRequestFn = typeof https.request;
 
@@ -138,6 +140,26 @@ function normalizeSaveResult(result: unknown, idFallback?: string): SaveResult {
   } as SaveResult;
 }
 
+function errorText(error: unknown): string {
+  return String((error as { message?: string } | undefined)?.message || error || '');
+}
+
+function isVersionNotFound404(error: unknown): boolean {
+  const code = String((error as { errorCode?: string } | undefined)?.errorCode || '').toUpperCase();
+  if (code === 'NOT_FOUND' || code === 'ERROR_HTTP_404') {
+    return true;
+  }
+  const data = (error as { data?: unknown } | undefined)?.data;
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      if (String((item as { errorCode?: string } | undefined)?.errorCode || '').toUpperCase() === 'NOT_FOUND') {
+        return true;
+      }
+    }
+  }
+  return /not[_\s-]?found|requested resource does not exist/i.test(errorText(error));
+}
+
 export async function createConnectionFromAuth(
   auth: OrgAuth,
   apiVersion: string
@@ -168,6 +190,74 @@ export async function createConnectionFromAuth(
   });
 
   return connection as JsforceConnectionLike;
+}
+
+async function discoverOrgMaxApiVersion(auth: OrgAuth, timeoutMs?: number, signal?: AbortSignal): Promise<string | undefined> {
+  const base = String(auth.instanceUrl || '').replace(/\/+$/, '');
+  if (!base) {
+    return undefined;
+  }
+  const body = await requestText(
+    auth,
+    {
+      method: 'GET',
+      url: `${base}/services/data`,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    },
+    { timeoutMs, signal }
+  );
+  const parsed = JSON.parse(body);
+  if (!Array.isArray(parsed)) {
+    return undefined;
+  }
+  let maxVersion: string | undefined;
+  let maxNumeric = -1;
+  for (const item of parsed) {
+    const version = item?.version;
+    const numeric = parseApiVersion(version);
+    if (numeric !== undefined && numeric > maxNumeric) {
+      maxNumeric = numeric;
+      maxVersion = version;
+    }
+  }
+  return maxVersion;
+}
+
+async function withQueryVersionFallback<T>(
+  auth: OrgAuth,
+  apiVersion: string,
+  execute: (version: string) => Promise<T>
+): Promise<T> {
+  let activeVersion = apiVersion;
+  let attemptedVersionFallback = false;
+  for (;;) {
+    try {
+      return await execute(activeVersion);
+    } catch (error) {
+      if (!attemptedVersionFallback && isVersionNotFound404(error)) {
+        const requestedNumeric = parseApiVersion(activeVersion);
+        const orgMaxVersion = await discoverOrgMaxApiVersion(auth).catch(() => undefined);
+        const orgMaxNumeric = parseApiVersion(orgMaxVersion);
+        if (
+          requestedNumeric !== undefined &&
+          orgMaxVersion &&
+          orgMaxNumeric !== undefined &&
+          requestedNumeric > orgMaxNumeric
+        ) {
+          attemptedVersionFallback = true;
+          const { warning, changed } = recordApiVersionFallback(auth, activeVersion, orgMaxVersion);
+          if (changed) {
+            logWarn(warning);
+          }
+          activeVersion = orgMaxVersion;
+          continue;
+        }
+      }
+      throw error;
+    }
+  }
 }
 
 async function legacyRequest(
@@ -338,22 +428,24 @@ export async function queryStandard<TRecord extends Record<string, unknown>>(
   soql: string,
   apiVersion: string
 ): Promise<QueryResponse<TRecord>> {
-  if (hasLegacyHttpsRequestOverrideForTests()) {
-    const encoded = encodeURIComponent(soql);
-    return requestLegacyJson<QueryResponse<TRecord>>(auth, {
-      method: 'GET',
-      url: `${auth.instanceUrl}/services/data/v${apiVersion}/query?q=${encoded}`,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
+  return withQueryVersionFallback(auth, apiVersion, async activeVersion => {
+    if (hasLegacyHttpsRequestOverrideForTests()) {
+      const encoded = encodeURIComponent(soql);
+      return requestLegacyJson<QueryResponse<TRecord>>(auth, {
+        method: 'GET',
+        url: `${auth.instanceUrl}/services/data/v${activeVersion}/query?q=${encoded}`,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
 
-  const connection = await createConnectionFromAuth(auth, apiVersion);
-  const result = await connection.query<TRecord>(soql);
-  return {
-    records: Array.isArray((result as any)?.records) ? ((result as any).records as TRecord[]) : [],
-    done: (result as any)?.done,
-    nextRecordsUrl: typeof (result as any)?.nextRecordsUrl === 'string' ? (result as any).nextRecordsUrl : undefined
-  };
+    const connection = await createConnectionFromAuth(auth, activeVersion);
+    const result = await connection.query<TRecord>(soql);
+    return {
+      records: Array.isArray((result as any)?.records) ? ((result as any).records as TRecord[]) : [],
+      done: (result as any)?.done,
+      nextRecordsUrl: typeof (result as any)?.nextRecordsUrl === 'string' ? (result as any).nextRecordsUrl : undefined
+    };
+  });
 }
 
 export async function queryTooling<TRecord extends Record<string, unknown>>(
@@ -361,22 +453,24 @@ export async function queryTooling<TRecord extends Record<string, unknown>>(
   soql: string,
   apiVersion: string
 ): Promise<QueryResponse<TRecord>> {
-  if (hasLegacyHttpsRequestOverrideForTests()) {
-    const encoded = encodeURIComponent(soql);
-    return requestLegacyJson<QueryResponse<TRecord>>(auth, {
-      method: 'GET',
-      url: `${auth.instanceUrl}/services/data/v${apiVersion}/tooling/query?q=${encoded}`,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
+  return withQueryVersionFallback(auth, apiVersion, async activeVersion => {
+    if (hasLegacyHttpsRequestOverrideForTests()) {
+      const encoded = encodeURIComponent(soql);
+      return requestLegacyJson<QueryResponse<TRecord>>(auth, {
+        method: 'GET',
+        url: `${auth.instanceUrl}/services/data/v${activeVersion}/tooling/query?q=${encoded}`,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
 
-  const connection = await createConnectionFromAuth(auth, apiVersion);
-  const result = await connection.tooling.query<TRecord>(soql);
-  return {
-    records: Array.isArray((result as any)?.records) ? ((result as any).records as TRecord[]) : [],
-    done: (result as any)?.done,
-    nextRecordsUrl: typeof (result as any)?.nextRecordsUrl === 'string' ? (result as any).nextRecordsUrl : undefined
-  };
+    const connection = await createConnectionFromAuth(auth, activeVersion);
+    const result = await connection.tooling.query<TRecord>(soql);
+    return {
+      records: Array.isArray((result as any)?.records) ? ((result as any).records as TRecord[]) : [],
+      done: (result as any)?.done,
+      nextRecordsUrl: typeof (result as any)?.nextRecordsUrl === 'string' ? (result as any).nextRecordsUrl : undefined
+    };
+  });
 }
 
 export async function queryToolingMore<TRecord>(
