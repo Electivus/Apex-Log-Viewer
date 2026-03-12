@@ -24,6 +24,16 @@ suite('webview troubleshooting', () => {
     assert.equal(target, path.posix.join('/home/k2', '.config', 'Code', 'Service Worker'));
   });
 
+  test('maps the Visual Studio Code app name back to the stable profile folder', () => {
+    const target = getWebviewServiceWorkerPath({
+      appName: 'Visual Studio Code',
+      platform: 'linux',
+      homeDir: '/home/k2'
+    });
+
+    assert.equal(target, path.posix.join('/home/k2', '.config', 'Code', 'Service Worker'));
+  });
+
   test('uses the Insiders profile path on macOS', () => {
     const target = getWebviewServiceWorkerPath({
       appName: 'Visual Studio Code - Insiders',
@@ -35,6 +45,23 @@ suite('webview troubleshooting', () => {
       target,
       path.posix.join('/Users/k2', 'Library', 'Application Support', 'Code - Insiders', 'Service Worker')
     );
+  });
+
+  test('preserves non-Microsoft build names when resolving the cache path', () => {
+    const vscodiumTarget = getWebviewServiceWorkerPath({
+      appName: 'VSCodium',
+      platform: 'linux',
+      homeDir: '/home/k2'
+    });
+    const ossTarget = getWebviewServiceWorkerPath({
+      appName: 'Code - OSS',
+      platform: 'win32',
+      appData: 'C:\\Users\\k2\\AppData\\Roaming',
+      homeDir: 'C:\\Users\\k2'
+    });
+
+    assert.equal(vscodiumTarget, path.posix.join('/home/k2', '.config', 'VSCodium', 'Service Worker'));
+    assert.equal(ossTarget, 'C:\\Users\\k2\\AppData\\Roaming\\Code - OSS\\Service Worker');
   });
 
   test('builds a troubleshooting message with the app label and cache path', () => {

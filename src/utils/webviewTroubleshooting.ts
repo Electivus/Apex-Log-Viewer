@@ -9,11 +9,25 @@ type WebviewTroubleshootingOptions = {
 };
 
 function getCodeProfileFolder(appName?: string): string {
-  const normalized = appName?.toLowerCase() ?? '';
-  if (normalized.includes('insider')) {
+  const label = appName?.trim();
+  if (!label) {
+    return 'Code';
+  }
+
+  const normalized = label.toLowerCase();
+  if (
+    normalized === 'code - insiders' ||
+    normalized === 'visual studio code - insiders' ||
+    normalized === 'vscode - insiders'
+  ) {
     return 'Code - Insiders';
   }
-  return 'Code';
+
+  if (normalized === 'code' || normalized === 'visual studio code' || normalized === 'vs code') {
+    return 'Code';
+  }
+
+  return label;
 }
 
 export function getWebviewServiceWorkerPath(options: WebviewTroubleshootingOptions = {}): string {
