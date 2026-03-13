@@ -37,6 +37,10 @@ jobs:
     name: Playwright E2E (scratch org)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -60,17 +64,17 @@ jobs:
         run: INSTALL_LINUX_DEPS=true bash scripts/install-linux-deps.sh
 
       - name: Azure login for dedicated App Insights validation
-        if: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_SUBSCRIPTION_ID != '' }}
+        if: ${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' }}
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Run Playwright E2E
         shell: bash
         run: |
-          if [[ "${ALV_E2E_TELEMETRY_READY}" == "1" ]]; then
+          if [[ -n "${AZURE_CLIENT_ID}" && -n "${AZURE_TENANT_ID}" && -n "${AZURE_SUBSCRIPTION_ID}" ]]; then
             echo "Running full Playwright E2E with dedicated App Insights validation."
             npm run test:e2e:telemetry
           else
@@ -78,7 +82,6 @@ jobs:
             npm run test:e2e -- openLogViewer.e2e.spec.ts
           fi
         env:
-          ALV_E2E_TELEMETRY_READY: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_SUBSCRIPTION_ID != '' && '1' || '' }}
           VSCODE_TEST_VERSION: ${{ github.event.inputs.vscode_version || 'stable' }}
           SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
           SF_DEVHUB_ALIAS: DevHubElectivus
