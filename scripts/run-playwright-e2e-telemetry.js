@@ -210,7 +210,9 @@ async function main() {
     location: String(process.env.ALV_E2E_TELEMETRY_LOCATION || 'eastus').trim(),
     resourceGroup: String(process.env.ALV_E2E_TELEMETRY_RESOURCE_GROUP || 'rg-apex-log-viewer-telemetry-eastus').trim(),
     subscription: String(
-      process.env.ALV_E2E_TELEMETRY_SUBSCRIPTION || 'c1b4d537-c3dc-4d64-b022-a97fd1826665'
+      process.env.ALV_E2E_TELEMETRY_SUBSCRIPTION ||
+        process.env.AZURE_SUBSCRIPTION_ID ||
+        'c1b4d537-c3dc-4d64-b022-a97fd1826665'
     ).trim(),
     workspaceResourceId: String(process.env.ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID || '').trim() || undefined
   };
@@ -230,11 +232,15 @@ async function main() {
     ALV_TEST_TELEMETRY_RUN_ID: runId
   };
 
-  const child = await spawnAsync(process.execPath, [path.join(__dirname, 'run-playwright-e2e.js'), ...process.argv.slice(2)], {
-    cwd: REPO_ROOT,
-    env: childEnv,
-    stdio: 'inherit'
-  });
+  const child = await spawnAsync(
+    process.execPath,
+    [path.join(__dirname, 'run-playwright-e2e.js'), ...process.argv.slice(2)],
+    {
+      cwd: REPO_ROOT,
+      env: childEnv,
+      stdio: 'inherit'
+    }
+  );
 
   if (typeof child.code === 'number' && child.code !== 0) {
     process.exit(child.code);

@@ -115,6 +115,8 @@ Optional overrides:
 - `ALV_E2E_TELEMETRY_QUERY_DELAY_MS`
 - `ALV_E2E_TELEMETRY_LOOKBACK`
 
+When `ALV_E2E_TELEMETRY_SUBSCRIPTION` is not set, the telemetry runner falls back to `AZURE_SUBSCRIPTION_ID` before using the checked-in default subscription. This keeps GitHub Actions OIDC runs aligned with the Azure subscription selected by `azure/login`.
+
 Internal env vars used by the test runner:
 
 - `ALV_ENABLE_TEST_TELEMETRY=1`
