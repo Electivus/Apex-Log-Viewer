@@ -52,12 +52,6 @@ export async function activate(context: vscode.ExtensionContext) {
   } catch {
     // ignore telemetry init errors
   }
-  safeSendEvent('extension.activate', {
-    vscodeVersion: vscode.version,
-    platform: process.platform,
-    hasWorkspace: String(!!vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0),
-    hasSalesforceProject: String(hasSalesforceProject)
-  });
   // Keep Salesforce SDKs and CLI helpers from attempting on-disk log files inside the VS Code host.
   try {
     if (!process.env.SF_DISABLE_LOG_FILE) process.env.SF_DISABLE_LOG_FILE = 'true';
@@ -106,7 +100,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.refresh', async () => {
-      safeSendEvent('command.refresh');
+      safeSendEvent('command.refresh', { outcome: 'invoked' });
       const viewAlreadyResolved = provider.hasResolvedView();
       try {
         await vscode.commands.executeCommand('workbench.view.extension.salesforceLogsPanel');
@@ -166,7 +160,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.tail', async () => {
       logInfo('Command sfLogs.tail invoked. Opening Tail view and starting…');
-      safeSendEvent('command.tail');
+      safeSendEvent('command.tail', { outcome: 'invoked' });
       try {
         await provider.tailLogs();
       } catch (e) {
@@ -183,7 +177,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.openLogInViewer', async (uri?: vscode.Uri) => {
-      safeSendEvent('command.openLogInViewer');
+      safeSendEvent('command.openLogInViewer', { outcome: 'invoked' });
       try {
         const doc = uri ? await vscode.workspace.openTextDocument(uri) : vscode.window.activeTextEditor?.document;
         if (!doc || doc.isClosed) {
@@ -227,14 +221,14 @@ export async function activate(context: vscode.ExtensionContext) {
   // Convenience: command to show the output channel
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.showOutput', () => {
-      safeSendEvent('command.showOutput');
+      safeSendEvent('command.showOutput', { outcome: 'invoked' });
       showOutput(true);
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.troubleshootWebview', async () => {
-      safeSendEvent('command.troubleshootWebview');
+      safeSendEvent('command.troubleshootWebview', { outcome: 'invoked' });
       const appName = vscode.env.appName || 'VS Code';
       const remoteName = vscode.env.remoteName;
       const showOutputLabel = localize('webviewTroubleshooting.showOutput', 'Show Extension Output');
@@ -317,10 +311,12 @@ export async function activate(context: vscode.ExtensionContext) {
         await CacheManager.delete('cli');
         logInfo('CLI cache cleared.');
         vscode.window.showInformationMessage('Electivus Apex Logs: CLI cache cleared');
+        safeSendEvent('command.resetCliCache', { outcome: 'ok' });
       } catch (e) {
         const msg = getErrorMessage(e);
         logWarn('Failed clearing CLI cache ->', msg);
         vscode.window.showErrorMessage('Electivus Apex Logs: Failed to clear CLI cache');
+        safeSendEvent('command.resetCliCache', { outcome: 'error' });
       }
     })
   );
@@ -363,8 +359,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Return exports for tests and programmatic use
   try {
-    const activationMs = Date.now() - activationStart;
-    safeSendEvent('extension.activate.duration', undefined, { activationMs });
+    safeSendEvent(
+      'extension.activate',
+      {
+        outcome: 'ok',
+        hasWorkspace: String(!!vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0),
+        hasSalesforceProject: String(hasSalesforceProject)
+      },
+      { durationMs: Date.now() - activationStart }
+    );
   } catch {}
   return {
     getApiVersion

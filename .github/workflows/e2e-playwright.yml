@@ -16,7 +16,7 @@ on:
       scratch_duration_days:
         description: Scratch org duration in days
         required: false
-        default: "1"
+        default: '1'
         type: string
       keep_scratch_org:
         description: Keep the scratch org after the run
@@ -30,6 +30,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   playwright_e2e:
@@ -58,9 +59,26 @@ jobs:
       - name: Install Linux deps for Electron (best-effort)
         run: INSTALL_LINUX_DEPS=true bash scripts/install-linux-deps.sh
 
+      - name: Azure login for dedicated App Insights validation
+        if: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_SUBSCRIPTION_ID != '' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Run Playwright E2E
-        run: npm run test:e2e -- openLogViewer.e2e.spec.ts
+        shell: bash
+        run: |
+          if [[ "${ALV_E2E_TELEMETRY_READY}" == "1" ]]; then
+            echo "Running full Playwright E2E with dedicated App Insights validation."
+            npm run test:e2e:telemetry
+          else
+            echo "Azure OIDC secrets are not configured; falling back to the smoke E2E run."
+            npm run test:e2e -- openLogViewer.e2e.spec.ts
+          fi
         env:
+          ALV_E2E_TELEMETRY_READY: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_SUBSCRIPTION_ID != '' && '1' || '' }}
           VSCODE_TEST_VERSION: ${{ github.event.inputs.vscode_version || 'stable' }}
           SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
           SF_DEVHUB_ALIAS: DevHubElectivus

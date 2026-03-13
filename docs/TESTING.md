@@ -9,6 +9,7 @@ This project uses VS Code integration tests (Mocha running inside the Extension 
 - `npm run test:integration`: installs dependency extensions if needed and runs integration tests.
 - `npm run test:all`: runs the Jest webview suites, then both unit and integration scopes.
 - `npm run test:e2e`: runs Playwright E2E tests against a real scratch org (creates a scratch org + seeds an Apex log).
+- `npm run test:e2e:telemetry`: runs the same Playwright E2E suite, but first resolves a dedicated App Insights component for E2E and then validates that telemetry from the current run arrived there.
 
 The test orchestrator lives in `scripts/run-tests.js` and the Mocha programmatic runner in `src/test/runner.ts`.
 
@@ -66,6 +67,7 @@ The Playwright suite validates the webview UX end-to-end by:
 From the repo root:
 
 - `SF_TEST_KEEP_ORG=1 npm run test:e2e`
+- `SF_TEST_KEEP_ORG=1 npm run test:e2e:telemetry`
 
 Useful env vars:
 
@@ -81,6 +83,43 @@ Troubleshooting:
 - If the Logs panel shows **“Salesforce CLI not found”**, set the VS Code setting `electivus.apexLogs.cliPath` to the absolute path of your `sf` executable.
 
 Artifacts (screenshots/traces/videos on failure) are written under `output/playwright/`.
+
+### Playwright E2E + dedicated App Insights validation
+
+`npm run test:e2e:telemetry` is the full telemetry-validation path. It:
+
+1. Resolves or creates `appi-apex-log-viewer-telemetry-e2e-eastus`
+2. Reuses the existing Log Analytics workspace from the production telemetry resource
+3. Injects a test-only telemetry connection string plus a per-run `testRunId`
+4. Runs the full Playwright suite
+5. Queries the dedicated App Insights component and fails if the current run's telemetry does not arrive
+
+The GitHub Actions workflow `.github/workflows/e2e-playwright.yml` prefers this path automatically when `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` are configured for OIDC-based `azure/login`. If those Azure settings are missing, the workflow falls back to the smoke-only `npm run test:e2e -- openLogViewer.e2e.spec.ts` path so PR validation remains usable.
+
+Default Azure targets:
+
+- Subscription: `c1b4d537-c3dc-4d64-b022-a97fd1826665`
+- Resource group: `rg-apex-log-viewer-telemetry-eastus`
+- Production App Insights (workspace source): `appi-apex-log-viewer-telemetry-eastus`
+- E2E App Insights target: `appi-apex-log-viewer-telemetry-e2e-eastus`
+
+Optional overrides:
+
+- `ALV_E2E_TELEMETRY_SUBSCRIPTION`
+- `ALV_E2E_TELEMETRY_RESOURCE_GROUP`
+- `ALV_E2E_TELEMETRY_LOCATION`
+- `ALV_E2E_TELEMETRY_APP`
+- `ALV_E2E_TELEMETRY_BASE_APP`
+- `ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID`
+- `ALV_E2E_TELEMETRY_QUERY_ATTEMPTS`
+- `ALV_E2E_TELEMETRY_QUERY_DELAY_MS`
+- `ALV_E2E_TELEMETRY_LOOKBACK`
+
+Internal env vars used by the test runner:
+
+- `ALV_ENABLE_TEST_TELEMETRY=1`
+- `ALV_TEST_TELEMETRY_CONNECTION_STRING`
+- `ALV_TEST_TELEMETRY_RUN_ID`
 
 ## Debugging
 

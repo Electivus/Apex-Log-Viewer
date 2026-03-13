@@ -3,6 +3,7 @@
 This repository uses GitHub Actions to build, test, package, and publish the extension.
 
 - Workflow CI (`.github/workflows/ci.yml`): build/test only on `push` and `pull_request`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`).
+- Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. When Azure OIDC secrets are configured, it runs the full `npm run test:e2e:telemetry` path and validates telemetry in the dedicated E2E App Insights resource. Without Azure OIDC configuration, it falls back to the existing smoke E2E run.
 - Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace (if `VSCE_PAT` is configured) and Open VSX (if `OVSX_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
 - Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes automatically to the Marketplace and Open VSX pre‑release channels (when `VSCE_PAT`/`OVSX_PAT` are set).
 
@@ -12,6 +13,16 @@ Build & Test basics:
 - `npm ci` → `npm run build` → tests. CI defaults to unit tests on manual runs; Release runs all tests.
 
 Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref.
+
+## Setup Azure OIDC for E2E Telemetry Validation
+
+The telemetry-aware Playwright workflow uses `azure/login@v2` with GitHub OIDC. Configure these repository secrets:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+
+When all three are present, the workflow authenticates to Azure, runs `npm run test:e2e:telemetry`, and validates that the current E2E run reached `appi-apex-log-viewer-telemetry-e2e-eastus`. If any are missing, the workflow still runs, but it intentionally falls back to the smoke-only Playwright path.
 
 ## Release Flow
 

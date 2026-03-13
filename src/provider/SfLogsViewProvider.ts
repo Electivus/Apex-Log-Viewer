@@ -869,7 +869,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       );
       if (confirmation !== confirmAction) {
         try {
-          safeSendEvent('logs.cleanup', { outcome: 'cancel', scope }, { durationMs: Date.now() - t0 });
+          safeSendEvent(
+            'logs.cleanup',
+            { outcome: 'cancel', scope, sourceView: 'logs' },
+            { durationMs: Date.now() - t0 }
+          );
         } catch {}
         return;
       }
@@ -992,7 +996,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       try {
         safeSendEvent(
           'logs.cleanup',
-          { outcome: result.kind, scope },
+          { outcome: result.kind, scope, sourceView: 'logs' },
           { durationMs: Date.now() - t0 }
         );
       } catch {}
@@ -1003,7 +1007,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       logError('Logs: cleanup failed ->', msg);
       void vscode.window.showErrorMessage(localize('logsCleanup.failed', 'Failed to clear logs: {0}', msg));
       try {
-        safeSendEvent('logs.cleanup', { outcome: 'error', scope }, { durationMs: Date.now() - t0 });
+        safeSendEvent(
+          'logs.cleanup',
+          { outcome: 'error', scope, sourceView: 'logs' },
+          { durationMs: Date.now() - t0 }
+        );
       } catch {}
     } finally {
       this.clearLogsInProgress = false;
@@ -1038,7 +1046,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       );
       if (confirmation !== confirmAction) {
         try {
-          safeSendEvent('logs.downloadAll', { outcome: 'cancel' }, { durationMs: Date.now() - t0 });
+          safeSendEvent(
+            'logs.downloadAll',
+            { outcome: 'cancel', sourceView: 'logs' },
+            { durationMs: Date.now() - t0 }
+          );
         } catch {}
         return;
       }
@@ -1126,7 +1138,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         try {
           safeSendEvent(
             'logs.downloadAll',
-            { outcome: 'cancelled' },
+            { outcome: 'cancelled', sourceView: 'logs' },
             {
               durationMs: Date.now() - t0,
               total: runResult.listed,
@@ -1144,7 +1156,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           localize('downloadAllLogsNoLogs', 'No Apex logs were found for the selected org.')
         );
         try {
-          safeSendEvent('logs.downloadAll', { outcome: 'empty' }, { durationMs: Date.now() - t0 });
+          safeSendEvent(
+            'logs.downloadAll',
+            { outcome: 'empty', sourceView: 'logs' },
+            { durationMs: Date.now() - t0 }
+          );
         } catch {}
         return;
       }
@@ -1168,7 +1184,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         try {
           safeSendEvent(
             'logs.downloadAll',
-            { outcome: 'cancelled' },
+            { outcome: 'cancelled', sourceView: 'logs' },
             { durationMs: Date.now() - t0, total, success, failed: summary.failed, cancelled: summary.cancelled }
           );
         } catch {}
@@ -1184,7 +1200,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           )
         );
         try {
-          safeSendEvent('logs.downloadAll', { outcome: 'partial' }, { durationMs: Date.now() - t0, total, success, failed: summary.failed });
+          safeSendEvent(
+            'logs.downloadAll',
+            { outcome: 'partial', sourceView: 'logs' },
+            { durationMs: Date.now() - t0, total, success, failed: summary.failed }
+          );
         } catch {}
         return;
       }
@@ -1199,7 +1219,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         )
       );
       try {
-        safeSendEvent('logs.downloadAll', { outcome: 'ok' }, { durationMs: Date.now() - t0, total, success });
+        safeSendEvent(
+          'logs.downloadAll',
+          { outcome: 'ok', sourceView: 'logs' },
+          { durationMs: Date.now() - t0, total, success }
+        );
       } catch {}
     } catch (e) {
       const msg = getErrorMessage(e);
@@ -1208,7 +1232,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         localize('downloadAllLogsFailed', 'Failed to download all org logs: {0}', msg)
       );
       try {
-        safeSendEvent('logs.downloadAll', { outcome: 'error' }, { durationMs: Date.now() - t0 });
+        safeSendEvent(
+          'logs.downloadAll',
+          { outcome: 'error', sourceView: 'logs' },
+          { durationMs: Date.now() - t0 }
+        );
       } catch {}
     } finally {
       this.bulkDownloadInProgress = false;

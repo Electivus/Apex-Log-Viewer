@@ -23,7 +23,7 @@ Concise project knowledge so an AI can contribute productively. Keep answers spe
 - Active dev: run `npm run watch` (parallel: extension esbuild, tsc watch, webview bundler) then F5 (Extension Development Host).
 - One-off build (CI/PR): `npm run build` (bundles extension + minified webviews). Prepublish packaging uses `npm run package` (adds NLS extraction/writing) before `vsce` packaging.
 - Type checks only: `npm run check-types`; lint: `npm run lint`.
-- Telemetry key is injected only during packaging via scripts (`telemetry:inject` / `telemetry:strip`). Never hardcode connection strings.
+- Telemetry uses the checked-in `package.json.telemetryConnectionString` by default, with optional env overrides (`APPLICATIONINSIGHTS_CONNECTION_STRING` / `VSCODE_TELEMETRY_CONNECTION_STRING`) for controlled experiments. Keep the public schema in `telemetry.json` aligned with the wrapper in `src/shared/telemetry.ts`.
 
 ## Testing
 
@@ -51,7 +51,7 @@ Concise project knowledge so an AI can contribute productively. Keep answers spe
 ## CI & Release
 
 - Workflows in `.github/workflows/*.yml`: `ci.yml` (build/test), `release.yml` (tag → publish), `prerelease.yml` (nightly). Odd minor = pre-release, even minor = stable.
-- Release prep: bump `package.json`, update `CHANGELOG.md`, tag `vX.Y.Z`. CI handles packaging; telemetry key must be available as env var for production builds.
+- Release prep: bump `package.json`, update `CHANGELOG.md`, tag `vX.Y.Z`. CI handles packaging; `telemetry.json` must ship in the VSIX and telemetry schema changes should be covered by tests.
 
 ## When Editing / Submitting PRs
 

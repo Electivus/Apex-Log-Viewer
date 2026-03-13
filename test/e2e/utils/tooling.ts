@@ -39,6 +39,8 @@ export type DebugLevelToolingRecord = {
 };
 
 const DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION = '63.0';
+const TRACE_FLAG_REMOVAL_TIMEOUT_MS = 30_000;
+const TRACE_FLAG_REMOVAL_POLL_INTERVAL_MS = 1_000;
 const SPECIAL_TRACE_FLAG_TARGET_NAMES: Record<SpecialTraceFlagTargetType, readonly string[]> = {
   automatedProcess: ['Automated Process'],
   platformIntegration: ['Platform Integration', 'Platform Integration User']
@@ -95,6 +97,10 @@ function toSfDateTimeUTC(d: Date): string {
     `${pad(d.getUTCSeconds())}.` +
     `${pad(d.getUTCMilliseconds(), 3)}+0000`
   );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function requestJson(auth: OrgAuth, method: string, resourcePath: string, body?: unknown): Promise<any> {
@@ -364,18 +370,42 @@ export async function removeUserDebugTraceFlags(auth: OrgAuth, userId: string): 
   return removeDebugTraceFlagsByTracedEntityId(auth, userId);
 }
 
-export async function removeDebugTraceFlagsByTracedEntityId(auth: OrgAuth, tracedEntityId: string): Promise<number> {
+async function listDebugTraceFlagIdsByTracedEntityId(auth: OrgAuth, tracedEntityId: string): Promise<string[]> {
   const userEsc = escapeSoqlLiteral(tracedEntityId);
   const tfSoql = encodeURIComponent(
     `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userEsc}' AND LogType = 'USER_DEBUG' ORDER BY CreatedDate DESC LIMIT 200`
   );
   const tfRes = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/tooling/query?q=${tfSoql}`);
-  const ids = (Array.isArray(tfRes?.records) ? tfRes.records : [])
+  return (Array.isArray(tfRes?.records) ? tfRes.records : [])
     .map((record: any) => record?.Id)
     .filter((id: unknown): id is string => isSfId(id));
+}
+
+export async function removeDebugTraceFlagsByTracedEntityId(auth: OrgAuth, tracedEntityId: string): Promise<number> {
+  const ids = await listDebugTraceFlagIdsByTracedEntityId(auth, tracedEntityId);
 
   for (const id of ids) {
     await requestJson(auth, 'DELETE', `/services/data/v${auth.apiVersion}/tooling/sobjects/TraceFlag/${id}`);
+  }
+
+  if (ids.length === 0) {
+    return 0;
+  }
+
+  const deadline = Date.now() + TRACE_FLAG_REMOVAL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const remainingIds = await listDebugTraceFlagIdsByTracedEntityId(auth, tracedEntityId);
+    if (remainingIds.length === 0) {
+      return ids.length;
+    }
+    await sleep(TRACE_FLAG_REMOVAL_POLL_INTERVAL_MS);
+  }
+
+  const remainingIds = await listDebugTraceFlagIdsByTracedEntityId(auth, tracedEntityId);
+  if (remainingIds.length > 0) {
+    throw new Error(
+      `Timed out waiting for TraceFlags to be removed for traced entity ${tracedEntityId}. Remaining TraceFlag ids: ${remainingIds.join(', ')}`
+    );
   }
 
   return ids.length;
