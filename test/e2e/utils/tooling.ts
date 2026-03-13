@@ -382,22 +382,23 @@ async function listDebugTraceFlagIdsByTracedEntityId(auth: OrgAuth, tracedEntity
 }
 
 export async function removeDebugTraceFlagsByTracedEntityId(auth: OrgAuth, tracedEntityId: string): Promise<number> {
-  const ids = await listDebugTraceFlagIdsByTracedEntityId(auth, tracedEntityId);
-
-  for (const id of ids) {
-    await requestJson(auth, 'DELETE', `/services/data/v${auth.apiVersion}/tooling/sobjects/TraceFlag/${id}`);
-  }
-
-  if (ids.length === 0) {
-    return 0;
-  }
-
+  let removedCount = 0;
   const deadline = Date.now() + TRACE_FLAG_REMOVAL_TIMEOUT_MS;
+  const attemptedDeletes = new Set<string>();
+
   while (Date.now() < deadline) {
-    const remainingIds = await listDebugTraceFlagIdsByTracedEntityId(auth, tracedEntityId);
-    if (remainingIds.length === 0) {
-      return ids.length;
+    const listedIds = await listDebugTraceFlagIdsByTracedEntityId(auth, tracedEntityId);
+    if (listedIds.length === 0) {
+      return removedCount;
     }
+
+    const idsToDelete = listedIds.filter(id => !attemptedDeletes.has(id));
+    for (const id of idsToDelete) {
+      await requestJson(auth, 'DELETE', `/services/data/v${auth.apiVersion}/tooling/sobjects/TraceFlag/${id}`);
+      attemptedDeletes.add(id);
+      removedCount += 1;
+    }
+
     await sleep(TRACE_FLAG_REMOVAL_POLL_INTERVAL_MS);
   }
 
@@ -408,7 +409,7 @@ export async function removeDebugTraceFlagsByTracedEntityId(auth: OrgAuth, trace
     );
   }
 
-  return ids.length;
+  return removedCount;
 }
 
 export async function resolveSpecialTraceFlagTarget(

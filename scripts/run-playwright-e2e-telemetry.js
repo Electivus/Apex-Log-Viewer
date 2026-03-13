@@ -171,7 +171,7 @@ async function queryTelemetryForRun(config, runId, lookback) {
 function summarizeTelemetry(rows) {
   const totalEvents = rows.reduce((sum, row) => sum + Number(row.events || 0), 0);
   const distinctNames = rows.length;
-  const hasActivation = rows.some(row => /\/extension\.activate$/.test(String(row.name || '')));
+  const hasActivation = rows.some(row => /(^|\/)extension\.activate$/.test(String(row.name || '')));
   return { distinctNames, hasActivation, totalEvents };
 }
 
