@@ -1,0 +1,451 @@
+{
+  "extensionId": "electivus.apex-log-viewer",
+  "policy": {
+    "privacyMode": "privacy-first",
+    "notes": [
+      "Only coarse-grained custom properties are allowed.",
+      "Automatic common.* fields emitted by @vscode/extension-telemetry are treated as platform metadata, not as product analytics dimensions.",
+      "testRunId is a test-only property used by explicit E2E telemetry validation runs that target the dedicated App Insights component."
+    ]
+  },
+  "commonProperties": {
+    "testRunId": {
+      "classification": "SystemMetaData",
+      "purpose": "FeatureInsight",
+      "pattern": "^[a-f0-9-]{36}$"
+    }
+  },
+  "events": {
+    "extension.activate": {
+      "description": "Production extension activation completed.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok"]
+        },
+        "hasWorkspace": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["true", "false"]
+        },
+        "hasSalesforceProject": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["true", "false"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        }
+      }
+    },
+    "command.refresh": {
+      "description": "Logs refresh command was invoked from VS Code.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["invoked"]
+        }
+      }
+    },
+    "command.selectOrg": {
+      "description": "Select-org command outcome and coarse error classification.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["cancel", "picked", "error"]
+        },
+        "orgs": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["0", "1", "2-5", "6-10", "10+"]
+        },
+        "hasDefault": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["true", "false"]
+        },
+        "code": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "pattern": "^[A-Z0-9_]+$"
+        }
+      }
+    },
+    "command.tail": {
+      "description": "Tail command was invoked from VS Code.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["invoked"]
+        }
+      }
+    },
+    "command.openLogInViewer": {
+      "description": "Open-log-in-viewer command was invoked from VS Code.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["invoked"]
+        }
+      }
+    },
+    "command.showOutput": {
+      "description": "Show-output command was invoked from VS Code.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["invoked"]
+        }
+      }
+    },
+    "command.troubleshootWebview": {
+      "description": "Troubleshoot-webview command was invoked from VS Code.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["invoked"]
+        }
+      }
+    },
+    "command.resetCliCache": {
+      "description": "Reset-CLI-cache command outcome.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        }
+      }
+    },
+    "orgs.list": {
+      "description": "Org-list loading outcome for logs and tail views.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        },
+        "view": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["logs", "tail"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "count": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        }
+      }
+    },
+    "debugLevels.load": {
+      "description": "Debug-level loading outcome in the tail view.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "count": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        }
+      }
+    },
+    "log.open": {
+      "description": "Open-log flow from the tail view.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        },
+        "view": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["tail"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        }
+      }
+    },
+    "logs.replay": {
+      "description": "Replay flow from the tail view.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        },
+        "view": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["tail"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        }
+      }
+    },
+    "logs.refresh": {
+      "description": "Logs refresh outcome in the logs view.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "pageSize": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        }
+      }
+    },
+    "logs.loadMore": {
+      "description": "Load-more outcome in the logs view.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "count": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        }
+      }
+    },
+    "logs.cleanup": {
+      "description": "Log-cleanup outcome from the logs or debug-flags views.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["cancel", "cancelled", "done", "empty", "error"]
+        },
+        "scope": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["all", "mine"]
+        },
+        "sourceView": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["logs", "tail", "unknown"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        }
+      }
+    },
+    "logs.downloadAll": {
+      "description": "Bulk-download outcome from the logs view.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["cancel", "cancelled", "empty", "error", "ok", "partial"]
+        },
+        "sourceView": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["logs"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "total": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        },
+        "success": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        },
+        "failed": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        },
+        "cancelled": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        }
+      }
+    },
+    "debugFlags.apply": {
+      "description": "Debug-flag apply outcome.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        },
+        "sourceView": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["logs", "tail", "unknown"]
+        },
+        "targetType": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["automatedProcess", "platformIntegration", "user"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        }
+      }
+    },
+    "debugFlags.remove": {
+      "description": "Debug-flag removal outcome.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        },
+        "sourceView": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["logs", "tail", "unknown"]
+        },
+        "targetType": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["automatedProcess", "platformIntegration", "user"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "removedCount": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        }
+      }
+    },
+    "cli.getOrgAuth": {
+      "description": "Coarse-grained Salesforce CLI auth failures.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "required": true,
+          "values": ["error"]
+        },
+        "code": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "required": true,
+          "pattern": "^[A-Z0-9_]+$"
+        },
+        "command": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "values": ["sf", "sfdx"]
+        }
+      }
+    },
+    "cli.exec": {
+      "description": "Coarse-grained Salesforce CLI execution failures.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "required": true,
+          "values": ["error"]
+        },
+        "code": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "required": true,
+          "pattern": "^[A-Z0-9_]+$"
+        },
+        "command": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "values": ["sf", "sfdx"]
+        }
+      }
+    }
+  }
+}

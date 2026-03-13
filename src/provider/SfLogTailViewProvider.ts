@@ -244,7 +244,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       logInfo('Tail: opened log', logId);
       try {
         const durationMs = Date.now() - t0;
-        safeSendEvent('log.open', { view: 'tail' }, { durationMs });
+        safeSendEvent('log.open', { outcome: 'ok', view: 'tail' }, { durationMs });
       } catch {}
     } catch (e) {
       const msg = getErrorMessage(e);

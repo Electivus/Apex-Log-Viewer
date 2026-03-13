@@ -2,7 +2,6 @@ import { logTrace } from '../utils/logger';
 import { localize } from '../utils/localize';
 import { safeSendException } from '../shared/telemetry';
 import type { OrgAuth, OrgItem } from './types';
-import * as vscode from 'vscode';
 import { CacheManager } from '../utils/cacheManager';
 import { getBooleanConfig, getConfig, getNumberConfig } from '../utils/config';
 import {

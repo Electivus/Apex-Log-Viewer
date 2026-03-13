@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-const proxyquire: any = require('proxyquire');
+const proxyquire: any = require('proxyquire').noCallThru();
 
 suite('cli telemetry', () => {
   test('sends telemetry on ENOENT', async () => {
@@ -7,12 +7,36 @@ suite('cli telemetry', () => {
     const telemetry = (name: string, properties: Record<string, string>) => {
       calls.push({ name, properties });
     };
+    const cliStubs = {
+      '../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
+      '../utils/config': {
+        getBooleanConfig: (_name: string, def: boolean) => def,
+        getConfig: <T>(_name: string, def?: T) => def,
+        getNumberConfig: (_name: string, def: number) => def,
+        '@noCallThru': true
+      },
+      '../utils/cacheManager': {
+        CacheManager: {
+          get: () => undefined,
+          set: async () => undefined,
+          delete: async () => undefined
+        },
+        '@noCallThru': true
+      },
+      './path': {
+        resolvePATHFromLoginShell: async () => undefined,
+        '@noCallThru': true
+      }
+    };
     const execModule = proxyquire('../salesforce/exec', {
-      '../shared/telemetry': { safeSendException: telemetry }
+      '../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
     const { getOrgAuth } = proxyquire('../salesforce/cli', {
-      '../shared/telemetry': { safeSendException: telemetry },
-      './exec': execModule
+      ...cliStubs,
+      './exec': execModule,
+      '@noCallThru': true
     });
     const { __setExecFileImplForTests, __resetExecFileImplForTests } = execModule;
 
@@ -33,12 +57,36 @@ suite('cli telemetry', () => {
     const telemetry = (name: string, properties: Record<string, string>) => {
       calls.push({ name, properties });
     };
+    const cliStubs = {
+      '../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
+      '../utils/config': {
+        getBooleanConfig: (_name: string, def: boolean) => def,
+        getConfig: <T>(_name: string, def?: T) => def,
+        getNumberConfig: (_name: string, def: number) => def,
+        '@noCallThru': true
+      },
+      '../utils/cacheManager': {
+        CacheManager: {
+          get: () => undefined,
+          set: async () => undefined,
+          delete: async () => undefined
+        },
+        '@noCallThru': true
+      },
+      './path': {
+        resolvePATHFromLoginShell: async () => undefined,
+        '@noCallThru': true
+      }
+    };
     const execModule = proxyquire('../salesforce/exec', {
-      '../shared/telemetry': { safeSendException: telemetry }
+      '../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
     const { getOrgAuth } = proxyquire('../salesforce/cli', {
-      '../shared/telemetry': { safeSendException: telemetry },
-      './exec': execModule
+      ...cliStubs,
+      './exec': execModule,
+      '@noCallThru': true
     });
     const { __setExecFileImplForTests, __resetExecFileImplForTests } = execModule;
 

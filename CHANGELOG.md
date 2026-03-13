@@ -5,6 +5,7 @@
 ### Features
 
 - Debug Flags: add special-target facilitators for `Automated Process` and `Platform Integration` directly in the panel, including aggregated status plus apply/remove flows across all matching active `USER_DEBUG` trace-flag targets.
+- Telemetry: enforce a public telemetry schema via `telemetry.json`, standardize `outcome` handling across events, and fold activation timing into `extension.activate` instead of emitting a separate duration event.
 
 ### Bug Fixes
 
@@ -12,9 +13,14 @@
 
 ### Chores
 
+- Docs/telemetry: align maintainer guidance with the checked-in connection-string strategy, document how `common.*` metadata should be treated, and add supported KQL query examples for App Insights review.
+- Telemetry/E2E: provision and document a dedicated App Insights component for test validation (`appi-apex-log-viewer-telemetry-e2e-eastus`) while keeping production telemetry isolated.
+
 ### Tests
 
 - Webview: add coverage for platform-specific `Service Worker` cache path resolution and keep activation tests asserting the troubleshooting command stays registered.
+- Telemetry: add contract coverage for schema-declared event names, required `outcome` fields, activation-duration modeling, and wrapper-side filtering of undeclared properties and measurements.
+- Telemetry/E2E: add an explicit `npm run test:e2e:telemetry` path that injects a test-only connection string plus `testRunId` and validates that the current Playwright run reaches the dedicated App Insights resource.
 
 ## [0.32.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.30.0...v0.32.0) (2026-03-09)
 
