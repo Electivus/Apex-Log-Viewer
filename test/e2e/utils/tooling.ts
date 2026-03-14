@@ -116,6 +116,15 @@ function getTraceFlagFastPathUntil(ttlMinutes: number, nowMs: number): number {
   return nowMs + fastPathWindowMs;
 }
 
+function invalidateEnsuredTraceFlagCache(auth: OrgAuth): void {
+  const authIdentityKey = getAuthIdentityKey(auth);
+  for (const key of Array.from(ensuredTraceFlagCache.keys())) {
+    if (key.startsWith(`${authIdentityKey}|`)) {
+      ensuredTraceFlagCache.delete(key);
+    }
+  }
+}
+
 async function ensureDebugLevelId(auth: OrgAuth, debugLevelName: string): Promise<string> {
   const cacheKey = `${getAuthIdentityKey(auth)}|${debugLevelName}`;
   return await getOrCreateCached(debugLevelIdCache, cacheKey, async () => {
@@ -149,6 +158,21 @@ async function ensureDebugLevelId(auth: OrgAuth, debugLevelName: string): Promis
     }
     return String(createRes.id);
   });
+}
+
+async function queryExistingTraceFlagId(
+  auth: OrgAuth,
+  userId: string,
+  debugLevelId: string,
+  debugLevelName: string
+): Promise<string | undefined> {
+  const tfSoql = encodeURIComponent(
+    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'USER_DEBUG' AND DebugLevelId = '${debugLevelId}' ORDER BY CreatedDate DESC LIMIT 1`
+  );
+  const tfQuery = await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}:queryTraceFlag`, async () => {
+    return await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/tooling/query?q=${tfSoql}`);
+  });
+  return Array.isArray(tfQuery?.records) ? tfQuery.records[0]?.Id : undefined;
 }
 
 export function __resetToolingCachesForTests(): void {
@@ -508,6 +532,7 @@ async function listDebugTraceFlagIdsByTracedEntityId(auth: OrgAuth, tracedEntity
 }
 
 export async function removeDebugTraceFlagsByTracedEntityId(auth: OrgAuth, tracedEntityId: string): Promise<number> {
+  invalidateEnsuredTraceFlagCache(auth);
   let removedCount = 0;
   const deadline = Date.now() + TRACE_FLAG_REMOVAL_TIMEOUT_MS;
   const attemptedDeletes = new Set<string>();
@@ -717,23 +742,15 @@ export async function ensureE2eTraceFlag(auth: OrgAuth, options?: { debugLevelNa
   const debugLevelName = String(options?.debugLevelName || process.env.SF_E2E_DEBUG_LEVEL || 'ALV_E2E').trim();
   const ttlMinutes = Math.max(5, Number(options?.ttlMinutes || process.env.SF_E2E_TRACE_TTL_MINUTES || 60) || 60);
   const traceFlagCacheKey = `${getAuthIdentityKey(auth)}|${debugLevelName}|${ttlMinutes}`;
-  const cachedFastPathUntil = ensuredTraceFlagCache.get(traceFlagCacheKey);
-  if (cachedFastPathUntil && cachedFastPathUntil > Date.now()) {
-    return;
-  }
-
   await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}`, async () => {
     const apiVersion = auth.apiVersion;
     const userId = await getCurrentUserId(auth);
     const debugLevelId = await ensureDebugLevelId(auth, debugLevelName);
-
-    const tfSoql = encodeURIComponent(
-      `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'USER_DEBUG' AND DebugLevelId = '${debugLevelId}' ORDER BY CreatedDate DESC LIMIT 1`
-    );
-    const tfQuery = await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}:queryTraceFlag`, async () => {
-      return await requestJson(auth, 'GET', `/services/data/v${apiVersion}/tooling/query?q=${tfSoql}`);
-    });
-    const existingTfId: string | undefined = Array.isArray(tfQuery?.records) ? tfQuery.records[0]?.Id : undefined;
+    const existingTfId = await queryExistingTraceFlagId(auth, userId, debugLevelId, debugLevelName);
+    const cachedFastPathUntil = ensuredTraceFlagCache.get(traceFlagCacheKey);
+    if (cachedFastPathUntil && cachedFastPathUntil > Date.now() && existingTfId) {
+      return;
+    }
 
     const now = new Date();
     const start = toSfDateTimeUTC(new Date(now.getTime() - 1000));
