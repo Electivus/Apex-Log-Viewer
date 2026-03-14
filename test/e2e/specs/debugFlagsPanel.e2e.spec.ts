@@ -1,7 +1,10 @@
-import type { Frame, Page } from '@playwright/test';
-import { expect, test } from '../fixtures/alvE2E';
-import { runCommand, waitForCommandAvailable } from '../utils/commandPalette';
+import path from 'node:path';
+import { expect, test, type Frame, type Page } from '@playwright/test';
+import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
 import { dismissAllNotifications } from '../utils/notifications';
+import { ensureScratchOrg } from '../utils/scratchOrg';
+import { resolveSfCliInvocation } from '../utils/sfCli';
+import { createTempWorkspace } from '../utils/tempWorkspace';
 import {
   ensureDebugFlagsTestUser,
   getDebugTraceFlagByTracedEntityId,
@@ -12,6 +15,7 @@ import {
   resolveSpecialTraceFlagTarget,
   type SpecialTraceFlagTargetType
 } from '../utils/tooling';
+import { launchVsCode } from '../utils/vscode';
 import { waitForWebviewFrame } from '../utils/webviews';
 
 const SPECIAL_TARGET_UI: Record<SpecialTraceFlagTargetType, { buttonTestId: string; expectedLabel: string }> = {
@@ -25,9 +29,39 @@ const SPECIAL_TARGET_UI: Record<SpecialTraceFlagTargetType, { buttonTestId: stri
   }
 };
 
+test.describe.configure({ mode: 'serial' });
+
+let scratchAlias = '';
+let vscodePage: Page;
+let cleanupScratchOrg: undefined | (() => Promise<void>);
+let cleanupWorkspace: undefined | (() => Promise<void>);
+let cleanupVsCode: undefined | (() => Promise<void>);
+
+test.beforeAll(async () => {
+  const scratch = await ensureScratchOrg();
+  cleanupScratchOrg = scratch.cleanup;
+  scratchAlias = scratch.scratchAlias;
+
+  const sfCli = await resolveSfCliInvocation();
+  const workspace = await createTempWorkspace({ targetOrg: scratchAlias, sfCli: sfCli ?? undefined });
+  cleanupWorkspace = workspace.cleanup;
+
+  const launch = await launchVsCode({
+    workspacePath: workspace.workspacePath,
+    extensionDevelopmentPath: path.join(__dirname, '..', '..', '..')
+  });
+  cleanupVsCode = launch.cleanup;
+  vscodePage = launch.page;
+});
+
+test.afterAll(async () => {
+  await cleanupVsCode?.().catch(() => {});
+  await cleanupWorkspace?.().catch(() => {});
+  await cleanupScratchOrg?.().catch(() => {});
+});
+
 async function openDebugFlagsFromLogs(vscodePage: Parameters<typeof waitForWebviewFrame>[0]): Promise<Frame> {
-  await waitForCommandAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
-  await runCommand(vscodePage, 'Electivus Apex Logs: Refresh Logs');
+  await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
   await closeQuickInputIfOpen(vscodePage);
 
   const logsFrame = await waitForWebviewFrame(
@@ -119,7 +153,7 @@ async function assertSpecialTargetBehavior(
     .toBe(true);
 }
 
-test('configures and removes debug flags from logs and tail entrypoints', async ({ vscodePage, scratchAlias }) => {
+test('configures and removes debug flags from logs and tail entrypoints', async () => {
   const auth = await getOrgAuth(scratchAlias);
   const testUser = await ensureDebugFlagsTestUser(auth);
   const userId = testUser.id;
@@ -187,7 +221,7 @@ test('configures and removes debug flags from logs and tail entrypoints', async 
   }
 });
 
-test('supports special trace flag targets in the debug flags panel', async ({ vscodePage, scratchAlias }) => {
+test('supports special trace flag targets in the debug flags panel', async () => {
   const auth = await getOrgAuth(scratchAlias);
   const automatedProcessTarget = await resolveSpecialTraceFlagTarget(auth, 'automatedProcess');
   const platformIntegrationTarget = await resolveSpecialTraceFlagTarget(auth, 'platformIntegration');

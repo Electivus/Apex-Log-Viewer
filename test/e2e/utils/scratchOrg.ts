@@ -2,6 +2,8 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { runSfJson } from './sfCli';
+import { timeE2eStep } from './timing';
+import { assertToolingReady, primeOrgAuthCache, type OrgAuth } from './tooling';
 
 type ScratchOrgResult = {
   devHubAlias: string;
@@ -11,9 +13,9 @@ type ScratchOrgResult = {
 };
 
 const LOCAL_DEV_HUB_FALLBACK_ALIASES = [
+  'DevHubElectivus',
   'DevHub',
   'ElectivusDevHub',
-  'DevHubElectivus',
   'InsuranceOrgTrialCreme6DevHub'
 ] as const;
 
@@ -31,7 +33,22 @@ function envFlag(name: string): boolean {
 type OrgDisplaySummary = {
   status?: string;
   expirationDate?: string;
+  accessToken?: string;
+  instanceUrl?: string;
+  username?: string;
 };
+
+function toOrgAuth(display: OrgDisplaySummary | undefined): OrgAuth | undefined {
+  if (!display?.accessToken || !display.instanceUrl) {
+    return undefined;
+  }
+  return {
+    accessToken: display.accessToken,
+    instanceUrl: display.instanceUrl,
+    username: display.username,
+    apiVersion: String(process.env.SF_TEST_API_VERSION || process.env.SF_API_VERSION || '60.0')
+  };
+}
 
 async function getOrgDisplay(alias: string): Promise<OrgDisplaySummary | undefined> {
   try {
@@ -39,7 +56,17 @@ async function getOrgDisplay(alias: string): Promise<OrgDisplaySummary | undefin
     const org = result?.result ?? {};
     return {
       status: typeof org.status === 'string' ? org.status.trim() : undefined,
-      expirationDate: typeof org.expirationDate === 'string' ? org.expirationDate.trim() : undefined
+      expirationDate: typeof org.expirationDate === 'string' ? org.expirationDate.trim() : undefined,
+      accessToken: typeof org.accessToken === 'string' ? org.accessToken : undefined,
+      instanceUrl:
+        typeof org.instanceUrl === 'string'
+          ? org.instanceUrl
+          : typeof org.instance_url === 'string'
+            ? org.instance_url
+            : typeof org.loginUrl === 'string'
+              ? org.loginUrl
+              : undefined,
+      username: typeof org.username === 'string' ? org.username : undefined
     };
   } catch (error) {
     console.warn(
@@ -214,32 +241,36 @@ async function ensureDevHubAuth(devHubAlias: string): Promise<void> {
   }
 }
 
-async function waitForScratchOrgReady(targetOrg: string): Promise<void> {
+async function waitForScratchOrgReady(targetOrg: string, auth?: OrgAuth): Promise<void> {
   const timeoutMs = Math.max(30_000, Number(process.env.SF_SCRATCH_READY_TIMEOUT_MS || 240_000) || 240_000);
   const deadline = Date.now() + timeoutMs;
   let lastError: unknown;
 
   while (Date.now() < deadline) {
     try {
-      // Some scratch orgs return interstitial HTML ("Stay tuned...") for a short
-      // period after creation. Poll a lightweight Tooling API query until it
-      // returns JSON successfully.
-      await runSfJson(
-        [
-          'data',
-          'query',
-          '--query',
-          'SELECT Id FROM DebugLevel LIMIT 1',
-          '--use-tooling-api',
-          '--target-org',
-          targetOrg,
-        ],
-        { timeoutMs: 30_000 }
-      );
+      if (auth) {
+        await assertToolingReady(auth);
+      } else {
+        // Some scratch orgs return interstitial HTML ("Stay tuned...") for a short
+        // period after creation. Poll a lightweight Tooling API query until it
+        // returns JSON successfully.
+        await runSfJson(
+          [
+            'data',
+            'query',
+            '--query',
+            'SELECT Id FROM DebugLevel LIMIT 1',
+            '--use-tooling-api',
+            '--target-org',
+            targetOrg,
+          ],
+          { timeoutMs: 30_000 }
+        );
+      }
       return;
     } catch (error) {
       lastError = error;
-      await sleep(5_000);
+      await sleep(auth ? 1_000 : 5_000);
     }
   }
 
@@ -248,100 +279,118 @@ async function waitForScratchOrgReady(targetOrg: string): Promise<void> {
 }
 
 export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
-  let devHubAlias = await resolveDefaultDevHubAlias();
-  const scratchAlias = String(process.env.SF_SCRATCH_ALIAS || 'ALV_E2E_Scratch').trim();
-  const durationDays = Number(process.env.SF_SCRATCH_DURATION || 1) || 1;
-  const keep = shouldKeepScratchOrg();
+  return await timeE2eStep('scratch.ensure', async () => {
+    let devHubAlias = await resolveDefaultDevHubAlias();
+    const scratchAlias = String(process.env.SF_SCRATCH_ALIAS || 'ALV_E2E_Scratch').trim();
+    const durationDays = Number(process.env.SF_SCRATCH_DURATION || 1) || 1;
+    const keep = shouldKeepScratchOrg();
 
-  // Reuse existing scratch org when possible to make local runs faster.
-  const existingScratch = await getOrgDisplay(scratchAlias);
-  if (isReusableScratchOrg(existingScratch)) {
-    await waitForScratchOrgReady(scratchAlias);
-    return {
-      devHubAlias,
-      scratchAlias,
-      created: false,
-      cleanup: async () => {}
+    // Reuse existing scratch org when possible to make local runs faster.
+    const existingScratch = await getOrgDisplay(scratchAlias);
+    if (isReusableScratchOrg(existingScratch)) {
+      const auth = toOrgAuth(existingScratch);
+      if (auth) {
+        primeOrgAuthCache(scratchAlias, auth);
+      }
+      await waitForScratchOrgReady(scratchAlias, auth);
+      return {
+        devHubAlias,
+        scratchAlias,
+        created: false,
+        cleanup: async () => {}
+      };
+    }
+    if (existingScratch) {
+      console.warn(
+        `[e2e] scratch alias '${scratchAlias}' points to a stale org (status='${existingScratch.status || 'unknown'}', expiration='${existingScratch.expirationDate || 'unknown'}'); recreating.`
+      );
+      await clearStaleScratchOrg(scratchAlias);
+    }
+
+    await ensureDevHubAuth(devHubAlias);
+
+    const tmp = await mkdtemp(path.join(tmpdir(), 'alv-scratch-'));
+    const defFile = path.join(tmp, 'project-scratch-def.json');
+    const projectFile = path.join(tmp, 'sfdx-project.json');
+    const def = {
+      orgName: 'apex-log-viewer-e2e',
+      edition: 'Developer',
+      hasSampleData: false
     };
-  }
-  if (existingScratch) {
-    console.warn(
-      `[e2e] scratch alias '${scratchAlias}' points to a stale org (status='${existingScratch.status || 'unknown'}', expiration='${existingScratch.expirationDate || 'unknown'}'); recreating.`
-    );
-    await clearStaleScratchOrg(scratchAlias);
-  }
+    await writeFile(defFile, JSON.stringify(def), 'utf8');
 
-  await ensureDevHubAuth(devHubAlias);
-
-  const tmp = await mkdtemp(path.join(tmpdir(), 'alv-scratch-'));
-  const defFile = path.join(tmp, 'project-scratch-def.json');
-  const projectFile = path.join(tmp, 'sfdx-project.json');
-  const def = {
-    orgName: 'apex-log-viewer-e2e',
-    edition: 'Developer',
-    hasSampleData: false
-  };
-  await writeFile(defFile, JSON.stringify(def), 'utf8');
-
-  const cleanup = async () => {
-    try {
-      if (!keep) {
+    const cleanup = async () => {
+      try {
+        if (!keep) {
+          try {
+            await runSfJson(['org', 'delete', 'scratch', '-o', scratchAlias, '--no-prompt'], { cwd: tmp });
+          } catch {
+            // Best-effort cleanup.
+          }
+        }
+      } catch {
+        // Best-effort cleanup.
+      } finally {
         try {
-          await runSfJson(['org', 'delete', 'scratch', '-o', scratchAlias, '--no-prompt'], { cwd: tmp });
+          await rm(tmp, { recursive: true, force: true });
         } catch {
           // Best-effort cleanup.
         }
       }
-    } catch {
-      // Best-effort cleanup.
-    } finally {
-      try {
-        await rm(tmp, { recursive: true, force: true });
-      } catch {
-        // Best-effort cleanup.
+    };
+
+    // `sf org create scratch` requires a Salesforce DX project. This repo is not
+    // itself a Salesforce project, so create a minimal temporary project context.
+    await mkdir(path.join(tmp, 'force-app'), { recursive: true });
+    await writeFile(
+      projectFile,
+      JSON.stringify(
+        {
+          packageDirectories: [{ path: 'force-app', default: true }],
+          name: 'apex-log-viewer-e2e',
+          namespace: '',
+          sfdcLoginUrl: 'https://login.salesforce.com',
+          sourceApiVersion: '61.0'
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
+
+    try {
+      devHubAlias = await createScratchOrgWithFallback({
+        devHubAlias,
+        scratchAlias,
+        definitionFile: defFile,
+        durationDays,
+        cwd: tmp
+      });
+    } catch (_e) {
+      await cleanup();
+      const msg = _e instanceof Error ? _e.message : String(_e);
+      throw new Error(`Failed to create scratch org '${scratchAlias}': ${msg}`);
+    }
+
+    const auth = toOrgAuth(await getOrgDisplay(scratchAlias));
+    if (auth) {
+      primeOrgAuthCache(scratchAlias, auth);
+    }
+    await waitForScratchOrgReady(scratchAlias, auth);
+
+    if (!auth) {
+      const refreshedScratch = await getOrgDisplay(scratchAlias);
+      const refreshedAuth = toOrgAuth(refreshedScratch);
+      if (refreshedAuth) {
+        primeOrgAuthCache(scratchAlias, refreshedAuth);
       }
     }
-  };
 
-  // `sf org create scratch` requires a Salesforce DX project. This repo is not
-  // itself a Salesforce project, so create a minimal temporary project context.
-  await mkdir(path.join(tmp, 'force-app'), { recursive: true });
-  await writeFile(
-    projectFile,
-    JSON.stringify(
-      {
-        packageDirectories: [{ path: 'force-app', default: true }],
-        name: 'apex-log-viewer-e2e',
-        namespace: '',
-        sfdcLoginUrl: 'https://login.salesforce.com',
-        sourceApiVersion: '61.0'
-      },
-      null,
-      2
-    ),
-    'utf8'
-  );
-
-  try {
-    devHubAlias = await createScratchOrgWithFallback({
+    return {
       devHubAlias,
       scratchAlias,
-      definitionFile: defFile,
-      durationDays,
-      cwd: tmp
-    });
-  } catch (_e) {
-    await cleanup();
-    const msg = _e instanceof Error ? _e.message : String(_e);
-    throw new Error(`Failed to create scratch org '${scratchAlias}': ${msg}`);
-  }
-
-  await waitForScratchOrgReady(scratchAlias);
-
-  return {
-    devHubAlias,
-    scratchAlias,
-    created: true,
-    cleanup
-  };
+      created: true,
+      cleanup
+    };
+  });
 }

@@ -120,6 +120,63 @@ describe('ensureScratchOrg', () => {
     await scratch.cleanup();
   });
 
+  test('prefers DevHubElectivus locally when multiple fallback dev hubs are authenticated', async () => {
+    process.env = {
+      ...originalEnv,
+      SF_SCRATCH_ALIAS: 'ALV_E2E_Scratch',
+      SF_TEST_KEEP_ORG: '1'
+    };
+
+    delete process.env.SF_DEVHUB_ALIAS;
+    delete process.env.SF_DEVHUB_AUTH_URL;
+
+    runSfJsonMock.mockImplementation(async args => {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_Scratch')) {
+        throw new Error('NamedOrgNotFoundError: No authorization information found for ALV_E2E_Scratch.');
+      }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('DevHub')) {
+        return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ElectivusDevHub')) {
+        throw new Error('NamedOrgNotFoundError: No authorization information found for ElectivusDevHub.');
+      }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('DevHubElectivus')) {
+        return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'create' && args[2] === 'scratch' && args.includes('DevHubElectivus')) {
+        return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'data' && args[1] === 'query') {
+        return {
+          status: 0,
+          result: {
+            records: [{ Id: '7dl000000000001AAA' }]
+          }
+        };
+      }
+
+      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
+    });
+
+    const scratch = await ensureScratchOrg();
+
+    expect(scratch).toMatchObject({
+      devHubAlias: 'DevHubElectivus',
+      scratchAlias: 'ALV_E2E_Scratch',
+      created: true
+    });
+    expect(runSfJsonMock).toHaveBeenCalledWith(
+      expect.arrayContaining(['org', 'create', 'scratch', '--target-dev-hub', 'DevHubElectivus']),
+      expect.any(Object)
+    );
+    await scratch.cleanup();
+  });
+
   test('falls back to another authenticated dev hub when the preferred alias hits the scratch signup limit', async () => {
     runSfJsonMock.mockImplementation(async args => {
       if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_Scratch')) {

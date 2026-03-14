@@ -1,6 +1,6 @@
 import type { Locator } from '@playwright/test';
 import { expect, test } from '../fixtures/alvE2E';
-import { runCommand, waitForCommandAvailable } from '../utils/commandPalette';
+import { runCommandWhenAvailable } from '../utils/commandPalette';
 import { seedApexErrorLog } from '../utils/seedLog';
 import { waitForWebviewFrame } from '../utils/webviews';
 
@@ -19,8 +19,7 @@ async function setErrorsOnlyEnabled(
 test('filters logs using errors-only toggle', async ({ vscodePage, scratchAlias, seededLog }) => {
   const seededErrorLog = await seedApexErrorLog(scratchAlias);
 
-  await waitForCommandAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
-  await runCommand(vscodePage, 'Electivus Apex Logs: Refresh Logs');
+  await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
 
   const logsFrame = await waitForWebviewFrame(
     vscodePage,
