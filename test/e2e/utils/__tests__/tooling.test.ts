@@ -363,6 +363,69 @@ describe('ensureDebugFlagsTestUser', () => {
     expect(calls).toBe(9);
   });
 
+  test('does not slide the fast-path cache forward when it skips the patch branch', async () => {
+    const auth: OrgAuth = {
+      accessToken: 'token',
+      instanceUrl: 'https://example.my.salesforce.com',
+      username: 'auth.user@example.com',
+      apiVersion: '62.0'
+    };
+    let nowMs = Date.parse('2026-03-14T20:00:00.000Z');
+    const dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => nowMs);
+    let calls = 0;
+    let patchCalls = 0;
+
+    try {
+      globalThis.fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        calls += 1;
+        const url = String(input);
+        const method = String(init?.method || 'GET').toUpperCase();
+        const soql = decodeURIComponent(url.slice(url.indexOf('?q=') + 3));
+
+        if (method === 'GET' && soql.includes("FROM User WHERE Username = 'auth.user@example.com'")) {
+          return responseFrom({
+            status: 200,
+            body: { records: [{ Id: '005000000000999AAA' }] }
+          });
+        }
+
+        if (method === 'GET' && soql.includes("FROM DebugLevel WHERE DeveloperName = 'ALV_E2E'")) {
+          return responseFrom({
+            status: 200,
+            body: { records: [{ Id: '7dl000000000001AAA' }] }
+          });
+        }
+
+        if (method === 'GET' && soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000999AAA'")) {
+          return responseFrom({
+            status: 200,
+            body: { records: [{ Id: '7tf000000000001AAA' }] }
+          });
+        }
+
+        if (method === 'PATCH' && url.endsWith('/tooling/sobjects/TraceFlag/7tf000000000001AAA')) {
+          patchCalls += 1;
+          return responseFrom({ status: 204 });
+        }
+
+        throw new Error(`Unexpected request ${method} ${url}`);
+      });
+
+      await ensureE2eTraceFlag(auth);
+
+      nowMs += 4 * 60 * 1000;
+      await ensureE2eTraceFlag(auth);
+
+      nowMs += 61 * 1000;
+      await ensureE2eTraceFlag(auth);
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+
+    expect(patchCalls).toBe(2);
+    expect(calls).toBe(7);
+  });
+
   test('executes anonymous Apex via the jsforce-backed request helper', async () => {
     const auth: OrgAuth = {
       accessToken: 'token',

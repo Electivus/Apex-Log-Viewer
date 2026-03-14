@@ -742,14 +742,14 @@ export async function ensureE2eTraceFlag(auth: OrgAuth, options?: { debugLevelNa
   const debugLevelName = String(options?.debugLevelName || process.env.SF_E2E_DEBUG_LEVEL || 'ALV_E2E').trim();
   const ttlMinutes = Math.max(5, Number(options?.ttlMinutes || process.env.SF_E2E_TRACE_TTL_MINUTES || 60) || 60);
   const traceFlagCacheKey = `${getAuthIdentityKey(auth)}|${debugLevelName}|${ttlMinutes}`;
-  await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}`, async () => {
+  const extendedTraceFlagExpiry = await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}`, async () => {
     const apiVersion = auth.apiVersion;
     const userId = await getCurrentUserId(auth);
     const debugLevelId = await ensureDebugLevelId(auth, debugLevelName);
     const existingTfId = await queryExistingTraceFlagId(auth, userId, debugLevelId, debugLevelName);
     const cachedFastPathUntil = ensuredTraceFlagCache.get(traceFlagCacheKey);
     if (cachedFastPathUntil && cachedFastPathUntil > Date.now() && existingTfId) {
-      return;
+      return false;
     }
 
     const now = new Date();
@@ -763,7 +763,7 @@ export async function ensureE2eTraceFlag(auth: OrgAuth, options?: { debugLevelNa
           ExpirationDate: exp
         });
       });
-      return;
+      return true;
     }
 
     const createTf = await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}:createTraceFlag`, async () => {
@@ -778,7 +778,10 @@ export async function ensureE2eTraceFlag(auth: OrgAuth, options?: { debugLevelNa
     if (!createTf?.success) {
       throw new Error('Failed to create TraceFlag for E2E.');
     }
+    return true;
   });
 
-  ensuredTraceFlagCache.set(traceFlagCacheKey, getTraceFlagFastPathUntil(ttlMinutes, Date.now()));
+  if (extendedTraceFlagExpiry) {
+    ensuredTraceFlagCache.set(traceFlagCacheKey, getTraceFlagFastPathUntil(ttlMinutes, Date.now()));
+  }
 }
