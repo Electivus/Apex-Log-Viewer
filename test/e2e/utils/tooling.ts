@@ -63,6 +63,7 @@ const currentUserIdCache = new Map<string, Promise<string>>();
 const debugLevelIdCache = new Map<string, Promise<string>>();
 const ensuredTraceFlagCache = new Map<string, number>();
 const jsforceConnectionCache = new Map<string, Promise<ToolingConnectionLike>>();
+const orgAuthTargetOrgByIdentity = new Map<string, string>();
 
 type ToolingConnectionLike = Pick<Connection, 'request' | 'tooling'>;
 type ToolingConnectionFactory = (auth: OrgAuth) => Promise<ToolingConnectionLike> | ToolingConnectionLike;
@@ -114,6 +115,68 @@ function getTraceFlagFastPathUntil(ttlMinutes: number, nowMs: number): number {
   const ttlMs = ttlMinutes * 60 * 1000;
   const fastPathWindowMs = Math.max(0, Math.min(ttlMs - TRACE_FLAG_FAST_PATH_SAFETY_MS, TRACE_FLAG_FAST_PATH_MAX_MS));
   return nowMs + fastPathWindowMs;
+}
+
+function rememberOrgAuthTarget(targetOrg: string, auth: OrgAuth): void {
+  orgAuthTargetOrgByIdentity.set(getAuthIdentityKey(auth), getOrgAuthCacheKey(targetOrg));
+}
+
+function replaceOrgAuth(target: OrgAuth, next: OrgAuth): void {
+  target.accessToken = next.accessToken;
+  target.instanceUrl = next.instanceUrl;
+  target.username = next.username;
+  target.apiVersion = next.apiVersion;
+}
+
+function isAuthFailure(status: number | undefined, detail: string): boolean {
+  const normalized = String(detail || '').toLowerCase();
+  return (
+    status === 401 ||
+    normalized.includes('invalid_session_id') ||
+    normalized.includes('session expired or invalid') ||
+    normalized.includes('expired access/refresh token')
+  );
+}
+
+function isToolingAuthError(error: unknown): boolean {
+  const statusCode = typeof (error as any)?.statusCode === 'number' ? Number((error as any).statusCode) : undefined;
+  const errorCode = String((error as any)?.errorCode || '');
+  const message = String(error instanceof Error ? error.message : error || '');
+  return isAuthFailure(statusCode, `${errorCode} ${message}`.trim());
+}
+
+async function refreshOrgAuth(auth: OrgAuth): Promise<boolean> {
+  const targetOrg = orgAuthTargetOrgByIdentity.get(getAuthIdentityKey(auth));
+  if (!targetOrg) {
+    return false;
+  }
+  const staleIdentityKey = getAuthIdentityKey(auth);
+  orgAuthCache.delete(targetOrg);
+  jsforceConnectionCache.delete(staleIdentityKey);
+  const refreshed = await getOrgAuth(targetOrg, { forceRefresh: true });
+  replaceOrgAuth(auth, refreshed);
+  rememberOrgAuthTarget(targetOrg, auth);
+  jsforceConnectionCache.delete(getAuthIdentityKey(auth));
+  return true;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms.`));
+    }, timeoutMs);
+
+    promise.then(
+      value => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
 }
 
 function invalidateEnsuredTraceFlagCache(auth: OrgAuth): void {
@@ -181,12 +244,14 @@ export function __resetToolingCachesForTests(): void {
   debugLevelIdCache.clear();
   ensuredTraceFlagCache.clear();
   jsforceConnectionCache.clear();
+  orgAuthTargetOrgByIdentity.clear();
   toolingConnectionFactoryForTests = undefined;
 }
 
 export function primeOrgAuthCache(targetOrg: string, auth: OrgAuth): void {
   const cacheKey = getOrgAuthCacheKey(targetOrg);
   orgAuthCache.set(cacheKey, Promise.resolve(auth));
+  rememberOrgAuthTarget(targetOrg, auth);
 }
 
 export function __setToolingConnectionFactoryForTests(factory: ToolingConnectionFactory | undefined): void {
@@ -194,9 +259,31 @@ export function __setToolingConnectionFactoryForTests(factory: ToolingConnection
   jsforceConnectionCache.clear();
 }
 
-export async function assertToolingReady(auth: OrgAuth): Promise<void> {
-  const connection = await getToolingConnection(auth);
-  await connection.tooling.query<{ Id?: string }>('SELECT Id FROM DebugLevel LIMIT 1');
+async function withToolingConnection<T>(
+  auth: OrgAuth,
+  run: (connection: ToolingConnectionLike) => Promise<T>
+): Promise<T> {
+  const runOnce = async () => await run(await getToolingConnection(auth));
+
+  try {
+    return await runOnce();
+  } catch (error) {
+    if (!isToolingAuthError(error) || !(await refreshOrgAuth(auth))) {
+      throw error;
+    }
+    return await runOnce();
+  }
+}
+
+export async function assertToolingReady(auth: OrgAuth, options?: { timeoutMs?: number }): Promise<void> {
+  const timeoutMs = options?.timeoutMs ?? 30_000;
+  await withTimeout(
+    withToolingConnection(auth, async connection => {
+      await connection.tooling.query<{ Id?: string }>('SELECT Id FROM DebugLevel LIMIT 1');
+    }),
+    timeoutMs,
+    'Tooling readiness probe'
+  );
 }
 
 function getApiVersion(): string {
@@ -249,29 +336,36 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function requestJson(auth: OrgAuth, method: string, resourcePath: string, body?: unknown): Promise<any> {
-  const base = stripTrailingSlash(auth.instanceUrl);
-  const url = `${base}${resourcePath}`;
-  const res = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${auth.accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: body === undefined ? undefined : JSON.stringify(body)
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    const detail = text ? ` -> ${text}` : '';
-    throw new Error(`Tooling API request failed (${res.status}) for ${resourcePath}${detail}`);
-  }
-  if (!text) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
+  const send = async (allowRefresh: boolean): Promise<any> => {
+    const base = stripTrailingSlash(auth.instanceUrl);
+    const url = `${base}${resourcePath}`;
+    const res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${auth.accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      if (allowRefresh && isAuthFailure(res.status, text) && (await refreshOrgAuth(auth))) {
+        return await send(false);
+      }
+      const detail = text ? ` -> ${text}` : '';
+      throw new Error(`Tooling API request failed (${res.status}) for ${resourcePath}${detail}`);
+    }
+    if (!text) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  };
+
+  return await send(true);
 }
 
 function isSfId(value: unknown): value is string {
@@ -644,10 +738,13 @@ export async function deleteDebugLevelByDeveloperName(auth: OrgAuth, developerNa
   await deleteDebugLevelById(auth, record.id);
 }
 
-export async function getOrgAuth(targetOrg: string): Promise<OrgAuth> {
+export async function getOrgAuth(targetOrg: string, options?: { forceRefresh?: boolean }): Promise<OrgAuth> {
   const cacheKey = getOrgAuthCacheKey(targetOrg);
+  if (options?.forceRefresh) {
+    orgAuthCache.delete(cacheKey);
+  }
   return await getOrCreateCached(orgAuthCache, cacheKey, async () => {
-    return await timeE2eStep(`tooling.getOrgAuth:${targetOrg}`, async () => {
+    const resolved = await timeE2eStep(`tooling.getOrgAuth:${targetOrg}`, async () => {
       const envAlias = String(process.env.SF_E2E_TARGET_ORG_ALIAS || process.env.SF_SCRATCH_ALIAS || '').trim();
       const envAccessToken = String(process.env.SF_E2E_ACCESS_TOKEN || '').trim();
       const envInstanceUrl = String(process.env.SF_E2E_INSTANCE_URL || '').trim();
@@ -676,6 +773,8 @@ export async function getOrgAuth(targetOrg: string): Promise<OrgAuth> {
         apiVersion
       };
     });
+    rememberOrgAuthTarget(targetOrg, resolved);
+    return resolved;
   });
 }
 
@@ -684,18 +783,19 @@ export async function executeAnonymousApex(
   anonymousApex: string,
   options?: { allowFailure?: boolean }
 ): Promise<void> {
-  const connection = await getToolingConnection(auth);
-  const encodedBody = encodeURIComponent(anonymousApex);
-  const result = await connection.request<{
-    compiled?: boolean;
-    success?: boolean;
-    compileProblem?: string | null;
-    exceptionMessage?: string | null;
-    exceptionStackTrace?: string | null;
-  }>({
-    method: 'GET',
-    url: `${auth.instanceUrl}/services/data/v${auth.apiVersion}/tooling/executeAnonymous?anonymousBody=${encodedBody}`,
-    headers: { 'Content-Type': 'application/json' }
+  const result = await withToolingConnection(auth, async connection => {
+    const encodedBody = encodeURIComponent(anonymousApex);
+    return await connection.request<{
+      compiled?: boolean;
+      success?: boolean;
+      compileProblem?: string | null;
+      exceptionMessage?: string | null;
+      exceptionStackTrace?: string | null;
+    }>({
+      method: 'GET',
+      url: `${auth.instanceUrl}/services/data/v${auth.apiVersion}/tooling/executeAnonymous?anonymousBody=${encodedBody}`,
+      headers: { 'Content-Type': 'application/json' }
+    });
   });
   if (result?.compiled === false) {
     throw new Error(`Anonymous Apex compile failed: ${String(result?.compileProblem || 'unknown problem')}`.trim());
@@ -708,34 +808,35 @@ export async function executeAnonymousApex(
 
 export async function findRecentApexLogId(auth: OrgAuth, startedAtMs: number, marker: string): Promise<string | undefined> {
   const userId = await getCurrentUserId(auth);
-  const connection = await getToolingConnection(auth);
-  const soql = `SELECT Id, StartTime FROM ApexLog WHERE LogUserId = '${userId}' ORDER BY StartTime DESC LIMIT 10`;
-  const response = await connection.tooling.query<{ Id?: string; StartTime?: string }>(soql);
-  const rows = Array.isArray(response?.records) ? response.records : [];
-  const thresholdMs = startedAtMs - 1_000;
+  return await withToolingConnection(auth, async connection => {
+    const soql = `SELECT Id, StartTime FROM ApexLog WHERE LogUserId = '${userId}' ORDER BY StartTime DESC LIMIT 10`;
+    const response = await connection.tooling.query<{ Id?: string; StartTime?: string }>(soql);
+    const rows = Array.isArray(response?.records) ? response.records : [];
+    const thresholdMs = startedAtMs - 1_000;
 
-  for (const row of rows) {
-    if (!isSfId(row?.Id) || typeof row?.StartTime !== 'string') {
-      continue;
-    }
-    const startedAt = Date.parse(String(row.StartTime).replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
-    if (!Number.isFinite(startedAt) || startedAt < thresholdMs) {
-      continue;
+    for (const row of rows) {
+      if (!isSfId(row?.Id) || typeof row?.StartTime !== 'string') {
+        continue;
+      }
+      const startedAt = Date.parse(String(row.StartTime).replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+      if (!Number.isFinite(startedAt) || startedAt < thresholdMs) {
+        continue;
+      }
+
+      const body = await connection.request<string>(
+        {
+          method: 'GET',
+          url: `${auth.instanceUrl}/services/data/v${auth.apiVersion}/tooling/sobjects/ApexLog/${row.Id}/Body`
+        },
+        { responseType: 'text/plain', encoding: 'utf8' } as any
+      );
+      if (String(body || '').includes(marker)) {
+        return row.Id;
+      }
     }
 
-    const body = await connection.request<string>(
-      {
-        method: 'GET',
-        url: `${auth.instanceUrl}/services/data/v${auth.apiVersion}/tooling/sobjects/ApexLog/${row.Id}/Body`
-      },
-      { responseType: 'text/plain', encoding: 'utf8' } as any
-    );
-    if (String(body || '').includes(marker)) {
-      return row.Id;
-    }
-  }
-
-  return undefined;
+    return undefined;
+  });
 }
 
 export async function ensureE2eTraceFlag(auth: OrgAuth, options?: { debugLevelName?: string; ttlMinutes?: number }) {

@@ -7,6 +7,7 @@ jest.mock('../sfCli', () => ({
 }));
 
 import {
+  assertToolingReady,
   __resetToolingCachesForTests,
   __setToolingConnectionFactoryForTests,
   ensureE2eTraceFlag,
@@ -201,6 +202,46 @@ describe('ensureDebugFlagsTestUser', () => {
     expect(first).toEqual(second);
     expect(runSfJsonMock).toHaveBeenCalledTimes(1);
     expect(runSfJsonMock).toHaveBeenCalledWith(['org', 'display', '-o', 'ALV_E2E_Scratch']);
+  });
+
+  test('refreshes cached org auth after an auth failure in REST tooling requests', async () => {
+    runSfJsonMock
+      .mockResolvedValueOnce({
+        result: {
+          accessToken: 'stale-token',
+          instanceUrl: 'https://example.my.salesforce.com',
+          username: 'auth.user@example.com'
+        }
+      })
+      .mockResolvedValueOnce({
+        result: {
+          accessToken: 'fresh-token',
+          instanceUrl: 'https://example.my.salesforce.com',
+          username: 'auth.user@example.com'
+        }
+      });
+
+    const auth = await getOrgAuth('ALV_E2E_Scratch');
+    const seenAuthHeaders: string[] = [];
+
+    globalThis.fetch = jest.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seenAuthHeaders.push(String((init?.headers as Record<string, string> | undefined)?.Authorization || ''));
+      if (seenAuthHeaders.length === 1) {
+        return responseFrom({
+          status: 401,
+          body: [{ errorCode: 'INVALID_SESSION_ID', message: 'Session expired or invalid' }]
+        });
+      }
+      return responseFrom({
+        status: 200,
+        body: { records: [{ Id: '005000000000999AAA' }] }
+      });
+    });
+
+    await expect(getCurrentUserId(auth)).resolves.toBe('005000000000999AAA');
+    expect(auth.accessToken).toBe('fresh-token');
+    expect(seenAuthHeaders).toEqual(['Bearer stale-token', 'Bearer fresh-token']);
+    expect(runSfJsonMock).toHaveBeenCalledTimes(2);
   });
 
   test('caches current user id lookups per authenticated user', async () => {
@@ -450,6 +491,68 @@ describe('ensureDebugFlagsTestUser', () => {
       method: 'GET'
     });
     expect(String(connectionRequestMock.mock.calls[0]?.[0]?.url || '')).toContain('/tooling/executeAnonymous?');
+  });
+
+  test('refreshes cached org auth after an auth failure in jsforce tooling requests', async () => {
+    runSfJsonMock
+      .mockResolvedValueOnce({
+        result: {
+          accessToken: 'stale-token',
+          instanceUrl: 'https://example.my.salesforce.com',
+          username: 'auth.user@example.com'
+        }
+      })
+      .mockResolvedValueOnce({
+        result: {
+          accessToken: 'fresh-token',
+          instanceUrl: 'https://example.my.salesforce.com',
+          username: 'auth.user@example.com'
+        }
+      });
+
+    const auth = await getOrgAuth('ALV_E2E_Scratch');
+    __setToolingConnectionFactoryForTests(async currentAuth => ({
+      request: connectionRequestMock.mockImplementation(async () => {
+        if (currentAuth.accessToken === 'stale-token') {
+          const error = new Error('Session expired or invalid') as Error & {
+            statusCode?: number;
+            errorCode?: string;
+          };
+          error.statusCode = 401;
+          error.errorCode = 'INVALID_SESSION_ID';
+          throw error;
+        }
+        return { compiled: true, success: true };
+      }),
+      tooling: {
+        query: queryToolingMock
+      }
+    }));
+
+    await executeAnonymousApex(auth, "System.debug('ALV');");
+
+    expect(auth.accessToken).toBe('fresh-token');
+    expect(runSfJsonMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('bounds auth-based tooling readiness probes with a timeout', async () => {
+    const auth: OrgAuth = {
+      accessToken: 'token',
+      instanceUrl: 'https://example.my.salesforce.com',
+      username: 'auth.user@example.com',
+      apiVersion: '62.0'
+    };
+
+    __setToolingConnectionFactoryForTests(async () => ({
+      request: connectionRequestMock,
+      tooling: {
+        query: queryToolingMock.mockImplementation(async () => await new Promise(() => {}))
+      }
+    }));
+
+    await expect(assertToolingReady(auth, { timeoutMs: 10 })).rejects.toThrow(
+      'Tooling readiness probe timed out after 10ms.'
+    );
   });
 
   test('finds the recent ApexLog by matching the seeded marker in the body', async () => {

@@ -249,7 +249,7 @@ async function waitForScratchOrgReady(targetOrg: string, auth?: OrgAuth): Promis
   while (Date.now() < deadline) {
     try {
       if (auth) {
-        await assertToolingReady(auth);
+        await assertToolingReady(auth, { timeoutMs: 30_000 });
       } else {
         // Some scratch orgs return interstitial HTML ("Stay tuned...") for a short
         // period after creation. Poll a lightweight Tooling API query until it
