@@ -63,23 +63,34 @@ function quoteWindowsCmdArg(value: string): string {
   return `"${raw.replace(/"/g, '""')}"`;
 }
 
+let resolvedSfBinAbsolutePathPromise: Promise<string | undefined> | undefined;
+
+export function __resetResolvedSfBinAbsolutePathCacheForTests(): void {
+  resolvedSfBinAbsolutePathPromise = undefined;
+}
+
 export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
-  try {
-    if (process.platform === 'win32') {
-      const { stdout } = await execFileAsync('cmd.exe', ['/d', '/s', '/c', 'where sf'], { timeoutMs: 10_000 });
-      const candidates = String(stdout || '')
-        .split(/\r?\n/)
-        .map(l => l.trim())
-        .filter(Boolean);
-      const preferred = candidates.find(value => /\.cmd$/i.test(value));
-      return preferred || candidates[0] || undefined;
-    }
-    const { stdout } = await execFileAsync('bash', ['-lc', 'command -v sf'], { timeoutMs: 10_000 });
-    const resolved = String(stdout || '').trim();
-    return resolved || undefined;
-  } catch {
-    return undefined;
+  if (!resolvedSfBinAbsolutePathPromise) {
+    resolvedSfBinAbsolutePathPromise = (async () => {
+      try {
+        if (process.platform === 'win32') {
+          const { stdout } = await execFileAsync('cmd.exe', ['/d', '/s', '/c', 'where sf'], { timeoutMs: 10_000 });
+          const candidates = String(stdout || '')
+            .split(/\r?\n/)
+            .map(l => l.trim())
+            .filter(Boolean);
+          const preferred = candidates.find(value => /\.cmd$/i.test(value));
+          return preferred || candidates[0] || undefined;
+        }
+        const { stdout } = await execFileAsync('bash', ['-lc', 'command -v sf'], { timeoutMs: 10_000 });
+        const resolved = String(stdout || '').trim();
+        return resolved || undefined;
+      } catch {
+        return undefined;
+      }
+    })();
   }
+  return await resolvedSfBinAbsolutePathPromise;
 }
 
 export async function resolveSfCliInvocation(): Promise<{ sfBinPath: string; nodeBinPath: string } | undefined> {

@@ -1,5 +1,5 @@
 import { expect, test } from '../fixtures/alvE2E';
-import { runCommand, waitForCommandAvailable } from '../utils/commandPalette';
+import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
 import { dismissAllNotifications } from '../utils/notifications';
 import { ensureDebugFlagsTestUser, getOrgAuth, removeUserDebugTraceFlags } from '../utils/tooling';
 import { waitForWebviewFrame } from '../utils/webviews';
@@ -39,8 +39,7 @@ test('filters users correctly in debug flags panel from logs and tail entrypoint
   await removeUserDebugTraceFlags(auth, userId).catch(() => {});
 
   try {
-    await waitForCommandAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
-    await runCommand(vscodePage, 'Electivus Apex Logs: Refresh Logs');
+    await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
 
     const logsFrame = await waitForWebviewFrame(
       vscodePage,

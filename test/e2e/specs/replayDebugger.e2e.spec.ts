@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from '../fixtures/alvE2E';
-import { runCommand, waitForCommandAvailable } from '../utils/commandPalette';
+import { runCommandWhenAvailable } from '../utils/commandPalette';
 import { dismissAllNotifications } from '../utils/notifications';
 import { waitForWebviewFrame } from '../utils/webviews';
 
@@ -21,8 +21,7 @@ test('launches replay debugger from logs table without missing-extension toast',
   void seededLog;
 
   // Activate the extension by running a contributed command.
-  await waitForCommandAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
-  await runCommand(vscodePage, 'Electivus Apex Logs: Refresh Logs');
+  await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
   await closeQuickInputIfOpen(vscodePage);
 
   const logsFrame = await waitForWebviewFrame(

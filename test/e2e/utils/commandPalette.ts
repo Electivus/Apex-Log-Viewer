@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { timeE2eStep } from './timing';
 
 function getModifierKey(): 'Control' | 'Meta' {
   return process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -16,16 +17,21 @@ function noMatchingResults(widget: ReturnType<Page['locator']>) {
   return widget.getByText('No matching results', { exact: true });
 }
 
-export async function runCommand(page: Page, command: string): Promise<void> {
+function normalizeCommandQuery(command: string): string {
+  return command.trim().startsWith('>') ? command.trim() : `> ${command}`;
+}
+
+async function openQuickOpenWithCommand(page: Page, command: string): Promise<boolean> {
   await openQuickOpen(page);
   const widget = page.locator('div.quick-input-widget');
   const input = widget.locator('input');
-  const query = command.trim().startsWith('>') ? command.trim() : `> ${command}`;
-  await input.fill(query);
+  await input.fill(normalizeCommandQuery(command));
   await page.waitForTimeout(50);
+  return !(await noMatchingResults(widget).isVisible());
+}
 
-  const noMatches = noMatchingResults(widget);
-  if (await noMatches.isVisible()) {
+export async function runCommand(page: Page, command: string): Promise<void> {
+  if (!(await openQuickOpenWithCommand(page, command))) {
     await page.keyboard.press('Escape');
     throw new Error(`Command not found in palette: "${command}"`);
   }
@@ -42,14 +48,7 @@ export async function waitForCommandAvailable(
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    await openQuickOpen(page);
-    const widget = page.locator('div.quick-input-widget');
-    const input = widget.locator('input');
-    const q = query.trim().startsWith('>') ? query.trim() : `> ${query}`;
-    await input.fill(q);
-    await page.waitForTimeout(50);
-    const noMatches = noMatchingResults(widget);
-    const ok = !(await noMatches.isVisible());
+    const ok = await openQuickOpenWithCommand(page, query);
     await page.keyboard.press('Escape');
     if (ok) {
       return;
@@ -57,6 +56,28 @@ export async function waitForCommandAvailable(
     await page.waitForTimeout(500);
   }
   throw new Error(`Timed out waiting for command to appear in palette: "${query}"`);
+}
+
+export async function runCommandWhenAvailable(
+  page: Page,
+  command: string,
+  options?: { timeoutMs?: number }
+): Promise<void> {
+  await timeE2eStep(`commandPalette.runWhenAvailable:${command}`, async () => {
+    const timeoutMs = options?.timeoutMs ?? 60_000;
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const ok = await openQuickOpenWithCommand(page, command);
+      if (ok) {
+        await page.keyboard.press('Enter');
+        return;
+      }
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(500);
+    }
+    throw new Error(`Timed out waiting for command to appear in palette: "${command}"`);
+  });
 }
 
 export async function executeCommandId(page: Page, commandId: string): Promise<void> {

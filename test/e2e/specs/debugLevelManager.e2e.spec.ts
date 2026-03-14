@@ -1,6 +1,6 @@
 import type { Frame } from '@playwright/test';
 import { expect, test } from '../fixtures/alvE2E';
-import { runCommand, waitForCommandAvailable } from '../utils/commandPalette';
+import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
 import {
   deleteDebugLevelByDeveloperName,
   ensureDebugFlagsTestUser,
@@ -30,8 +30,7 @@ test('creates, updates and deletes DebugLevel records from the manager UI', asyn
   await deleteDebugLevelByDeveloperName(auth, updatedDeveloperName).catch(() => {});
 
   try {
-    await waitForCommandAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
-    await runCommand(vscodePage, 'Electivus Apex Logs: Refresh Logs');
+    await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
 
     const logsFrame = await waitForWebviewFrame(
       vscodePage,

@@ -1,4 +1,6 @@
+import { Connection } from '@jsforce/jsforce-node';
 import { runSfJson } from './sfCli';
+import { timeE2eStep } from './timing';
 
 export type OrgAuth = {
   accessToken: string;
@@ -53,6 +55,236 @@ const SPECIAL_TRACE_FLAG_TARGET_LABELS: Record<SpecialTraceFlagTargetType, strin
   automatedProcess: 'Automated Process',
   platformIntegration: 'Platform Integration'
 };
+const TRACE_FLAG_FAST_PATH_MAX_MS = 5 * 60 * 1000;
+const TRACE_FLAG_FAST_PATH_SAFETY_MS = 60_000;
+
+const orgAuthCache = new Map<string, Promise<OrgAuth>>();
+const currentUserIdCache = new Map<string, Promise<string>>();
+const debugLevelIdCache = new Map<string, Promise<string>>();
+const ensuredTraceFlagCache = new Map<string, number>();
+const jsforceConnectionCache = new Map<string, Promise<ToolingConnectionLike>>();
+const orgAuthTargetOrgByIdentity = new Map<string, string>();
+
+type ToolingConnectionLike = Pick<Connection, 'request' | 'tooling'>;
+type ToolingConnectionFactory = (auth: OrgAuth) => Promise<ToolingConnectionLike> | ToolingConnectionLike;
+
+let toolingConnectionFactoryForTests: ToolingConnectionFactory | undefined;
+
+function getOrgAuthCacheKey(targetOrg: string): string {
+  return String(targetOrg || '').trim() || '__default__';
+}
+
+function getAuthIdentityKey(auth: OrgAuth): string {
+  return [stripTrailingSlash(auth.instanceUrl), String(auth.username || '').trim(), String(auth.apiVersion || '').trim()].join('|');
+}
+
+async function getOrCreateCached<T>(cache: Map<string, Promise<T>>, key: string, load: () => Promise<T>): Promise<T> {
+  const cached = cache.get(key);
+  if (cached) {
+    return await cached;
+  }
+
+  const promise = load();
+  cache.set(key, promise);
+  try {
+    return await promise;
+  } catch (error) {
+    cache.delete(key);
+    throw error;
+  }
+}
+
+async function createToolingConnection(auth: OrgAuth): Promise<ToolingConnectionLike> {
+  if (toolingConnectionFactoryForTests) {
+    return await toolingConnectionFactoryForTests(auth);
+  }
+  return new Connection({
+    version: auth.apiVersion,
+    instanceUrl: auth.instanceUrl,
+    accessToken: auth.accessToken
+  }) as ToolingConnectionLike;
+}
+
+async function getToolingConnection(auth: OrgAuth): Promise<ToolingConnectionLike> {
+  return await getOrCreateCached(jsforceConnectionCache, getAuthIdentityKey(auth), async () => {
+    return await createToolingConnection(auth);
+  });
+}
+
+function getTraceFlagFastPathUntil(ttlMinutes: number, nowMs: number): number {
+  const ttlMs = ttlMinutes * 60 * 1000;
+  const fastPathWindowMs = Math.max(0, Math.min(ttlMs - TRACE_FLAG_FAST_PATH_SAFETY_MS, TRACE_FLAG_FAST_PATH_MAX_MS));
+  return nowMs + fastPathWindowMs;
+}
+
+function rememberOrgAuthTarget(targetOrg: string, auth: OrgAuth): void {
+  orgAuthTargetOrgByIdentity.set(getAuthIdentityKey(auth), getOrgAuthCacheKey(targetOrg));
+}
+
+function replaceOrgAuth(target: OrgAuth, next: OrgAuth): void {
+  target.accessToken = next.accessToken;
+  target.instanceUrl = next.instanceUrl;
+  target.username = next.username;
+  target.apiVersion = next.apiVersion;
+}
+
+function isAuthFailure(status: number | undefined, detail: string): boolean {
+  const normalized = String(detail || '').toLowerCase();
+  return (
+    status === 401 ||
+    normalized.includes('invalid_session_id') ||
+    normalized.includes('session expired or invalid') ||
+    normalized.includes('expired access/refresh token')
+  );
+}
+
+function isToolingAuthError(error: unknown): boolean {
+  const statusCode = typeof (error as any)?.statusCode === 'number' ? Number((error as any).statusCode) : undefined;
+  const errorCode = String((error as any)?.errorCode || '');
+  const message = String(error instanceof Error ? error.message : error || '');
+  return isAuthFailure(statusCode, `${errorCode} ${message}`.trim());
+}
+
+async function refreshOrgAuth(auth: OrgAuth): Promise<boolean> {
+  const targetOrg = orgAuthTargetOrgByIdentity.get(getAuthIdentityKey(auth));
+  if (!targetOrg) {
+    return false;
+  }
+  const staleIdentityKey = getAuthIdentityKey(auth);
+  orgAuthCache.delete(targetOrg);
+  jsforceConnectionCache.delete(staleIdentityKey);
+  const refreshed = await getOrgAuth(targetOrg, { forceRefresh: true });
+  replaceOrgAuth(auth, refreshed);
+  rememberOrgAuthTarget(targetOrg, auth);
+  jsforceConnectionCache.delete(getAuthIdentityKey(auth));
+  return true;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms.`));
+    }, timeoutMs);
+
+    promise.then(
+      value => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+function invalidateEnsuredTraceFlagCache(auth: OrgAuth): void {
+  const authIdentityKey = getAuthIdentityKey(auth);
+  for (const key of Array.from(ensuredTraceFlagCache.keys())) {
+    if (key.startsWith(`${authIdentityKey}|`)) {
+      ensuredTraceFlagCache.delete(key);
+    }
+  }
+}
+
+async function ensureDebugLevelId(auth: OrgAuth, debugLevelName: string): Promise<string> {
+  const cacheKey = `${getAuthIdentityKey(auth)}|${debugLevelName}`;
+  return await getOrCreateCached(debugLevelIdCache, cacheKey, async () => {
+    const apiVersion = auth.apiVersion;
+    const dlEsc = escapeSoqlLiteral(debugLevelName);
+    const dlSoql = encodeURIComponent(`SELECT Id FROM DebugLevel WHERE DeveloperName = '${dlEsc}' LIMIT 1`);
+    const dlQuery = await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}:queryDebugLevel`, async () => {
+      return await requestJson(auth, 'GET', `/services/data/v${apiVersion}/tooling/query?q=${dlSoql}`);
+    });
+    const existingDebugLevelId: string | undefined = Array.isArray(dlQuery?.records) ? dlQuery.records[0]?.Id : undefined;
+    if (existingDebugLevelId) {
+      return existingDebugLevelId;
+    }
+
+    const createRes = await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}:createDebugLevel`, async () => {
+      return await requestJson(auth, 'POST', `/services/data/v${apiVersion}/tooling/sobjects/DebugLevel`, {
+        DeveloperName: debugLevelName,
+        MasterLabel: debugLevelName,
+        ApexCode: 'DEBUG',
+        ApexProfiling: 'ERROR',
+        Callout: 'ERROR',
+        Database: 'ERROR',
+        System: 'DEBUG',
+        Validation: 'ERROR',
+        Visualforce: 'ERROR',
+        Workflow: 'ERROR'
+      });
+    });
+    if (!createRes?.success || !createRes?.id) {
+      throw new Error('Failed to create DebugLevel for E2E TraceFlag.');
+    }
+    return String(createRes.id);
+  });
+}
+
+async function queryExistingTraceFlagId(
+  auth: OrgAuth,
+  userId: string,
+  debugLevelId: string,
+  debugLevelName: string
+): Promise<string | undefined> {
+  const tfSoql = encodeURIComponent(
+    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'USER_DEBUG' AND DebugLevelId = '${debugLevelId}' ORDER BY CreatedDate DESC LIMIT 1`
+  );
+  const tfQuery = await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}:queryTraceFlag`, async () => {
+    return await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/tooling/query?q=${tfSoql}`);
+  });
+  return Array.isArray(tfQuery?.records) ? tfQuery.records[0]?.Id : undefined;
+}
+
+export function __resetToolingCachesForTests(): void {
+  orgAuthCache.clear();
+  currentUserIdCache.clear();
+  debugLevelIdCache.clear();
+  ensuredTraceFlagCache.clear();
+  jsforceConnectionCache.clear();
+  orgAuthTargetOrgByIdentity.clear();
+  toolingConnectionFactoryForTests = undefined;
+}
+
+export function primeOrgAuthCache(targetOrg: string, auth: OrgAuth): void {
+  const cacheKey = getOrgAuthCacheKey(targetOrg);
+  orgAuthCache.set(cacheKey, Promise.resolve(auth));
+  rememberOrgAuthTarget(targetOrg, auth);
+}
+
+export function __setToolingConnectionFactoryForTests(factory: ToolingConnectionFactory | undefined): void {
+  toolingConnectionFactoryForTests = factory;
+  jsforceConnectionCache.clear();
+}
+
+async function withToolingConnection<T>(
+  auth: OrgAuth,
+  run: (connection: ToolingConnectionLike) => Promise<T>
+): Promise<T> {
+  const runOnce = async () => await run(await getToolingConnection(auth));
+
+  try {
+    return await runOnce();
+  } catch (error) {
+    if (!isToolingAuthError(error) || !(await refreshOrgAuth(auth))) {
+      throw error;
+    }
+    return await runOnce();
+  }
+}
+
+export async function assertToolingReady(auth: OrgAuth, options?: { timeoutMs?: number }): Promise<void> {
+  const timeoutMs = options?.timeoutMs ?? 30_000;
+  await withTimeout(
+    withToolingConnection(auth, async connection => {
+      await connection.tooling.query<{ Id?: string }>('SELECT Id FROM DebugLevel LIMIT 1');
+    }),
+    timeoutMs,
+    'Tooling readiness probe'
+  );
+}
 
 function getApiVersion(): string {
   const v = String(process.env.SF_TEST_API_VERSION || process.env.SF_API_VERSION || '60.0').trim();
@@ -104,29 +336,36 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function requestJson(auth: OrgAuth, method: string, resourcePath: string, body?: unknown): Promise<any> {
-  const base = stripTrailingSlash(auth.instanceUrl);
-  const url = `${base}${resourcePath}`;
-  const res = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${auth.accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: body === undefined ? undefined : JSON.stringify(body)
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    const detail = text ? ` -> ${text}` : '';
-    throw new Error(`Tooling API request failed (${res.status}) for ${resourcePath}${detail}`);
-  }
-  if (!text) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
+  const send = async (allowRefresh: boolean): Promise<any> => {
+    const base = stripTrailingSlash(auth.instanceUrl);
+    const url = `${base}${resourcePath}`;
+    const res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${auth.accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      if (allowRefresh && isAuthFailure(res.status, text) && (await refreshOrgAuth(auth))) {
+        return await send(false);
+      }
+      const detail = text ? ` -> ${text}` : '';
+      throw new Error(`Tooling API request failed (${res.status}) for ${resourcePath}${detail}`);
+    }
+    if (!text) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  };
+
+  return await send(true);
 }
 
 function isSfId(value: unknown): value is string {
@@ -137,14 +376,19 @@ export async function getCurrentUserId(auth: OrgAuth): Promise<string> {
   if (!auth.username) {
     throw new Error('Cannot resolve current user id without username.');
   }
-  const usernameEsc = escapeSoqlLiteral(auth.username);
-  const userSoql = encodeURIComponent(`SELECT Id FROM User WHERE Username = '${usernameEsc}' LIMIT 1`);
-  const userRes = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${userSoql}`);
-  const userId: string | undefined = Array.isArray(userRes?.records) ? userRes.records[0]?.Id : undefined;
-  if (!isSfId(userId)) {
-    throw new Error('Failed to resolve current user id for tooling operations.');
-  }
-  return userId;
+  const cacheKey = getAuthIdentityKey(auth);
+  return await getOrCreateCached(currentUserIdCache, cacheKey, async () => {
+    return await timeE2eStep('tooling.getCurrentUserId', async () => {
+      const usernameEsc = escapeSoqlLiteral(auth.username!);
+      const userSoql = encodeURIComponent(`SELECT Id FROM User WHERE Username = '${usernameEsc}' LIMIT 1`);
+      const userRes = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${userSoql}`);
+      const userId: string | undefined = Array.isArray(userRes?.records) ? userRes.records[0]?.Id : undefined;
+      if (!isSfId(userId)) {
+        throw new Error('Failed to resolve current user id for tooling operations.');
+      }
+      return userId;
+    });
+  });
 }
 
 async function findUserByUsername(
@@ -382,6 +626,7 @@ async function listDebugTraceFlagIdsByTracedEntityId(auth: OrgAuth, tracedEntity
 }
 
 export async function removeDebugTraceFlagsByTracedEntityId(auth: OrgAuth, tracedEntityId: string): Promise<number> {
+  invalidateEnsuredTraceFlagCache(auth);
   let removedCount = 0;
   const deadline = Date.now() + TRACE_FLAG_REMOVAL_TIMEOUT_MS;
   const attemptedDeletes = new Set<string>();
@@ -493,92 +738,146 @@ export async function deleteDebugLevelByDeveloperName(auth: OrgAuth, developerNa
   await deleteDebugLevelById(auth, record.id);
 }
 
-export async function getOrgAuth(targetOrg: string): Promise<OrgAuth> {
-  const envAlias = String(process.env.SF_E2E_TARGET_ORG_ALIAS || process.env.SF_SCRATCH_ALIAS || '').trim();
-  const envAccessToken = String(process.env.SF_E2E_ACCESS_TOKEN || '').trim();
-  const envInstanceUrl = String(process.env.SF_E2E_INSTANCE_URL || '').trim();
-  if (envAccessToken && envInstanceUrl && (!envAlias || envAlias === targetOrg)) {
-    return {
-      accessToken: envAccessToken,
-      instanceUrl: envInstanceUrl,
-      username: String(process.env.SF_E2E_USERNAME || '').trim() || undefined,
-      apiVersion: String(process.env.SF_E2E_API_VERSION || getApiVersion()).trim() || getApiVersion()
-    };
+export async function getOrgAuth(targetOrg: string, options?: { forceRefresh?: boolean }): Promise<OrgAuth> {
+  const cacheKey = getOrgAuthCacheKey(targetOrg);
+  if (options?.forceRefresh) {
+    orgAuthCache.delete(cacheKey);
   }
+  return await getOrCreateCached(orgAuthCache, cacheKey, async () => {
+    const resolved = await timeE2eStep(`tooling.getOrgAuth:${targetOrg}`, async () => {
+      const envAlias = String(process.env.SF_E2E_TARGET_ORG_ALIAS || process.env.SF_SCRATCH_ALIAS || '').trim();
+      const envAccessToken = String(process.env.SF_E2E_ACCESS_TOKEN || '').trim();
+      const envInstanceUrl = String(process.env.SF_E2E_INSTANCE_URL || '').trim();
+      if (envAccessToken && envInstanceUrl && (!envAlias || envAlias === targetOrg)) {
+        return {
+          accessToken: envAccessToken,
+          instanceUrl: envInstanceUrl,
+          username: String(process.env.SF_E2E_USERNAME || '').trim() || undefined,
+          apiVersion: String(process.env.SF_E2E_API_VERSION || getApiVersion()).trim() || getApiVersion()
+        };
+      }
 
-  const apiVersion = getApiVersion();
-  const display = await runSfJson(['org', 'display', '-o', targetOrg]);
-  const result = display?.result || display;
-  const accessToken: string | undefined = result?.accessToken || result?.access_token;
-  const instanceUrl: string | undefined = result?.instanceUrl || result?.instance_url || result?.loginUrl;
-  const username: string | undefined = result?.username;
-  if (!accessToken || !instanceUrl) {
-    throw new Error(`Failed to resolve org auth for '${targetOrg}' (missing accessToken/instanceUrl).`);
+      const apiVersion = getApiVersion();
+      const display = await runSfJson(['org', 'display', '-o', targetOrg]);
+      const result = display?.result || display;
+      const accessToken: string | undefined = result?.accessToken || result?.access_token;
+      const instanceUrl: string | undefined = result?.instanceUrl || result?.instance_url || result?.loginUrl;
+      const username: string | undefined = result?.username;
+      if (!accessToken || !instanceUrl) {
+        throw new Error(`Failed to resolve org auth for '${targetOrg}' (missing accessToken/instanceUrl).`);
+      }
+      return {
+        accessToken,
+        instanceUrl,
+        username,
+        apiVersion
+      };
+    });
+    rememberOrgAuthTarget(targetOrg, resolved);
+    return resolved;
+  });
+}
+
+export async function executeAnonymousApex(
+  auth: OrgAuth,
+  anonymousApex: string,
+  options?: { allowFailure?: boolean }
+): Promise<void> {
+  const result = await withToolingConnection(auth, async connection => {
+    const encodedBody = encodeURIComponent(anonymousApex);
+    return await connection.request<{
+      compiled?: boolean;
+      success?: boolean;
+      compileProblem?: string | null;
+      exceptionMessage?: string | null;
+      exceptionStackTrace?: string | null;
+    }>({
+      method: 'GET',
+      url: `${auth.instanceUrl}/services/data/v${auth.apiVersion}/tooling/executeAnonymous?anonymousBody=${encodedBody}`,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  });
+  if (result?.compiled === false) {
+    throw new Error(`Anonymous Apex compile failed: ${String(result?.compileProblem || 'unknown problem')}`.trim());
   }
-  return {
-    accessToken,
-    instanceUrl,
-    username,
-    apiVersion
-  };
+  if (result?.success === false && !options?.allowFailure) {
+    const message = String(result?.exceptionMessage || result?.exceptionStackTrace || 'unknown failure');
+    throw new Error(`Anonymous Apex execution failed: ${message}`.trim());
+  }
+}
+
+export async function findRecentApexLogId(auth: OrgAuth, _startedAtMs: number, marker: string): Promise<string | undefined> {
+  const userId = await getCurrentUserId(auth);
+  return await withToolingConnection(auth, async connection => {
+    const soql = `SELECT Id, StartTime FROM ApexLog WHERE LogUserId = '${userId}' ORDER BY StartTime DESC LIMIT 10`;
+    const response = await connection.tooling.query<{ Id?: string; StartTime?: string }>(soql);
+    const rows = Array.isArray(response?.records) ? response.records : [];
+
+    for (const row of rows) {
+      if (!isSfId(row?.Id) || typeof row?.StartTime !== 'string') {
+        continue;
+      }
+
+      const body = await connection.request<string>(
+        {
+          method: 'GET',
+          url: `${auth.instanceUrl}/services/data/v${auth.apiVersion}/tooling/sobjects/ApexLog/${row.Id}/Body`
+        },
+        { responseType: 'text/plain', encoding: 'utf8' } as any
+      );
+      if (String(body || '').includes(marker)) {
+        return row.Id;
+      }
+    }
+
+    return undefined;
+  });
 }
 
 export async function ensureE2eTraceFlag(auth: OrgAuth, options?: { debugLevelName?: string; ttlMinutes?: number }) {
   const debugLevelName = String(options?.debugLevelName || process.env.SF_E2E_DEBUG_LEVEL || 'ALV_E2E').trim();
   const ttlMinutes = Math.max(5, Number(options?.ttlMinutes || process.env.SF_E2E_TRACE_TTL_MINUTES || 60) || 60);
-  const apiVersion = auth.apiVersion;
-  const userId = await getCurrentUserId(auth);
-
-  const dlEsc = escapeSoqlLiteral(debugLevelName);
-  const dlSoql = encodeURIComponent(`SELECT Id FROM DebugLevel WHERE DeveloperName = '${dlEsc}' LIMIT 1`);
-  const dlQuery = await requestJson(auth, 'GET', `/services/data/v${apiVersion}/tooling/query?q=${dlSoql}`);
-  let debugLevelId: string | undefined = Array.isArray(dlQuery?.records) ? dlQuery.records[0]?.Id : undefined;
-
-  if (!debugLevelId) {
-    const createRes = await requestJson(auth, 'POST', `/services/data/v${apiVersion}/tooling/sobjects/DebugLevel`, {
-      DeveloperName: debugLevelName,
-      MasterLabel: debugLevelName,
-      ApexCode: 'DEBUG',
-      ApexProfiling: 'ERROR',
-      Callout: 'ERROR',
-      Database: 'ERROR',
-      System: 'DEBUG',
-      Validation: 'ERROR',
-      Visualforce: 'ERROR',
-      Workflow: 'ERROR'
-    });
-    if (!createRes?.success || !createRes?.id) {
-      throw new Error('Failed to create DebugLevel for E2E TraceFlag.');
+  const traceFlagCacheKey = `${getAuthIdentityKey(auth)}|${debugLevelName}|${ttlMinutes}`;
+  const extendedTraceFlagExpiry = await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}`, async () => {
+    const apiVersion = auth.apiVersion;
+    const userId = await getCurrentUserId(auth);
+    const debugLevelId = await ensureDebugLevelId(auth, debugLevelName);
+    const existingTfId = await queryExistingTraceFlagId(auth, userId, debugLevelId, debugLevelName);
+    const cachedFastPathUntil = ensuredTraceFlagCache.get(traceFlagCacheKey);
+    if (cachedFastPathUntil && cachedFastPathUntil > Date.now() && existingTfId) {
+      return false;
     }
-    debugLevelId = String(createRes.id);
-  }
 
-  const tfSoql = encodeURIComponent(
-    `SELECT Id FROM TraceFlag WHERE TracedEntityId = '${userId}' AND LogType = 'USER_DEBUG' AND DebugLevelId = '${debugLevelId}' ORDER BY CreatedDate DESC LIMIT 1`
-  );
-  const tfQuery = await requestJson(auth, 'GET', `/services/data/v${apiVersion}/tooling/query?q=${tfSoql}`);
-  const existingTfId: string | undefined = Array.isArray(tfQuery?.records) ? tfQuery.records[0]?.Id : undefined;
+    const now = new Date();
+    const start = toSfDateTimeUTC(new Date(now.getTime() - 1000));
+    const exp = toSfDateTimeUTC(new Date(now.getTime() + ttlMinutes * 60 * 1000));
 
-  const now = new Date();
-  const start = toSfDateTimeUTC(new Date(now.getTime() - 1000));
-  const exp = toSfDateTimeUTC(new Date(now.getTime() + ttlMinutes * 60 * 1000));
+    if (existingTfId) {
+      await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}:patchTraceFlag`, async () => {
+        await requestJson(auth, 'PATCH', `/services/data/v${apiVersion}/tooling/sobjects/TraceFlag/${existingTfId}`, {
+          StartDate: start,
+          ExpirationDate: exp
+        });
+      });
+      return true;
+    }
 
-  if (existingTfId) {
-    await requestJson(auth, 'PATCH', `/services/data/v${apiVersion}/tooling/sobjects/TraceFlag/${existingTfId}`, {
-      StartDate: start,
-      ExpirationDate: exp
+    const createTf = await timeE2eStep(`tooling.ensureTraceFlag:${debugLevelName}:createTraceFlag`, async () => {
+      return await requestJson(auth, 'POST', `/services/data/v${apiVersion}/tooling/sobjects/TraceFlag`, {
+        TracedEntityId: userId,
+        LogType: 'USER_DEBUG',
+        DebugLevelId: debugLevelId,
+        StartDate: start,
+        ExpirationDate: exp
+      });
     });
-    return;
-  }
-
-  const createTf = await requestJson(auth, 'POST', `/services/data/v${apiVersion}/tooling/sobjects/TraceFlag`, {
-    TracedEntityId: userId,
-    LogType: 'USER_DEBUG',
-    DebugLevelId: debugLevelId,
-    StartDate: start,
-    ExpirationDate: exp
+    if (!createTf?.success) {
+      throw new Error('Failed to create TraceFlag for E2E.');
+    }
+    return true;
   });
-  if (!createTf?.success) {
-    throw new Error('Failed to create TraceFlag for E2E.');
+
+  if (extendedTraceFlagExpiry) {
+    ensuredTraceFlagCache.set(traceFlagCacheKey, getTraceFlagFastPathUntil(ttlMinutes, Date.now()));
   }
 }

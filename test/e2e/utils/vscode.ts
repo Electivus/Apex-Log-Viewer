@@ -6,6 +6,7 @@ import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from '
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright';
 import { removePathBestEffort } from './fsCleanup';
 import { dismissAllNotifications } from './notifications';
+import { timeE2eStep } from './timing';
 
 export type VscodeLaunch = {
   app: ElectronApplication;
@@ -24,10 +25,48 @@ function getVsCodeVersion(): string {
   return v || 'stable';
 }
 
+function envFlag(name: string): boolean {
+  const value = String(process.env[name] || '')
+    .trim()
+    .toLowerCase();
+  return value === '1' || value === 'true';
+}
+
 export function resolveSupportExtensionIds(extensionIds: unknown[] = [], extraExtensionIds: string[] = []): string[] {
   return Array.from(
     new Set([...extensionIds, ...extraExtensionIds].map(String).map(value => value.trim()).filter(Boolean))
   );
+}
+
+export function shouldAllowLocalExtensionsDirFallback(): boolean {
+  return envFlag('ALV_E2E_ALLOW_LOCAL_EXTENSIONS_DIR');
+}
+
+export function resolveExtensionsDirForMissingDependencies(options: {
+  isolatedExtensionsDir: string;
+  missingExtensionIds: string[];
+  localExtensionsRoot?: string;
+}): { extensionsDir: string; warning?: string } {
+  if (!options.missingExtensionIds.length) {
+    return { extensionsDir: options.isolatedExtensionsDir };
+  }
+
+  const missingList = options.missingExtensionIds.join(', ');
+  if (options.localExtensionsRoot && shouldAllowLocalExtensionsDirFallback()) {
+    return {
+      extensionsDir: options.localExtensionsRoot,
+      warning: `[e2e] Falling back to local VS Code extensions dir: ${options.localExtensionsRoot}`
+    };
+  }
+
+  return {
+    extensionsDir: options.isolatedExtensionsDir,
+    warning:
+      `[e2e] Support extensions still missing in isolated profile: ${missingList}.` +
+      (options.localExtensionsRoot
+        ? ' Set ALV_E2E_ALLOW_LOCAL_EXTENSIONS_DIR=1 to opt into using the local VS Code extensions dir.'
+        : '')
+  };
 }
 
 async function readExtensionReferences(extensionDevelopmentPath: string, extraExtensionIds: string[] = []): Promise<string[]> {
@@ -146,43 +185,15 @@ async function copyLocalExtensionWithDependencies(
   return true;
 }
 
-function listInstalledExtensions(args: {
-  cliPath: string;
-  cliArgs: string[];
-  userDataDir: string;
-  extensionsDir: string;
-}): Set<string> {
-  try {
-    const res = spawnSync(
-      args.cliPath,
-      [
-        ...args.cliArgs,
-        '--list-extensions',
-        '--show-versions',
-        '--user-data-dir',
-        args.userDataDir,
-        '--extensions-dir',
-        args.extensionsDir
-      ],
-      {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        encoding: 'utf8',
-        input: 'y\n',
-        env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
-      }
-    );
-    const out = [res.stdout, res.stderr].filter(Boolean).join('\n').trim();
-    const installed = new Set<string>();
-    for (const line of out.split(/\r?\n/)) {
-      const trimmed = (line || '').trim();
-      if (!trimmed) continue;
-      const id = trimmed.split('@')[0]?.trim().toLowerCase();
-      if (id) installed.add(id);
+async function findMissingExtensionIdsInRoot(root: string, extensionIds: string[]): Promise<string[]> {
+  const missing: string[] = [];
+  for (const extensionId of extensionIds) {
+    const match = await findExtensionDirectoryInRoot(root, extensionId);
+    if (!match) {
+      missing.push(extensionId);
     }
-    return installed;
-  } catch {
-    return new Set();
   }
+  return missing;
 }
 
 function installExtensions(args: {
@@ -234,31 +245,26 @@ async function ensureExtensionDependenciesInstalled(args: {
   const cli = resolveCliArgsFromVSCodeExecutablePath(args.vscodeExecutablePath, { reuseMachineInstall: true });
   const cliPath = cli[0];
   const cliArgs = cli.slice(1);
-  if (!cliPath) {
-    console.warn('[e2e] Could not resolve VS Code CLI path; skipping dependency install.');
-    return (await findLocalExtensionsRootForDependencies(deps)) || args.extensionsDir;
-  }
-
-  let installed = listInstalledExtensions({
-    cliPath,
-    cliArgs,
-    userDataDir: args.userDataDir,
-    extensionsDir: args.extensionsDir
-  });
-
-  const missingAfterInitialCheck = deps.filter(id => !installed.has(String(id).toLowerCase()));
+  const missingAfterInitialCheck = await findMissingExtensionIdsInRoot(args.extensionsDir, deps);
   for (const dep of missingAfterInitialCheck) {
     await copyLocalExtensionWithDependencies(dep, args.extensionsDir);
   }
 
-  installed = listInstalledExtensions({
-    cliPath,
-    cliArgs,
-    userDataDir: args.userDataDir,
-    extensionsDir: args.extensionsDir
-  });
+  let toInstall = await findMissingExtensionIdsInRoot(args.extensionsDir, deps);
+  if (!cliPath) {
+    console.warn('[e2e] Could not resolve VS Code CLI path; skipping support extension install into isolated profile.');
+    const localRoot = await findLocalExtensionsRootForDependencies(deps);
+    const decision = resolveExtensionsDirForMissingDependencies({
+      isolatedExtensionsDir: args.extensionsDir,
+      missingExtensionIds: toInstall,
+      localExtensionsRoot: localRoot
+    });
+    if (decision.warning) {
+      console.warn(decision.warning);
+    }
+    return decision.extensionsDir;
+  }
 
-  const toInstall = deps.filter(id => !installed.has(String(id).toLowerCase()));
   if (!toInstall.length) {
     return args.extensionsDir;
   }
@@ -271,25 +277,17 @@ async function ensureExtensionDependenciesInstalled(args: {
     extensionIds: toInstall
   });
 
-  installed = listInstalledExtensions({
-    cliPath,
-    cliArgs,
-    userDataDir: args.userDataDir,
-    extensionsDir: args.extensionsDir
-  });
-
-  const stillMissing = deps.filter(id => !installed.has(String(id).toLowerCase()));
-  if (!stillMissing.length) {
-    return args.extensionsDir;
-  }
-
+  const stillMissing = await findMissingExtensionIdsInRoot(args.extensionsDir, deps);
   const localRoot = await findLocalExtensionsRootForDependencies(deps);
-  if (localRoot) {
-    console.warn(`[e2e] Falling back to local VS Code extensions dir: ${localRoot}`);
-    return localRoot;
+  const decision = resolveExtensionsDirForMissingDependencies({
+    isolatedExtensionsDir: args.extensionsDir,
+    missingExtensionIds: stillMissing,
+    localExtensionsRoot: localRoot
+  });
+  if (decision.warning) {
+    console.warn(decision.warning);
   }
-
-  return args.extensionsDir;
+  return decision.extensionsDir;
 }
 
 async function isAuxiliaryBarOpen(page: Page): Promise<boolean> {
@@ -317,7 +315,9 @@ export async function launchVsCode(options: {
   const vscodeCachePath = process.env.VSCODE_TEST_CACHE_PATH
     ? path.resolve(process.env.VSCODE_TEST_CACHE_PATH)
     : path.join(options.extensionDevelopmentPath, '.vscode-test');
-  const vscodeExecutablePath = await downloadAndUnzipVSCode({ version: getVsCodeVersion(), cachePath: vscodeCachePath });
+  const vscodeExecutablePath = await timeE2eStep('vscode.download', async () =>
+    await downloadAndUnzipVSCode({ version: getVsCodeVersion(), cachePath: vscodeCachePath })
+  );
 
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
   let extensionsDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-exts-'));
@@ -327,13 +327,15 @@ export async function launchVsCode(options: {
   // need support extensions in the isolated profile (for example Replay Debugger),
   // so install manifest references plus scenario-specific ids.
   try {
-    const resolvedExtensionsDir = await ensureExtensionDependenciesInstalled({
-      vscodeExecutablePath,
-      extensionDevelopmentPath: options.extensionDevelopmentPath,
-      userDataDir,
-      extensionsDir,
-      extraExtensionIds: options.extensionIds
-    });
+    const resolvedExtensionsDir = await timeE2eStep('vscode.ensureSupportExtensions', async () =>
+      await ensureExtensionDependenciesInstalled({
+        vscodeExecutablePath,
+        extensionDevelopmentPath: options.extensionDevelopmentPath,
+        userDataDir,
+        extensionsDir,
+        extraExtensionIds: options.extensionIds
+      })
+    );
     if (resolvedExtensionsDir !== extensionsDir) {
       await removePathBestEffort(extensionsDir);
       extensionsDir = resolvedExtensionsDir;
@@ -355,20 +357,24 @@ export async function launchVsCode(options: {
     '--no-sandbox'
   ];
 
-  const app = await electron.launch({
-    executablePath: vscodeExecutablePath,
-    args,
-    env: {
-      ...process.env,
-      ELECTRON_DISABLE_GPU: process.env.ELECTRON_DISABLE_GPU || '1',
-      LC_ALL: process.env.LC_ALL || 'C.UTF-8',
-      DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null',
-      NO_AT_BRIDGE: process.env.NO_AT_BRIDGE || '1'
-    }
-  });
+  const app = await timeE2eStep('vscode.launch', async () =>
+    await electron.launch({
+      executablePath: vscodeExecutablePath,
+      args,
+      env: {
+        ...process.env,
+        ELECTRON_DISABLE_GPU: process.env.ELECTRON_DISABLE_GPU || '1',
+        LC_ALL: process.env.LC_ALL || 'C.UTF-8',
+        DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null',
+        NO_AT_BRIDGE: process.env.NO_AT_BRIDGE || '1'
+      }
+    })
+  );
 
-  const page = await app.firstWindow();
-  await page.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
+  const page = await timeE2eStep('vscode.firstWindow', async () => await app.firstWindow());
+  await timeE2eStep('vscode.workbenchReady', async () => {
+    await page.locator('.monaco-workbench').waitFor({ timeout: 120_000 });
+  });
 
   // Close the auxiliary (right) sidebar if it opens by default (e.g., Copilot Chat),
   // as it can overlap/push custom panels and introduce E2E flakiness.

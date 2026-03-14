@@ -1,12 +1,11 @@
 import { test, expect } from '../fixtures/alvE2E';
-import { runCommand, waitForCommandAvailable } from '../utils/commandPalette';
+import { runCommandWhenAvailable } from '../utils/commandPalette';
 import { waitForWebviewFrame } from '../utils/webviews';
 
 test('opens the seeded Apex log in the Log Viewer panel', async ({ vscodePage, seededLog }) => {
   // Activate the extension by running a contributed command.
   // (The command will be updated to ensure the Logs view is visible.)
-  await waitForCommandAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
-  await runCommand(vscodePage, 'Electivus Apex Logs: Refresh Logs');
+  await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
 
   // VS Code webviews often load their actual content in a child frame hosted on
   // a `.../fake.html?...` URL. Grab that frame first, then wait for log rows.
