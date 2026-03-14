@@ -555,7 +555,7 @@ describe('ensureDebugFlagsTestUser', () => {
     );
   });
 
-  test('finds the recent ApexLog by matching the seeded marker in the body', async () => {
+  test('finds the recent ApexLog by marker even when Salesforce and local clocks are skewed', async () => {
     const auth: OrgAuth = {
       accessToken: 'token',
       instanceUrl: 'https://example.my.salesforce.com',
@@ -589,7 +589,7 @@ describe('ensureDebugFlagsTestUser', () => {
       }
     }));
 
-    const id = await findRecentApexLogId(auth, Date.parse('2026-03-14T20:23:54.381Z'), 'ALV_E2E_MARKER_123');
+    const id = await findRecentApexLogId(auth, Date.parse('2026-03-14T20:24:59.381Z'), 'ALV_E2E_MARKER_123');
 
     expect(id).toBe('07L000000000001AAA');
     expect(queryToolingMock).toHaveBeenCalledWith(

@@ -806,20 +806,15 @@ export async function executeAnonymousApex(
   }
 }
 
-export async function findRecentApexLogId(auth: OrgAuth, startedAtMs: number, marker: string): Promise<string | undefined> {
+export async function findRecentApexLogId(auth: OrgAuth, _startedAtMs: number, marker: string): Promise<string | undefined> {
   const userId = await getCurrentUserId(auth);
   return await withToolingConnection(auth, async connection => {
     const soql = `SELECT Id, StartTime FROM ApexLog WHERE LogUserId = '${userId}' ORDER BY StartTime DESC LIMIT 10`;
     const response = await connection.tooling.query<{ Id?: string; StartTime?: string }>(soql);
     const rows = Array.isArray(response?.records) ? response.records : [];
-    const thresholdMs = startedAtMs - 1_000;
 
     for (const row of rows) {
       if (!isSfId(row?.Id) || typeof row?.StartTime !== 'string') {
-        continue;
-      }
-      const startedAt = Date.parse(String(row.StartTime).replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
-      if (!Number.isFinite(startedAt) || startedAt < thresholdMs) {
         continue;
       }
 
