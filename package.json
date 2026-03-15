@@ -469,7 +469,7 @@
   },
   "devDependencies": {
     "@commitlint/cli": "^20.4.4",
-    "@commitlint/config-conventional": "^20.4.3",
+    "@commitlint/config-conventional": "^20.5.0",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/cli": "^4.2.1",
     "@testing-library/jest-dom": "^6.9.1",
