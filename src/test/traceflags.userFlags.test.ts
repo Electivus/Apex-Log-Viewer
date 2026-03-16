@@ -94,6 +94,14 @@ function decodeSoql(path: string): string {
   return decodeURIComponent(path.slice(idx + qMarker.length));
 }
 
+function isSpecialTargetUserResolutionQuery(soql: string, userType: string): boolean {
+  return (
+    soql.includes(`FROM User WHERE UserType = '${userType}'`) &&
+    soql.includes('IsActive = true') &&
+    !soql.includes('Name IN (')
+  );
+}
+
 suite('traceflags user management', () => {
   const auth: OrgAuth = {
     accessToken: 'token',
@@ -313,11 +321,7 @@ suite('traceflags user management', () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
-        if (
-          soql.includes("FROM User WHERE Name IN ('Automated Process')") &&
-          soql.includes("UserType = 'AutomatedProcess'") &&
-          soql.includes('IsActive = true')
-        ) {
+        if (isSpecialTargetUserResolutionQuery(soql, 'AutomatedProcess')) {
           return {
             statusCode: 200,
             body: { records: [{ Id: '005000000000003AAA' }, { Id: '005000000000004AAA' }] }
@@ -370,25 +374,17 @@ suite('traceflags user management', () => {
     assert.ok(
       calls.some(call => {
         const soql = decodeSoql(call.path);
-        return (
-          soql.includes("FROM User WHERE Name IN ('Automated Process')") &&
-          soql.includes("UserType = 'AutomatedProcess'") &&
-          soql.includes('IsActive = true')
-        );
+        return isSpecialTargetUserResolutionQuery(soql, 'AutomatedProcess');
       }),
-      'expected Automated Process user resolution query with system user type'
+      'expected Automated Process user resolution query by active user type only'
     );
   });
 
-  test('getTraceFlagTargetStatus falls back to Platform Integration User when needed', async () => {
+  test('getTraceFlagTargetStatus resolves Platform Integration by active user type', async () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
-        if (
-          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
-          soql.includes("UserType = 'CloudIntegrationUser'") &&
-          soql.includes('IsActive = true')
-        ) {
+        if (isSpecialTargetUserResolutionQuery(soql, 'CloudIntegrationUser')) {
           return {
             statusCode: 200,
             body: { records: [{ Id: '005000000000004AAA' }] }
@@ -414,13 +410,9 @@ suite('traceflags user management', () => {
     assert.ok(
       calls.some(call => {
         const soql = decodeSoql(call.path);
-        return (
-          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
-          soql.includes("UserType = 'CloudIntegrationUser'") &&
-          soql.includes('IsActive = true')
-        );
+        return isSpecialTargetUserResolutionQuery(soql, 'CloudIntegrationUser');
       }),
-      'expected Platform Integration lookup across accepted names with cloud integration user type'
+      'expected Platform Integration lookup by active user type only'
     );
   });
 
@@ -428,11 +420,7 @@ suite('traceflags user management', () => {
     installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
-        if (
-          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
-          soql.includes("UserType = 'CloudIntegrationUser'") &&
-          soql.includes('IsActive = true')
-        ) {
+        if (isSpecialTargetUserResolutionQuery(soql, 'CloudIntegrationUser')) {
           return {
             statusCode: 200,
             body: {
@@ -480,11 +468,7 @@ suite('traceflags user management', () => {
     installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
-        if (
-          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
-          soql.includes("UserType = 'CloudIntegrationUser'") &&
-          soql.includes('IsActive = true')
-        ) {
+        if (isSpecialTargetUserResolutionQuery(soql, 'CloudIntegrationUser')) {
           return {
             statusCode: 200,
             body: {
@@ -542,11 +526,7 @@ suite('traceflags user management', () => {
     installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
-        if (
-          soql.includes("FROM User WHERE Name IN ('Automated Process')") &&
-          soql.includes("UserType = 'AutomatedProcess'") &&
-          soql.includes('IsActive = true')
-        ) {
+        if (isSpecialTargetUserResolutionQuery(soql, 'AutomatedProcess')) {
           return {
             statusCode: 200,
             body: { records: [{ Id: '005000000000003AAA' }, { Id: '005000000000004AAA' }] }
@@ -602,11 +582,7 @@ suite('traceflags user management', () => {
     installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
-        if (
-          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
-          soql.includes("UserType = 'CloudIntegrationUser'") &&
-          soql.includes('IsActive = true')
-        ) {
+        if (isSpecialTargetUserResolutionQuery(soql, 'CloudIntegrationUser')) {
           return {
             statusCode: 200,
             body: { records: [] }
@@ -1057,11 +1033,7 @@ suite('traceflags user management', () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
-        if (
-          soql.includes("FROM User WHERE Name IN ('Automated Process')") &&
-          soql.includes("UserType = 'AutomatedProcess'") &&
-          soql.includes('IsActive = true')
-        ) {
+        if (isSpecialTargetUserResolutionQuery(soql, 'AutomatedProcess')) {
           return {
             statusCode: 200,
             body: { records: [{ Id: '005000000000003AAA' }, { Id: '005000000000004AAA' }] }
@@ -1129,11 +1101,7 @@ suite('traceflags user management', () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
-        if (
-          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
-          soql.includes("UserType = 'CloudIntegrationUser'") &&
-          soql.includes('IsActive = true')
-        ) {
+        if (isSpecialTargetUserResolutionQuery(soql, 'CloudIntegrationUser')) {
           return {
             statusCode: 200,
             body: {
@@ -1167,10 +1135,7 @@ suite('traceflags user management', () => {
     installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {
         const soql = decodeSoql(req.path);
-        if (
-          soql.includes("FROM User WHERE Name IN ('Platform Integration', 'Platform Integration User')") &&
-          soql.includes("UserType = 'CloudIntegrationUser'")
-        ) {
+        if (isSpecialTargetUserResolutionQuery(soql, 'CloudIntegrationUser')) {
           return { statusCode: 200, body: { records: [] } };
         }
       }

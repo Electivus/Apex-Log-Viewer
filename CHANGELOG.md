@@ -10,6 +10,8 @@
 ### Bug Fixes
 
 - Webview: add a built-in troubleshooting command for the recurring VS Code webview service-worker failure, including direct guidance to the correct `Service Worker` cache folder for `Code` vs `Code - Insiders`.
+- Debug Flags: resolve special trace-flag targets for `Automated Process` and `Platform Integration` by active Salesforce user type instead of relying on specific user names.
+- Telemetry: make `telemetry.json` resolution resilient to stale extension roots and host working-directory differences so schema-guarded telemetry keeps working across runtime and test environments.
 
 ### Chores
 
@@ -21,6 +23,7 @@
 - Webview: add coverage for platform-specific `Service Worker` cache path resolution and keep activation tests asserting the troubleshooting command stays registered.
 - Telemetry: add contract coverage for schema-declared event names, required `outcome` fields, activation-duration modeling, and wrapper-side filtering of undeclared properties and measurements.
 - Telemetry/E2E: add an explicit `npm run test:e2e:telemetry` path that injects a test-only connection string plus `testRunId` and validates that the current Playwright run reaches the dedicated App Insights resource.
+- Debug Flags: update unit and E2E-helper coverage so special trace-flag targets are discovered by active user type without name-based fallbacks.
 
 ## [0.32.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.30.0...v0.32.0) (2026-03-09)
 

@@ -1,7 +1,9 @@
 import assert from 'assert/strict';
+import * as path from 'node:path';
 const proxyquire: any = require('proxyquire').noCallThru().noPreserveCache();
 
 type TelemetryModule = typeof import('../shared/telemetry');
+const REPO_ROOT = path.resolve(__dirname, '../..');
 
 const extensionMode = {
   Production: 1,
@@ -69,7 +71,7 @@ function loadTelemetryModule() {
 function createContext(mode: number) {
   return {
     extension: {
-      extensionPath: process.cwd(),
+      extensionPath: REPO_ROOT,
       packageJSON: { telemetryConnectionString: 'pkg-conn' }
     },
     extensionMode: mode,
@@ -144,6 +146,27 @@ suite('telemetry', () => {
     assert.equal(subscriptions.length, 1);
     subscriptions[0]?.dispose();
     assert.equal(getDisposeCount(), 1);
+    telemetry.disposeTelemetry();
+  });
+
+  test('falls back to a module-relative telemetry schema path when context extensionPath is stale', () => {
+    delete process.env.APPLICATIONINSIGHTS_CONNECTION_STRING;
+    delete process.env.VSCODE_TELEMETRY_CONNECTION_STRING;
+
+    const { telemetry, created, usageEvents } = loadTelemetryModule();
+    const staleRoot = path.join(REPO_ROOT, '.vscode-test', 'stale-host-root');
+
+    telemetry.activateTelemetry({
+      ...createContext(extensionMode.Production),
+      extension: {
+        extensionPath: staleRoot,
+        packageJSON: { telemetryConnectionString: 'pkg-conn' }
+      }
+    });
+    telemetry.safeSendEvent('logs.refresh', { outcome: 'ok' });
+
+    assert.deepEqual(created, ['pkg-conn']);
+    assert.equal(usageEvents.length, 1);
     telemetry.disposeTelemetry();
   });
 

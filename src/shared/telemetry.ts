@@ -61,12 +61,26 @@ function getConnectionString(context: vscode.ExtensionContext): string | undefin
   return conn;
 }
 
+function pushUniquePath(paths: string[], value: string | undefined): void {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    return;
+  }
+  if (!paths.includes(normalized)) {
+    paths.push(normalized);
+  }
+}
+
 function getTelemetrySchemaPath(context: vscode.ExtensionContext): string {
-  const extensionPath =
-    (context.extension as { extensionPath?: string } | undefined)?.extensionPath ||
-    (context as { extensionPath?: string } | undefined)?.extensionPath ||
-    process.cwd();
-  return path.join(extensionPath, 'telemetry.json');
+  const candidateRoots: string[] = [];
+  pushUniquePath(candidateRoots, (context.extension as { extensionPath?: string } | undefined)?.extensionPath);
+  pushUniquePath(candidateRoots, (context as { extensionPath?: string } | undefined)?.extensionPath);
+  pushUniquePath(candidateRoots, process.cwd());
+  pushUniquePath(candidateRoots, path.resolve(__dirname, '..'));
+  pushUniquePath(candidateRoots, path.resolve(__dirname, '../..'));
+
+  const candidatePaths = candidateRoots.map(root => path.join(root, 'telemetry.json'));
+  return candidatePaths.find(candidate => fs.existsSync(candidate)) || candidatePaths[0] || path.join(process.cwd(), 'telemetry.json');
 }
 
 function loadTelemetryCatalog(context: vscode.ExtensionContext): TelemetryCatalog | undefined {

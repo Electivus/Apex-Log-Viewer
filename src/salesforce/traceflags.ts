@@ -24,7 +24,6 @@ const userIdCache = new Map<string, string>();
 const specialTargetIdsCache = new Map<string, string[]>();
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 const AUTOMATED_PROCESS_TARGET_NAME = 'Automated Process';
-const PLATFORM_INTEGRATION_TARGET_NAMES = ['Platform Integration', 'Platform Integration User'] as const;
 const AUTOMATED_PROCESS_USER_TYPE = 'AutomatedProcess';
 const PLATFORM_INTEGRATION_USER_TYPE = 'CloudIntegrationUser';
 
@@ -34,7 +33,6 @@ type QueryResponse<TRecord = any> = {
 
 type SpecialTargetUserQueryRecord = {
   Id?: string;
-  Name?: string;
 };
 
 type TraceFlagQueryRecord = {
@@ -389,44 +387,26 @@ function isTraceFlagActive(startDate: string | undefined, expirationDate: string
   return startMs <= now && now <= expMs;
 }
 
-async function queryUsersByExactNamesAndType(
-  auth: OrgAuth,
-  names: readonly string[],
-  userType: string
-): Promise<Array<{ id: string; name: string }>> {
-  const normalizedNames = names.map(name => String(name || '').trim()).filter(Boolean);
+async function queryActiveUsersByType(auth: OrgAuth, userType: string): Promise<string[]> {
   const normalizedUserType = String(userType || '').trim();
-  if (normalizedNames.length === 0 || !normalizedUserType) {
+  if (!normalizedUserType) {
     return [];
   }
 
-  const escapedNames = normalizedNames.map(name => `'${escapeSoqlLiteral(name)}'`).join(', ');
   const escapedUserType = escapeSoqlLiteral(normalizedUserType);
-  const soql =
-    `SELECT Id, Name FROM User WHERE Name IN (${escapedNames}) AND UserType = '${escapedUserType}' ` +
-    `AND IsActive = true ORDER BY Id LIMIT 200`;
+  const soql = `SELECT Id FROM User WHERE UserType = '${escapedUserType}' AND IsActive = true ORDER BY Id LIMIT 200`;
   const json = await queryStandard<SpecialTargetUserQueryRecord>(auth, soql);
-  const users = (Array.isArray(json.records) ? json.records : [])
-    .map(record => {
-      const id = record?.Id;
-      if (!isSalesforceId(id)) {
-        return undefined;
-      }
-      return {
-        id,
-        name: typeof record?.Name === 'string' ? record.Name : ''
-      };
-    })
-    .filter((value): value is { id: string; name: string } => Boolean(value));
-
   const seen = new Set<string>();
-  return users.filter(user => {
-    if (seen.has(user.id)) {
-      return false;
-    }
-    seen.add(user.id);
-    return true;
-  });
+  return (Array.isArray(json.records) ? json.records : [])
+    .map(record => record?.Id)
+    .filter((id): id is string => isSalesforceId(id))
+    .filter(id => {
+      if (seen.has(id)) {
+        return false;
+      }
+      seen.add(id);
+      return true;
+    });
 }
 
 export async function getCurrentUserId(auth: OrgAuth): Promise<string | undefined> {
@@ -459,12 +439,9 @@ async function getSpecialTraceFlagTargetIds(
     return [...(specialTargetIdsCache.get(cacheKey) || [])];
   }
 
-  const candidateNames =
-    targetType === 'automatedProcess' ? [AUTOMATED_PROCESS_TARGET_NAME] : [...PLATFORM_INTEGRATION_TARGET_NAMES];
   const expectedUserType =
     targetType === 'automatedProcess' ? AUTOMATED_PROCESS_USER_TYPE : PLATFORM_INTEGRATION_USER_TYPE;
-  const users = await queryUsersByExactNamesAndType(auth, candidateNames, expectedUserType);
-  const userIds = users.map(user => user.id);
+  const userIds = await queryActiveUsersByType(auth, expectedUserType);
   specialTargetIdsCache.set(cacheKey, userIds);
   return [...userIds];
 }

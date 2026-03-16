@@ -36,6 +36,14 @@ function responseFrom(spec: MockFetchResponse): Response {
   } as unknown as Response;
 }
 
+function isSpecialTargetUserResolutionQuery(soql: string, userType: string): boolean {
+  return (
+    soql.includes(`FROM User WHERE UserType = '${userType}'`) &&
+    soql.includes('IsActive = true') &&
+    !soql.includes('Name IN (')
+  );
+}
+
 describe('ensureDebugFlagsTestUser', () => {
   const originalFetch = globalThis.fetch;
   const originalUsernameEnv = process.env.SF_E2E_DEBUG_FLAGS_USERNAME;
@@ -597,7 +605,7 @@ describe('ensureDebugFlagsTestUser', () => {
     );
   });
 
-  test('resolves Platform Integration via accepted names and returns all active matches', async () => {
+  test('resolves Platform Integration via active user type and returns all active matches', async () => {
     const auth: OrgAuth = {
       accessToken: 'token',
       instanceUrl: 'https://example.my.salesforce.com',
@@ -609,10 +617,7 @@ describe('ensureDebugFlagsTestUser', () => {
       const url = String(input);
       const soql = decodeURIComponent(url.slice(url.indexOf('?q=') + 3));
 
-      if (
-        soql.includes("Name IN ('Platform Integration', 'Platform Integration User')") &&
-        soql.includes("UserType = 'CloudIntegrationUser'")
-      ) {
+      if (isSpecialTargetUserResolutionQuery(soql, 'CloudIntegrationUser')) {
         return responseFrom({
           status: 200,
           body: { records: [{ Id: '005000000000777AAA', Name: 'Platform Integration User' }] }
@@ -631,7 +636,7 @@ describe('ensureDebugFlagsTestUser', () => {
     });
   });
 
-  test('falls back to the first candidate name when Salesforce omits the special target name', async () => {
+  test('falls back to the special target label when Salesforce omits the user name', async () => {
     const auth: OrgAuth = {
       accessToken: 'token',
       instanceUrl: 'https://example.my.salesforce.com',
@@ -643,10 +648,7 @@ describe('ensureDebugFlagsTestUser', () => {
       const url = String(input);
       const soql = decodeURIComponent(url.slice(url.indexOf('?q=') + 3));
 
-      if (
-        soql.includes("Name IN ('Platform Integration', 'Platform Integration User')") &&
-        soql.includes("UserType = 'CloudIntegrationUser'")
-      ) {
+      if (isSpecialTargetUserResolutionQuery(soql, 'CloudIntegrationUser')) {
         return responseFrom({
           status: 200,
           body: { records: [{ Id: '005000000000777AAA' }] }
@@ -676,10 +678,7 @@ describe('ensureDebugFlagsTestUser', () => {
     globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       const soql = decodeURIComponent(url.slice(url.indexOf('?q=') + 3));
-      if (
-        soql.includes("Name IN ('Platform Integration', 'Platform Integration User')") &&
-        soql.includes("UserType = 'CloudIntegrationUser'")
-      ) {
+      if (isSpecialTargetUserResolutionQuery(soql, 'CloudIntegrationUser')) {
         return responseFrom({
           status: 200,
           body: {
