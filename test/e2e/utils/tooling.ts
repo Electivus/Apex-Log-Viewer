@@ -43,10 +43,6 @@ export type DebugLevelToolingRecord = {
 const DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION = '63.0';
 const TRACE_FLAG_REMOVAL_TIMEOUT_MS = 30_000;
 const TRACE_FLAG_REMOVAL_POLL_INTERVAL_MS = 1_000;
-const SPECIAL_TRACE_FLAG_TARGET_NAMES: Record<SpecialTraceFlagTargetType, readonly string[]> = {
-  automatedProcess: ['Automated Process'],
-  platformIntegration: ['Platform Integration', 'Platform Integration User']
-};
 const SPECIAL_TRACE_FLAG_TARGET_USER_TYPES: Record<SpecialTraceFlagTargetType, string> = {
   automatedProcess: 'AutomatedProcess',
   platformIntegration: 'CloudIntegrationUser'
@@ -409,20 +405,9 @@ async function findUserByUsername(
   };
 }
 
-async function findUsersByExactNames(
-  auth: OrgAuth,
-  names: readonly string[],
-  userType: string
-): Promise<Array<{ id: string; name: string }>> {
-  const normalizedNames = names.map(name => String(name || '').trim()).filter(Boolean);
-  if (normalizedNames.length === 0) {
-    return [];
-  }
-  const namesEsc = normalizedNames.map(name => `'${escapeSoqlLiteral(name)}'`).join(', ');
+async function findActiveUsersByType(auth: OrgAuth, userType: string): Promise<Array<{ id: string; name: string }>> {
   const userTypeEsc = escapeSoqlLiteral(userType);
-  const soql = encodeURIComponent(
-    `SELECT Id, Name FROM User WHERE Name IN (${namesEsc}) AND UserType = '${userTypeEsc}' AND IsActive = true ORDER BY Id LIMIT 200`
-  );
+  const soql = encodeURIComponent(`SELECT Id, Name FROM User WHERE UserType = '${userTypeEsc}' AND IsActive = true ORDER BY Id LIMIT 200`);
   const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
   const records = Array.isArray(response?.records) ? response.records : [];
   const seen = new Set<string>();
@@ -430,7 +415,7 @@ async function findUsersByExactNames(
     .filter((record: any) => isSfId(record?.Id))
     .map((record: any) => ({
       id: record.Id,
-      name: typeof record?.Name === 'string' ? record.Name : normalizedNames[0]!
+      name: typeof record?.Name === 'string' ? record.Name : ''
     }))
     .filter(record => {
       if (seen.has(record.id)) {
@@ -661,14 +646,14 @@ export async function resolveSpecialTraceFlagTarget(
   auth: OrgAuth,
   targetType: SpecialTraceFlagTargetType
 ): Promise<ResolvedSpecialTraceFlagTarget | undefined> {
-  const candidateNames = SPECIAL_TRACE_FLAG_TARGET_NAMES[targetType];
+  const label = SPECIAL_TRACE_FLAG_TARGET_LABELS[targetType];
   const userType = SPECIAL_TRACE_FLAG_TARGET_USER_TYPES[targetType];
-  const users = await findUsersByExactNames(auth, candidateNames, userType);
+  const users = await findActiveUsersByType(auth, userType);
   if (users.length > 0) {
     return {
       ids: users.map(user => user.id),
-      label: SPECIAL_TRACE_FLAG_TARGET_LABELS[targetType],
-      matchedNames: users.map(user => user.name)
+      label,
+      matchedNames: users.map(user => user.name || label)
     };
   }
   return undefined;
