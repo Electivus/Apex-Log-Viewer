@@ -528,7 +528,7 @@
     "cross-spawn": "^7.0.6",
     "lucide-react": "^0.577.0",
     "tailwind-merge": "^3.5.0",
-    "tree-sitter-sfapex": "git+https://github.com/manoelcalixto/tree-sitter-sfapex.git#1995752cbd77fcbf305251f8597a71a23d7a86e0",
+    "tree-sitter-sfapex": "git+https://github.com/manoelcalixto/tree-sitter-sfapex.git#685c57c5461eb247d019b244f2130e198c7cc706",
     "vscode-nls": "^5.2.0"
   },
   "overrides": {
