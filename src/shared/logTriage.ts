@@ -87,9 +87,10 @@ export function normalizeLogTriageSummary(value: unknown): LogTriageSummary {
   const reasons = Array.isArray(candidate.reasons)
     ? candidate.reasons.map(normalizeLogDiagnostic).filter((reason): reason is LogDiagnostic => Boolean(reason))
     : [];
+  const hasErrorReason = reasons.some((reason) => reason.severity === 'error');
 
   return {
-    hasErrors: candidate.hasErrors === true || reasons.length > 0,
+    hasErrors: candidate.hasErrors === true || hasErrorReason,
     primaryReason:
       typeof candidate.primaryReason === 'string' && candidate.primaryReason.trim()
         ? candidate.primaryReason
