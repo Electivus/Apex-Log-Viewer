@@ -31,6 +31,12 @@
 - VSIX smoke test: `npm run test:smoke:vsix`.
 - Test cache cleanup: `npm run test:clean` or `npm run test:clean:all`.
 
+## VS Code Test Runtime Policy
+- Follow the official VS Code testing guidance literally: CLI-driven extension tests should default to VS Code `stable`.
+- Use VS Code `Insiders` for day-to-day extension development/debugging when you need a separate running instance from the CLI test target.
+- Keep unit, integration, and Playwright/E2E test defaults aligned with `stable` unless you are intentionally validating another build via `VSCODE_TEST_VERSION` or `--vscode=...`.
+- Do not switch the repo-wide default test runtime to `insiders` just to work around an already-open VS Code instance.
+
 ## Commit and Pull Request Guidelines
 - Use Conventional Commits (for example `feat(logs): add filter`, `fix(tail): handle missing CLI`).
 - PRs should include build/test results.

@@ -188,13 +188,13 @@ export function LogRow({
               );
             case 'status':
               return (
-                <div key={key} className={cn(cellClass, 'flex items-center gap-2')}>
-                  <span>{r.Status}</span>
+                <div key={key} className={cn(cellClass, 'flex flex-wrap items-center content-start gap-2 gap-y-1')}>
+                  <span className="shrink-0">{r.Status}</span>
                   {hasErrors && (
                     <Badge
                       data-testid="logs-error-badge"
                       variant="outline"
-                      className="gap-1 border-destructive/50 bg-destructive/10 text-destructive"
+                      className="shrink-0 gap-1 border-destructive/50 bg-destructive/10 text-destructive"
                       title={t?.filters?.errorDetectedBadge ?? 'Error'}
                     >
                       <AlertOctagon className="h-3 w-3" aria-hidden="true" />
@@ -205,7 +205,7 @@ export function LogRow({
                     <Badge
                       data-testid="logs-reason-badge"
                       variant="secondary"
-                      className="max-w-[12rem] shrink truncate border-border/70 bg-muted/70 text-muted-foreground"
+                      className="max-w-full whitespace-normal break-words border-border/70 bg-muted/70 text-left text-muted-foreground"
                       title={primaryReason}
                     >
                       {primaryReason}

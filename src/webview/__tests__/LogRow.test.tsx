@@ -116,6 +116,14 @@ describe('LogRow', () => {
       />
     );
     expect(screen.getByText('Error')).toBeInTheDocument();
-    expect(screen.getByText('Validation failure')).toBeInTheDocument();
+    const reasonBadge = screen.getByTestId('logs-reason-badge');
+    expect(reasonBadge).toHaveTextContent('Validation failure');
+    expect(reasonBadge.className).not.toContain('truncate');
+    expect(reasonBadge.className).not.toContain('shrink');
+    expect(reasonBadge.className).toContain('max-w-full');
+    expect(reasonBadge.className).toContain('whitespace-normal');
+
+    const statusCell = reasonBadge.parentElement;
+    expect(statusCell?.className ?? '').toContain('flex-wrap');
   });
 });
