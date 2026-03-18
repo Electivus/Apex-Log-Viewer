@@ -137,6 +137,10 @@ function createPanelHarness(stubs: { summarizeLogFile: () => Promise<unknown> })
   return { LogViewerPanel, panel, webview, context: ExtensionContext };
 }
 
+function nextTick(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 async function createLogFile(): Promise<{ filePath: string; cleanup: () => Promise<void> }> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'logViewerPanel-'));
   const filePath = path.join(dir, 'sample.log');
@@ -150,7 +154,7 @@ async function createLogFile(): Promise<{ filePath: string; cleanup: () => Promi
 suite('LogViewerPanel', () => {
   test('posts logViewerInit immediately after logViewerReady with no triage payload', async () => {
     const summary = createDeferred<unknown>();
-    const { LogViewerPanel, webview } = createPanelHarness({
+    const { LogViewerPanel, panel, webview } = createPanelHarness({
       summarizeLogFile: () => summary.promise
     });
     const { filePath, cleanup } = await createLogFile();
@@ -167,13 +171,14 @@ suite('LogViewerPanel', () => {
       assert.equal(initMessage.locale, 'en-US');
       assert.ok(!('triage' in initMessage), 'triage should remain optional on logViewerInit');
     } finally {
+      panel.dispose();
       await cleanup();
     }
   });
 
   test('posts logViewerTriageUpdate after async summarizeLogFile resolves', async () => {
     const summary = createDeferred<unknown>();
-    const { LogViewerPanel, webview } = createPanelHarness({
+    const { LogViewerPanel, panel, webview } = createPanelHarness({
       summarizeLogFile: () => summary.promise
     });
     const { filePath, cleanup } = await createLogFile();
@@ -203,6 +208,7 @@ suite('LogViewerPanel', () => {
       } as unknown);
 
       await new Promise(resolve => setTimeout(resolve, 0));
+      await nextTick();
 
       const updateMessage = webview.postedMessages.find(
         (msg): msg is TriageUpdateMessage => msg.type === 'logViewerTriageUpdate'
@@ -213,12 +219,73 @@ suite('LogViewerPanel', () => {
       assert.equal(updateMessage.triage?.primaryReason, 'Fatal exception');
       assert.equal(updateMessage.triage?.reasons.length, 1, 'invalid reasons should be normalized away');
     } finally {
+      panel.dispose();
+      await cleanup();
+    }
+  });
+
+  test('recomputes triage when refreshing an existing panel', async () => {
+    const firstSummary = createDeferred<unknown>();
+    const secondSummary = createDeferred<unknown>();
+    const summarizeQueue: Array<() => Promise<unknown>> = [
+      () => firstSummary.promise,
+      () => secondSummary.promise
+    ];
+    const { LogViewerPanel, panel, webview } = createPanelHarness({
+      summarizeLogFile: () => summarizeQueue.shift()!()
+    });
+    const { filePath, cleanup } = await createLogFile();
+
+    try {
+      await LogViewerPanel.show({ logId: 'LOG-004', filePath });
+      webview.emitMessage({ type: 'logViewerReady' });
+
+      firstSummary.resolve({
+        hasErrors: true,
+        primaryReason: 'Initial issue',
+        reasons: [
+          {
+            code: 'initial',
+            severity: 'error',
+            summary: 'Initial issue'
+          }
+        ]
+      });
+
+      await nextTick();
+
+      const firstUpdateMessages = webview.postedMessages.filter(
+        (msg): msg is TriageUpdateMessage => msg.type === 'logViewerTriageUpdate'
+      );
+      assert.equal(firstUpdateMessages.length, 1);
+
+      await LogViewerPanel.show({ logId: 'LOG-004', filePath });
+      assert.equal(webview.postedMessages[0]?.type, 'logViewerInit', 'existing panel should still send init payloads');
+
+      secondSummary.resolve({
+        hasErrors: false,
+        primaryReason: undefined,
+        reasons: []
+      });
+
+      await nextTick();
+
+      const updateMessages = webview.postedMessages.filter(
+        (msg): msg is TriageUpdateMessage => msg.type === 'logViewerTriageUpdate'
+      );
+      assert.equal(updateMessages.length, 2);
+      const refreshTriageUpdate = updateMessages[1];
+      assert.ok(refreshTriageUpdate);
+      assert.equal(refreshTriageUpdate.triage?.hasErrors, false);
+      assert.equal(refreshTriageUpdate.triage?.primaryReason, undefined);
+    } finally {
+      panel.dispose();
       await cleanup();
     }
   });
 
   test('still posts initial init payload when triage is unavailable or slow', async () => {
-    const { LogViewerPanel, webview } = createPanelHarness({
+    const { LogViewerPanel, panel, webview } = createPanelHarness({
       summarizeLogFile: () => Promise.reject(new Error('triage unavailable'))
     });
     const { filePath, cleanup } = await createLogFile();
@@ -234,8 +301,40 @@ suite('LogViewerPanel', () => {
       assert.ok(!('triage' in initMessage), 'triage should be optional until async resolution');
 
       await new Promise(resolve => setTimeout(resolve, 10));
+      await nextTick();
       assert.ok(!webview.postedMessages.some(msg => msg.type === 'logViewerTriageUpdate'), 'triage updates should not block initial payload');
     } finally {
+      panel.dispose();
+      await cleanup();
+    }
+  });
+
+  test('does not post triage updates after dispose', async () => {
+    const summary = createDeferred<unknown>();
+    const { LogViewerPanel, webview, panel } = createPanelHarness({
+      summarizeLogFile: () => summary.promise
+    });
+    const { filePath, cleanup } = await createLogFile();
+
+    try {
+      await LogViewerPanel.show({ logId: 'LOG-005', filePath });
+      webview.emitMessage({ type: 'logViewerReady' });
+
+      panel.dispose();
+      summary.resolve({
+        hasErrors: true,
+        primaryReason: 'Should not post',
+        reasons: []
+      });
+
+      await nextTick();
+      assert.equal(
+        webview.postedMessages.filter(msg => msg.type === 'logViewerTriageUpdate').length,
+        0,
+        'disposed panel should ignore resolved triage'
+      );
+    } finally {
+      panel.dispose();
       await cleanup();
     }
   });

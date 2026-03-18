@@ -195,13 +195,17 @@ export class LogViewerPanel {
     void this.panel.webview.postMessage(message);
   }
 
-  private requestTriageUpdate(): void {
-    if (this.triageRequested || !this.ready || this.disposed) {
+  private requestTriageUpdate(force = false): void {
+    if (!this.ready || this.disposed) {
       return;
     }
 
-    this.triageRequested = true;
+    if (this.triageRequested && !force) {
+      return;
+    }
+
     const requestId = ++this.triageRequest;
+    this.triageRequested = true;
     void this.loadTriage(requestId);
   }
 
@@ -225,6 +229,10 @@ export class LogViewerPanel {
       void this.panel.webview.postMessage(message);
     } catch (err) {
       logWarn('LogViewerPanel: summarizeLogFile failed ->', getErrorMessage(err));
+    } finally {
+      if (this.triageRequest === requestId) {
+        this.triageRequested = false;
+      }
     }
   }
 
@@ -261,6 +269,7 @@ export class LogViewerPanel {
     this.cacheBust = Date.now();
     if (this.ready) {
       this.postInit();
+      this.requestTriageUpdate(true);
     }
   }
 
