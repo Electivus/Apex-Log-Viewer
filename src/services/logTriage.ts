@@ -158,12 +158,16 @@ export async function summarizeLogFile(filePath: string): Promise<LogTriageSumma
     return summarizeLogFileWithHeuristics(filePath);
   }
 
-  let logText = '';
   try {
-    logText = await fs.readFile(filePath, 'utf8');
-    return normalizeLogTriageSummary(parserTriage.summarizeLog(logText));
+    const logText = await fs.readFile(filePath, 'utf8');
+
+    try {
+      return normalizeLogTriageSummary(parserTriage.summarizeLog(logText));
+    } catch (e) {
+      disableParserTriageHelper('LogTriage: parser helper summarizeLog failed for file, disabling parser helper ->', e);
+      return summarizeLogTextWithHeuristics(logText);
+    }
   } catch (e) {
-    disableParserTriageHelper('LogTriage: parser helper summarizeLog failed for file, disabling parser helper ->', e);
-    return logText ? summarizeLogTextWithHeuristics(logText) : summarizeLogFileWithHeuristics(filePath);
+    return summarizeLogFileWithHeuristics(filePath);
   }
 }
