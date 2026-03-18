@@ -50,9 +50,9 @@ The webview does not run `tree-sitter-sfapex` itself. Parser-backed diagnostics 
 
 `LogViewerToWebviewMessage` should grow a triage payload on `logViewerInit`. The payload should include:
 
-- `hasErrors`
-- `primaryReason`
-- `reasons[]`
+- `triage?: { hasErrors: boolean; primaryReason?: string; reasons: LogDiagnostic[] }`
+
+`logViewerInit` keeps its existing top-level fields and adds a new optional `triage` object rather than spreading triage fields across the top level. This keeps the message backward-compatible for callers and tests that already depend on the current payload shape.
 
 Each diagnostic entry should preserve the existing normalized fields:
 
@@ -92,6 +92,12 @@ Sidebar counts and filters are based on the two normalized severity buckets only
 - `Errors` = diagnostics with `severity: "error"`
 - `Warnings` = diagnostics with `severity: "warning"`
 
+Sidebar ordering must be deterministic:
+
+- diagnostics with `line` are sorted first by ascending line number
+- diagnostics without `line` are listed after the mapped diagnostics
+- diagnostics without `line` preserve their original `reasons[]` order
+
 The active sidebar item should have a stronger selected state than the non-active items.
 
 The main log list should keep the current row layout and add:
@@ -124,12 +130,14 @@ Sidebar interaction:
 - If the item is mapped, the list scrolls to the mapped row with centered alignment.
 - If the item is unmapped, the sidebar item still becomes active but the list does not scroll and no toast is shown.
 - The matching row receives the active diagnostic highlight only for mapped items.
+- If the mapped row is currently hidden by the active row-category filter, the active diagnostic selection temporarily forces that one mapped row into the rendered list without changing the visible filter state.
 
 Filtering:
 
 - Existing `Debug Only`, `Errors`, `SOQL`, and `DML` filters keep their current semantics based on parsed row categories.
 - Sidebar filters apply only to diagnostics shown in the sidebar.
 - Sidebar filtering must not mutate the underlying log rows or replace the main filters.
+- Diagnostic selection can temporarily override row visibility for the active mapped row only; it does not rewrite the current category filter selection.
 
 Search:
 
