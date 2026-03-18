@@ -2,9 +2,11 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { LogCategory, ParsedLogEntry } from '../utils/logViewerParser';
+import type { LogViewerMappedDiagnostic } from '../utils/logViewerDiagnostics';
 import { LogViewerFilters } from '../components/log-viewer/LogViewerFilters';
 import { LogViewerHeader } from '../components/log-viewer/LogViewerHeader';
 import { LogViewerStatusBar } from '../components/log-viewer/LogViewerStatusBar';
+import { LogDiagnosticsSidebar } from '../components/log-viewer/LogDiagnosticsSidebar';
 import { LogEntryRow } from '../components/log-viewer/LogEntryRow';
 import { LogEntryList } from '../components/log-viewer/LogEntryList';
 
@@ -215,6 +217,146 @@ describe('Log viewer components', () => {
       const highlightedRow = document.querySelector('.ring-1');
       expect(highlightedRow).not.toBeNull();
     });
+
+    it('renders passive diagnostic badges', () => {
+      const diagnostics: LogViewerMappedDiagnostic[] = [
+        {
+          code: 'dml_failure',
+          severity: 'warning',
+          summary: 'Mapped warning',
+          originalIndex: 1,
+          mappedEntryId: 1,
+          mappedLineNumber: 12
+        }
+      ];
+      render(
+        <LogEntryRow entry={baseEntry} highlighted={false} diagnostics={diagnostics} onMeasured={() => {}} />
+      );
+      const passiveBadge = screen.getByText('Mapped warning');
+      expect(passiveBadge.className).toContain('bg-muted/20');
+      expect(passiveBadge.className).toContain('text-[11px]');
+    });
+
+    it('renders stronger active diagnostic badge style and active row highlight', () => {
+      const diagnostics: LogViewerMappedDiagnostic[] = [
+        {
+          code: 'fatal_exception',
+          severity: 'error',
+          summary: 'Mapped error',
+          originalIndex: 3,
+          mappedEntryId: 1,
+          mappedLineNumber: 12
+        }
+      ];
+      const { container } = render(
+        <LogEntryRow
+          entry={baseEntry}
+          highlighted={false}
+          diagnostics={diagnostics}
+          activeDiagnosticId={3}
+          isActiveDiagnostic
+          onMeasured={() => {}}
+        />
+      );
+      const rowElement = container.firstElementChild as HTMLDivElement | null;
+      expect(rowElement?.className).toContain('ring-2');
+      const activeBadge = screen.getByText('Mapped error');
+      expect(activeBadge.className).toContain('bg-amber-500/30');
+    });
+  });
+
+  describe('LogDiagnosticsSidebar', () => {
+    const diagnostics: LogViewerMappedDiagnostic[] = [
+      {
+        code: 'fatal_exception',
+        severity: 'error',
+        summary: 'Fatal exception',
+        originalIndex: 1,
+        mappedLineNumber: 11
+      },
+      {
+        code: 'validation_failure',
+        severity: 'warning',
+        summary: 'Validation warning',
+        originalIndex: 2,
+        mappedLineNumber: undefined
+      }
+    ];
+
+    it('renders loading, empty, and ready states', () => {
+      const { rerender } = render(
+        <LogDiagnosticsSidebar
+          diagnostics={diagnostics}
+          filter="all"
+          onFilterChange={() => {}}
+          onSelectDiagnostic={() => {}}
+          triageState="loading"
+        />
+      );
+      screen.getByText('Loading diagnostics…');
+
+      rerender(
+        <LogDiagnosticsSidebar
+          diagnostics={[]}
+          filter="all"
+          onFilterChange={() => {}}
+          onSelectDiagnostic={() => {}}
+          triageState="empty"
+        />
+      );
+      screen.getByText('No diagnostics found.');
+
+      rerender(
+        <LogDiagnosticsSidebar
+          diagnostics={diagnostics}
+          filter="all"
+          onFilterChange={() => {}}
+          onSelectDiagnostic={() => {}}
+          triageState="ready"
+        />
+      );
+      screen.getByText('Fatal exception');
+      screen.getByText('Validation warning');
+    });
+
+    it('switches severity filters with All/Errors/Warnings controls', () => {
+      const calls: string[] = [];
+      render(
+        <LogDiagnosticsSidebar
+          diagnostics={diagnostics}
+          filter="all"
+          onFilterChange={next => calls.push(next)}
+          onSelectDiagnostic={() => {}}
+          triageState="ready"
+        />
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Errors' }));
+      expect(calls[0]).toBe('error');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Warnings' }));
+      expect(calls[1]).toBe('warning');
+
+      fireEvent.click(screen.getByRole('button', { name: 'All' }));
+      expect(calls[2]).toBe('all');
+    });
+
+    it('keeps unmapped diagnostics clickable without requiring list scroll state', () => {
+      const selectCalls: number[] = [];
+      render(
+        <LogDiagnosticsSidebar
+          diagnostics={diagnostics}
+          filter="all"
+          activeId={2}
+          onFilterChange={() => {}}
+          onSelectDiagnostic={id => selectCalls.push(id)}
+          triageState="ready"
+        />
+      );
+      const warningItem = screen.getByText('Validation warning');
+      fireEvent.click(warningItem);
+      expect(selectCalls).toEqual([2]);
+    });
   });
 
   describe('LogEntryList', () => {
@@ -270,7 +412,7 @@ describe('Log viewer components', () => {
         );
       };
 
-      const StubRow = ({ entry, highlighted, onMeasured, isMatch, isActiveMatch }: any) => {
+      const StubRow = ({ entry, highlighted, onMeasured, isMatch, isActiveMatch, diagnostics, activeDiagnosticId, isActiveDiagnostic }: any) => {
         React.useEffect(() => {
           const value = 72 + entry.id;
           captured.measured.push(value);
@@ -279,6 +421,9 @@ describe('Log viewer components', () => {
         captured.highlighted[entry.id] = highlighted;
         captured.highlighted[`${entry.id}-match`] = isMatch;
         captured.highlighted[`${entry.id}-active`] = isActiveMatch;
+        captured.highlighted[`${entry.id}-diag-count`] = diagnostics?.length ?? 0;
+        captured.highlighted[`${entry.id}-active-diag`] = !!isActiveDiagnostic;
+        captured.highlighted[`${entry.id}-active-diag-id`] = activeDiagnosticId;
         return <div data-testid={`row-${entry.id}`}>{entry.message}</div>;
       };
 
@@ -291,6 +436,9 @@ describe('Log viewer components', () => {
           matchIndices={[0]}
           activeMatchIndex={0}
           searchTerm="debug"
+          activeDiagnosticEntryIndex={0}
+          activeDiagnosticId={1}
+          entryDiagnosticSummaries={[{ entryId: 0, diagnostics: [{ code: 'fatal_exception', severity: 'error', summary: 'row-0', originalIndex: 1 }] }]}
         />
       );
 
@@ -299,11 +447,65 @@ describe('Log viewer components', () => {
         expect(captured.highlighted[1]).toBe(false);
         expect(captured.highlighted['0-match']).toBe(true);
         expect(captured.highlighted['0-active']).toBe(true);
+        expect(captured.highlighted['0-diag-count']).toBe(1);
+        expect(captured.highlighted['0-active-diag']).toBe(true);
+        expect(captured.highlighted['0-active-diag-id']).toBe(1);
       });
 
       await waitFor(() => {
         expect(captured.measured.length).toBeGreaterThan(0);
       });
+    });
+
+    it('scrolls only with active diagnostic entry index, not unmapped id alone', async () => {
+      const scrollCalls: number[] = [];
+      const entries: ParsedLogEntry[] = [
+        { id: 0, timestamp: '00:00', type: 'USER_DEBUG', message: 'A', raw: 'raw', category: 'debug' },
+        { id: 1, timestamp: '00:01', type: 'SOQL', message: 'B', raw: 'raw', category: 'soql' }
+      ];
+
+      const VirtualList = ({ rowCount, rowHeight, rowComponent, rowProps, listRef }: any) => {
+        return (
+          <div
+            ref={el => {
+              const api = { element: el, scrollToRow: (opts: { index: number }) => scrollCalls.push(opts.index) };
+              if (typeof listRef === 'function') {
+                listRef(api);
+              } else if (listRef && 'current' in listRef) {
+                (listRef as { current: unknown }).current = api;
+              }
+            }}
+          >
+            {Array.from({ length: rowCount }).map((_, index) => (
+              <React.Fragment key={index}>{rowComponent({ ...rowProps, index, style: { height: rowHeight(index) } })}</React.Fragment>
+            ))}
+          </div>
+        );
+      };
+
+      const { rerender } = render(
+        <LogEntryList
+          entries={entries}
+          virtualListComponent={VirtualList}
+          activeDiagnosticEntryIndex={1}
+          RowComponent={() => <div />}
+        />
+      );
+
+      await waitFor(() => {
+        expect(scrollCalls).toEqual([1]);
+      });
+
+      rerender(
+        <LogEntryList
+          entries={entries}
+          virtualListComponent={VirtualList}
+          activeDiagnosticId={9}
+          activeDiagnosticEntryIndex={undefined}
+          RowComponent={() => <div />}
+        />
+      );
+      expect(scrollCalls).toEqual([1]);
     });
   });
 });
