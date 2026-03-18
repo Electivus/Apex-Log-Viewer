@@ -64,7 +64,7 @@ export function LogViewerApp({
   const [activeDiagnosticId, setActiveDiagnosticId] = useState<number | undefined>(undefined);
   const [activeDiagnosticSeverityFilter, setActiveDiagnosticSeverityFilter] = useState<DiagnosticSeverityFilter>('all');
   const latestRequestId = useRef(0);
-  const triageFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triageFallbackTimerRef = useRef<number | null>(null);
   const TRIAGE_LOADING_TIMEOUT_MS = 1000;
   const listRef = useRef<ListImperativeAPI | null>(null);
   const [activeMatchIndex, setActiveMatchIndex] = useState<number>(-1);

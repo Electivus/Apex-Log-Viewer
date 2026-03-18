@@ -59,8 +59,12 @@ export function orderDiagnostics(reasons: readonly LogDiagnostic[]): LogViewerMa
       if (!aHasLine && bHasLine) {
         return 1;
       }
-      if (aHasLine && bHasLine && a.line !== b.line) {
-        return a.line - b.line;
+      if (aHasLine && bHasLine) {
+        const aLine = a.line as number;
+        const bLine = b.line as number;
+        if (aLine !== bLine) {
+          return aLine - bLine;
+        }
       }
       return a.originalIndex - b.originalIndex;
     });

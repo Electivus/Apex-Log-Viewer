@@ -6,6 +6,7 @@
 
 - Debug Flags: add special-target facilitators for `Automated Process` and `Platform Integration` directly in the panel, including aggregated status plus apply/remove flows across all matching active `USER_DEBUG` trace-flag targets.
 - Logs: surface a compact triage reason badge beside the existing error badge when the parser provides a primary reason for an error row.
+- Open Log View: add an async diagnostics sidebar with parser-backed triage results, clickable error navigation, and row highlighting that keeps the active diagnostic visible through filters and search.
 - Telemetry: enforce a public telemetry schema via `telemetry.json`, standardize `outcome` handling across events, and fold activation timing into `extension.activate` instead of emitting a separate duration event.
 
 ### Bug Fixes
