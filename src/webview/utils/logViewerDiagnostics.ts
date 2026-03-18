@@ -75,12 +75,17 @@ export function mapDiagnosticsToEntries(
     entry,
     diagnostics: []
   }));
+
+  // Policy: when duplicate line numbers exist in ParsedLogEntry list (realistic for some sources),
+  // always keep the first matching row for deterministic, stable mapping.
   const byLine = new Map<number, LogEntryDiagnosticGroup>();
   const unmappedDiagnostics: LogViewerMappedDiagnostic[] = [];
 
   for (const row of mappedEntries) {
     if (hasExactLine(row.entry.lineNumber)) {
-      byLine.set(row.entry.lineNumber, row);
+      if (!byLine.has(row.entry.lineNumber)) {
+        byLine.set(row.entry.lineNumber, row);
+      }
     }
   }
 

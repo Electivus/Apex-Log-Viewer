@@ -98,4 +98,46 @@ describe('logViewerDiagnostics', () => {
 
     expect(visible.map(v => v.entry.id)).toEqual([0, 1]);
   });
+
+  it('maps multiple diagnostics with duplicate lineNumber to the first matching row only', () => {
+    const entries: ParsedLogEntry[] = [
+      makeEntry(0, 11, 'error'),
+      makeEntry(1, 11, 'other'),
+      makeEntry(2, 12, 'other')
+    ];
+    const result = mapDiagnosticsToEntries(entries, [
+      { code: 'fatal_exception', severity: 'error', summary: 'for-11-primary', line: 11 },
+      { code: 'dml_failure', severity: 'warning', summary: 'for-11-secondary', line: 11 },
+      { code: 'rollback_detected', severity: 'warning', summary: 'for-12', line: 12 }
+    ]);
+
+    expect(result.mappedEntries[0].diagnostics.map(d => d.summary)).toEqual([
+      'for-11-primary',
+      'for-11-secondary'
+    ]);
+    expect(result.mappedEntries[1].diagnostics).toEqual([]);
+    expect(result.mappedEntries[2].diagnostics).toEqual([
+      expect.objectContaining({ summary: 'for-12', mappedEntryId: 2 })
+    ]);
+  });
+
+  it('does not force visibility when active diagnostic is unmapped or lacks mappedEntryId', () => {
+    const entries: ParsedLogEntry[] = [
+      makeEntry(0, 1, 'other'),
+      makeEntry(1, 2, 'other')
+    ];
+    const result = mapDiagnosticsToEntries(entries, [
+      { code: 'fatal_exception', severity: 'error', summary: 'unmapped-line', line: 99 },
+      { code: 'dml_failure', severity: 'warning', summary: 'unmapped-no-line' }
+    ]);
+    const activeDiagnostic = result.unmappedDiagnostics[0]!;
+
+    const visible = buildVisibleEntries({
+      entries: result.mappedEntries,
+      activeDiagnostic,
+      shouldIncludeEntry: () => false
+    });
+
+    expect(visible).toEqual([]);
+  });
 });
