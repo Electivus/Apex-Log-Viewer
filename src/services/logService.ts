@@ -13,7 +13,8 @@ import { logWarn, logInfo } from '../utils/logger';
 import { localize } from '../utils/localize';
 import { LogViewerPanel } from '../panel/LogViewerPanel';
 import { fetchApexLogs } from '../salesforce/http';
-import { lineHasErrorSignal } from '../shared/logErrorSignals';
+import { createUnreadableLogSummary, summarizeLogFile } from './logTriage';
+import type { LogTriageSummary } from '../shared/logTriage';
 
 export type EnsureLogsSavedItemStatus = 'downloaded' | 'existing' | 'missing' | 'failed' | 'cancelled';
 
@@ -42,6 +43,7 @@ export type EnsureLogsSavedOptions = {
 
 export type ClassifyLogsForErrorsProgress = {
   logId: string;
+  summary: LogTriageSummary;
   hasErrors: boolean;
   inferredFromFailure?: boolean;
   processed: number;
@@ -194,56 +196,28 @@ export class LogService {
     return undefined;
   }
 
-  private async scanLogFileForErrors(filePath: string, signal?: AbortSignal): Promise<boolean> {
-    const handle = await fs.open(filePath, 'r');
-    const buffer = Buffer.alloc(64 * 1024);
-    let remainder = '';
-    try {
-      for (;;) {
-        if (signal?.aborted) {
-          return false;
-        }
-        const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
-        if (bytesRead <= 0) {
-          break;
-        }
-        const chunk = remainder + buffer.slice(0, bytesRead).toString('utf8');
-        const lines = chunk.split(/\r?\n/);
-        remainder = lines.pop() ?? '';
-        for (const line of lines) {
-          if (lineHasErrorSignal(line)) {
-            return true;
-          }
-        }
-      }
-      if (remainder && lineHasErrorSignal(remainder)) {
-        return true;
-      }
-      return false;
-    } finally {
-      await handle.close();
-    }
-  }
-
   async classifyLogsForErrors(
     logs: ApexLogRow[],
     selectedOrg?: string,
     signal?: AbortSignal,
     options?: ClassifyLogsForErrorsOptions
-  ): Promise<Map<string, boolean>> {
+  ): Promise<Map<string, LogTriageSummary>> {
     const validLogs = logs.filter(
       (log): log is ApexLogRow & { Id: string } => typeof log?.Id === 'string' && log.Id.length > 0
     );
     const total = validLogs.length;
     let processed = 0;
     let errorsFound = 0;
-    const result = new Map<string, boolean>();
+    const result = new Map<string, LogTriageSummary>();
     const tasks: Promise<void>[] = [];
 
     for (const log of validLogs) {
       tasks.push(
         this.classifyLimiter(async () => {
-          let hasErrors = false;
+          let summary: LogTriageSummary = {
+            hasErrors: false,
+            reasons: []
+          };
           let inferredFromFailure = false;
           try {
             if (signal?.aborted) {
@@ -254,18 +228,18 @@ export class LogService {
             if (signal?.aborted) {
               return;
             }
-            hasErrors = await this.scanLogFileForErrors(filePath, signal);
-            result.set(log.Id, hasErrors);
-            if (hasErrors) {
+            summary = await summarizeLogFile(filePath);
+            result.set(log.Id, summary);
+            if (summary.hasErrors) {
               errorsFound++;
             }
           } catch (e) {
             if (!signal?.aborted) {
               // Conservative fallback: unreadable/unavailable logs are treated as potentially erroneous
               // to avoid false negatives in the "Errors only" filter.
-              hasErrors = true;
+              summary = createUnreadableLogSummary(getErrorMessage(e));
               inferredFromFailure = true;
-              result.set(log.Id, true);
+              result.set(log.Id, summary);
               errorsFound++;
               logWarn('LogService: classifyLogsForErrors failed for', log.Id, '->', getErrorMessage(e));
             }
@@ -276,7 +250,8 @@ export class LogService {
             processed++;
             options?.onProgress?.({
               logId: log.Id,
-              hasErrors,
+              summary,
+              hasErrors: summary.hasErrors,
               inferredFromFailure,
               processed,
               total,

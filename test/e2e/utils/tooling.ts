@@ -63,6 +63,11 @@ const orgAuthTargetOrgByIdentity = new Map<string, string>();
 
 type ToolingConnectionLike = Pick<Connection, 'request' | 'tooling'>;
 type ToolingConnectionFactory = (auth: OrgAuth) => Promise<ToolingConnectionLike> | ToolingConnectionLike;
+type ToolingQueryResponse<TRecord = any> = {
+  records?: TRecord[];
+  done?: boolean;
+  nextRecordsUrl?: string;
+};
 
 let toolingConnectionFactoryForTests: ToolingConnectionFactory | undefined;
 
@@ -817,6 +822,74 @@ export async function findRecentApexLogId(auth: OrgAuth, _startedAtMs: number, m
 
     return undefined;
   });
+}
+
+async function listApexLogIds(auth: OrgAuth, scope: 'all' | 'mine'): Promise<string[]> {
+  const userId = scope === 'mine' ? await getCurrentUserId(auth) : undefined;
+  const whereClause = userId ? ` WHERE LogUserId = '${escapeSoqlLiteral(userId)}'` : '';
+  const soql = `SELECT Id FROM ApexLog${whereClause} ORDER BY StartTime DESC, Id DESC`;
+  let nextPath = `/services/data/v${auth.apiVersion}/tooling/query?q=${encodeURIComponent(soql)}`;
+  const ids: string[] = [];
+  const seen = new Set<string>();
+
+  while (nextPath) {
+    const response = (await requestJson(auth, 'GET', nextPath)) as ToolingQueryResponse<{ Id?: string }>;
+    const records = Array.isArray(response?.records) ? response.records : [];
+    for (const record of records) {
+      if (isSfId(record?.Id) && !seen.has(record.Id)) {
+        seen.add(record.Id);
+        ids.push(record.Id);
+      }
+    }
+    const maybeNext = typeof response?.nextRecordsUrl === 'string' ? response.nextRecordsUrl.trim() : '';
+    nextPath = response?.done || !maybeNext ? '' : maybeNext;
+  }
+
+  return ids;
+}
+
+export async function clearApexLogsForE2E(
+  auth: OrgAuth,
+  scope: 'all' | 'mine' = 'all'
+): Promise<{ listed: number; deleted: number; failed: number; failedLogIds: string[] }> {
+  const ids = await listApexLogIds(auth, scope);
+  const result = {
+    listed: ids.length,
+    deleted: 0,
+    failed: 0,
+    failedLogIds: [] as string[]
+  };
+
+  for (let index = 0; index < ids.length; index += 200) {
+    const chunk = ids.slice(index, index + 200);
+    if (!chunk.length) {
+      continue;
+    }
+
+    const response = await requestJson(
+      auth,
+      'DELETE',
+      `/services/data/v${auth.apiVersion}/composite/sobjects?ids=${chunk.join(',')}&allOrNone=false`
+    );
+    const entries = Array.isArray(response) ? response : [];
+    const byId = new Map<string, boolean>();
+    for (const entry of entries) {
+      if (isSfId(entry?.id)) {
+        byId.set(entry.id, Boolean(entry?.success));
+      }
+    }
+
+    for (const id of chunk) {
+      if (byId.get(id) === true) {
+        result.deleted += 1;
+      } else {
+        result.failed += 1;
+        result.failedLogIds.push(id);
+      }
+    }
+  }
+
+  return result;
 }
 
 export async function ensureE2eTraceFlag(auth: OrgAuth, options?: { debugLevelName?: string; ttlMinutes?: number }) {

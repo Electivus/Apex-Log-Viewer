@@ -1,5 +1,5 @@
 import { timeE2eStep } from './timing';
-import { ensureE2eTraceFlag, executeAnonymousApex, findRecentApexLogId, getOrgAuth } from './tooling';
+import { clearApexLogsForE2E, ensureE2eTraceFlag, executeAnonymousApex, findRecentApexLogId, getOrgAuth } from './tooling';
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -20,6 +20,17 @@ export async function seedApexLog(targetOrg: string): Promise<SeedResult> {
     await runAnonymousApex(auth, `System.debug('${marker}');\n`);
     const logId = await waitForCreatedLogId(auth, startedAtMs, marker);
     return { marker, logId };
+  });
+}
+
+export async function clearOrgApexLogs(targetOrg: string, scope: 'all' | 'mine' = 'all'): Promise<void> {
+  await timeE2eStep(`seed.clearLogs:${scope}`, async () => {
+    const auth = await getOrgAuth(targetOrg);
+    const result = await clearApexLogsForE2E(auth, scope);
+    if (result.failed > 0) {
+      const failedIds = result.failedLogIds.join(', ');
+      throw new Error(`Failed to clear ${result.failed} ApexLog(s) for scope "${scope}". Failed IDs: ${failedIds}`);
+    }
   });
 }
 

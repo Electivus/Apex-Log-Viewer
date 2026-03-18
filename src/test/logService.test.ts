@@ -8,6 +8,7 @@ import type { OrgAuth } from '../salesforce/types';
 import type { ApexLogRow } from '../shared/types';
 import type { EnsureLogsSavedItemResult } from '../services/logService';
 import type { ClassifyLogsForErrorsProgress } from '../services/logService';
+import type { LogTriageSummary } from '../shared/logTriage';
 
 suite('LogService', () => {
   async function waitForCondition(
@@ -368,7 +369,18 @@ suite('LogService', () => {
     assert.ok(statuses.includes('existing'));
   });
 
-  test('classifyLogsForErrors scans full log body and reports progress', async () => {
+  test('summarizeLogTextWithHeuristics returns a summary for error event lines', async () => {
+    const { summarizeLogTextWithHeuristics } = await import('../services/logTriage.js');
+
+    const summary = summarizeLogTextWithHeuristics('12:00:00.000 | EXCEPTION_THROWN | [6] | boom\n');
+
+    assert.equal(summary.hasErrors, true);
+    assert.equal(summary.primaryReason, 'Potential error event (EXCEPTION_THROWN)');
+    assert.equal(summary.reasons[0]?.code, 'suspicious_error_payload');
+    assert.equal(summary.reasons[0]?.eventType, 'EXCEPTION_THROWN');
+  });
+
+  test('classifyLogsForErrors uses file triage summaries and reports progress', async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-errors-'));
     const errPath = path.join(tmpDir, 'default_err.log');
     const okPath = path.join(tmpDir, 'default_ok.log');
@@ -381,6 +393,32 @@ suite('LogService', () => {
         fetchApexLogHead: async () => [],
         extractCodeUnitStartedFromLines: () => undefined,
         fetchApexLogBody: async () => ''
+      },
+      './logTriage': {
+        summarizeLogFile: async (filePath: string): Promise<LogTriageSummary> =>
+          filePath === errPath
+            ? {
+                hasErrors: true,
+                primaryReason: 'Fatal exception',
+                reasons: [
+                  {
+                    code: 'fatal_exception',
+                    severity: 'error',
+                    summary: 'Fatal exception',
+                    line: 1,
+                    eventType: 'EXCEPTION_THROWN'
+                  }
+                ]
+              }
+            : {
+                hasErrors: false,
+                reasons: []
+              },
+        createUnreadableLogSummary: (message?: string): LogTriageSummary => ({
+          hasErrors: true,
+          primaryReason: message,
+          reasons: []
+        })
       },
       '../salesforce/cli': {
         getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
@@ -404,6 +442,7 @@ suite('LogService', () => {
         undefined,
         {
           onProgress: (entry: ClassifyLogsForErrorsProgress) => {
+            assert.ok(entry.summary, 'should include summary object in progress');
             progress.push({
               processed: entry.processed,
               total: entry.total,
@@ -414,12 +453,75 @@ suite('LogService', () => {
         }
       );
 
-      assert.equal(result.get('err'), true);
-      assert.equal(result.get('ok'), false);
+      assert.equal(result.get('err')?.hasErrors, true);
+      assert.equal(result.get('ok')?.hasErrors, false);
       assert.equal(progress.length, 2);
       assert.ok(progress.every(entry => entry.total === 2));
       assert.equal(progress[progress.length - 1]?.processed, 2);
       assert.equal(progress[progress.length - 1]?.errorsFound, 1);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('classifyLogsForErrors delegates file reads to log triage helpers', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-errors-file-triage-'));
+    const errPath = path.join(tmpDir, 'default_err.log');
+    await fs.writeFile(errPath, '12:00:00.000 | EXCEPTION_THROWN | [6] | boom\n', 'utf8');
+
+    const summarizeLogFileCalls: string[] = [];
+    const { LogService } = proxyquire('../services/logService', {
+      fs: {
+        promises: {
+          readFile: async () => {
+            throw new Error('readFile should not be used directly by classifyLogsForErrors');
+          }
+        }
+      },
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        fetchApexLogHead: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async () => ''
+      },
+      './logTriage': {
+        summarizeLogFile: async (filePath: string): Promise<LogTriageSummary> => {
+          summarizeLogFileCalls.push(filePath);
+          return {
+            hasErrors: true,
+            primaryReason: 'Fatal exception',
+            reasons: [
+              {
+                code: 'fatal_exception',
+                severity: 'error',
+                summary: 'Fatal exception',
+                line: 1,
+                eventType: 'EXCEPTION_THROWN'
+              }
+            ]
+          };
+        },
+        createUnreadableLogSummary: (message?: string): LogTriageSummary => ({
+          hasErrors: true,
+          primaryReason: message,
+          reasons: []
+        })
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
+      },
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath: path.join(tmpDir, 'unused.log') }),
+        findExistingLogFile: async (logId: string) => (logId === 'err' ? errPath : undefined)
+      }
+    });
+
+    try {
+      const svc = new LogService(1);
+      const result = await svc.classifyLogsForErrors([{ Id: 'err' } as ApexLogRow], 'default');
+      assert.equal(result.get('err')?.hasErrors, true);
+      assert.equal(result.get('err')?.primaryReason, 'Fatal exception');
+      assert.deepEqual(summarizeLogFileCalls, [errPath]);
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
@@ -440,6 +542,17 @@ suite('LogService', () => {
           }
           return '12:00:00.000 | USER_DEBUG | [6] | all good\n';
         }
+      },
+      './logTriage': {
+        summarizeLogFile: async (): Promise<LogTriageSummary> => ({
+          hasErrors: false,
+          reasons: []
+        }),
+        createUnreadableLogSummary: (message?: string): LogTriageSummary => ({
+          hasErrors: true,
+          primaryReason: message,
+          reasons: []
+        })
       },
       '../salesforce/cli': {
         getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
@@ -468,8 +581,8 @@ suite('LogService', () => {
         }
       );
 
-      assert.equal(result.get('missing'), true, 'failed scans should be considered potential errors');
-      assert.equal(result.get('ok'), false);
+      assert.equal(result.get('missing')?.hasErrors, true, 'failed scans should be considered potential errors');
+      assert.equal(result.get('ok')?.hasErrors, false);
       const missingProgress = progress.find(entry => entry.logId === 'missing');
       assert.equal(missingProgress?.hasErrors, true);
       assert.equal(missingProgress?.inferredFromFailure, true);

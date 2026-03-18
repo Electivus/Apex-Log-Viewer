@@ -292,7 +292,15 @@ describe('Logs webview App', () => {
     await screen.findByText('ErrorCandidate');
     await screen.findByText('NormalCandidate');
 
-    sendMessage(bus, { type: 'logHead', logId: '07L00000000000EAA', hasErrors: true });
+    sendMessage(bus, { type: 'logHead', logId: '07L00000000000EAA', hasErrors: true } as any);
+    sendMessage(
+      bus,
+      {
+        type: 'logHead',
+        logId: '07L00000000000EAA',
+        primaryReason: 'Validation failure'
+      } as any
+    );
     sendMessage(bus, { type: 'errorScanStatus', state: 'running', processed: 1, total: 2, errorsFound: 1 });
     await screen.findByText('Scanning logs for errors… (1/2, found: 1)');
 
@@ -302,5 +310,6 @@ describe('Logs webview App', () => {
     await screen.findByText('ErrorCandidate');
     expect(screen.queryByText('NormalCandidate')).toBeNull();
     expect(screen.getByText('Error')).toBeInTheDocument();
+    expect(screen.getByText('Validation failure')).toBeInTheDocument();
   });
 });

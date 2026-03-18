@@ -15,6 +15,7 @@ import { LoadingOverlay } from './components/LoadingOverlay';
 import { Button } from './components/ui/button';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
+import type { LogHeadMap } from './components/LogsTable';
 
 type SortKey = Exclude<LogsColumnKey, 'match'>;
 
@@ -37,7 +38,7 @@ export function LogsApp({
 
   const [rows, setRows] = useState<ApexLogRow[]>([]);
   const [hasMore, setHasMore] = useState(false);
-  const [logHead, setLogHead] = useState<Record<string, { codeUnitStarted?: string; hasErrors?: boolean }>>({});
+  const [logHead, setLogHead] = useState<LogHeadMap>({});
   const [errorScanStatus, setErrorScanStatus] = useState<{
     state: 'idle' | 'running';
     processed: number;
@@ -134,7 +135,9 @@ export function LogsApp({
             [msg.logId]: {
               ...prev[msg.logId],
               ...(msg.codeUnitStarted !== undefined ? { codeUnitStarted: msg.codeUnitStarted } : {}),
-              ...(msg.hasErrors !== undefined ? { hasErrors: msg.hasErrors } : {})
+              ...(msg.hasErrors !== undefined ? { hasErrors: msg.hasErrors } : {}),
+              ...(msg.primaryReason !== undefined ? { primaryReason: msg.primaryReason } : {}),
+              ...(msg.reasons !== undefined ? { reasons: msg.reasons } : {})
             }
           }));
           break;

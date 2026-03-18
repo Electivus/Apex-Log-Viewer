@@ -539,7 +539,7 @@ async function run() {
   if (platform() === 'linux' && !process.env.DISPLAY && !process.env.__ALV_XVFB_RAN) {
     try {
       await execFileAsync('bash', ['-lc', 'command -v xvfb-run >/dev/null 2>&1']);
-      const re = spawn('xvfb-run', ['-a', '-s', '-screen 0 1280x1024x24', process.execPath, __filename], {
+      const re = spawn('xvfb-run', ['-a', '-s', '-screen 0 1280x1024x24', process.execPath, __filename, ...process.argv.slice(2)], {
         stdio: 'inherit',
         env: { ...process.env, __ALV_XVFB_RAN: '1' }
       });

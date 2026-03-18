@@ -86,4 +86,44 @@ describe('LogRow', () => {
     );
     expect(screen.getByText('Error')).toBeInTheDocument();
   });
+
+  it('shows a compact reason label next to the error badge', () => {
+    const row: ApexLogRow = {
+      Id: 'err-2',
+      StartTime: new Date().toISOString(),
+      Operation: 'Op',
+      Application: 'App',
+      DurationMilliseconds: 1,
+      Status: 'Success',
+      Request: '',
+      LogLength: 2048,
+      LogUser: { Name: 'User' }
+    };
+    render(
+      <LogRow
+        r={row}
+        logHead={{ 'err-2': { hasErrors: true, primaryReason: 'Validation failure' } as any }}
+        locale="en-US"
+        t={{ open: 'Open', replay: 'Replay', filters: { errorDetectedBadge: 'Error' } }}
+        columns={['status']}
+        loading={false}
+        onOpen={() => {}}
+        onReplay={() => {}}
+        gridTemplate="1fr 96px"
+        style={{}}
+        index={0}
+        setRowHeight={() => {}}
+      />
+    );
+    expect(screen.getByText('Error')).toBeInTheDocument();
+    const reasonBadge = screen.getByTestId('logs-reason-badge');
+    expect(reasonBadge).toHaveTextContent('Validation failure');
+    expect(reasonBadge.className).not.toContain('truncate');
+    expect(reasonBadge.className).not.toContain('shrink');
+    expect(reasonBadge.className).toContain('max-w-full');
+    expect(reasonBadge.className).toContain('whitespace-normal');
+
+    const statusCell = reasonBadge.parentElement;
+    expect(statusCell?.className ?? '').toContain('flex-wrap');
+  });
 });

@@ -2,11 +2,19 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffe
 import { List, type ListImperativeAPI } from 'react-window';
 import type { ApexLogRow } from '../../shared/types';
 import type { LogsColumnKey, NormalizedLogsColumnsConfig } from '../../shared/logsColumns';
+import type { LogDiagnostic } from '../../shared/logTriage';
 import { LOGS_COLUMN_DEFAULT_TRACK, LOGS_COLUMN_MIN_WIDTH_PX } from '../utils/logsColumns';
 import { LogsHeader } from './table/LogsHeader';
 import { LogRow } from './table/LogRow';
 
-export type LogHeadMap = Record<string, { codeUnitStarted?: string; hasErrors?: boolean }>;
+export type LogHeadEntry = {
+  codeUnitStarted?: string;
+  hasErrors?: boolean;
+  primaryReason?: string;
+  reasons?: LogDiagnostic[];
+};
+
+export type LogHeadMap = Record<string, LogHeadEntry>;
 
 type ListRowProps = {
   rows: ApexLogRow[];

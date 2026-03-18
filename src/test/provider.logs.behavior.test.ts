@@ -185,6 +185,19 @@ suite('SfLogsViewProvider behavior', () => {
     ) => {
       options?.onProgress?.({
         logId: logs[0]!.Id,
+        summary: {
+          hasErrors: true,
+          primaryReason: 'Fatal exception',
+          reasons: [
+            {
+              code: 'fatal_exception',
+              severity: 'error',
+              summary: 'Fatal exception',
+              line: 1,
+              eventType: 'EXCEPTION_THROWN'
+            }
+          ]
+        },
         hasErrors: true,
         processed: 1,
         total: logs.length,
@@ -192,14 +205,39 @@ suite('SfLogsViewProvider behavior', () => {
       });
       options?.onProgress?.({
         logId: logs[1]!.Id,
+        summary: {
+          hasErrors: false,
+          reasons: []
+        },
         hasErrors: false,
         processed: 2,
         total: logs.length,
         errorsFound: 1
       });
-      return new Map<string, boolean>([
-        [logs[0]!.Id, true],
-        [logs[1]!.Id, false]
+      return new Map<string, any>([
+        [
+          logs[0]!.Id,
+          {
+            hasErrors: true,
+            primaryReason: 'Fatal exception',
+            reasons: [
+              {
+                code: 'fatal_exception',
+                severity: 'error',
+                summary: 'Fatal exception',
+                line: 1,
+                eventType: 'EXCEPTION_THROWN'
+              }
+            ]
+          }
+        ],
+        [
+          logs[1]!.Id,
+          {
+            hasErrors: false,
+            reasons: []
+          }
+        ]
       ]);
     };
     (provider as any).view = {
@@ -221,6 +259,8 @@ suite('SfLogsViewProvider behavior', () => {
     assert.ok(scanRunning, 'should post running scan status');
     assert.ok(scanIdle, 'should post idle scan status after completion');
     assert.ok(errorHead, 'should mark visible error log in logHead stream');
+    assert.equal(errorHead?.primaryReason, 'Fatal exception');
+    assert.equal(errorHead?.reasons?.[0]?.code, 'fatal_exception');
   });
 
   test('refresh cancellation aborts background error scan', async () => {
@@ -260,7 +300,7 @@ suite('SfLogsViewProvider behavior', () => {
       }
       classifyStarted();
       await new Promise(resolve => setTimeout(resolve, 30));
-      return new Map<string, boolean>();
+      return new Map<string, any>();
     };
 
     (vscode.window as any).withProgress = async (_opts: any, task: any) => {
