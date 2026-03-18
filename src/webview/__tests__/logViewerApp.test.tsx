@@ -362,7 +362,7 @@ describe('Log Viewer App', () => {
       logId: 'unmapped-log',
       triage: {
         hasErrors: true,
-        reasons: [{ code: 'mystery', severity: 'warning', summary: 'Unmapped issue', line: 99 }]
+        reasons: [{ code: 'suspicious_error_payload', severity: 'warning', summary: 'Unmapped issue', line: 99 }]
       }
     });
 
