@@ -1,9 +1,55 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { LogViewerFromWebviewMessage, LogViewerToWebviewMessage } from '../shared/logViewerMessages';
+import type { LogDiagnostic } from '../shared/logTriage';
 import type { VsCodeWebviewApi } from '../vscodeApi';
 import { LogViewerApp } from '../logViewer';
+
+const listScrollCalls: number[] = [];
+
+const resetListScrollCalls = () => {
+  listScrollCalls.length = 0;
+};
+
+jest.mock('react-window', () => {
+  const React = require('react');
+  return {
+    List: ({ listRef, rowCount, rowHeight, rowComponent, rowProps, style, className }: any) => {
+      const rows = Array.from({ length: rowCount }).map((_: unknown, index: number) =>
+        React.createElement(
+          React.Fragment,
+          { key: index },
+          rowComponent({
+            ...rowProps,
+            index,
+            style: {
+              height: rowHeight(index)
+            }
+          })
+        )
+      );
+      const api = {
+        element: null,
+        scrollToRow: (opts: { index: number }) => {
+          if (typeof opts === 'number') {
+            listScrollCalls.push(opts);
+            return;
+          }
+          if (typeof opts?.index === 'number') {
+            listScrollCalls.push(opts.index);
+          }
+        }
+      };
+      if (typeof listRef === 'function') {
+        listRef(api);
+      } else if (listRef && 'current' in listRef) {
+        (listRef as { current: unknown }).current = api;
+      }
+      return React.createElement('div', { 'data-testid': 'virtual-list', style, className }, rows);
+    }
+  };
+});
 
 type PendingFetch = {
   url: string;
@@ -12,6 +58,10 @@ type PendingFetch = {
 };
 
 describe('Log Viewer App', () => {
+  beforeEach(() => {
+    resetListScrollCalls();
+  });
+
   function createVsCodeMock() {
     const posted: LogViewerFromWebviewMessage[] = [];
     const vscode: VsCodeWebviewApi<LogViewerFromWebviewMessage> = {
@@ -67,14 +117,14 @@ describe('Log Viewer App', () => {
       metadata: { sizeBytes: 1024 },
       lines: ['12:00:00.000 (0)|USER_DEBUG|[1]|Olá Mundo|Detalhe']
     });
-    await screen.findByText('Olá Mundo | Detalhe');
+    await screen.findByText(/Olá Mundo/);
 
     fireEvent.click(screen.getByText('Debug Only'));
     fireEvent.click(screen.getByText('Debug Only'));
 
     const searchInput = screen.getByPlaceholderText('Search entries…');
     fireEvent.change(searchInput, { target: { value: 'sem resultado' } });
-    await screen.findByText('Olá Mundo | Detalhe');
+    await screen.findByText('No entries match the current filters.');
     screen.getByText('0/0');
     expect(screen.getByLabelText('Next match')).toBeDisabled();
     fireEvent.change(searchInput, { target: { value: '' } });
@@ -150,6 +200,134 @@ describe('Log Viewer App', () => {
       const types = posted.map(m => m.type);
       expect(types[0]).toBe('logViewerReady');
       expect(types).toContain('logViewerViewRaw');
+    });
+  });
+
+  it('opens logs immediately, hydrates async triage, and scrolls only when a diagnostic is clicked', async () => {
+    const { vscode, posted } = createVsCodeMock();
+    const bus = new EventTarget();
+
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+    expect(posted[0]?.type).toBe('logViewerReady');
+
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'triage-log',
+      locale: 'en-US',
+      fileName: 'triage.log',
+      lines: [
+        '12:00:00.000 (1)|USER_DEBUG|[1]|Alpha|A',
+        '12:00:01.000 (2)|DML_EXECUTE_BEGIN|[2]|Database update|B',
+        '12:00:02.000 (3)|EXCEPTION|[3]|Error row|C'
+      ],
+      metadata: { sizeBytes: 2048 }
+    });
+
+    await screen.findByText(/Alpha/);
+    expect(screen.getByText('Loading diagnostics…')).toBeInTheDocument();
+    expect(document.querySelector('.ring-2')).toBeNull();
+    expect(listScrollCalls).toHaveLength(0);
+
+    const diagnostics: LogDiagnostic[] = [
+      { code: 'fatal_exception', severity: 'error', summary: 'Debug row has issue', line: 1 },
+      { code: 'validation_failure', severity: 'warning', summary: 'Error row warning', line: 3 }
+    ];
+
+    send(bus, {
+      type: 'logViewerTriageUpdate',
+      logId: 'triage-log',
+      triage: {
+        hasErrors: true,
+        reasons: diagnostics
+      }
+    });
+
+    const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
+    expect(diagnosticsPanel).not.toBeNull();
+    const firstDiagnostic = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Debug row has issue/ });
+    const secondDiagnostic = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Error row warning/ });
+    expect(firstDiagnostic).toBeInTheDocument();
+    expect(secondDiagnostic).toBeInTheDocument();
+    expect(listScrollCalls).toHaveLength(0);
+    fireEvent.click(firstDiagnostic);
+
+    await waitFor(() => {
+      expect(listScrollCalls.at(-1)).toBe(0);
+    });
+
+    resetListScrollCalls();
+    fireEvent.click(secondDiagnostic);
+    await waitFor(() => {
+      expect(listScrollCalls.length).toBeGreaterThan(0);
+    });
+    expect(listScrollCalls.at(-1)).toBe(2);
+
+    const diagnosticsErrorFilter = within(diagnosticsPanel as HTMLElement).getByRole('button', { name: 'Errors' });
+    fireEvent.click(diagnosticsErrorFilter);
+    expect(screen.getByText(/Error row \| C/)).toBeInTheDocument();
+
+    const searchInput = screen.getByPlaceholderText('Search entries…');
+    fireEvent.change(searchInput, { target: { value: '' } });
+    fireEvent.change(searchInput, { target: { value: 'no-match-at-all' } });
+    await waitFor(() => {
+      expect(screen.getByText(/Error row \| C/)).toBeInTheDocument();
+    });
+  });
+
+  it('keeps the active mapped row visible across overrides and clears stale selection on remap', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'remap-log',
+      locale: 'en-US',
+      fileName: 'remap.log',
+      lines: [
+        '12:00:00.000 (1)|USER_DEBUG|[1]|Alpha|A',
+        '12:00:01.000 (2)|DML_EXECUTE_BEGIN|[2]|Database update|B',
+        '12:00:02.000 (3)|EXCEPTION|[3]|Error row|C'
+      ]
+    });
+
+    send(bus, {
+      type: 'logViewerTriageUpdate',
+      logId: 'remap-log',
+      triage: {
+        hasErrors: true,
+        reasons: [
+          { code: 'fatal_exception', severity: 'error', summary: 'Debug row has issue', line: 1 },
+          { code: 'validation_failure', severity: 'warning', summary: 'Error row warning', line: 3 }
+        ]
+      }
+    });
+
+    const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
+    expect(diagnosticsPanel).not.toBeNull();
+    const firstDiagnostic = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Debug row has issue/ });
+    const secondDiagnostic = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Error row warning/ });
+
+    fireEvent.click(firstDiagnostic);
+    expect(screen.getByText(/Alpha/)).toBeInTheDocument();
+
+    const diagnosticsErrorFilter = within(diagnosticsPanel as HTMLElement).getByRole('button', { name: 'Errors' });
+    fireEvent.click(diagnosticsErrorFilter);
+    expect(screen.getByText(/Alpha/)).toBeInTheDocument();
+
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'remap-refresh',
+      locale: 'en-US',
+      fileName: 'remap.log',
+      lines: ['12:00:03.000 (4)|EXCEPTION|[4]|Refreshed row|D']
+    });
+    await screen.findByText(/Refreshed row/);
+
+    expect(screen.queryByText(/Alpha/)).toBeNull();
+    await waitFor(() => {
+      expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Debug row has issue/ })).not.toBeInTheDocument();
+      expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Error row warning/ })).not.toBeInTheDocument();
     });
   });
 });

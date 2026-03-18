@@ -1,14 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { LogViewerFromWebviewMessage, LogViewerToWebviewMessage } from '../shared/logViewerMessages';
+import type {
+  LogViewerFromWebviewMessage,
+  LogViewerToWebviewMessage,
+  LogViewerTriagePayload
+} from '../shared/logViewerMessages';
 import { parseLogLines, type ParsedLogEntry, type LogCategory } from './utils/logViewerParser';
 import { LogViewerHeader } from './components/log-viewer/LogViewerHeader';
 import { LogViewerFilters, type LogFilter } from './components/log-viewer/LogViewerFilters';
 import { LogEntryList } from './components/log-viewer/LogEntryList';
+import { LogDiagnosticsSidebar } from './components/log-viewer/LogDiagnosticsSidebar';
 import { LogViewerStatusBar } from './components/log-viewer/LogViewerStatusBar';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 import type { ListImperativeAPI } from 'react-window';
+import type { LogViewerMappedDiagnostic } from './utils/logViewerDiagnostics';
+import { buildVisibleEntries, mapDiagnosticsToEntries } from './utils/logViewerDiagnostics';
+
+type TriageState = 'loading' | 'empty' | 'ready';
+type DiagnosticSeverityFilter = 'all' | 'error' | 'warning';
 
 type Metadata = {
   sizeBytes?: number;
@@ -45,13 +55,18 @@ export function LogViewerApp({
   const [locale, setLocale] = useState('en');
   const [metadata, setMetadata] = useState<Metadata | undefined>(undefined);
   const [entries, setEntries] = useState<ParsedLogEntry[]>([]);
+  const [triage, setTriage] = useState<LogViewerTriagePayload | undefined>(undefined);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<LogFilter>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [triageState, setTriageState] = useState<TriageState>('loading');
+  const [activeDiagnosticId, setActiveDiagnosticId] = useState<number | undefined>(undefined);
+  const [activeDiagnosticSeverityFilter, setActiveDiagnosticSeverityFilter] = useState<DiagnosticSeverityFilter>('all');
   const latestRequestId = useRef(0);
   const listRef = useRef<ListImperativeAPI | null>(null);
   const [activeMatchIndex, setActiveMatchIndex] = useState<number>(-1);
+  const activeLogId = useRef<string>('');
 
   const resolvedFetch = fetchImpl ?? (typeof fetch === 'function' ? fetch : undefined);
 
@@ -66,14 +81,21 @@ export function LogViewerApp({
         return;
       }
       if (msg.type === 'logViewerInit') {
+        if (msg.logId) {
+          activeLogId.current = msg.logId;
+        }
         setLocale(msg.locale || 'en');
         setFileName(msg.fileName);
         setMetadata(msg.metadata);
+        setTriage(msg.triage);
+        setTriageState(msg.triage ? (msg.triage.reasons?.length ? 'ready' : 'empty') : 'loading');
+        setActiveDiagnosticId(undefined);
         if (typeof msg.logUri === 'string' && msg.logUri.length > 0) {
           if (resolvedFetch) {
             const requestId = ++latestRequestId.current;
             setLoading(true);
             setError(undefined);
+            setEntries([]);
             void resolvedFetch(msg.logUri)
               .then(response => {
                 if (!response.ok) {
@@ -115,6 +137,12 @@ export function LogViewerApp({
       } else if (msg.type === 'logViewerError') {
         setError(msg.message);
         setLoading(false);
+      } else if (msg.type === 'logViewerTriageUpdate') {
+        if (msg.logId !== activeLogId.current) {
+          return;
+        }
+        setTriage(msg.triage);
+        setTriageState(msg.triage ? (msg.triage.reasons?.length ? 'ready' : 'empty') : 'empty');
       }
     };
     messageBus.addEventListener('message', handler as EventListener);
@@ -152,8 +180,32 @@ export function LogViewerApp({
     };
   }, [entries]);
 
-  const filteredEntries = useMemo(() => {
-    return entries.filter(entry => {
+  const mappedDiagnostics = useMemo(() => mapDiagnosticsToEntries(entries, triage?.reasons ?? []), [entries, triage?.reasons]);
+
+  const mappedDiagnosticById = useMemo(() => {
+    const map = new Map<number, LogViewerMappedDiagnostic>();
+    for (const group of mappedDiagnostics.mappedEntries) {
+      for (const diagnostic of group.diagnostics) {
+        map.set(diagnostic.originalIndex, diagnostic);
+      }
+    }
+    return map;
+  }, [mappedDiagnostics.mappedEntries]);
+
+  const orderedDiagnosticsWithMapping = useMemo(
+    () => mappedDiagnostics.orderedDiagnostics.map(diagnostic => mappedDiagnosticById.get(diagnostic.originalIndex) ?? diagnostic),
+    [mappedDiagnostics.orderedDiagnostics, mappedDiagnosticById]
+  );
+
+  const activeDiagnosticSummary = useMemo(() => {
+    if (typeof activeDiagnosticId !== 'number') {
+      return undefined;
+    }
+    return orderedDiagnosticsWithMapping.find(diagnostic => diagnostic.originalIndex === activeDiagnosticId);
+  }, [activeDiagnosticId, orderedDiagnosticsWithMapping]);
+
+  const shouldIncludeByFilterAndSearch = useCallback(
+    (entry: ParsedLogEntry) => {
       switch (filter) {
         case 'debug':
           if (entry.category !== 'debug') return false;
@@ -168,9 +220,68 @@ export function LogViewerApp({
           if (entry.category !== 'dml') return false;
           break;
       }
-      return true;
-    });
-  }, [entries, filter]);
+      const normalizedSearch = search.trim().toLowerCase();
+      if (!normalizedSearch) {
+        return true;
+      }
+      const haystack = [entry.timestamp, entry.type, entry.message, entry.details, entry.raw]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(normalizedSearch);
+    },
+    [search, filter]
+  );
+
+  const orderedDiagnostics = useMemo(
+    () => orderedDiagnosticsWithMapping.filter(diagnostic => activeDiagnosticSeverityFilter === 'all' || diagnostic.severity === activeDiagnosticSeverityFilter),
+    [activeDiagnosticSeverityFilter, orderedDiagnosticsWithMapping]
+  );
+
+  const visibleDiagnosticRows = useMemo(
+    () =>
+      buildVisibleEntries({
+        entries: mappedDiagnostics.mappedEntries,
+        shouldIncludeEntry: shouldIncludeByFilterAndSearch,
+        activeDiagnostic: activeDiagnosticSummary
+      }),
+    [mappedDiagnostics.mappedEntries, shouldIncludeByFilterAndSearch, activeDiagnosticSummary]
+  );
+
+  const visibleEntries = useMemo(() => visibleDiagnosticRows.map(entry => entry.entry), [visibleDiagnosticRows]);
+
+  useEffect(() => {
+    if (activeDiagnosticId === undefined) {
+      return;
+    }
+    if (activeDiagnosticSummary === undefined) {
+      setActiveDiagnosticId(undefined);
+      return;
+    }
+    if (activeDiagnosticSummary.mappedEntryId === undefined) {
+      setActiveDiagnosticId(undefined);
+    }
+  }, [activeDiagnosticId, activeDiagnosticSummary]);
+
+  const entryDiagnosticSummaries = useMemo(
+    () =>
+      visibleDiagnosticRows.map(({ entry, diagnostics }) => ({
+        entryId: entry.id,
+        diagnostics
+      })),
+    [visibleDiagnosticRows]
+  );
+
+  const activeDiagnosticEntryIndex = useMemo(() => {
+    if (activeDiagnosticSummary?.mappedEntryId === undefined) {
+      return undefined;
+    }
+    const index = visibleEntries.findIndex(entry => entry.id === activeDiagnosticSummary.mappedEntryId);
+    if (index < 0) {
+      return undefined;
+    }
+    return index;
+  }, [activeDiagnosticSummary, visibleEntries]);
 
   const trimmedSearch = useMemo(() => search.trim(), [search]);
 
@@ -180,7 +291,7 @@ export function LogViewerApp({
       return [] as number[];
     }
     const matches: number[] = [];
-    filteredEntries.forEach((entry, index) => {
+    visibleEntries.forEach((entry, index) => {
       const haystack = [entry.timestamp, entry.type, entry.message, entry.details, entry.raw]
         .filter(Boolean)
         .join(' ')
@@ -190,7 +301,7 @@ export function LogViewerApp({
       }
     });
     return matches;
-  }, [filteredEntries, trimmedSearch]);
+  }, [visibleEntries, trimmedSearch]);
 
   useEffect(() => {
     setActiveMatchIndex(prev => {
@@ -267,24 +378,41 @@ export function LogViewerApp({
       />
       <LogViewerFilters active={filter} onChange={setFilter} counts={counts} locale={locale} />
       <main className="flex min-h-0 flex-1 flex-col bg-background/40">
-        {error ? (
-          <div className="m-6 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            {error}
-          </div>
-        ) : loading ? (
-          <div className="m-6 rounded-md border border-border/40 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-            Loading log entries…
-          </div>
-        ) : (
-          <LogEntryList
-            entries={filteredEntries}
-            highlightCategory={highlightCategory}
-            matchIndices={matchIndices}
-            activeMatchIndex={activeMatchIndex >= 0 ? activeMatchIndex : undefined}
-            searchTerm={trimmedSearch}
-            listRef={listRef}
+        <div className="grid min-h-0 flex-1 gap-3 px-4 pb-3 lg:grid-cols-[1fr_22rem]">
+          <section className="min-h-0">
+            {error ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                {error}
+              </div>
+            ) : loading ? (
+              <div className="rounded-md border border-border/40 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                Loading log entries…
+              </div>
+              ) : (
+              <LogEntryList
+                entries={visibleEntries}
+                entryDiagnosticSummaries={entryDiagnosticSummaries}
+                highlightCategory={highlightCategory}
+                matchIndices={matchIndices}
+                activeMatchIndex={activeMatchIndex >= 0 ? activeMatchIndex : undefined}
+                searchTerm={trimmedSearch}
+                listRef={listRef}
+                activeDiagnosticId={activeDiagnosticId}
+                activeDiagnosticEntryIndex={activeDiagnosticEntryIndex}
+              />
+            )}
+          </section>
+          <LogDiagnosticsSidebar
+            diagnostics={orderedDiagnostics}
+            activeId={activeDiagnosticId}
+            filter={activeDiagnosticSeverityFilter}
+            onFilterChange={setActiveDiagnosticSeverityFilter}
+            onSelectDiagnostic={nextActiveDiagnosticId =>
+              setActiveDiagnosticId(current => (current === nextActiveDiagnosticId ? undefined : nextActiveDiagnosticId))
+            }
+            triageState={triageState}
           />
-        )}
+        </div>
       </main>
       <LogViewerStatusBar counts={counts} locale={locale} metadata={metadata} />
     </div>
