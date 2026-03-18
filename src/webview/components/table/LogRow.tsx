@@ -118,6 +118,10 @@ export function LogRow({
     }
   };
 
+  const logHeadEntry = logHead[r.Id];
+  const hasErrors = logHeadEntry?.hasErrors === true;
+  const primaryReason = hasErrors ? logHeadEntry?.primaryReason?.trim() : '';
+
   const actionButton = (
     icon: React.ReactNode,
     label: string,
@@ -183,26 +187,32 @@ export function LogRow({
                 </div>
               );
             case 'status':
-              {
-                const hasErrors = logHead[r.Id]?.hasErrors === true;
-                const errorBadge = t?.filters?.errorDetectedBadge ?? 'Error';
-                return (
-                  <div key={key} className={cn(cellClass, 'flex items-center gap-2')}>
-                    <span>{r.Status}</span>
-                    {hasErrors && (
-                      <Badge
-                        data-testid="logs-error-badge"
-                        variant="outline"
-                        className="gap-1 border-destructive/50 bg-destructive/10 text-destructive"
-                        title={errorBadge}
-                      >
-                        <AlertOctagon className="h-3 w-3" aria-hidden="true" />
-                        <span>{errorBadge}</span>
-                      </Badge>
-                    )}
-                  </div>
-                );
-              }
+              return (
+                <div key={key} className={cn(cellClass, 'flex items-center gap-2')}>
+                  <span>{r.Status}</span>
+                  {hasErrors && (
+                    <Badge
+                      data-testid="logs-error-badge"
+                      variant="outline"
+                      className="gap-1 border-destructive/50 bg-destructive/10 text-destructive"
+                      title={t?.filters?.errorDetectedBadge ?? 'Error'}
+                    >
+                      <AlertOctagon className="h-3 w-3" aria-hidden="true" />
+                      <span>{t?.filters?.errorDetectedBadge ?? 'Error'}</span>
+                    </Badge>
+                  )}
+                  {primaryReason && (
+                    <Badge
+                      data-testid="logs-reason-badge"
+                      variant="secondary"
+                      className="max-w-[12rem] shrink truncate border-border/70 bg-muted/70 text-muted-foreground"
+                      title={primaryReason}
+                    >
+                      {primaryReason}
+                    </Badge>
+                  )}
+                </div>
+              );
             case 'codeUnit':
               return (
                 <div key={key} className={cellClass} title={logHead[r.Id]?.codeUnitStarted ?? ''}>

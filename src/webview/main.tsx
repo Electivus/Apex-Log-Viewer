@@ -15,6 +15,7 @@ import { LoadingOverlay } from './components/LoadingOverlay';
 import { Button } from './components/ui/button';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
+import type { LogHeadMap } from './components/LogsTable';
 
 type SortKey = Exclude<LogsColumnKey, 'match'>;
 
@@ -37,7 +38,7 @@ export function LogsApp({
 
   const [rows, setRows] = useState<ApexLogRow[]>([]);
   const [hasMore, setHasMore] = useState(false);
-  const [logHead, setLogHead] = useState<Record<string, { codeUnitStarted?: string; hasErrors?: boolean }>>({});
+  const [logHead, setLogHead] = useState<LogHeadMap>({});
   const [errorScanStatus, setErrorScanStatus] = useState<{
     state: 'idle' | 'running';
     processed: number;
@@ -129,14 +130,22 @@ export function LogsApp({
           setHasMore(!!msg.hasMore);
           break;
         case 'logHead':
-          setLogHead(prev => ({
-            ...prev,
-            [msg.logId]: {
-              ...prev[msg.logId],
-              ...(msg.codeUnitStarted !== undefined ? { codeUnitStarted: msg.codeUnitStarted } : {}),
-              ...(msg.hasErrors !== undefined ? { hasErrors: msg.hasErrors } : {})
-            }
-          }));
+          {
+            const headMsg = msg as ExtensionToWebviewMessage & {
+              primaryReason?: string;
+              reasons?: unknown[];
+            };
+            setLogHead(prev => ({
+              ...prev,
+              [headMsg.logId]: {
+                ...prev[headMsg.logId],
+                ...(headMsg.codeUnitStarted !== undefined ? { codeUnitStarted: headMsg.codeUnitStarted } : {}),
+                ...(headMsg.hasErrors !== undefined ? { hasErrors: headMsg.hasErrors } : {}),
+                ...(headMsg.primaryReason !== undefined ? { primaryReason: headMsg.primaryReason } : {}),
+                ...(headMsg.reasons !== undefined ? { reasons: headMsg.reasons } : {})
+              }
+            }));
+          }
           break;
         case 'errorScanStatus':
           setErrorScanStatus({
