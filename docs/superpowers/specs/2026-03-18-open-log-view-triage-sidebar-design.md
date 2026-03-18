@@ -34,25 +34,33 @@ The detailed log viewer keeps its current split responsibilities:
 The new data flow is:
 
 1. `LogViewerPanel` opens a saved log as it does today.
-2. Before posting `logViewerInit`, the panel also resolves the `LogTriageSummary` for that file.
+2. `LogViewerPanel` posts `logViewerInit` immediately with the base payload needed to render the view.
 3. The `logViewerInit` message sends:
    - `logUri`
    - existing file metadata
-   - parser-backed triage payload for the file
-4. The webview fetches the raw log text as it does today and parses it into `ParsedLogEntry[]`.
-5. A lightweight adapter maps `LogTriageSummary.reasons[]` to rendered rows using `diagnostic.line` as the primary key.
-6. The diagnostics sidebar renders from the triage payload.
-7. The log list renders inline markers from the same mapped diagnostics data.
+   - optional `triage` when it is already available cheaply
+4. `LogViewerPanel` resolves parser-backed triage asynchronously after the view is already opening.
+5. When triage becomes available, the extension posts a follow-up `logViewerTriageUpdate` message carrying the normalized triage payload for the same log.
+6. The webview fetches the raw log text as it does today and parses it into `ParsedLogEntry[]`.
+7. A lightweight adapter maps `LogTriageSummary.reasons[]` to rendered rows using `diagnostic.line` as the primary key.
+8. The diagnostics sidebar renders from the latest triage payload available.
+9. The log list renders inline markers from the same mapped diagnostics data.
 
 The webview does not run `tree-sitter-sfapex` itself. Parser-backed diagnostics stay on the extension side and are treated as input data for the UI.
 
 ## Data Contract Changes
 
-`LogViewerToWebviewMessage` should grow a triage payload on `logViewerInit`. The payload should include:
+`LogViewerToWebviewMessage` should grow a triage payload on `logViewerInit` and add a follow-up update message. The payload should include:
 
 - `triage?: { hasErrors: boolean; primaryReason?: string; reasons: LogDiagnostic[] }`
 
 `logViewerInit` keeps its existing top-level fields and adds a new optional `triage` object rather than spreading triage fields across the top level. This keeps the message backward-compatible for callers and tests that already depend on the current payload shape.
+
+Add a second optional message for async delivery:
+
+- `logViewerTriageUpdate: { logId: string; triage?: { hasErrors: boolean; primaryReason?: string; reasons: LogDiagnostic[] } }`
+
+`triage` should be omitted, not `null`, when triage is unavailable or not yet resolved.
 
 Each diagnostic entry should preserve the existing normalized fields:
 
@@ -61,6 +69,8 @@ Each diagnostic entry should preserve the existing normalized fields:
 - `summary`
 - `line`
 - `eventType`
+
+`line` remains optional on each `LogDiagnostic`.
 
 `severity` is constrained to the existing normalized enum used by shared triage types: `error | warning`. Unknown severities should already be filtered out by extension-side normalization and must not reach the webview contract.
 
@@ -121,7 +131,7 @@ Initial load:
 
 - The log view opens at the top.
 - No diagnostic is auto-selected.
-- The sidebar shows available diagnostics immediately after the init payload arrives.
+- The sidebar can render in a loading, empty, or ready state depending on whether triage has arrived yet.
 - Inline row highlighting appears once rows are parsed and line mappings are resolved.
 
 Sidebar interaction:
@@ -144,6 +154,7 @@ Search:
 - Existing text search remains unchanged.
 - Search highlighting and diagnostic highlighting can coexist on the same row.
 - The active diagnostic state must remain visible even when search matches are present.
+- If the active mapped row would otherwise be hidden by category filters or text search, that one active row remains temporarily visible until the active diagnostic selection is cleared or changed.
 
 ## Mapping Rules
 
@@ -167,6 +178,7 @@ The first implementation should not attempt fuzzy full-text matching or parser r
 The diagnostics experience is additive. It must never block the log viewer.
 
 - If parser-backed triage is unavailable, the log opens normally and the sidebar shows a simple unavailable state.
+- If parser-backed triage is slow, the log still opens immediately and the sidebar can remain in a loading state until `logViewerTriageUpdate` arrives or the load is abandoned.
 - If diagnostics exist but some rows cannot be mapped, mapped rows still highlight correctly and unmapped diagnostics remain visible in the sidebar.
 - If the file refreshes and previous mappings become stale, the UI should clear invalid active-row state rather than crashing or pointing to the wrong row.
 - The raw log content always remains readable even when diagnostics data is incomplete.
