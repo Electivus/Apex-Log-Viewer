@@ -62,6 +62,8 @@ Each diagnostic entry should preserve the existing normalized fields:
 - `line`
 - `eventType`
 
+`severity` is constrained to the existing normalized enum used by shared triage types: `error | warning`. Unknown severities should already be filtered out by extension-side normalization and must not reach the webview contract.
+
 The webview should treat the payload as optional. If triage data is missing or empty, the `Open Log View` must still load and behave like the current implementation.
 
 ## UI Layout
@@ -85,6 +87,11 @@ Each sidebar item should show:
 - `eventType` when useful
 - severity styling
 
+Sidebar counts and filters are based on the two normalized severity buckets only:
+
+- `Errors` = diagnostics with `severity: "error"`
+- `Warnings` = diagnostics with `severity: "warning"`
+
 The active sidebar item should have a stronger selected state than the non-active items.
 
 The main log list should keep the current row layout and add:
@@ -94,6 +101,13 @@ The main log list should keep the current row layout and add:
 - a compact diagnostic badge or summary fragment on the row when one or more diagnostics map to it
 
 If multiple diagnostics map to the same row, the row should present the most severe reason first and still preserve the rest in the row metadata for tooltip or secondary rendering.
+
+Row-level collapse order must be deterministic:
+
+- sort mapped diagnostics for the row by severity, with `error` before `warning`
+- preserve original `reasons[]` order for ties within the same severity
+- show the first sorted diagnostic as the primary row badge or summary
+- keep the remaining diagnostics available as secondary row metadata for tooltip or expanded rendering
 
 ## Interaction Model
 
@@ -107,8 +121,9 @@ Initial load:
 Sidebar interaction:
 
 - Clicking a sidebar item makes it active.
-- The list scrolls to the mapped row with centered alignment.
-- The matching row receives the active diagnostic highlight.
+- If the item is mapped, the list scrolls to the mapped row with centered alignment.
+- If the item is unmapped, the sidebar item still becomes active but the list does not scroll and no toast is shown.
+- The matching row receives the active diagnostic highlight only for mapped items.
 
 Filtering:
 
@@ -128,7 +143,9 @@ The adapter between `LogTriageSummary.reasons[]` and `ParsedLogEntry[]` should b
 
 Primary mapping:
 
-- Use `diagnostic.line` to map a diagnostic to the parsed row whose `lineNumber` matches that value.
+- Treat `diagnostic.line` as a 1-based log line number.
+- Use `diagnostic.line` to map a diagnostic to the parsed row whose `lineNumber` matches that same 1-based value exactly.
+- Do not translate `diagnostic.line` to a zero-based row index.
 
 Fallback behavior:
 
@@ -166,7 +183,9 @@ Mapping logic:
 
 - A diagnostic with a valid line maps to the expected parsed row.
 - Diagnostics without `line` remain sidebar-only.
+- Clicking an unmapped sidebar item activates it without attempting row scroll.
 - Multiple diagnostics on one row collapse to one row decoration while preserving individual sidebar entries.
+- Row-level collapse order is deterministic: `error` before `warning`, then original diagnostic order for ties.
 
 Row rendering:
 
