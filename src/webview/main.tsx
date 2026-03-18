@@ -130,22 +130,16 @@ export function LogsApp({
           setHasMore(!!msg.hasMore);
           break;
         case 'logHead':
-          {
-            const headMsg = msg as ExtensionToWebviewMessage & {
-              primaryReason?: string;
-              reasons?: unknown[];
-            };
-            setLogHead(prev => ({
-              ...prev,
-              [headMsg.logId]: {
-                ...prev[headMsg.logId],
-                ...(headMsg.codeUnitStarted !== undefined ? { codeUnitStarted: headMsg.codeUnitStarted } : {}),
-                ...(headMsg.hasErrors !== undefined ? { hasErrors: headMsg.hasErrors } : {}),
-                ...(headMsg.primaryReason !== undefined ? { primaryReason: headMsg.primaryReason } : {}),
-                ...(headMsg.reasons !== undefined ? { reasons: headMsg.reasons } : {})
-              }
-            }));
-          }
+          setLogHead(prev => ({
+            ...prev,
+            [msg.logId]: {
+              ...prev[msg.logId],
+              ...(msg.codeUnitStarted !== undefined ? { codeUnitStarted: msg.codeUnitStarted } : {}),
+              ...(msg.hasErrors !== undefined ? { hasErrors: msg.hasErrors } : {}),
+              ...(msg.primaryReason !== undefined ? { primaryReason: msg.primaryReason } : {}),
+              ...(msg.reasons !== undefined ? { reasons: msg.reasons } : {})
+            }
+          }));
           break;
         case 'errorScanStatus':
           setErrorScanStatus({

@@ -21,7 +21,7 @@ export type WebviewToExtensionMessage =
   | { type: 'tailClear' };
 
 // Messages sent from Extension -> Webview
-type ExtensionToWebviewMessageBase =
+export type ExtensionToWebviewMessage =
   | { type: 'loading'; value: boolean }
   | { type: 'error'; message: string }
   | { type: 'warning'; message?: string }
@@ -62,5 +62,3 @@ type ExtensionToWebviewMessageBase =
       logLength?: number;
       savedPath?: string;
     };
-
-export type ExtensionToWebviewMessage = ExtensionToWebviewMessageBase & Record<string, any>;
