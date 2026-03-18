@@ -64,6 +64,8 @@ export function LogViewerApp({
   const [activeDiagnosticId, setActiveDiagnosticId] = useState<number | undefined>(undefined);
   const [activeDiagnosticSeverityFilter, setActiveDiagnosticSeverityFilter] = useState<DiagnosticSeverityFilter>('all');
   const latestRequestId = useRef(0);
+  const triageFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const TRIAGE_LOADING_TIMEOUT_MS = 1000;
   const listRef = useRef<ListImperativeAPI | null>(null);
   const [activeMatchIndex, setActiveMatchIndex] = useState<number>(-1);
   const activeLogId = useRef<string>('');
@@ -75,20 +77,37 @@ export function LogViewerApp({
       vscode.postMessage({ type: 'logViewerReady' });
       return;
     }
+
+    const clearTriageFallbackTimer = () => {
+      if (triageFallbackTimerRef.current !== null) {
+        window.clearTimeout(triageFallbackTimerRef.current);
+        triageFallbackTimerRef.current = null;
+      }
+    };
+
     const handler = (event: MessageEvent<LogViewerToWebviewMessage>) => {
       const msg = event.data;
       if (!msg || typeof msg !== 'object') {
         return;
       }
       if (msg.type === 'logViewerInit') {
-        if (msg.logId) {
-          activeLogId.current = msg.logId;
-        }
+        const nextLogId = typeof msg.logId === 'string' ? msg.logId : '';
+        activeLogId.current = nextLogId;
         setLocale(msg.locale || 'en');
         setFileName(msg.fileName);
         setMetadata(msg.metadata);
+        clearTriageFallbackTimer();
         setTriage(msg.triage);
-        setTriageState(msg.triage ? (msg.triage.reasons?.length ? 'ready' : 'empty') : 'loading');
+        if (msg.triage) {
+          setTriageState(msg.triage.reasons?.length ? 'ready' : 'empty');
+        } else {
+          setTriageState('loading');
+          triageFallbackTimerRef.current = window.setTimeout(() => {
+            if (activeLogId.current === nextLogId) {
+              setTriageState('empty');
+            }
+          }, TRIAGE_LOADING_TIMEOUT_MS);
+        }
         setActiveDiagnosticId(undefined);
         if (typeof msg.logUri === 'string' && msg.logUri.length > 0) {
           if (resolvedFetch) {
@@ -141,13 +160,17 @@ export function LogViewerApp({
         if (msg.logId !== activeLogId.current) {
           return;
         }
+        clearTriageFallbackTimer();
         setTriage(msg.triage);
         setTriageState(msg.triage ? (msg.triage.reasons?.length ? 'ready' : 'empty') : 'empty');
       }
     };
     messageBus.addEventListener('message', handler as EventListener);
     vscode.postMessage({ type: 'logViewerReady' });
-    return () => messageBus.removeEventListener('message', handler as EventListener);
+    return () => {
+      clearTriageFallbackTimer();
+      messageBus.removeEventListener('message', handler as EventListener);
+    };
   }, [messageBus, resolvedFetch, vscode]);
 
   const counts = useMemo(() => {
@@ -257,9 +280,6 @@ export function LogViewerApp({
     if (activeDiagnosticSummary === undefined) {
       setActiveDiagnosticId(undefined);
       return;
-    }
-    if (activeDiagnosticSummary.mappedEntryId === undefined) {
-      setActiveDiagnosticId(undefined);
     }
   }, [activeDiagnosticId, activeDiagnosticSummary]);
 

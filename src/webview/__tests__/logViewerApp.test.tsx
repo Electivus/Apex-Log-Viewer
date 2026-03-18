@@ -274,6 +274,117 @@ describe('Log Viewer App', () => {
     });
   });
 
+  it('falls back to terminal diagnostics state when triage never arrives', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'triage-missing-log',
+      locale: 'en-US',
+      fileName: 'missing-triage.log',
+      lines: ['12:00:00.000 (1)|USER_DEBUG|[1]|Alpha|A']
+    });
+
+    await screen.findByText('Loading diagnostics…');
+    await waitFor(
+      () => {
+        expect(screen.getByText('No diagnostics found.')).toBeInTheDocument();
+      },
+      { timeout: 1500 }
+    );
+  });
+
+  it('ignores stale triage updates that do not match the active log id', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'active-log',
+      locale: 'en-US',
+      fileName: 'active.log',
+      lines: ['12:00:00.000 (1)|USER_DEBUG|[1]|Alpha|A']
+    });
+
+    const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
+    expect(diagnosticsPanel).not.toBeNull();
+
+    await screen.findByText('Loading diagnostics…');
+    send(bus, {
+      type: 'logViewerTriageUpdate',
+      logId: 'other-log',
+      triage: {
+        hasErrors: true,
+        reasons: [{ code: 'fatal_exception', severity: 'error', summary: 'Ignored issue', line: 1 }]
+      }
+    });
+
+    await waitFor(
+      () => {
+        expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Ignored issue/ })).not.toBeInTheDocument();
+      },
+      { timeout: 1200 }
+    );
+
+    send(bus, {
+      type: 'logViewerTriageUpdate',
+      logId: 'active-log',
+      triage: {
+        hasErrors: true,
+        reasons: [{ code: 'fatal_exception', severity: 'error', summary: 'Active issue', line: 1 }]
+      }
+    });
+
+    await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Active issue/ });
+  });
+
+  it('keeps unmapped diagnostics selectable as sidebar state without forcing row visibility', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'unmapped-log',
+      locale: 'en-US',
+      fileName: 'unmapped.log',
+      lines: ['12:00:00.000 (1)|USER_DEBUG|[1]|Alpha|A']
+    });
+
+    const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
+    expect(diagnosticsPanel).not.toBeNull();
+
+    send(bus, {
+      type: 'logViewerTriageUpdate',
+      logId: 'unmapped-log',
+      triage: {
+        hasErrors: true,
+        reasons: [{ code: 'mystery', severity: 'warning', summary: 'Unmapped issue', line: 99 }]
+      }
+    });
+
+    const diagnosticsButton = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Unmapped issue/ });
+    expect(diagnosticsButton).toBeInTheDocument();
+    resetListScrollCalls();
+
+    fireEvent.click(diagnosticsButton);
+    await waitFor(() => {
+      expect(diagnosticsButton.className).toContain('bg-amber-500/20');
+    });
+    expect(screen.getByText(/Unmapped issue/)).toBeInTheDocument();
+    expect(listScrollCalls).toHaveLength(0);
+
+    const searchInput = screen.getByPlaceholderText('Search entries…');
+    fireEvent.change(searchInput, { target: { value: 'no-match-at-all' } });
+    await screen.findByText('No entries match the current filters.');
+    const unmappedButton = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Unmapped issue/ });
+    expect(unmappedButton.className).toContain('bg-amber-500/20');
+    expect(listScrollCalls).toHaveLength(0);
+  });
+
   it('keeps the active mapped row visible across overrides and clears stale selection on remap', async () => {
     const { vscode } = createVsCodeMock();
     const bus = new EventTarget();
