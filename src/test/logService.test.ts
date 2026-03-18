@@ -380,7 +380,7 @@ suite('LogService', () => {
     assert.equal(summary.reasons[0]?.eventType, 'EXCEPTION_THROWN');
   });
 
-  test('classifyLogsForErrors scans full log body and reports progress', async () => {
+  test('classifyLogsForErrors uses file triage summaries and reports progress', async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-errors-'));
     const errPath = path.join(tmpDir, 'default_err.log');
     const okPath = path.join(tmpDir, 'default_ok.log');
@@ -395,8 +395,8 @@ suite('LogService', () => {
         fetchApexLogBody: async () => ''
       },
       './logTriage': {
-        summarizeLogText: async (logText: string): Promise<LogTriageSummary> =>
-          logText.includes('EXCEPTION_THROWN')
+        summarizeLogFile: async (filePath: string): Promise<LogTriageSummary> =>
+          filePath === errPath
             ? {
                 hasErrors: true,
                 primaryReason: 'Fatal exception',
@@ -464,6 +464,69 @@ suite('LogService', () => {
     }
   });
 
+  test('classifyLogsForErrors delegates file reads to log triage helpers', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-errors-file-triage-'));
+    const errPath = path.join(tmpDir, 'default_err.log');
+    await fs.writeFile(errPath, '12:00:00.000 | EXCEPTION_THROWN | [6] | boom\n', 'utf8');
+
+    const summarizeLogFileCalls: string[] = [];
+    const { LogService } = proxyquire('../services/logService', {
+      fs: {
+        promises: {
+          readFile: async () => {
+            throw new Error('readFile should not be used directly by classifyLogsForErrors');
+          }
+        }
+      },
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        fetchApexLogHead: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async () => ''
+      },
+      './logTriage': {
+        summarizeLogFile: async (filePath: string): Promise<LogTriageSummary> => {
+          summarizeLogFileCalls.push(filePath);
+          return {
+            hasErrors: true,
+            primaryReason: 'Fatal exception',
+            reasons: [
+              {
+                code: 'fatal_exception',
+                severity: 'error',
+                summary: 'Fatal exception',
+                line: 1,
+                eventType: 'EXCEPTION_THROWN'
+              }
+            ]
+          };
+        },
+        createUnreadableLogSummary: (message?: string): LogTriageSummary => ({
+          hasErrors: true,
+          primaryReason: message,
+          reasons: []
+        })
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
+      },
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath: path.join(tmpDir, 'unused.log') }),
+        findExistingLogFile: async (logId: string) => (logId === 'err' ? errPath : undefined)
+      }
+    });
+
+    try {
+      const svc = new LogService(1);
+      const result = await svc.classifyLogsForErrors([{ Id: 'err' } as ApexLogRow], 'default');
+      assert.equal(result.get('err')?.hasErrors, true);
+      assert.equal(result.get('err')?.primaryReason, 'Fatal exception');
+      assert.deepEqual(summarizeLogFileCalls, [errPath]);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   test('classifyLogsForErrors treats read failures as potential errors to avoid false negatives', async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-errors-fallback-'));
     const okPath = path.join(tmpDir, 'default_ok.log');
@@ -481,7 +544,7 @@ suite('LogService', () => {
         }
       },
       './logTriage': {
-        summarizeLogText: async (): Promise<LogTriageSummary> => ({
+        summarizeLogFile: async (): Promise<LogTriageSummary> => ({
           hasErrors: false,
           reasons: []
         }),

@@ -13,7 +13,7 @@ import { logWarn, logInfo } from '../utils/logger';
 import { localize } from '../utils/localize';
 import { LogViewerPanel } from '../panel/LogViewerPanel';
 import { fetchApexLogs } from '../salesforce/http';
-import { createUnreadableLogSummary, summarizeLogText } from './logTriage';
+import { createUnreadableLogSummary, summarizeLogFile } from './logTriage';
 import type { LogTriageSummary } from '../shared/logTriage';
 
 export type EnsureLogsSavedItemStatus = 'downloaded' | 'existing' | 'missing' | 'failed' | 'cancelled';
@@ -228,11 +228,7 @@ export class LogService {
             if (signal?.aborted) {
               return;
             }
-            const logText = await fs.readFile(filePath, 'utf8');
-            if (signal?.aborted) {
-              return;
-            }
-            summary = await summarizeLogText(logText);
+            summary = await summarizeLogFile(filePath);
             result.set(log.Id, summary);
             if (summary.hasErrors) {
               errorsFound++;
