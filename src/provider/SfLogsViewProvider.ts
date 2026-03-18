@@ -19,6 +19,7 @@ import { affectsConfiguration, getConfig } from '../utils/config';
 import { ensureApexLogsDir, purgeSavedLogs, getLogIdFromLogFilePath } from '../utils/workspace';
 import { ripgrepSearch, type RipgrepMatch } from '../utils/ripgrep';
 import { DEFAULT_LOGS_COLUMNS_CONFIG, normalizeLogsColumnsConfig, type NormalizedLogsColumnsConfig } from '../shared/logsColumns';
+import type { LogTriageSummary } from '../shared/logTriage';
 
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 
@@ -34,7 +35,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private cursorId: string | undefined;
   private currentLogs: ApexLogRow[] = [];
   private currentLogIds = new Set<string>();
-  private errorByLogId = new Map<string, boolean>();
+  private errorByLogId = new Map<string, LogTriageSummary>();
   private errorScanAbortController: AbortController | undefined;
   private errorScanToken = 0;
   private errorScanLastPostedAt = 0;
@@ -423,9 +424,15 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       if (!log?.Id) {
         continue;
       }
-      const hasErrors = this.errorByLogId.get(log.Id);
-      if (typeof hasErrors === 'boolean') {
-        this.post({ type: 'logHead', logId: log.Id, hasErrors });
+      const summary = this.errorByLogId.get(log.Id);
+      if (summary) {
+        this.post({
+          type: 'logHead',
+          logId: log.Id,
+          hasErrors: summary.hasErrors,
+          primaryReason: summary.primaryReason,
+          reasons: summary.reasons
+        });
       }
     }
   }
@@ -503,9 +510,15 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
               ) {
                 return;
               }
-              this.errorByLogId.set(progress.logId, progress.hasErrors);
+              this.errorByLogId.set(progress.logId, progress.summary);
               if (this.currentLogIds.has(progress.logId)) {
-                this.post({ type: 'logHead', logId: progress.logId, hasErrors: progress.hasErrors });
+                this.post({
+                  type: 'logHead',
+                  logId: progress.logId,
+                  hasErrors: progress.summary.hasErrors,
+                  primaryReason: progress.summary.primaryReason,
+                  reasons: progress.summary.reasons
+                });
               }
               this.postErrorScanStatus({
                 state: 'running',
@@ -526,7 +539,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         }
         const errorsFound = toScan
           .map(log => this.errorByLogId.get(log.Id))
-          .filter(v => v === true).length;
+          .filter(v => v?.hasErrors === true).length;
         this.postErrorScanStatus(
           {
             state: 'idle',
@@ -548,7 +561,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         ) {
           const errorsFound = toScan
             .map(log => this.errorByLogId.get(log.Id))
-            .filter(v => v === true).length;
+            .filter(v => v?.hasErrors === true).length;
           this.postErrorScanStatus(
             {
               state: 'idle',

@@ -1,5 +1,6 @@
 import type { ApexLogRow, OrgItem } from './types';
 import type { LogsColumnsConfig, NormalizedLogsColumnsConfig } from './logsColumns';
+import type { LogDiagnostic } from './logTriage';
 
 // Messages sent from Webview -> Extension
 export type WebviewToExtensionMessage =
@@ -20,7 +21,7 @@ export type WebviewToExtensionMessage =
   | { type: 'tailClear' };
 
 // Messages sent from Extension -> Webview
-export type ExtensionToWebviewMessage =
+type ExtensionToWebviewMessageBase =
   | { type: 'loading'; value: boolean }
   | { type: 'error'; message: string }
   | { type: 'warning'; message?: string }
@@ -28,7 +29,14 @@ export type ExtensionToWebviewMessage =
   | { type: 'logsColumns'; value: NormalizedLogsColumnsConfig }
   | { type: 'logs'; data: ApexLogRow[]; hasMore: boolean }
   | { type: 'appendLogs'; data: ApexLogRow[]; hasMore: boolean }
-  | { type: 'logHead'; logId: string; codeUnitStarted?: string; hasErrors?: boolean }
+  | {
+      type: 'logHead';
+      logId: string;
+      codeUnitStarted?: string;
+      hasErrors?: boolean;
+      primaryReason?: string;
+      reasons?: LogDiagnostic[];
+    }
   | { type: 'errorScanStatus'; state: 'idle' | 'running'; processed: number; total: number; errorsFound: number }
   | {
       type: 'searchMatches';
@@ -54,3 +62,5 @@ export type ExtensionToWebviewMessage =
       logLength?: number;
       savedPath?: string;
     };
+
+export type ExtensionToWebviewMessage = ExtensionToWebviewMessageBase & Record<string, any>;

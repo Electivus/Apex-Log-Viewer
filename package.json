@@ -423,10 +423,10 @@
     "check-types": "tsc --noEmit -p tsconfig.extension.json",
     "compile": "npm run lint && tsc -p tsconfig.extension.json --noEmit",
     "watch": "npm-run-all -p watch:*",
-    "watch:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --sourcemap --external:vscode --external:@vscode/ripgrep --alias:bfj=./src/shims/bfj.ts --watch",
+    "watch:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --sourcemap --external:vscode --external:@vscode/ripgrep --external:tree-sitter-sfapex --alias:bfj=./src/shims/bfj.ts --watch",
     "watch:tsc": "tsc -p tsconfig.extension.json --watch --noEmit",
     "watch:webview": "npm-run-all -p tailwind:watch watch:webview:bundle",
-    "build:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --minify --sourcemap --external:vscode --external:@vscode/ripgrep --alias:bfj=./src/shims/bfj.ts",
+    "build:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --minify --sourcemap --external:vscode --external:@vscode/ripgrep --external:tree-sitter-sfapex --alias:bfj=./src/shims/bfj.ts",
     "build:webview": "npm-run-all -s tailwind:build build:webview:bundle",
     "build": "npm run build:extension && npm run build:webview",
     "build:icon": "node scripts/gen-icon.mjs",
@@ -515,11 +515,11 @@
     "vscode-nls-dev": "^4.0.4"
   },
   "dependencies": {
+    "@jsforce/jsforce-node": "^3.10.14",
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
-    "@jsforce/jsforce-node": "^3.10.14",
     "@vscode/extension-telemetry": "^1.5.1",
     "@vscode/ripgrep": "^1.17.0",
     "class-variance-authority": "^0.7.1",
@@ -527,6 +527,7 @@
     "cross-spawn": "^7.0.6",
     "lucide-react": "^0.577.0",
     "tailwind-merge": "^3.5.0",
+    "tree-sitter-sfapex": "git+https://github.com/manoelcalixto/tree-sitter-sfapex.git#1995752cbd77fcbf305251f8597a71a23d7a86e0",
     "vscode-nls": "^5.2.0"
   },
   "overrides": {
