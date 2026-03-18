@@ -7,7 +7,7 @@ const { spawn } = require("node:child_process");
 const WEBVIEW_EXCLUDE = "src/webview/**";
 
 function isCoverageEnabled(argv, env) {
-  return argv.includes("--coverage") || (env.ENABLE_COVERAGE && env.ENABLE_COVERAGE !== "0");
+  return argv.includes("--coverage") || /^(1|true)$/i.test(String(env.ENABLE_COVERAGE || ""));
 }
 
 function createRunnerPlan({

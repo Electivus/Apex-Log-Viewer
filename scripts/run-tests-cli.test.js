@@ -63,3 +63,22 @@ test("createRunnerPlan wraps the VS Code host runner with c8 when coverage is en
   ]);
   assert.equal(plan.env.NODE_OPTIONS, "--trace-warnings");
 });
+
+test("createRunnerPlan ignores ENABLE_COVERAGE=false", () => {
+  const repoRoot = path.join("C:", "repo");
+  const execPath = path.join("C:", "Program Files", "nodejs", "node.exe");
+
+  const plan = createRunnerPlan({
+    argv: ["--scope=unit"],
+    env: { ENABLE_COVERAGE: "false" },
+    execPath,
+    repoRoot,
+  });
+
+  assert.equal(plan.command, execPath);
+  assert.deepEqual(plan.args, [
+    path.join(repoRoot, "scripts", "run-tests.js"),
+    "--scope=unit",
+  ]);
+  assert.equal(plan.reportDir, undefined);
+});
