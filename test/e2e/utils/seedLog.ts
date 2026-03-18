@@ -26,7 +26,11 @@ export async function seedApexLog(targetOrg: string): Promise<SeedResult> {
 export async function clearOrgApexLogs(targetOrg: string, scope: 'all' | 'mine' = 'all'): Promise<void> {
   await timeE2eStep(`seed.clearLogs:${scope}`, async () => {
     const auth = await getOrgAuth(targetOrg);
-    await clearApexLogsForE2E(auth, scope);
+    const result = await clearApexLogsForE2E(auth, scope);
+    if (result.failed > 0) {
+      const failedIds = result.failedLogIds.join(', ');
+      throw new Error(`Failed to clear ${result.failed} ApexLog(s) for scope "${scope}". Failed IDs: ${failedIds}`);
+    }
   });
 }
 
