@@ -61,6 +61,35 @@ describe('logViewerDiagnostics', () => {
     expect(result.unmappedDiagnostics.map(d => d.summary)).toEqual(['unmapped', 'no-line']);
   });
 
+  it('falls back to rendered row mapping using entry.id + 1 when no ParsedLogEntry.lineNumber matches', () => {
+    const entries: ParsedLogEntry[] = [
+      makeEntry(0, undefined, 'other'),
+      makeEntry(1, undefined, 'other'),
+      makeEntry(2, undefined, 'other')
+    ];
+    const result = mapDiagnosticsToEntries(entries, [
+      { code: 'dml_failure', severity: 'warning', summary: 'mapped-2', line: 2 },
+      { code: 'dml_failure', severity: 'warning', summary: 'mapped-3', line: 3 },
+      { code: 'dml_failure', severity: 'warning', summary: 'unmapped', line: 99 }
+    ]);
+
+    expect(result.mappedEntries[1].diagnostics).toEqual([
+      expect.objectContaining({
+        summary: 'mapped-2',
+        mappedEntryId: 1,
+        mappedLineNumber: 2
+      })
+    ]);
+    expect(result.mappedEntries[2].diagnostics).toEqual([
+      expect.objectContaining({
+        summary: 'mapped-3',
+        mappedEntryId: 2,
+        mappedLineNumber: 3
+      })
+    ]);
+    expect(result.unmappedDiagnostics.map(d => d.summary)).toEqual(['unmapped']);
+  });
+
   it('collapses diagnostics for a row by severity then original order for ties', () => {
     const entries: ParsedLogEntry[] = [makeEntry(0, 4, 'error'), makeEntry(1, 5, 'other')];
     const result = mapDiagnosticsToEntries(entries, [

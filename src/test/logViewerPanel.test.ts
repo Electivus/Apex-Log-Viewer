@@ -284,7 +284,7 @@ suite('LogViewerPanel', () => {
     }
   });
 
-  test('still posts initial init payload when triage is unavailable or slow', async () => {
+  test('still posts initial init payload and terminal triage update when triage is unavailable or slow', async () => {
     const { LogViewerPanel, panel, webview } = createPanelHarness({
       summarizeLogFile: () => Promise.reject(new Error('triage unavailable'))
     });
@@ -302,7 +302,12 @@ suite('LogViewerPanel', () => {
 
       await new Promise(resolve => setTimeout(resolve, 10));
       await nextTick();
-      assert.ok(!webview.postedMessages.some(msg => msg.type === 'logViewerTriageUpdate'), 'triage updates should not block initial payload');
+      const triageMessage = webview.postedMessages.find(
+        (msg): msg is TriageUpdateMessage => msg.type === 'logViewerTriageUpdate'
+      );
+      assert.ok(triageMessage, 'triage update should still be posted as a terminal signal');
+      assert.equal(triageMessage.logId, 'LOG-003');
+      assert.ok(!('triage' in triageMessage), 'triage payload should be omitted for terminal failure signaling');
     } finally {
       panel.dispose();
       await cleanup();

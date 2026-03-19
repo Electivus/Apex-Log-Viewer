@@ -210,6 +210,13 @@ export class LogViewerPanel {
   }
 
   private async loadTriage(requestId: number): Promise<void> {
+    const postUnavailableMessage = (): void => {
+      void this.panel.webview.postMessage({
+        type: 'logViewerTriageUpdate',
+        logId: this.logId
+      } as LogViewerToWebviewMessage);
+    };
+
     try {
       const triage = await summarizeLogFile(this.filePath);
       if (!this.shouldPublishTriage(requestId)) {
@@ -218,6 +225,7 @@ export class LogViewerPanel {
 
       const normalizedTriage = this.normalizeTriage(triage);
       if (!normalizedTriage) {
+        postUnavailableMessage();
         return;
       }
 
@@ -229,6 +237,10 @@ export class LogViewerPanel {
       void this.panel.webview.postMessage(message);
     } catch (err) {
       logWarn('LogViewerPanel: summarizeLogFile failed ->', getErrorMessage(err));
+      if (!this.shouldPublishTriage(requestId)) {
+        return;
+      }
+      postUnavailableMessage();
     } finally {
       if (this.triageRequest === requestId) {
         this.triageRequested = false;

@@ -64,8 +64,6 @@ export function LogViewerApp({
   const [activeDiagnosticId, setActiveDiagnosticId] = useState<number | undefined>(undefined);
   const [activeDiagnosticSeverityFilter, setActiveDiagnosticSeverityFilter] = useState<DiagnosticSeverityFilter>('all');
   const latestRequestId = useRef(0);
-  const triageFallbackTimerRef = useRef<number | null>(null);
-  const TRIAGE_LOADING_TIMEOUT_MS = 1000;
   const listRef = useRef<ListImperativeAPI | null>(null);
   const [activeMatchIndex, setActiveMatchIndex] = useState<number>(-1);
   const activeLogId = useRef<string>('');
@@ -78,13 +76,6 @@ export function LogViewerApp({
       return;
     }
 
-    const clearTriageFallbackTimer = () => {
-      if (triageFallbackTimerRef.current !== null) {
-        window.clearTimeout(triageFallbackTimerRef.current);
-        triageFallbackTimerRef.current = null;
-      }
-    };
-
     const handler = (event: MessageEvent<LogViewerToWebviewMessage>) => {
       const msg = event.data;
       if (!msg || typeof msg !== 'object') {
@@ -96,17 +87,11 @@ export function LogViewerApp({
         setLocale(msg.locale || 'en');
         setFileName(msg.fileName);
         setMetadata(msg.metadata);
-        clearTriageFallbackTimer();
         setTriage(msg.triage);
         if (msg.triage) {
           setTriageState(msg.triage.reasons?.length ? 'ready' : 'empty');
         } else {
           setTriageState('loading');
-          triageFallbackTimerRef.current = window.setTimeout(() => {
-            if (activeLogId.current === nextLogId) {
-              setTriageState('empty');
-            }
-          }, TRIAGE_LOADING_TIMEOUT_MS);
         }
         setActiveDiagnosticId(undefined);
         if (typeof msg.logUri === 'string' && msg.logUri.length > 0) {
@@ -160,7 +145,6 @@ export function LogViewerApp({
         if (msg.logId !== activeLogId.current) {
           return;
         }
-        clearTriageFallbackTimer();
         setTriage(msg.triage);
         setTriageState(msg.triage ? (msg.triage.reasons?.length ? 'ready' : 'empty') : 'empty');
       }
@@ -168,7 +152,6 @@ export function LogViewerApp({
     messageBus.addEventListener('message', handler as EventListener);
     vscode.postMessage({ type: 'logViewerReady' });
     return () => {
-      clearTriageFallbackTimer();
       messageBus.removeEventListener('message', handler as EventListener);
     };
   }, [messageBus, resolvedFetch, vscode]);
@@ -227,7 +210,7 @@ export function LogViewerApp({
     return orderedDiagnosticsWithMapping.find(diagnostic => diagnostic.originalIndex === activeDiagnosticId);
   }, [activeDiagnosticId, orderedDiagnosticsWithMapping]);
 
-  const shouldIncludeByFilterAndSearch = useCallback(
+  const shouldIncludeByFilter = useCallback(
     (entry: ParsedLogEntry) => {
       switch (filter) {
         case 'debug':
@@ -243,17 +226,9 @@ export function LogViewerApp({
           if (entry.category !== 'dml') return false;
           break;
       }
-      const normalizedSearch = search.trim().toLowerCase();
-      if (!normalizedSearch) {
-        return true;
-      }
-      const haystack = [entry.timestamp, entry.type, entry.message, entry.details, entry.raw]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(normalizedSearch);
+      return true;
     },
-    [search, filter]
+    [filter]
   );
 
   const orderedDiagnostics = useMemo(
@@ -262,13 +237,13 @@ export function LogViewerApp({
   );
 
   const visibleDiagnosticRows = useMemo(
-    () =>
-      buildVisibleEntries({
-        entries: mappedDiagnostics.mappedEntries,
-        shouldIncludeEntry: shouldIncludeByFilterAndSearch,
-        activeDiagnostic: activeDiagnosticSummary
-      }),
-    [mappedDiagnostics.mappedEntries, shouldIncludeByFilterAndSearch, activeDiagnosticSummary]
+      () =>
+        buildVisibleEntries({
+          entries: mappedDiagnostics.mappedEntries,
+          shouldIncludeEntry: shouldIncludeByFilter,
+          activeDiagnostic: activeDiagnosticSummary
+        }),
+    [mappedDiagnostics.mappedEntries, shouldIncludeByFilter, activeDiagnosticSummary]
   );
 
   const visibleEntries = useMemo(() => visibleDiagnosticRows.map(entry => entry.entry), [visibleDiagnosticRows]);

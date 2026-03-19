@@ -83,6 +83,7 @@ export function mapDiagnosticsToEntries(
   // Policy: when duplicate line numbers exist in ParsedLogEntry list (realistic for some sources),
   // always keep the first matching row for deterministic, stable mapping.
   const byLine = new Map<number, LogEntryDiagnosticGroup>();
+  const byPhysicalLine = new Map<number, LogEntryDiagnosticGroup>();
   const unmappedDiagnostics: LogViewerMappedDiagnostic[] = [];
 
   for (const row of mappedEntries) {
@@ -90,7 +91,9 @@ export function mapDiagnosticsToEntries(
       if (!byLine.has(row.entry.lineNumber)) {
         byLine.set(row.entry.lineNumber, row);
       }
+      continue;
     }
+    byPhysicalLine.set(row.entry.id + 1, row);
   }
 
   for (const reason of orderedDiagnostics) {
@@ -106,9 +109,20 @@ export function mapDiagnosticsToEntries(
         mappedEntryId: target.entry.id,
         mappedLineNumber: reason.line
       });
-    } else {
-      unmappedDiagnostics.push(reason);
+      continue;
     }
+
+    const fallbackTarget = byPhysicalLine.get(reason.line);
+    if (fallbackTarget) {
+      fallbackTarget.diagnostics.push({
+        ...reason,
+        mappedEntryId: fallbackTarget.entry.id,
+        mappedLineNumber: reason.line
+      });
+      continue;
+    }
+
+    unmappedDiagnostics.push(reason);
   }
 
   const collapsedEntries = mappedEntries.map(group => ({

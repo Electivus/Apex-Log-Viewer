@@ -124,7 +124,7 @@ describe('Log Viewer App', () => {
 
     const searchInput = screen.getByPlaceholderText('Search entries…');
     fireEvent.change(searchInput, { target: { value: 'sem resultado' } });
-    await screen.findByText('No entries match the current filters.');
+    await screen.findByText(/Olá Mundo/);
     screen.getByText('0/0');
     expect(screen.getByLabelText('Next match')).toBeDisabled();
     fireEvent.change(searchInput, { target: { value: '' } });
@@ -288,12 +288,11 @@ describe('Log Viewer App', () => {
     });
 
     await screen.findByText('Loading diagnostics…');
-    await waitFor(
-      () => {
-        expect(screen.getByText('No diagnostics found.')).toBeInTheDocument();
-      },
-      { timeout: 1500 }
-    );
+    send(bus, {
+      type: 'logViewerTriageUpdate',
+      logId: 'triage-missing-log'
+    });
+    await waitFor(() => expect(screen.getByText('No diagnostics found.')).toBeInTheDocument());
   });
 
   it('ignores stale triage updates that do not match the active log id', async () => {
@@ -379,7 +378,10 @@ describe('Log Viewer App', () => {
 
     const searchInput = screen.getByPlaceholderText('Search entries…');
     fireEvent.change(searchInput, { target: { value: 'no-match-at-all' } });
-    await screen.findByText('No entries match the current filters.');
+    expect(screen.getByText(/Unmapped issue/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(diagnosticsPanel as HTMLElement).getByRole('button', { name: /Unmapped issue/ })).toBeInTheDocument();
+    });
     const unmappedButton = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Unmapped issue/ });
     expect(unmappedButton.className).toContain('bg-amber-500/20');
     expect(listScrollCalls).toHaveLength(0);
