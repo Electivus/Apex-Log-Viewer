@@ -14,6 +14,7 @@
 - Open Log View: show an explicit unavailable state in the diagnostics sidebar when async triage fails instead of implying the log is clean.
 - Open Log View: reset the diagnostics severity filter when opening or refreshing a log so hidden sidebar state does not suppress new results.
 - Open Log View: re-scroll the virtualized log list when switching between diagnostics that collapse onto the same rendered row.
+- Open Log View: keep severity filters honest by showing the empty sidebar state when no diagnostics match the selected filter instead of falling back to the primary summary card.
 - Open Log View: preserve parser `primaryReason` summaries in the diagnostics sidebar even when triage produces no mapped reasons.
 - Open Log View: preserve the rendered bracketed line number in diagnostics when fallback mapping has to jump by physical row position.
 - Webview: add a built-in troubleshooting command for the recurring VS Code webview service-worker failure, including direct guidance to the correct `Service Worker` cache folder for `Code` vs `Code - Insiders`.

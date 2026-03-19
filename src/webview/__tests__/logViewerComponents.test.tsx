@@ -380,6 +380,30 @@ describe('Log viewer components', () => {
       fireEvent.click(warningItem);
       expect(selectCalls).toEqual([2]);
     });
+
+    it('shows an empty filtered state when the current severity has no matches', () => {
+      render(
+        <LogDiagnosticsSidebar
+          diagnostics={[
+            {
+              code: 'validation_failure',
+              severity: 'warning',
+              summary: 'Validation warning',
+              originalIndex: 2,
+              mappedLineNumber: undefined
+            }
+          ]}
+          filter="error"
+          onFilterChange={() => {}}
+          onSelectDiagnostic={() => {}}
+          triageState="ready"
+          primaryReason="Validation warning"
+        />
+      );
+
+      screen.getByText('No diagnostics found.');
+      expect(screen.queryByText('Validation warning')).toBeNull();
+    });
   });
 
   describe('LogEntryList', () => {

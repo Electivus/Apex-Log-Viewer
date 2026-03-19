@@ -77,7 +77,7 @@ export function LogDiagnosticsSidebar({
           <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">Diagnostics unavailable.</div>
         ) : triageState === 'empty' ? (
           <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">No diagnostics found.</div>
-        ) : visibleDiagnostics.length === 0 && summaryText ? (
+        ) : diagnostics.length === 0 && summaryText ? (
           <div className="space-y-3 p-4">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">
               <AlertCircle className="h-3.5 w-3.5" />
