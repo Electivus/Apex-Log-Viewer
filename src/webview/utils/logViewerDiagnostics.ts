@@ -87,13 +87,12 @@ export function mapDiagnosticsToEntries(
   const unmappedDiagnostics: LogViewerMappedDiagnostic[] = [];
 
   for (const row of mappedEntries) {
+    byPhysicalLine.set(row.entry.id + 1, row);
     if (hasExactLine(row.entry.lineNumber)) {
       if (!byLine.has(row.entry.lineNumber)) {
         byLine.set(row.entry.lineNumber, row);
       }
-      continue;
     }
-    byPhysicalLine.set(row.entry.id + 1, row);
   }
 
   for (const reason of orderedDiagnostics) {
