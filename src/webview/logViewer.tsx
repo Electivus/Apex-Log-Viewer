@@ -139,6 +139,10 @@ export function LogViewerApp({
           setError(undefined);
         }
       } else if (msg.type === 'logViewerError') {
+        activeLogId.current = '';
+        setTriage(undefined);
+        setTriageState('empty');
+        setActiveDiagnosticId(undefined);
         setError(msg.message);
         setLoading(false);
       } else if (msg.type === 'logViewerTriageUpdate') {
@@ -256,7 +260,13 @@ export function LogViewerApp({
       setActiveDiagnosticId(undefined);
       return;
     }
-  }, [activeDiagnosticId, activeDiagnosticSummary]);
+    if (
+      activeDiagnosticSeverityFilter !== 'all' &&
+      activeDiagnosticSummary.severity !== activeDiagnosticSeverityFilter
+    ) {
+      setActiveDiagnosticId(undefined);
+    }
+  }, [activeDiagnosticId, activeDiagnosticSeverityFilter, activeDiagnosticSummary]);
 
   const entryDiagnosticSummaries = useMemo(
     () =>

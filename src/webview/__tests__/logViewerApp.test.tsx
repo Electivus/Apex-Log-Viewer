@@ -274,6 +274,59 @@ describe('Log Viewer App', () => {
     });
   });
 
+  it('clears a hidden active diagnostic when the sidebar severity filter excludes it', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'severity-filter-log',
+      locale: 'en-US',
+      fileName: 'severity-filter.log',
+      lines: [
+        '12:00:00.000 (1)|USER_DEBUG|[1]|Alpha|A',
+        '12:00:01.000 (2)|EXCEPTION|[2]|Error row|B'
+      ]
+    });
+
+    send(bus, {
+      type: 'logViewerTriageUpdate',
+      logId: 'severity-filter-log',
+      triage: {
+        hasErrors: true,
+        reasons: [
+          { code: 'validation_failure', severity: 'warning', summary: 'Debug row warning', line: 1 },
+          { code: 'fatal_exception', severity: 'error', summary: 'Error row issue', line: 2 }
+        ]
+      }
+    });
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Errors' })[0]!);
+    await waitFor(() => {
+      expect(screen.queryByText(/Alpha \| A/)).toBeNull();
+      expect(screen.getByText(/Error row \| B/)).toBeInTheDocument();
+    });
+
+    const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
+    expect(diagnosticsPanel).not.toBeNull();
+
+    const warningDiagnostic = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Debug row warning/ });
+    fireEvent.click(warningDiagnostic);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Alpha \| A/)).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(diagnosticsPanel as HTMLElement).getByRole('button', { name: 'Errors' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Alpha \| A/)).toBeNull();
+      expect(screen.getByText(/Error row \| B/)).toBeInTheDocument();
+      expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Debug row warning/ })).not.toBeInTheDocument();
+    });
+  });
+
   it('falls back to terminal diagnostics state when triage never arrives', async () => {
     const { vscode } = createVsCodeMock();
     const bus = new EventTarget();
@@ -293,6 +346,44 @@ describe('Log Viewer App', () => {
       logId: 'triage-missing-log'
     });
     await waitFor(() => expect(screen.getByText('No diagnostics found.')).toBeInTheDocument());
+  });
+
+  it('clears stale diagnostics when logViewerError is received after a successful open', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'error-reset-log',
+      locale: 'en-US',
+      fileName: 'error-reset.log',
+      lines: [
+        '12:00:00.000 (1)|USER_DEBUG|[1]|Alpha|A',
+        '12:00:01.000 (2)|EXCEPTION|[2]|Error row|B'
+      ]
+    });
+
+    send(bus, {
+      type: 'logViewerTriageUpdate',
+      logId: 'error-reset-log',
+      triage: {
+        hasErrors: true,
+        reasons: [{ code: 'fatal_exception', severity: 'error', summary: 'Active issue', line: 2 }]
+      }
+    });
+
+    const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
+    expect(diagnosticsPanel).not.toBeNull();
+    await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Active issue/ });
+
+    send(bus, { type: 'logViewerError', message: 'Falha específica' });
+
+    await screen.findByText('Falha específica');
+    await waitFor(() => {
+      expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Active issue/ })).not.toBeInTheDocument();
+      expect(within(diagnosticsPanel as HTMLElement).getByText('No diagnostics found.')).toBeInTheDocument();
+    });
   });
 
   it('ignores stale triage updates that do not match the active log id', async () => {
