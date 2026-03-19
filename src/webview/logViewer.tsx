@@ -244,11 +244,6 @@ export function LogViewerApp({
     [filter]
   );
 
-  const orderedDiagnostics = useMemo(
-    () => orderedDiagnosticsWithMapping.filter(diagnostic => activeDiagnosticSeverityFilter === 'all' || diagnostic.severity === activeDiagnosticSeverityFilter),
-    [activeDiagnosticSeverityFilter, orderedDiagnosticsWithMapping]
-  );
-
   const visibleDiagnosticRows = useMemo(
       () =>
         buildVisibleEntries({
@@ -417,7 +412,7 @@ export function LogViewerApp({
             )}
           </section>
           <LogDiagnosticsSidebar
-            diagnostics={orderedDiagnostics}
+            diagnostics={orderedDiagnosticsWithMapping}
             activeId={activeDiagnosticId}
             filter={activeDiagnosticSeverityFilter}
             onFilterChange={setActiveDiagnosticSeverityFilter}

@@ -379,6 +379,42 @@ describe('Log Viewer App', () => {
     });
   });
 
+  it('shows an empty filtered state instead of the summary card when a severity has no matches', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'warning-only-log',
+      locale: 'en-US',
+      fileName: 'warning-only.log',
+      lines: ['12:00:00.000 (1)|USER_DEBUG|[1]|Alpha|A']
+    });
+
+    send(bus, {
+      type: 'logViewerTriageUpdate',
+      logId: 'warning-only-log',
+      triage: {
+        hasErrors: false,
+        primaryReason: 'Validation warning',
+        reasons: [{ code: 'validation_failure', severity: 'warning', summary: 'Validation warning', line: 1 }]
+      }
+    });
+
+    const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
+    expect(diagnosticsPanel).not.toBeNull();
+    await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Validation warning/ });
+
+    fireEvent.click(within(diagnosticsPanel as HTMLElement).getByRole('button', { name: 'Errors' }));
+
+    await waitFor(() => {
+      expect(within(diagnosticsPanel as HTMLElement).getByText('No diagnostics found.')).toBeInTheDocument();
+      expect(within(diagnosticsPanel as HTMLElement).queryByText('Summary')).toBeNull();
+      expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Validation warning/ })).toBeNull();
+    });
+  });
+
   it('shows triage unavailable when the terminal update omits diagnostics', async () => {
     const { vscode } = createVsCodeMock();
     const bus = new EventTarget();
