@@ -130,7 +130,7 @@ export function LogEntryList({
       align: 'center',
       behavior: 'auto'
     });
-  }, [activeDiagnosticEntryIndex, entries.length, resolvedListRef]);
+  }, [activeDiagnosticEntryIndex, activeDiagnosticId, entries.length, resolvedListRef]);
 
   const data = useMemo(
     () => ({

@@ -530,5 +530,61 @@ describe('Log viewer components', () => {
       );
       expect(scrollCalls).toEqual([1]);
     });
+
+    it('re-scrolls when a different diagnostic becomes active on the same row', async () => {
+      const scrollCalls: number[] = [];
+      const entries: ParsedLogEntry[] = [
+        { id: 0, timestamp: '00:00', type: 'USER_DEBUG', message: 'A', raw: 'raw', category: 'debug' },
+        { id: 1, timestamp: '00:01', type: 'SOQL', message: 'B', raw: 'raw', category: 'soql' }
+      ];
+
+      const VirtualList = ({ rowCount, rowHeight, rowComponent, rowProps, listRef }: any) => {
+        return (
+          <div
+            ref={el => {
+              const api = { element: el, scrollToRow: (opts: { index: number }) => scrollCalls.push(opts.index) };
+              if (typeof listRef === 'function') {
+                listRef(api);
+              } else if (listRef && 'current' in listRef) {
+                (listRef as { current: unknown }).current = api;
+              }
+            }}
+          >
+            {Array.from({ length: rowCount }).map((_, index) => (
+              <React.Fragment key={index}>{rowComponent({ ...rowProps, index, style: { height: rowHeight(index) } })}</React.Fragment>
+            ))}
+          </div>
+        );
+      };
+
+      const { rerender } = render(
+        <LogEntryList
+          entries={entries}
+          virtualListComponent={VirtualList}
+          activeDiagnosticId={1}
+          activeDiagnosticEntryIndex={1}
+          RowComponent={() => <div />}
+        />
+      );
+
+      await waitFor(() => {
+        expect(scrollCalls).toEqual([1]);
+      });
+
+      scrollCalls.length = 0;
+      rerender(
+        <LogEntryList
+          entries={entries}
+          virtualListComponent={VirtualList}
+          activeDiagnosticId={2}
+          activeDiagnosticEntryIndex={1}
+          RowComponent={() => <div />}
+        />
+      );
+
+      await waitFor(() => {
+        expect(scrollCalls).toEqual([1]);
+      });
+    });
   });
 });
