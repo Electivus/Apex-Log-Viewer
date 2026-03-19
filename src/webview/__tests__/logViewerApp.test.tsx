@@ -327,6 +327,58 @@ describe('Log Viewer App', () => {
     });
   });
 
+  it('resets the diagnostics severity filter when a new log is loaded', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'warnings-log',
+      locale: 'en-US',
+      fileName: 'warnings.log',
+      lines: ['12:00:00.000 (1)|USER_DEBUG|[1]|Alpha|A']
+    });
+
+    send(bus, {
+      type: 'logViewerTriageUpdate',
+      logId: 'warnings-log',
+      triage: {
+        hasErrors: false,
+        reasons: [{ code: 'validation_failure', severity: 'warning', summary: 'Initial warning', line: 1 }]
+      }
+    });
+
+    const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
+    expect(diagnosticsPanel).not.toBeNull();
+    await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /Initial warning/ });
+
+    fireEvent.click(within(diagnosticsPanel as HTMLElement).getByRole('button', { name: 'Warnings' }));
+    expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Initial warning/ })).toBeInTheDocument();
+
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'errors-log',
+      locale: 'en-US',
+      fileName: 'errors.log',
+      lines: ['12:00:01.000 (2)|EXCEPTION|[2]|Beta|B']
+    });
+
+    send(bus, {
+      type: 'logViewerTriageUpdate',
+      logId: 'errors-log',
+      triage: {
+        hasErrors: true,
+        reasons: [{ code: 'fatal_exception', severity: 'error', summary: 'Fresh error', line: 1 }]
+      }
+    });
+
+    await waitFor(() => {
+      expect(within(diagnosticsPanel as HTMLElement).queryByRole('button', { name: /Initial warning/ })).not.toBeInTheDocument();
+      expect(within(diagnosticsPanel as HTMLElement).getByRole('button', { name: /Fresh error/ })).toBeInTheDocument();
+    });
+  });
+
   it('shows triage unavailable when the terminal update omits diagnostics', async () => {
     const { vscode } = createVsCodeMock();
     const bus = new EventTarget();

@@ -98,6 +98,7 @@ export function LogViewerApp({
           setTriageState('loading');
         }
         setActiveDiagnosticId(undefined);
+        setActiveDiagnosticSeverityFilter('all');
         if (typeof msg.logUri === 'string' && msg.logUri.length > 0) {
           if (resolvedFetch) {
             const requestId = ++latestRequestId.current;
