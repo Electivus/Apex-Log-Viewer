@@ -6,7 +6,7 @@ import { cn } from '../../lib/utils';
 import type { LogViewerMappedDiagnostic } from '../../utils/logViewerDiagnostics';
 
 type SeverityFilter = 'all' | 'error' | 'warning';
-type TriageState = 'loading' | 'empty' | 'ready';
+type TriageState = 'loading' | 'unavailable' | 'empty' | 'ready';
 
 interface Props {
   diagnostics: readonly LogViewerMappedDiagnostic[];
@@ -70,6 +70,8 @@ export function LogDiagnosticsSidebar({
       <div className="rounded-md border border-border/60 bg-background/80">
         {triageState === 'loading' ? (
           <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">Loading diagnostics…</div>
+        ) : triageState === 'unavailable' ? (
+          <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">Diagnostics unavailable.</div>
         ) : triageState === 'empty' || visibleDiagnostics.length === 0 ? (
           <div className="flex h-32 items-center justify-center p-4 text-sm text-muted-foreground">No diagnostics found.</div>
         ) : (

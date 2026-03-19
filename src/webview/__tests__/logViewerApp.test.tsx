@@ -327,7 +327,7 @@ describe('Log Viewer App', () => {
     });
   });
 
-  it('falls back to terminal diagnostics state when triage never arrives', async () => {
+  it('shows triage unavailable when the terminal update omits diagnostics', async () => {
     const { vscode } = createVsCodeMock();
     const bus = new EventTarget();
 
@@ -345,7 +345,7 @@ describe('Log Viewer App', () => {
       type: 'logViewerTriageUpdate',
       logId: 'triage-missing-log'
     });
-    await waitFor(() => expect(screen.getByText('No diagnostics found.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Diagnostics unavailable.')).toBeInTheDocument());
   });
 
   it('clears stale diagnostics when logViewerError is received after a successful open', async () => {

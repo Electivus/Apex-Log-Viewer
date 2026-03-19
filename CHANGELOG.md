@@ -11,6 +11,7 @@
 
 ### Bug Fixes
 
+- Open Log View: show an explicit unavailable state in the diagnostics sidebar when async triage fails instead of implying the log is clean.
 - Webview: add a built-in troubleshooting command for the recurring VS Code webview service-worker failure, including direct guidance to the correct `Service Worker` cache folder for `Code` vs `Code - Insiders`.
 - Debug Flags: resolve special trace-flag targets for `Automated Process` and `Platform Integration` by active Salesforce user type instead of relying on specific user names.
 - Telemetry: make `telemetry.json` resolution resilient to stale extension roots and host working-directory differences so schema-guarded telemetry keeps working across runtime and test environments.

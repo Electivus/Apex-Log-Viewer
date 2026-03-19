@@ -17,7 +17,7 @@ import type { ListImperativeAPI } from 'react-window';
 import type { LogViewerMappedDiagnostic } from './utils/logViewerDiagnostics';
 import { buildVisibleEntries, mapDiagnosticsToEntries } from './utils/logViewerDiagnostics';
 
-type TriageState = 'loading' | 'empty' | 'ready';
+type TriageState = 'loading' | 'unavailable' | 'empty' | 'ready';
 type DiagnosticSeverityFilter = 'all' | 'error' | 'warning';
 
 type Metadata = {
@@ -38,6 +38,10 @@ function mapFilterToCategory(filter: LogFilter): LogCategory | undefined {
     default:
       return undefined;
   }
+}
+
+function getResolvedTriageState(triage: LogViewerTriagePayload): Exclude<TriageState, 'loading' | 'unavailable'> {
+  return triage.reasons?.length ? 'ready' : 'empty';
 }
 
 export interface LogViewerAppProps {
@@ -89,7 +93,7 @@ export function LogViewerApp({
         setMetadata(msg.metadata);
         setTriage(msg.triage);
         if (msg.triage) {
-          setTriageState(msg.triage.reasons?.length ? 'ready' : 'empty');
+          setTriageState(getResolvedTriageState(msg.triage));
         } else {
           setTriageState('loading');
         }
@@ -150,7 +154,7 @@ export function LogViewerApp({
           return;
         }
         setTriage(msg.triage);
-        setTriageState(msg.triage ? (msg.triage.reasons?.length ? 'ready' : 'empty') : 'empty');
+        setTriageState(msg.triage ? getResolvedTriageState(msg.triage) : 'unavailable');
       }
     };
     messageBus.addEventListener('message', handler as EventListener);

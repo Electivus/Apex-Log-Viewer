@@ -283,7 +283,7 @@ describe('Log viewer components', () => {
       }
     ];
 
-    it('renders loading, empty, and ready states', () => {
+    it('renders loading, unavailable, empty, and ready states', () => {
       const { rerender } = render(
         <LogDiagnosticsSidebar
           diagnostics={diagnostics}
@@ -294,6 +294,17 @@ describe('Log viewer components', () => {
         />
       );
       screen.getByText('Loading diagnostics…');
+
+      rerender(
+        <LogDiagnosticsSidebar
+          diagnostics={[]}
+          filter="all"
+          onFilterChange={() => {}}
+          onSelectDiagnostic={() => {}}
+          triageState="unavailable"
+        />
+      );
+      screen.getByText('Diagnostics unavailable.');
 
       rerender(
         <LogDiagnosticsSidebar
