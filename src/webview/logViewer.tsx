@@ -41,7 +41,7 @@ function mapFilterToCategory(filter: LogFilter): LogCategory | undefined {
 }
 
 function getResolvedTriageState(triage: LogViewerTriagePayload): Exclude<TriageState, 'loading' | 'unavailable'> {
-  return triage.reasons?.length ? 'ready' : 'empty';
+  return triage.reasons?.length || triage.primaryReason?.trim() ? 'ready' : 'empty';
 }
 
 export interface LogViewerAppProps {
@@ -195,6 +195,10 @@ export function LogViewerApp({
   }, [entries]);
 
   const mappedDiagnostics = useMemo(() => mapDiagnosticsToEntries(entries, triage?.reasons ?? []), [entries, triage?.reasons]);
+  const primaryReason = useMemo(() => {
+    const summary = triage?.primaryReason?.trim();
+    return summary ? summary : undefined;
+  }, [triage?.primaryReason]);
 
   const mappedDiagnosticById = useMemo(() => {
     const map = new Map<number, LogViewerMappedDiagnostic>();
@@ -419,6 +423,7 @@ export function LogViewerApp({
             onSelectDiagnostic={nextActiveDiagnosticId =>
               setActiveDiagnosticId(current => (current === nextActiveDiagnosticId ? undefined : nextActiveDiagnosticId))
             }
+            primaryReason={primaryReason}
             triageState={triageState}
           />
         </div>

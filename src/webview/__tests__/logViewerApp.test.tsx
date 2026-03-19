@@ -348,6 +348,36 @@ describe('Log Viewer App', () => {
     await waitFor(() => expect(screen.getByText('Diagnostics unavailable.')).toBeInTheDocument());
   });
 
+  it('preserves primaryReason-only triage summaries when no diagnostics are returned', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'triage-summary-only-log',
+      locale: 'en-US',
+      fileName: 'summary-only.log',
+      lines: ['12:00:00.000 (1)|USER_DEBUG|[1]|Alpha|A']
+    });
+
+    await screen.findByText('Loading diagnostics…');
+    send(bus, {
+      type: 'logViewerTriageUpdate',
+      logId: 'triage-summary-only-log',
+      triage: {
+        hasErrors: true,
+        primaryReason: 'Fatal exception',
+        reasons: []
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Fatal exception')).toBeInTheDocument();
+      expect(screen.queryByText('No diagnostics found.')).toBeNull();
+    });
+  });
+
   it('clears stale diagnostics when logViewerError is received after a successful open', async () => {
     const { vscode } = createVsCodeMock();
     const bus = new EventTarget();

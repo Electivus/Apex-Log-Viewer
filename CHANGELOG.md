@@ -12,6 +12,7 @@
 ### Bug Fixes
 
 - Open Log View: show an explicit unavailable state in the diagnostics sidebar when async triage fails instead of implying the log is clean.
+- Open Log View: preserve parser `primaryReason` summaries in the diagnostics sidebar even when triage produces no mapped reasons.
 - Open Log View: preserve the rendered bracketed line number in diagnostics when fallback mapping has to jump by physical row position.
 - Webview: add a built-in troubleshooting command for the recurring VS Code webview service-worker failure, including direct guidance to the correct `Service Worker` cache folder for `Code` vs `Code - Insiders`.
 - Debug Flags: resolve special trace-flag targets for `Automated Process` and `Platform Integration` by active Salesforce user type instead of relying on specific user names.

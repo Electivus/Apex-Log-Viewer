@@ -319,6 +319,18 @@ describe('Log viewer components', () => {
 
       rerender(
         <LogDiagnosticsSidebar
+          diagnostics={[]}
+          filter="all"
+          onFilterChange={() => {}}
+          onSelectDiagnostic={() => {}}
+          triageState="ready"
+          primaryReason="Fatal exception"
+        />
+      );
+      screen.getByText('Fatal exception');
+
+      rerender(
+        <LogDiagnosticsSidebar
           diagnostics={diagnostics}
           filter="all"
           onFilterChange={() => {}}
