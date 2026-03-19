@@ -116,7 +116,7 @@ export function mapDiagnosticsToEntries(
       fallbackTarget.diagnostics.push({
         ...reason,
         mappedEntryId: fallbackTarget.entry.id,
-        mappedLineNumber: reason.line
+        mappedLineNumber: fallbackTarget.entry.lineNumber ?? reason.line
       });
       continue;
     }

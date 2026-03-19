@@ -111,7 +111,7 @@ describe('logViewerDiagnostics', () => {
       expect.objectContaining({
         summary: 'fallback-line',
         mappedEntryId: 1,
-        mappedLineNumber: 2
+        mappedLineNumber: 13
       })
     ]);
     expect(result.unmappedDiagnostics.map(d => d.summary)).toEqual(['still-unmapped']);
