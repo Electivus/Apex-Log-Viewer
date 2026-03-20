@@ -60,7 +60,7 @@ Persist one short-lived request in `ExtensionContext.globalState`. The payload s
 
 - `version`: numeric schema version for future evolution
 - `kind`: `'logs' | 'tail' | 'debugFlags' | 'logViewer'`
-- `workspaceUri`: string form of the current workspace URI
+- `workspaceTarget`: a canonical workspace fingerprint object
 - `selectedOrg?`: current selected org username when known
 - `logId?`: required for `logViewer`
 - `filePath?`: required for `logViewer`
@@ -69,6 +69,25 @@ Persist one short-lived request in `ExtensionContext.globalState`. The payload s
 - `nonce`: unique per-request value
 
 The service stores a single pending request under one key such as `pendingNewWindowLaunch`.
+
+### Workspace Fingerprint
+
+The request must not rely on a single raw `workspaceUri` string comparison. This repository already assumes first-folder semantics in several utilities, but VS Code can also run with:
+
+- a saved multi-root workspace file
+- an untitled workspace
+- a remote workspace URI
+
+To avoid false mismatches, `workspaceTarget` should be canonicalized like this:
+
+- when `vscode.workspace.workspaceFile` exists, store:
+  - `type: 'workspaceFile'`
+  - `uri: workspace.workspaceFile.toString()`
+- otherwise, store:
+  - `type: 'folders'`
+  - `uris: vscode.workspace.workspaceFolders.map(folder => folder.uri.toString())`
+
+Validation during restore should require the same target type and the same ordered URI sequence. Do not compare `fsPath` values directly or rely on path casing heuristics.
 
 ### Why `globalState`
 
@@ -97,8 +116,10 @@ Restores the tail workflow by:
 
 1. opening the `salesforceTailPanel` container
 2. opening the `sfLogTail` view
-3. restoring `selectedOrg` when present
-4. invoking the same tail-start behavior already used by the current tail command
+3. restoring `selectedOrg` when present through a new public, testable provider API
+4. allowing the webview bootstrap to load orgs and debug levels normally
+
+The first version does **not** auto-start a running tail session on window restore. That would change current runtime semantics and would require a second design decision about debug-level defaults and implicit trace-flag creation. For now, `tail` restore means "open the Tail view in the new window with the right org selected," not "begin tailing immediately."
 
 ### `debugFlags`
 
@@ -113,7 +134,8 @@ Restores a specific saved Apex log in the new window by reopening `LogViewerPane
 
 - `logId`
 - `filePath`
-- restored `selectedOrg` when present so follow-up actions in that window keep the same org context
+
+If `selectedOrg` exists in the request, it should be restored into the window-level logs provider state before opening the viewer, but `LogViewerPanel` itself remains a `logId/filePath` API. The launch contract must not imply that `selectedOrg` is passed into the `LogViewerPanel` constructor or stored inside the panel.
 
 `logViewer` requires both `logId` and `filePath`. Missing fields make the request invalid.
 
@@ -124,9 +146,11 @@ When the user invokes one of the new commands:
 1. validate that a workspace or folder is open
 2. build a typed request from current context
 3. persist it to `globalState`
-4. call `vscode.commands.executeCommand('vscode.openFolder', workspaceUri, { forceNewWindow: true })`
+4. call `vscode.commands.executeCommand('vscode.openFolder', openTarget, { forceNewWindow: true })`
 
 The command should fail early with a friendly message when no workspace is open, because there is no reliable target window to recreate otherwise.
+
+`openTarget` should prefer `workspace.workspaceFile` when present, otherwise use the first workspace folder URI. This keeps the reopen behavior aligned with how VS Code opens workspaces while still validating restores against the fuller `workspaceTarget` fingerprint above.
 
 ## Consume Flow
 
@@ -139,7 +163,7 @@ The consumer should:
 3. reject stale requests older than a short TTL such as 60 seconds
 4. reject requests whose `workspaceUri` does not match the current workspace
 5. remove the request from storage before executing any launch handler
-6. restore `selectedOrg` when present
+6. restore shared window context such as `selectedOrg` when present
 7. dispatch to the matching surface handler
 
 Removing the request before execution prevents repeated launches on reload or recovery from a partial failure.
@@ -150,12 +174,15 @@ The launch service should not know concrete UI internals. Instead, `extension.ts
 
 Expected handlers:
 
-- `openLogs(selectedOrg?)`
-- `openTail(selectedOrg?)`
-- `openDebugFlags(selectedOrg?)`
-- `openLogViewer({ logId, filePath, selectedOrg? })`
+- `restoreWindowContext({ selectedOrg? })`
+- `openLogs()`
+- `openTail()`
+- `openDebugFlags()`
+- `openLogViewer({ logId, filePath })`
 
 This keeps the service generic while allowing each target to reuse existing extension code paths.
+
+For the first version, implementation planning should include a minimal public restore API on `SfLogTailViewProvider` so extension activation can set the selected org without having to fake webview messages.
 
 ## Command Surface
 
@@ -172,8 +199,11 @@ Place the commands where the user already works:
 
 - logs view title menu: `Open Logs in New Window`
 - tail view title menu: `Open Tail in New Window`
-- debug flags panel title menu: `Open Debug Flags in New Window`
+- command palette for all four commands
+- logs and tail entry points may also route to the new-window commands from existing webview UI actions where that already fits the product flow
 - editor title or related log-viewer entry points: `Open Log Viewer in New Window`
+
+`Debug Flags` should not assume a `view/title` contribution in v1 because it is currently a free-floating `WebviewPanel`, not a contributed `WebviewView`. If a panel-title affordance is later desired, that should be designed explicitly through a webview action or another VS Code-supported entry point.
 
 The labels should stay explicit about opening a new window rather than moving the current one.
 
@@ -232,16 +262,26 @@ Implementation planning should cover these unit and behavior tests.
 - `Open Debug Flags in New Window` stores a `debugFlags` request and calls `vscode.openFolder(..., { forceNewWindow: true })`
 - `Open Log Viewer in New Window` stores the correct `logViewer` request with `logId` and `filePath`
 - activation consumes and restores each supported `kind`
-- activation restores `selectedOrg` before dispatch when present
+- activation restores shared window context before dispatch when present
+- tail restore reuses a real provider API for selected-org restoration instead of depending on synthetic webview messages
 
 ### Existing surface contracts
 
 - logs restore still uses the same view-opening fallback behavior already used by the refresh command
-- tail restore still uses the same tail-start flow
+- tail restore opens the Tail view and restores org selection, but does not start tailing automatically
 - log viewer restore still routes through `LogViewerPanel`
 - debug flags restore still routes through `DebugFlagsPanel`
 
 The first implementation does not require Playwright or VS Code integration coverage. The critical risk is command orchestration and request validation, which are better handled by deterministic unit tests.
+
+### Manifest and registration coverage
+
+Implementation planning should also include tests or assertions for:
+
+- new command registration in `package.json`
+- localized command titles in NLS resources where applicable
+- menu contributions and `when` clauses for the new entry points
+- activation-time consumption wiring so the new window restore path actually runs during startup
 
 ## Scope Boundaries
 
