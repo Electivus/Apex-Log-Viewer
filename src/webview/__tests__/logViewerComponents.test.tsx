@@ -381,6 +381,29 @@ describe('Log viewer components', () => {
       expect(selectCalls).toEqual([2]);
     });
 
+    it('preserves the parser line number when a diagnostic cannot map to a rendered row', () => {
+      render(
+        <LogDiagnosticsSidebar
+          diagnostics={[
+            {
+              code: 'suspicious_error_payload',
+              severity: 'warning',
+              summary: 'Original parser line',
+              originalIndex: 3,
+              line: 99
+            }
+          ]}
+          filter="all"
+          onFilterChange={() => {}}
+          onSelectDiagnostic={() => {}}
+          triageState="ready"
+        />
+      );
+
+      screen.getByText('Line 99');
+      expect(screen.queryByText('Unmapped')).toBeNull();
+    });
+
     it('shows an empty filtered state when the current severity has no matches', () => {
       render(
         <LogDiagnosticsSidebar

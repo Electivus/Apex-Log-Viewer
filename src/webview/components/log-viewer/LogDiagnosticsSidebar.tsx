@@ -92,7 +92,7 @@ export function LogDiagnosticsSidebar({
             {visibleDiagnostics.map(diagnostic => {
               const isActive = diagnostic.originalIndex === activeId;
               const isError = diagnostic.severity === 'error';
-              const canJumpToLine = diagnostic.mappedLineNumber !== undefined;
+              const displayLineNumber = diagnostic.mappedLineNumber ?? diagnostic.line;
               return (
                 <li key={diagnostic.originalIndex}>
                   <button
@@ -117,7 +117,7 @@ export function LogDiagnosticsSidebar({
                     </div>
                     <div className="break-words text-foreground">{diagnostic.summary}</div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {canJumpToLine ? `Line ${diagnostic.mappedLineNumber}` : 'Unmapped'}
+                      {displayLineNumber !== undefined ? `Line ${displayLineNumber}` : 'Unmapped'}
                     </div>
                   </button>
                 </li>
