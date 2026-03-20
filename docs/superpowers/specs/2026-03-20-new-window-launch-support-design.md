@@ -72,22 +72,28 @@ The service stores a single pending request under one key such as `pendingNewWin
 
 ### Workspace Fingerprint
 
-The request must not rely on a single raw `workspaceUri` string comparison. This repository already assumes first-folder semantics in several utilities, but VS Code can also run with:
+The request must not rely on a raw `fsPath` comparison. This repository already assumes first-folder semantics in several utilities, but the launch feature still needs to distinguish the two workspace shapes the public reopen flow can recreate reliably:
 
-- a saved multi-root workspace file
-- an untitled workspace
-- a remote workspace URI
+- a workspace window identified by `vscode.workspace.workspaceFile`
+- a single-folder window identified by the first workspace folder URI
 
-To avoid false mismatches, `workspaceTarget` should be canonicalized like this:
+To keep restore behavior aligned with real `vscode.openFolder(...)` behavior, `workspaceTarget` should be canonicalized like this:
 
 - when `vscode.workspace.workspaceFile` exists, store:
   - `type: 'workspaceFile'`
   - `uri: workspace.workspaceFile.toString()`
 - otherwise, store:
-  - `type: 'folders'`
-  - `uris: vscode.workspace.workspaceFolders.map(folder => folder.uri.toString())`
+  - `type: 'folder'`
+  - `uri: vscode.workspace.workspaceFolders?.[0]?.uri.toString()`
 
-Validation during restore should require the same target type and the same ordered URI sequence. Do not compare `fsPath` values directly or rely on path casing heuristics.
+Validation during restore should require the same target type and the same URI string. Do not compare `fsPath` values directly or rely on path casing heuristics.
+
+This means v1 explicitly supports:
+
+- saved or untitled workspace-file windows
+- single-folder windows
+
+It does not add any separate reopen strategy for arbitrary folder lists beyond what VS Code already represents as a workspace file.
 
 ### Why `globalState`
 
@@ -161,12 +167,14 @@ The consumer should:
 1. read the pending request
 2. validate schema version and `kind`
 3. reject stale requests older than a short TTL such as 60 seconds
-4. reject requests whose `workspaceUri` does not match the current workspace
+4. reject requests whose `workspaceTarget` does not match the current window fingerprint
 5. remove the request from storage before executing any launch handler
 6. restore shared window context such as `selectedOrg` when present
 7. dispatch to the matching surface handler
 
 Removing the request before execution prevents repeated launches on reload or recovery from a partial failure.
+
+`restoreWindowContext(...)` must always run before surface dispatch. The surface handlers may still accept `selectedOrg?` explicitly when their open path needs it at call time rather than through previously-restored shared provider state.
 
 ## Surface Handlers
 
@@ -175,14 +183,26 @@ The launch service should not know concrete UI internals. Instead, `extension.ts
 Expected handlers:
 
 - `restoreWindowContext({ selectedOrg? })`
-- `openLogs()`
-- `openTail()`
-- `openDebugFlags()`
-- `openLogViewer({ logId, filePath })`
+- `openLogs({ selectedOrg? })`
+- `openTail({ selectedOrg? })`
+- `openDebugFlags({ selectedOrg? })`
+- `openLogViewer({ logId, filePath, selectedOrg? })`
 
 This keeps the service generic while allowing each target to reuse existing extension code paths.
 
+The sequencing contract is:
+
+1. `restoreWindowContext(...)`
+2. `open<Kind>(...)`
+
 For the first version, implementation planning should include a minimal public restore API on `SfLogTailViewProvider` so extension activation can set the selected org without having to fake webview messages.
+
+Per-surface restore rules:
+
+- `logs`: restore provider org state first, then reveal and refresh
+- `tail`: restore provider org state first through the new public API, then reveal the tail view without auto-start
+- `debugFlags`: pass `selectedOrg` into `DebugFlagsPanel.show(...)` at open time even if shared context was already restored
+- `logViewer`: restore shared window context first when present, then call `LogViewerPanel.show({ logId, filePath })`; do not pass org into the panel constructor
 
 ## Command Surface
 
@@ -290,6 +310,7 @@ In scope:
 - a shared new-window launch service
 - four new user-facing commands
 - restoration of selected org context
+- a public restore API on `SfLogTailViewProvider` for selected-org handoff
 - startup consumption of pending launch requests
 - unit and behavior tests for launch persistence and restoration
 
