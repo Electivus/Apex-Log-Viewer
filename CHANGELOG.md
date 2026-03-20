@@ -2,38 +2,44 @@
 
 ## Unreleased
 
+## [0.34.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.32.0...v0.34.0) (2026-03-20)
+
 ### Features
 
-- Debug Flags: add special-target facilitators for `Automated Process` and `Platform Integration` directly in the panel, including aggregated status plus apply/remove flows across all matching active `USER_DEBUG` trace-flag targets.
-- Logs: surface a compact triage reason badge beside the existing error badge when the parser provides a primary reason for an error row.
-- Open Log View: add an async diagnostics sidebar with parser-backed triage results, clickable error navigation, and row highlighting that keeps the active diagnostic visible through filters and search.
-- Telemetry: enforce a public telemetry schema via `telemetry.json`, standardize `outcome` handling across events, and fold activation timing into `extension.activate` instead of emitting a separate duration event.
+- Debug Flags: add special-target facilitators for `Automated Process` and `Platform Integration` directly in the panel, including aggregated status plus apply/remove flows across all matching active `USER_DEBUG` trace-flag targets. ([#585](https://github.com/Electivus/Apex-Log-Viewer/pull/585)) ([#589](https://github.com/Electivus/Apex-Log-Viewer/pull/589))
+- Logs: surface a compact triage reason badge beside the existing error badge when the parser provides a primary reason for an error row. ([#611](https://github.com/Electivus/Apex-Log-Viewer/pull/611))
+- Open Log View: add an async diagnostics sidebar with parser-backed triage results, clickable error navigation, and row highlighting that keeps the active diagnostic visible through filters and search. ([#615](https://github.com/Electivus/Apex-Log-Viewer/pull/615))
+- Telemetry: enforce a public telemetry schema via `telemetry.json`, standardize `outcome` handling across events, and fold activation timing into `extension.activate` instead of emitting a separate duration event. ([#595](https://github.com/Electivus/Apex-Log-Viewer/pull/595))
 
 ### Bug Fixes
 
-- Open Log View: map diagnostics with duplicated Apex line numbers to the matching log event type so sidebar clicks land on the correct row.
-- Open Log View: show an explicit unavailable state in the diagnostics sidebar when async triage fails instead of implying the log is clean.
-- Open Log View: reset the diagnostics severity filter when opening or refreshing a log so hidden sidebar state does not suppress new results.
-- Open Log View: re-scroll the virtualized log list when switching between diagnostics that collapse onto the same rendered row.
-- Open Log View: keep severity filters honest by showing the empty sidebar state when no diagnostics match the selected filter instead of falling back to the primary summary card.
-- Open Log View: preserve parser-reported line numbers in sidebar diagnostics even when the mapping step cannot resolve a rendered row.
-- Open Log View: preserve parser `primaryReason` summaries in the diagnostics sidebar even when triage produces no mapped reasons.
-- Open Log View: preserve the rendered bracketed line number in diagnostics when fallback mapping has to jump by physical row position.
-- Webview: add a built-in troubleshooting command for the recurring VS Code webview service-worker failure, including direct guidance to the correct `Service Worker` cache folder for `Code` vs `Code - Insiders`.
-- Debug Flags: resolve special trace-flag targets for `Automated Process` and `Platform Integration` by active Salesforce user type instead of relying on specific user names.
-- Telemetry: make `telemetry.json` resolution resilient to stale extension roots and host working-directory differences so schema-guarded telemetry keeps working across runtime and test environments.
+- Debug Flags: reset panel state when switching orgs so trace-flag selections and banners do not leak across connections. ([#587](https://github.com/Electivus/Apex-Log-Viewer/pull/587))
+- Open Log View: map diagnostics with duplicated Apex line numbers to the matching log event type so sidebar clicks land on the correct row. ([#616](https://github.com/Electivus/Apex-Log-Viewer/pull/616))
+- Open Log View: show an explicit unavailable state in the diagnostics sidebar when async triage fails instead of implying the log is clean. ([#615](https://github.com/Electivus/Apex-Log-Viewer/pull/615))
+- Open Log View: reset the diagnostics severity filter when opening or refreshing a log so hidden sidebar state does not suppress new results. ([#615](https://github.com/Electivus/Apex-Log-Viewer/pull/615))
+- Open Log View: re-scroll the virtualized log list when switching between diagnostics that collapse onto the same rendered row. ([#615](https://github.com/Electivus/Apex-Log-Viewer/pull/615))
+- Open Log View: keep severity filters honest by showing the empty sidebar state when no diagnostics match the selected filter instead of falling back to the primary summary card. ([#615](https://github.com/Electivus/Apex-Log-Viewer/pull/615))
+- Open Log View: preserve parser-reported line numbers and `primaryReason` summaries in sidebar diagnostics even when mapping cannot resolve a rendered row. ([#611](https://github.com/Electivus/Apex-Log-Viewer/pull/611)) ([#615](https://github.com/Electivus/Apex-Log-Viewer/pull/615))
+- Open Log View: preserve the rendered bracketed line number in diagnostics when fallback mapping has to jump by physical row position. ([#615](https://github.com/Electivus/Apex-Log-Viewer/pull/615))
+- Webview: add a built-in troubleshooting command for the recurring VS Code webview service-worker failure, including direct guidance to the correct `Service Worker` cache folder for `Code` vs `Code - Insiders`. ([#594](https://github.com/Electivus/Apex-Log-Viewer/pull/594))
+- Debug Flags: resolve special trace-flag targets for `Automated Process` and `Platform Integration` by active Salesforce user type instead of relying on specific user names. ([#610](https://github.com/Electivus/Apex-Log-Viewer/pull/610))
+- Telemetry: make `telemetry.json` resolution resilient to stale extension roots and host working-directory differences so schema-guarded telemetry keeps working across runtime and test environments. ([#610](https://github.com/Electivus/Apex-Log-Viewer/pull/610))
+
+### Refactors
+
+- Salesforce runtime: migrate the extension's Salesforce access layer from CLI-driven flows to `jsforce` while preserving existing log and trace-flag behaviors. ([#592](https://github.com/Electivus/Apex-Log-Viewer/pull/592))
 
 ### Chores
 
-- Docs/telemetry: align maintainer guidance with the checked-in connection-string strategy, document how `common.*` metadata should be treated, and add supported KQL query examples for App Insights review.
-- Telemetry/E2E: provision and document a dedicated App Insights component for test validation (`appi-apex-log-viewer-telemetry-e2e-eastus`) while keeping production telemetry isolated.
+- Docs/maintainers: refresh repo workflow guidance, Codex environment setup, and telemetry review documentation for the current release process. ([#586](https://github.com/Electivus/Apex-Log-Viewer/pull/586)) ([#590](https://github.com/Electivus/Apex-Log-Viewer/pull/590)) ([#595](https://github.com/Electivus/Apex-Log-Viewer/pull/595))
+- Dependencies/tooling: refresh selected runtime, dev, parser, and workflow dependencies across the extension toolchain, including grouped npm updates and the latest GitHub Actions login action. ([#591](https://github.com/Electivus/Apex-Log-Viewer/pull/591)) ([#606](https://github.com/Electivus/Apex-Log-Viewer/pull/606)) ([#612](https://github.com/Electivus/Apex-Log-Viewer/pull/612)) ([#613](https://github.com/Electivus/Apex-Log-Viewer/pull/613)) ([#617](https://github.com/Electivus/Apex-Log-Viewer/pull/617)) ([#618](https://github.com/Electivus/Apex-Log-Viewer/pull/618)) ([#619](https://github.com/Electivus/Apex-Log-Viewer/pull/619)) ([#620](https://github.com/Electivus/Apex-Log-Viewer/pull/620)) ([#621](https://github.com/Electivus/Apex-Log-Viewer/pull/621)) ([#622](https://github.com/Electivus/Apex-Log-Viewer/pull/622)) ([#623](https://github.com/Electivus/Apex-Log-Viewer/pull/623))
 
 ### Tests
 
-- Webview: add coverage for platform-specific `Service Worker` cache path resolution and keep activation tests asserting the troubleshooting command stays registered.
-- Telemetry: add contract coverage for schema-declared event names, required `outcome` fields, activation-duration modeling, and wrapper-side filtering of undeclared properties and measurements.
-- Telemetry/E2E: add an explicit `npm run test:e2e:telemetry` path that injects a test-only connection string plus `testRunId` and validates that the current Playwright run reaches the dedicated App Insights resource.
-- Debug Flags: update unit and E2E-helper coverage so special trace-flag targets are discovered by active user type without name-based fallbacks.
+- Webview: add coverage for platform-specific `Service Worker` cache path resolution and keep activation tests asserting the troubleshooting command stays registered. ([#594](https://github.com/Electivus/Apex-Log-Viewer/pull/594))
+- Telemetry: add contract coverage for schema-declared event names, required `outcome` fields, activation-duration modeling, wrapper-side filtering of undeclared properties and measurements, and a dedicated `npm run test:e2e:telemetry` flow against the test App Insights resource. ([#595](https://github.com/Electivus/Apex-Log-Viewer/pull/595))
+- Debug Flags: update unit and E2E-helper coverage so special trace-flag targets are discovered by active user type without name-based fallbacks, including special-target timestamp aggregation cases. ([#589](https://github.com/Electivus/Apex-Log-Viewer/pull/589)) ([#593](https://github.com/Electivus/Apex-Log-Viewer/pull/593))
+- Testing/CI: speed up E2E harness setup and ignore the false coverage environment flag in `run-tests-cli` so the CI-equivalent suite stays stable. ([#598](https://github.com/Electivus/Apex-Log-Viewer/pull/598)) ([#614](https://github.com/Electivus/Apex-Log-Viewer/pull/614))
 
 ## [0.32.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.30.0...v0.32.0) (2026-03-09)
 
