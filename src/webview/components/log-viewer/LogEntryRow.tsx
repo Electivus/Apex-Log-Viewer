@@ -2,18 +2,32 @@ import React, { useLayoutEffect, useRef } from 'react';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
 import type { LogCategory, ParsedLogEntry } from '../../utils/logViewerParser';
+import type { LogViewerMappedDiagnostic } from '../../utils/logViewerDiagnostics';
 import { Bug, Database, Edit3, Settings, Info, AlertTriangle, AlertOctagon, Cpu } from 'lucide-react';
 
 interface Props {
   entry: ParsedLogEntry;
   highlighted: boolean;
+  isActiveDiagnostic?: boolean;
   isMatch?: boolean;
   isActiveMatch?: boolean;
+  diagnostics?: readonly LogViewerMappedDiagnostic[];
+  activeDiagnosticId?: number;
   searchTerm?: string;
   onMeasured: (height: number) => void;
 }
 
-export function LogEntryRow({ entry, highlighted, isMatch, isActiveMatch, searchTerm, onMeasured }: Props) {
+export function LogEntryRow({
+  entry,
+  highlighted,
+  isActiveDiagnostic,
+  isMatch,
+  isActiveMatch,
+  diagnostics,
+  activeDiagnosticId,
+  searchTerm,
+  onMeasured
+}: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
@@ -34,6 +48,8 @@ export function LogEntryRow({ entry, highlighted, isMatch, isActiveMatch, search
   const { badgeClass, icon: Icon, iconClass } = getCategoryVisuals(entry.category);
   const normalizedTerm = (searchTerm ?? '').trim();
   const showMatchHighlight = normalizedTerm.length > 0 && isMatch;
+  const rowDiagnostics = diagnostics ?? [];
+  const hasActiveDiagnostic = typeof activeDiagnosticId === 'number';
 
   return (
     <div
@@ -42,8 +58,9 @@ export function LogEntryRow({ entry, highlighted, isMatch, isActiveMatch, search
         'flex items-start gap-3 border-b border-border/40 px-4 py-2 text-xs transition-colors',
         !(highlighted || showMatchHighlight || isActiveMatch) && 'hover:bg-muted/20',
         highlighted && 'bg-sky-500/10',
+        isActiveDiagnostic && 'bg-amber-500/20 ring-2 ring-amber-400/60',
         showMatchHighlight && 'bg-amber-500/10',
-        isActiveMatch && 'bg-amber-500/20 ring-1 ring-amber-400'
+        isActiveMatch && !isActiveDiagnostic && 'bg-amber-500/20 ring-1 ring-amber-400'
       )}
     >
       <div className="mt-0.5 min-w-[84px] font-mono text-[11px] text-muted-foreground">
@@ -63,6 +80,26 @@ export function LogEntryRow({ entry, highlighted, isMatch, isActiveMatch, search
         {entry.details && (
           <div className="rounded-md bg-muted/15 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-inner">
             {highlightText(entry.details, normalizedTerm)}
+          </div>
+        )}
+        {rowDiagnostics.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-2" role="list">
+            {rowDiagnostics.map(diagnostic => {
+              const isActive = hasActiveDiagnostic && diagnostic.originalIndex === activeDiagnosticId;
+              return (
+                <Badge
+                  key={diagnostic.originalIndex}
+                  variant="outline"
+                  className={cn(
+                    'text-[11px]',
+                    isActive ? 'border-amber-300 bg-amber-500/30 text-amber-100' : 'border-muted-foreground/30 bg-muted/20',
+                    diagnostic.severity === 'error' ? 'text-red-200' : 'text-amber-200'
+                  )}
+                >
+                  {diagnostic.summary}
+                </Badge>
+              );
+            })}
           </div>
         )}
       </div>

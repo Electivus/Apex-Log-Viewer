@@ -6,10 +6,18 @@
 
 - Debug Flags: add special-target facilitators for `Automated Process` and `Platform Integration` directly in the panel, including aggregated status plus apply/remove flows across all matching active `USER_DEBUG` trace-flag targets.
 - Logs: surface a compact triage reason badge beside the existing error badge when the parser provides a primary reason for an error row.
+- Open Log View: add an async diagnostics sidebar with parser-backed triage results, clickable error navigation, and row highlighting that keeps the active diagnostic visible through filters and search.
 - Telemetry: enforce a public telemetry schema via `telemetry.json`, standardize `outcome` handling across events, and fold activation timing into `extension.activate` instead of emitting a separate duration event.
 
 ### Bug Fixes
 
+- Open Log View: show an explicit unavailable state in the diagnostics sidebar when async triage fails instead of implying the log is clean.
+- Open Log View: reset the diagnostics severity filter when opening or refreshing a log so hidden sidebar state does not suppress new results.
+- Open Log View: re-scroll the virtualized log list when switching between diagnostics that collapse onto the same rendered row.
+- Open Log View: keep severity filters honest by showing the empty sidebar state when no diagnostics match the selected filter instead of falling back to the primary summary card.
+- Open Log View: preserve parser-reported line numbers in sidebar diagnostics even when the mapping step cannot resolve a rendered row.
+- Open Log View: preserve parser `primaryReason` summaries in the diagnostics sidebar even when triage produces no mapped reasons.
+- Open Log View: preserve the rendered bracketed line number in diagnostics when fallback mapping has to jump by physical row position.
 - Webview: add a built-in troubleshooting command for the recurring VS Code webview service-worker failure, including direct guidance to the correct `Service Worker` cache folder for `Code` vs `Code - Insiders`.
 - Debug Flags: resolve special trace-flag targets for `Automated Process` and `Platform Integration` by active Salesforce user type instead of relying on specific user names.
 - Telemetry: make `telemetry.json` resolution resilient to stale extension roots and host working-directory differences so schema-guarded telemetry keeps working across runtime and test environments.

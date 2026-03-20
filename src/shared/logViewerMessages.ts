@@ -1,4 +1,11 @@
 import type * as vscode from 'vscode';
+import type { LogDiagnostic } from './logTriage';
+
+export type LogViewerTriagePayload = {
+  hasErrors: boolean;
+  primaryReason?: string;
+  reasons: LogDiagnostic[];
+};
 
 export type LogViewerToWebviewMessage =
   | {
@@ -12,7 +19,9 @@ export type LogViewerToWebviewMessage =
         sizeBytes?: number;
         modifiedAt?: string;
       };
+      triage?: LogViewerTriagePayload;
     }
+  | { type: 'logViewerTriageUpdate'; logId: string; triage?: LogViewerTriagePayload }
   | { type: 'logViewerError'; message: string };
 
 export type LogViewerFromWebviewMessage =

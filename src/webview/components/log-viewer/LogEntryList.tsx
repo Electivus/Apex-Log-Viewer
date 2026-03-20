@@ -1,13 +1,22 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { List, type ListImperativeAPI } from 'react-window';
 import type { ParsedLogEntry, LogCategory } from '../../utils/logViewerParser';
+import type { LogViewerMappedDiagnostic } from '../../utils/logViewerDiagnostics';
 import { LogEntryRow } from './LogEntryRow';
+
+export type LogEntryDiagnosticSummary = {
+  entryId: number;
+  diagnostics: readonly LogViewerMappedDiagnostic[];
+};
 
 interface Props {
   entries: ParsedLogEntry[];
   highlightCategory?: LogCategory;
   matchIndices?: number[];
   activeMatchIndex?: number;
+  entryDiagnosticSummaries?: readonly LogEntryDiagnosticSummary[];
+  activeDiagnosticId?: number;
+  activeDiagnosticEntryIndex?: number;
   searchTerm?: string;
   listRef?: React.RefObject<ListImperativeAPI | null>;
   virtualListComponent?: typeof List;
@@ -19,6 +28,9 @@ export function LogEntryList({
   highlightCategory,
   matchIndices,
   activeMatchIndex,
+  entryDiagnosticSummaries,
+  activeDiagnosticId,
+  activeDiagnosticEntryIndex,
   searchTerm,
   listRef,
   virtualListComponent,
@@ -86,6 +98,17 @@ export function LogEntryList({
     return new Set(matchIndices);
   }, [matchIndices]);
 
+  const diagnosticsByEntryId = useMemo(() => {
+    const map = new Map<number, readonly LogViewerMappedDiagnostic[]>();
+    for (const summary of entryDiagnosticSummaries ?? []) {
+      if (summary?.entryId === undefined || summary.entryId === null) {
+        continue;
+      }
+      map.set(summary.entryId, summary.diagnostics ?? []);
+    }
+    return map;
+  }, [entryDiagnosticSummaries]);
+
   const activeMatchEntryIndex = useMemo(() => {
     if (activeMatchIndex === undefined || activeMatchIndex === null || activeMatchIndex < 0) {
       return undefined;
@@ -93,9 +116,34 @@ export function LogEntryList({
     return matchIndices?.[activeMatchIndex];
   }, [activeMatchIndex, matchIndices]);
 
+  useLayoutEffect(() => {
+    if (
+      activeDiagnosticEntryIndex === undefined ||
+      activeDiagnosticEntryIndex === null ||
+      activeDiagnosticEntryIndex < 0 ||
+      activeDiagnosticEntryIndex >= entries.length
+    ) {
+      return;
+    }
+    resolvedListRef.current?.scrollToRow({
+      index: activeDiagnosticEntryIndex,
+      align: 'center',
+      behavior: 'auto'
+    });
+  }, [activeDiagnosticEntryIndex, activeDiagnosticId, entries.length, resolvedListRef]);
+
   const data = useMemo(
-    () => ({ entries, highlightCategory, setRowHeight, matchSet, activeMatchEntryIndex, searchTerm }),
-    [entries, highlightCategory, setRowHeight, matchSet, activeMatchEntryIndex, searchTerm]
+    () => ({
+      entries,
+      highlightCategory,
+      setRowHeight,
+      matchSet,
+      activeMatchEntryIndex,
+      activeDiagnosticId,
+      diagnosticsByEntryId,
+      searchTerm
+    }),
+    [diagnosticsByEntryId, entries, highlightCategory, setRowHeight, matchSet, activeMatchEntryIndex, activeDiagnosticId, searchTerm]
   );
 
   const renderRow = useCallback(
@@ -107,6 +155,8 @@ export function LogEntryList({
       setRowHeight: measure,
       matchSet: matchLookup,
       activeMatchEntryIndex: activeIndex,
+      activeDiagnosticId: diagnosticId,
+      diagnosticsByEntryId: diagnosticsById,
       searchTerm: term
     }: any) => {
       const entry = listEntries[index] as ParsedLogEntry | undefined;
@@ -114,6 +164,8 @@ export function LogEntryList({
       const highlighted = target ? entry.category === target : false;
       const isMatch = matchLookup ? matchLookup.has(index) : false;
       const isActiveMatch = isMatch && activeIndex === index;
+      const isActiveDiagnostic = index === activeDiagnosticEntryIndex;
+      const rowDiagnostics = diagnosticsById.get(entry.id) ?? [];
       return (
         <div style={style}>
           <Row
@@ -121,13 +173,16 @@ export function LogEntryList({
             highlighted={highlighted}
             isMatch={isMatch}
             isActiveMatch={isActiveMatch}
+            isActiveDiagnostic={isActiveDiagnostic}
+            diagnostics={rowDiagnostics}
+            activeDiagnosticId={diagnosticId}
             searchTerm={term}
             onMeasured={h => measure(index, h)}
           />
         </div>
       );
     },
-    []
+    [activeDiagnosticEntryIndex]
   );
 
   return (

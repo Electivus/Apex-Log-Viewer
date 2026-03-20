@@ -4,7 +4,13 @@ import * as path from 'path';
 import { buildWebviewHtml } from '../utils/webviewHtml';
 import { logInfo, logWarn } from '../utils/logger';
 import { getErrorMessage } from '../utils/error';
-import type { LogViewerFromWebviewMessage, LogViewerToWebviewMessage } from '../shared/logViewerMessages';
+import { summarizeLogFile } from '../services/logTriage';
+import { normalizeLogTriageSummary, type LogDiagnostic } from '../shared/logTriage';
+import type {
+  LogViewerFromWebviewMessage,
+  LogViewerToWebviewMessage,
+  LogViewerTriagePayload
+} from '../shared/logViewerMessages';
 
 interface ShowOptions {
   logId: string;
@@ -82,6 +88,8 @@ export class LogViewerPanel {
   private ready = false;
   private disposed = false;
   private cacheBust = Date.now();
+  private triageRequest = 0;
+  private triageRequested = false;
 
   private constructor(
     extensionUri: vscode.Uri,
@@ -136,6 +144,7 @@ export class LogViewerPanel {
       case 'logViewerReady':
         this.ready = true;
         this.postInit();
+        this.requestTriageUpdate();
         break;
       case 'logViewerViewRaw':
         await this.viewRaw();
@@ -186,11 +195,93 @@ export class LogViewerPanel {
     void this.panel.webview.postMessage(message);
   }
 
+  private requestTriageUpdate(force = false): void {
+    if (!this.ready || this.disposed) {
+      return;
+    }
+
+    if (this.triageRequested && !force) {
+      return;
+    }
+
+    const requestId = ++this.triageRequest;
+    this.triageRequested = true;
+    void this.loadTriage(requestId);
+  }
+
+  private async loadTriage(requestId: number): Promise<void> {
+    const postUnavailableMessage = (): void => {
+      void this.panel.webview.postMessage({
+        type: 'logViewerTriageUpdate',
+        logId: this.logId
+      } as LogViewerToWebviewMessage);
+    };
+
+    try {
+      const triage = await summarizeLogFile(this.filePath);
+      if (!this.shouldPublishTriage(requestId)) {
+        return;
+      }
+
+      const normalizedTriage = this.normalizeTriage(triage);
+      if (!normalizedTriage) {
+        postUnavailableMessage();
+        return;
+      }
+
+      const message: LogViewerToWebviewMessage = {
+        type: 'logViewerTriageUpdate',
+        logId: this.logId,
+        triage: normalizedTriage
+      };
+      void this.panel.webview.postMessage(message);
+    } catch (err) {
+      logWarn('LogViewerPanel: summarizeLogFile failed ->', getErrorMessage(err));
+      if (!this.shouldPublishTriage(requestId)) {
+        return;
+      }
+      postUnavailableMessage();
+    } finally {
+      if (this.triageRequest === requestId) {
+        this.triageRequested = false;
+      }
+    }
+  }
+
+  private shouldPublishTriage(requestId: number): boolean {
+    return !this.disposed && this.ready && this.triageRequest === requestId && LogViewerPanel.panels.get(this.filePath) === this;
+  }
+
+  private normalizeTriage(rawTriage: unknown): LogViewerTriagePayload | undefined {
+    if (!rawTriage || typeof rawTriage !== 'object') {
+      return undefined;
+    }
+
+    const summary = normalizeLogTriageSummary(rawTriage);
+    const reasons = summary.reasons.map(reason => {
+      const typed = reason as Pick<LogDiagnostic, 'code' | 'severity' | 'summary' | 'line' | 'eventType'>;
+      return {
+        code: typed.code,
+        severity: typed.severity,
+        summary: typed.summary,
+        ...(typed.line !== undefined ? { line: typed.line } : {}),
+        ...(typed.eventType !== undefined ? { eventType: typed.eventType } : {})
+      };
+    });
+
+    return {
+      hasErrors: summary.hasErrors,
+      primaryReason: summary.primaryReason,
+      reasons
+    };
+  }
+
   private update(stats: Stats | undefined): void {
     this.stats = stats;
     this.cacheBust = Date.now();
     if (this.ready) {
       this.postInit();
+      this.requestTriageUpdate(true);
     }
   }
 
