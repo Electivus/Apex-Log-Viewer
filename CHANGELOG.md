@@ -38,7 +38,7 @@
 
 - Webview: add coverage for platform-specific `Service Worker` cache path resolution and keep activation tests asserting the troubleshooting command stays registered. ([#594](https://github.com/Electivus/Apex-Log-Viewer/pull/594))
 - Telemetry: add contract coverage for schema-declared event names, required `outcome` fields, activation-duration modeling, wrapper-side filtering of undeclared properties and measurements, and a dedicated `npm run test:e2e:telemetry` flow against the test App Insights resource. ([#595](https://github.com/Electivus/Apex-Log-Viewer/pull/595))
-- Debug Flags: update unit and E2E-helper coverage so special trace-flag targets are discovered by active user type without name-based fallbacks, including special-target timestamp aggregation cases. ([#589](https://github.com/Electivus/Apex-Log-Viewer/pull/589)) ([#593](https://github.com/Electivus/Apex-Log-Viewer/pull/593))
+- Debug Flags: update unit and E2E-helper coverage so special trace-flag targets are discovered by active user type, default missing special-target names to the queried fallback label, and keep special-target timestamp aggregation cases covered. ([#588](https://github.com/Electivus/Apex-Log-Viewer/pull/588)) ([#589](https://github.com/Electivus/Apex-Log-Viewer/pull/589)) ([#593](https://github.com/Electivus/Apex-Log-Viewer/pull/593))
 - Testing/CI: speed up E2E harness setup and ignore the false coverage environment flag in `run-tests-cli` so the CI-equivalent suite stays stable. ([#598](https://github.com/Electivus/Apex-Log-Viewer/pull/598)) ([#614](https://github.com/Electivus/Apex-Log-Viewer/pull/614))
 
 ## [0.32.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.30.0...v0.32.0) (2026-03-09)
