@@ -18,10 +18,17 @@ suite('dependabot config', () => {
     const raw = await readFile(path.join(repoRoot, '.github', 'dependabot.yml'), 'utf8');
     const tailwindGroup = getGroupBlock(raw, 'tailwind');
 
+    assert.match(tailwindGroup, / {10}- 'tailwindcss'/, 'tailwind group should include tailwindcss');
+    assert.match(tailwindGroup, / {10}- '@tailwindcss\/\*'/, 'tailwind group should include @tailwindcss/*');
     assert.match(
       tailwindGroup,
       / {10}- 'tailwindcss-\*'/,
       'tailwind group should include tailwindcss-* so tailwindcss-animate stays grouped'
+    );
+    assert.doesNotMatch(
+      tailwindGroup,
+      / {8}update-types:\n(?: {10}- .+\n)+/,
+      'tailwind group should not exclude major updates because the CLI and core packages need to stay aligned'
     );
     assert.doesNotMatch(
       tailwindGroup,
@@ -60,6 +67,26 @@ suite('dependabot config', () => {
       typescriptEslintGroup,
       / {8}update-types:\n(?: {10}- .+\n)+/,
       'typescript-eslint group should not exclude major updates because plugin and parser majors are coupled'
+    );
+  });
+
+  test('keeps Jest majors grouped with ts-jest and related test tooling', async () => {
+    const repoRoot = path.resolve(__dirname, '..', '..');
+    const raw = await readFile(path.join(repoRoot, '.github', 'dependabot.yml'), 'utf8');
+    const testingGroup = getGroupBlock(raw, 'testing');
+
+    assert.match(testingGroup, / {10}- 'jest'/, 'testing group should include jest');
+    assert.match(testingGroup, / {10}- 'jest-\*'/, 'testing group should include jest-*');
+    assert.match(
+      testingGroup,
+      / {10}- 'jest-environment-\*'/,
+      'testing group should include jest-environment-*'
+    );
+    assert.match(testingGroup, / {10}- 'ts-jest'/, 'testing group should include ts-jest');
+    assert.doesNotMatch(
+      testingGroup,
+      / {8}update-types:\n(?: {10}- .+\n)+/,
+      'testing group should not exclude major updates because Jest and ts-jest majors need to stay aligned'
     );
   });
 });
