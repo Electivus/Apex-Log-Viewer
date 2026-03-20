@@ -169,14 +169,14 @@ function createExtensionHarness(options: {
 
   class FakeTailViewProvider {
     public static viewType = 'sfLogTail';
-    private selectedOrg = options.tailSelectedOrg ?? '';
+    private selectedOrg = options.tailSelectedOrg;
 
     public async restoreSelectedOrg(username?: string): Promise<void> {
-      this.selectedOrg = username?.trim() ?? '';
-      tailRestoreCalls.push(this.selectedOrg);
+      this.selectedOrg = username?.trim() || undefined;
+      tailRestoreCalls.push(this.selectedOrg ?? '');
     }
 
-    public getSelectedOrg(): string {
+    public getSelectedOrg(): string | undefined {
       return this.selectedOrg;
     }
 
@@ -609,6 +609,61 @@ suite('extension activation gating', () => {
       (harness.globalStateUpdates.find(update => update.key === 'pendingNewWindowLaunch')?.value as PendingLaunchRequest | undefined)
         ?.selectedOrg,
       'tail-selected@example.com'
+    );
+  });
+
+  test('falls back to the logs org when opening tail in a new window before tail has selected one', async () => {
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot: path.join(process.cwd(), 'workspace-salesforce'),
+        projectFilePath: path.join(process.cwd(), 'workspace-salesforce', 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      selectedOrg: 'logs-selected@example.com'
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openTailInNewWindow')!();
+
+    assert.equal(
+      (harness.globalStateUpdates.find(update => update.key === 'pendingNewWindowLaunch')?.value as PendingLaunchRequest | undefined)
+        ?.selectedOrg,
+      'logs-selected@example.com'
+    );
+  });
+
+  test('swallows pending launch restore failures so activation can continue', async () => {
+    const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
+    const request: PendingLaunchRequest = {
+      version: 1,
+      kind: 'tail',
+      workspaceTarget: { type: 'folder', uri: `file://${workspaceRoot}` },
+      createdAt: Date.now(),
+      nonce: 'req-tail-error-001',
+      selectedOrg: 'tail-from-pending@example.com',
+      sourceView: 'tail'
+    };
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot,
+        projectFilePath: path.join(workspaceRoot, 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      globalState: { pendingNewWindowLaunch: request },
+      commandErrors: {
+        'workbench.view.extension.salesforceTailPanel': new Error('Tail restore failed')
+      }
+    });
+
+    await harness.extension.activate(harness.context);
+
+    assert.deepEqual(harness.tailRestoreCalls, ['tail-from-pending@example.com']);
+    assert.deepEqual(harness.globalStateUpdates, [{ key: 'pendingNewWindowLaunch', value: undefined }]);
+    assert.equal(
+      harness.commands.has('sfLogs.troubleshootWebview'),
+      true,
+      'activation should continue registering commands after a pending launch restore failure'
     );
   });
 });

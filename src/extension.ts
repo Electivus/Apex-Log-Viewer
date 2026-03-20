@@ -265,7 +265,7 @@ export async function activate(context: vscode.ExtensionContext) {
         await launchInNewWindow({
           kind: 'tail',
           sourceView: 'tail',
-          selectedOrg: tailProvider.getSelectedOrg()
+          selectedOrg: tailProvider.getSelectedOrg() || provider.getSelectedOrg()
         });
       } catch (error) {
         const msg = getErrorMessage(error);
@@ -341,51 +341,55 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  await newWindowLaunchService.consumePendingLaunch({
-    restoreWindowContext: async ({ selectedOrg }: { selectedOrg?: string }) => {
-      provider.setSelectedOrg(selectedOrg);
-      await tailProvider.restoreSelectedOrg(selectedOrg);
-    },
-    openLogs: async ({ selectedOrg }: { selectedOrg?: string }) => {
-      if (typeof selectedOrg === 'string') {
+  try {
+    await newWindowLaunchService.consumePendingLaunch({
+      restoreWindowContext: async ({ selectedOrg }: { selectedOrg?: string }) => {
         provider.setSelectedOrg(selectedOrg);
+        await tailProvider.restoreSelectedOrg(selectedOrg);
+      },
+      openLogs: async ({ selectedOrg }: { selectedOrg?: string }) => {
+        if (typeof selectedOrg === 'string') {
+          provider.setSelectedOrg(selectedOrg);
+        }
+        await openLogsView();
+      },
+      openTail: async () => {
+        await provider.tailLogs();
+      },
+      openDebugFlags: async ({ selectedOrg, sourceView }: { selectedOrg?: string; sourceView?: 'logs' | 'tail' }) => {
+        await DebugFlagsPanel.show({
+          selectedOrg,
+          sourceView: sourceView ?? 'logs'
+        });
+      },
+      openLogViewer: async ({
+        logId,
+        filePath,
+        selectedOrg
+      }: {
+        selectedOrg?: string;
+        logId: string;
+        filePath: string;
+      }) => {
+        if (typeof selectedOrg === 'string') {
+          provider.setSelectedOrg(selectedOrg);
+        }
+        if (!fs.existsSync(filePath)) {
+          void vscode.window.showErrorMessage(
+            localize(
+              'openLogViewer.fileMissing',
+              'Failed to restore Apex log viewer: {0} is no longer available.',
+              filePath
+            )
+          );
+          return;
+        }
+        await LogViewerPanel.show({ logId, filePath });
       }
-      await openLogsView();
-    },
-    openTail: async () => {
-      await provider.tailLogs();
-    },
-    openDebugFlags: async ({ selectedOrg, sourceView }: { selectedOrg?: string; sourceView?: 'logs' | 'tail' }) => {
-      await DebugFlagsPanel.show({
-        selectedOrg,
-        sourceView: sourceView ?? 'logs'
-      });
-    },
-    openLogViewer: async ({
-      logId,
-      filePath,
-      selectedOrg
-    }: {
-      selectedOrg?: string;
-      logId: string;
-      filePath: string;
-    }) => {
-      if (typeof selectedOrg === 'string') {
-        provider.setSelectedOrg(selectedOrg);
-      }
-      if (!fs.existsSync(filePath)) {
-        void vscode.window.showErrorMessage(
-          localize(
-            'openLogViewer.fileMissing',
-            'Failed to restore Apex log viewer: {0} is no longer available.',
-            filePath
-          )
-        );
-        return;
-      }
-      await LogViewerPanel.show({ logId, filePath });
-    }
-  });
+    });
+  } catch (error) {
+    logWarn('Pending new-window launch restore failed ->', getErrorMessage(error));
+  }
 
   const codeLensProvider = new ApexLogCodeLensProvider();
   context.subscriptions.push(
