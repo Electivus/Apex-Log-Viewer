@@ -3,6 +3,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { logInfo, logWarn } from './logger';
+import type { WorkspaceTarget } from '../shared/newWindowLaunch';
+
+type WorkspaceSource = Pick<typeof vscode.workspace, 'workspaceFile' | 'workspaceFolders'>;
 
 export interface SalesforceProjectInfo {
   workspaceRoot: string;
@@ -32,6 +35,19 @@ export function getWorkspaceRoot(): string | undefined {
     return folders[0]!.uri.fsPath;
   }
   return undefined;
+}
+
+export function getCurrentWorkspaceTarget(workspace: WorkspaceSource = vscode.workspace): WorkspaceTarget | undefined {
+  if (workspace.workspaceFile) {
+    return { type: 'workspaceFile', uri: workspace.workspaceFile.toString() };
+  }
+
+  const firstFolder = workspace.workspaceFolders?.[0]?.uri;
+  return firstFolder ? { type: 'folder', uri: firstFolder.toString() } : undefined;
+}
+
+export function workspaceTargetsEqual(left: WorkspaceTarget | undefined, right: WorkspaceTarget | undefined): boolean {
+  return Boolean(left && right && left.type === right.type && left.uri === right.uri);
 }
 
 /**
