@@ -513,7 +513,8 @@
     "tailwindcss-animate": "^1.0.7",
     "ts-jest": "^29.4.6",
     "typescript": "^5.9.3",
-    "vscode-nls-dev": "^4.0.4"
+    "vscode-nls-dev": "^4.0.4",
+    "yaml": "^2.8.2"
   },
   "dependencies": {
     "@jsforce/jsforce-node": "^3.10.14",
