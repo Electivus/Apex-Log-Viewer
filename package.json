@@ -361,6 +361,26 @@
         "category": "Electivus Apex Logs"
       },
       {
+        "command": "sfLogs.openLogsInNewWindow",
+        "title": "%command.openLogsInNewWindow.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
+        "command": "sfLogs.openTailInNewWindow",
+        "title": "%command.openTailInNewWindow.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
+        "command": "sfLogs.openDebugFlagsInNewWindow",
+        "title": "%command.openDebugFlagsInNewWindow.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
+        "command": "sfLogs.openLogInViewerInNewWindow",
+        "title": "%command.openLogInViewerInNewWindow.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
         "command": "sfLogs.showOutput",
         "title": "Show Extension Output",
         "category": "Electivus Apex Logs"
@@ -389,6 +409,16 @@
     "menus": {
       "view/title": [
         {
+          "command": "sfLogs.openLogsInNewWindow",
+          "when": "view == sfLogViewer",
+          "group": "navigation@94"
+        },
+        {
+          "command": "sfLogs.openTailInNewWindow",
+          "when": "view == sfLogTail",
+          "group": "navigation@95"
+        },
+        {
           "command": "sfLogs.troubleshootWebview",
           "when": "view == sfLogViewer || view == sfLogTail",
           "group": "navigation@97"
@@ -410,6 +440,12 @@
           "when": "resourceLangId == apexlog",
           "group": "navigation@50",
           "icon": "$(open-preview)"
+        },
+        {
+          "command": "sfLogs.openLogInViewerInNewWindow",
+          "when": "resourceLangId == apexlog",
+          "group": "navigation@51",
+          "icon": "$(new-window)"
         }
       ]
     }
