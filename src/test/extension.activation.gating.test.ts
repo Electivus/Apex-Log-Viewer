@@ -1,24 +1,15 @@
 import assert from 'assert/strict';
 import * as path from 'path';
 import proxyquire from 'proxyquire';
+import type { PendingLaunchRequest } from '../shared/newWindowLaunch';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 
 type RegisteredCommand = (...args: any[]) => Promise<unknown> | unknown;
+type CommandCall = { command: string; args: unknown[] };
 
 function createDisposable() {
   return { dispose: () => undefined };
-}
-
-function createContext() {
-  return {
-    subscriptions: [],
-    globalState: {
-      get: () => undefined,
-      update: async () => undefined,
-      keys: () => []
-    }
-  } as any;
 }
 
 function createExtensionHarness(options: {
@@ -29,12 +20,17 @@ function createExtensionHarness(options: {
     readErrorMessage?: string;
     parseErrorMessage?: string;
   };
+  workspaceFile?: string;
   cliCacheEnabled?: boolean;
   appRoot?: string;
   activeDocument?: any;
   isApexLogDocument?: boolean;
   logId?: string;
   orgs?: Array<{ username: string; isDefaultUsername?: boolean }>;
+  globalState?: Record<string, unknown>;
+  openFolderError?: Error | string;
+  selectedOrg?: string;
+  tailSelectedOrg?: string;
 }) {
   const commands = new Map<string, RegisteredCommand>();
   const events: Array<{ name: string; props?: Record<string, string> }> = [];
@@ -42,10 +38,43 @@ function createExtensionHarness(options: {
   const timeoutCallbacks: Array<() => Promise<void> | void> = [];
   const listOrgsCalls: boolean[] = [];
   const getOrgAuthCalls: Array<string | undefined> = [];
+  const setSelectedOrgCalls: string[] = [];
+  const tailRestoreCalls: string[] = [];
   const logViewerShows: Array<{ logId: string; filePath: string }> = [];
+  const debugFlagsShows: Array<{ selectedOrg?: string; sourceView?: 'logs' | 'tail' }> = [];
   const infoMessages: string[] = [];
   const warningMessages: string[] = [];
   const errorMessages: string[] = [];
+  const globalStateUpdates: Array<{ key: string; value: unknown }> = [];
+  const globalStateGetCalls: string[] = [];
+  const commandCalls: CommandCall[] = [];
+  const defaultWorkspaceRoot = options.salesforceProject?.workspaceRoot;
+  const workspaceFolders = defaultWorkspaceRoot
+    ? [
+        {
+          uri: {
+            fsPath: defaultWorkspaceRoot,
+            toString: () => `file://${defaultWorkspaceRoot}`
+          }
+        }
+      ]
+    : [];
+  const effectiveWorkspaceFile = options.workspaceFile
+    ? {
+        toString: () => options.workspaceFile!
+      }
+    : undefined;
+
+  const state = new Map<string, unknown>(Object.entries(options.globalState ?? {}));
+  const getState = (key: string) => state.get(key);
+  const setState = (key: string, value: unknown) => {
+    globalStateUpdates.push({ key, value });
+    if (value === undefined) {
+      state.delete(key);
+    } else {
+      state.set(key, value);
+    }
+  };
 
   const vscodeStub = {
     version: '1.101.0',
@@ -53,7 +82,8 @@ function createExtensionHarness(options: {
       appRoot: options.appRoot ?? '/usr/share/code'
     },
     workspace: {
-      workspaceFolders: options.salesforceProject ? [{ uri: { fsPath: options.salesforceProject.workspaceRoot } }] : [],
+      workspaceFile: effectiveWorkspaceFile,
+      workspaceFolders,
       onDidChangeConfiguration: () => createDisposable(),
       openTextDocument: async () => options.activeDocument
     },
@@ -73,12 +103,24 @@ function createExtensionHarness(options: {
         return undefined;
       }
     },
+    Uri: {
+      parse: (value: string) => ({
+        value,
+        toString: () => value
+      })
+    },
     commands: {
       registerCommand: (command: string, handler: RegisteredCommand) => {
         commands.set(command, handler);
         return createDisposable();
       },
-      executeCommand: async () => undefined
+      executeCommand: async (command: string, ...args: unknown[]) => {
+        commandCalls.push({ command, args });
+        if (command === 'vscode.openFolder' && options.openFolderError) {
+          throw options.openFolderError instanceof Error ? options.openFolderError : new Error(String(options.openFolderError));
+        }
+        return undefined;
+      }
     },
     languages: {
       registerCodeLensProvider: () => createDisposable()
@@ -87,6 +129,7 @@ function createExtensionHarness(options: {
 
   class FakeLogsViewProvider {
     public static viewType = 'sfLogViewer';
+    private selectedOrg = options.selectedOrg ?? '';
 
     constructor(_context: any) {}
 
@@ -98,24 +141,104 @@ function createExtensionHarness(options: {
 
     public async sendOrgs(): Promise<void> {}
 
-    public setSelectedOrg(_username: string): void {}
+    public setSelectedOrg(username?: string): void {
+      const normalized = typeof username === 'string' ? username.trim() : '';
+      this.selectedOrg = normalized;
+      setSelectedOrgCalls.push(normalized);
+    }
 
-    public async tailLogs(): Promise<void> {}
+    public getSelectedOrg(): string {
+      return this.selectedOrg;
+    }
+
+    public async tailLogs(): Promise<void> {
+      await vscodeStub.commands.executeCommand('workbench.view.extension.salesforceTailPanel');
+      await vscodeStub.commands.executeCommand('workbench.viewsService.openView', 'sfLogTail');
+    }
   }
 
   class FakeTailViewProvider {
     public static viewType = 'sfLogTail';
+    private selectedOrg = options.tailSelectedOrg ?? '';
+
+    public async restoreSelectedOrg(username?: string): Promise<void> {
+      this.selectedOrg = username?.trim() ?? '';
+      tailRestoreCalls.push(this.selectedOrg);
+    }
+
+    public getSelectedOrg(): string {
+      return this.selectedOrg;
+    }
 
     constructor(_context: any) {}
   }
 
   class FakeCodeLensProvider {}
 
+  class FakeNewWindowLaunchService {
+    constructor(private readonly launchContext: any) {}
+
+    public async launchInNewWindow(
+      request: Omit<PendingLaunchRequest, 'version' | 'createdAt' | 'nonce'>
+    ): Promise<void> {
+      const pendingRequest: PendingLaunchRequest = {
+        ...request,
+        version: 1,
+        createdAt: Date.now(),
+        nonce: 'test-launch'
+      } as PendingLaunchRequest;
+
+      await this.launchContext.globalState.update('pendingNewWindowLaunch', pendingRequest);
+      try {
+        await this.launchContext.openFolder?.(pendingRequest.workspaceTarget);
+      } catch (error) {
+        await this.launchContext.globalState.update('pendingNewWindowLaunch', undefined);
+        throw error;
+      }
+    }
+
+    public async consumePendingLaunch(handlers: {
+      restoreWindowContext: (request: { selectedOrg?: string }) => Promise<void> | void;
+      openLogs: (request: { selectedOrg?: string }) => Promise<void> | void;
+      openTail: (request: { selectedOrg?: string }) => Promise<void> | void;
+      openDebugFlags: (request: { selectedOrg?: string; sourceView?: 'logs' | 'tail' }) => Promise<void> | void;
+      openLogViewer: (request: { selectedOrg?: string; logId: string; filePath: string }) => Promise<void> | void;
+    }): Promise<void> {
+      const request = this.launchContext.globalState.get('pendingNewWindowLaunch') as PendingLaunchRequest | undefined;
+      if (!request) {
+        return;
+      }
+
+      await this.launchContext.globalState.update('pendingNewWindowLaunch', undefined);
+      await handlers.restoreWindowContext({ selectedOrg: request.selectedOrg });
+
+      switch (request.kind) {
+        case 'logs':
+          await handlers.openLogs({ selectedOrg: request.selectedOrg });
+          break;
+        case 'tail':
+          await handlers.openTail({ selectedOrg: request.selectedOrg });
+          break;
+        case 'debugFlags':
+          await handlers.openDebugFlags({ selectedOrg: request.selectedOrg, sourceView: request.sourceView });
+          break;
+        case 'logViewer':
+          await handlers.openLogViewer({
+            selectedOrg: request.selectedOrg,
+            logId: request.logId,
+            filePath: request.filePath
+          });
+          break;
+      }
+    }
+  }
+
   const extension = proxyquireStrict('../extension', {
     vscode: vscodeStub,
     './provider/SfLogsViewProvider': { SfLogsViewProvider: FakeLogsViewProvider },
     './provider/SfLogTailViewProvider': { SfLogTailViewProvider: FakeTailViewProvider },
     './provider/ApexLogCodeLensProvider': { ApexLogCodeLensProvider: FakeCodeLensProvider },
+    './services/NewWindowLaunchService': { NewWindowLaunchService: FakeNewWindowLaunchService },
     './panel/LogViewerPanel': {
       LogViewerPanel: {
         initialize: () => undefined,
@@ -126,7 +249,10 @@ function createExtensionHarness(options: {
     },
     './panel/DebugFlagsPanel': {
       DebugFlagsPanel: {
-        initialize: () => undefined
+        initialize: () => undefined,
+        show: async (showOptions?: { selectedOrg?: string; sourceView?: 'logs' | 'tail' }) => {
+          debugFlagsShows.push({ selectedOrg: showOptions?.selectedOrg, sourceView: showOptions?.sourceView });
+        }
       }
     },
     './salesforce/http': {
@@ -190,7 +316,17 @@ function createExtensionHarness(options: {
     './utils/workspace': {
       findSalesforceProjectInfo: async () => options.salesforceProject,
       isApexLogDocument: () => options.isApexLogDocument ?? true,
-      getLogIdFromLogFilePath: () => options.logId
+      getLogIdFromLogFilePath: () => options.logId,
+      getCurrentWorkspaceTarget: () => {
+        const workspaceRoot = workspaceFolders?.[0]?.uri?.fsPath;
+        if (options.workspaceFile && effectiveWorkspaceFile) {
+          return { type: 'workspaceFile', uri: effectiveWorkspaceFile.toString() };
+        }
+        if (!workspaceRoot) {
+          return undefined;
+        }
+        return { type: 'folder', uri: `file://${workspaceRoot}` };
+      }
     }
   });
 
@@ -202,10 +338,29 @@ function createExtensionHarness(options: {
     timeoutCallbacks,
     listOrgsCalls,
     getOrgAuthCalls,
+    setSelectedOrgCalls,
+    tailRestoreCalls,
+    debugFlagsShows,
     logViewerShows,
     infoMessages,
     warningMessages,
-    errorMessages
+    errorMessages,
+    commandCalls,
+    globalStateUpdates,
+    globalStateGetCalls,
+    context: {
+      subscriptions: [],
+      globalState: {
+        get: (key: string) => {
+          globalStateGetCalls.push(key);
+          return getState(key);
+        },
+        update: async (key: string, value: unknown) => {
+          setState(key, value);
+        },
+        keys: () => Array.from(state.keys())
+      }
+    },
   };
 }
 
@@ -236,12 +391,19 @@ suite('extension activation gating', () => {
       return 1;
     };
 
-    await harness.extension.activate(createContext());
+    await harness.extension.activate(harness.context);
 
     assert.deepEqual(harness.setApiVersionCalls, []);
     assert.equal(harness.timeoutCallbacks.length, 0, 'should not schedule CLI preload outside Salesforce projects');
     assert.ok(harness.commands.has('sfLogs.refresh'), 'refresh command should stay registered');
     assert.ok(harness.commands.has('sfLogs.openLogInViewer'), 'open log viewer command should stay registered');
+    assert.ok(harness.commands.has('sfLogs.openLogsInNewWindow'), 'open logs in new window should stay registered');
+    assert.ok(harness.commands.has('sfLogs.openTailInNewWindow'), 'open tail in new window should stay registered');
+    assert.ok(harness.commands.has('sfLogs.openDebugFlagsInNewWindow'), 'open debug flags in new window should stay registered');
+    assert.ok(
+      harness.commands.has('sfLogs.openLogInViewerInNewWindow'),
+      'open log viewer in new window should stay registered'
+    );
     assert.ok(harness.commands.has('sfLogs.troubleshootWebview'), 'webview troubleshooting command should stay registered');
 
     const activationEvent = harness.events.find(event => event.name === 'extension.activate');
@@ -271,7 +433,7 @@ suite('extension activation gating', () => {
       return 1;
     };
 
-    await harness.extension.activate(createContext());
+    await harness.extension.activate(harness.context);
 
     assert.deepEqual(harness.setApiVersionCalls, ['60.0']);
     assert.equal(harness.timeoutCallbacks.length, 1, 'should schedule CLI preload for Salesforce projects');
@@ -283,5 +445,158 @@ suite('extension activation gating', () => {
 
     assert.deepEqual(harness.listOrgsCalls, [false]);
     assert.deepEqual(harness.getOrgAuthCalls, ['default@example.com']);
+  });
+
+  test('consumes pending logViewer requests on activation', async () => {
+    const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
+    const request: PendingLaunchRequest = {
+      version: 1,
+      kind: 'logViewer',
+      workspaceTarget: { type: 'folder', uri: `file://${workspaceRoot}` },
+      createdAt: Date.now(),
+      nonce: 'req-001',
+      logId: '07L000000000123',
+      filePath: path.join(process.cwd(), 'package.json'),
+      selectedOrg: 'org-from-pending@example.com'
+    };
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot,
+        projectFilePath: path.join(workspaceRoot, 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      globalState: { pendingNewWindowLaunch: request }
+    });
+    await harness.extension.activate(harness.context);
+    await Promise.resolve();
+
+    assert.deepEqual(harness.logViewerShows, [{ logId: request.logId, filePath: request.filePath }]);
+    assert.deepEqual(harness.globalStateUpdates, [{ key: 'pendingNewWindowLaunch', value: undefined }]);
+    assert.deepEqual(harness.globalStateGetCalls.filter(call => call === 'pendingNewWindowLaunch'), ['pendingNewWindowLaunch']);
+    assert.deepEqual(harness.tailRestoreCalls, ['org-from-pending@example.com']);
+    assert.deepEqual(harness.warningMessages, []);
+    assert.deepEqual(harness.errorMessages, []);
+  });
+
+  test('consumes pending tail requests on activation without auto-starting tail', async () => {
+    const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
+    const request: PendingLaunchRequest = {
+      version: 1,
+      kind: 'tail',
+      workspaceTarget: { type: 'folder', uri: `file://${workspaceRoot}` },
+      createdAt: Date.now(),
+      nonce: 'req-tail-001',
+      selectedOrg: 'tail-from-pending@example.com',
+      sourceView: 'tail'
+    };
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot,
+        projectFilePath: path.join(workspaceRoot, 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      globalState: { pendingNewWindowLaunch: request }
+    });
+
+    await harness.extension.activate(harness.context);
+
+    assert.deepEqual(harness.tailRestoreCalls, ['tail-from-pending@example.com']);
+    assert.deepEqual(
+      harness.commandCalls.map(call => call.command),
+      ['workbench.view.extension.salesforceTailPanel', 'workbench.viewsService.openView']
+    );
+    assert.equal(
+      harness.commandCalls.some(call => call.command === 'sfLogs.tail'),
+      false,
+      'pending tail restore should reveal the tail view directly instead of re-entering the tail command'
+    );
+  });
+
+  test('shows a warning and does not persist launch requests without a workspace', async () => {
+    const harness = createExtensionHarness({
+      workspaceFile: undefined
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openLogsInNewWindow')!();
+
+    assert.deepEqual(harness.warningMessages, [
+      'Electivus Apex Logs: Open a workspace folder before opening logs in a new window.'
+    ]);
+    assert.equal(
+      harness.globalStateUpdates.some(update => update.key === 'pendingNewWindowLaunch'),
+      false,
+      'should not persist pending launch request without workspace target'
+    );
+    const openFolderCalls = harness.commandCalls.filter(call => call.command === 'vscode.openFolder');
+    assert.deepEqual(openFolderCalls, []);
+  });
+
+  test('clears pending launch state when opening target workspace fails', async () => {
+    const selectedOrg = 'selected@example.com';
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot: path.join(process.cwd(), 'workspace-salesforce'),
+        projectFilePath: path.join(process.cwd(), 'workspace-salesforce', 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      selectedOrg,
+      openFolderError: new Error('Cannot open new window')
+    });
+    (globalThis as any).setTimeout = (callback: () => Promise<void> | void) => {
+      harness.timeoutCallbacks.push(callback);
+      return 1;
+    };
+
+    await harness.extension.activate(harness.context);
+
+    const openLogsInNewWindow = harness.commands.get('sfLogs.openLogsInNewWindow');
+    assert.ok(openLogsInNewWindow);
+    await assert.rejects(async () => openLogsInNewWindow(), /Cannot open new window/);
+
+    assert.equal(
+      (harness.globalStateUpdates.find(update => update.key === 'pendingNewWindowLaunch')?.value as PendingLaunchRequest | undefined)
+        ?.selectedOrg,
+      selectedOrg,
+      'should persist selected org in launch request'
+    );
+    assert.deepEqual(
+      harness.globalStateUpdates.map(update => ({ key: update.key, value: update.value ? 'set' : 'cleared' })),
+      [{ key: 'pendingNewWindowLaunch', value: 'set' }, { key: 'pendingNewWindowLaunch', value: 'cleared' }]
+    );
+    const openFolderCalls = harness.commandCalls.filter(call => call.command === 'vscode.openFolder');
+    assert.equal(openFolderCalls.length, 1);
+    const openFolderCall = openFolderCalls[0];
+    assert.ok(!!openFolderCall);
+    assert.equal(typeof openFolderCall.args[0], 'object');
+    assert.equal(
+      (openFolderCall.args[0] as { toString: () => string }).toString(),
+      `file://${path.join(process.cwd(), 'workspace-salesforce')}`
+    );
+    assert.deepEqual(openFolderCall.args[1], { forceNewWindow: true });
+    assert.deepEqual(harness.warningMessages, []);
+  });
+
+  test('uses the current tail org when opening tail in a new window', async () => {
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot: path.join(process.cwd(), 'workspace-salesforce'),
+        projectFilePath: path.join(process.cwd(), 'workspace-salesforce', 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      selectedOrg: 'logs-selected@example.com',
+      tailSelectedOrg: 'tail-selected@example.com'
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openTailInNewWindow')!();
+
+    assert.equal(
+      (harness.globalStateUpdates.find(update => update.key === 'pendingNewWindowLaunch')?.value as PendingLaunchRequest | undefined)
+        ?.selectedOrg,
+      'tail-selected@example.com'
+    );
   });
 });

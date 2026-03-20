@@ -325,6 +325,20 @@ suite('TailService', () => {
     assert.equal((service as any).logIdToPath.size, 0);
   });
 
+  test('getSelectedOrg returns the currently selected tail org', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const provider = new SfLogTailViewProvider(context);
+
+    assert.equal(provider.getSelectedOrg(), undefined);
+
+    await provider.restoreSelectedOrg('tail-user@example.com');
+
+    assert.equal(provider.getSelectedOrg(), 'tail-user@example.com');
+  });
+
   test('restoreSelectedOrg refreshes orgs and debug levels when tail view is already resolved', async () => {
     const context = {
       extensionUri: vscode.Uri.file(path.resolve('.')),

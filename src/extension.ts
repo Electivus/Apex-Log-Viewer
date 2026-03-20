@@ -11,10 +11,17 @@ import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry }
 import { CacheManager } from './utils/cacheManager';
 import { LogViewerPanel } from './panel/LogViewerPanel';
 import { DebugFlagsPanel } from './panel/DebugFlagsPanel';
+import { NewWindowLaunchService } from './services/NewWindowLaunchService';
+import type { NewWindowLaunchSourceView } from './shared/newWindowLaunch';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { getErrorMessage } from './utils/error';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
-import { findSalesforceProjectInfo, isApexLogDocument, getLogIdFromLogFilePath } from './utils/workspace';
+import {
+  findSalesforceProjectInfo,
+  getCurrentWorkspaceTarget,
+  isApexLogDocument,
+  getLogIdFromLogFilePath
+} from './utils/workspace';
 import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
 import {
   buildRemoteWebviewTroubleshootingMessage,
@@ -26,6 +33,15 @@ import {
 
 interface OrgQuickPick extends vscode.QuickPickItem {
   username: string;
+}
+
+function showOpenFolderWarning(): Promise<void> {
+  return vscode.window.showWarningMessage(
+    localize(
+      'openInNewWindow.noWorkspace',
+      'Electivus Apex Logs: Open a workspace folder before opening logs in a new window.'
+    )
+  ) as Promise<void>;
 }
 
 async function initializePersistentCache(context: vscode.ExtensionContext): Promise<void> {
@@ -168,6 +184,211 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     })
   );
+
+  const openLogsView = async (): Promise<void> => {
+    const viewAlreadyResolved = provider.hasResolvedView();
+    try {
+      await vscode.commands.executeCommand('workbench.view.extension.salesforceLogsPanel');
+      try {
+        await vscode.commands.executeCommand('workbench.viewsService.openView', 'sfLogViewer');
+      } catch {
+        await vscode.commands.executeCommand('workbench.action.openView', 'sfLogViewer');
+      }
+    } catch (e) {
+      logWarn('Command sfLogs.refresh: failed to open logs view ->', getErrorMessage(e));
+    }
+
+    if (viewAlreadyResolved) {
+      await provider.refresh();
+    }
+  };
+
+  const newWindowLaunchService = new NewWindowLaunchService({
+    globalState: context.globalState,
+    openFolder: async workspaceTarget => {
+      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.parse(workspaceTarget.uri), {
+        forceNewWindow: true
+      });
+    }
+  });
+
+  const getWorkspaceTargetOrWarn = async () => {
+    const workspaceTarget = getCurrentWorkspaceTarget();
+    if (!workspaceTarget) {
+      await showOpenFolderWarning();
+      return undefined;
+    }
+    return workspaceTarget;
+  };
+
+  const launchInNewWindow = async (
+    request:
+      | {
+          kind: 'logs' | 'tail' | 'debugFlags';
+          selectedOrg?: string;
+          sourceView?: NewWindowLaunchSourceView;
+        }
+      | {
+          kind: 'logViewer';
+          selectedOrg?: string;
+          logId: string;
+          filePath: string;
+        }
+  ) => {
+    const workspaceTarget = await getWorkspaceTargetOrWarn();
+    if (!workspaceTarget) {
+      return;
+    }
+
+    await newWindowLaunchService.launchInNewWindow({
+      ...request,
+      workspaceTarget
+    });
+  };
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.openLogsInNewWindow', async () => {
+      try {
+        await launchInNewWindow({
+          kind: 'logs',
+          sourceView: 'logs',
+          selectedOrg: provider.getSelectedOrg()
+        });
+      } catch (error) {
+        const msg = getErrorMessage(error);
+        logWarn('Command sfLogs.openLogsInNewWindow failed ->', msg);
+        throw error;
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.openTailInNewWindow', async () => {
+      try {
+        await launchInNewWindow({
+          kind: 'tail',
+          sourceView: 'tail',
+          selectedOrg: tailProvider.getSelectedOrg()
+        });
+      } catch (error) {
+        const msg = getErrorMessage(error);
+        logWarn('Command sfLogs.openTailInNewWindow failed ->', msg);
+        throw error;
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.openDebugFlagsInNewWindow', async () => {
+      try {
+        await launchInNewWindow({
+          kind: 'debugFlags',
+          selectedOrg: provider.getSelectedOrg(),
+          sourceView: 'logs'
+        });
+      } catch (error) {
+        const msg = getErrorMessage(error);
+        logWarn('Command sfLogs.openDebugFlagsInNewWindow failed ->', msg);
+        throw error;
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.openLogInViewerInNewWindow', async (uri?: vscode.Uri) => {
+      let doc: vscode.TextDocument | undefined;
+      try {
+        doc = uri ? await vscode.workspace.openTextDocument(uri) : vscode.window.activeTextEditor?.document;
+      } catch {
+        doc = undefined;
+      }
+
+      if (!doc || doc.isClosed) {
+        void vscode.window.showWarningMessage(
+          localize('openLogInViewer.noDocument', 'Electivus Apex Logs: No Apex log is active.')
+        );
+        return;
+      }
+      if (doc.uri.scheme !== 'file' || !doc.uri.fsPath) {
+        void vscode.window.showWarningMessage(
+          localize(
+            'openLogInViewer.unsupportedScheme',
+            'Electivus Apex Logs: Unable to open Apex logs from this location.'
+          )
+        );
+        return;
+      }
+      if (!isApexLogDocument(doc)) {
+        void vscode.window.showWarningMessage(
+          localize(
+            'openLogInViewer.notApex',
+            'Electivus Apex Logs: The active document is not recognized as a Salesforce Apex log.'
+          )
+        );
+        return;
+      }
+      const filePath = doc.uri.fsPath;
+      const logId = getLogIdFromLogFilePath(filePath) ?? path.parse(filePath).name;
+      try {
+        await launchInNewWindow({
+          kind: 'logViewer',
+          selectedOrg: provider.getSelectedOrg(),
+          logId,
+          filePath
+        });
+      } catch (error) {
+        const msg = getErrorMessage(error);
+        logWarn('Command sfLogs.openLogInViewerInNewWindow failed ->', msg);
+        throw error;
+      }
+    })
+  );
+
+  await newWindowLaunchService.consumePendingLaunch({
+    restoreWindowContext: async ({ selectedOrg }: { selectedOrg?: string }) => {
+      provider.setSelectedOrg(selectedOrg);
+      await tailProvider.restoreSelectedOrg(selectedOrg);
+    },
+    openLogs: async ({ selectedOrg }: { selectedOrg?: string }) => {
+      if (typeof selectedOrg === 'string') {
+        provider.setSelectedOrg(selectedOrg);
+      }
+      await openLogsView();
+    },
+    openTail: async () => {
+      await provider.tailLogs();
+    },
+    openDebugFlags: async ({ selectedOrg, sourceView }: { selectedOrg?: string; sourceView?: 'logs' | 'tail' }) => {
+      await DebugFlagsPanel.show({
+        selectedOrg,
+        sourceView: sourceView ?? 'logs'
+      });
+    },
+    openLogViewer: async ({
+      logId,
+      filePath,
+      selectedOrg
+    }: {
+      selectedOrg?: string;
+      logId: string;
+      filePath: string;
+    }) => {
+      if (typeof selectedOrg === 'string') {
+        provider.setSelectedOrg(selectedOrg);
+      }
+      if (!fs.existsSync(filePath)) {
+        void vscode.window.showErrorMessage(
+          localize(
+            'openLogViewer.fileMissing',
+            'Failed to restore Apex log viewer: {0} is no longer available.',
+            filePath
+          )
+        );
+        return;
+      }
+      await LogViewerPanel.show({ logId, filePath });
+    }
+  });
 
   const codeLensProvider = new ApexLogCodeLensProvider();
   context.subscriptions.push(

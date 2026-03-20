@@ -42,15 +42,18 @@ export type PendingLaunchLogViewerRequest = PendingLaunchLogViewer;
 export interface LaunchContextProvider {
   globalState: {
     get(key: string): unknown;
-    update(key: string, value: unknown): Promise<void> | void;
+    update(key: string, value: unknown): Promise<void> | Thenable<void> | void;
   };
+  openFolder?: (workspaceTarget: WorkspaceTarget) => Promise<void> | Thenable<void> | void;
 }
 
 export type OpenInNewWindowHandlers = {
   restoreWindowContext: (request: Pick<PendingLaunchRequest, 'selectedOrg'>) => Promise<void> | void;
   openLogs: (request: Pick<PendingLaunchRequest, 'selectedOrg'>) => Promise<void> | void;
   openTail: (request: Pick<PendingLaunchRequest, 'selectedOrg'>) => Promise<void> | void;
-  openDebugFlags: (request: Pick<PendingLaunchRequest, 'selectedOrg'>) => Promise<void> | void;
+  openDebugFlags: (
+    request: Pick<PendingLaunchRequest, 'selectedOrg' | 'sourceView'>
+  ) => Promise<void> | void;
   openLogViewer: (
     request: Pick<PendingLaunchLogViewerRequest, 'selectedOrg' | 'logId' | 'filePath'>
   ) => Promise<void> | void;

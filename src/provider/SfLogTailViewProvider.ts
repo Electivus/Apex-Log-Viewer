@@ -161,6 +161,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  public getSelectedOrg(): string | undefined {
+    return this.selectedOrg;
+  }
+
   private getHtmlForWebview(webview: vscode.Webview): string {
     return buildWebviewHtml(
       webview,
