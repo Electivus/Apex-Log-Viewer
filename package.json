@@ -469,8 +469,8 @@
     "coverage:merge": "node scripts/merge-coverage.cjs"
   },
   "devDependencies": {
-    "@commitlint/cli": "^20.4.4",
-    "@commitlint/config-conventional": "^20.4.3",
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/cli": "^4.2.1",
     "@testing-library/jest-dom": "^6.9.1",
