@@ -1306,6 +1306,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   }
 
   // Expose for command integration
+  public getSelectedOrg(): string | undefined {
+    return this.orgManager.getSelectedOrg();
+  }
+
   public setSelectedOrg(username?: string) {
     this.orgManager.setSelectedOrg(username);
   }

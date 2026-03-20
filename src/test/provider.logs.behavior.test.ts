@@ -967,6 +967,16 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(opened[0]?.sourceView, 'logs');
   });
 
+  test('getSelectedOrg returns the currently selected org', () => {
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+
+    assert.equal(provider.getSelectedOrg(), undefined);
+
+    provider.setSelectedOrg('user@example.com');
+    assert.equal(provider.getSelectedOrg(), 'user@example.com');
+  });
+
   test('tailLogs falls back when viewsService command is unavailable', async () => {
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);

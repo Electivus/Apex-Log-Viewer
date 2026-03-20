@@ -308,4 +308,67 @@ suite('TailService', () => {
     assert.equal(opened[0]?.selectedOrg, 'tail-user@example.com');
     assert.equal(opened[0]?.sourceView, 'tail');
   });
+
+  test('restoreSelectedOrg updates provider and tail service state without posting messages when view is not resolved', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const provider = new SfLogTailViewProvider(context);
+    const service = (provider as any).tailService as TailService;
+
+    await provider.restoreSelectedOrg('tail-user@example.com');
+
+    assert.equal((service as any).selectedOrg, 'tail-user@example.com');
+    assert.equal(service.isRunning(), false);
+    assert.equal((service as any).seenLogIds.size, 0);
+    assert.equal((service as any).logIdToPath.size, 0);
+  });
+
+  test('restoreSelectedOrg refreshes orgs and debug levels when tail view is already resolved', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const provider = new SfLogTailViewProvider(context);
+    const webview = new MockWebview();
+    const view = new MockWebviewView(webview);
+    const calls: string[] = [];
+    (provider as any).sendOrgs = async () => {
+      calls.push('orgs');
+    };
+    (provider as any).sendDebugLevels = async () => {
+      calls.push('debugLevels');
+    };
+    await provider.resolveWebviewView(view);
+
+    await provider.restoreSelectedOrg('tail-user@example.com');
+
+    assert.deepEqual(calls, ['orgs', 'debugLevels']);
+    const service = (provider as any).tailService as TailService;
+    assert.equal((service as any).selectedOrg, 'tail-user@example.com');
+  });
+
+  test('restoreSelectedOrg does not start tailing automatically', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const provider = new SfLogTailViewProvider(context);
+    const webview = new MockWebview();
+    const view = new MockWebviewView(webview);
+    const startCalled: boolean[] = [];
+    const service = (provider as any).tailService as TailService & { start: typeof TailService.prototype.start };
+    service.start = (async () => {
+      startCalled.push(true);
+    }) as any;
+    (provider as any).sendOrgs = async () => {};
+    (provider as any).sendDebugLevels = async () => {};
+    await provider.resolveWebviewView(view);
+
+    await provider.restoreSelectedOrg('tail-user@example.com');
+
+    assert.equal(startCalled.length, 0);
+    assert.equal(service.isRunning(), false);
+  });
 });
