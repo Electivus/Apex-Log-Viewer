@@ -11,6 +11,7 @@
 
 ### Bug Fixes
 
+- Open Log View: map diagnostics with duplicated Apex line numbers to the matching log event type so sidebar clicks land on the correct row.
 - Open Log View: show an explicit unavailable state in the diagnostics sidebar when async triage fails instead of implying the log is clean.
 - Open Log View: reset the diagnostics severity filter when opening or refreshing a log so hidden sidebar state does not suppress new results.
 - Open Log View: re-scroll the virtualized log list when switching between diagnostics that collapse onto the same rendered row.

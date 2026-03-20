@@ -44,6 +44,28 @@ function bySeverityThenOriginalOrder(a: LogViewerMappedDiagnostic, b: LogViewerM
   return a.originalIndex - b.originalIndex;
 }
 
+function pickMatchingEntryForDiagnostic(
+  candidates: readonly LogEntryDiagnosticGroup[],
+  reason: LogDiagnostic
+): LogEntryDiagnosticGroup | undefined {
+  if (candidates.length === 0) {
+    return undefined;
+  }
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+
+  const targetEventType = reason.eventType?.trim().toUpperCase();
+  if (targetEventType) {
+    const eventTypeMatch = candidates.find(candidate => candidate.entry.type.trim().toUpperCase() === targetEventType);
+    if (eventTypeMatch) {
+      return eventTypeMatch;
+    }
+  }
+
+  return candidates[0];
+}
+
 export function orderDiagnostics(reasons: readonly LogDiagnostic[]): LogViewerMappedDiagnostic[] {
   return reasons
     .map((reason, index) => ({
@@ -80,17 +102,18 @@ export function mapDiagnosticsToEntries(
     diagnostics: []
   }));
 
-  // Policy: when duplicate line numbers exist in ParsedLogEntry list (realistic for some sources),
-  // always keep the first matching row for deterministic, stable mapping.
-  const byLine = new Map<number, LogEntryDiagnosticGroup>();
+  const byLine = new Map<number, LogEntryDiagnosticGroup[]>();
   const byPhysicalLine = new Map<number, LogEntryDiagnosticGroup>();
   const unmappedDiagnostics: LogViewerMappedDiagnostic[] = [];
 
   for (const row of mappedEntries) {
     byPhysicalLine.set(row.entry.id + 1, row);
     if (hasExactLine(row.entry.lineNumber)) {
-      if (!byLine.has(row.entry.lineNumber)) {
-        byLine.set(row.entry.lineNumber, row);
+      const existing = byLine.get(row.entry.lineNumber);
+      if (existing) {
+        existing.push(row);
+      } else {
+        byLine.set(row.entry.lineNumber, [row]);
       }
     }
   }
@@ -101,7 +124,7 @@ export function mapDiagnosticsToEntries(
       continue;
     }
 
-    const target = byLine.get(reason.line);
+    const target = pickMatchingEntryForDiagnostic(byLine.get(reason.line) ?? [], reason);
     if (target) {
       target.diagnostics.push({
         ...reason,

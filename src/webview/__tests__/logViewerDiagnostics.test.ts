@@ -177,6 +177,49 @@ describe('logViewerDiagnostics', () => {
     ]);
   });
 
+  it('prefers a duplicate lineNumber row whose event type matches the diagnostic eventType', () => {
+    const entries: ParsedLogEntry[] = [
+      {
+        id: 0,
+        timestamp: '00:00:00.000',
+        type: 'VARIABLE_SCOPE_BEGIN',
+        message: 'prelude',
+        raw: 'raw-0',
+        category: 'other',
+        lineNumber: 66
+      },
+      {
+        id: 1,
+        timestamp: '00:00:01.000',
+        type: 'EXCEPTION_THROWN',
+        message: 'boom',
+        raw: 'raw-1',
+        category: 'error',
+        lineNumber: 66
+      }
+    ];
+
+    const result = mapDiagnosticsToEntries(entries, [
+      {
+        code: 'dml_failure',
+        severity: 'error',
+        summary: 'maps-to-exception',
+        line: 66,
+        eventType: 'EXCEPTION_THROWN'
+      }
+    ]);
+
+    expect(result.mappedEntries[0].diagnostics).toEqual([]);
+    expect(result.mappedEntries[1].diagnostics).toEqual([
+      expect.objectContaining({
+        summary: 'maps-to-exception',
+        mappedEntryId: 1,
+        mappedLineNumber: 66,
+        eventType: 'EXCEPTION_THROWN'
+      })
+    ]);
+  });
+
   it('does not force visibility when active diagnostic is unmapped or lacks mappedEntryId', () => {
     const entries: ParsedLogEntry[] = [
       makeEntry(0, 1, 'other'),

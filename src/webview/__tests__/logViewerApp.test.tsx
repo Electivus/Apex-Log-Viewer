@@ -274,6 +274,51 @@ describe('Log Viewer App', () => {
     });
   });
 
+  it('scrolls to the eventType-matched row when diagnostics target a duplicated line number', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'duplicate-line-log',
+      locale: 'en-US',
+      fileName: 'duplicate-line.log',
+      lines: [
+        '12:00:00.000 (1)|USER_DEBUG|[1]|Alpha|A',
+        '12:00:01.000 (2)|VARIABLE_SCOPE_BEGIN|[66]|LoggerConfigurationSelector.mockLogEntryDataMaskRules|List<LogEntryDataMaskRule__mdt>|true|true',
+        '12:00:02.000 (3)|EXCEPTION_THROWN|[66]|System.DmlException: Insert failed. First exception on row 0; first error: DUPLICATE_VALUE'
+      ]
+    });
+
+    send(bus, {
+      type: 'logViewerTriageUpdate',
+      logId: 'duplicate-line-log',
+      triage: {
+        hasErrors: true,
+        reasons: [
+          {
+            code: 'dml_failure',
+            severity: 'error',
+            summary: 'DML failure',
+            line: 66,
+            eventType: 'EXCEPTION_THROWN'
+          }
+        ]
+      }
+    });
+
+    const diagnosticsPanel = screen.getByText('Diagnostics').closest('aside');
+    expect(diagnosticsPanel).not.toBeNull();
+
+    const diagnosticButton = await within(diagnosticsPanel as HTMLElement).findByRole('button', { name: /DML failure/ });
+    fireEvent.click(diagnosticButton);
+
+    await waitFor(() => {
+      expect(listScrollCalls.at(-1)).toBe(2);
+    });
+  });
+
   it('clears a hidden active diagnostic when the sidebar severity filter excludes it', async () => {
     const { vscode } = createVsCodeMock();
     const bus = new EventTarget();
