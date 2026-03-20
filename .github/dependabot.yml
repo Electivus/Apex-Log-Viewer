@@ -6,8 +6,9 @@ updates:
       interval: 'weekly'
     open-pull-requests-limit: 20
     groups:
-      # Group tightly coupled dependency families for lower review overhead,
-      # while leaving semver-major bumps as dedicated PRs.
+      # Group tightly coupled dependency families for lower review overhead.
+      # Most groups still leave semver-major bumps dedicated, but lockstep
+      # stacks stay grouped across majors to avoid peer mismatch PRs.
       commitlint:
         applies-to: version-updates
         update-types:
@@ -17,9 +18,6 @@ updates:
           - '@commitlint/*'
       react:
         applies-to: version-updates
-        update-types:
-          - 'minor'
-          - 'patch'
         patterns:
           - 'react'
           - 'react-dom'
@@ -50,9 +48,6 @@ updates:
           - '@types/jsdom'
       typescript-eslint:
         applies-to: version-updates
-        update-types:
-          - 'minor'
-          - 'patch'
         patterns:
           - '@typescript-eslint/*'
     ignore:
