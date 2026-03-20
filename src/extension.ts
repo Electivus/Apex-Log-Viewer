@@ -246,9 +246,29 @@ export async function activate(context: vscode.ExtensionContext) {
     });
   };
 
+  const getPreferredSelectedOrg = (): string | undefined => provider.getSelectedOrg() || tailProvider.getSelectedOrg();
+
+  const getPreferredDebugFlagsLaunch = (): { selectedOrg?: string; sourceView: NewWindowLaunchSourceView } => {
+    const logsSelectedOrg = provider.getSelectedOrg();
+    if (logsSelectedOrg) {
+      return { selectedOrg: logsSelectedOrg, sourceView: 'logs' };
+    }
+
+    const tailSelectedOrg = tailProvider.getSelectedOrg();
+    if (tailSelectedOrg) {
+      return { selectedOrg: tailSelectedOrg, sourceView: 'tail' };
+    }
+
+    return { selectedOrg: undefined, sourceView: 'logs' };
+  };
+
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.openLogsInNewWindow', async () => {
       try {
+        const selectedOrg = getPreferredSelectedOrg();
+        if (selectedOrg) {
+          provider.setSelectedOrg(selectedOrg);
+        }
         await provider.showEditor();
         await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
       } catch (error) {
@@ -278,10 +298,11 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.openDebugFlagsInNewWindow', async () => {
       try {
+        const { selectedOrg, sourceView } = getPreferredDebugFlagsLaunch();
         await launchInNewWindow({
           kind: 'debugFlags',
-          selectedOrg: provider.getSelectedOrg(),
-          sourceView: 'logs'
+          selectedOrg,
+          sourceView
         });
       } catch (error) {
         const msg = getErrorMessage(error);
