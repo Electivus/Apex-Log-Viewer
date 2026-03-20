@@ -249,11 +249,8 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.openLogsInNewWindow', async () => {
       try {
-        await launchInNewWindow({
-          kind: 'logs',
-          sourceView: 'logs',
-          selectedOrg: provider.getSelectedOrg()
-        });
+        await provider.showEditor();
+        await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
       } catch (error) {
         const msg = getErrorMessage(error);
         logWarn('Command sfLogs.openLogsInNewWindow failed ->', msg);

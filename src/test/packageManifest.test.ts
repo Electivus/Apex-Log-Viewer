@@ -48,12 +48,34 @@ suite('package manifest', () => {
     assert.ok(commands.some((entry: any) => entry.command === 'sfLogs.openLogInViewerInNewWindow'));
   });
 
-  test('adds title-menu entry points for logs, tail, and apex log editors', async () => {
+  test('keeps logs and tail title actions in the secondary overflow menu', async () => {
     const manifest = await readPackageManifest();
     const menus = manifest.contributes?.menus ?? {};
+    const viewTitleEntries = menus['view/title'] ?? [];
+    const findViewTitleEntry = (command: string) => viewTitleEntries.find((entry: any) => entry.command === command);
 
-    assert.ok((menus['view/title'] ?? []).some((entry: any) => entry.command === 'sfLogs.openLogsInNewWindow'));
-    assert.ok((menus['view/title'] ?? []).some((entry: any) => entry.command === 'sfLogs.openTailInNewWindow'));
+    assert.ok(findViewTitleEntry('sfLogs.openLogsInNewWindow'));
+    assert.ok(findViewTitleEntry('sfLogs.openTailInNewWindow'));
+    assert.ok(findViewTitleEntry('sfLogs.troubleshootWebview'));
+    assert.ok(findViewTitleEntry('sfLogs.resetCliCache'));
+    assert.ok(findViewTitleEntry('sfLogs.showOutput'));
+
+    for (const command of [
+      'sfLogs.openLogsInNewWindow',
+      'sfLogs.openTailInNewWindow',
+      'sfLogs.troubleshootWebview',
+      'sfLogs.resetCliCache',
+      'sfLogs.showOutput'
+    ]) {
+      const entry = findViewTitleEntry(command);
+      assert.ok(entry, `expected ${command} in view/title`);
+      assert.equal(
+        String(entry.group ?? '').startsWith('navigation'),
+        false,
+        `${command} should use a non-navigation group so it appears under the overflow menu`
+      );
+    }
+
     assert.ok((menus['editor/title'] ?? []).some((entry: any) => entry.command === 'sfLogs.openLogInViewerInNewWindow'));
   });
 

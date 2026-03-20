@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Features
+
+- Logs: add an optional `Open Logs in New Window` flow that keeps the default bottom-panel view, opens logs in an editor surface, and moves that editor into a separate VS Code window on demand.
+
+### Bug Fixes
+
+- Logs: move new-window and support actions out of the panel header's primary action row and into the title overflow menu so the bottom-panel toolbar stays compact.
+
 ## [0.34.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.32.0...v0.34.0) (2026-03-20)
 
 ### Features

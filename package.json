@@ -411,27 +411,27 @@
         {
           "command": "sfLogs.openLogsInNewWindow",
           "when": "view == sfLogViewer",
-          "group": "navigation@94"
+          "group": "2_window@1"
         },
         {
           "command": "sfLogs.openTailInNewWindow",
           "when": "view == sfLogTail",
-          "group": "navigation@95"
+          "group": "2_window@1"
         },
         {
           "command": "sfLogs.troubleshootWebview",
           "when": "view == sfLogViewer || view == sfLogTail",
-          "group": "navigation@97"
+          "group": "9_support@1"
         },
         {
           "command": "sfLogs.resetCliCache",
           "when": "view == sfLogViewer || view == sfLogTail",
-          "group": "navigation@98"
+          "group": "9_support@2"
         },
         {
           "command": "sfLogs.showOutput",
           "when": "view == sfLogViewer || view == sfLogTail",
-          "group": "navigation@99"
+          "group": "9_support@3"
         }
       ],
       "editor/title": [

@@ -29,6 +29,7 @@ function createExtensionHarness(options: {
   orgs?: Array<{ username: string; isDefaultUsername?: boolean }>;
   globalState?: Record<string, unknown>;
   openFolderError?: Error | string;
+  commandErrors?: Record<string, Error | string>;
   selectedOrg?: string;
   tailSelectedOrg?: string;
 }) {
@@ -40,6 +41,7 @@ function createExtensionHarness(options: {
   const getOrgAuthCalls: Array<string | undefined> = [];
   const setSelectedOrgCalls: string[] = [];
   const tailRestoreCalls: string[] = [];
+  const openLogsEditorCalls: string[] = [];
   const logViewerShows: Array<{ logId: string; filePath: string }> = [];
   const debugFlagsShows: Array<{ selectedOrg?: string; sourceView?: 'logs' | 'tail' }> = [];
   const infoMessages: string[] = [];
@@ -116,6 +118,10 @@ function createExtensionHarness(options: {
       },
       executeCommand: async (command: string, ...args: unknown[]) => {
         commandCalls.push({ command, args });
+        const commandError = options.commandErrors?.[command];
+        if (commandError) {
+          throw commandError instanceof Error ? commandError : new Error(String(commandError));
+        }
         if (command === 'vscode.openFolder' && options.openFolderError) {
           throw options.openFolderError instanceof Error ? options.openFolderError : new Error(String(options.openFolderError));
         }
@@ -149,6 +155,10 @@ function createExtensionHarness(options: {
 
     public getSelectedOrg(): string {
       return this.selectedOrg;
+    }
+
+    public async showEditor(): Promise<void> {
+      openLogsEditorCalls.push(this.selectedOrg);
     }
 
     public async tailLogs(): Promise<void> {
@@ -340,6 +350,7 @@ function createExtensionHarness(options: {
     getOrgAuthCalls,
     setSelectedOrgCalls,
     tailRestoreCalls,
+    openLogsEditorCalls,
     debugFlagsShows,
     logViewerShows,
     infoMessages,
@@ -512,7 +523,7 @@ suite('extension activation gating', () => {
     );
   });
 
-  test('shows a warning and does not persist launch requests without a workspace', async () => {
+  test('opens the logs editor and moves it into a new window without persisting launch state', async () => {
     const harness = createExtensionHarness({
       workspaceFile: undefined
     });
@@ -521,60 +532,61 @@ suite('extension activation gating', () => {
 
     await harness.commands.get('sfLogs.openLogsInNewWindow')!();
 
-    assert.deepEqual(harness.warningMessages, [
-      'Electivus Apex Logs: Open a workspace folder before opening logs in a new window.'
-    ]);
+    assert.deepEqual(harness.openLogsEditorCalls, ['']);
+    assert.deepEqual(harness.warningMessages, []);
     assert.equal(
       harness.globalStateUpdates.some(update => update.key === 'pendingNewWindowLaunch'),
       false,
-      'should not persist pending launch request without workspace target'
+      'should not persist pending launch request for the logs editor move flow'
     );
-    const openFolderCalls = harness.commandCalls.filter(call => call.command === 'vscode.openFolder');
-    assert.deepEqual(openFolderCalls, []);
+    assert.deepEqual(
+      harness.commandCalls.map(call => call.command),
+      ['workbench.action.moveEditorToNewWindow']
+    );
   });
 
-  test('clears pending launch state when opening target workspace fails', async () => {
-    const selectedOrg = 'selected@example.com';
+  test('reuses the currently selected org when opening logs in a new window', async () => {
+    const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
     const harness = createExtensionHarness({
       salesforceProject: {
-        workspaceRoot: path.join(process.cwd(), 'workspace-salesforce'),
-        projectFilePath: path.join(process.cwd(), 'workspace-salesforce', 'sfdx-project.json'),
+        workspaceRoot,
+        projectFilePath: path.join(workspaceRoot, 'sfdx-project.json'),
         sourceApiVersion: '60.0'
       },
-      selectedOrg,
-      openFolderError: new Error('Cannot open new window')
+      selectedOrg: 'selected@example.com'
     });
-    (globalThis as any).setTimeout = (callback: () => Promise<void> | void) => {
-      harness.timeoutCallbacks.push(callback);
-      return 1;
-    };
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openLogsInNewWindow')!();
+
+    assert.deepEqual(harness.openLogsEditorCalls, ['selected@example.com']);
+    assert.deepEqual(
+      harness.commandCalls.map(call => call.command),
+      ['workbench.action.moveEditorToNewWindow']
+    );
+  });
+
+  test('propagates move-into-new-window failures for logs editor flow', async () => {
+    const harness = createExtensionHarness({
+      selectedOrg: 'selected@example.com',
+      commandErrors: {
+        'workbench.action.moveEditorToNewWindow': new Error('Cannot move editor')
+      }
+    });
 
     await harness.extension.activate(harness.context);
 
     const openLogsInNewWindow = harness.commands.get('sfLogs.openLogsInNewWindow');
     assert.ok(openLogsInNewWindow);
-    await assert.rejects(async () => openLogsInNewWindow(), /Cannot open new window/);
+    await assert.rejects(async () => openLogsInNewWindow(), /Cannot move editor/);
 
+    assert.deepEqual(harness.openLogsEditorCalls, ['selected@example.com']);
     assert.equal(
-      (harness.globalStateUpdates.find(update => update.key === 'pendingNewWindowLaunch')?.value as PendingLaunchRequest | undefined)
-        ?.selectedOrg,
-      selectedOrg,
-      'should persist selected org in launch request'
+      harness.globalStateUpdates.some(update => update.key === 'pendingNewWindowLaunch'),
+      false,
+      'logs editor move flow should not touch pending launch state on failure'
     );
-    assert.deepEqual(
-      harness.globalStateUpdates.map(update => ({ key: update.key, value: update.value ? 'set' : 'cleared' })),
-      [{ key: 'pendingNewWindowLaunch', value: 'set' }, { key: 'pendingNewWindowLaunch', value: 'cleared' }]
-    );
-    const openFolderCalls = harness.commandCalls.filter(call => call.command === 'vscode.openFolder');
-    assert.equal(openFolderCalls.length, 1);
-    const openFolderCall = openFolderCalls[0];
-    assert.ok(!!openFolderCall);
-    assert.equal(typeof openFolderCall.args[0], 'object');
-    assert.equal(
-      (openFolderCall.args[0] as { toString: () => string }).toString(),
-      `file://${path.join(process.cwd(), 'workspace-salesforce')}`
-    );
-    assert.deepEqual(openFolderCall.args[1], { forceNewWindow: true });
     assert.deepEqual(harness.warningMessages, []);
   });
 

@@ -26,6 +26,7 @@ const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
   private view?: vscode.WebviewView;
+  private editorPanel?: vscode.WebviewPanel;
   private pageLimit = 100;
   private currentOffset = 0;
   private disposed = false;
@@ -98,10 +99,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     // Dispose handling: stop posting and bump token to invalidate in-flight work
     this.context.subscriptions.push(
       webviewView.onDidDispose(() => {
-        this.disposed = true;
-        this.view = undefined;
-        this.refreshToken++;
-        this.cancelErrorScan();
+        if (this.view === webviewView) {
+          this.view = undefined;
+        }
+        this.handleSurfaceDisposed();
         logInfo('Logs webview disposed.');
       })
     );
@@ -113,12 +114,55 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     );
   }
 
+  public async showEditor(): Promise<void> {
+    const existingPanel = this.editorPanel;
+    if (existingPanel) {
+      existingPanel.reveal(vscode.ViewColumn.Active, false);
+      return;
+    }
+
+    const panel = vscode.window.createWebviewPanel(
+      'sfLogViewer.logsEditor',
+      localize('logs.editor.title', 'Apex Logs'),
+      { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
+      }
+    );
+
+    this.editorPanel = panel;
+    this.disposed = false;
+    panel.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
+    };
+    panel.webview.html = this.getHtmlForWebview(panel.webview);
+
+    this.context.subscriptions.push(
+      panel.onDidDispose(() => {
+        if (this.editorPanel === panel) {
+          this.editorPanel = undefined;
+        }
+        this.handleSurfaceDisposed();
+        logInfo('Logs editor panel disposed.');
+      })
+    );
+
+    this.context.subscriptions.push(
+      panel.webview.onDidReceiveMessage(message => {
+        void this.messageHandler.handle(message);
+      })
+    );
+  }
+
   public hasResolvedView(): boolean {
     return Boolean(this.view) && !this.disposed;
   }
 
   public async refresh() {
-    if (!this.view) {
+    if (!this.hasActiveSurface()) {
       return;
     }
     const token = ++this.refreshToken;
@@ -243,7 +287,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async loadMore() {
-    if (!this.view) {
+    if (!this.hasActiveSurface()) {
       return;
     }
     const token = this.refreshToken;
@@ -629,7 +673,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async executeSearch(query: string, token: number, signal?: AbortSignal): Promise<void> {
-    if (!this.view || this.disposed) {
+    if (!this.hasActiveSurface() || this.disposed) {
       return;
     }
     if (signal?.aborted) {
@@ -1336,7 +1380,21 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  private hasActiveSurface(): boolean {
+    return Boolean(this.view) || Boolean(this.editorPanel);
+  }
+
+  private handleSurfaceDisposed(): void {
+    if (this.hasActiveSurface()) {
+      return;
+    }
+    this.disposed = true;
+    this.refreshToken++;
+    this.cancelErrorScan();
+  }
+
   private post(msg: ExtensionToWebviewMessage): void {
-    this.view?.webview.postMessage(msg);
+    void this.view?.webview.postMessage(msg);
+    void this.editorPanel?.webview.postMessage(msg);
   }
 }

@@ -47,6 +47,42 @@ class MockWebviewView implements vscode.WebviewView {
   onDidDispose: vscode.Event<void> = () => new MockDisposable();
 }
 
+class MockWebviewPanel implements vscode.WebviewPanel {
+  public readonly viewType = 'sfLogViewer.logsEditor';
+  public title = 'Apex Logs';
+  public iconPath?: vscode.Uri | { light: vscode.Uri; dark: vscode.Uri } | undefined;
+  public readonly options: vscode.WebviewPanelOptions = {};
+  public readonly viewColumn = vscode.ViewColumn.Active;
+  public readonly active = true;
+  public readonly visible = true;
+  public revealCalls = 0;
+  public webview: vscode.Webview;
+
+  constructor(webview: vscode.Webview) {
+    this.webview = webview;
+  }
+
+  reveal(_viewColumn?: vscode.ViewColumn, _preserveFocus?: boolean): void {
+    this.revealCalls += 1;
+  }
+
+  dispose(): void {
+    /* noop */
+  }
+
+  onDidDispose(_listener: () => any, _thisArgs?: any, _disposables?: vscode.Disposable[]): vscode.Disposable {
+    return new MockDisposable();
+  }
+
+  onDidChangeViewState(
+    _listener: (e: vscode.WebviewPanelOnDidChangeViewStateEvent) => any,
+    _thisArgs?: any,
+    _disposables?: vscode.Disposable[]
+  ): vscode.Disposable {
+    return new MockDisposable();
+  }
+}
+
 suite('SfLogsViewProvider webview', () => {
   test('sets HTML with CSP and main.js on resolve', async () => {
     const context = {
@@ -72,5 +108,36 @@ suite('SfLogsViewProvider webview', () => {
     } as unknown as vscode.ExtensionContext;
     const provider = new SfLogsViewProvider(context);
     await provider.refresh(); // should not throw or attempt CLI/network without a view
+  });
+
+  test('showEditor creates the logs editor webview and reuses it on subsequent calls', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+
+    const provider = new SfLogsViewProvider(context);
+    const originalCreateWebviewPanel = vscode.window.createWebviewPanel;
+    const webview = new MockWebview();
+    const panel = new MockWebviewPanel(webview);
+    let createCalls = 0;
+
+    (vscode.window as any).createWebviewPanel = () => {
+      createCalls += 1;
+      return panel;
+    };
+
+    try {
+      await (provider as any).showEditor();
+      await (provider as any).showEditor();
+    } finally {
+      (vscode.window as any).createWebviewPanel = originalCreateWebviewPanel;
+    }
+
+    assert.equal(createCalls, 1, 'should create the logs editor panel only once');
+    assert.equal(panel.revealCalls, 1, 'second call should reveal the existing logs editor');
+    assert.equal(webview.options.enableScripts, true, 'editor webview should enable scripts');
+    assert.ok(webview.html.includes('Content-Security-Policy'), 'editor webview should include CSP');
+    assert.ok(webview.html.includes('media/main.js'), 'editor webview should load the logs bundle');
   });
 });
