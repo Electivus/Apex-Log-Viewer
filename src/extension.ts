@@ -350,7 +350,7 @@ export async function activate(context: vscode.ExtensionContext) {
       try {
         await launchInNewWindow({
           kind: 'logViewer',
-          selectedOrg: provider.getSelectedOrg(),
+          selectedOrg: getPreferredSelectedOrg(),
           logId,
           filePath
         });
