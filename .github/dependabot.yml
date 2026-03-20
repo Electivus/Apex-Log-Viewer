@@ -1,30 +1,58 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 20
     groups:
-      react:
-        patterns:
-          - "react"
-          - "react-dom"
-          - "@types/react"
-          - "@types/react-dom"
-      tailwind:
-        patterns:
-          - "tailwindcss"
-          - "@tailwindcss/*"
-          - "tailwind-*"
-    ignore:
-      - dependency-name: "@types/vscode"
+      # Group tightly coupled dependency families for lower review overhead.
+      # Only standalone groups like commitlint still leave semver-major bumps
+      # dedicated; coupled stacks stay grouped across majors to avoid peer
+      # mismatch PRs.
+      commitlint:
+        applies-to: version-updates
         update-types:
-          - "version-update:semver-major"
-          - "version-update:semver-minor"
-          - "version-update:semver-patch"
-  - package-ecosystem: "github-actions"
-    directory: "/"
+          - 'minor'
+          - 'patch'
+        patterns:
+          - '@commitlint/*'
+      react:
+        applies-to: version-updates
+        patterns:
+          - 'react'
+          - 'react-dom'
+          - '@types/react'
+          - '@types/react-dom'
+      tailwind:
+        applies-to: version-updates
+        patterns:
+          - 'tailwindcss'
+          - '@tailwindcss/*'
+          - 'tailwindcss-*'
+      testing:
+        applies-to: version-updates
+        patterns:
+          - 'jest'
+          - 'jest-*'
+          - 'jest-environment-*'
+          - '@types/jest'
+          - '@testing-library/*'
+          - 'ts-jest'
+          - 'jsdom'
+          - '@types/jsdom'
+      typescript-eslint:
+        applies-to: version-updates
+        patterns:
+          - '@typescript-eslint/*'
+    ignore:
+      - dependency-name: '@types/vscode'
+        update-types:
+          - 'version-update:semver-major'
+          - 'version-update:semver-minor'
+          - 'version-update:semver-patch'
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 20
