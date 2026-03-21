@@ -1,5 +1,7 @@
+import { promises as fs } from 'node:fs';
 import {
   LAUNCH_REQUEST_TTL_MS,
+  getPendingLaunchMarkerPath,
   isPendingLaunchRequest,
   type PendingLaunchRequest,
   type OpenInNewWindowHandlers,
@@ -27,11 +29,14 @@ export class NewWindowLaunchService {
       return;
     }
 
+    await this.ensureLaunchMarker(launchRequest.nonce);
     await this.context.globalState.update(PENDING_LAUNCH_KEY, launchRequest);
     try {
-      await this.context.openFolder?.(launchRequest.workspaceTarget);
+      await this.context.openFolder?.(launchRequest.workspaceTarget, {
+        filesToOpen: [getPendingLaunchMarkerPath(launchRequest.nonce)]
+      });
     } catch (error) {
-      await this.context.globalState.update(PENDING_LAUNCH_KEY, undefined);
+      await this.clearPendingLaunch(launchRequest);
       throw error;
     }
   }
@@ -57,7 +62,11 @@ export class NewWindowLaunchService {
       return;
     }
 
-    await this.clearPendingLaunch();
+    if (this.context.waitForLaunchMarker && !(await this.context.waitForLaunchMarker(request.nonce))) {
+      return;
+    }
+
+    await this.clearPendingLaunch(request);
 
     await handlers.restoreWindowContext({ selectedOrg: request.selectedOrg });
     switch (request.kind) {
@@ -80,8 +89,11 @@ export class NewWindowLaunchService {
     }
   }
 
-  private async clearPendingLaunch(): Promise<void> {
+  private async clearPendingLaunch(request?: PendingLaunchRequest): Promise<void> {
     await this.context.globalState.update(PENDING_LAUNCH_KEY, undefined);
+    if (request) {
+      await this.context.clearLaunchMarker?.(request.nonce);
+    }
   }
 
   private async normalizeRequest(value: unknown): Promise<PendingLaunchRequest | undefined> {
@@ -93,15 +105,19 @@ export class NewWindowLaunchService {
     }
 
     if (Date.now() - value.createdAt > LAUNCH_REQUEST_TTL_MS) {
-      await this.clearPendingLaunch();
+      await this.clearPendingLaunch(value);
       return undefined;
     }
 
     if (value.kind === 'logViewer' && (!value.logId || !value.filePath)) {
-      await this.clearPendingLaunch();
+      await this.clearPendingLaunch(value);
       return undefined;
     }
 
     return value;
+  }
+
+  private async ensureLaunchMarker(nonce: string): Promise<void> {
+    await fs.writeFile(getPendingLaunchMarkerPath(nonce), '', 'utf8');
   }
 }

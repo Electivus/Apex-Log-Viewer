@@ -1,3 +1,6 @@
+import * as os from 'node:os';
+import * as path from 'node:path';
+
 export const LAUNCH_REQUEST_TTL_MS = 60_000;
 
 export type WorkspaceTarget =
@@ -44,7 +47,14 @@ export interface LaunchContextProvider {
     get(key: string): unknown;
     update(key: string, value: unknown): Promise<void> | Thenable<void> | void;
   };
-  openFolder?: (workspaceTarget: WorkspaceTarget) => Promise<void> | Thenable<void> | void;
+  openFolder?: (
+    workspaceTarget: WorkspaceTarget,
+    options?: {
+      filesToOpen?: string[];
+    }
+  ) => Promise<void> | Thenable<void> | void;
+  waitForLaunchMarker?: (nonce: string) => Promise<boolean> | Thenable<boolean> | boolean;
+  clearLaunchMarker?: (nonce: string) => Promise<void> | Thenable<void> | void;
 }
 
 export type OpenInNewWindowHandlers = {
@@ -104,4 +114,9 @@ export function isPendingLaunchRequest(value: unknown): value is PendingLaunchRe
   }
 
   return true;
+}
+
+export function getPendingLaunchMarkerPath(nonce: string): string {
+  const safeNonce = nonce.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return path.join(os.tmpdir(), `apex-log-viewer-new-window-${safeNonce}.tmp`);
 }

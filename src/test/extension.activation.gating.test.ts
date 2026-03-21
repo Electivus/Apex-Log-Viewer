@@ -39,6 +39,7 @@ function createExtensionHarness(options: {
   commandErrors?: Record<string, Error | string>;
   selectedOrg?: string;
   tailSelectedOrg?: string;
+  logsEditorAlreadyOpen?: boolean;
 }) {
   const commands = new Map<string, RegisteredCommand>();
   const events: Array<{ name: string; props?: Record<string, string> }> = [];
@@ -49,6 +50,7 @@ function createExtensionHarness(options: {
   const setSelectedOrgCalls: string[] = [];
   const tailRestoreCalls: string[] = [];
   const openLogsEditorCalls: string[] = [];
+  const logsRefreshCalls: string[] = [];
   const logViewerShows: Array<{ logId: string; filePath: string }> = [];
   const debugFlagsShows: Array<{ selectedOrg?: string; sourceView?: 'logs' | 'tail' }> = [];
   const infoMessages: string[] = [];
@@ -95,6 +97,7 @@ function createExtensionHarness(options: {
     workspace: {
       workspaceFile: effectiveWorkspaceFile,
       workspaceFolders,
+      textDocuments: options.activeDocument ? [options.activeDocument] : [],
       onDidChangeConfiguration: () => createDisposable(),
       openTextDocument: async () => options.activeDocument
     },
@@ -150,6 +153,7 @@ function createExtensionHarness(options: {
     public static viewType = 'sfLogViewer';
     public static editorPanelViewType = 'sfLogViewer.logsEditor';
     private selectedOrg = options.selectedOrg ?? '';
+    private editorAlreadyOpen = options.logsEditorAlreadyOpen ?? false;
 
     constructor(_context: any) {}
 
@@ -157,7 +161,9 @@ function createExtensionHarness(options: {
       return false;
     }
 
-    public async refresh(): Promise<void> {}
+    public async refresh(): Promise<void> {
+      logsRefreshCalls.push(this.selectedOrg);
+    }
 
     public async sendOrgs(): Promise<void> {}
 
@@ -171,8 +177,13 @@ function createExtensionHarness(options: {
       return this.selectedOrg;
     }
 
-    public async showEditor(): Promise<void> {
+    public async showEditor(showOptions?: { refreshOnReveal?: boolean }): Promise<void> {
       openLogsEditorCalls.push(this.selectedOrg);
+      const wasAlreadyOpen = this.editorAlreadyOpen;
+      this.editorAlreadyOpen = true;
+      if (wasAlreadyOpen && showOptions?.refreshOnReveal) {
+        await this.refresh();
+      }
     }
 
     public async restoreEditorPanel(): Promise<void> {
@@ -369,6 +380,7 @@ function createExtensionHarness(options: {
     setSelectedOrgCalls,
     tailRestoreCalls,
     openLogsEditorCalls,
+    logsRefreshCalls,
     debugFlagsShows,
     logViewerShows,
     infoMessages,
@@ -686,6 +698,27 @@ suite('extension activation gating', () => {
       harness.commandCalls.filter(call => call.command !== 'setContext').map(call => call.command),
       ['workbench.action.moveEditorToNewWindow']
     );
+  });
+
+  test('refreshes an existing logs editor after reseeding it to a different org', async () => {
+    const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot,
+        projectFilePath: path.join(workspaceRoot, 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      selectedOrg: 'logs-selected@example.com',
+      tailSelectedOrg: 'tail-selected@example.com',
+      logsEditorAlreadyOpen: true
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openLogsInNewWindow')!();
+
+    assert.deepEqual(harness.openLogsEditorCalls, ['tail-selected@example.com']);
+    assert.deepEqual(harness.logsRefreshCalls, ['tail-selected@example.com']);
   });
 
   test('propagates move-into-new-window failures for logs editor flow', async () => {

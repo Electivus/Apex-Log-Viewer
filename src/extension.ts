@@ -12,7 +12,7 @@ import { CacheManager } from './utils/cacheManager';
 import { LogViewerPanel } from './panel/LogViewerPanel';
 import { DebugFlagsPanel } from './panel/DebugFlagsPanel';
 import { NewWindowLaunchService } from './services/NewWindowLaunchService';
-import type { NewWindowLaunchSourceView } from './shared/newWindowLaunch';
+import { getPendingLaunchMarkerPath, type NewWindowLaunchSourceView } from './shared/newWindowLaunch';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { getErrorMessage } from './utils/error';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
@@ -237,10 +237,48 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const newWindowLaunchService = new NewWindowLaunchService({
     globalState: context.globalState,
-    openFolder: async workspaceTarget => {
+    openFolder: async (workspaceTarget, options) => {
       await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.parse(workspaceTarget.uri), {
-        forceNewWindow: true
+        forceNewWindow: true,
+        filesToOpen: options?.filesToOpen?.map(filePath => vscode.Uri.file(filePath))
       });
+    },
+    waitForLaunchMarker: async nonce => {
+      const markerPath = path.resolve(getPendingLaunchMarkerPath(nonce));
+      const deadline = Date.now() + 2_000;
+      while (Date.now() <= deadline) {
+        const openDocuments = [
+          ...vscode.workspace.textDocuments,
+          ...(vscode.window.activeTextEditor ? [vscode.window.activeTextEditor.document] : [])
+        ];
+        if (
+          openDocuments.some(
+            document => document.uri.scheme === 'file' && path.resolve(document.uri.fsPath || document.fileName) === markerPath
+          )
+        ) {
+          return true;
+        }
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      return false;
+    },
+    clearLaunchMarker: async nonce => {
+      const markerPath = path.resolve(getPendingLaunchMarkerPath(nonce));
+      const activeDocument = vscode.window.activeTextEditor?.document;
+      if (activeDocument?.uri.scheme === 'file' && path.resolve(activeDocument.uri.fsPath || activeDocument.fileName) === markerPath) {
+        try {
+          await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+        } catch (error) {
+          logWarn('Failed to close pending launch marker editor ->', getErrorMessage(error));
+        }
+      }
+      try {
+        await fs.promises.unlink(markerPath);
+      } catch (error: any) {
+        if (error?.code !== 'ENOENT') {
+          logWarn('Failed to remove pending launch marker ->', getErrorMessage(error));
+        }
+      }
     }
   });
 
@@ -297,10 +335,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const openLogsInNewWindow = async (selectedOrg: string | undefined, commandName: string) => {
     try {
+      const previousSelectedOrg = provider.getSelectedOrg();
       if (selectedOrg) {
         provider.setSelectedOrg(selectedOrg);
       }
-      await provider.showEditor();
+      await provider.showEditor({ refreshOnReveal: Boolean(selectedOrg) && selectedOrg !== previousSelectedOrg });
       await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
     } catch (error) {
       const msg = getErrorMessage(error);

@@ -1,7 +1,8 @@
 import assert from 'assert/strict';
+import { promises as fs } from 'node:fs';
 import proxyquire from 'proxyquire';
 import type { PendingLaunchRequest, WorkspaceTarget } from '../shared/newWindowLaunch';
-import { LAUNCH_REQUEST_TTL_MS } from '../shared/newWindowLaunch';
+import { LAUNCH_REQUEST_TTL_MS, getPendingLaunchMarkerPath } from '../shared/newWindowLaunch';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 
@@ -50,7 +51,11 @@ function createMemoryStorage(initial: Record<string, unknown>): StorageFactory {
   };
 }
 
-function createLaunchService(currentWorkspaceTarget: WorkspaceTarget | undefined, storage: StorageFactory) {
+function createLaunchService(
+  currentWorkspaceTarget: WorkspaceTarget | undefined,
+  storage: StorageFactory,
+  overrides: Record<string, unknown> = {}
+) {
   const serviceModule = proxyquireStrict('../services/NewWindowLaunchService', {
     '../utils/workspace': {
       getCurrentWorkspaceTarget: () => currentWorkspaceTarget,
@@ -60,7 +65,7 @@ function createLaunchService(currentWorkspaceTarget: WorkspaceTarget | undefined
     }
   }) as typeof import('../services/NewWindowLaunchService');
 
-  return new serviceModule.NewWindowLaunchService({ globalState: storage });
+  return new serviceModule.NewWindowLaunchService({ globalState: storage, ...overrides });
 }
 
 function makeBaseRequest(target: WorkspaceTarget): PendingLaunchRequest {
@@ -142,7 +147,13 @@ suite('NewWindowLaunchService', () => {
   test('consumes only a fresh request whose workspace target matches current window', async () => {
     const request = makeBaseRequest(workspaceA);
     const storage = createMemoryStorage({ pendingNewWindowLaunch: request });
-    const service = createLaunchService(workspaceA, storage);
+    const clearLaunchMarkerCalls: string[] = [];
+    const service = createLaunchService(workspaceA, storage, {
+      waitForLaunchMarker: async () => true,
+      clearLaunchMarker: async (nonce: string) => {
+        clearLaunchMarkerCalls.push(nonce);
+      }
+    });
     const { callOrder, handlers } = makeHandlerCalls();
 
     await service.consumePendingLaunch(handlers);
@@ -151,6 +162,7 @@ suite('NewWindowLaunchService', () => {
     assert.equal(storage.updates.length, 1);
     assert.deepEqual(storage.updates[0], { key: 'pendingNewWindowLaunch', value: undefined });
     assert.equal(storage.getStoreValue('pendingNewWindowLaunch'), undefined);
+    assert.deepEqual(clearLaunchMarkerCalls, [request.nonce]);
   });
 
   test('clears stale requests without dispatching', async () => {
@@ -225,7 +237,9 @@ suite('NewWindowLaunchService', () => {
   test('dispatch order is restoreWindowContext first, then matching surface handler', async () => {
     const request = makeBaseRequest(workspaceA);
     const storage = createMemoryStorage({ pendingNewWindowLaunch: request });
-    const service = createLaunchService(workspaceA, storage);
+    const service = createLaunchService(workspaceA, storage, {
+      waitForLaunchMarker: async () => true
+    });
     const { callOrder, handlers } = makeHandlerCalls();
 
     await service.consumePendingLaunch(handlers);
@@ -246,7 +260,9 @@ suite('NewWindowLaunchService', () => {
     };
 
     const storage = createMemoryStorage({ pendingNewWindowLaunch: request });
-    const service = createLaunchService(workspaceA, storage);
+    const service = createLaunchService(workspaceA, storage, {
+      waitForLaunchMarker: async () => true
+    });
     const { callOrder, handlers } = makeHandlerCalls();
 
     await service.consumePendingLaunch(handlers);
@@ -254,5 +270,38 @@ suite('NewWindowLaunchService', () => {
     assert.deepEqual(callOrder, ['restore', 'viewer']);
     assert.deepEqual(storage.updates, [{ key: 'pendingNewWindowLaunch', value: undefined }]);
     assert.equal(storage.getStoreValue('pendingNewWindowLaunch'), undefined);
+  });
+
+  test('launchInNewWindow opens the destination with a nonce-bound marker file', async () => {
+    const storage = createMemoryStorage({});
+    const openFolderCalls: Array<{ workspaceTarget: WorkspaceTarget; filesToOpen?: string[] }> = [];
+    const service = createLaunchService(workspaceA, storage, {
+      openFolder: async (workspaceTarget: WorkspaceTarget, options?: { filesToOpen?: string[] }) => {
+        openFolderCalls.push({ workspaceTarget, filesToOpen: options?.filesToOpen });
+      }
+    });
+
+    await service.launchInNewWindow({ kind: 'tail', workspaceTarget: workspaceA });
+
+    const request = storage.getStoreValue('pendingNewWindowLaunch') as PendingLaunchRequest | undefined;
+    assert.ok(request);
+    const expectedMarkerPath = getPendingLaunchMarkerPath(request!.nonce);
+    assert.deepEqual(openFolderCalls, [{ workspaceTarget: workspaceA, filesToOpen: [expectedMarkerPath] }]);
+    await fs.unlink(expectedMarkerPath);
+  });
+
+  test('ignores same-workspace windows until the nonce-bound marker is present', async () => {
+    const request = makeBaseRequest(workspaceA);
+    const storage = createMemoryStorage({ pendingNewWindowLaunch: request });
+    const service = createLaunchService(workspaceA, storage, {
+      waitForLaunchMarker: async () => false
+    });
+    const { callOrder, handlers } = makeHandlerCalls();
+
+    await service.consumePendingLaunch(handlers);
+
+    assert.deepEqual(callOrder, []);
+    assert.deepEqual(storage.updates, []);
+    assert.deepEqual(storage.getStoreValue('pendingNewWindowLaunch'), request);
   });
 });

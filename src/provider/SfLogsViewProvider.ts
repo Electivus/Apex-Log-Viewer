@@ -128,10 +128,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     );
   }
 
-  public async showEditor(): Promise<void> {
+  public async showEditor(options?: { refreshOnReveal?: boolean }): Promise<void> {
     const existingPanel = this.editorPanel;
     if (existingPanel) {
       existingPanel.reveal(vscode.ViewColumn.Active, false);
+      if (options?.refreshOnReveal) {
+        await this.refresh();
+      }
       return;
     }
 
