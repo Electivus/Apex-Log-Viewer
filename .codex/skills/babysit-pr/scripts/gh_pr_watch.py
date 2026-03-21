@@ -650,7 +650,16 @@ def update_blocking_non_thread_feedback(state, head_sha, new_review_items):
         if kind != "review":
             continue
         review_state = str(item.get("review_state") or "").upper()
+        author = str(item.get("author") or "")
         if review_state in NON_BLOCKING_REVIEW_STATES:
+            tracked_items = {
+                tracked_id: tracked_item
+                for tracked_id, tracked_item in tracked_items.items()
+                if not (
+                    str(tracked_item.get("kind") or "") == "review"
+                    and str(tracked_item.get("author") or "") == author
+                )
+            }
             continue
         tracked_items[item_id] = item
 
@@ -665,10 +674,14 @@ def update_blocking_non_thread_feedback(state, head_sha, new_review_items):
 def fetch_unresolved_review_threads(pr):
     owner, repo_name = pr["repo"].split("/", 1)
     query = """
-query($owner:String!, $repo:String!, $number:Int!) {
+query($owner:String!, $repo:String!, $number:Int!, $after:String) {
   repository(owner:$owner, name:$repo) {
     pullRequest(number:$number) {
-      reviewThreads(first:100) {
+      reviewThreads(first:100, after:$after) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
         nodes {
           isResolved
           isOutdated
@@ -690,49 +703,58 @@ query($owner:String!, $repo:String!, $number:Int!) {
   }
 }
 """.strip()
-    payload = graphql_json(
-        query,
-        variables={
+    unresolved_threads = []
+    after_cursor = None
+    while True:
+        variables = {
             "owner": owner,
             "repo": repo_name,
             "number": pr["number"],
-        },
-    )
-    nodes = (
-        payload.get("data", {})
-        .get("repository", {})
-        .get("pullRequest", {})
-        .get("reviewThreads", {})
-        .get("nodes", [])
-    )
-    if not isinstance(nodes, list):
-        raise GhCommandError("Expected reviewThreads.nodes to be a list")
-
-    unresolved_threads = []
-    for thread in nodes:
-        if not isinstance(thread, dict):
-            continue
-        if thread.get("isResolved") or thread.get("isOutdated"):
-            continue
-        comments = thread.get("comments", {}).get("nodes", [])
-        if not isinstance(comments, list) or not comments:
-            continue
-        latest_comment = comments[-1]
-        if not isinstance(latest_comment, dict):
-            continue
-        author = (latest_comment.get("author") or {}).get("login") or ""
-        unresolved_threads.append(
-            {
-                "author": str(author),
-                "body": str(latest_comment.get("body") or ""),
-                "created_at": str(latest_comment.get("createdAt") or ""),
-                "id": str(latest_comment.get("databaseId") or ""),
-                "kind": "unresolved_review_thread",
-                "line": latest_comment.get("line"),
-                "path": latest_comment.get("path"),
-                "url": pr["url"],
-            }
+        }
+        if after_cursor:
+            variables["after"] = after_cursor
+        payload = graphql_json(query, variables=variables)
+        review_threads = (
+            payload.get("data", {})
+            .get("repository", {})
+            .get("pullRequest", {})
+            .get("reviewThreads", {})
         )
+        nodes = review_threads.get("nodes", [])
+        if not isinstance(nodes, list):
+            raise GhCommandError("Expected reviewThreads.nodes to be a list")
+
+        for thread in nodes:
+            if not isinstance(thread, dict):
+                continue
+            if thread.get("isResolved") or thread.get("isOutdated"):
+                continue
+            comments = thread.get("comments", {}).get("nodes", [])
+            if not isinstance(comments, list) or not comments:
+                continue
+            latest_comment = comments[-1]
+            if not isinstance(latest_comment, dict):
+                continue
+            author = (latest_comment.get("author") or {}).get("login") or ""
+            unresolved_threads.append(
+                {
+                    "author": str(author),
+                    "body": str(latest_comment.get("body") or ""),
+                    "created_at": str(latest_comment.get("createdAt") or ""),
+                    "id": str(latest_comment.get("databaseId") or ""),
+                    "kind": "unresolved_review_thread",
+                    "line": latest_comment.get("line"),
+                    "path": latest_comment.get("path"),
+                    "url": pr["url"],
+                }
+            )
+
+        page_info = review_threads.get("pageInfo", {})
+        if not page_info.get("hasNextPage"):
+            break
+        after_cursor = page_info.get("endCursor")
+        if not after_cursor:
+            break
     unresolved_threads.sort(
         key=lambda item: (str(item.get("created_at") or ""), str(item.get("path") or ""), str(item.get("id") or ""))
     )
