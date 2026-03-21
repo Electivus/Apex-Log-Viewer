@@ -6,14 +6,14 @@ import type { VsCodeWebviewApi } from '../vscodeApi';
 import { LogsApp } from '../main';
 
 describe('Logs webview App', () => {
-  function createVsCodeMock() {
+  function createVsCodeMock(options?: { persistedState?: { selectedOrg?: string } }) {
     const posted: WebviewToExtensionMessage[] = [];
     const states: unknown[] = [];
     const vscode: VsCodeWebviewApi<WebviewToExtensionMessage> = {
       postMessage: msg => {
         posted.push(msg);
       },
-      getState: () => undefined,
+      getState: () => options?.persistedState,
       setState: state => {
         states.push(state);
       }
@@ -222,6 +222,30 @@ describe('Logs webview App', () => {
 
       await waitFor(() => {
         expect(states).toContainEqual({ selectedOrg: 'seeded@example.com' });
+      });
+    } finally {
+      container.remove();
+    }
+  });
+
+  it('prefers a fresher bootstrap org over stale serialized state', async () => {
+    const { vscode, states } = createVsCodeMock({
+      persistedState: { selectedOrg: 'stale@example.com' }
+    });
+    const bus = new EventTarget();
+    const container = document.createElement('div');
+    container.id = 'root';
+    container.setAttribute(
+      'data-initial-state',
+      encodeURIComponent(JSON.stringify({ selectedOrg: 'fresh@example.com' }))
+    );
+    document.body.appendChild(container);
+
+    try {
+      render(<LogsApp vscode={vscode} messageBus={bus} />, { container });
+
+      await waitFor(() => {
+        expect(states).toContainEqual({ selectedOrg: 'fresh@example.com' });
       });
     } finally {
       container.remove();

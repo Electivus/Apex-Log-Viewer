@@ -8,7 +8,7 @@ function normalizeWorkspaceMarkerPath(markerFilePath: string): string {
 
 export function toWorkspaceScopedMarkerUri(workspaceTarget: WorkspaceTarget, markerFilePath: string): vscode.Uri {
   const workspaceUri = vscode.Uri.parse(workspaceTarget.uri);
-  if (workspaceUri.scheme === 'file') {
+  if (workspaceUri.scheme === 'file' || workspaceUri.scheme === 'untitled') {
     return vscode.Uri.file(markerFilePath);
   }
   return workspaceUri.with({ path: normalizeWorkspaceMarkerPath(markerFilePath), query: '', fragment: '' });

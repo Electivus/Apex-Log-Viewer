@@ -30,7 +30,7 @@ export function LogsApp({
 }: LogsAppProps = {}) {
   const persistedState = vscode.getState<{ selectedOrg?: string }>();
   const bootstrapState = readBootstrapState();
-  const initialState = persistedState ?? bootstrapState;
+  const initialState = resolveInitialState(persistedState, bootstrapState);
   const [locale, setLocale] = useState('en');
   const [t, setT] = useState<Messages>(() => getMessages('en'));
   const [loading, setLoading] = useState(false);
@@ -77,7 +77,7 @@ export function LogsApp({
   const [loadMoreFooterHeightPx, setLoadMoreFooterHeightPx] = useState(0);
 
   useLayoutEffect(() => {
-    if (!persistedState && bootstrapState) {
+    if (shouldPersistBootstrapState(persistedState, bootstrapState)) {
       vscode.setState(bootstrapState);
     }
   }, [bootstrapState, persistedState, vscode]);
@@ -534,4 +534,22 @@ function readBootstrapState(): { selectedOrg?: string } | undefined {
     // Ignore malformed bootstrap state and let the normal org refresh path recover.
   }
   return undefined;
+}
+
+function resolveInitialState(
+  persistedState: { selectedOrg?: string } | undefined,
+  bootstrapState: { selectedOrg?: string } | undefined
+): { selectedOrg?: string } | undefined {
+  if (shouldPersistBootstrapState(persistedState, bootstrapState)) {
+    return bootstrapState;
+  }
+  return persistedState ?? bootstrapState;
+}
+
+function shouldPersistBootstrapState(
+  persistedState: { selectedOrg?: string } | undefined,
+  bootstrapState: { selectedOrg?: string } | undefined
+): bootstrapState is { selectedOrg: string } {
+  const bootstrapSelectedOrg = bootstrapState?.selectedOrg;
+  return typeof bootstrapSelectedOrg === 'string' && bootstrapSelectedOrg !== persistedState?.selectedOrg;
 }

@@ -11,6 +11,16 @@ suite('new window launch marker URIs', () => {
     assert.equal(uri.toString(), vscode.Uri.file('/tmp/alv-marker').toString());
   });
 
+  test('keeps untitled workspace targets on file URIs for the marker file', () => {
+    const uri = toWorkspaceScopedMarkerUri(
+      { type: 'workspaceFile', uri: 'untitled:workspace.code-workspace' },
+      '/tmp/alv-marker'
+    );
+
+    assert.equal(uri.scheme, 'file');
+    assert.equal(uri.toString(), vscode.Uri.file('/tmp/alv-marker').toString());
+  });
+
   test('preserves remote scheme and authority for marker URIs', () => {
     const uri = toWorkspaceScopedMarkerUri(
       { type: 'folder', uri: 'vscode-remote://wsl+Ubuntu/home/k3/git/Apex-Log-Viewer' },
