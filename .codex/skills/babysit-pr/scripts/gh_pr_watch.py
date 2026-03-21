@@ -30,6 +30,7 @@ PENDING_CHECK_STATES = {
 REVIEW_BOT_LOGIN_KEYWORDS = {
     "codex",
 }
+READY_REACTION_CONTENT = "+1"
 TRUSTED_AUTHOR_ASSOCIATIONS = {
     "OWNER",
     "MEMBER",
@@ -316,13 +317,51 @@ def get_workflow_runs_for_sha(repo, head_sha):
     return runs
 
 
+def workflow_run_key(run):
+    workflow_id = run.get("workflow_id")
+    if workflow_id not in (None, ""):
+        return f"workflow:{workflow_id}"
+    return "|".join(
+        [
+            f"name:{str(run.get('name') or run.get('display_title') or '')}",
+            f"event:{str(run.get('event') or '')}",
+        ]
+    )
+
+
+def workflow_run_sort_key(run):
+    run_attempt = run.get("run_attempt")
+    run_id = run.get("id")
+    try:
+        run_attempt = int(run_attempt)
+    except (TypeError, ValueError):
+        run_attempt = 0
+    try:
+        run_id = int(run_id)
+    except (TypeError, ValueError):
+        run_id = 0
+    return (
+        run_attempt,
+        str(run.get("created_at") or ""),
+        str(run.get("updated_at") or ""),
+        run_id,
+    )
+
+
 def failed_runs_from_workflow_runs(runs, head_sha):
+    latest_runs_by_key = {}
     failed_runs = []
     for run in runs:
         if not isinstance(run, dict):
             continue
         if str(run.get("head_sha") or "") != head_sha:
             continue
+        run_key = workflow_run_key(run)
+        existing = latest_runs_by_key.get(run_key)
+        if existing is None or workflow_run_sort_key(run) > workflow_run_sort_key(existing):
+            latest_runs_by_key[run_key] = run
+
+    for run in latest_runs_by_key.values():
         conclusion = str(run.get("conclusion") or "")
         if conclusion not in FAILED_RUN_CONCLUSIONS:
             continue
@@ -330,6 +369,7 @@ def failed_runs_from_workflow_runs(runs, head_sha):
             {
                 "run_id": run.get("id"),
                 "workflow_name": run.get("name") or run.get("display_title") or "",
+                "run_attempt": run.get("run_attempt"),
                 "status": str(run.get("status") or ""),
                 "conclusion": conclusion,
                 "html_url": str(run.get("html_url") or ""),
@@ -354,6 +394,10 @@ def comment_endpoints(repo, pr_number):
     }
 
 
+def reaction_endpoint(repo, pr_number):
+    return f"repos/{repo}/issues/{pr_number}/reactions"
+
+
 def gh_api_list_paginated(endpoint, repo=None, per_page=100):
     items = []
     page = 1
@@ -370,6 +414,16 @@ def gh_api_list_paginated(endpoint, repo=None, per_page=100):
             break
         page += 1
     return items
+
+
+def graphql_json(query, variables=None):
+    cmd = ["api", "graphql", "-f", f"query={query}"]
+    for key, value in (variables or {}).items():
+        cmd.extend(["-F", f"{key}={value}"])
+    data = gh_json(cmd)
+    if not isinstance(data, dict):
+        raise GhCommandError("Unexpected payload from `gh api graphql`")
+    return data
 
 
 def normalize_issue_comments(items):
@@ -433,6 +487,21 @@ def normalize_reviews(items):
                 "path": None,
                 "line": None,
                 "url": str(item.get("html_url") or ""),
+            }
+        )
+    return out
+
+
+def normalize_reactions(items):
+    out = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        out.append(
+            {
+                "id": str(item.get("id") or ""),
+                "author": extract_login(item.get("user")),
+                "content": str(item.get("content") or ""),
             }
         )
     return out
@@ -524,6 +593,101 @@ def fetch_new_review_items(pr, state, fresh_state, authenticated_login=None):
     return new_items
 
 
+def fetch_pr_ready_reactions(pr):
+    payload = gh_api_list_paginated(reaction_endpoint(pr["repo"], pr["number"]), repo=pr["repo"])
+    reactions = normalize_reactions(payload)
+    ready_reactions = []
+    for reaction in reactions:
+        if reaction.get("content") != READY_REACTION_CONTENT:
+            continue
+        ready_reactions.append(
+            {
+                "id": reaction.get("id") or "",
+                "author": reaction.get("author") or "",
+                "content": READY_REACTION_CONTENT,
+            }
+        )
+    ready_reactions.sort(key=lambda item: (str(item.get("author") or ""), str(item.get("id") or "")))
+    return ready_reactions
+
+
+def fetch_unresolved_review_threads(pr):
+    owner, repo_name = pr["repo"].split("/", 1)
+    query = """
+query($owner:String!, $repo:String!, $number:Int!) {
+  repository(owner:$owner, name:$repo) {
+    pullRequest(number:$number) {
+      reviewThreads(first:100) {
+        nodes {
+          isResolved
+          isOutdated
+          comments(first:100) {
+            nodes {
+              databaseId
+              body
+              path
+              line
+              createdAt
+              author {
+                login
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+""".strip()
+    payload = graphql_json(
+        query,
+        variables={
+            "owner": owner,
+            "repo": repo_name,
+            "number": pr["number"],
+        },
+    )
+    nodes = (
+        payload.get("data", {})
+        .get("repository", {})
+        .get("pullRequest", {})
+        .get("reviewThreads", {})
+        .get("nodes", [])
+    )
+    if not isinstance(nodes, list):
+        raise GhCommandError("Expected reviewThreads.nodes to be a list")
+
+    unresolved_threads = []
+    for thread in nodes:
+        if not isinstance(thread, dict):
+            continue
+        if thread.get("isResolved") or thread.get("isOutdated"):
+            continue
+        comments = thread.get("comments", {}).get("nodes", [])
+        if not isinstance(comments, list) or not comments:
+            continue
+        latest_comment = comments[-1]
+        if not isinstance(latest_comment, dict):
+            continue
+        author = (latest_comment.get("author") or {}).get("login") or ""
+        unresolved_threads.append(
+            {
+                "author": str(author),
+                "body": str(latest_comment.get("body") or ""),
+                "created_at": str(latest_comment.get("createdAt") or ""),
+                "id": str(latest_comment.get("databaseId") or ""),
+                "kind": "unresolved_review_thread",
+                "line": latest_comment.get("line"),
+                "path": latest_comment.get("path"),
+                "url": pr["url"],
+            }
+        )
+    unresolved_threads.sort(
+        key=lambda item: (str(item.get("created_at") or ""), str(item.get("path") or ""), str(item.get("id") or ""))
+    )
+    return unresolved_threads
+
+
 def current_retry_count(state, head_sha):
     retries = state.get("retries_by_sha") or {}
     value = retries.get(head_sha, 0)
@@ -551,7 +715,7 @@ def unique_actions(actions):
     return out
 
 
-def is_pr_ready_to_merge(pr, checks_summary, new_review_items):
+def is_pr_ready_to_merge(pr, checks_summary, new_review_items, unresolved_review_threads, ready_reactions):
     if pr["closed"] or pr["merged"]:
         return False
     if not checks_summary["all_terminal"]:
@@ -560,28 +724,43 @@ def is_pr_ready_to_merge(pr, checks_summary, new_review_items):
         return False
     if new_review_items:
         return False
+    if unresolved_review_threads:
+        return False
     if str(pr.get("mergeable") or "") != "MERGEABLE":
         return False
-    if str(pr.get("merge_state_status") or "") in MERGE_CONFLICT_OR_BLOCKING_STATES:
+    has_ready_reaction = bool(ready_reactions)
+    merge_state_status = str(pr.get("merge_state_status") or "")
+    if merge_state_status in {"DIRTY", "DRAFT", "UNKNOWN"}:
         return False
-    if str(pr.get("review_decision") or "") in MERGE_BLOCKING_REVIEW_DECISIONS:
+    if merge_state_status == "BLOCKED" and not has_ready_reaction:
+        return False
+    if str(pr.get("review_decision") or "") in MERGE_BLOCKING_REVIEW_DECISIONS and not has_ready_reaction:
         return False
     return True
 
 
-def recommend_actions(pr, checks_summary, failed_runs, new_review_items, retries_used, max_retries):
+def recommend_actions(
+    pr,
+    checks_summary,
+    failed_runs,
+    new_review_items,
+    unresolved_review_threads,
+    ready_reactions,
+    retries_used,
+    max_retries,
+):
     actions = []
     if pr["closed"] or pr["merged"]:
-        if new_review_items:
+        if new_review_items or unresolved_review_threads:
             actions.append("process_review_comment")
         actions.append("stop_pr_closed")
         return unique_actions(actions)
 
-    if is_pr_ready_to_merge(pr, checks_summary, new_review_items):
+    if is_pr_ready_to_merge(pr, checks_summary, new_review_items, unresolved_review_threads, ready_reactions):
         actions.append("stop_ready_to_merge")
         return unique_actions(actions)
 
-    if new_review_items:
+    if new_review_items or unresolved_review_threads:
         actions.append("process_review_comment")
 
     has_failed_pr_checks = checks_summary["failed_count"] > 0
@@ -619,6 +798,8 @@ def collect_snapshot(args):
         fresh_state=fresh_state,
         authenticated_login=authenticated_login,
     )
+    unresolved_review_threads = fetch_unresolved_review_threads(pr)
+    ready_reactions = fetch_pr_ready_reactions(pr)
 
     retries_used = current_retry_count(state, pr["head_sha"])
     actions = recommend_actions(
@@ -626,6 +807,8 @@ def collect_snapshot(args):
         checks_summary,
         failed_runs,
         new_review_items,
+        unresolved_review_threads,
+        ready_reactions,
         retries_used,
         args.max_flaky_retries,
     )
@@ -640,6 +823,11 @@ def collect_snapshot(args):
         "checks": checks_summary,
         "failed_runs": failed_runs,
         "new_review_items": new_review_items,
+        "unresolved_review_threads": unresolved_review_threads,
+        "approval_signal": {
+            "has_pr_thumbs_up": bool(ready_reactions),
+            "pr_thumbs_up_reactions": ready_reactions,
+        },
         "actions": actions,
         "retry_state": {
             "current_sha_retries_used": retries_used,
@@ -726,6 +914,9 @@ def snapshot_change_key(snapshot):
     pr = snapshot.get("pr") or {}
     checks = snapshot.get("checks") or {}
     review_items = snapshot.get("new_review_items") or []
+    unresolved_review_threads = snapshot.get("unresolved_review_threads") or []
+    approval_signal = snapshot.get("approval_signal") or {}
+    ready_reactions = approval_signal.get("pr_thumbs_up_reactions") or []
     return (
         str(pr.get("head_sha") or ""),
         str(pr.get("state") or ""),
@@ -738,6 +929,16 @@ def snapshot_change_key(snapshot):
         tuple(
             (str(item.get("kind") or ""), str(item.get("id") or ""))
             for item in review_items
+            if isinstance(item, dict)
+        ),
+        tuple(
+            (str(item.get("path") or ""), str(item.get("id") or ""))
+            for item in unresolved_review_threads
+            if isinstance(item, dict)
+        ),
+        tuple(
+            (str(item.get("author") or ""), str(item.get("id") or ""))
+            for item in ready_reactions
             if isinstance(item, dict)
         ),
         tuple(snapshot.get("actions") or []),
