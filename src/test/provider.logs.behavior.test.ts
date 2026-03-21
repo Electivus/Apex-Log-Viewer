@@ -330,10 +330,15 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).lastSearchQuery = 'error';
+    (provider as any).searchStates.view.query = 'error';
+    (provider as any).view = {
+      webview: {
+        postMessage: () => Promise.resolve(true)
+      }
+    } as any;
 
     const searchCalls: string[] = [];
-    (provider as any).executeSearch = async (query: string) => {
+    (provider as any).executeSearch = async (_surface: string, query: string) => {
       searchCalls.push(query);
     };
     (provider as any).logService.ensureLogsSaved = async () => ({
@@ -447,7 +452,7 @@ suite('SfLogsViewProvider behavior', () => {
     try {
       await provider.refresh();
       await new Promise(r => setTimeout(r, 20));
-      await (provider as any).setSearchQuery('error');
+      await (provider as any).setSearchQuery('view', 'error');
       await new Promise(r => setTimeout(r, 20));
 
       assert.equal(ensureOptions.length >= 1, true, 'ensureLogsSaved should be called');
@@ -519,7 +524,7 @@ suite('SfLogsViewProvider behavior', () => {
     try {
       await provider.refresh();
       await new Promise(r => setTimeout(r, 20));
-      await (provider as any).setSearchQuery('anything');
+      await (provider as any).setSearchQuery('view', 'anything');
       await new Promise(r => setTimeout(r, 20));
 
       const matches = posted
@@ -599,15 +604,122 @@ suite('SfLogsViewProvider behavior', () => {
     };
 
     try {
-      const firstSearch = (provider as any).setSearchQuery('first');
+      const firstSearch = (provider as any).setSearchQuery('view', 'first');
       await new Promise(r => setTimeout(r, 10));
-      await (provider as any).setSearchQuery('second');
+      await (provider as any).setSearchQuery('view', 'second');
       await firstSearch;
       await new Promise(r => setTimeout(r, 10));
 
       assert.ok(ensureSignals[0]?.aborted, 'first search should be aborted');
       assert.equal(ensureSignals.length, 2, 'should issue ensureLogsSaved twice');
       assert.ok(ripgrepCalls >= 1, 'second search should invoke ripgrep');
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('loadMore reruns active searches independently for the sidebar and editor surfaces', async () => {
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+
+    const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests-dual-search');
+    await fs.mkdir(tmpDir, { recursive: true });
+    (workspace as any).ensureApexLogsDir = async () => tmpDir;
+    (workspace as any).purgeSavedLogs = async () => 0;
+
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
+    (provider as any).logService.loadLogHeads = () => {};
+    (provider as any).startErrorScanForCurrentLogs = () => {};
+
+    const viewPosted: any[] = [];
+    const editorPosted: any[] = [];
+    (provider as any).view = {
+      webview: {
+        postMessage: (m: any) => {
+          viewPosted.push(m);
+          return Promise.resolve(true);
+        }
+      }
+    } as any;
+    (provider as any).editorPanel = {
+      webview: {
+        postMessage: (m: any) => {
+          editorPosted.push(m);
+          return Promise.resolve(true);
+        }
+      }
+    } as any;
+
+    const firstLogId = '07L000000000001AA';
+    const secondLogId = '07L000000000002AA';
+    (provider as any).currentLogs = [{ Id: firstLogId, LogLength: 10 }];
+    (provider as any).currentLogIds = new Set([firstLogId]);
+    (provider as any).currentOffset = 1;
+
+    (provider as any).logService.fetchLogs = async () => [{ Id: secondLogId, LogLength: 20 }];
+    (provider as any).logService.ensureLogsSaved = async () => undefined;
+    (ripgrep as any).ripgrepSearch = async (pattern: string) => {
+      if (pattern === 'sidebar') {
+        return [
+          {
+            filePath: path.join(tmpDir, `default_${firstLogId}.log`),
+            lineText: 'sidebar match',
+            submatches: []
+          }
+        ];
+      }
+      if (pattern === 'editor') {
+        return [
+          {
+            filePath: path.join(tmpDir, `default_${secondLogId}.log`),
+            lineText: 'editor match',
+            submatches: []
+          }
+        ];
+      }
+      return [];
+    };
+
+    try {
+      await (provider as any).setSearchQuery('view', 'sidebar');
+      assert.equal(
+        editorPosted.some(m => m?.type === 'searchMatches'),
+        false,
+        'sidebar search should not post matches into the editor surface'
+      );
+
+      viewPosted.length = 0;
+      editorPosted.length = 0;
+
+      await (provider as any).setSearchQuery('editor', 'editor');
+      assert.equal(
+        viewPosted.some(m => m?.type === 'searchMatches'),
+        false,
+        'editor search should not overwrite sidebar search results'
+      );
+
+      viewPosted.length = 0;
+      editorPosted.length = 0;
+
+      await (provider as any).loadMore();
+      await new Promise(resolve => setTimeout(resolve, 20));
+
+      const sidebarMatches = viewPosted.find(m => m?.type === 'searchMatches' && m?.query === 'sidebar');
+      const editorMatches = editorPosted.find(m => m?.type === 'searchMatches' && m?.query === 'editor');
+
+      assert.deepEqual(sidebarMatches?.logIds, [firstLogId], 'sidebar should keep rerunning its own query');
+      assert.deepEqual(editorMatches?.logIds, [secondLogId], 'editor should keep rerunning its own query');
+      assert.equal(
+        viewPosted.some(m => m?.type === 'searchMatches' && m?.query === 'editor'),
+        false,
+        'sidebar should not receive editor search results during reruns'
+      );
+      assert.equal(
+        editorPosted.some(m => m?.type === 'searchMatches' && m?.query === 'sidebar'),
+        false,
+        'editor should not receive sidebar search results during reruns'
+      );
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
@@ -719,7 +831,7 @@ suite('SfLogsViewProvider behavior', () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
-    (provider as any).lastSearchQuery = 'error';
+    (provider as any).searchStates.view.query = 'error';
 
     const callOrder: string[] = [];
     const fetchSignals: AbortSignal[] = [];
@@ -739,7 +851,7 @@ suite('SfLogsViewProvider behavior', () => {
       ] as any;
     };
     const searchCalls: string[] = [];
-    (provider as any).executeSearch = async (query: string) => {
+    (provider as any).executeSearch = async (_surface: string, query: string) => {
       searchCalls.push(query);
     };
 

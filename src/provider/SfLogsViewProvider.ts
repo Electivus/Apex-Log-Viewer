@@ -36,6 +36,16 @@ function isLogsEditorWebviewState(value: unknown): value is LogsEditorWebviewSta
   return candidate.selectedOrg === undefined || typeof candidate.selectedOrg === 'string';
 }
 
+type LogsSurface = 'view' | 'editor';
+
+type LogsSearchState = {
+  query: string;
+  token: number;
+  abortController?: AbortController;
+};
+
+const LOGS_SURFACES: readonly LogsSurface[] = ['view', 'editor'];
+
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
   public static readonly editorPanelViewType = 'sfLogViewer.logsEditor';
@@ -45,7 +55,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private currentOffset = 0;
   private disposed = false;
   private refreshToken = 0;
-  private messageHandler: LogsMessageHandler;
+  private readonly viewMessageHandler: LogsMessageHandler;
+  private readonly editorMessageHandler: LogsMessageHandler;
   private cursorStartTime: string | undefined;
   private cursorId: string | undefined;
   private currentHasMore = false;
@@ -59,9 +70,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private errorScanAbortController: AbortController | undefined;
   private errorScanToken = 0;
   private errorScanLastPostedAt = 0;
-  private lastSearchQuery = '';
-  private searchToken = 0;
-  private searchAbortController: AbortController | undefined;
+  private readonly searchStates: Record<LogsSurface, LogsSearchState> = {
+    view: { query: '', token: 0 },
+    editor: { query: '', token: 0 }
+  };
   private purgePromise: Promise<void> | undefined;
   private readonly logCacheMaxAgeMs = 1000 * 60 * 60 * 24;
   private logsColumns: NormalizedLogsColumnsConfig = DEFAULT_LOGS_COLUMNS_CONFIG;
@@ -76,20 +88,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   ) {
     this.logService.setHeadConcurrency(this.configManager.getHeadConcurrency());
     this.logsColumns = this.readLogsColumns();
-    this.messageHandler = new LogsMessageHandler(
-      () => this.handleReadyMessage(),
-      () => this.refresh(),
-      () => this.downloadAllLogs(),
-      scope => this.clearLogs(scope),
-      () => this.sendOrgs(),
-      o => this.setSelectedOrg(o),
-      () => this.openDebugFlags(),
-      id => this.logService.openLog(id, this.orgManager.getSelectedOrg()),
-      id => this.logService.debugLog(id, this.orgManager.getSelectedOrg()),
-      () => this.loadMore(),
-      value => this.setSearchQuery(value),
-      value => this.saveLogsColumns(value)
-    );
+    this.viewMessageHandler = this.createMessageHandler('view');
+    this.editorMessageHandler = this.createMessageHandler('editor');
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
         const prevFullBodies = this.configManager.shouldLoadFullLogBodies();
@@ -103,6 +103,23 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           void this.refresh();
         }
       })
+    );
+  }
+
+  private createMessageHandler(surface: LogsSurface): LogsMessageHandler {
+    return new LogsMessageHandler(
+      () => this.handleReadyMessage(surface),
+      () => this.refresh(),
+      () => this.downloadAllLogs(),
+      scope => this.clearLogs(scope),
+      () => this.sendOrgs(),
+      o => this.setSelectedOrg(o),
+      () => this.openDebugFlags(),
+      id => this.logService.openLog(id, this.orgManager.getSelectedOrg()),
+      id => this.logService.debugLog(id, this.orgManager.getSelectedOrg()),
+      () => this.loadMore(),
+      value => this.setSearchQuery(surface, value),
+      value => this.saveLogsColumns(value)
     );
   }
 
@@ -121,14 +138,14 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         if (this.view === webviewView) {
           this.view = undefined;
         }
-        this.handleSurfaceDisposed();
+        this.handleSurfaceDisposed('view');
         logInfo('Logs webview disposed.');
       })
     );
 
     this.context.subscriptions.push(
       webviewView.webview.onDidReceiveMessage(message => {
-        void this.messageHandler.handle(message);
+        void this.viewMessageHandler.handle(message);
       })
     );
   }
@@ -178,14 +195,14 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         if (this.editorPanel === panel) {
           this.editorPanel = undefined;
         }
-        this.handleSurfaceDisposed();
+        this.handleSurfaceDisposed('editor');
         logInfo('Logs editor panel disposed.');
       })
     );
 
     this.context.subscriptions.push(
       panel.webview.onDidReceiveMessage(message => {
-        void this.messageHandler.handle(message);
+        void this.editorMessageHandler.handle(message);
       })
     );
   }
@@ -300,11 +317,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             }
           );
           this.startErrorScanForCurrentLogs(auth, token, controller.signal);
-          if (this.lastSearchQuery.trim()) {
-            this.rerunActiveSearch();
-          } else {
-            this.post({ type: 'searchMatches', query: '', logIds: [] });
-          }
+          this.rerunActiveSearches();
           try {
             const durationMs = Date.now() - t0;
             safeSendEvent('logs.refresh', { outcome: 'ok' }, { durationMs, pageSize: this.pageLimit });
@@ -388,7 +401,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         selectedOrg: this.orgManager.getSelectedOrg()
       });
       this.startErrorScanForCurrentLogs(auth, token);
-      this.rerunActiveSearch();
+      this.rerunActiveSearches();
       try {
         const durationMs = Date.now() - t0;
         safeSendEvent('logs.loadMore', { outcome: 'ok' }, { durationMs, count: logs.length });
@@ -420,7 +433,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           return;
         }
         if (summary.downloaded > 0) {
-          this.rerunActiveSearch();
+          this.rerunActiveSearches();
         }
       })
       .catch(e => {
@@ -430,20 +443,39 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       });
   }
 
-  private rerunActiveSearch(): void {
-    if (this.disposed || !this.lastSearchQuery.trim()) {
+  private rerunActiveSearches(): void {
+    if (this.disposed) {
       return;
     }
-    if (this.searchAbortController) {
-      this.searchAbortController.abort();
-      this.searchAbortController = undefined;
+    for (const surface of LOGS_SURFACES) {
+      if (!this.hasSurface(surface)) {
+        continue;
+      }
+      const state = this.searchStates[surface];
+      if (state.query.trim()) {
+        this.rerunActiveSearch(surface);
+      } else {
+        this.postSearchMatches(surface, { query: '', logIds: [] });
+        this.postSearchStatus(surface, 'idle');
+      }
     }
-    const searchToken = ++this.searchToken;
+  }
+
+  private rerunActiveSearch(surface: LogsSurface): void {
+    const state = this.searchStates[surface];
+    if (this.disposed || !this.hasSurface(surface) || !state.query.trim()) {
+      return;
+    }
+    if (state.abortController) {
+      state.abortController.abort();
+      state.abortController = undefined;
+    }
+    const searchToken = ++state.token;
     const controller = new AbortController();
-    this.searchAbortController = controller;
-    void this.executeSearch(this.lastSearchQuery, searchToken, controller.signal).finally(() => {
-      if (this.searchAbortController === controller) {
-        this.searchAbortController = undefined;
+    state.abortController = controller;
+    void this.executeSearch(surface, state.query, searchToken, controller.signal).finally(() => {
+      if (state.abortController === controller) {
+        state.abortController = undefined;
       }
     });
   }
@@ -690,8 +722,27 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     })();
   }
 
-  private postSearchStatus(state: 'idle' | 'loading'): void {
-    this.post({ type: 'searchStatus', state });
+  private postSearchStatus(surface: LogsSurface, state: 'idle' | 'loading'): void {
+    this.postToSurface(surface, { type: 'searchStatus', state });
+  }
+
+  private postSearchMatches(
+    surface: LogsSurface,
+    message: Omit<Extract<ExtensionToWebviewMessage, { type: 'searchMatches' }>, 'type'>
+  ): void {
+    this.postToSurface(surface, { type: 'searchMatches', ...message });
+  }
+
+  private hasSurface(surface: LogsSurface): boolean {
+    return surface === 'view' ? Boolean(this.view) : Boolean(this.editorPanel);
+  }
+
+  private postToSurface(surface: LogsSurface, msg: ExtensionToWebviewMessage): void {
+    if (surface === 'view') {
+      void this.view?.webview.postMessage(msg);
+      return;
+    }
+    void this.editorPanel?.webview.postMessage(msg);
   }
 
   private purgeLogCache(signal?: AbortSignal): void {
@@ -721,56 +772,58 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     this.purgePromise = purgeTask;
   }
 
-  private async setSearchQuery(value: string): Promise<void> {
-    this.lastSearchQuery = value ?? '';
-    const token = ++this.searchToken;
-    if (this.searchAbortController) {
-      this.searchAbortController.abort();
+  private async setSearchQuery(surface: LogsSurface, value: string): Promise<void> {
+    const state = this.searchStates[surface];
+    state.query = value ?? '';
+    const token = ++state.token;
+    if (state.abortController) {
+      state.abortController.abort();
     }
     const controller = new AbortController();
-    this.searchAbortController = controller;
+    state.abortController = controller;
     try {
-      await this.executeSearch(this.lastSearchQuery, token, controller.signal);
+      await this.executeSearch(surface, state.query, token, controller.signal);
     } finally {
-      if (this.searchAbortController === controller) {
-        this.searchAbortController = undefined;
+      if (state.abortController === controller) {
+        state.abortController = undefined;
       }
     }
   }
 
-  private async executeSearch(query: string, token: number, signal?: AbortSignal): Promise<void> {
-    if (!this.hasActiveSurface() || this.disposed) {
+  private async executeSearch(surface: LogsSurface, query: string, token: number, signal?: AbortSignal): Promise<void> {
+    const state = this.searchStates[surface];
+    if (!this.hasActiveSurface() || !this.hasSurface(surface) || this.disposed) {
       return;
     }
     if (signal?.aborted) {
       return;
     }
     const trimmed = (query ?? '').trim();
-    const isActive = () => token === this.searchToken && !this.disposed;
+    const isActive = () => token === state.token && this.hasSurface(surface) && !this.disposed;
     if (!trimmed) {
       if (isActive()) {
-        this.post({ type: 'searchMatches', query: '', logIds: [] });
-        this.postSearchStatus('idle');
+        this.postSearchMatches(surface, { query: '', logIds: [] });
+        this.postSearchStatus(surface, 'idle');
       }
       return;
     }
     if (!this.configManager.shouldLoadFullLogBodies()) {
       if (isActive()) {
-        this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
-        this.postSearchStatus('idle');
+        this.postSearchMatches(surface, { query: trimmed, logIds: [] });
+        this.postSearchStatus(surface, 'idle');
       }
       return;
     }
     const logsSnapshot = [...this.currentLogs];
     if (logsSnapshot.length === 0) {
       if (isActive()) {
-        this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
-        this.postSearchStatus('idle');
+        this.postSearchMatches(surface, { query: trimmed, logIds: [] });
+        this.postSearchStatus(surface, 'idle');
       }
       return;
     }
     if (isActive()) {
-      this.postSearchStatus('loading');
+      this.postSearchStatus(surface, 'loading');
     }
     const missingLogIds = new Set<string>();
     try {
@@ -791,8 +844,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       if (missingLogIds.size > 0) {
-        this.post({
-          type: 'searchMatches',
+        this.postSearchMatches(surface, {
           query: trimmed,
           logIds: [],
           snippets: {},
@@ -821,8 +873,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           }
         }
       }
-      this.post({
-        type: 'searchMatches',
+      this.postSearchMatches(surface, {
         query: trimmed,
         logIds: Array.from(matches),
         snippets,
@@ -830,12 +881,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       });
     } catch (e) {
       logWarn('Logs: search failed ->', getErrorMessage(e));
-      if (token === this.searchToken && !this.disposed && !signal?.aborted) {
-        this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
+      if (token === state.token && this.hasSurface(surface) && !this.disposed && !signal?.aborted) {
+        this.postSearchMatches(surface, { query: trimmed, logIds: [] });
       }
     } finally {
       if (isActive()) {
-        this.postSearchStatus('idle');
+        this.postSearchStatus(surface, 'idle');
       }
     }
   }
@@ -1292,7 +1343,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       const processed = runResult.processed;
       const summary = runResult.summary;
       const success = summary.success;
-      this.rerunActiveSearch();
+      this.rerunActiveSearches();
       if (summary.cancelled > 0) {
         void vscode.window.showWarningMessage(
           localize(
@@ -1443,7 +1494,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     this.orgManager.setSelectedOrg(username);
   }
 
-  private async handleReadyMessage(): Promise<void> {
+  private async handleReadyMessage(_surface: LogsSurface): Promise<void> {
     await this.sendOrgs();
     if (!this.hasHydratedLogsState) {
       await this.refresh();
@@ -1490,7 +1541,14 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     return Boolean(this.view) || Boolean(this.editorPanel);
   }
 
-  private handleSurfaceDisposed(): void {
+  private handleSurfaceDisposed(surface: LogsSurface): void {
+    const state = this.searchStates[surface];
+    state.query = '';
+    state.token += 1;
+    if (state.abortController) {
+      state.abortController.abort();
+      state.abortController = undefined;
+    }
     if (this.hasActiveSurface()) {
       return;
     }
