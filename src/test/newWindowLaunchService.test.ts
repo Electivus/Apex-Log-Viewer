@@ -336,4 +336,32 @@ suite('NewWindowLaunchService', () => {
       Date.now = originalDateNow;
     }
   });
+
+  test('preserves a newer pending launch when an older window finishes consuming', async () => {
+    const request = makeBaseRequest(workspaceA);
+    const newerRequest: PendingLaunchRequest = {
+      ...makeBaseRequest(workspaceA),
+      kind: 'tail',
+      nonce: 'nonce-002'
+    };
+    const storage = createMemoryStorage({ pendingNewWindowLaunch: request });
+    const clearLaunchMarkerCalls: string[] = [];
+    const service = createLaunchService(workspaceA, storage, {
+      waitForLaunchMarker: async () => {
+        await storage.update('pendingNewWindowLaunch', newerRequest);
+        return true;
+      },
+      clearLaunchMarker: async (nonce: string) => {
+        clearLaunchMarkerCalls.push(nonce);
+      }
+    });
+    const { callOrder, handlers } = makeHandlerCalls();
+
+    await service.consumePendingLaunch(handlers);
+
+    assert.deepEqual(callOrder, ['restore', 'logs']);
+    assert.deepEqual(storage.getStoreValue('pendingNewWindowLaunch'), newerRequest);
+    assert.deepEqual(clearLaunchMarkerCalls, [request.nonce]);
+    assert.deepEqual(storage.updates, [{ key: 'pendingNewWindowLaunch', value: newerRequest }]);
+  });
 });

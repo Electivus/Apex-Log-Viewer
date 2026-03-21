@@ -90,10 +90,17 @@ export class NewWindowLaunchService {
   }
 
   private async clearPendingLaunch(request?: PendingLaunchRequest): Promise<void> {
-    await this.context.globalState.update(PENDING_LAUNCH_KEY, undefined);
+    if (!request || this.shouldClearPendingLaunchKey(request)) {
+      await this.context.globalState.update(PENDING_LAUNCH_KEY, undefined);
+    }
     if (request) {
       await this.context.clearLaunchMarker?.(request.nonce);
     }
+  }
+
+  private shouldClearPendingLaunchKey(request: PendingLaunchRequest): boolean {
+    const current = this.context.globalState.get(PENDING_LAUNCH_KEY);
+    return !isPendingLaunchRequest(current) || current.nonce === request.nonce;
   }
 
   private async normalizeRequest(value: unknown): Promise<PendingLaunchRequest | undefined> {
