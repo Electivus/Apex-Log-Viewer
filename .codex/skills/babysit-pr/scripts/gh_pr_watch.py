@@ -538,6 +538,12 @@ def is_trusted_human_review_author(item, authenticated_login):
     return association in TRUSTED_AUTHOR_ASSOCIATIONS
 
 
+def is_authenticated_operator_item(item, authenticated_login):
+    if not authenticated_login or not isinstance(item, dict):
+        return False
+    return str(item.get("author") or "") == authenticated_login
+
+
 def is_generic_codex_summary_review(item):
     if not isinstance(item, dict):
         return False
@@ -623,6 +629,8 @@ def fetch_new_review_items(pr, state, fresh_state, authenticated_login=None):
         author = item.get("author") or ""
         if not author:
             continue
+        if authenticated_login and author == authenticated_login:
+            continue
         if is_bot_login(author):
             if not is_actionable_review_bot_login(author):
                 continue
@@ -695,17 +703,25 @@ def set_blocking_non_thread_feedback_for_sha(state, head_sha, items):
     state["pending_non_thread_feedback_by_sha"] = pending_by_sha
 
 
-def update_blocking_non_thread_feedback(state, head_sha, new_review_items):
+def update_blocking_non_thread_feedback(state, head_sha, new_review_items, authenticated_login=None):
     tracked_items = {
         str(item.get("id") or ""): item
         for item in blocking_non_thread_feedback_for_sha(state, head_sha)
-        if isinstance(item, dict) and item.get("id") and not is_non_blocking_review_item(item)
+        if (
+            isinstance(item, dict)
+            and item.get("id")
+            and not is_non_blocking_review_item(item)
+            and not is_authenticated_operator_item(item, authenticated_login)
+        )
     }
     for item in new_review_items:
         if not isinstance(item, dict):
             continue
         item_id = str(item.get("id") or "")
         if not item_id:
+            continue
+        if is_authenticated_operator_item(item, authenticated_login):
+            tracked_items.pop(item_id, None)
             continue
         kind = str(item.get("kind") or "")
         if kind == "issue_comment":
@@ -960,7 +976,12 @@ def collect_snapshot(args):
         authenticated_login=authenticated_login,
     )
     unresolved_review_threads = fetch_unresolved_review_threads(pr)
-    blocking_non_thread_feedback = update_blocking_non_thread_feedback(state, pr["head_sha"], new_review_items)
+    blocking_non_thread_feedback = update_blocking_non_thread_feedback(
+        state,
+        pr["head_sha"],
+        new_review_items,
+        authenticated_login=authenticated_login,
+    )
     ready_reactions = fetch_pr_ready_reactions(pr, authenticated_login=authenticated_login)
 
     retries_used = current_retry_count(state, pr["head_sha"])
