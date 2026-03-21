@@ -409,6 +409,10 @@ suite('extension activation gating', () => {
     assert.ok(harness.commands.has('sfLogs.refresh'), 'refresh command should stay registered');
     assert.ok(harness.commands.has('sfLogs.openLogInViewer'), 'open log viewer command should stay registered');
     assert.ok(harness.commands.has('sfLogs.openLogsInNewWindow'), 'open logs in new window should stay registered');
+    assert.ok(
+      harness.commands.has('sfLogs.openLogsInNewWindowFromLogsView'),
+      'logs view toolbar new-window command should stay registered'
+    );
     assert.ok(harness.commands.has('sfLogs.openTailInNewWindow'), 'open tail in new window should stay registered');
     assert.ok(harness.commands.has('sfLogs.openDebugFlagsInNewWindow'), 'open debug flags in new window should stay registered');
     assert.ok(
@@ -606,6 +610,29 @@ suite('extension activation gating', () => {
     await harness.commands.get('sfLogs.openLogsInNewWindow')!();
 
     assert.deepEqual(harness.openLogsEditorCalls, ['tail-selected@example.com']);
+    assert.deepEqual(
+      harness.commandCalls.map(call => call.command),
+      ['workbench.action.moveEditorToNewWindow']
+    );
+  });
+
+  test('prefers the logs org when opening logs in a new window from the logs view toolbar action', async () => {
+    const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot,
+        projectFilePath: path.join(workspaceRoot, 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      selectedOrg: 'logs-selected@example.com',
+      tailSelectedOrg: 'tail-selected@example.com'
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openLogsInNewWindowFromLogsView')!();
+
+    assert.deepEqual(harness.openLogsEditorCalls, ['logs-selected@example.com']);
     assert.deepEqual(
       harness.commandCalls.map(call => call.command),
       ['workbench.action.moveEditorToNewWindow']

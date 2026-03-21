@@ -189,7 +189,7 @@ suite('NewWindowLaunchService', () => {
     assert.equal(storage.getStoreValue('pendingNewWindowLaunch'), undefined);
   });
 
-  test('clears workspace mismatches without dispatching', async () => {
+  test('ignores workspace mismatches without dispatching or clearing the pending request', async () => {
     const request = makeBaseRequest(workspaceA);
     const storage = createMemoryStorage({ pendingNewWindowLaunch: request });
     const service = createLaunchService(workspaceB, storage);
@@ -198,8 +198,8 @@ suite('NewWindowLaunchService', () => {
     await service.consumePendingLaunch(handlers);
 
     assert.deepEqual(callOrder, []);
-    assert.deepEqual(storage.updates, [{ key: 'pendingNewWindowLaunch', value: undefined }]);
-    assert.equal(storage.getStoreValue('pendingNewWindowLaunch'), undefined);
+    assert.deepEqual(storage.updates, []);
+    assert.deepEqual(storage.getStoreValue('pendingNewWindowLaunch'), request);
   });
 
   test('clears invalid logViewer requests without dispatching', async () => {

@@ -43,6 +43,7 @@ suite('package manifest', () => {
     const commands = manifest.contributes?.commands ?? [];
 
     assert.ok(commands.some((entry: any) => entry.command === 'sfLogs.openLogsInNewWindow'));
+    assert.ok(commands.some((entry: any) => entry.command === 'sfLogs.openLogsInNewWindowFromLogsView'));
     assert.ok(commands.some((entry: any) => entry.command === 'sfLogs.openTailInNewWindow'));
     assert.ok(commands.some((entry: any) => entry.command === 'sfLogs.openDebugFlagsInNewWindow'));
     assert.ok(commands.some((entry: any) => entry.command === 'sfLogs.openLogInViewerInNewWindow'));
@@ -54,14 +55,14 @@ suite('package manifest', () => {
     const viewTitleEntries = menus['view/title'] ?? [];
     const findViewTitleEntry = (command: string) => viewTitleEntries.find((entry: any) => entry.command === command);
 
-    assert.ok(findViewTitleEntry('sfLogs.openLogsInNewWindow'));
+    assert.ok(findViewTitleEntry('sfLogs.openLogsInNewWindowFromLogsView'));
     assert.ok(findViewTitleEntry('sfLogs.openTailInNewWindow'));
     assert.ok(findViewTitleEntry('sfLogs.troubleshootWebview'));
     assert.ok(findViewTitleEntry('sfLogs.resetCliCache'));
     assert.ok(findViewTitleEntry('sfLogs.showOutput'));
 
     for (const command of [
-      'sfLogs.openLogsInNewWindow',
+      'sfLogs.openLogsInNewWindowFromLogsView',
       'sfLogs.openTailInNewWindow',
       'sfLogs.troubleshootWebview',
       'sfLogs.resetCliCache',
@@ -77,6 +78,15 @@ suite('package manifest', () => {
     }
 
     assert.ok((menus['editor/title'] ?? []).some((entry: any) => entry.command === 'sfLogs.openLogInViewerInNewWindow'));
+  });
+
+  test('hides the logs-toolbar new-window command from the command palette', async () => {
+    const manifest = await readPackageManifest();
+    const commandPaletteEntries = manifest.contributes?.menus?.commandPalette ?? [];
+    const toolbarEntry = commandPaletteEntries.find((entry: any) => entry.command === 'sfLogs.openLogsInNewWindowFromLogsView');
+
+    assert.ok(toolbarEntry, 'expected the logs-toolbar command to be explicitly hidden from the command palette');
+    assert.equal(toolbarEntry.when, 'false');
   });
 
   test('declares localized titles for all four new-window commands', async () => {

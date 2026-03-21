@@ -366,6 +366,11 @@
         "category": "Electivus Apex Logs"
       },
       {
+        "command": "sfLogs.openLogsInNewWindowFromLogsView",
+        "title": "%command.openLogsInNewWindow.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
         "command": "sfLogs.openTailInNewWindow",
         "title": "%command.openTailInNewWindow.title%",
         "category": "Electivus Apex Logs"
@@ -409,7 +414,7 @@
     "menus": {
       "view/title": [
         {
-          "command": "sfLogs.openLogsInNewWindow",
+          "command": "sfLogs.openLogsInNewWindowFromLogsView",
           "when": "view == sfLogViewer",
           "group": "2_window@1"
         },
@@ -446,6 +451,12 @@
           "when": "resourceLangId == apexlog",
           "group": "navigation@51",
           "icon": "$(new-window)"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "sfLogs.openLogsInNewWindowFromLogsView",
+          "when": "false"
         }
       ]
     }

@@ -247,6 +247,7 @@ export async function activate(context: vscode.ExtensionContext) {
   };
 
   const getPreferredSelectedOrg = (): string | undefined => tailProvider.getSelectedOrg() || provider.getSelectedOrg();
+  const getLogsViewSelectedOrg = (): string | undefined => provider.getSelectedOrg() || tailProvider.getSelectedOrg();
 
   const getPreferredDebugFlagsLaunch = (): { selectedOrg?: string; sourceView: NewWindowLaunchSourceView } => {
     const tailSelectedOrg = tailProvider.getSelectedOrg();
@@ -262,21 +263,30 @@ export async function activate(context: vscode.ExtensionContext) {
     return { selectedOrg: undefined, sourceView: 'logs' };
   };
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.openLogsInNewWindow', async () => {
-      try {
-        const selectedOrg = getPreferredSelectedOrg();
-        if (selectedOrg) {
-          provider.setSelectedOrg(selectedOrg);
-        }
-        await provider.showEditor();
-        await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
-      } catch (error) {
-        const msg = getErrorMessage(error);
-        logWarn('Command sfLogs.openLogsInNewWindow failed ->', msg);
-        throw error;
+  const openLogsInNewWindow = async (selectedOrg: string | undefined, commandName: string) => {
+    try {
+      if (selectedOrg) {
+        provider.setSelectedOrg(selectedOrg);
       }
-    })
+      await provider.showEditor();
+      await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
+    } catch (error) {
+      const msg = getErrorMessage(error);
+      logWarn(`Command ${commandName} failed ->`, msg);
+      throw error;
+    }
+  };
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.openLogsInNewWindow', async () =>
+      openLogsInNewWindow(getPreferredSelectedOrg(), 'sfLogs.openLogsInNewWindow')
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.openLogsInNewWindowFromLogsView', async () =>
+      openLogsInNewWindow(getLogsViewSelectedOrg(), 'sfLogs.openLogsInNewWindowFromLogsView')
+    )
   );
 
   context.subscriptions.push(

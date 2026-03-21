@@ -54,7 +54,6 @@ export class NewWindowLaunchService {
 
     const currentWorkspaceTarget = getCurrentWorkspaceTarget();
     if (!workspaceTargetsEqual(request.workspaceTarget, currentWorkspaceTarget)) {
-      await this.clearPendingLaunch();
       return;
     }
 
