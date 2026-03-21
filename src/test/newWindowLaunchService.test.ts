@@ -1,12 +1,16 @@
 import assert from 'assert/strict';
 import { promises as fs } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import proxyquire from 'proxyquire';
 import type { PendingLaunchRequest, WorkspaceTarget } from '../shared/newWindowLaunch';
 import { LAUNCH_REQUEST_TTL_MS, getPendingLaunchMarkerPath } from '../shared/newWindowLaunch';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 
-function createVscodeStub(workspace: { workspaceFile?: { toString: () => string }; workspaceFolders?: Array<{ uri: { toString: () => string } }> }) {
+function createVscodeStub(workspace: {
+  workspaceFile?: { toString: () => string };
+  workspaceFolders?: Array<{ name?: string; uri: { toString: () => string } }>;
+}) {
   return {
     workspace,
     Range: class {
@@ -121,13 +125,10 @@ suite('workspace target helpers', () => {
     });
   });
 
-  test('builds folder target from first workspace folder when no workspace file exists', () => {
+  test('builds folder target from the only workspace folder when no workspace file exists', () => {
     const workspaceModule = proxyquireStrict('../utils/workspace', {
       vscode: createVscodeStub({
-        workspaceFolders: [
-          { uri: { toString: () => 'file:///workspace/first' } },
-          { uri: { toString: () => 'file:///workspace/second' } }
-        ]
+        workspaceFolders: [{ uri: { toString: () => 'file:///workspace/only-root' } }]
       })
     }) as typeof import('../utils/workspace');
 
@@ -135,8 +136,35 @@ suite('workspace target helpers', () => {
 
     assert.deepEqual(target, {
       type: 'folder',
-      uri: 'file:///workspace/first'
+      uri: 'file:///workspace/only-root'
     });
+  });
+
+  test('builds a temporary workspace-file target that preserves every root for unsaved multi-root windows', async () => {
+    const workspaceModule = proxyquireStrict('../utils/workspace', {
+      vscode: createVscodeStub({
+        workspaceFolders: [
+          { name: 'Docs', uri: { toString: () => 'file:///workspace/docs' } },
+          { name: 'Salesforce', uri: { toString: () => 'file:///workspace/salesforce' } }
+        ]
+      })
+    }) as typeof import('../utils/workspace');
+
+    const target = workspaceModule.getCurrentWorkspaceTarget();
+
+    assert.ok(target, 'expected a target for unsaved multi-root workspaces');
+    assert.equal(target?.type, 'workspaceFile');
+
+    const workspaceFilePath = fileURLToPath(target!.uri);
+    const workspaceFileContents = JSON.parse(await fs.readFile(workspaceFilePath, 'utf8'));
+    assert.deepEqual(workspaceFileContents, {
+      folders: [
+        { name: 'Docs', uri: 'file:///workspace/docs' },
+        { name: 'Salesforce', uri: 'file:///workspace/salesforce' }
+      ]
+    });
+
+    await fs.unlink(workspaceFilePath);
   });
 });
 

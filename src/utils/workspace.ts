@@ -1,11 +1,16 @@
 import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';
-import { promises as fs } from 'fs';
+import { createHash } from 'node:crypto';
+import { promises as fs, writeFileSync } from 'fs';
+import { pathToFileURL } from 'node:url';
 import { logInfo, logWarn } from './logger';
 import type { WorkspaceTarget } from '../shared/newWindowLaunch';
 
-type WorkspaceSource = Pick<typeof vscode.workspace, 'workspaceFile' | 'workspaceFolders'>;
+type WorkspaceFolderSource = Pick<vscode.WorkspaceFolder, 'name' | 'uri'>;
+type WorkspaceSource = Pick<typeof vscode.workspace, 'workspaceFile'> & {
+  workspaceFolders?: readonly WorkspaceFolderSource[];
+};
 
 export interface SalesforceProjectInfo {
   workspaceRoot: string;
@@ -42,8 +47,35 @@ export function getCurrentWorkspaceTarget(workspace: WorkspaceSource = vscode.wo
     return { type: 'workspaceFile', uri: workspace.workspaceFile.toString() };
   }
 
-  const firstFolder = workspace.workspaceFolders?.[0]?.uri;
+  const workspaceFolders = workspace.workspaceFolders ?? [];
+  if (workspaceFolders.length > 1) {
+    const workspaceFilePath = ensureTransientWorkspaceFile(workspaceFolders);
+    return { type: 'workspaceFile', uri: pathToFileURL(workspaceFilePath).toString() };
+  }
+
+  const firstFolder = workspaceFolders[0]?.uri;
   return firstFolder ? { type: 'folder', uri: firstFolder.toString() } : undefined;
+}
+
+function ensureTransientWorkspaceFile(workspaceFolders: readonly WorkspaceFolderSource[]): string {
+  const workspaceHash = createHash('sha256')
+    .update(JSON.stringify(workspaceFolders.map(folder => folder.uri.toString())))
+    .digest('hex')
+    .slice(0, 16);
+  const workspaceFilePath = path.join(os.tmpdir(), `apex-log-viewer-${workspaceHash}.code-workspace`);
+  const workspaceFileContents = `${JSON.stringify(
+    {
+      folders: workspaceFolders.map(folder => ({
+        ...(folder.name ? { name: folder.name } : {}),
+        uri: folder.uri.toString()
+      }))
+    },
+    null,
+    2
+  )}\n`;
+
+  writeFileSync(workspaceFilePath, workspaceFileContents, 'utf8');
+  return workspaceFilePath;
 }
 
 export function workspaceTargetsEqual(left: WorkspaceTarget | undefined, right: WorkspaceTarget | undefined): boolean {
