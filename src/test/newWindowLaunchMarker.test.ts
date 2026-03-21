@@ -22,6 +22,17 @@ suite('new window launch marker URIs', () => {
     assert.equal(uri.path, '/tmp/alv-marker');
   });
 
+  test('normalizes remote Windows marker paths before building URIs', () => {
+    const uri = toWorkspaceScopedMarkerUri(
+      { type: 'folder', uri: 'vscode-remote://ssh-remote+winbox/C:/Users/k3/git/Apex-Log-Viewer' },
+      'C:\\Users\\k3\\AppData\\Local\\Temp\\alv-marker'
+    );
+
+    assert.equal(uri.scheme, 'vscode-remote');
+    assert.equal(uri.authority, 'ssh-remote+winbox');
+    assert.equal(uri.path, '/C:/Users/k3/AppData/Local/Temp/alv-marker');
+  });
+
   test('uses the full launch request TTL when computing the marker wait deadline', () => {
     assert.equal(getLaunchMarkerDeadline(12_345), 12_345 + LAUNCH_REQUEST_TTL_MS);
   });

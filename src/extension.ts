@@ -389,11 +389,14 @@ export async function activate(context: vscode.ExtensionContext) {
     try {
       const previousSelectedOrg = provider.getSelectedOrg();
       const logsViewResolved = provider.hasResolvedView();
+      const logsEditorOpen = provider.hasEditorPanel();
       const selectedOrgChanged = Boolean(selectedOrg) && selectedOrg !== previousSelectedOrg;
       if (selectedOrgChanged) {
         provider.setSelectedOrg(selectedOrg);
-        if (logsViewResolved) {
+        if (logsViewResolved || logsEditorOpen) {
           await provider.sendOrgs();
+        }
+        if (logsViewResolved) {
           await provider.refresh();
         }
       }

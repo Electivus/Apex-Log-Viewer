@@ -189,6 +189,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     return Boolean(this.view) && !this.disposed;
   }
 
+  public hasEditorPanel(): boolean {
+    return Boolean(this.editorPanel);
+  }
+
   public async refresh() {
     if (!this.hasActiveSurface()) {
       return;

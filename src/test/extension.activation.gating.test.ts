@@ -216,6 +216,10 @@ function createExtensionHarness(options: {
       return this.viewResolved;
     }
 
+    public hasEditorPanel(): boolean {
+      return this.editorAlreadyOpen;
+    }
+
     public async refresh(): Promise<void> {
       logsRefreshCalls.push(this.selectedOrg);
     }
@@ -907,6 +911,29 @@ suite('extension activation gating', () => {
       selectedOrg: 'logs@example.com',
       tailSelectedOrg: 'tail@example.com',
       logsViewResolved: true
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openLogsInNewWindow')!();
+
+    assert.deepEqual(harness.setSelectedOrgCalls, ['tail@example.com']);
+    assert.deepEqual(harness.sendOrgsCalls, ['tail@example.com']);
+    assert.deepEqual(harness.logsRefreshCalls, ['tail@example.com']);
+    assert.deepEqual(harness.openLogsEditorCalls, ['tail@example.com']);
+  });
+
+  test('posts updated org metadata when reseeding an open logs editor without the sidebar view', async () => {
+    const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot,
+        projectFilePath: path.join(workspaceRoot, 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      selectedOrg: 'logs@example.com',
+      tailSelectedOrg: 'tail@example.com',
+      logsEditorAlreadyOpen: true
     });
 
     await harness.extension.activate(harness.context);
