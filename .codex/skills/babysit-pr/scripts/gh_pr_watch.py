@@ -40,6 +40,10 @@ MERGE_BLOCKING_REVIEW_DECISIONS = {
     "REVIEW_REQUIRED",
     "CHANGES_REQUESTED",
 }
+NON_BLOCKING_REVIEW_STATES = {
+    "APPROVED",
+    "DISMISSED",
+}
 MERGE_CONFLICT_OR_BLOCKING_STATES = {
     "BLOCKED",
     "DIRTY",
@@ -233,6 +237,7 @@ def load_state(path):
         "pr": {},
         "started_at": None,
         "last_seen_head_sha": None,
+        "pending_non_thread_feedback_by_sha": {},
         "retries_by_sha": {},
         "seen_issue_comment_ids": [],
         "seen_review_comment_ids": [],
@@ -319,14 +324,12 @@ def get_workflow_runs_for_sha(repo, head_sha):
 
 def workflow_run_key(run):
     workflow_id = run.get("workflow_id")
+    key_parts = [f"event:{str(run.get('event') or '')}"]
     if workflow_id not in (None, ""):
-        return f"workflow:{workflow_id}"
-    return "|".join(
-        [
-            f"name:{str(run.get('name') or run.get('display_title') or '')}",
-            f"event:{str(run.get('event') or '')}",
-        ]
-    )
+        key_parts.insert(0, f"workflow:{workflow_id}")
+        return "|".join(key_parts)
+    key_parts.insert(0, f"name:{str(run.get('name') or run.get('display_title') or '')}")
+    return "|".join(key_parts)
 
 
 def workflow_run_sort_key(run):
@@ -484,6 +487,7 @@ def normalize_reviews(items):
                 "author_association": str(item.get("author_association") or ""),
                 "created_at": str(item.get("submitted_at") or item.get("created_at") or ""),
                 "body": str(item.get("body") or ""),
+                "review_state": str(item.get("state") or ""),
                 "path": None,
                 "line": None,
                 "url": str(item.get("html_url") or ""),
@@ -611,6 +615,53 @@ def fetch_pr_ready_reactions(pr):
     return ready_reactions
 
 
+def blocking_non_thread_feedback_for_sha(state, head_sha):
+    pending_by_sha = state.get("pending_non_thread_feedback_by_sha") or {}
+    items = pending_by_sha.get(head_sha) or []
+    if isinstance(items, list):
+        return items
+    return []
+
+
+def set_blocking_non_thread_feedback_for_sha(state, head_sha, items):
+    pending_by_sha = state.get("pending_non_thread_feedback_by_sha")
+    if not isinstance(pending_by_sha, dict):
+        pending_by_sha = {}
+    pending_by_sha[head_sha] = items
+    state["pending_non_thread_feedback_by_sha"] = pending_by_sha
+
+
+def update_blocking_non_thread_feedback(state, head_sha, new_review_items):
+    tracked_items = {
+        str(item.get("id") or ""): item
+        for item in blocking_non_thread_feedback_for_sha(state, head_sha)
+        if isinstance(item, dict) and item.get("id")
+    }
+    for item in new_review_items:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id") or "")
+        if not item_id:
+            continue
+        kind = str(item.get("kind") or "")
+        if kind == "issue_comment":
+            tracked_items[item_id] = item
+            continue
+        if kind != "review":
+            continue
+        review_state = str(item.get("review_state") or "").upper()
+        if review_state in NON_BLOCKING_REVIEW_STATES:
+            continue
+        tracked_items[item_id] = item
+
+    tracked_list = sorted(
+        tracked_items.values(),
+        key=lambda item: (str(item.get("created_at") or ""), str(item.get("kind") or ""), str(item.get("id") or "")),
+    )
+    set_blocking_non_thread_feedback_for_sha(state, head_sha, tracked_list)
+    return tracked_list
+
+
 def fetch_unresolved_review_threads(pr):
     owner, repo_name = pr["repo"].split("/", 1)
     query = """
@@ -715,7 +766,14 @@ def unique_actions(actions):
     return out
 
 
-def is_pr_ready_to_merge(pr, checks_summary, new_review_items, unresolved_review_threads, ready_reactions):
+def is_pr_ready_to_merge(
+    pr,
+    checks_summary,
+    new_review_items,
+    unresolved_review_threads,
+    blocking_non_thread_feedback,
+    ready_reactions,
+):
     if pr["closed"] or pr["merged"]:
         return False
     if not checks_summary["all_terminal"]:
@@ -726,15 +784,19 @@ def is_pr_ready_to_merge(pr, checks_summary, new_review_items, unresolved_review
         return False
     if unresolved_review_threads:
         return False
+    if blocking_non_thread_feedback:
+        return False
     if str(pr.get("mergeable") or "") != "MERGEABLE":
         return False
     has_ready_reaction = bool(ready_reactions)
     merge_state_status = str(pr.get("merge_state_status") or "")
+    review_decision = str(pr.get("review_decision") or "")
+    review_gate_blocked = review_decision in MERGE_BLOCKING_REVIEW_DECISIONS
     if merge_state_status in {"DIRTY", "DRAFT", "UNKNOWN"}:
         return False
-    if merge_state_status == "BLOCKED" and not has_ready_reaction:
+    if merge_state_status == "BLOCKED" and not (has_ready_reaction and review_gate_blocked):
         return False
-    if str(pr.get("review_decision") or "") in MERGE_BLOCKING_REVIEW_DECISIONS and not has_ready_reaction:
+    if review_gate_blocked and not has_ready_reaction:
         return False
     return True
 
@@ -745,22 +807,30 @@ def recommend_actions(
     failed_runs,
     new_review_items,
     unresolved_review_threads,
+    blocking_non_thread_feedback,
     ready_reactions,
     retries_used,
     max_retries,
 ):
     actions = []
     if pr["closed"] or pr["merged"]:
-        if new_review_items or unresolved_review_threads:
+        if new_review_items or unresolved_review_threads or blocking_non_thread_feedback:
             actions.append("process_review_comment")
         actions.append("stop_pr_closed")
         return unique_actions(actions)
 
-    if is_pr_ready_to_merge(pr, checks_summary, new_review_items, unresolved_review_threads, ready_reactions):
+    if is_pr_ready_to_merge(
+        pr,
+        checks_summary,
+        new_review_items,
+        unresolved_review_threads,
+        blocking_non_thread_feedback,
+        ready_reactions,
+    ):
         actions.append("stop_ready_to_merge")
         return unique_actions(actions)
 
-    if new_review_items or unresolved_review_threads:
+    if new_review_items or unresolved_review_threads or blocking_non_thread_feedback:
         actions.append("process_review_comment")
 
     has_failed_pr_checks = checks_summary["failed_count"] > 0
@@ -799,6 +869,7 @@ def collect_snapshot(args):
         authenticated_login=authenticated_login,
     )
     unresolved_review_threads = fetch_unresolved_review_threads(pr)
+    blocking_non_thread_feedback = update_blocking_non_thread_feedback(state, pr["head_sha"], new_review_items)
     ready_reactions = fetch_pr_ready_reactions(pr)
 
     retries_used = current_retry_count(state, pr["head_sha"])
@@ -808,6 +879,7 @@ def collect_snapshot(args):
         failed_runs,
         new_review_items,
         unresolved_review_threads,
+        blocking_non_thread_feedback,
         ready_reactions,
         retries_used,
         args.max_flaky_retries,
@@ -824,6 +896,7 @@ def collect_snapshot(args):
         "failed_runs": failed_runs,
         "new_review_items": new_review_items,
         "unresolved_review_threads": unresolved_review_threads,
+        "blocking_non_thread_feedback": blocking_non_thread_feedback,
         "approval_signal": {
             "has_pr_thumbs_up": bool(ready_reactions),
             "pr_thumbs_up_reactions": ready_reactions,
@@ -915,6 +988,7 @@ def snapshot_change_key(snapshot):
     checks = snapshot.get("checks") or {}
     review_items = snapshot.get("new_review_items") or []
     unresolved_review_threads = snapshot.get("unresolved_review_threads") or []
+    blocking_non_thread_feedback = snapshot.get("blocking_non_thread_feedback") or []
     approval_signal = snapshot.get("approval_signal") or {}
     ready_reactions = approval_signal.get("pr_thumbs_up_reactions") or []
     return (
@@ -934,6 +1008,11 @@ def snapshot_change_key(snapshot):
         tuple(
             (str(item.get("path") or ""), str(item.get("id") or ""))
             for item in unresolved_review_threads
+            if isinstance(item, dict)
+        ),
+        tuple(
+            (str(item.get("kind") or ""), str(item.get("id") or ""))
+            for item in blocking_non_thread_feedback
             if isinstance(item, dict)
         ),
         tuple(
