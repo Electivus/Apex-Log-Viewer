@@ -171,4 +171,18 @@ suite('SfLogsViewProvider webview', () => {
     assert.ok(restoredWebview.html.includes('Content-Security-Policy'), 'restored editor should include CSP');
     assert.ok(restoredWebview.html.includes('media/main.js'), 'restored editor should load the logs bundle');
   });
+
+  test('restoreEditorPanel restores the selected org from serializer state', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+
+    const provider = new SfLogsViewProvider(context);
+    const restoredPanel = new MockWebviewPanel(new MockWebview());
+
+    await (provider as any).restoreEditorPanel(restoredPanel, { selectedOrg: 'restored@example.com' });
+
+    assert.equal(provider.getSelectedOrg(), 'restored@example.com');
+  });
 });

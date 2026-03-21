@@ -23,6 +23,19 @@ import type { LogTriageSummary } from '../shared/logTriage';
 
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 
+type LogsEditorWebviewState = {
+  selectedOrg?: string;
+};
+
+function isLogsEditorWebviewState(value: unknown): value is LogsEditorWebviewState {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as { selectedOrg?: unknown };
+  return candidate.selectedOrg === undefined || typeof candidate.selectedOrg === 'string';
+}
+
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
   public static readonly editorPanelViewType = 'sfLogViewer.logsEditor';
@@ -136,7 +149,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     this.attachEditorPanel(panel);
   }
 
-  public async restoreEditorPanel(panel: vscode.WebviewPanel): Promise<void> {
+  public async restoreEditorPanel(panel: vscode.WebviewPanel, state?: unknown): Promise<void> {
+    if (isLogsEditorWebviewState(state)) {
+      this.setSelectedOrg(typeof state.selectedOrg === 'string' ? state.selectedOrg.trim() || undefined : undefined);
+    }
     this.attachEditorPanel(panel);
   }
 

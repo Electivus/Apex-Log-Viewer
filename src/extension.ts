@@ -107,8 +107,8 @@ export async function activate(context: vscode.ExtensionContext) {
   );
   context.subscriptions.push(
     vscode.window.registerWebviewPanelSerializer(SfLogsViewProvider.editorPanelViewType, {
-      deserializeWebviewPanel: async webviewPanel => {
-        await provider.restoreEditorPanel(webviewPanel);
+      deserializeWebviewPanel: async (webviewPanel, state) => {
+        await provider.restoreEditorPanel(webviewPanel, state);
       }
     })
   );

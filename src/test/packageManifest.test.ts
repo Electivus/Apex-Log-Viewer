@@ -15,6 +15,16 @@ async function readPackageNls(): Promise<Record<string, string>> {
 }
 
 suite('package manifest', () => {
+  test('activates when the floated logs editor panel is restored', async () => {
+    const manifest = await readPackageManifest();
+    const activationEvents = Array.isArray(manifest.activationEvents) ? manifest.activationEvents : [];
+
+    assert.ok(
+      activationEvents.includes('onWebviewPanel:sfLogViewer.logsEditor'),
+      'package.json should activate the extension when the floated logs editor panel is restored'
+    );
+  });
+
   test('does not require Apex Replay Debugger as an extension dependency', async () => {
     const manifest = (await readPackageManifest()) as { devDependencies?: unknown; extensionDependencies?: unknown };
     const extensionDependencies = Array.isArray(manifest.extensionDependencies) ? manifest.extensionDependencies : [];

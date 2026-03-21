@@ -28,13 +28,14 @@ export function LogsApp({
   vscode = getDefaultVsCodeApi<WebviewToExtensionMessage>(),
   messageBus = getDefaultMessageBus()
 }: LogsAppProps = {}) {
+  const initialState = vscode.getState<{ selectedOrg?: string }>();
   const [locale, setLocale] = useState('en');
   const [t, setT] = useState<Messages>(() => getMessages('en'));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [warning, setWarning] = useState<string | undefined>(undefined);
   const [orgs, setOrgs] = useState<OrgItem[]>([]);
-  const [selectedOrg, setSelectedOrg] = useState<string | undefined>(undefined);
+  const [selectedOrg, setSelectedOrg] = useState<string | undefined>(() => initialState?.selectedOrg);
 
   const [rows, setRows] = useState<ApexLogRow[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -204,6 +205,10 @@ export function LogsApp({
       setPendingLogCount(0);
     }
   }, [query]);
+
+  useEffect(() => {
+    vscode.setState({ selectedOrg });
+  }, [selectedOrg, vscode]);
 
   const onRefresh = () => {
     vscode.postMessage({ type: 'refresh' });

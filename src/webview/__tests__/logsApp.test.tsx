@@ -8,14 +8,17 @@ import { LogsApp } from '../main';
 describe('Logs webview App', () => {
   function createVsCodeMock() {
     const posted: WebviewToExtensionMessage[] = [];
+    const states: unknown[] = [];
     const vscode: VsCodeWebviewApi<WebviewToExtensionMessage> = {
       postMessage: msg => {
         posted.push(msg);
       },
       getState: () => undefined,
-      setState: () => {}
+      setState: state => {
+        states.push(state);
+      }
     };
-    return { vscode, posted };
+    return { vscode, posted, states };
   }
 
   function sendMessage(bus: EventTarget, message: ExtensionToWebviewMessage) {
@@ -186,6 +189,22 @@ describe('Logs webview App', () => {
       expect(types).toEqual(expect.arrayContaining(['openLog', 'replay', 'refresh', 'openDebugFlags', 'downloadAllLogs']));
     });
   }, 20000);
+
+  it('persists the selected org in webview state when org data arrives', async () => {
+    const { vscode, states } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<LogsApp vscode={vscode} messageBus={bus} />);
+
+    sendMessage(bus, {
+      type: 'orgs',
+      data: [{ username: 'restored@example.com', alias: 'Restored', isDefaultUsername: true }],
+      selected: 'restored@example.com'
+    });
+
+    await waitFor(() => {
+      expect(states).toContainEqual({ selectedOrg: 'restored@example.com' });
+    });
+  });
 
   it('surfaces manual pagination when filters are active', async () => {
     const { vscode, posted } = createVsCodeMock();

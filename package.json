@@ -50,7 +50,8 @@
     "Other"
   ],
   "activationEvents": [
-    "workspaceContains:sfdx-project.json"
+    "workspaceContains:sfdx-project.json",
+    "onWebviewPanel:sfLogViewer.logsEditor"
   ],
   "main": "./dist/extension.js",
   "contributes": {
