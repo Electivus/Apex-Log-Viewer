@@ -2,6 +2,7 @@ import assert from 'assert/strict';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { SfLogsViewProvider } from '../provider/SfLogsViewProvider';
+import type { ApexLogRow, OrgItem } from '../shared/types';
 
 class MockDisposable implements vscode.Disposable {
   dispose(): void {
@@ -13,11 +14,13 @@ class MockWebview implements vscode.Webview {
   html = '';
   options: vscode.WebviewOptions = {};
   cspSource = 'vscode-resource://test';
+  postedMessages: any[] = [];
   private messageHandler: ((e: any) => void) | undefined;
   asWebviewUri(uri: vscode.Uri): vscode.Uri {
     return uri;
   }
-  postMessage(_message: any): Thenable<boolean> {
+  postMessage(message: any): Thenable<boolean> {
+    this.postedMessages.push(message);
     return Promise.resolve(true);
   }
   onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
@@ -26,7 +29,7 @@ class MockWebview implements vscode.Webview {
   }
   // helper for tests (not part of interface)
   emit(message: any) {
-    this.messageHandler?.(message);
+    return this.messageHandler?.(message);
   }
 }
 
@@ -81,6 +84,88 @@ class MockWebviewPanel implements vscode.WebviewPanel {
   ): vscode.Disposable {
     return new MockDisposable();
   }
+}
+
+class FakeLogService {
+  setHeadConcurrency(_value: number): void {
+    /* noop */
+  }
+}
+
+class FakeOrgManager {
+  public listCalls = 0;
+
+  constructor(
+    private selectedOrg: string | undefined,
+    private readonly orgs: OrgItem[]
+  ) {}
+
+  getSelectedOrg(): string | undefined {
+    return this.selectedOrg;
+  }
+
+  setSelectedOrg(org?: string): void {
+    this.selectedOrg = org;
+  }
+
+  async list(): Promise<{ orgs: OrgItem[]; selected?: string }> {
+    this.listCalls += 1;
+    return { orgs: this.orgs, selected: this.selectedOrg };
+  }
+
+  async ensureProjectDefaultSelected(): Promise<void> {
+    /* noop */
+  }
+}
+
+class FakeConfigManager {
+  getHeadConcurrency(): number {
+    return 5;
+  }
+
+  shouldLoadFullLogBodies(): boolean {
+    return false;
+  }
+
+  getPageLimit(): number {
+    return 100;
+  }
+
+  handleChange(): void {
+    /* noop */
+  }
+}
+
+function createSampleLogs(): ApexLogRow[] {
+  return [
+    {
+      Id: '07L000000000001AA',
+      StartTime: '2025-09-21T18:40:00.000Z',
+      Operation: 'ExecuteAnonymous',
+      Application: 'Developer Console',
+      DurationMilliseconds: 125,
+      Status: 'Success',
+      Request: 'XYZ',
+      LogLength: 2048,
+      LogUser: { Name: 'Alice' }
+    },
+    {
+      Id: '07L000000000002AA',
+      StartTime: '2025-09-21T18:45:00.000Z',
+      Operation: 'Test.run',
+      Application: 'VS Code',
+      DurationMilliseconds: 220,
+      Status: 'Success',
+      Request: 'ABC',
+      LogLength: 512,
+      LogUser: { Name: 'Bob' }
+    }
+  ];
+}
+
+async function flushAsyncMessages(): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
 }
 
 suite('SfLogsViewProvider webview', () => {
@@ -208,5 +293,122 @@ suite('SfLogsViewProvider webview', () => {
 
     assert.ok(webview.html.includes('data-initial-state='));
     assert.ok(webview.html.includes(encodeURIComponent(JSON.stringify({ selectedOrg: 'seeded@example.com' }))));
+  });
+
+  test('selectOrg republishes org metadata so the sidebar and editor stay in sync', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const fakeOrgManager = new FakeOrgManager('logs@example.com', [
+      { username: 'logs@example.com', alias: 'Logs' },
+      { username: 'tail@example.com', alias: 'Tail' }
+    ]);
+
+    const provider = new SfLogsViewProvider(
+      context,
+      new FakeLogService() as any,
+      fakeOrgManager as any,
+      new FakeConfigManager() as any
+    );
+    const sidebarWebview = new MockWebview();
+    const editorWebview = new MockWebview();
+    const view = new MockWebviewView(sidebarWebview);
+    const panel = new MockWebviewPanel(editorWebview);
+    const refreshCalls: string[] = [];
+
+    await provider.resolveWebviewView(view);
+    await (provider as any).restoreEditorPanel(panel);
+    (provider as any).availableOrgs = [
+      { username: 'logs@example.com', alias: 'Logs' },
+      { username: 'tail@example.com', alias: 'Tail' }
+    ];
+    (provider as any).refresh = async () => {
+      refreshCalls.push(provider.getSelectedOrg() ?? '');
+    };
+
+    editorWebview.emit({ type: 'selectOrg', target: 'tail@example.com' });
+    await flushAsyncMessages();
+
+    assert.equal(fakeOrgManager.listCalls, 0, 'should reuse cached orgs instead of relisting');
+    assert.deepEqual(refreshCalls, ['tail@example.com']);
+    assert.equal(provider.getSelectedOrg(), 'tail@example.com');
+    assert.deepEqual(
+      sidebarWebview.postedMessages.filter(message => message.type === 'orgs').at(-1),
+      {
+        type: 'orgs',
+        data: [
+          { username: 'logs@example.com', alias: 'Logs' },
+          { username: 'tail@example.com', alias: 'Tail' }
+        ],
+        selected: 'tail@example.com'
+      }
+    );
+    assert.deepEqual(
+      editorWebview.postedMessages.filter(message => message.type === 'orgs').at(-1),
+      {
+        type: 'orgs',
+        data: [
+          { username: 'logs@example.com', alias: 'Logs' },
+          { username: 'tail@example.com', alias: 'Tail' }
+        ],
+        selected: 'tail@example.com'
+      }
+    );
+  });
+
+  test('ready reuses the current logs state instead of resetting pagination for another surface', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const fakeOrgManager = new FakeOrgManager('logs@example.com', [
+      { username: 'logs@example.com', alias: 'Logs' },
+      { username: 'tail@example.com', alias: 'Tail' }
+    ]);
+
+    const provider = new SfLogsViewProvider(
+      context,
+      new FakeLogService() as any,
+      fakeOrgManager as any,
+      new FakeConfigManager() as any
+    );
+    const sidebarWebview = new MockWebview();
+    const editorWebview = new MockWebview();
+    const view = new MockWebviewView(sidebarWebview);
+    const panel = new MockWebviewPanel(editorWebview);
+    const sampleLogs = createSampleLogs();
+
+    await provider.resolveWebviewView(view);
+    await (provider as any).restoreEditorPanel(panel);
+    (provider as any).currentLogs = sampleLogs;
+    (provider as any).currentLogIds = new Set(sampleLogs.map(log => log.Id));
+    (provider as any).currentHasMore = true;
+    (provider as any).hasHydratedLogsState = true;
+    (provider as any).logHeadById.set('07L000000000001AA', { codeUnitStarted: 'AccountService.handle' });
+    (provider as any).refresh = async () => {
+      throw new Error('ready should not trigger a full refresh when logs are already hydrated');
+    };
+
+    editorWebview.emit({ type: 'ready' });
+    await flushAsyncMessages();
+
+    assert.equal(fakeOrgManager.listCalls, 1, 'should still send org choices to the new surface');
+    assert.deepEqual(
+      editorWebview.postedMessages.find(message => message.type === 'logs'),
+      { type: 'logs', data: sampleLogs, hasMore: true }
+    );
+    assert.deepEqual(
+      sidebarWebview.postedMessages.find(message => message.type === 'logs'),
+      { type: 'logs', data: sampleLogs, hasMore: true }
+    );
+    assert.deepEqual(
+      editorWebview.postedMessages.find(message => message.type === 'logHead'),
+      {
+        type: 'logHead',
+        logId: '07L000000000001AA',
+        codeUnitStarted: 'AccountService.handle'
+      }
+    );
   });
 });

@@ -3,6 +3,7 @@ import { logInfo } from '../utils/logger';
 
 export class LogsMessageHandler {
   constructor(
+    private readonly handleReady: () => Promise<void>,
     private readonly refresh: () => Promise<void>,
     private readonly downloadAllLogs: () => Promise<void>,
     private readonly clearLogs: (scope: 'all' | 'mine') => Promise<void>,
@@ -12,7 +13,6 @@ export class LogsMessageHandler {
     private readonly openLog: (logId: string) => Promise<void>,
     private readonly debugLog: (logId: string) => Promise<void>,
     private readonly loadMore: () => Promise<void>,
-    private readonly setLoading: (val: boolean) => void,
     private readonly setSearchQuery: (value: string) => Promise<void>,
     private readonly setLogsColumns: (value: unknown) => Promise<void>
   ) {}
@@ -24,10 +24,7 @@ export class LogsMessageHandler {
     switch (message.type) {
       case 'ready':
         logInfo('Logs: message ready');
-        this.setLoading(true);
-        await this.sendOrgs();
-        await this.refresh();
-        this.setLoading(false);
+        await this.handleReady();
         break;
       case 'refresh':
         logInfo('Logs: message refresh');
@@ -44,6 +41,7 @@ export class LogsMessageHandler {
       case 'selectOrg':
         this.setSelectedOrg(typeof message.target === 'string' ? message.target.trim() : undefined);
         logInfo('Logs: selected org set');
+        await this.sendOrgs();
         await this.refresh();
         break;
       case 'openDebugFlags':

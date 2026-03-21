@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { localize } from '../utils/localize';
 import { getOrgAuth } from '../salesforce/cli';
 import { clearListCache, getApiVersionFallbackWarning } from '../salesforce/http';
-import type { ApexLogRow } from '../shared/types';
+import type { ApexLogRow, OrgItem } from '../shared/types';
 import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn, logError } from '../utils/logger';
@@ -19,7 +19,7 @@ import { affectsConfiguration, getConfig } from '../utils/config';
 import { ensureApexLogsDir, purgeSavedLogs, getLogIdFromLogFilePath } from '../utils/workspace';
 import { ripgrepSearch, type RipgrepMatch } from '../utils/ripgrep';
 import { DEFAULT_LOGS_COLUMNS_CONFIG, normalizeLogsColumnsConfig, type NormalizedLogsColumnsConfig } from '../shared/logsColumns';
-import type { LogTriageSummary } from '../shared/logTriage';
+import type { LogDiagnostic, LogTriageSummary } from '../shared/logTriage';
 
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 
@@ -48,8 +48,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private messageHandler: LogsMessageHandler;
   private cursorStartTime: string | undefined;
   private cursorId: string | undefined;
+  private currentHasMore = false;
+  private hasHydratedLogsState = false;
+  private currentWarningMessage: string | undefined;
   private currentLogs: ApexLogRow[] = [];
   private currentLogIds = new Set<string>();
+  private availableOrgs: OrgItem[] = [];
+  private logHeadById = new Map<string, { codeUnitStarted?: string; hasErrors?: boolean; primaryReason?: string; reasons?: LogDiagnostic[] }>();
   private errorByLogId = new Map<string, LogTriageSummary>();
   private errorScanAbortController: AbortController | undefined;
   private errorScanToken = 0;
@@ -72,6 +77,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     this.logService.setHeadConcurrency(this.configManager.getHeadConcurrency());
     this.logsColumns = this.readLogsColumns();
     this.messageHandler = new LogsMessageHandler(
+      () => this.handleReadyMessage(),
       () => this.refresh(),
       () => this.downloadAllLogs(),
       scope => this.clearLogs(scope),
@@ -81,7 +87,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       id => this.logService.openLog(id, this.orgManager.getSelectedOrg()),
       id => this.logService.debugLog(id, this.orgManager.getSelectedOrg()),
       () => this.loadMore(),
-      v => this.post({ type: 'loading', value: v }),
       value => this.setSearchQuery(value),
       value => this.saveLogsColumns(value)
     );
@@ -210,6 +215,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
         const controller = new AbortController();
         ct.onCancellationRequested(() => controller.abort());
         this.cancelErrorScan();
+        this.logHeadById.clear();
         this.errorByLogId.clear();
         this.postErrorScanStatus(
           {
@@ -221,7 +227,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           { force: true }
         );
         this.post({ type: 'loading', value: true });
-        this.post({ type: 'warning', message: undefined });
+        this.postWarning(undefined);
         try {
           clearListCache();
           this.pageLimit = this.configManager.getPageLimit();
@@ -230,7 +236,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           if (isCurrentRefresh()) {
             const existingWarning = getApiVersionFallbackWarning(auth);
             if (existingWarning) {
-              this.post({ type: 'warning', message: existingWarning });
+              this.postWarning(existingWarning);
             }
           }
           if (ct.isCancellationRequested || !isCurrentRefresh()) {
@@ -258,7 +264,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           if (isCurrentRefresh()) {
             const warning = getApiVersionFallbackWarning(auth);
             if (warning) {
-              this.post({ type: 'warning', message: warning });
+              this.postWarning(warning);
             }
           }
           if (!isCurrentRefresh()) {
@@ -272,9 +278,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             logsColumns: this.logsColumns
           });
           const hasMore = logs.length === this.pageLimit;
+          this.currentHasMore = hasMore;
+          this.hasHydratedLogsState = true;
           this.post({ type: 'logs', data: logs, hasMore });
           this.setCurrentLogs(logs);
-          this.postKnownErrorStateForLogs(logs);
+          this.postKnownLogHeadStateForLogs(logs);
           this.purgeLogCache(controller.signal);
           this.logService.loadLogHeads(
             logs,
@@ -282,7 +290,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             token,
             (logId, codeUnit) => {
               if (token === this.refreshToken && !this.disposed) {
-                this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
+                this.postLogHead({ logId, codeUnitStarted: codeUnit });
               }
             },
             controller.signal,
@@ -326,13 +334,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     const isCurrentRefresh = () => token === this.refreshToken && !this.disposed;
     const t0 = Date.now();
     this.post({ type: 'loading', value: true });
-    this.post({ type: 'warning', message: undefined });
+    this.postWarning(undefined);
     try {
       const auth = await getOrgAuth(this.orgManager.getSelectedOrg());
       if (isCurrentRefresh()) {
         const existingWarning = getApiVersionFallbackWarning(auth);
         if (existingWarning) {
-          this.post({ type: 'warning', message: existingWarning });
+          this.postWarning(existingWarning);
         }
       }
       if (!isCurrentRefresh()) {
@@ -357,7 +365,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       if (isCurrentRefresh()) {
         const warning = getApiVersionFallbackWarning(auth);
         if (warning) {
-          this.post({ type: 'warning', message: warning });
+          this.postWarning(warning);
         }
       }
       if (!isCurrentRefresh()) {
@@ -365,13 +373,15 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       }
       this.preloadFullLogBodies(logs);
       const hasMore = logs.length === this.pageLimit;
+      this.currentHasMore = hasMore;
+      this.hasHydratedLogsState = true;
       this.post({ type: 'appendLogs', data: logs, hasMore });
       this.setCurrentLogs([...this.currentLogs, ...logs]);
-      this.postKnownErrorStateForLogs(logs);
+      this.postKnownLogHeadStateForLogs(logs);
       this.purgeLogCache();
       this.logService.loadLogHeads(logs, auth, token, (logId, codeUnit) => {
         if (token === this.refreshToken && !this.disposed) {
-          this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
+          this.postLogHead({ logId, codeUnitStarted: codeUnit });
         }
       }, undefined, {
         preferLocalBodies: this.configManager.shouldLoadFullLogBodies(),
@@ -495,22 +505,47 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'errorScanStatus', ...status });
   }
 
-  private postKnownErrorStateForLogs(logs: ApexLogRow[]): void {
+  private postKnownLogHeadStateForLogs(logs: ApexLogRow[]): void {
     for (const log of logs) {
       if (!log?.Id) {
         continue;
       }
-      const summary = this.errorByLogId.get(log.Id);
-      if (summary) {
-        this.post({
-          type: 'logHead',
-          logId: log.Id,
-          hasErrors: summary.hasErrors,
-          primaryReason: summary.primaryReason,
-          reasons: summary.reasons
-        });
+      const state = this.logHeadById.get(log.Id);
+      if (state) {
+        this.postLogHead({ logId: log.Id, ...state });
       }
     }
+  }
+
+  private postLogHead(update: {
+    logId: string;
+    codeUnitStarted?: string;
+    hasErrors?: boolean;
+    primaryReason?: string;
+    reasons?: LogDiagnostic[];
+  }): void {
+    const previous = this.logHeadById.get(update.logId) ?? {};
+    const next = {
+      ...previous,
+      ...(update.codeUnitStarted !== undefined ? { codeUnitStarted: update.codeUnitStarted } : {}),
+      ...(update.hasErrors !== undefined ? { hasErrors: update.hasErrors } : {}),
+      ...(update.primaryReason !== undefined ? { primaryReason: update.primaryReason } : {}),
+      ...(update.reasons !== undefined ? { reasons: update.reasons } : {})
+    };
+    this.logHeadById.set(update.logId, next);
+    this.post({
+      type: 'logHead',
+      logId: update.logId,
+      ...(update.codeUnitStarted !== undefined ? { codeUnitStarted: update.codeUnitStarted } : {}),
+      ...(update.hasErrors !== undefined ? { hasErrors: update.hasErrors } : {}),
+      ...(update.primaryReason !== undefined ? { primaryReason: update.primaryReason } : {}),
+      ...(update.reasons !== undefined ? { reasons: update.reasons } : {})
+    });
+  }
+
+  private postWarning(message?: string): void {
+    this.currentWarningMessage = message;
+    this.post({ type: 'warning', message });
   }
 
   private startErrorScanForCurrentLogs(auth: OrgAuth, refreshToken: number, parentSignal?: AbortSignal): void {
@@ -588,8 +623,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
               }
               this.errorByLogId.set(progress.logId, progress.summary);
               if (this.currentLogIds.has(progress.logId)) {
-                this.post({
-                  type: 'logHead',
+                this.postLogHead({
                   logId: progress.logId,
                   hasErrors: progress.summary.hasErrors,
                   primaryReason: progress.summary.primaryReason,
@@ -1356,6 +1390,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   }
 
   public async sendOrgs(forceRefresh = false) {
+    if (!forceRefresh && this.availableOrgs.length > 0) {
+      this.postCurrentOrgs();
+      return;
+    }
     const t0 = Date.now();
     await vscode.window.withProgress(
       {
@@ -1371,7 +1409,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           if (ct.isCancellationRequested) {
             return;
           }
-          this.post({ type: 'orgs', data: orgs, selected });
+          this.availableOrgs = orgs;
+          this.postCurrentOrgs();
           try {
             const durationMs = Date.now() - t0;
             safeSendEvent('orgs.list', { outcome: 'ok', view: 'logs' }, { durationMs, count: orgs.length });
@@ -1383,7 +1422,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
             void vscode.window.showErrorMessage(
               localize('sendOrgsFailed', 'Failed to list Salesforce orgs: {0}', msg)
             );
-            this.post({ type: 'orgs', data: [], selected: this.orgManager.getSelectedOrg() });
+            this.availableOrgs = [];
+            this.postCurrentOrgs();
             try {
               const durationMs = Date.now() - t0;
               safeSendEvent('orgs.list', { outcome: 'error', view: 'logs' }, { durationMs });
@@ -1401,6 +1441,27 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
 
   public setSelectedOrg(username?: string) {
     this.orgManager.setSelectedOrg(username);
+  }
+
+  private async handleReadyMessage(): Promise<void> {
+    await this.sendOrgs();
+    if (!this.hasHydratedLogsState) {
+      await this.refresh();
+      return;
+    }
+    this.post({
+      type: 'init',
+      locale: vscode.env.language,
+      fullLogSearchEnabled: this.configManager.shouldLoadFullLogBodies(),
+      logsColumns: this.logsColumns
+    });
+    this.postWarning(this.currentWarningMessage);
+    this.post({ type: 'logs', data: this.currentLogs, hasMore: this.currentHasMore });
+    this.postKnownLogHeadStateForLogs(this.currentLogs);
+  }
+
+  private postCurrentOrgs(): void {
+    this.post({ type: 'orgs', data: this.availableOrgs, selected: this.orgManager.getSelectedOrg() });
   }
 
   public async tailLogs() {
