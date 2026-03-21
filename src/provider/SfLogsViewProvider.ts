@@ -61,6 +61,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   private cursorId: string | undefined;
   private currentHasMore = false;
   private hasHydratedLogsState = false;
+  private hydratedLogsSelectedOrg: string | undefined;
   private currentWarningMessage: string | undefined;
   private currentLogs: ApexLogRow[] = [];
   private currentLogIds = new Set<string>();
@@ -297,6 +298,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
           const hasMore = logs.length === this.pageLimit;
           this.currentHasMore = hasMore;
           this.hasHydratedLogsState = true;
+          this.hydratedLogsSelectedOrg = auth.username || this.orgManager.getSelectedOrg();
           this.post({ type: 'logs', data: logs, hasMore });
           this.setCurrentLogs(logs);
           this.postKnownLogHeadStateForLogs(logs);
@@ -388,6 +390,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       const hasMore = logs.length === this.pageLimit;
       this.currentHasMore = hasMore;
       this.hasHydratedLogsState = true;
+      this.hydratedLogsSelectedOrg = auth.username || this.orgManager.getSelectedOrg();
       this.post({ type: 'appendLogs', data: logs, hasMore });
       this.setCurrentLogs([...this.currentLogs, ...logs]);
       this.postKnownLogHeadStateForLogs(logs);
@@ -1496,7 +1499,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
 
   private async handleReadyMessage(_surface: LogsSurface): Promise<void> {
     await this.sendOrgs();
-    if (!this.hasHydratedLogsState) {
+    if (!this.hasHydratedLogsState || this.hydratedLogsSelectedOrg !== this.orgManager.getSelectedOrg()) {
       await this.refresh();
       return;
     }

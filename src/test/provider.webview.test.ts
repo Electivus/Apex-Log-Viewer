@@ -385,6 +385,7 @@ suite('SfLogsViewProvider webview', () => {
     (provider as any).currentLogIds = new Set(sampleLogs.map(log => log.Id));
     (provider as any).currentHasMore = true;
     (provider as any).hasHydratedLogsState = true;
+    (provider as any).hydratedLogsSelectedOrg = 'logs@example.com';
     (provider as any).logHeadById.set('07L000000000001AA', { codeUnitStarted: 'AccountService.handle' });
     (provider as any).refresh = async () => {
       throw new Error('ready should not trigger a full refresh when logs are already hydrated');
@@ -409,6 +410,51 @@ suite('SfLogsViewProvider webview', () => {
         logId: '07L000000000001AA',
         codeUnitStarted: 'AccountService.handle'
       }
+    );
+  });
+
+  test('ready refreshes when a restored editor changes the selected org after logs were already hydrated', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const fakeOrgManager = new FakeOrgManager('default@example.com', [
+      { username: 'default@example.com', alias: 'Default' },
+      { username: 'restored@example.com', alias: 'Restored' }
+    ]);
+
+    const provider = new SfLogsViewProvider(
+      context,
+      new FakeLogService() as any,
+      fakeOrgManager as any,
+      new FakeConfigManager() as any
+    );
+    const sidebarWebview = new MockWebview();
+    const editorWebview = new MockWebview();
+    const view = new MockWebviewView(sidebarWebview);
+    const panel = new MockWebviewPanel(editorWebview);
+    const sampleLogs = createSampleLogs();
+    const refreshCalls: string[] = [];
+
+    await provider.resolveWebviewView(view);
+    (provider as any).currentLogs = sampleLogs;
+    (provider as any).currentLogIds = new Set(sampleLogs.map(log => log.Id));
+    (provider as any).currentHasMore = true;
+    (provider as any).hasHydratedLogsState = true;
+    (provider as any).hydratedLogsSelectedOrg = 'default@example.com';
+    (provider as any).refresh = async () => {
+      refreshCalls.push(provider.getSelectedOrg() ?? '');
+    };
+
+    await (provider as any).restoreEditorPanel(panel, { selectedOrg: 'restored@example.com' });
+    editorWebview.emit({ type: 'ready' });
+    await flushAsyncMessages();
+
+    assert.deepEqual(refreshCalls, ['restored@example.com']);
+    assert.equal(
+      editorWebview.postedMessages.some(message => message.type === 'logs'),
+      false,
+      'restored editor should refetch instead of replaying logs from a different org'
     );
   });
 });
