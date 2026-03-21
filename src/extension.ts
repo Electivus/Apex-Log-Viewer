@@ -105,6 +105,13 @@ export async function activate(context: vscode.ExtensionContext) {
       webviewOptions: { retainContextWhenHidden: true }
     })
   );
+  context.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer(SfLogsViewProvider.editorPanelViewType, {
+      deserializeWebviewPanel: async webviewPanel => {
+        await provider.restoreEditorPanel(webviewPanel);
+      }
+    })
+  );
 
   // Register Tail view provider
   const tailProvider = new SfLogTailViewProvider(context);

@@ -140,4 +140,35 @@ suite('SfLogsViewProvider webview', () => {
     assert.ok(webview.html.includes('Content-Security-Policy'), 'editor webview should include CSP');
     assert.ok(webview.html.includes('media/main.js'), 'editor webview should load the logs bundle');
   });
+
+  test('restoreEditorPanel rehydrates a deserialized logs editor and reuses it on later showEditor calls', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+
+    const provider = new SfLogsViewProvider(context);
+    const originalCreateWebviewPanel = vscode.window.createWebviewPanel;
+    const restoredWebview = new MockWebview();
+    const restoredPanel = new MockWebviewPanel(restoredWebview);
+    let createCalls = 0;
+
+    (vscode.window as any).createWebviewPanel = () => {
+      createCalls += 1;
+      return new MockWebviewPanel(new MockWebview());
+    };
+
+    try {
+      await (provider as any).restoreEditorPanel(restoredPanel);
+      await (provider as any).showEditor();
+    } finally {
+      (vscode.window as any).createWebviewPanel = originalCreateWebviewPanel;
+    }
+
+    assert.equal(createCalls, 0, 'restored logs editor should be reused instead of creating a new panel');
+    assert.equal(restoredPanel.revealCalls, 1, 'showEditor should reveal the restored panel');
+    assert.equal(restoredWebview.options.enableScripts, true, 'restored editor webview should enable scripts');
+    assert.ok(restoredWebview.html.includes('Content-Security-Policy'), 'restored editor should include CSP');
+    assert.ok(restoredWebview.html.includes('media/main.js'), 'restored editor should load the logs bundle');
+  });
 });

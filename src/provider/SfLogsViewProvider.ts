@@ -25,6 +25,7 @@ const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'sfLogViewer';
+  public static readonly editorPanelViewType = 'sfLogViewer.logsEditor';
   private view?: vscode.WebviewView;
   private editorPanel?: vscode.WebviewPanel;
   private pageLimit = 100;
@@ -122,7 +123,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
     }
 
     const panel = vscode.window.createWebviewPanel(
-      'sfLogViewer.logsEditor',
+      SfLogsViewProvider.editorPanelViewType,
       localize('logs.editor.title', 'Apex Logs'),
       { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
       {
@@ -132,6 +133,14 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       }
     );
 
+    this.attachEditorPanel(panel);
+  }
+
+  public async restoreEditorPanel(panel: vscode.WebviewPanel): Promise<void> {
+    this.attachEditorPanel(panel);
+  }
+
+  private attachEditorPanel(panel: vscode.WebviewPanel): void {
     this.editorPanel = panel;
     this.disposed = false;
     panel.webview.options = {

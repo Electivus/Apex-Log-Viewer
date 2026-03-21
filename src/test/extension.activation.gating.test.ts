@@ -7,6 +7,12 @@ const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 
 type RegisteredCommand = (...args: any[]) => Promise<unknown> | unknown;
 type CommandCall = { command: string; args: unknown[] };
+type RegisteredPanelSerializer = {
+  viewType: string;
+  serializer: {
+    deserializeWebviewPanel: (panel: unknown, state: unknown) => Promise<void> | void;
+  };
+};
 
 function createDisposable() {
   return { dispose: () => undefined };
@@ -50,6 +56,8 @@ function createExtensionHarness(options: {
   const globalStateUpdates: Array<{ key: string; value: unknown }> = [];
   const globalStateGetCalls: string[] = [];
   const commandCalls: CommandCall[] = [];
+  const panelSerializers: RegisteredPanelSerializer[] = [];
+  let restoreLogsEditorPanelCalls = 0;
   const defaultWorkspaceRoot = options.salesforceProject?.workspaceRoot;
   const workspaceFolders = defaultWorkspaceRoot
     ? [
@@ -92,6 +100,10 @@ function createExtensionHarness(options: {
     window: {
       activeTextEditor: options.activeDocument ? { document: options.activeDocument } : undefined,
       registerWebviewViewProvider: () => createDisposable(),
+      registerWebviewPanelSerializer: (viewType: string, serializer: RegisteredPanelSerializer['serializer']) => {
+        panelSerializers.push({ viewType, serializer });
+        return createDisposable();
+      },
       showWarningMessage: async (message: string) => {
         warningMessages.push(message);
         return undefined;
@@ -135,6 +147,7 @@ function createExtensionHarness(options: {
 
   class FakeLogsViewProvider {
     public static viewType = 'sfLogViewer';
+    public static editorPanelViewType = 'sfLogViewer.logsEditor';
     private selectedOrg = options.selectedOrg ?? '';
 
     constructor(_context: any) {}
@@ -159,6 +172,10 @@ function createExtensionHarness(options: {
 
     public async showEditor(): Promise<void> {
       openLogsEditorCalls.push(this.selectedOrg);
+    }
+
+    public async restoreEditorPanel(): Promise<void> {
+      restoreLogsEditorPanelCalls += 1;
     }
 
     public async tailLogs(): Promise<void> {
@@ -357,6 +374,8 @@ function createExtensionHarness(options: {
     warningMessages,
     errorMessages,
     commandCalls,
+    panelSerializers,
+    restoreLogsEditorPanelCalls: () => restoreLogsEditorPanelCalls,
     globalStateUpdates,
     globalStateGetCalls,
     context: {
@@ -420,6 +439,8 @@ suite('extension activation gating', () => {
       'open log viewer in new window should stay registered'
     );
     assert.ok(harness.commands.has('sfLogs.troubleshootWebview'), 'webview troubleshooting command should stay registered');
+    assert.equal(harness.panelSerializers.length, 1, 'logs editor serializer should stay registered');
+    assert.equal(harness.panelSerializers[0]?.viewType, 'sfLogViewer.logsEditor');
 
     const activationEvent = harness.events.find(event => event.name === 'extension.activate');
     assert.equal(activationEvent?.props?.hasSalesforceProject, 'false');
@@ -429,6 +450,25 @@ suite('extension activation gating', () => {
     assert.deepEqual(harness.logViewerShows, [{ logId: '07L000000000123', filePath }]);
     assert.deepEqual(harness.warningMessages, []);
     assert.deepEqual(harness.errorMessages, []);
+  });
+
+  test('registers a serializer for the logs editor panel and restores through the provider', async () => {
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot: path.join(process.cwd(), 'workspace-salesforce'),
+        projectFilePath: path.join(process.cwd(), 'workspace-salesforce', 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      }
+    });
+
+    await harness.extension.activate(harness.context);
+
+    const serializer = harness.panelSerializers.find(entry => entry.viewType === 'sfLogViewer.logsEditor');
+    assert.ok(serializer, 'expected the logs editor webview serializer to be registered');
+
+    await serializer.serializer.deserializeWebviewPanel({}, undefined);
+
+    assert.equal(harness.restoreLogsEditorPanelCalls(), 1);
   });
 
   test('applies sourceApiVersion and schedules CLI preload when a Salesforce project is present', async () => {
