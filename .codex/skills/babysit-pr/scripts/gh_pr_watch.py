@@ -265,7 +265,7 @@ def save_state(path, state):
 
 def default_state_file_for(pr):
     repo_slug = pr["repo"].replace("/", "-")
-    return Path(f"/tmp/codex-babysit-pr-{repo_slug}-pr{pr['number']}.json")
+    return Path(tempfile.gettempdir()) / f"codex-babysit-pr-{repo_slug}-pr{pr['number']}.json"
 
 
 def get_pr_checks(pr_spec, repo):
@@ -538,6 +538,61 @@ def is_trusted_human_review_author(item, authenticated_login):
     return association in TRUSTED_AUTHOR_ASSOCIATIONS
 
 
+def is_generic_codex_summary_review(item):
+    if not isinstance(item, dict):
+        return False
+    if str(item.get("kind") or "") != "review":
+        return False
+    author = str(item.get("author") or "")
+    if not is_actionable_review_bot_login(author):
+        return False
+    body = str(item.get("body") or "").lower()
+    return (
+        "here are some automated review suggestions for this pull request" in body
+        or "about codex in github" in body
+    )
+
+
+def is_non_blocking_review_item(item):
+    if not isinstance(item, dict):
+        return False
+    if str(item.get("kind") or "") != "review":
+        return False
+    if is_generic_codex_summary_review(item):
+        return True
+    review_state = str(item.get("review_state") or "").upper()
+    return review_state in NON_BLOCKING_REVIEW_STATES
+
+
+def actionable_new_review_items(items):
+    actionable_items = []
+    for item in items or []:
+        if is_non_blocking_review_item(item):
+            continue
+        actionable_items.append(item)
+    return actionable_items
+
+
+def is_trusted_ready_reaction_author(author, repo, authenticated_login, trust_cache=None):
+    author = str(author or "")
+    if not author:
+        return False
+    if authenticated_login and author == authenticated_login:
+        return True
+    cache = trust_cache if isinstance(trust_cache, dict) else {}
+    cached = cache.get(author)
+    if cached is not None:
+        return cached
+    try:
+        payload = gh_json(["api", f"repos/{repo}/collaborators/{author}/permission"])
+    except GhCommandError:
+        cache[author] = False
+        return False
+    trusted = isinstance(payload, dict) and bool(payload.get("permission") or payload.get("role_name"))
+    cache[author] = trusted
+    return trusted
+
+
 def fetch_new_review_items(pr, state, fresh_state, authenticated_login=None):
     repo = pr["repo"]
     pr_number = pr["number"]
@@ -597,17 +652,26 @@ def fetch_new_review_items(pr, state, fresh_state, authenticated_login=None):
     return new_items
 
 
-def fetch_pr_ready_reactions(pr):
+def fetch_pr_ready_reactions(pr, authenticated_login=None):
     payload = gh_api_list_paginated(reaction_endpoint(pr["repo"], pr["number"]), repo=pr["repo"])
     reactions = normalize_reactions(payload)
     ready_reactions = []
+    trust_cache = {}
     for reaction in reactions:
         if reaction.get("content") != READY_REACTION_CONTENT:
+            continue
+        author = reaction.get("author") or ""
+        if not is_trusted_ready_reaction_author(
+            author,
+            pr["repo"],
+            authenticated_login=authenticated_login,
+            trust_cache=trust_cache,
+        ):
             continue
         ready_reactions.append(
             {
                 "id": reaction.get("id") or "",
-                "author": reaction.get("author") or "",
+                "author": author,
                 "content": READY_REACTION_CONTENT,
             }
         )
@@ -635,7 +699,7 @@ def update_blocking_non_thread_feedback(state, head_sha, new_review_items):
     tracked_items = {
         str(item.get("id") or ""): item
         for item in blocking_non_thread_feedback_for_sha(state, head_sha)
-        if isinstance(item, dict) and item.get("id")
+        if isinstance(item, dict) and item.get("id") and not is_non_blocking_review_item(item)
     }
     for item in new_review_items:
         if not isinstance(item, dict):
@@ -649,9 +713,12 @@ def update_blocking_non_thread_feedback(state, head_sha, new_review_items):
             continue
         if kind != "review":
             continue
-        review_state = str(item.get("review_state") or "").upper()
         author = str(item.get("author") or "")
-        if review_state in NON_BLOCKING_REVIEW_STATES:
+        if is_non_blocking_review_item(item):
+            tracked_items.pop(item_id, None)
+            review_state = str(item.get("review_state") or "").upper()
+            if review_state not in NON_BLOCKING_REVIEW_STATES:
+                continue
             tracked_items = {
                 tracked_id: tracked_item
                 for tracked_id, tracked_item in tracked_items.items()
@@ -796,13 +863,14 @@ def is_pr_ready_to_merge(
     blocking_non_thread_feedback,
     ready_reactions,
 ):
+    actionable_reviews = actionable_new_review_items(new_review_items)
     if pr["closed"] or pr["merged"]:
         return False
     if not checks_summary["all_terminal"]:
         return False
     if checks_summary["failed_count"] > 0 or checks_summary["pending_count"] > 0:
         return False
-    if new_review_items:
+    if actionable_reviews:
         return False
     if unresolved_review_threads:
         return False
@@ -835,8 +903,9 @@ def recommend_actions(
     max_retries,
 ):
     actions = []
+    actionable_reviews = actionable_new_review_items(new_review_items)
     if pr["closed"] or pr["merged"]:
-        if new_review_items or unresolved_review_threads or blocking_non_thread_feedback:
+        if actionable_reviews or unresolved_review_threads or blocking_non_thread_feedback:
             actions.append("process_review_comment")
         actions.append("stop_pr_closed")
         return unique_actions(actions)
@@ -852,7 +921,7 @@ def recommend_actions(
         actions.append("stop_ready_to_merge")
         return unique_actions(actions)
 
-    if new_review_items or unresolved_review_threads or blocking_non_thread_feedback:
+    if actionable_reviews or unresolved_review_threads or blocking_non_thread_feedback:
         actions.append("process_review_comment")
 
     has_failed_pr_checks = checks_summary["failed_count"] > 0
@@ -892,7 +961,7 @@ def collect_snapshot(args):
     )
     unresolved_review_threads = fetch_unresolved_review_threads(pr)
     blocking_non_thread_feedback = update_blocking_non_thread_feedback(state, pr["head_sha"], new_review_items)
-    ready_reactions = fetch_pr_ready_reactions(pr)
+    ready_reactions = fetch_pr_ready_reactions(pr, authenticated_login=authenticated_login)
 
     retries_used = current_retry_count(state, pr["head_sha"])
     actions = recommend_actions(

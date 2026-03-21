@@ -28,15 +28,17 @@ Accept any of the following:
 3. Inspect the `actions` list in the JSON response.
 4. If `diagnose_ci_failure` is present, inspect failed run logs and classify the failure.
 5. If the failure is likely caused by the current branch, patch code locally, commit, and push.
-6. If `process_review_comment` is present, inspect surfaced review items and decide whether to address them.
-7. If a review item is actionable and correct, patch code locally, commit, and push.
-8. If the failure is likely flaky/unrelated and `retry_failed_checks` is present, rerun failed jobs with `--retry-failed-now`.
-9. If both actionable review feedback and `retry_failed_checks` are present, prioritize review feedback first; a new commit will retrigger CI, so avoid rerunning flaky checks on the old SHA unless you intentionally defer the review change.
-10. On every loop, verify mergeability / merge-conflict status (for example via `gh pr view`) in addition to CI and review state, and check whether the PR itself has received a `👍` reaction.
-11. After any push or rerun action, immediately return to step 1 and continue polling on the updated SHA/state.
-12. If you had been using `--watch` before pausing to patch/commit/push, relaunch `--watch` yourself in the same turn immediately after the push (do not wait for the user to re-invoke the skill).
-13. Repeat polling until the PR is green + review-clean + mergeable, `stop_pr_closed` appears, or a user-help-required blocker is reached.
-14. Maintain terminal/session ownership: while babysitting is active, keep consuming watcher output in the same turn; do not leave a detached `--watch` process running and then end the turn as if monitoring were complete.
+6. If `process_review_comment` is present, inspect surfaced review items and triage them before changing code.
+7. If a review item is actionable, correct, and in scope for the PR, patch code locally, commit, and push.
+8. If a review item is important but not actually part of the PR's scope, record it as a follow-up issue instead of expanding the PR.
+9. If a review item is incorrect, already handled, or otherwise non-actionable, mark it as intentionally rejected/ignored and continue watching.
+10. If the failure is likely flaky/unrelated and `retry_failed_checks` is present, rerun failed jobs with `--retry-failed-now`.
+11. If both actionable review feedback and `retry_failed_checks` are present, prioritize review feedback first; a new commit will retrigger CI, so avoid rerunning flaky checks on the old SHA unless you intentionally defer the review change.
+12. On every loop, verify mergeability / merge-conflict status (for example via `gh pr view`) in addition to CI and review state, and check whether the PR itself has received a `👍` reaction.
+13. After any push, rerun, or follow-up issue capture, immediately return to step 1 and continue polling on the updated SHA/state.
+14. If you had been using `--watch` before pausing to patch/commit/push, relaunch `--watch` yourself in the same turn immediately after the push (do not wait for the user to re-invoke the skill).
+15. Repeat polling until the PR is green + review-clean + mergeable, `stop_pr_closed` appears, or a user-help-required blocker is reached.
+16. Maintain terminal/session ownership: while babysitting is active, keep consuming watcher output in the same turn; do not leave a detached `--watch` process running and then end the turn as if monitoring were complete.
 
 ## Commands
 
@@ -62,6 +64,42 @@ python3 .codex/skills/babysit-pr/scripts/gh_pr_watch.py --pr auto --retry-failed
 
 ```bash
 python3 .codex/skills/babysit-pr/scripts/gh_pr_watch.py --pr <number-or-url> --once
+```
+
+### List current Codex feedback items
+
+```bash
+python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --list
+```
+
+### Acknowledge all currently listed Codex feedback with `👍` and resolve open Codex threads
+
+```bash
+python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --ack-all
+```
+
+### Dry-run an acknowledgement pass before mutating GitHub state
+
+```bash
+python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --ack-all --dry-run
+```
+
+### Create a follow-up issue for out-of-scope Codex feedback, then mark it captured with `👍`
+
+```bash
+python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --follow-up <item-id> --issue-label follow-up
+```
+
+### Dry-run follow-up issue creation before mutating GitHub state
+
+```bash
+python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --follow-up <item-id> --issue-label follow-up --dry-run
+```
+
+### Reply on a review thread before resolving it
+
+```bash
+python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --ack <item-id> --reply-body "Handled in the latest PR update."
 ```
 
 ## CI Failure Classification
@@ -94,11 +132,27 @@ When you agree with a comment and it is actionable:
 1. Patch code locally.
 2. Commit with `codex: address PR review feedback (#<n>)`.
 3. Push to the PR head branch.
-4. Resume watching on the new SHA immediately (do not stop after reporting the push).
-5. If monitoring was running in `--watch` mode, restart `--watch` immediately after the push in the same turn; do not wait for the user to ask again.
+4. Prefer replying in the GitHub review thread with a short status update before resolving it (for example what changed, or that it was captured as follow-up). Then react with `👍` to the relevant Codex feedback and resolve Codex-authored review threads you handled. Prefer `python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --ack-all --dry-run` first, then rerun without `--dry-run` once you are satisfied.
+5. Resume watching on the new SHA immediately (do not stop after reporting the push).
+6. If monitoring was running in `--watch` mode, restart `--watch` immediately after the push in the same turn; do not wait for the user to ask again.
+
+Triage review feedback explicitly before touching code:
+
+1. In scope for the PR and correct: fix it in the PR.
+2. Important but out of scope for the PR: do not silently widen the PR. First look for an existing issue covering the same problem; if none exists, create a follow-up issue and keep the PR focused.
+3. Incorrect, already addressed, or not worth acting on: reject it explicitly and continue watching.
+
+When a comment is important but out of scope for the current PR:
+
+1. Search for an existing issue that already tracks the same problem.
+2. If none exists, create a follow-up issue from the feedback item with `gh_pr_codex_feedback.py --follow-up ...`.
+3. If the item is a review thread, reply in-thread with the tracking issue link so future readers can see where the work moved.
+4. React with `👍` on the source feedback once it has been captured as follow-up; if the item is a Codex review thread, resolve the thread after the issue is created unless the thread should stay open.
+5. Resume watching immediately. Do not implement the out-of-scope change in the current PR unless the user explicitly broadens scope.
 
 If you disagree or the comment is non-actionable/already addressed, record it as handled by continuing the watcher loop (the script de-duplicates surfaced items via state after surfacing them).
 If a code review comment/thread is already marked as resolved in GitHub, treat it as non-actionable and safely ignore it unless new unresolved follow-up feedback appears.
+If you intentionally reject Codex feedback, react with `👎` using `gh_pr_codex_feedback.py --reject ...`. Leave the thread open unless you are intentionally closing the loop after documenting why the suggestion should not be applied.
 
 ## Git Safety Rules
 
