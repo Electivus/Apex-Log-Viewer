@@ -53,7 +53,9 @@ export interface LaunchContextProvider {
       filesToOpen?: string[];
     }
   ) => Promise<void> | Thenable<void> | void;
-  waitForLaunchMarker?: (nonce: string) => Promise<boolean> | Thenable<boolean> | boolean;
+  waitForLaunchMarker?: (
+    request: Pick<PendingLaunchRequest, 'nonce' | 'createdAt'>
+  ) => Promise<boolean> | Thenable<boolean> | boolean;
   clearLaunchMarker?: (nonce: string) => Promise<void> | Thenable<void> | void;
 }
 

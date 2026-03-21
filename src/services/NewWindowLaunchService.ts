@@ -62,7 +62,7 @@ export class NewWindowLaunchService {
       return;
     }
 
-    if (this.context.waitForLaunchMarker && !(await this.context.waitForLaunchMarker(request.nonce))) {
+    if (this.context.waitForLaunchMarker && !(await this.context.waitForLaunchMarker(request))) {
       return;
     }
 

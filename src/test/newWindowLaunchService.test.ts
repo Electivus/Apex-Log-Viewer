@@ -304,4 +304,36 @@ suite('NewWindowLaunchService', () => {
     assert.deepEqual(storage.updates, []);
     assert.deepEqual(storage.getStoreValue('pendingNewWindowLaunch'), request);
   });
+
+  test('waits for the launch marker for the full remaining request TTL budget', async () => {
+    const originalDateNow = Date.now;
+    Date.now = () => 50_000;
+    try {
+      const request: PendingLaunchRequest = {
+        ...makeBaseRequest(workspaceA),
+        createdAt: 10_000,
+        nonce: 'nonce-ttl-budget'
+      };
+      const storage = createMemoryStorage({ pendingNewWindowLaunch: request });
+      const waitForLaunchMarkerCalls: Array<{ nonce: string; createdAt: number }> = [];
+      const service = createLaunchService(workspaceA, storage, {
+        waitForLaunchMarker: async (markerRequest: { nonce: string; createdAt: number }) => {
+          waitForLaunchMarkerCalls.push(markerRequest);
+          return false;
+        }
+      });
+      const { callOrder, handlers } = makeHandlerCalls();
+
+      await service.consumePendingLaunch(handlers);
+
+      assert.deepEqual(callOrder, []);
+      assert.equal(waitForLaunchMarkerCalls.length, 1);
+      assert.equal(waitForLaunchMarkerCalls[0]?.nonce, 'nonce-ttl-budget');
+      assert.equal(waitForLaunchMarkerCalls[0]?.createdAt, 10_000);
+      assert.deepEqual(storage.updates, []);
+      assert.deepEqual(storage.getStoreValue('pendingNewWindowLaunch'), request);
+    } finally {
+      Date.now = originalDateNow;
+    }
+  });
 });

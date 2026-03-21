@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { WorkspaceTarget } from '../shared/newWindowLaunch';
+import { LAUNCH_REQUEST_TTL_MS, type WorkspaceTarget } from '../shared/newWindowLaunch';
 
 export function toWorkspaceScopedMarkerUri(workspaceTarget: WorkspaceTarget, markerFilePath: string): vscode.Uri {
   const workspaceUri = vscode.Uri.parse(workspaceTarget.uri);
@@ -7,4 +7,8 @@ export function toWorkspaceScopedMarkerUri(workspaceTarget: WorkspaceTarget, mar
     return vscode.Uri.file(markerFilePath);
   }
   return workspaceUri.with({ path: markerFilePath, query: '', fragment: '' });
+}
+
+export function getLaunchMarkerDeadline(createdAt: number): number {
+  return createdAt + LAUNCH_REQUEST_TTL_MS;
 }

@@ -1,6 +1,7 @@
 import assert from 'assert/strict';
 import * as vscode from 'vscode';
-import { toWorkspaceScopedMarkerUri } from '../utils/newWindowLaunchMarker';
+import { LAUNCH_REQUEST_TTL_MS } from '../shared/newWindowLaunch';
+import { getLaunchMarkerDeadline, toWorkspaceScopedMarkerUri } from '../utils/newWindowLaunchMarker';
 
 suite('new window launch marker URIs', () => {
   test('keeps local workspaces on file URIs', () => {
@@ -19,5 +20,9 @@ suite('new window launch marker URIs', () => {
     assert.equal(uri.scheme, 'vscode-remote');
     assert.equal(uri.authority, 'wsl+Ubuntu');
     assert.equal(uri.path, '/tmp/alv-marker');
+  });
+
+  test('uses the full launch request TTL when computing the marker wait deadline', () => {
+    assert.equal(getLaunchMarkerDeadline(12_345), 12_345 + LAUNCH_REQUEST_TTL_MS);
   });
 });

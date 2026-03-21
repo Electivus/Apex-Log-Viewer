@@ -12,7 +12,10 @@ import { CacheManager } from './utils/cacheManager';
 import { LogViewerPanel } from './panel/LogViewerPanel';
 import { DebugFlagsPanel } from './panel/DebugFlagsPanel';
 import { NewWindowLaunchService } from './services/NewWindowLaunchService';
-import { getPendingLaunchMarkerPath, type NewWindowLaunchSourceView } from './shared/newWindowLaunch';
+import {
+  getPendingLaunchMarkerPath,
+  type NewWindowLaunchSourceView
+} from './shared/newWindowLaunch';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { getErrorMessage } from './utils/error';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
@@ -22,7 +25,7 @@ import {
   isApexLogDocument,
   getLogIdFromLogFilePath
 } from './utils/workspace';
-import { toWorkspaceScopedMarkerUri } from './utils/newWindowLaunchMarker';
+import { getLaunchMarkerDeadline, toWorkspaceScopedMarkerUri } from './utils/newWindowLaunchMarker';
 import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
 import {
   buildRemoteWebviewTroubleshootingMessage,
@@ -244,11 +247,11 @@ export async function activate(context: vscode.ExtensionContext) {
         filesToOpen: options?.filesToOpen?.map(filePath => toWorkspaceScopedMarkerUri(workspaceTarget, filePath))
       });
     },
-    waitForLaunchMarker: async nonce => {
+    waitForLaunchMarker: async ({ nonce, createdAt }) => {
       const currentWorkspaceTarget = getCurrentWorkspaceTarget();
       const markerPath = path.resolve(getPendingLaunchMarkerPath(nonce));
       const markerUri = currentWorkspaceTarget ? toWorkspaceScopedMarkerUri(currentWorkspaceTarget, markerPath) : undefined;
-      const deadline = Date.now() + 2_000;
+      const deadline = getLaunchMarkerDeadline(createdAt);
       while (Date.now() <= deadline) {
         const openDocuments = [
           ...vscode.workspace.textDocuments,
