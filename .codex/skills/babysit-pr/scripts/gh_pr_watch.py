@@ -308,6 +308,20 @@ def summarize_checks(checks):
     }
 
 
+def failed_pr_check_keys(checks):
+    keys = set()
+    for check in checks:
+        if not isinstance(check, dict):
+            continue
+        bucket = str(check.get("bucket") or "").lower()
+        if bucket != "fail":
+            continue
+        workflow_name = str(check.get("workflow") or check.get("name") or "")
+        event = str(check.get("event") or "")
+        keys.add((workflow_name, event))
+    return keys
+
+
 def get_workflow_runs_for_sha(repo, head_sha):
     endpoint = f"repos/{repo}/actions/runs"
     data = gh_json(
@@ -351,7 +365,7 @@ def workflow_run_sort_key(run):
     )
 
 
-def failed_runs_from_workflow_runs(runs, head_sha):
+def failed_runs_from_workflow_runs(runs, head_sha, failed_check_keys=None):
     latest_runs_by_key = {}
     failed_runs = []
     for run in runs:
@@ -368,10 +382,15 @@ def failed_runs_from_workflow_runs(runs, head_sha):
         conclusion = str(run.get("conclusion") or "")
         if conclusion not in FAILED_RUN_CONCLUSIONS:
             continue
+        workflow_name = str(run.get("name") or run.get("display_title") or "")
+        event = str(run.get("event") or "")
+        if failed_check_keys and (workflow_name, event) not in failed_check_keys:
+            continue
         failed_runs.append(
             {
                 "run_id": run.get("id"),
-                "workflow_name": run.get("name") or run.get("display_title") or "",
+                "workflow_name": workflow_name,
+                "event": event,
                 "run_attempt": run.get("run_attempt"),
                 "status": str(run.get("status") or ""),
                 "conclusion": conclusion,
@@ -967,7 +986,11 @@ def collect_snapshot(args):
     checks = get_pr_checks(str(pr["number"]), repo=pr["repo"])
     checks_summary = summarize_checks(checks)
     workflow_runs = get_workflow_runs_for_sha(pr["repo"], pr["head_sha"])
-    failed_runs = failed_runs_from_workflow_runs(workflow_runs, pr["head_sha"])
+    failed_runs = failed_runs_from_workflow_runs(
+        workflow_runs,
+        pr["head_sha"],
+        failed_check_keys=failed_pr_check_keys(checks),
+    )
     authenticated_login = get_authenticated_login()
     new_review_items = fetch_new_review_items(
         pr,

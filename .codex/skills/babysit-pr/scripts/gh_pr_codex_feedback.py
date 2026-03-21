@@ -271,14 +271,18 @@ query($owner:String!, $repo:String!, $number:Int!, $after:String) {
             comments = thread.get("comments", {}).get("nodes", [])
             if not thread_id or not isinstance(comments, list) or not comments:
                 continue
-            latest_comment = comments[-1]
-            if not isinstance(latest_comment, dict):
+            latest_codex_comment = None
+            for comment in comments:
+                if not isinstance(comment, dict):
+                    continue
+                login = ((comment.get("author") or {}).get("login")) or ""
+                if is_codex_login(login):
+                    latest_codex_comment = comment
+            if not isinstance(latest_codex_comment, dict):
                 continue
-            login = ((latest_comment.get("author") or {}).get("login")) or ""
-            if not is_codex_login(login):
-                continue
-            subject_id = str(latest_comment.get("id") or "")
-            body = str(latest_comment.get("body") or "")
+            login = ((latest_codex_comment.get("author") or {}).get("login")) or ""
+            subject_id = str(latest_codex_comment.get("id") or "")
+            body = str(latest_codex_comment.get("body") or "")
             items.append(
                 {
                     "item_id": f"thread:{thread_id}",
@@ -289,12 +293,12 @@ query($owner:String!, $repo:String!, $number:Int!, $after:String) {
                     "body": body,
                     "summary": summarize_body(body),
                     "commit_id": pr["head_sha"],
-                    "created_at": str(latest_comment.get("createdAt") or ""),
-                    "html_url": str(latest_comment.get("url") or pr["url"]),
+                    "created_at": str(latest_codex_comment.get("createdAt") or ""),
+                    "html_url": str(latest_codex_comment.get("url") or pr["url"]),
                     "review_state": None,
-                    "path": latest_comment.get("path"),
-                    "line": latest_comment.get("line"),
-                    "database_id": str(latest_comment.get("databaseId") or ""),
+                    "path": latest_codex_comment.get("path"),
+                    "line": latest_codex_comment.get("line"),
+                    "database_id": str(latest_codex_comment.get("databaseId") or ""),
                 }
             )
         page_info = review_threads.get("pageInfo", {})
