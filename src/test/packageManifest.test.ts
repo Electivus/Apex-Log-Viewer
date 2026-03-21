@@ -63,6 +63,7 @@ suite('package manifest', () => {
     const manifest = await readPackageManifest();
     const menus = manifest.contributes?.menus ?? {};
     const viewTitleEntries = menus['view/title'] ?? [];
+    const editorTitleEntries = menus['editor/title'] ?? [];
     const findViewTitleEntry = (command: string) => viewTitleEntries.find((entry: any) => entry.command === command);
 
     assert.ok(findViewTitleEntry('sfLogs.openLogsInNewWindowFromLogsView'));
@@ -87,7 +88,15 @@ suite('package manifest', () => {
       );
     }
 
-    assert.ok((menus['editor/title'] ?? []).some((entry: any) => entry.command === 'sfLogs.openLogInViewerInNewWindow'));
+    const logViewerNewWindowEntry = editorTitleEntries.find(
+      (entry: any) => entry.command === 'sfLogs.openLogInViewerInNewWindow'
+    );
+    assert.ok(logViewerNewWindowEntry, 'expected sfLogs.openLogInViewerInNewWindow in editor/title');
+    assert.equal(
+      logViewerNewWindowEntry.when,
+      'resourceLangId == apexlog && sfLogs.canOpenLogViewerInNewWindow',
+      'log viewer new-window action should only show in activatable Salesforce workspaces'
+    );
   });
 
   test('hides the logs-toolbar new-window command from the command palette', async () => {

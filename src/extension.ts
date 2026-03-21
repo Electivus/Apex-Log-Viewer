@@ -44,6 +44,15 @@ function showOpenFolderWarning(): Promise<void> {
   ) as Promise<void>;
 }
 
+function showSalesforceWorkspaceWarning(): Promise<void> {
+  return vscode.window.showWarningMessage(
+    localize(
+      'openLogInViewerInNewWindow.noSalesforceWorkspace',
+      'Electivus Apex Logs: Open the log viewer in a Salesforce workspace before using this action.'
+    )
+  ) as Promise<void>;
+}
+
 async function initializePersistentCache(context: vscode.ExtensionContext): Promise<void> {
   CacheManager.init(context.globalState);
   await CacheManager.clearExpired();
@@ -51,10 +60,16 @@ async function initializePersistentCache(context: vscode.ExtensionContext): Prom
 
 export async function activate(context: vscode.ExtensionContext) {
   const activationStart = Date.now();
+  const logViewerNewWindowContextKey = 'sfLogs.canOpenLogViewerInNewWindow';
   LogViewerPanel.initialize(context);
   DebugFlagsPanel.initialize(context);
   const salesforceProject = await findSalesforceProjectInfo();
   const hasSalesforceProject = !!salesforceProject;
+  try {
+    await vscode.commands.executeCommand('setContext', logViewerNewWindowContextKey, hasSalesforceProject);
+  } catch (e) {
+    logWarn('Failed to update log viewer new-window context key ->', getErrorMessage(e));
+  }
   // Init TTL cache (best-effort; no-op if unavailable)
   try {
     await initializePersistentCache(context);
@@ -364,6 +379,10 @@ export async function activate(context: vscode.ExtensionContext) {
       }
       const filePath = doc.uri.fsPath;
       const logId = getLogIdFromLogFilePath(filePath) ?? path.parse(filePath).name;
+      if (!hasSalesforceProject) {
+        await showSalesforceWorkspaceWarning();
+        return;
+      }
       try {
         await launchInNewWindow({
           kind: 'logViewer',

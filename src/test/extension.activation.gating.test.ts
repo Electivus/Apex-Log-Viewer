@@ -444,6 +444,10 @@ suite('extension activation gating', () => {
 
     const activationEvent = harness.events.find(event => event.name === 'extension.activate');
     assert.equal(activationEvent?.props?.hasSalesforceProject, 'false');
+    assert.deepEqual(
+      harness.commandCalls.find(call => call.command === 'setContext')?.args,
+      ['sfLogs.canOpenLogViewerInNewWindow', false]
+    );
 
     await harness.commands.get('sfLogs.openLogInViewer')!();
 
@@ -495,6 +499,10 @@ suite('extension activation gating', () => {
 
     const activationEvent = harness.events.find(event => event.name === 'extension.activate');
     assert.equal(activationEvent?.props?.hasSalesforceProject, 'true');
+    assert.deepEqual(
+      harness.commandCalls.find(call => call.command === 'setContext')?.args,
+      ['sfLogs.canOpenLogViewerInNewWindow', true]
+    );
 
     await harness.timeoutCallbacks[0]!();
 
@@ -557,7 +565,7 @@ suite('extension activation gating', () => {
 
     assert.deepEqual(harness.tailRestoreCalls, ['tail-from-pending@example.com']);
     assert.deepEqual(
-      harness.commandCalls.map(call => call.command),
+      harness.commandCalls.filter(call => call.command !== 'setContext').map(call => call.command),
       ['workbench.view.extension.salesforceTailPanel', 'workbench.viewsService.openView']
     );
     assert.equal(
@@ -584,7 +592,7 @@ suite('extension activation gating', () => {
       'should not persist pending launch request for the logs editor move flow'
     );
     assert.deepEqual(
-      harness.commandCalls.map(call => call.command),
+      harness.commandCalls.filter(call => call.command !== 'setContext').map(call => call.command),
       ['workbench.action.moveEditorToNewWindow']
     );
   });
@@ -606,7 +614,7 @@ suite('extension activation gating', () => {
 
     assert.deepEqual(harness.openLogsEditorCalls, ['selected@example.com']);
     assert.deepEqual(
-      harness.commandCalls.map(call => call.command),
+      harness.commandCalls.filter(call => call.command !== 'setContext').map(call => call.command),
       ['workbench.action.moveEditorToNewWindow']
     );
   });
@@ -628,7 +636,7 @@ suite('extension activation gating', () => {
 
     assert.deepEqual(harness.openLogsEditorCalls, ['tail-selected@example.com']);
     assert.deepEqual(
-      harness.commandCalls.map(call => call.command),
+      harness.commandCalls.filter(call => call.command !== 'setContext').map(call => call.command),
       ['workbench.action.moveEditorToNewWindow']
     );
   });
@@ -651,7 +659,7 @@ suite('extension activation gating', () => {
 
     assert.deepEqual(harness.openLogsEditorCalls, ['tail-selected@example.com']);
     assert.deepEqual(
-      harness.commandCalls.map(call => call.command),
+      harness.commandCalls.filter(call => call.command !== 'setContext').map(call => call.command),
       ['workbench.action.moveEditorToNewWindow']
     );
   });
@@ -674,7 +682,7 @@ suite('extension activation gating', () => {
 
     assert.deepEqual(harness.openLogsEditorCalls, ['logs-selected@example.com']);
     assert.deepEqual(
-      harness.commandCalls.map(call => call.command),
+      harness.commandCalls.filter(call => call.command !== 'setContext').map(call => call.command),
       ['workbench.action.moveEditorToNewWindow']
     );
   });
@@ -845,6 +853,32 @@ suite('extension activation gating', () => {
     assert.equal(pendingRequest?.selectedOrg, 'tail-selected@example.com');
     assert.equal(pendingRequest?.logId, '07L000000001000');
     assert.equal(pendingRequest?.filePath, filePath);
+  });
+
+  test('warns instead of launching log viewer in a new window when no Salesforce project is present', async () => {
+    const filePath = path.join(process.cwd(), 'tmp', 'standalone.log');
+    const harness = createExtensionHarness({
+      activeDocument: {
+        isClosed: false,
+        uri: { scheme: 'file', fsPath: filePath },
+        fileName: filePath
+      },
+      logId: '07L000000001001'
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openLogInViewerInNewWindow')!();
+
+    assert.equal(
+      harness.warningMessages.at(-1),
+      'Electivus Apex Logs: Open the log viewer in a Salesforce workspace before using this action.'
+    );
+    assert.equal(
+      harness.globalStateUpdates.some(update => update.key === 'pendingNewWindowLaunch'),
+      false,
+      'standalone log-viewer flow should not persist a pending new-window launch outside a Salesforce workspace'
+    );
   });
 
   test('swallows pending launch restore failures so activation can continue', async () => {
