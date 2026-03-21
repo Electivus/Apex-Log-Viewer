@@ -1342,5 +1342,8 @@ suite('extension activation gating', () => {
       true,
       'activation should continue registering commands after a pending launch restore failure'
     );
+    assert.deepEqual(harness.errorMessages, [
+      'Electivus Apex Logs: Failed to restore the requested surface in the new window. Tail restore failed'
+    ]);
   });
 });

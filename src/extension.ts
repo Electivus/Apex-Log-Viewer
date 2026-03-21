@@ -717,7 +717,15 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     });
   } catch (error) {
-    logWarn('Pending new-window launch restore failed ->', getErrorMessage(error));
+    const msg = getErrorMessage(error);
+    logWarn('Pending new-window launch restore failed ->', msg);
+    void vscode.window.showErrorMessage(
+      localize(
+        'newWindowRestore.failed',
+        'Electivus Apex Logs: Failed to restore the requested surface in the new window. {0}',
+        msg
+      )
+    );
   }
 
   // Removed legacy openTailPanel command to avoid focus changes
