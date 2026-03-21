@@ -22,6 +22,7 @@ import {
   isApexLogDocument,
   getLogIdFromLogFilePath
 } from './utils/workspace';
+import { toWorkspaceScopedMarkerUri } from './utils/newWindowLaunchMarker';
 import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
 import {
   buildRemoteWebviewTroubleshootingMessage,
@@ -240,11 +241,13 @@ export async function activate(context: vscode.ExtensionContext) {
     openFolder: async (workspaceTarget, options) => {
       await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.parse(workspaceTarget.uri), {
         forceNewWindow: true,
-        filesToOpen: options?.filesToOpen?.map(filePath => vscode.Uri.file(filePath))
+        filesToOpen: options?.filesToOpen?.map(filePath => toWorkspaceScopedMarkerUri(workspaceTarget, filePath))
       });
     },
     waitForLaunchMarker: async nonce => {
+      const currentWorkspaceTarget = getCurrentWorkspaceTarget();
       const markerPath = path.resolve(getPendingLaunchMarkerPath(nonce));
+      const markerUri = currentWorkspaceTarget ? toWorkspaceScopedMarkerUri(currentWorkspaceTarget, markerPath) : undefined;
       const deadline = Date.now() + 2_000;
       while (Date.now() <= deadline) {
         const openDocuments = [
@@ -253,7 +256,7 @@ export async function activate(context: vscode.ExtensionContext) {
         ];
         if (
           openDocuments.some(
-            document => document.uri.scheme === 'file' && path.resolve(document.uri.fsPath || document.fileName) === markerPath
+            document => document.uri.toString() === markerUri?.toString()
           )
         ) {
           return true;
@@ -264,8 +267,10 @@ export async function activate(context: vscode.ExtensionContext) {
     },
     clearLaunchMarker: async nonce => {
       const markerPath = path.resolve(getPendingLaunchMarkerPath(nonce));
+      const currentWorkspaceTarget = getCurrentWorkspaceTarget();
+      const markerUri = currentWorkspaceTarget ? toWorkspaceScopedMarkerUri(currentWorkspaceTarget, markerPath) : undefined;
       const activeDocument = vscode.window.activeTextEditor?.document;
-      if (activeDocument?.uri.scheme === 'file' && path.resolve(activeDocument.uri.fsPath || activeDocument.fileName) === markerPath) {
+      if (activeDocument?.uri.toString() === markerUri?.toString()) {
         try {
           await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
         } catch (error) {
