@@ -8,6 +8,7 @@ import {
   getEffectiveApiVersion as getEffectiveApiVersionFromState,
   parseApiVersion,
   recordApiVersionFallback,
+  resetApiVersion as resetConfiguredApiVersion,
   replaceApiVersionInUrl,
   setApiVersion as setConfiguredApiVersion
 } from './apiVersion';
@@ -128,6 +129,10 @@ async function requestTextWithVersionFallback(
 
 export function setApiVersion(v?: string): void {
   setConfiguredApiVersion(v);
+}
+
+export function resetApiVersion(): void {
+  resetConfiguredApiVersion();
 }
 
 export function getApiVersion(): string {

@@ -4,7 +4,7 @@ import { SfLogsViewProvider } from './provider/SfLogsViewProvider';
 import { SfLogTailViewProvider } from './provider/SfLogTailViewProvider';
 import type { OrgItem } from './shared/types';
 import * as path from 'path';
-import { setApiVersion, getApiVersion, clearListCache } from './salesforce/http';
+import { setApiVersion, resetApiVersion, getApiVersion, clearListCache } from './salesforce/http';
 import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger } from './utils/logger';
 import { localize } from './utils/localize';
 import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry } from './shared/telemetry';
@@ -91,6 +91,8 @@ export async function activate(context: vscode.ExtensionContext) {
     currentSalesforceProject = await findSalesforceProjectInfo();
     if (currentSalesforceProject?.sourceApiVersion) {
       setApiVersion(currentSalesforceProject.sourceApiVersion);
+    } else {
+      resetApiVersion();
     }
     await updateLogViewerNewWindowContext(hasSalesforceProject());
   };

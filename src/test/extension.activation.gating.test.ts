@@ -49,6 +49,7 @@ function createExtensionHarness(options: {
   const commands = new Map<string, RegisteredCommand>();
   const events: Array<{ name: string; props?: Record<string, string> }> = [];
   const setApiVersionCalls: string[] = [];
+  let resetApiVersionCalls = 0;
   const timeoutCallbacks: Array<() => Promise<void> | void> = [];
   const listOrgsCalls: boolean[] = [];
   const getOrgAuthCalls: Array<string | undefined> = [];
@@ -362,6 +363,9 @@ function createExtensionHarness(options: {
           setApiVersionCalls.push(value);
         }
       },
+      resetApiVersion: () => {
+        resetApiVersionCalls += 1;
+      },
       getApiVersion: () => '64.0',
       clearListCache: () => undefined
     },
@@ -436,6 +440,7 @@ function createExtensionHarness(options: {
     commands,
     events,
     setApiVersionCalls,
+    resetApiVersionCalls: () => resetApiVersionCalls,
     timeoutCallbacks,
     listOrgsCalls,
     getOrgAuthCalls,
@@ -743,6 +748,38 @@ suite('extension activation gating', () => {
     assert.equal(
       harness.warningMessages.at(-1),
       'Electivus Apex Logs: Open the log viewer in a Salesforce workspace before using this action.'
+    );
+  });
+
+  test('resets the API version when the workspace loses sourceApiVersion', async () => {
+    const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot,
+        projectFilePath: path.join(workspaceRoot, 'sfdx-project.json'),
+        sourceApiVersion: '61.0'
+      }
+    });
+
+    await harness.extension.activate(harness.context);
+
+    assert.deepEqual(harness.setApiVersionCalls, ['61.0']);
+    assert.equal(harness.resetApiVersionCalls(), 0);
+
+    harness.setSalesforceProject({
+      workspaceRoot,
+      projectFilePath: path.join(workspaceRoot, 'sfdx-project.json')
+    });
+    await harness.fireProjectFileChanged();
+
+    assert.deepEqual(harness.setApiVersionCalls, ['61.0']);
+    assert.equal(harness.resetApiVersionCalls(), 1);
+    assert.deepEqual(
+      harness.commandCalls.filter(call => call.command === 'setContext').map(call => call.args),
+      [
+        ['sfLogs.canOpenLogViewerInNewWindow', true],
+        ['sfLogs.canOpenLogViewerInNewWindow', true]
+      ]
     );
   });
 

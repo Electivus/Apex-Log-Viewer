@@ -1,6 +1,7 @@
 import type { OrgAuth } from './types';
 
-let API_VERSION = '64.0';
+const DEFAULT_API_VERSION = '64.0';
+let API_VERSION = DEFAULT_API_VERSION;
 const orgApiVersionOverrideByOrg = new Map<string, string>();
 const orgApiVersionWarningByOrg = new Map<string, string>();
 
@@ -54,6 +55,14 @@ export function setApiVersion(v?: string): void {
     if (changed) {
       clearApiVersionFallbackState();
     }
+  }
+}
+
+export function resetApiVersion(): void {
+  const changed = API_VERSION !== DEFAULT_API_VERSION;
+  API_VERSION = DEFAULT_API_VERSION;
+  if (changed) {
+    clearApiVersionFallbackState();
   }
 }
 
