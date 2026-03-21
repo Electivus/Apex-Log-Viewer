@@ -77,13 +77,24 @@ export async function activate(context: vscode.ExtensionContext) {
   const logViewerNewWindowContextKey = 'sfLogs.canOpenLogViewerInNewWindow';
   LogViewerPanel.initialize(context);
   DebugFlagsPanel.initialize(context);
-  const salesforceProject = await findSalesforceProjectInfo();
-  const hasSalesforceProject = !!salesforceProject;
-  try {
-    await vscode.commands.executeCommand('setContext', logViewerNewWindowContextKey, hasSalesforceProject);
-  } catch (e) {
-    logWarn('Failed to update log viewer new-window context key ->', getErrorMessage(e));
-  }
+  const initialSalesforceProject = await findSalesforceProjectInfo();
+  let currentSalesforceProject = initialSalesforceProject;
+  const hasSalesforceProject = () => Boolean(currentSalesforceProject);
+  const updateLogViewerNewWindowContext = async (enabled: boolean) => {
+    try {
+      await vscode.commands.executeCommand('setContext', logViewerNewWindowContextKey, enabled);
+    } catch (e) {
+      logWarn('Failed to update log viewer new-window context key ->', getErrorMessage(e));
+    }
+  };
+  const refreshSalesforceWorkspaceState = async () => {
+    currentSalesforceProject = await findSalesforceProjectInfo();
+    if (currentSalesforceProject?.sourceApiVersion) {
+      setApiVersion(currentSalesforceProject.sourceApiVersion);
+    }
+    await updateLogViewerNewWindowContext(hasSalesforceProject());
+  };
+  await updateLogViewerNewWindowContext(hasSalesforceProject());
   // Init TTL cache (best-effort; no-op if unavailable)
   try {
     await initializePersistentCache(context);
@@ -122,12 +133,20 @@ export async function activate(context: vscode.ExtensionContext) {
     const msg = getErrorMessage(e);
     logWarn('Failed to configure trace logging ->', msg);
   }
-  if (salesforceProject?.sourceApiVersion) {
-    setApiVersion(salesforceProject.sourceApiVersion);
-    logInfo('Detected sourceApiVersion from sfdx-project.json:', salesforceProject.sourceApiVersion);
-  } else if (hasSalesforceProject) {
-    logInfo('Detected Salesforce project workspace at', salesforceProject.workspaceRoot);
+  if (initialSalesforceProject?.sourceApiVersion) {
+    setApiVersion(initialSalesforceProject.sourceApiVersion);
+    logInfo('Detected sourceApiVersion from sfdx-project.json:', initialSalesforceProject.sourceApiVersion);
+  } else if (initialSalesforceProject) {
+    logInfo('Detected Salesforce project workspace at', initialSalesforceProject.workspaceRoot);
   }
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      void refreshSalesforceWorkspaceState().catch(error => {
+        logWarn('Failed to refresh Salesforce workspace state ->', getErrorMessage(error));
+      });
+    })
+  );
   const provider = new SfLogsViewProvider(context);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(SfLogsViewProvider.viewType, provider, {
@@ -371,7 +390,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.openTailInNewWindow', async () => {
       try {
-        if (!hasSalesforceProject) {
+        if (!hasSalesforceProject()) {
           await showSurfaceNewWindowSalesforceWorkspaceWarning('Tail');
           return;
         }
@@ -391,7 +410,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.openDebugFlagsInNewWindow', async () => {
       try {
-        if (!hasSalesforceProject) {
+        if (!hasSalesforceProject()) {
           await showSurfaceNewWindowSalesforceWorkspaceWarning('Debug Flags');
           return;
         }
@@ -444,7 +463,7 @@ export async function activate(context: vscode.ExtensionContext) {
       }
       const filePath = doc.uri.fsPath;
       const logId = getLogIdFromLogFilePath(filePath) ?? path.parse(filePath).name;
-      if (!hasSalesforceProject) {
+      if (!hasSalesforceProject()) {
         await showSalesforceWorkspaceWarning();
         return;
       }
@@ -462,56 +481,6 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     })
   );
-
-  try {
-    await newWindowLaunchService.consumePendingLaunch({
-      restoreWindowContext: async ({ selectedOrg }: { selectedOrg?: string }) => {
-        provider.setSelectedOrg(selectedOrg);
-        await tailProvider.restoreSelectedOrg(selectedOrg);
-      },
-      openLogs: async ({ selectedOrg }: { selectedOrg?: string }) => {
-        if (typeof selectedOrg === 'string') {
-          provider.setSelectedOrg(selectedOrg);
-        }
-        await openLogsView();
-      },
-      openTail: async () => {
-        await provider.tailLogs();
-      },
-      openDebugFlags: async ({ selectedOrg, sourceView }: { selectedOrg?: string; sourceView?: 'logs' | 'tail' }) => {
-        await DebugFlagsPanel.show({
-          selectedOrg,
-          sourceView: sourceView ?? 'logs'
-        });
-      },
-      openLogViewer: async ({
-        logId,
-        filePath,
-        selectedOrg
-      }: {
-        selectedOrg?: string;
-        logId: string;
-        filePath: string;
-      }) => {
-        if (typeof selectedOrg === 'string') {
-          provider.setSelectedOrg(selectedOrg);
-        }
-        if (!fs.existsSync(filePath)) {
-          void vscode.window.showErrorMessage(
-            localize(
-              'openLogViewer.fileMissing',
-              'Failed to restore Apex log viewer: {0} is no longer available.',
-              filePath
-            )
-          );
-          return;
-        }
-        await LogViewerPanel.show({ logId, filePath });
-      }
-    });
-  } catch (error) {
-    logWarn('Pending new-window launch restore failed ->', getErrorMessage(error));
-  }
 
   const codeLensProvider = new ApexLogCodeLensProvider();
   context.subscriptions.push(
@@ -665,6 +634,56 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  try {
+    await newWindowLaunchService.consumePendingLaunch({
+      restoreWindowContext: async ({ selectedOrg }: { selectedOrg?: string }) => {
+        provider.setSelectedOrg(selectedOrg);
+        await tailProvider.restoreSelectedOrg(selectedOrg);
+      },
+      openLogs: async ({ selectedOrg }: { selectedOrg?: string }) => {
+        if (typeof selectedOrg === 'string') {
+          provider.setSelectedOrg(selectedOrg);
+        }
+        await openLogsView();
+      },
+      openTail: async () => {
+        await provider.tailLogs();
+      },
+      openDebugFlags: async ({ selectedOrg, sourceView }: { selectedOrg?: string; sourceView?: 'logs' | 'tail' }) => {
+        await DebugFlagsPanel.show({
+          selectedOrg,
+          sourceView: sourceView ?? 'logs'
+        });
+      },
+      openLogViewer: async ({
+        logId,
+        filePath,
+        selectedOrg
+      }: {
+        selectedOrg?: string;
+        logId: string;
+        filePath: string;
+      }) => {
+        if (typeof selectedOrg === 'string') {
+          provider.setSelectedOrg(selectedOrg);
+        }
+        if (!fs.existsSync(filePath)) {
+          void vscode.window.showErrorMessage(
+            localize(
+              'openLogViewer.fileMissing',
+              'Failed to restore Apex log viewer: {0} is no longer available.',
+              filePath
+            )
+          );
+          return;
+        }
+        await LogViewerPanel.show({ logId, filePath });
+      }
+    });
+  } catch (error) {
+    logWarn('Pending new-window launch restore failed ->', getErrorMessage(error));
+  }
+
   // Removed legacy openTailPanel command to avoid focus changes
 
   // Preload CLI caches (org list and default org auth) in background
@@ -672,7 +691,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const enabled = getBooleanConfig('sfLogs.cliCache.enabled', true);
     // Heuristic: skip when running inside VS Code test harness to avoid interfering with unit tests
     const isVsCodeTestHost = /\.vscode-test\b/i.test(String((vscode.env as any)?.appRoot || ''));
-    if (enabled && hasSalesforceProject && !isVsCodeTestHost) {
+    if (enabled && hasSalesforceProject() && !isVsCodeTestHost) {
       setTimeout(async () => {
         try {
           logInfo('Preloading CLI caches (org list, default auth)…');
@@ -694,7 +713,7 @@ export async function activate(context: vscode.ExtensionContext) {
           logWarn('Preloading CLI caches failed ->', getErrorMessage(e));
         }
       }, 0);
-    } else if (enabled && !hasSalesforceProject) {
+    } else if (enabled && !hasSalesforceProject()) {
       logInfo('Skipping CLI cache preload because no sfdx-project.json was found in the workspace.');
     }
   } catch (e) {
@@ -708,7 +727,7 @@ export async function activate(context: vscode.ExtensionContext) {
       {
         outcome: 'ok',
         hasWorkspace: String(!!vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0),
-        hasSalesforceProject: String(hasSalesforceProject)
+        hasSalesforceProject: String(hasSalesforceProject())
       },
       { durationMs: Date.now() - activationStart }
     );
