@@ -243,7 +243,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const bucket = count === 0 ? '0' : count === 1 ? '1' : count <= 5 ? '2-5' : count <= 10 ? '6-10' : '10+';
         const hasDefault = String(orgs.some(o => o.isDefaultUsername));
         safeSendEvent('command.selectOrg', { outcome: 'picked', orgs: bucket, hasDefault });
-        await provider.sendOrgs();
+        await provider.sendOrgs(true);
         await provider.refresh();
       } catch (e) {
         const msg = getErrorMessage(e);

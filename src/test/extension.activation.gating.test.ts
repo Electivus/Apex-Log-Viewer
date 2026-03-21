@@ -34,6 +34,7 @@ function createExtensionHarness(options: {
   isApexLogDocument?: boolean;
   logId?: string;
   orgs?: Array<{ username: string; isDefaultUsername?: boolean }>;
+  quickPickSelection?: { username: string; label?: string; detail?: string };
   globalState?: Record<string, unknown>;
   openFolderError?: Error | string;
   commandErrors?: Record<string, Error | string>;
@@ -57,6 +58,7 @@ function createExtensionHarness(options: {
   const tailRestoreCalls: string[] = [];
   const openLogsEditorCalls: string[] = [];
   const sendOrgsCalls: string[] = [];
+  const sendOrgsForceRefreshCalls: boolean[] = [];
   const logsRefreshCalls: string[] = [];
   const logViewerShows: Array<{ logId: string; filePath: string }> = [];
   const debugFlagsShows: Array<{ selectedOrg?: string; sourceView?: 'logs' | 'tail' }> = [];
@@ -164,6 +166,7 @@ function createExtensionHarness(options: {
         warningMessages.push(message);
         return undefined;
       },
+      showQuickPick: async () => options.quickPickSelection,
       showErrorMessage: async (message: string) => {
         errorMessages.push(message);
         return undefined;
@@ -225,8 +228,9 @@ function createExtensionHarness(options: {
       logsRefreshCalls.push(this.selectedOrg);
     }
 
-    public async sendOrgs(): Promise<void> {
+    public async sendOrgs(forceRefresh = false): Promise<void> {
       sendOrgsCalls.push(this.selectedOrg);
+      sendOrgsForceRefreshCalls.push(forceRefresh);
     }
 
     public setSelectedOrg(username?: string): void {
@@ -448,6 +452,7 @@ function createExtensionHarness(options: {
     tailRestoreCalls,
     openLogsEditorCalls,
     sendOrgsCalls,
+    sendOrgsForceRefreshCalls,
     logsRefreshCalls,
     debugFlagsShows,
     logViewerShows,
@@ -812,6 +817,35 @@ suite('extension activation gating', () => {
     assert.deepEqual(harness.tailRestoreCalls, ['org-from-pending@example.com']);
     assert.deepEqual(harness.warningMessages, []);
     assert.deepEqual(harness.errorMessages, []);
+  });
+
+  test('refreshes the published org list after an explicit Select Org pick', async () => {
+    const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot,
+        projectFilePath: path.join(workspaceRoot, 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      selectedOrg: 'existing@example.com',
+      orgs: [
+        { username: 'existing@example.com', isDefaultUsername: true },
+        { username: 'fresh@example.com' }
+      ],
+      quickPickSelection: {
+        username: 'fresh@example.com',
+        label: 'fresh@example.com'
+      }
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.selectOrg')!();
+
+    assert.deepEqual(harness.setSelectedOrgCalls, ['fresh@example.com']);
+    assert.deepEqual(harness.sendOrgsCalls, ['fresh@example.com']);
+    assert.deepEqual(harness.sendOrgsForceRefreshCalls, [true]);
+    assert.deepEqual(harness.logsRefreshCalls, ['fresh@example.com']);
   });
 
   test('registers commands and CodeLens before starting pending launch restore', async () => {

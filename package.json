@@ -449,7 +449,7 @@
         },
         {
           "command": "sfLogs.openLogInViewerInNewWindow",
-          "when": "resourceLangId == apexlog && sfLogs.canOpenLogViewerInNewWindow",
+          "when": "resourceLangId == apexlog && resourceScheme == file && sfLogs.canOpenLogViewerInNewWindow",
           "group": "navigation@51",
           "icon": "$(new-window)"
         }

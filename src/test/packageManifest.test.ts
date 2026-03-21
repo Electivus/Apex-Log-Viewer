@@ -104,8 +104,8 @@ suite('package manifest', () => {
     assert.ok(logViewerNewWindowEntry, 'expected sfLogs.openLogInViewerInNewWindow in editor/title');
     assert.equal(
       logViewerNewWindowEntry.when,
-      'resourceLangId == apexlog && sfLogs.canOpenLogViewerInNewWindow',
-      'log viewer new-window action should only show in activatable Salesforce workspaces'
+      'resourceLangId == apexlog && resourceScheme == file && sfLogs.canOpenLogViewerInNewWindow',
+      'log viewer new-window action should only show for local Apex log files in activatable Salesforce workspaces'
     );
   });
 
