@@ -7,10 +7,17 @@ export function buildWebviewHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
   scriptFile: string,
-  title: string
+  title: string,
+  options?: {
+    rootData?: Record<string, string | undefined>;
+  }
 ): string {
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', scriptFile));
   const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'webview.css'));
+  const rootDataAttributes = Object.entries(options?.rootData ?? {})
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].length > 0)
+    .map(([key, value]) => ` data-${key}="${escapeHtmlAttribute(value)}"`)
+    .join('');
   // Allow service/worker scripts and fetches against the webview source. VS Code
   // registers an internal service worker to serve local resources. Without an
   // explicit worker-src and connect-src, the default-src ('none') can cause
@@ -28,8 +35,12 @@ export function buildWebviewHtml(
       <title>${title}</title>
       </head>
       <body>
-      <div id="root"></div>
+      <div id="root"${rootDataAttributes}></div>
       <script src="${scriptUri}"></script>
       </body>
       </html>`;
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

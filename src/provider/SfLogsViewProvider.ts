@@ -1327,12 +1327,25 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
 
 
   private getHtmlForWebview(webview: vscode.Webview): string {
+    const bootstrapState = this.getLogsEditorBootstrapState();
     return buildWebviewHtml(
       webview,
       this.context.extensionUri,
       'main.js',
-      localize('salesforce.logs.view.name', 'Electivus Apex Logs')
+      localize('salesforce.logs.view.name', 'Electivus Apex Logs'),
+      {
+        rootData: bootstrapState
+          ? {
+              'initial-state': encodeURIComponent(JSON.stringify(bootstrapState))
+            }
+          : undefined
+      }
     );
+  }
+
+  private getLogsEditorBootstrapState(): LogsEditorWebviewState | undefined {
+    const selectedOrg = this.orgManager.getSelectedOrg();
+    return selectedOrg ? { selectedOrg } : undefined;
   }
 
   public async sendOrgs(forceRefresh = false) {

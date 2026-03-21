@@ -26,6 +26,7 @@ function createExtensionHarness(options: {
     readErrorMessage?: string;
     parseErrorMessage?: string;
   };
+  workspaceRoot?: string;
   workspaceFile?: string;
   cliCacheEnabled?: boolean;
   appRoot?: string;
@@ -58,7 +59,7 @@ function createExtensionHarness(options: {
   const commandCalls: CommandCall[] = [];
   const panelSerializers: RegisteredPanelSerializer[] = [];
   let restoreLogsEditorPanelCalls = 0;
-  const defaultWorkspaceRoot = options.salesforceProject?.workspaceRoot;
+  const defaultWorkspaceRoot = options.workspaceRoot ?? options.salesforceProject?.workspaceRoot;
   const workspaceFolders = defaultWorkspaceRoot
     ? [
         {
@@ -753,6 +754,28 @@ suite('extension activation gating', () => {
     );
   });
 
+  test('warns instead of launching tail in a new window when the workspace is not a Salesforce project', async () => {
+    const harness = createExtensionHarness({
+      workspaceRoot: path.join(process.cwd(), 'workspace-plain'),
+      selectedOrg: 'logs-selected@example.com',
+      tailSelectedOrg: 'tail-selected@example.com'
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openTailInNewWindow')!();
+
+    assert.equal(
+      harness.warningMessages.at(-1),
+      'Electivus Apex Logs: Open a Salesforce workspace before opening Tail in a new window.'
+    );
+    assert.equal(
+      harness.globalStateUpdates.some(update => update.key === 'pendingNewWindowLaunch'),
+      false,
+      'tail new-window flow should not persist a pending launch outside a Salesforce workspace'
+    );
+  });
+
   test('falls back to the tail org when opening debug flags in a new window before logs has selected one', async () => {
     const harness = createExtensionHarness({
       salesforceProject: {
@@ -792,6 +815,28 @@ suite('extension activation gating', () => {
       ?.value as PendingLaunchRequest | undefined;
     assert.equal(pendingRequest?.selectedOrg, 'tail-selected@example.com');
     assert.equal(pendingRequest?.sourceView, 'tail');
+  });
+
+  test('warns instead of launching debug flags in a new window when the workspace is not a Salesforce project', async () => {
+    const harness = createExtensionHarness({
+      workspaceRoot: path.join(process.cwd(), 'workspace-plain'),
+      selectedOrg: 'logs-selected@example.com',
+      tailSelectedOrg: 'tail-selected@example.com'
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openDebugFlagsInNewWindow')!();
+
+    assert.equal(
+      harness.warningMessages.at(-1),
+      'Electivus Apex Logs: Open a Salesforce workspace before opening Debug Flags in a new window.'
+    );
+    assert.equal(
+      harness.globalStateUpdates.some(update => update.key === 'pendingNewWindowLaunch'),
+      false,
+      'debug flags new-window flow should not persist a pending launch outside a Salesforce workspace'
+    );
   });
 
   test('falls back to the tail org when opening log viewer in a new window before logs has selected one', async () => {

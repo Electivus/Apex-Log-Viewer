@@ -28,7 +28,9 @@ export function LogsApp({
   vscode = getDefaultVsCodeApi<WebviewToExtensionMessage>(),
   messageBus = getDefaultMessageBus()
 }: LogsAppProps = {}) {
-  const initialState = vscode.getState<{ selectedOrg?: string }>();
+  const persistedState = vscode.getState<{ selectedOrg?: string }>();
+  const bootstrapState = readBootstrapState();
+  const initialState = persistedState ?? bootstrapState;
   const [locale, setLocale] = useState('en');
   const [t, setT] = useState<Messages>(() => getMessages('en'));
   const [loading, setLoading] = useState(false);
@@ -73,6 +75,12 @@ export function LogsApp({
 
   const loadMoreFooterRef = useRef<HTMLDivElement | null>(null);
   const [loadMoreFooterHeightPx, setLoadMoreFooterHeightPx] = useState(0);
+
+  useLayoutEffect(() => {
+    if (!persistedState && bootstrapState) {
+      vscode.setState(bootstrapState);
+    }
+  }, [bootstrapState, persistedState, vscode]);
 
   const onColumnsConfigChange = useCallback(
     (updater: (prev: NormalizedLogsColumnsConfig) => NormalizedLogsColumnsConfig, options?: { persist?: boolean }) => {
@@ -506,4 +514,24 @@ if (typeof document !== 'undefined') {
   if (host) {
     mountLogsApp(host);
   }
+}
+
+function readBootstrapState(): { selectedOrg?: string } | undefined {
+  if (typeof document === 'undefined') {
+    return undefined;
+  }
+  const host = document.getElementById('root');
+  const rawState = host?.getAttribute('data-initial-state');
+  if (!rawState) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(decodeURIComponent(rawState)) as { selectedOrg?: unknown };
+    if (parsed.selectedOrg === undefined || typeof parsed.selectedOrg === 'string') {
+      return parsed.selectedOrg ? { selectedOrg: parsed.selectedOrg } : {};
+    }
+  } catch {
+    // Ignore malformed bootstrap state and let the normal org refresh path recover.
+  }
+  return undefined;
 }

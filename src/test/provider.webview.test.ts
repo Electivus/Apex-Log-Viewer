@@ -185,4 +185,28 @@ suite('SfLogsViewProvider webview', () => {
 
     assert.equal(provider.getSelectedOrg(), 'restored@example.com');
   });
+
+  test('showEditor seeds the webview bootstrap state with the selected org', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+
+    const provider = new SfLogsViewProvider(context);
+    provider.setSelectedOrg('seeded@example.com');
+    const originalCreateWebviewPanel = vscode.window.createWebviewPanel;
+    const webview = new MockWebview();
+    const panel = new MockWebviewPanel(webview);
+
+    (vscode.window as any).createWebviewPanel = () => panel;
+
+    try {
+      await (provider as any).showEditor();
+    } finally {
+      (vscode.window as any).createWebviewPanel = originalCreateWebviewPanel;
+    }
+
+    assert.ok(webview.html.includes('data-initial-state='));
+    assert.ok(webview.html.includes(encodeURIComponent(JSON.stringify({ selectedOrg: 'seeded@example.com' }))));
+  });
 });

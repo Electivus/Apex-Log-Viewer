@@ -206,6 +206,28 @@ describe('Logs webview App', () => {
     });
   });
 
+  it('persists the bootstrap selected org before org data arrives', async () => {
+    const { vscode, states } = createVsCodeMock();
+    const bus = new EventTarget();
+    const container = document.createElement('div');
+    container.id = 'root';
+    container.setAttribute(
+      'data-initial-state',
+      encodeURIComponent(JSON.stringify({ selectedOrg: 'seeded@example.com' }))
+    );
+    document.body.appendChild(container);
+
+    try {
+      render(<LogsApp vscode={vscode} messageBus={bus} />, { container });
+
+      await waitFor(() => {
+        expect(states).toContainEqual({ selectedOrg: 'seeded@example.com' });
+      });
+    } finally {
+      container.remove();
+    }
+  });
+
   it('surfaces manual pagination when filters are active', async () => {
     const { vscode, posted } = createVsCodeMock();
     const bus = new EventTarget();

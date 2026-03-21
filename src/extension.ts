@@ -53,6 +53,16 @@ function showSalesforceWorkspaceWarning(): Promise<void> {
   ) as Promise<void>;
 }
 
+function showSurfaceNewWindowSalesforceWorkspaceWarning(surfaceLabel: string): Promise<void> {
+  return vscode.window.showWarningMessage(
+    localize(
+      'openInNewWindow.noSalesforceWorkspace',
+      'Electivus Apex Logs: Open a Salesforce workspace before opening {0} in a new window.',
+      surfaceLabel
+    )
+  ) as Promise<void>;
+}
+
 async function initializePersistentCache(context: vscode.ExtensionContext): Promise<void> {
   CacheManager.init(context.globalState);
   await CacheManager.clearExpired();
@@ -314,6 +324,10 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.openTailInNewWindow', async () => {
       try {
+        if (!hasSalesforceProject) {
+          await showSurfaceNewWindowSalesforceWorkspaceWarning('Tail');
+          return;
+        }
         await launchInNewWindow({
           kind: 'tail',
           sourceView: 'tail',
@@ -330,6 +344,10 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('sfLogs.openDebugFlagsInNewWindow', async () => {
       try {
+        if (!hasSalesforceProject) {
+          await showSurfaceNewWindowSalesforceWorkspaceWarning('Debug Flags');
+          return;
+        }
         const { selectedOrg, sourceView } = getPreferredDebugFlagsLaunch();
         await launchInNewWindow({
           kind: 'debugFlags',
