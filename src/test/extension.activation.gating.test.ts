@@ -589,6 +589,29 @@ suite('extension activation gating', () => {
     );
   });
 
+  test('prefers the tail org when opening logs in a new window after tail diverges from logs', async () => {
+    const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot,
+        projectFilePath: path.join(workspaceRoot, 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      selectedOrg: 'logs-selected@example.com',
+      tailSelectedOrg: 'tail-selected@example.com'
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openLogsInNewWindow')!();
+
+    assert.deepEqual(harness.openLogsEditorCalls, ['tail-selected@example.com']);
+    assert.deepEqual(
+      harness.commandCalls.map(call => call.command),
+      ['workbench.action.moveEditorToNewWindow']
+    );
+  });
+
   test('propagates move-into-new-window failures for logs editor flow', async () => {
     const harness = createExtensionHarness({
       selectedOrg: 'selected@example.com',
@@ -675,6 +698,27 @@ suite('extension activation gating', () => {
     assert.equal(pendingRequest?.sourceView, 'tail');
   });
 
+  test('prefers the tail org and source when opening debug flags in a new window after tail diverges from logs', async () => {
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot: path.join(process.cwd(), 'workspace-salesforce'),
+        projectFilePath: path.join(process.cwd(), 'workspace-salesforce', 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      selectedOrg: 'logs-selected@example.com',
+      tailSelectedOrg: 'tail-selected@example.com'
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openDebugFlagsInNewWindow')!();
+
+    const pendingRequest = harness.globalStateUpdates.find(update => update.key === 'pendingNewWindowLaunch')
+      ?.value as PendingLaunchRequest | undefined;
+    assert.equal(pendingRequest?.selectedOrg, 'tail-selected@example.com');
+    assert.equal(pendingRequest?.sourceView, 'tail');
+  });
+
   test('falls back to the tail org when opening log viewer in a new window before logs has selected one', async () => {
     const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
     const filePath = path.join(process.cwd(), 'tmp', 'tail-selected.log');
@@ -702,6 +746,37 @@ suite('extension activation gating', () => {
     assert.equal(pendingRequest?.kind, 'logViewer');
     assert.equal(pendingRequest?.selectedOrg, 'tail-selected@example.com');
     assert.equal(pendingRequest?.logId, '07L000000000999');
+    assert.equal(pendingRequest?.filePath, filePath);
+  });
+
+  test('prefers the tail org when opening log viewer in a new window after tail diverges from logs', async () => {
+    const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
+    const filePath = path.join(process.cwd(), 'tmp', 'tail-current.log');
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot,
+        projectFilePath: path.join(workspaceRoot, 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      activeDocument: {
+        isClosed: false,
+        uri: { scheme: 'file', fsPath: filePath },
+        fileName: filePath
+      },
+      logId: '07L000000001000',
+      selectedOrg: 'logs-selected@example.com',
+      tailSelectedOrg: 'tail-selected@example.com'
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openLogInViewerInNewWindow')!();
+
+    const pendingRequest = harness.globalStateUpdates.find(update => update.key === 'pendingNewWindowLaunch')
+      ?.value as PendingLaunchRequest | undefined;
+    assert.equal(pendingRequest?.kind, 'logViewer');
+    assert.equal(pendingRequest?.selectedOrg, 'tail-selected@example.com');
+    assert.equal(pendingRequest?.logId, '07L000000001000');
     assert.equal(pendingRequest?.filePath, filePath);
   });
 

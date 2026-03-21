@@ -246,17 +246,17 @@ export async function activate(context: vscode.ExtensionContext) {
     });
   };
 
-  const getPreferredSelectedOrg = (): string | undefined => provider.getSelectedOrg() || tailProvider.getSelectedOrg();
+  const getPreferredSelectedOrg = (): string | undefined => tailProvider.getSelectedOrg() || provider.getSelectedOrg();
 
   const getPreferredDebugFlagsLaunch = (): { selectedOrg?: string; sourceView: NewWindowLaunchSourceView } => {
-    const logsSelectedOrg = provider.getSelectedOrg();
-    if (logsSelectedOrg) {
-      return { selectedOrg: logsSelectedOrg, sourceView: 'logs' };
-    }
-
     const tailSelectedOrg = tailProvider.getSelectedOrg();
     if (tailSelectedOrg) {
       return { selectedOrg: tailSelectedOrg, sourceView: 'tail' };
+    }
+
+    const logsSelectedOrg = provider.getSelectedOrg();
+    if (logsSelectedOrg) {
+      return { selectedOrg: logsSelectedOrg, sourceView: 'logs' };
     }
 
     return { selectedOrg: undefined, sourceView: 'logs' };
