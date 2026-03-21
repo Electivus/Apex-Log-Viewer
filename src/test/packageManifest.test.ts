@@ -15,6 +15,16 @@ async function readPackageNls(): Promise<Record<string, string>> {
 }
 
 suite('package manifest', () => {
+  test('requires a VS Code engine version that supports openFolder filesToOpen', async () => {
+    const manifest = await readPackageManifest();
+
+    assert.equal(
+      manifest.engines?.vscode,
+      '^1.102.0',
+      'package.json should require VS Code 1.102+ because the new-window handoff depends on vscode.openFolder filesToOpen'
+    );
+  });
+
   test('activates when the floated logs editor panel is restored', async () => {
     const manifest = await readPackageManifest();
     const activationEvents = Array.isArray(manifest.activationEvents) ? manifest.activationEvents : [];
