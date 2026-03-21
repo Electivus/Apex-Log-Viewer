@@ -94,6 +94,11 @@ export async function activate(context: vscode.ExtensionContext) {
     }
     await updateLogViewerNewWindowContext(hasSalesforceProject());
   };
+  const refreshSalesforceWorkspaceStateSafely = () => {
+    void refreshSalesforceWorkspaceState().catch(error => {
+      logWarn('Failed to refresh Salesforce workspace state ->', getErrorMessage(error));
+    });
+  };
   await updateLogViewerNewWindowContext(hasSalesforceProject());
   // Init TTL cache (best-effort; no-op if unavailable)
   try {
@@ -140,11 +145,31 @@ export async function activate(context: vscode.ExtensionContext) {
     logInfo('Detected Salesforce project workspace at', initialSalesforceProject.workspaceRoot);
   }
 
+  let salesforceProjectWatchers: vscode.FileSystemWatcher[] = [];
+  const disposeSalesforceProjectWatchers = () => {
+    for (const watcher of salesforceProjectWatchers) {
+      watcher.dispose();
+    }
+    salesforceProjectWatchers = [];
+  };
+  const recreateSalesforceProjectWatchers = () => {
+    disposeSalesforceProjectWatchers();
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, 'sfdx-project.json'));
+      watcher.onDidCreate(refreshSalesforceWorkspaceStateSafely);
+      watcher.onDidChange(refreshSalesforceWorkspaceStateSafely);
+      watcher.onDidDelete(refreshSalesforceWorkspaceStateSafely);
+      salesforceProjectWatchers.push(watcher);
+    }
+  };
+  recreateSalesforceProjectWatchers();
+  context.subscriptions.push({
+    dispose: disposeSalesforceProjectWatchers
+  });
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
-      void refreshSalesforceWorkspaceState().catch(error => {
-        logWarn('Failed to refresh Salesforce workspace state ->', getErrorMessage(error));
-      });
+      recreateSalesforceProjectWatchers();
+      refreshSalesforceWorkspaceStateSafely();
     })
   );
   const provider = new SfLogsViewProvider(context);
@@ -363,10 +388,16 @@ export async function activate(context: vscode.ExtensionContext) {
   const openLogsInNewWindow = async (selectedOrg: string | undefined, commandName: string) => {
     try {
       const previousSelectedOrg = provider.getSelectedOrg();
-      if (selectedOrg) {
+      const logsViewResolved = provider.hasResolvedView();
+      const selectedOrgChanged = Boolean(selectedOrg) && selectedOrg !== previousSelectedOrg;
+      if (selectedOrgChanged) {
         provider.setSelectedOrg(selectedOrg);
+        if (logsViewResolved) {
+          await provider.sendOrgs();
+          await provider.refresh();
+        }
       }
-      await provider.showEditor({ refreshOnReveal: Boolean(selectedOrg) && selectedOrg !== previousSelectedOrg });
+      await provider.showEditor({ refreshOnReveal: selectedOrgChanged && !logsViewResolved });
       await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
     } catch (error) {
       const msg = getErrorMessage(error);

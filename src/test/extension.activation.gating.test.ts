@@ -40,6 +40,7 @@ function createExtensionHarness(options: {
   selectedOrg?: string;
   tailSelectedOrg?: string;
   logsEditorAlreadyOpen?: boolean;
+  logsViewResolved?: boolean;
   beforeConsumePendingLaunch?: (state: {
     commands: Map<string, RegisteredCommand>;
     registeredCodeLensProviders: number;
@@ -54,6 +55,7 @@ function createExtensionHarness(options: {
   const setSelectedOrgCalls: string[] = [];
   const tailRestoreCalls: string[] = [];
   const openLogsEditorCalls: string[] = [];
+  const sendOrgsCalls: string[] = [];
   const logsRefreshCalls: string[] = [];
   const logViewerShows: Array<{ logId: string; filePath: string }> = [];
   const debugFlagsShows: Array<{ selectedOrg?: string; sourceView?: 'logs' | 'tail' }> = [];
@@ -65,6 +67,12 @@ function createExtensionHarness(options: {
   const commandCalls: CommandCall[] = [];
   const panelSerializers: RegisteredPanelSerializer[] = [];
   const workspaceFolderChangeListeners: Array<() => Promise<void> | void> = [];
+  const projectFileWatchers: Array<{
+    disposed: boolean;
+    createListeners: Array<() => Promise<void> | void>;
+    changeListeners: Array<() => Promise<void> | void>;
+    deleteListeners: Array<() => Promise<void> | void>;
+  }> = [];
   let registeredCodeLensProviders = 0;
   let restoreLogsEditorPanelCalls = 0;
   let currentSalesforceProject = options.salesforceProject;
@@ -101,6 +109,12 @@ function createExtensionHarness(options: {
     env: {
       appRoot: options.appRoot ?? '/usr/share/code'
     },
+    RelativePattern: class RelativePattern {
+      constructor(
+        public readonly base: unknown,
+        public readonly pattern: string
+      ) {}
+    },
     workspace: {
       workspaceFile: effectiveWorkspaceFile,
       workspaceFolders,
@@ -109,6 +123,32 @@ function createExtensionHarness(options: {
       onDidChangeWorkspaceFolders: (listener: () => Promise<void> | void) => {
         workspaceFolderChangeListeners.push(listener);
         return createDisposable();
+      },
+      createFileSystemWatcher: () => {
+        const watcher = {
+          disposed: false,
+          createListeners: [] as Array<() => Promise<void> | void>,
+          changeListeners: [] as Array<() => Promise<void> | void>,
+          deleteListeners: [] as Array<() => Promise<void> | void>
+        };
+        projectFileWatchers.push(watcher);
+        return {
+          onDidCreate: (listener: () => Promise<void> | void) => {
+            watcher.createListeners.push(listener);
+            return createDisposable();
+          },
+          onDidChange: (listener: () => Promise<void> | void) => {
+            watcher.changeListeners.push(listener);
+            return createDisposable();
+          },
+          onDidDelete: (listener: () => Promise<void> | void) => {
+            watcher.deleteListeners.push(listener);
+            return createDisposable();
+          },
+          dispose: () => {
+            watcher.disposed = true;
+          }
+        };
       },
       openTextDocument: async () => options.activeDocument
     },
@@ -168,18 +208,21 @@ function createExtensionHarness(options: {
     public static editorPanelViewType = 'sfLogViewer.logsEditor';
     private selectedOrg = options.selectedOrg ?? '';
     private editorAlreadyOpen = options.logsEditorAlreadyOpen ?? false;
+    private viewResolved = options.logsViewResolved ?? false;
 
     constructor(_context: any) {}
 
     public hasResolvedView(): boolean {
-      return false;
+      return this.viewResolved;
     }
 
     public async refresh(): Promise<void> {
       logsRefreshCalls.push(this.selectedOrg);
     }
 
-    public async sendOrgs(): Promise<void> {}
+    public async sendOrgs(): Promise<void> {
+      sendOrgsCalls.push(this.selectedOrg);
+    }
 
     public setSelectedOrg(username?: string): void {
       const normalized = typeof username === 'string' ? username.trim() : '';
@@ -395,6 +438,7 @@ function createExtensionHarness(options: {
     setSelectedOrgCalls,
     tailRestoreCalls,
     openLogsEditorCalls,
+    sendOrgsCalls,
     logsRefreshCalls,
     debugFlagsShows,
     logViewerShows,
@@ -411,6 +455,36 @@ function createExtensionHarness(options: {
     fireWorkspaceFoldersChanged: async () => {
       for (const listener of workspaceFolderChangeListeners) {
         await listener();
+      }
+    },
+    fireProjectFileCreated: async () => {
+      for (const watcher of projectFileWatchers) {
+        if (watcher.disposed) {
+          continue;
+        }
+        for (const listener of watcher.createListeners) {
+          await listener();
+        }
+      }
+    },
+    fireProjectFileChanged: async () => {
+      for (const watcher of projectFileWatchers) {
+        if (watcher.disposed) {
+          continue;
+        }
+        for (const listener of watcher.changeListeners) {
+          await listener();
+        }
+      }
+    },
+    fireProjectFileDeleted: async () => {
+      for (const watcher of projectFileWatchers) {
+        if (watcher.disposed) {
+          continue;
+        }
+        for (const listener of watcher.deleteListeners) {
+          await listener();
+        }
       }
     },
     globalStateUpdates,
@@ -607,6 +681,67 @@ suite('extension activation gating', () => {
     );
   });
 
+  test('recomputes Salesforce workspace gating when sfdx-project.json is created or deleted', async () => {
+    const plainWorkspaceRoot = path.join(process.cwd(), 'workspace-plain');
+    const harness = createExtensionHarness({
+      workspaceRoot: plainWorkspaceRoot,
+      activeDocument: {
+        isClosed: false,
+        uri: { scheme: 'file', fsPath: path.join(plainWorkspaceRoot, 'example.log') },
+        fileName: path.join(plainWorkspaceRoot, 'example.log')
+      },
+      logId: '07L000000000457'
+    });
+
+    await harness.extension.activate(harness.context);
+
+    assert.deepEqual(
+      harness.commandCalls.filter(call => call.command === 'setContext').map(call => call.args),
+      [['sfLogs.canOpenLogViewerInNewWindow', false]]
+    );
+
+    harness.setSalesforceProject({
+      workspaceRoot: plainWorkspaceRoot,
+      projectFilePath: path.join(plainWorkspaceRoot, 'sfdx-project.json'),
+      sourceApiVersion: '61.0'
+    });
+    await harness.fireProjectFileCreated();
+
+    assert.deepEqual(
+      harness.commandCalls.filter(call => call.command === 'setContext').map(call => call.args),
+      [
+        ['sfLogs.canOpenLogViewerInNewWindow', false],
+        ['sfLogs.canOpenLogViewerInNewWindow', true]
+      ]
+    );
+    assert.deepEqual(harness.setApiVersionCalls, ['61.0']);
+
+    await harness.commands.get('sfLogs.openTailInNewWindow')!();
+    assert.equal(
+      harness.globalStateUpdates.some(update => update.key === 'pendingNewWindowLaunch'),
+      true,
+      'tail new-window flow should start working after sfdx-project.json is created'
+    );
+
+    harness.setSalesforceProject(undefined);
+    await harness.fireProjectFileDeleted();
+
+    assert.deepEqual(
+      harness.commandCalls.filter(call => call.command === 'setContext').map(call => call.args),
+      [
+        ['sfLogs.canOpenLogViewerInNewWindow', false],
+        ['sfLogs.canOpenLogViewerInNewWindow', true],
+        ['sfLogs.canOpenLogViewerInNewWindow', false]
+      ]
+    );
+
+    await harness.commands.get('sfLogs.openLogInViewerInNewWindow')!();
+    assert.equal(
+      harness.warningMessages.at(-1),
+      'Electivus Apex Logs: Open the log viewer in a Salesforce workspace before using this action.'
+    );
+  });
+
   test('consumes pending logViewer requests on activation', async () => {
     const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
     const request: PendingLaunchRequest = {
@@ -759,6 +894,29 @@ suite('extension activation gating', () => {
       harness.commandCalls.filter(call => call.command !== 'setContext').map(call => call.command),
       ['workbench.action.moveEditorToNewWindow']
     );
+  });
+
+  test('refreshes the originating logs view when opening logs in a new window for another org', async () => {
+    const workspaceRoot = path.join(process.cwd(), 'workspace-salesforce');
+    const harness = createExtensionHarness({
+      salesforceProject: {
+        workspaceRoot,
+        projectFilePath: path.join(workspaceRoot, 'sfdx-project.json'),
+        sourceApiVersion: '60.0'
+      },
+      selectedOrg: 'logs@example.com',
+      tailSelectedOrg: 'tail@example.com',
+      logsViewResolved: true
+    });
+
+    await harness.extension.activate(harness.context);
+
+    await harness.commands.get('sfLogs.openLogsInNewWindow')!();
+
+    assert.deepEqual(harness.setSelectedOrgCalls, ['tail@example.com']);
+    assert.deepEqual(harness.sendOrgsCalls, ['tail@example.com']);
+    assert.deepEqual(harness.logsRefreshCalls, ['tail@example.com']);
+    assert.deepEqual(harness.openLogsEditorCalls, ['tail@example.com']);
   });
 
   test('falls back to the tail org when opening logs in a new window before logs has selected one', async () => {
