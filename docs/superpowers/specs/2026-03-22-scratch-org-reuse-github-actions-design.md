@@ -118,20 +118,16 @@ Quando `ensureScratchOrg()` precisar criar uma scratch nova (org inválida), o s
 - Extrair o campo `sfdxAuthUrl`
 - Atualizar o GitHub Secret que guarda o `sfdxAuthUrl`
 
-#### Recomendação de segurança: rotacionar o secret fora do workflow de PR
+#### Modelo adotado (explícito): rotação no mesmo run que recriar
 
-Para reduzir risco, preferir um workflow separado de maintenance (por exemplo: `.github/workflows/scratch-maintenance.yml`), com:
+Para garantir que o reuso funcione em runners efêmeros (GitHub-hosted), **a rotação precisa acontecer imediatamente no mesmo run** em que a scratch foi recriada. Caso contrário, a execução seguinte não tem como “descobrir” e autenticar automaticamente na scratch recém-criada.
 
-- `on: workflow_dispatch` (e opcionalmente `schedule`)
-- Permissões/segredos (PAT) apenas nesse workflow
-- Responsabilidade: “garantir scratch viva e atualizar secrets”
+Portanto, este design assume:
 
-O workflow de PR/E2E consome somente:
-- `SF_DEVHUB_AUTH_URL` (para recriar se necessário)
-- `SF_SCRATCH_CI_SFDX_AUTH_URL` (para login na scratch atual)
+- Se a scratch foi recriada, o próprio workflow E2E atualiza `SF_SCRATCH_CI_SFDX_AUTH_URL` no final do job (ou imediatamente após criar).
+- Isso requer um token (PAT fine-grained) com permissão mínima para atualizar secrets do repositório.
 
-> Alternativa (mais simples, mais risco): fazer a rotação dentro do próprio workflow E2E.  
-> Isso só é recomendado se o repositório e contribuições forem considerados confiáveis o suficiente para expor um token de rotação ao job.
+> Nota de segurança (trade-off assumido): esse modelo expõe o token de rotação ao job E2E em execuções `pull_request` internas (não-fork). Se isso for considerado arriscado para o seu contexto, um modelo alternativo é mover a criação/rotação para um workflow de maintenance (`workflow_dispatch`/`schedule`) e fazer o E2E falhar com instruções claras quando a org estiver inválida — mas isso deixa de ser “self-healing” no PR.
 
 ## Configuração de Secrets (proposta)
 
@@ -178,4 +174,3 @@ Recomendações:
 2. Implementar step de login por `sfdxAuthUrl` no CI.
 3. Implementar workflow de maintenance para rotação automática do secret quando recriar.
 4. Executar 2–3 runs seguidas em PRs para validar reuso (sem criação diária).
-
