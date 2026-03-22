@@ -72,7 +72,7 @@ python3 .codex/skills/babysit-pr/scripts/gh_pr_watch.py --pr <number-or-url> --o
 python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --list
 ```
 
-### Acknowledge all currently listed actionable review bot feedback with `👍` and resolve open handled threads
+### Acknowledge all currently listed actionable review bot feedback with `👍` and resolve open actionable review bot threads you've handled
 
 ```bash
 python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --ack-all

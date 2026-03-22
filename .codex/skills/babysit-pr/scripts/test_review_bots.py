@@ -19,6 +19,10 @@ class ActionableReviewBotTests(unittest.TestCase):
     def test_other_copilot_logins_are_not_actionable(self):
         self.assertFalse(gh_pr_watch.is_actionable_review_bot_login("copilot-helper[bot]"))
 
+    def test_non_bot_login_with_keyword_is_not_actionable(self):
+        self.assertFalse(gh_pr_watch.is_actionable_review_bot_login("codex-reviewer"))
+        self.assertFalse(gh_pr_codex_feedback.is_actionable_review_bot_login("codex-reviewer"))
+
 
 class FeedbackListingTests(unittest.TestCase):
     def test_feedback_listing_includes_exact_copilot_reviewer_only(self):

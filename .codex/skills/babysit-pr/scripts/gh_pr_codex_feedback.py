@@ -6,14 +6,14 @@ import json
 import re
 import sys
 
-from gh_pr_watch import GhCommandError, gh_api_list_paginated, gh_json, graphql_json, resolve_pr
-
-ACTIONABLE_REVIEW_BOT_LOGINS = {
-    "copilot-pull-request-reviewer",
-}
-ACTIONABLE_REVIEW_BOT_LOGIN_KEYWORDS = {
-    "codex",
-}
+from gh_pr_watch import (
+    GhCommandError,
+    gh_api_list_paginated,
+    gh_json,
+    graphql_json,
+    is_actionable_review_bot_login,
+    resolve_pr,
+)
 REACTION_CONTENTS = {
     "ack": "THUMBS_UP",
     "reject": "THUMBS_DOWN",
@@ -80,7 +80,7 @@ def parse_args():
     action_group.add_argument(
         "--ack-all",
         action="store_true",
-        help="React with 👍 to all listed items and resolve thread items",
+        help="React with 👍 to all listed items and resolve actionable review bot thread items",
     )
     action_group.add_argument(
         "--reject-all",
@@ -121,14 +121,6 @@ def parse_args():
 
 def print_json(payload):
     sys.stdout.write(json.dumps(payload, sort_keys=True) + "\n")
-
-
-def is_actionable_review_bot_login(login):
-    lower_login = str(login or "").lower()
-    return (
-        lower_login in ACTIONABLE_REVIEW_BOT_LOGINS
-        or any(keyword in lower_login for keyword in ACTIONABLE_REVIEW_BOT_LOGIN_KEYWORDS)
-    )
 
 
 def summarize_body(body, limit=160):
