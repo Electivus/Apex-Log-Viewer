@@ -167,7 +167,8 @@ jobs:
           fi
 
           gh secret set SF_SCRATCH_CI_SFDX_AUTH_URL --app actions --repo "${GITHUB_REPOSITORY}" < "${auth_url}"
-          echo "Updated repository secret SF_SCRATCH_CI_SFDX_AUTH_URL."
+          gh secret set SF_SCRATCH_CI_SFDX_AUTH_URL --app dependabot --repo "${GITHUB_REPOSITORY}" < "${auth_url}"
+          echo "Updated repository secret SF_SCRATCH_CI_SFDX_AUTH_URL for Actions and Dependabot."
         env:
           GH_TOKEN: ${{ secrets.GH_SECRETS_ROTATOR_PAT }}
 
