@@ -135,7 +135,7 @@ Obrigatórios:
 - `SF_DEVHUB_AUTH_URL` (já existe): login no Dev Hub em CI
 - `SF_SCRATCH_CI_SFDX_AUTH_URL` **ou** `SF_SCRATCH_CI_AUTH_FILE_JSON`: credencial para login na scratch reutilizável
 
-Para auto-rotação (modo 2):
+Para auto-rotação (modelo adotado):
 - `GH_SECRETS_ROTATOR_PAT`: token (PAT fine-grained) com permissão mínima para **atualizar secrets do repositório**
 
 ## Fluxo de execução (end-to-end)
@@ -151,12 +151,12 @@ Para auto-rotação (modo 2):
 7. Cleanup:
    - Mantém scratch (reuso).
 8. Se scratch foi recriada:
-   - Workflow de maintenance (ou step controlado) atualiza secret do `sfdxAuthUrl`.
+   - O próprio workflow E2E atualiza `SF_SCRATCH_CI_SFDX_AUTH_URL` no mesmo run.
 
 ## Falhas esperadas e comportamento
 
 - **Secret do `sfdxAuthUrl` inválido/expirado**:
-  - Login na scratch falha; `ensureScratchOrg()` recria usando DevHub auth; maintenance rota secret.
+  - Login na scratch falha; `ensureScratchOrg()` recria usando DevHub auth; o workflow E2E rota o secret no mesmo run.
 - **Quota diária estourada**:
   - Criação falha; pipeline falha com erro explícito (sem workaround automático).
 - **Scratch “meio pronta” / interstitial**:
@@ -172,5 +172,6 @@ Recomendações:
 
 1. Implementar fila global + alias fixo + keep org no workflow E2E.
 2. Implementar step de login por `sfdxAuthUrl` no CI.
-3. Implementar workflow de maintenance para rotação automática do secret quando recriar.
+3. Implementar step de rotação do secret (PAT) quando a scratch for recriada.
 4. Executar 2–3 runs seguidas em PRs para validar reuso (sem criação diária).
+5. (Opcional) Adicionar um workflow de maintenance apenas para “force reset”/recovery manual (não faz parte do caminho primário).
