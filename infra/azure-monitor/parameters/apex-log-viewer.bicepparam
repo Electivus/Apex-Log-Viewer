@@ -11,5 +11,6 @@ param deployAlerts = false
 
 param tags = {
   app: 'apex-log-viewer'
+  env: 'prod'
   repo: 'Apex-Log-Viewer'
 }
