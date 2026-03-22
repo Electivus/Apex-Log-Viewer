@@ -60,7 +60,6 @@ jobs:
 
       - name: Login to reusable scratch org (best-effort)
         if: ${{ env.HAS_SCRATCH_AUTH_URL == '1' }}
-        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -71,7 +70,11 @@ jobs:
           trap cleanup EXIT
 
           printf '%s' "${SF_SCRATCH_CI_SFDX_AUTH_URL}" > "${tmp}"
-          sf org login sfdx-url --sfdx-url-file "${tmp}" --alias "${SF_SCRATCH_ALIAS}"
+          if sf org login sfdx-url --sfdx-url-file "${tmp}" --alias "${SF_SCRATCH_ALIAS}"; then
+            echo "Scratch org auth restored for alias '${SF_SCRATCH_ALIAS}'."
+          else
+            echo "::warning::Scratch org login failed; tests will attempt to create a new scratch org."
+          fi
         env:
           SF_SCRATCH_CI_SFDX_AUTH_URL: ${{ secrets.SF_SCRATCH_CI_SFDX_AUTH_URL }}
 
@@ -117,8 +120,9 @@ jobs:
         run: |
           set -euo pipefail
           auth_json="$(mktemp)"
+          auth_url="$(mktemp)"
           cleanup() {
-            rm -f "${auth_json}"
+            rm -f "${auth_json}" "${auth_url}"
           }
           trap cleanup EXIT
 
@@ -127,7 +131,7 @@ jobs:
             exit 0
           fi
 
-          node -e '
+          if ! node -e '
             const fs = require("fs");
             const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
             const url = data?.result?.sfdxAuthUrl;
@@ -135,7 +139,18 @@ jobs:
               process.exit(2);
             }
             process.stdout.write(url);
-          ' "${auth_json}" | gh secret set SF_SCRATCH_CI_SFDX_AUTH_URL --app actions --body - --repo "${GITHUB_REPOSITORY}"
+          ' "${auth_json}" > "${auth_url}"; then
+            echo "::warning::Scratch org auth export skipped because no sfdxAuthUrl was returned."
+            exit 0
+          fi
+
+          if [[ ! -s "${auth_url}" ]]; then
+            echo "::warning::Scratch org auth export skipped because the extracted sfdxAuthUrl was empty."
+            exit 0
+          fi
+
+          gh secret set SF_SCRATCH_CI_SFDX_AUTH_URL --app actions --repo "${GITHUB_REPOSITORY}" < "${auth_url}"
+          echo "Updated repository secret SF_SCRATCH_CI_SFDX_AUTH_URL."
         env:
           GH_TOKEN: ${{ secrets.GH_SECRETS_ROTATOR_PAT }}
 
