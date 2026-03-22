@@ -27,9 +27,10 @@ Required repository secrets:
 Key behavior:
 
 - The workflow uses a fixed alias, `ALV_E2E_SCRATCH_CI`, so the E2E scratch-org helpers can find and reuse the same org across runs.
-- `SF_TEST_KEEP_ORG` stays enabled for `pull_request` runs and is only disabled manually through `workflow_dispatch`, so the scratch org is preserved for reuse.
+- `SF_TEST_KEEP_ORG` is enabled for `pull_request` runs only when reuse is possible (`SF_SCRATCH_CI_SFDX_AUTH_URL` is available) or when the workflow can rotate the auth secret (`GH_SECRETS_ROTATOR_PAT` is configured). This avoids keeping throwaway scratch orgs when reuse bootstrap is unavailable.
+- On `workflow_dispatch`, setting `keep_scratch_org=false` forces the scratch org to be deleted after the run even if it was reused, providing a manual reset path for corrupted state.
 - A best-effort login step restores the reusable scratch org from `SF_SCRATCH_CI_SFDX_AUTH_URL` before the tests start. If that auth URL is missing or stale, the E2E helpers fall back to creating a new scratch org through the Dev Hub.
-- A post-run rotation step refreshes `SF_SCRATCH_CI_SFDX_AUTH_URL` with the current org credentials when the job has access to `GH_SECRETS_ROTATOR_PAT`.
+- A post-run rotation step refreshes `SF_SCRATCH_CI_SFDX_AUTH_URL` with the current org credentials when the job has access to `GH_SECRETS_ROTATOR_PAT` and the scratch org is intended to be kept.
 - The workflow is serialized with `concurrency.group: sf-e2e-scratch-global`, which prevents simultaneous E2E runs from sharing the same org. GitHub Actions still allows one pending run and may replace older pending runs with newer ones, so this protects the org from concurrent access but is not a strict FIFO queue.
 
 Operational note:

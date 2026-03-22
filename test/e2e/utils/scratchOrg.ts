@@ -298,7 +298,16 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
         devHubAlias,
         scratchAlias,
         created: false,
-        cleanup: async () => {}
+        cleanup: async () => {
+          if (keep) {
+            return;
+          }
+          try {
+            await runSfJson(['org', 'delete', 'scratch', '-o', scratchAlias, '--no-prompt']);
+          } catch {
+            // Best-effort cleanup.
+          }
+        }
       };
     }
     if (existingScratch) {

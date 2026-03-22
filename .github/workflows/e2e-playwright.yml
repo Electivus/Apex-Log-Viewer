@@ -43,7 +43,7 @@ jobs:
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       SF_SCRATCH_ALIAS: ALV_E2E_SCRATCH_CI
       HAS_SCRATCH_AUTH_URL: ${{ secrets.SF_SCRATCH_CI_SFDX_AUTH_URL != '' && '1' || '' }}
-      CAN_ROTATE_SCRATCH_SECRET: ${{ secrets.GH_SECRETS_ROTATOR_PAT != '' && '1' || '' }}
+      CAN_ROTATE_SCRATCH_SECRET: ${{ secrets.GH_SECRETS_ROTATOR_PAT != '' && (github.event_name != 'workflow_dispatch' || github.event.inputs.keep_scratch_org != 'false') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && '1' || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -110,12 +110,12 @@ jobs:
           SF_DEVHUB_ALIAS: DevHubElectivus
           SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || '1' }}
           # Default behavior:
-          # - pull_request: keep scratch org for reuse across CI runs
+          # - pull_request: keep scratch org only when reuse/rotation is possible
           # - workflow_dispatch: keep unless explicitly disabled
-          SF_TEST_KEEP_ORG: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.keep_scratch_org == 'false' && '' || '1') || '1' }}
+          SF_TEST_KEEP_ORG: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.keep_scratch_org == 'false' && '' || '1') || github.event_name != 'workflow_dispatch' && (env.HAS_SCRATCH_AUTH_URL == '1' || env.CAN_ROTATE_SCRATCH_SECRET == '1') && '1' || '' }}
 
       - name: Rotate scratch auth URL secret (post-run)
-        if: ${{ always() && env.CAN_ROTATE_SCRATCH_SECRET == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+        if: ${{ always() && env.CAN_ROTATE_SCRATCH_SECRET == '1' }}
         shell: bash
         run: |
           set -euo pipefail
