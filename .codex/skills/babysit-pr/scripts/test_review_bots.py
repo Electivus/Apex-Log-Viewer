@@ -16,12 +16,35 @@ class ActionableReviewBotTests(unittest.TestCase):
     def test_exact_copilot_reviewer_is_actionable(self):
         self.assertTrue(gh_pr_watch.is_actionable_review_bot_login("copilot-pull-request-reviewer"))
 
+    def test_copilot_bot_login_variant_is_actionable(self):
+        self.assertTrue(
+            gh_pr_watch.is_actionable_review_bot_login("copilot-pull-request-reviewer[bot]")
+        )
+        self.assertTrue(
+            gh_pr_codex_feedback.is_actionable_review_bot_login("copilot-pull-request-reviewer[bot]")
+        )
+
     def test_other_copilot_logins_are_not_actionable(self):
         self.assertFalse(gh_pr_watch.is_actionable_review_bot_login("copilot-helper[bot]"))
 
     def test_non_bot_login_with_keyword_is_not_actionable(self):
         self.assertFalse(gh_pr_watch.is_actionable_review_bot_login("codex-reviewer"))
         self.assertFalse(gh_pr_codex_feedback.is_actionable_review_bot_login("codex-reviewer"))
+
+    def test_generic_copilot_overview_review_is_non_blocking(self):
+        item = {
+            "kind": "review",
+            "author": "copilot-pull-request-reviewer[bot]",
+            "body": (
+                "## Pull request overview\n\n"
+                "Updates the babysit-pr watcher.\n\n"
+                "### Reviewed changes\n\n"
+                "Copilot reviewed 4 out of 4 changed files in this pull request and generated 2 comments."
+            ),
+            "review_state": "COMMENTED",
+        }
+
+        self.assertTrue(gh_pr_watch.is_non_blocking_review_item(item))
 
 
 class FeedbackListingTests(unittest.TestCase):

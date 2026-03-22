@@ -539,18 +539,26 @@ def extract_login(user_obj):
     return ""
 
 
+def normalize_review_bot_login(login):
+    lower_login = str(login or "").lower()
+    if lower_login.endswith("[bot]"):
+        return lower_login[: -len("[bot]")]
+    return lower_login
+
+
 def is_bot_login(login):
     lower_login = str(login or "").lower()
+    canonical_login = normalize_review_bot_login(lower_login)
     return bool(lower_login) and (
         lower_login.endswith("[bot]")
-        or lower_login in REVIEW_BOT_LOGINS
+        or canonical_login in REVIEW_BOT_LOGINS
     )
 
 
 def is_actionable_review_bot_login(login):
     if not is_bot_login(login):
         return False
-    lower_login = login.lower()
+    lower_login = normalize_review_bot_login(login)
     return (
         lower_login in REVIEW_BOT_LOGINS
         or any(keyword in lower_login for keyword in REVIEW_BOT_LOGIN_KEYWORDS)
@@ -585,6 +593,12 @@ def is_generic_codex_summary_review(item):
     return (
         "here are some automated review suggestions for this pull request" in body
         or "about codex in github" in body
+        or (
+            "## pull request overview" in body
+            and "### reviewed changes" in body
+            and "copilot reviewed" in body
+            and "changed files in this pull request" in body
+        )
     )
 
 
