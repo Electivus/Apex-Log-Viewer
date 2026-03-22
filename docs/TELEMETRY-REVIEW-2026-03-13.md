@@ -3,7 +3,7 @@
 ## Scope
 
 - Reviewed the current telemetry implementation in the extension host and provider flows.
-- Queried the production Application Insights component `appi-apex-log-viewer-telemetry-eastus`.
+- Queried the production Application Insights component for the live environment.
 - Validated the current dataset shape against the new privacy-first telemetry contract.
 
 ## Findings

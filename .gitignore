@@ -26,3 +26,4 @@ apexlogs/
 memory.json
 Visual Prototype for Apex Log
 .scrape-goldens-docs/
+infra/azure-monitor/main.json

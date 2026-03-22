@@ -2,61 +2,30 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { execFile, spawn } = require('child_process');
+const { spawn } = require('child_process');
 const path = require('path');
 
-const REPO_ROOT = path.join(__dirname, '..');
-const AZ_COMMAND = 'az';
+const {
+  azJson,
+  kqlQuote,
+  normalizeResourceId,
+  queryWorkspace,
+  resolveWorkspaceInfo,
+  showComponent: showComponentFromAzure,
+  toRows
+} = require('./azure-monitor-helpers');
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function execFileAsync(file, args, options = {}) {
+const REPO_ROOT = path.join(__dirname, '..');
+
+function spawnAsync(command, args, options = {}, spawnImpl = spawn) {
   return new Promise((resolve, reject) => {
-    execFile(file, args, options, (error, stdout, stderr) => {
-      if (error) {
-        const err = new Error(stderr || stdout || error.message || 'exec failed');
-        err.code = error.code;
-        err.stdout = stdout;
-        err.stderr = stderr;
-        reject(err);
-        return;
-      }
-      resolve({ stdout, stderr });
-    });
-  });
-}
-
-function execCommandAsync(command, args, options = {}) {
-  if (process.platform === 'win32') {
-    return execFileAsync('cmd.exe', ['/d', '/s', '/c', command, ...args], options);
-  }
-  return execFileAsync(command, args, options);
-}
-
-function spawnAsync(command, args, options = {}) {
-  return new Promise(resolve => {
-    const child = spawn(command, args, options);
+    const child = spawnImpl(command, args, options);
+    child.on('error', reject);
     child.on('exit', (code, signal) => resolve({ code, signal }));
-  });
-}
-
-function parseJson(text) {
-  return JSON.parse(String(text || '').trim());
-}
-
-function toRows(result) {
-  const table = result && Array.isArray(result.tables) ? result.tables[0] : undefined;
-  if (!table || !Array.isArray(table.columns) || !Array.isArray(table.rows)) {
-    return [];
-  }
-  return table.rows.map(row => {
-    const entry = {};
-    for (let index = 0; index < table.columns.length; index++) {
-      entry[table.columns[index].name] = row[index];
-    }
-    return entry;
   });
 }
 
@@ -65,47 +34,21 @@ function isResourceNotFound(error) {
   return /ResourceNotFound|was not found|ARMResourceNotFoundFix/i.test(text);
 }
 
-function kqlQuote(value) {
-  return `'${String(value).replace(/'/g, "''")}'`;
-}
-
-async function azJson(args) {
-  const { stdout } = await execCommandAsync(AZ_COMMAND, [...args, '-o', 'json'], {
-    cwd: REPO_ROOT,
-    maxBuffer: 10 * 1024 * 1024
-  });
-  return parseJson(stdout);
-}
-
-async function showComponent(config, appName) {
-  return azJson([
-    'monitor',
-    'app-insights',
-    'component',
-    'show',
-    '-a',
+async function showComponentForConfig(config, appName) {
+  return showComponentFromAzure({
     appName,
-    '-g',
-    config.resourceGroup,
-    '--subscription',
-    config.subscription
-  ]);
+    resourceGroup: config.resourceGroup,
+    subscription: config.subscription
+  });
 }
 
 async function resolveWorkspaceId(config) {
-  if (config.workspaceResourceId) {
-    return config.workspaceResourceId;
-  }
-  const base = await showComponent(config, config.baseApp);
-  if (!base.workspaceResourceId) {
-    throw new Error(`Base Application Insights resource "${config.baseApp}" does not expose a workspaceResourceId.`);
-  }
-  return base.workspaceResourceId;
+  return (await resolveWorkspaceInfo(config)).workspaceResourceId;
 }
 
 async function ensureTelemetryComponent(config) {
   try {
-    const existing = await showComponent(config, config.appName);
+    const existing = await showComponentForConfig(config, config.appName);
     return { component: existing, created: false };
   } catch (error) {
     if (!isResourceNotFound(error)) {
@@ -143,29 +86,21 @@ async function ensureTelemetryComponent(config) {
   return { component: created, created: true };
 }
 
-async function queryTelemetryForRun(config, runId, lookback) {
-  const query = [
-    'customEvents',
-    `| where timestamp > ago(${lookback})`,
-    `| extend runId = tostring(customDimensions['testRunId'])`,
-    `| where runId == ${kqlQuote(runId)}`,
-    '| summarize events = count() by name',
+function buildRunValidationQuery({ componentResourceId, lookback, runId }) {
+  return [
+    'AppEvents',
+    `| where TimeGenerated > ago(${lookback})`,
+    `| where _ResourceId =~ ${kqlQuote(normalizeResourceId(componentResourceId))}`,
+    '| extend props = parse_json(Properties)',
+    `| where tostring(props["testRunId"]) == ${kqlQuote(runId)}`,
+    '| summarize events = sum(coalesce(tolong(ItemCount), 1)) by name = Name',
     '| order by events desc'
   ].join(' ');
+}
 
-  return azJson([
-    'monitor',
-    'app-insights',
-    'query',
-    '-a',
-    config.appName,
-    '-g',
-    config.resourceGroup,
-    '--subscription',
-    config.subscription,
-    '--analytics-query',
-    query
-  ]);
+async function queryTelemetryForRun(workspaceCustomerId, componentResourceId, runId, lookback) {
+  const query = buildRunValidationQuery({ componentResourceId, lookback, runId });
+  return queryWorkspace(workspaceCustomerId, query);
 }
 
 function summarizeTelemetry(rows) {
@@ -175,13 +110,48 @@ function summarizeTelemetry(rows) {
   return { distinctNames, hasActivation, totalEvents };
 }
 
-async function waitForTelemetry(config, runId) {
+function readEnv(env, name) {
+  return String(env[name] || '').trim();
+}
+
+function resolveConfig(env = process.env) {
+  const config = {
+    appName: readEnv(env, 'ALV_E2E_TELEMETRY_APP'),
+    baseApp: readEnv(env, 'ALV_E2E_TELEMETRY_BASE_APP'),
+    location: readEnv(env, 'ALV_E2E_TELEMETRY_LOCATION') || 'eastus',
+    resourceGroup: readEnv(env, 'ALV_E2E_TELEMETRY_RESOURCE_GROUP'),
+    subscription: readEnv(env, 'ALV_E2E_TELEMETRY_SUBSCRIPTION') || readEnv(env, 'AZURE_SUBSCRIPTION_ID'),
+    workspaceResourceId: readEnv(env, 'ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID') || undefined
+  };
+
+  const missing = [];
+  if (!config.appName) missing.push('ALV_E2E_TELEMETRY_APP');
+  if (!config.baseApp) missing.push('ALV_E2E_TELEMETRY_BASE_APP');
+  if (!config.resourceGroup) missing.push('ALV_E2E_TELEMETRY_RESOURCE_GROUP');
+  if (!config.subscription) missing.push('ALV_E2E_TELEMETRY_SUBSCRIPTION or AZURE_SUBSCRIPTION_ID');
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required Azure telemetry config: ${missing.join(
+        ', '
+      )}. Set these env vars directly or configure the matching CI variables/secrets before running the telemetry E2E path.`
+    );
+  }
+
+  return config;
+}
+
+async function waitForTelemetry(config, component, runId) {
   const attempts = Math.max(1, Number(process.env.ALV_E2E_TELEMETRY_QUERY_ATTEMPTS || 18) || 18);
   const delayMs = Math.max(1000, Number(process.env.ALV_E2E_TELEMETRY_QUERY_DELAY_MS || 10000) || 10000);
   const lookback = String(process.env.ALV_E2E_TELEMETRY_LOOKBACK || '2h').trim() || '2h';
+  const workspace = await resolveWorkspaceInfo({
+    ...config,
+    workspaceResourceId: component.workspaceResourceId || config.workspaceResourceId
+  });
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    const result = await queryTelemetryForRun(config, runId, lookback);
+    const result = await queryTelemetryForRun(workspace.workspaceCustomerId, component.id, runId, lookback);
     const rows = toRows(result);
     const summary = summarizeTelemetry(rows);
     if (summary.hasActivation && summary.totalEvents >= 5 && summary.distinctNames >= 3) {
@@ -189,13 +159,13 @@ async function waitForTelemetry(config, runId) {
     }
     if (attempt < attempts) {
       console.log(
-        `[e2e] Waiting for App Insights ingestion (${attempt}/${attempts}) -> ${summary.totalEvents} events, ${summary.distinctNames} names`
+        `[e2e] Waiting for Log Analytics ingestion (${attempt}/${attempts}) -> ${summary.totalEvents} events, ${summary.distinctNames} names`
       );
       await sleep(delayMs);
     }
   }
 
-  const finalResult = await queryTelemetryForRun(config, runId, lookback);
+  const finalResult = await queryTelemetryForRun(workspace.workspaceCustomerId, component.id, runId, lookback);
   const finalRows = toRows(finalResult);
   const finalSummary = summarizeTelemetry(finalRows);
   throw new Error(
@@ -204,18 +174,7 @@ async function waitForTelemetry(config, runId) {
 }
 
 async function main() {
-  const config = {
-    appName: String(process.env.ALV_E2E_TELEMETRY_APP || 'appi-apex-log-viewer-telemetry-e2e-eastus').trim(),
-    baseApp: String(process.env.ALV_E2E_TELEMETRY_BASE_APP || 'appi-apex-log-viewer-telemetry-eastus').trim(),
-    location: String(process.env.ALV_E2E_TELEMETRY_LOCATION || 'eastus').trim(),
-    resourceGroup: String(process.env.ALV_E2E_TELEMETRY_RESOURCE_GROUP || 'rg-apex-log-viewer-telemetry-eastus').trim(),
-    subscription: String(
-      process.env.ALV_E2E_TELEMETRY_SUBSCRIPTION ||
-        process.env.AZURE_SUBSCRIPTION_ID ||
-        'c1b4d537-c3dc-4d64-b022-a97fd1826665'
-    ).trim(),
-    workspaceResourceId: String(process.env.ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID || '').trim() || undefined
-  };
+  const config = resolveConfig(process.env);
 
   const { component, created } = await ensureTelemetryComponent(config);
   const runId = randomUUID();
@@ -250,8 +209,8 @@ async function main() {
     throw new Error(`Playwright E2E process exited via signal ${child.signal}.`);
   }
 
-  console.log('[e2e] Playwright suite passed. Validating telemetry arrival in the dedicated App Insights resource...');
-  const validation = await waitForTelemetry(config, runId);
+  console.log('[e2e] Playwright suite passed. Validating telemetry arrival in the linked Log Analytics workspace...');
+  const validation = await waitForTelemetry(config, component, runId);
   console.log(
     `[e2e] Telemetry validated after ${validation.attempt} query attempt(s): ${validation.summary.totalEvents} events across ${validation.summary.distinctNames} event names.`
   );
@@ -260,7 +219,16 @@ async function main() {
   }
 }
 
-main().catch(error => {
-  console.error('[e2e] Telemetry validation failed:', error && error.message ? error.message : error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(error => {
+    console.error('[e2e] Telemetry validation failed:', error && error.message ? error.message : error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  buildRunValidationQuery,
+  resolveConfig,
+  spawnAsync,
+  summarizeTelemetry
+};
