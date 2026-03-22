@@ -123,7 +123,7 @@ The watcher surfaces review items from:
 - Inline review comments
 - Review submissions (COMMENT / APPROVED / CHANGES_REQUESTED)
 
-It intentionally surfaces trusted reviewer bot feedback (for example comments/reviews from `chatgpt-codex-connector[bot]` and the Copilot reviewer login, which GitHub may emit as `copilot-pull-request-reviewer` or `copilot-pull-request-reviewer[bot]`) in addition to human reviewer feedback. Most unrelated bot noise should still be ignored.
+It intentionally surfaces trusted reviewer bot feedback (for example comments/reviews from the Codex reviewer login, which GitHub may emit as `chatgpt-codex-connector` or `chatgpt-codex-connector[bot]`, and the Copilot reviewer login, which GitHub may emit as `copilot-pull-request-reviewer` or `copilot-pull-request-reviewer[bot]`) in addition to human reviewer feedback. Most unrelated bot noise should still be ignored.
 For safety, the watcher only auto-surfaces trusted human review authors (for example repo OWNER/MEMBER/COLLABORATOR, plus the authenticated operator) and approved review bots such as Codex plus the Copilot reviewer login.
 On a fresh watcher state file, existing pending review feedback may be surfaced immediately (not only comments that arrive after monitoring starts). This is intentional so already-open review comments are not missed.
 

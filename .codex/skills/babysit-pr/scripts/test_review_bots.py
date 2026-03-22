@@ -24,6 +24,10 @@ class ActionableReviewBotTests(unittest.TestCase):
             gh_pr_codex_feedback.is_actionable_review_bot_login("copilot-pull-request-reviewer[bot]")
         )
 
+    def test_exact_codex_connector_login_is_actionable(self):
+        self.assertTrue(gh_pr_watch.is_actionable_review_bot_login("chatgpt-codex-connector"))
+        self.assertTrue(gh_pr_codex_feedback.is_actionable_review_bot_login("chatgpt-codex-connector"))
+
     def test_other_copilot_logins_are_not_actionable(self):
         self.assertFalse(gh_pr_watch.is_actionable_review_bot_login("copilot-helper[bot]"))
 

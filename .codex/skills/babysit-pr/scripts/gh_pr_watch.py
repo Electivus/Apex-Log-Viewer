@@ -28,6 +28,7 @@ PENDING_CHECK_STATES = {
     "REQUESTED",
 }
 REVIEW_BOT_LOGINS = {
+    "chatgpt-codex-connector",
     "copilot-pull-request-reviewer",
 }
 REVIEW_BOT_LOGIN_KEYWORDS = {
