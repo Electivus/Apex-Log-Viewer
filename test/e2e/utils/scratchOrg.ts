@@ -293,6 +293,7 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
         primeOrgAuthCache(scratchAlias, auth);
       }
       await waitForScratchOrgReady(scratchAlias, auth);
+      console.info(`[e2e] scratch org reused for alias '${scratchAlias}'.`);
       return {
         devHubAlias,
         scratchAlias,
@@ -386,6 +387,7 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
       }
     }
 
+    console.info(`[e2e] scratch org created for alias '${scratchAlias}'.`);
     return {
       devHubAlias,
       scratchAlias,
