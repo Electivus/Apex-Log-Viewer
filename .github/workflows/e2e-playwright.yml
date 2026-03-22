@@ -43,6 +43,7 @@ jobs:
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       SF_SCRATCH_ALIAS: ALV_E2E_SCRATCH_CI
       HAS_SCRATCH_AUTH_URL: ${{ secrets.SF_SCRATCH_CI_SFDX_AUTH_URL != '' && '1' || '' }}
+      CAN_ROTATE_SCRATCH_SECRET: ${{ secrets.GH_SECRETS_ROTATOR_PAT != '' && '1' || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -109,6 +110,34 @@ jobs:
           # - pull_request: keep scratch org for reuse across CI runs
           # - workflow_dispatch: keep unless explicitly disabled
           SF_TEST_KEEP_ORG: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.keep_scratch_org == 'false' && '' || '1') || '1' }}
+
+      - name: Rotate scratch auth URL secret (post-run)
+        if: ${{ always() && env.CAN_ROTATE_SCRATCH_SECRET == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth_json="$(mktemp)"
+          cleanup() {
+            rm -f "${auth_json}"
+          }
+          trap cleanup EXIT
+
+          if ! sf org display --target-org "${SF_SCRATCH_ALIAS}" --verbose --json > "${auth_json}"; then
+            echo "Scratch org auth export skipped because ${SF_SCRATCH_ALIAS} is unavailable."
+            exit 0
+          fi
+
+          node -e '
+            const fs = require("fs");
+            const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const url = data?.result?.sfdxAuthUrl;
+            if (!url) {
+              process.exit(2);
+            }
+            process.stdout.write(url);
+          ' "${auth_json}" | gh secret set SF_SCRATCH_CI_SFDX_AUTH_URL --app actions --body - --repo "${GITHUB_REPOSITORY}"
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_ROTATOR_PAT }}
 
       - name: Upload Playwright artifacts
         if: ${{ !cancelled() }}
