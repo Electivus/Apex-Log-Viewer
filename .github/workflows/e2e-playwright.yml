@@ -58,6 +58,23 @@ jobs:
       - name: Install Salesforce CLI
         run: npm install -g @salesforce/cli
 
+      - name: Require GitHub secrets rotator token (pull_request)
+        if: ${{ github.event_name == 'pull_request' && env.CAN_ROTATE_SCRATCH_SECRET != '1' }}
+        shell: bash
+        run: |
+          echo "::error::GH_SECRETS_ROTATOR_PAT must be configured for pull_request runs so the workflow can rotate SF_SCRATCH_CI_SFDX_AUTH_URL and avoid exhausting daily scratch org signup limits."
+          exit 1
+
+      - name: Validate GitHub secrets rotator token
+        if: ${{ env.CAN_ROTATE_SCRATCH_SECRET == '1' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/secrets/public-key" >/dev/null
+          echo "GH_SECRETS_ROTATOR_PAT validated for Actions secrets rotation."
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_ROTATOR_PAT }}
+
       - name: Login to reusable scratch org (best-effort)
         if: ${{ env.HAS_SCRATCH_AUTH_URL == '1' }}
         shell: bash
