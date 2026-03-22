@@ -35,86 +35,95 @@ For maintainers
 
 - The production connection string is intentionally checked in via `package.json.telemetryConnectionString`.
 - `APPLICATIONINSIGHTS_CONNECTION_STRING` or `VSCODE_TELEMETRY_CONNECTION_STRING` can still override it for controlled experiments.
-- Production telemetry resources live in Azure subscription `c1b4d537-c3dc-4d64-b022-a97fd1826665`, resource group `rg-apex-log-viewer-telemetry-eastus`, Application Insights `appi-apex-log-viewer-telemetry-eastus`, and Log Analytics workspace `law-apex-log-viewer-telemetry-eastus`.
-- Dedicated E2E telemetry flows use Application Insights `appi-apex-log-viewer-telemetry-e2e-eastus`.
+- Production telemetry resources live in a dedicated Azure subscription, resource group, Application Insights component, and linked Log Analytics workspace. Keep the live identifiers in CI variables or a private runbook, not in the public repo.
+- Dedicated E2E telemetry flows use a separate Application Insights component that links to the same or another Log Analytics workspace.
+- Both App Insights components are workspace-based (`IngestionMode: LogAnalytics`), so maintainers should query the linked workspace as the operational source of truth.
 - Every new event, property, or measurement must be added to `telemetry.json` before code is merged.
 - Keep telemetry privacy-first: prefer booleans, enums, buckets, and finite counts. Never send raw strings that can drift into PII.
 - `testRunId` is the only test-only custom property in the catalog. It is injected only during explicit E2E telemetry validation runs and only targets the dedicated E2E App Insights component.
 
 KQL quick queries
 
-Recent custom events:
+Use `az monitor log-analytics query` against the workspace customer id for your environment. Workspace-based App Insights may return empty `customEvents` results even when the data is present in `AppEvents`.
 
-```kusto
-customEvents
-| where timestamp > ago(7d)
-| project timestamp, name, customDimensions, customMeasurements
-| order by timestamp desc
-| take 20
+Recent production events:
+
+```bash
+az monitor log-analytics query \
+  -w <workspace-customer-id> \
+  --analytics-query "AppEvents | where TimeGenerated > ago(7d) | where _ResourceId =~ '<prod-component-resource-id>' | project TimeGenerated, Name, Properties, Measurements | order by TimeGenerated desc | take 20"
 ```
 
 Volume by event in the last 30 days:
 
 ```kusto
-customEvents
-| where timestamp > ago(30d)
-| summarize count() by name
+AppEvents
+| where TimeGenerated > ago(30d)
+| where _ResourceId =~ "<prod-component-resource-id>"
+| summarize count() by Name
 | order by count_ desc
 ```
 
 Breakdown by outcome:
 
 ```kusto
-customEvents
-| where timestamp > ago(30d)
-| extend dims = parse_json(tostring(customDimensions))
-| summarize count() by name, tostring(dims["outcome"])
-| order by name asc, count_ desc
+AppEvents
+| where TimeGenerated > ago(30d)
+| where _ResourceId =~ "<prod-component-resource-id>"
+| extend props = parse_json(Properties)
+| summarize count() by Name, outcome = tostring(props["outcome"])
+| order by Name asc, count_ desc
 ```
 
 Performance by event:
 
 ```kusto
-customEvents
-| where timestamp > ago(30d)
-| extend meas = parse_json(tostring(customMeasurements))
+AppEvents
+| where TimeGenerated > ago(30d)
+| where _ResourceId =~ "<prod-component-resource-id>"
+| extend meas = parse_json(Measurements)
 | extend durationMs = todouble(meas["durationMs"])
 | where isfinite(durationMs)
-| summarize avgMs = avg(durationMs), p50Ms = percentile(durationMs, 50), p95Ms = percentile(durationMs, 95) by name
+| summarize avgMs = avg(durationMs), p50Ms = percentile(durationMs, 50), p95Ms = percentile(durationMs, 95) by Name
 | order by p95Ms desc
 ```
 
 Version and platform split for activations:
 
 ```kusto
-customEvents
-| where timestamp > ago(30d)
-| where name endswith "extension.activate"
-| extend dims = parse_json(tostring(customDimensions))
-| summarize count() by tostring(dims["common.extversion"]), tostring(dims["common.os"])
+AppEvents
+| where TimeGenerated > ago(30d)
+| where _ResourceId =~ "<prod-component-resource-id>"
+| where Name endswith "extension.activate"
+| extend props = parse_json(Properties)
+| summarize count() by tostring(props["common.extversion"]), tostring(props["common.os"])
 | order by count_ desc
 ```
 
 Schema hygiene checks:
 
 ```kusto
-customEvents
-| where timestamp > ago(30d)
-| extend dims = parse_json(tostring(customDimensions))
-| summarize missingOutcome = countif(isempty(tostring(dims["outcome"]))) by name
+AppEvents
+| where TimeGenerated > ago(30d)
+| where _ResourceId =~ "<prod-component-resource-id>"
+| extend props = parse_json(Properties)
+| summarize missingOutcome = countif(isempty(tostring(props["outcome"]))) by Name
 | where missingOutcome > 0
 ```
 
 Dedicated E2E run validation:
 
 ```kusto
-customEvents
-| where timestamp > ago(2h)
-| extend dims = parse_json(tostring(customDimensions))
-| where tostring(dims["testRunId"]) == "<run-id>"
-| summarize count() by name
+AppEvents
+| where TimeGenerated > ago(2h)
+| where _ResourceId =~ "<e2e-component-resource-id>"
+| extend props = parse_json(Properties)
+| where tostring(props["testRunId"]) == "<run-id>"
+| summarize count() by Name
 | order by count_ desc
 ```
+
+See also: `docs/AZURE-MONITOR.md` for the reusable report script, workbook guidance, and recommended scheduled query alerts.
 
 GitHub Actions and packaging
 

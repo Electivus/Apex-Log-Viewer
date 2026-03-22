@@ -91,20 +91,21 @@ Artifacts (screenshots/traces/videos on failure) are written under `output/playw
 
 `npm run test:e2e:telemetry` is the full telemetry-validation path. It:
 
-1. Resolves or creates `appi-apex-log-viewer-telemetry-e2e-eastus`
+1. Resolves or creates the dedicated E2E Application Insights component configured for the environment
 2. Reuses the existing Log Analytics workspace from the production telemetry resource
 3. Injects a test-only telemetry connection string plus a per-run `testRunId`
 4. Runs the full Playwright suite
-5. Queries the dedicated App Insights component and fails if the current run's telemetry does not arrive
+5. Queries `AppEvents` in the linked Log Analytics workspace and fails if the current run's telemetry does not arrive
 
-The GitHub Actions workflow `.github/workflows/e2e-playwright.yml` prefers this path automatically when `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` are configured for OIDC-based `azure/login`. If those Azure settings are missing, the workflow falls back to the smoke-only `npm run test:e2e -- openLogViewer.e2e.spec.ts` path so PR validation remains usable.
+The GitHub Actions workflow `.github/workflows/e2e-playwright.yml` prefers this path automatically when Azure OIDC secrets and the E2E telemetry target variables are configured. If that Azure configuration is incomplete, the workflow falls back to the smoke-only `npm run test:e2e -- openLogViewer.e2e.spec.ts` path so PR validation remains usable.
 
-Default Azure targets:
+Required Azure targets for the telemetry path:
 
-- Subscription: `c1b4d537-c3dc-4d64-b022-a97fd1826665`
-- Resource group: `rg-apex-log-viewer-telemetry-eastus`
-- Production App Insights (workspace source): `appi-apex-log-viewer-telemetry-eastus`
-- E2E App Insights target: `appi-apex-log-viewer-telemetry-e2e-eastus`
+- Subscription: `<subscription-id>`
+- Resource group: `<telemetry-resource-group>`
+- Production App Insights (workspace source): `<prod-app-insights-name>`
+- E2E App Insights target: `<e2e-app-insights-name>`
+- Shared Log Analytics workspace: `<log-analytics-workspace-name>`
 
 Optional overrides:
 
@@ -118,7 +119,9 @@ Optional overrides:
 - `ALV_E2E_TELEMETRY_QUERY_DELAY_MS`
 - `ALV_E2E_TELEMETRY_LOOKBACK`
 
-When `ALV_E2E_TELEMETRY_SUBSCRIPTION` is not set, the telemetry runner falls back to `AZURE_SUBSCRIPTION_ID` before using the checked-in default subscription. This keeps GitHub Actions OIDC runs aligned with the Azure subscription selected by `azure/login`.
+When `ALV_E2E_TELEMETRY_SUBSCRIPTION` is not set, the telemetry runner falls back to `AZURE_SUBSCRIPTION_ID`. The resource group and App Insights names must be provided explicitly through env vars, CI variables, or an internal runbook; the public repo does not keep live Azure defaults.
+
+The runner scopes the workspace query to the E2E component resource id and `testRunId`, so production and E2E telemetry can share the same workspace safely.
 
 Internal env vars used by the test runner:
 

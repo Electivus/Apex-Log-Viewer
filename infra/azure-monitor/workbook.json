@@ -1,0 +1,92 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "name": "intro",
+      "content": {
+        "json": "# Apex Log Viewer Telemetry\nThis workbook focuses on extension usage, CLI/auth friction, refresh health, and debug-level degradation."
+      }
+    },
+    {
+      "type": 3,
+      "name": "usageOverview",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AppEvents | where TimeGenerated > ago(30d) | where Name startswith \"electivus.apex-log-viewer/\" | summarize count() by Name | order by count_ desc",
+        "size": 0,
+        "title": "Usage Overview",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "componentSplit",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AppEvents | where TimeGenerated > ago(30d) | where Name startswith \"electivus.apex-log-viewer/\" | extend component = extract(@\"/components/([^/]+)$\", 1, tolower(_ResourceId)) | summarize count() by component, Name | order by component asc, count_ desc",
+        "size": 0,
+        "title": "By Component",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "cliAndAuthHealth",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AppEvents | where TimeGenerated > ago(30d) | where Name in (\"electivus.apex-log-viewer/cli.exec\", \"electivus.apex-log-viewer/cli.getOrgAuth\") | extend props = parse_json(Properties) | summarize count() by Name, code = tostring(props[\"code\"]) | order by Name asc, count_ desc",
+        "size": 0,
+        "title": "CLI and Auth Health",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "refreshHealth",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AppEvents | where TimeGenerated > ago(30d) | where Name == \"electivus.apex-log-viewer/logs.refresh\" | extend props = parse_json(Properties) | summarize total = count(), errors = countif(tostring(props[\"outcome\"]) == \"error\") | extend errorRate = round(100.0 * todouble(errors) / todouble(total), 2)",
+        "size": 0,
+        "title": "Refresh Health",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "debugLevelsHealth",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AppEvents | where TimeGenerated > ago(30d) | where Name == \"electivus.apex-log-viewer/debugLevels.load\" | extend props = parse_json(Properties), measurements = parse_json(Measurements) | extend outcome = tostring(props[\"outcome\"]), durationMs = todouble(measurements[\"durationMs\"]) | summarize total = count(), errors = countif(outcome == \"error\"), p50 = percentile(durationMs, 50), p95 = percentile(durationMs, 95) | extend errorRate = round(100.0 * todouble(errors) / todouble(total), 2)",
+        "size": 0,
+        "title": "Debug Levels Health",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "ingestionSanity",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AppEvents | where TimeGenerated > ago(24h) | where Name startswith \"electivus.apex-log-viewer/\" | summarize events = count(), firstSeen = min(TimeGenerated), lastSeen = max(TimeGenerated)",
+        "size": 0,
+        "title": "Ingestion Sanity",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    }
+  ],
+  "isLocked": false,
+  "fallbackResourceIds": []
+}

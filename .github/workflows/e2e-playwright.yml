@@ -41,6 +41,12 @@ jobs:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ALV_E2E_TELEMETRY_RESOURCE_GROUP: ${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP }}
+      ALV_E2E_TELEMETRY_LOCATION: ${{ vars.ALV_E2E_TELEMETRY_LOCATION }}
+      ALV_E2E_TELEMETRY_APP: ${{ vars.ALV_E2E_TELEMETRY_APP }}
+      ALV_E2E_TELEMETRY_BASE_APP: ${{ vars.ALV_E2E_TELEMETRY_BASE_APP }}
+      ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID: ${{ vars.ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID }}
+      HAS_AZURE_E2E_TELEMETRY_CONFIG: ${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}
       SF_SCRATCH_ALIAS: ALV_E2E_SCRATCH_CI
       HAS_SCRATCH_AUTH_URL: ${{ secrets.SF_SCRATCH_CI_SFDX_AUTH_URL != '' && '1' || '' }}
       CAN_ROTATE_SCRATCH_SECRET: ${{ secrets.GH_SECRETS_ROTATOR_PAT != '' && (github.event_name != 'workflow_dispatch' || github.event.inputs.keep_scratch_org != 'false') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && '1' || '' }}
@@ -104,7 +110,7 @@ jobs:
         run: INSTALL_LINUX_DEPS=true bash scripts/install-linux-deps.sh
 
       - name: Azure login for dedicated App Insights validation
-        if: ${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' }}
+        if: ${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' && env.HAS_AZURE_E2E_TELEMETRY_CONFIG == '1' }}
         uses: azure/login@v3
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
@@ -114,11 +120,11 @@ jobs:
       - name: Run Playwright E2E
         shell: bash
         run: |
-          if [[ -n "${AZURE_CLIENT_ID}" && -n "${AZURE_TENANT_ID}" && -n "${AZURE_SUBSCRIPTION_ID}" ]]; then
+          if [[ -n "${AZURE_CLIENT_ID}" && -n "${AZURE_TENANT_ID}" && -n "${AZURE_SUBSCRIPTION_ID}" && "${HAS_AZURE_E2E_TELEMETRY_CONFIG}" == "1" ]]; then
             echo "Running full Playwright E2E with dedicated App Insights validation."
             npm run test:e2e:telemetry
           else
-            echo "Azure OIDC secrets are not configured; falling back to the smoke E2E run."
+            echo "Azure OIDC secrets or E2E telemetry target variables are not fully configured; falling back to the smoke E2E run."
             npm run test:e2e -- openLogViewer.e2e.spec.ts
           fi
         env:

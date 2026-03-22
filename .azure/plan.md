@@ -2,15 +2,15 @@
 
 > **Status:** Ready for Validation
 
-Generated: 2026-03-08T16:30:00Z
+Generated: 2026-03-22T22:15:00Z
 
 ---
 
 ## 1. Project Overview
 
-**Goal:** Enable production telemetry for the Apex Log Viewer VS Code extension by provisioning Azure Monitor resources with Azure CLI and wiring the published VSIX to the checked-in Application Insights connection string.
+**Goal:** Add a versioned Azure Monitor IaC area to the repository so the shared workspace, Application Insights components, workbook scaffolding, and alert scaffolding can be reviewed and deployed from source control.
 
-**Path:** Add Components
+**Path:** Modernize existing Azure Monitor operations
 
 ---
 
@@ -18,11 +18,11 @@ Generated: 2026-03-08T16:30:00Z
 
 | Attribute | Value |
 |-----------|-------|
-| Classification | Production |
+| Classification | Production-adjacent operations |
 | Scale | Small |
 | Budget | Cost-Optimized |
-| **Subscription** | Azure subscription 1 (`c1b4d537-c3dc-4d64-b022-a97fd1826665`) |
-| **Location** | `eastus` |
+| Subscription | Kept outside the public repo |
+| Location | Parameterized |
 
 ---
 
@@ -31,36 +31,31 @@ Generated: 2026-03-08T16:30:00Z
 | Component | Type | Technology | Path |
 |-----------|------|------------|------|
 | Apex Log Viewer | VS Code extension | TypeScript + `@vscode/extension-telemetry` | `src/`, `package.json` |
-| Release packaging | CI workflow | GitHub Actions + `vsce` | `.github/workflows/` |
+| Azure telemetry operations | Documentation + scripts | Markdown + Node.js + Azure CLI | `docs/`, `scripts/` |
+| Azure monitor IaC | Infrastructure as code | Bicep | `infra/azure-monitor/` |
 
 ---
 
 ## 4. Recipe Selection
 
-**Selected:** AZCLI
+**Selected:** Bicep + Azure CLI deployment helper
 
-**Rationale:** The user asked for Azure CLI to perform all Azure-side configuration, and the extension already contains the required telemetry runtime. No infrastructure template changes are needed for this iteration.
+**Rationale:** The repository already operates against Azure Monitor resources directly, and Bicep gives a lightweight, Azure-native way to version the monitor stack without introducing Terraform state for a small observability surface.
 
 ---
 
 ## 5. Architecture
 
-**Stack:** Client extension + Azure Monitor backend
+**Stack:** VS Code extension + workspace-based Azure Monitor backend
 
 ### Service Mapping
 
-| Component | Azure Service | SKU |
-|-----------|---------------|-----|
-| Extension telemetry backend | Application Insights (`appi-apex-log-viewer-telemetry-eastus`) | Workspace-based |
-| Telemetry storage/query | Log Analytics (`law-apex-log-viewer-telemetry-eastus`) | PerGB2018 |
-
-### Supporting Services
-
-| Service | Purpose |
-|---------|---------|
-| Resource Group | Dedicated lifecycle boundary for telemetry resources |
-| Log Analytics | Store and query custom events and exceptions |
-| Application Insights | Receive extension telemetry from published VSIX builds |
+| Component | Azure Service | Notes |
+|-----------|---------------|-------|
+| Shared telemetry store | Log Analytics workspace | Source of truth for `AppEvents` queries |
+| Runtime telemetry ingress | Application Insights components | One production component and one dedicated E2E component |
+| Dashboards | Azure Workbook | Parameterized and safe for public source |
+| Notifications | Action Group + scheduled query alerts | Optional and parameterized |
 
 ---
 
@@ -69,66 +64,45 @@ Generated: 2026-03-08T16:30:00Z
 ### Phase 1: Planning
 - [x] Analyze workspace
 - [x] Gather requirements
-- [x] Confirm subscription and location with user
-- [x] Scan codebase
+- [x] Scan existing Azure-related docs and scripts
 - [x] Select recipe
 - [x] Plan architecture
-- [x] **User approved this plan**
+- [x] User approved adding a versioned Azure Monitor area to the repo
 
 ### Phase 2: Execution
-- [x] Research components (load references, invoke skills)
-- [x] Provision Azure resource group / workspace / Application Insights with Azure CLI
-- [x] Update application configuration (`package.json.telemetryConnectionString`)
-- [x] Record user-facing change in `CHANGELOG.md`
-- [x] Update plan status to "Ready for Validation"
+- [x] Add `infra/azure-monitor/` with Bicep modules
+- [x] Add a deploy helper script for resource-group deployments
+- [x] Add sanitized parameter starter file
+- [x] Sanitize public docs and internal plan of live identifiers
+- [x] Validate Bicep and script wiring locally
 
 ### Phase 3: Validation
-- [x] Run build, test, and packaging checks
-- [ ] Verify telemetry in a normal VS Code install
-- [x] Record validation proof below
-
-### Phase 4: Deployment
-- [ ] Not applicable in this change set
+- [x] Compile Bicep successfully
+- [x] Check helper script usage
+- [x] Review remaining public docs for live Azure identifiers
 
 ---
 
-## 7. Validation Proof
-
-| Check | Command Run | Result | Timestamp |
-|-------|-------------|--------|-----------|
-| Azure subscription | `az account set -s c1b4d537-c3dc-4d64-b022-a97fd1826665` | ✅ Pass | 2026-03-08T16:27:00Z |
-| Log Analytics workspace | `az monitor log-analytics workspace create --resource-group rg-apex-log-viewer-telemetry-eastus --workspace-name law-apex-log-viewer-telemetry-eastus --location eastus` | ✅ Pass | 2026-03-08T16:27:18Z |
-| App Insights component | `az monitor app-insights component create --app appi-apex-log-viewer-telemetry-eastus --location eastus --resource-group rg-apex-log-viewer-telemetry-eastus --kind web --application-type web --workspace /subscriptions/c1b4d537-c3dc-4d64-b022-a97fd1826665/resourceGroups/rg-apex-log-viewer-telemetry-eastus/providers/Microsoft.OperationalInsights/workspaces/law-apex-log-viewer-telemetry-eastus` | ✅ Pass | 2026-03-08T16:24:32Z |
-| Connection string lookup | `az monitor app-insights component show --app appi-apex-log-viewer-telemetry-eastus --resource-group rg-apex-log-viewer-telemetry-eastus --query connectionString -o tsv` | ✅ Pass | 2026-03-08T16:25:00Z |
-| Build | `npm run build` | ✅ Pass | 2026-03-08T16:38:00Z |
-| Webview tests | `npm run test:webview` | ✅ Pass | 2026-03-08T16:41:00Z |
-| Extension unit tests | `bash scripts/run-tests.sh --scope=unit` | ✅ Pass | 2026-03-08T16:45:00Z |
-| VSIX package | `npx --yes @vscode/vsce package` | ✅ Pass | 2026-03-08T16:47:00Z |
-| App Insights query | `az monitor app-insights query -a appi-apex-log-viewer-telemetry-eastus -g rg-apex-log-viewer-telemetry-eastus --analytics-query "customEvents | order by timestamp desc | take 20"` | ⚠️ Empty result until a normal VS Code install emits live events | 2026-03-08T16:48:00Z |
-
-Notes:
-
-- `npm test` does not run as-is on this Windows environment because the package script uses Unix env-var syntax (`ENABLE_COVERAGE=1 ...`). The equivalent webview + unit test commands were run successfully instead.
-- Coverage merge was not marked as passing because the `c8` coverage wrapper reported `branches = 0%` in this Windows + Electron environment even though the unit test runner completed with `151 passing`.
-- Manual validation is still required in a normal VS Code installation because telemetry is intentionally disabled in Development and Test extension modes.
-
----
-
-## 8. Files to Generate
+## 7. Files to Generate or Update
 
 | File | Purpose | Status |
 |------|---------|--------|
 | `.azure/plan.md` | Execution record for this Azure-backed change | ✅ |
-| `package.json` | Checked-in telemetry connection string for published VSIX builds | ✅ |
-| `CHANGELOG.md` | User-facing release note for live telemetry enablement | ✅ |
-| `docs/TELEMETRY.md` | Maintainer notes for the provisioned Azure resources | ✅ |
+| `infra/azure-monitor/main.bicep` | Entry point for Azure Monitor IaC | ✅ |
+| `infra/azure-monitor/modules/*.bicep` | Reusable monitor modules | ✅ |
+| `infra/azure-monitor/workbook.json` | Workbook scaffold | ✅ |
+| `infra/azure-monitor/parameters/apex-log-viewer.bicepparam` | Sanitized starter parameters | ✅ |
+| `scripts/deploy-azure-monitor.js` | Deployment helper | ✅ |
+| `docs/TELEMETRY.md` | Sanitized operational guidance | ✅ |
+| `docs/AZURE-MONITOR.md` | Sanitized Azure Monitor operations guide | ✅ |
+| `docs/TESTING.md` | Sanitized E2E telemetry guidance | ✅ |
+| `docs/CI.md` | Sanitized CI guidance | ✅ |
 
 ---
 
-## 9. Next Steps
+## 8. Notes
 
-> Current: update repo files, then run build/test/package validation
-
-1. Install the packaged VSIX in a normal VS Code window and trigger a telemetry event such as `extension.activate` or `sfLogs.refresh`.
-2. Re-run the documented `az monitor app-insights query` command and confirm at least one recent `customEvent`.
-3. Merge and publish after manual telemetry verification is complete.
+- Public documentation should use placeholders such as `<subscription-id>` and `<workspace-customer-id>`.
+- Live defaults that identify production Azure resources should stay in CI variables, private parameter files, or an internal runbook.
+- The repo can safely keep IaC structure, KQL patterns, alert logic, and workbook definitions in public source control.
+- Local Bicep validation succeeded with `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 az bicep build --file infra/azure-monitor/main.bicep` in this environment.

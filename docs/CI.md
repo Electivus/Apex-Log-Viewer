@@ -3,7 +3,7 @@
 This repository uses GitHub Actions to build, test, package, and publish the extension.
 
 - Workflow CI (`.github/workflows/ci.yml`): build/test only on `push` and `pull_request`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`).
-- Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. When Azure OIDC secrets are configured, it runs the full `npm run test:e2e:telemetry` path and validates telemetry in the dedicated E2E App Insights resource. Without Azure OIDC configuration, it falls back to the existing smoke E2E run.
+- Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. When Azure OIDC secrets and the E2E telemetry target variables are configured, it runs the full `npm run test:e2e:telemetry` path and validates telemetry in the dedicated E2E App Insights resource. Without that Azure configuration, it falls back to the existing smoke E2E run.
 - Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace (if `VSCE_PAT` is configured) and Open VSX (if `OVSX_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
 - Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes automatically to the Marketplace and Open VSX pre‑release channels (when `VSCE_PAT`/`OVSX_PAT` are set).
 
@@ -45,7 +45,15 @@ The telemetry-aware Playwright workflow uses `azure/login@v3` with GitHub OIDC. 
 - `AZURE_TENANT_ID`
 - `AZURE_SUBSCRIPTION_ID`
 
-When all three are present, the workflow authenticates to Azure, runs `npm run test:e2e:telemetry`, and validates that the current E2E run reached `appi-apex-log-viewer-telemetry-e2e-eastus`. If any are missing, the workflow still runs, but it intentionally falls back to the smoke-only Playwright path.
+Configure these repository variables:
+
+- `ALV_E2E_TELEMETRY_RESOURCE_GROUP`
+- `ALV_E2E_TELEMETRY_LOCATION`
+- `ALV_E2E_TELEMETRY_APP`
+- `ALV_E2E_TELEMETRY_BASE_APP`
+- `ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID` (optional)
+
+When the three Azure OIDC secrets and the required telemetry target variables are present, the workflow authenticates to Azure, runs `npm run test:e2e:telemetry`, and validates that the current E2E run reached the shared Log Analytics workspace rows for the configured E2E Application Insights component. If any required setting is missing, the workflow still runs, but it intentionally falls back to the smoke-only Playwright path.
 
 ## Release Flow
 
