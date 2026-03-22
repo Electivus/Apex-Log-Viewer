@@ -293,11 +293,21 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
         primeOrgAuthCache(scratchAlias, auth);
       }
       await waitForScratchOrgReady(scratchAlias, auth);
+      console.info(`[e2e] scratch org reused for alias '${scratchAlias}'.`);
       return {
         devHubAlias,
         scratchAlias,
         created: false,
-        cleanup: async () => {}
+        cleanup: async () => {
+          if (keep) {
+            return;
+          }
+          try {
+            await runSfJson(['org', 'delete', 'scratch', '-o', scratchAlias, '--no-prompt']);
+          } catch {
+            // Best-effort cleanup.
+          }
+        }
       };
     }
     if (existingScratch) {
@@ -386,6 +396,7 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
       }
     }
 
+    console.info(`[e2e] scratch org created for alias '${scratchAlias}'.`);
     return {
       devHubAlias,
       scratchAlias,

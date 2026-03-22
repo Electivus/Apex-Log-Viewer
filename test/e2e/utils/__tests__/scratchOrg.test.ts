@@ -9,6 +9,7 @@ const runSfJsonMock = jest.mocked(runSfJson);
 
 describe('ensureScratchOrg', () => {
   const originalEnv = { ...process.env };
+  let consoleInfoSpy: jest.SpiedFunction<typeof console.info>;
 
   beforeEach(() => {
     process.env = {
@@ -18,6 +19,11 @@ describe('ensureScratchOrg', () => {
       SF_TEST_KEEP_ORG: '1'
     };
     runSfJsonMock.mockReset();
+    consoleInfoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleInfoSpy.mockRestore();
   });
 
   afterAll(() => {
@@ -78,6 +84,7 @@ describe('ensureScratchOrg', () => {
       expect.arrayContaining(['org', 'create', 'scratch', '--alias', 'ALV_E2E_Scratch']),
       expect.any(Object)
     );
+    expect(consoleInfoSpy).toHaveBeenCalledWith("[e2e] scratch org created for alias 'ALV_E2E_Scratch'.");
     await scratch.cleanup();
   });
 
@@ -117,6 +124,7 @@ describe('ensureScratchOrg', () => {
       expect.arrayContaining(['org', 'create', 'scratch']),
       expect.anything()
     );
+    expect(consoleInfoSpy).toHaveBeenCalledWith("[e2e] scratch org reused for alias 'ALV_E2E_Scratch'.");
     await scratch.cleanup();
   });
 
