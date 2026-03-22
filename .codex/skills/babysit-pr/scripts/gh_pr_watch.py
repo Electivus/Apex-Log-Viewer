@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Watch GitHub PR CI and review activity for Codex PR babysitting workflows."""
+"""Watch GitHub PR CI and review activity for PR babysitting workflows."""
 
 import argparse
 import json
@@ -26,6 +26,9 @@ PENDING_CHECK_STATES = {
     "PENDING",
     "WAITING",
     "REQUESTED",
+}
+REVIEW_BOT_LOGINS = {
+    "copilot-pull-request-reviewer",
 }
 REVIEW_BOT_LOGIN_KEYWORDS = {
     "codex",
@@ -60,7 +63,7 @@ class GhCommandError(RuntimeError):
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Normalize PR/CI/review state for Codex PR babysitting and optionally "
+            "Normalize PR/CI/review state for PR babysitting and optionally "
             "trigger flaky reruns."
         )
     )
@@ -537,14 +540,21 @@ def extract_login(user_obj):
 
 
 def is_bot_login(login):
-    return bool(login) and login.endswith("[bot]")
+    lower_login = str(login or "").lower()
+    return bool(lower_login) and (
+        lower_login.endswith("[bot]")
+        or lower_login in REVIEW_BOT_LOGINS
+    )
 
 
 def is_actionable_review_bot_login(login):
     if not is_bot_login(login):
         return False
     lower_login = login.lower()
-    return any(keyword in lower_login for keyword in REVIEW_BOT_LOGIN_KEYWORDS)
+    return (
+        lower_login in REVIEW_BOT_LOGINS
+        or any(keyword in lower_login for keyword in REVIEW_BOT_LOGIN_KEYWORDS)
+    )
 
 
 def is_trusted_human_review_author(item, authenticated_login):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""List, acknowledge, reject, or capture Codex review feedback on a GitHub PR."""
+"""List, acknowledge, reject, or capture actionable review bot feedback on a GitHub PR."""
 
 import argparse
 import json
@@ -8,7 +8,12 @@ import sys
 
 from gh_pr_watch import GhCommandError, gh_api_list_paginated, gh_json, graphql_json, resolve_pr
 
-CODEX_LOGIN_KEYWORD = "codex"
+ACTIONABLE_REVIEW_BOT_LOGINS = {
+    "copilot-pull-request-reviewer",
+}
+ACTIONABLE_REVIEW_BOT_LOGIN_KEYWORDS = {
+    "codex",
+}
 REACTION_CONTENTS = {
     "ack": "THUMBS_UP",
     "reject": "THUMBS_DOWN",
@@ -17,14 +22,14 @@ REACTION_CONTENTS = {
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="List Codex review feedback and optionally react/resolve it."
+        description="List actionable review bot feedback and optionally react/resolve it."
     )
     parser.add_argument("--pr", default="auto", help="auto, PR number, or PR URL")
     parser.add_argument("--repo", help="Optional OWNER/REPO override")
     parser.add_argument(
         "--include-older-reviews",
         action="store_true",
-        help="Include top-level Codex reviews from older SHAs on the same PR",
+        help="Include top-level actionable review bot reviews from older SHAs on the same PR",
     )
     parser.add_argument(
         "--dry-run",
@@ -67,7 +72,11 @@ def parse_args():
     )
 
     action_group = parser.add_mutually_exclusive_group(required=True)
-    action_group.add_argument("--list", action="store_true", help="List Codex feedback items")
+    action_group.add_argument(
+        "--list",
+        action="store_true",
+        help="List actionable review bot feedback items",
+    )
     action_group.add_argument(
         "--ack-all",
         action="store_true",
@@ -114,8 +123,12 @@ def print_json(payload):
     sys.stdout.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
-def is_codex_login(login):
-    return CODEX_LOGIN_KEYWORD in str(login or "").lower()
+def is_actionable_review_bot_login(login):
+    lower_login = str(login or "").lower()
+    return (
+        lower_login in ACTIONABLE_REVIEW_BOT_LOGINS
+        or any(keyword in lower_login for keyword in ACTIONABLE_REVIEW_BOT_LOGIN_KEYWORDS)
+    )
 
 
 def summarize_body(body, limit=160):
@@ -139,7 +152,7 @@ def plain_text_excerpt(text, limit=90):
     cleaned = re.sub(r"Useful\?\s*React with.*$", "", cleaned, flags=re.IGNORECASE | re.DOTALL)
     cleaned = " ".join(cleaned.split())
     if not cleaned:
-        return "Investigate Codex review feedback"
+        return "Investigate actionable review bot feedback"
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: limit - 3] + "..."
@@ -168,7 +181,7 @@ def format_reply_body(template, pr, item, follow_up_issue=None):
         raise GhCommandError(f"Unknown placeholder in --reply-body: {err}") from err
 
 
-def fetch_codex_reviews(pr, include_older_reviews=False):
+def fetch_actionable_reviews(pr, include_older_reviews=False):
     endpoint = f"repos/{pr['repo']}/pulls/{pr['number']}/reviews"
     payload = gh_api_list_paginated(endpoint, repo=pr["repo"])
     items = []
@@ -176,7 +189,7 @@ def fetch_codex_reviews(pr, include_older_reviews=False):
         if not isinstance(review, dict):
             continue
         login = ((review.get("user") or {}).get("login")) or ""
-        if not is_codex_login(login):
+        if not is_actionable_review_bot_login(login):
             continue
         commit_id = str(review.get("commit_id") or "")
         if not include_older_reviews and commit_id and commit_id != pr["head_sha"]:
@@ -207,7 +220,7 @@ def fetch_codex_reviews(pr, include_older_reviews=False):
     return items
 
 
-def fetch_codex_threads(pr):
+def fetch_actionable_threads(pr):
     owner, repo_name = pr["repo"].split("/", 1)
     query = """
 query($owner:String!, $repo:String!, $number:Int!, $after:String) {
@@ -271,18 +284,18 @@ query($owner:String!, $repo:String!, $number:Int!, $after:String) {
             comments = thread.get("comments", {}).get("nodes", [])
             if not thread_id or not isinstance(comments, list) or not comments:
                 continue
-            latest_codex_comment = None
+            latest_actionable_comment = None
             for comment in comments:
                 if not isinstance(comment, dict):
                     continue
                 login = ((comment.get("author") or {}).get("login")) or ""
-                if is_codex_login(login):
-                    latest_codex_comment = comment
-            if not isinstance(latest_codex_comment, dict):
+                if is_actionable_review_bot_login(login):
+                    latest_actionable_comment = comment
+            if not isinstance(latest_actionable_comment, dict):
                 continue
-            login = ((latest_codex_comment.get("author") or {}).get("login")) or ""
-            subject_id = str(latest_codex_comment.get("id") or "")
-            body = str(latest_codex_comment.get("body") or "")
+            login = ((latest_actionable_comment.get("author") or {}).get("login")) or ""
+            subject_id = str(latest_actionable_comment.get("id") or "")
+            body = str(latest_actionable_comment.get("body") or "")
             items.append(
                 {
                     "item_id": f"thread:{thread_id}",
@@ -293,12 +306,12 @@ query($owner:String!, $repo:String!, $number:Int!, $after:String) {
                     "body": body,
                     "summary": summarize_body(body),
                     "commit_id": pr["head_sha"],
-                    "created_at": str(latest_codex_comment.get("createdAt") or ""),
-                    "html_url": str(latest_codex_comment.get("url") or pr["url"]),
+                    "created_at": str(latest_actionable_comment.get("createdAt") or ""),
+                    "html_url": str(latest_actionable_comment.get("url") or pr["url"]),
                     "review_state": None,
-                    "path": latest_codex_comment.get("path"),
-                    "line": latest_codex_comment.get("line"),
-                    "database_id": str(latest_codex_comment.get("databaseId") or ""),
+                    "path": latest_actionable_comment.get("path"),
+                    "line": latest_actionable_comment.get("line"),
+                    "database_id": str(latest_actionable_comment.get("databaseId") or ""),
                 }
             )
         page_info = review_threads.get("pageInfo", {})
@@ -312,8 +325,8 @@ query($owner:String!, $repo:String!, $number:Int!, $after:String) {
 
 
 def list_feedback_items(pr, include_older_reviews=False):
-    items = fetch_codex_threads(pr)
-    items.extend(fetch_codex_reviews(pr, include_older_reviews=include_older_reviews))
+    items = fetch_actionable_threads(pr)
+    items.extend(fetch_actionable_reviews(pr, include_older_reviews=include_older_reviews))
     items.sort(key=lambda item: (item["created_at"], item["kind"], item["item_id"]))
     return items
 
@@ -365,7 +378,7 @@ def build_issue_title(item, title_prefix):
 
 def build_issue_body(pr, item):
     details = [
-        "This follow-up was captured from Codex review feedback that looks important but out of scope for the current PR.",
+        "This follow-up was captured from actionable review bot feedback that looks important but out of scope for the current PR.",
         "",
         f"- PR: #{pr['number']} ({pr['url']})",
         f"- Review item: {item['html_url']}",
