@@ -16,8 +16,9 @@
 - `.github/workflows/e2e-playwright.yml:27` (concurrency global), `:74` (env e passos de login/rotação)
 - `docs/CI.md:15` (documentar reuso de scratch e secrets)
 
-**No changes expected**
-- `test/e2e/utils/scratchOrg.ts` (já suporta reuso por alias; vamos controlar via env no workflow)
+**Optional (observability)**
+- `test/e2e/utils/scratchOrg.ts:281` (log seguro: reused vs created)
+- `test/e2e/utils/__tests__/scratchOrg.test.ts:84` (assert do log, se aplicável)
 
 ---
 
@@ -91,8 +92,8 @@ Objetivo:
 
 - [ ] **Step 3: (Opcional) Aumentar default de `scratch_duration_days`**
 
-Se o DevHub permitir, considerar trocar default `1` para `7` (ou outro máximo permitido).  
-Se não tiver certeza, manter como está e deixar operador escolher em `workflow_dispatch`.
+Fora do caminho crítico do spec. Só fazer se vocês explicitamente quiserem aumentar a duração padrão.  
+Se o DevHub permitir, considerar trocar default `1` para `7` (ou outro máximo permitido); caso contrário manter como está.
 
 - [ ] **Step 4: Commit**
 
@@ -113,11 +114,19 @@ git commit -m "ci(e2e): reuse scratch org alias in CI" -m "Co-authored-by: Codex
 
 - [ ] **Step 1: Inserir step de login antes de rodar Playwright**
 
+Primeiro, adicionar no `jobs.playwright_e2e.env` um sinal booleano (GitHub não permite usar `secrets.*` diretamente em `if:`; gatear por `env.*`):
+
+```yaml
+    env:
+      # ...existing env...
+      HAS_SCRATCH_AUTH_URL: ${{ secrets.SF_SCRATCH_CI_SFDX_AUTH_URL != '' && '1' || '' }}
+```
+
 Inserir após “Install Salesforce CLI”:
 
 ```yaml
       - name: Login to reusable scratch org (best-effort)
-        if: ${{ secrets.SF_SCRATCH_CI_SFDX_AUTH_URL != '' }}
+        if: ${{ env.HAS_SCRATCH_AUTH_URL == '1' }}
         continue-on-error: true
         shell: bash
         run: |
@@ -163,11 +172,19 @@ git commit -m "ci(e2e): login to reusable scratch org via sfdxAuthUrl" -m "Co-au
 
 - [ ] **Step 1: Inserir step “Rotate scratch auth URL secret”**
 
+Primeiro, adicionar no `jobs.playwright_e2e.env` um sinal booleano para liberar rotação:
+
+```yaml
+    env:
+      # ...existing env...
+      CAN_ROTATE_SCRATCH_SECRET: ${{ secrets.GH_SECRETS_ROTATOR_PAT != '' && '1' || '' }}
+```
+
 Adicionar após “Run Playwright E2E”:
 
 ```yaml
       - name: Rotate scratch auth URL secret (post-run)
-        if: ${{ secrets.GH_SECRETS_ROTATOR_PAT != '' }}
+        if: ${{ always() && env.CAN_ROTATE_SCRATCH_SECRET == '1' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -199,7 +216,7 @@ Expected:
 Para reduzir ambiguidades, reforçar o `if`:
 
 ```yaml
-if: ${{ secrets.GH_SECRETS_ROTATOR_PAT != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+if: ${{ always() && env.CAN_ROTATE_SCRATCH_SECRET == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
 ```
 
 - [ ] **Step 3: Commit**
@@ -240,6 +257,53 @@ E mencionar:
 ```bash
 git add docs/CI.md
 git commit -m "docs(ci): document scratch org reuse and required secrets" -m "Co-authored-by: Codex <noreply@openai.com>"
+```
+
+---
+
+### Task 6 (Recommended): Emitir sinal “reused vs created” sem vazar credenciais
+
+**Why:** Ajuda a confirmar rollout e facilita triagem quando o CI parar de reusar e voltar a criar orgs.
+
+**Files:**
+- Modify: `test/e2e/utils/scratchOrg.ts:288`
+- Test: `test/e2e/utils/__tests__/scratchOrg.test.ts:84`
+
+- [ ] **Step 1: Escrever teste falhando para o log**
+
+No teste “reuses an active scratch org…”, capturar `console.info` e esperar um log do tipo:
+
+```ts
+const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+// ... run ensureScratchOrg()
+expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining("[e2e] scratch org reused"));
+infoSpy.mockRestore();
+```
+
+- [ ] **Step 2: Implementar log seguro em `ensureScratchOrg()`**
+
+Em `test/e2e/utils/scratchOrg.ts`, adicionar:
+- no caminho de reuse (antes do return `created: false`): `console.info("[e2e] scratch org reused: ...")`
+- no caminho de create (antes do return `created: true`): `console.info("[e2e] scratch org created: ...")`
+
+Regras:
+- NÃO imprimir accessToken/instanceUrl/sfdxAuthUrl
+- Pode imprimir apenas `scratchAlias` e o `devHubAlias` escolhido
+
+- [ ] **Step 3: Rodar testes unitários**
+
+Run:
+```bash
+npm run test:unit -- test/e2e/utils/__tests__/scratchOrg.test.ts
+```
+
+Expected: PASS.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add test/e2e/utils/scratchOrg.ts test/e2e/utils/__tests__/scratchOrg.test.ts
+git commit -m "test(e2e): log scratch org reuse vs creation" -m "Co-authored-by: Codex <noreply@openai.com>"
 ```
 
 ---
