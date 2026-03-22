@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   buildRunValidationQuery,
   resolveConfig,
+  spawnAsync,
   summarizeTelemetry
 } = require('./run-playwright-e2e-telemetry');
 
@@ -61,5 +62,19 @@ test('resolveConfig fails fast when explicit telemetry target names are missing'
         AZURE_SUBSCRIPTION_ID: 'sub-123'
       }),
     /Missing required Azure telemetry config/
+  );
+});
+
+test('spawnAsync rejects when the child process cannot be started', async () => {
+  await assert.rejects(
+    () =>
+      spawnAsync('node', ['missing.js'], {}, () => ({
+        on(event, handler) {
+          if (event === 'error') {
+            process.nextTick(() => handler(new Error('spawn ENOENT')));
+          }
+        }
+      })),
+    /spawn ENOENT/
   );
 });

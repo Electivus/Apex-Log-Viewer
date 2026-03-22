@@ -52,7 +52,7 @@ npm run azure:monitor:deploy -- \
 To deploy alerts, either:
 
 - pass `--set deployActionGroup=true` and provide receivers in a private parameters file, or
-- keep `deployActionGroup=false` and pass an existing `actionGroupResourceId` through a private parameters file.
+- keep `deployActionGroup=false` and pass an existing `existingActionGroupResourceId` through a private parameters file.
 
 ## Operational guidance
 

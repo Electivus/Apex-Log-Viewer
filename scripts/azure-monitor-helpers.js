@@ -29,6 +29,25 @@ function execCommandAsync(command, args, options = {}) {
   return execFileAsync(command, args, options);
 }
 
+function buildWindowsQueryCommand(workspaceId, query, baseEnv = process.env) {
+  return {
+    command: 'powershell.exe',
+    args: [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      '& az monitor log-analytics query -w $env:ALV_AZ_WORKSPACE_ID --analytics-query $env:ALV_AZ_KQL_QUERY -o json'
+    ],
+    env: {
+      ...baseEnv,
+      ALV_AZ_WORKSPACE_ID: workspaceId,
+      ALV_AZ_KQL_QUERY: query
+    }
+  };
+}
+
 function parseJson(text) {
   return JSON.parse(String(text || '').trim());
 }
@@ -117,11 +136,23 @@ async function resolveWorkspaceInfo(config) {
 }
 
 async function queryWorkspace(workspaceId, query, options = {}) {
+  if (process.platform === 'win32') {
+    const plan = buildWindowsQueryCommand(workspaceId, query, options.env);
+    const { stdout } = await execFileAsync(plan.command, plan.args, {
+      cwd: options.cwd || REPO_ROOT,
+      maxBuffer: 10 * 1024 * 1024,
+      ...options,
+      env: plan.env
+    });
+    return parseJson(stdout);
+  }
+
   return azJson(['monitor', 'log-analytics', 'query', '-w', workspaceId, '--analytics-query', query], options);
 }
 
 module.exports = {
   azJson,
+  buildWindowsQueryCommand,
   kqlQuote,
   normalizeResourceId,
   parseJson,

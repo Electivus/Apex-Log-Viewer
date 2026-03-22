@@ -55,6 +55,65 @@ function collectSetArguments() {
   return collected;
 }
 
+function isBicepParametersFile(filePath) {
+  return /\.bicepparam$/i.test(String(filePath || '').trim());
+}
+
+function buildDeploymentArgs({
+  repoRoot = REPO_ROOT,
+  resourceGroup,
+  parametersFile,
+  mode,
+  parameterOverrides
+}) {
+  const args = ['deployment', 'group', mode, '--resource-group', resourceGroup];
+  const resolvedParametersFile = parametersFile ? path.resolve(repoRoot, parametersFile) : '';
+
+  if (!resolvedParametersFile || !isBicepParametersFile(resolvedParametersFile)) {
+    args.push('--template-file', path.join(repoRoot, 'infra', 'azure-monitor', 'main.bicep'));
+  }
+
+  if (resolvedParametersFile) {
+    args.push('--parameters', resolvedParametersFile);
+  }
+
+  if (parameterOverrides.length > 0) {
+    args.push('--parameters', ...parameterOverrides);
+  }
+
+  return args;
+}
+
+function runAzCommand(args, options = {}) {
+  const { cwd = REPO_ROOT, spawnImpl = spawn } = options;
+
+  return new Promise((resolve, reject) => {
+    const child = spawnImpl('az', args, {
+      cwd,
+      stdio: 'inherit'
+    });
+
+    child.on('error', error => {
+      reject(
+        new Error(
+          `[deploy-azure-monitor] Failed to start Azure CLI (az). Please ensure it is installed and on your PATH. Underlying error: ${
+            error && error.message ? error.message : error
+          }`
+        )
+      );
+    });
+
+    child.on('exit', code => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(`[deploy-azure-monitor] Azure CLI exited with code ${typeof code === 'number' ? code : 1}.`));
+    });
+  });
+}
+
 async function main() {
   if (hasFlag('help')) {
     printHelp();
@@ -72,27 +131,24 @@ async function main() {
     return;
   }
 
-  const args = ['deployment', 'group', mode, '--resource-group', resourceGroup, '--template-file', TEMPLATE_FILE];
-
-  if (parametersFile) {
-    args.push('--parameters', path.resolve(REPO_ROOT, parametersFile));
-  }
-
-  if (parameterOverrides.length > 0) {
-    args.push('--parameters', ...parameterOverrides);
-  }
-
-  const child = spawn('az', args, {
-    cwd: REPO_ROOT,
-    stdio: 'inherit'
+  const args = buildDeploymentArgs({
+    resourceGroup,
+    parametersFile,
+    mode,
+    parameterOverrides
   });
 
-  child.on('exit', code => {
-    process.exitCode = typeof code === 'number' ? code : 1;
+  await runAzCommand(args);
+}
+
+if (require.main === module) {
+  main().catch(error => {
+    console.error(error && error.message ? error.message : error);
+    process.exit(1);
   });
 }
 
-main().catch(error => {
-  console.error('[deploy-azure-monitor] Failed:', error && error.message ? error.message : error);
-  process.exit(1);
-});
+module.exports = {
+  buildDeploymentArgs,
+  runAzCommand
+};

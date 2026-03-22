@@ -21,9 +21,10 @@ function sleep(ms) {
 
 const REPO_ROOT = path.join(__dirname, '..');
 
-function spawnAsync(command, args, options = {}) {
-  return new Promise(resolve => {
-    const child = spawn(command, args, options);
+function spawnAsync(command, args, options = {}, spawnImpl = spawn) {
+  return new Promise((resolve, reject) => {
+    const child = spawnImpl(command, args, options);
+    child.on('error', reject);
     child.on('exit', (code, signal) => resolve({ code, signal }));
   });
 }
@@ -228,5 +229,6 @@ if (require.main === module) {
 module.exports = {
   buildRunValidationQuery,
   resolveConfig,
+  spawnAsync,
   summarizeTelemetry
 };
