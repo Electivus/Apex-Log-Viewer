@@ -14,9 +14,31 @@ Build & Test basics:
 
 Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref.
 
+## E2E Scratch Org Reuse
+
+The Playwright workflow in `.github/workflows/e2e-playwright.yml` reuses a single CI scratch org to avoid exhausting the Salesforce daily scratch-org quota.
+
+Required repository secrets:
+
+- `SF_DEVHUB_AUTH_URL`: authenticates the workflow to the Dev Hub so it can create or recreate the scratch org when reuse is not possible.
+- `SF_SCRATCH_CI_SFDX_AUTH_URL`: stores the current `sfdxAuthUrl` for the reusable CI scratch org so GitHub-hosted runners can log back into it.
+- `GH_SECRETS_ROTATOR_PAT`: fine-grained PAT with permission to update repository Actions secrets; used to rotate `SF_SCRATCH_CI_SFDX_AUTH_URL` after the scratch org is recreated.
+
+Key behavior:
+
+- The workflow uses a fixed alias, `ALV_E2E_SCRATCH_CI`, so the E2E scratch-org helpers can find and reuse the same org across runs.
+- `SF_TEST_KEEP_ORG` stays enabled for `pull_request` runs and is only disabled manually through `workflow_dispatch`, so the scratch org is preserved for reuse.
+- A best-effort login step restores the reusable scratch org from `SF_SCRATCH_CI_SFDX_AUTH_URL` before the tests start. If that auth URL is missing or stale, the E2E helpers fall back to creating a new scratch org through the Dev Hub.
+- A post-run rotation step refreshes `SF_SCRATCH_CI_SFDX_AUTH_URL` with the current org credentials when the job has access to `GH_SECRETS_ROTATOR_PAT`.
+- The workflow is serialized with `concurrency.group: sf-e2e-scratch-global`, which prevents simultaneous E2E runs from sharing the same org. GitHub Actions still allows one pending run and may replace older pending runs with newer ones, so this protects the org from concurrent access but is not a strict FIFO queue.
+
+Operational note:
+
+- The scratch org is expected to be cleaned and reseeded by the E2E suite itself before each run. Reuse reduces daily org creation but does not replace test-level cleanup.
+
 ## Setup Azure OIDC for E2E Telemetry Validation
 
-The telemetry-aware Playwright workflow uses `azure/login@v2` with GitHub OIDC. Configure these repository secrets:
+The telemetry-aware Playwright workflow uses `azure/login@v3` with GitHub OIDC. Configure these repository secrets:
 
 - `AZURE_CLIENT_ID`
 - `AZURE_TENANT_ID`
