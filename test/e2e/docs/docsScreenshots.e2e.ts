@@ -168,7 +168,7 @@ async function selectConnectedDevHubAliasForDocs(): Promise<void> {
 
   if (candidate) {
     process.env.SF_DEVHUB_ALIAS = candidate;
-    console.info(`[docs] Using Dev Hub alias for screenshots: ${candidate}`);
+    console.info('[docs] Using Dev Hub alias for screenshots (value redacted).');
   }
 }
 

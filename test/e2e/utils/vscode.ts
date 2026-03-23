@@ -330,17 +330,20 @@ export async function ensureAuxiliaryBarClosed(page: Page): Promise<void> {
     const modifier = getModifierKey();
     await page.keyboard.press(`${modifier}+Alt+B`);
     await page
-      .waitForFunction(() => {
-        const selectors = ['#workbench\\.parts\\.auxiliarybar', '.part.auxiliarybar', '.auxiliarybar'];
-        return selectors.every(selector => {
-          const el = document.querySelector(selector) as HTMLElement | null;
-          if (!el) {
-            return true;
-          }
-          const rect = el.getBoundingClientRect();
-          return rect.width === 0 || rect.height === 0;
-        });
-      })
+      .waitForFunction(
+        () => {
+          const selectors = ['#workbench\\.parts\\.auxiliarybar', '.part.auxiliarybar', '.auxiliarybar'];
+          return selectors.every(selector => {
+            const el = document.querySelector(selector) as HTMLElement | null;
+            if (!el) {
+              return true;
+            }
+            const rect = el.getBoundingClientRect();
+            return rect.width === 0 || rect.height === 0;
+          });
+        },
+        { timeout: 2_000 }
+      )
       .catch(() => {});
   } catch {
     // best-effort
