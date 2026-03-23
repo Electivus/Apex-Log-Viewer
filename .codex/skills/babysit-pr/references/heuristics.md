@@ -23,13 +23,14 @@ If uncertain, inspect failed logs once before choosing rerun.
 ## Decision tree (fix vs rerun vs stop)
 
 1. If PR is merged/closed: stop.
-2. If there are failed checks:
+2. If GitHub is still showing Codex `eyes` on the PR body, treat the PR as **still in review** and do not declare it ready yet.
+3. If there are failed checks:
    - Diagnose first.
    - If branch-related: fix locally, commit, push.
    - If likely flaky/unrelated and all checks for the current SHA are terminal: rerun failed jobs.
    - If checks are still pending: wait.
-3. If flaky reruns for the same SHA reach the configured limit (default 3): stop and report persistent failure.
-4. Independently, process any new human review comments.
+4. If flaky reruns for the same SHA reach the configured limit (default 3): stop and report persistent failure.
+5. Independently, process any new human review comments.
 
 ## Review comment agreement criteria
 

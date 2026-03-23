@@ -35,10 +35,14 @@ REVIEW_BOT_LOGIN_KEYWORDS = {
     "codex",
 }
 READY_REACTION_CONTENT = "+1"
+IN_REVIEW_REACTION_CONTENT = "eyes"
 TRUSTED_AUTHOR_ASSOCIATIONS = {
     "OWNER",
     "MEMBER",
     "COLLABORATOR",
+}
+CODEX_REVIEW_BOT_LOGINS = {
+    "chatgpt-codex-connector",
 }
 NON_BLOCKING_REVIEW_STATES = {
     "APPROVED",
@@ -578,6 +582,10 @@ def is_authenticated_operator_item(item, authenticated_login):
     return str(item.get("author") or "") == authenticated_login
 
 
+def is_codex_review_bot_login(login):
+    return normalize_review_bot_login(login) in CODEX_REVIEW_BOT_LOGINS
+
+
 def is_generic_codex_summary_review(item):
     if not isinstance(item, dict):
         return False
@@ -617,6 +625,11 @@ def actionable_new_review_items(items):
             continue
         actionable_items.append(item)
     return actionable_items
+
+
+def fetch_pr_reactions(pr):
+    payload = gh_api_list_paginated(reaction_endpoint(pr["repo"], pr["number"]), repo=pr["repo"])
+    return normalize_reactions(payload)
 
 
 def is_trusted_ready_reaction_author(author, repo, authenticated_login, trust_cache=None):
@@ -701,8 +714,15 @@ def fetch_new_review_items(pr, state, fresh_state, authenticated_login=None):
 
 
 def fetch_pr_ready_reactions(pr, authenticated_login=None):
-    payload = gh_api_list_paginated(reaction_endpoint(pr["repo"], pr["number"]), repo=pr["repo"])
-    reactions = normalize_reactions(payload)
+    reactions = fetch_pr_reactions(pr)
+    return ready_reactions_from_reactions(
+        reactions,
+        pr,
+        authenticated_login=authenticated_login,
+    )
+
+
+def ready_reactions_from_reactions(reactions, pr, authenticated_login=None):
     ready_reactions = []
     trust_cache = {}
     for reaction in reactions:
@@ -725,6 +745,37 @@ def fetch_pr_ready_reactions(pr, authenticated_login=None):
         )
     ready_reactions.sort(key=lambda item: (str(item.get("author") or ""), str(item.get("id") or "")))
     return ready_reactions
+
+
+def codex_eyes_reactions(reactions):
+    in_review_reactions = []
+    for reaction in reactions or []:
+        if not isinstance(reaction, dict):
+            continue
+        if reaction.get("content") != IN_REVIEW_REACTION_CONTENT:
+            continue
+        author = reaction.get("author") or ""
+        if not is_codex_review_bot_login(author):
+            continue
+        in_review_reactions.append(
+            {
+                "id": reaction.get("id") or "",
+                "author": author,
+                "content": IN_REVIEW_REACTION_CONTENT,
+            }
+        )
+    in_review_reactions.sort(key=lambda item: (str(item.get("author") or ""), str(item.get("id") or "")))
+    return in_review_reactions
+
+
+def build_review_signal(reactions):
+    in_review_reactions = codex_eyes_reactions(reactions)
+    in_review = bool(in_review_reactions)
+    return {
+        "status": "in_review" if in_review else "none",
+        "codex_review_in_progress": in_review,
+        "codex_eyes_reactions": in_review_reactions,
+    }
 
 
 def blocking_non_thread_feedback_for_sha(state, head_sha):
@@ -918,8 +969,10 @@ def is_pr_ready_to_merge(
     unresolved_review_threads,
     blocking_non_thread_feedback,
     ready_reactions,
+    review_signal=None,
 ):
     actionable_reviews = actionable_new_review_items(new_review_items)
+    review_signal = review_signal if isinstance(review_signal, dict) else {}
     if pr["closed"] or pr["merged"]:
         return False
     if not checks_summary["all_terminal"]:
@@ -931,6 +984,8 @@ def is_pr_ready_to_merge(
     if unresolved_review_threads:
         return False
     if blocking_non_thread_feedback:
+        return False
+    if review_signal.get("codex_review_in_progress"):
         return False
     if str(pr.get("mergeable") or "") != "MERGEABLE":
         return False
@@ -950,9 +1005,12 @@ def recommend_actions(
     ready_reactions,
     retries_used,
     max_retries,
+    review_signal=None,
 ):
     actions = []
     actionable_reviews = actionable_new_review_items(new_review_items)
+    review_signal = review_signal if isinstance(review_signal, dict) else {}
+    review_in_progress = bool(review_signal.get("codex_review_in_progress"))
     if pr["closed"] or pr["merged"]:
         if actionable_reviews or unresolved_review_threads or blocking_non_thread_feedback:
             actions.append("process_review_comment")
@@ -966,12 +1024,18 @@ def recommend_actions(
         unresolved_review_threads,
         blocking_non_thread_feedback,
         ready_reactions,
+        review_signal,
     ):
         actions.append("stop_ready_to_merge")
         return unique_actions(actions)
 
     if actionable_reviews or unresolved_review_threads or blocking_non_thread_feedback:
         actions.append("process_review_comment")
+
+    if review_in_progress and not (
+        actionable_reviews or unresolved_review_threads or blocking_non_thread_feedback
+    ):
+        actions.append("review_in_progress")
 
     has_failed_pr_checks = checks_summary["failed_count"] > 0
     if has_failed_pr_checks:
@@ -1006,6 +1070,7 @@ def collect_snapshot(args):
         failed_check_keys=failed_pr_check_keys(checks),
     )
     authenticated_login = get_authenticated_login()
+    reactions = fetch_pr_reactions(pr)
     new_review_items = fetch_new_review_items(
         pr,
         state,
@@ -1019,7 +1084,12 @@ def collect_snapshot(args):
         new_review_items,
         authenticated_login=authenticated_login,
     )
-    ready_reactions = fetch_pr_ready_reactions(pr, authenticated_login=authenticated_login)
+    ready_reactions = ready_reactions_from_reactions(
+        reactions,
+        pr,
+        authenticated_login=authenticated_login,
+    )
+    review_signal = build_review_signal(reactions)
 
     retries_used = current_retry_count(state, pr["head_sha"])
     actions = recommend_actions(
@@ -1032,6 +1102,7 @@ def collect_snapshot(args):
         ready_reactions,
         retries_used,
         args.max_flaky_retries,
+        review_signal,
     )
 
     state["pr"] = {"repo": pr["repo"], "number": pr["number"]}
@@ -1050,6 +1121,7 @@ def collect_snapshot(args):
             "has_pr_thumbs_up": bool(ready_reactions),
             "pr_thumbs_up_reactions": ready_reactions,
         },
+        "review_signal": review_signal,
         "actions": actions,
         "retry_state": {
             "current_sha_retries_used": retries_used,
@@ -1140,12 +1212,15 @@ def snapshot_change_key(snapshot):
     blocking_non_thread_feedback = snapshot.get("blocking_non_thread_feedback") or []
     approval_signal = snapshot.get("approval_signal") or {}
     ready_reactions = approval_signal.get("pr_thumbs_up_reactions") or []
+    review_signal = snapshot.get("review_signal") or {}
+    codex_eyes = review_signal.get("codex_eyes_reactions") or []
     return (
         str(pr.get("head_sha") or ""),
         str(pr.get("state") or ""),
         str(pr.get("mergeable") or ""),
         str(pr.get("merge_state_status") or ""),
         str(pr.get("review_decision") or ""),
+        str(review_signal.get("status") or ""),
         int(checks.get("passed_count") or 0),
         int(checks.get("failed_count") or 0),
         int(checks.get("pending_count") or 0),
@@ -1167,6 +1242,11 @@ def snapshot_change_key(snapshot):
         tuple(
             (str(item.get("author") or ""), str(item.get("id") or ""))
             for item in ready_reactions
+            if isinstance(item, dict)
+        ),
+        tuple(
+            (str(item.get("author") or ""), str(item.get("id") or ""))
+            for item in codex_eyes
             if isinstance(item, dict)
         ),
         tuple(snapshot.get("actions") or []),

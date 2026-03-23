@@ -9,7 +9,7 @@ description: Use when the user asks Codex to monitor a GitHub pull request, watc
 Babysit a PR persistently until one of these terminal outcomes occurs:
 
 - The PR is merged or closed.
-- CI is successful, there are no unaddressed review comments surfaced by the watcher, and there are no potential merge conflicts (PR is mergeable / not reporting conflict risk).
+- CI is successful, there are no unaddressed review comments surfaced by the watcher, there are no potential merge conflicts (PR is mergeable / not reporting conflict risk), and Codex is not still visibly reviewing the PR.
 - A situation requires user help (for example CI infrastructure issues, repeated flaky failures after retry budget is exhausted, permission problems, or ambiguity that cannot be resolved safely).
 
 Do not stop merely because a single snapshot returns `idle` while checks are still pending.
@@ -26,19 +26,20 @@ Accept any of the following:
 1. When the user asks to "monitor"/"watch"/"babysit" a PR, start with the watcher's continuous mode (`--watch`) unless you are intentionally doing a one-shot diagnostic snapshot.
 2. Run the watcher script to snapshot PR/CI/review state (or consume each streamed snapshot from `--watch`).
 3. Inspect the `actions` list in the JSON response.
-4. If `diagnose_ci_failure` is present, inspect failed run logs and classify the failure.
-5. If the failure is likely caused by the current branch, patch code locally, commit, and push.
-6. If `process_review_comment` is present, inspect surfaced review items and triage them before changing code.
-7. If a review item is actionable, correct, and in scope for the PR, patch code locally, commit, and push.
-8. If a review item is important but not actually part of the PR's scope, record it as a follow-up issue instead of expanding the PR.
-9. If a review item is incorrect, already handled, or otherwise non-actionable, mark it as intentionally rejected/ignored and continue watching.
-10. If the failure is likely flaky/unrelated and `retry_failed_checks` is present, rerun failed jobs with `--retry-failed-now`.
-11. If both actionable review feedback and `retry_failed_checks` are present, prioritize review feedback first; a new commit will retrigger CI, so avoid rerunning flaky checks on the old SHA unless you intentionally defer the review change.
-12. On every loop, verify mergeability / merge-conflict status (for example via `gh pr view`) in addition to CI and review state.
-13. After any push, rerun, or follow-up issue capture, immediately return to step 1 and continue polling on the updated SHA/state.
-14. If you had been using `--watch` before pausing to patch/commit/push, relaunch `--watch` yourself in the same turn immediately after the push (do not wait for the user to re-invoke the skill).
-15. Repeat polling until the PR is green + review-clean + mergeable, `stop_pr_closed` appears, or a user-help-required blocker is reached.
-16. Maintain terminal/session ownership: while babysitting is active, keep consuming watcher output in the same turn; do not leave a detached `--watch` process running and then end the turn as if monitoring were complete.
+4. Inspect `review_signal.status`. If it is `in_review`, treat the PR status as `em revisão` even when there are no comments yet.
+5. If `diagnose_ci_failure` is present, inspect failed run logs and classify the failure.
+6. If the failure is likely caused by the current branch, patch code locally, commit, and push.
+7. If `process_review_comment` is present, inspect surfaced review items and triage them before changing code.
+8. If a review item is actionable, correct, and in scope for the PR, patch code locally, commit, and push.
+9. If a review item is important but not actually part of the PR's scope, record it as a follow-up issue instead of expanding the PR.
+10. If a review item is incorrect, already handled, or otherwise non-actionable, mark it as intentionally rejected/ignored and continue watching.
+11. If the failure is likely flaky/unrelated and `retry_failed_checks` is present, rerun failed jobs with `--retry-failed-now`.
+12. If both actionable review feedback and `retry_failed_checks` are present, prioritize review feedback first; a new commit will retrigger CI, so avoid rerunning flaky checks on the old SHA unless you intentionally defer the review change.
+13. On every loop, verify mergeability / merge-conflict status (for example via `gh pr view`) in addition to CI and review state.
+14. After any push, rerun, or follow-up issue capture, immediately return to step 1 and continue polling on the updated SHA/state.
+15. If you had been using `--watch` before pausing to patch/commit/push, relaunch `--watch` yourself in the same turn immediately after the push (do not wait for the user to re-invoke the skill).
+16. Repeat polling until the PR is green + review-clean + mergeable + not `in_review`, `stop_pr_closed` appears, or a user-help-required blocker is reached.
+17. Maintain terminal/session ownership: while babysitting is active, keep consuming watcher output in the same turn; do not leave a detached `--watch` process running and then end the turn as if monitoring were complete.
 
 ## Commands
 
@@ -126,6 +127,7 @@ The watcher surfaces review items from:
 It intentionally surfaces trusted reviewer bot feedback (for example comments/reviews from the Codex reviewer login, which GitHub may emit as `chatgpt-codex-connector` or `chatgpt-codex-connector[bot]`, and the Copilot reviewer login, which GitHub may emit as `copilot-pull-request-reviewer` or `copilot-pull-request-reviewer[bot]`) in addition to human reviewer feedback. Most unrelated bot noise should still be ignored.
 For safety, the watcher only auto-surfaces trusted human review authors (for example repo OWNER/MEMBER/COLLABORATOR, plus the authenticated operator) and approved review bots such as Codex plus the Copilot reviewer login.
 On a fresh watcher state file, existing pending review feedback may be surfaced immediately (not only comments that arrive after monitoring starts). This is intentional so already-open review comments are not missed.
+Separately, the watcher also inspects PR reactions. If the PR body has an `eyes` reaction from `chatgpt-codex-connector[bot]`, the watcher exposes `review_signal.status = "in_review"` and may emit `review_in_progress` in `actions`. Treat that as Codex still reviewing the PR, not as review feedback that needs a code change yet.
 
 When you agree with a comment and it is actionable:
 
@@ -177,14 +179,15 @@ Use this loop in a live Codex session:
 2. Read `actions`.
 3. First check whether the PR is now merged or otherwise closed; if so, report that terminal state and stop polling immediately.
 4. Check CI summary, new review items, and mergeability/conflict status.
-5. Diagnose CI failures and classify branch-related vs flaky/unrelated.
-6. Process actionable review comments before flaky reruns when both are present; if a review fix requires a commit, push it and skip rerunning failed checks on the old SHA.
-7. Retry failed checks only when `retry_failed_checks` is present and you are not about to replace the current SHA with a review/CI fix commit.
-8. If you pushed a commit or triggered a rerun, report the action briefly and continue polling (do not stop).
-9. After a review-fix push, proactively restart continuous monitoring (`--watch`) in the same turn unless a strict stop condition has already been reached.
-10. If everything is passing, mergeable, and there are no unaddressed review items or unresolved review threads, report success and stop.
-11. If blocked on a user-help-required issue (infra outage, exhausted flaky retries, unclear reviewer request, permissions), report the blocker and stop.
-12. Otherwise sleep according to the polling cadence below and repeat.
+5. If `review_signal.status == "in_review"` or `actions` includes `review_in_progress`, report the PR as `em revisão` and keep waiting; do not treat it as ready.
+6. Diagnose CI failures and classify branch-related vs flaky/unrelated.
+7. Process actionable review comments before flaky reruns when both are present; if a review fix requires a commit, push it and skip rerunning failed checks on the old SHA.
+8. Retry failed checks only when `retry_failed_checks` is present and you are not about to replace the current SHA with a review/CI fix commit.
+9. If you pushed a commit or triggered a rerun, report the action briefly and continue polling (do not stop).
+10. After a review-fix push, proactively restart continuous monitoring (`--watch`) in the same turn unless a strict stop condition has already been reached.
+11. If everything is passing, mergeable, there are no unaddressed review items or unresolved review threads, and Codex is not still `in_review`, report success and stop.
+12. If blocked on a user-help-required issue (infra outage, exhausted flaky retries, unclear reviewer request, permissions), report the blocker and stop.
+13. Otherwise sleep according to the polling cadence below and repeat.
 
 When the user explicitly asks to monitor/watch/babysit a PR, prefer `--watch` so polling continues autonomously in one command. Use repeated `--once` snapshots only for debugging, local testing, or when the user explicitly asks for a one-shot check.
 Do not stop to ask the user whether to continue polling; continue autonomously until a strict stop condition is met or the user explicitly interrupts.
@@ -205,6 +208,7 @@ Stop only when one of the following is true:
 
 - PR merged or closed (stop as soon as a poll/snapshot confirms this).
 - PR is ready to merge: CI succeeded, no surfaced unaddressed review comments, no unresolved review threads, and no merge conflict risk.
+- A PR is not ready while `review_signal.status == "in_review"` (for example when the PR has an `eyes` reaction from `chatgpt-codex-connector[bot]`).
 - A separate approval/thumbs-up signal is not required, but any GitHub-reported merge blocking state (for example `BLOCKED`) still means the PR is not ready.
 - User intervention is required and Codex cannot safely proceed alone.
 
@@ -214,6 +218,7 @@ Keep polling when:
 - CI is still running/queued.
 - Review state is quiet but CI is not terminal.
 - CI is green but mergeability is unknown/pending.
+- GitHub is still showing Codex `eyes` / `review_signal.status == "in_review"`.
 - CI is green and mergeable, but the PR is still open and you are waiting for possible new review comments or merge-conflict changes per the green-state cadence.
 
 ## Output Expectations
