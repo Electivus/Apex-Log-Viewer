@@ -287,6 +287,45 @@ suite('TailService', () => {
     });
   });
 
+  test('sendDebugLevels does not create a fallback debug level when listing levels fails', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const provider = new SfLogTailViewProvider(context);
+    const posted: any[] = [];
+    const originalGetAuth = cli.getOrgAuth;
+    const originalListDebugLevels = traceflags.listDebugLevels;
+    const originalGetActiveUserDebugLevel = traceflags.getActiveUserDebugLevel;
+    const originalEnsureDefaultTailDebugLevel = (traceflags as any).ensureDefaultTailDebugLevel;
+    let ensureCalls = 0;
+
+    (provider as any).post = (message: any) => {
+      posted.push(message);
+    };
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'https://example.com', accessToken: 't' });
+    (traceflags as any).listDebugLevels = async () => {
+      throw new Error('temporary read failure');
+    };
+    (traceflags as any).getActiveUserDebugLevel = async () => undefined;
+    (traceflags as any).ensureDefaultTailDebugLevel = async () => {
+      ensureCalls++;
+      return 'ALV_DEVELOPER_FOCUS';
+    };
+
+    try {
+      await (provider as any).sendDebugLevels();
+    } finally {
+      (cli as any).getOrgAuth = originalGetAuth;
+      (traceflags as any).listDebugLevels = originalListDebugLevels;
+      (traceflags as any).getActiveUserDebugLevel = originalGetActiveUserDebugLevel;
+      (traceflags as any).ensureDefaultTailDebugLevel = originalEnsureDefaultTailDebugLevel;
+    }
+
+    assert.equal(ensureCalls, 0);
+    assert.deepEqual(posted.at(-1), { type: 'debugLevels', data: [], active: undefined });
+  });
+
   test('retries log ID after fetch failure', async () => {
     const service = new TailService(() => {});
     (service as any).tailRunning = true;
