@@ -24,6 +24,10 @@ describe('Logs webview App', () => {
     });
   }
 
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('responds to extension messages and exposes key actions', async () => {
     const { vscode, posted } = createVsCodeMock();
     const bus = new EventTarget();
@@ -251,6 +255,66 @@ describe('Logs webview App', () => {
     await waitFor(() => {
       const loadCalls = posted.filter(msg => msg.type === 'loadMore').length;
       expect(loadCalls).toBeGreaterThan(baselineLoads);
+    });
+  });
+
+  it('posts sanitized telemetry messages for search and filters', async () => {
+    jest.useFakeTimers();
+
+    const { vscode, posted } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<LogsApp vscode={vscode} messageBus={bus} />);
+
+    sendMessage(bus, {
+      type: 'logs',
+      data: [
+        {
+          Id: '07L00000000000AAW',
+          StartTime: '2025-09-21T22:10:00.000Z',
+          Operation: 'ExecuteAnonymous',
+          Application: 'Developer Console',
+          DurationMilliseconds: 90,
+          Status: 'Success',
+          Request: 'XYZ',
+          LogLength: 1024,
+          LogUser: { Name: 'Alice' }
+        }
+      ],
+      hasMore: false
+    });
+    sendMessage(bus, { type: 'loading', value: false });
+
+    const searchInput = screen.getByPlaceholderText('Search logs…');
+    fireEvent.change(searchInput, { target: { value: 'error' } });
+
+    await act(async () => {
+      jest.advanceTimersByTime(400);
+    });
+
+    expect(posted).toEqual(
+      expect.arrayContaining([
+        { type: 'trackLogsSearch', outcome: 'searched', queryLength: '4-10' } as any
+      ])
+    );
+
+    const errorsOnlySwitch = screen.getByTestId('logs-errors-only-switch');
+    fireEvent.click(errorsOnlySwitch);
+
+    await waitFor(() => {
+      expect(posted).toEqual(
+        expect.arrayContaining([
+          {
+            type: 'trackLogsFilter',
+            outcome: 'changed',
+            hasUser: false,
+            hasOperation: false,
+            hasStatus: false,
+            hasCodeUnit: false,
+            errorsOnly: true,
+            activeCount: 1
+          } as any
+        ])
+      );
     });
   });
 

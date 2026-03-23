@@ -12,6 +12,7 @@ import {
   upsertTraceFlag
 } from '../salesforce/traceflags';
 import { DEBUG_LEVEL_PRESETS } from '../shared/debugLevelPresets';
+import { bucketQueryLength } from '../shared/telemetryBuckets';
 import { clearApexLogs } from '../services/apexLogCleanup';
 import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '../shared/debugFlagsMessages';
 import type { DebugLevelRecord, TraceFlagTarget, TraceFlagTargetStatus } from '../shared/debugFlagsTypes';
@@ -235,6 +236,7 @@ export class DebugFlagsPanel {
 
   private async searchUsers(): Promise<void> {
     const token = ++this.usersToken;
+    const t0 = Date.now();
     this.post({ type: 'debugFlagsLoading', scope: 'users', value: true });
     try {
       const auth = await this.getSelectedAuth();
@@ -242,6 +244,18 @@ export class DebugFlagsPanel {
       if (token !== this.usersToken || this.disposed) {
         return;
       }
+      safeSendEvent(
+        'debugFlags.searchUsers',
+        {
+          outcome: 'ok',
+          sourceView: this.lastSourceView,
+          queryLength: bucketQueryLength(this.usersQuery)
+        },
+        {
+          durationMs: Date.now() - t0,
+          count: users.length
+        }
+      );
       this.post({ type: 'debugFlagsUsers', query: this.usersQuery, data: users });
       const selectedUserTarget = this.selectedTarget?.type === 'user' ? this.selectedTarget : undefined;
       if (selectedUserTarget && !users.some(user => user.id === selectedUserTarget.userId)) {
@@ -254,6 +268,17 @@ export class DebugFlagsPanel {
         return;
       }
       const msg = getErrorMessage(e);
+      safeSendEvent(
+        'debugFlags.searchUsers',
+        {
+          outcome: 'error',
+          sourceView: this.lastSourceView,
+          queryLength: bucketQueryLength(this.usersQuery)
+        },
+        {
+          durationMs: Date.now() - t0
+        }
+      );
       logWarn('DebugFlagsPanel: user search failed ->', msg);
       this.post({
         type: 'debugFlagsError',

@@ -1,4 +1,5 @@
 import type { WebviewToExtensionMessage } from '../shared/messages';
+import { safeSendEvent } from '../shared/telemetry';
 import { logInfo } from '../utils/logger';
 
 export class LogsMessageHandler {
@@ -68,6 +69,28 @@ export class LogsMessageHandler {
         break;
       case 'searchQuery':
         await this.setSearchQuery(typeof message.value === 'string' ? message.value : '');
+        break;
+      case 'trackLogsSearch':
+        safeSendEvent(
+          'logs.search',
+          message.outcome === 'searched' && message.queryLength
+            ? { outcome: message.outcome, queryLength: message.queryLength }
+            : { outcome: message.outcome }
+        );
+        break;
+      case 'trackLogsFilter':
+        safeSendEvent(
+          'logs.filter',
+          {
+            outcome: message.outcome,
+            hasUser: String(message.hasUser),
+            hasOperation: String(message.hasOperation),
+            hasStatus: String(message.hasStatus),
+            hasCodeUnit: String(message.hasCodeUnit),
+            errorsOnly: String(message.errorsOnly)
+          },
+          { activeCount: message.activeCount }
+        );
         break;
       case 'setLogsColumns':
         await this.setLogsColumns(message.value);

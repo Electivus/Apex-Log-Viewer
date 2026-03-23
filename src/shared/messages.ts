@@ -14,6 +14,17 @@ export type WebviewToExtensionMessage =
   | { type: 'replay'; logId: string }
   | { type: 'loadMore' }
   | { type: 'searchQuery'; value: string }
+  | { type: 'trackLogsSearch'; outcome: 'searched' | 'cleared'; queryLength?: '1-3' | '4-10' | '11-30' | '31+' }
+  | {
+      type: 'trackLogsFilter';
+      outcome: 'changed' | 'cleared';
+      hasUser: boolean;
+      hasOperation: boolean;
+      hasStatus: boolean;
+      hasCodeUnit: boolean;
+      errorsOnly: boolean;
+      activeCount: number;
+    }
   | { type: 'setLogsColumns'; value: LogsColumnsConfig }
   // Tail view messages
   | { type: 'tailStart'; debugLevel?: string }

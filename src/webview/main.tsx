@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { getMessages, type Messages } from './i18n';
 import type { OrgItem, ApexLogRow } from '../shared/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
+import { bucketQueryLength } from '../shared/telemetryBuckets';
 import {
   DEFAULT_LOGS_COLUMNS_CONFIG,
   normalizeLogsColumnsConfig,
@@ -57,6 +58,8 @@ export function LogsApp({
   const queryRef = useRef('');
   const [searchStatus, setSearchStatus] = useState<'idle' | 'loading'>('idle');
   const [pendingLogCount, setPendingLogCount] = useState(0);
+  const lastTrackedSearchRef = useRef<string | undefined>(undefined);
+  const lastTrackedFilterStateRef = useRef<string | undefined>(undefined);
 
   // Search + filters
   const [query, setQueryState] = useState('');
@@ -204,6 +207,82 @@ export function LogsApp({
       setPendingLogCount(0);
     }
   }, [query]);
+
+  useEffect(() => {
+    if (!messageBus) {
+      return;
+    }
+    const normalized = query.trim();
+    const previousTracked = lastTrackedSearchRef.current;
+    const timeout = window.setTimeout(() => {
+      if (!normalized) {
+        if (!previousTracked) {
+          lastTrackedSearchRef.current = '';
+          return;
+        }
+        vscode.postMessage({ type: 'trackLogsSearch', outcome: 'cleared' });
+        lastTrackedSearchRef.current = '';
+        return;
+      }
+
+      const nextTracked = normalized.toLowerCase();
+      if (previousTracked === nextTracked) {
+        return;
+      }
+      const queryLength = bucketQueryLength(normalized);
+      if (queryLength === '0') {
+        return;
+      }
+
+      vscode.postMessage({
+        type: 'trackLogsSearch',
+        outcome: 'searched',
+        queryLength
+      });
+      lastTrackedSearchRef.current = nextTracked;
+    }, 350);
+
+    return () => window.clearTimeout(timeout);
+  }, [messageBus, query, vscode]);
+
+  useEffect(() => {
+    if (!messageBus) {
+      return;
+    }
+    const rawState = JSON.stringify({
+      filterUser,
+      filterOperation,
+      filterStatus,
+      filterCodeUnit,
+      errorsOnly
+    });
+    const previousTracked = lastTrackedFilterStateRef.current;
+    if (previousTracked === undefined) {
+      lastTrackedFilterStateRef.current = rawState;
+      return;
+    }
+    if (previousTracked === rawState) {
+      return;
+    }
+
+    const hasUser = Boolean(filterUser);
+    const hasOperation = Boolean(filterOperation);
+    const hasStatus = Boolean(filterStatus);
+    const hasCodeUnit = Boolean(filterCodeUnit);
+    const activeCount = [hasUser, hasOperation, hasStatus, hasCodeUnit, errorsOnly].filter(Boolean).length;
+
+    vscode.postMessage({
+      type: 'trackLogsFilter',
+      outcome: activeCount === 0 ? 'cleared' : 'changed',
+      hasUser,
+      hasOperation,
+      hasStatus,
+      hasCodeUnit,
+      errorsOnly,
+      activeCount
+    });
+    lastTrackedFilterStateRef.current = rawState;
+  }, [errorsOnly, filterCodeUnit, filterOperation, filterStatus, filterUser, messageBus, vscode]);
 
   const onRefresh = () => {
     vscode.postMessage({ type: 'refresh' });

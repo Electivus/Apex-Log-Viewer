@@ -12,6 +12,7 @@ import {
   markExecOverriddenForTests
 } from './exec';
 import { resolvePATHFromLoginShell } from './path';
+import { classifyCliOutputText, createCliTelemetryError, getCliTelemetryCode } from './cliTelemetry';
 
 // Short-lived in-memory cache for auth (avoid storing tokens on disk)
 type AuthCache = { value: OrgAuth; expiresAt: number };
@@ -71,7 +72,7 @@ function stripAnsi(value: string): string {
 function parseCliJson(stdout: string): any {
   const raw = String(stdout || '').trim();
   if (!raw) {
-    throw new Error('empty CLI output');
+    throw createCliTelemetryError('EMPTY_OUTPUT', 'empty CLI output');
   }
   try {
     return JSON.parse(raw);
@@ -81,10 +82,40 @@ function parseCliJson(stdout: string): any {
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start >= 0 && end > start) {
-      return JSON.parse(cleaned.slice(start, end + 1));
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1));
+      } catch {}
     }
-    throw new Error('invalid CLI JSON output');
+    throw createCliTelemetryError('INVALID_JSON', 'invalid CLI JSON output');
   }
+}
+
+function readOrgAuthFromCliOutput(stdout: string): OrgAuth {
+  const parsed = parseCliJson(stdout);
+  const result = parsed.result || parsed;
+  const accessToken: string | undefined = result.accessToken || result.access_token;
+  const instanceUrl: string | undefined = result.instanceUrl || result.instance_url || result.loginUrl;
+  const username: string | undefined = result.username;
+  if (accessToken && instanceUrl) {
+    try {
+      logTrace('getOrgAuth: success for user', username || '(unknown)', 'at', instanceUrl);
+    } catch {}
+    return { accessToken, instanceUrl, username } as OrgAuth;
+  }
+
+  const hints = [
+    parsed?.name,
+    parsed?.message,
+    result?.message,
+    result?.error,
+    result?.errorCode,
+    result?.warnings
+  ]
+    .flat()
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join('\n');
+  const classified = classifyCliOutputText(hints);
+  throw createCliTelemetryError(classified || 'MISSING_AUTH_FIELDS', 'CLI JSON missing auth fields');
 }
 
 function getSfCliProgramCandidates(): string[] {
@@ -147,27 +178,17 @@ export async function getOrgAuth(
         logTrace('getOrgAuth: trying', program, args.join(' '));
       } catch {}
       const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS, signal);
-      const parsed = parseCliJson(stdout);
-      const result = parsed.result || parsed;
-      const accessToken: string | undefined = result.accessToken || result.access_token;
-      const instanceUrl: string | undefined = result.instanceUrl || result.instance_url || result.loginUrl;
-      const username: string | undefined = result.username;
-      if (accessToken && instanceUrl) {
-        try {
-          logTrace('getOrgAuth: success for user', username || '(unknown)', 'at', instanceUrl);
-        } catch {}
-        const auth = { accessToken, instanceUrl, username } as OrgAuth;
-        if (execOverriddenForTests && authTtl > 0) {
-          authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
-          enforceAuthCacheLimit();
-        }
-        if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
-          try {
-            await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
-          } catch {}
-        }
-        return auth;
+      const auth = readOrgAuthFromCliOutput(stdout);
+      if (execOverriddenForTests && authTtl > 0) {
+        authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
+        enforceAuthCacheLimit();
       }
+      if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
+        try {
+          await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
+        } catch {}
+      }
+      return auth;
     } catch (_e) {
       const e: any = _e;
       if (signal?.aborted) {
@@ -180,7 +201,7 @@ export async function getOrgAuth(
         safeSendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
         throw e;
       } else {
-        safeSendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
+        safeSendException('cli.getOrgAuth', { code: getCliTelemetryCode(e), command: program });
       }
       try {
         logTrace('getOrgAuth: attempt failed for', program);
@@ -197,27 +218,17 @@ export async function getOrgAuth(
             logTrace('getOrgAuth(login PATH): trying', program, args.join(' '));
           } catch {}
           const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS, signal);
-          const parsed = parseCliJson(stdout);
-          const result = parsed.result || parsed;
-          const accessToken: string | undefined = result.accessToken || result.access_token;
-          const instanceUrl: string | undefined = result.instanceUrl || result.instance_url || result.loginUrl;
-          const username: string | undefined = result.username;
-          if (accessToken && instanceUrl) {
-            try {
-              logTrace('getOrgAuth(login PATH): success for user', username || '(unknown)', 'at', instanceUrl);
-            } catch {}
-            const auth = { accessToken, instanceUrl, username } as OrgAuth;
-            if (execOverriddenForTests && authTtl > 0) {
-              authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
-              enforceAuthCacheLimit();
-            }
-            if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
-              try {
-                await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
-              } catch {}
-            }
-            return auth;
+          const auth = readOrgAuthFromCliOutput(stdout);
+          if (execOverriddenForTests && authTtl > 0) {
+            authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
+            enforceAuthCacheLimit();
           }
+          if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
+            try {
+              await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
+            } catch {}
+          }
+          return auth;
         } catch (_e) {
           const e: any = _e;
           if (signal?.aborted) {
@@ -229,7 +240,7 @@ export async function getOrgAuth(
             safeSendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
             throw e;
           } else {
-            safeSendException('cli.getOrgAuth', { code: String(e.code || ''), command: program });
+            safeSendException('cli.getOrgAuth', { code: getCliTelemetryCode(e), command: program });
           }
           try {
             logTrace('getOrgAuth(login PATH): attempt failed for', program);
