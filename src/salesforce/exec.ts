@@ -2,6 +2,7 @@ import * as cp from 'child_process';
 import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
 import { safeSendException } from '../shared/telemetry';
+import { classifyCliExecTelemetryCode } from './cliTelemetry';
 const crossSpawn = require('cross-spawn');
 
 export const CLI_TIMEOUT_MS = 120000;
@@ -186,6 +187,7 @@ export function execCommand(
           const cmdStr = [program, ...args].join(' ').trim();
           const e = new Error(`CLI not found: ${cmdStr}`) as any;
           e.code = 'ENOENT';
+          e.telemetryCode = 'ENOENT';
           try {
             logTrace('execCommand ENOENT for', program);
           } catch {}
@@ -196,7 +198,8 @@ export function execCommand(
         try {
           logTrace('execCommand error for', program, '->', (stderr || err.message || '').split('\n')[0]);
         } catch {}
-        safeSendException('cli.exec', { code: String(err.code || ''), command: program });
+        const telemetryCode = classifyCliExecTelemetryCode(err.code, stderr, stdout, err.message);
+        safeSendException('cli.exec', { code: telemetryCode, command: program });
         const code = typeof err.code === 'number' || typeof err.code === 'string' ? err.code : undefined;
         const cmdStr2 = [program, ...args].join(' ').trim();
         const detail = stderr || err.message;
@@ -208,6 +211,9 @@ export function execCommand(
         if (code !== undefined) {
           (e as any).code = code;
         }
+        e.telemetryCode = telemetryCode;
+        e.stdout = stdout;
+        e.stderr = stderr;
         reject(e);
         return;
       }
@@ -237,6 +243,7 @@ export function execCommand(
         )
       );
       err.code = 'ETIMEDOUT';
+      err.telemetryCode = 'ETIMEDOUT';
       inFlightExecs.delete(key);
       safeSendException('cli.exec', { code: 'ETIMEDOUT', command: program });
       reject(err);

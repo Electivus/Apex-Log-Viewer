@@ -273,6 +273,64 @@
         }
       }
     },
+    "logs.search": {
+      "description": "Search usage in the logs view.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["searched", "cleared"]
+        },
+        "queryLength": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["1-3", "4-10", "11-30", "31+"]
+        }
+      }
+    },
+    "logs.filter": {
+      "description": "Filter usage in the logs view.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["changed", "cleared"]
+        },
+        "hasUser": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["true", "false"]
+        },
+        "hasOperation": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["true", "false"]
+        },
+        "hasStatus": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["true", "false"]
+        },
+        "hasCodeUnit": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["true", "false"]
+        },
+        "errorsOnly": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["true", "false"]
+        }
+      },
+      "measurements": {
+        "activeCount": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        }
+      }
+    },
     "logs.cleanup": {
       "description": "Log-cleanup outcome from the logs or debug-flags views.",
       "properties": {
@@ -398,6 +456,38 @@
           "purpose": "PerformanceAndHealth"
         },
         "removedCount": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        }
+      }
+    },
+    "debugFlags.searchUsers": {
+      "description": "User search outcome in the Debug Flags panel.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        },
+        "sourceView": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["logs", "tail", "unknown"]
+        },
+        "queryLength": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "values": ["0", "1-3", "4-10", "11-30", "31+"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "count": {
           "classification": "SystemMetaData",
           "purpose": "FeatureInsight"
         }
