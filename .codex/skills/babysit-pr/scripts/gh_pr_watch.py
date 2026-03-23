@@ -688,7 +688,23 @@ def fetch_pr_reactions(pr):
     return normalize_reactions(payload)
 
 
-def fetch_review_signal_context(pr):
+def fetch_review_activity_payloads(pr):
+    endpoints = comment_endpoints(pr["repo"], pr["number"])
+    return {
+        "issue_comment_payload": gh_api_list_paginated(endpoints["issue_comment"], repo=pr["repo"]),
+        "review_comment_payload": gh_api_list_paginated(endpoints["review_comment"], repo=pr["repo"]),
+        "review_payload": gh_api_list_paginated(endpoints["review"], repo=pr["repo"]),
+    }
+
+
+def fetch_review_signal_context(pr, reviews_payload=None, review_comment_payload=None):
+    if reviews_payload is None or review_comment_payload is None:
+        endpoints = comment_endpoints(pr["repo"], pr["number"])
+        if reviews_payload is None:
+            reviews_payload = gh_api_list_paginated(endpoints["review"], repo=pr["repo"])
+        if review_comment_payload is None:
+            review_comment_payload = gh_api_list_paginated(endpoints["review_comment"], repo=pr["repo"])
+
     owner, repo_name = pr["repo"].split("/", 1)
     query = """
 query($owner:String!, $repo:String!, $number:Int!) {
@@ -726,8 +742,8 @@ query($owner:String!, $repo:String!, $number:Int!) {
     review_requests = pr_payload.get("reviewRequests", {}).get("nodes", []) or []
     requested_reviewers = []
     latest_review_authors = []
-    review_endpoint = f"repos/{pr['repo']}/pulls/{pr['number']}/reviews"
-    reviews_payload = gh_api_list_paginated(review_endpoint, repo=pr["repo"])
+    reviews_payload = reviews_payload or []
+    review_comment_payload = review_comment_payload or []
 
     for node in review_requests:
         reviewer = (node or {}).get("requestedReviewer") or {}
@@ -742,6 +758,18 @@ query($owner:String!, $repo:String!, $number:Int!) {
         if commit_id != pr["head_sha"]:
             continue
         author = review.get("user") or {}
+        login = author.get("login") or ""
+        if login and is_actionable_review_bot_login(login):
+            latest_review_authors.append(normalize_review_bot_login(login))
+
+    for comment in review_comment_payload:
+        if not isinstance(comment, dict):
+            continue
+        commit_id = str(comment.get("commit_id") or "")
+        original_commit_id = str(comment.get("original_commit_id") or "")
+        if pr["head_sha"] not in {commit_id, original_commit_id}:
+            continue
+        author = comment.get("user") or {}
         login = author.get("login") or ""
         if login and is_actionable_review_bot_login(login):
             latest_review_authors.append(normalize_review_bot_login(login))
@@ -774,14 +802,11 @@ def is_trusted_ready_reaction_author(author, repo, authenticated_login, trust_ca
     return trusted
 
 
-def fetch_new_review_items(pr, state, fresh_state, authenticated_login=None):
-    repo = pr["repo"]
-    pr_number = pr["number"]
-    endpoints = comment_endpoints(repo, pr_number)
-
-    issue_payload = gh_api_list_paginated(endpoints["issue_comment"], repo=repo)
-    review_comment_payload = gh_api_list_paginated(endpoints["review_comment"], repo=repo)
-    review_payload = gh_api_list_paginated(endpoints["review"], repo=repo)
+def fetch_new_review_items(pr, state, fresh_state, authenticated_login=None, review_activity_payloads=None):
+    payloads = review_activity_payloads or fetch_review_activity_payloads(pr)
+    issue_payload = payloads.get("issue_comment_payload") or []
+    review_comment_payload = payloads.get("review_comment_payload") or []
+    review_payload = payloads.get("review_payload") or []
 
     issue_items = normalize_issue_comments(issue_payload)
     review_comment_items = normalize_review_comments(review_comment_payload)
@@ -1237,12 +1262,18 @@ def collect_snapshot(args):
     )
     authenticated_login = get_authenticated_login()
     reactions = fetch_pr_reactions(pr)
-    review_context = fetch_review_signal_context(pr)
+    review_activity_payloads = fetch_review_activity_payloads(pr)
+    review_context = fetch_review_signal_context(
+        pr,
+        reviews_payload=review_activity_payloads["review_payload"],
+        review_comment_payload=review_activity_payloads["review_comment_payload"],
+    )
     new_review_items = fetch_new_review_items(
         pr,
         state,
         fresh_state=fresh_state,
         authenticated_login=authenticated_login,
+        review_activity_payloads=review_activity_payloads,
     )
     unresolved_review_threads = fetch_unresolved_review_threads(
         pr,
