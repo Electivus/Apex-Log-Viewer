@@ -660,13 +660,6 @@ query($owner:String!, $repo:String!, $number:Int!) {
           }
         }
       }
-      latestReviews(first:20) {
-        nodes {
-          author {
-            login
-          }
-        }
-      }
     }
   }
 }
@@ -681,9 +674,10 @@ query($owner:String!, $repo:String!, $number:Int!) {
     )
     pr_payload = payload.get("data", {}).get("repository", {}).get("pullRequest", {})
     review_requests = pr_payload.get("reviewRequests", {}).get("nodes", []) or []
-    latest_reviews = pr_payload.get("latestReviews", {}).get("nodes", []) or []
     requested_reviewers = []
     latest_review_authors = []
+    review_endpoint = f"repos/{pr['repo']}/pulls/{pr['number']}/reviews"
+    reviews_payload = gh_api_list_paginated(review_endpoint, repo=pr["repo"])
 
     for node in review_requests:
         reviewer = (node or {}).get("requestedReviewer") or {}
@@ -691,8 +685,13 @@ query($owner:String!, $repo:String!, $number:Int!) {
         if login and is_actionable_review_bot_login(login):
             requested_reviewers.append(normalize_review_bot_login(login))
 
-    for node in latest_reviews:
-        author = (node or {}).get("author") or {}
+    for review in reviews_payload:
+        if not isinstance(review, dict):
+            continue
+        commit_id = str(review.get("commit_id") or "")
+        if commit_id != pr["head_sha"]:
+            continue
+        author = review.get("user") or {}
         login = author.get("login") or ""
         if login and is_actionable_review_bot_login(login):
             latest_review_authors.append(normalize_review_bot_login(login))

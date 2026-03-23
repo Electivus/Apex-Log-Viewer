@@ -1,6 +1,7 @@
 import pathlib
 import sys
 import unittest
+from unittest.mock import patch
 
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
@@ -173,6 +174,50 @@ class ReviewStatusTests(unittest.TestCase):
         )
 
         self.assertFalse(green)
+
+    def test_fetch_review_signal_context_ignores_ai_reviews_from_older_shas(self):
+        pr = {
+            "number": 639,
+            "repo": "Electivus/Apex-Log-Viewer",
+            "head_sha": "newsha",
+        }
+        graphql_payload = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewRequests": {
+                            "nodes": [
+                                {
+                                    "requestedReviewer": {
+                                        "login": "copilot-pull-request-reviewer",
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+        reviews_payload = [
+            {
+                "commit_id": "oldsha",
+                "user": {"login": "copilot-pull-request-reviewer"},
+            },
+            {
+                "commit_id": "newsha",
+                "user": {"login": "github-code-quality"},
+            },
+        ]
+
+        with patch.object(gh_pr_watch, "graphql_json", return_value=graphql_payload), patch.object(
+            gh_pr_watch,
+            "gh_api_list_paginated",
+            return_value=reviews_payload,
+        ):
+            context = gh_pr_watch.fetch_review_signal_context(pr)
+
+        self.assertEqual(context["requested_reviewers"], ["copilot-pull-request-reviewer"])
+        self.assertEqual(context["latest_review_authors"], ["github-code-quality"])
 
 
 if __name__ == "__main__":
