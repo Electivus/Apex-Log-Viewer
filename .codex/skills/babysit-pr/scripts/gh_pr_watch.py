@@ -713,15 +713,6 @@ def fetch_new_review_items(pr, state, fresh_state, authenticated_login=None):
     return new_items
 
 
-def fetch_pr_ready_reactions(pr, authenticated_login=None):
-    reactions = fetch_pr_reactions(pr)
-    return ready_reactions_from_reactions(
-        reactions,
-        pr,
-        authenticated_login=authenticated_login,
-    )
-
-
 def ready_reactions_from_reactions(reactions, pr, authenticated_login=None):
     ready_reactions = []
     trust_cache = {}
@@ -1197,10 +1188,12 @@ def print_event(event, payload):
 
 def is_ci_green(snapshot):
     checks = snapshot.get("checks") or {}
+    review_signal = snapshot.get("review_signal") or {}
     return (
         bool(checks.get("all_terminal"))
         and int(checks.get("failed_count") or 0) == 0
         and int(checks.get("pending_count") or 0) == 0
+        and not bool(review_signal.get("codex_review_in_progress"))
     )
 
 

@@ -26,7 +26,7 @@ Accept any of the following:
 1. When the user asks to "monitor"/"watch"/"babysit" a PR, start with the watcher's continuous mode (`--watch`) unless you are intentionally doing a one-shot diagnostic snapshot.
 2. Run the watcher script to snapshot PR/CI/review state (or consume each streamed snapshot from `--watch`).
 3. Inspect the `actions` list in the JSON response.
-4. Inspect `review_signal.status`. If it is `in_review`, treat the PR status as `em revisão` even when there are no comments yet.
+4. Inspect `review_signal.status`. If it is `in_review`, treat the PR status as `in review` even when there are no comments yet.
 5. If `diagnose_ci_failure` is present, inspect failed run logs and classify the failure.
 6. If the failure is likely caused by the current branch, patch code locally, commit, and push.
 7. If `process_review_comment` is present, inspect surfaced review items and triage them before changing code.
@@ -179,7 +179,7 @@ Use this loop in a live Codex session:
 2. Read `actions`.
 3. First check whether the PR is now merged or otherwise closed; if so, report that terminal state and stop polling immediately.
 4. Check CI summary, new review items, and mergeability/conflict status.
-5. If `review_signal.status == "in_review"` or `actions` includes `review_in_progress`, report the PR as `em revisão` and keep waiting; do not treat it as ready.
+5. If `review_signal.status == "in_review"` or `actions` includes `review_in_progress`, report the PR as `in review` and keep waiting; do not treat it as ready.
 6. Diagnose CI failures and classify branch-related vs flaky/unrelated.
 7. Process actionable review comments before flaky reruns when both are present; if a review fix requires a commit, push it and skip rerunning failed checks on the old SHA.
 8. Retry failed checks only when `retry_failed_checks` is present and you are not about to replace the current SHA with a review/CI fix commit.

@@ -84,6 +84,20 @@ class ReviewStatusTests(unittest.TestCase):
 
         self.assertEqual(actions, ["review_in_progress"])
 
+    def test_is_ci_green_is_false_while_codex_review_is_in_progress(self):
+        green = gh_pr_watch.is_ci_green(
+            {
+                "checks": self._green_checks(),
+                "review_signal": {
+                    "status": "in_review",
+                    "codex_review_in_progress": True,
+                    "codex_eyes_reactions": [{"id": "1"}],
+                },
+            }
+        )
+
+        self.assertFalse(green)
+
 
 if __name__ == "__main__":
     unittest.main()
