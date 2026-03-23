@@ -24,19 +24,22 @@ If uncertain, inspect failed logs once before choosing rerun.
 
 1. If PR is merged/closed: stop.
 2. If GitHub is still showing Codex `eyes` on the PR body, treat the PR as **still in review** and do not declare it ready yet.
-3. If there are failed checks:
+3. If GitHub is still waiting on a requested trusted AI reviewer (for example Copilot) and the watcher reports `review_signal.status == "awaiting_review"`, treat the PR as **still waiting on review** and do not declare it ready yet.
+4. If there are failed checks:
    - Diagnose first.
    - If branch-related: fix locally, commit, push.
    - If likely flaky/unrelated and all checks for the current SHA are terminal: rerun failed jobs.
    - If checks are still pending: wait.
-4. If flaky reruns for the same SHA reach the configured limit (default 3): stop and report persistent failure.
-5. Independently, process any new human review comments.
+5. If flaky reruns for the same SHA reach the configured limit (default 3): stop and report persistent failure.
+6. Independently, process any new human review comments and actionable GitHub Copilot, GitHub Code Quality, or Codex review bot feedback.
+7. While trusted bot review is still active (`in_review` or `awaiting_review`), defer bot-only feedback so you can triage all bot suggestions together after the review cycle settles. Human feedback remains immediate.
 
 ## Review comment agreement criteria
 
 Address the comment when:
 
 - The comment is technically correct.
+- The comment is pertinent to the current PR.
 - The change is actionable in the current branch.
 - The requested change does not conflict with the user’s intent or recent guidance.
 - The change can be made safely without unrelated refactors.
@@ -45,8 +48,12 @@ Do not auto-fix when:
 
 - The comment is ambiguous and needs clarification.
 - The request conflicts with explicit user instructions.
+- The request is not pertinent to the current PR or would create churn without clear value.
 - The proposed change requires product/design decisions the user has not made.
 - The codebase is in a dirty/unrelated state that makes safe editing uncertain.
+
+When a trusted bot suggestion is not pertinent or not worth acting on, prefer replying with the rationale and rejecting it explicitly instead of silently ignoring it.
+If a relevant review thread becomes outdated after a push but remains unresolved, keep it in the triage set until you close the loop explicitly.
 
 ## Stop-and-ask conditions
 

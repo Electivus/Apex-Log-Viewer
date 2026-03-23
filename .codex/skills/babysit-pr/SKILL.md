@@ -1,6 +1,6 @@
 ---
 name: babysit-pr
-description: Use when the user asks Codex to monitor a GitHub pull request, watch CI, handle review comments, or keep an eye on failures and feedback on an open PR.
+description: Use when the user asks to monitor a GitHub pull request, watch CI, handle review comments, or keep an eye on failures and feedback on an open PR.
 ---
 
 # PR Babysitter
@@ -9,7 +9,7 @@ description: Use when the user asks Codex to monitor a GitHub pull request, watc
 Babysit a PR persistently until one of these terminal outcomes occurs:
 
 - The PR is merged or closed.
-- CI is successful, there are no unaddressed review comments surfaced by the watcher, there are no potential merge conflicts (PR is mergeable / not reporting conflict risk), and Codex is not still visibly reviewing the PR.
+- CI is successful, there are no unaddressed review comments surfaced by the watcher, there are no potential merge conflicts (PR is mergeable / not reporting conflict risk), and the watcher is not still reporting an AI reviewer `in_review` or `awaiting_review` signal.
 - A situation requires user help (for example CI infrastructure issues, repeated flaky failures after retry budget is exhausted, permission problems, or ambiguity that cannot be resolved safely).
 
 Do not stop merely because a single snapshot returns `idle` while checks are still pending.
@@ -26,20 +26,21 @@ Accept any of the following:
 1. When the user asks to "monitor"/"watch"/"babysit" a PR, start with the watcher's continuous mode (`--watch`) unless you are intentionally doing a one-shot diagnostic snapshot.
 2. Run the watcher script to snapshot PR/CI/review state (or consume each streamed snapshot from `--watch`).
 3. Inspect the `actions` list in the JSON response.
-4. Inspect `review_signal.status`. If it is `in_review`, treat the PR status as `in review` even when there are no comments yet.
+4. Inspect `review_signal.status`. If it is `in_review`, treat the PR status as `in review` even when there are no comments yet. If it is `awaiting_review`, treat the PR as still waiting on a requested trusted AI reviewer.
 5. If `diagnose_ci_failure` is present, inspect failed run logs and classify the failure.
 6. If the failure is likely caused by the current branch, patch code locally, commit, and push.
 7. If `process_review_comment` is present, inspect surfaced review items and triage them before changing code.
-8. If a review item is actionable, correct, and in scope for the PR, patch code locally, commit, and push.
-9. If a review item is important but not actually part of the PR's scope, record it as a follow-up issue instead of expanding the PR.
-10. If a review item is incorrect, already handled, or otherwise non-actionable, mark it as intentionally rejected/ignored and continue watching.
-11. If the failure is likely flaky/unrelated and `retry_failed_checks` is present, rerun failed jobs with `--retry-failed-now`.
-12. If both actionable review feedback and `retry_failed_checks` are present, prioritize review feedback first; a new commit will retrigger CI, so avoid rerunning flaky checks on the old SHA unless you intentionally defer the review change.
-13. On every loop, verify mergeability / merge-conflict status (for example via `gh pr view`) in addition to CI and review state.
-14. After any push, rerun, or follow-up issue capture, immediately return to step 1 and continue polling on the updated SHA/state.
-15. If you had been using `--watch` before pausing to patch/commit/push, relaunch `--watch` yourself in the same turn immediately after the push (do not wait for the user to re-invoke the skill).
-16. Repeat polling until the PR is green + review-clean + mergeable + not `in_review`, `stop_pr_closed` appears, or a user-help-required blocker is reached.
-17. Maintain terminal/session ownership: while babysitting is active, keep consuming watcher output in the same turn; do not leave a detached `--watch` process running and then end the turn as if monitoring were complete.
+8. If `deferred_bot_review_feedback` is present, do not start applying bot suggestions yet; keep waiting until the trusted bot review cycle finishes, then triage the consolidated bot feedback together.
+9. If a review item is actionable, correct, pertinent, and in scope for the PR, patch code locally, commit, and push.
+10. If a review item is important but not actually part of the PR's scope, record it as a follow-up issue instead of expanding the PR.
+11. If a review item is incorrect, already handled, not pertinent, or otherwise non-actionable, mark it as intentionally rejected/ignored and continue watching.
+12. If the failure is likely flaky/unrelated and `retry_failed_checks` is present, rerun failed jobs with `--retry-failed-now`.
+13. If both actionable review feedback and `retry_failed_checks` are present, prioritize review feedback first; a new commit will retrigger CI, so avoid rerunning flaky checks on the old SHA unless you intentionally defer the review change.
+14. On every loop, verify mergeability / merge-conflict status (for example via `gh pr view`) in addition to CI and review state.
+15. After any push, rerun, or follow-up issue capture, immediately return to step 1 and continue polling on the updated SHA/state.
+16. If you had been using `--watch` before pausing to patch/commit/push, relaunch `--watch` yourself in the same turn immediately after the push (do not wait for the user to re-invoke the skill).
+17. Repeat polling until the PR is green + review-clean + mergeable + not `in_review`, `stop_pr_closed` appears, or a user-help-required blocker is reached.
+18. Maintain terminal/session ownership: while babysitting is active, keep consuming watcher output in the same turn; do not leave a detached `--watch` process running and then end the turn as if monitoring were complete.
 
 ## Commands
 
@@ -70,38 +71,52 @@ python3 .codex/skills/babysit-pr/scripts/gh_pr_watch.py --pr <number-or-url> --o
 ### List current actionable review bot feedback items
 
 ```bash
-python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --list
+python3 .codex/skills/babysit-pr/scripts/gh_pr_review_feedback.py --pr auto --list
 ```
 
 ### Acknowledge all currently listed actionable review bot feedback with `👍` and resolve open actionable review bot threads you've handled
 
 ```bash
-python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --ack-all
+python3 .codex/skills/babysit-pr/scripts/gh_pr_review_feedback.py --pr auto --ack-all
 ```
 
 ### Dry-run an acknowledgement pass before mutating GitHub state
 
 ```bash
-python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --ack-all --dry-run
+python3 .codex/skills/babysit-pr/scripts/gh_pr_review_feedback.py --pr auto --ack-all --dry-run
 ```
 
 ### Create a follow-up issue for out-of-scope actionable review bot feedback, then mark it captured with `👍`
 
 ```bash
-python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --follow-up <item-id> --issue-label follow-up
+python3 .codex/skills/babysit-pr/scripts/gh_pr_review_feedback.py --pr auto --follow-up <item-id> --issue-label follow-up
 ```
 
 ### Dry-run follow-up issue creation before mutating GitHub state
 
 ```bash
-python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --follow-up <item-id> --issue-label follow-up --dry-run
+python3 .codex/skills/babysit-pr/scripts/gh_pr_review_feedback.py --pr auto --follow-up <item-id> --issue-label follow-up --dry-run
 ```
 
 ### Reply on a review thread before resolving it
 
 ```bash
-python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --ack <item-id> --reply-body "Handled in the latest PR update."
+python3 .codex/skills/babysit-pr/scripts/gh_pr_review_feedback.py --pr auto --ack <item-id> --reply-body "Handled in the latest PR update."
 ```
+
+### Reject a non-pertinent review suggestion but keep the thread open while you document the rationale
+
+```bash
+python3 .codex/skills/babysit-pr/scripts/gh_pr_review_feedback.py --pr auto --reject <item-id> --reply-body "Reviewed this suggestion and we are intentionally keeping the current implementation for this PR." --no-resolve
+```
+
+### Reject a non-pertinent review suggestion and close the thread after documenting why
+
+```bash
+python3 .codex/skills/babysit-pr/scripts/gh_pr_review_feedback.py --pr auto --reject <item-id> --reply-body "Reviewed this suggestion and we are intentionally keeping the current implementation for this PR."
+```
+
+`gh_pr_codex_feedback.py` remains available as a backward-compatible alias, but prefer the neutral `gh_pr_review_feedback.py` entrypoint for GitHub Copilot, GitHub Code Quality, and Codex review feedback.
 
 ## CI Failure Classification
 Use `gh` commands to inspect failed runs before deciding to rerun.
@@ -124,17 +139,22 @@ The watcher surfaces review items from:
 - Inline review comments
 - Review submissions (COMMENT / APPROVED / CHANGES_REQUESTED)
 
-It intentionally surfaces trusted reviewer bot feedback (for example comments/reviews from the Codex reviewer login, which GitHub may emit as `chatgpt-codex-connector` or `chatgpt-codex-connector[bot]`, and the Copilot reviewer login, which GitHub may emit as `copilot-pull-request-reviewer` or `copilot-pull-request-reviewer[bot]`) in addition to human reviewer feedback. Most unrelated bot noise should still be ignored.
-For safety, the watcher only auto-surfaces trusted human review authors (for example repo OWNER/MEMBER/COLLABORATOR, plus the authenticated operator) and approved review bots such as Codex plus the Copilot reviewer login.
+It intentionally surfaces trusted reviewer bot feedback (for example comments/reviews from the Codex reviewer login, which GitHub may emit as `chatgpt-codex-connector` or `chatgpt-codex-connector[bot]`; the Copilot reviewer login, which GitHub may emit as `copilot-pull-request-reviewer`, `copilot-pull-request-reviewer[bot]`, or `Copilot` in some REST review-comment payloads; and `github-code-quality`) in addition to human reviewer feedback. Most unrelated bot noise should still be ignored.
+For safety, the watcher only auto-surfaces trusted human review authors (for example repo OWNER/MEMBER/COLLABORATOR, plus the authenticated operator) and approved review bots such as Codex, Copilot, and GitHub Code Quality.
 On a fresh watcher state file, existing pending review feedback may be surfaced immediately (not only comments that arrive after monitoring starts). This is intentional so already-open review comments are not missed.
 Separately, the watcher also inspects PR reactions. If the PR body has an `eyes` reaction from `chatgpt-codex-connector[bot]`, the watcher exposes `review_signal.status = "in_review"` and may emit `review_in_progress` in `actions`. Treat that as Codex still reviewing the PR, not as review feedback that needs a code change yet.
+Separately, the watcher also inspects requested trusted AI reviewers. If GitHub still shows Copilot or another trusted AI reviewer as requested and that reviewer has not submitted feedback yet, the watcher exposes `review_signal.status = "awaiting_review"` and may emit `awaiting_review` in `actions`. Treat that as "still waiting on review", not as review feedback that already needs a code change.
+
+Not every trusted bot suggestion should be implemented. Triage trusted AI review feedback the same way you would triage human review feedback: apply it only when it is technically correct, pertinent, and in scope for the PR.
+While trusted bot review is still `in_review` or `awaiting_review`, defer bot-only feedback instead of acting on it immediately. This lets the PR babysitter consolidate overlapping Copilot / GitHub Code Quality / Codex suggestions and triage them together once the bot review cycle settles.
+Human review feedback remains immediate even while bot reviews are still running.
 
 When you agree with a comment and it is actionable:
 
 1. Patch code locally.
-2. Commit with `codex: address PR review feedback (#<n>)`.
+2. Commit with `fix(pr): address PR review feedback (#<n>)`.
 3. Push to the PR head branch.
-4. Prefer replying in the GitHub review thread with a short status update before resolving it (for example what changed, or that it was captured as follow-up). Then react with `👍` to the relevant actionable review bot feedback and resolve the handled review threads. Prefer `python3 .codex/skills/babysit-pr/scripts/gh_pr_codex_feedback.py --pr auto --ack-all --dry-run` first, then rerun without `--dry-run` once you are satisfied.
+4. Prefer replying in the GitHub review thread with a short status update before resolving it (for example what changed, or that it was captured as follow-up). Then react with `👍` to the relevant actionable review bot feedback and resolve the handled review threads. Prefer `python3 .codex/skills/babysit-pr/scripts/gh_pr_review_feedback.py --pr auto --ack-all --dry-run` first, then rerun without `--dry-run` once you are satisfied.
 5. Resume watching on the new SHA immediately (do not stop after reporting the push).
 6. If monitoring was running in `--watch` mode, restart `--watch` immediately after the push in the same turn; do not wait for the user to ask again.
 
@@ -142,19 +162,20 @@ Triage review feedback explicitly before touching code:
 
 1. In scope for the PR and correct: fix it in the PR.
 2. Important but out of scope for the PR: do not silently widen the PR. First look for an existing issue covering the same problem; if none exists, create a follow-up issue and keep the PR focused.
-3. Incorrect, already addressed, or not worth acting on: reject it explicitly and continue watching.
+3. Incorrect, already addressed, not pertinent to the current PR, or not worth acting on: reject it explicitly and continue watching.
 
 When a comment is important but out of scope for the current PR:
 
 1. Search for an existing issue that already tracks the same problem.
-2. If none exists, create a follow-up issue from the feedback item with `gh_pr_codex_feedback.py --follow-up ...`.
+2. If none exists, create a follow-up issue from the feedback item with `gh_pr_review_feedback.py --follow-up ...`.
 3. If the item is a review thread, reply in-thread with the tracking issue link so future readers can see where the work moved.
 4. React with `👍` on the source feedback once it has been captured as follow-up; if the item is an actionable review bot thread, resolve the thread after the issue is created unless the thread should stay open.
 5. Resume watching immediately. Do not implement the out-of-scope change in the current PR unless the user explicitly broadens scope.
 
-If you disagree or the comment is non-actionable/already addressed, record it as handled by continuing the watcher loop (the script de-duplicates surfaced items via state after surfacing them).
+If you disagree or the comment is non-actionable/already addressed, prefer documenting that explicitly with `gh_pr_review_feedback.py --reject ...`. Use `--no-resolve` when you want the thread to remain open for visibility; otherwise reply with the rationale and resolve the thread to close the loop.
 If a code review comment/thread is already marked as resolved in GitHub, treat it as non-actionable and safely ignore it unless new unresolved follow-up feedback appears.
-If you intentionally reject actionable review bot feedback, react with `👎` using `gh_pr_codex_feedback.py --reject ...`. Leave the thread open unless you are intentionally closing the loop after documenting why the suggestion should not be applied.
+If a relevant review thread becomes `outdated` after a push but is still unresolved, keep treating it as actionable until you have replied and resolved/rejected it explicitly.
+If you intentionally reject actionable review bot feedback, react with `👎` using `gh_pr_review_feedback.py --reject ...`. Leave the thread open unless you are intentionally closing the loop after documenting why the suggestion should not be applied.
 
 ## Git Safety Rules
 
@@ -169,8 +190,8 @@ If you intentionally reject actionable review bot feedback, react with `👎` us
 
 Commit message defaults:
 
-- `codex: fix CI failure on PR #<n>`
-- `codex: address PR review feedback (#<n>)`
+- `fix(pr): fix CI failure on PR #<n>`
+- `fix(pr): address PR review feedback (#<n>)`
 
 ## Monitoring Loop Pattern
 Use this loop in a live Codex session:
@@ -179,13 +200,13 @@ Use this loop in a live Codex session:
 2. Read `actions`.
 3. First check whether the PR is now merged or otherwise closed; if so, report that terminal state and stop polling immediately.
 4. Check CI summary, new review items, and mergeability/conflict status.
-5. If `review_signal.status == "in_review"` or `actions` includes `review_in_progress`, report the PR as `in review` and keep waiting; do not treat it as ready.
+5. If `review_signal.status == "in_review"` or `actions` includes `review_in_progress`, report the PR as `in review` and keep waiting; do not treat it as ready. If `review_signal.status == "awaiting_review"` or `actions` includes `awaiting_review`, report that the PR is still waiting on a trusted AI reviewer. If `actions` includes `deferred_bot_review_feedback`, report that bot feedback has been captured but will be triaged after the remaining bot reviews finish.
 6. Diagnose CI failures and classify branch-related vs flaky/unrelated.
 7. Process actionable review comments before flaky reruns when both are present; if a review fix requires a commit, push it and skip rerunning failed checks on the old SHA.
 8. Retry failed checks only when `retry_failed_checks` is present and you are not about to replace the current SHA with a review/CI fix commit.
 9. If you pushed a commit or triggered a rerun, report the action briefly and continue polling (do not stop).
 10. After a review-fix push, proactively restart continuous monitoring (`--watch`) in the same turn unless a strict stop condition has already been reached.
-11. If everything is passing, mergeable, there are no unaddressed review items or unresolved review threads, and Codex is not still `in_review`, report success and stop.
+11. If everything is passing, mergeable, there are no unaddressed review items or unresolved review threads, and the watcher is not still reporting `in_review` or `awaiting_review`, report success and stop.
 12. If blocked on a user-help-required issue (infra outage, exhausted flaky retries, unclear reviewer request, permissions), report the blocker and stop.
 13. Otherwise sleep according to the polling cadence below and repeat.
 
@@ -209,6 +230,7 @@ Stop only when one of the following is true:
 - PR merged or closed (stop as soon as a poll/snapshot confirms this).
 - PR is ready to merge: CI succeeded, no surfaced unaddressed review comments, no unresolved review threads, and no merge conflict risk.
 - A PR is not ready while `review_signal.status == "in_review"` (for example when the PR has an `eyes` reaction from `chatgpt-codex-connector[bot]`).
+- A PR is not ready while `review_signal.status == "awaiting_review"` (for example when GitHub still shows Copilot as a requested trusted reviewer and no review has landed yet).
 - A separate approval/thumbs-up signal is not required, but any GitHub-reported merge blocking state (for example `BLOCKED`) still means the PR is not ready.
 - User intervention is required and Codex cannot safely proceed alone.
 
@@ -219,6 +241,7 @@ Keep polling when:
 - Review state is quiet but CI is not terminal.
 - CI is green but mergeability is unknown/pending.
 - GitHub is still showing Codex `eyes` / `review_signal.status == "in_review"`.
+- GitHub is still waiting on a requested trusted AI reviewer / `review_signal.status == "awaiting_review"`.
 - CI is green and mergeable, but the PR is still open and you are waiting for possible new review comments or merge-conflict changes per the green-state cadence.
 
 ## Output Expectations
