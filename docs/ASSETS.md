@@ -1,24 +1,40 @@
 # Assets & Screenshots
 
-This project packages screenshots with the extension so they render on both GitHub and the VS Code Marketplace.
+This repository keeps README and Marketplace screenshots under `media/docs/` so they can be referenced with relative Markdown paths and packaged with the extension.
 
-- Folder: put screenshots under `media/docs/`.
-- Naming: use short, descriptive names:
-  - `hero.gif` — short overview animation (5–12s)
-  - `log-list.png` — main table view
-  - `filters.png` — filters/search
-  - `replay.png` — Apex Replay action
-  - `tail.png` — tail logs panel
-  - `select-org.png` — org switcher
-  - `settings.png` — settings panel
-- Format:
-  - PNG for stills (1200–1600px width).
-  - GIF for short loops (max ~8–10 MB).
-  - Use `pngquant`/`gifski` or export with compression to keep size reasonable.
-- Referencing: use relative Markdown links in `README.md`, e.g. `![Log list](media/docs/log-list.png)`.
-- Packaging: assets included in the `.vsix` are defined in `package.json#files`.
+## Current Docs Assets
 
-Notes
+- `hero.png` — primary README/Marketplace hero focused on search, snippets, triage badges, org selector, and the refresh-first local-search workflow.
+- `log-viewer.png` — dedicated `Apex Log Viewer` with diagnostics sidebar visible.
+- `debug-flags.png` — `Apex Debug Flags` editor with user search, TTL/apply/remove controls, and the Debug Level Manager.
+- `tail.png` — real-time tail view with live log lines.
 
-- Keep raw captures or project files out of the repo. Add only optimized assets.
-- If you need to exclude heavy sources, add them to `.gitignore` (but keep `media/docs/*.png|gif`). The VSIX contents are controlled by the allowlist in `package.json#files`. Avoid adding a `.vscodeignore` file because `vsce` does not allow using both `.vscodeignore` and `package.json#files` simultaneously.
+## Regenerating Screenshots
+
+Use the manual docs flow:
+
+```bash
+npm run docs:screenshots
+```
+
+What it does:
+
+- reuses the Playwright + Electron harness already used by E2E coverage
+- prepares a realistic scratch-org scenario with deterministic Apex logs
+- refreshes and saves log bodies into the temporary workspace so README search screenshots use the real local-search flow before any optional bulk download step
+- writes the final PNGs directly into `media/docs/`
+
+This flow is intentionally separate from `npm test` and `npm run test:e2e` so README maintenance does not run in the default CI path.
+
+## Conventions
+
+- Prefer PNG for documentation screenshots.
+- Keep width around the 1200–1800px range before compression.
+- Avoid exposing real customer data, tokens, or org-sensitive identifiers.
+- Relative paths in `README.md` should point to `media/docs/*.png`.
+- The packaged file allowlist in `package.json#files` must include `media/docs/**`.
+
+## Notes
+
+- Raw captures and temporary workspaces should stay out of the repository.
+- Old GIFs can remain for reference while the docs transition, but new README assets should use the static PNG set above.

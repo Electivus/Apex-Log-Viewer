@@ -217,6 +217,115 @@ suite('TailService', () => {
     assert.equal(service.isRunning(), false);
   });
 
+  test('sendDebugLevels selects the first available level when no active trace flag exists', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const provider = new SfLogTailViewProvider(context);
+    const posted: any[] = [];
+    const originalGetAuth = cli.getOrgAuth;
+    const originalListDebugLevels = traceflags.listDebugLevels;
+    const originalGetActiveUserDebugLevel = traceflags.getActiveUserDebugLevel;
+    const originalEnsureDefaultTailDebugLevel = (traceflags as any).ensureDefaultTailDebugLevel;
+
+    (provider as any).post = (message: any) => {
+      posted.push(message);
+    };
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'https://example.com', accessToken: 't' });
+    (traceflags as any).listDebugLevels = async () => ['ALV_E2E'];
+    (traceflags as any).getActiveUserDebugLevel = async () => undefined;
+    (traceflags as any).ensureDefaultTailDebugLevel = async () => {
+      throw new Error('should not create a fallback debug level when records already exist');
+    };
+
+    try {
+      await (provider as any).sendDebugLevels();
+    } finally {
+      (cli as any).getOrgAuth = originalGetAuth;
+      (traceflags as any).listDebugLevels = originalListDebugLevels;
+      (traceflags as any).getActiveUserDebugLevel = originalGetActiveUserDebugLevel;
+      (traceflags as any).ensureDefaultTailDebugLevel = originalEnsureDefaultTailDebugLevel;
+    }
+
+    assert.deepEqual(posted.at(-1), { type: 'debugLevels', data: ['ALV_E2E'], active: 'ALV_E2E' });
+  });
+
+  test('sendDebugLevels creates a fallback debug level when the org has none', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const provider = new SfLogTailViewProvider(context);
+    const posted: any[] = [];
+    const originalGetAuth = cli.getOrgAuth;
+    const originalListDebugLevels = traceflags.listDebugLevels;
+    const originalGetActiveUserDebugLevel = traceflags.getActiveUserDebugLevel;
+    const originalEnsureDefaultTailDebugLevel = (traceflags as any).ensureDefaultTailDebugLevel;
+
+    (provider as any).post = (message: any) => {
+      posted.push(message);
+    };
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'https://example.com', accessToken: 't' });
+    (traceflags as any).listDebugLevels = async () => [];
+    (traceflags as any).getActiveUserDebugLevel = async () => undefined;
+    (traceflags as any).ensureDefaultTailDebugLevel = async () => 'ALV_DEVELOPER_FOCUS';
+
+    try {
+      await (provider as any).sendDebugLevels();
+    } finally {
+      (cli as any).getOrgAuth = originalGetAuth;
+      (traceflags as any).listDebugLevels = originalListDebugLevels;
+      (traceflags as any).getActiveUserDebugLevel = originalGetActiveUserDebugLevel;
+      (traceflags as any).ensureDefaultTailDebugLevel = originalEnsureDefaultTailDebugLevel;
+    }
+
+    assert.deepEqual(posted.at(-1), {
+      type: 'debugLevels',
+      data: ['ALV_DEVELOPER_FOCUS'],
+      active: 'ALV_DEVELOPER_FOCUS'
+    });
+  });
+
+  test('sendDebugLevels does not create a fallback debug level when listing levels fails', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const provider = new SfLogTailViewProvider(context);
+    const posted: any[] = [];
+    const originalGetAuth = cli.getOrgAuth;
+    const originalListDebugLevels = traceflags.listDebugLevels;
+    const originalGetActiveUserDebugLevel = traceflags.getActiveUserDebugLevel;
+    const originalEnsureDefaultTailDebugLevel = (traceflags as any).ensureDefaultTailDebugLevel;
+    let ensureCalls = 0;
+
+    (provider as any).post = (message: any) => {
+      posted.push(message);
+    };
+    (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'https://example.com', accessToken: 't' });
+    (traceflags as any).listDebugLevels = async () => {
+      throw new Error('temporary read failure');
+    };
+    (traceflags as any).getActiveUserDebugLevel = async () => undefined;
+    (traceflags as any).ensureDefaultTailDebugLevel = async () => {
+      ensureCalls++;
+      return 'ALV_DEVELOPER_FOCUS';
+    };
+
+    try {
+      await (provider as any).sendDebugLevels();
+    } finally {
+      (cli as any).getOrgAuth = originalGetAuth;
+      (traceflags as any).listDebugLevels = originalListDebugLevels;
+      (traceflags as any).getActiveUserDebugLevel = originalGetActiveUserDebugLevel;
+      (traceflags as any).ensureDefaultTailDebugLevel = originalEnsureDefaultTailDebugLevel;
+    }
+
+    assert.equal(ensureCalls, 0);
+    assert.deepEqual(posted.at(-1), { type: 'debugLevels', data: [], active: undefined });
+  });
+
   test('retries log ID after fetch failure', async () => {
     const service = new TailService(() => {});
     (service as any).tailRunning = true;

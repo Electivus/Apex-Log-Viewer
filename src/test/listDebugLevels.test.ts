@@ -1,7 +1,7 @@
 import assert from 'assert/strict';
 import { EventEmitter } from 'events';
 import { workspace } from 'vscode';
-import { createDebugLevel, listDebugLevels } from '../salesforce/traceflags';
+import { createDebugLevel, ensureDefaultTailDebugLevel, listDebugLevels } from '../salesforce/traceflags';
 import { __setHttpsRequestImplForTests, __resetHttpsRequestImplForTests } from '../salesforce/http';
 import { CacheManager } from '../utils/cacheManager';
 import type { OrgAuth } from '../salesforce/types';
@@ -191,5 +191,58 @@ suite('listDebugLevels', () => {
     assert.deepEqual(first, ['DL1']);
     assert.deepEqual(second, ['DL1', 'DL2']);
     assert.equal(queryCalls, 2, 'expected cache invalidation to force a second query');
+  });
+
+  test('creates the default tail debug level when none exists yet', async () => {
+    const auth: OrgAuth = { accessToken: 't', instanceUrl: 'https://example.com', apiVersion: '64.0' } as OrgAuth;
+    let createCalls = 0;
+    __setHttpsRequestImplForTests((opts: any, cb: any) => {
+      const req = new EventEmitter() as any;
+      let body = '';
+      req.on = function (event: string, listener: any) {
+        EventEmitter.prototype.on.call(this, event, listener);
+        return this;
+      };
+      req.write = (chunk: any) => {
+        body += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk || '');
+      };
+      req.end = () => {
+        const res = new EventEmitter() as any;
+        res.headers = {};
+        res.on = function (event: string, listener: any) {
+          EventEmitter.prototype.on.call(this, event, listener);
+          return this;
+        };
+        res.setEncoding = () => {};
+        res.req = req;
+        cb(res);
+        process.nextTick(() => {
+          const path = String(opts?.path || '');
+          if (path.includes('/tooling/query')) {
+            res.statusCode = 200;
+            res.emit('data', Buffer.from(JSON.stringify({ records: [] })));
+            res.emit('end');
+            return;
+          }
+          if (String(opts?.method || 'GET') === 'POST' && path.endsWith('/tooling/sobjects/DebugLevel')) {
+            createCalls++;
+            const parsed = JSON.parse(body);
+            assert.equal(parsed.DeveloperName, 'ALV_DEVELOPER_FOCUS');
+            assert.equal(parsed.MasterLabel, 'ALV Developer Focus');
+            res.statusCode = 201;
+            res.emit('data', Buffer.from(JSON.stringify({ success: true, id: '7dl000000000003AAA' })));
+            res.emit('end');
+            return;
+          }
+          throw new Error(`Unexpected request: ${String(opts?.method || 'GET')} ${path}`);
+        });
+      };
+      return req;
+    });
+
+    const ensured = await ensureDefaultTailDebugLevel(auth);
+
+    assert.equal(ensured, 'ALV_DEVELOPER_FOCUS');
+    assert.equal(createCalls, 1, 'expected a fallback DebugLevel to be created');
   });
 });

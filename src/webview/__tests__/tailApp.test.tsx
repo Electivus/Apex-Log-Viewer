@@ -97,4 +97,29 @@ describe('Tail webview App', () => {
       );
     });
   }, 15000);
+
+  it('falls back to the first available debug level when the active selection changes', async () => {
+    const { vscode, posted } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+
+    send(bus, { type: 'init', locale: 'en' });
+    await screen.findByText('Start');
+
+    send(bus, { type: 'debugLevels', data: ['LEGACY'], active: 'LEGACY' });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    send(bus, { type: 'debugLevels', data: ['ALV_E2E'], active: undefined });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+
+    await waitFor(() => {
+      expect(posted).toContainEqual({ type: 'tailStart', debugLevel: 'ALV_E2E' });
+    });
+  });
 });

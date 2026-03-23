@@ -1,4 +1,5 @@
 import {
+  resolveWindowSizeArg,
   resolveExtensionsDirForMissingDependencies,
   resolveSupportExtensionIds,
   shouldAllowLocalExtensionsDirFallback
@@ -60,5 +61,17 @@ describe('extensions dir fallback policy', () => {
       extensionsDir: '/home/test/.vscode/extensions',
       warning: '[e2e] Falling back to local VS Code extensions dir: /home/test/.vscode/extensions'
     });
+  });
+});
+
+describe('resolveWindowSizeArg', () => {
+  test('formats a valid window size for VS Code launch args', () => {
+    expect(resolveWindowSizeArg({ width: 1720, height: 1320 })).toBe('--window-size=1720,1320');
+  });
+
+  test('ignores missing or invalid dimensions', () => {
+    expect(resolveWindowSizeArg()).toBeUndefined();
+    expect(resolveWindowSizeArg({ width: 0, height: 1320 })).toBeUndefined();
+    expect(resolveWindowSizeArg({ width: 1720, height: Number.NaN })).toBeUndefined();
   });
 });

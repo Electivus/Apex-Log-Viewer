@@ -163,6 +163,7 @@ export async function activate(context: vscode.ExtensionContext) {
       safeSendEvent('command.tail', { outcome: 'invoked' });
       try {
         await provider.tailLogs();
+        await tailProvider.refreshViewState();
       } catch (e) {
         logWarn('Command sfLogs.tail: failed to open tail view ->', getErrorMessage(e));
       }

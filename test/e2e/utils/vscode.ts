@@ -16,6 +16,11 @@ export type VscodeLaunch = {
   cleanup: () => Promise<void>;
 };
 
+export type VscodeWindowSize = {
+  width: number;
+  height: number;
+};
+
 function getModifierKey(): 'Control' | 'Meta' {
   return process.platform === 'darwin' ? 'Meta' : 'Control';
 }
@@ -40,6 +45,15 @@ export function resolveSupportExtensionIds(extensionIds: unknown[] = [], extraEx
 
 export function shouldAllowLocalExtensionsDirFallback(): boolean {
   return envFlag('ALV_E2E_ALLOW_LOCAL_EXTENSIONS_DIR');
+}
+
+export function resolveWindowSizeArg(windowSize?: Partial<VscodeWindowSize>): string | undefined {
+  const width = Number(windowSize?.width);
+  const height = Number(windowSize?.height);
+  if (!Number.isFinite(width) || width < 1 || !Number.isFinite(height) || height < 1) {
+    return undefined;
+  }
+  return `--window-size=${Math.floor(width)},${Math.floor(height)}`;
 }
 
 export function resolveExtensionsDirForMissingDependencies(options: {
@@ -307,10 +321,40 @@ async function isAuxiliaryBarOpen(page: Page): Promise<boolean> {
   }
 }
 
+export async function ensureAuxiliaryBarClosed(page: Page): Promise<void> {
+  try {
+    if (!(await isAuxiliaryBarOpen(page))) {
+      return;
+    }
+
+    const modifier = getModifierKey();
+    await page.keyboard.press(`${modifier}+Alt+B`);
+    await page
+      .waitForFunction(
+        () => {
+          const selectors = ['#workbench\\.parts\\.auxiliarybar', '.part.auxiliarybar', '.auxiliarybar'];
+          return selectors.every(selector => {
+            const el = document.querySelector(selector) as HTMLElement | null;
+            if (!el) {
+              return true;
+            }
+            const rect = el.getBoundingClientRect();
+            return rect.width === 0 || rect.height === 0;
+          });
+        },
+        { timeout: 2_000 }
+      )
+      .catch(() => {});
+  } catch {
+    // best-effort
+  }
+}
+
 export async function launchVsCode(options: {
   workspacePath: string;
   extensionDevelopmentPath: string;
   extensionIds?: string[];
+  windowSize?: Partial<VscodeWindowSize>;
 }): Promise<VscodeLaunch> {
   const vscodeCachePath = process.env.VSCODE_TEST_CACHE_PATH
     ? path.resolve(process.env.VSCODE_TEST_CACHE_PATH)
@@ -356,6 +400,10 @@ export async function launchVsCode(options: {
     '--disable-updates',
     '--no-sandbox'
   ];
+  const windowSizeArg = resolveWindowSizeArg(options.windowSize);
+  if (windowSizeArg) {
+    args.push(windowSizeArg);
+  }
 
   const app = await timeE2eStep('vscode.launch', async () =>
     await electron.launch({
@@ -378,14 +426,7 @@ export async function launchVsCode(options: {
 
   // Close the auxiliary (right) sidebar if it opens by default (e.g., Copilot Chat),
   // as it can overlap/push custom panels and introduce E2E flakiness.
-  try {
-    if (await isAuxiliaryBarOpen(page)) {
-      const modifier = getModifierKey();
-      await page.keyboard.press(`${modifier}+Alt+B`);
-    }
-  } catch {
-    // best-effort
-  }
+  await ensureAuxiliaryBarClosed(page);
 
   try {
     await dismissAllNotifications(page);

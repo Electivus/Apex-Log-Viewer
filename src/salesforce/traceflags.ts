@@ -7,6 +7,7 @@ import type {
   TraceFlagTarget,
   TraceFlagTargetStatus
 } from '../shared/debugFlagsTypes';
+import { DEBUG_LEVEL_PRESETS } from '../shared/debugLevelPresets';
 import { CacheManager } from '../utils/cacheManager';
 import { getBooleanConfig, getNumberConfig } from '../utils/config';
 import { logTrace } from '../utils/logger';
@@ -66,6 +67,7 @@ const DEBUG_LEVEL_FIELDS =
   'Id, DeveloperName, Language, MasterLabel, Workflow, Validation, Callout, ApexCode, ApexProfiling, ' +
   'Visualforce, System, Database, Wave, Nba, DataAccess';
 const DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION = '63.0';
+const DEFAULT_TAIL_DEBUG_LEVEL = { ...DEBUG_LEVEL_PRESETS[0]!.record };
 const debugLevelApiVersionByOrg = new Map<string, string>();
 
 function getDebugLevelsCacheConfig() {
@@ -493,6 +495,21 @@ export async function createDebugLevel(auth: OrgAuth, input: DebugLevelRecord): 
   }
   await invalidateDebugLevelsCache(auth);
   return { id: String(res.id) };
+}
+
+export async function ensureDefaultTailDebugLevel(auth: OrgAuth): Promise<string> {
+  const developerName = String(DEFAULT_TAIL_DEBUG_LEVEL.developerName || '').trim();
+  if (!developerName) {
+    throw new Error('Default tail debug level is not configured.');
+  }
+
+  const existingId = await getDebugLevelIdByName(auth, developerName);
+  if (existingId) {
+    return developerName;
+  }
+
+  await createDebugLevel(auth, { ...DEFAULT_TAIL_DEBUG_LEVEL });
+  return developerName;
 }
 
 export async function updateDebugLevel(auth: OrgAuth, debugLevelId: string, input: DebugLevelRecord): Promise<void> {
