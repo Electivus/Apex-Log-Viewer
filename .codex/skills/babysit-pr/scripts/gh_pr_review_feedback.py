@@ -85,7 +85,7 @@ def parse_args():
     action_group.add_argument(
         "--reject-all",
         action="store_true",
-        help="React with 👎 to all listed items and leave thread state unchanged unless --no-resolve is omitted",
+        help="React with 👎 to all listed items and resolve actionable review bot thread items unless disabled",
     )
     action_group.add_argument(
         "--ack",

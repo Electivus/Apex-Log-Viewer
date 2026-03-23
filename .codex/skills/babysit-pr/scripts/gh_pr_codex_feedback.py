@@ -2,7 +2,6 @@
 """Backward-compatible wrapper for the neutral PR review feedback script."""
 
 import gh_pr_review_feedback as _review_feedback
-from gh_pr_review_feedback import main
 
 # Preserve the legacy module surface while delegating to the neutral entrypoint.
 __all__ = tuple(
@@ -17,4 +16,4 @@ for _name in __all__:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_review_feedback.main())
