@@ -47,6 +47,28 @@ class ReviewStatusTests(unittest.TestCase):
         self.assertTrue(signal["codex_review_in_progress"])
         self.assertEqual(len(signal["codex_eyes_reactions"]), 1)
 
+    def test_build_review_signal_marks_requested_copilot_as_awaiting_review(self):
+        signal = gh_pr_watch.build_review_signal(
+            reactions=[],
+            requested_reviewers=["copilot-pull-request-reviewer"],
+            latest_review_authors=["github-code-quality"],
+        )
+
+        self.assertEqual(signal["status"], "awaiting_review")
+        self.assertFalse(signal["codex_review_in_progress"])
+        self.assertEqual(signal["pending_reviewers"], ["copilot-pull-request-reviewer"])
+
+    def test_build_review_signal_marks_requested_github_code_quality_as_awaiting_review(self):
+        signal = gh_pr_watch.build_review_signal(
+            reactions=[],
+            requested_reviewers=["github-code-quality"],
+            latest_review_authors=[],
+        )
+
+        self.assertEqual(signal["status"], "awaiting_review")
+        self.assertFalse(signal["codex_review_in_progress"])
+        self.assertEqual(signal["pending_reviewers"], ["github-code-quality"])
+
     def test_codex_in_review_blocks_ready_to_merge(self):
         ready = gh_pr_watch.is_pr_ready_to_merge(
             self._base_pr(),
@@ -59,6 +81,24 @@ class ReviewStatusTests(unittest.TestCase):
                 "status": "in_review",
                 "codex_review_in_progress": True,
                 "codex_eyes_reactions": [{"id": "1"}],
+            },
+        )
+
+        self.assertFalse(ready)
+
+    def test_awaiting_review_blocks_ready_to_merge(self):
+        ready = gh_pr_watch.is_pr_ready_to_merge(
+            self._base_pr(),
+            self._green_checks(),
+            new_review_items=[],
+            unresolved_review_threads=[],
+            blocking_non_thread_feedback=[],
+            ready_reactions=[],
+            review_signal={
+                "status": "awaiting_review",
+                "codex_review_in_progress": False,
+                "codex_eyes_reactions": [],
+                "pending_reviewers": ["copilot-pull-request-reviewer"],
             },
         )
 
@@ -84,6 +124,27 @@ class ReviewStatusTests(unittest.TestCase):
 
         self.assertEqual(actions, ["review_in_progress"])
 
+    def test_recommend_actions_reports_awaiting_review_for_pending_copilot(self):
+        actions = gh_pr_watch.recommend_actions(
+            self._base_pr(),
+            self._green_checks(),
+            failed_runs=[],
+            new_review_items=[],
+            unresolved_review_threads=[],
+            blocking_non_thread_feedback=[],
+            ready_reactions=[],
+            review_signal={
+                "status": "awaiting_review",
+                "codex_review_in_progress": False,
+                "codex_eyes_reactions": [],
+                "pending_reviewers": ["copilot-pull-request-reviewer"],
+            },
+            retries_used=0,
+            max_retries=3,
+        )
+
+        self.assertEqual(actions, ["awaiting_review"])
+
     def test_is_ci_green_is_false_while_codex_review_is_in_progress(self):
         green = gh_pr_watch.is_ci_green(
             {
@@ -92,6 +153,21 @@ class ReviewStatusTests(unittest.TestCase):
                     "status": "in_review",
                     "codex_review_in_progress": True,
                     "codex_eyes_reactions": [{"id": "1"}],
+                },
+            }
+        )
+
+        self.assertFalse(green)
+
+    def test_is_ci_green_is_false_while_awaiting_review(self):
+        green = gh_pr_watch.is_ci_green(
+            {
+                "checks": self._green_checks(),
+                "review_signal": {
+                    "status": "awaiting_review",
+                    "codex_review_in_progress": False,
+                    "codex_eyes_reactions": [],
+                    "pending_reviewers": ["copilot-pull-request-reviewer"],
                 },
             }
         )

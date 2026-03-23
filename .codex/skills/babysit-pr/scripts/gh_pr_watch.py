@@ -30,6 +30,7 @@ PENDING_CHECK_STATES = {
 REVIEW_BOT_LOGINS = {
     "chatgpt-codex-connector",
     "copilot-pull-request-reviewer",
+    "github-code-quality",
 }
 REVIEW_BOT_LOGIN_ALIASES = {
     # The pull review comments REST API reports GitHub Copilot as `Copilot`,
@@ -637,6 +638,73 @@ def fetch_pr_reactions(pr):
     return normalize_reactions(payload)
 
 
+def fetch_review_signal_context(pr):
+    owner, repo_name = pr["repo"].split("/", 1)
+    query = """
+query($owner:String!, $repo:String!, $number:Int!) {
+  repository(owner:$owner, name:$repo) {
+    pullRequest(number:$number) {
+      reviewRequests(first:20) {
+        nodes {
+          requestedReviewer {
+            __typename
+            ... on User {
+              login
+            }
+            ... on Bot {
+              login
+            }
+            ... on Mannequin {
+              login
+            }
+          }
+        }
+      }
+      latestReviews(first:20) {
+        nodes {
+          author {
+            login
+          }
+        }
+      }
+    }
+  }
+}
+""".strip()
+    payload = graphql_json(
+        query,
+        variables={
+            "owner": owner,
+            "repo": repo_name,
+            "number": pr["number"],
+        },
+    )
+    pr_payload = payload.get("data", {}).get("repository", {}).get("pullRequest", {})
+    review_requests = pr_payload.get("reviewRequests", {}).get("nodes", []) or []
+    latest_reviews = pr_payload.get("latestReviews", {}).get("nodes", []) or []
+    requested_reviewers = []
+    latest_review_authors = []
+
+    for node in review_requests:
+        reviewer = (node or {}).get("requestedReviewer") or {}
+        login = reviewer.get("login") or ""
+        if login and is_actionable_review_bot_login(login):
+            requested_reviewers.append(normalize_review_bot_login(login))
+
+    for node in latest_reviews:
+        author = (node or {}).get("author") or {}
+        login = author.get("login") or ""
+        if login and is_actionable_review_bot_login(login):
+            latest_review_authors.append(normalize_review_bot_login(login))
+
+    requested_reviewers = sorted(set(requested_reviewers))
+    latest_review_authors = sorted(set(latest_review_authors))
+    return {
+        "requested_reviewers": requested_reviewers,
+        "latest_review_authors": latest_review_authors,
+    }
+
+
 def is_trusted_ready_reaction_author(author, repo, authenticated_login, trust_cache=None):
     author = str(author or "")
     if not author:
@@ -764,13 +832,30 @@ def codex_eyes_reactions(reactions):
     return in_review_reactions
 
 
-def build_review_signal(reactions):
+def build_review_signal(reactions, requested_reviewers=None, latest_review_authors=None):
     in_review_reactions = codex_eyes_reactions(reactions)
     in_review = bool(in_review_reactions)
+    requested_reviewers = {
+        normalize_review_bot_login(login)
+        for login in (requested_reviewers or [])
+        if is_actionable_review_bot_login(login)
+    }
+    latest_review_authors = {
+        normalize_review_bot_login(login)
+        for login in (latest_review_authors or [])
+        if is_actionable_review_bot_login(login)
+    }
+    pending_reviewers = sorted(requested_reviewers - latest_review_authors)
+    status = "none"
+    if in_review:
+        status = "in_review"
+    elif pending_reviewers:
+        status = "awaiting_review"
     return {
-        "status": "in_review" if in_review else "none",
+        "status": status,
         "codex_review_in_progress": in_review,
         "codex_eyes_reactions": in_review_reactions,
+        "pending_reviewers": pending_reviewers,
     }
 
 
@@ -841,7 +926,7 @@ def update_blocking_non_thread_feedback(state, head_sha, new_review_items, authe
     return tracked_list
 
 
-def fetch_unresolved_review_threads(pr):
+def fetch_unresolved_review_threads(pr, authenticated_login=None):
     owner, repo_name = pr["repo"].split("/", 1)
     query = """
 query($owner:String!, $repo:String!, $number:Int!, $after:String) {
@@ -861,7 +946,9 @@ query($owner:String!, $repo:String!, $number:Int!, $after:String) {
               body
               path
               line
+              url
               createdAt
+              authorAssociation
               author {
                 login
               }
@@ -902,20 +989,37 @@ query($owner:String!, $repo:String!, $number:Int!, $after:String) {
             comments = thread.get("comments", {}).get("nodes", [])
             if not isinstance(comments, list) or not comments:
                 continue
-            latest_comment = comments[-1]
-            if not isinstance(latest_comment, dict):
+            latest_relevant_comment = None
+            for comment in comments:
+                if not isinstance(comment, dict):
+                    continue
+                author = (comment.get("author") or {}).get("login") or ""
+                if not author:
+                    continue
+                item = {
+                    "author": str(author),
+                    "author_association": str(comment.get("authorAssociation") or ""),
+                }
+                if is_bot_login(author):
+                    if not is_actionable_review_bot_login(author):
+                        continue
+                elif not is_trusted_human_review_author(item, authenticated_login):
+                    continue
+                latest_relevant_comment = comment
+
+            if not isinstance(latest_relevant_comment, dict):
                 continue
-            author = (latest_comment.get("author") or {}).get("login") or ""
+            author = (latest_relevant_comment.get("author") or {}).get("login") or ""
             unresolved_threads.append(
                 {
                     "author": str(author),
-                    "body": str(latest_comment.get("body") or ""),
-                    "created_at": str(latest_comment.get("createdAt") or ""),
-                    "id": str(latest_comment.get("databaseId") or ""),
+                    "body": str(latest_relevant_comment.get("body") or ""),
+                    "created_at": str(latest_relevant_comment.get("createdAt") or ""),
+                    "id": str(latest_relevant_comment.get("databaseId") or ""),
                     "kind": "unresolved_review_thread",
-                    "line": latest_comment.get("line"),
-                    "path": latest_comment.get("path"),
-                    "url": pr["url"],
+                    "line": latest_relevant_comment.get("line"),
+                    "path": latest_relevant_comment.get("path"),
+                    "url": str(latest_relevant_comment.get("url") or pr["url"]),
                 }
             )
 
@@ -983,6 +1087,8 @@ def is_pr_ready_to_merge(
         return False
     if review_signal.get("codex_review_in_progress"):
         return False
+    if review_signal.get("pending_reviewers"):
+        return False
     if str(pr.get("mergeable") or "") != "MERGEABLE":
         return False
     merge_state_status = str(pr.get("merge_state_status") or "")
@@ -1007,6 +1113,7 @@ def recommend_actions(
     actionable_reviews = actionable_new_review_items(new_review_items)
     review_signal = review_signal if isinstance(review_signal, dict) else {}
     review_in_progress = bool(review_signal.get("codex_review_in_progress"))
+    awaiting_review = str(review_signal.get("status") or "") == "awaiting_review"
     if pr["closed"] or pr["merged"]:
         if actionable_reviews or unresolved_review_threads or blocking_non_thread_feedback:
             actions.append("process_review_comment")
@@ -1032,6 +1139,10 @@ def recommend_actions(
         actionable_reviews or unresolved_review_threads or blocking_non_thread_feedback
     ):
         actions.append("review_in_progress")
+    elif awaiting_review and not (
+        actionable_reviews or unresolved_review_threads or blocking_non_thread_feedback
+    ):
+        actions.append("awaiting_review")
 
     has_failed_pr_checks = checks_summary["failed_count"] > 0
     if has_failed_pr_checks:
@@ -1067,13 +1178,17 @@ def collect_snapshot(args):
     )
     authenticated_login = get_authenticated_login()
     reactions = fetch_pr_reactions(pr)
+    review_context = fetch_review_signal_context(pr)
     new_review_items = fetch_new_review_items(
         pr,
         state,
         fresh_state=fresh_state,
         authenticated_login=authenticated_login,
     )
-    unresolved_review_threads = fetch_unresolved_review_threads(pr)
+    unresolved_review_threads = fetch_unresolved_review_threads(
+        pr,
+        authenticated_login=authenticated_login,
+    )
     blocking_non_thread_feedback = update_blocking_non_thread_feedback(
         state,
         pr["head_sha"],
@@ -1085,7 +1200,11 @@ def collect_snapshot(args):
         pr,
         authenticated_login=authenticated_login,
     )
-    review_signal = build_review_signal(reactions)
+    review_signal = build_review_signal(
+        reactions,
+        requested_reviewers=review_context.get("requested_reviewers"),
+        latest_review_authors=review_context.get("latest_review_authors"),
+    )
 
     retries_used = current_retry_count(state, pr["head_sha"])
     actions = recommend_actions(
@@ -1199,6 +1318,7 @@ def is_ci_green(snapshot):
         and int(checks.get("failed_count") or 0) == 0
         and int(checks.get("pending_count") or 0) == 0
         and not bool(review_signal.get("codex_review_in_progress"))
+        and not bool(review_signal.get("pending_reviewers"))
     )
 
 
@@ -1212,6 +1332,7 @@ def snapshot_change_key(snapshot):
     ready_reactions = approval_signal.get("pr_thumbs_up_reactions") or []
     review_signal = snapshot.get("review_signal") or {}
     codex_eyes = review_signal.get("codex_eyes_reactions") or []
+    pending_reviewers = review_signal.get("pending_reviewers") or []
     return (
         str(pr.get("head_sha") or ""),
         str(pr.get("state") or ""),
@@ -1247,6 +1368,7 @@ def snapshot_change_key(snapshot):
             for item in codex_eyes
             if isinstance(item, dict)
         ),
+        tuple(str(item or "") for item in pending_reviewers),
         tuple(snapshot.get("actions") or []),
     )
 

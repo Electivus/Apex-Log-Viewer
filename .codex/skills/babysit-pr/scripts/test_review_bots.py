@@ -18,6 +18,11 @@ class ActionableReviewBotTests(unittest.TestCase):
         self.assertTrue(gh_pr_watch.is_actionable_review_bot_login("Copilot"))
         self.assertTrue(gh_pr_review_feedback.is_actionable_review_bot_login("Copilot"))
 
+    def test_github_code_quality_review_bot_is_actionable(self):
+        self.assertTrue(gh_pr_watch.is_actionable_review_bot_login("github-code-quality"))
+        self.assertTrue(gh_pr_watch.is_actionable_review_bot_login("github-code-quality[bot]"))
+        self.assertTrue(gh_pr_review_feedback.is_actionable_review_bot_login("github-code-quality"))
+
     def test_exact_copilot_reviewer_is_actionable(self):
         self.assertTrue(gh_pr_watch.is_actionable_review_bot_login("copilot-pull-request-reviewer"))
 
@@ -57,6 +62,55 @@ class ActionableReviewBotTests(unittest.TestCase):
 
 
 class FeedbackListingTests(unittest.TestCase):
+    def test_feedback_listing_includes_github_code_quality_reviews(self):
+        pr = {
+            "number": 638,
+            "repo": "Electivus/Apex-Log-Viewer",
+            "head_sha": "def456",
+            "url": "https://github.com/Electivus/Apex-Log-Viewer/pull/638",
+        }
+
+        reviews_payload = [
+            {
+                "user": {"login": "github-code-quality"},
+                "commit_id": "def456",
+                "node_id": "PRR_kwDOcodequality1",
+                "body": "Code Quality review comment",
+                "submitted_at": "2026-03-23T12:10:00Z",
+                "html_url": "https://github.com/Electivus/Apex-Log-Viewer/pull/638#pullrequestreview-3",
+                "state": "COMMENTED",
+            }
+        ]
+
+        threads_payload = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "nodes": [],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        }
+                    }
+                }
+            }
+        }
+
+        with patch.object(
+            gh_pr_review_feedback,
+            "gh_api_list_paginated",
+            return_value=reviews_payload,
+        ), patch.object(
+            gh_pr_review_feedback,
+            "graphql_json",
+            return_value=threads_payload,
+        ):
+            items = gh_pr_review_feedback.list_feedback_items(pr)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["author"], "github-code-quality")
+        self.assertEqual(items[0]["kind"], "review")
+        self.assertEqual(items[0]["item_id"], "review:PRR_kwDOcodequality1")
+
     def test_feedback_listing_includes_exact_copilot_reviewer_only(self):
         pr = {
             "number": 632,
@@ -211,6 +265,87 @@ class FeedbackListingTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["kind"], "review_comment")
         self.assertEqual(items[0]["id"], "2974504681")
+
+    def test_fetch_unresolved_review_threads_include_supported_review_bots_only(self):
+        pr = {
+            "number": 638,
+            "repo": "Electivus/Apex-Log-Viewer",
+            "url": "https://github.com/Electivus/Apex-Log-Viewer/pull/638",
+        }
+        payload = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "nodes": [
+                                {
+                                    "isResolved": False,
+                                    "isOutdated": False,
+                                    "comments": {
+                                        "nodes": [
+                                            {
+                                                "databaseId": 1,
+                                                "body": "Support this code-quality bot thread",
+                                                "path": "a.py",
+                                                "line": 10,
+                                                "createdAt": "2026-03-23T12:07:12Z",
+                                                "author": {"login": "github-code-quality"},
+                                            }
+                                        ]
+                                    },
+                                },
+                                {
+                                    "isResolved": False,
+                                    "isOutdated": False,
+                                    "comments": {
+                                        "nodes": [
+                                            {
+                                                "databaseId": 2,
+                                                "body": "Copilot wants a change here",
+                                                "path": "b.py",
+                                                "line": 20,
+                                                "createdAt": "2026-03-23T12:07:13Z",
+                                                "author": {"login": "copilot-pull-request-reviewer"},
+                                            }
+                                        ]
+                                    },
+                                },
+                                {
+                                    "isResolved": False,
+                                    "isOutdated": False,
+                                    "comments": {
+                                        "nodes": [
+                                            {
+                                                "databaseId": 3,
+                                                "body": "Ignore this unrelated bot thread",
+                                                "path": "c.py",
+                                                "line": 30,
+                                                "createdAt": "2026-03-23T12:07:14Z",
+                                                "author": {"login": "some-other-bot"},
+                                            }
+                                        ]
+                                    },
+                                },
+                            ],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        }
+                    }
+                }
+            }
+        }
+
+        with patch.object(gh_pr_watch, "graphql_json", return_value=payload):
+            items = gh_pr_watch.fetch_unresolved_review_threads(
+                pr,
+                authenticated_login="manoelcalixto",
+            )
+
+        self.assertEqual(len(items), 2)
+        self.assertEqual(
+            [item["author"] for item in items],
+            ["github-code-quality", "copilot-pull-request-reviewer"],
+        )
+        self.assertEqual([item["id"] for item in items], ["1", "2"])
 
 
 if __name__ == "__main__":
