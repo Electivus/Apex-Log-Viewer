@@ -1,6 +1,6 @@
 ---
 name: babysit-pr
-description: Babysit a GitHub pull request after creation by continuously polling CI checks/workflow runs, new review comments, and mergeability state until the PR is ready to merge (or merged/closed). Diagnose failures, retry likely flaky failures up to 3 times, auto-fix/push branch-related issues when appropriate, and stop only when user help is required (for example CI infrastructure issues, exhausted flaky retries, or ambiguous/blocking situations). Use when the user asks Codex to monitor a PR, watch CI, handle review comments, or keep an eye on failures and feedback on an open PR.
+description: Use when the user asks Codex to monitor a GitHub pull request, watch CI, handle review comments, or keep an eye on failures and feedback on an open PR.
 ---
 
 # PR Babysitter
@@ -9,7 +9,7 @@ description: Babysit a GitHub pull request after creation by continuously pollin
 Babysit a PR persistently until one of these terminal outcomes occurs:
 
 - The PR is merged or closed.
-- CI is successful, there are no unaddressed review comments surfaced by the watcher, and there are no potential merge conflicts (PR is mergeable / not reporting conflict risk). A `👍` reaction on the PR itself also counts as a ready signal and can satisfy the review gate.
+- CI is successful, there are no unaddressed review comments surfaced by the watcher, and there are no potential merge conflicts (PR is mergeable / not reporting conflict risk).
 - A situation requires user help (for example CI infrastructure issues, repeated flaky failures after retry budget is exhausted, permission problems, or ambiguity that cannot be resolved safely).
 
 Do not stop merely because a single snapshot returns `idle` while checks are still pending.
@@ -34,7 +34,7 @@ Accept any of the following:
 9. If a review item is incorrect, already handled, or otherwise non-actionable, mark it as intentionally rejected/ignored and continue watching.
 10. If the failure is likely flaky/unrelated and `retry_failed_checks` is present, rerun failed jobs with `--retry-failed-now`.
 11. If both actionable review feedback and `retry_failed_checks` are present, prioritize review feedback first; a new commit will retrigger CI, so avoid rerunning flaky checks on the old SHA unless you intentionally defer the review change.
-12. On every loop, verify mergeability / merge-conflict status (for example via `gh pr view`) in addition to CI and review state, and check whether the PR itself has received a `👍` reaction.
+12. On every loop, verify mergeability / merge-conflict status (for example via `gh pr view`) in addition to CI and review state.
 13. After any push, rerun, or follow-up issue capture, immediately return to step 1 and continue polling on the updated SHA/state.
 14. If you had been using `--watch` before pausing to patch/commit/push, relaunch `--watch` yourself in the same turn immediately after the push (do not wait for the user to re-invoke the skill).
 15. Repeat polling until the PR is green + review-clean + mergeable, `stop_pr_closed` appears, or a user-help-required blocker is reached.
@@ -182,7 +182,7 @@ Use this loop in a live Codex session:
 7. Retry failed checks only when `retry_failed_checks` is present and you are not about to replace the current SHA with a review/CI fix commit.
 8. If you pushed a commit or triggered a rerun, report the action briefly and continue polling (do not stop).
 9. After a review-fix push, proactively restart continuous monitoring (`--watch`) in the same turn unless a strict stop condition has already been reached.
-10. If everything is passing, mergeable, not blocked on required review approval, and there are no unaddressed review items or unresolved review threads, report success and stop. If the PR itself has a `👍` reaction, treat that as an approval signal for readiness even if GitHub still reports `REVIEW_REQUIRED`.
+10. If everything is passing, mergeable, and there are no unaddressed review items or unresolved review threads, report success and stop.
 11. If blocked on a user-help-required issue (infra outage, exhausted flaky retries, unclear reviewer request, permissions), report the blocker and stop.
 12. Otherwise sleep according to the polling cadence below and repeat.
 
@@ -204,7 +204,7 @@ Use adaptive polling and continue monitoring even after CI turns green:
 Stop only when one of the following is true:
 
 - PR merged or closed (stop as soon as a poll/snapshot confirms this).
-- PR is ready to merge: CI succeeded, no surfaced unaddressed review comments, no unresolved review threads, and no merge conflict risk. A `👍` reaction on the PR itself counts as satisfying the review gate for this readiness check.
+- PR is ready to merge: CI succeeded, no surfaced unaddressed review comments, no unresolved review threads, and no merge conflict risk.
 - User intervention is required and Codex cannot safely proceed alone.
 
 Keep polling when:
@@ -214,7 +214,6 @@ Keep polling when:
 - Review state is quiet but CI is not terminal.
 - CI is green but mergeability is unknown/pending.
 - CI is green and mergeable, but the PR is still open and you are waiting for possible new review comments or merge-conflict changes per the green-state cadence.
-- The PR is green but blocked on review approval (`REVIEW_REQUIRED` / similar); continue polling on the green-state cadence and surface any new review comments without asking for confirmation to keep watching.
 
 ## Output Expectations
 Provide concise progress updates while monitoring and a final summary that includes:
@@ -223,7 +222,7 @@ Provide concise progress updates while monitoring and a final summary that inclu
 - Treat push confirmations, intermediate CI snapshots, and review-action updates as progress updates only; do not emit the final summary or end the babysitting session unless a strict stop condition is met.
 - A user request to "monitor" is not satisfied by a couple of sample polls; remain in the loop until a strict stop condition or an explicit user interruption.
 - A review-fix commit + push is not a completion event; immediately resume live monitoring (`--watch`) in the same turn and continue reporting progress updates.
-- When CI first transitions to all green for the current SHA, emit a one-time celebratory progress update (do not repeat it on every green poll). Preferred style: `🚀 CI is all green! 33/33 passed. Still on watch for review approval.`
+- When CI first transitions to all green for the current SHA, emit a one-time celebratory progress update (do not repeat it on every green poll). Preferred style: `🚀 CI is all green! 33/33 passed. Still on watch for new review feedback.`
 - Do not send the final summary while a watcher terminal is still running unless the watcher has emitted/confirmed a strict stop condition; otherwise continue with progress updates.
 
 - Final PR SHA

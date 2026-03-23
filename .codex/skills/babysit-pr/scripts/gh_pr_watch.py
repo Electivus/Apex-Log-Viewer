@@ -40,10 +40,6 @@ TRUSTED_AUTHOR_ASSOCIATIONS = {
     "MEMBER",
     "COLLABORATOR",
 }
-MERGE_BLOCKING_REVIEW_DECISIONS = {
-    "REVIEW_REQUIRED",
-    "CHANGES_REQUESTED",
-}
 NON_BLOCKING_REVIEW_STATES = {
     "APPROVED",
     "DISMISSED",
@@ -938,15 +934,8 @@ def is_pr_ready_to_merge(
         return False
     if str(pr.get("mergeable") or "") != "MERGEABLE":
         return False
-    has_ready_reaction = bool(ready_reactions)
     merge_state_status = str(pr.get("merge_state_status") or "")
-    review_decision = str(pr.get("review_decision") or "")
-    review_gate_blocked = review_decision in MERGE_BLOCKING_REVIEW_DECISIONS
     if merge_state_status in {"DIRTY", "DRAFT", "UNKNOWN"}:
-        return False
-    if merge_state_status == "BLOCKED" and not (has_ready_reaction and review_gate_blocked):
-        return False
-    if review_gate_blocked and not has_ready_reaction:
         return False
     return True
 
