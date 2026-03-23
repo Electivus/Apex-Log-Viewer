@@ -9,10 +9,15 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import gh_pr_codex_feedback
+import gh_pr_review_feedback
 import gh_pr_watch
 
 
 class ActionableReviewBotTests(unittest.TestCase):
+    def test_copilot_rest_login_alias_is_actionable(self):
+        self.assertTrue(gh_pr_watch.is_actionable_review_bot_login("Copilot"))
+        self.assertTrue(gh_pr_review_feedback.is_actionable_review_bot_login("Copilot"))
+
     def test_exact_copilot_reviewer_is_actionable(self):
         self.assertTrue(gh_pr_watch.is_actionable_review_bot_login("copilot-pull-request-reviewer"))
 
@@ -144,15 +149,15 @@ class FeedbackListingTests(unittest.TestCase):
         }
 
         with patch.object(
-            gh_pr_codex_feedback,
+            gh_pr_review_feedback,
             "gh_api_list_paginated",
             return_value=reviews_payload,
         ), patch.object(
-            gh_pr_codex_feedback,
+            gh_pr_review_feedback,
             "graphql_json",
             return_value=threads_payload,
         ):
-            items = gh_pr_codex_feedback.list_feedback_items(pr)
+            items = gh_pr_review_feedback.list_feedback_items(pr)
 
         self.assertEqual(
             [item["author"] for item in items],
@@ -163,6 +168,49 @@ class FeedbackListingTests(unittest.TestCase):
         )
         self.assertEqual([item["kind"] for item in items], ["review", "thread"])
         self.assertEqual(items[1]["database_id"], "1002")
+
+    def test_fetch_new_review_items_includes_inline_copilot_rest_comment_alias(self):
+        pr = {
+            "number": 637,
+            "repo": "Electivus/Apex-Log-Viewer",
+        }
+        state = {
+            "seen_issue_comment_ids": [],
+            "seen_review_comment_ids": [],
+            "seen_review_ids": [],
+        }
+
+        def fake_paginated(endpoint, repo=None, per_page=100):
+            if endpoint.endswith("/issues/637/comments"):
+                return []
+            if endpoint.endswith("/pulls/637/comments"):
+                return [
+                    {
+                        "id": 2974504681,
+                        "user": {"login": "Copilot"},
+                        "author_association": "CONTRIBUTOR",
+                        "created_at": "2026-03-23T11:39:51Z",
+                        "body": "Copilot inline review comment",
+                        "path": ".codex/skills/babysit-pr/SKILL.md",
+                        "line": 29,
+                        "html_url": "https://github.com/example/review-comment",
+                    }
+                ]
+            if endpoint.endswith("/pulls/637/reviews"):
+                return []
+            raise AssertionError(f"Unexpected endpoint: {endpoint}")
+
+        with patch.object(gh_pr_watch, "gh_api_list_paginated", side_effect=fake_paginated):
+            items = gh_pr_watch.fetch_new_review_items(
+                pr,
+                state,
+                fresh_state=False,
+                authenticated_login="manoelcalixto",
+            )
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["kind"], "review_comment")
+        self.assertEqual(items[0]["id"], "2974504681")
 
 
 if __name__ == "__main__":

@@ -31,6 +31,11 @@ REVIEW_BOT_LOGINS = {
     "chatgpt-codex-connector",
     "copilot-pull-request-reviewer",
 }
+REVIEW_BOT_LOGIN_ALIASES = {
+    # The pull review comments REST API reports GitHub Copilot as `Copilot`,
+    # while review and thread GraphQL/REST payloads use the app login.
+    "copilot": "copilot-pull-request-reviewer",
+}
 REVIEW_BOT_LOGIN_KEYWORDS = {
     "codex",
 }
@@ -543,8 +548,8 @@ def extract_login(user_obj):
 def normalize_review_bot_login(login):
     lower_login = str(login or "").lower()
     if lower_login.endswith("[bot]"):
-        return lower_login[: -len("[bot]")]
-    return lower_login
+        lower_login = lower_login[: -len("[bot]")]
+    return REVIEW_BOT_LOGIN_ALIASES.get(lower_login, lower_login)
 
 
 def is_bot_login(login):
