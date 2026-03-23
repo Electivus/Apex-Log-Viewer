@@ -146,6 +146,65 @@ class ReviewStatusTests(unittest.TestCase):
 
         self.assertEqual(actions, ["awaiting_review"])
 
+    def test_recommend_actions_defers_bot_feedback_while_bot_review_is_in_progress(self):
+        actions = gh_pr_watch.recommend_actions(
+            self._base_pr(),
+            self._green_checks(),
+            failed_runs=[],
+            new_review_items=[
+                {
+                    "kind": "review_comment",
+                    "author": "github-code-quality[bot]",
+                    "body": "Adjust this help text.",
+                    "id": "bot-1",
+                    "created_at": "2026-03-23T12:30:00Z",
+                }
+            ],
+            unresolved_review_threads=[],
+            blocking_non_thread_feedback=[],
+            ready_reactions=[],
+            review_signal={
+                "status": "in_review",
+                "codex_review_in_progress": True,
+                "codex_eyes_reactions": [{"id": "1"}],
+                "pending_reviewers": [],
+            },
+            retries_used=0,
+            max_retries=3,
+        )
+
+        self.assertEqual(actions, ["deferred_bot_review_feedback", "review_in_progress"])
+
+    def test_recommend_actions_keeps_human_feedback_immediate_while_bot_review_is_in_progress(self):
+        actions = gh_pr_watch.recommend_actions(
+            self._base_pr(),
+            self._green_checks(),
+            failed_runs=[],
+            new_review_items=[
+                {
+                    "kind": "issue_comment",
+                    "author": "manoelcalixto",
+                    "author_association": "MEMBER",
+                    "body": "Please rename this variable.",
+                    "id": "human-1",
+                    "created_at": "2026-03-23T12:31:00Z",
+                }
+            ],
+            unresolved_review_threads=[],
+            blocking_non_thread_feedback=[],
+            ready_reactions=[],
+            review_signal={
+                "status": "in_review",
+                "codex_review_in_progress": True,
+                "codex_eyes_reactions": [{"id": "1"}],
+                "pending_reviewers": [],
+            },
+            retries_used=0,
+            max_retries=3,
+        )
+
+        self.assertEqual(actions, ["process_review_comment"])
+
     def test_is_ci_green_is_false_while_codex_review_is_in_progress(self):
         green = gh_pr_watch.is_ci_green(
             {

@@ -30,16 +30,17 @@ Accept any of the following:
 5. If `diagnose_ci_failure` is present, inspect failed run logs and classify the failure.
 6. If the failure is likely caused by the current branch, patch code locally, commit, and push.
 7. If `process_review_comment` is present, inspect surfaced review items and triage them before changing code.
-8. If a review item is actionable, correct, pertinent, and in scope for the PR, patch code locally, commit, and push.
-9. If a review item is important but not actually part of the PR's scope, record it as a follow-up issue instead of expanding the PR.
-10. If a review item is incorrect, already handled, not pertinent, or otherwise non-actionable, mark it as intentionally rejected/ignored and continue watching.
-11. If the failure is likely flaky/unrelated and `retry_failed_checks` is present, rerun failed jobs with `--retry-failed-now`.
-12. If both actionable review feedback and `retry_failed_checks` are present, prioritize review feedback first; a new commit will retrigger CI, so avoid rerunning flaky checks on the old SHA unless you intentionally defer the review change.
-13. On every loop, verify mergeability / merge-conflict status (for example via `gh pr view`) in addition to CI and review state.
-14. After any push, rerun, or follow-up issue capture, immediately return to step 1 and continue polling on the updated SHA/state.
-15. If you had been using `--watch` before pausing to patch/commit/push, relaunch `--watch` yourself in the same turn immediately after the push (do not wait for the user to re-invoke the skill).
-16. Repeat polling until the PR is green + review-clean + mergeable + not `in_review`, `stop_pr_closed` appears, or a user-help-required blocker is reached.
-17. Maintain terminal/session ownership: while babysitting is active, keep consuming watcher output in the same turn; do not leave a detached `--watch` process running and then end the turn as if monitoring were complete.
+8. If `deferred_bot_review_feedback` is present, do not start applying bot suggestions yet; keep waiting until the trusted bot review cycle finishes, then triage the consolidated bot feedback together.
+9. If a review item is actionable, correct, pertinent, and in scope for the PR, patch code locally, commit, and push.
+10. If a review item is important but not actually part of the PR's scope, record it as a follow-up issue instead of expanding the PR.
+11. If a review item is incorrect, already handled, not pertinent, or otherwise non-actionable, mark it as intentionally rejected/ignored and continue watching.
+12. If the failure is likely flaky/unrelated and `retry_failed_checks` is present, rerun failed jobs with `--retry-failed-now`.
+13. If both actionable review feedback and `retry_failed_checks` are present, prioritize review feedback first; a new commit will retrigger CI, so avoid rerunning flaky checks on the old SHA unless you intentionally defer the review change.
+14. On every loop, verify mergeability / merge-conflict status (for example via `gh pr view`) in addition to CI and review state.
+15. After any push, rerun, or follow-up issue capture, immediately return to step 1 and continue polling on the updated SHA/state.
+16. If you had been using `--watch` before pausing to patch/commit/push, relaunch `--watch` yourself in the same turn immediately after the push (do not wait for the user to re-invoke the skill).
+17. Repeat polling until the PR is green + review-clean + mergeable + not `in_review`, `stop_pr_closed` appears, or a user-help-required blocker is reached.
+18. Maintain terminal/session ownership: while babysitting is active, keep consuming watcher output in the same turn; do not leave a detached `--watch` process running and then end the turn as if monitoring were complete.
 
 ## Commands
 
@@ -145,6 +146,8 @@ Separately, the watcher also inspects PR reactions. If the PR body has an `eyes`
 Separately, the watcher also inspects requested trusted AI reviewers. If GitHub still shows Copilot or another trusted AI reviewer as requested and that reviewer has not submitted feedback yet, the watcher exposes `review_signal.status = "awaiting_review"` and may emit `awaiting_review` in `actions`. Treat that as "still waiting on review", not as review feedback that already needs a code change.
 
 Not every trusted bot suggestion should be implemented. Triage trusted AI review feedback the same way you would triage human review feedback: apply it only when it is technically correct, pertinent, and in scope for the PR.
+While trusted bot review is still `in_review` or `awaiting_review`, defer bot-only feedback instead of acting on it immediately. This lets the PR babysitter consolidate overlapping Copilot / GitHub Code Quality / Codex suggestions and triage them together once the bot review cycle settles.
+Human review feedback remains immediate even while bot reviews are still running.
 
 When you agree with a comment and it is actionable:
 
@@ -171,6 +174,7 @@ When a comment is important but out of scope for the current PR:
 
 If you disagree or the comment is non-actionable/already addressed, prefer documenting that explicitly with `gh_pr_review_feedback.py --reject ...`. Use `--no-resolve` when you want the thread to remain open for visibility; otherwise reply with the rationale and resolve the thread to close the loop.
 If a code review comment/thread is already marked as resolved in GitHub, treat it as non-actionable and safely ignore it unless new unresolved follow-up feedback appears.
+If a relevant review thread becomes `outdated` after a push but is still unresolved, keep treating it as actionable until you have replied and resolved/rejected it explicitly.
 If you intentionally reject actionable review bot feedback, react with `👎` using `gh_pr_review_feedback.py --reject ...`. Leave the thread open unless you are intentionally closing the loop after documenting why the suggestion should not be applied.
 
 ## Git Safety Rules
@@ -196,7 +200,7 @@ Use this loop in a live Codex session:
 2. Read `actions`.
 3. First check whether the PR is now merged or otherwise closed; if so, report that terminal state and stop polling immediately.
 4. Check CI summary, new review items, and mergeability/conflict status.
-5. If `review_signal.status == "in_review"` or `actions` includes `review_in_progress`, report the PR as `in review` and keep waiting; do not treat it as ready. If `review_signal.status == "awaiting_review"` or `actions` includes `awaiting_review`, report that the PR is still waiting on a trusted AI reviewer.
+5. If `review_signal.status == "in_review"` or `actions` includes `review_in_progress`, report the PR as `in review` and keep waiting; do not treat it as ready. If `review_signal.status == "awaiting_review"` or `actions` includes `awaiting_review`, report that the PR is still waiting on a trusted AI reviewer. If `actions` includes `deferred_bot_review_feedback`, report that bot feedback has been captured but will be triaged after the remaining bot reviews finish.
 6. Diagnose CI failures and classify branch-related vs flaky/unrelated.
 7. Process actionable review comments before flaky reruns when both are present; if a review fix requires a commit, push it and skip rerunning failed checks on the old SHA.
 8. Retry failed checks only when `retry_failed_checks` is present and you are not about to replace the current SHA with a review/CI fix commit.

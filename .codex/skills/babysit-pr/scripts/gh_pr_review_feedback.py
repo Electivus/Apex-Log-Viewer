@@ -270,7 +270,7 @@ query($owner:String!, $repo:String!, $number:Int!, $after:String) {
         for thread in nodes:
             if not isinstance(thread, dict):
                 continue
-            if thread.get("isResolved") or thread.get("isOutdated"):
+            if thread.get("isResolved"):
                 continue
             thread_id = str(thread.get("id") or "")
             comments = thread.get("comments", {}).get("nodes", [])
@@ -301,6 +301,7 @@ query($owner:String!, $repo:String!, $number:Int!, $after:String) {
                     "created_at": str(latest_actionable_comment.get("createdAt") or ""),
                     "html_url": str(latest_actionable_comment.get("url") or pr["url"]),
                     "review_state": None,
+                    "is_outdated": bool(thread.get("isOutdated")),
                     "path": latest_actionable_comment.get("path"),
                     "line": latest_actionable_comment.get("line"),
                     "database_id": str(latest_actionable_comment.get("databaseId") or ""),

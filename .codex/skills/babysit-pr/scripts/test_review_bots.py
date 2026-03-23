@@ -223,6 +223,62 @@ class FeedbackListingTests(unittest.TestCase):
         self.assertEqual([item["kind"] for item in items], ["review", "thread"])
         self.assertEqual(items[1]["database_id"], "1002")
 
+    def test_feedback_listing_keeps_unresolved_outdated_bot_threads_visible(self):
+        pr = {
+            "number": 639,
+            "repo": "Electivus/Apex-Log-Viewer",
+            "head_sha": "abc123",
+            "url": "https://github.com/Electivus/Apex-Log-Viewer/pull/639",
+        }
+        reviews_payload = []
+        threads_payload = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "nodes": [
+                                {
+                                    "id": "PRRT_kwDOoutdated",
+                                    "isResolved": False,
+                                    "isOutdated": True,
+                                    "comments": {
+                                        "nodes": [
+                                            {
+                                                "id": "PRRC_kwDOoutdated",
+                                                "databaseId": 2001,
+                                                "body": "Still needs an explicit reply.",
+                                                "path": "file.py",
+                                                "line": 15,
+                                                "url": "https://example.com/outdated",
+                                                "createdAt": "2026-03-23T12:40:00Z",
+                                                "author": {"login": "chatgpt-codex-connector"},
+                                            }
+                                        ]
+                                    },
+                                }
+                            ],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        }
+                    }
+                }
+            }
+        }
+
+        with patch.object(
+            gh_pr_review_feedback,
+            "gh_api_list_paginated",
+            return_value=reviews_payload,
+        ), patch.object(
+            gh_pr_review_feedback,
+            "graphql_json",
+            return_value=threads_payload,
+        ):
+            items = gh_pr_review_feedback.list_feedback_items(pr)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["kind"], "thread")
+        self.assertTrue(items[0]["is_outdated"])
+
     def test_fetch_new_review_items_includes_inline_copilot_rest_comment_alias(self):
         pr = {
             "number": 637,
@@ -346,6 +402,52 @@ class FeedbackListingTests(unittest.TestCase):
             ["github-code-quality", "copilot-pull-request-reviewer"],
         )
         self.assertEqual([item["id"] for item in items], ["1", "2"])
+
+    def test_fetch_unresolved_review_threads_keeps_outdated_threads_visible(self):
+        pr = {
+            "number": 639,
+            "repo": "Electivus/Apex-Log-Viewer",
+            "url": "https://github.com/Electivus/Apex-Log-Viewer/pull/639",
+        }
+        payload = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "nodes": [
+                                {
+                                    "isResolved": False,
+                                    "isOutdated": True,
+                                    "comments": {
+                                        "nodes": [
+                                            {
+                                                "databaseId": 11,
+                                                "body": "Outdated but still unresolved",
+                                                "path": "a.py",
+                                                "line": 42,
+                                                "createdAt": "2026-03-23T12:41:00Z",
+                                                "author": {"login": "github-code-quality"},
+                                            }
+                                        ]
+                                    },
+                                }
+                            ],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        }
+                    }
+                }
+            }
+        }
+
+        with patch.object(gh_pr_watch, "graphql_json", return_value=payload):
+            items = gh_pr_watch.fetch_unresolved_review_threads(
+                pr,
+                authenticated_login="manoelcalixto",
+            )
+
+        self.assertEqual(len(items), 1)
+        self.assertTrue(items[0]["is_outdated"])
+        self.assertEqual(items[0]["id"], "11")
 
 
 if __name__ == "__main__":

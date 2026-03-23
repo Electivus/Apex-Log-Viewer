@@ -633,6 +633,56 @@ def actionable_new_review_items(items):
     return actionable_items
 
 
+def is_actionable_bot_feedback_item(item):
+    if not isinstance(item, dict):
+        return False
+    return is_actionable_review_bot_login(item.get("author") or "")
+
+
+def split_feedback_items_by_author(items):
+    human_items = []
+    bot_items = []
+    for item in items or []:
+        if is_actionable_bot_feedback_item(item):
+            bot_items.append(item)
+        else:
+            human_items.append(item)
+    return human_items, bot_items
+
+
+def build_feedback_buckets(
+    new_review_items,
+    unresolved_review_threads,
+    blocking_non_thread_feedback,
+    review_signal=None,
+):
+    actionable_reviews = actionable_new_review_items(new_review_items)
+    human_reviews, bot_reviews = split_feedback_items_by_author(actionable_reviews)
+    human_threads, bot_threads = split_feedback_items_by_author(unresolved_review_threads)
+    human_non_thread, bot_non_thread = split_feedback_items_by_author(blocking_non_thread_feedback)
+
+    review_signal = review_signal if isinstance(review_signal, dict) else {}
+    bot_review_active = bool(review_signal.get("codex_review_in_progress")) or bool(
+        review_signal.get("pending_reviewers")
+    )
+
+    processable = {
+        "new_review_items": human_reviews + ([] if bot_review_active else bot_reviews),
+        "unresolved_review_threads": human_threads + ([] if bot_review_active else bot_threads),
+        "blocking_non_thread_feedback": human_non_thread + ([] if bot_review_active else bot_non_thread),
+    }
+    deferred_bot_feedback = {
+        "new_review_items": bot_reviews if bot_review_active else [],
+        "unresolved_review_threads": bot_threads if bot_review_active else [],
+        "blocking_non_thread_feedback": bot_non_thread if bot_review_active else [],
+    }
+    return {
+        "processable": processable,
+        "deferred_bot_feedback": deferred_bot_feedback,
+        "bot_review_active": bot_review_active,
+    }
+
+
 def fetch_pr_reactions(pr):
     payload = gh_api_list_paginated(reaction_endpoint(pr["repo"], pr["number"]), repo=pr["repo"])
     return normalize_reactions(payload)
@@ -983,7 +1033,7 @@ query($owner:String!, $repo:String!, $number:Int!, $after:String) {
         for thread in nodes:
             if not isinstance(thread, dict):
                 continue
-            if thread.get("isResolved") or thread.get("isOutdated"):
+            if thread.get("isResolved"):
                 continue
             comments = thread.get("comments", {}).get("nodes", [])
             if not isinstance(comments, list) or not comments:
@@ -1016,6 +1066,7 @@ query($owner:String!, $repo:String!, $number:Int!, $after:String) {
                     "created_at": str(latest_relevant_comment.get("createdAt") or ""),
                     "id": str(latest_relevant_comment.get("databaseId") or ""),
                     "kind": "unresolved_review_thread",
+                    "is_outdated": bool(thread.get("isOutdated")),
                     "line": latest_relevant_comment.get("line"),
                     "path": latest_relevant_comment.get("path"),
                     "url": str(latest_relevant_comment.get("url") or pr["url"]),
@@ -1109,13 +1160,24 @@ def recommend_actions(
     review_signal=None,
 ):
     actions = []
-    actionable_reviews = actionable_new_review_items(new_review_items)
     review_signal = review_signal if isinstance(review_signal, dict) else {}
+    feedback_buckets = build_feedback_buckets(
+        new_review_items,
+        unresolved_review_threads,
+        blocking_non_thread_feedback,
+        review_signal=review_signal,
+    )
+    processable_feedback = feedback_buckets["processable"]
+    deferred_bot_feedback = feedback_buckets["deferred_bot_feedback"]
     review_in_progress = bool(review_signal.get("codex_review_in_progress"))
     awaiting_review = str(review_signal.get("status") or "") == "awaiting_review"
+    has_processable_feedback = any(processable_feedback.values())
+    has_deferred_bot_feedback = any(deferred_bot_feedback.values())
     if pr["closed"] or pr["merged"]:
-        if actionable_reviews or unresolved_review_threads or blocking_non_thread_feedback:
+        if has_processable_feedback:
             actions.append("process_review_comment")
+        if has_deferred_bot_feedback:
+            actions.append("deferred_bot_review_feedback")
         actions.append("stop_pr_closed")
         return unique_actions(actions)
 
@@ -1131,16 +1193,14 @@ def recommend_actions(
         actions.append("stop_ready_to_merge")
         return unique_actions(actions)
 
-    if actionable_reviews or unresolved_review_threads or blocking_non_thread_feedback:
+    if has_processable_feedback:
         actions.append("process_review_comment")
+    if has_deferred_bot_feedback:
+        actions.append("deferred_bot_review_feedback")
 
-    if review_in_progress and not (
-        actionable_reviews or unresolved_review_threads or blocking_non_thread_feedback
-    ):
+    if review_in_progress and not has_processable_feedback:
         actions.append("review_in_progress")
-    elif awaiting_review and not (
-        actionable_reviews or unresolved_review_threads or blocking_non_thread_feedback
-    ):
+    elif awaiting_review and not has_processable_feedback:
         actions.append("awaiting_review")
 
     has_failed_pr_checks = checks_summary["failed_count"] > 0
@@ -1204,6 +1264,12 @@ def collect_snapshot(args):
         requested_reviewers=review_context.get("requested_reviewers"),
         latest_review_authors=review_context.get("latest_review_authors"),
     )
+    feedback_buckets = build_feedback_buckets(
+        new_review_items,
+        unresolved_review_threads,
+        blocking_non_thread_feedback,
+        review_signal=review_signal,
+    )
 
     retries_used = current_retry_count(state, pr["head_sha"])
     actions = recommend_actions(
@@ -1231,6 +1297,8 @@ def collect_snapshot(args):
         "new_review_items": new_review_items,
         "unresolved_review_threads": unresolved_review_threads,
         "blocking_non_thread_feedback": blocking_non_thread_feedback,
+        "processable_feedback": feedback_buckets["processable"],
+        "deferred_bot_feedback": feedback_buckets["deferred_bot_feedback"],
         "approval_signal": {
             "has_pr_thumbs_up": bool(ready_reactions),
             "pr_thumbs_up_reactions": ready_reactions,
@@ -1348,7 +1416,11 @@ def snapshot_change_key(snapshot):
             if isinstance(item, dict)
         ),
         tuple(
-            (str(item.get("path") or ""), str(item.get("id") or ""))
+            (
+                str(item.get("path") or ""),
+                str(item.get("id") or ""),
+                bool(item.get("is_outdated")),
+            )
             for item in unresolved_review_threads
             if isinstance(item, dict)
         ),

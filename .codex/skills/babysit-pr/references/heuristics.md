@@ -32,6 +32,7 @@ If uncertain, inspect failed logs once before choosing rerun.
    - If checks are still pending: wait.
 5. If flaky reruns for the same SHA reach the configured limit (default 3): stop and report persistent failure.
 6. Independently, process any new human review comments and actionable GitHub Copilot, GitHub Code Quality, or Codex review bot feedback.
+7. While trusted bot review is still active (`in_review` or `awaiting_review`), defer bot-only feedback so you can triage all bot suggestions together after the review cycle settles. Human feedback remains immediate.
 
 ## Review comment agreement criteria
 
@@ -52,6 +53,7 @@ Do not auto-fix when:
 - The codebase is in a dirty/unrelated state that makes safe editing uncertain.
 
 When a trusted bot suggestion is not pertinent or not worth acting on, prefer replying with the rationale and rejecting it explicitly instead of silently ignoring it.
+If a relevant review thread becomes outdated after a push but remains unresolved, keep it in the triage set until you close the loop explicitly.
 
 ## Stop-and-ask conditions
 
