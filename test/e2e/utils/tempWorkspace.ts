@@ -12,6 +12,7 @@ export type TempWorkspace = {
 export async function createTempWorkspace(options: {
   targetOrg: string;
   sfCli?: { sfBinPath: string; nodeBinPath: string };
+  settings?: Record<string, unknown>;
 }): Promise<TempWorkspace> {
   return await timeE2eStep('workspace.create', async () => {
     const workspacePath = await mkdtemp(path.join(tmpdir(), 'alv-e2e-ws-'));
@@ -36,6 +37,7 @@ export async function createTempWorkspace(options: {
       const vscodeDir = path.join(workspacePath, '.vscode');
       await mkdir(vscodeDir, { recursive: true });
 
+      const settings: Record<string, unknown> = { ...(options.settings || {}) };
       let cliPath = options.sfCli.sfBinPath;
       // On Unix-like systems, wrap `sf` so it can find `node` even if VS Code
       // starts with a minimal PATH.
@@ -53,10 +55,12 @@ export async function createTempWorkspace(options: {
         await chmod(wrapperPath, 0o755);
         cliPath = wrapperPath;
       }
-      const settings = {
-        'electivus.apexLogs.cliPath': cliPath
-      };
+      settings['electivus.apexLogs.cliPath'] = cliPath;
       await writeFile(path.join(vscodeDir, 'settings.json'), JSON.stringify(settings, null, 2), 'utf8');
+    } else if (options.settings && Object.keys(options.settings).length > 0) {
+      const vscodeDir = path.join(workspacePath, '.vscode');
+      await mkdir(vscodeDir, { recursive: true });
+      await writeFile(path.join(vscodeDir, 'settings.json'), JSON.stringify(options.settings, null, 2), 'utf8');
     }
 
     return {

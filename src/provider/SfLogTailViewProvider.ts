@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { localize } from '../utils/localize';
 import { listOrgs, getOrgAuth } from '../salesforce/cli';
-import { listDebugLevels, getActiveUserDebugLevel } from '../salesforce/traceflags';
+import { listDebugLevels, getActiveUserDebugLevel, ensureDefaultTailDebugLevel } from '../salesforce/traceflags';
 import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
 import { logInfo, logWarn } from '../utils/logger';
@@ -60,6 +60,15 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       })
     );
 
+    this.context.subscriptions.push(
+      webviewView.onDidChangeVisibility(() => {
+        if (!webviewView.visible || this.disposed) {
+          return;
+        }
+        void this.refreshViewState();
+      })
+    );
+
     // Track window activity to adapt polling cadence (requires VS Code 1.89+; @types 1.90)
     try {
       this.tailService.setWindowActive(vscode.window.state?.active ?? true);
@@ -80,15 +89,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         logInfo('Tail: received message from webview:', t);
       }
       if (message?.type === 'ready') {
-        // Show loading while bootstrapping orgs and debug levels
-        this.post({ type: 'loading', value: true });
-        await this.sendOrgs();
-        await this.sendDebugLevels();
         this.post({ type: 'init', locale: vscode.env.language });
-        // Send tail buffer size configuration
-        this.post({ type: 'tailConfig', tailBufferSize: this.getTailBufferSize() });
-        this.post({ type: 'tailStatus', running: this.tailService.isRunning() });
-        this.post({ type: 'loading', value: false });
+        await this.refreshViewState();
         return;
       }
       if (message?.type === 'selectOrg') {
@@ -175,6 +177,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
       const orgs = await listOrgs();
       logInfo('Tail: sendOrgs ->', orgs.length, 'org(s)');
       const selected = pickSelectedOrg(orgs, this.selectedOrg);
+      this.setSelectedOrg(selected);
+      this.tailService.setOrg(selected);
       this.post({ type: 'orgs', data: orgs, selected });
       try {
         const durationMs = Date.now() - t0;
@@ -187,6 +191,22 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         const durationMs = Date.now() - t0;
         safeSendEvent('orgs.list', { outcome: 'error', view: 'tail' }, { durationMs });
       } catch {}
+    }
+  }
+
+  public async refreshViewState(): Promise<void> {
+    if (!this.view || this.disposed) {
+      return;
+    }
+
+    this.post({ type: 'loading', value: true });
+    try {
+      await this.sendOrgs();
+      await this.sendDebugLevels();
+      this.post({ type: 'tailConfig', tailBufferSize: this.getTailBufferSize() });
+      this.post({ type: 'tailStatus', running: this.tailService.isRunning() });
+    } finally {
+      this.post({ type: 'loading', value: false });
     }
   }
 
@@ -212,7 +232,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
 
     // Fetch levels and active selection concurrently so one failure
     // doesn't block the other and result in an empty combobox.
-    const [levels, active] = await Promise.all([
+    const [levels, activeLevel] = await Promise.all([
       listDebugLevels(auth).catch(() => {
         logWarn('Tail: listDebugLevels failed');
         return [] as string[];
@@ -224,9 +244,22 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     ]);
 
     // Ensure the active value appears in the list if present
+    let active = activeLevel;
     const out = Array.isArray(levels) ? [...levels] : [];
     if (active && !out.includes(active)) {
       out.unshift(active);
+    }
+    if (out.length === 0) {
+      try {
+        const ensuredLevel = await ensureDefaultTailDebugLevel(auth);
+        out.push(ensuredLevel);
+        active = active || ensuredLevel;
+      } catch (e) {
+        logWarn('Tail: ensure default debug level failed ->', getErrorMessage(e));
+      }
+    }
+    if (!active && out.length > 0) {
+      active = out[0];
     }
     this.post({ type: 'debugLevels', data: out, active });
     try {

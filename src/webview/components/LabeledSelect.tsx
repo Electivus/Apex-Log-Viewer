@@ -19,6 +19,7 @@ type LabeledSelectProps = {
   value: string;
   onChange: (value: string) => void;
   options: LabeledSelectOption[];
+  testId?: string;
   disabled?: boolean;
   placeholderLabel?: string;
   hideIfEmpty?: boolean;
@@ -32,6 +33,7 @@ export function LabeledSelect({
   value,
   onChange,
   options,
+  testId,
   disabled = false,
   placeholderLabel,
   hideIfEmpty = false,
@@ -73,6 +75,7 @@ export function LabeledSelect({
         </Label>
         <select
           id={selectId}
+          data-testid={testId}
           value={fallbackValue}
           onChange={e => onChange(e.target.value)}
           disabled={disabled}
@@ -115,7 +118,7 @@ export function LabeledSelect({
         {label}
       </Label>
       <Select value={normalizedValue} onValueChange={handleValueChange} disabled={disabled}>
-        <SelectTrigger className={cn('min-w-[160px]', triggerClassName)}>
+        <SelectTrigger data-testid={testId} className={cn('min-w-[160px]', triggerClassName)}>
           <SelectValue placeholder={placeholderLabel} />
         </SelectTrigger>
         <SelectContent>

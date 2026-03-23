@@ -2,7 +2,7 @@
 
 # Electivus Apex Log Viewer
 
-Fast, searchable Salesforce Apex logs — right inside VS Code. Browse, filter, open, tail, and debug logs from your default or selected org with a streamlined VS Code panel and Apex Replay integration.
+Search downloaded Salesforce Apex logs inside VS Code, jump straight to the right failure, and keep triage, log inspection, tailing, replay, and debug flags in one workflow.
 
 [Install from Marketplace](https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer) · [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/Electivus/Apex-Log-Viewer/issues)
 
@@ -13,145 +13,167 @@ Fast, searchable Salesforce Apex logs — right inside VS Code. Browse, filter, 
 ![Rating](https://img.shields.io/visual-studio-marketplace/r/electivus.apex-log-viewer)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 
-## Features
+## What It Does Best
 
-- Log explorer: Paginated table of Apex logs with columns for User, App, Operation, Time, Status, Code Unit, and Size.
-- Quick find and filters: Type to filter visible rows and combine with filters by User, Operation, Status, and Code Unit.
-- Sorting and infinite scroll: Click any header to sort; more logs load automatically as you scroll.
-- Open and debug: Open a log in the editor or start Apex Replay Debugger directly from the list.
-- Real‑time tail: Start tailing logs from the toolbar using your Salesforce CLI.
-- Debug Flags editor: Configure `USER_DEBUG` TraceFlags for active users in a dedicated editor panel with more space.
-- Org selector: Quickly switch between your authenticated orgs or use the CLI default.
-- Configurable: Tune `electivus.apexLogs.pageSize`, `electivus.apexLogs.headConcurrency`, and other options to fit your workflow. (Legacy `sfLogs.*` keys still work for backward compatibility.)
-- Localization: English and Brazilian Portuguese (pt‑BR).
-
-Why developers like it
-
-- Minimal clicks to find the right log.
-- Fast, responsive UI that scales to large orgs.
-- Works with both `sf` and legacy `sfdx` CLIs.
+- Search across downloaded Apex log bodies with match snippets, so you can find the right log by business terms, IDs, or exception context instead of guessing by timestamp.
+- Highlight logs that deserve attention with error and triage badges directly in the list.
+- Open a dedicated **Apex Log Viewer** with parsed entries, focused filters, and a diagnostics sidebar.
+- Tail live logs, open the selected log, or hand it off to Apex Replay Debugger without leaving VS Code.
+- Manage `USER_DEBUG` TraceFlags in a dedicated **Apex Debug Flags** screen with more room than the standard panel view.
+- Switch orgs quickly and keep the workflow centered on the org you are actively investigating.
 
 ## Screenshots
 
-![Overview](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/media/docs/hero.gif)
+![Search, snippets, triage, and local log search](media/docs/hero.png)
 
-![Apex Logs Tail](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/media/docs/apex-tail-log.gif)
+Search in the logs panel is optimized for locally saved log bodies, so the most effective flow is:
+
+1. Refresh logs.
+2. Search by the phrase, record ID, correlation ID, or exception detail you already know.
+3. Scroll for more rows when you want to keep exploring the current result set.
+4. Use **Download all logs** when the refreshed and scrolled set still did not surface what you need, or when you want to pull the whole org backlog into the workspace in one shot.
+5. Open the best candidate in the dedicated viewer.
+
+![Dedicated Apex Log Viewer with diagnostics](media/docs/log-viewer.png)
+
+![Apex Debug Flags editor](media/docs/debug-flags.png)
+
+![Real-time Apex log tail](media/docs/tail.png)
 
 ## Requirements
 
-- Salesforce CLI: Install either `sf` (recommended) or legacy `sfdx` and authenticate to an org.
-  - Login example: `sf org login web` (or `sfdx force:auth:web:login`).
+- Salesforce CLI installed and authenticated. `sf` is recommended, but legacy `sfdx` also works.
 - VS Code 1.101+.
-- Recommended for Replay: Salesforce Extension Pack (`salesforce.salesforcedx-vscode`).
-  - It includes Apex Replay Debugger and matches the setup most Salesforce developers already use.
-  - If you prefer a narrower install, the standalone Apex Replay Debugger (`salesforce.salesforcedx-vscode-apex-replay-debugger`) also works and is installed automatically as this extension's dependency.
+- Recommended for Replay Debugger: Salesforce Extension Pack (`salesforce.salesforcedx-vscode`).
+
+Login example:
+
+```bash
+sf org login web
+```
 
 ## Install
 
-- From VS Code: open Extensions (Ctrl/Cmd+Shift+X), search for “Electivus Apex Log Viewer”, and click Install.
-- From the Marketplace: click “Install from Marketplace” above.
+- From VS Code: open Extensions (`Ctrl/Cmd+Shift+X`), search for `Electivus Apex Log Viewer`, then install.
+- From the Marketplace: use the install link above.
 - From the CLI: `code --install-extension electivus.apex-log-viewer`
 
 ## Usage
 
-The extension activates automatically when the open workspace contains `sfdx-project.json`. Outside a Salesforce workspace, opening a standalone Apex log or running one of the Apex Logs commands still activates it on demand.
+The extension activates automatically when the workspace contains `sfdx-project.json`. You can also activate it on demand by opening an Apex log or running one of the commands below.
 
-### Open the Apex Logs panel
+### Open the Logs Panel
 
-1. In VS Code, choose `View` > `Appearance` > `Panel`.
-2. Switch to the **Electivus Apex Logs** container to load recent logs.
+1. Open the VS Code panel area.
+2. Switch to **Electivus Apex Logs**.
+3. Run `Electivus Apex Logs: Refresh Logs` if the panel is not already populated.
 
-### Refresh logs
+### Search Downloaded Logs
 
-- Click **Refresh** in the toolbar or run the command `Apex Logs: Refresh Logs`.
+- Run **Refresh Logs** to populate the list and download the bodies used by local search.
+- Use the search box to search visible metadata plus those saved log bodies.
+- Match snippets appear in the `Match` column when the hit comes from the saved log file.
+- Scroll to load more rows from the current list when you want to keep widening the search incrementally.
+- Use **Download all logs** when the refreshed and scrolled set still is not enough, or when you want to pull all logs from the selected org into local search in one action.
+- Combine search with filters by user, operation, status, code unit, and **Errors only**.
 
-### Search and filter
+### Review Triage Faster
 
-- Type in the search box to narrow visible rows.
-- Use the filter buttons to limit by User, Operation, Status, or Code Unit. Combine search and filters for precise results.
+- Error badges and triage reasons surface logs that deserve attention before you open them.
+- The `Errors only` switch is useful when you want to reduce noise to the failing paths.
+- Sorting and infinite scroll still apply, so you can keep narrowing the list without leaving the panel.
 
-### Sort and paginate
+### Open the Dedicated Viewer
 
-- Click any column header to toggle ascending or descending.
-- Additional logs load automatically as you scroll.
+- Press `Enter` on a selected row or open the log from the list.
+- The dedicated **Apex Log Viewer** parses the log into debug, SOQL, DML, and error-oriented views.
+- Use the built-in search box to jump between matching entries.
+- Use the diagnostics sidebar to land on mapped failures and warnings faster.
 
-### Open or debug a log
+### Tail Logs
 
-- Double-click a row to open the log in the editor.
-- Use the action button on a row to launch Apex Replay Debugger.
-
-### Tail logs in real time
-
-- Choose **Tail Logs** from the toolbar to start streaming new logs. Run the command again to stop.
+- Run `Electivus Apex Logs: Tail Logs` to open the tail view.
+- Start or stop streaming from the toolbar.
+- Search live output, keep auto-scroll on, and open or replay the selected log from the same screen.
 
 ### Configure Debug Flags
 
-- Click **Debug Flags** in either the Logs or Tail toolbar.
-- The extension opens **Apex Debug Flags** in the editor area, where you can:
-- Search active users by name/username.
-- Inspect current `USER_DEBUG` status (level + expiration).
-- Apply/update a debug level with custom TTL.
-- Remove existing `USER_DEBUG` flags for the selected user.
+- Open **Debug Flags** from either the Logs toolbar or the Tail toolbar.
+- Search active users by name or username.
+- Review current `USER_DEBUG` status, level, and expiration.
+- Apply or remove trace flags with a custom TTL.
+- Use the **Debug Level Manager** to create or tune a DebugLevel without leaving the extension.
 
-### Select an org
+### Replay Debugger
 
-- Use the toolbar dropdown to switch between authenticated orgs or choose **Default Org**.
+- Open a log from the list and launch Apex Replay Debugger from the row action when you need step-by-step inspection.
+- The extension is designed to make it easier to find the right log before you replay it.
+
+### Select an Org
+
+- Use the org picker in Logs, Tail, or Debug Flags to switch between authenticated orgs.
+- The extension can also use your CLI default org.
 
 ## Commands
 
-- Electivus Apex Logs: Refresh Logs (`sfLogs.refresh`)
-- Electivus Apex Logs: Select Org (`sfLogs.selectOrg`)
-- Electivus Apex Logs: Tail Logs (`sfLogs.tail`)
-- Electivus Apex Logs: Show Extension Output (`sfLogs.showOutput`)
+- `Electivus Apex Logs: Refresh Logs` (`sfLogs.refresh`)
+- `Electivus Apex Logs: Select Org` (`sfLogs.selectOrg`)
+- `Electivus Apex Logs: Tail Logs` (`sfLogs.tail`)
+- `Electivus Apex Logs: Show Extension Output` (`sfLogs.showOutput`)
 
 ## Settings
 
-- `electivus.apexLogs.pageSize`: Number of logs fetched per page (>= 10; default 100). Higher values may impact performance.
-- `electivus.apexLogs.headConcurrency`: Max concurrent requests to fetch log headers (>= 1; default 5). Very high values can overload APIs.
-- `electivus.apexLogs.saveDirName`: Folder name used when saving logs to disk (default `apexlogs`).
-- `electivus.apexLogs.trace`: Enable verbose trace logging of CLI and HTTP calls.
+- `electivus.apexLogs.pageSize`: logs fetched per page.
+- `electivus.apexLogs.headConcurrency`: concurrent head requests.
+- `electivus.apexLogs.saveDirName`: directory used to persist downloaded logs. Default: `apexlogs`.
+- `electivus.apexLogs.logsColumns`: reorder, hide, or resize list columns.
+- `electivus.apexLogs.tailBufferSize`: max in-memory tail lines.
+- `electivus.apexLogs.trace`: verbose extension logging to the output channel.
 
-See [docs/SETTINGS.md](docs/SETTINGS.md) for more details on configuration.
+Legacy `sfLogs.*` keys still work for backward compatibility.
 
-API version is automatically taken from the first workspace folder that contains `sfdx-project.json` (`sourceApiVersion`).
-
-## Localization
-
-The extension uses localized strings for the extension UI and the in‑panel interface. English (en) and Brazilian Portuguese (pt-BR) are included.
+See [docs/SETTINGS.md](docs/SETTINGS.md) for the full configuration reference.
 
 ## Troubleshooting
 
-- “Salesforce CLI not found”: Ensure `sf` (or `sfdx`) is installed and available on PATH. On macOS/Linux, ensure your login shell PATH includes the CLI (e.g., launch VS Code from the shell or configure the shell integration).
-- “Failed to launch Apex Replay Debugger”: Ensure the Salesforce Extension Pack (recommended) or the standalone Apex Replay Debugger extension is installed and enabled.
-- “No orgs detected”: Ensure you’re authenticated (`sf org login web`) and try `sf org list`.
-
-## Architecture
-
-For a deeper dive into how the extension pieces fit together, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **Search is not finding the text I know is in the log**
+  Run **Refresh Logs** first, then scroll to load more rows if needed. If the log still is not in the current local set, use **Download all logs** to bring the rest of the org backlog into the workspace search cache.
+- **Salesforce CLI not found**
+  Ensure `sf` or `sfdx` is installed and available on `PATH`.
+- **No orgs detected**
+  Authenticate with `sf org login web` and verify with `sf org list`.
+- **Replay Debugger does not launch**
+  Install the Salesforce Extension Pack or the standalone Apex Replay Debugger extension.
 
 ## Contributing
 
-See CONTRIBUTING.md for development setup, Conventional Commits, and our tag‑based release flow. Note: `CHANGELOG.md` is maintained manually.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and release flow details.
 
-### Testing
+Useful local commands:
 
-See docs/TESTING.md for how to run unit and integration tests (`npm run test:unit`, `npm run test:integration`, `npm run test:all`) and for environment variables such as `VSCODE_TEST_VERSION`, `VSCODE_TEST_INSTALL_DEPS`, `VSCODE_TEST_GREP`, and `VSCODE_TEST_TOTAL_TIMEOUT_MS`. Tests open a temporary workspace with an `sfdx-project.json` generated during the run.
+- `npm run build`
+- `npm run test:unit`
+- `npm run test:integration`
+- `npm run test:e2e`
+- `npm run docs:screenshots`
+
+Additional docs:
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- [docs/TESTING.md](docs/TESTING.md)
+- [docs/PUBLISHING.md](docs/PUBLISHING.md)
+- [docs/TELEMETRY.md](docs/TELEMETRY.md)
 
 ## Privacy & Security
 
-- No tokens are logged by default. When `electivus.apexLogs.trace` is enabled, verbose output is sent to the “Electivus Apex Log Viewer” output channel; review logs before sharing.
-- Telemetry: the extension may collect minimal, anonymized usage and error telemetry to help improve quality and performance. VS Code’s telemetry setting controls this behavior (see `settings.json` key `telemetry.telemetryLevel`).
-- We do not send your source code or Apex log content in telemetry.
-- The extension reuses `sf`/`sfdx` authentication for org access, then talks to Salesforce through jsforce-backed API calls and reads logs locally.
+- Source code and Apex log content are not sent in telemetry.
+- Tokens are not logged by default.
+- When `electivus.apexLogs.trace` is enabled, review extension output before sharing it externally.
+- The extension reuses your existing Salesforce CLI authentication and reads downloaded logs locally.
 
 ## Telemetry
 
-To help improve quality and performance, the extension may emit minimal, anonymized usage and error telemetry (for example: command invocation counts, non‑PII error categories like `ENOENT`/`ETIMEDOUT`, and coarse performance timings). We never include source code, Apex log content, access tokens, usernames, org IDs, or instance URLs in telemetry. Telemetry is disabled automatically in Development and Test modes (Extension Development Host and automated tests).
-
-Respecting your preferences:
-- VS Code’s `telemetry.telemetryLevel` setting controls whether telemetry is sent (values: `off`, `crash`, `error`, `all`). If set to `off`, the extension does not send telemetry.
-
-For details and implementer guidance, see `docs/TELEMETRY.md`.
+The extension may emit minimal, anonymized usage and error telemetry to improve reliability and performance. Telemetry respects VS Code's `telemetry.telemetryLevel` setting and is disabled automatically in Development and Test modes.
 
 ## License
 

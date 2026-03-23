@@ -177,6 +177,7 @@ export function TailToolbar({
           label={t.tail?.debugLevel ?? 'Debug level'}
           value={debugLevel}
           onChange={onDebugLevelChange}
+          testId="tail-debug-level"
           disabled={disabled}
           options={debugLevels.map(level => ({ value: level, label: level }))}
           placeholderLabel={t.tail?.select ?? 'Select'}

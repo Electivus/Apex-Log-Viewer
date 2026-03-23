@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Bug Fixes
+
+- Tail/Docs: refresh the Tail view bootstrap when reopening it, keep debug-level selection resilient for scratch-org flows, and close VS Code auxiliary UI during docs capture so maintainer screenshots stay stable and complete.
+
+### Docs
+
+- README/docs assets: reposition the extension story around search, snippets, triage, the dedicated log viewer, and refreshed static screenshots generated from a realistic scratch-org scenario.
+
+### Tests
+
+- Docs/E2E: add a manual `npm run docs:screenshots` flow that seeds deterministic scratch-org data, captures the README PNG set, and exercises the refreshed docs-maintenance path.
+
 ## [0.36.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.34.0...v0.36.0) (2026-03-23)
 
 ### Features

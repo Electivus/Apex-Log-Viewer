@@ -66,11 +66,14 @@ export function TailApp({
         setSelectedOrg(msg.selected);
       }
       if (msg.type === 'debugLevels') {
-        setDebugLevels(msg.data || []);
-        if (typeof msg.active === 'string') {
+        const nextLevels = msg.data || [];
+        setDebugLevels(nextLevels);
+        if (typeof msg.active === 'string' && msg.active) {
           setDebugLevel(msg.active);
-        } else if (msg.data && msg.data.length > 0) {
-          setDebugLevel(prev => prev || msg.data![0]!);
+        } else if (nextLevels.length > 0) {
+          setDebugLevel(prev => (prev && nextLevels.includes(prev) ? prev : nextLevels[0]!));
+        } else {
+          setDebugLevel('');
         }
       }
       if (msg.type === 'tailStatus') {
@@ -157,11 +160,15 @@ export function TailApp({
 
   const start = () => {
     setError(undefined);
-    if (!debugLevel) {
+    const effectiveDebugLevel = debugLevel || debugLevels[0] || '';
+    if (!effectiveDebugLevel) {
       setError(t.tail?.selectDebugLevel ?? 'Select a debug level');
       return;
     }
-    vscode.postMessage({ type: 'tailStart', debugLevel });
+    if (effectiveDebugLevel !== debugLevel) {
+      setDebugLevel(effectiveDebugLevel);
+    }
+    vscode.postMessage({ type: 'tailStart', debugLevel: effectiveDebugLevel });
   };
   const stop = () => vscode.postMessage({ type: 'tailStop' });
   const clear = () => vscode.postMessage({ type: 'tailClear' });
