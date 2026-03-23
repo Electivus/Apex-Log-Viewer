@@ -23,6 +23,7 @@ export class LogsEditorPanel {
 
     if (this.instance) {
       this.instance.reveal();
+      await this.instance.syncSelectedOrg(options?.selectedOrg);
       return;
     }
 
@@ -56,6 +57,10 @@ export class LogsEditorPanel {
 
   private reveal(): void {
     this.panel.reveal(undefined, false);
+  }
+
+  private async syncSelectedOrg(selectedOrg?: string): Promise<void> {
+    await this.controller.syncSelectedOrg(selectedOrg);
   }
 
   private dispose(): void {

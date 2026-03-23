@@ -156,4 +156,30 @@ suite('SfLogsViewProvider webview', () => {
 
     assert.deepEqual(calls, ['sendOrgs', 'refresh']);
   });
+
+  test('syncSelectedOrg refreshes an existing editor session when the org changes', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+
+    const provider = new SfLogsViewProvider(context);
+    const webview = new MockWebview();
+    const panel = new MockWebviewPanel('sfLogViewer.editorPanel', webview);
+    const calls: string[] = [];
+
+    provider.resolveWebviewPanel(panel);
+    provider.setSelectedOrg('first@example.com');
+    (provider as any).sendOrgs = async () => {
+      calls.push('sendOrgs');
+    };
+    (provider as any).refresh = async () => {
+      calls.push('refresh');
+    };
+
+    await provider.syncSelectedOrg('second@example.com');
+
+    assert.equal(provider.getSelectedOrg(), 'second@example.com');
+    assert.deepEqual(calls, ['sendOrgs', 'refresh']);
+  });
 });

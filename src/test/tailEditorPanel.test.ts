@@ -34,12 +34,13 @@ function createPanel() {
 }
 
 suite('TailEditorPanel', () => {
-  test('creates a panel once and reuses it without resetting the org seed', async () => {
+  test('creates a panel once and syncs the selected org when reusing it', async () => {
     const createdProviders: any[] = [];
     const panel = createPanel();
 
     class FakeTailProvider {
       selectedOrgs: Array<string | undefined> = [];
+      syncedOrgs: Array<string | undefined> = [];
       resolvedPanels: any[] = [];
 
       constructor(_context: any) {
@@ -48,6 +49,10 @@ suite('TailEditorPanel', () => {
 
       setSelectedOrg(org?: string): void {
         this.selectedOrgs.push(org);
+      }
+
+      async syncSelectedOrg(org?: string): Promise<void> {
+        this.syncedOrgs.push(org);
       }
 
       resolveWebviewPanel(nextPanel: any): void {
@@ -88,6 +93,7 @@ suite('TailEditorPanel', () => {
 
     assert.equal(createdProviders.length, 1, 'should create only one provider/controller');
     assert.deepEqual(createdProviders[0]?.selectedOrgs, ['tail-first@example.com']);
+    assert.deepEqual(createdProviders[0]?.syncedOrgs, ['tail-second@example.com']);
     assert.equal(createdProviders[0]?.resolvedPanels.length, 1, 'should bind the editor panel once');
     assert.equal(panel.revealCount, 1, 'should reveal the existing panel on reopen');
   });

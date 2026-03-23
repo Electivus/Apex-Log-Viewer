@@ -1315,6 +1315,21 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.orgManager.setSelectedOrg(username);
   }
 
+  public async syncSelectedOrg(username?: string): Promise<void> {
+    const next = typeof username === 'string' ? username.trim() || undefined : undefined;
+    if (!next || next === this.orgManager.getSelectedOrg()) {
+      return;
+    }
+
+    this.setSelectedOrg(next);
+    if (!this.view || this.disposed) {
+      return;
+    }
+
+    await this.sendOrgs();
+    await this.refresh();
+  }
+
   public async tailLogs() {
     await vscode.commands.executeCommand('workbench.view.extension.salesforceTailPanel');
     try {

@@ -32,6 +32,8 @@ async function waitForCondition(
     }
     await new Promise(resolve => setTimeout(resolve, intervalMs));
   }
+
+  assert.fail(`waitForCondition timed out after ${timeoutMs} ms`);
 }
 
 suite('SfLogsViewProvider behavior', () => {

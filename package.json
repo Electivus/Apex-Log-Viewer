@@ -358,14 +358,12 @@
       {
         "command": "sfLogs.openLogsEditor",
         "title": "%command.openLogsEditor.title%",
-        "category": "Electivus Apex Logs",
-        "icon": "$(open-preview)"
+        "category": "Electivus Apex Logs"
       },
       {
         "command": "sfLogs.openTailEditor",
         "title": "%command.openTailEditor.title%",
-        "category": "Electivus Apex Logs",
-        "icon": "$(open-preview)"
+        "category": "Electivus Apex Logs"
       },
       {
         "command": "sfLogs.openLogInViewer",

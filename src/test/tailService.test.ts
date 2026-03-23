@@ -489,4 +489,29 @@ suite('TailService', () => {
     assert.ok(posted.some(message => message?.type === 'sendDebugLevelsCalled'), 'should refresh debug levels on ready');
     assert.equal((provider as any).tailService.isRunning(), false, 'editor tail should stay idle until explicit start');
   });
+
+  test('syncSelectedOrg refreshes an existing editor tail session and stops the current stream', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const provider = new SfLogTailViewProvider(context);
+    const webview = new MockWebview();
+    const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+    const calls: string[] = [];
+
+    provider.resolveWebviewPanel(panel);
+    provider.setSelectedOrg('tail-first@example.com');
+    (provider as any).tailService.setOrg('tail-first@example.com');
+    (provider as any).tailService.tailRunning = true;
+    (provider as any).refreshViewState = async () => {
+      calls.push('refreshViewState');
+    };
+
+    await provider.syncSelectedOrg('tail-second@example.com');
+
+    assert.equal(provider.getSelectedOrg(), 'tail-second@example.com');
+    assert.equal((provider as any).tailService.isRunning(), false, 'should stop the previous tail session');
+    assert.deepEqual(calls, ['refreshViewState']);
+  });
 });

@@ -212,6 +212,26 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     this.selectedOrg = username;
   }
 
+  public async syncSelectedOrg(username?: string): Promise<void> {
+    const next = typeof username === 'string' ? username.trim() || undefined : undefined;
+    if (!next || next === this.selectedOrg) {
+      return;
+    }
+
+    const previous = this.selectedOrg;
+    this.setSelectedOrg(next);
+    this.tailService.setOrg(next);
+    if (previous !== next) {
+      this.tailService.stop();
+    }
+
+    if (!this.view || this.disposed) {
+      return;
+    }
+
+    await this.refreshViewState();
+  }
+
   private async sendDebugLevels(): Promise<void> {
     const t0 = Date.now();
     // Load auth; if this fails, surface empty list once
