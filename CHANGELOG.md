@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## [0.36.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.34.0...v0.36.0) (2026-03-23)
+
+### Features
+
+- Telemetry: expand observability coverage with sanitized Logs search/filter and Debug Flags user-search events, classified CLI failure codes, and updated telemetry schema coverage for Azure Monitor analysis. ([#634](https://github.com/Electivus/Apex-Log-Viewer/pull/634))
+
+### Bug Fixes
+
+- Maintainers/automation: make the repo-local `babysit-pr` watcher understand Copilot feedback, keep Codex Eyes reviews in the in-review state, and consolidate trusted bot review handling so readiness tracking matches actual mergeability. ([#633](https://github.com/Electivus/Apex-Log-Viewer/pull/633)) ([#637](https://github.com/Electivus/Apex-Log-Viewer/pull/637)) ([#640](https://github.com/Electivus/Apex-Log-Viewer/pull/640))
+
+### Chores
+
+- Maintainers/automation: add the repo-local `babysit-pr` skill and supporting scripts for PR monitoring workflows. ([#627](https://github.com/Electivus/Apex-Log-Viewer/pull/627))
+- Telemetry/ops: add versioned Azure Monitor infrastructure, workbook scaffolding, deployment/report helpers, and docs/CI updates for telemetry-enabled validation flows. ([#632](https://github.com/Electivus/Apex-Log-Viewer/pull/632))
+- Docs/specs: remove outdated support-minimization and lazy-replay planning documents and replace them with the finalized new-window launch design. ([#626](https://github.com/Electivus/Apex-Log-Viewer/pull/626)) ([226f978](https://github.com/Electivus/Apex-Log-Viewer/commit/226f978ddbb3d8daab3843f8c0d2189062e5b208)) ([54e89e9](https://github.com/Electivus/Apex-Log-Viewer/commit/54e89e9b00f0bbe6db6d7e8a0a6ac4a797c31c50)) ([a9b73fb](https://github.com/Electivus/Apex-Log-Viewer/commit/a9b73fb3ce4984b3b6bbe5173583fec201f3294e))
+
+### Tests
+
+- E2E/CI: reuse a shared scratch org in GitHub Actions, serialize concurrent runs, rotate the auth URL, and extend scratch-org reuse coverage. ([#628](https://github.com/Electivus/Apex-Log-Viewer/pull/628))
+
 ## [0.34.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.32.0...v0.34.0) (2026-03-20)
 
 ### Features
