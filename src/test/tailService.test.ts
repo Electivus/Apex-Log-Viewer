@@ -55,6 +55,47 @@ class MockWebviewView implements vscode.WebviewView {
   onDidDispose: vscode.Event<void> = () => new MockDisposable();
 }
 
+class MockWebviewPanel implements vscode.WebviewPanel {
+  readonly active = true;
+  readonly visible = true;
+  readonly options: vscode.WebviewPanelOptions = {};
+  public title = 'Electivus Apex Logs Tail';
+  public viewColumn: vscode.ViewColumn = vscode.ViewColumn.Active;
+  public webview: vscode.Webview;
+  private disposeListener: (() => void) | undefined;
+  private viewStateListener:
+    | ((event: vscode.WebviewPanelOnDidChangeViewStateEvent) => void)
+    | undefined;
+
+  constructor(public viewType: string, webview: vscode.Webview) {
+    this.webview = webview;
+  }
+
+  reveal(_viewColumn?: vscode.ViewColumn, _preserveFocus?: boolean): void {
+    /* noop */
+  }
+
+  dispose(): void {
+    this.disposeListener?.();
+  }
+
+  onDidDispose(listener: () => void): vscode.Disposable {
+    this.disposeListener = listener;
+    return new MockDisposable();
+  }
+
+  onDidChangeViewState(
+    listener: (e: vscode.WebviewPanelOnDidChangeViewStateEvent) => any
+  ): vscode.Disposable {
+    this.viewStateListener = listener;
+    return new MockDisposable();
+  }
+
+  fireVisible(): void {
+    this.viewStateListener?.({ webviewPanel: this } as vscode.WebviewPanelOnDidChangeViewStateEvent);
+  }
+}
+
 suite('TailService', () => {
   const originalDebugFlagsShow = DebugFlagsPanel.show;
 
@@ -416,5 +457,36 @@ suite('TailService', () => {
     assert.equal(opened.length, 1);
     assert.equal(opened[0]?.selectedOrg, 'tail-user@example.com');
     assert.equal(opened[0]?.sourceView, 'tail');
+  });
+
+  test('editor tail panel resolves html and stays idle after ready', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const provider = new SfLogTailViewProvider(context);
+    const posted: any[] = [];
+    const webview = new MockWebview();
+    webview.postMessage = (message: any) => {
+      posted.push(message);
+      return Promise.resolve(true);
+    };
+    const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+
+    (provider as any).sendOrgs = async () => {
+      posted.push({ type: 'sendOrgsCalled' });
+    };
+    (provider as any).sendDebugLevels = async () => {
+      posted.push({ type: 'sendDebugLevelsCalled' });
+    };
+
+    provider.resolveWebviewPanel(panel);
+    await webview.emit({ type: 'ready' });
+
+    assert.ok(webview.html.includes('media/tail.js'));
+    assert.ok(posted.some(message => message?.type === 'init'), 'should post init message');
+    assert.ok(posted.some(message => message?.type === 'sendOrgsCalled'), 'should refresh org state on ready');
+    assert.ok(posted.some(message => message?.type === 'sendDebugLevelsCalled'), 'should refresh debug levels on ready');
+    assert.equal((provider as any).tailService.isRunning(), false, 'editor tail should stay idle until explicit start');
   });
 });

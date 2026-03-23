@@ -13,10 +13,14 @@ suite('integration: extension activation and commands', () => {
     console.log('Has sfLogs.refresh?', commands.includes('sfLogs.refresh'));
     console.log('Has sfLogs.selectOrg?', commands.includes('sfLogs.selectOrg'));
     console.log('Has sfLogs.tail?', commands.includes('sfLogs.tail'));
+    console.log('Has sfLogs.openLogsEditor?', commands.includes('sfLogs.openLogsEditor'));
+    console.log('Has sfLogs.openTailEditor?', commands.includes('sfLogs.openTailEditor'));
     console.log('Has sfLogs.troubleshootWebview?', commands.includes('sfLogs.troubleshootWebview'));
     assert.ok(commands.includes('sfLogs.refresh'), 'registers sfLogs.refresh');
     assert.ok(commands.includes('sfLogs.selectOrg'), 'registers sfLogs.selectOrg');
     assert.ok(commands.includes('sfLogs.tail'), 'registers sfLogs.tail');
+    assert.ok(commands.includes('sfLogs.openLogsEditor'), 'registers sfLogs.openLogsEditor');
+    assert.ok(commands.includes('sfLogs.openTailEditor'), 'registers sfLogs.openTailEditor');
     assert.ok(commands.includes('sfLogs.troubleshootWebview'), 'registers sfLogs.troubleshootWebview');
 
     // Executing refresh should be a no-op (no view resolved yet) and not throw.

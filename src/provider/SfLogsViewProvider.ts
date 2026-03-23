@@ -20,12 +20,16 @@ import { ensureApexLogsDir, purgeSavedLogs, getLogIdFromLogFilePath } from '../u
 import { ripgrepSearch, type RipgrepMatch } from '../utils/ripgrep';
 import { DEFAULT_LOGS_COLUMNS_CONFIG, normalizeLogsColumnsConfig, type NormalizedLogsColumnsConfig } from '../shared/logsColumns';
 import type { LogTriageSummary } from '../shared/logTriage';
+import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
 
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 
-export class SfLogsViewProvider implements vscode.WebviewViewProvider {
+export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = 'sfLogViewer';
-  private view?: vscode.WebviewView;
+  private view?: { webview: vscode.Webview };
+  private host?: BoundWebviewHost;
+  private readonly disposables: vscode.Disposable[] = [];
+  private hostDisposables: vscode.Disposable[] = [];
   private pageLimit = 100;
   private currentOffset = 0;
   private disposed = false;
@@ -70,7 +74,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       value => this.setSearchQuery(value),
       value => this.saveLogsColumns(value)
     );
-    this.context.subscriptions.push(
+    this.disposables.push(
       vscode.workspace.onDidChangeConfiguration(e => {
         const prevFullBodies = this.configManager.shouldLoadFullLogBodies();
         this.configManager.handleChange(e);
@@ -87,34 +91,35 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
   }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
-    this.view = webviewView;
-    this.disposed = false;
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
-    };
-    webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
-    logInfo('Logs webview resolved.');
-    // Dispose handling: stop posting and bump token to invalidate in-flight work
-    this.context.subscriptions.push(
-      webviewView.onDidDispose(() => {
-        this.disposed = true;
-        this.view = undefined;
-        this.refreshToken++;
-        this.cancelErrorScan();
-        logInfo('Logs webview disposed.');
-      })
-    );
+    this.bindHost(createWebviewViewHost(webviewView));
+  }
 
-    this.context.subscriptions.push(
-      webviewView.webview.onDidReceiveMessage(message => {
-        void this.messageHandler.handle(message);
-      })
-    );
+  public resolveWebviewPanel(panel: vscode.WebviewPanel): void {
+    this.bindHost(createWebviewPanelHost(panel));
   }
 
   public hasResolvedView(): boolean {
     return Boolean(this.view) && !this.disposed;
+  }
+
+  public getSelectedOrg(): string | undefined {
+    return this.orgManager.getSelectedOrg();
+  }
+
+  public dispose(): void {
+    this.disposed = true;
+    this.view = undefined;
+    this.host = undefined;
+    this.refreshToken++;
+    this.cancelErrorScan();
+    if (this.searchAbortController) {
+      this.searchAbortController.abort();
+      this.searchAbortController = undefined;
+    }
+    vscode.Disposable.from(...this.hostDisposables).dispose();
+    this.hostDisposables = [];
+    vscode.Disposable.from(...this.disposables).dispose();
+    this.disposables.length = 0;
   }
 
   public async refresh() {
@@ -1330,6 +1335,41 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider {
       selectedOrg: this.orgManager.getSelectedOrg(),
       sourceView: 'logs'
     });
+  }
+
+  private bindHost(host: BoundWebviewHost): void {
+    vscode.Disposable.from(...this.hostDisposables).dispose();
+    this.hostDisposables = [];
+    this.host = host;
+    this.view = host;
+    this.disposed = false;
+    host.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
+    };
+    host.webview.html = this.getHtmlForWebview(host.webview);
+    logInfo(`Logs webview resolved (${host.kind}).`);
+
+    this.hostDisposables.push(
+      host.onDidDispose(() => {
+        if (this.host !== host) {
+          return;
+        }
+        this.disposed = true;
+        this.view = undefined;
+        this.host = undefined;
+        this.refreshToken++;
+        this.cancelErrorScan();
+        if (this.searchAbortController) {
+          this.searchAbortController.abort();
+          this.searchAbortController = undefined;
+        }
+        logInfo(`Logs webview disposed (${host.kind}).`);
+      }),
+      host.webview.onDidReceiveMessage(message => {
+        void this.messageHandler.handle(message);
+      })
+    );
   }
 
   private post(msg: ExtensionToWebviewMessage): void {

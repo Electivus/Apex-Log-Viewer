@@ -77,7 +77,7 @@ suite('LogService', () => {
       svc.loadLogHeads(logs, {} as OrgAuth, 0, (id: string, code: string) => {
         seen.push({ id, code });
       }, undefined, { selectedOrg: 'default' });
-      await new Promise(r => setTimeout(r, 30));
+      await waitForCondition(() => seen.length === 1, { timeoutMs: 500, intervalMs: 10 });
       assert.deepEqual(seen, [{ id: '1', code: 'Unit' }]);
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });

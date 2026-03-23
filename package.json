@@ -356,6 +356,18 @@
         "category": "Electivus Apex Logs"
       },
       {
+        "command": "sfLogs.openLogsEditor",
+        "title": "%command.openLogsEditor.title%",
+        "category": "Electivus Apex Logs",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "sfLogs.openTailEditor",
+        "title": "%command.openTailEditor.title%",
+        "category": "Electivus Apex Logs",
+        "icon": "$(open-preview)"
+      },
+      {
         "command": "sfLogs.openLogInViewer",
         "title": "%command.openLogInViewer.title%",
         "category": "Electivus Apex Logs"
@@ -389,19 +401,31 @@
     "menus": {
       "view/title": [
         {
+          "command": "sfLogs.openLogsEditor",
+          "when": "view == sfLogViewer",
+          "group": "navigation@10",
+          "icon": "$(open-preview)"
+        },
+        {
+          "command": "sfLogs.openTailEditor",
+          "when": "view == sfLogTail",
+          "group": "navigation@10",
+          "icon": "$(open-preview)"
+        },
+        {
           "command": "sfLogs.troubleshootWebview",
           "when": "view == sfLogViewer || view == sfLogTail",
-          "group": "navigation@97"
+          "group": "moreActions@97"
         },
         {
           "command": "sfLogs.resetCliCache",
           "when": "view == sfLogViewer || view == sfLogTail",
-          "group": "navigation@98"
+          "group": "moreActions@98"
         },
         {
           "command": "sfLogs.showOutput",
           "when": "view == sfLogViewer || view == sfLogTail",
-          "group": "navigation@99"
+          "group": "moreActions@99"
         }
       ],
       "editor/title": [

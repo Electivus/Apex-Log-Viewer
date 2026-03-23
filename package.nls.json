@@ -8,6 +8,8 @@
   "command.refresh.title": "Refresh Logs",
   "command.selectOrg.title": "Select Org",
   "command.tail.title": "Tail Logs",
+  "command.openLogsEditor.title": "Open Logs in Editor Area",
+  "command.openTailEditor.title": "Open Tail in Editor Area",
   "command.openLogInViewer.title": "Open in Apex Log Viewer",
   "command.troubleshootWebview.title": "Troubleshoot Webview Error",
   "configuration.title": "Electivus Apex Logs",
