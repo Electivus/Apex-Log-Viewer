@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## [0.36.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.34.0...v0.36.0) (2026-03-23)
+
+### Features
+
+- Telemetry: instrument log search/filter flows, emit sanitized Debug Flags search telemetry, and classify Salesforce CLI failures into stable telemetry error codes for improved observability. ([#634](https://github.com/Electivus/Apex-Log-Viewer/pull/634))
+
+### Chores
+
+- Telemetry/ops: add Azure Monitor infrastructure, deployment/reporting helpers, and telemetry-aware Playwright E2E configuration for maintainers. ([#632](https://github.com/Electivus/Apex-Log-Viewer/pull/632))
+- CI/E2E: reuse a shared scratch org in GitHub Actions with serialized access and auth secret rotation to reduce scratch-org churn across pull requests. ([#628](https://github.com/Electivus/Apex-Log-Viewer/pull/628))
+- Docs/maintainers: remove outdated design and plan documents that no longer reflect the current architecture and release workflow. ([#626](https://github.com/Electivus/Apex-Log-Viewer/pull/626))
+
+### Tests
+
+- Telemetry: add coverage for search/filter instrumentation, sanitized debug-flag telemetry payloads, CLI error classification, and the related webview/extension host flows. ([#634](https://github.com/Electivus/Apex-Log-Viewer/pull/634))
+- E2E/CI: add scratch-org reuse coverage so the GitHub Actions lifecycle keeps the shared org and secret rotation behavior under test. ([#628](https://github.com/Electivus/Apex-Log-Viewer/pull/628))
+
 ## [0.34.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.32.0...v0.34.0) (2026-03-20)
 
 ### Features
