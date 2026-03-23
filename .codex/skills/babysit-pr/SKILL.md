@@ -205,6 +205,7 @@ Stop only when one of the following is true:
 
 - PR merged or closed (stop as soon as a poll/snapshot confirms this).
 - PR is ready to merge: CI succeeded, no surfaced unaddressed review comments, no unresolved review threads, and no merge conflict risk.
+- A separate approval/thumbs-up signal is not required, but any GitHub-reported merge blocking state (for example `BLOCKED`) still means the PR is not ready.
 - User intervention is required and Codex cannot safely proceed alone.
 
 Keep polling when:

@@ -935,7 +935,7 @@ def is_pr_ready_to_merge(
     if str(pr.get("mergeable") or "") != "MERGEABLE":
         return False
     merge_state_status = str(pr.get("merge_state_status") or "")
-    if merge_state_status in {"DIRTY", "DRAFT", "UNKNOWN"}:
+    if merge_state_status in MERGE_CONFLICT_OR_BLOCKING_STATES:
         return False
     return True
 
