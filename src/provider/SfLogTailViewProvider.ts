@@ -14,10 +14,14 @@ import { getNumberConfig, affectsConfiguration } from '../utils/config';
 import { getErrorMessage } from '../utils/error';
 import { LogViewerPanel } from '../panel/LogViewerPanel';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
+import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
 
-export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
+export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = 'sfLogTail';
-  private view?: vscode.WebviewView;
+  private view?: { webview: vscode.Webview };
+  private host?: BoundWebviewHost;
+  private readonly disposables: vscode.Disposable[] = [];
+  private hostDisposables: vscode.Disposable[] = [];
   private disposed = false;
   private selectedOrg: string | undefined;
   private tailService = new TailService(m => this.post(m));
@@ -26,7 +30,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     this.tailService.setOrg(this.selectedOrg);
 
     // React to tail buffer size changes live
-    this.context.subscriptions.push(
+    this.disposables.push(
       vscode.workspace.onDidChangeConfiguration(e => {
         if (affectsConfiguration(e, 'sfLogs.tailBufferSize')) {
           try {
@@ -38,52 +42,32 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         }
       })
     );
-  }
-
-  resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
-    this.view = webviewView;
-    this.disposed = false;
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
-    };
-    webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
-    logInfo('Tail webview resolved.');
-
-    this.context.subscriptions.push(
-      webviewView.onDidDispose(() => {
-        this.disposed = true;
-        this.view = undefined;
-        // Stop timers and clear caches, but keep TailService reusable when the view reopens
-        this.tailService.stop();
-        logInfo('Tail webview disposed; stopped tail.');
-      })
-    );
-
-    this.context.subscriptions.push(
-      webviewView.onDidChangeVisibility(() => {
-        if (!webviewView.visible || this.disposed) {
-          return;
-        }
-        void this.refreshViewState();
-      })
-    );
 
     // Track window activity to adapt polling cadence (requires VS Code 1.89+; @types 1.90)
     try {
       this.tailService.setWindowActive(vscode.window.state?.active ?? true);
-      const d = vscode.window.onDidChangeWindowState(e => {
-        this.tailService.setWindowActive(e.active);
-        if (e.active && this.tailService.isRunning() && !this.disposed) {
-          this.tailService.promptPoll();
-        }
-      });
-      this.context.subscriptions.push(d);
+      this.disposables.push(
+        vscode.window.onDidChangeWindowState(e => {
+          this.tailService.setWindowActive(e.active);
+          if (e.active && this.tailService.isRunning() && !this.disposed) {
+            this.tailService.promptPoll();
+          }
+        })
+      );
     } catch (e) {
       logWarn('Tail: window state tracking failed ->', getErrorMessage(e));
     }
+  }
 
-    webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
+  resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
+    this.bindHost(createWebviewViewHost(webviewView));
+  }
+
+  public resolveWebviewPanel(panel: vscode.WebviewPanel): void {
+    this.bindHost(createWebviewPanelHost(panel));
+  }
+
+  private async onMessage(message: WebviewToExtensionMessage): Promise<void> {
       const t = (message as any)?.type;
       if (t) {
         logInfo('Tail: received message from webview:', t);
@@ -151,7 +135,21 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         this.post({ type: 'tailReset' });
         return;
       }
-    });
+  }
+
+  public getSelectedOrg(): string | undefined {
+    return this.selectedOrg;
+  }
+
+  public dispose(): void {
+    this.disposed = true;
+    this.view = undefined;
+    this.host = undefined;
+    this.tailService.stop();
+    vscode.Disposable.from(...this.hostDisposables).dispose();
+    this.hostDisposables = [];
+    vscode.Disposable.from(...this.disposables).dispose();
+    this.disposables.length = 0;
   }
 
   private getHtmlForWebview(webview: vscode.Webview): string {
@@ -210,8 +208,28 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private setSelectedOrg(username?: string): void {
+  public setSelectedOrg(username?: string): void {
     this.selectedOrg = username;
+  }
+
+  public async syncSelectedOrg(username?: string): Promise<void> {
+    const next = typeof username === 'string' ? username.trim() || undefined : undefined;
+    if (!next || next === this.selectedOrg) {
+      return;
+    }
+
+    const previous = this.selectedOrg;
+    this.setSelectedOrg(next);
+    this.tailService.setOrg(next);
+    if (previous !== next) {
+      this.tailService.stop();
+    }
+
+    if (!this.view || this.disposed) {
+      return;
+    }
+
+    await this.refreshViewState();
   }
 
   private async sendDebugLevels(): Promise<void> {
@@ -343,5 +361,42 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider {
         } catch {}
       }
     }
+  }
+
+  private bindHost(host: BoundWebviewHost): void {
+    vscode.Disposable.from(...this.hostDisposables).dispose();
+    this.hostDisposables = [];
+    this.host = host;
+    this.view = host;
+    this.disposed = false;
+    host.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
+    };
+    host.webview.html = this.getHtmlForWebview(host.webview);
+    logInfo(`Tail webview resolved (${host.kind}).`);
+
+    this.hostDisposables.push(
+      host.onDidDispose(() => {
+        if (this.host !== host) {
+          return;
+        }
+        this.disposed = true;
+        this.view = undefined;
+        this.host = undefined;
+        // Stop timers and clear caches, but keep controller disposal separate.
+        this.tailService.stop();
+        logInfo(`Tail webview disposed; stopped tail (${host.kind}).`);
+      }),
+      host.onDidBecomeVisible(() => {
+        if (this.disposed) {
+          return;
+        }
+        void this.refreshViewState();
+      }),
+      host.webview.onDidReceiveMessage(message => {
+        void this.onMessage(message as WebviewToExtensionMessage);
+      })
+    );
   }
 }

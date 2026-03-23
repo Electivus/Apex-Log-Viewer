@@ -11,6 +11,8 @@ import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry }
 import { CacheManager } from './utils/cacheManager';
 import { LogViewerPanel } from './panel/LogViewerPanel';
 import { DebugFlagsPanel } from './panel/DebugFlagsPanel';
+import { LogsEditorPanel } from './panel/LogsEditorPanel';
+import { TailEditorPanel } from './panel/TailEditorPanel';
 import { getBooleanConfig, affectsConfiguration } from './utils/config';
 import { getErrorMessage } from './utils/error';
 import { listOrgs, getOrgAuth } from './salesforce/cli';
@@ -37,6 +39,8 @@ export async function activate(context: vscode.ExtensionContext) {
   const activationStart = Date.now();
   LogViewerPanel.initialize(context);
   DebugFlagsPanel.initialize(context);
+  LogsEditorPanel.initialize(context);
+  TailEditorPanel.initialize(context);
   const salesforceProject = await findSalesforceProjectInfo();
   const hasSalesforceProject = !!salesforceProject;
   // Init TTL cache (best-effort; no-op if unavailable)
@@ -85,6 +89,7 @@ export async function activate(context: vscode.ExtensionContext) {
   }
   const provider = new SfLogsViewProvider(context);
   context.subscriptions.push(
+    provider,
     vscode.window.registerWebviewViewProvider(SfLogsViewProvider.viewType, provider, {
       webviewOptions: { retainContextWhenHidden: true }
     })
@@ -93,6 +98,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Register Tail view provider
   const tailProvider = new SfLogTailViewProvider(context);
   context.subscriptions.push(
+    tailProvider,
     vscode.window.registerWebviewViewProvider(SfLogTailViewProvider.viewType, tailProvider, {
       webviewOptions: { retainContextWhenHidden: true }
     })
@@ -166,6 +172,30 @@ export async function activate(context: vscode.ExtensionContext) {
         await tailProvider.refreshViewState();
       } catch (e) {
         logWarn('Command sfLogs.tail: failed to open tail view ->', getErrorMessage(e));
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.openLogsEditor', async () => {
+      safeSendEvent('command.openLogsEditor', { outcome: 'invoked' });
+      try {
+        await LogsEditorPanel.show({ selectedOrg: provider.getSelectedOrg() });
+      } catch (e) {
+        logWarn('Command sfLogs.openLogsEditor failed ->', getErrorMessage(e));
+        safeSendEvent('command.openLogsEditor', { outcome: 'error' });
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.openTailEditor', async () => {
+      safeSendEvent('command.openTailEditor', { outcome: 'invoked' });
+      try {
+        await TailEditorPanel.show({ selectedOrg: tailProvider.getSelectedOrg() ?? provider.getSelectedOrg() });
+      } catch (e) {
+        logWarn('Command sfLogs.openTailEditor failed ->', getErrorMessage(e));
+        safeSendEvent('command.openTailEditor', { outcome: 'error' });
       }
     })
   );

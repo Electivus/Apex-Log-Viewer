@@ -19,6 +19,23 @@ function makeContext() {
   return context;
 }
 
+async function waitForCondition(
+  predicate: () => boolean,
+  options: { timeoutMs?: number; intervalMs?: number } = {}
+): Promise<void> {
+  const timeoutMs = Math.max(0, Math.floor(options.timeoutMs ?? 500));
+  const intervalMs = Math.max(1, Math.floor(options.intervalMs ?? 10));
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+
+  assert.fail(`waitForCondition timed out after ${timeoutMs} ms`);
+}
+
 suite('SfLogsViewProvider behavior', () => {
   const origGetOrgAuth = cli.getOrgAuth;
   const origFetchApexLogs = http.fetchApexLogs;
@@ -91,8 +108,7 @@ suite('SfLogsViewProvider behavior', () => {
 
     try {
       await provider.refresh();
-      // Allow background tasks to complete
-      await new Promise(r => setTimeout(r, 50));
+      await waitForCondition(() => posted.filter(m => typeof m?.codeUnitStarted === 'string').length === 2);
 
       const init = posted.find(m => m?.type === 'init');
       const logs = posted.find(m => m?.type === 'logs');

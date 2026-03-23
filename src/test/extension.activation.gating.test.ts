@@ -46,6 +46,8 @@ function createExtensionHarness(options: {
   const infoMessages: string[] = [];
   const warningMessages: string[] = [];
   const errorMessages: string[] = [];
+  const logsEditorShows: Array<{ selectedOrg?: string }> = [];
+  const tailEditorShows: Array<{ selectedOrg?: string }> = [];
 
   const vscodeStub = {
     version: '1.101.0',
@@ -87,6 +89,7 @@ function createExtensionHarness(options: {
 
   class FakeLogsViewProvider {
     public static viewType = 'sfLogViewer';
+    private selectedOrg: string | undefined;
 
     constructor(_context: any) {}
 
@@ -98,15 +101,36 @@ function createExtensionHarness(options: {
 
     public async sendOrgs(): Promise<void> {}
 
-    public setSelectedOrg(_username: string): void {}
+    public setSelectedOrg(username?: string): void {
+      this.selectedOrg = username;
+    }
+
+    public getSelectedOrg(): string | undefined {
+      return this.selectedOrg;
+    }
 
     public async tailLogs(): Promise<void> {}
+
+    public dispose(): void {}
   }
 
   class FakeTailViewProvider {
     public static viewType = 'sfLogTail';
+    private selectedOrg: string | undefined;
 
     constructor(_context: any) {}
+
+    public getSelectedOrg(): string | undefined {
+      return this.selectedOrg;
+    }
+
+    public setSelectedOrg(username?: string): void {
+      this.selectedOrg = username;
+    }
+
+    public async refreshViewState(): Promise<void> {}
+
+    public dispose(): void {}
   }
 
   class FakeCodeLensProvider {}
@@ -127,6 +151,22 @@ function createExtensionHarness(options: {
     './panel/DebugFlagsPanel': {
       DebugFlagsPanel: {
         initialize: () => undefined
+      }
+    },
+    './panel/LogsEditorPanel': {
+      LogsEditorPanel: {
+        initialize: () => undefined,
+        show: async (options?: { selectedOrg?: string }) => {
+          logsEditorShows.push(options ?? {});
+        }
+      }
+    },
+    './panel/TailEditorPanel': {
+      TailEditorPanel: {
+        initialize: () => undefined,
+        show: async (options?: { selectedOrg?: string }) => {
+          tailEditorShows.push(options ?? {});
+        }
       }
     },
     './salesforce/http': {
@@ -205,7 +245,9 @@ function createExtensionHarness(options: {
     logViewerShows,
     infoMessages,
     warningMessages,
-    errorMessages
+    errorMessages,
+    logsEditorShows,
+    tailEditorShows
   };
 }
 
@@ -241,6 +283,8 @@ suite('extension activation gating', () => {
     assert.deepEqual(harness.setApiVersionCalls, []);
     assert.equal(harness.timeoutCallbacks.length, 0, 'should not schedule CLI preload outside Salesforce projects');
     assert.ok(harness.commands.has('sfLogs.refresh'), 'refresh command should stay registered');
+    assert.ok(harness.commands.has('sfLogs.openLogsEditor'), 'open logs editor command should stay registered');
+    assert.ok(harness.commands.has('sfLogs.openTailEditor'), 'open tail editor command should stay registered');
     assert.ok(harness.commands.has('sfLogs.openLogInViewer'), 'open log viewer command should stay registered');
     assert.ok(harness.commands.has('sfLogs.troubleshootWebview'), 'webview troubleshooting command should stay registered');
 

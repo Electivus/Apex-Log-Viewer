@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+- Logs/Tail: add optional editor-area tabs for the main Logs and Tail webviews, keeping the default docked panels intact while letting users move those sessions into other editor groups or windows.
+
 ### Bug Fixes
 
 - Tail/Docs: refresh the Tail view bootstrap when reopening it, keep debug-level selection resilient for scratch-org flows, and close VS Code auxiliary UI during docs capture so maintainer screenshots stay stable and complete.
@@ -13,6 +17,7 @@
 ### Tests
 
 - Docs/E2E: add a manual `npm run docs:screenshots` flow that seeds deterministic scratch-org data, captures the README PNG set, and exercises the refreshed docs-maintenance path.
+- Logs/Tail: cover editor-area commands, singleton editor panels, editor-hosted webview lifecycle, and telemetry catalog updates for the new editor-entry flows.
 
 ## [0.36.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.34.0...v0.36.0) (2026-03-23)
 

@@ -93,6 +93,28 @@
         }
       }
     },
+    "command.openLogsEditor": {
+      "description": "Open-logs-editor command outcome.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["invoked", "error"]
+        }
+      }
+    },
+    "command.openTailEditor": {
+      "description": "Open-tail-editor command outcome.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["invoked", "error"]
+        }
+      }
+    },
     "command.openLogInViewer": {
       "description": "Open-log-in-viewer command was invoked from VS Code.",
       "properties": {
