@@ -36,6 +36,12 @@ function hasFlag(name, argv = process.argv.slice(2)) {
   return argv.includes(`--${name}`);
 }
 
+function hasOption(name, argv = process.argv.slice(2)) {
+  const flag = `--${name}`;
+  const prefix = `${flag}=`;
+  return argv.includes(flag) || argv.some(arg => arg.startsWith(prefix));
+}
+
 function resolveTargetOrg(argv = process.argv.slice(2)) {
   return (
     getArgValue('target-org', argv) ||
@@ -124,6 +130,9 @@ function parseInteger(value, fallbackValue) {
 }
 
 function normalizePoolConfig(argv = process.argv.slice(2)) {
+  const snapshotName = getArgValue('snapshot-name', argv);
+  const definitionHash = getArgValue('definition-hash', argv);
+  const seedVersion = getArgValue('seed-version', argv);
   return {
     poolKey: getArgValue('pool-key', argv) || getArgValue('pool', argv),
     enabled: !hasFlag('disabled', argv),
@@ -133,9 +142,12 @@ function normalizePoolConfig(argv = process.argv.slice(2)) {
     acquireTimeoutSeconds: Math.max(30, parseInteger(getArgValue('acquire-timeout-seconds', argv) || '600', 600)),
     minRemainingMinutes: Math.max(0, parseInteger(getArgValue('min-remaining-minutes', argv) || '120', 120)),
     provisioningMode: getArgValue('provisioning-mode', argv) || 'definition',
-    snapshotName: getArgValue('snapshot-name', argv) || null,
-    definitionHash: getArgValue('definition-hash', argv) || null,
-    seedVersion: getArgValue('seed-version', argv) || 'alv-e2e-baseline-v1',
+    snapshotName: snapshotName || null,
+    definitionHash: definitionHash || null,
+    seedVersion: seedVersion || 'alv-e2e-baseline-v1',
+    snapshotNameSpecified: hasOption('snapshot-name', argv),
+    definitionHashSpecified: hasOption('definition-hash', argv),
+    seedVersionSpecified: hasOption('seed-version', argv),
     slotKeyPrefix: getArgValue('slot-key-prefix', argv) || DEFAULT_SLOT_KEY_PREFIX,
     scratchAliasPrefix: getArgValue('slot-alias-prefix', argv) || DEFAULT_SLOT_ALIAS_PREFIX
   };
@@ -556,7 +568,8 @@ async function getActiveScratchOrgByInfoId(targetOrg, scratchOrgInfoId) {
 
 async function bootstrapPool(targetOrg, config) {
   let pool = await getPoolByKey(targetOrg, config.poolKey);
-  const poolValues = {
+  const defaultSeedVersion = config.seedVersion || 'alv-e2e-baseline-v1';
+  const createPoolValues = {
     PoolKey__c: config.poolKey,
     Enabled__c: config.enabled,
     TargetSize__c: config.targetSize,
@@ -567,12 +580,25 @@ async function bootstrapPool(targetOrg, config) {
     ProvisioningMode__c: config.provisioningMode,
     SnapshotName__c: config.snapshotName,
     DefinitionHash__c: config.definitionHash,
-    SeedVersion__c: config.seedVersion
+    SeedVersion__c: defaultSeedVersion
+  };
+  const updatePoolValues = {
+    PoolKey__c: config.poolKey,
+    Enabled__c: config.enabled,
+    TargetSize__c: config.targetSize,
+    ScratchDurationDays__c: config.scratchDurationDays,
+    LeaseTtlSeconds__c: config.leaseTtlSeconds,
+    AcquireTimeoutSeconds__c: config.acquireTimeoutSeconds,
+    MinRemainingMinutes__c: config.minRemainingMinutes,
+    ProvisioningMode__c: config.provisioningMode,
+    ...(config.snapshotNameSpecified ? { SnapshotName__c: config.snapshotName } : {}),
+    ...(config.definitionHashSpecified ? { DefinitionHash__c: config.definitionHash } : {}),
+    ...(config.seedVersionSpecified ? { SeedVersion__c: defaultSeedVersion } : {})
   };
 
   let createdPool = false;
   if (!pool) {
-    const createResult = await createRecord(targetOrg, 'ALV_ScratchOrgPool__c', poolValues);
+    const createResult = await createRecord(targetOrg, 'ALV_ScratchOrgPool__c', createPoolValues);
     const poolId = createResult?.result?.id || createResult?.result?.Id;
     if (!poolId) {
       throw new Error(`Failed to create scratch pool '${config.poolKey}'.`);
@@ -580,7 +606,7 @@ async function bootstrapPool(targetOrg, config) {
     createdPool = true;
     pool = await getPoolByKey(targetOrg, config.poolKey);
   } else {
-    await updateRecord(targetOrg, 'ALV_ScratchOrgPool__c', pool.Id, poolValues);
+    await updateRecord(targetOrg, 'ALV_ScratchOrgPool__c', pool.Id, updatePoolValues);
     pool = await getPoolByKey(targetOrg, config.poolKey);
   }
 
@@ -599,9 +625,7 @@ async function bootstrapPool(targetOrg, config) {
     const existingSlot = existingSlotsByKey.get(descriptor.slotKey);
     if (existingSlot) {
       await updateRecord(targetOrg, 'ALV_ScratchOrgPoolSlot__c', existingSlot.Id, {
-        ScratchAlias__c: descriptor.scratchAlias,
-        DefinitionHash__c: config.definitionHash,
-        SeedVersion__c: config.seedVersion
+        ScratchAlias__c: descriptor.scratchAlias
       });
       updatedSlotKeys.push(descriptor.slotKey);
       continue;
@@ -612,8 +636,8 @@ async function bootstrapPool(targetOrg, config) {
       ScratchAlias__c: descriptor.scratchAlias,
       LeaseState__c: 'available',
       HealthState__c: 'needs_recreate',
-      DefinitionHash__c: config.definitionHash,
-      SeedVersion__c: config.seedVersion
+      DefinitionHash__c: pool.DefinitionHash__c || config.definitionHash,
+      SeedVersion__c: pool.SeedVersion__c || defaultSeedVersion
     });
     createdSlotKeys.push(descriptor.slotKey);
   }

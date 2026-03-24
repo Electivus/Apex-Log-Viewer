@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, cp, access, readdir, mkdir, open, stat, unlink } from 'node:fs/promises';
+import { mkdtemp, readFile, cp, access, readdir, mkdir, open, stat, unlink, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -23,6 +23,7 @@ export type VscodeWindowSize = {
 
 const VSCODE_DOWNLOAD_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
 const VSCODE_DOWNLOAD_LOCK_POLL_MS = 250;
+const VSCODE_DOWNLOAD_LOCK_REFRESH_MS = 30 * 1000;
 
 function getModifierKey(): 'Control' | 'Meta' {
   return process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -142,10 +143,19 @@ async function withFileLock<T>(lockPath: string, action: () => Promise<T>): Prom
   while (true) {
     try {
       const handle = await open(lockPath, 'wx');
+      let refreshTimer: NodeJS.Timeout | undefined;
       try {
         await handle.writeFile(`${process.pid}\n${new Date().toISOString()}\n`);
+        refreshTimer = setInterval(() => {
+          const now = new Date();
+          void utimes(lockPath, now, now).catch(() => {});
+        }, VSCODE_DOWNLOAD_LOCK_REFRESH_MS);
+        refreshTimer.unref?.();
         return await action();
       } finally {
+        if (refreshTimer) {
+          clearInterval(refreshTimer);
+        }
         await handle.close().catch(() => {});
         await removeFileBestEffort(lockPath);
       }

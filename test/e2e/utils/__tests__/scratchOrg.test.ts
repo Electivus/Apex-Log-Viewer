@@ -32,6 +32,24 @@ function createJsonResponse(body: unknown, status = 200): Response {
   } as Response;
 }
 
+function isPoolConfigQuery(url: string): boolean {
+  return url.includes('/services/data/v60.0/query/?q=SELECT%20SnapshotName__c%2C%20SeedVersion__c%20FROM%20ALV_ScratchOrgPool__c');
+}
+
+function createPoolConfigResponse(body: Record<string, unknown> = {}): Response {
+  return createJsonResponse({
+    totalSize: 1,
+    done: true,
+    records: [
+      {
+        SnapshotName__c: null,
+        SeedVersion__c: 'alv-e2e-baseline-v1',
+        ...body
+      }
+    ]
+  });
+}
+
 describe('ensureScratchOrg', () => {
   const originalEnv = { ...process.env };
   let consoleInfoSpy: jest.SpiedFunction<typeof console.info>;
@@ -323,6 +341,9 @@ describe('ensureScratchOrg', () => {
 
     fetchSpy.mockImplementation(async input => {
       const url = String(input);
+      if (isPoolConfigQuery(url)) {
+        return createPoolConfigResponse();
+      }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
         return createJsonResponse({
           ok: true,
@@ -413,6 +434,9 @@ describe('ensureScratchOrg', () => {
 
     fetchSpy.mockImplementation(async input => {
       const url = String(input);
+      if (isPoolConfigQuery(url)) {
+        return createPoolConfigResponse();
+      }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
         return createJsonResponse({
           ok: true,
@@ -524,6 +548,9 @@ describe('ensureScratchOrg', () => {
 
     fetchSpy.mockImplementation(async input => {
       const url = String(input);
+      if (isPoolConfigQuery(url)) {
+        return createPoolConfigResponse();
+      }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
         return createJsonResponse({
           ok: true,
@@ -631,6 +658,9 @@ describe('ensureScratchOrg', () => {
 
     fetchSpy.mockImplementation(async input => {
       const url = String(input);
+      if (isPoolConfigQuery(url)) {
+        return createPoolConfigResponse();
+      }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
         return createJsonResponse({
           ok: true,
@@ -676,6 +706,9 @@ describe('ensureScratchOrg', () => {
 
     fetchSpy.mockImplementation(async input => {
       const url = String(input);
+      if (isPoolConfigQuery(url)) {
+        return createPoolConfigResponse();
+      }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
         return createJsonResponse(
           {

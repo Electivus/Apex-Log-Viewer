@@ -101,6 +101,11 @@ type PoolReleaseRequest = {
   scratchAuthUrl?: string;
 };
 
+type PoolConfigSummary = {
+  snapshotName?: string;
+  seedVersion?: string;
+};
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -404,7 +409,7 @@ function buildPoolScratchDefinition(options: {
 }
 
 function resolvePoolSeedVersion(): string {
-  return String(process.env.SF_SCRATCH_POOL_SEED_VERSION || 'alv-e2e-baseline-v1').trim() || 'alv-e2e-baseline-v1';
+  return String(process.env.SF_SCRATCH_POOL_SEED_VERSION || '').trim();
 }
 
 function resolvePoolKey(): string {
@@ -485,6 +490,19 @@ async function requestOrgJson(auth: OrgAuth, method: string, resourcePath: strin
   } catch {
     return text;
   }
+}
+
+function escapeSoqlLiteral(value: string): string {
+  return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+async function queryOrgRecords(auth: OrgAuth, soql: string): Promise<any[]> {
+  const response = await requestOrgJson(
+    auth,
+    'GET',
+    `/services/data/v${auth.apiVersion}/query/?q=${encodeURIComponent(soql)}`
+  );
+  return Array.isArray(response?.records) ? response.records : [];
 }
 
 function formatHttpErrorDetail(text: string): string | undefined {
@@ -606,15 +624,112 @@ async function tryReleaseIncompletePoolLease(
 
 async function deleteExistingPooledScratch(
   auth: OrgAuth,
-  lease: Pick<PoolAcquireResponse, 'activeScratchOrgId' | 'scratchOrgInfoId'>
+  lease: Pick<PoolAcquireResponse, 'poolKey' | 'slotKey' | 'activeScratchOrgId' | 'scratchOrgInfoId'>
 ): Promise<void> {
-  if (lease.activeScratchOrgId) {
-    await requestOrgJson(auth, 'DELETE', `/services/data/v${auth.apiVersion}/sobjects/ActiveScratchOrg/${lease.activeScratchOrgId}`);
+  const triedIds = new Set<string>();
+
+  const tryDeleteByIds = async (ids: { activeScratchOrgId?: string; scratchOrgInfoId?: string }): Promise<boolean> => {
+    if (ids.activeScratchOrgId) {
+      triedIds.add(ids.activeScratchOrgId);
+      try {
+        await requestOrgJson(auth, 'DELETE', `/services/data/v${auth.apiVersion}/sobjects/ActiveScratchOrg/${ids.activeScratchOrgId}`);
+        return true;
+      } catch (error) {
+        if (!isHttpError(error, 404)) {
+          throw error;
+        }
+      }
+    }
+    if (ids.scratchOrgInfoId) {
+      triedIds.add(ids.scratchOrgInfoId);
+      try {
+        await requestOrgJson(auth, 'DELETE', `/services/data/v${auth.apiVersion}/sobjects/ScratchOrgInfo/${ids.scratchOrgInfoId}`);
+        return true;
+      } catch (error) {
+        if (!isHttpError(error, 404)) {
+          throw error;
+        }
+      }
+    }
+    return false;
+  };
+
+  if (await tryDeleteByIds(lease)) {
     return;
   }
-  if (lease.scratchOrgInfoId) {
-    await requestOrgJson(auth, 'DELETE', `/services/data/v${auth.apiVersion}/sobjects/ScratchOrgInfo/${lease.scratchOrgInfoId}`);
+
+  const poolKey = String(lease.poolKey || '').trim();
+  const slotKey = String(lease.slotKey || '').trim();
+  if (!poolKey || !slotKey) {
+    return;
   }
+
+  const latestInfoRecords = await queryOrgRecords(
+    auth,
+    [
+      'SELECT Id',
+      'FROM ScratchOrgInfo',
+      `WHERE alvPoolKey__c = '${escapeSoqlLiteral(poolKey)}' AND alvSlotKey__c = '${escapeSoqlLiteral(slotKey)}'`,
+      'ORDER BY CreatedDate DESC',
+      'LIMIT 1'
+    ].join(' ')
+  );
+  const latestScratchOrgInfoId = String(latestInfoRecords[0]?.Id || '').trim();
+  if (!latestScratchOrgInfoId || triedIds.has(latestScratchOrgInfoId)) {
+    return;
+  }
+
+  const activeScratchRecords = await queryOrgRecords(
+    auth,
+    [
+      'SELECT Id',
+      'FROM ActiveScratchOrg',
+      `WHERE ScratchOrgInfoId = '${escapeSoqlLiteral(latestScratchOrgInfoId)}'`,
+      'ORDER BY CreatedDate DESC',
+      'LIMIT 1'
+    ].join(' ')
+  );
+  const latestActiveScratchOrgId = String(activeScratchRecords[0]?.Id || '').trim();
+  await tryDeleteByIds({
+    activeScratchOrgId: latestActiveScratchOrgId || undefined,
+    scratchOrgInfoId: latestScratchOrgInfoId
+  });
+}
+
+async function getPoolConfig(auth: OrgAuth, poolKey: string): Promise<PoolConfigSummary | undefined> {
+  const records = await queryOrgRecords(
+    auth,
+    [
+      'SELECT SnapshotName__c, SeedVersion__c',
+      'FROM ALV_ScratchOrgPool__c',
+      `WHERE PoolKey__c = '${escapeSoqlLiteral(poolKey)}'`,
+      'LIMIT 1'
+    ].join(' ')
+  );
+  const record = records[0];
+  if (!record) {
+    return undefined;
+  }
+  const snapshotName = String(record.SnapshotName__c || '').trim();
+  const seedVersion = String(record.SeedVersion__c || '').trim();
+  return {
+    snapshotName: snapshotName || undefined,
+    seedVersion: seedVersion || undefined
+  };
+}
+
+async function resolveEffectivePoolBaseline(
+  auth: OrgAuth,
+  poolKey: string
+): Promise<{ definitionHash: string; seedVersion: string; snapshotName?: string }> {
+  const poolConfig = await getPoolConfig(auth, poolKey);
+  const snapshotName = resolvePoolSnapshotName() || poolConfig?.snapshotName;
+  const seedVersion = resolvePoolSeedVersion() || poolConfig?.seedVersion || 'alv-e2e-baseline-v1';
+  return {
+    definitionHash: createDefinitionHash(buildBaseScratchDefinition({ snapshotName })),
+    seedVersion,
+    snapshotName
+  };
 }
 
 async function loginScratchOrgWithSfdxUrl(scratchAlias: string, scratchAuthUrl: string): Promise<void> {
@@ -783,16 +898,14 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
   const devHubAlias = await ensureDevHubAuth(devHubConfig);
   const devHubAuth = await getOrgAuth(devHubAlias, { forceRefresh: true });
   const poolKey = resolvePoolKey();
-  const seedVersion = resolvePoolSeedVersion();
-  const snapshotName = resolvePoolSnapshotName();
-  const definitionHash = createDefinitionHash(buildBaseScratchDefinition({ snapshotName }));
+  const requestedBaseline = await resolveEffectivePoolBaseline(devHubAuth, poolKey);
   const leaseTtlSeconds = resolvePoolLeaseTtlSeconds();
   const acquireRequest: PoolAcquireRequest = {
     poolKey,
     leaseOwner: resolvePoolLeaseOwner(),
     leaseTtlSeconds,
-    definitionHash,
-    seedVersion,
+    definitionHash: requestedBaseline.definitionHash,
+    seedVersion: requestedBaseline.seedVersion,
     minRemainingMinutes: resolvePoolMinRemainingMinutes()
   };
 
@@ -856,6 +969,9 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
     let readyAuth: OrgAuth | undefined;
     let scratchAuthUrl: string | undefined;
     const shouldCreate = Boolean(lease.needsCreate);
+    const effectiveSnapshotName = lease.snapshotName || requestedBaseline.snapshotName;
+    const effectiveDefinitionHash = createDefinitionHash(buildBaseScratchDefinition({ snapshotName: effectiveSnapshotName }));
+    const effectiveSeedVersion = requestedBaseline.seedVersion;
 
     if (!shouldCreate && lease.scratchAuthUrl) {
       try {
@@ -871,8 +987,8 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
           poolKey,
           slotKey,
           leaseToken,
-          definitionHash,
-          seedVersion,
+          definitionHash: effectiveDefinitionHash,
+          seedVersion: effectiveSeedVersion,
           created: false,
           lastRunResult: 'reused',
           scratchAuthUrl
@@ -906,9 +1022,9 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
         buildPoolScratchDefinition({
           poolKey,
           slotKey,
-          definitionHash,
-          seedVersion,
-          snapshotName: lease.snapshotName || snapshotName
+          definitionHash: effectiveDefinitionHash,
+          seedVersion: effectiveSeedVersion,
+          snapshotName: effectiveSnapshotName
         })
       );
       try {
@@ -945,8 +1061,8 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
         poolKey,
         slotKey,
         leaseToken,
-        definitionHash,
-        seedVersion,
+        definitionHash: effectiveDefinitionHash,
+        seedVersion: effectiveSeedVersion,
         created: true,
         lastRunResult: 'created',
         scratchAuthUrl

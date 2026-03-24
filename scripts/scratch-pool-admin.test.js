@@ -47,6 +47,7 @@ test('normalizePoolConfig applies defaults and respects explicit overrides', () 
   assert.equal(config.leaseTtlSeconds, 1800);
   assert.equal(config.enabled, false);
   assert.equal(config.seedVersion, 'alv-e2e-baseline-v1');
+  assert.equal(config.seedVersionSpecified, false);
 });
 
 test('normalizePrewarmOptions keeps limit optional and validates explicit limits', () => {
