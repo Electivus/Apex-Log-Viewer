@@ -440,14 +440,19 @@ function resolvePoolAcquireTimeoutSeconds(): number {
 }
 
 function resolvePoolHeartbeatSeconds(leaseTtlSeconds: number): number {
+  const defaultHeartbeatSeconds = Math.max(30, Math.min(60, Math.floor(leaseTtlSeconds / 2)));
   if (process.env.SF_SCRATCH_POOL_HEARTBEAT_SECONDS !== undefined) {
-    const configured = Number(process.env.SF_SCRATCH_POOL_HEARTBEAT_SECONDS);
+    const rawValue = String(process.env.SF_SCRATCH_POOL_HEARTBEAT_SECONDS || '').trim();
+    if (!rawValue) {
+      return defaultHeartbeatSeconds;
+    }
+    const configured = Number(rawValue);
     if (!Number.isFinite(configured) || configured <= 0) {
       return 0;
     }
     return Math.max(15, Math.floor(configured));
   }
-  return Math.max(30, Math.min(60, Math.floor(leaseTtlSeconds / 2)));
+  return defaultHeartbeatSeconds;
 }
 
 function resolvePoolMinRemainingMinutes(): number {

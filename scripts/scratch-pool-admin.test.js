@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 
 const {
+  bootstrapPool,
   buildPoolScratchDefinition,
   buildSlotDescriptors,
   deleteExistingScratchForSlot,
@@ -180,4 +181,66 @@ test('deleteExistingScratchForSlot falls back to ScratchOrgInfo when ActiveScrat
       resourcePath: '/sobjects/ScratchOrgInfo/2SRxx0000000001'
     }
   ]);
+});
+
+test('bootstrapPool disables surplus slots and clears stored auth when target size shrinks', async () => {
+  const config = normalizePoolConfig([
+    'bootstrap',
+    '--pool-key',
+    'alv-e2e',
+    '--target-size',
+    '2'
+  ]);
+
+  const updates = [];
+  const deletedSlots = [];
+  const poolRecord = {
+    Id: 'a00Pool',
+    PoolKey__c: 'alv-e2e',
+    DefinitionHash__c: 'hash-v1',
+    SeedVersion__c: 'seed-v1'
+  };
+  const existingSlots = [
+    { Id: 'slot1', SlotKey__c: 'slot-01', ScratchAlias__c: 'OLD_01', LeaseState__c: 'available' },
+    { Id: 'slot2', SlotKey__c: 'slot-02', ScratchAlias__c: 'OLD_02', LeaseState__c: 'available' },
+    {
+      Id: 'slot3',
+      SlotKey__c: 'slot-03',
+      ScratchAlias__c: 'OLD_03',
+      LeaseState__c: 'available',
+      ScratchAuthUrl__c: 'force://slot03'
+    },
+    {
+      Id: 'slot4',
+      SlotKey__c: 'slot-04',
+      ScratchAlias__c: 'OLD_04',
+      LeaseState__c: 'available',
+      ScratchAuthUrl__c: 'force://slot04'
+    }
+  ];
+
+  const result = await bootstrapPool('DevHub', config, {
+    getPoolByKey: async () => poolRecord,
+    getSlotsByPoolId: async () => existingSlots,
+    createRecord: async () => {
+      throw new Error('createRecord should not be called when shrinking an existing pool.');
+    },
+    updateRecord: async (_targetOrg, objectName, recordId, values) => {
+      updates.push({ objectName, recordId, values });
+    },
+    deleteExistingScratchForSlot: async (_targetOrg, _poolKey, slot) => {
+      deletedSlots.push(slot.SlotKey__c);
+    }
+  });
+
+  assert.deepEqual(result.disabledSlotKeys, ['slot-03', 'slot-04']);
+  assert.deepEqual(deletedSlots, ['slot-03', 'slot-04']);
+
+  const slot3Disable = updates.find(update => update.recordId === 'slot3');
+  const slot4Disable = updates.find(update => update.recordId === 'slot4');
+  assert.equal(slot3Disable?.values.LeaseState__c, 'disabled');
+  assert.equal(slot3Disable?.values.ScratchAuthUrl__c, null);
+  assert.equal(slot3Disable?.values.HealthState__c, 'needs_recreate');
+  assert.equal(slot4Disable?.values.LeaseState__c, 'disabled');
+  assert.equal(slot4Disable?.values.ScratchOrgId__c, null);
 });

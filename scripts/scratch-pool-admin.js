@@ -613,8 +613,15 @@ async function getActiveScratchOrgByInfoId(targetOrg, scratchOrgInfoId) {
   return records[0];
 }
 
-async function bootstrapPool(targetOrg, config) {
-  let pool = await getPoolByKey(targetOrg, config.poolKey);
+async function bootstrapPool(targetOrg, config, dependencies = {}) {
+  const getPoolByKeyImpl = dependencies.getPoolByKey || getPoolByKey;
+  const getSlotsByPoolIdImpl = dependencies.getSlotsByPoolId || getSlotsByPoolId;
+  const createRecordImpl = dependencies.createRecord || createRecord;
+  const updateRecordImpl = dependencies.updateRecord || updateRecord;
+  const deleteExistingScratchForSlotImpl =
+    dependencies.deleteExistingScratchForSlot || deleteExistingScratchForSlot;
+
+  let pool = await getPoolByKeyImpl(targetOrg, config.poolKey);
   const defaultSeedVersion = config.seedVersion || 'alv-e2e-baseline-v1';
   const createPoolValues = {
     PoolKey__c: config.poolKey,
@@ -645,39 +652,42 @@ async function bootstrapPool(targetOrg, config) {
 
   let createdPool = false;
   if (!pool) {
-    const createResult = await createRecord(targetOrg, 'ALV_ScratchOrgPool__c', createPoolValues);
+    const createResult = await createRecordImpl(targetOrg, 'ALV_ScratchOrgPool__c', createPoolValues);
     const poolId = createResult?.result?.id || createResult?.result?.Id;
     if (!poolId) {
       throw new Error(`Failed to create scratch pool '${config.poolKey}'.`);
     }
     createdPool = true;
-    pool = await getPoolByKey(targetOrg, config.poolKey);
+    pool = await getPoolByKeyImpl(targetOrg, config.poolKey);
   } else {
-    await updateRecord(targetOrg, 'ALV_ScratchOrgPool__c', pool.Id, updatePoolValues);
-    pool = await getPoolByKey(targetOrg, config.poolKey);
+    await updateRecordImpl(targetOrg, 'ALV_ScratchOrgPool__c', pool.Id, updatePoolValues);
+    pool = await getPoolByKeyImpl(targetOrg, config.poolKey);
   }
 
   if (!pool?.Id) {
     throw new Error(`Scratch pool '${config.poolKey}' could not be loaded after bootstrap.`);
   }
 
-  const existingSlots = await getSlotsByPoolId(targetOrg, pool.Id);
+  const existingSlots = await getSlotsByPoolIdImpl(targetOrg, pool.Id);
   const existingSlotsByKey = new Map(
     existingSlots.map(slot => [String(slot.SlotKey__c || ''), slot])
   );
+  const desiredDescriptors = buildSlotDescriptors(config);
+  const desiredSlotKeys = new Set(desiredDescriptors.map(descriptor => descriptor.slotKey));
   const createdSlotKeys = [];
   const updatedSlotKeys = [];
+  const disabledSlotKeys = [];
 
-  for (const descriptor of buildSlotDescriptors(config)) {
+  for (const descriptor of desiredDescriptors) {
     const existingSlot = existingSlotsByKey.get(descriptor.slotKey);
     if (existingSlot) {
-      await updateRecord(targetOrg, 'ALV_ScratchOrgPoolSlot__c', existingSlot.Id, {
+      await updateRecordImpl(targetOrg, 'ALV_ScratchOrgPoolSlot__c', existingSlot.Id, {
         ScratchAlias__c: descriptor.scratchAlias
       });
       updatedSlotKeys.push(descriptor.slotKey);
       continue;
     }
-    await createRecord(targetOrg, 'ALV_ScratchOrgPoolSlot__c', {
+    await createRecordImpl(targetOrg, 'ALV_ScratchOrgPoolSlot__c', {
       Pool__c: pool.Id,
       SlotKey__c: descriptor.slotKey,
       ScratchAlias__c: descriptor.scratchAlias,
@@ -689,6 +699,38 @@ async function bootstrapPool(targetOrg, config) {
     createdSlotKeys.push(descriptor.slotKey);
   }
 
+  for (const existingSlot of existingSlots) {
+    const slotKey = String(existingSlot.SlotKey__c || '').trim();
+    if (!slotKey || desiredSlotKeys.has(slotKey)) {
+      continue;
+    }
+
+    const leaseState = String(existingSlot.LeaseState__c || '').trim().toLowerCase();
+    if (leaseState === 'leased' || leaseState === 'provisioning') {
+      throw new Error(
+        `Cannot shrink scratch pool '${config.poolKey}' while slot '${slotKey}' is ${existingSlot.LeaseState__c || 'in use'}.`
+      );
+    }
+
+    await deleteExistingScratchForSlotImpl(targetOrg, config.poolKey, existingSlot);
+    await updateRecordImpl(targetOrg, 'ALV_ScratchOrgPoolSlot__c', existingSlot.Id, {
+      LeaseState__c: 'disabled',
+      LeaseOwner__c: null,
+      LeaseToken__c: null,
+      LeaseExpiresAt__c: null,
+      ScratchUsername__c: null,
+      ScratchLoginUrl__c: null,
+      ScratchAuthUrl__c: null,
+      ScratchOrgId__c: null,
+      ScratchOrgInfoId__c: null,
+      ActiveScratchOrgId__c: null,
+      ScratchExpiresAt__c: null,
+      HealthState__c: 'needs_recreate',
+      LastError__c: truncateLongText(`Slot disabled because pool target size was reduced to ${config.targetSize}.`)
+    });
+    disabledSlotKeys.push(slotKey);
+  }
+
   return {
     ok: true,
     command: 'bootstrap',
@@ -698,7 +740,8 @@ async function bootstrapPool(targetOrg, config) {
     targetSize: config.targetSize,
     existingSlotCount: existingSlots.length,
     createdSlotKeys,
-    updatedSlotKeys
+    updatedSlotKeys,
+    disabledSlotKeys
   };
 }
 
@@ -1161,6 +1204,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  bootstrapPool,
   buildSlotDescriptors,
   buildPoolScratchDefinition,
   deleteExistingScratchForSlot,
