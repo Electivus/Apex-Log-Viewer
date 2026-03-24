@@ -219,7 +219,22 @@ async function getOrgDisplay(targetOrg) {
   return connection;
 }
 
-async function callSalesforceRest(targetOrg, method, resourcePath, body) {
+class ConditionalUpdateConflictError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ConditionalUpdateConflictError';
+  }
+}
+
+function toHttpDateString(value) {
+  if (!value) {
+    return '';
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toUTCString();
+}
+
+async function callSalesforceRest(targetOrg, method, resourcePath, body, options = {}) {
   const connection = await getOrgDisplay(targetOrg);
   const response = await fetch(
     `${connection.instanceUrl}/services/data/v${connection.apiVersion}${resourcePath}`,
@@ -227,7 +242,8 @@ async function callSalesforceRest(targetOrg, method, resourcePath, body) {
       method,
       headers: {
         Authorization: `Bearer ${connection.accessToken}`,
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(options.headers || {})
       },
       body: body === undefined ? undefined : JSON.stringify(body)
     }
@@ -240,6 +256,9 @@ async function callSalesforceRest(targetOrg, method, resourcePath, body) {
   const raw = await response.text();
   const parsed = raw ? JSON.parse(raw) : undefined;
   if (!response.ok) {
+    if (response.status === 412) {
+      throw new ConditionalUpdateConflictError(raw || 'Record changed before the update could be applied.');
+    }
     const details = Array.isArray(parsed)
       ? parsed.map(item => `${item.errorCode}: ${item.message}`).join('; ')
       : raw || `HTTP ${response.status}`;
@@ -259,16 +278,22 @@ async function createRecord(targetOrg, sobject, fields) {
   return { result };
 }
 
-async function updateRecord(targetOrg, sobject, recordId, fields) {
+async function updateRecord(targetOrg, sobject, recordId, fields, options = {}) {
   const payload = toRestRecordPayload(fields);
   if (Object.keys(payload).length === 0) {
     return undefined;
+  }
+  const conditionalHeaders = {};
+  const ifUnmodifiedSince = toHttpDateString(options.ifUnmodifiedSince);
+  if (ifUnmodifiedSince) {
+    conditionalHeaders['If-Unmodified-Since'] = ifUnmodifiedSince;
   }
   await callSalesforceRest(
     targetOrg,
     'PATCH',
     `/sobjects/${encodeURIComponent(sobject)}/${encodeURIComponent(recordId)}`,
-    payload
+    payload,
+    Object.keys(conditionalHeaders).length > 0 ? { headers: conditionalHeaders } : undefined
   );
   return undefined;
 }
@@ -478,9 +503,9 @@ async function getSlotByKey(targetOrg, poolKey, slotKey) {
   const records = await queryRecords(
     targetOrg,
     [
-      'SELECT Id, SlotKey__c, ScratchAlias__c, LeaseState__c, LeaseOwner__c, LeaseToken__c, LeaseExpiresAt__c,',
+      'SELECT Id, LastModifiedDate, SlotKey__c, ScratchAlias__c, LeaseState__c, LeaseOwner__c, LeaseToken__c, LeaseExpiresAt__c,',
       'LastHeartbeatAt__c, LastLeaseStartedAt__c, LastLeaseReleasedAt__c, LastRunResult__c, HealthState__c,',
-      'ScratchUsername__c, ScratchLoginUrl__c, ScratchOrgId__c, ScratchOrgInfoId__c, ActiveScratchOrgId__c, ScratchExpiresAt__c,',
+      'ScratchUsername__c, ScratchLoginUrl__c, ScratchAuthUrl__c, ScratchOrgId__c, ScratchOrgInfoId__c, ActiveScratchOrgId__c, ScratchExpiresAt__c,',
       'DefinitionHash__c, SeedVersion__c, UsageCount__c, LastError__c, Pool__c, Pool__r.PoolKey__c, Pool__r.DefinitionHash__c, Pool__r.SeedVersion__c',
       `FROM ALV_ScratchOrgPoolSlot__c WHERE Pool__r.PoolKey__c = '${escapeSoqlLiteral(poolKey)}' AND SlotKey__c = '${escapeSoqlLiteral(slotKey)}' LIMIT 1`
     ].join(' ')
@@ -724,28 +749,65 @@ async function resetSlot(targetOrg, poolKey, slotKey, reason) {
 }
 
 async function prewarmSlot(targetOrg, pool, slot) {
+  const refreshedSlot = await getSlotByKey(targetOrg, pool.PoolKey__c, slot.SlotKey__c);
+  if (!refreshedSlot?.Id) {
+    return {
+      slotKey: slot.SlotKey__c,
+      scratchAlias: slot.ScratchAlias__c,
+      skipped: true,
+      skipReason: 'slot no longer exists'
+    };
+  }
+
+  if (!isSlotEligibleForPrewarm(refreshedSlot)) {
+    return {
+      slotKey: refreshedSlot.SlotKey__c,
+      scratchAlias: refreshedSlot.ScratchAlias__c,
+      skipped: true,
+      skipReason: `slot is currently '${refreshedSlot.LeaseState__c || 'unavailable'}'`
+    };
+  }
+
   const startedAt = new Date().toISOString();
   const leaseToken = createMaintenanceLeaseToken(slot.SlotKey__c);
   const maintenanceOwner = createMaintenanceOwnerLabel();
 
-  await updateRecord(targetOrg, 'ALV_ScratchOrgPoolSlot__c', slot.Id, {
-    LeaseState__c: 'provisioning',
-    LeaseOwner__c: maintenanceOwner,
-    LeaseToken__c: leaseToken,
-    LeaseExpiresAt__c: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
-    LastLeaseStartedAt__c: startedAt,
-    LastError__c: null
-  });
+  try {
+    await updateRecord(
+      targetOrg,
+      'ALV_ScratchOrgPoolSlot__c',
+      refreshedSlot.Id,
+      {
+        LeaseState__c: 'provisioning',
+        LeaseOwner__c: maintenanceOwner,
+        LeaseToken__c: leaseToken,
+        LeaseExpiresAt__c: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
+        LastLeaseStartedAt__c: startedAt,
+        LastError__c: null
+      },
+      { ifUnmodifiedSince: refreshedSlot.LastModifiedDate }
+    );
+  } catch (error) {
+    if (error instanceof ConditionalUpdateConflictError) {
+      return {
+        slotKey: refreshedSlot.SlotKey__c,
+        scratchAlias: refreshedSlot.ScratchAlias__c,
+        skipped: true,
+        skipReason: 'slot changed while prewarm was taking the lease'
+      };
+    }
+    throw error;
+  }
 
   try {
-    await deleteExistingScratchForSlot(targetOrg, pool.PoolKey__c, slot);
-    await clearStaleScratchOrg(slot.ScratchAlias__c);
+    await deleteExistingScratchForSlot(targetOrg, pool.PoolKey__c, refreshedSlot);
+    await clearStaleScratchOrg(refreshedSlot.ScratchAlias__c);
 
     const definition = buildPoolScratchDefinition({
       poolKey: pool.PoolKey__c,
-      slotKey: slot.SlotKey__c,
-      definitionHash: pool.DefinitionHash__c || slot.DefinitionHash__c || null,
-      seedVersion: pool.SeedVersion__c || slot.SeedVersion__c || 'alv-e2e-baseline-v1',
+      slotKey: refreshedSlot.SlotKey__c,
+      definitionHash: pool.DefinitionHash__c || refreshedSlot.DefinitionHash__c || null,
+      seedVersion: pool.SeedVersion__c || refreshedSlot.SeedVersion__c || 'alv-e2e-baseline-v1',
       snapshotName: pool.SnapshotName__c || undefined
     });
     const context = await createScratchProjectContext(definition);
@@ -758,7 +820,7 @@ async function prewarmSlot(targetOrg, pool, slot) {
           '--target-dev-hub',
           targetOrg,
           '--alias',
-          slot.ScratchAlias__c,
+          refreshedSlot.ScratchAlias__c,
           '--definition-file',
           context.defFile,
           '--duration-days',
@@ -772,16 +834,16 @@ async function prewarmSlot(targetOrg, pool, slot) {
       await context.cleanup();
     }
 
-    await waitForScratchOrgReady(slot.ScratchAlias__c);
-    const scratchAuthUrl = await getScratchAuthUrlOrThrow(slot.ScratchAlias__c);
-    const info = await getLatestScratchOrgInfo(targetOrg, pool.PoolKey__c, slot.SlotKey__c);
+    await waitForScratchOrgReady(refreshedSlot.ScratchAlias__c);
+    const scratchAuthUrl = await getScratchAuthUrlOrThrow(refreshedSlot.ScratchAlias__c);
+    const info = await getLatestScratchOrgInfo(targetOrg, pool.PoolKey__c, refreshedSlot.SlotKey__c);
     if (!info?.Id) {
-      throw new Error(`No ScratchOrgInfo was found for slot '${slot.SlotKey__c}' after prewarm.`);
+      throw new Error(`No ScratchOrgInfo was found for slot '${refreshedSlot.SlotKey__c}' after prewarm.`);
     }
     const active = await getActiveScratchOrgByInfoId(targetOrg, info.Id);
     const completedAt = new Date().toISOString();
 
-    await updateRecord(targetOrg, 'ALV_ScratchOrgPoolSlot__c', slot.Id, {
+    await updateRecord(targetOrg, 'ALV_ScratchOrgPoolSlot__c', refreshedSlot.Id, {
       LeaseState__c: 'available',
       LeaseOwner__c: null,
       LeaseToken__c: null,
@@ -797,21 +859,21 @@ async function prewarmSlot(targetOrg, pool, slot) {
       ScratchOrgInfoId__c: info.Id,
       ActiveScratchOrgId__c: active?.Id || null,
       ScratchExpiresAt__c: toScratchExpirationDateTimeValue(active?.ExpirationDate || info.ExpirationDate),
-      DefinitionHash__c: info.alvDefinitionHash__c || pool.DefinitionHash__c || slot.DefinitionHash__c || null,
-      SeedVersion__c: info.alvSeedVersion__c || pool.SeedVersion__c || slot.SeedVersion__c || null,
+      DefinitionHash__c: info.alvDefinitionHash__c || pool.DefinitionHash__c || refreshedSlot.DefinitionHash__c || null,
+      SeedVersion__c: info.alvSeedVersion__c || pool.SeedVersion__c || refreshedSlot.SeedVersion__c || null,
       LastError__c: null
     });
 
     return {
-      slotKey: slot.SlotKey__c,
-      scratchAlias: slot.ScratchAlias__c,
+      slotKey: refreshedSlot.SlotKey__c,
+      scratchAlias: refreshedSlot.ScratchAlias__c,
       scratchOrgInfoId: info.Id,
       activeScratchOrgId: active?.Id || null
     };
   } catch (error) {
     const completedAt = new Date().toISOString();
-    await clearStaleScratchOrg(slot.ScratchAlias__c);
-    await updateRecord(targetOrg, 'ALV_ScratchOrgPoolSlot__c', slot.Id, {
+    await clearStaleScratchOrg(refreshedSlot.ScratchAlias__c);
+    await updateRecord(targetOrg, 'ALV_ScratchOrgPoolSlot__c', refreshedSlot.Id, {
       LeaseState__c: 'available',
       LeaseOwner__c: null,
       LeaseToken__c: null,
@@ -850,7 +912,7 @@ async function prewarmPool(targetOrg, poolKey, options = {}) {
       healthySlots.push(slot.SlotKey__c);
       continue;
     }
-    if (slot.LeaseState__c === 'disabled') {
+    if (!isSlotEligibleForPrewarm(slot)) {
       continue;
     }
     slotsToPrewarm.push(slot);
@@ -863,6 +925,10 @@ async function prewarmPool(targetOrg, poolKey, options = {}) {
   for (const slot of selectedSlots) {
     console.log(`[scratch-pool] prewarming ${slot.SlotKey__c} (${slot.ScratchAlias__c})...`);
     const result = await prewarmSlot(targetOrg, pool, slot);
+    if (result.skipped) {
+      console.log(`[scratch-pool] skipped ${result.slotKey} (${result.scratchAlias}): ${result.skipReason}.`);
+      continue;
+    }
     prewarmedSlotKeys.push(result.slotKey);
     console.log(`[scratch-pool] prewarmed ${result.slotKey} (${result.scratchAlias}).`);
   }
@@ -942,7 +1008,7 @@ function renderResult(result, asJson) {
     return;
   }
 
-  if (result.command === 'prewarm' && !asJson) {
+  if (result.command === 'prewarm') {
     console.log(`Pool ${result.poolKey}`);
     console.log(`Prewarmed slots: ${result.prewarmedSlotKeys.length}`);
     console.log(`Healthy slots: ${result.healthySlotCount}`);
@@ -954,6 +1020,10 @@ function renderResult(result, asJson) {
   }
 
   console.log(JSON.stringify(result, null, 2));
+}
+
+function isSlotEligibleForPrewarm(slot) {
+  return String(slot?.LeaseState__c || '').trim() === 'available';
 }
 
 async function main(argv = process.argv.slice(2)) {
@@ -1022,6 +1092,7 @@ if (require.main === module) {
 module.exports = {
   buildSlotDescriptors,
   buildPoolScratchDefinition,
+  isSlotEligibleForPrewarm,
   normalizePoolConfig,
   normalizePrewarmOptions,
   toRestRecordPayload,

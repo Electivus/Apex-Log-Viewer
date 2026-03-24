@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   buildPoolScratchDefinition,
   buildSlotDescriptors,
+  isSlotEligibleForPrewarm,
   normalizePoolConfig,
   normalizePrewarmOptions,
   toRestRecordPayload,
@@ -56,6 +57,14 @@ test('normalizePrewarmOptions keeps limit optional and validates explicit limits
   assert.deepEqual(normalizePrewarmOptions(['prewarm', '--pool-key', 'alv-e2e', '--limit', '7']), {
     limit: 7
   });
+});
+
+test('isSlotEligibleForPrewarm accepts only available slots', () => {
+  assert.equal(isSlotEligibleForPrewarm({ LeaseState__c: 'available' }), true);
+  assert.equal(isSlotEligibleForPrewarm({ LeaseState__c: 'leased' }), false);
+  assert.equal(isSlotEligibleForPrewarm({ LeaseState__c: 'provisioning' }), false);
+  assert.equal(isSlotEligibleForPrewarm({ LeaseState__c: 'disabled' }), false);
+  assert.equal(isSlotEligibleForPrewarm({ LeaseState__c: '' }), false);
 });
 
 test('buildPoolScratchDefinition stamps slot tracking metadata into the scratch definition', () => {

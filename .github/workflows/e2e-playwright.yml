@@ -30,7 +30,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ vars.SF_SCRATCH_POOL_NAME != '' && format('e2e-playwright-{0}', github.ref) || 'sf-e2e-scratch-global' }}
+  group: ${{ vars.SF_SCRATCH_POOL_NAME != '' && secrets.SF_DEVHUB_AUTH_URL != '' && format('e2e-playwright-{0}', github.ref) || 'sf-e2e-scratch-global' }}
   cancel-in-progress: false
 
 permissions:

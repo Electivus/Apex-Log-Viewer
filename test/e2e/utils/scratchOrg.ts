@@ -469,7 +469,10 @@ async function requestOrgJson(auth: OrgAuth, method: string, resourcePath: strin
   });
   const text = await response.text();
   if (!response.ok) {
-    const error = new Error(`HTTP ${response.status} for ${resourcePath}${text ? ` -> ${text}` : ''}`) as HttpError;
+    const safeDetail = formatHttpErrorDetail(text);
+    const error = new Error(
+      `HTTP ${response.status} for ${resourcePath}${safeDetail ? ` -> ${safeDetail}` : ''}`
+    ) as HttpError;
     error.status = response.status;
     error.responseBody = text;
     throw error;
@@ -482,6 +485,59 @@ async function requestOrgJson(auth: OrgAuth, method: string, resourcePath: strin
   } catch {
     return text;
   }
+}
+
+function formatHttpErrorDetail(text: string): string | undefined {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    const messages = collectSafeErrorMessages(parsed);
+    if (messages.length > 0) {
+      return messages.join(' | ');
+    }
+  } catch {
+    // Fall through to a generic redacted marker.
+  }
+
+  return 'response body redacted';
+}
+
+function collectSafeErrorMessages(value: unknown): string[] {
+  const messages = new Set<string>();
+  const queue: unknown[] = [value];
+
+  while (queue.length > 0 && messages.size < 3) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') {
+      continue;
+    }
+
+    if (Array.isArray(current)) {
+      queue.push(...current);
+      continue;
+    }
+
+    const record = current as Record<string, unknown>;
+    const message = typeof record.message === 'string' ? record.message.trim() : '';
+    const errorCode = typeof record.errorCode === 'string' ? record.errorCode.trim() : '';
+    const error = typeof record.error === 'string' ? record.error.trim() : '';
+
+    if (message) {
+      messages.add(errorCode ? `${errorCode}: ${message}` : message);
+    } else if (error) {
+      messages.add(error);
+    }
+
+    if (Array.isArray(record.errors)) {
+      queue.push(...record.errors);
+    }
+  }
+
+  return Array.from(messages);
 }
 
 async function acquirePoolLeaseWithRetry(auth: OrgAuth, request: PoolAcquireRequest): Promise<PoolAcquireResponse> {
@@ -515,6 +571,37 @@ async function finalizePoolLease(auth: OrgAuth, request: PoolFinalizeRequest): P
 
 async function releasePoolLease(auth: OrgAuth, request: PoolReleaseRequest): Promise<void> {
   await requestOrgJson(auth, 'POST', '/services/apexrest/alv/scratch-pool/v1/release', request);
+}
+
+async function tryReleaseIncompletePoolLease(
+  auth: OrgAuth,
+  poolKey: string,
+  lease: Partial<PoolAcquireResponse>,
+  errorMessage: string
+): Promise<void> {
+  const slotKey = String(lease.slotKey || '').trim();
+  const leaseToken = String(lease.leaseToken || '').trim();
+  if (!slotKey || !leaseToken) {
+    return;
+  }
+
+  try {
+    await releasePoolLease(auth, {
+      poolKey,
+      slotKey,
+      leaseToken,
+      success: false,
+      needsRecreate: true,
+      lastRunResult: 'failed',
+      errorMessage
+    });
+  } catch (error) {
+    console.warn(
+      `[e2e] scratch-org pool release failed after an incomplete acquire response for slot '${slotKey}': ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
 }
 
 async function deleteExistingPooledScratch(
@@ -714,7 +801,14 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
   const scratchAlias = String(lease.scratchAlias || '').trim();
   const leaseToken = String(lease.leaseToken || '').trim();
   if (!slotKey || !scratchAlias || !leaseToken) {
-    throw new Error('Scratch-org pool acquire response was missing slotKey, scratchAlias, or leaseToken.');
+    const missingFields = [
+      !slotKey ? 'slotKey' : '',
+      !scratchAlias ? 'scratchAlias' : '',
+      !leaseToken ? 'leaseToken' : ''
+    ].filter(Boolean);
+    const errorMessage = `Scratch-org pool acquire response was missing ${missingFields.join(', ')}.`;
+    await tryReleaseIncompletePoolLease(devHubAuth, poolKey, lease, errorMessage);
+    throw new Error(errorMessage);
   }
 
   const heartbeatIntervalSeconds = resolvePoolHeartbeatSeconds(leaseTtlSeconds);

@@ -623,4 +623,82 @@ describe('ensureScratchOrg', () => {
 
     await scratch.cleanup();
   });
+
+  test('releases the pool lease when the acquire response is missing scratchAlias', async () => {
+    process.env.SF_SCRATCH_STRATEGY = 'pool';
+    process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
+    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
+
+    fetchSpy.mockImplementation(async input => {
+      const url = String(input);
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
+        return createJsonResponse({
+          ok: true,
+          poolKey: 'alv-e2e',
+          slotKey: 'slot-04',
+          leaseToken: 'lease-incomplete',
+          needsCreate: false
+        });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/release')) {
+        return createJsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch url: ${url}`);
+    });
+
+    runSfJsonMock.mockImplementation(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
+        return { status: 0, result: {} };
+      }
+
+      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
+    });
+
+    await expect(ensureScratchOrg()).rejects.toThrow(
+      'Scratch-org pool acquire response was missing scratchAlias.'
+    );
+
+    const releaseCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith('/services/apexrest/alv/scratch-pool/v1/release')
+    );
+    expect(releaseCall).toBeDefined();
+    const releaseBody = JSON.parse(String(releaseCall?.[1]?.body || '{}'));
+    expect(releaseBody.slotKey).toBe('slot-04');
+    expect(releaseBody.leaseToken).toBe('lease-incomplete');
+    expect(releaseBody.success).toBe(false);
+    expect(releaseBody.needsRecreate).toBe(true);
+  });
+
+  test('redacts sensitive pool REST response bodies from thrown errors', async () => {
+    process.env.SF_SCRATCH_STRATEGY = 'pool';
+    process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
+    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
+
+    fetchSpy.mockImplementation(async input => {
+      const url = String(input);
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
+        return createJsonResponse(
+          {
+            message: 'Pool REST failure',
+            scratchAuthUrl: 'force://secret-slot-auth'
+          },
+          500
+        );
+      }
+      throw new Error(`Unexpected fetch url: ${url}`);
+    });
+
+    runSfJsonMock.mockImplementation(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
+        return { status: 0, result: {} };
+      }
+
+      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
+    });
+
+    const error = await ensureScratchOrg().catch(caught => caught as Error);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain('Pool REST failure');
+    expect(error.message).not.toContain('force://secret-slot-auth');
+  });
 });
