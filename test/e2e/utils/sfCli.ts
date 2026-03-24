@@ -70,7 +70,7 @@ export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
     resolvedSfBinAbsolutePathPromise = (async () => {
       try {
         if (process.platform === 'win32') {
-          const { stdout } = await execFileAsync('cmd.exe', ['/d', '/s', '/c', 'where sf'], { timeoutMs: 10_000 });
+          const { stdout } = await execProcessFileAsync('cmd.exe', ['/d', '/s', '/c', 'where sf'], { timeoutMs: 10_000 });
           const candidates = String(stdout || '')
             .split(/\r?\n/)
             .map(l => l.trim())
@@ -78,7 +78,7 @@ export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
           const preferred = candidates.find(value => /\.cmd$/i.test(value));
           return preferred || candidates[0] || undefined;
         }
-        const { stdout } = await execFileAsync('bash', ['-lc', 'command -v sf'], { timeoutMs: 10_000 });
+        const { stdout } = await execProcessFileAsync('bash', ['-lc', 'command -v sf'], { timeoutMs: 10_000 });
         const resolved = String(stdout || '').trim();
         return resolved || undefined;
       } catch {
