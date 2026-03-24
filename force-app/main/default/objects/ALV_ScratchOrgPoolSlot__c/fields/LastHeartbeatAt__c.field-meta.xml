@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>LastHeartbeatAt__c</fullName>
+    <label>Last Heartbeat At</label>
+    <trackHistory>true</trackHistory>
+    <type>DateTime</type>
+</CustomField>
+

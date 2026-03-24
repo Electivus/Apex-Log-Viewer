@@ -4,11 +4,12 @@ import { defineConfig } from '@playwright/test';
 const repoRoot = __dirname;
 const artifactsRoot = path.join(repoRoot, 'output', 'playwright');
 const resultsRoot = path.join(artifactsRoot, 'test-results');
+const configuredWorkers = Math.max(1, Number(process.env.PLAYWRIGHT_WORKERS || 1) || 1);
 
 export default defineConfig({
   testDir: path.join(__dirname, 'test', 'e2e', 'specs'),
   fullyParallel: false,
-  workers: 1,
+  workers: configuredWorkers,
   timeout: 15 * 60 * 1000,
   expect: { timeout: 60 * 1000 },
   retries: process.env.CI ? 1 : 0,

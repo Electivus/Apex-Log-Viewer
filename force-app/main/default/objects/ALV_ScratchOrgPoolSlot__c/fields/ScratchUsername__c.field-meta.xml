@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>ScratchUsername__c</fullName>
+    <label>Scratch Username</label>
+    <length>255</length>
+    <trackHistory>true</trackHistory>
+    <type>Text</type>
+</CustomField>
+

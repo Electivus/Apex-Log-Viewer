@@ -100,6 +100,7 @@ export function DebugFlagsApp({
   const selectedOrgRef = useRef<string | undefined>(undefined);
   const selectedTargetRef = useRef<TraceFlagTarget | undefined>(undefined);
   const selectedManagerIdRef = useRef<string>('');
+  const queryRef = useRef('');
   const [loading, setLoading] = useState<LoadingState>({
     orgs: false,
     users: false,
@@ -114,6 +115,10 @@ export function DebugFlagsApp({
   useEffect(() => {
     selectedTargetRef.current = selectedTarget;
   }, [selectedTarget]);
+
+  useEffect(() => {
+    queryRef.current = query;
+  }, [query]);
 
   useEffect(() => {
     selectedManagerIdRef.current = selectedManagerId;
@@ -154,6 +159,9 @@ export function DebugFlagsApp({
           setSelectedOrg(msg.selected);
           break;
         case 'debugFlagsUsers':
+          if (String(msg.query || '') !== queryRef.current) {
+            return;
+          }
           setUsers(msg.data || []);
           break;
         case 'debugFlagsDebugLevels': {
@@ -425,6 +433,7 @@ export function DebugFlagsApp({
             orgs={orgs}
             selected={selectedOrg}
             onChange={handleSelectOrg}
+            testId="debug-flags-org-select"
             disabled={loading.orgs || loading.action}
             emptyText={t.noOrgsDetected ?? 'No orgs detected. Run "sf org list".'}
           />

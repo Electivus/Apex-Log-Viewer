@@ -19,6 +19,7 @@ import {
   getOrgAuth,
   removeUserDebugTraceFlags,
   resolveSpecialTraceFlagTarget,
+  waitForDebugFlagsUserSearchAvailability,
   type OrgAuth
 } from '../tooling';
 
@@ -716,5 +717,61 @@ describe('ensureDebugFlagsTestUser', () => {
     });
 
     await expect(resolveSpecialTraceFlagTarget(auth, 'automatedProcess')).resolves.toBeUndefined();
+  });
+});
+
+describe('waitForDebugFlagsUserSearchAvailability', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    if (originalFetch) {
+      globalThis.fetch = originalFetch;
+    } else {
+      delete (globalThis as Partial<typeof globalThis>).fetch;
+    }
+    __resetToolingCachesForTests();
+  });
+
+  test('waits until the debug flags user search can resolve the target user', async () => {
+    const auth: OrgAuth = {
+      accessToken: 'token',
+      instanceUrl: 'https://example.my.salesforce.com',
+      username: 'auth.user@example.com',
+      apiVersion: '62.0'
+    };
+    let searchCalls = 0;
+
+    globalThis.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const soql = decodeURIComponent(url.slice(url.indexOf('?q=') + 3));
+      if (soql.includes("Username LIKE '%alv.debugflags.example%'")) {
+        searchCalls += 1;
+        return responseFrom({
+          status: 200,
+          body: {
+            records:
+              searchCalls >= 2
+                ? [
+                    {
+                      Id: '005000000000123AAA',
+                      Name: 'ALV Debug Flags E2E',
+                      Username: 'alv.debugflags.example@example.com'
+                    }
+                  ]
+                : []
+          }
+        });
+      }
+
+      throw new Error(`Unexpected request ${url}`);
+    });
+
+    await expect(
+      waitForDebugFlagsUserSearchAvailability(auth, '005000000000123AAA', 'alv.debugflags.example', {
+        timeoutMs: 2_000,
+        pollIntervalMs: 1
+      })
+    ).resolves.toBeUndefined();
+    expect(searchCalls).toBeGreaterThanOrEqual(2);
   });
 });

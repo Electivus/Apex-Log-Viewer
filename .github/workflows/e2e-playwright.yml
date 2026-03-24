@@ -23,9 +23,14 @@ on:
         required: false
         default: true
         type: boolean
+      playwright_workers:
+        description: Playwright workers when the scratch-org pool is enabled
+        required: false
+        default: '7'
+        type: string
 
 concurrency:
-  group: sf-e2e-scratch-global
+  group: ${{ vars.SF_SCRATCH_POOL_NAME != '' && format('e2e-playwright-{0}', github.ref) || 'sf-e2e-scratch-global' }}
   cancel-in-progress: false
 
 permissions:
@@ -48,6 +53,10 @@ jobs:
       ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && vars.ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID || '' }}
       HAS_AZURE_E2E_TELEMETRY_CONFIG: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}
       SF_SCRATCH_ALIAS: ALV_E2E_SCRATCH_CI
+      SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
+      HAS_POOL_DEVHUB_AUTH: ${{ vars.SF_SCRATCH_POOL_NAME != '' && secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
+      SCRATCH_STRATEGY: ${{ vars.SF_SCRATCH_POOL_NAME != '' && secrets.SF_DEVHUB_AUTH_URL != '' && 'pool' || 'single' }}
+      PLAYWRIGHT_WORKERS: ${{ vars.SF_SCRATCH_POOL_NAME != '' && secrets.SF_DEVHUB_AUTH_URL != '' && (github.event.inputs.playwright_workers || '7') || '1' }}
       HAS_SCRATCH_AUTH_URL: ${{ secrets.SF_SCRATCH_CI_SFDX_AUTH_URL != '' && '1' || '' }}
       CAN_ROTATE_SCRATCH_SECRET: ${{ secrets.GH_SECRETS_ROTATOR_PAT != '' && (github.event_name != 'workflow_dispatch' || github.event.inputs.keep_scratch_org != 'false') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && '1' || '' }}
     steps:
@@ -64,15 +73,21 @@ jobs:
       - name: Install Salesforce CLI
         run: npm install -g @salesforce/cli
 
+      - name: Warn when pool variables exist but Dev Hub auth is incomplete
+        if: ${{ env.SCRATCH_POOL_NAME != '' && env.HAS_POOL_DEVHUB_AUTH != '1' }}
+        shell: bash
+        run: |
+          echo "::warning::SF_SCRATCH_POOL_NAME is configured, but SF_DEVHUB_AUTH_URL is missing. Falling back to the legacy single-scratch strategy."
+
       - name: Require GitHub secrets rotator token (pull_request)
-        if: ${{ github.event_name == 'pull_request' && env.CAN_ROTATE_SCRATCH_SECRET != '1' }}
+        if: ${{ env.SCRATCH_STRATEGY == 'single' && github.event_name == 'pull_request' && env.CAN_ROTATE_SCRATCH_SECRET != '1' }}
         shell: bash
         run: |
           echo "::error::GH_SECRETS_ROTATOR_PAT must be configured for pull_request runs so the workflow can rotate SF_SCRATCH_CI_SFDX_AUTH_URL and avoid exhausting daily scratch org signup limits."
           exit 1
 
       - name: Validate GitHub secrets rotator token
-        if: ${{ env.CAN_ROTATE_SCRATCH_SECRET == '1' }}
+        if: ${{ env.SCRATCH_STRATEGY == 'single' && env.CAN_ROTATE_SCRATCH_SECRET == '1' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -82,7 +97,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_SECRETS_ROTATOR_PAT }}
 
       - name: Login to reusable scratch org (best-effort)
-        if: ${{ env.HAS_SCRATCH_AUTH_URL == '1' }}
+        if: ${{ env.SCRATCH_STRATEGY == 'single' && env.HAS_SCRATCH_AUTH_URL == '1' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -120,25 +135,37 @@ jobs:
       - name: Run Playwright E2E
         shell: bash
         run: |
+          echo "Scratch strategy: ${SCRATCH_STRATEGY}"
+          echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
           if [[ -n "${AZURE_CLIENT_ID}" && -n "${AZURE_TENANT_ID}" && -n "${AZURE_SUBSCRIPTION_ID}" && "${HAS_AZURE_E2E_TELEMETRY_CONFIG}" == "1" ]]; then
             echo "Running full Playwright E2E with dedicated App Insights validation."
             npm run test:e2e:telemetry
           else
-            echo "Azure OIDC secrets or E2E telemetry target variables are not fully configured; falling back to the smoke E2E run."
-            npm run test:e2e -- openLogViewer.e2e.spec.ts
+            echo "Azure OIDC secrets or E2E telemetry target variables are not fully configured; running the full Playwright E2E suite without telemetry validation."
+            npm run test:e2e
           fi
         env:
           VSCODE_TEST_VERSION: ${{ github.event.inputs.vscode_version || 'stable' }}
+          PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
+          SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
+          SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
+          SF_SCRATCH_POOL_OWNER: github:${{ github.run_id }}/${{ github.run_attempt }}
+          SF_SCRATCH_POOL_LEASE_TTL_SECONDS: ${{ vars.SF_SCRATCH_POOL_LEASE_TTL_SECONDS }}
+          SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS: ${{ vars.SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS }}
+          SF_SCRATCH_POOL_HEARTBEAT_SECONDS: ${{ vars.SF_SCRATCH_POOL_HEARTBEAT_SECONDS }}
+          SF_SCRATCH_POOL_MIN_REMAINING_MINUTES: ${{ vars.SF_SCRATCH_POOL_MIN_REMAINING_MINUTES }}
+          SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
+          SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
           SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
           SF_DEVHUB_ALIAS: DevHubElectivus
           SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || '1' }}
           # Default behavior:
           # - pull_request: keep scratch org only when reuse/rotation is possible
           # - workflow_dispatch: keep unless explicitly disabled
-          SF_TEST_KEEP_ORG: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.keep_scratch_org == 'false' && '' || '1') || github.event_name != 'workflow_dispatch' && (env.HAS_SCRATCH_AUTH_URL == '1' || env.CAN_ROTATE_SCRATCH_SECRET == '1') && '1' || '' }}
+          SF_TEST_KEEP_ORG: ${{ env.SCRATCH_STRATEGY == 'pool' && '1' || github.event_name == 'workflow_dispatch' && (github.event.inputs.keep_scratch_org == 'false' && '' || '1') || github.event_name != 'workflow_dispatch' && (env.HAS_SCRATCH_AUTH_URL == '1' || env.CAN_ROTATE_SCRATCH_SECRET == '1') && '1' || '' }}
 
       - name: Rotate scratch auth URL secret (post-run)
-        if: ${{ always() && env.CAN_ROTATE_SCRATCH_SECRET == '1' }}
+        if: ${{ always() && env.SCRATCH_STRATEGY == 'single' && env.CAN_ROTATE_SCRATCH_SECRET == '1' }}
         shell: bash
         run: |
           set -euo pipefail
