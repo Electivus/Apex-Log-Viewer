@@ -494,21 +494,34 @@ async function deleteExistingScratchForSlot(targetOrg, poolKey, slot, dependenci
   const getActiveScratchOrgByInfoIdImpl = dependencies.getActiveScratchOrgByInfoId || getActiveScratchOrgByInfoId;
   const callSalesforceRestImpl = dependencies.callSalesforceRest || callSalesforceRest;
   const isDeleteNotFoundErrorImpl = dependencies.isDeleteNotFoundError || isDeleteNotFoundError;
-  const latestInfo = slot.ScratchOrgInfoId__c
-    ? { Id: slot.ScratchOrgInfoId__c }
-    : await getLatestScratchOrgInfoImpl(targetOrg, poolKey, slot.SlotKey__c);
-  const activeScratch = slot.ActiveScratchOrgId__c
-    ? { Id: slot.ActiveScratchOrgId__c }
-    : await getActiveScratchOrgByInfoIdImpl(targetOrg, latestInfo?.Id);
+  const latestInfo = await getLatestScratchOrgInfoImpl(targetOrg, poolKey, slot.SlotKey__c);
+  const scratchOrgInfoIds = [];
+  const activeScratchOrgIds = [];
 
-  if (activeScratch?.Id) {
+  const pushUniqueId = (collection, value) => {
+    const normalized = String(value || '').trim();
+    if (!normalized || collection.includes(normalized)) {
+      return;
+    }
+    collection.push(normalized);
+  };
+
+  pushUniqueId(scratchOrgInfoIds, slot.ScratchOrgInfoId__c);
+  pushUniqueId(scratchOrgInfoIds, latestInfo?.Id);
+  pushUniqueId(activeScratchOrgIds, slot.ActiveScratchOrgId__c);
+
+  for (const scratchOrgInfoId of scratchOrgInfoIds) {
+    const activeScratch = await getActiveScratchOrgByInfoIdImpl(targetOrg, scratchOrgInfoId);
+    pushUniqueId(activeScratchOrgIds, activeScratch?.Id);
+  }
+
+  for (const activeScratchOrgId of activeScratchOrgIds) {
     try {
       await callSalesforceRestImpl(
         targetOrg,
         'DELETE',
-        `/sobjects/ActiveScratchOrg/${encodeURIComponent(activeScratch.Id)}`
+        `/sobjects/ActiveScratchOrg/${encodeURIComponent(activeScratchOrgId)}`
       );
-      return;
     } catch (error) {
       if (!isDeleteNotFoundErrorImpl(error)) {
         throw error;
@@ -516,19 +529,17 @@ async function deleteExistingScratchForSlot(targetOrg, poolKey, slot, dependenci
     }
   }
 
-  if (!latestInfo?.Id) {
-    return;
-  }
-
-  try {
-    await callSalesforceRestImpl(
-      targetOrg,
-      'DELETE',
-      `/sobjects/ScratchOrgInfo/${encodeURIComponent(latestInfo.Id)}`
-    );
-  } catch (error) {
-    if (!isDeleteNotFoundErrorImpl(error)) {
-      throw error;
+  for (const scratchOrgInfoId of scratchOrgInfoIds) {
+    try {
+      await callSalesforceRestImpl(
+        targetOrg,
+        'DELETE',
+        `/sobjects/ScratchOrgInfo/${encodeURIComponent(scratchOrgInfoId)}`
+      );
+    } catch (error) {
+      if (!isDeleteNotFoundErrorImpl(error)) {
+        throw error;
+      }
     }
   }
 }

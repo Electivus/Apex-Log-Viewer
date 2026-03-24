@@ -167,6 +167,90 @@ test('deleteExistingScratchForSlot falls back to ScratchOrgInfo when ActiveScrat
           throw new Error('NOT_FOUND');
         }
       },
+      getLatestScratchOrgInfo: async () => undefined,
+      getActiveScratchOrgByInfoId: async () => undefined,
+      isDeleteNotFoundError: error => String(error?.message || '').includes('NOT_FOUND')
+    }
+  );
+
+  assert.deepEqual(deletes, [
+    {
+      method: 'DELETE',
+      resourcePath: '/sobjects/ActiveScratchOrg/00Dxx0000000001'
+    },
+    {
+      method: 'DELETE',
+      resourcePath: '/sobjects/ScratchOrgInfo/2SRxx0000000001'
+    }
+  ]);
+});
+
+test('deleteExistingScratchForSlot retries cleanup with the latest scratch metadata when stored ids are stale', async () => {
+  const deletes = [];
+
+  await deleteExistingScratchForSlot(
+    'DevHub',
+    'alv-e2e',
+    {
+      SlotKey__c: 'slot-01',
+      ScratchOrgInfoId__c: '2SRxx0000000001',
+      ActiveScratchOrgId__c: '00Dxx0000000001'
+    },
+    {
+      callSalesforceRest: async (_targetOrg, method, resourcePath) => {
+        deletes.push({ method, resourcePath });
+        if (
+          resourcePath === '/sobjects/ActiveScratchOrg/00Dxx0000000001' ||
+          resourcePath === '/sobjects/ScratchOrgInfo/2SRxx0000000001'
+        ) {
+          throw new Error('NOT_FOUND');
+        }
+      },
+      getLatestScratchOrgInfo: async () => ({ Id: '2SRxx0000000002' }),
+      getActiveScratchOrgByInfoId: async (_targetOrg, scratchOrgInfoId) =>
+        scratchOrgInfoId === '2SRxx0000000002' ? { Id: '00Dxx0000000002' } : undefined,
+      isDeleteNotFoundError: error => String(error?.message || '').includes('NOT_FOUND')
+    }
+  );
+
+  assert.deepEqual(deletes, [
+    {
+      method: 'DELETE',
+      resourcePath: '/sobjects/ActiveScratchOrg/00Dxx0000000001'
+    },
+    {
+      method: 'DELETE',
+      resourcePath: '/sobjects/ActiveScratchOrg/00Dxx0000000002'
+    },
+    {
+      method: 'DELETE',
+      resourcePath: '/sobjects/ScratchOrgInfo/2SRxx0000000001'
+    },
+    {
+      method: 'DELETE',
+      resourcePath: '/sobjects/ScratchOrgInfo/2SRxx0000000002'
+    }
+  ]);
+});
+
+test('deleteExistingScratchForSlot deduplicates stored and latest scratch ids', async () => {
+  const deletes = [];
+
+  await deleteExistingScratchForSlot(
+    'DevHub',
+    'alv-e2e',
+    {
+      SlotKey__c: 'slot-01',
+      ScratchOrgInfoId__c: '2SRxx0000000001',
+      ActiveScratchOrgId__c: '00Dxx0000000001'
+    },
+    {
+      callSalesforceRest: async (_targetOrg, method, resourcePath) => {
+        deletes.push({ method, resourcePath });
+      },
+      getLatestScratchOrgInfo: async () => ({ Id: '2SRxx0000000001' }),
+      getActiveScratchOrgByInfoId: async (_targetOrg, scratchOrgInfoId) =>
+        scratchOrgInfoId === '2SRxx0000000001' ? { Id: '00Dxx0000000001' } : undefined,
       isDeleteNotFoundError: error => String(error?.message || '').includes('NOT_FOUND')
     }
   );

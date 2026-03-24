@@ -35,6 +35,11 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>true</editable>
+        <field>ALV_ScratchOrgPool__c.PoolKey__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
         <field>ALV_ScratchOrgPool__c.ProvisioningMode__c</field>
         <readable>true</readable>
     </fieldPermissions>
@@ -156,6 +161,11 @@
     <fieldPermissions>
         <editable>true</editable>
         <field>ALV_ScratchOrgPoolSlot__c.ScratchUsername__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>ALV_ScratchOrgPoolSlot__c.SlotKey__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
