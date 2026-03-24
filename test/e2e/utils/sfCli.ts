@@ -125,7 +125,8 @@ function execProcessFileAsync(file: string, args: string[], options: ExecOptions
       maxBuffer: 1024 * 1024 * 20
     };
 
-    execFile(file, args, execOptions, callback);
+    const executable = getTrustedExecutable(file, ['cmd.exe', 'bash']);
+    execFile(executable, args, execOptions, callback);
   });
 }
 
@@ -139,17 +140,22 @@ function normalizeExecArgs(args: string[]): string[] {
   });
 }
 
-function getTrustedSfExecutable(file: string): string {
+function getTrustedExecutable(file: string, additionalAllowedBasenames: string[] = []): string {
   const normalized = String(file || '').trim();
   const basename = path.basename(normalized).toLowerCase();
-  if (basename === 'sf' || basename === 'sf.cmd' || basename === 'sf.exe') {
+  if (
+    basename === 'sf' ||
+    basename === 'sf.cmd' ||
+    basename === 'sf.exe' ||
+    additionalAllowedBasenames.map(value => value.toLowerCase()).includes(basename)
+  ) {
     return normalized;
   }
-  throw new Error(`Refusing to execute unexpected Salesforce CLI binary '${file}'.`);
+  throw new Error(`Refusing to execute unexpected binary '${file}'.`);
 }
 
 async function execSfCliAsync(file: string, args: string[], options: ExecOptions = {}): Promise<ExecResult> {
-  const executable = getTrustedSfExecutable(file);
+  const executable = getTrustedExecutable(file);
   const finalArgs = normalizeExecArgs(args);
 
   if (process.platform === 'win32' && /\.cmd$/i.test(executable)) {
