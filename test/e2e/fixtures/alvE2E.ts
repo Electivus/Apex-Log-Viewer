@@ -57,7 +57,14 @@ export const test = base.extend<Fixtures & Options>({
 
   _scratchLeaseGuard: [
     async ({ scratchLeaseState }, use, testInfo) => {
-      scratchLeaseState.scratch.assertLeaseHealthy?.();
+      try {
+        scratchLeaseState.scratch.assertLeaseHealthy?.();
+      } catch (error) {
+        scratchLeaseState.hadFailure = true;
+        scratchLeaseState.failureMessage ??=
+          error instanceof Error ? error.message : String(error);
+        throw error;
+      }
       await use();
 
       if (testInfo.status !== testInfo.expectedStatus) {

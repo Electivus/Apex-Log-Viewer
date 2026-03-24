@@ -682,7 +682,7 @@ describe('ensureScratchOrg', () => {
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')) {
         finalizeAttempts += 1;
         if (finalizeAttempts === 1) {
-          return createJsonResponse({ message: 'Lease ownership lost' }, 409);
+          return createJsonResponse({ message: 'Pool finalize transient failure' }, 500);
         }
         return createJsonResponse({ ok: true });
       }
@@ -778,6 +778,82 @@ describe('ensureScratchOrg', () => {
     expect(recreateFinalizeBody.scratchAuthUrl).toBe('force://slot03-fresh-auth');
 
     await scratch.cleanup();
+  });
+
+  test('aborts pooled reuse when finalize loses the lease token', async () => {
+    process.env.SF_SCRATCH_STRATEGY = 'pool';
+    process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
+    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
+
+    fetchSpy.mockImplementation(async input => {
+      const url = String(input);
+      if (isPoolConfigQuery(url)) {
+        return createPoolConfigResponse();
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
+        return createJsonResponse({
+          ok: true,
+          poolKey: 'alv-e2e',
+          slotKey: 'slot-03',
+          scratchAlias: 'ALV_E2E_POOL_03',
+          leaseToken: 'lease-finalize-conflict',
+          needsCreate: false,
+          scratchUsername: 'slot03@example.com',
+          scratchLoginUrl: 'https://slot03.scratch.my.salesforce.com',
+          scratchAuthUrl: 'force://slot03-auth',
+          scratchOrgInfoId: '2SR000000000001AAA',
+          activeScratchOrgId: '0SO000000000001AAA',
+          scratchDurationDays: 30
+        });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')) {
+        return createJsonResponse({ message: 'Lease ownership lost' }, 409);
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/release')) {
+        return createJsonResponse({ message: 'Lease ownership lost' }, 409);
+      }
+      throw new Error(`Unexpected fetch url: ${url}`);
+    });
+
+    runSfJsonMock.mockImplementation(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
+        return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_03')) {
+        return {
+          status: 0,
+          result: {
+            status: 'Active',
+            expirationDate: '2099-03-07',
+            accessToken: 'scratch-token',
+            instanceUrl: 'https://slot03.scratch.my.salesforce.com',
+            username: 'slot03@example.com',
+            sfdxAuthUrl: 'force://slot03-fresh-auth'
+          }
+        };
+      }
+
+      if (args[0] === 'org' && args[1] === 'create' && args[2] === 'scratch') {
+        throw new Error('org create scratch should not run after finalize returns 409');
+      }
+
+      if (args[0] === 'org' && args[1] === 'logout') {
+        throw new Error('logout should not run after finalize returns 409');
+      }
+
+      if (args[0] === 'alias' && args[1] === 'unset') {
+        throw new Error('alias unset should not run after finalize returns 409');
+      }
+
+      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
+    });
+
+    await expect(ensureScratchOrg()).rejects.toThrow(/lease ownership lost/i);
+    expect(runSfJsonMock).not.toHaveBeenCalledWith(
+      expect.arrayContaining(['org', 'create', 'scratch']),
+      expect.anything()
+    );
   });
 
   test('releases the pool lease when the acquire response is missing scratchAlias', async () => {

@@ -1038,6 +1038,9 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
         });
         console.info(`[e2e] scratch-org pool slot '${slotKey}' reused scratch '${scratchAlias}'.`);
       } catch (error) {
+        if (isHttpError(error, 409)) {
+          throw error;
+        }
         readyAuth = undefined;
         scratchAuthUrl = undefined;
         console.warn(
