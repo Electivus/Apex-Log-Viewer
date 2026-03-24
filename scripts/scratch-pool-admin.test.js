@@ -1,9 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 
 const {
   buildPoolScratchDefinition,
   buildSlotDescriptors,
+  deleteExistingScratchForSlot,
+  execFileAsync,
   isSlotEligibleForPrewarm,
   normalizePoolConfig,
   normalizePrewarmOptions,
@@ -121,4 +124,60 @@ test('toScratchExpirationDateTimeValue converts date-only values to end-of-day U
   assert.equal(toScratchExpirationDateTimeValue('2026-04-21'), '2026-04-21T23:59:59.000Z');
   assert.equal(toScratchExpirationDateTimeValue('2026-04-21T12:34:56.000Z'), '2026-04-21T12:34:56.000Z');
   assert.equal(toScratchExpirationDateTimeValue(''), null);
+});
+
+test('execFileAsync honors timeoutMs and kills the child process', async () => {
+  let killed = false;
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = () => {
+    killed = true;
+    child.emit('close', null);
+    return true;
+  };
+
+  await assert.rejects(
+    execFileAsync('sf', ['org', 'list'], {
+      spawnImpl: () => child,
+      timeoutMs: 10
+    }),
+    /Command timed out after 10ms: sf org list/
+  );
+
+  assert.equal(killed, true);
+});
+
+test('deleteExistingScratchForSlot falls back to ScratchOrgInfo when ActiveScratchOrg delete is stale', async () => {
+  const deletes = [];
+
+  await deleteExistingScratchForSlot(
+    'DevHub',
+    'alv-e2e',
+    {
+      SlotKey__c: 'slot-01',
+      ScratchOrgInfoId__c: '2SRxx0000000001',
+      ActiveScratchOrgId__c: '00Dxx0000000001'
+    },
+    {
+      callSalesforceRest: async (_targetOrg, method, resourcePath) => {
+        deletes.push({ method, resourcePath });
+        if (resourcePath.includes('/ActiveScratchOrg/')) {
+          throw new Error('NOT_FOUND');
+        }
+      },
+      isDeleteNotFoundError: error => String(error?.message || '').includes('NOT_FOUND')
+    }
+  );
+
+  assert.deepEqual(deletes, [
+    {
+      method: 'DELETE',
+      resourcePath: '/sobjects/ActiveScratchOrg/00Dxx0000000001'
+    },
+    {
+      method: 'DELETE',
+      resourcePath: '/sobjects/ScratchOrgInfo/2SRxx0000000001'
+    }
+  ]);
 });

@@ -338,7 +338,7 @@ public without sharing class ALVScratchPoolService {
         if (expirationDate == null) {
             return null;
         }
-        return Datetime.newInstance(expirationDate, Time.newInstance(23, 59, 59, 0));
+        return Datetime.newInstanceGmt(expirationDate, Time.newInstance(23, 59, 59, 0));
     }
 
     private static String truncateLongText(String value) {

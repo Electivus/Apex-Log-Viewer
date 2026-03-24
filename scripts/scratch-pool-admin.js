@@ -161,7 +161,7 @@ function normalizePrewarmOptions(argv = process.argv.slice(2)) {
 }
 
 function execFileAsync(file, args, options = {}) {
-  const { cwd = REPO_ROOT, spawnImpl = spawn } = options;
+  const { cwd = REPO_ROOT, spawnImpl = spawn, timeoutMs } = options;
   return new Promise((resolve, reject) => {
     const child = spawnImpl(file, args, {
       cwd,
@@ -171,6 +171,24 @@ function execFileAsync(file, args, options = {}) {
 
     let stdout = '';
     let stderr = '';
+    let settled = false;
+    let didTimeout = false;
+    let timeoutHandle;
+    let timeoutError;
+
+    const settle = callback => value => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+      callback(value);
+    };
+
+    const resolveOnce = settle(resolve);
+    const rejectOnce = settle(reject);
 
     child.stdout?.on('data', chunk => {
       stdout += chunk.toString();
@@ -179,18 +197,35 @@ function execFileAsync(file, args, options = {}) {
       stderr += chunk.toString();
     });
 
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+      timeoutHandle = setTimeout(() => {
+        didTimeout = true;
+        timeoutError = new Error(`Command timed out after ${timeoutMs}ms: ${file} ${args.join(' ')}`.trim());
+        try {
+          child.kill?.();
+        } catch {
+          // Best effort only; the timeout should still reject promptly.
+        }
+        rejectOnce(timeoutError);
+      }, timeoutMs);
+    }
+
     child.on('error', error => {
       const message = String(stderr || stdout || error.message || 'Command failed').trim();
-      reject(new Error(message));
+      rejectOnce(new Error(message));
     });
 
     child.on('close', code => {
+      if (didTimeout && timeoutError) {
+        rejectOnce(timeoutError);
+        return;
+      }
       if (code === 0) {
-        resolve({ stdout, stderr });
+        resolveOnce({ stdout, stderr });
         return;
       }
       const message = String(stderr || stdout || `Command failed with exit code ${code}.`).trim();
-      reject(new Error(message));
+      rejectOnce(new Error(message));
     });
   });
 }
@@ -454,33 +489,45 @@ function isDeleteNotFoundError(error) {
   );
 }
 
-async function deleteExistingScratchForSlot(targetOrg, poolKey, slot) {
+async function deleteExistingScratchForSlot(targetOrg, poolKey, slot, dependencies = {}) {
+  const getLatestScratchOrgInfoImpl = dependencies.getLatestScratchOrgInfo || getLatestScratchOrgInfo;
+  const getActiveScratchOrgByInfoIdImpl = dependencies.getActiveScratchOrgByInfoId || getActiveScratchOrgByInfoId;
+  const callSalesforceRestImpl = dependencies.callSalesforceRest || callSalesforceRest;
+  const isDeleteNotFoundErrorImpl = dependencies.isDeleteNotFoundError || isDeleteNotFoundError;
   const latestInfo = slot.ScratchOrgInfoId__c
     ? { Id: slot.ScratchOrgInfoId__c }
-    : await getLatestScratchOrgInfo(targetOrg, poolKey, slot.SlotKey__c);
+    : await getLatestScratchOrgInfoImpl(targetOrg, poolKey, slot.SlotKey__c);
   const activeScratch = slot.ActiveScratchOrgId__c
     ? { Id: slot.ActiveScratchOrgId__c }
-    : await getActiveScratchOrgByInfoId(targetOrg, latestInfo?.Id);
+    : await getActiveScratchOrgByInfoIdImpl(targetOrg, latestInfo?.Id);
 
-  try {
-    if (activeScratch?.Id) {
-      await callSalesforceRest(
+  if (activeScratch?.Id) {
+    try {
+      await callSalesforceRestImpl(
         targetOrg,
         'DELETE',
         `/sobjects/ActiveScratchOrg/${encodeURIComponent(activeScratch.Id)}`
       );
       return;
+    } catch (error) {
+      if (!isDeleteNotFoundErrorImpl(error)) {
+        throw error;
+      }
     }
+  }
 
-    if (latestInfo?.Id) {
-      await callSalesforceRest(
-        targetOrg,
-        'DELETE',
-        `/sobjects/ScratchOrgInfo/${encodeURIComponent(latestInfo.Id)}`
-      );
-    }
+  if (!latestInfo?.Id) {
+    return;
+  }
+
+  try {
+    await callSalesforceRestImpl(
+      targetOrg,
+      'DELETE',
+      `/sobjects/ScratchOrgInfo/${encodeURIComponent(latestInfo.Id)}`
+    );
   } catch (error) {
-    if (!isDeleteNotFoundError(error)) {
+    if (!isDeleteNotFoundErrorImpl(error)) {
       throw error;
     }
   }
@@ -1116,6 +1163,8 @@ if (require.main === module) {
 module.exports = {
   buildSlotDescriptors,
   buildPoolScratchDefinition,
+  deleteExistingScratchForSlot,
+  execFileAsync,
   isSlotEligibleForPrewarm,
   normalizePoolConfig,
   normalizePrewarmOptions,
