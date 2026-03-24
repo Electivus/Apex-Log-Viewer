@@ -681,9 +681,21 @@ async function bootstrapPool(targetOrg, config, dependencies = {}) {
   for (const descriptor of desiredDescriptors) {
     const existingSlot = existingSlotsByKey.get(descriptor.slotKey);
     if (existingSlot) {
-      await updateRecordImpl(targetOrg, 'ALV_ScratchOrgPoolSlot__c', existingSlot.Id, {
+      const existingLeaseState = String(existingSlot.LeaseState__c || '').trim().toLowerCase();
+      const slotUpdate = {
         ScratchAlias__c: descriptor.scratchAlias
-      });
+      };
+      if (existingLeaseState === 'disabled') {
+        Object.assign(slotUpdate, {
+          LeaseState__c: 'available',
+          LeaseOwner__c: null,
+          LeaseToken__c: null,
+          LeaseExpiresAt__c: null,
+          HealthState__c: 'needs_recreate',
+          LastError__c: 'Slot re-enabled after pool target size increased and must be recreated.'
+        });
+      }
+      await updateRecordImpl(targetOrg, 'ALV_ScratchOrgPoolSlot__c', existingSlot.Id, slotUpdate);
       updatedSlotKeys.push(descriptor.slotKey);
       continue;
     }

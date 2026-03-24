@@ -244,3 +244,50 @@ test('bootstrapPool disables surplus slots and clears stored auth when target si
   assert.equal(slot4Disable?.values.LeaseState__c, 'disabled');
   assert.equal(slot4Disable?.values.ScratchOrgId__c, null);
 });
+
+test('bootstrapPool re-enables desired slots when the target size grows again', async () => {
+  const config = normalizePoolConfig([
+    'bootstrap',
+    '--pool-key',
+    'alv-e2e',
+    '--target-size',
+    '3'
+  ]);
+
+  const updates = [];
+  const poolRecord = {
+    Id: 'a00Pool',
+    PoolKey__c: 'alv-e2e',
+    DefinitionHash__c: 'hash-v1',
+    SeedVersion__c: 'seed-v1'
+  };
+  const existingSlots = [
+    { Id: 'slot1', SlotKey__c: 'slot-01', ScratchAlias__c: 'OLD_01', LeaseState__c: 'available' },
+    { Id: 'slot2', SlotKey__c: 'slot-02', ScratchAlias__c: 'OLD_02', LeaseState__c: 'available' },
+    { Id: 'slot3', SlotKey__c: 'slot-03', ScratchAlias__c: 'OLD_03', LeaseState__c: 'disabled' }
+  ];
+
+  const result = await bootstrapPool('DevHub', config, {
+    getPoolByKey: async () => poolRecord,
+    getSlotsByPoolId: async () => existingSlots,
+    createRecord: async () => {
+      throw new Error('createRecord should not be called when re-enabling an existing slot.');
+    },
+    updateRecord: async (_targetOrg, objectName, recordId, values) => {
+      updates.push({ objectName, recordId, values });
+    },
+    deleteExistingScratchForSlot: async () => {
+      throw new Error('deleteExistingScratchForSlot should not run when a desired slot is re-enabled.');
+    }
+  });
+
+  assert.deepEqual(result.disabledSlotKeys, []);
+
+  const slot3Update = updates.find(update => update.recordId === 'slot3');
+  assert.equal(slot3Update?.values.LeaseState__c, 'available');
+  assert.equal(slot3Update?.values.HealthState__c, 'needs_recreate');
+  assert.equal(
+    slot3Update?.values.LastError__c,
+    'Slot re-enabled after pool target size increased and must be recreated.'
+  );
+});
