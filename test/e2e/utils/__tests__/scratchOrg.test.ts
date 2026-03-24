@@ -33,7 +33,8 @@ function createJsonResponse(body: unknown, status = 200): Response {
 }
 
 function isPoolConfigQuery(url: string): boolean {
-  return url.includes('/services/data/v60.0/query/?q=SELECT%20SnapshotName__c%2C%20SeedVersion__c%20FROM%20ALV_ScratchOrgPool__c');
+  return url.includes('/services/data/v60.0/query/?q=SELECT%20SnapshotName__c%2C%20DefinitionHash__c%2C%20SeedVersion__c') &&
+    url.includes('FROM%20ALV_ScratchOrgPool__c');
 }
 
 function createPoolConfigResponse(body: Record<string, unknown> = {}): Response {
@@ -43,6 +44,7 @@ function createPoolConfigResponse(body: Record<string, unknown> = {}): Response 
     records: [
       {
         SnapshotName__c: null,
+        DefinitionHash__c: null,
         SeedVersion__c: 'alv-e2e-baseline-v1',
         ...body
       }
@@ -425,6 +427,83 @@ describe('ensureScratchOrg', () => {
     expect(releaseCall).toBeDefined();
     const releaseBody = JSON.parse(String(releaseCall?.[1]?.body || '{}'));
     expect(releaseBody.scratchAuthUrl).toBe('force://slot01-auth-updated');
+  });
+
+  test('uses the pool definition hash for acquire and finalize when one is configured', async () => {
+    process.env.SF_SCRATCH_STRATEGY = 'pool';
+    process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
+    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
+
+    fetchSpy.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (isPoolConfigQuery(url)) {
+        return createPoolConfigResponse({ DefinitionHash__c: 'pool-hash-123' });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
+        return createJsonResponse({
+          ok: true,
+          poolKey: 'alv-e2e',
+          slotKey: 'slot-01',
+          scratchAlias: 'ALV_E2E_POOL_01',
+          leaseToken: 'lease-123',
+          needsCreate: false,
+          scratchUsername: 'slot01@example.com',
+          scratchLoginUrl: 'https://slot01.scratch.my.salesforce.com',
+          scratchAuthUrl: 'force://slot01-auth',
+          scratchDurationDays: 30
+        });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')) {
+        return createJsonResponse({ ok: true });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/release')) {
+        return createJsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch url: ${url}`);
+    });
+
+    runSfJsonMock.mockImplementation(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
+        return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ALV_E2E_POOL_01')) {
+        return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_01')) {
+        return {
+          status: 0,
+          result: {
+            status: 'Active',
+            expirationDate: '2099-03-07',
+            accessToken: 'scratch-token',
+            instanceUrl: 'https://slot01.scratch.my.salesforce.com',
+            username: 'slot01@example.com',
+            sfdxAuthUrl: 'force://slot01-auth-updated'
+          }
+        };
+      }
+
+      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
+    });
+
+    const scratch = await ensureScratchOrg();
+    await scratch.cleanup();
+
+    const acquireCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')
+    );
+    expect(acquireCall).toBeDefined();
+    const acquireBody = JSON.parse(String(acquireCall?.[1]?.body || '{}'));
+    expect(acquireBody.definitionHash).toBe('pool-hash-123');
+
+    const finalizeCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')
+    );
+    expect(finalizeCall).toBeDefined();
+    const finalizeBody = JSON.parse(String(finalizeCall?.[1]?.body || '{}'));
+    expect(finalizeBody.definitionHash).toBe('pool-hash-123');
   });
 
   test('creates a pooled scratch org when the acquired slot requires recreation', async () => {

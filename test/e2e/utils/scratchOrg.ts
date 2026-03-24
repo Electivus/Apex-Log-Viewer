@@ -111,6 +111,7 @@ type PoolReleaseRequest = {
 
 type PoolConfigSummary = {
   snapshotName?: string;
+  definitionHash?: string;
   seedVersion?: string;
 };
 
@@ -713,7 +714,7 @@ async function getPoolConfig(auth: OrgAuth, poolKey: string): Promise<PoolConfig
   const records = await queryOrgRecords(
     auth,
     [
-      'SELECT SnapshotName__c, SeedVersion__c',
+      'SELECT SnapshotName__c, DefinitionHash__c, SeedVersion__c',
       'FROM ALV_ScratchOrgPool__c',
       `WHERE PoolKey__c = '${escapeSoqlLiteral(poolKey)}'`,
       'LIMIT 1'
@@ -724,9 +725,11 @@ async function getPoolConfig(auth: OrgAuth, poolKey: string): Promise<PoolConfig
     return undefined;
   }
   const snapshotName = String(record.SnapshotName__c || '').trim();
+  const definitionHash = String(record.DefinitionHash__c || '').trim();
   const seedVersion = String(record.SeedVersion__c || '').trim();
   return {
     snapshotName: snapshotName || undefined,
+    definitionHash: definitionHash || undefined,
     seedVersion: seedVersion || undefined
   };
 }
@@ -739,7 +742,7 @@ async function resolveEffectivePoolBaseline(
   const snapshotName = resolvePoolSnapshotName() || poolConfig?.snapshotName;
   const seedVersion = resolvePoolSeedVersion() || poolConfig?.seedVersion || 'alv-e2e-baseline-v1';
   return {
-    definitionHash: createDefinitionHash(buildBaseScratchDefinition({ snapshotName })),
+    definitionHash: poolConfig?.definitionHash || createDefinitionHash(buildBaseScratchDefinition({ snapshotName })),
     seedVersion,
     snapshotName
   };
@@ -1013,7 +1016,7 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
     let scratchAuthUrl: string | undefined;
     const shouldCreate = Boolean(lease.needsCreate);
     const effectiveSnapshotName = lease.snapshotName || requestedBaseline.snapshotName;
-    const effectiveDefinitionHash = createDefinitionHash(buildBaseScratchDefinition({ snapshotName: effectiveSnapshotName }));
+    const effectiveDefinitionHash = requestedBaseline.definitionHash;
     const effectiveSeedVersion = requestedBaseline.seedVersion;
 
     if (!shouldCreate && lease.scratchAuthUrl) {
