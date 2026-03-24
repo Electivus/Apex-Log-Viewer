@@ -1,17 +1,17 @@
 import { test, expect } from '../fixtures/alvE2E';
 import { runCommandWhenAvailable } from '../utils/commandPalette';
+import { closeQuickInputIfOpen, dismissAllNotifications } from '../utils/notifications';
 import { waitForWebviewFrame } from '../utils/webviews';
 
 test('opens the seeded Apex log in the Log Viewer panel', async ({ vscodePage, seededLog }) => {
   // Activate the extension by running a contributed command.
   // (The command will be updated to ensure the Logs view is visible.)
   await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
+  await closeQuickInputIfOpen(vscodePage);
 
-  // VS Code webviews often load their actual content in a child frame hosted on
-  // a `.../fake.html?...` URL. Grab that frame first, then wait for log rows.
   const logsFrame = await waitForWebviewFrame(
     vscodePage,
-    async frame => /\/fake\.html\?id=/i.test(frame.url()),
+    async frame => await frame.locator('[data-testid="logs-open-debug-flags"]').first().isVisible(),
     { timeoutMs: 180_000 }
   );
 
@@ -21,6 +21,8 @@ test('opens the seeded Apex log in the Log Viewer panel', async ({ vscodePage, s
 
   // Select the first row and press Enter to open (LogRow binds Enter/Space to open).
   const firstRow = logsFrame.locator('[role="row"][tabindex="0"]').first();
+  await dismissAllNotifications(vscodePage);
+  await closeQuickInputIfOpen(vscodePage);
   await firstRow.click();
   await firstRow.press('Enter');
 

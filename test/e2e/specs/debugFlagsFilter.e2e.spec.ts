@@ -1,16 +1,15 @@
+import type { Frame } from '@playwright/test';
 import { expect, test } from '../fixtures/alvE2E';
-import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
-import { dismissAllNotifications } from '../utils/notifications';
 import {
   ensureDebugFlagsTestUser,
   getOrgAuth,
   removeUserDebugTraceFlags,
   waitForDebugFlagsUserSearchAvailability
 } from '../utils/tooling';
-import { waitForWebviewFrame } from '../utils/webviews';
+import { openDebugFlagsFromLogs, openDebugFlagsFromTail } from './debugFlagsPanel.shared';
 
 async function assertUserSearchFiltering(
-  debugFlagsFrame: Awaited<ReturnType<typeof waitForWebviewFrame>>,
+  debugFlagsFrame: Frame,
   userId: string,
   searchToken: string
 ): Promise<void> {
@@ -38,7 +37,7 @@ async function assertUserSearchFiltering(
 }
 
 async function assertSelectedScratchOrg(
-  debugFlagsFrame: Awaited<ReturnType<typeof waitForWebviewFrame>>,
+  debugFlagsFrame: Frame,
   scratchAlias: string
 ): Promise<void> {
   await expect(debugFlagsFrame.locator('[data-testid="debug-flags-org-select"]')).toContainText(scratchAlias, {
@@ -55,44 +54,14 @@ test('filters users correctly in debug flags panel from logs and tail entrypoint
   await removeUserDebugTraceFlags(auth, userId).catch(() => {});
 
   try {
-    await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
-
-    const logsFrame = await waitForWebviewFrame(
-      vscodePage,
-      async frame => await frame.locator('[data-testid="logs-open-debug-flags"]').first().isVisible(),
-      { timeoutMs: 180_000 }
-    );
-    const openDebugFlags = logsFrame.locator('[data-testid="logs-open-debug-flags"]').first();
-    await expect(openDebugFlags).toBeEnabled({ timeout: 180_000 });
-    await dismissAllNotifications(vscodePage);
-    await openDebugFlags.click();
-
-    const debugFlagsFrame = await waitForWebviewFrame(
-      vscodePage,
-      async frame => await frame.locator('text=Apex Debug Flags').first().isVisible(),
-      { timeoutMs: 180_000 }
-    );
+    const debugFlagsFrame = await openDebugFlagsFromLogs(vscodePage);
 
     const searchInput = debugFlagsFrame.locator('[data-testid="debug-flags-user-search"]');
     await searchInput.waitFor({ state: 'visible', timeout: 60_000 });
     await assertSelectedScratchOrg(debugFlagsFrame, scratchAlias);
     await assertUserSearchFiltering(debugFlagsFrame, userId, searchToken);
 
-    await runCommand(vscodePage, 'Electivus Apex Logs: Tail Logs');
-    const tailFrame = await waitForWebviewFrame(
-      vscodePage,
-      async frame => await frame.locator('[data-testid="tail-open-debug-flags"]').first().isVisible(),
-      { timeoutMs: 180_000 }
-    );
-    await expect(tailFrame.locator('[data-testid="tail-open-debug-flags"]').first()).toBeEnabled({ timeout: 180_000 });
-    await dismissAllNotifications(vscodePage);
-    await tailFrame.locator('[data-testid="tail-open-debug-flags"]').first().click();
-
-    const debugFlagsFrameFromTail = await waitForWebviewFrame(
-      vscodePage,
-      async frame => await frame.locator('text=Apex Debug Flags').first().isVisible(),
-      { timeoutMs: 180_000 }
-    );
+    const debugFlagsFrameFromTail = await openDebugFlagsFromTail(vscodePage);
     await expect(debugFlagsFrameFromTail.locator('text=Apex Debug Flags').first()).toBeVisible();
     await assertSelectedScratchOrg(debugFlagsFrameFromTail, scratchAlias);
     await assertUserSearchFiltering(debugFlagsFrameFromTail, userId, searchToken);
