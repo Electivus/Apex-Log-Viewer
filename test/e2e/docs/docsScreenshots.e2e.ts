@@ -5,7 +5,7 @@ import { executeCommandId, runCommand, runCommandWhenAvailable } from '../utils/
 import { emitDocsTailLog, prepareDocsScreenshotScenario } from '../utils/docsScenario';
 import { dismissAllNotifications } from '../utils/notifications';
 import { ensureScratchOrg } from '../utils/scratchOrg';
-import { resolveSfCliInvocation, runSfJson } from '../utils/sfCli';
+import { resolveSfCliInvocation } from '../utils/sfCli';
 import { createTempWorkspace } from '../utils/tempWorkspace';
 import { ensureDebugFlagsTestUser, getOrgAuth, getUserDebugTraceFlag, removeUserDebugTraceFlags } from '../utils/tooling';
 import { ensureAuxiliaryBarClosed, launchVsCode } from '../utils/vscode';
@@ -154,24 +154,6 @@ async function ensureTailDebugLevelReady(frame: Frame): Promise<void> {
   await expect.poll(hasSelectedDebugLevel, { timeout: 30_000 }).toBe(true);
 }
 
-async function selectConnectedDevHubAliasForDocs(): Promise<void> {
-  const orgList = await runSfJson(['org', 'list']);
-  const devHubs = Array.isArray(orgList?.result?.devHubs) ? orgList.result.devHubs : [];
-  const connectedDevHub =
-    devHubs.find((org: any) => String(org?.connectedStatus || '').trim().toLowerCase() === 'connected') ?? devHubs[0];
-  const candidate =
-    typeof connectedDevHub?.alias === 'string' && connectedDevHub.alias.trim()
-      ? connectedDevHub.alias.trim()
-      : typeof connectedDevHub?.username === 'string'
-        ? connectedDevHub.username.trim()
-        : '';
-
-  if (candidate) {
-    process.env.SF_DEVHUB_ALIAS = candidate;
-    console.info('[docs] Using Dev Hub alias for screenshots (value redacted).');
-  }
-}
-
 async function prepareLogsHero(page: Page, query: string, options?: { maximizePanel?: boolean }): Promise<Frame> {
   await runCommandWhenAvailable(page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
   await dismissAllNotifications(page);
@@ -215,7 +197,6 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
   };
 
   try {
-    await selectConnectedDevHubAliasForDocs();
     console.info('[docs] Ensuring scratch org...');
     const scratch = await ensureScratchOrg();
     cleanupScratchOrg = scratch.cleanup;

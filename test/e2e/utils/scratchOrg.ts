@@ -12,12 +12,10 @@ type ScratchOrgResult = {
   cleanup: () => Promise<void>;
 };
 
-const LOCAL_DEV_HUB_FALLBACK_ALIASES = [
-  'DevHubElectivus',
-  'DevHub',
-  'ElectivusDevHub',
-  'InsuranceOrgTrialCreme6DevHub'
-] as const;
+type DevHubConfig = {
+  authUrl?: string;
+  alias?: string;
+};
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -50,34 +48,51 @@ function toOrgAuth(display: OrgDisplaySummary | undefined): OrgAuth | undefined 
   };
 }
 
+function readEnvValue(name: 'SF_DEVHUB_AUTH_URL' | 'SF_DEVHUB_ALIAS'): string | undefined {
+  const value = String(process.env[name] || '').trim();
+  return value || undefined;
+}
+
+function mapOrgDisplay(result: any): OrgDisplaySummary {
+  const org = result?.result ?? {};
+  return {
+    status: typeof org.status === 'string' ? org.status.trim() : undefined,
+    expirationDate: typeof org.expirationDate === 'string' ? org.expirationDate.trim() : undefined,
+    accessToken: typeof org.accessToken === 'string' ? org.accessToken : undefined,
+    instanceUrl:
+      typeof org.instanceUrl === 'string'
+        ? org.instanceUrl
+        : typeof org.instance_url === 'string'
+          ? org.instance_url
+          : typeof org.loginUrl === 'string'
+            ? org.loginUrl
+            : undefined,
+    username: typeof org.username === 'string' ? org.username : undefined
+  };
+}
+
+function resolveRequiredDevHubConfig(): DevHubConfig {
+  const authUrl = readEnvValue('SF_DEVHUB_AUTH_URL');
+  const alias = readEnvValue('SF_DEVHUB_ALIAS');
+  if (!authUrl && !alias) {
+    throw new Error('Missing required Dev Hub configuration. Set SF_DEVHUB_AUTH_URL or SF_DEVHUB_ALIAS.');
+  }
+  return { authUrl, alias };
+}
+
+async function getOrgDisplayOrThrow(alias: string): Promise<OrgDisplaySummary> {
+  return mapOrgDisplay(await runSfJson(['org', 'display', '-o', alias]));
+}
+
 async function getOrgDisplay(alias: string): Promise<OrgDisplaySummary | undefined> {
   try {
-    const result = await runSfJson(['org', 'display', '-o', alias]);
-    const org = result?.result ?? {};
-    return {
-      status: typeof org.status === 'string' ? org.status.trim() : undefined,
-      expirationDate: typeof org.expirationDate === 'string' ? org.expirationDate.trim() : undefined,
-      accessToken: typeof org.accessToken === 'string' ? org.accessToken : undefined,
-      instanceUrl:
-        typeof org.instanceUrl === 'string'
-          ? org.instanceUrl
-          : typeof org.instance_url === 'string'
-            ? org.instance_url
-            : typeof org.loginUrl === 'string'
-              ? org.loginUrl
-              : undefined,
-      username: typeof org.username === 'string' ? org.username : undefined
-    };
+    return await getOrgDisplayOrThrow(alias);
   } catch (error) {
     console.warn(
       `[e2e] sf org display failed for alias '${alias}': ${error instanceof Error ? error.message : String(error)}`
     );
     return undefined;
   }
-}
-
-async function tryOrgDisplay(alias: string): Promise<boolean> {
-  return Boolean(await getOrgDisplay(alias));
 }
 
 function isReusableScratchOrg(display: OrgDisplaySummary | undefined, nowMs = Date.now()): boolean {
@@ -120,43 +135,6 @@ async function clearStaleScratchOrg(alias: string): Promise<void> {
   }
 }
 
-async function resolveDefaultDevHubAlias(): Promise<string> {
-  if (process.env.SF_DEVHUB_ALIAS) {
-    return String(process.env.SF_DEVHUB_ALIAS).trim();
-  }
-  if (process.env.SF_DEVHUB_AUTH_URL) {
-    return 'DevHub';
-  }
-
-  // Local convenience: prefer the current team DevHub alias when available.
-  // Keep legacy aliases as fallbacks for older local setups.
-  for (const alias of LOCAL_DEV_HUB_FALLBACK_ALIASES) {
-    if (await tryOrgDisplay(alias)) {
-      return alias;
-    }
-  }
-  return 'DevHub';
-}
-
-async function getFallbackDevHubAliases(primaryAlias: string): Promise<string[]> {
-  const normalizedPrimary = String(primaryAlias || '').trim().toLowerCase();
-  const candidates = Array.from(
-    new Set(
-      LOCAL_DEV_HUB_FALLBACK_ALIASES.map(alias => String(alias || '').trim()).filter(Boolean).filter(
-        alias => alias.toLowerCase() !== normalizedPrimary
-      )
-    )
-  );
-
-  const available: string[] = [];
-  for (const alias of candidates) {
-    if (await tryOrgDisplay(alias)) {
-      available.push(alias);
-    }
-  }
-  return available;
-}
-
 function shouldKeepScratchOrg(): boolean {
   if (process.env.SF_TEST_KEEP_ORG !== undefined) {
     return envFlag('SF_TEST_KEEP_ORG');
@@ -164,78 +142,37 @@ function shouldKeepScratchOrg(): boolean {
   return !envFlag('CI');
 }
 
-function isScratchOrgSignupLimitError(error: unknown): boolean {
-  const message = String(error instanceof Error ? error.message : error || '').toLowerCase();
-  return message.includes('limit_exceeded') && message.includes('scratch org signup limit');
-}
-
-async function createScratchOrgWithFallback(options: {
-  devHubAlias: string;
-  scratchAlias: string;
-  definitionFile: string;
-  durationDays: number;
-  cwd: string;
-}): Promise<string> {
-  const fallbackAliases = await getFallbackDevHubAliases(options.devHubAlias);
-  const candidates = [options.devHubAlias, ...fallbackAliases];
-  let lastError: unknown;
-
-  for (let index = 0; index < candidates.length; index += 1) {
-    const candidate = candidates[index]!;
-    try {
-      await runSfJson(
-        [
-          'org',
-          'create',
-          'scratch',
-          '--target-dev-hub',
-          candidate,
-          '--alias',
-          options.scratchAlias,
-          '--definition-file',
-          options.definitionFile,
-          '--duration-days',
-          String(options.durationDays),
-          '--wait',
-          '15'
-        ],
-        { cwd: options.cwd }
-      );
-      return candidate;
-    } catch (error) {
-      lastError = error;
-      const hasNextCandidate = index + 1 < candidates.length;
-      if (!hasNextCandidate || !isScratchOrgSignupLimitError(error)) {
-        throw error;
-      }
-      const nextCandidate = candidates[index + 1]!;
-      console.warn(
-        `[e2e] scratch org signup limit reached for Dev Hub '${candidate}'; trying fallback '${nextCandidate}'.`
-      );
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(String(lastError || 'Unknown scratch org creation failure'));
-}
-
-async function ensureDevHubAuth(devHubAlias: string): Promise<void> {
-  const authUrl = String(process.env.SF_DEVHUB_AUTH_URL || '').trim();
+async function ensureDevHubAuth(config: DevHubConfig): Promise<string> {
+  const authUrl = config.authUrl;
   if (!authUrl) {
-    // Assume already authenticated locally; surface a helpful error if not.
-    const ok = await tryOrgDisplay(devHubAlias);
-    if (!ok) {
-      throw new Error(
-        `Dev Hub not found. Set SF_DEVHUB_ALIAS (current: '${devHubAlias}') or provide SF_DEVHUB_AUTH_URL to authenticate in CI.`
-      );
+    const devHubAlias = config.alias;
+    if (!devHubAlias) {
+      throw new Error('Missing required Dev Hub configuration. Set SF_DEVHUB_AUTH_URL or SF_DEVHUB_ALIAS.');
     }
-    return;
+    try {
+      await getOrgDisplayOrThrow(devHubAlias);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Dev Hub alias '${devHubAlias}' is not authenticated or unavailable. ${detail}`.trim());
+    }
+    return devHubAlias;
   }
 
   const dir = await mkdtemp(path.join(tmpdir(), 'alv-devhub-'));
   const filePath = path.join(dir, 'devhub.sfdxurl');
   await writeFile(filePath, authUrl, 'utf8');
   try {
-    await runSfJson(['org', 'login', 'sfdx-url', '--sfdx-url-file', filePath, '--alias', devHubAlias]);
+    const args = ['org', 'login', 'sfdx-url', '--sfdx-url-file', filePath, '--set-default-dev-hub'];
+    if (config.alias) {
+      args.push('--alias', config.alias);
+    }
+    const result = await runSfJson(args);
+    const loginUsername = typeof result?.result?.username === 'string' ? result.result.username.trim() : '';
+    const resolvedDevHubAlias = config.alias || loginUsername;
+    if (!resolvedDevHubAlias) {
+      throw new Error('Dev Hub login succeeded but did not return a usable alias or username. Set SF_DEVHUB_ALIAS explicitly.');
+    }
+    return resolvedDevHubAlias;
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -280,7 +217,8 @@ async function waitForScratchOrgReady(targetOrg: string, auth?: OrgAuth): Promis
 
 export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
   return await timeE2eStep('scratch.ensure', async () => {
-    let devHubAlias = await resolveDefaultDevHubAlias();
+    const devHubConfig = resolveRequiredDevHubConfig();
+    const devHubAlias = await ensureDevHubAuth(devHubConfig);
     const scratchAlias = String(process.env.SF_SCRATCH_ALIAS || 'ALV_E2E_Scratch').trim();
     const durationDays = Number(process.env.SF_SCRATCH_DURATION || 1) || 1;
     const keep = shouldKeepScratchOrg();
@@ -316,8 +254,6 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
       );
       await clearStaleScratchOrg(scratchAlias);
     }
-
-    await ensureDevHubAuth(devHubAlias);
 
     const tmp = await mkdtemp(path.join(tmpdir(), 'alv-scratch-'));
     const defFile = path.join(tmp, 'project-scratch-def.json');
@@ -369,13 +305,24 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
     );
 
     try {
-      devHubAlias = await createScratchOrgWithFallback({
-        devHubAlias,
-        scratchAlias,
-        definitionFile: defFile,
-        durationDays,
-        cwd: tmp
-      });
+      await runSfJson(
+        [
+          'org',
+          'create',
+          'scratch',
+          '--target-dev-hub',
+          devHubAlias,
+          '--alias',
+          scratchAlias,
+          '--definition-file',
+          defFile,
+          '--duration-days',
+          String(durationDays),
+          '--wait',
+          '15'
+        ],
+        { cwd: tmp }
+      );
     } catch (_e) {
       await cleanup();
       const msg = _e instanceof Error ? _e.message : String(_e);

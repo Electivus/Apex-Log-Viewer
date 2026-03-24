@@ -27,6 +27,7 @@ Required repository secrets:
 Key behavior:
 
 - The workflow uses a fixed alias, `ALV_E2E_SCRATCH_CI`, so the E2E scratch-org helpers can find and reuse the same org across runs.
+- The workflow passes `SF_DEVHUB_AUTH_URL` together with an explicit `SF_DEVHUB_ALIAS`; the E2E helpers do not auto-discover or retry alternate Dev Hub aliases.
 - `SF_TEST_KEEP_ORG` is enabled for `pull_request` runs only when reuse is possible (`SF_SCRATCH_CI_SFDX_AUTH_URL` is available) or when the workflow can rotate the auth secret (`GH_SECRETS_ROTATOR_PAT` is configured). This avoids keeping throwaway scratch orgs when reuse bootstrap is unavailable.
 - On `workflow_dispatch`, setting `keep_scratch_org=false` forces the scratch org to be deleted after the run even if it was reused, providing a manual reset path for corrupted state.
 - A best-effort login step restores the reusable scratch org from `SF_SCRATCH_CI_SFDX_AUTH_URL` before the tests start. If that auth URL is missing or stale, the E2E helpers fall back to creating a new scratch org through the Dev Hub.

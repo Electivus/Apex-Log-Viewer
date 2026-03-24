@@ -114,6 +114,57 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function readEnvValue(name) {
+  const value = String(process.env[name] || '').trim();
+  return value || undefined;
+}
+
+function parseJsonOutput(stdout) {
+  const text = String(stdout || '').trim();
+  if (!text) {
+    return undefined;
+  }
+
+  const candidates = [text];
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidates.push(text.slice(firstBrace, lastBrace + 1));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Try the next extraction candidate.
+    }
+  }
+
+  return undefined;
+}
+
+function extractDevHubIdentifier(json, explicitAlias) {
+  if (explicitAlias) {
+    return explicitAlias;
+  }
+
+  const result = json && typeof json === 'object' ? json.result ?? {} : {};
+  const username = typeof result.username === 'string' ? result.username.trim() : '';
+  const alias = typeof result.alias === 'string' ? result.alias.trim() : '';
+  return alias || username || undefined;
+}
+
+function resolveRequiredDevHubConfig({ requireConfig }) {
+  const authUrl = readEnvValue('SF_DEVHUB_AUTH_URL');
+  const alias = readEnvValue('SF_DEVHUB_ALIAS');
+
+  if (requireConfig && !authUrl && !alias) {
+    throw new Error('Missing required Dev Hub configuration. Set SF_DEVHUB_AUTH_URL or SF_DEVHUB_ALIAS.');
+  }
+
+  return { authUrl, alias };
+}
+
 async function killLeakedVSCodeProcesses(markers) {
   const normalized = Array.from(new Set(markers.map(normalizeForMatch).filter(Boolean)));
   if (normalized.length === 0) {
@@ -278,78 +329,120 @@ async function ensureSfCliInstalled() {
   return cli;
 }
 
-async function ensureDevHub(cli, { authUrl, alias }) {
-  if (!cli || !authUrl) {
-    return;
+async function ensureDevHub(cli, { authUrl, alias }, helpers = {}) {
+  const execFileAsyncFn = helpers.execFileAsync || execFileAsync;
+  const mkdtempSyncFn = helpers.mkdtempSync || mkdtempSync;
+  const writeFileSyncFn = helpers.writeFileSync || writeFileSync;
+  const rmSyncFn = helpers.rmSync || rmSync;
+  const joinFn = helpers.join || join;
+  const tmpdirFn = helpers.tmpdir || tmpdir;
+
+  if (!cli) {
+    return undefined;
   }
-  try {
-    const tmp = mkdtempSync(join(tmpdir(), 'alv-'));
-    const file = join(tmp, 'devhub.sfdxurl');
-    writeFileSync(file, authUrl, 'utf8');
+  if (!authUrl && !alias) {
+    throw new Error('Missing required Dev Hub configuration. Set SF_DEVHUB_AUTH_URL or SF_DEVHUB_ALIAS.');
+  }
+  if (!authUrl) {
     if (cli === 'sf') {
-      await execFileAsync('sf', [
+      await execFileAsyncFn('sf', ['org', 'display', '-o', alias, '--json']);
+    } else {
+      await execFileAsyncFn('sfdx', ['force:org:display', '-u', alias, '--json']);
+    }
+    return alias;
+  }
+
+  const tmp = mkdtempSyncFn(joinFn(tmpdirFn(), 'alv-'));
+  const file = joinFn(tmp, 'devhub.sfdxurl');
+  writeFileSyncFn(file, authUrl, 'utf8');
+  try {
+    if (cli === 'sf') {
+      const args = [
         'org',
         'login',
         'sfdx-url',
         '--sfdx-url-file',
         file,
-        '--alias',
-        alias,
         '--set-default-dev-hub',
         '--json'
-      ]);
-      await execFileAsync('sf', ['config', 'set', `target-dev-hub=${alias}`, `target-org=${alias}`, '--global']);
+      ];
+      if (alias) {
+        args.splice(5, 0, '--alias', alias);
+      }
+      const { stdout } = await execFileAsyncFn('sf', args);
+      const resolvedAlias = extractDevHubIdentifier(parseJsonOutput(stdout), alias);
+      if (!resolvedAlias) {
+        throw new Error('Dev Hub login succeeded but did not return a usable alias or username. Set SF_DEVHUB_ALIAS explicitly.');
+      }
+      return resolvedAlias;
     } else {
-      await execFileAsync('sfdx', ['force:auth:sfdxurl:store', '-f', file, '-a', alias, '-d', '--json']);
-      await execFileAsync('sfdx', [
-        'force:config:set',
-        `defaultdevhubusername=${alias}`,
-        `defaultusername=${alias}`,
-        '--global'
-      ]);
+      const args = ['force:auth:sfdxurl:store', '-f', file, '-d', '--json'];
+      if (alias) {
+        args.splice(3, 0, '-a', alias);
+      }
+      const { stdout } = await execFileAsyncFn('sfdx', args);
+      const resolvedAlias = extractDevHubIdentifier(parseJsonOutput(stdout), alias);
+      if (!resolvedAlias) {
+        throw new Error('Dev Hub login succeeded but did not return a usable alias or username. Set SF_DEVHUB_ALIAS explicitly.');
+      }
+      return resolvedAlias;
     }
-  } catch (e) {
-    console.warn('[test-setup] Dev Hub auth failed:', e && e.message ? e.message : e);
+  } finally {
+    try {
+      rmSyncFn(tmp, { recursive: true, force: true });
+    } catch {}
   }
 }
 
-async function ensureDefaultScratch(cli, { alias, durationDays, definitionJson, keep }) {
+async function ensureDefaultScratch(cli, { alias, devHubAlias, durationDays, definitionJson, keep }, helpers = {}) {
+  const execFileAsyncFn = helpers.execFileAsync || execFileAsync;
+  const mkdtempSyncFn = helpers.mkdtempSync || mkdtempSync;
+  const writeFileSyncFn = helpers.writeFileSync || writeFileSync;
+  const rmSyncFn = helpers.rmSync || rmSync;
+  const joinFn = helpers.join || join;
+
   if (!cli) {
     return { cleanup: async () => {} };
   }
+
+  // If already exists, set as default and return
   try {
-    // If already exists, set as default and return
-    try {
-      if (cli === 'sf') {
-        await execFileAsync('sf', ['org', 'display', '-o', alias, '--json']);
-      } else {
-        await execFileAsync('sfdx', ['force:org:display', '-u', alias, '--json']);
-      }
-      if (cli === 'sf') {
-        await execFileAsync('sf', ['config', 'set', `target-org=${alias}`, '--global']);
-      } else {
-        await execFileAsync('sfdx', ['force:config:set', `defaultusername=${alias}`, '--global']);
-      }
-      console.log(`[test-setup] Using existing scratch org '${alias}' as default.`);
-      return { alias, cleanup: async () => {} };
-    } catch (e) {
-      console.warn(`[test-setup] Failed to check existing scratch org '${alias}':`, e && e.message ? e.message : e);
-    }
-
-    const tmp = mkdtempSync(join(tmpdir(), 'alv-'));
-    const defFile = join(tmp, 'project-scratch-def.json');
-    const def = definitionJson || {
-      orgName: 'apex-log-viewer-tests',
-      edition: 'Developer',
-      hasSampleData: false
-    };
-    writeFileSync(defFile, JSON.stringify(def), 'utf8');
-
     if (cli === 'sf') {
-      await execFileAsync('sf', [
+      await execFileAsyncFn('sf', ['org', 'display', '-o', alias, '--json']);
+    } else {
+      await execFileAsyncFn('sfdx', ['force:org:display', '-u', alias, '--json']);
+    }
+    if (cli === 'sf') {
+      await execFileAsyncFn('sf', ['config', 'set', `target-org=${alias}`, '--global']);
+    } else {
+      await execFileAsyncFn('sfdx', ['force:config:set', `defaultusername=${alias}`, '--global']);
+    }
+    console.log(`[test-setup] Using existing scratch org '${alias}' as default.`);
+    return { alias, cleanup: async () => {} };
+  } catch (e) {
+    console.warn(`[test-setup] Failed to check existing scratch org '${alias}':`, e && e.message ? e.message : e);
+  }
+
+  const tmp = mkdtempSyncFn(joinFn(tmpdir(), 'alv-'));
+  const defFile = joinFn(tmp, 'project-scratch-def.json');
+  const def = definitionJson || {
+    orgName: 'apex-log-viewer-tests',
+    edition: 'Developer',
+    hasSampleData: false
+  };
+  if (!devHubAlias) {
+    throw new Error('Missing required Dev Hub identifier for scratch org creation.');
+  }
+  writeFileSyncFn(defFile, JSON.stringify(def), 'utf8');
+
+  try {
+    if (cli === 'sf') {
+      await execFileAsyncFn('sf', [
         'org',
         'create',
         'scratch',
+        '--target-dev-hub',
+        devHubAlias,
         '--alias',
         alias,
         '--definition-file',
@@ -362,8 +455,10 @@ async function ensureDefaultScratch(cli, { alias, durationDays, definitionJson, 
         '--json'
       ]);
     } else {
-      await execFileAsync('sfdx', [
+      await execFileAsyncFn('sfdx', [
         'force:org:create',
+        '-v',
+        devHubAlias,
         '-s',
         '-f',
         defFile,
@@ -384,9 +479,9 @@ async function ensureDefaultScratch(cli, { alias, durationDays, definitionJson, 
       }
       try {
         if (cli === 'sf') {
-          await execFileAsync('sf', ['org', 'delete', 'scratch', '-o', alias, '--no-prompt', '--json']);
+          await execFileAsyncFn('sf', ['org', 'delete', 'scratch', '-o', alias, '--no-prompt', '--json']);
         } else {
-          await execFileAsync('sfdx', ['force:org:delete', '-u', alias, '-p', '--json']);
+          await execFileAsyncFn('sfdx', ['force:org:delete', '-u', alias, '-p', '--json']);
         }
         console.log(`[test-setup] Deleted scratch org '${alias}'.`);
       } catch (e) {
@@ -394,42 +489,52 @@ async function ensureDefaultScratch(cli, { alias, durationDays, definitionJson, 
       }
     };
     return { alias, cleanup };
-  } catch (e) {
-    console.warn('[test-setup] Scratch org setup failed:', e && e.message ? e.message : e);
-    return { cleanup: async () => {} };
+  } finally {
+    try {
+      rmSyncFn(tmp, { recursive: true, force: true });
+    } catch {}
   }
 }
 
-async function pretestSetup(scope = 'all', opts = {}) {
+async function pretestSetup(scope = 'all', opts = {}, helpers = {}) {
+  const ensureSfCliInstalledFn = helpers.ensureSfCliInstalled || ensureSfCliInstalled;
+  const ensureDevHubFn = helpers.ensureDevHub || ensureDevHub;
+  const ensureDefaultScratchFn = helpers.ensureDefaultScratch || ensureDefaultScratch;
+  const mkdtempSyncFn = helpers.mkdtempSync || mkdtempSync;
+  const writeFileSyncFn = helpers.writeFileSync || writeFileSync;
+  const mkdirSyncFn = helpers.mkdirSync || mkdirSync;
+  const rmSyncFn = helpers.rmSync || rmSync;
+  const joinFn = helpers.join || join;
+
   const smokeVsix = !!opts.smokeVsix;
   const normalizedScope = String(scope || '').trim().toLowerCase();
-  const devhubAuthUrl = process.env.SF_DEVHUB_AUTH_URL || process.env.SFDX_AUTH_URL;
-  const devhubAlias = process.env.SF_DEVHUB_ALIAS || 'DevHub';
   const scratchAlias = process.env.SF_SCRATCH_ALIAS || 'ALV_Test_Scratch';
   const keepScratch = /^1|true$/i.test(String(process.env.SF_TEST_KEEP_ORG || ''));
   const durationDays = Number(process.env.SF_SCRATCH_DURATION || 1);
+  const shouldSetupScratch = normalizedScope !== 'unit' && !smokeVsix && Boolean(readEnvValue('SF_SETUP_SCRATCH') || readEnvValue('SF_DEVHUB_AUTH_URL'));
+  const devHubConfig = resolveRequiredDevHubConfig({ requireConfig: shouldSetupScratch });
   // When running unit tests, skip any Salesforce CLI/Dev Hub setup.
   // Keep only the temporary workspace preparation below.
   let cleanup = async () => {};
   if (normalizedScope !== 'unit' && !smokeVsix) {
-    const cli = await ensureSfCliInstalled();
+    const cli = await ensureSfCliInstalledFn();
     if (!cli) {
+      if (shouldSetupScratch) {
+        throw new Error('[test-setup] Salesforce CLI not found; scratch org setup requires the Salesforce CLI.');
+      }
       console.warn('[test-setup] Salesforce CLI not found; skipping org setup.');
       // Continue to workspace creation so tests still have a workspace.
     } else {
-      if (devhubAuthUrl) {
-        console.log('[test-setup] Authenticating Dev Hub from env...');
-        await ensureDevHub(cli, { authUrl: devhubAuthUrl, alias: devhubAlias });
-      }
-
-      const toggle = process.env.SF_SETUP_SCRATCH || devhubAuthUrl;
-      if (toggle) {
-        const res = await ensureDefaultScratch(cli, {
+      if (shouldSetupScratch) {
+        console.log('[test-setup] Validating Dev Hub configuration...');
+        const resolvedDevHubAlias = await ensureDevHubFn(cli, devHubConfig);
+        const res = await ensureDefaultScratchFn(cli, {
           alias: scratchAlias,
+          devHubAlias: resolvedDevHubAlias,
           durationDays,
           definitionJson: undefined,
           keep: keepScratch
-        });
+        }, helpers);
         if (res && res.cleanup) {
           cleanup = res.cleanup;
         }
@@ -439,7 +544,7 @@ async function pretestSetup(scope = 'all', opts = {}) {
   // Create a temporary VS Code workspace with expected sfdx-project.json
   try {
     const apiVersion = String(process.env.SF_TEST_API_VERSION || '60.0');
-    const ws = mkdtempSync(join(tmpdir(), 'alv-ws-'));
+    const ws = mkdtempSyncFn(joinFn(tmpdir(), 'alv-ws-'));
     const proj = {
       packageDirectories: [{ path: 'force-app', default: true }],
       name: 'apex-log-viewer-tests',
@@ -447,12 +552,12 @@ async function pretestSetup(scope = 'all', opts = {}) {
       sfdcLoginUrl: 'https://login.salesforce.com',
       sourceApiVersion: apiVersion
     };
-    writeFileSync(join(ws, 'sfdx-project.json'), JSON.stringify(proj, null, 2), 'utf8');
-    mkdirSync(join(ws, 'force-app'), { recursive: true });
+    writeFileSyncFn(joinFn(ws, 'sfdx-project.json'), JSON.stringify(proj, null, 2), 'utf8');
+    mkdirSyncFn(joinFn(ws, 'force-app'), { recursive: true });
     // Optional: enable verbose logs via env. Creates .vscode/settings.json in the temp workspace.
     try {
-      const vsdir = join(ws, '.vscode');
-      mkdirSync(vsdir, { recursive: true });
+      const vsdir = joinFn(ws, '.vscode');
+      mkdirSyncFn(vsdir, { recursive: true });
       const settings = {};
       const wantTrace = /^1|true$/i.test(String(process.env.SF_LOG_TRACE || ''));
       if (wantTrace) {
@@ -463,7 +568,7 @@ async function pretestSetup(scope = 'all', opts = {}) {
         settings['window.logLevel'] = String(logLevel);
       }
       if (Object.keys(settings).length > 0) {
-        writeFileSync(join(vsdir, 'settings.json'), JSON.stringify(settings, null, 2), 'utf8');
+        writeFileSyncFn(joinFn(vsdir, 'settings.json'), JSON.stringify(settings, null, 2), 'utf8');
       }
     } catch (e) {
       console.warn('[test-setup] Failed to write VS Code settings:', e && e.message ? e.message : e);
@@ -472,7 +577,7 @@ async function pretestSetup(scope = 'all', opts = {}) {
     const prevCleanup = cleanup;
     cleanup = async () => {
       try {
-        rmSync(ws, { recursive: true, force: true });
+        rmSyncFn(ws, { recursive: true, force: true });
       } catch (e) {
         console.warn('[test-setup] Failed to remove temp workspace:', e && e.message ? e.message : e);
       }
@@ -865,4 +970,16 @@ async function run() {
   }
 }
 
-run();
+if (require.main === module) {
+  run().catch(error => {
+    console.error('[test-runner] Failed:', error && error.message ? error.message : error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  ensureDefaultScratch,
+  ensureDevHub,
+  pretestSetup,
+  resolveRequiredDevHubConfig
+};

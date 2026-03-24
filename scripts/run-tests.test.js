@@ -2,6 +2,9 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { ensureDevHub, pretestSetup, resolveRequiredDevHubConfig } = require("./run-tests");
+
+const originalEnv = { ...process.env };
 
 test("xvfb re-exec preserves original CLI flags", () => {
   const script = fs.readFileSync(path.join(__dirname, "run-tests.js"), "utf8");
@@ -10,4 +13,122 @@ test("xvfb re-exec preserves original CLI flags", () => {
     script,
     /spawn\('xvfb-run', \[[\s\S]*process\.execPath,\s*__filename,\s*\.\.\.process\.argv\.slice\(2\)/,
   );
+});
+
+test("resolveRequiredDevHubConfig ignores the legacy SFDX_AUTH_URL fallback", () => {
+  process.env = {
+    ...originalEnv,
+    SFDX_AUTH_URL: "legacy-auth-url"
+  };
+  delete process.env.SF_DEVHUB_AUTH_URL;
+  delete process.env.SF_DEVHUB_ALIAS;
+
+  assert.throws(
+    () => resolveRequiredDevHubConfig({ requireConfig: true }),
+    /Missing required Dev Hub configuration\. Set SF_DEVHUB_AUTH_URL or SF_DEVHUB_ALIAS\./,
+  );
+
+  process.env = { ...originalEnv };
+});
+
+test("pretestSetup fails fast when scratch setup is enabled without explicit Dev Hub config", async () => {
+  process.env = {
+    ...originalEnv,
+    SF_SETUP_SCRATCH: "1"
+  };
+
+  delete process.env.SF_DEVHUB_AUTH_URL;
+  delete process.env.SF_DEVHUB_ALIAS;
+
+  await assert.rejects(
+    () =>
+      pretestSetup("integration", {}, {
+        ensureSfCliInstalled: async () => "sf",
+      }),
+    /Missing required Dev Hub configuration\. Set SF_DEVHUB_AUTH_URL or SF_DEVHUB_ALIAS\./,
+  );
+
+  process.env = { ...originalEnv };
+});
+
+test("pretestSetup propagates Dev Hub auth failures instead of continuing", async () => {
+  let ensureDefaultScratchCalled = false;
+
+  process.env = {
+    ...originalEnv,
+    SF_SETUP_SCRATCH: "1",
+    SF_DEVHUB_ALIAS: "ConfiguredDevHub"
+  };
+
+  await assert.rejects(
+    () =>
+      pretestSetup("integration", {}, {
+        ensureSfCliInstalled: async () => "sf",
+        ensureDevHub: async () => {
+          throw new Error("dev hub auth failed");
+        },
+        ensureDefaultScratch: async () => {
+          ensureDefaultScratchCalled = true;
+          return { cleanup: async () => {} };
+        },
+      }),
+    /dev hub auth failed/,
+  );
+
+  assert.equal(ensureDefaultScratchCalled, false);
+  process.env = { ...originalEnv };
+});
+
+test("ensureDevHub validates an explicit alias without mutating global CLI config", async () => {
+  const calls = [];
+
+  const resolvedAlias = await ensureDevHub("sf", { alias: "ConfiguredDevHub" }, {
+    execFileAsync: async (file, args) => {
+      calls.push([file, args]);
+      return { stdout: '{"status":0,"result":{}}' };
+    },
+  });
+
+  assert.equal(resolvedAlias, "ConfiguredDevHub");
+  assert.deepEqual(calls, [
+    ["sf", ["org", "display", "-o", "ConfiguredDevHub", "--json"]],
+  ]);
+});
+
+test("ensureDevHub extracts the username from noisy sf auth output when no alias is provided", async () => {
+  const calls = [];
+
+  const resolvedAlias = await ensureDevHub("sf", { authUrl: "force://redacted" }, {
+    execFileAsync: async (file, args) => {
+      calls.push([file, args]);
+      return {
+        stdout: [
+          "Warning: config updated",
+          '{"status":0,"result":{"username":"devhub@example.com"}}',
+          "Done"
+        ].join("\n")
+      };
+    },
+    mkdtempSync: () => "C:\\temp\\alv-auth",
+    writeFileSync: () => {},
+    rmSync: () => {},
+    join: (...parts) => parts.join("\\"),
+    tmpdir: () => "C:\\temp",
+  });
+
+  assert.equal(resolvedAlias, "devhub@example.com");
+  assert.deepEqual(calls, [
+    [
+      "sf",
+      [
+        "org",
+        "login",
+        "sfdx-url",
+        "--sfdx-url-file",
+        "C:\\temp\\alv-auth\\devhub.sfdxurl",
+        "--set-default-dev-hub",
+        "--json"
+      ]
+    ],
+  ]);
 });

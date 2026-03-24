@@ -48,8 +48,8 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 Tests do not require an authenticated org by default. If you want the runner to authenticate a Dev Hub and create a scratch org automatically:
 
 - `SF_DEVHUB_AUTH_URL`: SFDX URL for the Dev Hub auth.
-- `SF_DEVHUB_ALIAS`: Alias for the Dev Hub (default `DevHub`).
-- `SF_SETUP_SCRATCH=1`: Enables scratch org creation when a Dev Hub is available.
+- `SF_DEVHUB_ALIAS`: Alias for the Dev Hub.
+- `SF_SETUP_SCRATCH=1`: Enables scratch org creation and requires `SF_DEVHUB_AUTH_URL` or `SF_DEVHUB_ALIAS` to be explicitly set.
 - `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_Test_Scratch`).
 - `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
 - `SF_TEST_KEEP_ORG=1`: Skip deleting the scratch org during cleanup.
@@ -58,7 +58,7 @@ Tests do not require an authenticated org by default. If you want the runner to 
 
 The Playwright suite validates the webview UX end-to-end by:
 
-1. Authenticating a Dev Hub (CI via `SF_DEVHUB_AUTH_URL`, local via an existing auth)
+1. Validating/authenticating the explicitly configured Dev Hub
 2. Creating/reusing a scratch org
 3. Seeding an Apex log (anonymous Apex with a unique marker)
 4. Launching VS Code and verifying the Logs panel + Log Viewer show that log
@@ -72,14 +72,16 @@ From the repo root:
 
 Useful env vars:
 
-- `SF_DEVHUB_AUTH_URL`: Optional locally; required in CI. If not set, the E2E suite assumes you already have a Dev Hub authenticated locally.
-- `SF_DEVHUB_ALIAS`: Dev Hub alias to use. If unset, local runs prefer `DevHubElectivus` when available.
+- `SF_DEVHUB_AUTH_URL`: Explicit Dev Hub auth for the run. Set this or `SF_DEVHUB_ALIAS`.
+- `SF_DEVHUB_ALIAS`: Explicit Dev Hub alias to use. Set this or `SF_DEVHUB_AUTH_URL`.
 - `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_E2E_Scratch`).
 - `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
 - `SF_TEST_KEEP_ORG=1`: Keep the scratch org after the run (recommended while iterating).
 - `SF_E2E_DEBUG_FLAGS_USERNAME`: Optional username for the Debug Flags E2E user. If unset, tests auto-manage `alv.debugflags.<orgid>@example.com` (create if missing, reuse if present). If the org has no spare Salesforce licenses, tests fall back to the authenticated user.
 - `ALV_E2E_ALLOW_LOCAL_EXTENSIONS_DIR=1`: Opt-in fallback that points the isolated VS Code run at your machine-wide extensions dir when a required support extension cannot be copied or installed into the temporary E2E profile.
 - `ALV_E2E_TIMING=1`: Prints per-step harness timings for scratch-org setup, VS Code startup, command-palette activation, and webview discovery.
+
+The E2E helpers no longer auto-discover or retry alternate Dev Hub aliases. Missing, invalid, or failing `SF_DEVHUB_AUTH_URL` / `SF_DEVHUB_ALIAS` values now fail the run immediately.
 
 Troubleshooting:
 
