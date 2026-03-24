@@ -30,15 +30,28 @@ async function closeQuickInputIfOpen(page: Page): Promise<void> {
   await widget.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {});
 }
 
+async function waitForLogsDebugFlagsButton(page: Page, timeoutMs: number): Promise<Frame> {
+  return await waitForWebviewFrame(
+    page,
+    async frame => await frame.locator('[data-testid="logs-open-debug-flags"]').first().isVisible(),
+    { timeoutMs }
+  );
+}
+
 export async function openDebugFlagsFromLogs(vscodePage: Page): Promise<Frame> {
   await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
   await closeQuickInputIfOpen(vscodePage);
 
-  const logsFrame = await waitForWebviewFrame(
-    vscodePage,
-    async frame => await frame.locator('[data-testid="logs-open-debug-flags"]').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
+  let logsFrame: Frame;
+  try {
+    logsFrame = await waitForLogsDebugFlagsButton(vscodePage, 60_000);
+  } catch {
+    await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Open Logs in Editor Area', { timeoutMs: 90_000 });
+    await closeQuickInputIfOpen(vscodePage);
+    await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
+    await closeQuickInputIfOpen(vscodePage);
+    logsFrame = await waitForLogsDebugFlagsButton(vscodePage, 120_000);
+  }
   const openDebugFlags = logsFrame.locator('[data-testid="logs-open-debug-flags"]').first();
   await expect(openDebugFlags).toBeEnabled({ timeout: 180_000 });
   await dismissAllNotifications(vscodePage);
