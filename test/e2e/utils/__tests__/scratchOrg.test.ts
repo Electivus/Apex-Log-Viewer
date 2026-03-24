@@ -651,6 +651,135 @@ describe('ensureScratchOrg', () => {
     await scratch.cleanup();
   });
 
+  test('recreates a pooled scratch org when reuse finalization fails after org auth succeeds', async () => {
+    process.env.SF_SCRATCH_STRATEGY = 'pool';
+    process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
+    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
+
+    let finalizeAttempts = 0;
+
+    fetchSpy.mockImplementation(async input => {
+      const url = String(input);
+      if (isPoolConfigQuery(url)) {
+        return createPoolConfigResponse();
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
+        return createJsonResponse({
+          ok: true,
+          poolKey: 'alv-e2e',
+          slotKey: 'slot-03',
+          scratchAlias: 'ALV_E2E_POOL_03',
+          leaseToken: 'lease-finalize-recreate',
+          needsCreate: false,
+          scratchUsername: 'slot03@example.com',
+          scratchLoginUrl: 'https://slot03.scratch.my.salesforce.com',
+          scratchAuthUrl: 'force://slot03-auth',
+          scratchOrgInfoId: '2SR000000000001AAA',
+          activeScratchOrgId: '0SO000000000001AAA',
+          scratchDurationDays: 30
+        });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')) {
+        finalizeAttempts += 1;
+        if (finalizeAttempts === 1) {
+          return createJsonResponse({ message: 'Lease ownership lost' }, 409);
+        }
+        return createJsonResponse({ ok: true });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/release')) {
+        return createJsonResponse({ ok: true });
+      }
+      if (url.includes('/services/data/v60.0/sobjects/ActiveScratchOrg/0SO000000000001AAA')) {
+        return {
+          ok: true,
+          status: 204,
+          text: async () => ''
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch url: ${url}`);
+    });
+
+    runSfJsonMock.mockImplementation(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
+        return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ALV_E2E_POOL_03')) {
+        return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'logout' && args.includes('ALV_E2E_POOL_03')) {
+        return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'alias' && args[1] === 'unset' && args.includes('ALV_E2E_POOL_03')) {
+        return { status: 0, result: {} };
+      }
+
+      if (
+        args[0] === 'org' &&
+        args[1] === 'create' &&
+        args[2] === 'scratch' &&
+        args.includes('--target-dev-hub') &&
+        args.includes('ConfiguredDevHub') &&
+        args.includes('ALV_E2E_POOL_03')
+      ) {
+        return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_03')) {
+        return {
+          status: 0,
+          result: {
+            status: 'Active',
+            expirationDate: '2099-03-07',
+            accessToken: 'scratch-token',
+            instanceUrl: 'https://slot03.scratch.my.salesforce.com',
+            username: 'slot03@example.com',
+            sfdxAuthUrl: 'force://slot03-fresh-auth'
+          }
+        };
+      }
+
+      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
+    });
+
+    const scratch = await ensureScratchOrg();
+
+    expect(scratch).toMatchObject({
+      scratchAlias: 'ALV_E2E_POOL_03',
+      created: true,
+      strategy: 'pool',
+      slotKey: 'slot-03',
+      leaseToken: 'lease-finalize-recreate'
+    });
+    expect(finalizeAttempts).toBe(2);
+    expect(runSfJsonMock).toHaveBeenCalledWith(['org', 'logout', '--target-org', 'ALV_E2E_POOL_03', '--no-prompt']);
+    expect(runSfJsonMock).toHaveBeenCalledWith(['alias', 'unset', 'ALV_E2E_POOL_03']);
+    expect(runSfJsonMock).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        'org',
+        'create',
+        'scratch',
+        '--target-dev-hub',
+        'ConfiguredDevHub',
+        '--alias',
+        'ALV_E2E_POOL_03'
+      ]),
+      expect.any(Object)
+    );
+
+    const finalizeCalls = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')
+    );
+    expect(finalizeCalls).toHaveLength(2);
+    const recreateFinalizeBody = JSON.parse(String(finalizeCalls[1]?.[1]?.body || '{}'));
+    expect(recreateFinalizeBody.created).toBe(true);
+    expect(recreateFinalizeBody.scratchAuthUrl).toBe('force://slot03-fresh-auth');
+
+    await scratch.cleanup();
+  });
+
   test('releases the pool lease when the acquire response is missing scratchAlias', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
@@ -771,6 +900,9 @@ describe('ensureScratchOrg', () => {
         });
       }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/heartbeat')) {
+        return createJsonResponse({ ok: true });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')) {
         return createJsonResponse({ ok: true });
       }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/release')) {

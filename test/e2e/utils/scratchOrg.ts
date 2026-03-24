@@ -1000,6 +1000,8 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
         });
         console.info(`[e2e] scratch-org pool slot '${slotKey}' reused scratch '${scratchAlias}'.`);
       } catch (error) {
+        readyAuth = undefined;
+        scratchAuthUrl = undefined;
         console.warn(
           `[e2e] scratch-org pool slot '${slotKey}' could not reuse scratch '${scratchAlias}': ${
             error instanceof Error ? error.message : String(error)

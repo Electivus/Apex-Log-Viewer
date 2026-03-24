@@ -7,6 +7,5 @@
     <required>true</required>
     <trackHistory>true</trackHistory>
     <type>Text</type>
-    <unique>true</unique>
 </CustomField>
 
