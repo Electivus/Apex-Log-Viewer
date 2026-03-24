@@ -10,6 +10,10 @@
 
 - README/docs assets: reposition the extension story around search, snippets, triage, the dedicated log viewer, and refreshed static screenshots generated from a realistic scratch-org scenario.
 
+### Chores
+
+- Build/compatibility: lower the published VS Code engine baseline to `^1.90.0`, raise the Node runtime floor to `>=22.15.1`, align compile-time VS Code/Node typings with those minimums, and make CI consume `.nvmrc` so our compatibility contract matches the official Salesforce extensions.
+
 ### Tests
 
 - Docs/E2E: add a manual `npm run docs:screenshots` flow that seeds deterministic scratch-org data, captures the README PNG set, and exercises the refreshed docs-maintenance path.

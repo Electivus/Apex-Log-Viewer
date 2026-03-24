@@ -69,10 +69,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Node.js 22.x
+      - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@v6
         with:
-          node-version: 22.x
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -101,10 +101,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js 22.x
+      - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@v6
         with:
-          node-version: 22.x
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -185,10 +185,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Node.js 22.x
+      - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@v6
         with:
-          node-version: 22.x
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -372,10 +372,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Node.js 22.x
+      - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@v6
         with:
-          node-version: 22.x
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
 

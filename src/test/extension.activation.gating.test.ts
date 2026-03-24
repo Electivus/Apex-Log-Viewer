@@ -48,7 +48,7 @@ function createExtensionHarness(options: {
   const errorMessages: string[] = [];
 
   const vscodeStub = {
-    version: '1.101.0',
+    version: '1.90.0',
     env: {
       appRoot: options.appRoot ?? '/usr/share/code'
     },

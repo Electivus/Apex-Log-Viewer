@@ -43,7 +43,7 @@ Search in the logs panel is optimized for locally saved log bodies, so the most 
 ## Requirements
 
 - Salesforce CLI installed and authenticated. `sf` is recommended, but legacy `sfdx` also works.
-- VS Code 1.101+.
+- VS Code 1.90+.
 - Recommended for Replay Debugger: Salesforce Extension Pack (`salesforce.salesforcedx-vscode`).
 
 Login example:
