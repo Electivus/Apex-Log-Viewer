@@ -943,4 +943,182 @@ describe('ensureScratchOrg', () => {
       delete process.env.SF_SCRATCH_POOL_HEARTBEAT_SECONDS;
     }
   });
+
+  test('forwards explicit pooled run failure details during cleanup', async () => {
+    process.env.SF_SCRATCH_STRATEGY = 'pool';
+    process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
+    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
+
+    fetchSpy.mockImplementation(async input => {
+      const url = String(input);
+      if (isPoolConfigQuery(url)) {
+        return createPoolConfigResponse();
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
+        return createJsonResponse({
+          ok: true,
+          poolKey: 'alv-e2e',
+          slotKey: 'slot-06',
+          scratchAlias: 'ALV_E2E_POOL_06',
+          leaseToken: 'lease-failure',
+          needsCreate: false,
+          scratchUsername: 'slot06@example.com',
+          scratchLoginUrl: 'https://test.salesforce.com',
+          scratchAuthUrl: 'force://slot06-auth'
+        });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')) {
+        return createJsonResponse({ ok: true });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/release')) {
+        return createJsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch url: ${url}`);
+    });
+
+    runSfJsonMock.mockImplementation(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
+        return { status: 0, result: {} };
+      }
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_06')) {
+        return {
+          status: 0,
+          result: {
+            status: 'Active',
+            expirationDate: '2099-03-07',
+            accessToken: 'scratch-token',
+            instanceUrl: 'https://slot06.scratch.my.salesforce.com',
+            username: 'slot06@example.com',
+            sfdxAuthUrl: 'force://slot06-auth-updated'
+          }
+        };
+      }
+      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
+    });
+
+    const scratch = await ensureScratchOrg();
+    await scratch.cleanup({
+      success: false,
+      needsRecreate: true,
+      lastRunResult: 'failed',
+      errorMessage: 'Worker teardown observed a failing test.'
+    });
+
+    const releaseCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith('/services/apexrest/alv/scratch-pool/v1/release')
+    );
+    expect(releaseCall).toBeDefined();
+    const releaseBody = JSON.parse(String(releaseCall?.[1]?.body || '{}'));
+    expect(releaseBody.success).toBe(false);
+    expect(releaseBody.needsRecreate).toBe(true);
+    expect(releaseBody.lastRunResult).toBe('failed');
+    expect(releaseBody.errorMessage).toContain('failing test');
+  });
+
+  test('marks pooled leases for recreation after heartbeat failures exceed the TTL', async () => {
+    process.env.SF_SCRATCH_STRATEGY = 'pool';
+    process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
+    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
+    process.env.SF_SCRATCH_POOL_LEASE_TTL_SECONDS = '60';
+    process.env.SF_SCRATCH_POOL_HEARTBEAT_SECONDS = '15';
+
+    let heartbeatTick: (() => void) | undefined;
+    let nowValue = 0;
+    const setIntervalSpy = jest.spyOn(global, 'setInterval').mockImplementation((handler, _timeout) => {
+      heartbeatTick = handler as () => void;
+      return {
+        hasRef: () => false,
+        ref: () => undefined,
+        refresh: () => undefined,
+        unref: () => undefined,
+        [Symbol.toPrimitive]: () => 1
+      } as unknown as ReturnType<typeof setInterval>;
+    });
+    const clearIntervalSpy = jest.spyOn(global, 'clearInterval').mockImplementation(() => undefined);
+    const dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => nowValue);
+
+    fetchSpy.mockImplementation(async input => {
+      const url = String(input);
+      if (isPoolConfigQuery(url)) {
+        return createPoolConfigResponse();
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
+        return createJsonResponse({
+          ok: true,
+          poolKey: 'alv-e2e',
+          slotKey: 'slot-07',
+          scratchAlias: 'ALV_E2E_POOL_07',
+          leaseToken: 'lease-heartbeat-lost',
+          leaseExpiresAt: '2099-01-01T00:00:00.000Z',
+          needsCreate: false,
+          scratchUsername: 'slot07@example.com',
+          scratchLoginUrl: 'https://test.salesforce.com',
+          scratchAuthUrl: 'force://slot07-auth'
+        });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')) {
+        return createJsonResponse({ ok: true });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/heartbeat')) {
+        return createJsonResponse({ message: 'Lease heartbeat rejected' }, 500);
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/release')) {
+        return createJsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch url: ${url}`);
+    });
+
+    runSfJsonMock.mockImplementation(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
+        return { status: 0, result: {} };
+      }
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_07')) {
+        return {
+          status: 0,
+          result: {
+            status: 'Active',
+            expirationDate: '2099-03-07',
+            accessToken: 'scratch-token',
+            instanceUrl: 'https://slot07.scratch.my.salesforce.com',
+            username: 'slot07@example.com',
+            sfdxAuthUrl: 'force://slot07-auth-updated'
+          }
+        };
+      }
+      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
+    });
+
+    try {
+      const scratch = await ensureScratchOrg();
+      expect(heartbeatTick).toBeDefined();
+
+      nowValue = 0;
+      heartbeatTick?.();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(() => scratch.assertLeaseHealthy?.()).not.toThrow();
+
+      nowValue = 61_000;
+      heartbeatTick?.();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(() => scratch.assertLeaseHealthy?.()).toThrow(/lease for slot 'slot-07' was lost/i);
+
+      await scratch.cleanup();
+      const releaseCall = fetchSpy.mock.calls.find(([input]) =>
+        String(input).endsWith('/services/apexrest/alv/scratch-pool/v1/release')
+      );
+      expect(releaseCall).toBeDefined();
+      const releaseBody = JSON.parse(String(releaseCall?.[1]?.body || '{}'));
+      expect(releaseBody.success).toBe(false);
+      expect(releaseBody.needsRecreate).toBe(true);
+      expect(releaseBody.lastRunResult).toBe('lease-lost');
+      expect(releaseBody.errorMessage).toContain('heartbeat failures exceeded');
+    } finally {
+      setIntervalSpy.mockRestore();
+      clearIntervalSpy.mockRestore();
+      dateNowSpy.mockRestore();
+      delete process.env.SF_SCRATCH_POOL_LEASE_TTL_SECONDS;
+      delete process.env.SF_SCRATCH_POOL_HEARTBEAT_SECONDS;
+    }
+  });
 });

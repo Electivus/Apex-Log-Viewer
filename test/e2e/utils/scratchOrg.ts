@@ -8,6 +8,13 @@ import { timeE2eStep } from './timing';
 
 export type ScratchOrgStrategy = 'single' | 'pool';
 
+export type ScratchOrgCleanupOptions = {
+  success?: boolean;
+  needsRecreate?: boolean;
+  errorMessage?: string;
+  lastRunResult?: string;
+};
+
 export type ScratchOrgResult = {
   devHubAlias: string;
   scratchAlias: string;
@@ -15,7 +22,8 @@ export type ScratchOrgResult = {
   strategy: ScratchOrgStrategy;
   slotKey?: string;
   leaseToken?: string;
-  cleanup: () => Promise<void>;
+  cleanup: (options?: ScratchOrgCleanupOptions) => Promise<void>;
+  assertLeaseHealthy?: () => void;
 };
 
 type DevHubConfig = {
@@ -778,23 +786,39 @@ function startPoolLeaseHeartbeat(
   auth: OrgAuth,
   request: PoolHeartbeatRequest,
   intervalSeconds: number
-): { stop: () => void } {
+): { stop: () => void; getFailure: () => Error | undefined; assertHealthy: () => void } {
   if (intervalSeconds <= 0) {
-    return { stop: () => undefined };
+    return {
+      stop: () => undefined,
+      getFailure: () => undefined,
+      assertHealthy: () => undefined
+    };
   }
 
   let stopped = false;
+  let failureStartedAt: number | undefined;
+  let leaseFailure: Error | undefined;
+  const leaseTtlMs = Math.max(1, request.leaseTtlSeconds) * 1000;
   const timer = setInterval(() => {
-    if (stopped) {
+    if (stopped || leaseFailure) {
       return;
     }
-    void heartbeatPoolLease(auth, request).catch(error => {
-      console.warn(
-        `[e2e] scratch-org pool heartbeat failed for slot '${request.slotKey}': ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    });
+    const tickStartedAt = Date.now();
+    void heartbeatPoolLease(auth, request)
+      .then(() => {
+        failureStartedAt = undefined;
+      })
+      .catch(error => {
+        const detail = error instanceof Error ? error.message : String(error);
+        const failureNow = Date.now();
+        failureStartedAt ??= tickStartedAt;
+        console.warn(`[e2e] scratch-org pool heartbeat failed for slot '${request.slotKey}': ${detail}`);
+        if (failureNow - failureStartedAt >= leaseTtlMs) {
+          leaseFailure = new Error(
+            `Scratch-org pool lease for slot '${request.slotKey}' was lost after heartbeat failures exceeded the ${request.leaseTtlSeconds}s TTL. ${detail}`.trim()
+          );
+        }
+      });
   }, intervalSeconds * 1000);
   timer.unref?.();
 
@@ -802,6 +826,12 @@ function startPoolLeaseHeartbeat(
     stop: () => {
       stopped = true;
       clearInterval(timer);
+    },
+    getFailure: () => leaseFailure,
+    assertHealthy: () => {
+      if (leaseFailure) {
+        throw leaseFailure;
+      }
     }
   };
 }
@@ -941,10 +971,18 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
     heartbeatIntervalSeconds
   );
 
-  const cleanup = async (options?: { success?: boolean; needsRecreate?: boolean; errorMessage?: string; lastRunResult?: string }) => {
+  const cleanup = async (options?: ScratchOrgCleanupOptions) => {
     heartbeat.stop();
+    const heartbeatFailure = heartbeat.getFailure();
     let resolvedScratchAuthUrl: string | undefined;
-    let needsRecreate = options?.needsRecreate;
+    let needsRecreate = options?.needsRecreate ?? Boolean(heartbeatFailure);
+    const success = options?.success ?? !heartbeatFailure;
+    const errorMessage =
+      options?.errorMessage ||
+      (heartbeatFailure ? heartbeatFailure.message : undefined);
+    const lastRunResult =
+      options?.lastRunResult ||
+      (success ? 'completed' : heartbeatFailure ? 'lease-lost' : 'failed');
     if (!needsRecreate) {
       resolvedScratchAuthUrl = await tryGetScratchAuthUrl(scratchAlias);
       if (!resolvedScratchAuthUrl) {
@@ -956,10 +994,10 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
         poolKey,
         slotKey,
         leaseToken,
-        success: options?.success ?? true,
+        success,
         needsRecreate,
-        errorMessage: options?.errorMessage,
-        lastRunResult: options?.lastRunResult,
+        errorMessage,
+        lastRunResult,
         scratchAuthUrl: resolvedScratchAuthUrl
       });
     } catch (error) {
@@ -1084,8 +1122,9 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
       strategy: 'pool',
       slotKey,
       leaseToken,
-      cleanup: async () => {
-        await cleanup({ success: true, lastRunResult: 'completed' });
+      cleanup,
+      assertLeaseHealthy: () => {
+        heartbeat.assertHealthy();
       }
     };
   } catch (error) {
