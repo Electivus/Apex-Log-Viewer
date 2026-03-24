@@ -124,11 +124,23 @@ function parseJsonOutput(stdout) {
   if (!text) {
     return undefined;
   }
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
+
+  const candidates = [text];
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidates.push(text.slice(firstBrace, lastBrace + 1));
   }
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Try the next extraction candidate.
+    }
+  }
+
+  return undefined;
 }
 
 function extractDevHubIdentifier(json, explicitAlias) {
@@ -334,15 +346,8 @@ async function ensureDevHub(cli, { authUrl, alias }, helpers = {}) {
   if (!authUrl) {
     if (cli === 'sf') {
       await execFileAsyncFn('sf', ['org', 'display', '-o', alias, '--json']);
-      await execFileAsyncFn('sf', ['config', 'set', `target-dev-hub=${alias}`, `target-org=${alias}`, '--global']);
     } else {
       await execFileAsyncFn('sfdx', ['force:org:display', '-u', alias, '--json']);
-      await execFileAsyncFn('sfdx', [
-        'force:config:set',
-        `defaultdevhubusername=${alias}`,
-        `defaultusername=${alias}`,
-        '--global'
-      ]);
     }
     return alias;
   }
@@ -369,7 +374,6 @@ async function ensureDevHub(cli, { authUrl, alias }, helpers = {}) {
       if (!resolvedAlias) {
         throw new Error('Dev Hub login succeeded but did not return a usable alias or username. Set SF_DEVHUB_ALIAS explicitly.');
       }
-      await execFileAsyncFn('sf', ['config', 'set', `target-dev-hub=${resolvedAlias}`, `target-org=${resolvedAlias}`, '--global']);
       return resolvedAlias;
     } else {
       const args = ['force:auth:sfdxurl:store', '-f', file, '-d', '--json'];
@@ -381,12 +385,6 @@ async function ensureDevHub(cli, { authUrl, alias }, helpers = {}) {
       if (!resolvedAlias) {
         throw new Error('Dev Hub login succeeded but did not return a usable alias or username. Set SF_DEVHUB_ALIAS explicitly.');
       }
-      await execFileAsyncFn('sfdx', [
-        'force:config:set',
-        `defaultdevhubusername=${resolvedAlias}`,
-        `defaultusername=${resolvedAlias}`,
-        '--global'
-      ]);
       return resolvedAlias;
     }
   } finally {

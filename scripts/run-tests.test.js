@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { pretestSetup, resolveRequiredDevHubConfig } = require("./run-tests");
+const { ensureDevHub, pretestSetup, resolveRequiredDevHubConfig } = require("./run-tests");
 
 const originalEnv = { ...process.env };
 
@@ -77,4 +77,58 @@ test("pretestSetup propagates Dev Hub auth failures instead of continuing", asyn
 
   assert.equal(ensureDefaultScratchCalled, false);
   process.env = { ...originalEnv };
+});
+
+test("ensureDevHub validates an explicit alias without mutating global CLI config", async () => {
+  const calls = [];
+
+  const resolvedAlias = await ensureDevHub("sf", { alias: "ConfiguredDevHub" }, {
+    execFileAsync: async (file, args) => {
+      calls.push([file, args]);
+      return { stdout: '{"status":0,"result":{}}' };
+    },
+  });
+
+  assert.equal(resolvedAlias, "ConfiguredDevHub");
+  assert.deepEqual(calls, [
+    ["sf", ["org", "display", "-o", "ConfiguredDevHub", "--json"]],
+  ]);
+});
+
+test("ensureDevHub extracts the username from noisy sf auth output when no alias is provided", async () => {
+  const calls = [];
+
+  const resolvedAlias = await ensureDevHub("sf", { authUrl: "force://redacted" }, {
+    execFileAsync: async (file, args) => {
+      calls.push([file, args]);
+      return {
+        stdout: [
+          "Warning: config updated",
+          '{"status":0,"result":{"username":"devhub@example.com"}}',
+          "Done"
+        ].join("\n")
+      };
+    },
+    mkdtempSync: () => "C:\\temp\\alv-auth",
+    writeFileSync: () => {},
+    rmSync: () => {},
+    join: (...parts) => parts.join("\\"),
+    tmpdir: () => "C:\\temp",
+  });
+
+  assert.equal(resolvedAlias, "devhub@example.com");
+  assert.deepEqual(calls, [
+    [
+      "sf",
+      [
+        "org",
+        "login",
+        "sfdx-url",
+        "--sfdx-url-file",
+        "C:\\temp\\alv-auth\\devhub.sfdxurl",
+        "--set-default-dev-hub",
+        "--json"
+      ]
+    ],
+  ]);
 });
