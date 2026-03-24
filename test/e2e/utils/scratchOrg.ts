@@ -271,7 +271,6 @@ async function ensureDevHubAuth(config: DevHubConfig): Promise<string> {
   const filePath = path.join(dir, 'devhub.sfdxurl');
   await writeFile(filePath, authUrl, 'utf8');
   try {
-    const args = ['org', 'login', 'sfdx-url', '--sfdx-url-file', filePath, '--set-default-dev-hub'];
     const resolvedDevHubAlias = config.alias || DEFAULT_DEV_HUB_ALIAS;
     args.push('--alias', resolvedDevHubAlias);
     await runSfJson(args);
