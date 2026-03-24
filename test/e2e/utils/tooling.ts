@@ -319,6 +319,23 @@ function escapeSoqlLiteral(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
+function escapeSoqlLikeLiteral(value: string): string {
+  return value.replace(/[\\'%_]/g, character => {
+    switch (character) {
+      case '\\':
+        return '\\\\';
+      case '\'':
+        return "\\'";
+      case '%':
+        return '\\%';
+      case '_':
+        return '\\_';
+      default:
+        return character;
+    }
+  });
+}
+
 function toSfDateTimeUTC(d: Date): string {
   const pad = (n: number, w: number = 2) => String(n).padStart(w, '0');
   return (
@@ -419,7 +436,7 @@ async function findActiveUsersBySearchToken(
   const trimmed = String(searchToken || '').trim();
   const clauses = ['IsActive = true'];
   if (trimmed) {
-    const escaped = escapeSoqlLiteral(trimmed).replace(/%/g, '\\%').replace(/_/g, '\\_');
+    const escaped = escapeSoqlLikeLiteral(trimmed);
     clauses.push(`(Name LIKE '%${escaped}%' OR Username LIKE '%${escaped}%')`);
   }
   const soql = encodeURIComponent(
