@@ -68,7 +68,7 @@ describe('ensureScratchOrg', () => {
     delete process.env.SF_DEVHUB_AUTH_URL;
     delete process.env.SF_SCRATCH_STRATEGY;
     delete process.env.SF_SCRATCH_POOL_NAME;
-
+    delete process.env.SFDX_AUTH_URL;
     runSfJsonMock.mockReset();
     getOrgAuthMock.mockReset();
     assertToolingReadyMock.mockReset();
@@ -292,6 +292,77 @@ describe('ensureScratchOrg', () => {
         'ConfiguredDevHub'
       ])
     );
+  });
+
+  test('uses the default dev hub alias when SF_DEVHUB_AUTH_URL is set without SF_DEVHUB_ALIAS', async () => {
+    process.env = {
+      ...originalEnv,
+      SF_DEVHUB_ALIAS: 'LeakedLocalAlias',
+      SF_DEVHUB_AUTH_URL: 'force://redacted',
+      SF_SCRATCH_ALIAS: 'ALV_E2E_Scratch',
+      SF_TEST_KEEP_ORG: '1'
+    };
+    delete process.env.SF_DEVHUB_ALIAS;
+    delete process.env.SF_SCRATCH_STRATEGY;
+    delete process.env.SF_SCRATCH_POOL_NAME;
+
+    runSfJsonMock.mockImplementation(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
+        return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_Scratch')) {
+        throw new Error('NamedOrgNotFoundError: No authorization information found for ALV_E2E_Scratch.');
+      }
+
+      if (
+        args[0] === 'org' &&
+        args[1] === 'create' &&
+        args[2] === 'scratch' &&
+        args.includes('ConfiguredDevHub')
+      ) {
+        return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'data' && args[1] === 'query') {
+        return {
+          status: 0,
+          result: {
+            records: [{ Id: '7dl000000000001AAA' }]
+          }
+        };
+      }
+
+      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
+    });
+
+    const scratch = await ensureScratchOrg();
+
+    expect(scratch).toMatchObject({
+      devHubAlias: 'ConfiguredDevHub',
+      scratchAlias: 'ALV_E2E_Scratch',
+      created: true,
+      strategy: 'single'
+    });
+    expect(runSfJsonMock).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        'org',
+        'login',
+        'sfdx-url',
+        '--sfdx-url-file',
+        expect.any(String),
+        '--set-default-dev-hub',
+        '--alias',
+        'ConfiguredDevHub'
+      ])
+    );
+    const allArgs = runSfJsonMock.mock.calls.flatMap(([args]) => args);
+    expect(allArgs).not.toContain('LeakedLocalAlias');
+    expect(runSfJsonMock).toHaveBeenCalledWith(
+      expect.arrayContaining(['org', 'create', 'scratch', '--target-dev-hub', 'ConfiguredDevHub']),
+      expect.any(Object)
+    );
+    await scratch.cleanup();
   });
 
   test('fails on scratch signup limit without trying another dev hub alias', async () => {
