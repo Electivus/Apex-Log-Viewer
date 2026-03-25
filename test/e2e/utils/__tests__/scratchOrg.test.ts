@@ -1175,7 +1175,7 @@ describe('ensureScratchOrg', () => {
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
     process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
 
-    let poolScratchDisplayCount = 0;
+    let simulateCleanupAuthUrlMissing = false;
 
     fetchSpy.mockImplementation(async input => {
       const url = String(input);
@@ -1209,8 +1209,7 @@ describe('ensureScratchOrg', () => {
         return { status: 0, result: {} };
       }
       if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_06B')) {
-        poolScratchDisplayCount += 1;
-        if (poolScratchDisplayCount < 3) {
+        if (!simulateCleanupAuthUrlMissing) {
           return {
             status: 0,
             result: {
@@ -1239,6 +1238,7 @@ describe('ensureScratchOrg', () => {
     });
 
     const scratch = await ensureScratchOrg();
+    simulateCleanupAuthUrlMissing = true;
     await scratch.cleanup();
 
     const releaseCall = fetchSpy.mock.calls.find(([input]) =>
