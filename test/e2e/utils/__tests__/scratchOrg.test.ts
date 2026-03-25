@@ -303,6 +303,8 @@ describe('ensureScratchOrg', () => {
       SF_TEST_KEEP_ORG: '1'
     };
     delete process.env.SF_DEVHUB_ALIAS;
+    delete process.env.SF_SCRATCH_STRATEGY;
+    delete process.env.SF_SCRATCH_POOL_NAME;
 
     runSfJsonMock.mockImplementation(async args => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
