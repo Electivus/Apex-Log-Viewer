@@ -58,7 +58,7 @@ async function clickVisibleNotificationCloseButton(page: Page): Promise<boolean>
   }, notificationCloseSelectors);
 }
 
-async function closeQuickInputIfOpen(page: Page): Promise<void> {
+export async function closeQuickInputIfOpen(page: Page): Promise<void> {
   const widget = page.locator('div.quick-input-widget');
   const visible = await widget.isVisible().catch(() => false);
   if (!visible) {

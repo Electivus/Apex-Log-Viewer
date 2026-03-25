@@ -18,14 +18,14 @@ on:
         required: false
         default: '1'
         type: string
-      keep_scratch_org:
-        description: Keep the scratch org after the run
+      playwright_workers:
+        description: Playwright workers when the scratch-org pool is enabled
         required: false
-        default: true
-        type: boolean
+        default: '7'
+        type: string
 
 concurrency:
-  group: sf-e2e-scratch-global
+  group: ${{ vars.SF_SCRATCH_POOL_NAME != '' && format('e2e-playwright-{0}', github.ref) || 'sf-e2e-scratch-global' }}
   cancel-in-progress: false
 
 permissions:
@@ -47,9 +47,10 @@ jobs:
       ALV_E2E_TELEMETRY_BASE_APP: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && vars.ALV_E2E_TELEMETRY_BASE_APP || '' }}
       ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && vars.ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID || '' }}
       HAS_AZURE_E2E_TELEMETRY_CONFIG: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}
-      SF_SCRATCH_ALIAS: ALV_E2E_SCRATCH_CI
-      HAS_SCRATCH_AUTH_URL: ${{ secrets.SF_SCRATCH_CI_SFDX_AUTH_URL != '' && '1' || '' }}
-      CAN_ROTATE_SCRATCH_SECRET: ${{ secrets.GH_SECRETS_ROTATOR_PAT != '' && (github.event_name != 'workflow_dispatch' || github.event.inputs.keep_scratch_org != 'false') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && '1' || '' }}
+      SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
+      HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
+      SCRATCH_STRATEGY: pool
+      PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || '7' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -64,42 +65,22 @@ jobs:
       - name: Install Salesforce CLI
         run: npm install -g @salesforce/cli
 
-      - name: Require GitHub secrets rotator token (pull_request)
-        if: ${{ github.event_name == 'pull_request' && env.CAN_ROTATE_SCRATCH_SECRET != '1' }}
-        shell: bash
-        run: |
-          echo "::error::GH_SECRETS_ROTATOR_PAT must be configured for pull_request runs so the workflow can rotate SF_SCRATCH_CI_SFDX_AUTH_URL and avoid exhausting daily scratch org signup limits."
-          exit 1
-
-      - name: Validate GitHub secrets rotator token
-        if: ${{ env.CAN_ROTATE_SCRATCH_SECRET == '1' }}
+      - name: Require scratch-org pool configuration
         shell: bash
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/actions/secrets/public-key" >/dev/null
-          echo "GH_SECRETS_ROTATOR_PAT validated for Actions secrets rotation."
-        env:
-          GH_TOKEN: ${{ secrets.GH_SECRETS_ROTATOR_PAT }}
-
-      - name: Login to reusable scratch org (best-effort)
-        if: ${{ env.HAS_SCRATCH_AUTH_URL == '1' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          tmp="$(mktemp)"
-          cleanup() {
-            rm -f "${tmp}"
-          }
-          trap cleanup EXIT
-
-          printf '%s' "${SF_SCRATCH_CI_SFDX_AUTH_URL}" > "${tmp}"
-          if sf org login sfdx-url --sfdx-url-file "${tmp}" --alias "${SF_SCRATCH_ALIAS}"; then
-            echo "Scratch org auth restored for alias '${SF_SCRATCH_ALIAS}'."
-          else
-            echo "::warning::Scratch org login failed; tests will attempt to create a new scratch org."
+          missing=0
+          if [[ -z "${SCRATCH_POOL_NAME}" ]]; then
+            echo "::error::SF_SCRATCH_POOL_NAME must be configured for the Playwright E2E workflow."
+            missing=1
           fi
-        env:
-          SF_SCRATCH_CI_SFDX_AUTH_URL: ${{ secrets.SF_SCRATCH_CI_SFDX_AUTH_URL }}
+          if [[ "${HAS_POOL_DEVHUB_AUTH}" != "1" ]]; then
+            echo "::error::SF_DEVHUB_AUTH_URL must be configured for the Playwright E2E workflow."
+            missing=1
+          fi
+          if [[ "${missing}" != "0" ]]; then
+            exit 1
+          fi
 
       - name: Install extension dependencies
         run: npm ci
@@ -120,63 +101,31 @@ jobs:
       - name: Run Playwright E2E
         shell: bash
         run: |
+          echo "Scratch strategy: ${SCRATCH_STRATEGY}"
+          echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
           if [[ -n "${AZURE_CLIENT_ID}" && -n "${AZURE_TENANT_ID}" && -n "${AZURE_SUBSCRIPTION_ID}" && "${HAS_AZURE_E2E_TELEMETRY_CONFIG}" == "1" ]]; then
             echo "Running full Playwright E2E with dedicated App Insights validation."
             npm run test:e2e:telemetry
           else
-            echo "Azure OIDC secrets or E2E telemetry target variables are not fully configured; falling back to the smoke E2E run."
-            npm run test:e2e -- openLogViewer.e2e.spec.ts
+            echo "Azure OIDC secrets or E2E telemetry target variables are not fully configured; running the full Playwright E2E suite without telemetry validation."
+            npm run test:e2e
           fi
         env:
           VSCODE_TEST_VERSION: ${{ github.event.inputs.vscode_version || 'stable' }}
+          PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
+          SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
+          SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
+          SF_SCRATCH_POOL_OWNER: github:${{ github.run_id }}/${{ github.run_attempt }}
+          SF_SCRATCH_POOL_LEASE_TTL_SECONDS: ${{ vars.SF_SCRATCH_POOL_LEASE_TTL_SECONDS }}
+          SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS: ${{ vars.SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS }}
+          SF_SCRATCH_POOL_HEARTBEAT_SECONDS: ${{ vars.SF_SCRATCH_POOL_HEARTBEAT_SECONDS }}
+          SF_SCRATCH_POOL_MIN_REMAINING_MINUTES: ${{ vars.SF_SCRATCH_POOL_MIN_REMAINING_MINUTES }}
+          SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
+          SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
           SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
           SF_DEVHUB_ALIAS: DevHubElectivus
           SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || '1' }}
-          # Default behavior:
-          # - pull_request: keep scratch org only when reuse/rotation is possible
-          # - workflow_dispatch: keep unless explicitly disabled
-          SF_TEST_KEEP_ORG: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.keep_scratch_org == 'false' && '' || '1') || github.event_name != 'workflow_dispatch' && (env.HAS_SCRATCH_AUTH_URL == '1' || env.CAN_ROTATE_SCRATCH_SECRET == '1') && '1' || '' }}
-
-      - name: Rotate scratch auth URL secret (post-run)
-        if: ${{ always() && env.CAN_ROTATE_SCRATCH_SECRET == '1' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          auth_json="$(mktemp)"
-          auth_url="$(mktemp)"
-          cleanup() {
-            rm -f "${auth_json}" "${auth_url}"
-          }
-          trap cleanup EXIT
-
-          if ! sf org display --target-org "${SF_SCRATCH_ALIAS}" --verbose --json > "${auth_json}"; then
-            echo "Scratch org auth export skipped because ${SF_SCRATCH_ALIAS} is unavailable."
-            exit 0
-          fi
-
-          if ! node -e '
-            const fs = require("fs");
-            const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const url = data?.result?.sfdxAuthUrl;
-            if (!url) {
-              process.exit(2);
-            }
-            process.stdout.write(url);
-          ' "${auth_json}" > "${auth_url}"; then
-            echo "::warning::Scratch org auth export skipped because no sfdxAuthUrl was returned."
-            exit 0
-          fi
-
-          if [[ ! -s "${auth_url}" ]]; then
-            echo "::warning::Scratch org auth export skipped because the extracted sfdxAuthUrl was empty."
-            exit 0
-          fi
-
-          gh secret set SF_SCRATCH_CI_SFDX_AUTH_URL --app actions --repo "${GITHUB_REPOSITORY}" < "${auth_url}"
-          gh secret set SF_SCRATCH_CI_SFDX_AUTH_URL --app dependabot --repo "${GITHUB_REPOSITORY}" < "${auth_url}"
-          echo "Updated repository secret SF_SCRATCH_CI_SFDX_AUTH_URL for Actions and Dependabot."
-        env:
-          GH_TOKEN: ${{ secrets.GH_SECRETS_ROTATOR_PAT }}
+          SF_TEST_KEEP_ORG: '1'
 
       - name: Upload Playwright artifacts
         if: ${{ !cancelled() }}

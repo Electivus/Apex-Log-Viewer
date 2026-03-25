@@ -390,6 +390,45 @@ describe('DebugFlags webview App', () => {
     );
   });
 
+  it('ignores stale user search results that do not match the current query', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<DebugFlagsApp vscode={vscode} messageBus={bus} />);
+
+    sendMessage(bus, { type: 'debugFlagsInit', locale: 'en', defaultTtlMinutes: 30 });
+    sendMessage(bus, {
+      type: 'debugFlagsOrgs',
+      data: [{ username: 'user@example.com', alias: 'Main', isDefaultUsername: true }],
+      selected: 'user@example.com'
+    });
+
+    const search = screen.getByTestId('debug-flags-user-search');
+    fireEvent.change(search, { target: { value: 'ada' } });
+
+    sendMessage(bus, {
+      type: 'debugFlagsUsers',
+      query: 'ada',
+      data: [
+        {
+          id: '005000000000001AAA',
+          name: 'Ada Lovelace',
+          username: 'ada@example.com',
+          active: true
+        }
+      ]
+    });
+    await screen.findByTestId('debug-flags-user-row-005000000000001AAA');
+
+    sendMessage(bus, {
+      type: 'debugFlagsUsers',
+      query: '',
+      data: []
+    });
+
+    expect(screen.getByTestId('debug-flags-user-row-005000000000001AAA')).toBeTruthy();
+    expect(screen.queryByText('No active users found for this query.')).toBeNull();
+  });
+
   it('triggers clear logs actions from menu', async () => {
     const { vscode, posted } = createVsCodeMock();
     const bus = new EventTarget();

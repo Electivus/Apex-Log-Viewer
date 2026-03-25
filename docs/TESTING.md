@@ -8,7 +8,7 @@ This project uses VS Code integration tests (Mocha running inside the Extension 
 - `npm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
 - `npm run test:integration`: installs dependency extensions if needed and runs integration tests.
 - `npm run test:all`: runs the Jest webview suites, then both unit and integration scopes.
-- `npm run test:e2e`: runs Playwright E2E tests against a real scratch org (creates a scratch org + seeds an Apex log).
+- `npm run test:e2e`: runs Playwright E2E tests against a real scratch org. The runner uses either the legacy single-scratch flow or the Dev Hub scratch-org pool, depending on the configured strategy.
 - `npm run test:e2e:telemetry`: runs the same Playwright E2E suite, but first resolves a dedicated App Insights component for E2E and then validates that telemetry from the current run arrived there.
 
 The test orchestrator lives in `scripts/run-tests.js` and the Mocha programmatic runner in `src/test/runner.ts`.
@@ -59,7 +59,7 @@ Tests do not require an authenticated org by default. If you want the runner to 
 The Playwright suite validates the webview UX end-to-end by:
 
 1. Validating/authenticating the explicitly configured Dev Hub
-2. Creating/reusing a scratch org
+2. Creating/reusing a scratch org or acquiring one from the scratch-org pool
 3. Seeding an Apex log (anonymous Apex with a unique marker)
 4. Launching VS Code and verifying the Logs panel + Log Viewer show that log
 
@@ -74,6 +74,8 @@ Useful env vars:
 
 - `SF_DEVHUB_AUTH_URL`: Explicit Dev Hub auth for the run. Set this or `SF_DEVHUB_ALIAS`.
 - `SF_DEVHUB_ALIAS`: Explicit Dev Hub alias to use. Set this or `SF_DEVHUB_AUTH_URL`.
+- `SF_SCRATCH_STRATEGY`: `single` or `pool`. If unset, the helper auto-enables pool mode when `SF_SCRATCH_POOL_NAME` is present.
+- `PLAYWRIGHT_WORKERS`: Number of Playwright workers. Default `1` locally; the GitHub Actions pool workflow sets this to `7` by default so the current seven E2E specs can run in parallel.
 - `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_E2E_Scratch`).
 - `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
 - `SF_TEST_KEEP_ORG=1`: Keep the scratch org after the run (recommended while iterating).
@@ -81,7 +83,23 @@ Useful env vars:
 - `ALV_E2E_ALLOW_LOCAL_EXTENSIONS_DIR=1`: Opt-in fallback that points the isolated VS Code run at your machine-wide extensions dir when a required support extension cannot be copied or installed into the temporary E2E profile.
 - `ALV_E2E_TIMING=1`: Prints per-step harness timings for scratch-org setup, VS Code startup, command-palette activation, and webview discovery.
 
+Pool-specific env vars:
+
+- `SF_SCRATCH_POOL_NAME`
+- `SF_DEVHUB_AUTH_URL` or `SF_DEVHUB_ALIAS`
+- `SF_SCRATCH_POOL_OWNER`
+- `SF_SCRATCH_POOL_LEASE_TTL_SECONDS`
+- `SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS`
+- `SF_SCRATCH_POOL_HEARTBEAT_SECONDS`
+- `SF_SCRATCH_POOL_MIN_REMAINING_MINUTES`
+- `SF_SCRATCH_POOL_SEED_VERSION`
+- `SF_SCRATCH_POOL_SNAPSHOT_NAME`
+
+For the pool bootstrap flow and the stored `sfdxAuthUrl` reuse model, see `docs/SCRATCH_ORG_POOL.md`.
+
 The E2E helpers no longer auto-discover or retry alternate Dev Hub aliases. Missing, invalid, or failing `SF_DEVHUB_AUTH_URL` / `SF_DEVHUB_ALIAS` values now fail the run immediately.
+
+For Dev Hub bootstrap, operational scripts, and GitHub Actions / Codex Cloud setup, see `docs/SCRATCH_ORG_POOL.md`.
 
 Troubleshooting:
 
@@ -99,7 +117,7 @@ Artifacts (screenshots/traces/videos on failure) are written under `output/playw
 4. Runs the full Playwright suite
 5. Queries `AppEvents` in the linked Log Analytics workspace and fails if the current run's telemetry does not arrive
 
-The GitHub Actions workflow `.github/workflows/e2e-playwright.yml` prefers this path automatically when Azure OIDC secrets and the E2E telemetry target variables are configured. If that Azure configuration is incomplete, the workflow falls back to the smoke-only `npm run test:e2e -- openLogViewer.e2e.spec.ts` path so PR validation remains usable.
+The GitHub Actions workflow `.github/workflows/e2e-playwright.yml` prefers this path automatically when Azure OIDC secrets and the E2E telemetry target variables are configured. If that Azure configuration is incomplete, the workflow still runs `npm run test:e2e`, but skips the telemetry-validation layer.
 
 Required Azure targets for the telemetry path:
 

@@ -35,6 +35,8 @@ function createExtensionHarness(options: {
   isApexLogDocument?: boolean;
   logId?: string;
   orgs?: Array<{ username: string; isDefaultUsername?: boolean }>;
+  initialLogsSelectedOrg?: string;
+  initialTailSelectedOrg?: string;
 }) {
   const commands = new Map<string, RegisteredCommand>();
   const events: Array<{ name: string; props?: Record<string, string> }> = [];
@@ -48,6 +50,9 @@ function createExtensionHarness(options: {
   const errorMessages: string[] = [];
   const logsEditorShows: Array<{ selectedOrg?: string }> = [];
   const tailEditorShows: Array<{ selectedOrg?: string }> = [];
+  const tailSyncSelectedOrgCalls: Array<string | undefined> = [];
+  const tailRefreshViewStateCalls: number[] = [];
+  const logsTailCalls: number[] = [];
 
   const vscodeStub = {
     version: '1.90.0',
@@ -91,7 +96,9 @@ function createExtensionHarness(options: {
     public static viewType = 'sfLogViewer';
     private selectedOrg: string | undefined;
 
-    constructor(_context: any) {}
+    constructor(_context: any) {
+      this.selectedOrg = options.initialLogsSelectedOrg;
+    }
 
     public hasResolvedView(): boolean {
       return false;
@@ -109,7 +116,9 @@ function createExtensionHarness(options: {
       return this.selectedOrg;
     }
 
-    public async tailLogs(): Promise<void> {}
+    public async tailLogs(): Promise<void> {
+      logsTailCalls.push(1);
+    }
 
     public dispose(): void {}
   }
@@ -118,7 +127,9 @@ function createExtensionHarness(options: {
     public static viewType = 'sfLogTail';
     private selectedOrg: string | undefined;
 
-    constructor(_context: any) {}
+    constructor(_context: any) {
+      this.selectedOrg = options.initialTailSelectedOrg;
+    }
 
     public getSelectedOrg(): string | undefined {
       return this.selectedOrg;
@@ -128,7 +139,14 @@ function createExtensionHarness(options: {
       this.selectedOrg = username;
     }
 
-    public async refreshViewState(): Promise<void> {}
+    public async syncSelectedOrg(username?: string): Promise<void> {
+      tailSyncSelectedOrgCalls.push(username);
+      this.selectedOrg = username;
+    }
+
+    public async refreshViewState(): Promise<void> {
+      tailRefreshViewStateCalls.push(1);
+    }
 
     public dispose(): void {}
   }
@@ -247,7 +265,10 @@ function createExtensionHarness(options: {
     warningMessages,
     errorMessages,
     logsEditorShows,
-    tailEditorShows
+    tailEditorShows,
+    tailSyncSelectedOrgCalls,
+    tailRefreshViewStateCalls,
+    logsTailCalls
   };
 }
 
@@ -327,5 +348,19 @@ suite('extension activation gating', () => {
 
     assert.deepEqual(harness.listOrgsCalls, [false]);
     assert.deepEqual(harness.getOrgAuthCalls, ['default@example.com']);
+  });
+
+  test('syncs the selected logs org into tail before refreshing the tail view', async () => {
+    const harness = createExtensionHarness({
+      initialLogsSelectedOrg: 'worker@example.com',
+      initialTailSelectedOrg: 'other@example.com'
+    });
+
+    await harness.extension.activate(createContext());
+    await harness.commands.get('sfLogs.tail')!();
+
+    assert.deepEqual(harness.tailSyncSelectedOrgCalls, ['worker@example.com']);
+    assert.equal(harness.logsTailCalls.length, 1, 'should open the tail view once');
+    assert.equal(harness.tailRefreshViewStateCalls.length, 1, 'should refresh tail after syncing the org');
   });
 });

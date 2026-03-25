@@ -11,6 +11,11 @@ type Fixtures = {
   workspacePath: string;
   vscodeApp: ElectronApplication;
   vscodePage: Page;
+  scratchLeaseState: {
+    scratch: Awaited<ReturnType<typeof ensureScratchOrg>>;
+    hadFailure: boolean;
+    failureMessage?: string;
+  };
 };
 
 type Options = {
@@ -20,14 +25,60 @@ type Options = {
 export const test = base.extend<Fixtures & Options>({
   supportExtensionIds: [[], { option: true }],
 
-  scratchAlias: [
+  scratchLeaseState: [
     async ({}, use) => {
       const scratch = await ensureScratchOrg();
+      const state = {
+        scratch,
+        hadFailure: false
+      };
       try {
-        await use(scratch.scratchAlias);
+        await use(state);
       } finally {
-        await scratch.cleanup();
+        await scratch.cleanup({
+          success: !state.hadFailure,
+          needsRecreate: state.hadFailure,
+          errorMessage: state.failureMessage,
+          lastRunResult: state.hadFailure ? 'failed' : 'completed'
+        });
       }
+    },
+    { scope: 'worker' }
+  ],
+
+  _scratchLeaseGuard: [
+    async ({ scratchLeaseState }, use, testInfo) => {
+      try {
+        scratchLeaseState.scratch.assertLeaseHealthy?.();
+      } catch (error) {
+        scratchLeaseState.hadFailure = true;
+        scratchLeaseState.failureMessage ??=
+          error instanceof Error ? error.message : String(error);
+        throw error;
+      }
+      await use();
+
+      if (testInfo.status !== testInfo.expectedStatus) {
+        scratchLeaseState.hadFailure = true;
+        scratchLeaseState.failureMessage ??=
+          `Test '${testInfo.title}' ended with status '${testInfo.status}' (expected '${testInfo.expectedStatus}').`;
+      }
+
+      try {
+        scratchLeaseState.scratch.assertLeaseHealthy?.();
+      } catch (error) {
+        scratchLeaseState.hadFailure = true;
+        scratchLeaseState.failureMessage ??=
+          error instanceof Error ? error.message : String(error);
+        throw error;
+      }
+    },
+    { auto: true }
+  ],
+
+  scratchAlias: [
+    async ({ scratchLeaseState }, use) => {
+      await use(scratchLeaseState.scratch.scratchAlias);
     },
     { scope: 'worker' }
   ],

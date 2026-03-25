@@ -319,6 +319,23 @@ function escapeSoqlLiteral(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
+function escapeSoqlLikeLiteral(value: string): string {
+  return value.replace(/[\\'%_]/g, character => {
+    switch (character) {
+      case '\\':
+        return '\\\\';
+      case '\'':
+        return "\\'";
+      case '%':
+        return '\\%';
+      case '_':
+        return '\\_';
+      default:
+        return character;
+    }
+  });
+}
+
 function toSfDateTimeUTC(d: Date): string {
   const pad = (n: number, w: number = 2) => String(n).padStart(w, '0');
   return (
@@ -408,6 +425,40 @@ async function findUserByUsername(
     username: typeof record?.Username === 'string' ? record.Username : username,
     active: Boolean(record?.IsActive)
   };
+}
+
+async function findActiveUsersBySearchToken(
+  auth: OrgAuth,
+  searchToken: string,
+  limit = 200
+): Promise<Array<{ id: string; username: string; name: string }>> {
+  const safeLimit = Math.max(1, Math.min(200, Math.floor(Number(limit) || 200)));
+  const trimmed = String(searchToken || '').trim();
+  const clauses = ['IsActive = true'];
+  if (trimmed) {
+    const escaped = escapeSoqlLikeLiteral(trimmed);
+    clauses.push(`(Name LIKE '%${escaped}%' OR Username LIKE '%${escaped}%')`);
+  }
+  const soql = encodeURIComponent(
+    `SELECT Id, Name, Username FROM User WHERE ${clauses.join(' AND ')} ORDER BY Name NULLS LAST LIMIT ${safeLimit}`
+  );
+  const response = await requestJson(auth, 'GET', `/services/data/v${auth.apiVersion}/query?q=${soql}`);
+  const records = Array.isArray(response?.records) ? response.records : [];
+  const needle = trimmed.toLowerCase();
+
+  return records
+    .filter((record: any) => isSfId(record?.Id))
+    .map((record: any) => ({
+      id: record.Id,
+      username: typeof record?.Username === 'string' ? record.Username : '',
+      name: typeof record?.Name === 'string' ? record.Name : ''
+    }))
+    .filter(record => {
+      if (!needle) {
+        return true;
+      }
+      return record.name.toLowerCase().includes(needle) || record.username.toLowerCase().includes(needle);
+    });
 }
 
 async function findActiveUsersByType(auth: OrgAuth, userType: string): Promise<Array<{ id: string; name: string }>> {
@@ -554,6 +605,46 @@ export async function ensureDebugFlagsTestUser(auth: OrgAuth): Promise<DebugFlag
     }
     return resolveLicenseLimitFallbackUser(auth, 'Failed to create E2E debug flags test user');
   }
+}
+
+export async function waitForDebugFlagsUserSearchAvailability(
+  auth: OrgAuth,
+  userId: string,
+  searchToken: string,
+  options?: { timeoutMs?: number; pollIntervalMs?: number }
+): Promise<void> {
+  const trimmedSearchToken = String(searchToken || '').trim();
+  if (!isSfId(userId)) {
+    throw new Error(`Invalid debug flags test user id '${userId}'.`);
+  }
+  if (!trimmedSearchToken) {
+    throw new Error('waitForDebugFlagsUserSearchAvailability requires a non-empty search token.');
+  }
+
+  const timeoutMs = Math.max(5_000, Number(options?.timeoutMs || 60_000) || 60_000);
+  const pollIntervalMs = Math.max(250, Number(options?.pollIntervalMs || 1_000) || 1_000);
+  const deadline = Date.now() + timeoutMs;
+  let lastSeenCount = 0;
+  let lastError: unknown;
+
+  while (Date.now() < deadline) {
+    try {
+      const users = await findActiveUsersBySearchToken(auth, trimmedSearchToken);
+      lastSeenCount = users.length;
+      if (users.some(user => user.id === userId)) {
+        return;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(pollIntervalMs);
+  }
+
+  const detail = lastError instanceof Error ? lastError.message : '';
+  throw new Error(
+    `Debug flags user search did not return user '${userId}' for token '${trimmedSearchToken}' after ${timeoutMs}ms.` +
+      `${detail ? ` Last error: ${detail}` : ` Last seen result count: ${lastSeenCount}.`}`
+  );
 }
 
 export async function getUserDebugTraceFlag(

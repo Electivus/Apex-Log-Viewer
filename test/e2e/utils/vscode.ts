@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, cp, access, readdir } from 'node:fs/promises';
+import { mkdtemp, readFile, cp, access, readdir, mkdir, open, stat, unlink, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -20,6 +20,10 @@ export type VscodeWindowSize = {
   width: number;
   height: number;
 };
+
+const VSCODE_DOWNLOAD_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
+const VSCODE_DOWNLOAD_LOCK_POLL_MS = 250;
+const VSCODE_DOWNLOAD_LOCK_REFRESH_MS = 30 * 1000;
 
 function getModifierKey(): 'Control' | 'Meta' {
   return process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -106,6 +110,73 @@ async function pathExists(targetPath: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function sanitizeLockNamePart(value: string): string {
+  return value.replace(/[^a-z0-9._-]+/gi, '-');
+}
+
+async function removeFileBestEffort(targetPath: string): Promise<void> {
+  try {
+    await unlink(targetPath);
+  } catch {}
+}
+
+async function getFileAgeMs(targetPath: string): Promise<number | undefined> {
+  try {
+    const info = await stat(targetPath);
+    return Date.now() - info.mtimeMs;
+  } catch {
+    return undefined;
+  }
+}
+
+async function withFileLock<T>(lockPath: string, action: () => Promise<T>): Promise<T> {
+  await mkdir(path.dirname(lockPath), { recursive: true });
+
+  const startedAt = Date.now();
+  while (true) {
+    try {
+      const handle = await open(lockPath, 'wx');
+      let refreshTimer: NodeJS.Timeout | undefined;
+      try {
+        await handle.writeFile(`${process.pid}\n${new Date().toISOString()}\n`);
+        refreshTimer = setInterval(() => {
+          const now = new Date();
+          void utimes(lockPath, now, now).catch(() => {});
+        }, VSCODE_DOWNLOAD_LOCK_REFRESH_MS);
+        refreshTimer.unref?.();
+        return await action();
+      } finally {
+        if (refreshTimer) {
+          clearInterval(refreshTimer);
+        }
+        await handle.close().catch(() => {});
+        await removeFileBestEffort(lockPath);
+      }
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (code !== 'EEXIST') {
+        throw error;
+      }
+
+      const ageMs = await getFileAgeMs(lockPath);
+      if (ageMs !== undefined && ageMs > VSCODE_DOWNLOAD_LOCK_TIMEOUT_MS) {
+        await removeFileBestEffort(lockPath);
+        continue;
+      }
+
+      if (Date.now() - startedAt > VSCODE_DOWNLOAD_LOCK_TIMEOUT_MS) {
+        throw new Error(`Timed out waiting for VS Code download lock: ${lockPath}`);
+      }
+
+      await sleep(VSCODE_DOWNLOAD_LOCK_POLL_MS);
+    }
   }
 }
 
@@ -356,11 +427,15 @@ export async function launchVsCode(options: {
   extensionIds?: string[];
   windowSize?: Partial<VscodeWindowSize>;
 }): Promise<VscodeLaunch> {
+  const vscodeVersion = getVsCodeVersion();
   const vscodeCachePath = process.env.VSCODE_TEST_CACHE_PATH
     ? path.resolve(process.env.VSCODE_TEST_CACHE_PATH)
     : path.join(options.extensionDevelopmentPath, '.vscode-test');
+  const vscodeDownloadLockPath = path.join(vscodeCachePath, `.download-${sanitizeLockNamePart(vscodeVersion)}.lock`);
   const vscodeExecutablePath = await timeE2eStep('vscode.download', async () =>
-    await downloadAndUnzipVSCode({ version: getVsCodeVersion(), cachePath: vscodeCachePath })
+    await withFileLock(vscodeDownloadLockPath, async () =>
+      await downloadAndUnzipVSCode({ version: vscodeVersion, cachePath: vscodeCachePath })
+    )
   );
 
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));

@@ -1,4 +1,5 @@
-import { exec, execFile } from 'node:child_process';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
 
 export type ExecOptions = {
   cwd?: string;
@@ -58,11 +59,6 @@ export function getSfBinPath(): string {
   return sfBin();
 }
 
-function quoteWindowsCmdArg(value: string): string {
-  const raw = String(value ?? '');
-  return `"${raw.replace(/"/g, '""')}"`;
-}
-
 let resolvedSfBinAbsolutePathPromise: Promise<string | undefined> | undefined;
 
 export function __resetResolvedSfBinAbsolutePathCacheForTests(): void {
@@ -74,7 +70,7 @@ export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
     resolvedSfBinAbsolutePathPromise = (async () => {
       try {
         if (process.platform === 'win32') {
-          const { stdout } = await execFileAsync('cmd.exe', ['/d', '/s', '/c', 'where sf'], { timeoutMs: 10_000 });
+          const { stdout } = await execProcessFileAsync('cmd.exe', ['/d', '/s', '/c', 'where sf'], { timeoutMs: 10_000 });
           const candidates = String(stdout || '')
             .split(/\r?\n/)
             .map(l => l.trim())
@@ -82,7 +78,7 @@ export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
           const preferred = candidates.find(value => /\.cmd$/i.test(value));
           return preferred || candidates[0] || undefined;
         }
-        const { stdout } = await execFileAsync('bash', ['-lc', 'command -v sf'], { timeoutMs: 10_000 });
+        const { stdout } = await execProcessFileAsync('bash', ['-lc', 'command -v sf'], { timeoutMs: 10_000 });
         const resolved = String(stdout || '').trim();
         return resolved || undefined;
       } catch {
@@ -104,7 +100,7 @@ export async function resolveSfCliInvocation(): Promise<{ sfBinPath: string; nod
   return { sfBinPath, nodeBinPath };
 }
 
-export function execFileAsync(file: string, args: string[], options: ExecOptions = {}): Promise<ExecResult> {
+function execProcessFileAsync(file: string, args: string[], options: ExecOptions = {}): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     const callback = (error: unknown, stdout: string, stderr: string) => {
       if (error) {
@@ -129,20 +125,50 @@ export function execFileAsync(file: string, args: string[], options: ExecOptions
       maxBuffer: 1024 * 1024 * 20
     };
 
-    if (process.platform === 'win32' && /\.cmd$/i.test(file)) {
-      const command = [file, ...args].map(quoteWindowsCmdArg).join(' ');
-      exec(command, { ...execOptions, shell: process.env.ComSpec || 'cmd.exe' }, callback);
-      return;
-    }
-
-    execFile(file, args, execOptions, callback);
+    const executable = getTrustedExecutable(file, ['cmd.exe', 'bash']);
+    execFile(executable, args, execOptions, callback);
   });
+}
+
+function normalizeExecArgs(args: string[]): string[] {
+  return args.map(arg => {
+    const value = String(arg ?? '');
+    if (value.includes('\0')) {
+      throw new Error('Command arguments cannot contain null bytes.');
+    }
+    return value;
+  });
+}
+
+function getTrustedExecutable(file: string, additionalAllowedBasenames: string[] = []): string {
+  const normalized = String(file || '').trim();
+  const basename = path.basename(normalized).toLowerCase();
+  if (
+    basename === 'sf' ||
+    basename === 'sf.cmd' ||
+    basename === 'sf.exe' ||
+    additionalAllowedBasenames.map(value => value.toLowerCase()).includes(basename)
+  ) {
+    return normalized;
+  }
+  throw new Error(`Refusing to execute unexpected binary '${file}'.`);
+}
+
+async function execSfCliAsync(file: string, args: string[], options: ExecOptions = {}): Promise<ExecResult> {
+  const executable = getTrustedExecutable(file);
+  const finalArgs = normalizeExecArgs(args);
+
+  if (process.platform === 'win32' && /\.cmd$/i.test(executable)) {
+    return await execProcessFileAsync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', executable, ...finalArgs], options);
+  }
+
+  return await execProcessFileAsync(executable, finalArgs, options);
 }
 
 export async function runSfJson(args: string[], options: ExecOptions = {}): Promise<any> {
   const withJson = args.includes('--json') ? args : [...args, '--json'];
   const sfPath = (await resolveSfBinAbsolutePath()) || getSfBinPath();
-  const { stdout } = await execFileAsync(sfPath, withJson, options);
+  const { stdout } = await execSfCliAsync(sfPath, withJson, options);
   const raw = String(stdout || '').trim();
   if (!raw) {
     throw new Error(`Empty JSON output from ${sfPath} ${withJson.join(' ')}`.trim());

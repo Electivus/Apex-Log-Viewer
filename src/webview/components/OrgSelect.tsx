@@ -7,6 +7,7 @@ export function OrgSelect({
   orgs,
   selected,
   onChange,
+  testId,
   disabled = false,
   emptyText
 }: {
@@ -14,6 +15,7 @@ export function OrgSelect({
   orgs: OrgItem[];
   selected?: string;
   onChange: (username: string) => void;
+  testId?: string;
   disabled?: boolean;
   emptyText?: string;
 }) {
@@ -28,6 +30,7 @@ export function OrgSelect({
       value={value}
       onChange={onChange}
       options={options}
+      testId={testId}
       disabled={disabled}
       hideIfEmpty
       emptyText={emptyText || 'No orgs detected.'}

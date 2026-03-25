@@ -1,6 +1,5 @@
 import type { Frame } from '@playwright/test';
 import { expect, test } from '../fixtures/alvE2E';
-import { runCommand, runCommandWhenAvailable } from '../utils/commandPalette';
 import {
   deleteDebugLevelByDeveloperName,
   ensureDebugFlagsTestUser,
@@ -9,8 +8,7 @@ import {
   getOrgAuth,
   removeUserDebugTraceFlags
 } from '../utils/tooling';
-import { dismissAllNotifications } from '../utils/notifications';
-import { waitForWebviewFrame } from '../utils/webviews';
+import { openDebugFlagsFromLogs } from './debugFlagsPanel.shared';
 
 async function waitForManagerReady(debugFlagsFrame: Frame): Promise<void> {
   await expect(debugFlagsFrame.locator('[data-testid="debug-level-manager-new"]')).toBeEnabled({ timeout: 120_000 });
@@ -30,23 +28,7 @@ test('creates, updates and deletes DebugLevel records from the manager UI', asyn
   await deleteDebugLevelByDeveloperName(auth, updatedDeveloperName).catch(() => {});
 
   try {
-    await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
-
-    const logsFrame = await waitForWebviewFrame(
-      vscodePage,
-      async frame => await frame.locator('[data-testid="logs-open-debug-flags"]').first().isVisible(),
-      { timeoutMs: 180_000 }
-    );
-    const openDebugFlags = logsFrame.locator('[data-testid="logs-open-debug-flags"]').first();
-    await expect(openDebugFlags).toBeEnabled({ timeout: 180_000 });
-    await dismissAllNotifications(vscodePage);
-    await openDebugFlags.click({ force: true });
-
-    const debugFlagsFrame = await waitForWebviewFrame(
-      vscodePage,
-      async frame => await frame.locator('[data-testid="debug-level-manager"]').first().isVisible(),
-      { timeoutMs: 180_000 }
-    );
+    const debugFlagsFrame = await openDebugFlagsFromLogs(vscodePage);
 
     await debugFlagsFrame.locator('[data-testid="debug-level-manager"]').waitFor({ state: 'visible', timeout: 60_000 });
     const newDebugLevelButton = debugFlagsFrame.locator('[data-testid="debug-level-manager-new"]');

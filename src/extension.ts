@@ -168,6 +168,7 @@ export async function activate(context: vscode.ExtensionContext) {
       logInfo('Command sfLogs.tail invoked. Opening Tail view and starting…');
       safeSendEvent('command.tail', { outcome: 'invoked' });
       try {
+        await tailProvider.syncSelectedOrg(provider.getSelectedOrg());
         await provider.tailLogs();
         await tailProvider.refreshViewState();
       } catch (e) {
