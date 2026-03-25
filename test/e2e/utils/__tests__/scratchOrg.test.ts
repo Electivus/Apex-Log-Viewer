@@ -1170,6 +1170,90 @@ describe('ensureScratchOrg', () => {
     expect(releaseBody.errorMessage).toContain('failing test');
   });
 
+  test('marks pooled leases for recreation when cleanup cannot read a refreshed scratch auth url', async () => {
+    process.env.SF_SCRATCH_STRATEGY = 'pool';
+    process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
+    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
+
+    let simulateCleanupAuthUrlMissing = false;
+
+    fetchSpy.mockImplementation(async input => {
+      const url = String(input);
+      if (isPoolConfigQuery(url)) {
+        return createPoolConfigResponse();
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
+        return createJsonResponse({
+          ok: true,
+          poolKey: 'alv-e2e',
+          slotKey: 'slot-06b',
+          scratchAlias: 'ALV_E2E_POOL_06B',
+          leaseToken: 'lease-missing-auth-url',
+          needsCreate: false,
+          scratchUsername: 'slot06b@example.com',
+          scratchLoginUrl: 'https://test.salesforce.com',
+          scratchAuthUrl: 'force://slot06b-auth'
+        });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')) {
+        return createJsonResponse({ ok: true });
+      }
+      if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/release')) {
+        return createJsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch url: ${url}`);
+    });
+
+    runSfJsonMock.mockImplementation(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
+        return { status: 0, result: {} };
+      }
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_06B')) {
+        if (!simulateCleanupAuthUrlMissing) {
+          return {
+            status: 0,
+            result: {
+              status: 'Active',
+              expirationDate: '2099-03-07',
+              accessToken: 'scratch-token',
+              instanceUrl: 'https://slot06b.scratch.my.salesforce.com',
+              username: 'slot06b@example.com',
+              sfdxAuthUrl: 'force://slot06b-auth-updated'
+            }
+          };
+        }
+
+        return {
+          status: 0,
+          result: {
+            status: 'Active',
+            expirationDate: '2099-03-07',
+            accessToken: 'scratch-token',
+            instanceUrl: 'https://slot06b.scratch.my.salesforce.com',
+            username: 'slot06b@example.com'
+          }
+        };
+      }
+      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
+    });
+
+    const scratch = await ensureScratchOrg();
+    simulateCleanupAuthUrlMissing = true;
+    await scratch.cleanup();
+
+    const releaseCall = fetchSpy.mock.calls.find(([input]) =>
+      String(input).endsWith('/services/apexrest/alv/scratch-pool/v1/release')
+    );
+    expect(releaseCall).toBeDefined();
+    const releaseBody = JSON.parse(String(releaseCall?.[1]?.body || '{}'));
+    expect(releaseBody.success).toBe(true);
+    expect(releaseBody.needsRecreate).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(releaseBody, 'scratchAuthUrl')).toBe(false);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("scratch org 'ALV_E2E_POOL_06B' did not expose an sfdxAuthUrl")
+    );
+  });
+
   test('marks pooled leases for recreation after heartbeat failures exceed the TTL', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
