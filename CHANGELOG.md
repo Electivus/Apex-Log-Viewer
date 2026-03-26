@@ -2,28 +2,33 @@
 
 ## Unreleased
 
+## [0.38.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.36.0...v0.38.0) (2026-03-26)
+
 ### Features
 
-- Logs/Tail: add optional editor-area tabs for the main Logs and Tail webviews, keeping the default docked panels intact while letting users move those sessions into other editor groups or windows.
+- Logs/Tail: add optional editor-area tabs for the main Logs and Tail webviews, keeping the default docked panels intact while letting users move those sessions into other editor groups or windows. ([#643](https://github.com/Electivus/Apex-Log-Viewer/pull/643))
 
 ### Bug Fixes
 
-- Tail/Docs: refresh the Tail view bootstrap when reopening it, keep debug-level selection resilient for scratch-org flows, and close VS Code auxiliary UI during docs capture so maintainer screenshots stay stable and complete.
-- CLI/Debug Flags: stop retrying redundant Salesforce auth commands after terminal auth/default-org failures, preserve clearer user-facing auth guidance, and cache the active user debug-level lookup so repeated Debug Flags reads avoid unnecessary TraceFlag round trips.
+- Tail/Docs: refresh the Tail view bootstrap when reopening it, keep debug-level selection resilient for scratch-org flows, and close VS Code auxiliary UI during docs capture so maintainer screenshots stay stable and complete. ([#642](https://github.com/Electivus/Apex-Log-Viewer/pull/642))
+- CLI/Debug Flags: stop retrying redundant Salesforce auth commands after terminal auth/default-org failures, preserve clearer user-facing auth guidance, and cache the active user debug-level lookup so repeated Debug Flags reads avoid unnecessary TraceFlag round trips. ([#650](https://github.com/Electivus/Apex-Log-Viewer/pull/650))
 
 ### Docs
 
-- README/docs assets: reposition the extension story around search, snippets, triage, the dedicated log viewer, and refreshed static screenshots generated from a realistic scratch-org scenario.
+- README/docs assets: reposition the extension story around search, snippets, triage, the dedicated log viewer, and refreshed static screenshots generated from a realistic scratch-org scenario. ([#642](https://github.com/Electivus/Apex-Log-Viewer/pull/642))
 
 ### Chores
 
-- Build/compatibility: lower the published VS Code engine baseline to `^1.90.0`, raise the Node runtime floor to `>=22.15.1`, align compile-time VS Code/Node typings with those minimums, and make CI consume `.nvmrc` so our compatibility contract matches the official Salesforce extensions.
+- Build/compatibility: lower the published VS Code engine baseline to `^1.90.0`, raise the Node runtime floor to `>=22.15.1`, align compile-time VS Code/Node typings with those minimums, and make CI consume `.nvmrc` so our compatibility contract matches the official Salesforce extensions. ([#644](https://github.com/Electivus/Apex-Log-Viewer/pull/644))
+- Automation: remove the repo-local `babysit-pr` skill now that the maintained global skill is the only supported copy. ([#648](https://github.com/Electivus/Apex-Log-Viewer/pull/648))
 
 ### Tests
 
-- Docs/E2E: add a manual `npm run docs:screenshots` flow that seeds deterministic scratch-org data, captures the README PNG set, and exercises the refreshed docs-maintenance path.
-- Logs/Tail: cover editor-area commands, singleton editor panels, editor-hosted webview lifecycle, and telemetry catalog updates for the new editor-entry flows.
-- CLI/Debug Flags: cover terminal auth short-circuiting, cached active debug-level reads, and cache invalidation after trace-flag updates.
+- Docs/E2E: add a manual `npm run docs:screenshots` flow that seeds deterministic scratch-org data, captures the README PNG set, and exercises the refreshed docs-maintenance path. ([#642](https://github.com/Electivus/Apex-Log-Viewer/pull/642))
+- Logs/Tail: cover editor-area commands, singleton editor panels, editor-hosted webview lifecycle, and telemetry catalog updates for the new editor-entry flows. ([#643](https://github.com/Electivus/Apex-Log-Viewer/pull/643))
+- CLI/Debug Flags: cover terminal auth short-circuiting, cached active debug-level reads, and cache invalidation after trace-flag updates. ([#650](https://github.com/Electivus/Apex-Log-Viewer/pull/650))
+- E2E/CI: add a reusable scratch-org pool, enable seven-worker Playwright parallelism in CI, and keep telemetry-aware validation from blocking the core E2E suite when Azure inputs are unavailable. ([#647](https://github.com/Electivus/Apex-Log-Viewer/pull/647))
+- E2E/helpers: require explicit Dev Hub configuration, cover the default auth-url alias fallback, and ensure pooled cleanup marks leases for recreation when refreshed scratch auth URLs are missing. ([#645](https://github.com/Electivus/Apex-Log-Viewer/pull/645)) ([#646](https://github.com/Electivus/Apex-Log-Viewer/pull/646)) ([#649](https://github.com/Electivus/Apex-Log-Viewer/pull/649))
 
 ## [0.36.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.34.0...v0.36.0) (2026-03-23)
 
