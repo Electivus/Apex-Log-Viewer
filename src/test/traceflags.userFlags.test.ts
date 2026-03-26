@@ -441,6 +441,89 @@ suite('traceflags user management', () => {
     assert.equal(traceFlagQueryCount, 2, 'expected a fresh trace-flag read after invalidation');
   });
 
+  test('upsertTraceFlag invalidates the cached active debug level for current special-target users', async () => {
+    (workspace.getConfiguration as any) = () => ({ get: () => undefined });
+    let traceFlagQueryCount = 0;
+    let activeDebugLevelName = 'ALV_OLD';
+    installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/services/data/v')) {
+        const soql = decodeSoql(req.path);
+        if (soql.includes("FROM User WHERE Username = 'user@example.com'")) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [{ Id: '005000000000001AAA' }]
+            }
+          };
+        }
+        if (isSpecialTargetUserResolutionQuery(soql, 'CloudIntegrationUser')) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [{ Id: '005000000000001AAA' }]
+            }
+          };
+        }
+        if (soql.includes("SELECT Id FROM DebugLevel WHERE DeveloperName = 'ALV_NEW'")) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [{ Id: '7dl000000000001AAA' }]
+            }
+          };
+        }
+        if (soql.includes("SELECT Id FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA'")) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [{ Id: '7tf000000000001AAA' }]
+            }
+          };
+        }
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA' AND LogType = 'USER_DEBUG'")) {
+          traceFlagQueryCount++;
+          return {
+            statusCode: 200,
+            body: {
+              records: [
+                {
+                  Id: '7tf000000000001AAA',
+                  StartDate: '2026-03-25T00:00:00.000+0000',
+                  ExpirationDate: '2099-03-25T01:00:00.000+0000',
+                  DebugLevel: { DeveloperName: activeDebugLevelName }
+                }
+              ]
+            }
+          };
+        }
+      }
+      if (
+        req.method === 'PATCH' &&
+        req.path.endsWith('/services/data/v64.0/tooling/sobjects/TraceFlag/7tf000000000001AAA')
+      ) {
+        activeDebugLevelName = 'ALV_NEW';
+        const parsed = JSON.parse(req.body);
+        assert.equal(parsed.DebugLevelId, '7dl000000000001AAA');
+        return {
+          statusCode: 204
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const before = await getActiveUserDebugLevel(auth);
+    await upsertTraceFlag(auth, {
+      target: { type: 'platformIntegration' },
+      debugLevelName: 'ALV_NEW',
+      ttlMinutes: 30
+    });
+    const after = await getActiveUserDebugLevel(auth);
+
+    assert.equal(before, 'ALV_OLD');
+    assert.equal(after, 'ALV_NEW');
+    assert.equal(traceFlagQueryCount, 2, 'expected a fresh trace-flag read after special-target invalidation');
+  });
+
   test('getTraceFlagTargetStatus resolves Automated Process across all active matches and aggregates USER_DEBUG status', async () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {

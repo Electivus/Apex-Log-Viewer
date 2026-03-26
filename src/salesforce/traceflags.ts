@@ -779,9 +779,7 @@ export async function upsertTraceFlag(
   }
 
   const traceFlagId = traceFlagIds.length === 1 ? traceFlagIds[0] : undefined;
-  if (!isSpecialTraceFlagTarget(input.target)) {
-    invalidateActiveUserDebugLevelCache(auth);
-  }
+  invalidateActiveUserDebugLevelCache(auth);
   return {
     created: resolved.tracedEntityIds.length === 1 ? createdCount === 1 : createdCount > 0 && updatedCount === 0,
     traceFlagId,
@@ -811,9 +809,7 @@ export async function removeTraceFlags(auth: OrgAuth, target: TraceFlagTarget): 
     removedCount += ids.length;
   }
 
-  if (!isSpecialTraceFlagTarget(target)) {
-    invalidateActiveUserDebugLevelCache(auth);
-  }
+  invalidateActiveUserDebugLevelCache(auth);
   return {
     removedCount,
     resolvedTargetCount: resolved.tracedEntityIds.length
