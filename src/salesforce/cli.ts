@@ -124,6 +124,61 @@ function getSfCliProgramCandidates(): string[] {
   return Array.from(new Set(programs));
 }
 
+type CliCandidateFamily = {
+  program: string;
+  attempts: string[][];
+};
+
+function buildOrgAuthCandidateFamilies(targetUsernameOrAlias?: string): CliCandidateFamily[] {
+  const targetArgs = targetUsernameOrAlias ? ['-o', targetUsernameOrAlias] : [];
+  return [
+    ...getSfCliProgramCandidates().map(program => ({
+      program,
+      attempts: [
+        ['org', 'display', '--json', '--verbose', ...targetArgs],
+        ['org', 'user', 'display', '--json', '--verbose', ...targetArgs],
+        ['org', 'user', 'display', '--json', ...targetArgs],
+        ['org', 'display', '--json', ...targetArgs]
+      ]
+    })),
+    {
+      program: 'sfdx',
+      attempts: [['force:org:display', '--json', ...(targetUsernameOrAlias ? ['-u', targetUsernameOrAlias] : [])]]
+    }
+  ];
+}
+
+function getCliAuthTerminalCode(code: string, targetUsernameOrAlias?: string): string | undefined {
+  if (code === 'AUTH_REQUIRED') {
+    return code;
+  }
+  if (!targetUsernameOrAlias && code === 'DEFAULT_ORG_MISSING') {
+    return code;
+  }
+  return undefined;
+}
+
+function createCliAuthUserError(code: string): Error | undefined {
+  switch (code) {
+    case 'DEFAULT_ORG_MISSING':
+      return new Error(
+        localize(
+          'cliDefaultOrgMissing',
+          'No default Salesforce org is configured. Select an org in the extension or run "sf org login web" and set a default org.'
+        )
+      );
+    case 'AUTH_REQUIRED':
+      return new Error(
+        localize(
+          'cliAuthRequired',
+          'Salesforce CLI is not authenticated. Run "sf org login web" to authenticate.'
+        )
+      );
+    default:
+      return undefined;
+  }
+}
+
 export async function getOrgAuth(
   targetUsernameOrAlias?: string,
   forceRefresh?: boolean,
@@ -162,91 +217,126 @@ export async function getOrgAuth(
       return persisted;
     }
   }
-  const candidates: Array<{ program: string; args: string[] }> = [
-    ...getSfCliProgramCandidates().flatMap(program => [
-      { program, args: ['org', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
-      { program, args: ['org', 'user', 'display', '--json', '--verbose', ...(t ? ['-o', t] : [])] },
-      { program, args: ['org', 'user', 'display', '--json', ...(t ? ['-o', t] : [])] },
-      { program, args: ['org', 'display', '--json', ...(t ? ['-o', t] : [])] }
-    ]),
-    { program: 'sfdx', args: ['force:org:display', '--json', ...(t ? ['-u', t] : [])] }
-  ];
+  const candidateFamilies = buildOrgAuthCandidateFamilies(t);
   let sawEnoent = false;
-  for (const { program, args } of candidates) {
-    try {
+  let terminalAuthCode: string | undefined;
+  for (const family of candidateFamilies) {
+    for (const args of family.attempts) {
       try {
-        logTrace('getOrgAuth: trying', program, args.join(' '));
-      } catch {}
-      const { stdout } = await execCommand(program, args, undefined, CLI_TIMEOUT_MS, signal);
-      const auth = readOrgAuthFromCliOutput(stdout);
-      if (execOverriddenForTests && authTtl > 0) {
-        authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
-        enforceAuthCacheLimit();
-      }
-      if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
         try {
-          await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
+          logTrace('getOrgAuth: trying', family.program, args.join(' '));
+        } catch {}
+        const { stdout } = await execCommand(family.program, args, undefined, CLI_TIMEOUT_MS, signal);
+        const auth = readOrgAuthFromCliOutput(stdout);
+        if (execOverriddenForTests && authTtl > 0) {
+          authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
+          enforceAuthCacheLimit();
+        }
+        if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
+          try {
+            await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
+          } catch {}
+        }
+        return auth;
+      } catch (_e) {
+        const e: any = _e;
+        if (signal?.aborted) {
+          throw new Error('aborted');
+        }
+        if (e && e.code === 'ENOENT') {
+          sawEnoent = true;
+          safeSendException('cli.getOrgAuth', { code: 'ENOENT', command: family.program });
+        } else if (e && e.code === 'ETIMEDOUT') {
+          safeSendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: family.program });
+          throw e;
+        } else {
+          const telemetryCode = getCliTelemetryCode(e);
+          safeSendException('cli.getOrgAuth', { code: telemetryCode, command: family.program });
+          terminalAuthCode = getCliAuthTerminalCode(telemetryCode, t) || terminalAuthCode;
+          if (terminalAuthCode) {
+            break;
+          }
+        }
+        try {
+          logTrace('getOrgAuth: attempt failed for', family.program);
         } catch {}
       }
-      return auth;
-    } catch (_e) {
-      const e: any = _e;
-      if (signal?.aborted) {
-        throw new Error('aborted');
-      }
-      if (e && e.code === 'ENOENT') {
-        sawEnoent = true;
-        safeSendException('cli.getOrgAuth', { code: 'ENOENT', command: program });
-      } else if (e && e.code === 'ETIMEDOUT') {
-        safeSendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
-        throw e;
-      } else {
-        safeSendException('cli.getOrgAuth', { code: getCliTelemetryCode(e), command: program });
-      }
-      try {
-        logTrace('getOrgAuth: attempt failed for', program);
-      } catch {}
     }
+    if (terminalAuthCode) {
+      continue;
+    }
+  }
+  if (terminalAuthCode) {
+    throw (
+      createCliAuthUserError(terminalAuthCode) ||
+      new Error(
+        localize(
+          'cliAuthFailed',
+          'Failed to retrieve Salesforce org authentication. Run "sf org login web" to authenticate.'
+        )
+      )
+    );
   }
   if (sawEnoent) {
     const loginPath = await resolvePATHFromLoginShell();
     if (loginPath) {
       const env2: NodeJS.ProcessEnv = { ...process.env, PATH: loginPath };
-      for (const { program, args } of candidates) {
-        try {
+      for (const family of candidateFamilies) {
+        for (const args of family.attempts) {
           try {
-            logTrace('getOrgAuth(login PATH): trying', program, args.join(' '));
-          } catch {}
-          const { stdout } = await execCommand(program, args, env2, CLI_TIMEOUT_MS, signal);
-          const auth = readOrgAuthFromCliOutput(stdout);
-          if (execOverriddenForTests && authTtl > 0) {
-            authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
-            enforceAuthCacheLimit();
-          }
-          if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
             try {
-              await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
+              logTrace('getOrgAuth(login PATH): trying', family.program, args.join(' '));
+            } catch {}
+            const { stdout } = await execCommand(family.program, args, env2, CLI_TIMEOUT_MS, signal);
+            const auth = readOrgAuthFromCliOutput(stdout);
+            if (execOverriddenForTests && authTtl > 0) {
+              authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
+              enforceAuthCacheLimit();
+            }
+            if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
+              try {
+                await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
+              } catch {}
+            }
+            return auth;
+          } catch (_e) {
+            const e: any = _e;
+            if (signal?.aborted) {
+              throw new Error('aborted');
+            }
+            if (e && e.code === 'ENOENT') {
+              safeSendException('cli.getOrgAuth', { code: 'ENOENT', command: family.program });
+            } else if (e && e.code === 'ETIMEDOUT') {
+              safeSendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: family.program });
+              throw e;
+            } else {
+              const telemetryCode = getCliTelemetryCode(e);
+              safeSendException('cli.getOrgAuth', { code: telemetryCode, command: family.program });
+              terminalAuthCode = getCliAuthTerminalCode(telemetryCode, t) || terminalAuthCode;
+              if (terminalAuthCode) {
+                break;
+              }
+            }
+            try {
+              logTrace('getOrgAuth(login PATH): attempt failed for', family.program);
             } catch {}
           }
-          return auth;
-        } catch (_e) {
-          const e: any = _e;
-          if (signal?.aborted) {
-            throw new Error('aborted');
-          }
-          if (e && e.code === 'ENOENT') {
-            safeSendException('cli.getOrgAuth', { code: 'ENOENT', command: program });
-          } else if (e && e.code === 'ETIMEDOUT') {
-            safeSendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: program });
-            throw e;
-          } else {
-            safeSendException('cli.getOrgAuth', { code: getCliTelemetryCode(e), command: program });
-          }
-          try {
-            logTrace('getOrgAuth(login PATH): attempt failed for', program);
-          } catch {}
+        }
+        if (terminalAuthCode) {
+          break;
         }
       }
+    }
+    if (terminalAuthCode) {
+      throw (
+        createCliAuthUserError(terminalAuthCode) ||
+        new Error(
+          localize(
+            'cliAuthFailed',
+            'Failed to retrieve Salesforce org authentication. Run "sf org login web" to authenticate.'
+          )
+        )
+      );
     }
     safeSendException('cli.getOrgAuth', { code: 'CLI_NOT_FOUND' });
     throw new Error(

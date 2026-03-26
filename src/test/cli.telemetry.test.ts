@@ -160,6 +160,136 @@ suite('cli telemetry', () => {
     assert.ok(!calls.some(c => c.properties?.code === '1'), 'should not emit the raw exit code 1');
   });
 
+  test('stops retrying redundant sf auth commands after a default-org failure and surfaces a specific error', async () => {
+    const calls: any[] = [];
+    const attempts: Array<{ program: string; args: string[] }> = [];
+    const telemetry = (name: string, properties: Record<string, string>) => {
+      calls.push({ name, properties });
+    };
+    const cliStubs = {
+      '../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
+      '../utils/config': {
+        getBooleanConfig: (_name: string, def: boolean) => def,
+        getConfig: <T>(_name: string, def?: T) => def,
+        getNumberConfig: (_name: string, def: number) => def,
+        '@noCallThru': true
+      },
+      '../utils/cacheManager': {
+        CacheManager: {
+          get: () => undefined,
+          set: async () => undefined,
+          delete: async () => undefined
+        },
+        '@noCallThru': true
+      },
+      './path': {
+        resolvePATHFromLoginShell: async () => undefined,
+        '@noCallThru': true
+      }
+    };
+    const execModule = proxyquire('../salesforce/exec', {
+      '../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
+    });
+    const { getOrgAuth } = proxyquire('../salesforce/cli', {
+      ...cliStubs,
+      './exec': execModule,
+      '@noCallThru': true
+    });
+    const { __setExecFileImplForTests, __resetExecFileImplForTests } = execModule;
+
+    __setExecFileImplForTests(((program: string, args: readonly string[] | undefined, _opts: any, cb: any) => {
+      attempts.push({ program, args: Array.isArray(args) ? [...args] : [] });
+      const err: any = new Error('default org missing');
+      err.code = 1;
+      cb(err, '', 'No default username found. Use -o or set a default org.');
+      return undefined as any;
+    }) as any);
+
+    await assert.rejects(getOrgAuth(undefined), (e: any) => {
+      assert.match(String(e?.message || ''), /default org|default username|set a default org/i);
+      return true;
+    });
+    __resetExecFileImplForTests();
+
+    assert.deepEqual(
+      attempts.map(attempt => attempt.program),
+      ['sf', 'sfdx'],
+      'expected to stop after the first semantic failure for each CLI family'
+    );
+    assert.ok(
+      calls.some(c => c.name === 'cli.getOrgAuth' && c.properties?.code === 'DEFAULT_ORG_MISSING'),
+      'expected semantic auth failure telemetry'
+    );
+    assert.ok(!calls.some(c => c.name === 'cli.getOrgAuth' && c.properties?.code === 'AUTH_FAILED'));
+  });
+
+  test('stops retrying redundant sf auth commands after an auth-required failure and surfaces login guidance', async () => {
+    const calls: any[] = [];
+    const attempts: Array<{ program: string; args: string[] }> = [];
+    const telemetry = (name: string, properties: Record<string, string>) => {
+      calls.push({ name, properties });
+    };
+    const cliStubs = {
+      '../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
+      '../utils/config': {
+        getBooleanConfig: (_name: string, def: boolean) => def,
+        getConfig: <T>(_name: string, def?: T) => def,
+        getNumberConfig: (_name: string, def: number) => def,
+        '@noCallThru': true
+      },
+      '../utils/cacheManager': {
+        CacheManager: {
+          get: () => undefined,
+          set: async () => undefined,
+          delete: async () => undefined
+        },
+        '@noCallThru': true
+      },
+      './path': {
+        resolvePATHFromLoginShell: async () => undefined,
+        '@noCallThru': true
+      }
+    };
+    const execModule = proxyquire('../salesforce/exec', {
+      '../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
+    });
+    const { getOrgAuth } = proxyquire('../salesforce/cli', {
+      ...cliStubs,
+      './exec': execModule,
+      '@noCallThru': true
+    });
+    const { __setExecFileImplForTests, __resetExecFileImplForTests } = execModule;
+
+    __setExecFileImplForTests(((program: string, args: readonly string[] | undefined, _opts: any, cb: any) => {
+      attempts.push({ program, args: Array.isArray(args) ? [...args] : [] });
+      const err: any = new Error('auth required');
+      err.code = 1;
+      cb(err, '', 'No authorization information found. Run "sf org login web" to authorize an org.');
+      return undefined as any;
+    }) as any);
+
+    await assert.rejects(getOrgAuth(undefined), (e: any) => {
+      assert.match(String(e?.message || ''), /org login web|authenticate|authorization/i);
+      return true;
+    });
+    __resetExecFileImplForTests();
+
+    assert.deepEqual(
+      attempts.map(attempt => attempt.program),
+      ['sf', 'sfdx'],
+      'expected to stop after the first semantic failure for each CLI family'
+    );
+    assert.ok(
+      calls.some(c => c.name === 'cli.getOrgAuth' && c.properties?.code === 'AUTH_REQUIRED'),
+      'expected semantic auth-required telemetry'
+    );
+    assert.ok(!calls.some(c => c.name === 'cli.getOrgAuth' && c.properties?.code === 'AUTH_FAILED'));
+  });
+
   test('classifies empty CLI output during auth parsing', async () => {
     const calls: any[] = [];
     const telemetry = (name: string, properties: Record<string, string>) => {

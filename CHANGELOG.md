@@ -9,6 +9,7 @@
 ### Bug Fixes
 
 - Tail/Docs: refresh the Tail view bootstrap when reopening it, keep debug-level selection resilient for scratch-org flows, and close VS Code auxiliary UI during docs capture so maintainer screenshots stay stable and complete.
+- CLI/Debug Flags: stop retrying redundant Salesforce auth commands after terminal auth/default-org failures, preserve clearer user-facing auth guidance, and cache the active user debug-level lookup so repeated Debug Flags reads avoid unnecessary TraceFlag round trips.
 
 ### Docs
 
@@ -22,6 +23,7 @@
 
 - Docs/E2E: add a manual `npm run docs:screenshots` flow that seeds deterministic scratch-org data, captures the README PNG set, and exercises the refreshed docs-maintenance path.
 - Logs/Tail: cover editor-area commands, singleton editor panels, editor-hosted webview lifecycle, and telemetry catalog updates for the new editor-entry flows.
+- CLI/Debug Flags: cover terminal auth short-circuiting, cached active debug-level reads, and cache invalidation after trace-flag updates.
 
 ## [0.36.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.34.0...v0.36.0) (2026-03-23)
 
