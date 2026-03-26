@@ -252,8 +252,9 @@ export async function getOrgAuth(
         } else {
           const telemetryCode = getCliTelemetryCode(e);
           safeSendException('cli.getOrgAuth', { code: telemetryCode, command: family.program });
-          terminalAuthCode = getCliAuthTerminalCode(telemetryCode, t) || terminalAuthCode;
-          if (terminalAuthCode) {
+          const nextTerminalAuthCode = getCliAuthTerminalCode(telemetryCode, t);
+          if (nextTerminalAuthCode) {
+            terminalAuthCode = nextTerminalAuthCode;
             break;
           }
         }
@@ -309,8 +310,9 @@ export async function getOrgAuth(
             } else {
               const telemetryCode = getCliTelemetryCode(e);
               safeSendException('cli.getOrgAuth', { code: telemetryCode, command: family.program });
-              terminalAuthCode = getCliAuthTerminalCode(telemetryCode, t) || terminalAuthCode;
-              if (terminalAuthCode) {
+              const nextTerminalAuthCode = getCliAuthTerminalCode(telemetryCode, t);
+              if (nextTerminalAuthCode) {
+                terminalAuthCode = nextTerminalAuthCode;
                 break;
               }
             }
