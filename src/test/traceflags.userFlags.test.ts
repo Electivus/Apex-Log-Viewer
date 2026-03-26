@@ -632,6 +632,90 @@ suite('traceflags user management', () => {
     );
   });
 
+  test('removeTraceFlags invalidates the cached active debug level after a partial special-target delete failure', async () => {
+    (workspace.getConfiguration as any) = () => ({ get: () => undefined });
+    let traceFlagQueryCount = 0;
+    let currentUserHasActiveTraceFlag = true;
+    installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/services/data/v')) {
+        const soql = decodeSoql(req.path);
+        if (soql.includes("FROM User WHERE Username = 'user@example.com'")) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [{ Id: '005000000000001AAA' }]
+            }
+          };
+        }
+        if (isSpecialTargetUserResolutionQuery(soql, 'CloudIntegrationUser')) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [{ Id: '005000000000001AAA' }, { Id: '005000000000002AAA' }]
+            }
+          };
+        }
+        if (soql.includes("SELECT Id FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA'")) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [{ Id: '7tf000000000001AAA' }, { Id: '7tf000000000002AAA' }]
+            }
+          };
+        }
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA' AND LogType = 'USER_DEBUG'")) {
+          traceFlagQueryCount++;
+          return {
+            statusCode: 200,
+            body: {
+              records: currentUserHasActiveTraceFlag
+                ? [
+                    {
+                      Id: '7tf000000000001AAA',
+                      StartDate: '2026-03-25T00:00:00.000+0000',
+                      ExpirationDate: '2099-03-25T01:00:00.000+0000',
+                      DebugLevel: { DeveloperName: 'ALV_OLD' }
+                    }
+                  ]
+                : []
+            }
+          };
+        }
+      }
+      if (
+        req.method === 'DELETE' &&
+        req.path.endsWith('/services/data/v64.0/tooling/sobjects/TraceFlag/7tf000000000001AAA')
+      ) {
+        currentUserHasActiveTraceFlag = false;
+        return {
+          statusCode: 204
+        };
+      }
+      if (
+        req.method === 'DELETE' &&
+        req.path.endsWith('/services/data/v64.0/tooling/sobjects/TraceFlag/7tf000000000002AAA')
+      ) {
+        return {
+          statusCode: 500,
+          body: '{"message":"boom"}'
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const before = await getActiveUserDebugLevel(auth);
+    await assert.rejects(async () => await removeTraceFlags(auth, { type: 'platformIntegration' }), /HTTP 500/);
+    const after = await getActiveUserDebugLevel(auth);
+
+    assert.equal(before, 'ALV_OLD');
+    assert.equal(after, undefined);
+    assert.equal(
+      traceFlagQueryCount,
+      2,
+      'expected a fresh trace-flag read after the partially successful special-target delete'
+    );
+  });
+
   test('getTraceFlagTargetStatus resolves Automated Process across all active matches and aggregates USER_DEBUG status', async () => {
     const calls = installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/query?q=')) {

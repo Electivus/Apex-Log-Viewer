@@ -811,8 +811,8 @@ export async function removeTraceFlags(auth: OrgAuth, target: TraceFlagTarget): 
         if (result?.success === false) {
           throw new Error(`Failed to delete USER_DEBUG TraceFlag '${id}'.`);
         }
+        removedCount += 1;
       }
-      removedCount += ids.length;
     }
 
     return {
