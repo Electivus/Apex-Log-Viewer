@@ -290,6 +290,189 @@ suite('cli telemetry', () => {
     assert.ok(!calls.some(c => c.name === 'cli.getOrgAuth' && c.properties?.code === 'AUTH_FAILED'));
   });
 
+  test('retries with login-shell PATH before surfacing a terminal auth error from a mixed failure set', async () => {
+    const calls: any[] = [];
+    const attempts: Array<{ program: string; path: string | undefined }> = [];
+    let loginPathCalls = 0;
+    const telemetry = (name: string, properties: Record<string, string>) => {
+      calls.push({ name, properties });
+    };
+    const cliStubs = {
+      '../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
+      '../utils/config': {
+        getBooleanConfig: (_name: string, def: boolean) => def,
+        getConfig: <T>(name: string, def?: T) => (name === 'sfLogs.cliPath' ? ('C:\\stale\\sf.cmd' as T) : def),
+        getNumberConfig: (_name: string, def: number) => def,
+        '@noCallThru': true
+      },
+      '../utils/cacheManager': {
+        CacheManager: {
+          get: () => undefined,
+          set: async () => undefined,
+          delete: async () => undefined
+        },
+        '@noCallThru': true
+      },
+      './path': {
+        resolvePATHFromLoginShell: async () => {
+          loginPathCalls++;
+          return 'C:\\login-shell\\bin';
+        },
+        '@noCallThru': true
+      }
+    };
+    const execModule = proxyquire('../salesforce/exec', {
+      '../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
+    });
+    const { getOrgAuth } = proxyquire('../salesforce/cli', {
+      ...cliStubs,
+      './exec': execModule,
+      '@noCallThru': true
+    });
+    const { __setExecFileImplForTests, __resetExecFileImplForTests } = execModule;
+
+    __setExecFileImplForTests(((program: string, _args: readonly string[] | undefined, opts: any, cb: any) => {
+      const pathValue = String(opts?.env?.PATH || '');
+      attempts.push({ program, path: pathValue || undefined });
+      if (!pathValue && program === 'C:\\stale\\sf.cmd') {
+        const err: any = new Error('not found');
+        err.code = 'ENOENT';
+        cb(err, '', '');
+        return undefined as any;
+      }
+      if (!pathValue && program === 'sf') {
+        const err: any = new Error('auth required');
+        err.code = 1;
+        cb(err, '', 'No authorization information found. Run "sf org login web" to authorize an org.');
+        return undefined as any;
+      }
+      if (pathValue === 'C:\\login-shell\\bin' && program === 'sf') {
+        cb(
+          null,
+          JSON.stringify({
+            result: {
+              accessToken: '00D-token',
+              instanceUrl: 'https://example.my.salesforce.com',
+              username: 'user@example.com'
+            }
+          }),
+          ''
+        );
+        return undefined as any;
+      }
+      const err: any = new Error('not found');
+      err.code = 'ENOENT';
+      cb(err, '', '');
+      return undefined as any;
+    }) as any);
+
+    const auth = await getOrgAuth(undefined);
+    __resetExecFileImplForTests();
+
+    assert.equal(auth.instanceUrl, 'https://example.my.salesforce.com');
+    assert.equal(loginPathCalls, 1, 'expected login-shell PATH fallback to run');
+    assert.ok(
+      attempts.some(attempt => attempt.program === 'sf' && attempt.path === 'C:\\login-shell\\bin'),
+      'expected a retry with the login-shell PATH'
+    );
+    assert.ok(
+      calls.some(c => c.name === 'cli.getOrgAuth' && c.properties?.code === 'AUTH_REQUIRED'),
+      'expected the mixed semantic failure to stay classified in telemetry'
+    );
+  });
+
+  test('continues to the next CLI family on login-shell PATH after a terminal failure in the current family', async () => {
+    const attempts: Array<{ program: string; path: string | undefined }> = [];
+    let loginPathCalls = 0;
+    const telemetry = () => undefined;
+    const cliStubs = {
+      '../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
+      '../utils/config': {
+        getBooleanConfig: (_name: string, def: boolean) => def,
+        getConfig: <T>(name: string, def?: T) => (name === 'sfLogs.cliPath' ? ('C:\\stale\\sf.cmd' as T) : def),
+        getNumberConfig: (_name: string, def: number) => def,
+        '@noCallThru': true
+      },
+      '../utils/cacheManager': {
+        CacheManager: {
+          get: () => undefined,
+          set: async () => undefined,
+          delete: async () => undefined
+        },
+        '@noCallThru': true
+      },
+      './path': {
+        resolvePATHFromLoginShell: async () => {
+          loginPathCalls++;
+          return 'C:\\login-shell\\bin';
+        },
+        '@noCallThru': true
+      }
+    };
+    const execModule = proxyquire('../salesforce/exec', {
+      '../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
+    });
+    const { getOrgAuth } = proxyquire('../salesforce/cli', {
+      ...cliStubs,
+      './exec': execModule,
+      '@noCallThru': true
+    });
+    const { __setExecFileImplForTests, __resetExecFileImplForTests } = execModule;
+
+    __setExecFileImplForTests(((program: string, _args: readonly string[] | undefined, opts: any, cb: any) => {
+      const pathValue = String(opts?.env?.PATH || '');
+      attempts.push({ program, path: pathValue || undefined });
+      if (!pathValue) {
+        const err: any = new Error('not found');
+        err.code = 'ENOENT';
+        cb(err, '', '');
+        return undefined as any;
+      }
+      if (pathValue === 'C:\\login-shell\\bin' && program === 'C:\\stale\\sf.cmd') {
+        const err: any = new Error('auth required');
+        err.code = 1;
+        cb(err, '', 'No authorization information found. Run "sf org login web" to authorize an org.');
+        return undefined as any;
+      }
+      if (pathValue === 'C:\\login-shell\\bin' && program === 'sf') {
+        cb(
+          null,
+          JSON.stringify({
+            result: {
+              accessToken: '00D-token',
+              instanceUrl: 'https://example.my.salesforce.com',
+              username: 'user@example.com'
+            }
+          }),
+          ''
+        );
+        return undefined as any;
+      }
+      const err: any = new Error('not found');
+      err.code = 'ENOENT';
+      cb(err, '', '');
+      return undefined as any;
+    }) as any);
+
+    const auth = await getOrgAuth(undefined);
+    __resetExecFileImplForTests();
+
+    assert.equal(auth.username, 'user@example.com');
+    assert.equal(loginPathCalls, 1, 'expected one login-shell PATH resolution');
+    assert.ok(
+      attempts.some(attempt => attempt.program === 'C:\\stale\\sf.cmd' && attempt.path === 'C:\\login-shell\\bin'),
+      'expected the configured CLI family to be retried on login-shell PATH'
+    );
+    assert.ok(
+      attempts.some(attempt => attempt.program === 'sf' && attempt.path === 'C:\\login-shell\\bin'),
+      'expected the next CLI family to still run on login-shell PATH'
+    );
+  });
+
   test('classifies empty CLI output during auth parsing', async () => {
     const calls: any[] = [];
     const telemetry = (name: string, properties: Record<string, string>) => {

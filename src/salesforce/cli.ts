@@ -262,11 +262,8 @@ export async function getOrgAuth(
         } catch {}
       }
     }
-    if (terminalAuthCode) {
-      continue;
-    }
   }
-  if (terminalAuthCode) {
+  if (terminalAuthCode && !sawEnoent) {
     throw (
       createCliAuthUserError(terminalAuthCode) ||
       new Error(
@@ -321,9 +318,6 @@ export async function getOrgAuth(
               logTrace('getOrgAuth(login PATH): attempt failed for', family.program);
             } catch {}
           }
-        }
-        if (terminalAuthCode) {
-          break;
         }
       }
     }
