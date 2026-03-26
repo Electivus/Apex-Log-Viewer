@@ -747,47 +747,52 @@ export async function upsertTraceFlag(
   const traceFlagIds: string[] = [];
   const apiVersion = getEffectiveApiVersion(auth);
 
-  for (const tracedEntityId of resolved.tracedEntityIds) {
-    const existingId = await getLatestTraceFlagId(auth, tracedEntityId);
-    if (existingId) {
-      const updateResult = await updateToolingRecord(auth, apiVersion, 'TraceFlag', existingId, {
+  try {
+    for (const tracedEntityId of resolved.tracedEntityIds) {
+      const existingId = await getLatestTraceFlagId(auth, tracedEntityId);
+      if (existingId) {
+        const updateResult = await updateToolingRecord(auth, apiVersion, 'TraceFlag', existingId, {
+          DebugLevelId: debugLevelId,
+          StartDate: start,
+          ExpirationDate: exp
+        });
+        if (updateResult?.success === false) {
+          throw new Error('Failed to update USER_DEBUG TraceFlag.');
+        }
+        updatedCount += 1;
+        traceFlagIds.push(existingId);
+        continue;
+      }
+
+      const payload = {
+        TracedEntityId: tracedEntityId,
+        LogType: 'USER_DEBUG',
         DebugLevelId: debugLevelId,
         StartDate: start,
         ExpirationDate: exp
-      });
-      if (updateResult?.success === false) {
-        throw new Error('Failed to update USER_DEBUG TraceFlag.');
+      };
+      const res = await createToolingRecord(auth, apiVersion, 'TraceFlag', payload);
+      if (!res || !res.success || !res.id) {
+        throw new Error('Failed to create USER_DEBUG TraceFlag.');
       }
-      updatedCount += 1;
-      traceFlagIds.push(existingId);
-      continue;
+      createdCount += 1;
+      traceFlagIds.push(String(res.id));
     }
 
-    const payload = {
-      TracedEntityId: tracedEntityId,
-      LogType: 'USER_DEBUG',
-      DebugLevelId: debugLevelId,
-      StartDate: start,
-      ExpirationDate: exp
+    const traceFlagId = traceFlagIds.length === 1 ? traceFlagIds[0] : undefined;
+    return {
+      created: resolved.tracedEntityIds.length === 1 ? createdCount === 1 : createdCount > 0 && updatedCount === 0,
+      traceFlagId,
+      traceFlagIds,
+      createdCount,
+      updatedCount,
+      resolvedTargetCount: resolved.tracedEntityIds.length
     };
-    const res = await createToolingRecord(auth, apiVersion, 'TraceFlag', payload);
-    if (!res || !res.success || !res.id) {
-      throw new Error('Failed to create USER_DEBUG TraceFlag.');
+  } finally {
+    if (createdCount > 0 || updatedCount > 0) {
+      invalidateActiveUserDebugLevelCache(auth);
     }
-    createdCount += 1;
-    traceFlagIds.push(String(res.id));
   }
-
-  const traceFlagId = traceFlagIds.length === 1 ? traceFlagIds[0] : undefined;
-  invalidateActiveUserDebugLevelCache(auth);
-  return {
-    created: resolved.tracedEntityIds.length === 1 ? createdCount === 1 : createdCount > 0 && updatedCount === 0,
-    traceFlagId,
-    traceFlagIds,
-    createdCount,
-    updatedCount,
-    resolvedTargetCount: resolved.tracedEntityIds.length
-  };
 }
 
 export async function removeTraceFlags(auth: OrgAuth, target: TraceFlagTarget): Promise<RemoveTraceFlagsResult> {
@@ -798,22 +803,27 @@ export async function removeTraceFlags(auth: OrgAuth, target: TraceFlagTarget): 
 
   let removedCount = 0;
   const apiVersion = getEffectiveApiVersion(auth);
-  for (const tracedEntityId of resolved.tracedEntityIds) {
-    const ids = await listTraceFlagIds(auth, tracedEntityId);
-    for (const id of ids) {
-      const result = await deleteToolingRecord(auth, apiVersion, 'TraceFlag', id);
-      if (result?.success === false) {
-        throw new Error(`Failed to delete USER_DEBUG TraceFlag '${id}'.`);
+  try {
+    for (const tracedEntityId of resolved.tracedEntityIds) {
+      const ids = await listTraceFlagIds(auth, tracedEntityId);
+      for (const id of ids) {
+        const result = await deleteToolingRecord(auth, apiVersion, 'TraceFlag', id);
+        if (result?.success === false) {
+          throw new Error(`Failed to delete USER_DEBUG TraceFlag '${id}'.`);
+        }
       }
+      removedCount += ids.length;
     }
-    removedCount += ids.length;
-  }
 
-  invalidateActiveUserDebugLevelCache(auth);
-  return {
-    removedCount,
-    resolvedTargetCount: resolved.tracedEntityIds.length
-  };
+    return {
+      removedCount,
+      resolvedTargetCount: resolved.tracedEntityIds.length
+    };
+  } finally {
+    if (removedCount > 0) {
+      invalidateActiveUserDebugLevelCache(auth);
+    }
+  }
 }
 
 export async function getUserTraceFlagStatus(auth: OrgAuth, userId: string): Promise<TraceFlagTargetStatus> {
