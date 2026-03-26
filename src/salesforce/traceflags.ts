@@ -69,6 +69,7 @@ const DEBUG_LEVEL_FIELDS =
 const DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION = '63.0';
 const DEFAULT_TAIL_DEBUG_LEVEL = { ...DEBUG_LEVEL_PRESETS[0]!.record };
 const debugLevelApiVersionByOrg = new Map<string, string>();
+const activeUserDebugLevelCache = new Map<string, { value: string | undefined; expiresAt: number }>();
 
 function getDebugLevelsCacheConfig() {
   try {
@@ -119,6 +120,10 @@ function getDebugLevelApiVersionCacheKey(auth: OrgAuth): string {
     .toLowerCase()}|${String(auth.username || '')
     .trim()
     .toLowerCase()}`;
+}
+
+function getActiveUserDebugLevelCacheKey(auth: OrgAuth): string {
+  return getDebugLevelApiVersionCacheKey(auth);
 }
 
 function getSpecialTargetCacheKey(auth: OrgAuth, targetType: Exclude<TraceFlagTarget['type'], 'user'>): string {
@@ -218,6 +223,11 @@ async function invalidateDebugLevelsCache(auth: OrgAuth): Promise<void> {
 
 export function __resetDebugLevelApiVersionCacheForTests(): void {
   debugLevelApiVersionByOrg.clear();
+  activeUserDebugLevelCache.clear();
+}
+
+function invalidateActiveUserDebugLevelCache(auth: OrgAuth): void {
+  activeUserDebugLevelCache.delete(getActiveUserDebugLevelCacheKey(auth));
 }
 
 function mapDebugLevelRecord(record: DebugLevelQueryRecord): DebugLevelRecord {
@@ -357,12 +367,30 @@ export async function listActiveUsers(auth: OrgAuth, query = '', limit = 50): Pr
 }
 
 export async function getActiveUserDebugLevel(auth: OrgAuth): Promise<string | undefined> {
+  const { enabled, ttl } = getDebugLevelsCacheConfig();
+  const cacheKey = getActiveUserDebugLevelCacheKey(auth);
+  if (enabled && ttl > 0) {
+    const cached = activeUserDebugLevelCache.get(cacheKey);
+    if (cached) {
+      if (cached.expiresAt > Date.now()) {
+        return cached.value;
+      }
+      activeUserDebugLevelCache.delete(cacheKey);
+    }
+  }
   const userId = await getCurrentUserId(auth);
   if (!userId) {
     return undefined;
   }
   const status = await getTraceFlagTargetStatus(auth, { type: 'user', userId });
-  return status.traceFlagId ? status.debugLevelName : undefined;
+  const activeDebugLevel = status.traceFlagId ? status.debugLevelName : undefined;
+  if (enabled && ttl > 0) {
+    activeUserDebugLevelCache.set(cacheKey, {
+      value: activeDebugLevel,
+      expiresAt: Date.now() + ttl
+    });
+  }
+  return activeDebugLevel;
 }
 
 // Format date as Salesforce datetime: YYYY-MM-DDTHH:mm:ss.SSS+0000 (UTC)
@@ -494,6 +522,7 @@ export async function createDebugLevel(auth: OrgAuth, input: DebugLevelRecord): 
     throw new Error('Failed to create DebugLevel.');
   }
   await invalidateDebugLevelsCache(auth);
+  invalidateActiveUserDebugLevelCache(auth);
   return { id: String(res.id) };
 }
 
@@ -523,6 +552,7 @@ export async function updateDebugLevel(auth: OrgAuth, debugLevelId: string, inpu
     throw new Error('Failed to update DebugLevel.');
   }
   await invalidateDebugLevelsCache(auth);
+  invalidateActiveUserDebugLevelCache(auth);
 }
 
 export async function deleteDebugLevel(auth: OrgAuth, debugLevelId: string): Promise<void> {
@@ -535,6 +565,7 @@ export async function deleteDebugLevel(auth: OrgAuth, debugLevelId: string): Pro
     throw new Error('Failed to delete DebugLevel.');
   }
   await invalidateDebugLevelsCache(auth);
+  invalidateActiveUserDebugLevelCache(auth);
 }
 
 async function getLatestTraceFlagRecord(
@@ -716,46 +747,52 @@ export async function upsertTraceFlag(
   const traceFlagIds: string[] = [];
   const apiVersion = getEffectiveApiVersion(auth);
 
-  for (const tracedEntityId of resolved.tracedEntityIds) {
-    const existingId = await getLatestTraceFlagId(auth, tracedEntityId);
-    if (existingId) {
-      const updateResult = await updateToolingRecord(auth, apiVersion, 'TraceFlag', existingId, {
+  try {
+    for (const tracedEntityId of resolved.tracedEntityIds) {
+      const existingId = await getLatestTraceFlagId(auth, tracedEntityId);
+      if (existingId) {
+        const updateResult = await updateToolingRecord(auth, apiVersion, 'TraceFlag', existingId, {
+          DebugLevelId: debugLevelId,
+          StartDate: start,
+          ExpirationDate: exp
+        });
+        if (updateResult?.success === false) {
+          throw new Error('Failed to update USER_DEBUG TraceFlag.');
+        }
+        updatedCount += 1;
+        traceFlagIds.push(existingId);
+        continue;
+      }
+
+      const payload = {
+        TracedEntityId: tracedEntityId,
+        LogType: 'USER_DEBUG',
         DebugLevelId: debugLevelId,
         StartDate: start,
         ExpirationDate: exp
-      });
-      if (updateResult?.success === false) {
-        throw new Error('Failed to update USER_DEBUG TraceFlag.');
+      };
+      const res = await createToolingRecord(auth, apiVersion, 'TraceFlag', payload);
+      if (!res || !res.success || !res.id) {
+        throw new Error('Failed to create USER_DEBUG TraceFlag.');
       }
-      updatedCount += 1;
-      traceFlagIds.push(existingId);
-      continue;
+      createdCount += 1;
+      traceFlagIds.push(String(res.id));
     }
 
-    const payload = {
-      TracedEntityId: tracedEntityId,
-      LogType: 'USER_DEBUG',
-      DebugLevelId: debugLevelId,
-      StartDate: start,
-      ExpirationDate: exp
+    const traceFlagId = traceFlagIds.length === 1 ? traceFlagIds[0] : undefined;
+    return {
+      created: resolved.tracedEntityIds.length === 1 ? createdCount === 1 : createdCount > 0 && updatedCount === 0,
+      traceFlagId,
+      traceFlagIds,
+      createdCount,
+      updatedCount,
+      resolvedTargetCount: resolved.tracedEntityIds.length
     };
-    const res = await createToolingRecord(auth, apiVersion, 'TraceFlag', payload);
-    if (!res || !res.success || !res.id) {
-      throw new Error('Failed to create USER_DEBUG TraceFlag.');
+  } finally {
+    if (createdCount > 0 || updatedCount > 0) {
+      invalidateActiveUserDebugLevelCache(auth);
     }
-    createdCount += 1;
-    traceFlagIds.push(String(res.id));
   }
-
-  const traceFlagId = traceFlagIds.length === 1 ? traceFlagIds[0] : undefined;
-  return {
-    created: resolved.tracedEntityIds.length === 1 ? createdCount === 1 : createdCount > 0 && updatedCount === 0,
-    traceFlagId,
-    traceFlagIds,
-    createdCount,
-    updatedCount,
-    resolvedTargetCount: resolved.tracedEntityIds.length
-  };
 }
 
 export async function removeTraceFlags(auth: OrgAuth, target: TraceFlagTarget): Promise<RemoveTraceFlagsResult> {
@@ -766,21 +803,27 @@ export async function removeTraceFlags(auth: OrgAuth, target: TraceFlagTarget): 
 
   let removedCount = 0;
   const apiVersion = getEffectiveApiVersion(auth);
-  for (const tracedEntityId of resolved.tracedEntityIds) {
-    const ids = await listTraceFlagIds(auth, tracedEntityId);
-    for (const id of ids) {
-      const result = await deleteToolingRecord(auth, apiVersion, 'TraceFlag', id);
-      if (result?.success === false) {
-        throw new Error(`Failed to delete USER_DEBUG TraceFlag '${id}'.`);
+  try {
+    for (const tracedEntityId of resolved.tracedEntityIds) {
+      const ids = await listTraceFlagIds(auth, tracedEntityId);
+      for (const id of ids) {
+        const result = await deleteToolingRecord(auth, apiVersion, 'TraceFlag', id);
+        if (result?.success === false) {
+          throw new Error(`Failed to delete USER_DEBUG TraceFlag '${id}'.`);
+        }
+        removedCount += 1;
       }
     }
-    removedCount += ids.length;
-  }
 
-  return {
-    removedCount,
-    resolvedTargetCount: resolved.tracedEntityIds.length
-  };
+    return {
+      removedCount,
+      resolvedTargetCount: resolved.tracedEntityIds.length
+    };
+  } finally {
+    if (removedCount > 0) {
+      invalidateActiveUserDebugLevelCache(auth);
+    }
+  }
 }
 
 export async function getUserTraceFlagStatus(auth: OrgAuth, userId: string): Promise<TraceFlagTargetStatus> {
