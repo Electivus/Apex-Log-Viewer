@@ -1,0 +1,14 @@
+{
+  "name": "vscode-extension",
+  "sourceRoot": "apps/vscode-extension/src",
+  "projectType": "application",
+  "tags": ["scope:vscode", "type:app"],
+  "targets": {
+    "check-types": {
+      "command": "tsc --noEmit -p apps/vscode-extension/tsconfig.json"
+    },
+    "build": {
+      "command": "node apps/vscode-extension/esbuild.extension.mjs"
+    }
+  }
+}

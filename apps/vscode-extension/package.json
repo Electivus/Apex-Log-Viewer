@@ -1,0 +1,13 @@
+{
+  "name": "apex-log-viewer",
+  "displayName": "%extension.displayName%",
+  "description": "%extension.description%",
+  "version": "0.38.0",
+  "publisher": "electivus",
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=22.15.1"
+  },
+  "main": "./dist/extension.js",
+  "icon": "media/icon.png"
+}
