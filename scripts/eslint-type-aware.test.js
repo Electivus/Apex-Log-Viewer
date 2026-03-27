@@ -6,27 +6,14 @@ const repoRoot = path.resolve(__dirname, "..");
 const fixturePath = path.join(repoRoot, "src", "test", "fixtures", "eslintTypeAware.fixture.ts");
 
 test("repo ESLint config reports floating promises in TypeScript files", async () => {
-  const sourceText =
-    [
-      "async function returnsPromise(): Promise<number> {",
-      "  return 1;",
-      "}",
-      "",
-      "function run(): void {",
-      "  returnsPromise();",
-      "}",
-      "",
-      "run();",
-      "",
-    ].join("\n");
-
   const { ESLint } = require("eslint");
   const eslint = new ESLint({
     cwd: repoRoot,
     overrideConfigFile: path.join(repoRoot, "eslint.config.mjs"),
+    ignore: false,
   });
 
-  const [result] = await eslint.lintText(sourceText, { filePath: fixturePath });
+  const [result] = await eslint.lintFiles([fixturePath]);
   const floatingPromiseMessage = result.messages.find(
     (message) => message.ruleId === "@typescript-eslint/no-floating-promises",
   );

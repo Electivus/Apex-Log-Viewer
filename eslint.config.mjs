@@ -14,6 +14,9 @@ const typeAwareProjects = [
 
 export default [
   {
+    ignores: ['src/test/fixtures/eslintTypeAware.fixture.ts']
+  },
+  {
     files: ['**/*.ts', '**/*.tsx']
   },
   {
