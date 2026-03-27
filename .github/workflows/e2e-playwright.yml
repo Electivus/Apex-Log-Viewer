@@ -62,6 +62,19 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Resolve VS Code cache metadata
+        id: vscode-cache
+        env:
+          VSCODE_TARGET: ${{ github.event.inputs.vscode_version || 'stable' }}
+          VSCODE_PLATFORM: linux-x64
+        run: node scripts/resolve-vscode-cache-metadata.js
+
+      - name: Restore VS Code test cache
+        uses: actions/cache@v4
+        with:
+          path: .vscode-test/vscode-*
+          key: vscode-test-${{ runner.os }}-${{ steps.vscode-cache.outputs.version }}-${{ steps.vscode-cache.outputs.build }}
+
       - name: Install Salesforce CLI
         run: npm install -g @salesforce/cli
 

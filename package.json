@@ -465,7 +465,7 @@
     "compile-tests": "node -e \"try{require('fs').rmSync('out/test',{recursive:true,force:true})}catch(e){}\" && tsc -p tsconfig.test.json",
     "watch-tests": "tsc -p tsconfig.test.json -w",
     "pretest": "npm run test:linux-deps && npm run build:extension && npm run compile-tests",
-    "test:scripts": "node --test scripts/run-tests-cli.test.js scripts/run-tests.test.js scripts/deploy-azure-monitor.test.js scripts/azure-monitor-helpers.test.js scripts/run-playwright-e2e-telemetry.test.js scripts/scratch-pool-admin.test.js",
+    "test:scripts": "node --test scripts/run-tests-cli.test.js scripts/run-tests.test.js scripts/deploy-azure-monitor.test.js scripts/azure-monitor-helpers.test.js scripts/run-playwright-e2e.test.js scripts/run-playwright-e2e-telemetry.test.js scripts/resolve-vscode-cache-metadata.test.js scripts/scratch-pool-admin.test.js",
     "test": "npm run test:webview && npm run test:scripts && node scripts/run-tests-cli.js --scope=unit --coverage && npm run coverage:merge",
     "test:unit": "npm run test:webview && npm run test:e2e:utils && npm run test:scripts && npm run pretest && node scripts/run-tests-cli.js --scope=unit",
     "test:integration": "npm run test:scripts && npm run pretest && node scripts/run-tests-cli.js --scope=integration --install-deps --timeout=900000",
