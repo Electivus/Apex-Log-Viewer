@@ -34,6 +34,16 @@ function getVsCodeVersion(): string {
   return v || 'stable';
 }
 
+export function resolveVscodeCachePath(extensionDevelopmentPath: string): string {
+  return process.env.VSCODE_TEST_CACHE_PATH
+    ? path.resolve(process.env.VSCODE_TEST_CACHE_PATH)
+    : path.join(extensionDevelopmentPath, '.vscode-test');
+}
+
+export function resolveCachedSupportExtensionsDir(vscodeCachePath: string): string {
+  return path.join(vscodeCachePath, 'extensions');
+}
+
 function envFlag(name: string): boolean {
   const value = String(process.env[name] || '')
     .trim()
@@ -428,9 +438,7 @@ export async function launchVsCode(options: {
   windowSize?: Partial<VscodeWindowSize>;
 }): Promise<VscodeLaunch> {
   const vscodeVersion = getVsCodeVersion();
-  const vscodeCachePath = process.env.VSCODE_TEST_CACHE_PATH
-    ? path.resolve(process.env.VSCODE_TEST_CACHE_PATH)
-    : path.join(options.extensionDevelopmentPath, '.vscode-test');
+  const vscodeCachePath = resolveVscodeCachePath(options.extensionDevelopmentPath);
   const vscodeDownloadLockPath = path.join(vscodeCachePath, `.download-${sanitizeLockNamePart(vscodeVersion)}.lock`);
   const vscodeExecutablePath = await timeE2eStep('vscode.download', async () =>
     await withFileLock(vscodeDownloadLockPath, async () =>
@@ -439,24 +447,27 @@ export async function launchVsCode(options: {
   );
 
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
-  let extensionsDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-exts-'));
-  let shouldCleanupExtensionsDir = true;
+  let extensionsDir = resolveCachedSupportExtensionsDir(vscodeCachePath);
+  const supportExtensionsLockPath = path.join(vscodeCachePath, `.extensions-${sanitizeLockNamePart(vscodeVersion)}.lock`);
+  let shouldCleanupExtensionsDir = false;
+  await mkdir(extensionsDir, { recursive: true });
 
   // The extension is loaded via --extensionDevelopmentPath. Some E2E scenarios still
-  // need support extensions in the isolated profile (for example Replay Debugger),
+  // need support extensions in a reusable test cache (for example Replay Debugger),
   // so install manifest references plus scenario-specific ids.
   try {
     const resolvedExtensionsDir = await timeE2eStep('vscode.ensureSupportExtensions', async () =>
-      await ensureExtensionDependenciesInstalled({
-        vscodeExecutablePath,
-        extensionDevelopmentPath: options.extensionDevelopmentPath,
-        userDataDir,
-        extensionsDir,
-        extraExtensionIds: options.extensionIds
-      })
+      await withFileLock(supportExtensionsLockPath, async () =>
+        await ensureExtensionDependenciesInstalled({
+          vscodeExecutablePath,
+          extensionDevelopmentPath: options.extensionDevelopmentPath,
+          userDataDir,
+          extensionsDir,
+          extraExtensionIds: options.extensionIds
+        })
+      )
     );
     if (resolvedExtensionsDir !== extensionsDir) {
-      await removePathBestEffort(extensionsDir);
       extensionsDir = resolvedExtensionsDir;
       shouldCleanupExtensionsDir = false;
     }

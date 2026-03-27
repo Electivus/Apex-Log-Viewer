@@ -62,6 +62,33 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Resolve VS Code cache metadata
+        id: vscode-cache
+        shell: bash
+        env:
+          VSCODE_TARGET: ${{ github.event.inputs.vscode_version || 'stable' }}
+        run: |
+          set -euo pipefail
+          target="${VSCODE_TARGET:-stable}"
+          if [[ "${target}" == "stable" ]]; then
+            json="$(curl -fsSL https://update.code.visualstudio.com/api/update/linux-x64/stable/latest)"
+            mapfile -t vscode_meta < <(printf '%s' "${json}" | node -e "let data='';process.stdin.on('data',chunk=>data+=chunk);process.stdin.on('end',()=>{const parsed=JSON.parse(data);console.log(parsed.productVersion || parsed.name || 'stable');console.log(parsed.version || parsed.hash || parsed.productVersion || 'stable');});")
+            version="${vscode_meta[0]}"
+            build="${vscode_meta[1]}"
+          else
+            safe_target="${target//[^A-Za-z0-9._-]/-}"
+            version="${safe_target}"
+            build="${safe_target}"
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "build=${build}" >> "${GITHUB_OUTPUT}"
+
+      - name: Restore VS Code test cache
+        uses: actions/cache@v4
+        with:
+          path: .vscode-test/vscode-*
+          key: vscode-test-${{ runner.os }}-${{ steps.vscode-cache.outputs.version }}-${{ steps.vscode-cache.outputs.build }}
+
       - name: Install Salesforce CLI
         run: npm install -g @salesforce/cli
 

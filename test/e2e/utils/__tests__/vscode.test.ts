@@ -1,4 +1,7 @@
+import path from 'node:path';
 import {
+  resolveCachedSupportExtensionsDir,
+  resolveVscodeCachePath,
   resolveWindowSizeArg,
   resolveExtensionsDirForMissingDependencies,
   resolveSupportExtensionIds,
@@ -61,6 +64,32 @@ describe('extensions dir fallback policy', () => {
       extensionsDir: '/home/test/.vscode/extensions',
       warning: '[e2e] Falling back to local VS Code extensions dir: /home/test/.vscode/extensions'
     });
+  });
+});
+
+describe('VS Code cache paths', () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  test('defaults the VS Code cache path to the repo-local .vscode-test directory', () => {
+    delete process.env.VSCODE_TEST_CACHE_PATH;
+
+    expect(resolveVscodeCachePath('/workspace/alv')).toBe(path.join('/workspace/alv', '.vscode-test'));
+  });
+
+  test('honors VSCODE_TEST_CACHE_PATH when set', () => {
+    process.env.VSCODE_TEST_CACHE_PATH = '../shared-vscode-cache';
+
+    expect(resolveVscodeCachePath('/workspace/alv')).toBe(path.resolve('../shared-vscode-cache'));
+  });
+
+  test('stores shared support extensions under the VS Code cache root', () => {
+    expect(resolveCachedSupportExtensionsDir('/workspace/alv/.vscode-test')).toBe(
+      path.join('/workspace/alv/.vscode-test', 'extensions')
+    );
   });
 });
 
