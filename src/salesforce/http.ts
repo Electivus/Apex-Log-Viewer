@@ -12,6 +12,7 @@ import {
   setApiVersion as setConfiguredApiVersion
 } from './apiVersion';
 import { logTrace, logWarn } from '../utils/logger';
+import { stringifyUnknown } from '../utils/error';
 import type { ApexLogRow, OrgAuth } from './types';
 
 function stripTrailingSlash(value: string): string {
@@ -27,7 +28,7 @@ function normalizeOrgKey(auth: OrgAuth): string {
 }
 
 function errorText(error: unknown): string {
-  return String((error as { message?: string } | undefined)?.message || error || '');
+  return stringifyUnknown((error as { message?: unknown } | undefined)?.message ?? error);
 }
 
 function isVersionNotFound404(error: unknown): boolean {

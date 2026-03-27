@@ -6,6 +6,7 @@ import { getOrgAuth } from './cli';
 import { parseApiVersion, recordApiVersionFallback } from './apiVersion';
 import type { OrgAuth } from './types';
 import { logWarn } from '../utils/logger';
+import { stringifyUnknown } from '../utils/error';
 
 type HttpsRequestFn = typeof https.request;
 
@@ -141,7 +142,7 @@ function normalizeSaveResult(result: unknown, idFallback?: string): SaveResult {
 }
 
 function errorText(error: unknown): string {
-  return String((error as { message?: string } | undefined)?.message || error || '');
+  return stringifyUnknown((error as { message?: unknown } | undefined)?.message ?? error);
 }
 
 function isVersionNotFound404(error: unknown): boolean {
@@ -172,20 +173,22 @@ export async function createConnectionFromAuth(
     version: apiVersion,
     instanceUrl: auth.instanceUrl,
     accessToken: auth.accessToken,
-    refreshFn: async (conn, callback) => {
-      try {
-        const next = await getOrgAuth(auth.username, true);
-        auth.accessToken = next.accessToken;
-        auth.instanceUrl = next.instanceUrl;
-        auth.username = next.username;
-        conn.instanceUrl = next.instanceUrl;
-        callback(null, next.accessToken, {
-          access_token: next.accessToken,
-          instance_url: next.instanceUrl
-        } as any);
-      } catch (error) {
-        callback(error as Error);
-      }
+    refreshFn: (conn, callback) => {
+      void (async () => {
+        try {
+          const next = await getOrgAuth(auth.username, true);
+          auth.accessToken = next.accessToken;
+          auth.instanceUrl = next.instanceUrl;
+          auth.username = next.username;
+          conn.instanceUrl = next.instanceUrl;
+          callback(null, next.accessToken, {
+            access_token: next.accessToken,
+            instance_url: next.instanceUrl
+          } as any);
+        } catch (error) {
+          callback(error instanceof Error ? error : new Error(errorText(error)));
+        }
+      })();
     }
   });
 

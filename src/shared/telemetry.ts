@@ -276,7 +276,7 @@ export function activateTelemetry(context: vscode.ExtensionContext) {
 
 export function disposeTelemetry(): void {
   try {
-    reporter?.dispose();
+    void reporter?.dispose();
   } catch {
     // ignore
   } finally {

@@ -19,7 +19,13 @@ const AUTH_REQUIRED_PATTERNS = [
 ];
 
 function normalizeCliTelemetryCode(rawCode: unknown): string {
-  const raw = String(rawCode ?? '').trim();
+  const raw =
+    typeof rawCode === 'string' ||
+    typeof rawCode === 'number' ||
+    typeof rawCode === 'boolean' ||
+    typeof rawCode === 'bigint'
+      ? String(rawCode).trim()
+      : '';
   if (!raw) {
     return 'UNKNOWN';
   }
@@ -53,7 +59,13 @@ export function classifyCliExecTelemetryCode(
   stdout?: string,
   message?: string
 ): string {
-  const explicit = String(rawCode ?? '').trim();
+  const explicit =
+    typeof rawCode === 'string' ||
+    typeof rawCode === 'number' ||
+    typeof rawCode === 'boolean' ||
+    typeof rawCode === 'bigint'
+      ? String(rawCode).trim()
+      : '';
   if (explicit === 'ENOENT') {
     return 'ENOENT';
   }
