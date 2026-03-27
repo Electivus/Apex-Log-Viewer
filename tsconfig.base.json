@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@alv/webview/*": [
+        "packages/webview/src/*"
+      ],
+      "@alv/app-server-client-ts/*": [
+        "packages/app-server-client-ts/src/*"
+      ],
+      "@alv/vscode-extension/*": [
+        "apps/vscode-extension/src/*"
+      ]
+    }
+  }
+}
