@@ -1,5 +1,6 @@
 import { getEffectiveApiVersion, httpsRequestWith401Retry } from './http';
 import type { OrgAuth } from './types';
+import { stringifyUnknown } from '../utils/error';
 
 type QueryResponse<TRecord = any> = {
   records?: TRecord[];
@@ -187,7 +188,7 @@ export async function deleteApexLogs(
     if ((err as { name?: string } | undefined)?.name === 'AbortError') {
       return true;
     }
-    const msg = String((err as Error | undefined)?.message || err || '').toLowerCase();
+    const msg = stringifyUnknown(err).toLowerCase();
     return msg.includes('abort') || msg.includes('canceled') || msg.includes('cancelled');
   };
 

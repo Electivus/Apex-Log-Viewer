@@ -78,8 +78,16 @@ describe('Log Viewer App', () => {
     const pending: PendingFetch[] = [];
     const fetchStub: typeof fetch = input =>
       new Promise<Response>((resolve, reject) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input instanceof Request
+                ? input.url
+                : '';
         pending.push({
-          url: typeof input === 'string' ? input : input.toString(),
+          url,
           resolve,
           reject
         });

@@ -361,26 +361,28 @@ export async function activate(context: vscode.ExtensionContext) {
     // Heuristic: skip when running inside VS Code test harness to avoid interfering with unit tests
     const isVsCodeTestHost = /\.vscode-test\b/i.test(String((vscode.env as any)?.appRoot || ''));
     if (enabled && hasSalesforceProject && !isVsCodeTestHost) {
-      setTimeout(async () => {
-        try {
-          logInfo('Preloading CLI caches (org list, default auth)…');
-          const orgs = await listOrgs(false);
-          const def = orgs.find(o => o.isDefaultUsername) || orgs[0];
-          if (def) {
-            try {
-              await getOrgAuth(def.username);
-            } catch {}
-          } else {
-            // If no orgs, attempt default auth anyway (may fill cache if CLI has default)
-            try {
-              await getOrgAuth(undefined);
-            } catch {}
+      setTimeout(() => {
+        void (async () => {
+          try {
+            logInfo('Preloading CLI caches (org list, default auth)…');
+            const orgs = await listOrgs(false);
+            const def = orgs.find(o => o.isDefaultUsername) || orgs[0];
+            if (def) {
+              try {
+                await getOrgAuth(def.username);
+              } catch {}
+            } else {
+              // If no orgs, attempt default auth anyway (may fill cache if CLI has default)
+              try {
+                await getOrgAuth(undefined);
+              } catch {}
+            }
+            logInfo('Preloading CLI caches done.');
+          } catch (e) {
+            // Best-effort; ignore errors
+            logWarn('Preloading CLI caches failed ->', getErrorMessage(e));
           }
-          logInfo('Preloading CLI caches done.');
-        } catch (e) {
-          // Best-effort; ignore errors
-          logWarn('Preloading CLI caches failed ->', getErrorMessage(e));
-        }
+        })();
       }, 0);
     } else if (enabled && !hasSalesforceProject) {
       logInfo('Skipping CLI cache preload because no sfdx-project.json was found in the workspace.');

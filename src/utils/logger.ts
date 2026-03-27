@@ -1,28 +1,18 @@
 import * as vscode from 'vscode';
+import { stringifyUnknown } from './error';
 
 // Centralized LogOutputChannel for the extension
 const channel: vscode.LogOutputChannel = vscode.window.createOutputChannel('Electivus Apex Log Viewer', { log: true });
 let traceEnabled = false;
 
 function fmt(parts: unknown[]): string {
-  try {
-    const mapped = parts.map(p => {
-      if (p instanceof Error) {
-        return `${p.name}: ${p.message}` + (p.stack ? `\n${p.stack}` : '');
-      }
-      if (typeof p === 'object') {
-        try {
-          return JSON.stringify(p);
-        } catch {
-          return String(p);
-        }
-      }
-      return String(p);
-    });
-    return mapped.join(' ');
-  } catch {
-    return parts.map(p => String(p)).join(' ');
-  }
+  const mapped = parts.map(p => {
+    if (p instanceof Error) {
+      return `${p.name}: ${p.message}` + (p.stack ? `\n${p.stack}` : '');
+    }
+    return stringifyUnknown(p);
+  });
+  return mapped.join(' ');
 }
 
 export function logInfo(...parts: unknown[]): void {
