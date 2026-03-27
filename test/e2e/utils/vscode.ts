@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, cp, access, readdir, mkdir, open, stat, unlink, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from '@vscode/test-electron';
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright';
@@ -40,8 +41,24 @@ export function resolveVscodeCachePath(extensionDevelopmentPath: string): string
     : path.join(extensionDevelopmentPath, '.vscode-test');
 }
 
-export function resolveCachedSupportExtensionsDir(vscodeCachePath: string): string {
-  return path.join(vscodeCachePath, 'extensions');
+function getSupportExtensionsCacheKey(vscodeVersion: string, extensionIds: string[]): string {
+  const normalizedIds = resolveSupportExtensionIds(extensionIds);
+  return createHash('sha1')
+    .update(JSON.stringify({ vscodeVersion: String(vscodeVersion || 'stable').trim() || 'stable', extensionIds: normalizedIds }))
+    .digest('hex')
+    .slice(0, 12);
+}
+
+export function resolveCachedSupportExtensionsDir(
+  vscodeCachePath: string,
+  vscodeVersion: string,
+  extensionIds: string[] = []
+): string {
+  return path.join(vscodeCachePath, 'extensions', sanitizeLockNamePart(vscodeVersion || 'stable'), getSupportExtensionsCacheKey(vscodeVersion, extensionIds));
+}
+
+export function resolveSupportExtensionsLockPath(extensionsDir: string): string {
+  return path.join(extensionsDir, '.install.lock');
 }
 
 function envFlag(name: string): boolean {
@@ -54,7 +71,7 @@ function envFlag(name: string): boolean {
 export function resolveSupportExtensionIds(extensionIds: unknown[] = [], extraExtensionIds: string[] = []): string[] {
   return Array.from(
     new Set([...extensionIds, ...extraExtensionIds].map(String).map(value => value.trim()).filter(Boolean))
-  );
+  ).sort((a, b) => a.localeCompare(b));
 }
 
 export function shouldAllowLocalExtensionsDirFallback(): boolean {
@@ -327,12 +344,11 @@ function installExtensions(args: {
 
 async function ensureExtensionDependenciesInstalled(args: {
   vscodeExecutablePath: string;
-  extensionDevelopmentPath: string;
   userDataDir: string;
   extensionsDir: string;
-  extraExtensionIds?: string[];
+  extensionIds: string[];
 }): Promise<string> {
-  const deps = await readExtensionReferences(args.extensionDevelopmentPath, args.extraExtensionIds ?? []);
+  const deps = resolveSupportExtensionIds(args.extensionIds);
   if (!deps.length) {
     return args.extensionsDir;
   }
@@ -439,6 +455,7 @@ export async function launchVsCode(options: {
 }): Promise<VscodeLaunch> {
   const vscodeVersion = getVsCodeVersion();
   const vscodeCachePath = resolveVscodeCachePath(options.extensionDevelopmentPath);
+  const supportExtensionIds = await readExtensionReferences(options.extensionDevelopmentPath, options.extensionIds ?? []);
   const vscodeDownloadLockPath = path.join(vscodeCachePath, `.download-${sanitizeLockNamePart(vscodeVersion)}.lock`);
   const vscodeExecutablePath = await timeE2eStep('vscode.download', async () =>
     await withFileLock(vscodeDownloadLockPath, async () =>
@@ -447,8 +464,8 @@ export async function launchVsCode(options: {
   );
 
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
-  let extensionsDir = resolveCachedSupportExtensionsDir(vscodeCachePath);
-  const supportExtensionsLockPath = path.join(vscodeCachePath, `.extensions-${sanitizeLockNamePart(vscodeVersion)}.lock`);
+  let extensionsDir = resolveCachedSupportExtensionsDir(vscodeCachePath, vscodeVersion, supportExtensionIds);
+  const supportExtensionsLockPath = resolveSupportExtensionsLockPath(extensionsDir);
   let shouldCleanupExtensionsDir = false;
   await mkdir(extensionsDir, { recursive: true });
 
@@ -460,10 +477,9 @@ export async function launchVsCode(options: {
       await withFileLock(supportExtensionsLockPath, async () =>
         await ensureExtensionDependenciesInstalled({
           vscodeExecutablePath,
-          extensionDevelopmentPath: options.extensionDevelopmentPath,
           userDataDir,
           extensionsDir,
-          extraExtensionIds: options.extensionIds
+          extensionIds: supportExtensionIds
         })
       )
     );

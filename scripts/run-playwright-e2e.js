@@ -2,8 +2,18 @@
 'use strict';
 
 const { execFile, spawn } = require('child_process');
+const { existsSync } = require('fs');
 const { platform } = require('os');
 const path = require('path');
+
+const requiredBuildArtifacts = [
+  'dist/extension.js',
+  'media/webview.css',
+  'media/main.js',
+  'media/tail.js',
+  'media/logViewer.js',
+  'media/debugFlags.js'
+];
 
 function execFileAsync(file, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -30,6 +40,54 @@ function exitWithChildResult(code, signal) {
     console.error('[e2e] Child process exited with null exit code.');
   }
   process.exit(1);
+}
+
+function resolveBuildInvocation(targetPlatform = process.platform) {
+  if (targetPlatform === 'win32') {
+    return {
+      command: process.env.ComSpec || 'cmd.exe',
+      args: ['/d', '/s', '/c', 'npm.cmd', 'run', 'build']
+    };
+  }
+
+  return {
+    command: 'npm',
+    args: ['run', 'build']
+  };
+}
+
+function findMissingBuildArtifacts(repoRoot) {
+  return requiredBuildArtifacts.filter(relativePath => !existsSync(path.join(repoRoot, relativePath)));
+}
+
+function spawnAsync(command, args, options = {}, spawnImpl = spawn) {
+  return new Promise((resolve, reject) => {
+    const child = spawnImpl(command, args, options);
+    child.on('error', reject);
+    child.on('exit', (code, signal) => resolve({ code, signal }));
+  });
+}
+
+async function ensureBuildArtifacts(repoRoot, options = {}) {
+  const missingArtifacts = findMissingBuildArtifacts(repoRoot);
+  if (!missingArtifacts.length) {
+    return;
+  }
+
+  console.log(
+    `[e2e] Missing build artifacts (${missingArtifacts.join(', ')}). Running npm run build before Playwright...`
+  );
+  const buildInvocation = resolveBuildInvocation();
+  const result = await spawnAsync(
+    buildInvocation.command,
+    buildInvocation.args,
+    { cwd: repoRoot, env: process.env, stdio: 'inherit' },
+    options.spawnImpl
+  );
+  if (result.code !== 0) {
+    const details = typeof result.code === 'number' ? `exit code ${result.code}` : `signal ${result.signal || 'unknown'}`;
+    throw new Error(`npm run build failed while preparing Playwright E2E (${details}).`);
+  }
 }
 
 function resolvePlaywrightInvocation(extraArgs) {
@@ -75,6 +133,7 @@ async function main() {
   }
 
   const repoRoot = path.join(__dirname, '..');
+  await ensureBuildArtifacts(repoRoot);
   const invocation = resolvePlaywrightInvocation(process.argv.slice(2));
   const child = spawn(invocation.command, invocation.args, {
     stdio: 'inherit',
@@ -84,7 +143,17 @@ async function main() {
   child.on('exit', exitWithChildResult);
 }
 
-main().catch(err => {
-  console.error('[e2e] Failed to run Playwright E2E tests:', err && err.message ? err.message : err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(err => {
+    console.error('[e2e] Failed to run Playwright E2E tests:', err && err.message ? err.message : err);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  ensureBuildArtifacts,
+  findMissingBuildArtifacts,
+  requiredBuildArtifacts,
+  resolveBuildInvocation,
+  resolvePlaywrightInvocation
+};

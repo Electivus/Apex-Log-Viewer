@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {
   resolveCachedSupportExtensionsDir,
+  resolveSupportExtensionsLockPath,
   resolveVscodeCachePath,
   resolveWindowSizeArg,
   resolveExtensionsDirForMissingDependencies,
@@ -21,7 +22,7 @@ describe('resolveSupportExtensionIds', () => {
         [' salesforce.salesforcedx-vscode-core ', '', 'salesforce.salesforcedx-vscode-core'],
         ['salesforce.salesforcedx-vscode-apex-replay-debugger', 'salesforce.salesforcedx-vscode-core']
       )
-    ).toEqual(['salesforce.salesforcedx-vscode-core', 'salesforce.salesforcedx-vscode-apex-replay-debugger']);
+    ).toEqual(['salesforce.salesforcedx-vscode-apex-replay-debugger', 'salesforce.salesforcedx-vscode-core']);
   });
 });
 
@@ -86,10 +87,57 @@ describe('VS Code cache paths', () => {
     expect(resolveVscodeCachePath('/workspace/alv')).toBe(path.resolve('../shared-vscode-cache'));
   });
 
-  test('stores shared support extensions under the VS Code cache root', () => {
-    expect(resolveCachedSupportExtensionsDir('/workspace/alv/.vscode-test')).toBe(
-      path.join('/workspace/alv/.vscode-test', 'extensions')
+  test('stores support extensions under a version-scoped cache directory', () => {
+    const extensionsDir = resolveCachedSupportExtensionsDir('/workspace/alv/.vscode-test', 'stable', [
+      'salesforce.salesforcedx-vscode-core'
+    ]);
+
+    expect(path.dirname(extensionsDir)).toBe(path.join('/workspace/alv/.vscode-test', 'extensions', 'stable'));
+  });
+
+  test('normalizes the support extension cache key by extension set', () => {
+    expect(
+      resolveCachedSupportExtensionsDir('/workspace/alv/.vscode-test', 'stable', [
+        ' salesforce.salesforcedx-vscode-core ',
+        'salesforce.salesforcedx-vscode-apex-replay-debugger',
+        'salesforce.salesforcedx-vscode-core'
+      ])
+    ).toBe(
+      resolveCachedSupportExtensionsDir('/workspace/alv/.vscode-test', 'stable', [
+        'salesforce.salesforcedx-vscode-apex-replay-debugger',
+        'salesforce.salesforcedx-vscode-core'
+      ])
     );
+  });
+
+  test('isolates support extension cache directories when the version or extension set changes', () => {
+    expect(
+      resolveCachedSupportExtensionsDir('/workspace/alv/.vscode-test', 'stable', [
+        'salesforce.salesforcedx-vscode-core'
+      ])
+    ).not.toBe(
+      resolveCachedSupportExtensionsDir('/workspace/alv/.vscode-test', 'stable', [
+        'salesforce.salesforcedx-vscode-apex-replay-debugger'
+      ])
+    );
+
+    expect(
+      resolveCachedSupportExtensionsDir('/workspace/alv/.vscode-test', 'stable', [
+        'salesforce.salesforcedx-vscode-core'
+      ])
+    ).not.toBe(
+      resolveCachedSupportExtensionsDir('/workspace/alv/.vscode-test', 'insiders', [
+        'salesforce.salesforcedx-vscode-core'
+      ])
+    );
+  });
+
+  test('stores the support extensions lock inside the resolved cache directory', () => {
+    const extensionsDir = resolveCachedSupportExtensionsDir('/workspace/alv/.vscode-test', 'stable', [
+      'salesforce.salesforcedx-vscode-core'
+    ]);
+
+    expect(resolveSupportExtensionsLockPath(extensionsDir)).toBe(path.join(extensionsDir, '.install.lock'));
   });
 });
 
