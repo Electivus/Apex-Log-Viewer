@@ -159,12 +159,23 @@ export class RuntimeClient extends EventEmitter {
 
   cancel(requestId: string): void {
     logTrace('Runtime: cancel request', requestId);
-    if (this.daemon) {
-      this.daemon.writeMessage({
-        jsonrpc: '2.0',
-        method: 'cancel',
-        params: { requestId }
-      });
+    const daemon = this.daemon;
+    if (daemon) {
+      try {
+        daemon.writeMessage({
+          jsonrpc: '2.0',
+          method: 'cancel',
+          params: { requestId }
+        });
+      } catch (error) {
+        const writeError = error instanceof Error ? error : new Error(String(error));
+        if (this.isRetryableWriteError(writeError)) {
+          const normalizedError = this.normalizeDaemonError(writeError);
+          this.handleDaemonFailure(daemon, normalizedError, { code: null, signal: null });
+        } else {
+          logTrace('Runtime: ignoring cancel write failure', { requestId, message: writeError.message });
+        }
+      }
     }
     this.emit(RUNTIME_CANCEL_EVENT, { requestId } satisfies RuntimeCancelEvent);
   }

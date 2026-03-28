@@ -1,5 +1,5 @@
 const { spawnSync } = require('child_process');
-const { cpSync, existsSync, mkdtempSync, rmSync } = require('fs');
+const { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } = require('fs');
 const { tmpdir } = require('os');
 const { join, resolve } = require('path');
 
@@ -52,7 +52,26 @@ function createPackagingStage() {
   return stageDir;
 }
 
+function preservePackagedArtifacts(stageDir, outputDir = repoRoot) {
+  mkdirSync(outputDir, { recursive: true });
+  for (const entry of readdirSync(stageDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.vsix')) {
+      continue;
+    }
+    const sourcePath = join(stageDir, entry.name);
+    const outputPath = join(outputDir, entry.name);
+    cpSync(sourcePath, outputPath, { force: true });
+    rmSync(sourcePath, { force: true });
+  }
+}
+
 function runVsce(rawArgs, options = {}) {
+  const runCommandImpl = options.runCommand || runCommand;
+  const resolveVsceInvocationImpl = options.resolveVsceInvocation || resolveVsceInvocation;
+  const normalizePathArgsImpl = options.normalizePathArgs || normalizePathArgs;
+  const createPackagingStageImpl = options.createPackagingStage || createPackagingStage;
+  const preservePackagedArtifactsImpl = options.preservePackagedArtifacts || preservePackagedArtifacts;
+  const removeDirImpl = options.removeDir || rmSync;
   const args = [...rawArgs];
   const skipPrepublishIndex = args.indexOf('--skip-prepublish');
   const skipPrepublish = skipPrepublishIndex >= 0;
@@ -64,6 +83,7 @@ function runVsce(rawArgs, options = {}) {
   if (!command) {
     throw new Error('usage: node scripts/run-vsce.js <package|publish> [args]');
   }
+  const hasExplicitOut = args.includes('--out');
 
   const env = {
     ...process.env,
@@ -72,21 +92,24 @@ function runVsce(rawArgs, options = {}) {
   };
 
   if (!skipPrepublish && (command === 'package' || command === 'publish')) {
-    runCommand('npm', ['run', 'package'], { cwd: repoRoot, env });
+    runCommandImpl('npm', ['run', 'package'], { cwd: repoRoot, env });
   }
 
-  const invocation = resolveVsceInvocation();
-  const normalizedArgs = normalizePathArgs(args);
-  const stageDir = command === 'package' || command === 'publish' ? createPackagingStage() : extensionPackageDir;
+  const invocation = resolveVsceInvocationImpl();
+  const normalizedArgs = normalizePathArgsImpl(args);
+  const stageDir = command === 'package' || command === 'publish' ? createPackagingStageImpl() : extensionPackageDir;
 
   try {
-    runCommand(invocation.command, [...invocation.baseArgs, ...normalizedArgs], {
+    runCommandImpl(invocation.command, [...invocation.baseArgs, ...normalizedArgs], {
       cwd: stageDir,
       env
     });
+    if (command === 'package' && !hasExplicitOut && stageDir !== extensionPackageDir) {
+      preservePackagedArtifactsImpl(stageDir, options.packageOutputDir || repoRoot);
+    }
   } finally {
     if (stageDir !== extensionPackageDir) {
-      rmSync(stageDir, { recursive: true, force: true });
+      removeDirImpl(stageDir, { recursive: true, force: true });
     }
   }
 }
@@ -105,6 +128,7 @@ module.exports = {
   extensionPackageDir,
   repoRoot,
   createPackagingStage,
+  preservePackagedArtifacts,
   normalizePathArgs,
   resolveVsceInvocation,
   runVsce

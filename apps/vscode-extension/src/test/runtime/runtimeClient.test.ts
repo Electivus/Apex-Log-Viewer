@@ -524,6 +524,54 @@ suite('runtime client', () => {
     assert.equal(result.snippets?.['07L000000000001AA']?.text, 'matched');
   });
 
+  test('does not throw when cancel write fails after the daemon exits', async () => {
+    const methods: string[] = [];
+    const client = new RuntimeClient({
+      clientVersion: '0.1.0',
+      createProcess() {
+        return createFakeDaemon({
+          onWrite(message, helpers) {
+            methods.push(message.method);
+            if (message.method === 'initialize') {
+              helpers.emitMessage({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: {
+                  runtime_version: '0.1.0',
+                  protocol_version: '1',
+                  platform: 'linux',
+                  arch: 'x64',
+                  capabilities: {
+                    orgs: true,
+                    logs: true,
+                    search: true,
+                    tail: true,
+                    debug_flags: true,
+                    doctor: true
+                  },
+                  state_dir: '.alv/state',
+                  cache_dir: '.alv/cache'
+                }
+              });
+              return;
+            }
+
+            const error = new Error('write EPIPE') as NodeJS.ErrnoException;
+            error.code = 'EPIPE';
+            throw error;
+          }
+        });
+      }
+    });
+
+    await client.initialize();
+
+    assert.doesNotThrow(() => {
+      client.cancel('search/query:1');
+    });
+    assert.deepEqual(methods, ['initialize', 'cancel']);
+  });
+
   test('serializes concurrent restart attempts after the daemon exits with multiple requests in flight', async () => {
     const methods: string[] = [];
     let createCount = 0;

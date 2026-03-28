@@ -8,7 +8,8 @@ const {
   addRepoLocalBinToPath,
   createPackagingStage,
   normalizePathArgs,
-  resolveVsceInvocation
+  resolveVsceInvocation,
+  runVsce
 } = require('./run-vsce');
 
 test('resolveVsceInvocation prefers the local workspace binary when present', () => {
@@ -54,5 +55,45 @@ test('createPackagingStage copies the extension app outside the git workspace ro
     assert.equal(fs.existsSync(path.join(stageDir, 'package.nls.json')), true);
   } finally {
     fs.rmSync(stageDir, { recursive: true, force: true });
+  }
+});
+
+test('runVsce preserves packaged VSIX artifacts when package runs in a temp stage dir', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-run-vsce-stage-'));
+  const stageDir = path.join(tempRoot, 'stage');
+  const outputDir = path.join(tempRoot, 'out');
+  fs.mkdirSync(stageDir, { recursive: true });
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const artifactName = 'electivus.apex-log-viewer-0.38.0.vsix';
+  const seen = [];
+
+  try {
+    runVsce(['package', '--skip-prepublish', '--no-yarn'], {
+      createPackagingStage: () => stageDir,
+      resolveVsceInvocation: () => ({ command: 'vsce', baseArgs: [] }),
+      runCommand(command, args, options) {
+        seen.push({ command, args, cwd: options.cwd });
+        if (command === 'vsce') {
+          fs.writeFileSync(path.join(options.cwd, artifactName), 'vsix');
+        }
+      },
+      packageOutputDir: outputDir,
+      removeDir(target, options) {
+        fs.rmSync(target, options);
+      }
+    });
+
+    assert.deepEqual(seen, [
+      {
+        command: 'vsce',
+        args: ['package', '--no-yarn'],
+        cwd: stageDir
+      }
+    ]);
+    assert.equal(fs.existsSync(path.join(outputDir, artifactName)), true);
+    assert.equal(fs.existsSync(path.join(stageDir, artifactName)), false);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
