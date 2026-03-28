@@ -5,3 +5,11 @@ edition = "2021"
 
 [lib]
 path = "src/lib.rs"
+
+[dependencies]
+grep = "0.3"
+grep-matcher = "0.1"
+grep-regex = "0.1"
+grep-searcher = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

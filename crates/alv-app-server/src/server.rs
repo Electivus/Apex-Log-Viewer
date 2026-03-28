@@ -1,8 +1,11 @@
 use alv_protocol::messages::{InitializeParams, InitializeResult, RuntimeCapabilities};
+use serde_json::Value;
 use std::io::{self, BufRead, Write};
 
 use crate::transport_stdio::bounded_transport_channel;
 
+#[path = "handlers/logs.rs"]
+mod logs_handler;
 #[path = "handlers/orgs.rs"]
 mod orgs_handler;
 
@@ -36,7 +39,7 @@ pub fn run_stdio() -> Result<(), String> {
             continue;
         }
 
-        if let Some(response) = handle_request(&line)? {
+        if let Some(response) = handle_request_line(&line)? {
             stdout
                 .write_all(response.as_bytes())
                 .map_err(|error| error.to_string())?;
@@ -48,32 +51,125 @@ pub fn run_stdio() -> Result<(), String> {
     Ok(())
 }
 
-fn handle_request(request: &str) -> Result<Option<String>, String> {
-    let method = extract_string_field(request, "method").ok_or_else(|| "missing method".to_string())?;
+pub fn handle_request_line(request: &str) -> Result<Option<String>, String> {
+    let envelope: Value =
+        serde_json::from_str(request).map_err(|error| format!("invalid request JSON: {error}"))?;
+
+    let method = envelope
+        .get("method")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "missing method".to_string())?;
 
     if method == "cancel" {
         return Ok(None);
     }
 
-    let id = extract_string_field(request, "id").ok_or_else(|| "missing request id".to_string())?;
+    let id = envelope
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "missing request id".to_string())?;
+    let params = envelope.get("params").cloned().unwrap_or(Value::Null);
 
-    match method.as_str() {
+    match method {
         "initialize" => {
             let result = handle_initialize(InitializeParams {
-                client_name: extract_string_field(request, "client_name").unwrap_or_default(),
-                client_version: extract_string_field(request, "client_version").unwrap_or_default(),
+                client_name: params
+                    .get("client_name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                client_version: params
+                    .get("client_version")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
             });
-            Ok(Some(jsonrpc_result(&id, &serialize_initialize_result(&result))))
+            Ok(Some(jsonrpc_result(
+                &id,
+                &serialize_initialize_result(&result),
+            )))
         }
         "org/list" => {
-            let force_refresh = extract_bool_field(request, "forceRefresh").unwrap_or(false)
-                || extract_bool_field(request, "force_refresh").unwrap_or(false);
+            let force_refresh = params
+                .get("forceRefresh")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                || params
+                    .get("force_refresh")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
             let payload = orgs_handler::handle_org_list(force_refresh)?;
             Ok(Some(jsonrpc_result(&id, &payload)))
         }
         "org/auth" => {
-            let username = extract_string_field(request, "username");
+            let username = params
+                .get("username")
+                .and_then(Value::as_str)
+                .map(str::to_string);
             let payload = orgs_handler::handle_org_auth(username.as_deref())?;
+            Ok(Some(jsonrpc_result(&id, &payload)))
+        }
+        "logs/list" => {
+            let payload = logs_handler::handle_logs_list(alv_core::logs::LogsListParams {
+                username: params
+                    .get("username")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                page_size: params
+                    .get("pageSize")
+                    .and_then(Value::as_u64)
+                    .or_else(|| params.get("page_size").and_then(Value::as_u64))
+                    .map(|value| value as usize),
+                offset: params
+                    .get("offset")
+                    .and_then(Value::as_u64)
+                    .map(|value| value as usize),
+                before_start_time: params
+                    .get("beforeStartTime")
+                    .and_then(Value::as_str)
+                    .or_else(|| params.get("before_start_time").and_then(Value::as_str))
+                    .map(str::to_string),
+                before_id: params
+                    .get("beforeId")
+                    .and_then(Value::as_str)
+                    .or_else(|| params.get("before_id").and_then(Value::as_str))
+                    .map(str::to_string),
+            })?;
+            Ok(Some(jsonrpc_result(&id, &payload)))
+        }
+        "search/query" => {
+            let payload = logs_handler::handle_search_query(alv_core::search::SearchQueryParams {
+                query: params
+                    .get("query")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                log_ids: string_vec_field(&params, "logIds")
+                    .or_else(|| string_vec_field(&params, "log_ids"))
+                    .unwrap_or_default(),
+                workspace_root: params
+                    .get("workspaceRoot")
+                    .and_then(Value::as_str)
+                    .or_else(|| params.get("workspace_root").and_then(Value::as_str))
+                    .map(str::to_string),
+            })?;
+            Ok(Some(jsonrpc_result(&id, &payload)))
+        }
+        "logs/triage" => {
+            let payload = logs_handler::handle_logs_triage(alv_core::triage::LogsTriageParams {
+                log_ids: string_vec_field(&params, "logIds")
+                    .or_else(|| string_vec_field(&params, "log_ids"))
+                    .unwrap_or_default(),
+                username: params
+                    .get("username")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                workspace_root: params
+                    .get("workspaceRoot")
+                    .and_then(Value::as_str)
+                    .or_else(|| params.get("workspace_root").and_then(Value::as_str))
+                    .map(str::to_string),
+            })?;
             Ok(Some(jsonrpc_result(&id, &payload)))
         }
         _ => Ok(Some(jsonrpc_error(
@@ -85,7 +181,10 @@ fn handle_request(request: &str) -> Result<Option<String>, String> {
 }
 
 fn jsonrpc_result(id: &str, result_json: &str) -> String {
-    format!("{{\"jsonrpc\":\"2.0\",\"id\":\"{}\",\"result\":{result_json}}}", escape_json(id))
+    format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":\"{}\",\"result\":{result_json}}}",
+        escape_json(id)
+    )
 }
 
 fn jsonrpc_error(id: &str, code: i32, message: &str) -> String {
@@ -114,60 +213,16 @@ fn serialize_initialize_result(result: &InitializeResult) -> String {
     )
 }
 
-fn extract_string_field(source: &str, field: &str) -> Option<String> {
-    let field_marker = format!("\"{field}\"");
-    let field_start = source.find(&field_marker)?;
-    let after_field = &source[field_start + field_marker.len()..];
-    let colon_index = after_field.find(':')?;
-    let after_colon = after_field[colon_index + 1..].trim_start();
-    let mut characters = after_colon.chars();
-
-    if characters.next()? != '"' {
-        return None;
-    }
-
-    let mut escaped = false;
-    let mut value = String::new();
-    for character in characters {
-        if escaped {
-            value.push(match character {
-                '"' => '"',
-                '\\' => '\\',
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                other => other,
-            });
-            escaped = false;
-            continue;
-        }
-
-        match character {
-            '\\' => escaped = true,
-            '"' => return Some(value),
-            other => value.push(other),
-        }
-    }
-
-    None
-}
-
-fn extract_bool_field(source: &str, field: &str) -> Option<bool> {
-    let field_marker = format!("\"{field}\"");
-    let field_start = source.find(&field_marker)?;
-    let after_field = &source[field_start + field_marker.len()..];
-    let colon_index = after_field.find(':')?;
-    let after_colon = after_field[colon_index + 1..].trim_start();
-
-    if after_colon.starts_with("true") {
-        return Some(true);
-    }
-
-    if after_colon.starts_with("false") {
-        return Some(false);
-    }
-
-    None
+fn string_vec_field(source: &Value, field: &str) -> Option<Vec<String>> {
+    source.get(field).and_then(Value::as_array).map(|items| {
+        items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect()
+    })
 }
 
 fn escape_json(value: &str) -> String {
