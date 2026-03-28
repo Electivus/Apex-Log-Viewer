@@ -35,27 +35,28 @@ async function waitForCondition(
 }
 
 function createProviderHarness() {
-  const httpStub = {
+  const httpStub: any = {
     clearListCache: () => undefined,
     getApiVersionFallbackWarning: () => undefined
   };
-  const workspaceStub = {
+  const workspaceStub: any = {
+    getWorkspaceRoot: () => '/tmp/alv-workspace',
     ensureApexLogsDir: async () => path.join(process.cwd(), 'apexlogs'),
     purgeSavedLogs: async () => 0,
     getLogIdFromLogFilePath: () => undefined
   };
-  const debugFlagsPanelStub = {
+  const debugFlagsPanelStub: any = {
     show: async () => undefined
   };
-  const runtimeClientStub = {
+  const runtimeClientStub: any = {
     orgList: async () => [],
     getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' }),
     logsList: async () => [],
     searchQuery: async () => ({ logIds: [], snippets: {}, pendingLogIds: [] }),
     logsTriage: async () => []
   };
-  const cliStub = runtimeClientStub;
-  const vscodeMock = {
+  const cliStub: any = runtimeClientStub;
+  const vscodeMock: any = {
     Uri: {
       file: (filePath: string) => makeUri(filePath),
       joinPath: (base: { fsPath?: string; path?: string; toString?: () => string }, ...pathsToJoin: string[]) => {
@@ -297,31 +298,35 @@ suite('SfLogsViewProvider behavior', () => {
       { Id: '07L000000000001AA', LogLength: 10 },
       { Id: '07L000000000002AA', LogLength: 20 }
     ];
-    cli.logsTriage = async (params: { logIds: string[] }) => [
-      {
-        logId: params.logIds[0],
-        summary: {
-          hasErrors: true,
-          primaryReason: 'Fatal exception',
-          reasons: [
-            {
-              code: 'fatal_exception',
-              severity: 'error',
-              summary: 'Fatal exception',
-              line: 1,
-              eventType: 'EXCEPTION_THROWN'
-            }
-          ]
+    const triageCalls: Array<{ logIds: string[]; workspaceRoot?: string }> = [];
+    cli.logsTriage = async (params: { logIds: string[]; workspaceRoot?: string }) => {
+      triageCalls.push(params);
+      return [
+        {
+          logId: params.logIds[0],
+          summary: {
+            hasErrors: true,
+            primaryReason: 'Fatal exception',
+            reasons: [
+              {
+                code: 'fatal_exception',
+                severity: 'error',
+                summary: 'Fatal exception',
+                line: 1,
+                eventType: 'EXCEPTION_THROWN'
+              }
+            ]
+          }
+        },
+        {
+          logId: params.logIds[1],
+          summary: {
+            hasErrors: false,
+            reasons: []
+          }
         }
-      },
-      {
-        logId: params.logIds[1],
-        summary: {
-          hasErrors: false,
-          reasons: []
-        }
-      }
-    ];
+      ];
+    };
     workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
@@ -350,6 +355,7 @@ suite('SfLogsViewProvider behavior', () => {
     assert.ok(errorHead, 'should mark visible error log in logHead stream');
     assert.equal(errorHead?.primaryReason, 'Fatal exception');
     assert.equal(errorHead?.reasons?.[0]?.code, 'fatal_exception');
+    assert.equal(triageCalls[0]?.workspaceRoot, '/tmp/alv-workspace');
   });
 
   test('refresh cancellation aborts background error scan', async () => {
@@ -525,7 +531,8 @@ suite('SfLogsViewProvider behavior', () => {
       assert.deepEqual(searchCalls[0], {
         username: undefined,
         query: 'error',
-        logIds: ['07L000000000001AA']
+        logIds: ['07L000000000001AA'],
+        workspaceRoot: '/tmp/alv-workspace'
       });
       const matches = posted
         .filter(m => m?.type === 'searchMatches' && Array.isArray(m.logIds) && m.logIds.includes('07L000000000001AA'))
@@ -773,23 +780,29 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
     (provider as any).lastSearchQuery = 'error';
+    (provider as any).configManager.getPageLimit = () => 2;
 
     const callOrder: string[] = [];
-    const fetchSignals: AbortSignal[] = [];
-    (provider as any).logService.fetchLogs = async (
-      _auth: any,
-      _limit: number,
-      _offset: number,
-      signal?: AbortSignal
-    ) => {
-      callOrder.push('fetch');
+    const listSignals: AbortSignal[] = [];
+    const listCalls: any[] = [];
+    cli.logsList = async (params: any, signal?: AbortSignal) => {
+      callOrder.push('list');
+      listCalls.push(params);
       if (signal) {
-        fetchSignals.push(signal);
+        listSignals.push(signal);
       }
-      return [
-        { Id: '07L000000000001AA', StartTime: '2026-01-01T00:00:00.000Z', LogLength: 10 },
-        { Id: '07L000000000002AA', StartTime: '2025-12-31T23:59:59.000Z', LogLength: 20 }
-      ] as any;
+      if (listCalls.length === 1) {
+        return [
+          { Id: '07L000000000001AA', StartTime: '2026-01-01T00:00:00.000Z', LogLength: 10 },
+          { Id: '07L000000000002AA', StartTime: '2025-12-31T23:59:59.000Z', LogLength: 20 }
+        ] as any;
+      }
+      if (listCalls.length === 2) {
+        return [
+          { Id: '07L000000000003AA', StartTime: '2025-12-31T23:59:58.000Z', LogLength: 30 }
+        ] as any;
+      }
+      return [] as any;
     };
     const searchCalls: string[] = [];
     (provider as any).executeSearch = async (query: string) => {
@@ -867,12 +880,21 @@ suite('SfLogsViewProvider behavior', () => {
     await new Promise(resolve => setTimeout(resolve, 20));
 
     assert.equal(ensureCalls.length, 1, 'should perform one bulk save run');
-    assert.equal(ensureCalls[0]?.count, 2, 'should include all logs fetched for the org');
+    assert.equal(ensureCalls[0]?.count, 3, 'should include all paged logs fetched for the org');
     assert.ok(warningCalls.length >= 1, 'should request user confirmation');
     assert.ok(infoCalls.length >= 1, 'should show completion summary');
     assert.equal(callOrder[0], 'confirm', 'should confirm before listing org logs');
-    assert.equal(typeof fetchSignals[0]?.aborted, 'boolean', 'should pass cancellation signal while listing logs');
+    assert.equal(typeof listSignals[0]?.aborted, 'boolean', 'should pass cancellation signal while listing logs');
     assert.ok(searchCalls.includes('error'), 'should re-run active search query after bulk download');
+    assert.deepEqual(listCalls[0], { username: undefined, limit: 2, cursor: undefined });
+    assert.deepEqual(listCalls[1], {
+      username: undefined,
+      limit: 2,
+      cursor: {
+        beforeStartTime: '2025-12-31T23:59:59.000Z',
+        beforeId: '07L000000000002AA'
+      }
+    });
   });
 
   test('downloadAllLogs supports cancellation while listing org logs', async () => {
@@ -881,15 +903,10 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
 
-    const fetchSignals: AbortSignal[] = [];
-    (provider as any).logService.fetchLogs = async (
-      _auth: any,
-      _limit: number,
-      _offset: number,
-      signal?: AbortSignal
-    ) => {
+    const listSignals: AbortSignal[] = [];
+    cli.logsList = async (_params: any, signal?: AbortSignal) => {
       if (signal) {
-        fetchSignals.push(signal);
+        listSignals.push(signal);
       }
       await new Promise(resolve => setTimeout(resolve, 30));
       if (signal?.aborted) {
@@ -973,8 +990,8 @@ suite('SfLogsViewProvider behavior', () => {
     await new Promise(resolve => setTimeout(resolve, 50));
 
     assert.equal(ensureCalled, false, 'should not start downloads when cancelled during listing');
-    assert.equal(fetchSignals.length >= 1, true, 'should pass signal to listing calls');
-    assert.equal(fetchSignals[0]?.aborted, true, 'listing signal should be aborted after cancellation');
+    assert.equal(listSignals.length >= 1, true, 'should pass signal to listing calls');
+    assert.equal(listSignals[0]?.aborted, true, 'listing signal should be aborted after cancellation');
     assert.ok(
       warningCalls.some(msg => msg.includes('cancelled while listing logs')),
       'should show cancellation summary for listing stage'

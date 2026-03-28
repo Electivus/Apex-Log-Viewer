@@ -1,6 +1,16 @@
-use crate::logs::{ensure_log_file_cached, extract_code_unit_started, find_cached_log_path};
+use crate::logs::{
+    ensure_log_file_cached_with_cancel, extract_code_unit_started, find_cached_log_path,
+    CancellationToken,
+};
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+    thread,
+    time::Duration,
+};
+
+const TEST_TRIAGE_LINE_DELAY_MS_ENV: &str = "ALV_TEST_TRIAGE_LINE_DELAY_MS";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -43,24 +53,28 @@ pub struct LogTriageItem {
 }
 
 pub fn triage_logs(params: &LogsTriageParams) -> Result<Vec<LogTriageItem>, String> {
+    triage_logs_with_cancel(params, &CancellationToken::new())
+}
+
+pub fn triage_logs_with_cancel(
+    params: &LogsTriageParams,
+    cancellation: &CancellationToken,
+) -> Result<Vec<LogTriageItem>, String> {
     let mut items = Vec::new();
 
     for log_id in dedup_ids(&params.log_ids) {
+        cancellation.check_cancelled()?;
         let path = match find_cached_log_path(params.workspace_root.as_deref(), &log_id) {
             Some(existing) => existing,
-            None => ensure_log_file_cached(
+            None => ensure_log_file_cached_with_cancel(
                 &log_id,
                 params.username.as_deref(),
                 params.workspace_root.as_deref(),
+                cancellation,
             )?,
         };
 
-        let contents = fs::read_to_string(&path)
-            .map_err(|error| format!("failed to read cached log {}: {error}", path.display()))?;
-        let lines = contents.lines().collect::<Vec<_>>();
-        let code_unit_started =
-            extract_code_unit_started(&lines.iter().take(10).copied().collect::<Vec<_>>());
-        let summary = summarize_lines(&lines);
+        let (code_unit_started, summary) = summarize_file(&path, cancellation)?;
 
         items.push(LogTriageItem {
             log_id,
@@ -72,23 +86,67 @@ pub fn triage_logs(params: &LogsTriageParams) -> Result<Vec<LogTriageItem>, Stri
     Ok(items)
 }
 
-fn summarize_lines(lines: &[&str]) -> LogTriageSummary {
-    for (index, line) in lines.iter().enumerate() {
-        if let Some(diagnostic) = classify_line(line, index + 1) {
-            let primary_reason = Some(diagnostic.summary.clone());
-            return LogTriageSummary {
-                has_errors: diagnostic.severity == "error",
-                primary_reason,
-                reasons: vec![diagnostic],
-            };
+fn summarize_file(
+    path: &std::path::Path,
+    cancellation: &CancellationToken,
+) -> Result<(Option<String>, LogTriageSummary), String> {
+    let file = File::open(path)
+        .map_err(|error| format!("failed to read cached log {}: {error}", path.display()))?;
+    let reader = BufReader::new(file);
+    let mut code_unit_started = None::<String>;
+    let mut first_diagnostic = None::<LogDiagnostic>;
+
+    for (index, line) in reader.lines().enumerate() {
+        cancellation.check_cancelled()?;
+        maybe_test_delay(cancellation)?;
+        let line =
+            line.map_err(|error| format!("failed to read cached log {}: {error}", path.display()))?;
+
+        if index < 10 && code_unit_started.is_none() {
+            code_unit_started = extract_code_unit_started(&[line.as_str()]);
+        }
+
+        if first_diagnostic.is_none() {
+            first_diagnostic = classify_line(&line, index + 1);
+            if first_diagnostic.is_some() && index >= 9 {
+                break;
+            }
+        } else if index >= 9 {
+            break;
         }
     }
 
-    LogTriageSummary {
-        has_errors: false,
-        primary_reason: None,
-        reasons: Vec::new(),
+    let summary = match first_diagnostic {
+        Some(diagnostic) => LogTriageSummary {
+            has_errors: diagnostic.severity == "error",
+            primary_reason: Some(diagnostic.summary.clone()),
+            reasons: vec![diagnostic],
+        },
+        None => LogTriageSummary {
+            has_errors: false,
+            primary_reason: None,
+            reasons: Vec::new(),
+        },
+    };
+
+    Ok((code_unit_started, summary))
+}
+
+fn maybe_test_delay(cancellation: &CancellationToken) -> Result<(), String> {
+    let Some(delay_ms) = std::env::var(TEST_TRIAGE_LINE_DELAY_MS_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+    else {
+        return Ok(());
+    };
+
+    let deadline = std::time::Instant::now() + Duration::from_millis(delay_ms);
+    while std::time::Instant::now() < deadline {
+        cancellation.check_cancelled()?;
+        thread::sleep(Duration::from_millis(2));
     }
+
+    cancellation.check_cancelled()
 }
 
 fn classify_line(line: &str, line_number: usize) -> Option<LogDiagnostic> {

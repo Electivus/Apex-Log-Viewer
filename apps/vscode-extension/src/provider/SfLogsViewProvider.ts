@@ -17,7 +17,7 @@ import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../../../../src/utils/configManager';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { affectsConfiguration, getConfig } from '../../../../src/utils/config';
-import { purgeSavedLogs } from '../../../../src/utils/workspace';
+import { getWorkspaceRoot, purgeSavedLogs } from '../../../../src/utils/workspace';
 import { DEFAULT_LOGS_COLUMNS_CONFIG, normalizeLogsColumnsConfig, type NormalizedLogsColumnsConfig } from '../shared/logsColumns';
 import { normalizeLogTriageSummary, type LogTriageSummary } from '../shared/logTriage';
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
@@ -504,7 +504,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         const entries = await runtimeClient.logsTriage(
           {
             username: selectedOrg,
-            logIds: toScan.map(log => log.Id)
+            logIds: toScan.map(log => log.Id),
+            workspaceRoot: getWorkspaceRoot()
           },
           controller.signal
         );
@@ -684,7 +685,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           query: trimmed,
           logIds: logsSnapshot
             .map(log => log?.Id)
-            .filter((logId): logId is string => typeof logId === 'string' && logId.length > 0)
+            .filter((logId): logId is string => typeof logId === 'string' && logId.length > 0),
+          workspaceRoot: getWorkspaceRoot()
         },
         signal
       );
@@ -710,22 +712,24 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
   }
 
-  private async fetchAllOrgLogs(auth: OrgAuth, signal?: AbortSignal): Promise<ApexLogRow[]> {
+  private async fetchAllOrgLogs(selectedOrg: string | undefined, signal?: AbortSignal): Promise<ApexLogRow[]> {
     const all: ApexLogRow[] = [];
     const seen = new Set<string>();
     let cursorStartTime: string | undefined;
     let cursorId: string | undefined;
     let lastCursorKey: string | undefined;
     while (!signal?.aborted) {
-      const batch = await this.logService.fetchLogs(
-        auth,
-        this.pageLimit,
-        0,
-        signal,
-        cursorStartTime && cursorId
-          ? { beforeStartTime: cursorStartTime, beforeId: cursorId }
-          : undefined
-      );
+      const batch = (await runtimeClient.logsList(
+        {
+          username: selectedOrg,
+          limit: this.pageLimit,
+          cursor:
+            cursorStartTime && cursorId
+              ? { beforeStartTime: cursorStartTime, beforeId: cursorId }
+              : undefined
+        },
+        signal
+      )) as ApexLogRow[];
       if (!Array.isArray(batch) || batch.length === 0) {
         break;
       }
@@ -974,7 +978,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       }
 
       this.pageLimit = this.configManager.getPageLimit();
-      const auth = await runtimeClient.getOrgAuth({ username: selectedOrg });
       type BulkDownloadRunResult =
         | { kind: 'cancelled-before-download'; listed: number }
         | { kind: 'empty' }
@@ -999,7 +1002,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           });
           let logs: ApexLogRow[] = [];
           try {
-            logs = await this.fetchAllOrgLogs(auth, controller.signal);
+            logs = await this.fetchAllOrgLogs(selectedOrg, controller.signal);
           } catch (e) {
             const msg = getErrorMessage(e);
             if (controller.signal.aborted || this.isAbortLikeError(e, msg)) {

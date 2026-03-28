@@ -57,6 +57,7 @@ export type SearchQueryParams = {
   username?: string;
   query: string;
   logIds?: string[];
+  workspaceRoot?: string;
 };
 
 export type SearchQueryResult = {
@@ -82,6 +83,7 @@ export type RuntimeLogTriageSummary = {
 export type LogsTriageParams = {
   username?: string;
   logIds: string[];
+  workspaceRoot?: string;
 };
 
 export type LogsTriageEntry = {

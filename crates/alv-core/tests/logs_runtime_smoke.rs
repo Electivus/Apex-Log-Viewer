@@ -1,22 +1,35 @@
 use std::{
     fs,
     path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     sync::{Mutex, OnceLock},
+    thread,
+    time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use alv_core::{
     logs::{
-        ensure_log_file_cached, extract_code_unit_started, find_cached_log_path, list_logs,
-        LogsListParams, TEST_APEX_LOG_FIXTURE_DIR_ENV, TEST_SF_LOG_LIST_JSON_ENV,
+        ensure_log_file_cached, extract_code_unit_started, find_cached_log_path,
+        list_logs_with_cancel, CancellationToken, LogsListParams, TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        TEST_SF_LOG_LIST_JSON_ENV,
     },
-    search::{search_query, SearchQueryParams},
-    triage::{triage_logs, LogsTriageParams},
+    search::{search_query, search_query_with_cancel, SearchQueryParams},
+    triage::{triage_logs, triage_logs_with_cancel, LogsTriageParams},
 };
 
 fn test_guard() -> &'static Mutex<()> {
     static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
     GUARD.get_or_init(|| Mutex::new(()))
+}
+
+fn lock_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    test_guard()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn make_temp_workspace(name: &str) -> PathBuf {
@@ -31,7 +44,7 @@ fn make_temp_workspace(name: &str) -> PathBuf {
 
 #[test]
 fn logs_runtime_smoke_lists_logs_from_sf_fixture() {
-    let _guard = test_guard().lock().expect("test guard should lock");
+    let _guard = lock_test_guard();
 
     std::env::set_var(
         TEST_SF_LOG_LIST_JSON_ENV,
@@ -54,12 +67,15 @@ fn logs_runtime_smoke_lists_logs_from_sf_fixture() {
         }"#,
     );
 
-    let rows = list_logs(&LogsListParams {
-        username: Some("demo@example.com".to_string()),
-        limit: Some(50),
-        cursor: None,
-        offset: Some(0),
-    })
+    let rows = list_logs_with_cancel(
+        &LogsListParams {
+            username: Some("demo@example.com".to_string()),
+            limit: Some(50),
+            cursor: None,
+            offset: Some(0),
+        },
+        &CancellationToken::new(),
+    )
     .expect("logs/list should parse fixture");
 
     assert_eq!(rows.len(), 1);
@@ -77,8 +93,142 @@ fn logs_runtime_smoke_lists_logs_from_sf_fixture() {
 }
 
 #[test]
+fn logs_runtime_smoke_cancels_logs_list_before_fixture_returns() {
+    let _guard = lock_test_guard();
+
+    std::env::set_var(
+        TEST_SF_LOG_LIST_JSON_ENV,
+        r#"{
+          "result": {
+            "records": [
+              {
+                "Id": "07L000000000001AA",
+                "StartTime": "2026-03-27T12:00:00.000Z",
+                "Operation": "ExecuteAnonymous",
+                "Application": "Developer Console",
+                "DurationMilliseconds": 125,
+                "Status": "Success",
+                "Request": "REQ-1",
+                "LogLength": 4096
+              }
+            ]
+          }
+        }"#,
+    );
+    std::env::set_var("ALV_TEST_LOGS_CANCEL_DELAY_MS", "250");
+
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let token = CancellationToken::new();
+    let cancel_handle = token.clone();
+    let cancelled_flag = Arc::clone(&cancelled);
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(50));
+        cancel_handle.cancel();
+        cancelled_flag.store(true, Ordering::SeqCst);
+    });
+
+    let result = list_logs_with_cancel(
+        &LogsListParams {
+            username: Some("demo@example.com".to_string()),
+            limit: Some(50),
+            cursor: None,
+            offset: Some(0),
+        },
+        &token,
+    );
+
+    assert!(cancelled.load(Ordering::SeqCst));
+    assert!(result
+        .expect_err("logs/list should notice cancellation")
+        .contains("cancel"));
+
+    std::env::remove_var("ALV_TEST_LOGS_CANCEL_DELAY_MS");
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+}
+
+#[test]
+fn logs_runtime_smoke_search_respects_cancellation_mid_scan() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("search-cancel");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    fs::write(
+        apexlogs_dir.join("default_07L000000000001AA.log"),
+        (0..200)
+            .map(|index| format!("09:00:{index:02}.0|USER_INFO|line {index}\n"))
+            .collect::<String>(),
+    )
+    .expect("cached log should be writable");
+    std::env::set_var("ALV_TEST_SEARCH_LINE_DELAY_MS", "5");
+
+    let token = CancellationToken::new();
+    let cancel_handle = token.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(40));
+        cancel_handle.cancel();
+    });
+
+    let result = search_query_with_cancel(
+        &SearchQueryParams {
+            query: "line 199".to_string(),
+            log_ids: vec!["07L000000000001AA".to_string()],
+            workspace_root: Some(workspace_root.display().to_string()),
+        },
+        &token,
+    );
+
+    assert!(result
+        .expect_err("search/query should stop when cancelled")
+        .contains("cancel"));
+
+    std::env::remove_var("ALV_TEST_SEARCH_LINE_DELAY_MS");
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_triage_respects_cancellation_mid_file() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("triage-cancel");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    fs::write(
+        apexlogs_dir.join("default_07L000000000001AA.log"),
+        (0..200)
+            .map(|index| format!("09:00:{index:02}.0|USER_INFO|line {index}\n"))
+            .collect::<String>(),
+    )
+    .expect("cached log should be writable");
+    std::env::set_var("ALV_TEST_TRIAGE_LINE_DELAY_MS", "5");
+
+    let token = CancellationToken::new();
+    let cancel_handle = token.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(40));
+        cancel_handle.cancel();
+    });
+
+    let result = triage_logs_with_cancel(
+        &LogsTriageParams {
+            log_ids: vec!["07L000000000001AA".to_string()],
+            username: None,
+            workspace_root: Some(workspace_root.display().to_string()),
+        },
+        &token,
+    );
+
+    assert!(result
+        .expect_err("logs/triage should stop when cancelled")
+        .contains("cancel"));
+
+    std::env::remove_var("ALV_TEST_TRIAGE_LINE_DELAY_MS");
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
 fn logs_runtime_smoke_searches_cached_logs_with_pending_ids() {
-    let _guard = test_guard().lock().expect("test guard should lock");
+    let _guard = lock_test_guard();
 
     let workspace_root = make_temp_workspace("search");
     let apexlogs_dir = workspace_root.join("apexlogs");
@@ -116,7 +266,7 @@ fn logs_runtime_smoke_searches_cached_logs_with_pending_ids() {
 
 #[test]
 fn logs_runtime_smoke_triages_logs_and_caches_fixture_downloads() {
-    let _guard = test_guard().lock().expect("test guard should lock");
+    let _guard = lock_test_guard();
 
     let workspace_root = make_temp_workspace("triage");
     let fixture_root = make_temp_workspace("triage-fixture");
@@ -180,7 +330,7 @@ fn logs_runtime_smoke_extracts_code_unit_started() {
 
 #[test]
 fn logs_runtime_smoke_ensure_log_cache_uses_fixture_copy() {
-    let _guard = test_guard().lock().expect("test guard should lock");
+    let _guard = lock_test_guard();
 
     let workspace_root = make_temp_workspace("ensure-cache");
     let fixture_root = make_temp_workspace("ensure-cache-fixture");

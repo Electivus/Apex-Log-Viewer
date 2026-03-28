@@ -1,9 +1,17 @@
-use crate::logs::find_cached_log_path;
+use crate::logs::{find_cached_log_path, CancellationToken};
 use grep_matcher::Matcher;
 use grep_regex::RegexMatcherBuilder;
-use grep_searcher::{sinks::UTF8, Searcher};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, io};
+use std::{
+    collections::BTreeMap,
+    fs::File,
+    io::{self, BufRead, BufReader},
+    thread,
+    time::Duration,
+};
+
+const TEST_SEARCH_LINE_DELAY_MS_ENV: &str = "ALV_TEST_SEARCH_LINE_DELAY_MS";
+const CANCELLED_MESSAGE: &str = "request cancelled";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct SearchQueryParams {
@@ -30,11 +38,19 @@ pub struct SearchQueryResult {
 }
 
 pub fn search_query(params: &SearchQueryParams) -> Result<SearchQueryResult, String> {
+    search_query_with_cancel(params, &CancellationToken::new())
+}
+
+pub fn search_query_with_cancel(
+    params: &SearchQueryParams,
+    cancellation: &CancellationToken,
+) -> Result<SearchQueryResult, String> {
     let query = params.query.trim();
     if query.is_empty() {
         return Ok(SearchQueryResult::default());
     }
 
+    cancellation.check_cancelled()?;
     let matcher = RegexMatcherBuilder::new()
         .fixed_strings(true)
         .case_insensitive(true)
@@ -44,22 +60,30 @@ pub fn search_query(params: &SearchQueryParams) -> Result<SearchQueryResult, Str
     let mut result = SearchQueryResult::default();
 
     for log_id in dedup_ids(&params.log_ids) {
+        cancellation.check_cancelled()?;
         let Some(path) = find_cached_log_path(params.workspace_root.as_deref(), &log_id) else {
             result.pending_log_ids.push(log_id);
             continue;
         };
 
-        let mut matched_line = None::<String>;
-        Searcher::new()
-            .search_path(
-                &matcher,
-                &path,
-                UTF8(|_line_number, line| {
-                    matched_line = Some(line.trim_end_matches(['\r', '\n']).to_string());
-                    Ok(false)
-                }),
-            )
+        let file = File::open(&path)
             .map_err(|error| format!("failed to search {}: {error}", path.display()))?;
+        let reader = BufReader::new(file);
+        let mut matched_line = None::<String>;
+        for line in reader.lines() {
+            maybe_test_delay(cancellation).map_err(|error| error.to_string())?;
+            cancellation.check_cancelled()?;
+            let line =
+                line.map_err(|error| format!("failed to search {}: {error}", path.display()))?;
+            if matcher
+                .find(line.as_bytes())
+                .map_err(|error| format!("failed to search {}: {error}", path.display()))?
+                .is_some()
+            {
+                matched_line = Some(line);
+                break;
+            }
+        }
 
         let Some(line) = matched_line else {
             continue;
@@ -72,6 +96,35 @@ pub fn search_query(params: &SearchQueryParams) -> Result<SearchQueryResult, Str
     }
 
     Ok(result)
+}
+
+fn maybe_test_delay(cancellation: &CancellationToken) -> io::Result<()> {
+    let Some(delay_ms) = std::env::var(TEST_SEARCH_LINE_DELAY_MS_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+    else {
+        return Ok(());
+    };
+
+    let deadline = std::time::Instant::now() + Duration::from_millis(delay_ms);
+    while std::time::Instant::now() < deadline {
+        if cancellation.is_cancelled() {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                CANCELLED_MESSAGE,
+            ));
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+
+    if cancellation.is_cancelled() {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            CANCELLED_MESSAGE,
+        ));
+    }
+
+    Ok(())
 }
 
 fn build_snippet(matcher: &grep_regex::RegexMatcher, line: &str) -> Option<SearchSnippet> {

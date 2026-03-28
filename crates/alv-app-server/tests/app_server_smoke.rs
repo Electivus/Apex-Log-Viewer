@@ -1,10 +1,14 @@
 use std::{
     fs,
+    io::{self, Write},
+    sync::Arc,
     sync::{Mutex, OnceLock},
+    thread,
+    time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use alv_app_server::server::{handle_initialize, handle_request_line};
+use alv_app_server::server::{handle_initialize, handle_request_line, run_event_loop};
 use alv_app_server::transport_stdio::{bounded_transport_channel, TRANSPORT_QUEUE_CAPACITY};
 use alv_core::logs::{TEST_APEX_LOG_FIXTURE_DIR_ENV, TEST_SF_LOG_LIST_JSON_ENV};
 use alv_protocol::messages::InitializeParams;
@@ -22,6 +26,37 @@ fn make_temp_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("alv-app-server-{name}-{nonce}"));
     fs::create_dir_all(&dir).expect("temp dir should be created");
     dir
+}
+
+#[derive(Clone, Default)]
+struct SharedBuffer {
+    inner: Arc<Mutex<Vec<u8>>>,
+}
+
+impl SharedBuffer {
+    fn into_string(self) -> String {
+        String::from_utf8(
+            self.inner
+                .lock()
+                .expect("shared buffer should lock")
+                .clone(),
+        )
+        .expect("shared buffer should contain utf8")
+    }
+}
+
+impl Write for SharedBuffer {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.inner
+            .lock()
+            .expect("shared buffer should lock")
+            .extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 #[test]
@@ -143,4 +178,75 @@ fn app_server_smoke_routes_logs_search_and_triage_requests() {
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     fs::remove_dir_all(workspace_root).expect("workspace should be removable");
     fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
+}
+
+#[test]
+fn app_server_smoke_cancels_in_flight_request_and_keeps_processing_stdio() {
+    let _guard = test_guard().lock().expect("test guard should lock");
+
+    std::env::set_var(
+        TEST_SF_LOG_LIST_JSON_ENV,
+        r#"{
+          "result": {
+            "records": [
+              {
+                "Id": "07L000000000001AA",
+                "StartTime": "2026-03-27T12:00:00.000Z",
+                "Operation": "ExecuteAnonymous",
+                "Application": "Developer Console",
+                "DurationMilliseconds": 125,
+                "Status": "Success",
+                "Request": "REQ-1",
+                "LogLength": 4096
+              }
+            ]
+          }
+        }"#,
+    );
+    std::env::set_var("ALV_TEST_LOGS_CANCEL_DELAY_MS", "400");
+
+    let (sender, receiver) = bounded_transport_channel::<String>();
+    let writer = SharedBuffer::default();
+    let writer_for_server = writer.clone();
+    let started = std::time::Instant::now();
+
+    let server = thread::spawn(move || run_event_loop(receiver, writer_for_server));
+
+    sender
+        .blocking_send(
+            r#"{"jsonrpc":"2.0","id":"logs:cancel-me","method":"logs/list","params":{"limit":25}}"#
+                .to_string(),
+        )
+        .expect("slow request should be sent");
+    thread::sleep(Duration::from_millis(50));
+    sender
+        .blocking_send(
+            r#"{"jsonrpc":"2.0","method":"cancel","params":{"requestId":"logs:cancel-me"}}"#
+                .to_string(),
+        )
+        .expect("cancel request should be sent");
+    sender
+        .blocking_send(
+            r#"{"jsonrpc":"2.0","id":"init:1","method":"initialize","params":{"client_name":"test","client_version":"0.1.0"}}"#
+                .to_string(),
+        )
+        .expect("follow-up request should be sent");
+    drop(sender);
+
+    server
+        .join()
+        .expect("server thread should join")
+        .expect("event loop should succeed");
+
+    let elapsed = started.elapsed();
+    let output = writer.into_string();
+    assert!(
+        elapsed < Duration::from_millis(250),
+        "cancelled request should not block the stdio loop for the full slow operation: {elapsed:?}"
+    );
+    assert!(output.contains("\"id\":\"init:1\""));
+    assert!(!output.contains("\"id\":\"logs:cancel-me\""));
+
+    std::env::remove_var("ALV_TEST_LOGS_CANCEL_DELAY_MS");
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
 }

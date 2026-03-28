@@ -11,7 +11,7 @@ suite('runtime client', () => {
   test('tracks initialize capabilities from the daemon handshake', async () => {
     const client = new RuntimeClient({
       clientVersion: '0.1.0',
-      requestHandler: async method => {
+      requestHandler: async <TResult>(method: string): Promise<TResult> => {
         assert.equal(method, 'initialize');
         return {
           runtime_version: '0.1.0',
@@ -28,7 +28,7 @@ suite('runtime client', () => {
           },
           state_dir: '.alv/state',
           cache_dir: '.alv/cache'
-        };
+        } as TResult;
       }
     });
     const result = await client.initialize();

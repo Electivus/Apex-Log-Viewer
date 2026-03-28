@@ -3,12 +3,47 @@ use serde_json::Value;
 use std::{
     env, fs,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+    time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 pub const TEST_SF_LOG_LIST_JSON_ENV: &str = "ALV_TEST_SF_LOG_LIST_JSON";
 pub const TEST_APEX_LOG_FIXTURE_DIR_ENV: &str = "ALV_TEST_APEX_LOG_FIXTURE_DIR";
+const TEST_LOGS_CANCEL_DELAY_MS_ENV: &str = "ALV_TEST_LOGS_CANCEL_DELAY_MS";
+const CANCELLED_MESSAGE: &str = "request cancelled";
+
+#[derive(Debug, Clone, Default)]
+pub struct CancellationToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl CancellationToken {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    pub fn check_cancelled(&self) -> Result<(), String> {
+        if self.is_cancelled() {
+            Err(CANCELLED_MESSAGE.to_string())
+        } else {
+            Ok(())
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -78,7 +113,14 @@ pub struct LogRow {
 }
 
 pub fn list_logs(params: &LogsListParams) -> Result<Vec<LogRow>, String> {
-    let json = run_sf_log_list_json(params)?;
+    list_logs_with_cancel(params, &CancellationToken::new())
+}
+
+pub fn list_logs_with_cancel(
+    params: &LogsListParams,
+    cancellation: &CancellationToken,
+) -> Result<Vec<LogRow>, String> {
+    let json = run_sf_log_list_json_with_cancel(params, cancellation)?;
     list_logs_from_json(&json)
 }
 
@@ -121,10 +163,20 @@ pub fn list_logs_from_json(json: &str) -> Result<Vec<LogRow>, String> {
 }
 
 pub fn run_sf_log_list_json(params: &LogsListParams) -> Result<String, String> {
+    run_sf_log_list_json_with_cancel(params, &CancellationToken::new())
+}
+
+pub fn run_sf_log_list_json_with_cancel(
+    params: &LogsListParams,
+    cancellation: &CancellationToken,
+) -> Result<String, String> {
     if let Ok(fixture) = env::var(TEST_SF_LOG_LIST_JSON_ENV) {
+        maybe_test_delay(TEST_LOGS_CANCEL_DELAY_MS_ENV, cancellation)?;
+        cancellation.check_cancelled()?;
         return Ok(fixture);
     }
 
+    cancellation.check_cancelled()?;
     let safe_page_size = params.limit.unwrap_or(100).clamp(1, 200);
     let safe_offset = params.offset.unwrap_or(0);
     let soql = build_logs_query(safe_page_size, safe_offset, params);
@@ -149,7 +201,7 @@ pub fn run_sf_log_list_json(params: &LogsListParams) -> Result<String, String> {
         args.push(username.trim().to_string());
     }
 
-    run_command("sf", &args)
+    run_command_with_cancel("sf", &args, cancellation)
 }
 
 pub fn resolve_apex_logs_dir(workspace_root: Option<&str>) -> PathBuf {
@@ -186,6 +238,16 @@ pub fn ensure_log_file_cached(
     username: Option<&str>,
     workspace_root: Option<&str>,
 ) -> Result<PathBuf, String> {
+    ensure_log_file_cached_with_cancel(log_id, username, workspace_root, &CancellationToken::new())
+}
+
+pub fn ensure_log_file_cached_with_cancel(
+    log_id: &str,
+    username: Option<&str>,
+    workspace_root: Option<&str>,
+    cancellation: &CancellationToken,
+) -> Result<PathBuf, String> {
+    cancellation.check_cancelled()?;
     if let Some(existing) = find_cached_log_path(workspace_root, log_id) {
         return Ok(existing);
     }
@@ -202,6 +264,7 @@ pub fn ensure_log_file_cached(
     let target_path = target_dir.join(format!("{safe_user}_{log_id}.log"));
 
     if let Ok(fixture_dir) = env::var(TEST_APEX_LOG_FIXTURE_DIR_ENV) {
+        cancellation.check_cancelled()?;
         let source_path = Path::new(&fixture_dir).join(format!("{log_id}.log"));
         if !source_path.is_file() {
             return Err(format!(
@@ -236,7 +299,8 @@ pub fn ensure_log_file_cached(
         args.push(value.to_string());
     }
 
-    run_command("sf", &args)?;
+    run_command_with_cancel("sf", &args, cancellation)?;
+    cancellation.check_cancelled()?;
 
     let downloaded_path = find_downloaded_log(&staging_dir, log_id).ok_or_else(|| {
         format!(
@@ -347,12 +411,45 @@ fn make_temp_staging_dir() -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn run_command(program: &str, args: &[String]) -> Result<String, String> {
-    let output = Command::new(program)
+fn run_command_with_cancel(
+    program: &str,
+    args: &[String],
+    cancellation: &CancellationToken,
+) -> Result<String, String> {
+    cancellation.check_cancelled()?;
+
+    let mut child = Command::new(program)
         .args(args)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| format!("{program} failed to start: {error}"))?;
 
+    loop {
+        if cancellation.is_cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(CANCELLED_MESSAGE.to_string());
+        }
+
+        match child.try_wait() {
+            Ok(Some(_status)) => {
+                let output = child.wait_with_output().map_err(|error| {
+                    format!("{program} failed while waiting for output: {error}")
+                })?;
+                return command_output_to_result(program, output);
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(10)),
+            Err(error) => {
+                return Err(format!(
+                    "{program} failed while polling child process: {error}"
+                ))
+            }
+        }
+    }
+}
+
+fn command_output_to_result(program: &str, output: std::process::Output) -> Result<String, String> {
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
 
@@ -372,6 +469,23 @@ fn run_command(program: &str, args: &[String]) -> Result<String, String> {
     }
 
     Err(format!("{program} exited with status {}", output.status))
+}
+
+fn maybe_test_delay(env_key: &str, cancellation: &CancellationToken) -> Result<(), String> {
+    let Some(delay_ms) = env::var(env_key)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+    else {
+        return Ok(());
+    };
+
+    let deadline = std::time::Instant::now() + Duration::from_millis(delay_ms);
+    while std::time::Instant::now() < deadline {
+        cancellation.check_cancelled()?;
+        thread::sleep(Duration::from_millis(5));
+    }
+
+    cancellation.check_cancelled()
 }
 
 fn sanitize_username(username: Option<&str>) -> String {
