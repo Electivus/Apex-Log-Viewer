@@ -29,4 +29,16 @@ suite('package manifest', () => {
       'package.json should declare yaml directly because apps/vscode-extension/src/test/dependabotConfig.test.ts imports it'
     );
   });
+
+  test('extracts NLS metadata from the packaged extension bundle output', async () => {
+    const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
+    const raw = await readFile(path.join(repoRoot, 'package.json'), 'utf8');
+    const manifest = JSON.parse(raw) as { scripts?: Record<string, string> };
+
+    assert.equal(
+      manifest.scripts?.['nls:extract'],
+      'vscl "apps/vscode-extension/dist/**/*.js"',
+      'package.json should point nls:extract at the bundled extension output under apps/vscode-extension/dist'
+    );
+  });
 });

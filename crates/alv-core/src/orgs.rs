@@ -5,7 +5,8 @@ use crate::{auth, cache};
 const ORG_LIST_CACHE_KEY: &str = "org/list";
 const ORG_LIST_CACHE_TTL: Duration = Duration::from_secs(300);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OrgSummary {
     pub username: String,
     pub alias: Option<String>,
@@ -72,8 +73,16 @@ pub fn list_orgs_from_json(json: &str) -> Result<Vec<OrgSummary>, String> {
             .is_default_username
             .cmp(&left.is_default_username)
             .then_with(|| {
-                let left_key = left.alias.as_deref().unwrap_or(&left.username).to_ascii_lowercase();
-                let right_key = right.alias.as_deref().unwrap_or(&right.username).to_ascii_lowercase();
+                let left_key = left
+                    .alias
+                    .as_deref()
+                    .unwrap_or(&left.username)
+                    .to_ascii_lowercase();
+                let right_key = right
+                    .alias
+                    .as_deref()
+                    .unwrap_or(&right.username)
+                    .to_ascii_lowercase();
                 left_key.cmp(&right_key)
             })
     });
@@ -265,7 +274,9 @@ impl<'a> Parser<'a> {
                 }
                 b'\\' => {
                     flush_utf8_bytes(&mut raw, &mut value)?;
-                    let escaped = self.next().ok_or_else(|| "unterminated escape".to_string())?;
+                    let escaped = self
+                        .next()
+                        .ok_or_else(|| "unterminated escape".to_string())?;
                     match escaped {
                         b'"' => value.push('"'),
                         b'\\' => value.push('\\'),
@@ -389,7 +400,10 @@ impl<'a> Parser<'a> {
                 "expected '{}' but found '{}'",
                 expected as char, actual as char
             )),
-            None => Err(format!("expected '{}' but reached end of input", expected as char)),
+            None => Err(format!(
+                "expected '{}' but reached end of input",
+                expected as char
+            )),
         }
     }
 
@@ -414,7 +428,8 @@ fn flush_utf8_bytes(raw: &mut Vec<u8>, value: &mut String) -> Result<(), String>
     if raw.is_empty() {
         return Ok(());
     }
-    let decoded = std::str::from_utf8(raw).map_err(|_| "string token must be valid utf8".to_string())?;
+    let decoded =
+        std::str::from_utf8(raw).map_err(|_| "string token must be valid utf8".to_string())?;
     value.push_str(decoded);
     raw.clear();
     Ok(())

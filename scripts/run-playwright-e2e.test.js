@@ -32,7 +32,11 @@ function writeArtifacts(repoRoot, artifactPaths) {
 test('findMissingBuildArtifacts reports the missing build outputs', () => {
   const repoRoot = createTempRepo();
   try {
-    writeArtifacts(repoRoot, [resolveRuntimeBinaryRelativePath(), 'apps/vscode-extension/dist/extension.js', 'apps/vscode-extension/media/main.js']);
+    writeArtifacts(repoRoot, [
+      resolveRuntimeBinaryRelativePath(),
+      'apps/vscode-extension/dist/extension.js',
+      'apps/vscode-extension/media/main.js'
+    ]);
 
     assert.deepEqual(findMissingBuildArtifacts(repoRoot), [
       'apps/vscode-extension/media/webview.css',
@@ -47,6 +51,13 @@ test('findMissingBuildArtifacts reports the missing build outputs', () => {
 
 test('resolveRuntimeBinaryRelativePath targets the embedded platform binary inside the extension app', () => {
   assert.equal(resolveRuntimeBinaryRelativePath('linux', 'x64'), 'apps/vscode-extension/bin/linux-x64/apex-log-viewer');
+});
+
+test('resolveRuntimeBinaryRelativePath uses target-style separators for Windows binaries too', () => {
+  assert.equal(
+    resolveRuntimeBinaryRelativePath('win32', 'x64'),
+    'apps/vscode-extension/bin/win32-x64/apex-log-viewer.exe'
+  );
 });
 
 test('findMissingBuildArtifacts reports the runtime binary when it has not been copied yet', () => {

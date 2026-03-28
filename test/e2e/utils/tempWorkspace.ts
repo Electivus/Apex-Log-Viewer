@@ -1,6 +1,7 @@
 import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { envFlag } from './envFlag';
 import { removePathBestEffort } from './fsCleanup';
 import { timeE2eStep } from './timing';
 
@@ -21,7 +22,7 @@ function resolveDefaultWorkspaceSettings(overrides?: Record<string, unknown>): R
 }
 
 function shouldKeepTempWorkspace(): boolean {
-  return /^1|true$/i.test(String(process.env.ALV_E2E_KEEP_WORKSPACE || ''));
+  return envFlag('ALV_E2E_KEEP_WORKSPACE');
 }
 
 export async function createTempWorkspace(options: {
@@ -44,7 +45,11 @@ export async function createTempWorkspace(options: {
 
     const sfDir = path.join(workspacePath, '.sf');
     await mkdir(sfDir, { recursive: true });
-    await writeFile(path.join(sfDir, 'config.json'), JSON.stringify({ 'target-org': options.targetOrg }, null, 2), 'utf8');
+    await writeFile(
+      path.join(sfDir, 'config.json'),
+      JSON.stringify({ 'target-org': options.targetOrg }, null, 2),
+      'utf8'
+    );
 
     // Ensure the extension host can locate the Salesforce CLI even when VS Code
     // is launched in an environment with a minimal PATH.

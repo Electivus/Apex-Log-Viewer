@@ -9,7 +9,7 @@ const path = require('path');
 function resolveRuntimeBinaryRelativePath(targetPlatform = process.platform, targetArch = process.arch) {
   const target = `${targetPlatform}-${targetArch}`;
   const bin = targetPlatform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
-  return path.join('apps', 'vscode-extension', 'bin', target, bin);
+  return path.posix.join('apps', 'vscode-extension', 'bin', target, bin);
 }
 
 const requiredBuildArtifacts = [
@@ -92,7 +92,8 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
     options.spawnImpl
   );
   if (result.code !== 0) {
-    const details = typeof result.code === 'number' ? `exit code ${result.code}` : `signal ${result.signal || 'unknown'}`;
+    const details =
+      typeof result.code === 'number' ? `exit code ${result.code}` : `signal ${result.signal || 'unknown'}`;
     throw new Error(`npm run build failed while preparing Playwright E2E (${details}).`);
   }
 }

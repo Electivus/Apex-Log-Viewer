@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from '@vscode/test-electron';
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright';
+import { envFlag } from './envFlag';
 import { removePathBestEffort } from './fsCleanup';
 import { dismissAllNotifications } from './notifications';
 import { timeE2eStep } from './timing';
@@ -18,7 +19,7 @@ export type VscodeLaunch = {
 };
 
 function shouldKeepUserDataDir(): boolean {
-  return /^1|true$/i.test(String(process.env.ALV_E2E_KEEP_USER_DATA || ''));
+  return envFlag('ALV_E2E_KEEP_USER_DATA');
 }
 
 export type VscodeWindowSize = {
@@ -52,7 +53,12 @@ export function resolveVscodeCachePath(extensionDevelopmentPath: string): string
 function getSupportExtensionsCacheKey(vscodeVersion: string, extensionIds: string[]): string {
   const normalizedIds = resolveSupportExtensionIds(extensionIds);
   return createHash('sha1')
-    .update(JSON.stringify({ vscodeVersion: String(vscodeVersion || 'stable').trim() || 'stable', extensionIds: normalizedIds }))
+    .update(
+      JSON.stringify({
+        vscodeVersion: String(vscodeVersion || 'stable').trim() || 'stable',
+        extensionIds: normalizedIds
+      })
+    )
     .digest('hex')
     .slice(0, 12);
 }
@@ -62,23 +68,26 @@ export function resolveCachedSupportExtensionsDir(
   vscodeVersion: string,
   extensionIds: string[] = []
 ): string {
-  return path.join(vscodeCachePath, 'extensions', sanitizeLockNamePart(vscodeVersion || 'stable'), getSupportExtensionsCacheKey(vscodeVersion, extensionIds));
+  return path.join(
+    vscodeCachePath,
+    'extensions',
+    sanitizeLockNamePart(vscodeVersion || 'stable'),
+    getSupportExtensionsCacheKey(vscodeVersion, extensionIds)
+  );
 }
 
 export function resolveSupportExtensionsLockPath(extensionsDir: string): string {
   return path.join(extensionsDir, '.install.lock');
 }
 
-function envFlag(name: string): boolean {
-  const value = String(process.env[name] || '')
-    .trim()
-    .toLowerCase();
-  return value === '1' || value === 'true';
-}
-
 export function resolveSupportExtensionIds(extensionIds: unknown[] = [], extraExtensionIds: string[] = []): string[] {
   return Array.from(
-    new Set([...extensionIds, ...extraExtensionIds].map(String).map(value => value.trim()).filter(Boolean))
+    new Set(
+      [...extensionIds, ...extraExtensionIds]
+        .map(String)
+        .map(value => value.trim())
+        .filter(Boolean)
+    )
   ).sort((a, b) => a.localeCompare(b));
 }
 
@@ -122,7 +131,10 @@ export function resolveExtensionsDirForMissingDependencies(options: {
   };
 }
 
-async function readExtensionReferences(extensionDevelopmentPath: string, extraExtensionIds: string[] = []): Promise<string[]> {
+async function readExtensionReferences(
+  extensionDevelopmentPath: string,
+  extraExtensionIds: string[] = []
+): Promise<string[]> {
   try {
     const pkgPath = path.join(extensionDevelopmentPath, 'package.json');
     const raw = await readFile(pkgPath, 'utf8');
@@ -463,12 +475,18 @@ export async function launchVsCode(options: {
 }): Promise<VscodeLaunch> {
   const vscodeVersion = getVsCodeVersion();
   const vscodeCachePath = resolveVscodeCachePath(options.extensionDevelopmentPath);
-  const supportExtensionIds = await readExtensionReferences(options.extensionDevelopmentPath, options.extensionIds ?? []);
+  const supportExtensionIds = await readExtensionReferences(
+    options.extensionDevelopmentPath,
+    options.extensionIds ?? []
+  );
   const vscodeDownloadLockPath = path.join(vscodeCachePath, `.download-${sanitizeLockNamePart(vscodeVersion)}.lock`);
-  const vscodeExecutablePath = await timeE2eStep('vscode.download', async () =>
-    await withFileLock(vscodeDownloadLockPath, async () =>
-      await downloadAndUnzipVSCode({ version: vscodeVersion, cachePath: vscodeCachePath })
-    )
+  const vscodeExecutablePath = await timeE2eStep(
+    'vscode.download',
+    async () =>
+      await withFileLock(
+        vscodeDownloadLockPath,
+        async () => await downloadAndUnzipVSCode({ version: vscodeVersion, cachePath: vscodeCachePath })
+      )
   );
 
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
@@ -481,15 +499,19 @@ export async function launchVsCode(options: {
   // need support extensions in a reusable test cache (for example Replay Debugger),
   // so install manifest references plus scenario-specific ids.
   try {
-    const resolvedExtensionsDir = await timeE2eStep('vscode.ensureSupportExtensions', async () =>
-      await withFileLock(supportExtensionsLockPath, async () =>
-        await ensureExtensionDependenciesInstalled({
-          vscodeExecutablePath,
-          userDataDir,
-          extensionsDir,
-          extensionIds: supportExtensionIds
-        })
-      )
+    const resolvedExtensionsDir = await timeE2eStep(
+      'vscode.ensureSupportExtensions',
+      async () =>
+        await withFileLock(
+          supportExtensionsLockPath,
+          async () =>
+            await ensureExtensionDependenciesInstalled({
+              vscodeExecutablePath,
+              userDataDir,
+              extensionsDir,
+              extensionIds: supportExtensionIds
+            })
+        )
     );
     if (resolvedExtensionsDir !== extensionsDir) {
       extensionsDir = resolvedExtensionsDir;
@@ -515,18 +537,20 @@ export async function launchVsCode(options: {
     args.push(windowSizeArg);
   }
 
-  const app = await timeE2eStep('vscode.launch', async () =>
-    await electron.launch({
-      executablePath: vscodeExecutablePath,
-      args,
-      env: {
-        ...process.env,
-        ELECTRON_DISABLE_GPU: process.env.ELECTRON_DISABLE_GPU || '1',
-        LC_ALL: process.env.LC_ALL || 'C.UTF-8',
-        DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null',
-        NO_AT_BRIDGE: process.env.NO_AT_BRIDGE || '1'
-      }
-    })
+  const app = await timeE2eStep(
+    'vscode.launch',
+    async () =>
+      await electron.launch({
+        executablePath: vscodeExecutablePath,
+        args,
+        env: {
+          ...process.env,
+          ELECTRON_DISABLE_GPU: process.env.ELECTRON_DISABLE_GPU || '1',
+          LC_ALL: process.env.LC_ALL || 'C.UTF-8',
+          DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null',
+          NO_AT_BRIDGE: process.env.NO_AT_BRIDGE || '1'
+        }
+      })
   );
 
   const page = await timeE2eStep('vscode.firstWindow', async () => await app.firstWindow());
