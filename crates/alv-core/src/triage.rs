@@ -3,15 +3,17 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct LogsTriageParams {
-    #[serde(rename = "logIds", alias = "log_ids")]
+    #[serde(alias = "log_ids")]
     pub log_ids: Vec<String>,
     pub username: Option<String>,
-    #[serde(rename = "workspaceRoot", alias = "workspace_root")]
+    #[serde(alias = "workspace_root")]
     pub workspace_root: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogDiagnostic {
     pub code: String,
     pub severity: String,
@@ -23,19 +25,19 @@ pub struct LogDiagnostic {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogTriageSummary {
-    #[serde(rename = "hasErrors")]
     pub has_errors: bool,
-    #[serde(rename = "primaryReason", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub primary_reason: Option<String>,
     pub reasons: Vec<LogDiagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogTriageItem {
-    #[serde(rename = "logId")]
     pub log_id: String,
-    #[serde(rename = "codeUnitStarted", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub code_unit_started: Option<String>,
     pub summary: LogTriageSummary,
 }

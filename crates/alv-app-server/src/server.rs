@@ -110,30 +110,39 @@ pub fn handle_request_line(request: &str) -> Result<Option<String>, String> {
             Ok(Some(jsonrpc_result(&id, &payload)))
         }
         "logs/list" => {
+            let cursor = params.get("cursor").cloned().unwrap_or(Value::Null);
             let payload = logs_handler::handle_logs_list(alv_core::logs::LogsListParams {
                 username: params
                     .get("username")
                     .and_then(Value::as_str)
                     .map(str::to_string),
-                page_size: params
-                    .get("pageSize")
+                limit: params
+                    .get("limit")
                     .and_then(Value::as_u64)
+                    .or_else(|| params.get("pageSize").and_then(Value::as_u64))
                     .or_else(|| params.get("page_size").and_then(Value::as_u64))
                     .map(|value| value as usize),
+                cursor: alv_core::logs::LogsCursor {
+                    before_start_time: cursor
+                        .get("beforeStartTime")
+                        .and_then(Value::as_str)
+                        .or_else(|| cursor.get("before_start_time").and_then(Value::as_str))
+                        .or_else(|| params.get("beforeStartTime").and_then(Value::as_str))
+                        .or_else(|| params.get("before_start_time").and_then(Value::as_str))
+                        .map(str::to_string),
+                    before_id: cursor
+                        .get("beforeId")
+                        .and_then(Value::as_str)
+                        .or_else(|| cursor.get("before_id").and_then(Value::as_str))
+                        .or_else(|| params.get("beforeId").and_then(Value::as_str))
+                        .or_else(|| params.get("before_id").and_then(Value::as_str))
+                        .map(str::to_string),
+                }
+                .filter_active(),
                 offset: params
                     .get("offset")
                     .and_then(Value::as_u64)
                     .map(|value| value as usize),
-                before_start_time: params
-                    .get("beforeStartTime")
-                    .and_then(Value::as_str)
-                    .or_else(|| params.get("before_start_time").and_then(Value::as_str))
-                    .map(str::to_string),
-                before_id: params
-                    .get("beforeId")
-                    .and_then(Value::as_str)
-                    .or_else(|| params.get("before_id").and_then(Value::as_str))
-                    .map(str::to_string),
             })?;
             Ok(Some(jsonrpc_result(&id, &payload)))
         }

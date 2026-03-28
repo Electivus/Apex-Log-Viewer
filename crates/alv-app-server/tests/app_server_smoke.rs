@@ -113,7 +113,7 @@ fn app_server_smoke_routes_logs_search_and_triage_requests() {
     );
 
     let list_response = handle_request_line(
-        r#"{"jsonrpc":"2.0","id":"logs:1","method":"logs/list","params":{"pageSize":25}}"#,
+        r#"{"jsonrpc":"2.0","id":"logs:1","method":"logs/list","params":{"limit":25,"cursor":{"beforeStartTime":"2026-03-27T12:00:00.000Z","beforeId":"07L000000000009AA"}}}"#,
     )
     .expect("logs/list request should succeed")
     .expect("logs/list should emit a response");

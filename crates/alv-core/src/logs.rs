@@ -11,12 +11,42 @@ pub const TEST_SF_LOG_LIST_JSON_ENV: &str = "ALV_TEST_SF_LOG_LIST_JSON";
 pub const TEST_APEX_LOG_FIXTURE_DIR_ENV: &str = "ALV_TEST_APEX_LOG_FIXTURE_DIR";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct LogsListParams {
     pub username: Option<String>,
-    pub page_size: Option<usize>,
+    #[serde(alias = "pageSize", alias = "page_size")]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub cursor: Option<LogsCursor>,
+    #[serde(alias = "offset")]
     pub offset: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LogsCursor {
+    #[serde(alias = "before_start_time")]
     pub before_start_time: Option<String>,
+    #[serde(alias = "before_id")]
     pub before_id: Option<String>,
+}
+
+impl LogsCursor {
+    pub fn filter_active(self) -> Option<Self> {
+        if self
+            .before_start_time
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+            || self
+                .before_id
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+        {
+            Some(self)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,7 +125,7 @@ pub fn run_sf_log_list_json(params: &LogsListParams) -> Result<String, String> {
         return Ok(fixture);
     }
 
-    let safe_page_size = params.page_size.unwrap_or(100).clamp(1, 200);
+    let safe_page_size = params.limit.unwrap_or(100).clamp(1, 200);
     let safe_offset = params.offset.unwrap_or(0);
     let soql = build_logs_query(safe_page_size, safe_offset, params);
 
@@ -259,8 +289,16 @@ pub fn extract_code_unit_started(lines: &[&str]) -> Option<String> {
 fn build_logs_query(page_size: usize, offset: usize, params: &LogsListParams) -> String {
     let base_select = "SELECT Id, StartTime, Operation, Application, DurationMilliseconds, Status, Request, LogLength, LogUser.Name FROM ApexLog";
     match (
-        params.before_start_time.as_deref().filter(|value| !value.trim().is_empty()),
-        params.before_id.as_deref().filter(|value| !value.trim().is_empty()),
+        params
+            .cursor
+            .as_ref()
+            .and_then(|cursor| cursor.before_start_time.as_deref())
+            .filter(|value| !value.trim().is_empty()),
+        params
+            .cursor
+            .as_ref()
+            .and_then(|cursor| cursor.before_id.as_deref())
+            .filter(|value| !value.trim().is_empty()),
     ) {
         (Some(before_start_time), Some(before_id)) => format!(
             "{base_select} WHERE StartTime < '{}' OR (StartTime = '{}' AND Id < '{}') ORDER BY StartTime DESC, Id DESC LIMIT {page_size}",

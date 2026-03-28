@@ -56,10 +56,9 @@ fn logs_runtime_smoke_lists_logs_from_sf_fixture() {
 
     let rows = list_logs(&LogsListParams {
         username: Some("demo@example.com".to_string()),
-        page_size: Some(50),
+        limit: Some(50),
+        cursor: None,
         offset: Some(0),
-        before_start_time: None,
-        before_id: None,
     })
     .expect("logs/list should parse fixture");
 
