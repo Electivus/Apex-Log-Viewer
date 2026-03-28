@@ -62,7 +62,9 @@ test('filters users correctly in debug flags panel from logs and tail entrypoint
     await assertUserSearchFiltering(debugFlagsFrame, userId, searchToken);
 
     const debugFlagsFrameFromTail = await openDebugFlagsFromTail(vscodePage);
-    await expect(debugFlagsFrameFromTail.locator('text=Apex Debug Flags').first()).toBeVisible();
+    await expect(debugFlagsFrameFromTail.locator('[data-testid="debug-flags-org-select"]')).toBeVisible({
+      timeout: 60_000
+    });
     await assertSelectedScratchOrg(debugFlagsFrameFromTail, scratchAlias);
     await assertUserSearchFiltering(debugFlagsFrameFromTail, userId, searchToken);
   } finally {

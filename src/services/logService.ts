@@ -105,20 +105,19 @@ export class LogService {
 
   loadLogHeads(
     logs: ApexLogRow[],
-    auth: OrgAuth,
-    token: number,
+    _auth: OrgAuth,
+    _token: number,
     post: (logId: string, codeUnit: string) => void,
     signal?: AbortSignal,
-    options?: { preferLocalBodies?: boolean; selectedOrg?: string }
+    _options?: { preferLocalBodies?: boolean; selectedOrg?: string }
   ): void {
-    const selectedOrg = options?.selectedOrg;
     for (const log of logs) {
       void this.headLimiter(async () => {
         if (signal?.aborted) {
           return;
         }
         try {
-          const codeUnit = await this.loadCodeUnitFromLocalFile(log.Id, selectedOrg, signal);
+          const codeUnit = await this.loadCodeUnitFromSavedLog(log.Id, signal);
           if (codeUnit) {
             post(log.Id, codeUnit);
           }
@@ -159,11 +158,7 @@ export class LogService {
     }
   }
 
-  private async loadCodeUnitFromLocalFile(
-    logId: string | undefined,
-    selectedOrg?: string,
-    signal?: AbortSignal
-  ): Promise<string | undefined> {
+  private async loadCodeUnitFromSavedLog(logId: string | undefined, signal?: AbortSignal): Promise<string | undefined> {
     if (!logId) {
       return undefined;
     }
@@ -171,26 +166,25 @@ export class LogService {
       return undefined;
     }
     try {
-      const filePath = await this.ensureLogFile(logId, selectedOrg, signal);
-      if (signal?.aborted) {
-        return undefined;
-      }
-      const handle = await fs.open(filePath, 'r');
-      try {
-        const buffer = Buffer.alloc(8192);
-        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-        if (bytesRead <= 0) {
-          return undefined;
+      const existingPath = await findExistingLogFile(logId);
+      if (existingPath) {
+        const handle = await fs.open(existingPath, 'r');
+        try {
+          const buffer = Buffer.alloc(8192);
+          const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+          if (bytesRead <= 0) {
+            return undefined;
+          }
+          const text = buffer.slice(0, bytesRead).toString('utf8');
+          const lines = text.split(/\r?\n/).slice(0, 10);
+          return extractCodeUnitStartedFromLines(lines);
+        } finally {
+          await handle.close();
         }
-        const text = buffer.slice(0, bytesRead).toString('utf8');
-        const lines = text.split(/\r?\n/).slice(0, 10);
-        return extractCodeUnitStartedFromLines(lines);
-      } finally {
-        await handle.close();
       }
     } catch (e) {
       if (!signal?.aborted) {
-        logWarn('LogService: loadCodeUnitFromLocalFile failed ->', getErrorMessage(e));
+        logWarn('LogService: loadCodeUnit from local file failed ->', getErrorMessage(e));
       }
     }
     return undefined;

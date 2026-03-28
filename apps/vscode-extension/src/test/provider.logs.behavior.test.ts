@@ -427,21 +427,170 @@ suite('SfLogsViewProvider behavior', () => {
     (provider as any).executeSearch = async (query: string) => {
       searchCalls.push(query);
     };
+    (provider as any).logService.ensureLogsSaved = async (
+      _logs: any[],
+      _selectedOrg?: string,
+      _signal?: AbortSignal,
+      options?: { onItemComplete?: (result: { logId: string; status: string }) => void }
+    ) => {
+      options?.onItemComplete?.({ logId: '07L000000000001AA', status: 'downloaded' });
+      return {
+        total: 1,
+        success: 1,
+        downloaded: 1,
+        existing: 0,
+        missing: 0,
+        failed: 0,
+        cancelled: 0,
+        failedLogIds: []
+      };
+    };
+
+    (provider as any).preloadFullLogBodies(
+      [{ Id: '07L000000000001AA' }],
+      { username: 'u', instanceUrl: 'i', accessToken: 't' },
+      0
+    );
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.deepEqual(searchCalls, ['error'], 'should re-run active search after preload saves logs');
+  });
+
+  test('preloadFullLogBodies re-runs active search when bodies became available via a parallel cache writer', async () => {
+    const { SfLogsViewProvider } = createProviderHarness();
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
+    (provider as any).lastSearchQuery = 'error';
+
+    const searchCalls: string[] = [];
+    (provider as any).executeSearch = async (query: string) => {
+      searchCalls.push(query);
+    };
     (provider as any).logService.ensureLogsSaved = async () => ({
       total: 1,
       success: 1,
-      downloaded: 1,
-      existing: 0,
+      downloaded: 0,
+      existing: 1,
       missing: 0,
       failed: 0,
       cancelled: 0,
       failedLogIds: []
     });
 
-    (provider as any).preloadFullLogBodies([{ Id: '07L000000000001AA' }]);
+    (provider as any).preloadFullLogBodies(
+      [{ Id: '07L000000000001AA' }],
+      { username: 'u', instanceUrl: 'i', accessToken: 't' },
+      0
+    );
     await new Promise(resolve => setTimeout(resolve, 20));
 
-    assert.deepEqual(searchCalls, ['error'], 'should re-run active search after preload saves logs');
+    assert.deepEqual(
+      searchCalls,
+      ['error'],
+      'should re-run active search when preload confirms files already exist locally'
+    );
+  });
+
+  test('preloadFullLogBodies re-runs active search before the full save batch finishes', async () => {
+    const { SfLogsViewProvider } = createProviderHarness();
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
+    (provider as any).lastSearchQuery = 'error';
+
+    const searchCalls: string[] = [];
+    let batchFinished = false;
+    (provider as any).executeSearch = async (query: string) => {
+      searchCalls.push(query);
+    };
+    (provider as any).logService.loadLogHeads = () => {};
+    (provider as any).logService.ensureLogsSaved = async (
+      _logs: any[],
+      _selectedOrg?: string,
+      _signal?: AbortSignal,
+      options?: { onItemComplete?: (result: { logId: string; status: string }) => void }
+    ) => {
+      options?.onItemComplete?.({ logId: '07L000000000001AA', status: 'downloaded' });
+      await new Promise(resolve => setTimeout(resolve, 400));
+      batchFinished = true;
+      return {
+        total: 1,
+        success: 1,
+        downloaded: 1,
+        existing: 0,
+        missing: 0,
+        failed: 0,
+        cancelled: 0,
+        failedLogIds: []
+      };
+    };
+
+    (provider as any).preloadFullLogBodies(
+      [{ Id: '07L000000000001AA' }],
+      { username: 'u', instanceUrl: 'i', accessToken: 't' },
+      0
+    );
+
+    await waitForCondition(() => searchCalls.length === 1, { timeoutMs: 300, intervalMs: 20 });
+    assert.equal(batchFinished, false, 'should not wait for the full save batch before re-running search');
+  });
+
+  test('preloadFullLogBodies re-hydrates code unit metadata from the saved full bodies', async () => {
+    const { SfLogsViewProvider } = createProviderHarness();
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
+    (provider as any).view = {
+      webview: {
+        postMessage: () => Promise.resolve(true)
+      }
+    } as any;
+    (provider as any).setCurrentLogs([{ Id: '07L000000000001AA' }]);
+
+    const loadHeadCalls: any[] = [];
+    (provider as any).logService.ensureLogsSaved = async (
+      _logs: any[],
+      _selectedOrg?: string,
+      _signal?: AbortSignal,
+      options?: { onItemComplete?: (result: { logId: string; status: string }) => void }
+    ) => {
+      options?.onItemComplete?.({ logId: '07L000000000001AA', status: 'downloaded' });
+      return {
+        total: 1,
+        success: 1,
+        downloaded: 1,
+        existing: 0,
+        missing: 0,
+        failed: 0,
+        cancelled: 0,
+        failedLogIds: []
+      };
+    };
+    (provider as any).logService.loadLogHeads = (
+      logs: any[],
+      auth: any,
+      refreshToken: number,
+      post: (logId: string, codeUnit: string) => void
+    ) => {
+      loadHeadCalls.push({ logs, auth, refreshToken });
+      post('07L000000000001AA', 'AccountService.handle');
+    };
+
+    const posted: any[] = [];
+    (provider as any).post = (message: any) => {
+      posted.push(message);
+    };
+
+    (provider as any).preloadFullLogBodies(
+      [{ Id: '07L000000000001AA' }],
+      { username: 'u', instanceUrl: 'i', accessToken: 't' },
+      0
+    );
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.equal(loadHeadCalls.length, 1, 'should refresh code unit metadata after bodies are saved');
+    assert.equal(posted.some(m => m?.type === 'logHead' && m?.codeUnitStarted === 'AccountService.handle'), true);
   });
 
   test('refresh posts API version fallback warning when available', async () => {

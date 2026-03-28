@@ -83,17 +83,18 @@ export const test = base.extend<Fixtures & Options>({
     { scope: 'worker' }
   ],
 
-  workspacePath: async ({ scratchAlias }, use) => {
+  workspacePath: async ({ scratchAlias }, use, testInfo) => {
     const sfCli = await resolveSfCliInvocation();
     const ws = await createTempWorkspace({ targetOrg: scratchAlias, sfCli: sfCli ?? undefined });
     try {
       await use(ws.workspacePath);
     } finally {
-      await ws.cleanup();
+      // Preserve temp artifacts on failures so flaky E2E runs can be inspected locally.
+      await ws.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
     }
   },
 
-  vscodeApp: async ({ workspacePath, supportExtensionIds }, use) => {
+  vscodeApp: async ({ workspacePath, supportExtensionIds }, use, testInfo) => {
     const repoRoot = path.join(__dirname, '..', '..', '..');
     const extensionDevelopmentPath = resolveExtensionDevelopmentPath(repoRoot);
     const launch = await launchVsCode({
@@ -104,7 +105,7 @@ export const test = base.extend<Fixtures & Options>({
     try {
       await use(launch.app);
     } finally {
-      await launch.cleanup();
+      await launch.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
     }
   },
 

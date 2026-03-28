@@ -80,20 +80,23 @@ suite('LogService', () => {
     assert.deepEqual(calls[0], { auth, limit: 2, offset: 0 });
   });
 
-  test('loadLogHeads posts code units', async () => {
+  test('loadLogHeads skips uncached logs instead of downloading full bodies', async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-heads-'));
-    const logPath = path.join(tmpDir, 'default_1.log');
+    const fetchBodyCalls: string[] = [];
     const { LogService } = proxyquireStrict('../../../../src/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
-        fetchApexLogBody: async () => '\n|CODE_UNIT_STARTED|Foo|Unit\n',
+        fetchApexLogBody: async () => {
+          fetchBodyCalls.push('called');
+          return '\n|CODE_UNIT_STARTED|Foo|Unit\n';
+        },
         extractCodeUnitStartedFromLines: () => 'Unit'
       },
       '../salesforce/cli': {
         getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
       },
       '../utils/workspace': {
-        getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath: logPath }),
+        getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath: path.join(tmpDir, 'default_1.log') }),
         findExistingLogFile: async () => undefined
       }
     });
@@ -104,8 +107,9 @@ suite('LogService', () => {
       svc.loadLogHeads(logs, {} as OrgAuth, 0, (id: string, code: string) => {
         seen.push({ id, code });
       }, undefined, { selectedOrg: 'default' });
-      await waitForCondition(() => seen.length === 1, { timeoutMs: 500, intervalMs: 10 });
-      assert.deepEqual(seen, [{ id: '1', code: 'Unit' }]);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      assert.deepEqual(seen, [], 'should wait for the async full-body preload to populate code units');
+      assert.equal(fetchBodyCalls.length, 0, 'should not trigger a full-body download from loadLogHeads');
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }

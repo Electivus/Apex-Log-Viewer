@@ -15,6 +15,7 @@ import type {
 } from '../../../../packages/app-server-client-ts/src/index';
 import { createDaemonProcess } from '../../../../packages/app-server-client-ts/src/index';
 import type { JsonRpcRequest, OrgListItem, OrgListParams } from '../../../../packages/app-server-client-ts/src/index';
+import { logTrace } from '../../../../src/utils/logger';
 import { resolveBundledBinary } from './bundledBinary';
 import {
   RUNTIME_CANCEL_EVENT,
@@ -26,6 +27,7 @@ import {
 } from './runtimeEvents';
 
 type TimerHandle = ReturnType<typeof setTimeout>;
+const RUNTIME_EXIT_MESSAGE_PREFIX = 'runtime exited (';
 type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -74,12 +76,15 @@ export class RuntimeClient extends EventEmitter {
     }
 
     const executable = resolveBundledBinary(process.platform, process.arch);
+    logTrace('Runtime: starting daemon', executable);
     const daemon = this.createProcess(executable);
     this.daemon = daemon;
+    this.attachDaemonStderrLogger(daemon);
     daemon.onMessage(message => {
       this.handleMessage(message);
     });
     daemon.onExit((code, signal) => {
+      logTrace('Runtime: daemon exited', { code, signal });
       this.failPendingRequests(new Error(`runtime exited (${code ?? 'null'}${signal ? `/${signal}` : ''})`));
       this.daemon = undefined;
       this.initializePromise = undefined;
@@ -90,9 +95,15 @@ export class RuntimeClient extends EventEmitter {
 
   async initialize(): Promise<InitializeResult> {
     if (!this.initializePromise) {
-      this.initializePromise = this.request<InitializeResult>('initialize', {
+      const pendingInitialize = this.request<InitializeResult>('initialize', {
         client_name: this.clientName,
         client_version: this.clientVersion
+      });
+      this.initializePromise = pendingInitialize.catch(error => {
+        if (this.initializePromise === pendingInitialize) {
+          this.initializePromise = undefined;
+        }
+        throw error;
       });
     }
     return this.initializePromise;
@@ -143,6 +154,7 @@ export class RuntimeClient extends EventEmitter {
   }
 
   cancel(requestId: string): void {
+    logTrace('Runtime: cancel request', requestId);
     if (this.daemon) {
       this.daemon.writeMessage({
         jsonrpc: '2.0',
@@ -162,6 +174,19 @@ export class RuntimeClient extends EventEmitter {
       return this.requestHandler<TResult>(method, params, signal);
     }
 
+    try {
+      return await this.requestOnce<TResult>(method, params, signal);
+    } catch (error) {
+      if (!this.shouldRetryAfterRuntimeExit(error, signal)) {
+        throw error;
+      }
+      logTrace('Runtime: retrying request after daemon exit', method);
+      await this.restartRuntimeSession(method);
+      return await this.requestOnce<TResult>(method, params, signal);
+    }
+  }
+
+  private async requestOnce<TResult>(method: string, params?: unknown, signal?: AbortSignal): Promise<TResult> {
     const daemon = this.daemon ?? this.startRuntime();
     const id = `${method}:${++this.nextRequestId}`;
     const request: JsonRpcRequest = {
@@ -187,8 +212,26 @@ export class RuntimeClient extends EventEmitter {
       });
     });
 
+    logTrace('Runtime: send request', { id, method });
     daemon.writeMessage(request);
     return response;
+  }
+
+  private shouldRetryAfterRuntimeExit(error: unknown, signal?: AbortSignal): boolean {
+    if (signal?.aborted) {
+      return false;
+    }
+    return error instanceof Error && error.message.startsWith(RUNTIME_EXIT_MESSAGE_PREFIX);
+  }
+
+  private async restartRuntimeSession(method: string): Promise<void> {
+    logTrace('Runtime: restarting session', method);
+    this.daemon = undefined;
+    this.initializePromise = undefined;
+    if (method === 'initialize') {
+      return;
+    }
+    await this.initialize();
   }
 
   private handleMessage(message: unknown): void {
@@ -203,6 +246,7 @@ export class RuntimeClient extends EventEmitter {
 
     const pending = this.pendingRequests.get(response.id);
     if (!pending) {
+      logTrace('Runtime: received response without pending request', response.id);
       return;
     }
 
@@ -210,20 +254,39 @@ export class RuntimeClient extends EventEmitter {
     pending.cleanup?.();
 
     if (response.error) {
+      logTrace('Runtime: received error response', { id: response.id, message: response.error.message });
       pending.reject(new Error(response.error.message));
       return;
     }
 
+    logTrace('Runtime: received success response', response.id);
     pending.resolve(response.result);
   }
 
   private failPendingRequests(error: Error): void {
+    logTrace('Runtime: failing pending requests', { count: this.pendingRequests.size, message: error.message });
     const pending = Array.from(this.pendingRequests.values());
     this.pendingRequests.clear();
     for (const request of pending) {
       request.cleanup?.();
       request.reject(error);
     }
+  }
+
+  private attachDaemonStderrLogger(daemon: DaemonProcess): void {
+    const stderr = (daemon.child as { stderr?: NodeJS.ReadableStream } | undefined)?.stderr;
+    if (!stderr || typeof stderr.on !== 'function') {
+      return;
+    }
+    stderr.on('data', chunk => {
+      const text = chunk.toString('utf8');
+      for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed) {
+          logTrace('Runtime stderr:', trimmed);
+        }
+      }
+    });
   }
 
   private createAbortError(): Error {

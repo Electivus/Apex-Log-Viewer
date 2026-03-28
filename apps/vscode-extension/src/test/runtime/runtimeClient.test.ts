@@ -1,11 +1,69 @@
 import { strict as assert } from 'node:assert';
-import { resolveBundledBinary } from '../../runtime/bundledBinary';
+import type {
+  DaemonProcess,
+  JsonRpcErrorResponse,
+  JsonRpcSuccessResponse,
+} from '../../../../../packages/app-server-client-ts/src/index';
+import { resolveBundledBinary, resolveBundledBinaryCandidates } from '../../runtime/bundledBinary';
 import { RuntimeClient } from '../../runtime/runtimeClient';
 
 suite('runtime client', () => {
+  function createFakeDaemon(handlers: {
+    onWrite: (
+      message: { id: string; method: string; params?: unknown },
+      helpers: {
+        emitMessage: (message: JsonRpcSuccessResponse<unknown> | JsonRpcErrorResponse) => void;
+        emitExit: (code: number | null, signal: NodeJS.Signals | null) => void;
+      }
+    ) => void;
+  }): DaemonProcess {
+    const messageListeners = new Set<(message: unknown) => void>();
+    const exitListeners = new Set<(code: number | null, signal: NodeJS.Signals | null) => void>();
+    return {
+      child: {} as DaemonProcess['child'],
+      onMessage(listener) {
+        messageListeners.add(listener);
+        return () => messageListeners.delete(listener);
+      },
+      onExit(listener) {
+        exitListeners.add(listener);
+        return () => exitListeners.delete(listener);
+      },
+      writeMessage(message) {
+        handlers.onWrite(message as { id: string; method: string; params?: unknown }, {
+          emitMessage: payload => {
+            for (const listener of messageListeners) {
+              listener(payload);
+            }
+          },
+          emitExit: (code, signal) => {
+            for (const listener of exitListeners) {
+              listener(code, signal);
+            }
+          }
+        });
+      },
+      dispose() {}
+    };
+  }
+
   test('resolves a platform specific bundled binary path', () => {
     const resolved = resolveBundledBinary('linux', 'x64');
     assert.equal(resolved.endsWith('bin/linux-x64/apex-log-viewer'), true);
+  });
+
+  test('supports both source-tree and dist-tree runtime layouts', () => {
+    const sourceCandidates = resolveBundledBinaryCandidates('/workspace/apps/vscode-extension/src/runtime', 'linux', 'x64');
+    const distCandidates = resolveBundledBinaryCandidates('/workspace/apps/vscode-extension/dist', 'linux', 'x64');
+
+    assert.deepEqual(sourceCandidates, [
+      '/workspace/apps/vscode-extension/src/bin/linux-x64/apex-log-viewer',
+      '/workspace/apps/vscode-extension/bin/linux-x64/apex-log-viewer'
+    ]);
+    assert.deepEqual(distCandidates, [
+      '/workspace/apps/vscode-extension/bin/linux-x64/apex-log-viewer',
+      '/workspace/apps/bin/linux-x64/apex-log-viewer'
+    ]);
   });
 
   test('tracks initialize capabilities from the daemon handshake', async () => {
@@ -165,5 +223,100 @@ suite('runtime client', () => {
     assert.equal(searchResult.logIds[0], '07L000000000001AA');
     assert.equal(searchResult.snippets?.['07L000000000001AA']?.ranges[0]?.[0], 7);
     assert.equal(triageEntries[0]?.summary.primaryReason, 'Fatal exception');
+  });
+
+  test('restarts and retries a request when the runtime exits mid-search', async () => {
+    const methods: string[] = [];
+    let createCount = 0;
+    const client = new RuntimeClient({
+      clientVersion: '0.1.0',
+      createProcess() {
+        createCount += 1;
+        if (createCount === 1) {
+          return createFakeDaemon({
+            onWrite(message, helpers) {
+              methods.push(`daemon1:${message.method}`);
+              if (message.method === 'initialize') {
+                helpers.emitMessage({
+                  jsonrpc: '2.0',
+                  id: message.id,
+                  result: {
+                    runtime_version: '0.1.0',
+                    protocol_version: '1',
+                    platform: 'linux',
+                    arch: 'x64',
+                    capabilities: {
+                      orgs: true,
+                      logs: true,
+                      search: true,
+                      tail: true,
+                      debug_flags: true,
+                      doctor: true
+                    },
+                    state_dir: '.alv/state',
+                    cache_dir: '.alv/cache'
+                  }
+                });
+                return;
+              }
+              helpers.emitExit(0, null);
+            }
+          });
+        }
+
+        return createFakeDaemon({
+          onWrite(message, helpers) {
+            methods.push(`daemon2:${message.method}`);
+            if (message.method === 'initialize') {
+              helpers.emitMessage({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: {
+                  runtime_version: '0.1.0',
+                  protocol_version: '1',
+                  platform: 'linux',
+                  arch: 'x64',
+                  capabilities: {
+                    orgs: true,
+                    logs: true,
+                    search: true,
+                    tail: true,
+                    debug_flags: true,
+                    doctor: true
+                  },
+                  state_dir: '.alv/state',
+                  cache_dir: '.alv/cache'
+                }
+              });
+              return;
+            }
+            helpers.emitMessage({
+              jsonrpc: '2.0',
+              id: message.id,
+              result: {
+                logIds: ['07L000000000001AA'],
+                snippets: {
+                  '07L000000000001AA': {
+                    text: 'matched',
+                    ranges: [[0, 7]]
+                  }
+                },
+                pendingLogIds: []
+              }
+            });
+          }
+        });
+      }
+    });
+
+    const result = await client.searchQuery({
+      query: 'marker',
+      logIds: ['07L000000000001AA']
+    });
+
+    assert.equal(createCount, 2);
+    assert.deepEqual(methods, ['daemon1:initialize', 'daemon1:search/query', 'daemon2:initialize', 'daemon2:search/query']);
+    assert.deepEqual(result.logIds, ['07L000000000001AA']);
+    assert.equal(result.snippets?.['07L000000000001AA']?.text, 'matched');
   });
 });

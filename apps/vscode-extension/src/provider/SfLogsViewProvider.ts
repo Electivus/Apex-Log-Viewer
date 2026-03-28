@@ -5,7 +5,7 @@ import { pickSelectedOrg } from '../../../../src/utils/orgs';
 import type { ApexLogRow } from '../shared/types';
 import type { OrgAuth } from '../../../../src/salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
-import { logInfo, logWarn, logError } from '../../../../src/utils/logger';
+import { logInfo, logWarn, logError, logTrace } from '../../../../src/utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
 import { buildWebviewHtml } from '../../../../src/utils/webviewHtml';
 import { getErrorMessage } from '../../../../src/utils/error';
@@ -194,7 +194,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           if (!isCurrentRefresh()) {
             return;
           }
-          this.preloadFullLogBodies(logs, controller.signal);
+          this.preloadFullLogBodies(logs, auth, token, controller.signal);
           this.post({
             type: 'init',
             locale: vscode.env.language,
@@ -292,7 +292,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       if (!isCurrentRefresh()) {
         return;
       }
-      this.preloadFullLogBodies(logs);
+      this.preloadFullLogBodies(logs, auth, token);
       const hasMore = logs.length === this.pageLimit;
       this.post({ type: 'appendLogs', data: logs, hasMore });
       this.setCurrentLogs([...this.currentLogs, ...logs]);
@@ -325,24 +325,74 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
   }
 
-  private preloadFullLogBodies(logs: ApexLogRow[], signal?: AbortSignal): void {
+  private preloadFullLogBodies(logs: ApexLogRow[], auth: OrgAuth, refreshToken: number, signal?: AbortSignal): void {
     if (!this.configManager.shouldLoadFullLogBodies()) {
       return;
     }
     if (!Array.isArray(logs) || logs.length === 0) {
       return;
     }
+    const logsById = new Map(
+      logs
+        .filter((log): log is ApexLogRow & { Id: string } => typeof log?.Id === 'string' && log.Id.length > 0)
+        .map(log => [log.Id, log] as const)
+    );
+    let searchRerunTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleSearchRerun = () => {
+      if (searchRerunTimer) {
+        return;
+      }
+      searchRerunTimer = setTimeout(() => {
+        searchRerunTimer = undefined;
+        if (!signal?.aborted && !this.disposed) {
+          logTrace('Logs: rerunning active search after body preload');
+          this.rerunActiveSearch();
+        }
+      }, 150);
+    };
     void this.logService
-      .ensureLogsSaved(logs, this.orgManager.getSelectedOrg(), signal)
+      .ensureLogsSaved(logs, this.orgManager.getSelectedOrg(), signal, {
+        onItemComplete: result => {
+          if (signal?.aborted || this.disposed) {
+            return;
+          }
+          if (result.status !== 'downloaded' && result.status !== 'existing') {
+            return;
+          }
+          logTrace('Logs: preload body completed', { logId: result.logId, status: result.status });
+          const log = logsById.get(result.logId);
+          if (!log) {
+            return;
+          }
+          this.logService.loadLogHeads([log], auth, refreshToken, (logId, codeUnit) => {
+            if (refreshToken === this.refreshToken && !this.disposed && this.currentLogIds.has(logId)) {
+              this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
+            }
+          }, signal, {
+            preferLocalBodies: true,
+            selectedOrg: this.orgManager.getSelectedOrg()
+          });
+          scheduleSearchRerun();
+        }
+      })
       .then(summary => {
+        if (searchRerunTimer) {
+          clearTimeout(searchRerunTimer);
+          searchRerunTimer = undefined;
+        }
         if (signal?.aborted || this.disposed) {
           return;
         }
-        if (summary.downloaded > 0) {
+        if (summary.success > 0) {
+          logTrace('Logs: rerunning active search after preload summary', summary);
           this.rerunActiveSearch();
         }
       })
       .catch(e => {
+        if (searchRerunTimer) {
+          clearTimeout(searchRerunTimer);
+          searchRerunTimer = undefined;
+        }
         if (!signal?.aborted) {
           logWarn('Logs: preload full log bodies failed ->', getErrorMessage(e));
         }
@@ -353,7 +403,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     if (this.disposed || !this.lastSearchQuery.trim()) {
       return;
     }
+    logTrace('Logs: rerunActiveSearch', { queryLength: this.lastSearchQuery.trim().length });
     if (this.searchAbortController) {
+      logTrace('Logs: aborting current active search for rerun');
       this.searchAbortController.abort();
       this.searchAbortController = undefined;
     }
@@ -629,8 +681,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
 
   private async setSearchQuery(value: string): Promise<void> {
     this.lastSearchQuery = value ?? '';
+    logTrace('Logs: setSearchQuery', { queryLength: this.lastSearchQuery.trim().length });
     const token = ++this.searchToken;
     if (this.searchAbortController) {
+      logTrace('Logs: aborting in-flight search before new query');
       this.searchAbortController.abort();
     }
     const controller = new AbortController();
@@ -668,6 +722,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       return;
     }
     const logsSnapshot = [...this.currentLogs];
+    logTrace('Logs: executeSearch start', {
+      queryLength: trimmed.length,
+      logs: logsSnapshot.length,
+      token
+    });
     if (logsSnapshot.length === 0) {
       if (isActive()) {
         this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
@@ -699,6 +758,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         logIds: Array.isArray(result.logIds) ? result.logIds : [],
         snippets: result.snippets ?? {},
         pendingLogIds: Array.isArray(result.pendingLogIds) ? result.pendingLogIds : []
+      });
+      logTrace('Logs: executeSearch result', {
+        queryLength: trimmed.length,
+        matches: Array.isArray(result.logIds) ? result.logIds.length : 0,
+        pending: Array.isArray(result.pendingLogIds) ? result.pendingLogIds.length : 0,
+        token
       });
     } catch (e) {
       logWarn('Logs: search failed ->', getErrorMessage(e));

@@ -14,8 +14,12 @@ export type VscodeLaunch = {
   page: Page;
   userDataDir: string;
   extensionsDir: string;
-  cleanup: () => Promise<void>;
+  cleanup: (options?: { keep?: boolean }) => Promise<void>;
 };
+
+function shouldKeepUserDataDir(): boolean {
+  return /^1|true$/i.test(String(process.env.ALV_E2E_KEEP_USER_DATA || ''));
+}
 
 export type VscodeWindowSize = {
   width: number;
@@ -540,11 +544,15 @@ export async function launchVsCode(options: {
     // best-effort
   }
 
-  const cleanup = async () => {
+  const cleanup = async (cleanupOptions?: { keep?: boolean }) => {
     try {
       await app.close();
     } catch {}
-    await removePathBestEffort(userDataDir);
+    if (cleanupOptions?.keep || shouldKeepUserDataDir()) {
+      console.warn(`[e2e] Preserving VS Code user-data-dir at ${userDataDir}`);
+    } else {
+      await removePathBestEffort(userDataDir);
+    }
     if (shouldCleanupExtensionsDir) {
       await removePathBestEffort(extensionsDir);
     }

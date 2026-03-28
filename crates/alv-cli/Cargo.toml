@@ -9,3 +9,6 @@ path = "src/main.rs"
 
 [dependencies]
 alv-app-server = { path = "../alv-app-server" }
+
+[dev-dependencies]
+serde_json = "1.0"
