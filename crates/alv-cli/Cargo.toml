@@ -3,5 +3,9 @@ name = "alv-cli"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "apex-log-viewer"
+path = "src/main.rs"
+
 [dependencies]
 alv-app-server = { path = "../alv-app-server" }

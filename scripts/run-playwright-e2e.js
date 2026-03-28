@@ -6,7 +6,14 @@ const { existsSync } = require('fs');
 const { platform } = require('os');
 const path = require('path');
 
+function resolveRuntimeBinaryRelativePath(targetPlatform = process.platform, targetArch = process.arch) {
+  const target = `${targetPlatform}-${targetArch}`;
+  const bin = targetPlatform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
+  return path.join('apps', 'vscode-extension', 'bin', target, bin);
+}
+
 const requiredBuildArtifacts = [
+  resolveRuntimeBinaryRelativePath(),
   'apps/vscode-extension/dist/extension.js',
   'apps/vscode-extension/media/webview.css',
   'apps/vscode-extension/media/main.js',
@@ -154,6 +161,7 @@ module.exports = {
   ensureBuildArtifacts,
   findMissingBuildArtifacts,
   requiredBuildArtifacts,
+  resolveRuntimeBinaryRelativePath,
   resolveBuildInvocation,
   resolvePlaywrightInvocation
 };
