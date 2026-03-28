@@ -1,5 +1,7 @@
 use alv_protocol::messages::{InitializeParams, InitializeResult, RuntimeCapabilities};
 
+use crate::transport_stdio::bounded_transport_channel;
+
 pub fn handle_initialize(_params: InitializeParams) -> InitializeResult {
     InitializeResult {
         runtime_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -17,4 +19,9 @@ pub fn handle_initialize(_params: InitializeParams) -> InitializeResult {
         state_dir: ".alv/state".to_string(),
         cache_dir: ".alv/cache".to_string(),
     }
+}
+
+pub fn run_stdio() -> Result<(), String> {
+    let (_sender, _receiver) = bounded_transport_channel::<String>();
+    Ok(())
 }
