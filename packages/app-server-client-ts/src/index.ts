@@ -25,6 +25,70 @@ export type OrgAuth = {
   username?: string;
 };
 
+export type RuntimeLogRow = {
+  Id: string;
+  StartTime?: string;
+  Operation?: string;
+  Application?: string;
+  DurationMilliseconds?: number;
+  Status?: string;
+  Request?: string;
+  LogLength?: number;
+  LogUser?: { Name?: string };
+};
+
+export type LogsListCursor = {
+  beforeStartTime: string;
+  beforeId: string;
+};
+
+export type LogsListParams = {
+  username?: string;
+  limit?: number;
+  cursor?: LogsListCursor;
+};
+
+export type SearchSnippet = {
+  text: string;
+  ranges: [number, number][];
+};
+
+export type SearchQueryParams = {
+  username?: string;
+  query: string;
+  logIds?: string[];
+};
+
+export type SearchQueryResult = {
+  logIds: string[];
+  snippets?: Record<string, SearchSnippet>;
+  pendingLogIds?: string[];
+};
+
+export type RuntimeLogDiagnostic = {
+  code: string;
+  severity: string;
+  summary: string;
+  line?: number;
+  eventType?: string;
+};
+
+export type RuntimeLogTriageSummary = {
+  hasErrors: boolean;
+  primaryReason?: string;
+  reasons: RuntimeLogDiagnostic[];
+};
+
+export type LogsTriageParams = {
+  username?: string;
+  logIds: string[];
+};
+
+export type LogsTriageEntry = {
+  logId: string;
+  summary: RuntimeLogTriageSummary;
+};
+
 export type JsonRpcRequest = {
   jsonrpc: '2.0';
   id: string;

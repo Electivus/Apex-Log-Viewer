@@ -1,5 +1,4 @@
 import assert from 'assert/strict';
-import { Buffer } from 'node:buffer';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -45,15 +44,15 @@ function createProviderHarness() {
     purgeSavedLogs: async () => 0,
     getLogIdFromLogFilePath: () => undefined
   };
-  const ripgrepStub = {
-    ripgrepSearch: async () => []
-  };
   const debugFlagsPanelStub = {
     show: async () => undefined
   };
   const runtimeClientStub = {
     orgList: async () => [],
-    getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' })
+    getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' }),
+    logsList: async () => [],
+    searchQuery: async () => ({ logIds: [], snippets: {}, pendingLogIds: [] }),
+    logsTriage: async () => []
   };
   const cliStub = runtimeClientStub;
   const vscodeMock = {
@@ -169,7 +168,6 @@ function createProviderHarness() {
     vscode: vscodeMock,
     '../../../../src/salesforce/http': httpStub,
     '../../../../src/utils/workspace': workspaceStub,
-    '../../../../src/utils/ripgrep': ripgrepStub,
     '../runtime/runtimeClient': { runtimeClient: runtimeClientStub },
     '../utils/orgManager': { OrgManager: OrgManagerStub },
     '../../../../src/utils/configManager': { ConfigManager: ConfigManagerStub },
@@ -182,7 +180,6 @@ function createProviderHarness() {
     cli: cliStub,
     http: httpStub,
     workspace: workspaceStub,
-    ripgrep: ripgrepStub,
     DebugFlagsPanel: debugFlagsPanelStub,
     vscode: vscodeMock
   };
@@ -193,14 +190,14 @@ suite('SfLogsViewProvider behavior', () => {
     const { SfLogsViewProvider, cli } = createProviderHarness();
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-provider-heads-'));
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [
+      { Id: '07L000000000001AA', LogLength: 10 },
+      { Id: '07L000000000002AA', LogLength: 20 }
+    ];
 
     const context = makeContext();
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
-    (provider as any).logService.fetchLogs = async () => [
-      { Id: '07L000000000001AA', LogLength: 10 },
-      { Id: '07L000000000002AA', LogLength: 20 }
-    ];
     (provider as any).logService.loadLogHeads = (
       logs: Array<{ Id: string }>,
       _auth: unknown,
@@ -244,14 +241,14 @@ suite('SfLogsViewProvider behavior', () => {
   test('refresh preloads full log bodies when enabled', async () => {
     const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [
+      { Id: '07L000000000001AA' },
+      { Id: '07L000000000002AA' }
+    ];
 
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).logService.fetchLogs = async () => [
-      { Id: '07L000000000001AA' },
-      { Id: '07L000000000002AA' }
-    ];
     (provider as any).view = {
       webview: {
         postMessage: () => Promise.resolve(true)
@@ -296,25 +293,13 @@ suite('SfLogsViewProvider behavior', () => {
   test('refresh posts progressive error scan status and marks visible logs with errors', async () => {
     const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    workspace.purgeSavedLogs = async () => 0;
-
-    const context = makeContext();
-    const posted: any[] = [];
-    const provider = new SfLogsViewProvider(context);
-    (provider as any).configManager.shouldLoadFullLogBodies = () => false;
-    (provider as any).logService.fetchLogs = async () => [
+    cli.logsList = async () => [
       { Id: '07L000000000001AA', LogLength: 10 },
       { Id: '07L000000000002AA', LogLength: 20 }
     ];
-    (provider as any).logService.loadLogHeads = () => {};
-    (provider as any).logService.classifyLogsForErrors = async (
-      logs: Array<{ Id: string }>,
-      _selectedOrg: string | undefined,
-      _signal: AbortSignal | undefined,
-      options?: { onProgress?: (entry: any) => void }
-    ) => {
-      options?.onProgress?.({
-        logId: logs[0]!.Id,
+    cli.logsTriage = async (params: { logIds: string[] }) => [
+      {
+        logId: params.logIds[0],
         summary: {
           hasErrors: true,
           primaryReason: 'Fatal exception',
@@ -327,49 +312,23 @@ suite('SfLogsViewProvider behavior', () => {
               eventType: 'EXCEPTION_THROWN'
             }
           ]
-        },
-        hasErrors: true,
-        processed: 1,
-        total: logs.length,
-        errorsFound: 1
-      });
-      options?.onProgress?.({
-        logId: logs[1]!.Id,
+        }
+      },
+      {
+        logId: params.logIds[1],
         summary: {
           hasErrors: false,
           reasons: []
-        },
-        hasErrors: false,
-        processed: 2,
-        total: logs.length,
-        errorsFound: 1
-      });
-      return new Map<string, any>([
-        [
-          logs[0]!.Id,
-          {
-            hasErrors: true,
-            primaryReason: 'Fatal exception',
-            reasons: [
-              {
-                code: 'fatal_exception',
-                severity: 'error',
-                summary: 'Fatal exception',
-                line: 1,
-                eventType: 'EXCEPTION_THROWN'
-              }
-            ]
-          }
-        ],
-        [
-          logs[1]!.Id,
-          {
-            hasErrors: false,
-            reasons: []
-          }
-        ]
-      ]);
-    };
+        }
+      }
+    ];
+    workspace.purgeSavedLogs = async () => 0;
+
+    const context = makeContext();
+    const posted: any[] = [];
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => false;
+    (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
         postMessage: (m: any) => {
@@ -396,12 +355,12 @@ suite('SfLogsViewProvider behavior', () => {
   test('refresh cancellation aborts background error scan', async () => {
     const { SfLogsViewProvider, cli, workspace, vscode: vscodeMock } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
     workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => false;
-    (provider as any).logService.fetchLogs = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
     (provider as any).logService.loadLogHeads = () => {};
 
     const posted: any[] = [];
@@ -414,22 +373,18 @@ suite('SfLogsViewProvider behavior', () => {
       }
     } as any;
 
-    let classifySignal: AbortSignal | undefined;
-    let classifyStarted!: () => void;
+    let triageSignal: AbortSignal | undefined;
+    let triageStarted!: () => void;
     const started = new Promise<void>(resolve => {
-      classifyStarted = resolve;
+      triageStarted = resolve;
     });
-    (provider as any).logService.classifyLogsForErrors = async (
-      _logs: Array<{ Id: string }>,
-      _selectedOrg: string | undefined,
-      signal: AbortSignal | undefined
-    ) => {
+    cli.logsTriage = async (_params: { logIds: string[] }, signal?: AbortSignal) => {
       if (signal) {
-        classifySignal = signal;
+        triageSignal = signal;
       }
-      classifyStarted();
+      triageStarted();
       await new Promise(resolve => setTimeout(resolve, 30));
-      return new Map<string, any>();
+      return [];
     };
 
     vscodeMock.window.withProgress = async (_opts: any, task: any) => {
@@ -450,8 +405,8 @@ suite('SfLogsViewProvider behavior', () => {
     await provider.refresh();
     await new Promise(resolve => setTimeout(resolve, 60));
 
-    assert.ok(classifySignal, 'should start error scan classification');
-    assert.equal(classifySignal?.aborted, true, 'scan signal should be aborted when refresh is cancelled');
+    assert.ok(triageSignal, 'should start runtime triage');
+    assert.equal(triageSignal?.aborted, true, 'scan signal should be aborted when refresh is cancelled');
     assert.ok(posted.some(m => m?.type === 'errorScanStatus' && m?.state === 'running'), 'should have started scan status');
   });
 
@@ -486,6 +441,7 @@ suite('SfLogsViewProvider behavior', () => {
   test('refresh posts API version fallback warning when available', async () => {
     const { SfLogsViewProvider, cli, http, workspace } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
     http.getApiVersionFallbackWarning = () =>
       'sourceApiVersion 66.0 > org max 64.0; falling back to 64.0';
     workspace.purgeSavedLogs = async () => 0;
@@ -494,7 +450,6 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => false;
-    (provider as any).logService.fetchLogs = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
     (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
@@ -516,9 +471,10 @@ suite('SfLogsViewProvider behavior', () => {
     );
   });
 
-  test('searchQuery posts searchMatches when ripgrep finds logs', async () => {
-    const { SfLogsViewProvider, cli, workspace, ripgrep } = createProviderHarness();
+  test('searchQuery posts searchMatches from runtime search results', async () => {
+    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
 
     const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests');
     await fs.mkdir(tmpDir, { recursive: true });
@@ -533,7 +489,6 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).logService.fetchLogs = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
     (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
@@ -544,37 +499,20 @@ suite('SfLogsViewProvider behavior', () => {
       }
     } as any;
 
-    const ensureOptions: any[] = [];
-    const sampleLine = 'Usuário João gerou erro crítico 323301606';
+    const searchCalls: any[] = [];
     const needle = '323301606';
-    const filePath = path.join(tmpDir, 'default_07L000000000001AA.log');
-    (provider as any).logService.ensureLogsSaved = async (
-      _logs: any[],
-      _org: string | undefined,
-      _signal?: AbortSignal,
-      options?: { downloadMissing?: boolean }
-    ) => {
-      ensureOptions.push(options);
-      if (options?.downloadMissing === false) {
-        return;
-      }
-      await fs.writeFile(filePath, sampleLine, 'utf8');
-    };
-    ripgrep.ripgrepSearch = async (
-      _pattern: string,
-      _cwd: string,
-      _signal?: AbortSignal
-    ) => {
-      const prefix = sampleLine.slice(0, sampleLine.indexOf(needle));
-      const start = Buffer.from(prefix, 'utf8').length;
-      const end = start + Buffer.from(needle, 'utf8').length;
-      return [
-        {
-          filePath: path.join(tmpDir, 'default_07L000000000001AA.log'),
-          lineText: sampleLine,
-          submatches: [{ start, end }]
-        }
-      ];
+    cli.searchQuery = async (params: any) => {
+      searchCalls.push(params);
+      return {
+        logIds: ['07L000000000001AA'],
+        snippets: {
+          '07L000000000001AA': {
+            text: `Usuário João gerou erro crítico ${needle}`,
+            ranges: [[33, 42]]
+          }
+        },
+        pendingLogIds: []
+      };
     };
 
     try {
@@ -583,11 +521,12 @@ suite('SfLogsViewProvider behavior', () => {
       await (provider as any).setSearchQuery('error');
       await new Promise(r => setTimeout(r, 20));
 
-      assert.equal(ensureOptions.length >= 1, true, 'ensureLogsSaved should be called');
-      assert.ok(
-        ensureOptions.some(opt => opt && opt.downloadMissing === false),
-        'search ensureLogsSaved call should skip downloads'
-      );
+      assert.equal(searchCalls.length, 1, 'should call runtime search once');
+      assert.deepEqual(searchCalls[0], {
+        username: undefined,
+        query: 'error',
+        logIds: ['07L000000000001AA']
+      });
       const matches = posted
         .filter(m => m?.type === 'searchMatches' && Array.isArray(m.logIds) && m.logIds.includes('07L000000000001AA'))
         .pop();
@@ -605,9 +544,10 @@ suite('SfLogsViewProvider behavior', () => {
     }
   });
 
-  test('searchQuery posts pendingLogIds when bodies are missing', async () => {
-    const { SfLogsViewProvider, cli, workspace, ripgrep } = createProviderHarness();
+  test('searchQuery posts pendingLogIds from runtime search results', async () => {
+    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
 
     const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests-missing');
     await fs.mkdir(tmpDir, { recursive: true });
@@ -618,7 +558,6 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).logService.fetchLogs = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
     (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
@@ -629,24 +568,14 @@ suite('SfLogsViewProvider behavior', () => {
       }
     } as any;
 
-    (provider as any).logService.ensureLogsSaved = async (
-      logs: any[],
-      _org: string | undefined,
-      _signal?: AbortSignal,
-      options?: { downloadMissing?: boolean; onMissing?: (id: string) => void }
-    ) => {
-      if (options?.downloadMissing === false && typeof options.onMissing === 'function') {
-        for (const log of logs) {
-          if (log?.Id) {
-            options.onMissing(log.Id);
-          }
-        }
-      }
-    };
-    let ripgrepCalls = 0;
-    ripgrep.ripgrepSearch = async () => {
-      ripgrepCalls++;
-      return [];
+    let searchCalls = 0;
+    cli.searchQuery = async () => {
+      searchCalls++;
+      return {
+        logIds: [],
+        snippets: {},
+        pendingLogIds: ['07L000000000001AA']
+      };
     };
 
     try {
@@ -661,15 +590,16 @@ suite('SfLogsViewProvider behavior', () => {
       assert.ok(matches, 'should post searchMatches even when missing');
       assert.ok(Array.isArray(matches?.pendingLogIds), 'pendingLogIds should be an array');
       assert.deepEqual(matches?.pendingLogIds, ['07L000000000001AA']);
-      assert.equal(ripgrepCalls, 0, 'should not run ripgrep while logs are pending');
+      assert.equal(searchCalls, 1, 'should delegate missing-log state to runtime search');
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   });
 
   test('setSearchQuery aborts previous search before running a new one', async () => {
-    const { SfLogsViewProvider, cli, workspace, ripgrep } = createProviderHarness();
+    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
 
     const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests-cancel');
     await fs.mkdir(tmpDir, { recursive: true });
@@ -680,7 +610,6 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).logService.fetchLogs = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
     (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
@@ -694,41 +623,19 @@ suite('SfLogsViewProvider behavior', () => {
     await provider.refresh();
     await new Promise(r => setTimeout(r, 20));
 
-    const logPath = path.join(tmpDir, 'default_07L000000000001AA.log');
-    await fs.writeFile(logPath, 'Example line', 'utf8');
-
-    const ensureSignals: AbortSignal[] = [];
-    (provider as any).logService.ensureLogsSaved = async (
-      _logs: any,
-      _org: any,
-      signal?: AbortSignal,
-      _options?: any
-    ) => {
+    const searchSignals: AbortSignal[] = [];
+    cli.searchQuery = async (_params: any, signal?: AbortSignal) => {
       if (signal) {
-        ensureSignals.push(signal);
+        searchSignals.push(signal);
       }
-      if (ensureSignals.length === 1 && signal) {
+      if (searchSignals.length === 1 && signal) {
         await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
       }
-    };
-
-    let ripgrepCalls = 0;
-    ripgrep.ripgrepSearch = async (
-      _pattern: string,
-      _cwd: string,
-      signal?: AbortSignal
-    ) => {
-      ripgrepCalls++;
-      if (signal?.aborted) {
-        return [];
-      }
-      return [
-        {
-          filePath: logPath,
-          lineText: 'Example line',
-          submatches: []
-        }
-      ];
+      return {
+        logIds: signal?.aborted ? [] : ['07L000000000001AA'],
+        snippets: {},
+        pendingLogIds: []
+      };
     };
 
     try {
@@ -738,9 +645,8 @@ suite('SfLogsViewProvider behavior', () => {
       await firstSearch;
       await new Promise(r => setTimeout(r, 10));
 
-      assert.ok(ensureSignals[0]?.aborted, 'first search should be aborted');
-      assert.equal(ensureSignals.length, 2, 'should issue ensureLogsSaved twice');
-      assert.ok(ripgrepCalls >= 1, 'second search should invoke ripgrep');
+      assert.ok(searchSignals[0]?.aborted, 'first search should be aborted');
+      assert.equal(searchSignals.length, 2, 'should issue runtime search twice');
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
@@ -749,18 +655,18 @@ suite('SfLogsViewProvider behavior', () => {
   test('loadMore appends logs', async () => {
     const { SfLogsViewProvider, cli } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-
-    const fetchLogs = async (_auth: any, limit: number, offset: number) => {
-      if (offset > 0) {
-        return [{ Id: '2', LogLength: 20 }].slice(0, limit);
+    let listCalls = 0;
+    cli.logsList = async (_params: any) => {
+      listCalls++;
+      if (listCalls > 1) {
+        return [{ Id: '2', LogLength: 20 }];
       }
-      return [{ Id: '1', LogLength: 10 }].slice(0, limit);
+      return [{ Id: '1', LogLength: 10 }];
     };
 
     const context = makeContext();
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
-    (provider as any).logService.fetchLogs = fetchLogs;
     (provider as any).logService.loadLogHeads = (
       logs: Array<{ Id: string }>,
       _auth: unknown,

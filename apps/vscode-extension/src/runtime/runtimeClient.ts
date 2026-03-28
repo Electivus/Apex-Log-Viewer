@@ -5,7 +5,13 @@ import type {
   OrgAuthParams,
   JsonRpcErrorResponse,
   JsonRpcSuccessResponse,
-  InitializeResult
+  InitializeResult,
+  LogsListParams,
+  LogsTriageEntry,
+  LogsTriageParams,
+  RuntimeLogRow,
+  SearchQueryParams,
+  SearchQueryResult
 } from '../../../../packages/app-server-client-ts/src/index';
 import { createDaemonProcess } from '../../../../packages/app-server-client-ts/src/index';
 import type { JsonRpcRequest, OrgListItem, OrgListParams } from '../../../../packages/app-server-client-ts/src/index';
@@ -23,9 +29,14 @@ type TimerHandle = ReturnType<typeof setTimeout>;
 type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
+  cleanup?: () => void;
 };
 
-export type RuntimeRequestHandler = <TResult>(method: string, params?: unknown) => Promise<TResult>;
+export type RuntimeRequestHandler = <TResult>(
+  method: string,
+  params?: unknown,
+  signal?: AbortSignal
+) => Promise<TResult>;
 
 export interface RuntimeClientOptions {
   clientName?: string;
@@ -101,6 +112,27 @@ export class RuntimeClient extends EventEmitter {
     return this.request<OrgAuth>('org/auth', params);
   }
 
+  async logsList(params: LogsListParams = {}, signal?: AbortSignal): Promise<RuntimeLogRow[]> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<RuntimeLogRow[]>('logs/list', params, signal);
+  }
+
+  async searchQuery(params: SearchQueryParams, signal?: AbortSignal): Promise<SearchQueryResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<SearchQueryResult>('search/query', params, signal);
+  }
+
+  async logsTriage(params: LogsTriageParams, signal?: AbortSignal): Promise<LogsTriageEntry[]> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<LogsTriageEntry[]>('logs/triage', params, signal);
+  }
+
   scheduleRestart(): void {
     const delayMs = this.restartDelayMs;
     this.schedule(() => {
@@ -121,9 +153,13 @@ export class RuntimeClient extends EventEmitter {
     this.emit(RUNTIME_CANCEL_EVENT, { requestId } satisfies RuntimeCancelEvent);
   }
 
-  private async request<TResult>(method: string, params?: unknown): Promise<TResult> {
+  private async request<TResult>(method: string, params?: unknown, signal?: AbortSignal): Promise<TResult> {
+    if (signal?.aborted) {
+      throw this.createAbortError();
+    }
+
     if (this.requestHandler) {
-      return this.requestHandler<TResult>(method, params);
+      return this.requestHandler<TResult>(method, params, signal);
     }
 
     const daemon = this.daemon ?? this.startRuntime();
@@ -136,9 +172,18 @@ export class RuntimeClient extends EventEmitter {
     };
 
     const response = new Promise<TResult>((resolve, reject) => {
+      const onAbort = () => {
+        this.pendingRequests.delete(id);
+        this.cancel(id);
+        reject(this.createAbortError());
+      };
+      if (signal) {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
       this.pendingRequests.set(id, {
         resolve: value => resolve(value as TResult),
-        reject
+        reject,
+        cleanup: signal ? () => signal.removeEventListener('abort', onAbort) : undefined
       });
     });
 
@@ -162,6 +207,7 @@ export class RuntimeClient extends EventEmitter {
     }
 
     this.pendingRequests.delete(response.id);
+    pending.cleanup?.();
 
     if (response.error) {
       pending.reject(new Error(response.error.message));
@@ -175,8 +221,15 @@ export class RuntimeClient extends EventEmitter {
     const pending = Array.from(this.pendingRequests.values());
     this.pendingRequests.clear();
     for (const request of pending) {
+      request.cleanup?.();
       request.reject(error);
     }
+  }
+
+  private createAbortError(): Error {
+    const error = new Error('Request aborted');
+    error.name = 'AbortError';
+    return error;
   }
 }
 

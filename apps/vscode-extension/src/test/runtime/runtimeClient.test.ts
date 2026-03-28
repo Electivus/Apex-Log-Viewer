@@ -69,4 +69,101 @@ suite('runtime client', () => {
     assert.equal(orgs[0]?.username, 'demo@example.com');
     assert.equal(auth.username, 'demo@example.com');
   });
+
+  test('logsList, searchQuery, and logsTriage use runtime request methods', async () => {
+    const methods: string[] = [];
+    const client = new RuntimeClient({
+      requestHandler: async (method, params) => {
+        methods.push(method);
+        if (method === 'logs/list') {
+          assert.deepEqual(params, {
+            username: 'demo@example.com',
+            limit: 25,
+            cursor: {
+              beforeStartTime: '2026-03-27T12:00:00.000Z',
+              beforeId: '07L000000000001AA'
+            }
+          });
+          return [
+            {
+              Id: '07L000000000001AA',
+              StartTime: '2026-03-27T12:00:00.000Z',
+              Operation: 'Execute Anonymous',
+              Application: 'Apex',
+              DurationMilliseconds: 12,
+              Status: 'Success',
+              Request: 'API',
+              LogLength: 123
+            }
+          ] as never;
+        }
+        if (method === 'search/query') {
+          assert.deepEqual(params, {
+            username: 'demo@example.com',
+            query: 'NullPointerException',
+            logIds: ['07L000000000001AA']
+          });
+          return {
+            logIds: ['07L000000000001AA'],
+            snippets: {
+              '07L000000000001AA': {
+                text: 'System.NullPointerException: Attempt to de-reference a null object',
+                ranges: [[7, 27]]
+              }
+            },
+            pendingLogIds: []
+          } as never;
+        }
+        if (method === 'logs/triage') {
+          assert.deepEqual(params, {
+            username: 'demo@example.com',
+            logIds: ['07L000000000001AA']
+          });
+          return [
+            {
+              logId: '07L000000000001AA',
+              summary: {
+                hasErrors: true,
+                primaryReason: 'Fatal exception',
+                reasons: [
+                  {
+                    code: 'fatal_exception',
+                    severity: 'error',
+                    summary: 'Fatal exception',
+                    line: 3,
+                    eventType: 'EXCEPTION_THROWN'
+                  }
+                ]
+              }
+            }
+          ] as never;
+        }
+        throw new Error(`unexpected method: ${method}`);
+      }
+    });
+
+    const logs = await client.logsList({
+      username: 'demo@example.com',
+      limit: 25,
+      cursor: {
+        beforeStartTime: '2026-03-27T12:00:00.000Z',
+        beforeId: '07L000000000001AA'
+      }
+    });
+    const searchResult = await client.searchQuery({
+      username: 'demo@example.com',
+      query: 'NullPointerException',
+      logIds: ['07L000000000001AA']
+    });
+    const triageEntries = await client.logsTriage({
+      username: 'demo@example.com',
+      logIds: ['07L000000000001AA']
+    });
+
+    assert.deepEqual(methods, ['logs/list', 'search/query', 'logs/triage']);
+    assert.equal(logs[0]?.Id, '07L000000000001AA');
+    assert.equal(searchResult.logIds[0], '07L000000000001AA');
+    assert.equal(searchResult.snippets?.['07L000000000001AA']?.ranges[0]?.[0], 7);
+    assert.equal(triageEntries[0]?.summary.primaryReason, 'Fatal exception');
+  });
 });

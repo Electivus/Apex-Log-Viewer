@@ -17,10 +17,9 @@ import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../../../../src/utils/configManager';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { affectsConfiguration, getConfig } from '../../../../src/utils/config';
-import { ensureApexLogsDir, purgeSavedLogs, getLogIdFromLogFilePath } from '../../../../src/utils/workspace';
-import { ripgrepSearch, type RipgrepMatch } from '../../../../src/utils/ripgrep';
+import { purgeSavedLogs } from '../../../../src/utils/workspace';
 import { DEFAULT_LOGS_COLUMNS_CONFIG, normalizeLogsColumnsConfig, type NormalizedLogsColumnsConfig } from '../shared/logsColumns';
-import type { LogTriageSummary } from '../shared/logTriage';
+import { normalizeLogTriageSummary, type LogTriageSummary } from '../shared/logTriage';
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
 
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
@@ -169,12 +168,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           this.currentOffset = 0;
           this.cursorStartTime = undefined;
           this.cursorId = undefined;
-          const logs: ApexLogRow[] = await this.logService.fetchLogs(
-            auth,
-            this.pageLimit,
-            this.currentOffset,
+          const logs = (await runtimeClient.logsList(
+            {
+              username: this.orgManager.getSelectedOrg(),
+              limit: this.pageLimit
+            },
             controller.signal
-          );
+          )) as ApexLogRow[];
           if (ct.isCancellationRequested) {
             return;
           }
@@ -221,7 +221,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
               selectedOrg: this.orgManager.getSelectedOrg()
             }
           );
-          this.startErrorScanForCurrentLogs(auth, token, controller.signal);
+          this.startErrorScanForCurrentLogs(token, controller.signal);
           if (this.lastSearchQuery.trim()) {
             this.rerunActiveSearch();
           } else {
@@ -268,15 +268,14 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       if (!isCurrentRefresh()) {
         return;
       }
-      const logs: ApexLogRow[] = await this.logService.fetchLogs(
-        auth,
-        this.pageLimit,
-        this.currentOffset,
-        undefined,
-        this.cursorStartTime && this.cursorId
-          ? { beforeStartTime: this.cursorStartTime, beforeId: this.cursorId }
-          : undefined
-      );
+      const logs = (await runtimeClient.logsList({
+        username: this.orgManager.getSelectedOrg(),
+        limit: this.pageLimit,
+        cursor:
+          this.cursorStartTime && this.cursorId
+            ? { beforeStartTime: this.cursorStartTime, beforeId: this.cursorId }
+            : undefined
+      })) as ApexLogRow[];
       logInfo('Logs: loadMore fetched', logs.length);
       this.currentOffset += logs.length;
       if (logs.length > 0) {
@@ -307,7 +306,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         preferLocalBodies: this.configManager.shouldLoadFullLogBodies(),
         selectedOrg: this.orgManager.getSelectedOrg()
       });
-      this.startErrorScanForCurrentLogs(auth, token);
+      this.startErrorScanForCurrentLogs(token);
       this.rerunActiveSearch();
       try {
         const durationMs = Date.now() - t0;
@@ -443,7 +442,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
   }
 
-  private startErrorScanForCurrentLogs(auth: OrgAuth, refreshToken: number, parentSignal?: AbortSignal): void {
+  private startErrorScanForCurrentLogs(refreshToken: number, parentSignal?: AbortSignal): void {
     this.cancelErrorScan();
     const scanToken = this.errorScanToken;
     if (parentSignal?.aborted) {
@@ -502,39 +501,49 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           );
           return;
         }
-        await this.logService.classifyLogsForErrors(
-          toScan,
-          selectedOrg,
-          controller.signal,
+        const entries = await runtimeClient.logsTriage(
           {
-            onProgress: progress => {
-              if (
-                controller.signal.aborted ||
-                scanToken !== this.errorScanToken ||
-                refreshToken !== this.refreshToken ||
-                this.disposed
-              ) {
-                return;
-              }
-              this.errorByLogId.set(progress.logId, progress.summary);
-              if (this.currentLogIds.has(progress.logId)) {
-                this.post({
-                  type: 'logHead',
-                  logId: progress.logId,
-                  hasErrors: progress.summary.hasErrors,
-                  primaryReason: progress.summary.primaryReason,
-                  reasons: progress.summary.reasons
-                });
-              }
-              this.postErrorScanStatus({
-                state: 'running',
-                processed: progress.processed,
-                total: progress.total,
-                errorsFound: progress.errorsFound
-              });
-            }
-          }
+            username: selectedOrg,
+            logIds: toScan.map(log => log.Id)
+          },
+          controller.signal
         );
+        let processed = 0;
+        let errorsFound = 0;
+        for (const entry of entries) {
+          if (
+            controller.signal.aborted ||
+            scanToken !== this.errorScanToken ||
+            refreshToken !== this.refreshToken ||
+            this.disposed
+          ) {
+            return;
+          }
+          if (!entry?.logId) {
+            continue;
+          }
+          const summary = normalizeLogTriageSummary(entry.summary);
+          this.errorByLogId.set(entry.logId, summary);
+          processed += 1;
+          if (summary.hasErrors) {
+            errorsFound += 1;
+          }
+          if (this.currentLogIds.has(entry.logId)) {
+            this.post({
+              type: 'logHead',
+              logId: entry.logId,
+              hasErrors: summary.hasErrors,
+              primaryReason: summary.primaryReason,
+              reasons: summary.reasons
+            });
+          }
+          this.postErrorScanStatus({
+            state: 'running',
+            processed,
+            total,
+            errorsFound
+          });
+        }
         if (
           controller.signal.aborted ||
           scanToken !== this.errorScanToken ||
@@ -543,7 +552,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         ) {
           return;
         }
-        const errorsFound = toScan
+        const totalErrorsFound = toScan
           .map(log => this.errorByLogId.get(log.Id))
           .filter(v => v?.hasErrors === true).length;
         this.postErrorScanStatus(
@@ -551,7 +560,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             state: 'idle',
             processed: total,
             total,
-            errorsFound
+            errorsFound: totalErrorsFound
           },
           { force: true }
         );
@@ -668,61 +677,26 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     if (isActive()) {
       this.postSearchStatus('loading');
     }
-    const missingLogIds = new Set<string>();
     try {
-      await this.logService.ensureLogsSaved(
-        logsSnapshot,
-        this.orgManager.getSelectedOrg(),
-        signal,
+      const result = await runtimeClient.searchQuery(
         {
-          downloadMissing: false,
-          onMissing: id => {
-            if (typeof id === 'string') {
-              missingLogIds.add(id);
-            }
-          }
-        }
+          username: this.orgManager.getSelectedOrg(),
+          query: trimmed,
+          logIds: logsSnapshot
+            .map(log => log?.Id)
+            .filter((logId): logId is string => typeof logId === 'string' && logId.length > 0)
+        },
+        signal
       );
       if (!isActive() || signal?.aborted) {
         return;
       }
-      if (missingLogIds.size > 0) {
-        this.post({
-          type: 'searchMatches',
-          query: trimmed,
-          logIds: [],
-          snippets: {},
-          pendingLogIds: Array.from(missingLogIds)
-        });
-        return;
-      }
-      const dir = await ensureApexLogsDir();
-      if (signal?.aborted) {
-        return;
-      }
-      const matchesInfo = await ripgrepSearch(trimmed, dir, signal);
-      if (!isActive() || signal?.aborted) {
-        return;
-      }
-      const known = new Set(logsSnapshot.map(l => l.Id));
-      const matches = new Set<string>();
-      const snippets: Record<string, { text: string; ranges: [number, number][] }> = {};
-      for (const info of matchesInfo) {
-        const logId = getLogIdFromLogFilePath(info.filePath);
-        if (logId && known.has(logId)) {
-          matches.add(logId);
-          const snippet = this.buildSnippet(info);
-          if (snippet) {
-            snippets[logId] = snippet;
-          }
-        }
-      }
       this.post({
         type: 'searchMatches',
         query: trimmed,
-        logIds: Array.from(matches),
-        snippets,
-        pendingLogIds: Array.from(missingLogIds)
+        logIds: Array.isArray(result.logIds) ? result.logIds : [],
+        snippets: result.snippets ?? {},
+        pendingLogIds: Array.isArray(result.pendingLogIds) ? result.pendingLogIds : []
       });
     } catch (e) {
       logWarn('Logs: search failed ->', getErrorMessage(e));
@@ -734,81 +708,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         this.postSearchStatus('idle');
       }
     }
-  }
-
-  private buildSnippet(match: RipgrepMatch): { text: string; ranges: [number, number][] } | undefined {
-    const rawLine = typeof match.lineText === 'string' ? match.lineText : '';
-    const line = rawLine.replace(/\r?\n$/, '');
-    if (!line) {
-      return undefined;
-    }
-    const rawRanges = Array.isArray(match.submatches) ? match.submatches : [];
-    const charRanges = rawRanges
-      .map(({ start, end }) => {
-        const charStart = this.byteOffsetToStringIndex(line, start ?? 0);
-        const charEnd = this.byteOffsetToStringIndex(line, end ?? 0);
-        return [charStart, Math.max(charStart, charEnd)] as [number, number];
-      })
-      .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > start);
-
-    const context = 60;
-    const earliest = charRanges.length > 0 ? Math.min(...charRanges.map(r => r[0])) : 0;
-    const latest = charRanges.length > 0 ? Math.max(...charRanges.map(r => r[1])) : Math.min(line.length, earliest + context);
-    const sliceStart = Math.max(0, earliest - context);
-    const sliceEnd = Math.min(line.length, latest + context);
-    const core = line.slice(sliceStart, sliceEnd);
-    const prefix = sliceStart > 0 ? '...' : '';
-    const suffix = sliceEnd < line.length ? '...' : '';
-    const prefixLength = prefix.length;
-    const snippetLength = core.length + prefixLength + suffix.length;
-    const adjustedRanges = charRanges
-      .map(([start, end], idx) => {
-        const adjustedStart = Math.max(0, start - sliceStart) + prefixLength;
-        const adjustedEnd = Math.max(adjustedStart, Math.min(core.length, end - sliceStart) + prefixLength);
-        return [adjustedStart, Math.max(adjustedStart, adjustedEnd)] as [number, number];
-      })
-      .filter(([start, end]) => end > start);
-
-    const finalSnippet = `${prefix}${core}${suffix}`;
-    const boundedRanges = adjustedRanges.map(([start, end]) => {
-      const boundedStart = Math.max(0, Math.min(start, snippetLength));
-      const boundedEnd = Math.max(0, Math.min(end, snippetLength));
-      return [boundedStart, Math.max(boundedStart, boundedEnd)] as [number, number];
-    });
-
-    return {
-      text: finalSnippet,
-      ranges: boundedRanges
-    };
-  }
-
-  private byteOffsetToStringIndex(text: string, byteOffset: number): number {
-    if (!text || !Number.isFinite(byteOffset) || byteOffset <= 0) {
-      return 0;
-    }
-    let byteTally = 0;
-    let index = 0;
-    while (index < text.length) {
-      const codePoint = text.codePointAt(index);
-      if (codePoint === undefined) {
-        break;
-      }
-      const codeUnitLength = codePoint > 0xffff ? 2 : 1;
-      const utf8Length = this.utf8ByteLength(codePoint);
-      if (byteTally + utf8Length > byteOffset) {
-        break;
-      }
-      byteTally += utf8Length;
-      index += codeUnitLength;
-    }
-    return index;
-  }
-
-  private utf8ByteLength(codePoint: number): number {
-    if (codePoint <= 0x7f) return 1;
-    if (codePoint <= 0x7ff) return 2;
-    if (codePoint <= 0xffff) return 3;
-    return 4;
   }
 
   private async fetchAllOrgLogs(auth: OrgAuth, signal?: AbortSignal): Promise<ApexLogRow[]> {
