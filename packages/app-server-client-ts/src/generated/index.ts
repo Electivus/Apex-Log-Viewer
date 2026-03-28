@@ -1,5 +1,4 @@
-pub fn generated_typescript() -> &'static str {
-    r#"export type InitializeParams = {
+export type InitializeParams = {
   client_name: string;
   client_version: string;
 };
@@ -22,5 +21,3 @@ export type InitializeResult = {
   state_dir: string;
   cache_dir: string;
 };
-"#
-}

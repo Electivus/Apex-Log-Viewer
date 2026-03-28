@@ -5,3 +5,7 @@ edition = "2021"
 
 [lib]
 path = "src/lib.rs"
+
+[dependencies]
+alv-protocol = { path = "../alv-protocol" }
+tokio = { version = "1.47", features = ["sync"] }

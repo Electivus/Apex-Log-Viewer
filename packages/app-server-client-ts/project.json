@@ -1,0 +1,17 @@
+{
+  "name": "app-server-client-ts",
+  "sourceRoot": "packages/app-server-client-ts/src",
+  "projectType": "library",
+  "tags": [
+    "scope:protocol",
+    "type:client"
+  ],
+  "targets": {
+    "build": {
+      "command": "tsc --noEmit -p packages/app-server-client-ts/tsconfig.json"
+    },
+    "codegen": {
+      "command": "cargo test -p alv-protocol protocol_schema -- --nocapture"
+    }
+  }
+}
