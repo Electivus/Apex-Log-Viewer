@@ -78,6 +78,7 @@ function getTelemetrySchemaPath(context: vscode.ExtensionContext): string {
   pushUniquePath(candidateRoots, process.cwd());
   pushUniquePath(candidateRoots, path.resolve(__dirname, '..'));
   pushUniquePath(candidateRoots, path.resolve(__dirname, '../..'));
+  pushUniquePath(candidateRoots, path.resolve(__dirname, '../../../..'));
 
   const candidatePaths = candidateRoots.map(root => path.join(root, 'telemetry.json'));
   return candidatePaths.find(candidate => fs.existsSync(candidate)) || candidatePaths[0] || path.join(process.cwd(), 'telemetry.json');

@@ -16,9 +16,9 @@
       "!{projectRoot}/**/__tests__/**"
     ],
     "sharedGlobals": [
-      ".nvmrc",
-      "package-lock.json",
-      "Cargo.toml"
+      "{workspaceRoot}/.nvmrc",
+      "{workspaceRoot}/package-lock.json",
+      "{workspaceRoot}/Cargo.toml"
     ]
   },
   "targetDefaults": {

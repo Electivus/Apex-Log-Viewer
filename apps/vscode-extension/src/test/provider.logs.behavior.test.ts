@@ -5,14 +5,10 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'node:os';
 import proxyquire from 'proxyquire';
-import { SfLogsViewProvider } from '../provider/SfLogsViewProvider';
-import * as cli from '../../../../src/salesforce/cli';
-import * as http from '../../../../src/salesforce/http';
-import * as workspace from '../../../../src/utils/workspace';
-import * as ripgrep from '../../../../src/utils/ripgrep';
-import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
+const makeUri = (filePath: string) => ({ fsPath: filePath, path: filePath, toString: () => filePath });
+const makeDisposable = (dispose: () => void = () => {}) => ({ dispose });
 
 function makeContext() {
   const context = {
@@ -60,19 +56,39 @@ function createProviderHarness() {
     show: async () => undefined
   };
   const vscodeMock = {
-    Uri: vscode.Uri,
-    Disposable: vscode.Disposable,
-    ProgressLocation: vscode.ProgressLocation,
-    ViewColumn: vscode.ViewColumn,
+    Uri: {
+      file: (filePath: string) => makeUri(filePath),
+      joinPath: (base: { fsPath?: string; path?: string; toString?: () => string }, ...pathsToJoin: string[]) => {
+        const root = base.fsPath || base.path || base.toString?.() || '';
+        return makeUri(path.join(root, ...pathsToJoin));
+      }
+    },
+    Disposable: {
+      from: (...items: Array<{ dispose?: () => void }>) =>
+        makeDisposable(() => {
+          for (const item of items) {
+            item?.dispose?.();
+          }
+        })
+    },
+    ProgressLocation: {
+      Notification: 15
+    },
+    ViewColumn: {
+      Active: -1,
+      Beside: -2,
+      One: 1
+    },
     env: {
       language: 'en-US'
     },
     workspace: {
-      onDidChangeConfiguration: () => ({ dispose() {} })
+      onDidChangeConfiguration: () => makeDisposable(),
+      openTextDocument: async () => ({})
     },
     window: {
       state: { active: true },
-      onDidChangeWindowState: () => ({ dispose() {} }),
+      onDidChangeWindowState: () => makeDisposable(),
       withProgress: async (_opts: any, task: any) =>
         task(
           { report: () => {} },
@@ -84,6 +100,7 @@ function createProviderHarness() {
       showWarningMessage: async () => undefined,
       showInformationMessage: async () => undefined,
       showErrorMessage: async () => undefined,
+      showTextDocument: async () => undefined,
       activeTextEditor: undefined
     },
     commands: {
@@ -171,46 +188,6 @@ function createProviderHarness() {
 }
 
 suite('SfLogsViewProvider behavior', () => {
-  const origGetOrgAuth = cli.getOrgAuth;
-  const origFetchApexLogs = http.fetchApexLogs;
-  const origFetchHead = http.fetchApexLogHead;
-  const origFetchBody = http.fetchApexLogBody;
-  const origGetApiVersionFallbackWarning = (http as any).getApiVersionFallbackWarning;
-  const origExtract = http.extractCodeUnitStartedFromLines;
-  const origEnsureApexLogsDir = workspace.ensureApexLogsDir;
-  const origPurgeSavedLogs = workspace.purgeSavedLogs;
-  const origRipgrepSearch = ripgrep.ripgrepSearch;
-  const origOpenTextDocument = vscode.workspace.openTextDocument;
-  const origShowTextDocument = vscode.window.showTextDocument;
-  const origShowWarningMessage = vscode.window.showWarningMessage;
-  const origShowInformationMessage = vscode.window.showInformationMessage;
-  const origShowErrorMessage = vscode.window.showErrorMessage;
-  const origWithProgress = vscode.window.withProgress;
-  const origGetCommands = vscode.commands.getCommands;
-  const origExecCommand = vscode.commands.executeCommand;
-  const origDebugFlagsShow = DebugFlagsPanel.show;
-
-  teardown(() => {
-    (cli as any).getOrgAuth = origGetOrgAuth;
-    (http as any).fetchApexLogs = origFetchApexLogs;
-    (http as any).fetchApexLogHead = origFetchHead;
-    (http as any).fetchApexLogBody = origFetchBody;
-    (http as any).getApiVersionFallbackWarning = origGetApiVersionFallbackWarning;
-    (http as any).extractCodeUnitStartedFromLines = origExtract;
-    (workspace as any).ensureApexLogsDir = origEnsureApexLogsDir;
-    (workspace as any).purgeSavedLogs = origPurgeSavedLogs;
-    (ripgrep as any).ripgrepSearch = origRipgrepSearch;
-    (vscode.workspace as any).openTextDocument = origOpenTextDocument;
-    (vscode.window as any).showTextDocument = origShowTextDocument;
-    (vscode.window as any).showWarningMessage = origShowWarningMessage;
-    (vscode.window as any).showInformationMessage = origShowInformationMessage;
-    (vscode.window as any).showErrorMessage = origShowErrorMessage;
-    (vscode.window as any).withProgress = origWithProgress;
-    (vscode.commands as any).getCommands = origGetCommands;
-    (vscode.commands as any).executeCommand = origExecCommand;
-    (DebugFlagsPanel as any).show = origDebugFlagsShow;
-  });
-
   test('refresh posts logs and logHead with code unit', async () => {
     const { SfLogsViewProvider, cli } = createProviderHarness();
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-provider-heads-'));
@@ -478,6 +455,7 @@ suite('SfLogsViewProvider behavior', () => {
   });
 
   test('preloadFullLogBodies re-runs active search after downloads complete', async () => {
+    const { SfLogsViewProvider } = createProviderHarness();
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
@@ -813,6 +791,7 @@ suite('SfLogsViewProvider behavior', () => {
   });
 
   test('openLog forwards to logService', async () => {
+    const { SfLogsViewProvider } = createProviderHarness();
     const opened: string[] = [];
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
@@ -847,6 +826,7 @@ suite('SfLogsViewProvider behavior', () => {
   });
 
   test('debugLog forwards to logService', async () => {
+    const { SfLogsViewProvider } = createProviderHarness();
     const executed: string[] = [];
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
@@ -1096,6 +1076,7 @@ suite('SfLogsViewProvider behavior', () => {
   });
 
   test('openDebugFlags opens debug flags panel', async () => {
+    const { SfLogsViewProvider, DebugFlagsPanel } = createProviderHarness();
     const opened: Array<{ selectedOrg?: string; sourceView?: string }> = [];
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
@@ -1135,10 +1116,11 @@ suite('SfLogsViewProvider behavior', () => {
   });
 
   test('tailLogs falls back when viewsService command is unavailable', async () => {
+    const { SfLogsViewProvider, vscode: vscodeMock } = createProviderHarness();
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
     const executed: string[] = [];
-    (vscode.commands as any).executeCommand = async (command: string) => {
+    vscodeMock.commands.executeCommand = async (command: string) => {
       executed.push(command);
       if (command === 'workbench.viewsService.openView') {
         throw new Error('Command not found');

@@ -11,6 +11,31 @@ import type { ClassifyLogsForErrorsProgress } from '../../../../src/services/log
 import type { LogTriageSummary } from '../shared/logTriage';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
+const makeUri = (filePath: string) => ({ fsPath: filePath, path: filePath, toString: () => filePath });
+
+function createVscodeLogServiceStub(commandCalls: Array<{ command: string; uri: any }>) {
+  return {
+    Uri: {
+      file: (filePath: string) => makeUri(filePath)
+    },
+    ProgressLocation: {
+      Notification: 15
+    },
+    window: {
+      withProgress: async (_opts: any, task: any) =>
+        task({} as any, {
+          onCancellationRequested: () => {},
+          isCancellationRequested: false
+        }),
+      showErrorMessage: async () => undefined
+    },
+    commands: {
+      executeCommand: async (command: string, uri: any) => {
+        commandCalls.push({ command, uri });
+      }
+    }
+  };
+}
 
 suite('LogService', () => {
   async function waitForCondition(
@@ -175,23 +200,7 @@ suite('LogService', () => {
 
   test('debugLog routes through ensureLogFile before launching debugger', async () => {
     const commandCalls: any[] = [];
-    const vscodeMock = {
-      Uri: vscode.Uri,
-      ProgressLocation: vscode.ProgressLocation,
-      window: {
-        withProgress: async (_opts: any, task: any) =>
-          task({} as any, {
-            onCancellationRequested: () => {},
-            isCancellationRequested: false
-          }),
-        showErrorMessage: async () => undefined
-      },
-      commands: {
-        executeCommand: async (command: string, uri: any) => {
-          commandCalls.push({ command, uri });
-        }
-      }
-    };
+    const vscodeMock = createVscodeLogServiceStub(commandCalls);
     const { LogService } = proxyquireStrict('../../../../src/services/logService', {
       vscode: vscodeMock,
         '../salesforce/http': {
@@ -222,23 +231,7 @@ suite('LogService', () => {
 
   test('debugLog benefits from ensureLogFile caching for concurrent requests', async () => {
     const commandCalls: any[] = [];
-    const vscodeMock = {
-      Uri: vscode.Uri,
-      ProgressLocation: vscode.ProgressLocation,
-      window: {
-        withProgress: async (_opts: any, task: any) =>
-          task({} as any, {
-            onCancellationRequested: () => {},
-            isCancellationRequested: false
-          }),
-        showErrorMessage: async () => undefined
-      },
-      commands: {
-        executeCommand: async (command: string, uri: any) => {
-          commandCalls.push({ command, uri });
-        }
-      }
-    };
+    const vscodeMock = createVscodeLogServiceStub(commandCalls);
     let storedPath: string | undefined;
     const fetchCalls: string[] = [];
     const filePath = path.join(os.tmpdir(), 'replay-debug.log');

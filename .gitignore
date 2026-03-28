@@ -17,6 +17,7 @@ dist
 .worktrees/
 .nx/
 .vscode-test/
+target/
 sample-workspace/
 .sfdx/
 .sf/
