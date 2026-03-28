@@ -35,8 +35,14 @@ pub fn run_sf_org_list_json() -> Result<String, String> {
 }
 
 pub fn resolve_org_auth(target_username_or_alias: Option<&str>) -> Result<OrgAuth, String> {
-    let json = run_sf_org_display_json(target_username_or_alias)?;
-    resolve_org_auth_from_json(&json)
+    if let Ok(fixture) = std::env::var(TEST_ORG_DISPLAY_JSON_ENV) {
+        return resolve_org_auth_from_json(&fixture);
+    }
+
+    resolve_org_auth_with_runner(
+        build_org_auth_attempts(target_username_or_alias),
+        run_command,
+    )
 }
 
 pub fn run_sf_org_display_json(target_username_or_alias: Option<&str>) -> Result<String, String> {
@@ -44,23 +50,61 @@ pub fn run_sf_org_display_json(target_username_or_alias: Option<&str>) -> Result
         return Ok(fixture);
     }
 
-    let mut attempts: Vec<(&str, Vec<&str>)> = vec![
-        ("sf", vec!["org", "display", "--json", "--verbose"]),
-        ("sf", vec!["org", "user", "display", "--json", "--verbose"]),
-        ("sfdx", vec!["force:org:display", "--json"]),
-    ];
-
-    if let Some(value) = target_username_or_alias {
-        attempts[0].1.extend(["-o", value]);
-        attempts[1].1.extend(["-o", value]);
-        attempts[2].1.extend(["-u", value]);
-    }
+    let attempts = build_org_auth_attempts(target_username_or_alias);
 
     let mut last_error = String::from("Salesforce CLI not found");
 
     for (program, args) in attempts {
         match run_command(program, &args) {
             Ok(stdout) => return Ok(stdout),
+            Err(error) => {
+                last_error = error;
+            }
+        }
+    }
+
+    Err(last_error)
+}
+
+fn build_org_auth_attempts<'a>(
+    target_username_or_alias: Option<&'a str>,
+) -> Vec<(&'static str, Vec<&'a str>)> {
+    let mut attempts = vec![
+        ("sf", vec!["org", "display", "--json", "--verbose"]),
+        ("sf", vec!["org", "user", "display", "--json", "--verbose"]),
+        ("sf", vec!["org", "user", "display", "--json"]),
+        ("sf", vec!["org", "display", "--json"]),
+        ("sfdx", vec!["force:org:display", "--json"]),
+    ];
+
+    if let Some(value) = target_username_or_alias {
+        attempts[0].1.extend(["-o", value]);
+        attempts[1].1.extend(["-o", value]);
+        attempts[2].1.extend(["-o", value]);
+        attempts[3].1.extend(["-o", value]);
+        attempts[4].1.extend(["-u", value]);
+    }
+
+    attempts
+}
+
+fn resolve_org_auth_with_runner<'a, F>(
+    attempts: Vec<(&'static str, Vec<&'a str>)>,
+    mut runner: F,
+) -> Result<OrgAuth, String>
+where
+    F: FnMut(&str, &[&'a str]) -> Result<String, String>,
+{
+    let mut last_error = String::from("Salesforce CLI not found");
+
+    for (program, args) in attempts {
+        match runner(program, &args) {
+            Ok(stdout) => match resolve_org_auth_from_json(&stdout) {
+                Ok(auth) => return Ok(auth),
+                Err(error) => {
+                    last_error = error;
+                }
+            },
             Err(error) => {
                 last_error = error;
             }
@@ -191,4 +235,61 @@ fn extract_json_leaf_string(source: &str, key: &str) -> Option<String> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_org_auth_attempts_includes_non_verbose_sf_fallbacks() {
+        let attempts = build_org_auth_attempts(Some("demo@example.com"));
+        let commands = attempts
+            .into_iter()
+            .map(|(program, args)| format!("{program} {}", args.join(" ")))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            commands,
+            vec![
+                "sf org display --json --verbose -o demo@example.com",
+                "sf org user display --json --verbose -o demo@example.com",
+                "sf org user display --json -o demo@example.com",
+                "sf org display --json -o demo@example.com",
+                "sfdx force:org:display --json -u demo@example.com",
+            ]
+        );
+    }
+
+    #[test]
+    fn resolve_org_auth_with_runner_falls_back_when_first_payload_lacks_token() {
+        let mut invocations = Vec::new();
+        let attempts = build_org_auth_attempts(Some("ALV_E2E_Scratch"));
+        let auth = resolve_org_auth_with_runner(attempts, |program, args| {
+            invocations.push(format!("{program} {}", args.join(" ")));
+            match invocations.len() {
+                1 => Ok(
+                    r#"{"status":0,"result":{"username":"ALV_E2E_Scratch","instanceUrl":"https://example.my.salesforce.com"}}"#
+                        .to_string(),
+                ),
+                2 => Ok(
+                    r#"{"status":0,"result":{"accessToken":"00D-token","instanceUrl":"https://example.my.salesforce.com","username":"ALV_E2E_Scratch"}}"#
+                        .to_string(),
+                ),
+                _ => Err("unexpected extra attempt".to_string()),
+            }
+        })
+        .expect("expected auth fallback to succeed");
+
+        assert_eq!(auth.access_token, "00D-token");
+        assert_eq!(auth.instance_url, "https://example.my.salesforce.com");
+        assert_eq!(auth.username.as_deref(), Some("ALV_E2E_Scratch"));
+        assert_eq!(
+            invocations,
+            vec![
+                "sf org display --json --verbose -o ALV_E2E_Scratch",
+                "sf org user display --json --verbose -o ALV_E2E_Scratch",
+            ]
+        );
+    }
 }

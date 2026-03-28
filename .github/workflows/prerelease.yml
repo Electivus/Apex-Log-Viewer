@@ -118,12 +118,12 @@ jobs:
           INPUT_LABEL: ${{ github.event.inputs.label || '' }}
         run: |
           set -euo pipefail
-          BASE_VERSION=$(node -p "require('./package.json').version")
-          MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
-          MINOR=$(node -p "require('./package.json').version.split('.')[1]")
+          BASE_VERSION=$(node -p "require('./apps/vscode-extension/package.json').version")
+          MAJOR=$(node -p "require('./apps/vscode-extension/package.json').version.split('.')[0]")
+          MINOR=$(node -p "require('./apps/vscode-extension/package.json').version.split('.')[1]")
           if [ $((MINOR % 2)) -eq 0 ]; then MINOR=$((MINOR+1)); fi
-          BASE_PATCH=$(node -p "require('./package.json').version.split('.')[2]")
-          EXT_ID=$(node -p "require('./package.json').publisher + '.' + require('./package.json').name")
+          BASE_PATCH=$(node -p "require('./apps/vscode-extension/package.json').version.split('.')[2]")
+          EXT_ID=$(node -p "require('./apps/vscode-extension/package.json').publisher + '.' + require('./apps/vscode-extension/package.json').name")
           export EXT_ID MAJOR MINOR
           LATEST_PATCH=$(node -e "const {spawnSync}=require('child_process');const ext=process.env.EXT_ID;const r=spawnSync('./node_modules/.bin/vsce',['show',ext,'--json'],{encoding:'utf8'});try{if(r.status!==0)throw new Error(r.stderr||String(r.status));const meta=JSON.parse(r.stdout||'{}');const versions=Array.isArray(meta.versions)?meta.versions:[];const mj=+process.env.MAJOR,mn=+process.env.MINOR;let max=-1;for(const v of versions){const pre=(v.properties||[]).some(p=>p.key==='Microsoft.VisualStudio.Code.PreRelease'&&String(p.value)==='true');const parts=String(v.version||'').split('.').map(Number);if(!pre||parts.length<3)continue;const [M,m,p]=parts;if(M===mj&&m===mn&&Number.isFinite(p)&&p>max)max=p;}process.stdout.write(max>=0?String(max):'');}catch(e){process.stdout.write('');}")
           if [ -z "$LATEST_PATCH" ]; then LATEST_PATCH=-1; fi
@@ -328,11 +328,11 @@ jobs:
       - name: Install dependencies
         run: npm ci --workspaces=false
 
-      - name: Set nightly version in package.json
+      - name: Set nightly version in apps/vscode-extension/package.json
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          node -e "const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));pkg.version=process.env.VERSION;fs.writeFileSync('package.json',JSON.stringify(pkg,null,2)+'\n')"
+          node -e "const fs=require('fs');const pkgPath='apps/vscode-extension/package.json';const pkg=JSON.parse(fs.readFileSync(pkgPath,'utf8'));pkg.version=process.env.VERSION;fs.writeFileSync(pkgPath,JSON.stringify(pkg,null,2)+'\n')"
 
       - name: Download VSIX artifact from prerelease job
         uses: actions/download-artifact@v8

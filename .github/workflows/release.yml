@@ -173,14 +173,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --workspaces=false
 
-      - name: Verify tag matches package.json version
+      - name: Verify tag matches extension package version
         shell: bash
         run: |
           set -euo pipefail
-          PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_VERSION=$(node -p "require('./apps/vscode-extension/package.json').version")
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "Tag $GITHUB_REF_NAME != package.json version $PKG_VERSION" >&2
+            echo "Tag $GITHUB_REF_NAME != apps/vscode-extension/package.json version $PKG_VERSION" >&2
             exit 1
           fi
 
@@ -196,7 +196,12 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const pkgPath = path.join(process.env.GITHUB_WORKSPACE || process.cwd(), 'package.json');
+            const pkgPath = path.join(
+              process.env.GITHUB_WORKSPACE || process.cwd(),
+              'apps',
+              'vscode-extension',
+              'package.json'
+            );
             const version = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version;
             const minor = Number((version || '').split('.')[1] || 0);
             const tagName = process.env.TAG_NAME || '';
