@@ -64,26 +64,47 @@ pub fn triage_logs_with_cancel(
 
     for log_id in dedup_ids(&params.log_ids) {
         cancellation.check_cancelled()?;
-        let path = match find_cached_log_path(params.workspace_root.as_deref(), &log_id) {
-            Some(existing) => existing,
-            None => ensure_log_file_cached_with_cancel(
-                &log_id,
-                params.username.as_deref(),
-                params.workspace_root.as_deref(),
-                cancellation,
-            )?,
-        };
+        match triage_log_item(&log_id, params, cancellation) {
+            Ok(item) => items.push(item),
+            Err(error) => {
+                if cancellation.is_cancelled() {
+                    return Err(error);
+                }
 
-        let (code_unit_started, summary) = summarize_file(&path, cancellation)?;
-
-        items.push(LogTriageItem {
-            log_id,
-            code_unit_started,
-            summary,
-        });
+                items.push(LogTriageItem {
+                    log_id,
+                    code_unit_started: None,
+                    summary: create_unreadable_summary(&error),
+                });
+            }
+        }
     }
 
     Ok(items)
+}
+
+fn triage_log_item(
+    log_id: &str,
+    params: &LogsTriageParams,
+    cancellation: &CancellationToken,
+) -> Result<LogTriageItem, String> {
+    let path = match find_cached_log_path(params.workspace_root.as_deref(), log_id) {
+        Some(existing) => existing,
+        None => ensure_log_file_cached_with_cancel(
+            log_id,
+            params.username.as_deref(),
+            params.workspace_root.as_deref(),
+            cancellation,
+        )?,
+    };
+
+    let (code_unit_started, summary) = summarize_file(&path, cancellation)?;
+
+    Ok(LogTriageItem {
+        log_id: log_id.to_string(),
+        code_unit_started,
+        summary,
+    })
 }
 
 fn summarize_file(
@@ -147,6 +168,27 @@ fn maybe_test_delay(cancellation: &CancellationToken) -> Result<(), String> {
     }
 
     cancellation.check_cancelled()
+}
+
+fn create_unreadable_summary(message: &str) -> LogTriageSummary {
+    let trimmed = message.trim();
+    let primary_reason = if trimmed.is_empty() {
+        "Log triage unavailable".to_string()
+    } else {
+        format!("Log triage unavailable: {trimmed}")
+    };
+
+    LogTriageSummary {
+        has_errors: true,
+        primary_reason: Some(primary_reason.clone()),
+        reasons: vec![LogDiagnostic {
+            code: "suspicious_error_payload".to_string(),
+            severity: "warning".to_string(),
+            summary: primary_reason,
+            line: None,
+            event_type: None,
+        }],
+    }
 }
 
 fn classify_line(line: &str, line_number: usize) -> Option<LogDiagnostic> {
@@ -241,7 +283,6 @@ fn is_error_token(token: &str) -> bool {
             | "ASSERT"
             | "ASSERTION"
             | "VALIDATION"
-            | "DML"
             | "ROLLBACK"
     )
 }
@@ -256,4 +297,30 @@ fn dedup_ids(log_ids: &[String]) -> Vec<String> {
         deduped.push(trimmed.to_string());
     }
     deduped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_line;
+
+    #[test]
+    fn classify_line_ignores_non_error_dml_events() {
+        assert_eq!(
+            classify_line("09:00:00.0|DML_BEGIN|[7]|Op:Insert|Type:Account", 1),
+            None
+        );
+        assert_eq!(classify_line("09:00:01.0|DML_END|[7]", 2), None);
+    }
+
+    #[test]
+    fn classify_line_keeps_dml_failures_when_error_token_is_present() {
+        let diagnostic =
+            classify_line("09:00:00.0|DML_ERROR|Insert failed", 3).expect("should classify");
+
+        assert_eq!(diagnostic.code, "dml_failure");
+        assert_eq!(diagnostic.severity, "error");
+        assert_eq!(diagnostic.summary, "DML failure");
+        assert_eq!(diagnostic.line, Some(3));
+        assert_eq!(diagnostic.event_type.as_deref(), Some("DML_ERROR"));
+    }
 }

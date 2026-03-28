@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::{
     fs,
     path::PathBuf,
@@ -10,8 +12,6 @@ use std::{
     time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 
 use alv_core::{
     logs::{
@@ -324,6 +324,75 @@ fn logs_runtime_smoke_triages_logs_and_caches_fixture_downloads() {
         .unwrap_or_default()
         .to_string_lossy()
         .contains("demo@example.com"));
+
+    std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+    fs::remove_dir_all(fixture_root).expect("fixture workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_triage_returns_partial_results_when_one_log_is_unreadable() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("triage-partial");
+    let fixture_root = make_temp_workspace("triage-partial-fixture");
+    let readable_log_id = "07L00000000000OK1";
+    let missing_log_id = "07L00000000000MIS";
+    fs::write(
+        fixture_root.join(format!("{readable_log_id}.log")),
+        "\
+09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|AccountService.handle\n\
+09:00:01.0|EXCEPTION_THROWN|System.NullPointerException: boom\n",
+    )
+    .expect("fixture log should be writable");
+
+    std::env::set_var(
+        TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        fixture_root.display().to_string(),
+    );
+
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![missing_log_id.to_string(), readable_log_id.to_string()],
+        username: Some("demo@example.com".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("logs/triage should return partial results");
+
+    assert_eq!(items.len(), 2, "should preserve one item per requested log");
+
+    let unreadable = items
+        .iter()
+        .find(|item| item.log_id == missing_log_id)
+        .expect("missing log should still produce an item");
+    let expected_unreadable_reason = format!(
+        "Log triage unavailable: fixture log file not found for {missing_log_id}: {}",
+        fixture_root.join(format!("{missing_log_id}.log")).display()
+    );
+    assert!(unreadable.summary.has_errors);
+    assert_eq!(
+        unreadable.summary.primary_reason.as_deref(),
+        Some(expected_unreadable_reason.as_str())
+    );
+    assert_eq!(unreadable.summary.reasons.len(), 1);
+    assert_eq!(
+        unreadable.summary.reasons[0].code,
+        "suspicious_error_payload"
+    );
+    assert_eq!(unreadable.summary.reasons[0].severity, "warning");
+
+    let readable = items
+        .iter()
+        .find(|item| item.log_id == readable_log_id)
+        .expect("healthy log should still be triaged");
+    assert_eq!(
+        readable.code_unit_started.as_deref(),
+        Some("AccountService.handle")
+    );
+    assert!(readable.summary.has_errors);
+    assert_eq!(
+        readable.summary.primary_reason.as_deref(),
+        Some("Fatal exception")
+    );
 
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
