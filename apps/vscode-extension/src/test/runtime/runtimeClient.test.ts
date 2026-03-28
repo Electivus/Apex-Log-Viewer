@@ -139,6 +139,64 @@ suite('runtime client', () => {
     assert.equal(auth.username, 'demo@example.com');
   });
 
+  test('prepares daemon env before starting the runtime process', async () => {
+    let prepareCalls = 0;
+    let seenEnv: NodeJS.ProcessEnv | undefined;
+    const daemon = createFakeDaemon({
+      onWrite(message, helpers) {
+        if (message.method === 'initialize') {
+          helpers.emitMessage({
+            jsonrpc: '2.0',
+            id: message.id,
+            result: {
+              runtime_version: '0.1.0',
+              protocol_version: '1',
+              platform: 'win32',
+              arch: 'x64',
+              capabilities: {
+                orgs: true,
+                logs: true,
+                search: true,
+                tail: true,
+                debug_flags: true,
+                doctor: true
+              },
+              state_dir: '.alv/state',
+              cache_dir: '.alv/cache'
+            }
+          });
+          return;
+        }
+        if (message.method === 'org/list') {
+          helpers.emitMessage({
+            jsonrpc: '2.0',
+            id: message.id,
+            result: []
+          });
+          return;
+        }
+        throw new Error(`unexpected method: ${message.method}`);
+      }
+    });
+
+    const client = new RuntimeClient({
+      prepareProcessEnv: async () => {
+        prepareCalls++;
+        return { PATH: 'C:\\custom\\sf\\bin', Path: 'C:\\custom\\sf\\bin' };
+      },
+      createProcess: (_executable: string, env: NodeJS.ProcessEnv | undefined) => {
+        seenEnv = env;
+        return daemon;
+      }
+    } as any);
+
+    await client.orgList();
+
+    assert.equal(prepareCalls, 1);
+    assert.equal(seenEnv?.PATH, 'C:\\custom\\sf\\bin');
+    assert.equal(seenEnv?.Path, 'C:\\custom\\sf\\bin');
+  });
+
   test('logsList, searchQuery, and logsTriage use runtime request methods', async () => {
     const methods: string[] = [];
     const client = new RuntimeClient({

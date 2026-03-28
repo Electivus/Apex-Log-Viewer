@@ -16,6 +16,7 @@ import type {
 import { createDaemonProcess } from '../../../../packages/app-server-client-ts/src/index';
 import type { JsonRpcRequest, OrgListItem, OrgListParams } from '../../../../packages/app-server-client-ts/src/index';
 import { logTrace } from '../../../../src/utils/logger';
+import { getLoginShellEnv } from '../../../../src/salesforce/path';
 import { resolveBundledBinary } from './bundledBinary';
 import {
   RUNTIME_CANCEL_EVENT,
@@ -43,7 +44,8 @@ export type RuntimeRequestHandler = <TResult>(
 export interface RuntimeClientOptions {
   clientName?: string;
   clientVersion?: string;
-  createProcess?: (executable: string) => DaemonProcess;
+  createProcess?: (executable: string, env?: NodeJS.ProcessEnv) => DaemonProcess;
+  prepareProcessEnv?: () => Promise<NodeJS.ProcessEnv | undefined>;
   request?: RuntimeRequestHandler;
   requestHandler?: RuntimeRequestHandler;
   schedule?: (callback: () => void, delayMs: number) => TimerHandle;
@@ -58,27 +60,33 @@ export class RuntimeClient extends EventEmitter {
   private restartPromise: Promise<void> | undefined;
   private readonly clientName: string;
   private readonly clientVersion: string;
-  private readonly createProcess: (executable: string) => DaemonProcess;
+  private readonly createProcess: (executable: string, env?: NodeJS.ProcessEnv) => DaemonProcess;
+  private readonly prepareProcessEnv: (() => Promise<NodeJS.ProcessEnv | undefined>) | undefined;
   private readonly requestHandler: RuntimeRequestHandler | undefined;
   private readonly schedule: (callback: () => void, delayMs: number) => TimerHandle;
+  private processEnvPromise: Promise<NodeJS.ProcessEnv | undefined> | undefined;
 
   constructor(options: RuntimeClientOptions = {}) {
     super();
     this.clientName = options.clientName ?? 'apex-log-viewer-vscode';
     this.clientVersion = options.clientVersion ?? '0.0.0';
-    this.createProcess = options.createProcess ?? (executable => createDaemonProcess(executable));
+    this.createProcess =
+      options.createProcess ??
+      ((executable, env) => createDaemonProcess(executable, undefined, env ? { env } : undefined));
+    this.prepareProcessEnv = options.prepareProcessEnv ?? getLoginShellEnv;
     this.requestHandler = options.requestHandler ?? options.request;
     this.schedule = options.schedule ?? ((callback, delayMs) => setTimeout(callback, delayMs));
   }
 
-  startRuntime(): DaemonProcess {
+  async startRuntime(): Promise<DaemonProcess> {
     if (this.daemon) {
       return this.daemon;
     }
 
     const executable = resolveBundledBinary(process.platform, process.arch);
+    const env = await this.resolveProcessEnv();
     logTrace('Runtime: starting daemon', executable);
-    const daemon = this.createProcess(executable);
+    const daemon = this.createProcess(executable, env);
     this.daemon = daemon;
     this.attachDaemonStderrLogger(daemon);
     daemon.onMessage(message => {
@@ -151,7 +159,7 @@ export class RuntimeClient extends EventEmitter {
   scheduleRestart(): void {
     const delayMs = this.restartDelayMs;
     this.schedule(() => {
-      this.startRuntime();
+      void this.startRuntime();
     }, delayMs);
     this.emit(RUNTIME_RESTART_EVENT, { delayMs } satisfies RuntimeRestartEvent);
     this.restartDelayMs = Math.min(this.restartDelayMs * 2, 4000);
@@ -202,7 +210,7 @@ export class RuntimeClient extends EventEmitter {
   }
 
   private async requestOnce<TResult>(method: string, params?: unknown, signal?: AbortSignal): Promise<TResult> {
-    const daemon = this.daemon ?? this.startRuntime();
+    const daemon = this.daemon ?? (await this.startRuntime());
     const id = `${method}:${++this.nextRequestId}`;
     const request: JsonRpcRequest = {
       jsonrpc: '2.0',
@@ -366,6 +374,19 @@ export class RuntimeClient extends EventEmitter {
     const error = new Error('Request aborted');
     error.name = 'AbortError';
     return error;
+  }
+
+  private async resolveProcessEnv(): Promise<NodeJS.ProcessEnv | undefined> {
+    if (!this.prepareProcessEnv) {
+      return undefined;
+    }
+    if (!this.processEnvPromise) {
+      this.processEnvPromise = this.prepareProcessEnv().catch(error => {
+        logTrace('Runtime: daemon env preparation failed', error instanceof Error ? error.message : String(error));
+        return undefined;
+      });
+    }
+    return this.processEnvPromise;
   }
 }
 

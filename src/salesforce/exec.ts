@@ -28,7 +28,10 @@ export let execFileImpl: ExecFileFn = ((
   callback: (error: NodeJS.ErrnoException | null, stdout: string, stderr: string) => void
 ) => {
   const argv = Array.isArray(args) ? args.slice() : [];
-  const spawnOpts: cp.SpawnOptions = { env: options.env };
+  const spawnOpts: cp.SpawnOptions = {
+    env: options.env,
+    stdio: ['ignore', 'pipe', 'pipe']
+  };
   try {
     logTrace('spawn:', file, argv.join(' '));
   } catch {}

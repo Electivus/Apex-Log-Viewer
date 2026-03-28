@@ -1,6 +1,7 @@
 import assert from 'assert/strict';
 import { getOrgAuth } from '../../../../src/salesforce/cli';
 import { __setExecFileImplForTests, __resetExecFileImplForTests } from '../../../../src/salesforce/exec';
+const proxyquire: any = require('proxyquire').noCallThru().noPreserveCache();
 
 suite('salesforce exec safety', () => {
   teardown(() => {
@@ -53,5 +54,43 @@ suite('salesforce exec safety', () => {
       assert.match(String(e?.message || ''), /CLI não encontrada|CLI not found|Salesforce CLI/);
       return true;
     });
+  });
+
+  test('spawns CLI children with stdin ignored', done => {
+    const { EventEmitter } = require('events');
+    let capturedOpts: any;
+
+    const execModule = proxyquire('../../../../src/salesforce/exec', {
+      'cross-spawn': (_file: string, _args: readonly string[] | undefined, opts: any) => {
+        capturedOpts = opts;
+        const child = new EventEmitter() as any;
+        child.stdout = new EventEmitter();
+        child.stdout.setEncoding = () => {};
+        child.stderr = new EventEmitter();
+        child.stderr.setEncoding = () => {};
+        process.nextTick(() => {
+          child.stdout.emit('data', '{"status":0}');
+          child.emit('close', 0, null);
+        });
+        return child;
+      },
+      '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true },
+      '../utils/localize': { localize: (_key: string, fallback: string) => fallback, '@noCallThru': true },
+      '../../apps/vscode-extension/src/shared/telemetry': {
+        safeSendException: () => undefined,
+        '@noCallThru': true
+      }
+    }) as typeof import('../../../../src/salesforce/exec');
+
+    execModule.execFileImpl(
+      'sf',
+      ['org', 'display', '--json'],
+      { encoding: 'utf8', maxBuffer: 1024 * 1024 },
+      error => {
+        assert.ifError(error);
+        assert.deepEqual(capturedOpts?.stdio, ['ignore', 'pipe', 'pipe']);
+        done();
+      }
+    );
   });
 });

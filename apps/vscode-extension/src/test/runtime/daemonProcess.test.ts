@@ -31,7 +31,7 @@ function createFakeChild(): { child: FakeChild; writes: string[] } {
   return { child, writes };
 }
 
-function loadCreateDaemonProcess(spawnImpl: () => FakeChild) {
+function loadCreateDaemonProcess(spawnImpl: (...args: any[]) => FakeChild) {
   const module = proxyquireStrict('../../../../../packages/app-server-client-ts/src/daemonProcess', {
     'node:child_process': {
       spawn: spawnImpl
@@ -96,5 +96,23 @@ suite('daemon process transport', () => {
         }
       }
     ]);
+  });
+
+  test('passes a provided environment through to spawn', () => {
+    const { child } = createFakeChild();
+    let seenOptions: Record<string, unknown> | undefined;
+    const createDaemonProcess = loadCreateDaemonProcess((_file: string, _args: string[], options: Record<string, unknown>) => {
+      seenOptions = options;
+      return child;
+    });
+
+    (createDaemonProcess as any)('/bin/apex-log-viewer', ['app-server', '--stdio'], {
+      env: { PATH: '/custom/path' }
+    });
+
+    assert.deepEqual(seenOptions, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { PATH: '/custom/path' }
+    });
   });
 });

@@ -1,6 +1,8 @@
 use serde_json::Value;
 use std::process::Command;
 
+use crate::cli::build_command_invocation;
+
 pub const TEST_ORG_LIST_JSON_ENV: &str = "ALV_TEST_SF_ORG_LIST_JSON";
 pub const TEST_ORG_DISPLAY_JSON_ENV: &str = "ALV_TEST_SF_ORG_DISPLAY_JSON";
 
@@ -17,23 +19,7 @@ pub fn run_sf_org_list_json() -> Result<String, String> {
         return Ok(fixture);
     }
 
-    let attempts: [(&str, &[&str]); 2] = [
-        ("sf", &["org", "list", "--json", "--skip-connection-status"]),
-        ("sfdx", &["force:org:list", "--json"]),
-    ];
-
-    let mut last_error = String::from("Salesforce CLI not found");
-
-    for (program, args) in attempts {
-        match run_command(program, args) {
-            Ok(stdout) => return Ok(stdout),
-            Err(error) => {
-                last_error = error;
-            }
-        }
-    }
-
-    Err(last_error)
+    run_sf_org_list_json_with_runner(run_command)
 }
 
 pub fn resolve_org_auth(target_username_or_alias: Option<&str>) -> Result<OrgAuth, String> {
@@ -76,7 +62,6 @@ fn build_org_auth_attempts<'a>(
         ("sf", vec!["org", "user", "display", "--json", "--verbose"]),
         ("sf", vec!["org", "user", "display", "--json"]),
         ("sf", vec!["org", "display", "--json"]),
-        ("sfdx", vec!["force:org:display", "--json"]),
     ];
 
     if let Some(value) = target_username_or_alias {
@@ -84,7 +69,6 @@ fn build_org_auth_attempts<'a>(
         attempts[1].1.extend(["-o", value]);
         attempts[2].1.extend(["-o", value]);
         attempts[3].1.extend(["-o", value]);
-        attempts[4].1.extend(["-u", value]);
     }
 
     attempts
@@ -117,8 +101,9 @@ where
 }
 
 fn run_command(program: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new(program)
-        .args(args)
+    let invocation = build_command_invocation(program, args)?;
+    let output = Command::new(&invocation.program)
+        .args(&invocation.args)
         .output()
         .map_err(|error| format!("{program} failed to start: {error}"))?;
 
@@ -141,6 +126,13 @@ fn run_command(program: &str, args: &[&str]) -> Result<String, String> {
     }
 
     Err(format!("{program} exited with status {}", output.status))
+}
+
+fn run_sf_org_list_json_with_runner<F>(mut runner: F) -> Result<String, String>
+where
+    F: FnMut(&str, &[&str]) -> Result<String, String>,
+{
+    runner("sf", &["org", "list", "--json", "--skip-connection-status"])
 }
 
 pub fn resolve_org_auth_from_json(json: &str) -> Result<OrgAuth, String> {
@@ -185,6 +177,9 @@ fn extract_value_string(sources: &[&Value], keys: &[&str]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::{
+        build_windows_sf_invocation, parse_where_candidates, pick_windows_sf_candidate,
+    };
 
     #[test]
     fn build_org_auth_attempts_includes_non_verbose_sf_fallbacks() {
@@ -201,7 +196,6 @@ mod tests {
                 "sf org user display --json --verbose -o demo@example.com",
                 "sf org user display --json -o demo@example.com",
                 "sf org display --json -o demo@example.com",
-                "sfdx force:org:display --json -u demo@example.com",
             ]
         );
     }
@@ -252,5 +246,58 @@ mod tests {
         assert_eq!(auth.access_token, "00D-top-level");
         assert_eq!(auth.instance_url, "https://top-level.example.com");
         assert_eq!(auth.username.as_deref(), Some("top-level@example.com"));
+    }
+
+    #[test]
+    fn run_sf_org_list_json_only_uses_sf() {
+        let mut invocations = Vec::new();
+
+        let error = run_sf_org_list_json_with_runner(|program, args| {
+            invocations.push(format!("{program} {}", args.join(" ")));
+            Err("sf failed to start: program not found".to_string())
+        })
+        .expect_err("expected sf failure to propagate");
+
+        assert_eq!(error, "sf failed to start: program not found");
+        assert_eq!(
+            invocations,
+            vec!["sf org list --json --skip-connection-status"]
+        );
+    }
+
+    #[test]
+    fn pick_windows_sf_candidate_prefers_cmd_wrapper() {
+        let candidates = parse_where_candidates(
+            "C:\\Users\\k2\\AppData\\Roaming\\fnm\\aliases\\default\\sf\nC:\\Users\\k2\\AppData\\Roaming\\fnm\\aliases\\default\\sf.cmd\n",
+        );
+
+        let selected = pick_windows_sf_candidate(&candidates);
+
+        assert_eq!(
+            selected.as_deref(),
+            Some("C:\\Users\\k2\\AppData\\Roaming\\fnm\\aliases\\default\\sf.cmd")
+        );
+    }
+
+    #[test]
+    fn build_windows_sf_invocation_wraps_cmd_shim() {
+        let invocation = build_windows_sf_invocation(
+            "C:\\Users\\k2\\AppData\\Roaming\\fnm\\aliases\\default\\sf.cmd",
+            &["org", "list", "--json"],
+        );
+
+        assert_eq!(invocation.program, "cmd.exe");
+        assert_eq!(
+            invocation.args,
+            vec![
+                "/d".to_string(),
+                "/s".to_string(),
+                "/c".to_string(),
+                "C:\\Users\\k2\\AppData\\Roaming\\fnm\\aliases\\default\\sf.cmd".to_string(),
+                "org".to_string(),
+                "list".to_string(),
+                "--json".to_string(),
+            ]
+        );
     }
 }

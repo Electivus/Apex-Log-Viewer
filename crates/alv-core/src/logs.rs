@@ -14,10 +14,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::cli::build_command_invocation;
+
 pub const TEST_SF_LOG_LIST_JSON_ENV: &str = "ALV_TEST_SF_LOG_LIST_JSON";
 pub const TEST_APEX_LOG_FIXTURE_DIR_ENV: &str = "ALV_TEST_APEX_LOG_FIXTURE_DIR";
 const TEST_LOGS_CANCEL_DELAY_MS_ENV: &str = "ALV_TEST_LOGS_CANCEL_DELAY_MS";
 const CANCELLED_MESSAGE: &str = "request cancelled";
+const TRACE_RUNTIME_SPAWN_ENV: &str = "ALV_TRACE_RUNTIME_SPAWN";
 
 #[derive(Debug, Clone, Default)]
 pub struct CancellationToken {
@@ -420,12 +423,24 @@ fn run_command_with_cancel(
 ) -> Result<String, String> {
     cancellation.check_cancelled()?;
 
-    let mut child = Command::new(program)
-        .args(args)
+    let invocation = build_command_invocation(program, args)?;
+    trace_runtime_spawn(&format!(
+        "spawn program={} args={:?}",
+        invocation.program, invocation.args
+    ));
+
+    let mut child = Command::new(&invocation.program)
+        .args(&invocation.args)
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("{program} failed to start: {error}"))?;
+    trace_runtime_spawn(&format!(
+        "child-started original={} pid={}",
+        program,
+        child.id()
+    ));
 
     let stdout_reader = spawn_output_reader(child.stdout.take(), program, "stdout");
     let stderr_reader = spawn_output_reader(child.stderr.take(), program, "stderr");
@@ -436,11 +451,13 @@ fn run_command_with_cancel(
             let _ = child.wait();
             let _ = join_output_reader(stdout_reader);
             let _ = join_output_reader(stderr_reader);
+            trace_runtime_spawn(&format!("child-cancelled original={program}"));
             return Err(CANCELLED_MESSAGE.to_string());
         }
 
         match child.try_wait() {
             Ok(Some(status)) => {
+                trace_runtime_spawn(&format!("child-exited original={program} status={status}"));
                 break status;
             }
             Ok(None) => thread::sleep(Duration::from_millis(10)),
@@ -449,6 +466,9 @@ fn run_command_with_cancel(
                 let _ = child.wait();
                 let _ = join_output_reader(stdout_reader);
                 let _ = join_output_reader(stderr_reader);
+                trace_runtime_spawn(&format!(
+                    "child-poll-error original={program} error={error}"
+                ));
                 return Err(format!(
                     "{program} failed while polling child process: {error}"
                 ));
@@ -459,6 +479,12 @@ fn run_command_with_cancel(
     let stdout = join_output_reader(stdout_reader)?;
     let stderr = join_output_reader(stderr_reader)?;
     command_output_to_result(program, status, stdout, stderr)
+}
+
+fn trace_runtime_spawn(message: &str) {
+    if env::var_os(TRACE_RUNTIME_SPAWN_ENV).is_some() {
+        eprintln!("[alv-core] {message}");
+    }
 }
 
 fn spawn_output_reader<R>(

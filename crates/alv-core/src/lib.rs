@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod cache;
+pub(crate) mod cli;
 pub mod debug_flags;
 pub mod logs;
 pub mod orgs;

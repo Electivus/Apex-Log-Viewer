@@ -14,9 +14,18 @@ export interface DaemonProcess {
   dispose(): void;
 }
 
-export function createDaemonProcess(executable: string, args: string[] = ['app-server', '--stdio']): DaemonProcess {
+export type DaemonProcessOptions = {
+  env?: NodeJS.ProcessEnv;
+};
+
+export function createDaemonProcess(
+  executable: string,
+  args: string[] = ['app-server', '--stdio'],
+  options: DaemonProcessOptions = {}
+): DaemonProcess {
   const child = spawn(executable, args, {
-    stdio: ['pipe', 'pipe', 'pipe']
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: options.env
   });
   const emitter = new EventEmitter();
   let rest = '';

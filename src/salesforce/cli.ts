@@ -336,7 +336,7 @@ export async function getOrgAuth(
     }
     safeSendException('cli.getOrgAuth', { code: 'CLI_NOT_FOUND' });
     throw new Error(
-      localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).')
+      localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf).')
     );
   }
   safeSendException('cli.getOrgAuth', { code: 'AUTH_FAILED' });
@@ -486,7 +486,7 @@ export async function listOrgs(forceRefresh = false, signal?: AbortSignal): Prom
       }
     }
     throw new Error(
-      localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf) or SFDX CLI (sfdx).')
+      localize('cliNotFound', 'Salesforce CLI not found. Install Salesforce CLI (sf).')
     );
   }
   if (hadNonEnoentError) {

@@ -55,6 +55,13 @@ fn write_fake_sf_command(root: &PathBuf, body: &str) {
     fs::set_permissions(&script_path, permissions).expect("fake sf script should be executable");
 }
 
+#[cfg(windows)]
+fn write_fake_sf_cmd(root: &PathBuf, body: &str) -> PathBuf {
+    let script_path = root.join("sf.cmd");
+    fs::write(&script_path, body).expect("fake sf.cmd should be writable");
+    script_path
+}
+
 #[test]
 fn logs_runtime_smoke_lists_logs_from_sf_fixture() {
     let _guard = lock_test_guard();
@@ -439,6 +446,54 @@ fn logs_runtime_smoke_ensure_log_cache_uses_fixture_copy() {
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
     fs::remove_dir_all(fixture_root).expect("fixture workspace should be removable");
+}
+
+#[cfg(windows)]
+#[test]
+fn logs_runtime_smoke_uses_explicit_sf_cmd_shim_for_logs_list() {
+    let _guard = lock_test_guard();
+
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+
+    let fake_bin_root = make_temp_workspace("sf-cmd-logs-list");
+    let sf_cmd = write_fake_sf_cmd(
+        &fake_bin_root,
+        r#"@echo off
+if /I "%~1 %~2 %~3 %~4 %~5 %~6"=="data query --use-tooling-api --json --result-format json" (
+  echo {"result":{"records":[{"Id":"07L000000000001AA","StartTime":"2026-03-27T12:00:00.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-1","LogLength":4096,"LogUser":{"Name":"Ada"}}]}}
+  exit /b 0
+)
+echo Unexpected sf args: %* 1>&2
+exit /b 1
+"#,
+    );
+
+    std::env::set_var("ALV_SF_BIN_PATH", &sf_cmd);
+
+    let rows = list_logs_with_cancel(
+        &LogsListParams {
+            username: Some("demo@example.com".to_string()),
+            limit: Some(1),
+            cursor: None,
+            offset: Some(0),
+        },
+        &CancellationToken::new(),
+    )
+    .expect("logs/list should use explicit sf.cmd shim");
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, "07L000000000001AA");
+    assert_eq!(rows[0].operation, "ExecuteAnonymous");
+    assert_eq!(
+        rows[0]
+            .log_user
+            .as_ref()
+            .and_then(|user| user.name.as_deref()),
+        Some("Ada")
+    );
+
+    std::env::remove_var("ALV_SF_BIN_PATH");
+    fs::remove_dir_all(fake_bin_root).expect("fake sf workspace should be removable");
 }
 
 #[cfg(unix)]
