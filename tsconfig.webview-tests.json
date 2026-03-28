@@ -2,7 +2,9 @@
   "extends": "./tsconfig.test.json",
   "compilerOptions": {
     "types": ["jest", "node", "@testing-library/jest-dom"],
-    "isolatedModules": true
+    "isolatedModules": true,
+    "module": "CommonJS",
+    "moduleResolution": "Node"
   },
   "include": [
     "packages/webview/src/**/*.ts",

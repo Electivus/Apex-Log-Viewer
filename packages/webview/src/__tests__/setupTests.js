@@ -1,7 +1,7 @@
-import '@testing-library/jest-dom';
+require('@testing-library/jest-dom');
 
-// Ensure React Testing Library acts warnings surface during async updates
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// Ensure React Testing Library act warnings surface during async updates.
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 if (typeof globalThis.requestAnimationFrame !== 'function') {
   globalThis.requestAnimationFrame = cb => setTimeout(() => cb(Date.now()), 0);
@@ -17,16 +17,17 @@ if (typeof globalThis.ResizeObserver !== 'function') {
     unobserve() {}
     disconnect() {}
   }
-  (globalThis as unknown as { ResizeObserver: typeof ResizeObserver }).ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
+
+  globalThis.ResizeObserver = ResizeObserverMock;
 }
 
-if (typeof (globalThis as any).PointerEvent !== 'function') {
+if (typeof globalThis.PointerEvent !== 'function') {
   class PointerEventMock extends MouseEvent {
-    pointerId: number;
-    constructor(type: string, params: any = {}) {
+    constructor(type, params = {}) {
       super(type, params);
       this.pointerId = typeof params.pointerId === 'number' ? params.pointerId : 0;
     }
   }
-  (globalThis as any).PointerEvent = PointerEventMock;
+
+  globalThis.PointerEvent = PointerEventMock;
 }

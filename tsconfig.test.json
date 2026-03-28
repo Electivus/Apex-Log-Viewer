@@ -7,6 +7,8 @@
     "sourceMap": true,
     "lib": ["ES2022", "DOM"],
     "jsx": "react-jsx",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
     "baseUrl": ".",
     "paths": {
       "react-window": [
@@ -16,8 +18,9 @@
   },
   "include": [
     "apps/vscode-extension/src/**/*.ts",
-    "packages/webview/src/**/*.ts",
-    "packages/webview/src/**/*.tsx",
+    "packages/webview/src/i18n.ts",
+    "packages/webview/src/utils/logViewerParser.ts",
+    "packages/webview/src/utils/tail.ts",
     "src/**/*.ts",
     "src/**/*.tsx"
   ],

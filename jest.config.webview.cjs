@@ -11,7 +11,7 @@ module.exports = {
   testEnvironment: 'jsdom',
   roots: ['<rootDir>/packages/webview/src'],
   testMatch: ['**/*.test.{ts,tsx}'],
-  setupFilesAfterEnv: ['<rootDir>/packages/webview/src/__tests__/setupTests.ts'],
+  setupFilesAfterEnv: ['<rootDir>/packages/webview/src/__tests__/setupTests.js'],
   transform: {
     '^.+\\.(ts|tsx)$': [
       'ts-jest',
