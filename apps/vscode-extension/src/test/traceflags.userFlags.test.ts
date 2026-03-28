@@ -441,6 +441,76 @@ suite('traceflags user management', () => {
     assert.equal(traceFlagQueryCount, 2, 'expected a fresh trace-flag read after invalidation');
   });
 
+  test('updateDebugLevel invalidates the cached active debug level after a rename', async () => {
+    (workspace.getConfiguration as any) = () => ({ get: () => undefined });
+    let traceFlagQueryCount = 0;
+    let activeDebugLevelName = 'ALV_OLD';
+    installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/services/data/v')) {
+        const soql = decodeSoql(req.path);
+        if (soql.includes("FROM User WHERE Username = 'user@example.com'")) {
+          return {
+            statusCode: 200,
+            body: {
+              records: [{ Id: '005000000000001AAA' }]
+            }
+          };
+        }
+        if (soql.includes("FROM TraceFlag WHERE TracedEntityId = '005000000000001AAA' AND LogType = 'USER_DEBUG'")) {
+          traceFlagQueryCount++;
+          return {
+            statusCode: 200,
+            body: {
+              records: [
+                {
+                  Id: '7tf000000000001AAA',
+                  StartDate: '2026-03-25T00:00:00.000+0000',
+                  ExpirationDate: '2099-03-25T01:00:00.000+0000',
+                  DebugLevel: { DeveloperName: activeDebugLevelName }
+                }
+              ]
+            }
+          };
+        }
+      }
+      if (
+        req.method === 'PATCH' &&
+        req.path.endsWith('/services/data/v64.0/tooling/sobjects/DebugLevel/7dl000000000001AAA')
+      ) {
+        activeDebugLevelName = 'ALV_NEW';
+        const parsed = JSON.parse(req.body);
+        assert.equal(parsed.DeveloperName, 'ALV_NEW');
+        return {
+          statusCode: 204
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    const before = await getActiveUserDebugLevel(auth);
+    await updateDebugLevel(auth, '7dl000000000001AAA', {
+      developerName: 'ALV_NEW',
+      masterLabel: 'ALV New',
+      language: 'pt_BR',
+      workflow: 'INFO',
+      validation: 'WARN',
+      callout: 'ERROR',
+      apexCode: 'FINEST',
+      apexProfiling: 'DEBUG',
+      visualforce: 'WARN',
+      system: 'DEBUG',
+      database: 'ERROR',
+      wave: 'NONE',
+      nba: 'INFO',
+      dataAccess: 'WARN'
+    });
+    const after = await getActiveUserDebugLevel(auth);
+
+    assert.equal(before, 'ALV_OLD');
+    assert.equal(after, 'ALV_NEW');
+    assert.equal(traceFlagQueryCount, 2, 'expected a fresh trace-flag read after the debug level rename');
+  });
+
   test('upsertTraceFlag invalidates the cached active debug level for current special-target users', async () => {
     (workspace.getConfiguration as any) = () => ({ get: () => undefined });
     let traceFlagQueryCount = 0;
