@@ -1,4 +1,4 @@
-import { normalizeLogTriageSummary } from '../../shared/logTriage';
+import { normalizeLogTriageSummary } from '../../../apps/vscode-extension/src/shared/logTriage';
 
 describe('normalizeLogTriageSummary', () => {
   it('keeps warning-only summaries out of hasErrors', () => {

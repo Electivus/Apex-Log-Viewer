@@ -1,4 +1,4 @@
-import type { OrgItem } from '../shared/types';
+import type { OrgItem } from '../../apps/vscode-extension/src/shared/types';
 
 /**
  * Pick a selected org given the list and an optional current value.

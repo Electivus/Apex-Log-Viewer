@@ -1,15 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getMessages, type Messages } from './i18n';
-import type { OrgItem, ApexLogRow } from '../shared/types';
-import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
-import { bucketQueryLength } from '../shared/telemetryBuckets';
+import type { OrgItem, ApexLogRow } from '../../apps/vscode-extension/src/shared/types';
+import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../../apps/vscode-extension/src/shared/messages';
+import { bucketQueryLength } from '../../apps/vscode-extension/src/shared/telemetryBuckets';
 import {
   DEFAULT_LOGS_COLUMNS_CONFIG,
   normalizeLogsColumnsConfig,
   type LogsColumnKey,
   type NormalizedLogsColumnsConfig
-} from '../shared/logsColumns';
+} from '../../apps/vscode-extension/src/shared/logsColumns';
 import { Toolbar } from './components/Toolbar';
 import { LogsTable } from './components/LogsTable';
 import { LoadingOverlay } from './components/LoadingOverlay';

@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '../../shared/debugFlagsMessages';
+import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '../../../apps/vscode-extension/src/shared/debugFlagsMessages';
 import type { VsCodeWebviewApi } from '../vscodeApi';
 import { DebugFlagsApp } from '../debugFlags';
 

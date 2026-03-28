@@ -1,4 +1,4 @@
-import type { LogsColumnKey } from '../../shared/logsColumns';
+import type { LogsColumnKey } from '../../../apps/vscode-extension/src/shared/logsColumns';
 
 export const LOGS_COLUMN_MIN_WIDTH_PX: Record<LogsColumnKey, number> = {
   user: 160,

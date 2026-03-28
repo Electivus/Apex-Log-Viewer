@@ -6,8 +6,8 @@ import type {
   RemoveTraceFlagsResult,
   TraceFlagTarget,
   TraceFlagTargetStatus
-} from '../shared/debugFlagsTypes';
-import { DEBUG_LEVEL_PRESETS } from '../shared/debugLevelPresets';
+} from '../../apps/vscode-extension/src/shared/debugFlagsTypes';
+import { DEBUG_LEVEL_PRESETS } from '../../apps/vscode-extension/src/shared/debugLevelPresets';
 import { CacheManager } from '../utils/cacheManager';
 import { getBooleanConfig, getNumberConfig } from '../utils/config';
 import { logTrace } from '../utils/logger';

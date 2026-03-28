@@ -5,16 +5,16 @@ import { getOrgAuth } from '../salesforce/cli';
 import { fetchApexLogBody, extractCodeUnitStartedFromLines } from '../salesforce/http';
 import type { ApexLogCursor } from '../salesforce/http';
 import type { OrgAuth } from '../salesforce/types';
-import type { ApexLogRow } from '../shared/types';
+import type { ApexLogRow } from '../../apps/vscode-extension/src/shared/types';
 import { getLogFilePathWithUsername, findExistingLogFile } from '../utils/workspace';
 import { ensureReplayDebuggerAvailable } from '../utils/replayDebugger';
 import { getErrorMessage } from '../utils/error';
 import { logWarn, logInfo } from '../utils/logger';
 import { localize } from '../utils/localize';
-import { LogViewerPanel } from '../panel/LogViewerPanel';
+import { LogViewerPanel } from '../../apps/vscode-extension/src/panel/LogViewerPanel';
 import { fetchApexLogs } from '../salesforce/http';
 import { createUnreadableLogSummary, summarizeLogFile } from './logTriage';
-import type { LogTriageSummary } from '../shared/logTriage';
+import type { LogTriageSummary } from '../../apps/vscode-extension/src/shared/logTriage';
 
 export type EnsureLogsSavedItemStatus = 'downloaded' | 'existing' | 'missing' | 'failed' | 'cancelled';
 

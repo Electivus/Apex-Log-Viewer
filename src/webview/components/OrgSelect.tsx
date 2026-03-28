@@ -1,5 +1,5 @@
 import React from 'react';
-import type { OrgItem } from '../../shared/types';
+import type { OrgItem } from '../../../apps/vscode-extension/src/shared/types';
 import { LabeledSelect } from './LabeledSelect';
 
 export function OrgSelect({

@@ -8,7 +8,7 @@ import {
   Loader2,
   Bug
 } from 'lucide-react';
-import type { OrgItem } from '../../../shared/types';
+import type { OrgItem } from '../../../../apps/vscode-extension/src/shared/types';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';

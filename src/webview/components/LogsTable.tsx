@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import { List, type ListImperativeAPI } from 'react-window';
-import type { ApexLogRow } from '../../shared/types';
-import type { LogsColumnKey, NormalizedLogsColumnsConfig } from '../../shared/logsColumns';
-import type { LogDiagnostic } from '../../shared/logTriage';
+import type { ApexLogRow } from '../../../apps/vscode-extension/src/shared/types';
+import type { LogsColumnKey, NormalizedLogsColumnsConfig } from '../../../apps/vscode-extension/src/shared/logsColumns';
+import type { LogDiagnostic } from '../../../apps/vscode-extension/src/shared/logTriage';
 import { LOGS_COLUMN_DEFAULT_TRACK, LOGS_COLUMN_MIN_WIDTH_PX } from '../utils/logsColumns';
 import { LogsHeader } from './table/LogsHeader';
 import { LogRow } from './table/LogRow';

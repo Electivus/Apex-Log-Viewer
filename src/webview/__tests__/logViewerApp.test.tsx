@@ -1,8 +1,8 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import type { LogViewerFromWebviewMessage, LogViewerToWebviewMessage } from '../shared/logViewerMessages';
-import type { LogDiagnostic } from '../shared/logTriage';
+import type { LogViewerFromWebviewMessage, LogViewerToWebviewMessage } from '../../../apps/vscode-extension/src/shared/logViewerMessages';
+import type { LogDiagnostic } from '../../../apps/vscode-extension/src/shared/logTriage';
 import type { VsCodeWebviewApi } from '../vscodeApi';
 import { LogViewerApp } from '../logViewer';
 

@@ -4,7 +4,7 @@ import type {
   LogViewerFromWebviewMessage,
   LogViewerToWebviewMessage,
   LogViewerTriagePayload
-} from '../shared/logViewerMessages';
+} from '../../apps/vscode-extension/src/shared/logViewerMessages';
 import { parseLogLines, type ParsedLogEntry, type LogCategory } from './utils/logViewerParser';
 import { LogViewerHeader } from './components/log-viewer/LogViewerHeader';
 import { LogViewerFilters, type LogFilter } from './components/log-viewer/LogViewerFilters';

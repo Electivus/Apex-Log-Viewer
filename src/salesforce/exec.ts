@@ -1,7 +1,7 @@
 import * as cp from 'child_process';
 import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
-import { safeSendException } from '../shared/telemetry';
+import { safeSendException } from '../../apps/vscode-extension/src/shared/telemetry';
 import { classifyCliExecTelemetryCode } from './cliTelemetry';
 const crossSpawn = require('cross-spawn');
 

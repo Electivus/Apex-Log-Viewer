@@ -15,6 +15,16 @@ test("xvfb re-exec preserves original CLI flags", () => {
   );
 });
 
+test("VS Code host runner targets the Nx app output paths", () => {
+  const script = fs.readFileSync(path.join(__dirname, "run-tests.js"), "utf8");
+
+  assert.match(script, /extensionDevelopmentPath\s*=\s*resolve\(__dirname,\s*'\.\.',\s*'apps',\s*'vscode-extension'\)/);
+  assert.match(
+    script,
+    /extensionTestsPath\s*=\s*resolve\(__dirname,\s*'\.\.',\s*'apps',\s*'vscode-extension',\s*'out',\s*'test',\s*'runner\.js'\)/,
+  );
+});
+
 test("resolveRequiredDevHubConfig ignores the legacy SFDX_AUTH_URL fallback", () => {
   process.env = {
     ...originalEnv,

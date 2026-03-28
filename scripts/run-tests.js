@@ -3,6 +3,7 @@ const { platform, tmpdir } = require('os');
 const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync } = require('fs');
 const { join, resolve } = require('path');
 const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } = require('@vscode/test-electron');
+const { build } = require('esbuild');
 const { cleanVsCodeTest } = require('./clean-vscode-test.js');
 
 function execFileAsync(file, args, opts = {}) {
@@ -615,6 +616,21 @@ function parseArgs(argv) {
   return out;
 }
 
+async function buildExtensionTestRunner(repoRoot) {
+  const entryPoint = resolve(repoRoot, 'apps', 'vscode-extension', 'src', 'test', 'runner.ts');
+  const outfile = resolve(repoRoot, 'apps', 'vscode-extension', 'out', 'test', 'runner.js');
+
+  await build({
+    entryPoints: [entryPoint],
+    outfile,
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    sourcemap: true,
+    external: ['vscode', 'mocha', 'esbuild']
+  });
+}
+
 async function run() {
   const args = parseArgs(process.argv);
 
@@ -806,8 +822,12 @@ async function run() {
   }
 
   // Run tests via @vscode/test-electron with our programmatic Mocha runner
-  let extensionDevelopmentPath = resolve(__dirname, '..');
-  let extensionTestsPath = resolve(__dirname, '..', 'out', 'test', 'runner.js');
+  let extensionDevelopmentPath = resolve(__dirname, '..', 'apps', 'vscode-extension');
+  let extensionTestsPath = resolve(__dirname, '..', 'apps', 'vscode-extension', 'out', 'test', 'runner.js');
+
+  if (!args.smokeVsix) {
+    await buildExtensionTestRunner(repoRoot);
+  }
 
   // Optional: VSIX smoke mode installs the freshly built VSIX and runs a minimal activation test
   if (args.smokeVsix) {

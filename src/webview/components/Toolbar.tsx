@@ -1,7 +1,7 @@
 import React from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { RefreshCw, FilterX, Loader2, AlertCircle, Bug, Download, Trash2 } from 'lucide-react';
-import type { OrgItem } from '../../shared/types';
+import type { OrgItem } from '../../../apps/vscode-extension/src/shared/types';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -9,7 +9,7 @@ import { Switch } from './ui/switch';
 import { FilterSelect } from './FilterSelect';
 import { OrgSelect } from './OrgSelect';
 import { ColumnsPopover } from './ColumnsPopover';
-import type { NormalizedLogsColumnsConfig } from '../../shared/logsColumns';
+import type { NormalizedLogsColumnsConfig } from '../../../apps/vscode-extension/src/shared/logsColumns';
 import { cn } from '../lib/utils';
 
 function useStableId(prefix: string) {

@@ -4,8 +4,8 @@ import { Columns3, ChevronDown, ChevronUp, RotateCcw, GripVertical } from 'lucid
 import { Button } from './ui/button';
 import { Switch } from './ui/switch';
 import { cn } from '../lib/utils';
-import type { LogsColumnKey, NormalizedLogsColumnsConfig } from '../../shared/logsColumns';
-import { DEFAULT_LOGS_COLUMNS_CONFIG, normalizeLogsColumnsConfig } from '../../shared/logsColumns';
+import type { LogsColumnKey, NormalizedLogsColumnsConfig } from '../../../apps/vscode-extension/src/shared/logsColumns';
+import { DEFAULT_LOGS_COLUMNS_CONFIG, normalizeLogsColumnsConfig } from '../../../apps/vscode-extension/src/shared/logsColumns';
 import { getLogsColumnLabel } from '../utils/logsColumns';
 
 type Props = {

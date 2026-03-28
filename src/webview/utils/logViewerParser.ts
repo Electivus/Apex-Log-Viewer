@@ -1,4 +1,4 @@
-import { isErrorEventType } from '../../shared/logErrorSignals';
+import { isErrorEventType } from '../../../apps/vscode-extension/src/shared/logErrorSignals';
 
 export type LogCategory = 'debug' | 'soql' | 'dml' | 'code' | 'limit' | 'system' | 'error' | 'other';
 

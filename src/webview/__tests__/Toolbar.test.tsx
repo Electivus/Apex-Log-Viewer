@@ -2,7 +2,7 @@ import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
 import { Toolbar } from '../components/Toolbar';
 import { getMessages } from '../i18n';
-import type { OrgItem } from '../../shared/types';
+import type { OrgItem } from '../../../apps/vscode-extension/src/shared/types';
 
 const defaultColumnsConfig = {
   order: [

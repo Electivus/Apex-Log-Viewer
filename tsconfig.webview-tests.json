@@ -7,8 +7,8 @@
   "include": [
     "src/webview/**/*.ts",
     "src/webview/**/*.tsx",
-    "src/shared/**/*.ts",
-    "src/shared/**/*.tsx"
+    "apps/vscode-extension/src/shared/**/*.ts",
+    "apps/vscode-extension/src/shared/**/*.tsx"
   ],
   "exclude": [
     "src/webview/__tests__/styleMock.js"

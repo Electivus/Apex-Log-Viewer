@@ -1,8 +1,8 @@
 import React, { useLayoutEffect, useMemo, useRef } from 'react';
 import { AlertOctagon, BugPlay, FileText, Loader2 } from 'lucide-react';
-import type { ApexLogRow } from '../../../shared/types';
+import type { ApexLogRow } from '../../../../apps/vscode-extension/src/shared/types';
 import type { LogHeadMap } from '../LogsTable';
-import type { LogsColumnKey } from '../../../shared/logsColumns';
+import type { LogsColumnKey } from '../../../../apps/vscode-extension/src/shared/logsColumns';
 import { formatBytes, formatDuration } from '../../utils/format';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';

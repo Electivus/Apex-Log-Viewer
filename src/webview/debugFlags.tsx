@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { DEBUG_LEVEL_FIELDS, DEBUG_LEVEL_LOG_LEVELS, createEmptyDebugLevelRecord } from '../shared/debugLevelPresets';
-import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '../shared/debugFlagsMessages';
+import { DEBUG_LEVEL_FIELDS, DEBUG_LEVEL_LOG_LEVELS, createEmptyDebugLevelRecord } from '../../apps/vscode-extension/src/shared/debugLevelPresets';
+import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '../../apps/vscode-extension/src/shared/debugFlagsMessages';
 import {
   getTraceFlagTargetKey,
   type DebugFlagUser,
@@ -9,8 +9,8 @@ import {
   type DebugLevelRecord,
   type TraceFlagTarget,
   type TraceFlagTargetStatus
-} from '../shared/debugFlagsTypes';
-import type { OrgItem } from '../shared/types';
+} from '../../apps/vscode-extension/src/shared/debugFlagsTypes';
+import type { OrgItem } from '../../apps/vscode-extension/src/shared/types';
 import type { MessageBus, VsCodeWebviewApi } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 import { getMessages, type Messages } from './i18n';

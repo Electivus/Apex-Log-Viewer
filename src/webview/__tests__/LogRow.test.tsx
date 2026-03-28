@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
 import { LogRow } from '../components/table/LogRow';
-import type { ApexLogRow } from '../../shared/types';
+import type { ApexLogRow } from '../../../apps/vscode-extension/src/shared/types';
 
 describe('LogRow', () => {
   it('renders data and callbacks fire', () => {

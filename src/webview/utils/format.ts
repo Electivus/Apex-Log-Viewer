@@ -1,1 +1,1 @@
-export { formatBytes, formatDuration } from '../../shared/format';
+export { formatBytes, formatDuration } from '../../../apps/vscode-extension/src/shared/format';

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import type { LogsColumnKey } from '../../../shared/logsColumns';
+import type { LogsColumnKey } from '../../../../apps/vscode-extension/src/shared/logsColumns';
 import { getLogsColumnLabel, LOGS_COLUMN_MIN_WIDTH_PX } from '../../utils/logsColumns';
 
 type SortKey = Exclude<LogsColumnKey, 'match'>;

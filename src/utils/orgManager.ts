@@ -3,7 +3,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { pickSelectedOrg } from './orgs';
 import { listOrgs } from '../salesforce/cli';
-import type { OrgItem } from '../shared/types';
+import type { OrgItem } from '../../apps/vscode-extension/src/shared/types';
 import { getWorkspaceRoot } from './workspace';
 import { logWarn } from './logger';
 import { getErrorMessage } from './error';

@@ -5,10 +5,127 @@
   "tags": ["scope:vscode", "type:app"],
   "targets": {
     "check-types": {
-      "command": "tsc --noEmit -p apps/vscode-extension/tsconfig.json"
+      "command": "tsc --noEmit -p tsconfig.extension.json"
+    },
+    "lint": {
+      "command": "eslint apps/vscode-extension/src src/utils src/salesforce src/services src/webview"
+    },
+    "compile": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "npx nx run vscode-extension:lint",
+          "tsc --noEmit -p tsconfig.extension.json"
+        ],
+        "parallel": false
+      }
     },
     "build": {
       "command": "node apps/vscode-extension/esbuild.extension.mjs"
+    },
+    "watch": {
+      "command": "npm run watch"
+    },
+    "package": {
+      "command": "node apps/vscode-extension/esbuild.extension.mjs && (npm run -s nls:extract || true) && npm run nls:write && npm run build:webview"
+    },
+    "test": {
+      "command": "npx nx run vscode-extension:test-unit"
+    },
+    "test-unit": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "jest --config jest.config.webview.cjs",
+          "jest --config jest.config.e2e-utils.cjs --runInBand",
+          "node --test scripts/run-tests-cli.test.js scripts/run-tests.test.js scripts/nx-project.targets.test.js scripts/deploy-azure-monitor.test.js scripts/azure-monitor-helpers.test.js scripts/eslint-type-aware.test.js scripts/run-playwright-e2e.test.js scripts/run-playwright-e2e-telemetry.test.js scripts/resolve-vscode-cache-metadata.test.js scripts/scratch-pool-admin.test.js",
+          "node apps/vscode-extension/esbuild.extension.mjs",
+          "node scripts/run-tests-cli.js --scope=unit"
+        ],
+        "parallel": false
+      }
+    },
+    "test-integration": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "node --test scripts/run-tests-cli.test.js scripts/run-tests.test.js scripts/nx-project.targets.test.js scripts/deploy-azure-monitor.test.js scripts/azure-monitor-helpers.test.js scripts/eslint-type-aware.test.js scripts/run-playwright-e2e.test.js scripts/run-playwright-e2e-telemetry.test.js scripts/resolve-vscode-cache-metadata.test.js scripts/scratch-pool-admin.test.js",
+          "node apps/vscode-extension/esbuild.extension.mjs",
+          "node scripts/run-tests-cli.js --scope=integration --install-deps --timeout=900000"
+        ],
+        "parallel": false
+      }
+    },
+    "test-all": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "jest --config jest.config.webview.cjs",
+          "node --test scripts/run-tests-cli.test.js scripts/run-tests.test.js scripts/nx-project.targets.test.js scripts/deploy-azure-monitor.test.js scripts/azure-monitor-helpers.test.js scripts/eslint-type-aware.test.js scripts/run-playwright-e2e.test.js scripts/run-playwright-e2e-telemetry.test.js scripts/resolve-vscode-cache-metadata.test.js scripts/scratch-pool-admin.test.js",
+          "node apps/vscode-extension/esbuild.extension.mjs",
+          "node scripts/run-tests-cli.js --scope=all"
+        ],
+        "parallel": false
+      }
+    },
+    "test-unit-ci": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "jest --config jest.config.webview.cjs --ci --runInBand",
+          "jest --config jest.config.e2e-utils.cjs --runInBand",
+          "node --test scripts/run-tests-cli.test.js scripts/run-tests.test.js scripts/nx-project.targets.test.js scripts/deploy-azure-monitor.test.js scripts/azure-monitor-helpers.test.js scripts/eslint-type-aware.test.js scripts/run-playwright-e2e.test.js scripts/run-playwright-e2e-telemetry.test.js scripts/resolve-vscode-cache-metadata.test.js scripts/scratch-pool-admin.test.js",
+          "node apps/vscode-extension/esbuild.extension.mjs",
+          "node scripts/run-tests-cli.js --scope=unit --vscode=stable"
+        ],
+        "parallel": false
+      }
+    },
+    "test-integration-ci": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "node --test scripts/run-tests-cli.test.js scripts/run-tests.test.js scripts/nx-project.targets.test.js scripts/deploy-azure-monitor.test.js scripts/azure-monitor-helpers.test.js scripts/eslint-type-aware.test.js scripts/run-playwright-e2e.test.js scripts/run-playwright-e2e-telemetry.test.js scripts/resolve-vscode-cache-metadata.test.js scripts/scratch-pool-admin.test.js",
+          "node apps/vscode-extension/esbuild.extension.mjs",
+          "node scripts/run-tests-cli.js --scope=integration --vscode=stable --install-deps --timeout=900000"
+        ],
+        "parallel": false
+      }
+    },
+    "test-ci": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "npx nx run vscode-extension:test-unit-ci",
+          "npx nx run vscode-extension:test-integration-ci"
+        ],
+        "parallel": false
+      }
+    },
+    "test-e2e": {
+      "command": "node scripts/run-playwright-e2e.js"
+    },
+    "test-smoke-vsix": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "node apps/vscode-extension/esbuild.extension.mjs",
+          "node scripts/run-tests.js --scope=unit --smoke-vsix"
+        ],
+        "parallel": false
+      }
+    },
+    "vsce-package": {
+      "command": "npm run vsce:package"
+    },
+    "vsce-package-pre": {
+      "command": "npm run vsce:package:pre"
+    },
+    "vsce-publish": {
+      "command": "npm run vsce:publish"
+    },
+    "vsce-publish-pre": {
+      "command": "npm run vsce:publish:pre"
     }
   }
 }
