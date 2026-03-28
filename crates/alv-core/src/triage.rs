@@ -301,7 +301,11 @@ fn dedup_ids(log_ids: &[String]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::classify_line;
+    use super::{classify_line, summarize_file, CancellationToken};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn classify_line_ignores_non_error_dml_events() {
@@ -322,5 +326,33 @@ mod tests {
         assert_eq!(diagnostic.summary, "DML failure");
         assert_eq!(diagnostic.line, Some(3));
         assert_eq!(diagnostic.event_type.as_deref(), Some("DML_ERROR"));
+    }
+
+    #[test]
+    fn summarize_file_detects_diagnostics_after_the_first_ten_lines() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "alv-triage-{}-{unique}.log",
+            std::process::id()
+        ));
+        let mut content = String::new();
+        for index in 0..10 {
+            content.push_str(&format!("09:00:{index:02}.0|USER_DEBUG|[1]|noop\n"));
+        }
+        content.push_str("09:00:10.0|EXCEPTION_THROWN|System.NullPointerException: boom\n");
+        fs::write(&path, content).expect("fixture log should be writable");
+
+        let (_, summary) =
+            summarize_file(&path, &CancellationToken::new()).expect("triage should succeed");
+
+        let _ = fs::remove_file(&path);
+
+        assert!(summary.has_errors);
+        assert_eq!(summary.primary_reason.as_deref(), Some("Fatal exception"));
+        assert_eq!(summary.reasons.len(), 1);
+        assert_eq!(summary.reasons[0].line, Some(11));
     }
 }
