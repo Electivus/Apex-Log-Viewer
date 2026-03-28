@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { StringDecoder } from 'node:string_decoder';
 import { JsonlDecodeError, encodeJsonl, splitJsonl } from './jsonlRpc';
 
 const DAEMON_ERROR_EVENT = 'daemon-error';
@@ -19,12 +20,16 @@ export function createDaemonProcess(executable: string, args: string[] = ['app-s
   });
   const emitter = new EventEmitter();
   let rest = '';
+  const stdoutDecoder = new StringDecoder('utf8');
   const emitDaemonError = (error: Error) => {
     emitter.emit(DAEMON_ERROR_EVENT, error);
   };
+  const handleStdoutText = (text: string) => {
+    if (!text) {
+      return;
+    }
 
-  child.stdout.on('data', chunk => {
-    const decoded = splitJsonl(`${rest}${chunk.toString('utf8')}`);
+    const decoded = splitJsonl(`${rest}${text}`);
     rest = decoded.rest;
 
     for (const message of decoded.messages) {
@@ -40,6 +45,10 @@ export function createDaemonProcess(executable: string, args: string[] = ['app-s
         child.kill();
       }
     }
+  };
+
+  child.stdout.on('data', chunk => {
+    handleStdoutText(stdoutDecoder.write(chunk));
   });
 
   child.on('error', error => {
@@ -47,6 +56,7 @@ export function createDaemonProcess(executable: string, args: string[] = ['app-s
   });
 
   child.on('exit', (code, signal) => {
+    handleStdoutText(stdoutDecoder.end());
     emitter.emit('exit', code, signal);
   });
 

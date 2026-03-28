@@ -71,4 +71,30 @@ suite('daemon process transport', () => {
     assert.match(seen[0]?.message ?? '', /runtime exited \(protocol error:/);
     assert.equal(child.killed, true);
   });
+
+  test('preserves UTF-8 characters split across stdout chunks', () => {
+    const { child } = createFakeChild();
+    const createDaemonProcess = loadCreateDaemonProcess(() => child);
+    const daemon = createDaemonProcess('/bin/apex-log-viewer', ['app-server', '--stdio']);
+    const messages: unknown[] = [];
+    daemon.onMessage(message => {
+      messages.push(message);
+    });
+
+    const prefix = Buffer.from('{"jsonrpc":"2.0","id":"msg-1","result":{"text":"', 'utf8');
+    const emoji = Buffer.from('😀', 'utf8');
+    const suffix = Buffer.from('"}}\n', 'utf8');
+    child.stdout.emit('data', Buffer.concat([prefix, emoji.subarray(0, 2)]));
+    child.stdout.emit('data', Buffer.concat([emoji.subarray(2), suffix]));
+
+    assert.deepEqual(messages, [
+      {
+        jsonrpc: '2.0',
+        id: 'msg-1',
+        result: {
+          text: '😀'
+        }
+      }
+    ]);
+  });
 });

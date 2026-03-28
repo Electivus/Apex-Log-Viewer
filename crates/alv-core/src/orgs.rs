@@ -276,7 +276,7 @@ impl<'a> Parser<'a> {
                         b'r' => value.push('\r'),
                         b't' => value.push('\t'),
                         b'u' => {
-                            let codepoint = self.parse_hex_codepoint()?;
+                            let codepoint = self.parse_unicode_codepoint()?;
                             let character = char::from_u32(codepoint)
                                 .ok_or_else(|| "invalid unicode escape".to_string())?;
                             value.push(character);
@@ -291,7 +291,28 @@ impl<'a> Parser<'a> {
         Err("unterminated string".to_string())
     }
 
-    fn parse_hex_codepoint(&mut self) -> Result<u32, String> {
+    fn parse_unicode_codepoint(&mut self) -> Result<u32, String> {
+        let first = self.parse_hex_escape_unit()?;
+        if !(0xD800..=0xDFFF).contains(&first) {
+            return Ok(first as u32);
+        }
+        if (0xDC00..=0xDFFF).contains(&first) {
+            return Err("invalid unicode escape".to_string());
+        }
+        if self.next() != Some(b'\\') || self.next() != Some(b'u') {
+            return Err("invalid unicode escape".to_string());
+        }
+        let second = self.parse_hex_escape_unit()?;
+        if !(0xDC00..=0xDFFF).contains(&second) {
+            return Err("invalid unicode escape".to_string());
+        }
+
+        let high = (first as u32) - 0xD800;
+        let low = (second as u32) - 0xDC00;
+        Ok(0x10000 + ((high << 10) | low))
+    }
+
+    fn parse_hex_escape_unit(&mut self) -> Result<u16, String> {
         let start = self.index;
         let end = start + 4;
         if end > self.source.len() {
@@ -300,7 +321,7 @@ impl<'a> Parser<'a> {
         let raw = std::str::from_utf8(&self.source[start..end])
             .map_err(|_| "unicode escape must be valid utf8".to_string())?;
         self.index = end;
-        u32::from_str_radix(raw, 16).map_err(|_| "invalid unicode escape".to_string())
+        u16::from_str_radix(raw, 16).map_err(|_| "invalid unicode escape".to_string())
     }
 
     fn parse_bool(&mut self) -> Result<bool, String> {
