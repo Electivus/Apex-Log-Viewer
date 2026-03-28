@@ -16,7 +16,7 @@ suite('salesforce exec safety', () => {
     __setExecFileImplForTests(((program: string, args: readonly string[] | undefined, _opts: any, cb: any) => {
       capturedProgram = program;
       capturedArgs = args;
-      // Return a minimal successful JSON payload similar to sf/sfdx
+      // Return a minimal successful JSON payload similar to sf
       const stdout = JSON.stringify({
         result: {
           accessToken: 'token',
@@ -49,7 +49,7 @@ suite('salesforce exec safety', () => {
       return undefined as any;
     }) as any);
 
-    // Should surface a friendly error after trying both sf and sfdx
+    // Should surface a friendly error after exhausting sf candidates
     await assert.rejects(getOrgAuth(undefined), (e: any) => {
       assert.match(String(e?.message || ''), /CLI não encontrada|CLI not found|Salesforce CLI/);
       return true;

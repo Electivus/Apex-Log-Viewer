@@ -92,7 +92,7 @@ function createRustTestPlan({
         },
         {
           command: "cargo",
-          args: ["test", "-p", "alv-core", "orgs_smoke", "--", "--nocapture"],
+          args: ["test", "-p", "alv-core", "--test", "orgs_smoke", "--", "--nocapture"],
           options: baseOptions,
         },
       ],

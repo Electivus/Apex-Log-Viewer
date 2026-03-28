@@ -215,8 +215,8 @@ suite('cli telemetry', () => {
 
     assert.deepEqual(
       attempts.map(attempt => attempt.program),
-      ['sf', 'sfdx'],
-      'expected to stop after the first semantic failure for each CLI family'
+      ['sf'],
+      'expected to stop after the first semantic failure for the sf CLI family'
     );
     assert.ok(
       calls.some(c => c.name === 'cli.getOrgAuth' && c.properties?.code === 'DEFAULT_ORG_MISSING'),
@@ -280,8 +280,8 @@ suite('cli telemetry', () => {
 
     assert.deepEqual(
       attempts.map(attempt => attempt.program),
-      ['sf', 'sfdx'],
-      'expected to stop after the first semantic failure for each CLI family'
+      ['sf'],
+      'expected to stop after the first semantic failure for the sf CLI family'
     );
     assert.ok(
       calls.some(c => c.name === 'cli.getOrgAuth' && c.properties?.code === 'AUTH_REQUIRED'),

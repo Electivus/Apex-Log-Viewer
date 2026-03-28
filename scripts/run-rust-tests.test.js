@@ -78,7 +78,7 @@ test("createRustTestPlan builds a CLI-first smoke plan without nextest", () => {
     },
     {
       command: "cargo",
-      args: ["test", "-p", "alv-core", "orgs_smoke", "--", "--nocapture"],
+      args: ["test", "-p", "alv-core", "--test", "orgs_smoke", "--", "--nocapture"],
       options: {
         cwd: repoRoot,
         env: {},

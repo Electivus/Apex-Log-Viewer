@@ -131,21 +131,15 @@ type CliCandidateFamily = {
 
 function buildOrgAuthCandidateFamilies(targetUsernameOrAlias?: string): CliCandidateFamily[] {
   const targetArgs = targetUsernameOrAlias ? ['-o', targetUsernameOrAlias] : [];
-  return [
-    ...getSfCliProgramCandidates().map(program => ({
-      program,
-      attempts: [
-        ['org', 'display', '--json', '--verbose', ...targetArgs],
-        ['org', 'user', 'display', '--json', '--verbose', ...targetArgs],
-        ['org', 'user', 'display', '--json', ...targetArgs],
-        ['org', 'display', '--json', ...targetArgs]
-      ]
-    })),
-    {
-      program: 'sfdx',
-      attempts: [['force:org:display', '--json', ...(targetUsernameOrAlias ? ['-u', targetUsernameOrAlias] : [])]]
-    }
-  ];
+  return getSfCliProgramCandidates().map(program => ({
+    program,
+    attempts: [
+      ['org', 'display', '--json', '--verbose', ...targetArgs],
+      ['org', 'user', 'display', '--json', '--verbose', ...targetArgs],
+      ['org', 'user', 'display', '--json', ...targetArgs],
+      ['org', 'display', '--json', ...targetArgs]
+    ]
+  }));
 }
 
 function getCliAuthTerminalCode(code: string, targetUsernameOrAlias?: string): string | undefined {
@@ -278,7 +272,7 @@ export async function getOrgAuth(
   if (sawEnoent) {
     const loginPath = await resolvePATHFromLoginShell();
     if (loginPath) {
-      const env2: NodeJS.ProcessEnv = { ...process.env, PATH: loginPath };
+      const env2: NodeJS.ProcessEnv = { ...process.env, PATH: loginPath, Path: loginPath };
       for (const family of candidateFamilies) {
         for (const args of family.attempts) {
           try {
@@ -415,8 +409,7 @@ export async function listOrgs(forceRefresh = false, signal?: AbortSignal): Prom
     return res;
   }
   const candidates: Array<{ program: string; args: string[] }> = [
-    ...getSfCliProgramCandidates().map(program => ({ program, args: ['org', 'list', '--json'] })),
-    { program: 'sfdx', args: ['force:org:list', '--json'] }
+    ...getSfCliProgramCandidates().map(program => ({ program, args: ['org', 'list', '--json'] }))
   ];
   let sawEnoent = false;
   let hadNonEnoentError = false;
@@ -454,7 +447,7 @@ export async function listOrgs(forceRefresh = false, signal?: AbortSignal): Prom
   if (sawEnoent) {
     const loginPath = await resolvePATHFromLoginShell();
     if (loginPath) {
-      const env2: NodeJS.ProcessEnv = { ...process.env, PATH: loginPath };
+      const env2: NodeJS.ProcessEnv = { ...process.env, PATH: loginPath, Path: loginPath };
       for (const { program, args } of candidates) {
         try {
           try {

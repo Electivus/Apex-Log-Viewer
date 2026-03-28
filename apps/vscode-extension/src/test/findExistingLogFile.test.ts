@@ -1,5 +1,6 @@
 import assert from 'assert/strict';
 import { promises as fs } from 'fs';
+import * as path from 'path';
 import { getApexLogsDir, findExistingLogFile } from '../../../../src/utils/workspace';
 
 suite('integration: findExistingLogFile', () => {
@@ -13,5 +14,19 @@ suite('integration: findExistingLogFile', () => {
       .then(() => true)
       .catch(() => false);
     assert.equal(exists, false);
+  });
+
+  test('does not return another user log when username is provided', async () => {
+    const dir = getApexLogsDir();
+    const logId = '07L000000000001';
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, `someone_else_${logId}.log`), 'body', 'utf8');
+
+    try {
+      const result = await findExistingLogFile(logId, 'target@example.com');
+      assert.equal(result, undefined);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });

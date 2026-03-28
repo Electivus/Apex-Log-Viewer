@@ -163,6 +163,52 @@ suite('LogService', () => {
     }
   });
 
+  test('loadLogHeads scopes saved-log lookup by auth username', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-user-'));
+    const matchingPath = path.join(tmpDir, 'user@example.com_1.log');
+    await fs.writeFile(matchingPath, '\n|CODE_UNIT_STARTED|Foo|Scoped.method\n', 'utf8');
+
+    const lookupCalls: Array<{ logId: string; username?: string }> = [];
+    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+      '../salesforce/http': {
+        extractCodeUnitStartedFromLines: (lines: string[]) => {
+          const target = lines.find(line => line.includes('|CODE_UNIT_STARTED|'));
+          return target ? 'Scoped.method' : undefined;
+        },
+        fetchApexLogs: async () => [],
+        fetchApexLogBody: async () => ''
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' })
+      },
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath: matchingPath }),
+        findExistingLogFile: async (logId: string, username?: string) => {
+          lookupCalls.push({ logId, username });
+          return username === 'user@example.com' ? matchingPath : undefined;
+        }
+      }
+    });
+
+    try {
+      const svc = new LogService(1);
+      const seen: Array<{ id: string; code: string }> = [];
+      svc.loadLogHeads(
+        [{ Id: '1' } as ApexLogRow],
+        { accessToken: 't', instanceUrl: 'url', username: 'user@example.com' },
+        0,
+        (id: string, code: string) => {
+          seen.push({ id, code });
+        }
+      );
+      await waitForCondition(() => seen.length === 1, { timeoutMs: 500, intervalMs: 10 });
+      assert.deepEqual(lookupCalls, [{ logId: '1', username: 'user@example.com' }]);
+      assert.deepEqual(seen, [{ id: '1', code: 'Scoped.method' }]);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   test('openLog delegates to LogViewerPanel', async () => {
     const calls: any[] = [];
     const origWithProgress = vscode.window.withProgress;
@@ -180,9 +226,13 @@ suite('LogService', () => {
           extractCodeUnitStartedFromLines: () => undefined,
           fetchApexLogBody: async () => ''
         },
+        '../salesforce/cli': {
+          getOrgAuth: async () => ({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' })
+        },
         '../utils/workspace': {
           getLogFilePathWithUsername: async () => ({ dir: '', filePath: '/tmp/test.log' }),
-          findExistingLogFile: async () => '/tmp/test.log'
+          findExistingLogFile: async (_logId: string, username?: string) =>
+            username === 'user@example.com' ? '/tmp/test.log' : undefined
         },
         '../../apps/vscode-extension/src/panel/LogViewerPanel': {
           LogViewerPanel: class {

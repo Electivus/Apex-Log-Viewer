@@ -105,7 +105,7 @@ export class LogService {
 
   loadLogHeads(
     logs: ApexLogRow[],
-    _auth: OrgAuth,
+    auth: OrgAuth,
     _token: number,
     post: (logId: string, codeUnit: string) => void,
     signal?: AbortSignal,
@@ -117,7 +117,7 @@ export class LogService {
           return;
         }
         try {
-          const codeUnit = await this.loadCodeUnitFromSavedLog(log.Id, signal);
+          const codeUnit = await this.loadCodeUnitFromSavedLog(log.Id, auth.username, signal);
           if (codeUnit) {
             post(log.Id, codeUnit);
           }
@@ -129,18 +129,18 @@ export class LogService {
   }
 
   private async ensureLogFile(logId: string, selectedOrg?: string, signal?: AbortSignal): Promise<string> {
-    const existing = await findExistingLogFile(logId);
+    const auth = await getOrgAuth(selectedOrg, undefined, signal);
+    const existing = await findExistingLogFile(logId, auth.username);
     if (existing) {
       return existing;
     }
-    const auth = await getOrgAuth(selectedOrg, undefined, signal);
     const key = `${auth.username ?? ''}:${logId}`;
     const pending = this.inFlightSaves.get(key);
     if (pending) {
       return pending;
     }
     const task = (async () => {
-      const maybeExisting = await findExistingLogFile(logId);
+      const maybeExisting = await findExistingLogFile(logId, auth.username);
       if (maybeExisting) {
         return maybeExisting;
       }
@@ -158,7 +158,11 @@ export class LogService {
     }
   }
 
-  private async loadCodeUnitFromSavedLog(logId: string | undefined, signal?: AbortSignal): Promise<string | undefined> {
+  private async loadCodeUnitFromSavedLog(
+    logId: string | undefined,
+    username?: string,
+    signal?: AbortSignal
+  ): Promise<string | undefined> {
     if (!logId) {
       return undefined;
     }
@@ -166,7 +170,7 @@ export class LogService {
       return undefined;
     }
     try {
-      const existingPath = await findExistingLogFile(logId);
+      const existingPath = await findExistingLogFile(logId, username);
       if (existingPath) {
         const handle = await fs.open(existingPath, 'r');
         try {
@@ -190,6 +194,17 @@ export class LogService {
     return undefined;
   }
 
+  private async resolveSelectedUsername(selectedOrg?: string, signal?: AbortSignal): Promise<string | undefined> {
+    if (!selectedOrg || signal?.aborted) {
+      return undefined;
+    }
+    try {
+      return (await getOrgAuth(selectedOrg, undefined, signal)).username;
+    } catch {
+      return undefined;
+    }
+  }
+
   async classifyLogsForErrors(
     logs: ApexLogRow[],
     selectedOrg?: string,
@@ -204,6 +219,7 @@ export class LogService {
     let errorsFound = 0;
     const result = new Map<string, LogTriageSummary>();
     const tasks: Promise<void>[] = [];
+    const selectedUsername = await this.resolveSelectedUsername(selectedOrg, signal);
 
     for (const log of validLogs) {
       tasks.push(
@@ -217,7 +233,7 @@ export class LogService {
             if (signal?.aborted) {
               return;
             }
-            const existingPath = await findExistingLogFile(log.Id);
+            const existingPath = await findExistingLogFile(log.Id, selectedUsername);
             const filePath = existingPath ?? (await this.ensureLogFile(log.Id, selectedOrg, signal));
             if (signal?.aborted) {
               return;
@@ -300,6 +316,7 @@ export class LogService {
   ): Promise<EnsureLogsSavedSummary> {
     const downloadMissing = options?.downloadMissing !== false;
     const validLogs = logs.filter((log): log is ApexLogRow & { Id: string } => typeof log?.Id === 'string' && log.Id.length > 0);
+    const selectedUsername = await this.resolveSelectedUsername(selectedOrg, signal);
     const summary: EnsureLogsSavedSummary = {
       total: validLogs.length,
       success: 0,
@@ -321,7 +338,7 @@ export class LogService {
           }
           try {
             if (downloadMissing) {
-              const existing = await findExistingLogFile(log.Id);
+              const existing = await findExistingLogFile(log.Id, selectedUsername);
               if (existing) {
                 summary.success++;
                 summary.existing++;
@@ -338,7 +355,7 @@ export class LogService {
               summary.downloaded++;
               options?.onItemComplete?.({ logId: log.Id, status: 'downloaded' });
             } else {
-              const existing = await findExistingLogFile(log.Id);
+              const existing = await findExistingLogFile(log.Id, selectedUsername);
               if (!existing) {
                 summary.missing++;
                 options?.onMissing?.(log.Id);

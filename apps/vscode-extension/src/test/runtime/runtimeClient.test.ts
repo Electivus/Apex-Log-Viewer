@@ -1,4 +1,5 @@
 import { strict as assert } from 'node:assert';
+import * as path from 'node:path';
 import type {
   DaemonProcess,
   JsonRpcErrorResponse,
@@ -60,7 +61,7 @@ suite('runtime client', () => {
 
   test('resolves a platform specific bundled binary path', () => {
     const resolved = resolveBundledBinary('linux', 'x64');
-    assert.equal(resolved.endsWith('bin/linux-x64/apex-log-viewer'), true);
+    assert.equal(resolved.endsWith(path.join('bin', 'linux-x64', 'apex-log-viewer')), true);
   });
 
   test('supports both source-tree and dist-tree runtime layouts', () => {
@@ -68,12 +69,12 @@ suite('runtime client', () => {
     const distCandidates = resolveBundledBinaryCandidates('/workspace/apps/vscode-extension/dist', 'linux', 'x64');
 
     assert.deepEqual(sourceCandidates, [
-      '/workspace/apps/vscode-extension/src/bin/linux-x64/apex-log-viewer',
-      '/workspace/apps/vscode-extension/bin/linux-x64/apex-log-viewer'
+      path.resolve('/workspace/apps/vscode-extension/src/runtime', '..', 'bin', 'linux-x64', 'apex-log-viewer'),
+      path.resolve('/workspace/apps/vscode-extension/src/runtime', '..', '..', 'bin', 'linux-x64', 'apex-log-viewer')
     ]);
     assert.deepEqual(distCandidates, [
-      '/workspace/apps/vscode-extension/bin/linux-x64/apex-log-viewer',
-      '/workspace/apps/bin/linux-x64/apex-log-viewer'
+      path.resolve('/workspace/apps/vscode-extension/dist', '..', 'bin', 'linux-x64', 'apex-log-viewer'),
+      path.resolve('/workspace/apps/vscode-extension/dist', '..', '..', 'bin', 'linux-x64', 'apex-log-viewer')
     ]);
   });
 

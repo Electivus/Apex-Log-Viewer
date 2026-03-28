@@ -83,7 +83,7 @@ suite('listOrgs persistent cache fallback', () => {
     });
 
     await assert.rejects(listOrgs(false), /boom/);
-    assert.equal(execCalls, 2, 'expected both sf and sfdx attempts');
+    assert.equal(execCalls, 1, 'expected only sf attempts');
     assert.equal(setCalls.length, 0, 'expected no poisoned empty cache writes on failure');
   });
 });

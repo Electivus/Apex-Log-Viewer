@@ -34,9 +34,10 @@ export async function resolvePATHFromLoginShell(): Promise<string | undefined> {
 export async function getLoginShellEnv(): Promise<NodeJS.ProcessEnv | undefined> {
   const loginPath = await resolvePATHFromLoginShell();
   const env2: NodeJS.ProcessEnv = { ...process.env };
-  if (loginPath) {
-    env2.PATH = loginPath;
-    env2.Path = loginPath;
+  const effectivePath = loginPath || env2.PATH || env2.Path;
+  if (effectivePath) {
+    env2.PATH = effectivePath;
+    env2.Path = effectivePath;
   }
   const sfCliPath = await resolveSfCliPath(env2);
   if (sfCliPath) {
@@ -49,11 +50,17 @@ async function resolvePATHFromLoginShellInner(): Promise<string | undefined> {
   const currentPath = process.env.PATH || process.env.Path;
   for (const { program, args } of getPathProbeCommands()) {
     const pathFromShell = await execPathProbe(program, args);
-    if (!pathFromShell || pathFromShell === currentPath) {
+    if (!pathFromShell) {
       try {
         logTrace('resolvePATHFromLoginShell: no change');
       } catch {}
       continue;
+    }
+    if (pathFromShell === currentPath) {
+      try {
+        logTrace('resolvePATHFromLoginShell: no change');
+      } catch {}
+      return undefined;
     }
     cachedLoginShellPATH = pathFromShell;
     try {
