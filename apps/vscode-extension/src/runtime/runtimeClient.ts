@@ -84,12 +84,15 @@ export class RuntimeClient extends EventEmitter {
     daemon.onMessage(message => {
       this.handleMessage(message);
     });
+    daemon.onError(error => {
+      this.handleDaemonFailure(daemon, this.normalizeDaemonError(error), { code: null, signal: null });
+    });
     daemon.onExit((code, signal) => {
-      logTrace('Runtime: daemon exited', { code, signal });
-      this.failPendingRequests(new Error(`runtime exited (${code ?? 'null'}${signal ? `/${signal}` : ''})`));
-      this.daemon = undefined;
-      this.initializePromise = undefined;
-      this.emit(RUNTIME_EXIT_EVENT, { code, signal } satisfies RuntimeExitEvent);
+      this.handleDaemonFailure(
+        daemon,
+        new Error(`runtime exited (${code ?? 'null'}${signal ? `/${signal}` : ''})`),
+        { code, signal }
+      );
     });
     return daemon;
   }
@@ -281,6 +284,28 @@ export class RuntimeClient extends EventEmitter {
       request.cleanup?.();
       request.reject(error);
     }
+  }
+
+  private handleDaemonFailure(
+    daemon: DaemonProcess,
+    error: Error,
+    { code, signal }: { code: number | null; signal: NodeJS.Signals | null }
+  ): void {
+    if (this.daemon !== daemon) {
+      return;
+    }
+    logTrace('Runtime: daemon failure', { code, signal, message: error.message });
+    this.failPendingRequests(error);
+    this.daemon = undefined;
+    this.initializePromise = undefined;
+    this.emit(RUNTIME_EXIT_EVENT, { code, signal } satisfies RuntimeExitEvent);
+  }
+
+  private normalizeDaemonError(error: Error): Error {
+    if (error.message.startsWith(RUNTIME_EXIT_MESSAGE_PREFIX)) {
+      return error;
+    }
+    return new Error(`runtime exited (process error: ${error.message})`);
   }
 
   private attachDaemonStderrLogger(daemon: DaemonProcess): void {

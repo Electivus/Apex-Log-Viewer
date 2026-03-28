@@ -13,17 +13,23 @@ suite('runtime client', () => {
       message: { id: string; method: string; params?: unknown },
       helpers: {
         emitMessage: (message: JsonRpcSuccessResponse<unknown> | JsonRpcErrorResponse) => void;
+        emitError: (error: Error) => void;
         emitExit: (code: number | null, signal: NodeJS.Signals | null) => void;
       }
     ) => void;
   }): DaemonProcess {
     const messageListeners = new Set<(message: unknown) => void>();
+    const errorListeners = new Set<(error: Error) => void>();
     const exitListeners = new Set<(code: number | null, signal: NodeJS.Signals | null) => void>();
     return {
       child: {} as DaemonProcess['child'],
       onMessage(listener) {
         messageListeners.add(listener);
         return () => messageListeners.delete(listener);
+      },
+      onError(listener) {
+        errorListeners.add(listener);
+        return () => errorListeners.delete(listener);
       },
       onExit(listener) {
         exitListeners.add(listener);
@@ -34,6 +40,11 @@ suite('runtime client', () => {
           emitMessage: payload => {
             for (const listener of messageListeners) {
               listener(payload);
+            }
+          },
+          emitError: error => {
+            for (const listener of errorListeners) {
+              listener(error);
             }
           },
           emitExit: (code, signal) => {
@@ -317,6 +328,100 @@ suite('runtime client', () => {
     assert.equal(createCount, 2);
     assert.deepEqual(methods, ['daemon1:initialize', 'daemon1:search/query', 'daemon2:initialize', 'daemon2:search/query']);
     assert.deepEqual(result.logIds, ['07L000000000001AA']);
+    assert.equal(result.snippets?.['07L000000000001AA']?.text, 'matched');
+  });
+
+  test('retries a request when the daemon emits a process error before responding', async () => {
+    const methods: string[] = [];
+    let createCount = 0;
+    const client = new RuntimeClient({
+      clientVersion: '0.1.0',
+      createProcess() {
+        createCount += 1;
+        if (createCount === 1) {
+          return createFakeDaemon({
+            onWrite(message, helpers) {
+              methods.push(`daemon1:${message.method}`);
+              if (message.method === 'initialize') {
+                helpers.emitMessage({
+                  jsonrpc: '2.0',
+                  id: message.id,
+                  result: {
+                    runtime_version: '0.1.0',
+                    protocol_version: '1',
+                    platform: 'linux',
+                    arch: 'x64',
+                    capabilities: {
+                      orgs: true,
+                      logs: true,
+                      search: true,
+                      tail: true,
+                      debug_flags: true,
+                      doctor: true
+                    },
+                    state_dir: '.alv/state',
+                    cache_dir: '.alv/cache'
+                  }
+                });
+                return;
+              }
+              helpers.emitError(new Error('spawn ENOENT'));
+            }
+          });
+        }
+
+        return createFakeDaemon({
+          onWrite(message, helpers) {
+            methods.push(`daemon2:${message.method}`);
+            if (message.method === 'initialize') {
+              helpers.emitMessage({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: {
+                  runtime_version: '0.1.0',
+                  protocol_version: '1',
+                  platform: 'linux',
+                  arch: 'x64',
+                  capabilities: {
+                    orgs: true,
+                    logs: true,
+                    search: true,
+                    tail: true,
+                    debug_flags: true,
+                    doctor: true
+                  },
+                  state_dir: '.alv/state',
+                  cache_dir: '.alv/cache'
+                }
+              });
+              return;
+            }
+            helpers.emitMessage({
+              jsonrpc: '2.0',
+              id: message.id,
+              result: {
+                logIds: ['07L000000000001AA'],
+                snippets: {
+                  '07L000000000001AA': {
+                    text: 'matched',
+                    ranges: [[0, 7]]
+                  }
+                },
+                pendingLogIds: []
+              }
+            });
+          }
+        });
+      }
+    });
+
+    const result = await client.searchQuery({
+      query: 'marker',
+      logIds: ['07L000000000001AA']
+    });
+
+    assert.equal(createCount, 2);
+    assert.deepEqual(methods, ['daemon1:initialize', 'daemon1:search/query', 'daemon2:initialize', 'daemon2:search/query']);
     assert.equal(result.snippets?.['07L000000000001AA']?.text, 'matched');
   });
 
