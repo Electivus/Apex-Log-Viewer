@@ -283,44 +283,43 @@ pub fn ensure_log_file_cached_with_cancel(
         return Ok(target_path);
     }
 
-    let staging_dir = make_temp_staging_dir()?;
-    let mut args = vec![
-        "apex".to_string(),
-        "get".to_string(),
-        "log".to_string(),
-        "--json".to_string(),
-        "--log-id".to_string(),
-        log_id.to_string(),
-        "--output-dir".to_string(),
-        staging_dir.display().to_string(),
-    ];
+    with_temp_staging_dir(|staging_dir| {
+        let mut args = vec![
+            "apex".to_string(),
+            "get".to_string(),
+            "log".to_string(),
+            "--json".to_string(),
+            "--log-id".to_string(),
+            log_id.to_string(),
+            "--output-dir".to_string(),
+            staging_dir.display().to_string(),
+        ];
 
-    if let Some(value) = username.map(str::trim).filter(|value| !value.is_empty()) {
-        args.push("--target-org".to_string());
-        args.push(value.to_string());
-    }
+        if let Some(value) = username.map(str::trim).filter(|value| !value.is_empty()) {
+            args.push("--target-org".to_string());
+            args.push(value.to_string());
+        }
 
-    run_command_with_cancel("sf", &args, cancellation)?;
-    cancellation.check_cancelled()?;
+        run_command_with_cancel("sf", &args, cancellation)?;
+        cancellation.check_cancelled()?;
 
-    let downloaded_path = find_downloaded_log(&staging_dir, log_id).ok_or_else(|| {
-        format!(
-            "sf apex get log did not write a .log file for {log_id} in {}",
-            staging_dir.display()
-        )
-    })?;
+        let downloaded_path = find_downloaded_log(staging_dir, log_id).ok_or_else(|| {
+            format!(
+                "sf apex get log did not write a .log file for {log_id} in {}",
+                staging_dir.display()
+            )
+        })?;
 
-    fs::copy(&downloaded_path, &target_path).map_err(|error| {
-        format!(
-            "failed to copy downloaded log {} into cache {}: {error}",
-            downloaded_path.display(),
-            target_path.display()
-        )
-    })?;
+        fs::copy(&downloaded_path, &target_path).map_err(|error| {
+            format!(
+                "failed to copy downloaded log {} into cache {}: {error}",
+                downloaded_path.display(),
+                target_path.display()
+            )
+        })?;
 
-    let _ = fs::remove_dir_all(&staging_dir);
-
-    Ok(target_path)
+        Ok(target_path.clone())
+    })
 }
 
 pub fn extract_code_unit_started(lines: &[&str]) -> Option<String> {
@@ -407,6 +406,13 @@ fn make_temp_staging_dir() -> Result<PathBuf, String> {
     Ok(path)
 }
 
+fn with_temp_staging_dir<T>(run: impl FnOnce(&Path) -> Result<T, String>) -> Result<T, String> {
+    let staging_dir = make_temp_staging_dir()?;
+    let result = run(&staging_dir);
+    let _ = fs::remove_dir_all(&staging_dir);
+    result
+}
+
 fn run_command_with_cancel(
     program: &str,
     args: &[String],
@@ -445,7 +451,7 @@ fn run_command_with_cancel(
                 let _ = join_output_reader(stderr_reader);
                 return Err(format!(
                     "{program} failed while polling child process: {error}"
-                ))
+                ));
             }
         }
     };
@@ -469,9 +475,8 @@ where
             return Ok(Vec::new());
         };
         let mut buffer = Vec::new();
-        pipe.read_to_end(&mut buffer).map_err(|error| {
-            format!("{program} failed while reading {stream_name}: {error}")
-        })?;
+        pipe.read_to_end(&mut buffer)
+            .map_err(|error| format!("{program} failed while reading {stream_name}: {error}"))?;
         Ok(buffer)
     })
 }
@@ -562,5 +567,68 @@ fn number_field(value: &Value, key: &str) -> Option<u64> {
         Some(Value::Number(number)) => number.as_u64(),
         Some(Value::String(text)) => text.trim().parse::<u64>().ok(),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn list_staging_dirs() -> BTreeSet<PathBuf> {
+        let Some(entries) = fs::read_dir(env::temp_dir()).ok() else {
+            return BTreeSet::new();
+        };
+
+        entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| {
+                        value.starts_with(&format!("alv-log-fetch-{}-", std::process::id()))
+                    })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn temp_staging_dir_helper_cleans_up_on_success() {
+        let before = list_staging_dirs();
+
+        let created = with_temp_staging_dir(|staging_dir| {
+            assert!(staging_dir.is_dir());
+            Ok(staging_dir.to_path_buf())
+        })
+        .expect("expected temp staging dir helper to succeed");
+
+        assert!(
+            !created.exists(),
+            "staging dir should be removed after success"
+        );
+        assert_eq!(
+            list_staging_dirs(),
+            before,
+            "staging dirs should not leak after success"
+        );
+    }
+
+    #[test]
+    fn temp_staging_dir_helper_cleans_up_on_error() {
+        let before = list_staging_dirs();
+
+        let error = with_temp_staging_dir(|staging_dir| -> Result<(), String> {
+            assert!(staging_dir.is_dir());
+            Err(format!("boom: {}", staging_dir.display()))
+        })
+        .expect_err("expected temp staging dir helper to bubble up the error");
+
+        assert!(error.starts_with("boom: "));
+        assert_eq!(
+            list_staging_dirs(),
+            before,
+            "staging dirs should not leak after errors"
+        );
     }
 }

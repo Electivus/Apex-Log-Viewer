@@ -1,3 +1,4 @@
+use serde_json::Value;
 use std::process::Command;
 
 pub const TEST_ORG_LIST_JSON_ENV: &str = "ALV_TEST_SF_ORG_LIST_JSON";
@@ -143,14 +144,19 @@ fn run_command(program: &str, args: &[&str]) -> Result<String, String> {
 }
 
 pub fn resolve_org_auth_from_json(json: &str) -> Result<OrgAuth, String> {
-    let access_token = extract_json_string(json, &["result", "accessToken"])
-        .or_else(|| extract_json_string(json, &["result", "access_token"]))
+    let parsed: Value =
+        serde_json::from_str(json).map_err(|error| format!("invalid org auth JSON: {error}"))?;
+
+    let mut sources = vec![&parsed];
+    if let Some(result) = parsed.get("result") {
+        sources.insert(0, result);
+    }
+
+    let access_token = extract_value_string(&sources, &["accessToken", "access_token"])
         .ok_or_else(|| "CLI JSON missing access token".to_string())?;
-    let instance_url = extract_json_string(json, &["result", "instanceUrl"])
-        .or_else(|| extract_json_string(json, &["result", "instance_url"]))
-        .or_else(|| extract_json_string(json, &["result", "loginUrl"]))
+    let instance_url = extract_value_string(&sources, &["instanceUrl", "instance_url", "loginUrl"])
         .ok_or_else(|| "CLI JSON missing instance URL".to_string())?;
-    let username = extract_json_string(json, &["result", "username"]);
+    let username = extract_value_string(&sources, &["username"]);
 
     Ok(OrgAuth {
         access_token,
@@ -159,82 +165,20 @@ pub fn resolve_org_auth_from_json(json: &str) -> Result<OrgAuth, String> {
     })
 }
 
-fn extract_json_string(source: &str, path: &[&str]) -> Option<String> {
-    let mut current = source.to_string();
-    for key in path.iter().take(path.len().saturating_sub(1)) {
-        current = extract_json_object(&current, key)?;
-    }
-    extract_json_leaf_string(&current, path.last().copied()?)
-}
-
-fn extract_json_object(source: &str, key: &str) -> Option<String> {
-    let key_marker = format!("\"{key}\"");
-    let key_index = source.find(&key_marker)?;
-    let after_key = &source[key_index + key_marker.len()..];
-    let colon_index = after_key.find(':')?;
-    let after_colon = after_key[colon_index + 1..].trim_start();
-    let object_start = after_colon.find('{')?;
-    let mut depth = 0usize;
-    let mut escaped = false;
-    let mut in_string = false;
-
-    for (offset, ch) in after_colon[object_start..].char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-
-        match ch {
-            '\\' if in_string => escaped = true,
-            '"' => in_string = !in_string,
-            '{' if !in_string => depth += 1,
-            '}' if !in_string => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return Some(after_colon[object_start..=object_start + offset].to_string());
-                }
+fn extract_value_string(sources: &[&Value], keys: &[&str]) -> Option<String> {
+    for source in sources {
+        for key in keys {
+            let value = source
+                .get(*key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            if value.is_some() {
+                return value;
             }
-            _ => {}
         }
     }
-
-    None
-}
-
-fn extract_json_leaf_string(source: &str, key: &str) -> Option<String> {
-    let key_marker = format!("\"{key}\"");
-    let key_index = source.find(&key_marker)?;
-    let after_key = &source[key_index + key_marker.len()..];
-    let colon_index = after_key.find(':')?;
-    let after_colon = after_key[colon_index + 1..].trim_start();
-    let mut chars = after_colon.chars();
-    if chars.next()? != '"' {
-        return None;
-    }
-
-    let mut value = String::new();
-    let mut escaped = false;
-    for ch in chars {
-        if escaped {
-            value.push(match ch {
-                '"' => '"',
-                '\\' => '\\',
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                other => other,
-            });
-            escaped = false;
-            continue;
-        }
-
-        match ch {
-            '\\' => escaped = true,
-            '"' => return Some(value),
-            other => value.push(other),
-        }
-    }
-
     None
 }
 
@@ -292,5 +236,21 @@ mod tests {
                 "sf org user display --json --verbose -o ALV_E2E_Scratch",
             ]
         );
+    }
+
+    #[test]
+    fn resolve_org_auth_from_json_accepts_top_level_auth_fields() {
+        let auth = resolve_org_auth_from_json(
+            r#"{
+                "accessToken": "00D-top-level",
+                "instanceUrl": "https://top-level.example.com",
+                "username": "top-level@example.com"
+            }"#,
+        )
+        .expect("top-level auth fields should parse");
+
+        assert_eq!(auth.access_token, "00D-top-level");
+        assert_eq!(auth.instance_url, "https://top-level.example.com");
+        assert_eq!(auth.username.as_deref(), Some("top-level@example.com"));
     }
 }
