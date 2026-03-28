@@ -13,9 +13,9 @@ import { LogViewerPanel } from './panel/LogViewerPanel';
 import { DebugFlagsPanel } from './panel/DebugFlagsPanel';
 import { LogsEditorPanel } from './panel/LogsEditorPanel';
 import { TailEditorPanel } from './panel/TailEditorPanel';
+import { runtimeClient } from './runtime/runtimeClient';
 import { getBooleanConfig, affectsConfiguration } from '../../../src/utils/config';
 import { getErrorMessage } from '../../../src/utils/error';
-import { listOrgs, getOrgAuth } from '../../../src/salesforce/cli';
 import { findSalesforceProjectInfo, isApexLogDocument, getLogIdFromLogFilePath } from '../../../src/utils/workspace';
 import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
 import {
@@ -130,7 +130,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('sfLogs.selectOrg', async () => {
       logInfo('Command sfLogs.selectOrg invoked. Listing orgs…');
       try {
-        const orgs: OrgItem[] = await listOrgs(true);
+        const orgs: OrgItem[] = await runtimeClient.orgList({ forceRefresh: true });
         const items: OrgQuickPick[] = orgs.map(o => ({
           label: o.alias ?? o.username,
           detail: o.instanceUrl || undefined,
@@ -364,23 +364,12 @@ export async function activate(context: vscode.ExtensionContext) {
       setTimeout(() => {
         void (async () => {
           try {
-            logInfo('Preloading CLI caches (org list, default auth)…');
-            const orgs = await listOrgs(false);
-            const def = orgs.find(o => o.isDefaultUsername) || orgs[0];
-            if (def) {
-              try {
-                await getOrgAuth(def.username);
-              } catch {}
-            } else {
-              // If no orgs, attempt default auth anyway (may fill cache if CLI has default)
-              try {
-                await getOrgAuth(undefined);
-              } catch {}
-            }
-            logInfo('Preloading CLI caches done.');
+            logInfo('Preloading runtime org cache…');
+            await runtimeClient.orgList();
+            logInfo('Preloading runtime org cache done.');
           } catch (e) {
             // Best-effort; ignore errors
-            logWarn('Preloading CLI caches failed ->', getErrorMessage(e));
+            logWarn('Preloading runtime org cache failed ->', getErrorMessage(e));
           }
         })();
       }, 0);

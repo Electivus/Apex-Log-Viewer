@@ -49,7 +49,18 @@ function loadTailProvider(stubs?: {
   }
 
   return proxyquireStrict('../provider/SfLogTailViewProvider', {
-    '../../../../src/salesforce/cli': stubs?.cli ?? {},
+    '../runtime/runtimeClient': {
+      runtimeClient: {
+        orgList: stubs?.cli?.listOrgs ?? (async () => []),
+        getOrgAuth:
+          stubs?.cli?.getOrgAuth ??
+          (async () => ({
+            username: undefined,
+            instanceUrl: 'https://example.com',
+            accessToken: 'token'
+          }))
+      }
+    },
     '../../../../src/salesforce/traceflags': stubs?.traceflags ?? {},
     '../../../../src/utils/tailService': { TailService: TailServiceStub }
   }) as typeof import('../provider/SfLogTailViewProvider');

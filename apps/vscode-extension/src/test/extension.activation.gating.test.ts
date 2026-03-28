@@ -42,7 +42,7 @@ function createExtensionHarness(options: {
   const events: Array<{ name: string; props?: Record<string, string> }> = [];
   const setApiVersionCalls: string[] = [];
   const timeoutCallbacks: Array<() => Promise<void> | void> = [];
-  const listOrgsCalls: boolean[] = [];
+  const orgListCalls: boolean[] = [];
   const getOrgAuthCalls: Array<string | undefined> = [];
   const logViewerShows: Array<{ logId: string; filePath: string }> = [];
   const infoMessages: string[] = [];
@@ -235,14 +235,16 @@ function createExtensionHarness(options: {
     '../../../src/utils/error': {
       getErrorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error))
     },
-    '../../../src/salesforce/cli': {
-      listOrgs: async (forceRefresh = false) => {
-        listOrgsCalls.push(forceRefresh);
-        return options.orgs ?? [];
-      },
-      getOrgAuth: async (username?: string) => {
-        getOrgAuthCalls.push(username);
-        return { username };
+    './runtime/runtimeClient': {
+      runtimeClient: {
+        orgList: async ({ forceRefresh = false }: { forceRefresh?: boolean } = {}) => {
+          orgListCalls.push(forceRefresh);
+          return options.orgs ?? [];
+        },
+        getOrgAuth: async ({ username }: { username?: string } = {}) => {
+          getOrgAuthCalls.push(username);
+          return { username };
+        }
       }
     },
     '../../../src/utils/workspace': {
@@ -258,7 +260,7 @@ function createExtensionHarness(options: {
     events,
     setApiVersionCalls,
     timeoutCallbacks,
-    listOrgsCalls,
+    orgListCalls,
     getOrgAuthCalls,
     logViewerShows,
     infoMessages,
@@ -346,8 +348,7 @@ suite('extension activation gating', () => {
 
     await harness.timeoutCallbacks[0]!();
 
-    assert.deepEqual(harness.listOrgsCalls, [false]);
-    assert.deepEqual(harness.getOrgAuthCalls, ['default@example.com']);
+    assert.deepEqual(harness.orgListCalls, [false]);
   });
 
   test('syncs the selected logs org into tail before refreshing the tail view', async () => {

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { localize } from '../../../../src/utils/localize';
-import { getOrgAuth } from '../../../../src/salesforce/cli';
 import { clearListCache, getApiVersionFallbackWarning } from '../../../../src/salesforce/http';
+import { pickSelectedOrg } from '../../../../src/utils/orgs';
 import type { ApexLogRow } from '../shared/types';
 import type { OrgAuth } from '../../../../src/salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
@@ -12,7 +12,8 @@ import { getErrorMessage } from '../../../../src/utils/error';
 import { LogService, type EnsureLogsSavedSummary } from '../../../../src/services/logService';
 import { clearApexLogs } from '../../../../src/services/apexLogCleanup';
 import { LogsMessageHandler } from './logsMessageHandler';
-import { OrgManager } from '../../../../src/utils/orgManager';
+import { runtimeClient } from '../runtime/runtimeClient';
+import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../../../../src/utils/configManager';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { affectsConfiguration, getConfig } from '../../../../src/utils/config';
@@ -155,7 +156,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           clearListCache();
           this.pageLimit = this.configManager.getPageLimit();
           await this.orgManager.ensureProjectDefaultSelected();
-          const auth = await getOrgAuth(this.orgManager.getSelectedOrg(), undefined, controller.signal);
+          const auth = await runtimeClient.getOrgAuth({ username: this.orgManager.getSelectedOrg() });
           if (isCurrentRefresh()) {
             const existingWarning = getApiVersionFallbackWarning(auth);
             if (existingWarning) {
@@ -257,7 +258,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.post({ type: 'loading', value: true });
     this.post({ type: 'warning', message: undefined });
     try {
-      const auth = await getOrgAuth(this.orgManager.getSelectedOrg());
+      const auth = await runtimeClient.getOrgAuth({ username: this.orgManager.getSelectedOrg() });
       if (isCurrentRefresh()) {
         const existingWarning = getApiVersionFallbackWarning(auth);
         if (existingWarning) {
@@ -923,7 +924,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           let progressPct = 0;
           let auth: OrgAuth;
           try {
-            auth = await getOrgAuth(selectedOrg, undefined, controller.signal);
+            auth = await runtimeClient.getOrgAuth({ username: selectedOrg });
           } catch (e) {
             const msg = getErrorMessage(e);
             if (controller.signal.aborted || this.isAbortLikeError(e, msg)) {
@@ -1074,7 +1075,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       }
 
       this.pageLimit = this.configManager.getPageLimit();
-      const auth = await getOrgAuth(selectedOrg);
+      const auth = await runtimeClient.getOrgAuth({ username: selectedOrg });
       type BulkDownloadRunResult =
         | { kind: 'cancelled-before-download'; listed: number }
         | { kind: 'empty' }
@@ -1280,10 +1281,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         cancellable: true
       },
       async (_progress, ct) => {
-        const controller = new AbortController();
-        ct.onCancellationRequested(() => controller.abort());
         try {
-          const { orgs, selected } = await this.orgManager.list(forceRefresh, controller.signal);
+          const orgs = await runtimeClient.orgList({ forceRefresh });
+          await this.orgManager.ensureProjectDefaultSelected(orgs);
+          const selected = pickSelectedOrg(orgs, this.orgManager.getSelectedOrg());
+          this.orgManager.setSelectedOrg(selected);
           if (ct.isCancellationRequested) {
             return;
           }
@@ -1293,7 +1295,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             safeSendEvent('orgs.list', { outcome: 'ok', view: 'logs' }, { durationMs, count: orgs.length });
           } catch {}
         } catch (e) {
-          if (!controller.signal.aborted) {
+          if (!ct.isCancellationRequested) {
             const msg = getErrorMessage(e);
             logError('Logs: list orgs failed ->', msg);
             void vscode.window.showErrorMessage(

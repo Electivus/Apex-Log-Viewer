@@ -36,10 +36,6 @@ async function waitForCondition(
 }
 
 function createProviderHarness() {
-  const cliStub = {
-    getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' }),
-    listOrgs: async () => []
-  };
   const httpStub = {
     clearListCache: () => undefined,
     getApiVersionFallbackWarning: () => undefined
@@ -55,6 +51,11 @@ function createProviderHarness() {
   const debugFlagsPanelStub = {
     show: async () => undefined
   };
+  const runtimeClientStub = {
+    orgList: async () => [],
+    getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' })
+  };
+  const cliStub = runtimeClientStub;
   const vscodeMock = {
     Uri: {
       file: (filePath: string) => makeUri(filePath),
@@ -166,11 +167,11 @@ function createProviderHarness() {
 
   const module = proxyquireStrict('../provider/SfLogsViewProvider', {
     vscode: vscodeMock,
-    '../../../../src/salesforce/cli': cliStub,
     '../../../../src/salesforce/http': httpStub,
     '../../../../src/utils/workspace': workspaceStub,
     '../../../../src/utils/ripgrep': ripgrepStub,
-    '../../../../src/utils/orgManager': { OrgManager: OrgManagerStub },
+    '../runtime/runtimeClient': { runtimeClient: runtimeClientStub },
+    '../utils/orgManager': { OrgManager: OrgManagerStub },
     '../../../../src/utils/configManager': { ConfigManager: ConfigManagerStub },
     '../../../../src/services/logService': { LogService: LogServiceStub },
     '../panel/DebugFlagsPanel': { DebugFlagsPanel: debugFlagsPanelStub }

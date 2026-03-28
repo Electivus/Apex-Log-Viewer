@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { localize } from '../../../../src/utils/localize';
-import { listOrgs, getOrgAuth } from '../../../../src/salesforce/cli';
 import { listDebugLevels, getActiveUserDebugLevel, ensureDefaultTailDebugLevel } from '../../../../src/salesforce/traceflags';
 import type { OrgAuth } from '../../../../src/salesforce/types';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
@@ -14,6 +13,7 @@ import { getNumberConfig, affectsConfiguration } from '../../../../src/utils/con
 import { getErrorMessage } from '../../../../src/utils/error';
 import { LogViewerPanel } from '../panel/LogViewerPanel';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
+import { runtimeClient } from '../runtime/runtimeClient';
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -172,7 +172,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   public async sendOrgs(): Promise<void> {
     const t0 = Date.now();
     try {
-      const orgs = await listOrgs();
+      const orgs = await runtimeClient.orgList();
       logInfo('Tail: sendOrgs ->', orgs.length, 'org(s)');
       const selected = pickSelectedOrg(orgs, this.selectedOrg);
       this.setSelectedOrg(selected);
@@ -237,7 +237,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     // Load auth; if this fails, surface empty list once
     let auth: OrgAuth;
     try {
-      auth = await getOrgAuth(this.selectedOrg);
+      auth = await runtimeClient.getOrgAuth({ username: this.selectedOrg });
     } catch (e) {
       logWarn('Tail: could not load auth for debug levels ->', getErrorMessage(e));
       this.post({ type: 'debugLevels', data: [] });

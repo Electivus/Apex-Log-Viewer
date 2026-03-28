@@ -8,12 +8,12 @@ import type { OrgItem } from '../shared/types';
 
 suite('OrgManager', () => {
   test('setSelectedOrg keeps value in memory', () => {
-    const { OrgManager } = proxyquire('../../../../src/utils/orgManager', {
-      './orgs': {
+    const { OrgManager } = proxyquire('../utils/orgManager', {
+      '../../../../src/utils/orgs': {
         pickSelectedOrg: () => undefined,
         '@noCallThru': true
       },
-      '../salesforce/cli': { listOrgs: async () => [], '@noCallThru': true }
+      '../runtime/runtimeClient': { runtimeClient: { orgList: async () => [] }, '@noCallThru': true }
     });
     const mgr = new OrgManager({} as vscode.ExtensionContext);
     assert.equal(mgr.getSelectedOrg(), undefined);
@@ -22,13 +22,13 @@ suite('OrgManager', () => {
   });
 
   test('list returns orgs and selected', async () => {
-    const { OrgManager } = proxyquire('../../../../src/utils/orgManager', {
-      './orgs': {
+    const { OrgManager } = proxyquire('../utils/orgManager', {
+      '../../../../src/utils/orgs': {
         pickSelectedOrg: () => 'u1',
         '@noCallThru': true
       },
-      '../salesforce/cli': {
-        listOrgs: async () => [{ username: 'u1' }],
+      '../runtime/runtimeClient': {
+        runtimeClient: { orgList: async () => [{ username: 'u1' }] },
         '@noCallThru': true
       }
     });
@@ -40,13 +40,13 @@ suite('OrgManager', () => {
   });
 
   test('list clears selected org when none returned', async () => {
-    const { OrgManager } = proxyquire('../../../../src/utils/orgManager', {
-      './orgs': {
+    const { OrgManager } = proxyquire('../utils/orgManager', {
+      '../../../../src/utils/orgs': {
         pickSelectedOrg: () => undefined,
         '@noCallThru': true
       },
-      '../salesforce/cli': {
-        listOrgs: async () => [],
+      '../runtime/runtimeClient': {
+        runtimeClient: { orgList: async () => [] },
         '@noCallThru': true
       }
     });
@@ -68,17 +68,21 @@ suite('OrgManager', () => {
         { username: 'other@example.com', alias: 'Other' },
         { username: 'project@example.com', alias: 'ProjectDefault' }
       ];
-      const { OrgManager } = proxyquire('../../../../src/utils/orgManager', {
-        '../salesforce/cli': {
-          listOrgs: async () => orgs,
+      const { OrgManager } = proxyquire('../utils/orgManager', {
+        '../runtime/runtimeClient': {
+          runtimeClient: { orgList: async () => orgs },
           '@noCallThru': true
         },
-        './workspace': {
+        '../../../../src/utils/workspace': {
           getWorkspaceRoot: () => tmp,
           '@noCallThru': true
         },
-        './logger': {
+        '../../../../src/utils/logger': {
           logWarn: () => {},
+          '@noCallThru': true
+        },
+        '../../../../src/utils/error': {
+          getErrorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
           '@noCallThru': true
         }
       });

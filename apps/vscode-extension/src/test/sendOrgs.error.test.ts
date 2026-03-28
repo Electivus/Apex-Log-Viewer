@@ -1,25 +1,28 @@
 import assert from 'assert/strict';
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { SfLogsViewProvider } from '../provider/SfLogsViewProvider';
-import { __resetListOrgsCacheForTests, __setListOrgsMockForTests } from '../../../../src/salesforce/cli';
-import { __resetExecFileImplForTests } from '../../../../src/salesforce/exec';
+import proxyquire from 'proxyquire';
 
 suite('SfLogsViewProvider sendOrgs', () => {
-  teardown(() => {
-    __resetExecFileImplForTests();
-    __resetListOrgsCacheForTests();
-  });
-
-  test('shows error message when listOrgs rejects', async () => {
-    // Ensure no caches affect behavior
-    __resetListOrgsCacheForTests();
-    // Simulate listOrgs failing (e.g., CLI not found)
-    __setListOrgsMockForTests(() => {
-      const err: any = new Error('Salesforce CLI not found');
-      err.code = 'ENOENT';
-      throw err;
-    });
+  test('shows error message when runtime orgList rejects', async () => {
+    const { SfLogsViewProvider } = proxyquire.noCallThru().load('../provider/SfLogsViewProvider', {
+      '../runtime/runtimeClient': {
+        runtimeClient: {
+          orgList: async () => {
+            throw new Error('runtime org/list failed');
+          }
+        }
+      },
+      '../utils/orgManager': {
+        OrgManager: class {
+          getSelectedOrg(): string | undefined {
+            return undefined;
+          }
+          setSelectedOrg(): void {}
+          async ensureProjectDefaultSelected(): Promise<void> {}
+        }
+      }
+    }) as typeof import('../provider/SfLogsViewProvider');
 
     const context = {
       extensionUri: vscode.Uri.file(path.resolve('.')),
@@ -52,7 +55,7 @@ suite('SfLogsViewProvider sendOrgs', () => {
     }
 
     // Prefer UI notification, but also verify we posted the empty orgs payload to the webview
-    const showedError = messages.length >= 1 && /Salesforce CLI not found/.test(messages[0] || '');
+    const showedError = messages.length >= 1 && /runtime org\/list failed/.test(messages[0] || '');
     const postedOrgs = posted.find(m => m?.type === 'orgs');
     assert.ok(showedError || postedOrgs, 'should surface failure via error or orgs post');
     if (postedOrgs) {

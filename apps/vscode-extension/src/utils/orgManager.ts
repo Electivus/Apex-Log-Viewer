@@ -1,0 +1,125 @@
+import type * as vscode from 'vscode';
+import * as path from 'path';
+import { promises as fs } from 'fs';
+import { runtimeClient } from '../runtime/runtimeClient';
+import { pickSelectedOrg } from '../../../../src/utils/orgs';
+import type { OrgItem } from '../shared/types';
+import { getWorkspaceRoot } from '../../../../src/utils/workspace';
+import { logWarn } from '../../../../src/utils/logger';
+import { getErrorMessage } from '../../../../src/utils/error';
+
+export class OrgManager {
+  private selectedOrg: string | undefined;
+  private initialSelectionLoaded = false;
+  private initialSelectionPromise: Promise<void> | undefined;
+
+  constructor(context?: vscode.ExtensionContext) {
+    void context;
+    this.selectedOrg = undefined;
+  }
+
+  getSelectedOrg(): string | undefined {
+    return this.selectedOrg;
+  }
+
+  setSelectedOrg(org?: string): void {
+    this.selectedOrg = org;
+  }
+
+  async list(forceRefresh = false): Promise<{ orgs: OrgItem[]; selected?: string }> {
+    const orgs = await runtimeClient.orgList({ forceRefresh });
+    await this.ensureProjectDefaultSelected(orgs);
+    const selected = pickSelectedOrg(orgs, this.selectedOrg);
+    this.selectedOrg = selected;
+    return { orgs, selected };
+  }
+
+  async ensureProjectDefaultSelected(orgs?: OrgItem[]): Promise<void> {
+    if (this.initialSelectionLoaded) {
+      return;
+    }
+    if (this.initialSelectionPromise) {
+      await this.initialSelectionPromise;
+      return;
+    }
+
+    this.initialSelectionPromise = (async () => {
+      const candidate = await readProjectDefaultOrg();
+      if (!candidate) {
+        return;
+      }
+      const trimmed = candidate.trim();
+      if (!trimmed || this.selectedOrg !== undefined) {
+        return;
+      }
+
+      this.selectedOrg = trimmed;
+      if (Array.isArray(orgs) && orgs.length > 0) {
+        const match = orgs.find(org => org.username === trimmed || org.alias === trimmed);
+        if (match?.username) {
+          this.selectedOrg = match.username;
+        }
+      }
+    })()
+      .catch(error => {
+        logWarn('OrgManager: failed to load project default org ->', getErrorMessage(error));
+      })
+      .finally(() => {
+        this.initialSelectionLoaded = true;
+        this.initialSelectionPromise = undefined;
+      });
+
+    await this.initialSelectionPromise;
+  }
+}
+
+type ProjectConfigSource = {
+  segments: string[];
+  keys: string[];
+};
+
+const PROJECT_CONFIG_SOURCES: ProjectConfigSource[] = [
+  { segments: ['.sf', 'config.json'], keys: ['target-org', 'targetOrg', 'defaultusername', 'defaultUsername'] },
+  { segments: ['.sfdx', 'sfdx-config.json'], keys: ['defaultusername', 'defaultUsername', 'target-org', 'targetOrg'] },
+  { segments: ['.sfdx', 'config.json'], keys: ['defaultusername', 'defaultUsername', 'target-org', 'targetOrg'] }
+];
+
+async function readProjectDefaultOrg(): Promise<string | undefined> {
+  const root = getWorkspaceRoot();
+  if (!root) {
+    return undefined;
+  }
+
+  for (const source of PROJECT_CONFIG_SOURCES) {
+    const filePath = path.join(root, ...source.segments);
+    const value = await readStringProperties(filePath, source.keys);
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+async function readStringProperties(filePath: string, keys: string[]): Promise<string | undefined> {
+  try {
+    const raw = await fs.readFile(filePath, 'utf8');
+    const data = JSON.parse(raw);
+    for (const key of keys) {
+      const value = (data as Record<string, unknown> | undefined)?.[key];
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed) {
+          return trimmed;
+        }
+      }
+    }
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      return undefined;
+    }
+    logWarn('OrgManager: failed to read project config file ->', filePath, getErrorMessage(error));
+  }
+
+  return undefined;
+}
