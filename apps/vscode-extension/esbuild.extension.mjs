@@ -7,8 +7,5 @@ await build({
   platform: 'node',
   format: 'cjs',
   sourcemap: true,
-  alias: {
-    bfj: './src/shims/bfj.ts'
-  },
   external: ['vscode', '@vscode/ripgrep', 'tree-sitter-sfapex']
 });
