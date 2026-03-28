@@ -23,6 +23,17 @@ test("VS Code host runner targets the Nx app output paths", () => {
     script,
     /extensionTestsPath\s*=\s*resolve\(__dirname,\s*'\.\.',\s*'apps',\s*'vscode-extension',\s*'out',\s*'test',\s*'runner\.js'\)/,
   );
+  assert.match(
+    script,
+    /mkdirSync\(dirname\(outfile\),\s*\{\s*recursive:\s*true\s*\}\)/,
+  );
+});
+
+test("VSIX smoke packaging delegates to the monorepo vsce helper", () => {
+  const script = fs.readFileSync(path.join(__dirname, "run-tests.js"), "utf8");
+
+  assert.match(script, /scripts',\s*'run-vsce\.js'/);
+  assert.match(script, /'--skip-prepublish'/);
 });
 
 test("resolveRequiredDevHubConfig ignores the legacy SFDX_AUTH_URL fallback", () => {

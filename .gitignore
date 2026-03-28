@@ -5,6 +5,10 @@ media/webview.css
 media/webview-dev.css
 apps/vscode-extension/dist/
 apps/vscode-extension/bin/
+apps/vscode-extension/README.md
+apps/vscode-extension/CHANGELOG.md
+apps/vscode-extension/LICENSE
+apps/vscode-extension/telemetry.json
 apps/vscode-extension/media/*.js
 apps/vscode-extension/media/*.js.map
 apps/vscode-extension/media/webview.css

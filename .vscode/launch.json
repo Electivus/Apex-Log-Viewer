@@ -17,9 +17,9 @@
       "runtimeExecutable": "${execPath}",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}/apps/vscode-extension",
-        "--extensionTestsPath=${workspaceFolder}/out/test/runner.js"
+        "--extensionTestsPath=${workspaceFolder}/apps/vscode-extension/out/test/runner.js"
       ],
-      "outFiles": ["${workspaceFolder}/out/test/**/*.js"],
+      "outFiles": ["${workspaceFolder}/apps/vscode-extension/out/test/**/*.js"],
       "preLaunchTask": "watch-tests"
     }
   ]

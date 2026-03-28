@@ -254,12 +254,17 @@ impl<'a> Parser<'a> {
 
     fn parse_string(&mut self) -> Result<String, String> {
         self.expect(b'"')?;
+        let mut raw = Vec::new();
         let mut value = String::new();
 
         while let Some(byte) = self.next() {
             match byte {
-                b'"' => return Ok(value),
+                b'"' => {
+                    flush_utf8_bytes(&mut raw, &mut value)?;
+                    return Ok(value);
+                }
                 b'\\' => {
+                    flush_utf8_bytes(&mut raw, &mut value)?;
                     let escaped = self.next().ok_or_else(|| "unterminated escape".to_string())?;
                     match escaped {
                         b'"' => value.push('"'),
@@ -279,7 +284,7 @@ impl<'a> Parser<'a> {
                         _ => return Err("invalid escape sequence".to_string()),
                     }
                 }
-                other => value.push(other as char),
+                other => raw.push(other),
             }
         }
 
@@ -382,4 +387,14 @@ impl<'a> Parser<'a> {
         self.index += 1;
         Some(next)
     }
+}
+
+fn flush_utf8_bytes(raw: &mut Vec<u8>, value: &mut String) -> Result<(), String> {
+    if raw.is_empty() {
+        return Ok(());
+    }
+    let decoded = std::str::from_utf8(raw).map_err(|_| "string token must be valid utf8".to_string())?;
+    value.push_str(decoded);
+    raw.clear();
+    Ok(())
 }

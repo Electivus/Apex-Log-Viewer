@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     env, fs,
+    io::Read,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command, ExitStatus, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -317,12 +318,7 @@ pub fn ensure_log_file_cached_with_cancel(
         )
     })?;
 
-    if let Err(error) = fs::remove_dir_all(&staging_dir) {
-        return Err(format!(
-            "downloaded log but failed to cleanup staging dir {}: {error}",
-            staging_dir.display()
-        ));
-    }
+    let _ = fs::remove_dir_all(&staging_dir);
 
     Ok(target_path)
 }
@@ -425,35 +421,79 @@ fn run_command_with_cancel(
         .spawn()
         .map_err(|error| format!("{program} failed to start: {error}"))?;
 
-    loop {
+    let stdout_reader = spawn_output_reader(child.stdout.take(), program, "stdout");
+    let stderr_reader = spawn_output_reader(child.stderr.take(), program, "stderr");
+
+    let status = loop {
         if cancellation.is_cancelled() {
             let _ = child.kill();
             let _ = child.wait();
+            let _ = join_output_reader(stdout_reader);
+            let _ = join_output_reader(stderr_reader);
             return Err(CANCELLED_MESSAGE.to_string());
         }
 
         match child.try_wait() {
-            Ok(Some(_status)) => {
-                let output = child.wait_with_output().map_err(|error| {
-                    format!("{program} failed while waiting for output: {error}")
-                })?;
-                return command_output_to_result(program, output);
+            Ok(Some(status)) => {
+                break status;
             }
             Ok(None) => thread::sleep(Duration::from_millis(10)),
             Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = join_output_reader(stdout_reader);
+                let _ = join_output_reader(stderr_reader);
                 return Err(format!(
                     "{program} failed while polling child process: {error}"
                 ))
             }
         }
-    }
+    };
+
+    let stdout = join_output_reader(stdout_reader)?;
+    let stderr = join_output_reader(stderr_reader)?;
+    command_output_to_result(program, status, stdout, stderr)
 }
 
-fn command_output_to_result(program: &str, output: std::process::Output) -> Result<String, String> {
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+fn spawn_output_reader<R>(
+    pipe: Option<R>,
+    program: &str,
+    stream_name: &'static str,
+) -> thread::JoinHandle<Result<Vec<u8>, String>>
+where
+    R: Read + Send + 'static,
+{
+    let program = program.to_string();
+    thread::spawn(move || {
+        let Some(mut pipe) = pipe else {
+            return Ok(Vec::new());
+        };
+        let mut buffer = Vec::new();
+        pipe.read_to_end(&mut buffer).map_err(|error| {
+            format!("{program} failed while reading {stream_name}: {error}")
+        })?;
+        Ok(buffer)
+    })
+}
 
-    if output.status.success() {
+fn join_output_reader(
+    handle: thread::JoinHandle<Result<Vec<u8>, String>>,
+) -> Result<Vec<u8>, String> {
+    handle
+        .join()
+        .map_err(|_| "output reader thread panicked".to_string())?
+}
+
+fn command_output_to_result(
+    program: &str,
+    status: ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+) -> Result<String, String> {
+    let stdout = String::from_utf8_lossy(&stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
+
+    if status.success() {
         if stdout.is_empty() {
             return Err(format!("{program} returned empty output"));
         }
@@ -468,7 +508,7 @@ fn command_output_to_result(program: &str, output: std::process::Output) -> Resu
         return Err(stdout);
     }
 
-    Err(format!("{program} exited with status {}", output.status))
+    Err(format!("{program} exited with status {status}"))
 }
 
 fn maybe_test_delay(env_key: &str, cancellation: &CancellationToken) -> Result<(), String> {

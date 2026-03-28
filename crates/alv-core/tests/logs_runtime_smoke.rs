@@ -10,6 +10,8 @@ use std::{
     time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use alv_core::{
     logs::{
@@ -40,6 +42,17 @@ fn make_temp_workspace(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("alv-{name}-{nonce}"));
     fs::create_dir_all(&root).expect("temp workspace should be creatable");
     root
+}
+
+#[cfg(unix)]
+fn write_fake_sf_command(root: &PathBuf, body: &str) {
+    let script_path = root.join("sf");
+    fs::write(&script_path, body).expect("fake sf script should be writable");
+    let mut permissions = fs::metadata(&script_path)
+        .expect("fake sf script metadata should exist")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&script_path, permissions).expect("fake sf script should be executable");
 }
 
 #[test]
@@ -357,4 +370,61 @@ fn logs_runtime_smoke_ensure_log_cache_uses_fixture_copy() {
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
     fs::remove_dir_all(fixture_root).expect("fixture workspace should be removable");
+}
+
+#[cfg(unix)]
+#[test]
+fn logs_runtime_smoke_drains_large_sf_json_output_without_hanging() {
+    let _guard = lock_test_guard();
+
+    let fake_bin_root = make_temp_workspace("sf-large-output");
+    write_fake_sf_command(
+        &fake_bin_root,
+        r#"#!/usr/bin/env bash
+python3 - <<'PY'
+import json
+payload = {
+    "result": {
+        "records": [
+            {
+                "Id": "07L000000000001AA",
+                "StartTime": "2026-03-27T12:00:00.000Z",
+                "Operation": "X" * 200000,
+                "Application": "Developer Console",
+                "DurationMilliseconds": 125,
+                "Status": "Success",
+                "Request": "REQ-1",
+                "LogLength": 4096
+            }
+        ]
+    }
+}
+print(json.dumps(payload))
+PY
+"#,
+    );
+
+    let previous_path = std::env::var("PATH").unwrap_or_default();
+    std::env::set_var(
+        "PATH",
+        format!("{}:{}", fake_bin_root.display(), previous_path),
+    );
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+
+    let rows = list_logs_with_cancel(
+        &LogsListParams {
+            username: Some("demo@example.com".to_string()),
+            limit: Some(1),
+            cursor: None,
+            offset: Some(0),
+        },
+        &CancellationToken::new(),
+    )
+    .expect("logs/list should read large stdout payloads");
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].operation.len(), 200000);
+
+    std::env::set_var("PATH", previous_path);
+    fs::remove_dir_all(fake_bin_root).expect("fake sf workspace should be removable");
 }

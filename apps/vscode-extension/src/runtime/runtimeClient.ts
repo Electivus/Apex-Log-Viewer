@@ -55,6 +55,7 @@ export class RuntimeClient extends EventEmitter {
   private nextRequestId = 0;
   private readonly pendingRequests = new Map<string, PendingRequest>();
   private restartDelayMs = 250;
+  private restartPromise: Promise<void> | undefined;
   private readonly clientName: string;
   private readonly clientVersion: string;
   private readonly createProcess: (executable: string) => DaemonProcess;
@@ -226,12 +227,21 @@ export class RuntimeClient extends EventEmitter {
 
   private async restartRuntimeSession(method: string): Promise<void> {
     logTrace('Runtime: restarting session', method);
-    this.daemon = undefined;
-    this.initializePromise = undefined;
     if (method === 'initialize') {
+      this.daemon = undefined;
+      this.initializePromise = undefined;
       return;
     }
-    await this.initialize();
+    if (!this.restartPromise) {
+      const restart = this.initialize().then(() => undefined);
+      const trackedRestart = restart.finally(() => {
+        if (this.restartPromise === trackedRestart) {
+          this.restartPromise = undefined;
+        }
+      });
+      this.restartPromise = trackedRestart;
+    }
+    await this.restartPromise;
   }
 
   private handleMessage(message: unknown): void {

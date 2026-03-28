@@ -2,15 +2,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-function resolveCurrentTarget() {
-  return `${process.platform}-${process.arch}`;
+const CARGO_TARGETS = {
+  'linux-x64': 'x86_64-unknown-linux-gnu',
+  'linux-arm64': 'aarch64-unknown-linux-gnu',
+  'win32-x64': 'x86_64-pc-windows-msvc',
+  'win32-arm64': 'aarch64-pc-windows-msvc',
+  'darwin-x64': 'x86_64-apple-darwin',
+  'darwin-arm64': 'aarch64-apple-darwin'
+};
+
+export function resolveCurrentTarget(platformValue = process.platform, archValue = process.arch) {
+  return `${platformValue}-${archValue}`;
 }
 
-function resolveBinaryName(target) {
+export function resolveBinaryName(target) {
   return target.startsWith('win32-') ? 'apex-log-viewer.exe' : 'apex-log-viewer';
 }
 
-function resolveArguments(argv) {
+export function resolveArguments(argv) {
   let target = resolveCurrentTarget();
   let profile = 'debug';
 
@@ -29,18 +38,44 @@ function resolveArguments(argv) {
   return { target, profile };
 }
 
+export function resolveSourceCandidates(repoRoot, target, profile) {
+  const binaryName = resolveBinaryName(target);
+  const candidates = [];
+  const cargoTarget = CARGO_TARGETS[target];
+  if (cargoTarget) {
+    candidates.push(path.join(repoRoot, 'target', cargoTarget, profile, binaryName));
+  }
+  candidates.push(path.join(repoRoot, 'target', profile, binaryName));
+  return candidates;
+}
+
+export function copyRuntimeBinary({
+  repoRoot,
+  target,
+  profile
+}) {
+  const binaryName = resolveBinaryName(target);
+  const sourceCandidates = resolveSourceCandidates(repoRoot, target, profile);
+  const source = sourceCandidates.find(candidate => fs.existsSync(candidate));
+  const destinationDir = path.join(repoRoot, 'apps', 'vscode-extension', 'bin', target);
+  const destination = path.join(destinationDir, binaryName);
+
+  if (!source) {
+    throw new Error(
+      `Runtime binary not found. Checked: ${sourceCandidates.join(', ')}. Build the Rust CLI before copying it.`
+    );
+  }
+
+  fs.mkdirSync(destinationDir, { recursive: true });
+  fs.copyFileSync(source, destination);
+  return { source, destination };
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
-const { target, profile } = resolveArguments(process.argv.slice(2));
-const binaryName = resolveBinaryName(target);
-const source = path.join(repoRoot, 'target', profile, binaryName);
-const destinationDir = path.join(repoRoot, 'apps', 'vscode-extension', 'bin', target);
-const destination = path.join(destinationDir, binaryName);
 
-if (!fs.existsSync(source)) {
-  throw new Error(`Runtime binary not found at ${source}. Build the Rust CLI before copying it.`);
+if (process.argv[1] === __filename) {
+  const { target, profile } = resolveArguments(process.argv.slice(2));
+  copyRuntimeBinary({ repoRoot, target, profile });
 }
-
-fs.mkdirSync(destinationDir, { recursive: true });
-fs.copyFileSync(source, destination);

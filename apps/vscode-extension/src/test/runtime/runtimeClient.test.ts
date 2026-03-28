@@ -319,4 +319,128 @@ suite('runtime client', () => {
     assert.deepEqual(result.logIds, ['07L000000000001AA']);
     assert.equal(result.snippets?.['07L000000000001AA']?.text, 'matched');
   });
+
+  test('serializes concurrent restart attempts after the daemon exits with multiple requests in flight', async () => {
+    const methods: string[] = [];
+    let createCount = 0;
+    let shouldExit = true;
+    const client = new RuntimeClient({
+      clientVersion: '0.1.0',
+      createProcess() {
+        createCount += 1;
+        if (createCount === 1) {
+          return createFakeDaemon({
+            onWrite(message, helpers) {
+              methods.push(`daemon1:${message.method}`);
+              if (message.method === 'initialize') {
+                helpers.emitMessage({
+                  jsonrpc: '2.0',
+                  id: message.id,
+                  result: {
+                    runtime_version: '0.1.0',
+                    protocol_version: '1',
+                    platform: 'linux',
+                    arch: 'x64',
+                    capabilities: {
+                      orgs: true,
+                      logs: true,
+                      search: true,
+                      tail: true,
+                      debug_flags: true,
+                      doctor: true
+                    },
+                    state_dir: '.alv/state',
+                    cache_dir: '.alv/cache'
+                  }
+                });
+                return;
+              }
+              if (shouldExit) {
+                shouldExit = false;
+                setImmediate(() => helpers.emitExit(0, null));
+              }
+            }
+          });
+        }
+
+        return createFakeDaemon({
+          onWrite(message, helpers) {
+            methods.push(`daemon2:${message.method}`);
+            if (message.method === 'initialize') {
+              helpers.emitMessage({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: {
+                  runtime_version: '0.1.0',
+                  protocol_version: '1',
+                  platform: 'linux',
+                  arch: 'x64',
+                  capabilities: {
+                    orgs: true,
+                    logs: true,
+                    search: true,
+                    tail: true,
+                    debug_flags: true,
+                    doctor: true
+                  },
+                  state_dir: '.alv/state',
+                  cache_dir: '.alv/cache'
+                }
+              });
+              return;
+            }
+            if (message.method === 'search/query') {
+              helpers.emitMessage({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: {
+                  logIds: ['07L000000000001AA'],
+                  snippets: {
+                    '07L000000000001AA': {
+                      text: 'matched',
+                      ranges: [[0, 7]]
+                    }
+                  },
+                  pendingLogIds: []
+                }
+              });
+              return;
+            }
+            helpers.emitMessage({
+              jsonrpc: '2.0',
+              id: message.id,
+              result: [
+                {
+                  logId: '07L000000000001AA',
+                  summary: {
+                    hasErrors: false,
+                    reasons: []
+                  }
+                }
+              ]
+            });
+          }
+        });
+      }
+    });
+
+    await client.initialize();
+    const [searchResult, triageEntries] = await Promise.all([
+      client.searchQuery({
+        query: 'marker',
+        logIds: ['07L000000000001AA']
+      }),
+      client.logsTriage({
+        logIds: ['07L000000000001AA']
+      })
+    ]);
+
+    assert.equal(createCount, 2);
+    assert.equal(
+      methods.filter(method => method === 'daemon2:initialize').length,
+      1
+    );
+    assert.deepEqual(searchResult.logIds, ['07L000000000001AA']);
+    assert.equal(triageEntries[0]?.logId, '07L000000000001AA');
+  });
 });

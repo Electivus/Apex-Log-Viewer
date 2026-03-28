@@ -1,7 +1,7 @@
 const { spawn, execFile, spawnSync } = require('child_process');
 const { platform, tmpdir } = require('os');
 const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync } = require('fs');
-const { join, resolve } = require('path');
+const { dirname, join, resolve } = require('path');
 const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } = require('@vscode/test-electron');
 const { build } = require('esbuild');
 const { cleanVsCodeTest } = require('./clean-vscode-test.js');
@@ -619,6 +619,7 @@ function parseArgs(argv) {
 async function buildExtensionTestRunner(repoRoot) {
   const entryPoint = resolve(repoRoot, 'apps', 'vscode-extension', 'src', 'test', 'runner.ts');
   const outfile = resolve(repoRoot, 'apps', 'vscode-extension', 'out', 'test', 'runner.js');
+  mkdirSync(dirname(outfile), { recursive: true });
 
   await build({
     entryPoints: [entryPoint],
@@ -839,22 +840,16 @@ async function run() {
     try {
       await execFileAsync('npm', ['run', '-s', 'nls:write']);
     } catch {}
-    // Create the VSIX (this will also run vscode:prepublish)
-    const localVsce = join(
-      process.cwd(),
-      'node_modules',
-      '.bin',
-      platform() === 'win32' ? 'vsce.cmd' : 'vsce'
-    );
-    if (existsSync(localVsce)) {
-      await execStreaming(localVsce, ['package', '--no-yarn']);
-    } else {
-      await execStreaming('npx', ['--yes', '@vscode/vsce', 'package', '--no-yarn']);
-    }
-    const vsix = require('fs')
-      .readdirSync(process.cwd())
-      .find(f => /\.vsix$/.test(f));
-    if (!vsix) throw new Error('[smoke] VSIX not found');
+    const smokeVsixPath = join(repoRoot, 'apex-log-viewer-smoke.vsix');
+    await execStreaming(process.execPath, [
+      resolve(repoRoot, 'scripts', 'run-vsce.js'),
+      'package',
+      '--skip-prepublish',
+      '--no-yarn',
+      '--out',
+      smokeVsixPath
+    ]);
+    if (!existsSync(smokeVsixPath)) throw new Error('[smoke] VSIX not found');
     // Install into test profile
     const userDataDir = join(tmpdir(), 'alv-user-data');
     const extensionsDir = join(tmpdir(), 'alv-extensions');
@@ -864,7 +859,7 @@ async function run() {
       [
         ...cliArgs,
         '--install-extension',
-        resolve(vsix),
+        smokeVsixPath,
         '--force',
         '--user-data-dir',
         userDataDir,
