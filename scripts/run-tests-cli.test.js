@@ -43,7 +43,7 @@ test("createRunnerPlan wraps the VS Code host runner with c8 when coverage is en
   assert.match(plan.args[1], /c8[\\/]bin[\\/]c8\.js$/);
   assert.deepEqual(plan.args.slice(2, 12), [
     "--exclude",
-    "src/webview/**",
+    "packages/webview/src/**",
     "--exclude-after-remap",
     "--report-dir",
     path.join(repoRoot, "coverage", "extension"),

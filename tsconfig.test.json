@@ -16,6 +16,8 @@
   },
   "include": [
     "apps/vscode-extension/src/**/*.ts",
+    "packages/webview/src/**/*.ts",
+    "packages/webview/src/**/*.tsx",
     "src/**/*.ts",
     "src/**/*.tsx"
   ],
@@ -25,8 +27,6 @@
     "media",
     "out",
     "apps/vscode-extension/out",
-    "src/webview/__tests__",
-    "src/webview/__tests__/**/*",
     "Visual Prototype for Apex Log",
     "Visual Prototype for Apex Log/**/*"
   ]

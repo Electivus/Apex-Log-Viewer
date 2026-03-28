@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-import { apexLineStyle, categoryStyle, contentHighlightRules, parseApexLine } from '../../../../src/webview/utils/tail';
+import { apexLineStyle, categoryStyle, contentHighlightRules, parseApexLine } from '../../../../packages/webview/src/utils/tail';
 
 type CssProps = Record<string, unknown>;
 

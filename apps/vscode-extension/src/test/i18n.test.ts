@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-import { getMessages } from '../../../../src/webview/i18n';
+import { getMessages } from '../../../../packages/webview/src/i18n';
 
 suite('i18n messages', () => {
   test('defaults to english and exposes expected keys', () => {

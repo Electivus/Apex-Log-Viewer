@@ -8,7 +8,7 @@
       "command": "tsc --noEmit -p tsconfig.extension.json"
     },
     "lint": {
-      "command": "eslint apps/vscode-extension/src src/utils src/salesforce src/services src/webview"
+      "command": "eslint apps/vscode-extension/src src/utils src/salesforce src/services packages/webview/src"
     },
     "compile": {
       "executor": "nx:run-commands",

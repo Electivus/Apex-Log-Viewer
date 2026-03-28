@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-import { parseLogLines } from '../../../../src/webview/utils/logViewerParser';
+import { parseLogLines } from '../../../../packages/webview/src/utils/logViewerParser';
 
 suite('logViewerParser', () => {
   test('parses mixed log lines into structured entries', () => {

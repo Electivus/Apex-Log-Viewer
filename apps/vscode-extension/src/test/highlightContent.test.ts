@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-import { highlightContent } from '../../../../src/webview/utils/tail';
+import { highlightContent } from '../../../../packages/webview/src/utils/tail';
 
 suite('highlightContent', () => {
   test('handles zero-length regex', () => {

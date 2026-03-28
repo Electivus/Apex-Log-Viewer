@@ -31,13 +31,13 @@ function writeArtifacts(repoRoot, artifactPaths) {
 test('findMissingBuildArtifacts reports the missing build outputs', () => {
   const repoRoot = createTempRepo();
   try {
-    writeArtifacts(repoRoot, ['dist/extension.js', 'media/main.js']);
+    writeArtifacts(repoRoot, ['dist/extension.js', 'apps/vscode-extension/media/main.js']);
 
     assert.deepEqual(findMissingBuildArtifacts(repoRoot), [
-      'media/webview.css',
-      'media/tail.js',
-      'media/logViewer.js',
-      'media/debugFlags.js'
+      'apps/vscode-extension/media/webview.css',
+      'apps/vscode-extension/media/tail.js',
+      'apps/vscode-extension/media/logViewer.js',
+      'apps/vscode-extension/media/debugFlags.js'
     ]);
   } finally {
     cleanupTempRepo(repoRoot);

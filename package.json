@@ -8,7 +8,7 @@
   "scripts": {
     "test:clean": "node scripts/clean-vscode-test.js",
     "test:clean:all": "node scripts/clean-vscode-test.js --force",
-    "clean": "node -e \"const fs=require('fs');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('dist');del('out');for(const f of ['media/main.js','media/main.js.map','media/tail.js','media/tail.js.map','media/logViewer.js','media/logViewer.js.map','media/debugFlags.js','media/debugFlags.js.map','media/webview.css']){try{fs.unlinkSync(f)}catch{}}\"",
+    "clean": "node -e \"const fs=require('fs');const del=d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}};del('dist');del('out');for(const f of ['apps/vscode-extension/media/main.js','apps/vscode-extension/media/main.js.map','apps/vscode-extension/media/tail.js','apps/vscode-extension/media/tail.js.map','apps/vscode-extension/media/logViewer.js','apps/vscode-extension/media/logViewer.js.map','apps/vscode-extension/media/debugFlags.js','apps/vscode-extension/media/debugFlags.js.map','apps/vscode-extension/media/webview.css']){try{fs.unlinkSync(f)}catch{}}\"",
     "prebuild": "npm run clean",
     "vscode:prepublish": "npm run build && npm run nls:write",
     "check-types": "tsc --noEmit -p tsconfig.extension.json",
@@ -62,10 +62,10 @@
     "telemetry:report": "node scripts/report-telemetry-usage.js",
     "format": "prettier --write .",
     "prepare": "husky",
-    "tailwind:build": "tailwindcss -c tailwind.config.js -i ./src/webview/styles/tailwind.css -o ./media/webview.css --minify",
-    "tailwind:watch": "tailwindcss -c tailwind.config.js -i ./src/webview/styles/tailwind.css -o ./media/webview.css --watch",
-    "build:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/logViewer.tsx src/webview/debugFlags.tsx --bundle --outdir=media --platform=browser --format=iife --minify",
-    "watch:webview:bundle": "esbuild src/webview/main.tsx src/webview/tail.tsx src/webview/logViewer.tsx src/webview/debugFlags.tsx --bundle --outdir=media --platform=browser --format=iife --sourcemap --watch",
+    "tailwind:build": "tailwindcss -c tailwind.config.js -i ./packages/webview/src/styles/tailwind.css -o ./apps/vscode-extension/media/webview.css --minify",
+    "tailwind:watch": "tailwindcss -c tailwind.config.js -i ./packages/webview/src/styles/tailwind.css -o ./apps/vscode-extension/media/webview.css --watch",
+    "build:webview:bundle": "node packages/webview/esbuild.webview.mjs --minify",
+    "watch:webview:bundle": "node packages/webview/esbuild.webview.mjs --watch",
     "coverage:merge": "node scripts/merge-coverage.cjs",
     "azure:monitor:deploy": "node scripts/deploy-azure-monitor.js",
     "azure:monitor:what-if": "node scripts/deploy-azure-monitor.js --what-if"
