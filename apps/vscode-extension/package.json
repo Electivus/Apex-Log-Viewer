@@ -63,7 +63,6 @@
     "media/tail.js",
     "media/logViewer.js",
     "media/debugFlags.js",
-    "../../node_modules/@vscode/ripgrep/**",
     "../../node_modules/tree-sitter-sfapex/package.json",
     "../../node_modules/tree-sitter-sfapex/README.md",
     "../../node_modules/tree-sitter-sfapex/LICENSE",

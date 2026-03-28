@@ -7,5 +7,5 @@ await build({
   platform: 'node',
   format: 'cjs',
   sourcemap: true,
-  external: ['vscode', '@vscode/ripgrep', 'tree-sitter-sfapex']
+  external: ['vscode', 'tree-sitter-sfapex']
 });
