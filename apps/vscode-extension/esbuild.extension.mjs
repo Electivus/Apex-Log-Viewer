@@ -12,7 +12,26 @@ const buildOptions = {
   format: 'cjs',
   sourcemap: true,
   minify,
-  external: ['vscode', 'tree-sitter-sfapex']
+  external: ['vscode', 'tree-sitter-sfapex'],
+  plugins: watchMode
+    ? [
+        {
+          name: 'vscode-task-watch-status',
+          setup(build) {
+            build.onStart(() => {
+              console.log('[watch] build started');
+            });
+
+            build.onEnd(result => {
+              if (result.errors.length > 0) {
+                return;
+              }
+              console.log('[watch] build finished, watching for changes...');
+            });
+          }
+        }
+      ]
+    : []
 };
 
 if (watchMode) {

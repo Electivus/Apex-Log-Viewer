@@ -7,7 +7,7 @@ const { platform } = require('os');
 const path = require('path');
 
 const requiredBuildArtifacts = [
-  'dist/extension.js',
+  'apps/vscode-extension/dist/extension.js',
   'apps/vscode-extension/media/webview.css',
   'apps/vscode-extension/media/main.js',
   'apps/vscode-extension/media/tail.js',

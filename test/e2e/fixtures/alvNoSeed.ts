@@ -4,7 +4,7 @@ import type { ElectronApplication } from 'playwright';
 import { ensureScratchOrg } from '../utils/scratchOrg';
 import { resolveSfCliInvocation } from '../utils/sfCli';
 import { createTempWorkspace } from '../utils/tempWorkspace';
-import { launchVsCode } from '../utils/vscode';
+import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
 
 type Fixtures = {
   scratchAlias: string;
@@ -94,7 +94,8 @@ export const test = base.extend<Fixtures & Options>({
   },
 
   vscodeApp: async ({ workspacePath, supportExtensionIds }, use) => {
-    const extensionDevelopmentPath = path.join(__dirname, '..', '..', '..');
+    const repoRoot = path.join(__dirname, '..', '..', '..');
+    const extensionDevelopmentPath = resolveExtensionDevelopmentPath(repoRoot);
     const launch = await launchVsCode({
       workspacePath,
       extensionDevelopmentPath,

@@ -35,6 +35,10 @@ function getVsCodeVersion(): string {
   return v || 'stable';
 }
 
+export function resolveExtensionDevelopmentPath(repoRoot: string): string {
+  return path.join(repoRoot, 'apps', 'vscode-extension');
+}
+
 export function resolveVscodeCachePath(extensionDevelopmentPath: string): string {
   return process.env.VSCODE_TEST_CACHE_PATH
     ? path.resolve(process.env.VSCODE_TEST_CACHE_PATH)

@@ -3,6 +3,10 @@ out
 media/*.js
 media/webview.css
 media/webview-dev.css
+apps/vscode-extension/dist/
+apps/vscode-extension/media/*.js
+apps/vscode-extension/media/*.js.map
+apps/vscode-extension/media/webview.css
 *.vsix
 *.zip
 coverage/
@@ -18,6 +22,7 @@ dist
 .nx/
 .vscode-test/
 target/
+Cargo.lock
 sample-workspace/
 .sfdx/
 .sf/

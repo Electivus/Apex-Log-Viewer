@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {
   resolveCachedSupportExtensionsDir,
+  resolveExtensionDevelopmentPath,
   resolveSupportExtensionsLockPath,
   resolveVscodeCachePath,
   resolveWindowSizeArg,
@@ -138,6 +139,12 @@ describe('VS Code cache paths', () => {
     ]);
 
     expect(resolveSupportExtensionsLockPath(extensionsDir)).toBe(path.join(extensionsDir, '.install.lock'));
+  });
+});
+
+describe('extension development path', () => {
+  test('resolves the extension manifest from the monorepo app package', () => {
+    expect(resolveExtensionDevelopmentPath('/workspace/alv')).toBe(path.join('/workspace/alv', 'apps', 'vscode-extension'));
   });
 });
 
