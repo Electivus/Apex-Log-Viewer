@@ -200,6 +200,7 @@ export class RuntimeClient extends EventEmitter {
       params
     };
 
+    let cleanup: (() => void) | undefined;
     const response = new Promise<TResult>((resolve, reject) => {
       const onAbort = () => {
         this.pendingRequests.delete(id);
@@ -209,16 +210,42 @@ export class RuntimeClient extends EventEmitter {
       if (signal) {
         signal.addEventListener('abort', onAbort, { once: true });
       }
+      cleanup = signal ? () => signal.removeEventListener('abort', onAbort) : undefined;
       this.pendingRequests.set(id, {
         resolve: value => resolve(value as TResult),
         reject,
-        cleanup: signal ? () => signal.removeEventListener('abort', onAbort) : undefined
+        cleanup
       });
     });
 
     logTrace('Runtime: send request', { id, method });
-    daemon.writeMessage(request);
+    try {
+      daemon.writeMessage(request);
+    } catch (error) {
+      const writeError = error instanceof Error ? error : new Error(String(error));
+      this.pendingRequests.delete(id);
+      cleanup?.();
+      if (this.isRetryableWriteError(writeError)) {
+        const normalizedError = this.normalizeDaemonError(writeError);
+        this.handleDaemonFailure(daemon, normalizedError, { code: null, signal: null });
+        throw normalizedError;
+      }
+      throw writeError;
+    }
     return response;
+  }
+
+  private isRetryableWriteError(error: Error): boolean {
+    const errnoError = error as NodeJS.ErrnoException;
+    const message = error.message.toLowerCase();
+    return (
+      errnoError.code === 'EPIPE' ||
+      errnoError.code === 'ERR_STREAM_DESTROYED' ||
+      message.includes('epipe') ||
+      message.includes('write after end') ||
+      message.includes('stream was destroyed') ||
+      message.includes('stream is destroyed')
+    );
   }
 
   private shouldRetryAfterRuntimeExit(error: unknown, signal?: AbortSignal): boolean {

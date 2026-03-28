@@ -7,6 +7,7 @@ use alv_protocol::messages::{InitializeParams, InitializeResult, RuntimeCapabili
 use serde_json::Value;
 use std::{
     collections::HashMap,
+    fmt::Write as _,
     io::{self, BufRead, Write},
     sync::mpsc::{self, RecvTimeoutError},
     thread,
@@ -432,6 +433,10 @@ fn escape_json(value: &str) -> String {
             '\n' => escaped.push_str("\\n"),
             '\r' => escaped.push_str("\\r"),
             '\t' => escaped.push_str("\\t"),
+            other if other.is_control() => {
+                write!(&mut escaped, "\\u{:04x}", other as u32)
+                    .expect("writing to a string should not fail");
+            }
             other => escaped.push(other),
         }
     }

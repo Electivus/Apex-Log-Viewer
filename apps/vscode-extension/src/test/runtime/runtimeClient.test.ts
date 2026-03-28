@@ -425,6 +425,105 @@ suite('runtime client', () => {
     assert.equal(result.snippets?.['07L000000000001AA']?.text, 'matched');
   });
 
+  test('retries a request when daemon write throws after initialize', async () => {
+    const methods: string[] = [];
+    let createCount = 0;
+    const client = new RuntimeClient({
+      clientVersion: '0.1.0',
+      createProcess() {
+        createCount += 1;
+        if (createCount === 1) {
+          return createFakeDaemon({
+            onWrite(message, helpers) {
+              methods.push(`daemon1:${message.method}`);
+              if (message.method === 'initialize') {
+                helpers.emitMessage({
+                  jsonrpc: '2.0',
+                  id: message.id,
+                  result: {
+                    runtime_version: '0.1.0',
+                    protocol_version: '1',
+                    platform: 'linux',
+                    arch: 'x64',
+                    capabilities: {
+                      orgs: true,
+                      logs: true,
+                      search: true,
+                      tail: true,
+                      debug_flags: true,
+                      doctor: true
+                    },
+                    state_dir: '.alv/state',
+                    cache_dir: '.alv/cache'
+                  }
+                });
+                return;
+              }
+
+              const error = new Error('write EPIPE') as NodeJS.ErrnoException;
+              error.code = 'EPIPE';
+              throw error;
+            }
+          });
+        }
+
+        return createFakeDaemon({
+          onWrite(message, helpers) {
+            methods.push(`daemon2:${message.method}`);
+            if (message.method === 'initialize') {
+              helpers.emitMessage({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: {
+                  runtime_version: '0.1.0',
+                  protocol_version: '1',
+                  platform: 'linux',
+                  arch: 'x64',
+                  capabilities: {
+                    orgs: true,
+                    logs: true,
+                    search: true,
+                    tail: true,
+                    debug_flags: true,
+                    doctor: true
+                  },
+                  state_dir: '.alv/state',
+                  cache_dir: '.alv/cache'
+                }
+              });
+              return;
+            }
+
+            helpers.emitMessage({
+              jsonrpc: '2.0',
+              id: message.id,
+              result: {
+                logIds: ['07L000000000001AA'],
+                snippets: {
+                  '07L000000000001AA': {
+                    text: 'matched',
+                    ranges: [[0, 7]]
+                  }
+                },
+                pendingLogIds: []
+              }
+            });
+          }
+        });
+      }
+    });
+
+    await client.initialize();
+    const result = await client.searchQuery({
+      query: 'marker',
+      logIds: ['07L000000000001AA']
+    });
+
+    assert.equal(createCount, 2);
+    assert.deepEqual(methods, ['daemon1:initialize', 'daemon1:search/query', 'daemon2:initialize', 'daemon2:search/query']);
+    assert.equal(result.snippets?.['07L000000000001AA']?.text, 'matched');
+  });
+
   test('serializes concurrent restart attempts after the daemon exits with multiple requests in flight', async () => {
     const methods: string[] = [];
     let createCount = 0;
