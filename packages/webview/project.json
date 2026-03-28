@@ -1,0 +1,14 @@
+{
+  "name": "webview",
+  "sourceRoot": "packages/webview/src",
+  "projectType": "library",
+  "tags": ["scope:webview", "type:ui"],
+  "targets": {
+    "build": {
+      "command": "node packages/webview/esbuild.webview.mjs"
+    },
+    "test": {
+      "command": "jest --config jest.config.webview.cjs"
+    }
+  }
+}
