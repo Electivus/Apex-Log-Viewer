@@ -24,6 +24,13 @@ updates:
           - 'react-dom'
           - '@types/react'
           - '@types/react-dom'
+      radix-ui:
+        applies-to: version-updates
+        update-types:
+          - 'minor'
+          - 'patch'
+        patterns:
+          - '@radix-ui/*'
       tailwind:
         applies-to: version-updates
         patterns:
@@ -41,10 +48,18 @@ updates:
           - 'ts-jest'
           - 'jsdom'
           - '@types/jsdom'
-      typescript-eslint:
+      typescript-tooling:
         applies-to: version-updates
         patterns:
+          - 'typescript'
           - '@typescript-eslint/*'
+      vscode-extension-tooling:
+        applies-to: version-updates
+        patterns:
+          - '@vscode/test-electron'
+          - '@vscode/vsce'
+          - 'vscode-nls'
+          - 'vscode-nls-dev'
       nx:
         applies-to: version-updates
         patterns:
