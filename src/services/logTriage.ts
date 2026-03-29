@@ -1,13 +1,13 @@
 import { createRequire } from 'node:module';
 import { promises as fs } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
-import { extractLogEventType, lineHasErrorSignal } from '../shared/logErrorSignals';
+import { extractLogEventType, lineHasErrorSignal } from '../../apps/vscode-extension/src/shared/logErrorSignals';
 import {
   createUnreadableLogTriageSummary,
   normalizeLogTriageSummary,
   type LogDiagnostic,
   type LogTriageSummary
-} from '../shared/logTriage';
+} from '../../apps/vscode-extension/src/shared/logTriage';
 import { getErrorMessage } from '../utils/error';
 import { logWarn } from '../utils/logger';
 

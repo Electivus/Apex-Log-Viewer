@@ -14,7 +14,7 @@ const typeAwareProjects = [
 
 export default [
   {
-    ignores: ['src/test/fixtures/eslintTypeAware.fixture.ts']
+    ignores: ['apps/vscode-extension/src/test/fixtures/eslintTypeAware.fixture.ts']
   },
   {
     files: ['**/*.ts', '**/*.tsx']

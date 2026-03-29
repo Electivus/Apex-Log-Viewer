@@ -123,25 +123,37 @@ export async function getLogFilePathWithUsername(
   logId: string
 ): Promise<{ dir: string; filePath: string }> {
   const dir = await ensureApexLogsDir();
-  const safeUser = (username || 'default').replace(/[^a-zA-Z0-9_.@-]+/g, '_');
+  const safeUser = toSafeLogUserName(username);
   const filePath = path.join(dir, `${safeUser}_${logId}.log`);
   return { dir, filePath };
+}
+
+function toSafeLogUserName(username: string | undefined): string {
+  return (username || 'default').replace(/[^a-zA-Z0-9_.@-]+/g, '_');
 }
 
 /**
  * Find a previously saved log file (username-prefixed or legacy `<id>.log`).
  */
-export async function findExistingLogFile(logId: string): Promise<string | undefined> {
+export async function findExistingLogFile(logId: string, username?: string): Promise<string | undefined> {
   const dir = getApexLogsDir();
   try {
     const entries = await fs.readdir(dir);
-    const preferred = entries.find(name => name.endsWith(`_${logId}.log`));
-    if (preferred) {
-      return path.join(dir, preferred);
+    if (username) {
+      const exact = `${toSafeLogUserName(username)}_${logId}.log`;
+      if (entries.includes(exact)) {
+        return path.join(dir, exact);
+      }
     }
     const legacy = entries.find(name => name === `${logId}.log`);
     if (legacy) {
       return path.join(dir, legacy);
+    }
+    if (!username) {
+      const preferred = entries.find(name => name.endsWith(`_${logId}.log`));
+      if (preferred) {
+        return path.join(dir, preferred);
+      }
     }
   } catch {
     // ignore

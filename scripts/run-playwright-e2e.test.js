@@ -9,6 +9,7 @@ const {
   ensureBuildArtifacts,
   findMissingBuildArtifacts,
   requiredBuildArtifacts,
+  resolveRuntimeBinaryRelativePath,
   resolveBuildInvocation
 } = require('./run-playwright-e2e');
 
@@ -31,13 +32,45 @@ function writeArtifacts(repoRoot, artifactPaths) {
 test('findMissingBuildArtifacts reports the missing build outputs', () => {
   const repoRoot = createTempRepo();
   try {
-    writeArtifacts(repoRoot, ['dist/extension.js', 'media/main.js']);
+    writeArtifacts(repoRoot, [
+      resolveRuntimeBinaryRelativePath(),
+      'apps/vscode-extension/dist/extension.js',
+      'apps/vscode-extension/media/main.js'
+    ]);
 
     assert.deepEqual(findMissingBuildArtifacts(repoRoot), [
-      'media/webview.css',
-      'media/tail.js',
-      'media/logViewer.js',
-      'media/debugFlags.js'
+      'apps/vscode-extension/media/webview.css',
+      'apps/vscode-extension/media/tail.js',
+      'apps/vscode-extension/media/logViewer.js',
+      'apps/vscode-extension/media/debugFlags.js'
+    ]);
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
+});
+
+test('resolveRuntimeBinaryRelativePath targets the embedded platform binary inside the extension app', () => {
+  assert.equal(resolveRuntimeBinaryRelativePath('linux', 'x64'), 'apps/vscode-extension/bin/linux-x64/apex-log-viewer');
+});
+
+test('resolveRuntimeBinaryRelativePath uses target-style separators for Windows binaries too', () => {
+  assert.equal(
+    resolveRuntimeBinaryRelativePath('win32', 'x64'),
+    'apps/vscode-extension/bin/win32-x64/apex-log-viewer.exe'
+  );
+});
+
+test('findMissingBuildArtifacts reports the runtime binary when it has not been copied yet', () => {
+  const repoRoot = createTempRepo();
+  try {
+    writeArtifacts(repoRoot, ['apps/vscode-extension/dist/extension.js', 'apps/vscode-extension/media/main.js']);
+
+    assert.deepEqual(findMissingBuildArtifacts(repoRoot), [
+      resolveRuntimeBinaryRelativePath(),
+      'apps/vscode-extension/media/webview.css',
+      'apps/vscode-extension/media/tail.js',
+      'apps/vscode-extension/media/logViewer.js',
+      'apps/vscode-extension/media/debugFlags.js'
     ]);
   } finally {
     cleanupTempRepo(repoRoot);

@@ -22,6 +22,33 @@
       ]
     },
     {
+      "label": "watch:extension",
+      "type": "npm",
+      "script": "watch:extension",
+      "isBackground": true,
+      "group": "build",
+      "problemMatcher": [
+        {
+          "owner": "esbuild",
+          "fileLocation": ["relative", "${workspaceFolder}"],
+          "pattern": { "regexp": "^✘ \\u005bERROR\\u005d (.*)$", "message": 1 },
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "^\\[watch\\] build started$",
+            "endsPattern": "^\\[watch\\] build finished(?:, watching for changes\\.\\.\\.)?$"
+          }
+        }
+      ]
+    },
+    {
+      "label": "watch:webview",
+      "type": "npm",
+      "script": "watch:webview",
+      "isBackground": true,
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
       "label": "watch-tests",
       "type": "npm",
       "script": "watch-tests",
@@ -35,6 +62,142 @@
       "script": "build",
       "group": "build",
       "problemMatcher": []
+    },
+    {
+      "label": "nx: build vscode-extension",
+      "type": "process",
+      "command": "npx",
+      "args": ["nx", "run", "vscode-extension:build"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "nx: build webview",
+      "type": "process",
+      "command": "npx",
+      "args": ["nx", "run", "webview:build"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "nx: build app-server-client-ts",
+      "type": "process",
+      "command": "npx",
+      "args": ["nx", "run", "app-server-client-ts:build"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "nx: package vscode-extension",
+      "type": "process",
+      "command": "npx",
+      "args": ["nx", "run", "vscode-extension:package"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "nx: test vscode-extension:unit",
+      "type": "process",
+      "command": "npx",
+      "args": ["nx", "run", "vscode-extension:test-unit"],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "nx: test vscode-extension:integration",
+      "type": "process",
+      "command": "npx",
+      "args": ["nx", "run", "vscode-extension:test-integration"],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "nx: test vscode-extension:smoke-vsix",
+      "type": "process",
+      "command": "npx",
+      "args": ["nx", "run", "vscode-extension:test-smoke-vsix"],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "nx: codegen app-server-client-ts",
+      "type": "process",
+      "command": "npx",
+      "args": ["nx", "run", "app-server-client-ts:codegen"],
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "cargo: fmt --all",
+      "type": "process",
+      "command": "cargo",
+      "args": ["fmt", "--all"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "cargo: clippy --workspace",
+      "type": "process",
+      "command": "cargo",
+      "args": ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+      "group": "build",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "cargo: test alv-core",
+      "type": "process",
+      "command": "cargo",
+      "args": ["test", "-p", "alv-core"],
+      "group": "test",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "cargo: test alv-app-server",
+      "type": "process",
+      "command": "cargo",
+      "args": ["test", "-p", "alv-app-server"],
+      "group": "test",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "cargo: test alv-cli",
+      "type": "process",
+      "command": "cargo",
+      "args": ["test", "-p", "alv-cli"],
+      "group": "test",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "cargo: test runtime",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "cargo: test alv-core",
+        "cargo: test alv-app-server",
+        "cargo: test alv-cli"
+      ],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "cargo: build alv-cli",
+      "type": "process",
+      "command": "cargo",
+      "args": ["build", "-p", "alv-cli"],
+      "group": "build",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "cargo: run alv-cli",
+      "type": "process",
+      "command": "cargo",
+      "args": ["run", "-p", "alv-cli", "--"],
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "cargo: run app-server --stdio",
+      "type": "process",
+      "command": "cargo",
+      "args": ["run", "-p", "alv-cli", "--", "app-server", "--stdio"],
+      "problemMatcher": ["$rustc"]
     }
   ]
 }

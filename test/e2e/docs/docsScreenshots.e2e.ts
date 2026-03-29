@@ -8,7 +8,7 @@ import { ensureScratchOrg } from '../utils/scratchOrg';
 import { resolveSfCliInvocation } from '../utils/sfCli';
 import { createTempWorkspace } from '../utils/tempWorkspace';
 import { ensureDebugFlagsTestUser, getOrgAuth, getUserDebugTraceFlag, removeUserDebugTraceFlags } from '../utils/tooling';
-import { ensureAuxiliaryBarClosed, launchVsCode } from '../utils/vscode';
+import { ensureAuxiliaryBarClosed, launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
 import { waitForWebviewFrame } from '../utils/webviews';
 
 const repoRoot = path.join(__dirname, '..', '..', '..');
@@ -226,7 +226,7 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
     console.info('[docs] Launching VS Code...');
     const launch = await launchVsCode({
       workspacePath: workspace.workspacePath,
-      extensionDevelopmentPath: repoRoot,
+      extensionDevelopmentPath: resolveExtensionDevelopmentPath(repoRoot),
       windowSize: { width: 1760, height: 1360 }
     });
     cleanupVsCode = launch.cleanup;

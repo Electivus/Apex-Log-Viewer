@@ -3,7 +3,7 @@ import { fetchApexLogs, fetchApexLogBody, getEffectiveApiVersion } from '../sale
 import { getOrgAuth } from '../salesforce/cli';
 import { ensureUserTraceFlag } from '../salesforce/traceflags';
 import type { OrgAuth } from '../salesforce/types';
-import type { ExtensionToWebviewMessage } from '../shared/messages';
+import type { ExtensionToWebviewMessage } from '../../apps/vscode-extension/src/shared/messages';
 import { logInfo, logWarn, logError, showOutput } from './logger';
 import { localize } from './localize';
 import { getErrorMessage } from './error';

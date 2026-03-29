@@ -6,13 +6,20 @@ const { existsSync } = require('fs');
 const { platform } = require('os');
 const path = require('path');
 
+function resolveRuntimeBinaryRelativePath(targetPlatform = process.platform, targetArch = process.arch) {
+  const target = `${targetPlatform}-${targetArch}`;
+  const bin = targetPlatform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
+  return path.posix.join('apps', 'vscode-extension', 'bin', target, bin);
+}
+
 const requiredBuildArtifacts = [
-  'dist/extension.js',
-  'media/webview.css',
-  'media/main.js',
-  'media/tail.js',
-  'media/logViewer.js',
-  'media/debugFlags.js'
+  resolveRuntimeBinaryRelativePath(),
+  'apps/vscode-extension/dist/extension.js',
+  'apps/vscode-extension/media/webview.css',
+  'apps/vscode-extension/media/main.js',
+  'apps/vscode-extension/media/tail.js',
+  'apps/vscode-extension/media/logViewer.js',
+  'apps/vscode-extension/media/debugFlags.js'
 ];
 
 function execFileAsync(file, args, options = {}) {
@@ -85,7 +92,8 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
     options.spawnImpl
   );
   if (result.code !== 0) {
-    const details = typeof result.code === 'number' ? `exit code ${result.code}` : `signal ${result.signal || 'unknown'}`;
+    const details =
+      typeof result.code === 'number' ? `exit code ${result.code}` : `signal ${result.signal || 'unknown'}`;
     throw new Error(`npm run build failed while preparing Playwright E2E (${details}).`);
   }
 }
@@ -154,6 +162,7 @@ module.exports = {
   ensureBuildArtifacts,
   findMissingBuildArtifacts,
   requiredBuildArtifacts,
+  resolveRuntimeBinaryRelativePath,
   resolveBuildInvocation,
   resolvePlaywrightInvocation
 };

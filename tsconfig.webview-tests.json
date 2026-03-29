@@ -2,15 +2,17 @@
   "extends": "./tsconfig.test.json",
   "compilerOptions": {
     "types": ["jest", "node", "@testing-library/jest-dom"],
-    "isolatedModules": true
+    "isolatedModules": true,
+    "module": "CommonJS",
+    "moduleResolution": "Node"
   },
   "include": [
-    "src/webview/**/*.ts",
-    "src/webview/**/*.tsx",
-    "src/shared/**/*.ts",
-    "src/shared/**/*.tsx"
+    "packages/webview/src/**/*.ts",
+    "packages/webview/src/**/*.tsx",
+    "apps/vscode-extension/src/shared/**/*.ts",
+    "apps/vscode-extension/src/shared/**/*.tsx"
   ],
   "exclude": [
-    "src/webview/__tests__/styleMock.js"
+    "packages/webview/src/__tests__/styleMock.js"
   ]
 }

@@ -38,6 +38,17 @@ async function waitForLogsDebugFlagsButton(page: Page, timeoutMs: number): Promi
   );
 }
 
+async function waitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Frame> {
+  return await waitForWebviewFrame(
+    page,
+    async frame =>
+      (await frame.locator('[data-testid="debug-flags-org-select"]').first().isVisible().catch(() => false)) ||
+      (await frame.locator('[data-testid="debug-flags-user-search"]').first().isVisible().catch(() => false)) ||
+      (await frame.locator('text=Apex Debug Flags').first().isVisible().catch(() => false)),
+    { timeoutMs }
+  );
+}
+
 export async function openDebugFlagsFromLogs(vscodePage: Page): Promise<Frame> {
   await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
   await closeQuickInputIfOpen(vscodePage);
@@ -58,11 +69,7 @@ export async function openDebugFlagsFromLogs(vscodePage: Page): Promise<Frame> {
   await closeQuickInputIfOpen(vscodePage);
   await openDebugFlags.click({ force: true });
 
-  return await waitForWebviewFrame(
-    vscodePage,
-    async frame => await frame.locator('text=Apex Debug Flags').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
+  return await waitForDebugFlagsFrame(vscodePage, 180_000);
 }
 
 export async function openDebugFlagsFromTail(vscodePage: Page): Promise<Frame> {
@@ -77,11 +84,7 @@ export async function openDebugFlagsFromTail(vscodePage: Page): Promise<Frame> {
   await closeQuickInputIfOpen(vscodePage);
   await tailFrame.locator('[data-testid="tail-open-debug-flags"]').first().click({ force: true });
 
-  return await waitForWebviewFrame(
-    vscodePage,
-    async frame => await frame.locator('text=Apex Debug Flags').first().isVisible(),
-    { timeoutMs: 180_000 }
-  );
+  return await waitForDebugFlagsFrame(vscodePage, 180_000);
 }
 
 export async function assertSpecialTargetBehavior(

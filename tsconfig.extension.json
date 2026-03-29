@@ -1,8 +1,18 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": false,
+    "rootDir": ".",
     "outDir": "dist"
   },
-  "exclude": ["src/test/**", "src/webview/**", "tailwind.config.js", "postcss.config.cjs"]
+  "include": [
+    "apps/vscode-extension/src/**/*.ts",
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "apps/vscode-extension/src/test/**",
+    "src/test/**",
+    "src/webview/**",
+    "tailwind.config.js",
+    "postcss.config.cjs"
+  ]
 }

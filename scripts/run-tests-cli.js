@@ -4,7 +4,7 @@ const { mkdirSync } = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 
-const WEBVIEW_EXCLUDE = "src/webview/**";
+const WEBVIEW_EXCLUDE = "packages/webview/src/**";
 
 function isCoverageEnabled(argv, env) {
   return argv.includes("--coverage") || /^(1|true)$/i.test(String(env.ENABLE_COVERAGE || ""));

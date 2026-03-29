@@ -118,12 +118,12 @@ jobs:
           INPUT_LABEL: ${{ github.event.inputs.label || '' }}
         run: |
           set -euo pipefail
-          BASE_VERSION=$(node -p "require('./package.json').version")
-          MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
-          MINOR=$(node -p "require('./package.json').version.split('.')[1]")
+          BASE_VERSION=$(node -p "require('./apps/vscode-extension/package.json').version")
+          MAJOR=$(node -p "require('./apps/vscode-extension/package.json').version.split('.')[0]")
+          MINOR=$(node -p "require('./apps/vscode-extension/package.json').version.split('.')[1]")
           if [ $((MINOR % 2)) -eq 0 ]; then MINOR=$((MINOR+1)); fi
-          BASE_PATCH=$(node -p "require('./package.json').version.split('.')[2]")
-          EXT_ID=$(node -p "require('./package.json').publisher + '.' + require('./package.json').name")
+          BASE_PATCH=$(node -p "require('./apps/vscode-extension/package.json').version.split('.')[2]")
+          EXT_ID=$(node -p "require('./apps/vscode-extension/package.json').publisher + '.' + require('./apps/vscode-extension/package.json').name")
           export EXT_ID MAJOR MINOR
           LATEST_PATCH=$(node -e "const {spawnSync}=require('child_process');const ext=process.env.EXT_ID;const r=spawnSync('./node_modules/.bin/vsce',['show',ext,'--json'],{encoding:'utf8'});try{if(r.status!==0)throw new Error(r.stderr||String(r.status));const meta=JSON.parse(r.stdout||'{}');const versions=Array.isArray(meta.versions)?meta.versions:[];const mj=+process.env.MAJOR,mn=+process.env.MINOR;let max=-1;for(const v of versions){const pre=(v.properties||[]).some(p=>p.key==='Microsoft.VisualStudio.Code.PreRelease'&&String(p.value)==='true');const parts=String(v.version||'').split('.').map(Number);if(!pre||parts.length<3)continue;const [M,m,p]=parts;if(M===mj&&m===mn&&Number.isFinite(p)&&p>max)max=p;}process.stdout.write(max>=0?String(max):'');}catch(e){process.stdout.write('');}")
           if [ -z "$LATEST_PATCH" ]; then LATEST_PATCH=-1; fi
@@ -159,21 +159,27 @@ jobs:
           - os: ubuntu-latest
             target: linux-x64
             npm_arch: x64
+            cargo_target: x86_64-unknown-linux-gnu
           - os: ubuntu-latest
             target: linux-arm64
             npm_arch: arm64
+            cargo_target: aarch64-unknown-linux-gnu
           - os: windows-latest
             target: win32-x64
             npm_arch: x64
+            cargo_target: x86_64-pc-windows-msvc
           - os: windows-latest
             target: win32-arm64
             npm_arch: arm64
+            cargo_target: aarch64-pc-windows-msvc
           - os: macos-latest
             target: darwin-x64
             npm_arch: x64
+            cargo_target: x86_64-apple-darwin
           - os: macos-latest
             target: darwin-arm64
             npm_arch: arm64
+            cargo_target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
@@ -195,17 +201,21 @@ jobs:
       - name: Install dependencies
         run: npm ci --workspaces=false
 
-      - name: Set nightly version in package.json
+      - name: Install Rust target for packaged runtime
+        run: rustup target add ${{ matrix.cargo_target }}
+
+      - name: Set nightly version in apps/vscode-extension/package.json
         run: |
-          node -e "const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));pkg.version=process.env.VERSION;fs.writeFileSync('package.json',JSON.stringify(pkg,null,2)+'\n')"
+          node -e "const fs=require('fs');const pkgPath='apps/vscode-extension/package.json';const pkg=JSON.parse(fs.readFileSync(pkgPath,'utf8'));pkg.version=process.env.VERSION;fs.writeFileSync(pkgPath,JSON.stringify(pkg,null,2)+'\n')"
 
       - name: Build for packaging
         run: npm run package
 
-      - name: Download ripgrep binary for target architecture
+      - name: Build packaged runtime for target
+        shell: bash
         env:
-          npm_config_arch: ${{ matrix.npm_arch }}
-        run: node node_modules/@vscode/ripgrep/lib/postinstall.js --force
+          MATRIX_TARGET: ${{ matrix.target }}
+        run: node scripts/build-runtime-target.mjs "${MATRIX_TARGET}" release
 
       - name: Clean previous VSIX artifacts
         run: |
@@ -216,56 +226,7 @@ jobs:
         env:
           MATRIX_TARGET: ${{ matrix.target }}
         run: |
-          node <<'NODE'
-          const { spawnSync } = require('child_process');
-          const fs = require('fs');
-          const os = require('os');
-          const path = require('path');
-          const target = process.env.MATRIX_TARGET;
-          const version = process.env.VERSION;
-          const suffix = process.env.CHANNEL_SUFFIX;
-          const outName = `apex-log-viewer-${version}-${suffix}-${target}.vsix`;
-          const whichCmd = process.platform === 'win32' ? 'where' : 'which';
-          const whichResult = spawnSync(whichCmd, ['npm'], { encoding: 'utf8' });
-          const realNpm = (whichResult.stdout || '').split(/\r?\n/).find(Boolean) || 'npm';
-          const wrapperDir = fs.mkdtempSync(path.join(os.tmpdir(), 'npm-wrapper-'));
-          const npmWrapper = path.join(wrapperDir, process.platform === 'win32' ? 'npm.cmd' : 'npm');
-          const wrapperBody = process.platform === 'win32'
-            ? [
-              '@echo off',
-              'if /I \"%1\"==\"ls\" goto withflag',
-              'if /I \"%1\"==\"list\" goto withflag',
-              '\"%REAL_NPM%\" %*',
-              'exit /b %ERRORLEVEL%',
-              ':withflag',
-              '\"%REAL_NPM%\" %* --workspaces=false',
-              'exit /b %ERRORLEVEL%'
-            ].join('\r\n')
-            : [
-              '#!/usr/bin/env bash',
-              'set -euo pipefail',
-              'cmd=\"${1:-}\"',
-              'if [[ \"$cmd\" == \"ls\" || \"$cmd\" == \"list\" ]]; then',
-              '  exec \"$REAL_NPM\" \"$@\" --workspaces=false',
-              'fi',
-              'exec \"$REAL_NPM\" \"$@\"'
-            ].join('\n');
-          fs.writeFileSync(npmWrapper, wrapperBody, { mode: 0o755 });
-          const env = {
-            ...process.env,
-            PATH: `${wrapperDir}${path.delimiter}${process.env.PATH ?? ''}`,
-            REAL_NPM: realNpm
-          };
-          const args = ['--yes', '@vscode/vsce', 'package', '--no-yarn', '--target', target, '--out', outName, '--pre-release'];
-          const result = spawnSync('npx', args, { stdio: 'inherit', shell: process.platform === 'win32', env });
-          if (result.status !== 0) {
-            process.exit(result.status ?? 1);
-          }
-          if (!fs.existsSync(outName)) {
-            console.error(`Expected VSIX ${outName} was not created.`);
-            process.exit(1);
-          }
-          NODE
+          node scripts/run-vsce.js package --skip-prepublish --no-yarn --target "${MATRIX_TARGET}" --out "apex-log-viewer-${VERSION}-${CHANNEL_SUFFIX}-${MATRIX_TARGET}.vsix" --pre-release
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v7
@@ -382,11 +343,11 @@ jobs:
       - name: Install dependencies
         run: npm ci --workspaces=false
 
-      - name: Set nightly version in package.json
+      - name: Set nightly version in apps/vscode-extension/package.json
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          node -e "const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));pkg.version=process.env.VERSION;fs.writeFileSync('package.json',JSON.stringify(pkg,null,2)+'\n')"
+          node -e "const fs=require('fs');const pkgPath='apps/vscode-extension/package.json';const pkg=JSON.parse(fs.readFileSync(pkgPath,'utf8'));pkg.version=process.env.VERSION;fs.writeFileSync(pkgPath,JSON.stringify(pkg,null,2)+'\n')"
 
       - name: Download VSIX artifact from prerelease job
         uses: actions/download-artifact@v8

@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 
 const repoRoot = path.resolve(__dirname, "..");
-const fixturePath = path.join(repoRoot, "src", "test", "fixtures", "eslintTypeAware.fixture.ts");
+const fixturePath = path.join(repoRoot, "apps", "vscode-extension", "src", "test", "fixtures", "eslintTypeAware.fixture.ts");
 
 test("repo ESLint config reports floating promises in TypeScript files", async () => {
   const { ESLint } = require("eslint");
@@ -22,4 +22,14 @@ test("repo ESLint config reports floating promises in TypeScript files", async (
     floatingPromiseMessage,
     `Expected @typescript-eslint/no-floating-promises, got ${JSON.stringify(result.messages, null, 2)}`,
   );
+});
+
+test("lint script covers the migrated monorepo source roots", () => {
+  const packageJsonPath = path.join(repoRoot, "package.json");
+  const packageJson = JSON.parse(require("node:fs").readFileSync(packageJsonPath, "utf8"));
+  const lintScript = packageJson.scripts?.lint ?? "";
+
+  assert.match(lintScript, /\bsrc\b/);
+  assert.match(lintScript, /apps\/vscode-extension\/src/);
+  assert.match(lintScript, /packages\/webview\/src/);
 });

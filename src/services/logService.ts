@@ -5,16 +5,16 @@ import { getOrgAuth } from '../salesforce/cli';
 import { fetchApexLogBody, extractCodeUnitStartedFromLines } from '../salesforce/http';
 import type { ApexLogCursor } from '../salesforce/http';
 import type { OrgAuth } from '../salesforce/types';
-import type { ApexLogRow } from '../shared/types';
+import type { ApexLogRow } from '../../apps/vscode-extension/src/shared/types';
 import { getLogFilePathWithUsername, findExistingLogFile } from '../utils/workspace';
 import { ensureReplayDebuggerAvailable } from '../utils/replayDebugger';
 import { getErrorMessage } from '../utils/error';
 import { logWarn, logInfo } from '../utils/logger';
 import { localize } from '../utils/localize';
-import { LogViewerPanel } from '../panel/LogViewerPanel';
+import { LogViewerPanel } from '../../apps/vscode-extension/src/panel/LogViewerPanel';
 import { fetchApexLogs } from '../salesforce/http';
 import { createUnreadableLogSummary, summarizeLogFile } from './logTriage';
-import type { LogTriageSummary } from '../shared/logTriage';
+import type { LogTriageSummary } from '../../apps/vscode-extension/src/shared/logTriage';
 
 export type EnsureLogsSavedItemStatus = 'downloaded' | 'existing' | 'missing' | 'failed' | 'cancelled';
 
@@ -106,19 +106,18 @@ export class LogService {
   loadLogHeads(
     logs: ApexLogRow[],
     auth: OrgAuth,
-    token: number,
+    _token: number,
     post: (logId: string, codeUnit: string) => void,
     signal?: AbortSignal,
-    options?: { preferLocalBodies?: boolean; selectedOrg?: string }
+    _options?: { preferLocalBodies?: boolean; selectedOrg?: string }
   ): void {
-    const selectedOrg = options?.selectedOrg;
     for (const log of logs) {
       void this.headLimiter(async () => {
         if (signal?.aborted) {
           return;
         }
         try {
-          const codeUnit = await this.loadCodeUnitFromLocalFile(log.Id, selectedOrg, signal);
+          const codeUnit = await this.loadCodeUnitFromSavedLog(log.Id, auth.username, signal);
           if (codeUnit) {
             post(log.Id, codeUnit);
           }
@@ -130,18 +129,18 @@ export class LogService {
   }
 
   private async ensureLogFile(logId: string, selectedOrg?: string, signal?: AbortSignal): Promise<string> {
-    const existing = await findExistingLogFile(logId);
+    const auth = await getOrgAuth(selectedOrg, undefined, signal);
+    const existing = await findExistingLogFile(logId, auth.username);
     if (existing) {
       return existing;
     }
-    const auth = await getOrgAuth(selectedOrg, undefined, signal);
     const key = `${auth.username ?? ''}:${logId}`;
     const pending = this.inFlightSaves.get(key);
     if (pending) {
       return pending;
     }
     const task = (async () => {
-      const maybeExisting = await findExistingLogFile(logId);
+      const maybeExisting = await findExistingLogFile(logId, auth.username);
       if (maybeExisting) {
         return maybeExisting;
       }
@@ -159,9 +158,9 @@ export class LogService {
     }
   }
 
-  private async loadCodeUnitFromLocalFile(
+  private async loadCodeUnitFromSavedLog(
     logId: string | undefined,
-    selectedOrg?: string,
+    username?: string,
     signal?: AbortSignal
   ): Promise<string | undefined> {
     if (!logId) {
@@ -171,29 +170,39 @@ export class LogService {
       return undefined;
     }
     try {
-      const filePath = await this.ensureLogFile(logId, selectedOrg, signal);
-      if (signal?.aborted) {
-        return undefined;
-      }
-      const handle = await fs.open(filePath, 'r');
-      try {
-        const buffer = Buffer.alloc(8192);
-        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-        if (bytesRead <= 0) {
-          return undefined;
+      const existingPath = await findExistingLogFile(logId, username);
+      if (existingPath) {
+        const handle = await fs.open(existingPath, 'r');
+        try {
+          const buffer = Buffer.alloc(8192);
+          const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+          if (bytesRead <= 0) {
+            return undefined;
+          }
+          const text = buffer.slice(0, bytesRead).toString('utf8');
+          const lines = text.split(/\r?\n/).slice(0, 10);
+          return extractCodeUnitStartedFromLines(lines);
+        } finally {
+          await handle.close();
         }
-        const text = buffer.slice(0, bytesRead).toString('utf8');
-        const lines = text.split(/\r?\n/).slice(0, 10);
-        return extractCodeUnitStartedFromLines(lines);
-      } finally {
-        await handle.close();
       }
     } catch (e) {
       if (!signal?.aborted) {
-        logWarn('LogService: loadCodeUnitFromLocalFile failed ->', getErrorMessage(e));
+        logWarn('LogService: loadCodeUnit from local file failed ->', getErrorMessage(e));
       }
     }
     return undefined;
+  }
+
+  private async resolveSelectedUsername(selectedOrg?: string, signal?: AbortSignal): Promise<string | undefined> {
+    if (!selectedOrg || signal?.aborted) {
+      return undefined;
+    }
+    try {
+      return (await getOrgAuth(selectedOrg, undefined, signal)).username;
+    } catch {
+      return undefined;
+    }
   }
 
   async classifyLogsForErrors(
@@ -210,6 +219,7 @@ export class LogService {
     let errorsFound = 0;
     const result = new Map<string, LogTriageSummary>();
     const tasks: Promise<void>[] = [];
+    const selectedUsername = await this.resolveSelectedUsername(selectedOrg, signal);
 
     for (const log of validLogs) {
       tasks.push(
@@ -223,7 +233,7 @@ export class LogService {
             if (signal?.aborted) {
               return;
             }
-            const existingPath = await findExistingLogFile(log.Id);
+            const existingPath = await findExistingLogFile(log.Id, selectedUsername);
             const filePath = existingPath ?? (await this.ensureLogFile(log.Id, selectedOrg, signal));
             if (signal?.aborted) {
               return;
@@ -306,6 +316,7 @@ export class LogService {
   ): Promise<EnsureLogsSavedSummary> {
     const downloadMissing = options?.downloadMissing !== false;
     const validLogs = logs.filter((log): log is ApexLogRow & { Id: string } => typeof log?.Id === 'string' && log.Id.length > 0);
+    const selectedUsername = await this.resolveSelectedUsername(selectedOrg, signal);
     const summary: EnsureLogsSavedSummary = {
       total: validLogs.length,
       success: 0,
@@ -327,7 +338,7 @@ export class LogService {
           }
           try {
             if (downloadMissing) {
-              const existing = await findExistingLogFile(log.Id);
+              const existing = await findExistingLogFile(log.Id, selectedUsername);
               if (existing) {
                 summary.success++;
                 summary.existing++;
@@ -344,7 +355,7 @@ export class LogService {
               summary.downloaded++;
               options?.onItemComplete?.({ logId: log.Id, status: 'downloaded' });
             } else {
-              const existing = await findExistingLogFile(log.Id);
+              const existing = await findExistingLogFile(log.Id, selectedUsername);
               if (!existing) {
                 summary.missing++;
                 options?.onMissing?.(log.Id);

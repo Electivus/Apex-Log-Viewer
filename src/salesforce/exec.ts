@@ -1,7 +1,7 @@
 import * as cp from 'child_process';
 import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
-import { safeSendException } from '../shared/telemetry';
+import { safeSendException } from '../../apps/vscode-extension/src/shared/telemetry';
 import { classifyCliExecTelemetryCode } from './cliTelemetry';
 const crossSpawn = require('cross-spawn');
 
@@ -28,7 +28,10 @@ export let execFileImpl: ExecFileFn = ((
   callback: (error: NodeJS.ErrnoException | null, stdout: string, stderr: string) => void
 ) => {
   const argv = Array.isArray(args) ? args.slice() : [];
-  const spawnOpts: cp.SpawnOptions = { env: options.env };
+  const spawnOpts: cp.SpawnOptions = {
+    env: options.env,
+    stdio: ['ignore', 'pipe', 'pipe']
+  };
   try {
     logTrace('spawn:', file, argv.join(' '));
   } catch {}

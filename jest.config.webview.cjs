@@ -9,9 +9,9 @@ module.exports = {
   clearMocks: true,
   testTimeout: 15000,
   testEnvironment: 'jsdom',
-  roots: ['<rootDir>/src/webview/__tests__'],
+  roots: ['<rootDir>/packages/webview/src'],
   testMatch: ['**/*.test.{ts,tsx}'],
-  setupFilesAfterEnv: ['<rootDir>/src/webview/__tests__/setupTests.ts'],
+  setupFilesAfterEnv: ['<rootDir>/packages/webview/src/__tests__/setupTests.js'],
   transform: {
     '^.+\\.(ts|tsx)$': [
       'ts-jest',
@@ -24,14 +24,14 @@ module.exports = {
   collectCoverage: wantCoverage,
   coverageDirectory: '<rootDir>/coverage/webview',
   collectCoverageFrom: [
-    '<rootDir>/src/webview/components/**/*.{ts,tsx}',
-    '<rootDir>/src/webview/lib/**/*.{ts,tsx}',
-    '!<rootDir>/src/webview/**/__tests__/**/*',
-    '!<rootDir>/src/webview/components/tail/TailList.tsx',
-    '!<rootDir>/src/webview/components/FilterSelect.tsx'
+    '<rootDir>/packages/webview/src/components/**/*.{ts,tsx}',
+    '<rootDir>/packages/webview/src/lib/**/*.{ts,tsx}',
+    '!<rootDir>/packages/webview/src/**/__tests__/**/*',
+    '!<rootDir>/packages/webview/src/components/tail/TailList.tsx',
+    '!<rootDir>/packages/webview/src/components/FilterSelect.tsx'
   ],
   coverageThreshold: {
-    'src/webview/components/**/*.{ts,tsx}': {
+    'packages/webview/src/components/**/*.{ts,tsx}': {
       statements: 70,
       branches: 50,
       functions: 70,
@@ -39,6 +39,6 @@ module.exports = {
     }
   },
   moduleNameMapper: {
-    '\\.(css|less|scss|sass)$': '<rootDir>/src/webview/__tests__/styleMock.js'
+    '\\.(css|less|scss|sass)$': '<rootDir>/packages/webview/src/__tests__/styleMock.js'
   }
 };

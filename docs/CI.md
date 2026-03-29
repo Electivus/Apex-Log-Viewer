@@ -11,6 +11,8 @@ Build & Test basics:
 
 - Node from `.nvmrc` on `ubuntu-latest` with npm cache.
 - `npm ci` → `npm run build` → tests. CI defaults to unit tests on manual runs; Release runs all tests.
+- Local Rust fast path: `npm run test:rust:smoke` exercises the CLI/app-server smoke layer first (`alv-cli` `cli_smoke` plus `alv-core` `orgs_smoke`) before involving the VS Code host or Playwright.
+- Optional Rust acceleration: if `cargo-nextest` is installed, `npm run test:rust` and `npm run test:rust:smoke` prefer it automatically. You can force it with `npm run test:rust:nextest` or `npm run test:rust:smoke:nextest`.
 
 Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref.
 

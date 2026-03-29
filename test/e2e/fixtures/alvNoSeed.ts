@@ -4,7 +4,7 @@ import type { ElectronApplication } from 'playwright';
 import { ensureScratchOrg } from '../utils/scratchOrg';
 import { resolveSfCliInvocation } from '../utils/sfCli';
 import { createTempWorkspace } from '../utils/tempWorkspace';
-import { launchVsCode } from '../utils/vscode';
+import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
 
 type Fixtures = {
   scratchAlias: string;
@@ -83,18 +83,20 @@ export const test = base.extend<Fixtures & Options>({
     { scope: 'worker' }
   ],
 
-  workspacePath: async ({ scratchAlias }, use) => {
+  workspacePath: async ({ scratchAlias }, use, testInfo) => {
     const sfCli = await resolveSfCliInvocation();
     const ws = await createTempWorkspace({ targetOrg: scratchAlias, sfCli: sfCli ?? undefined });
     try {
       await use(ws.workspacePath);
     } finally {
-      await ws.cleanup();
+      // Preserve temp artifacts on failures so flaky E2E runs can be inspected locally.
+      await ws.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
     }
   },
 
-  vscodeApp: async ({ workspacePath, supportExtensionIds }, use) => {
-    const extensionDevelopmentPath = path.join(__dirname, '..', '..', '..');
+  vscodeApp: async ({ workspacePath, supportExtensionIds }, use, testInfo) => {
+    const repoRoot = path.join(__dirname, '..', '..', '..');
+    const extensionDevelopmentPath = resolveExtensionDevelopmentPath(repoRoot);
     const launch = await launchVsCode({
       workspacePath,
       extensionDevelopmentPath,
@@ -103,7 +105,7 @@ export const test = base.extend<Fixtures & Options>({
     try {
       await use(launch.app);
     } finally {
-      await launch.cleanup();
+      await launch.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
     }
   },
 

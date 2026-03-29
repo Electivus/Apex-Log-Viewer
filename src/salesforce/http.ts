@@ -1,5 +1,5 @@
 import type { HttpRequest } from '@jsforce/jsforce-node';
-import { createConnectionFromAuth, __resetHttpsRequestImplForTests, __setHttpsRequestImplForTests, requestText } from './jsforce';
+import { __resetHttpsRequestImplForTests, __setHttpsRequestImplForTests, requestText } from './jsforce';
 import {
   __resetApiVersionFallbackStateForTests as resetApiVersionFallbackStateForTests,
   extractApiVersionFromUrl,
@@ -169,13 +169,6 @@ export async function httpsRequestWith401Retry(
   );
 }
 
-const headCacheByLog = new Map<string, string[]>();
-const HEAD_CACHE_LIMIT = 200;
-
-function makeLogKey(auth: OrgAuth, logId: string): string {
-  return `${auth.instanceUrl}|${auth.username ?? ''}|${logId}`;
-}
-
 export function clearListCache(): void {
   // Log list caching removed; function kept for backwards compatibility.
 }
@@ -242,95 +235,6 @@ export async function fetchApexLogBody(
     timeoutMs,
     signal
   );
-}
-
-export async function fetchApexLogHead(
-  auth: OrgAuth,
-  logId: string,
-  maxLines: number,
-  _logLengthBytes?: number,
-  timeoutMs?: number,
-  signal?: AbortSignal
-): Promise<string[]> {
-  const key = makeLogKey(auth, logId);
-  const cached = headCacheByLog.get(key);
-  if (cached && cached.length >= maxLines) {
-    return cached.slice(0, Math.max(0, maxLines));
-  }
-
-  const connection = await createConnectionFromAuth(auth, getEffectiveApiVersion(auth));
-  const url = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/ApexLog/${logId}/Body`;
-  const request = connection.request<string>(
-    {
-      method: 'GET',
-      url,
-      headers: {
-        'Content-Type': 'text/plain'
-      }
-    },
-    {
-      responseType: 'text/plain',
-      encoding: 'utf8',
-      timeout: timeoutMs
-    }
-  );
-
-  return new Promise((resolve, reject) => {
-    const stream = request.stream();
-    let buffer = '';
-    const collected: string[] = [];
-    const finalize = () => {
-      const toStore = collected.slice();
-      headCacheByLog.set(key, toStore);
-      if (headCacheByLog.size > HEAD_CACHE_LIMIT) {
-        const firstKey = headCacheByLog.keys().next().value as string | undefined;
-        if (firstKey) {
-          headCacheByLog.delete(firstKey);
-        }
-      }
-      resolve(collected.slice(0, Math.max(0, maxLines)));
-    };
-    const onAbort = () => {
-      try {
-        stream.destroy();
-      } catch {}
-      reject(new Error('aborted'));
-    };
-
-    if (signal?.aborted) {
-      onAbort();
-      return;
-    }
-    signal?.addEventListener('abort', onAbort, { once: true });
-
-    stream.setEncoding('utf8');
-    stream.on('data', chunk => {
-      buffer += String(chunk || '');
-      let idx = buffer.indexOf('\n');
-      while (idx !== -1 && collected.length < maxLines) {
-        const line = buffer.slice(0, idx).replace(/\r$/, '');
-        buffer = buffer.slice(idx + 1);
-        collected.push(line);
-        idx = buffer.indexOf('\n');
-      }
-      if (collected.length >= maxLines) {
-        try {
-          stream.destroy();
-        } catch {}
-      }
-    });
-    stream.on('error', reject);
-    stream.on('close', () => {
-      try {
-        signal?.removeEventListener('abort', onAbort);
-      } catch {}
-      if (buffer && collected.length < maxLines) {
-        collected.push(buffer.replace(/\r$/, ''));
-      }
-      finalize();
-    });
-    request.catch(reject);
-  });
 }
 
 export function extractCodeUnitStartedFromLines(lines: string[]): string | undefined {

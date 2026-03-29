@@ -48,5 +48,5 @@ export function logTrace(...parts: unknown[]): void {
   if (!traceEnabled) {
     return;
   }
-  channel.trace(fmt(parts));
+  channel.info(`[trace] ${fmt(parts)}`);
 }

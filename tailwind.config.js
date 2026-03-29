@@ -4,7 +4,7 @@ const tailwindcssAnimate = require('tailwindcss-animate');
 /** @type {import('tailwindcss').Config} */
 const config = {
   darkMode: ['class'],
-  content: ['./src/webview/**/*.{ts,tsx}'],
+  content: ['./packages/webview/src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {

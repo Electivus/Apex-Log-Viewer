@@ -1,13 +1,29 @@
 import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { envFlag } from './envFlag';
 import { removePathBestEffort } from './fsCleanup';
 import { timeE2eStep } from './timing';
 
 export type TempWorkspace = {
   workspacePath: string;
-  cleanup: () => Promise<void>;
+  cleanup: (options?: { keep?: boolean }) => Promise<void>;
 };
+
+function resolveDefaultWorkspaceSettings(overrides?: Record<string, unknown>): Record<string, unknown> {
+  const defaultLogLevel = process.env.VSCODE_TEST_LOG_LEVEL || process.env.VSCODE_LOG_LEVEL || 'trace';
+  return {
+    // Keep extension tracing enabled during E2E runs so preserved user-data/logs
+    // contain enough detail to diagnose runtime or UI flakiness afterward.
+    'sfLogs.trace': true,
+    'window.logLevel': String(defaultLogLevel),
+    ...(overrides || {})
+  };
+}
+
+function shouldKeepTempWorkspace(): boolean {
+  return envFlag('ALV_E2E_KEEP_WORKSPACE');
+}
 
 export async function createTempWorkspace(options: {
   targetOrg: string;
@@ -29,7 +45,11 @@ export async function createTempWorkspace(options: {
 
     const sfDir = path.join(workspacePath, '.sf');
     await mkdir(sfDir, { recursive: true });
-    await writeFile(path.join(sfDir, 'config.json'), JSON.stringify({ 'target-org': options.targetOrg }, null, 2), 'utf8');
+    await writeFile(
+      path.join(sfDir, 'config.json'),
+      JSON.stringify({ 'target-org': options.targetOrg }, null, 2),
+      'utf8'
+    );
 
     // Ensure the extension host can locate the Salesforce CLI even when VS Code
     // is launched in an environment with a minimal PATH.
@@ -37,7 +57,7 @@ export async function createTempWorkspace(options: {
       const vscodeDir = path.join(workspacePath, '.vscode');
       await mkdir(vscodeDir, { recursive: true });
 
-      const settings: Record<string, unknown> = { ...(options.settings || {}) };
+      const settings = resolveDefaultWorkspaceSettings(options.settings);
       let cliPath = options.sfCli.sfBinPath;
       // On Unix-like systems, wrap `sf` so it can find `node` even if VS Code
       // starts with a minimal PATH.
@@ -57,15 +77,23 @@ export async function createTempWorkspace(options: {
       }
       settings['electivus.apexLogs.cliPath'] = cliPath;
       await writeFile(path.join(vscodeDir, 'settings.json'), JSON.stringify(settings, null, 2), 'utf8');
-    } else if (options.settings && Object.keys(options.settings).length > 0) {
+    } else {
       const vscodeDir = path.join(workspacePath, '.vscode');
       await mkdir(vscodeDir, { recursive: true });
-      await writeFile(path.join(vscodeDir, 'settings.json'), JSON.stringify(options.settings, null, 2), 'utf8');
+      await writeFile(
+        path.join(vscodeDir, 'settings.json'),
+        JSON.stringify(resolveDefaultWorkspaceSettings(options.settings), null, 2),
+        'utf8'
+      );
     }
 
     return {
       workspacePath,
-      cleanup: async () => {
+      cleanup: async (cleanupOptions?: { keep?: boolean }) => {
+        if (cleanupOptions?.keep || shouldKeepTempWorkspace()) {
+          console.warn(`[e2e] Preserving temp workspace at ${workspacePath}`);
+          return;
+        }
         await removePathBestEffort(workspacePath);
       }
     };

@@ -1,28 +1,35 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "out",
-    "rootDir": "src",
-    "noEmit": false,
+    "rootDir": ".",
+    "outDir": "apps/vscode-extension/out",
+    "noEmit": true,
     "sourceMap": true,
     "lib": ["ES2022", "DOM"],
     "jsx": "react-jsx",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
     "baseUrl": ".",
     "paths": {
       "react-window": [
-        "src/test/stubs/react-window"
+        "apps/vscode-extension/src/test/stubs/react-window"
       ]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "include": [
+    "apps/vscode-extension/src/**/*.ts",
+    "packages/webview/src/i18n.ts",
+    "packages/webview/src/utils/logViewerParser.ts",
+    "packages/webview/src/utils/tail.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
   "exclude": [
     "node_modules",
     "dist",
     "media",
     "out",
-    "src/extension.ts",
-    "src/webview/__tests__",
-    "src/webview/__tests__/**/*",
+    "apps/vscode-extension/out",
     "Visual Prototype for Apex Log",
     "Visual Prototype for Apex Log/**/*"
   ]
