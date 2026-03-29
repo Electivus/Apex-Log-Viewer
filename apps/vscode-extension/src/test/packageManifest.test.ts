@@ -41,4 +41,17 @@ suite('package manifest', () => {
       'package.json should point nls:extract at the bundled extension output under apps/vscode-extension/dist'
     );
   });
+
+  test('includes node-only extension tests in the all-tests entrypoint', async () => {
+    const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
+    const raw = await readFile(path.join(repoRoot, 'package.json'), 'utf8');
+    const manifest = JSON.parse(raw) as { scripts?: Record<string, string> };
+    const allTestsScript = manifest.scripts?.['test:all'] ?? '';
+
+    assert.match(
+      allTestsScript,
+      /\bnpm run test:extension:node\b/,
+      'package.json should keep test:all aligned with the node-only extension test lane'
+    );
+  });
 });
