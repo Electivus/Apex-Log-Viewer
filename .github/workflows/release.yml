@@ -287,6 +287,7 @@ jobs:
           name: apex-log-viewer-${{ steps.determine_channel.outputs.version }}-${{ steps.determine_channel.outputs.channel_suffix }}-publish-vsix
           path: |
             ./*.vsix
+          if-no-files-found: error
 
       - name: Create or update GitHub release (pre-release)
         if: steps.determine_channel.outputs.pre_release == 'true'
@@ -336,10 +337,10 @@ jobs:
     timeout-minutes: 15
     environment: marketplace
     steps:
-      - name: Setup Node.js 22
+      - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
 
       - name: Download VSIX artifact
         uses: actions/download-artifact@v8
@@ -383,10 +384,10 @@ jobs:
     timeout-minutes: 15
     environment: marketplace
     steps:
-      - name: Setup Node.js 22
+      - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
 
       - name: Download VSIX artifact
         uses: actions/download-artifact@v8
