@@ -24,8 +24,8 @@ for (const workflowPath of ['.github/workflows/prerelease.yml', '.github/workflo
 
     assert.match(
       workflowSource,
-      /Install Linux ARM64 cross-linker[\s\S]*aarch64-linux-gnu-gcc/,
-      'expected workflow to install the aarch64 Linux GNU toolchain'
+      /Install Linux ARM64 cross-linker[\s\S]*apt-get install -y gcc-aarch64-linux-gnu/,
+      'expected workflow to install the aarch64 Linux GNU toolchain via apt-get'
     );
     assert.match(
       workflowSource,
