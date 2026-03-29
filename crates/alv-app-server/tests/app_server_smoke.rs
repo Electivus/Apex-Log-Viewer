@@ -61,6 +61,11 @@ impl Write for SharedBuffer {
 
 #[test]
 fn app_server_smoke_reports_initialize_handshake() {
+    let expected_channel = if env!("CARGO_PKG_VERSION").contains('-') {
+        "pre-release"
+    } else {
+        "stable"
+    };
     let result = handle_initialize(InitializeParams {
         client_name: "apex-log-viewer-vscode".to_string(),
         client_version: "0.1.0".to_string(),
@@ -68,7 +73,7 @@ fn app_server_smoke_reports_initialize_handshake() {
 
     assert_eq!(result.runtime_version, env!("CARGO_PKG_VERSION"));
     assert_eq!(result.protocol_version, "1");
-    assert_eq!(result.channel, "stable");
+    assert_eq!(result.channel, expected_channel);
     assert_eq!(result.platform, std::env::consts::OS);
     assert_eq!(result.arch, std::env::consts::ARCH);
     assert!(result.capabilities.orgs);

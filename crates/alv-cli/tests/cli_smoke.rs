@@ -132,13 +132,18 @@ fn cli_smoke_routes_initialize_and_logs_list_over_stdio() {
     );
 
     let mut harness = AppServerHarness::spawn();
+    let expected_channel = if env!("CARGO_PKG_VERSION").contains('-') {
+        "pre-release"
+    } else {
+        "stable"
+    };
     harness.send(
         r#"{"jsonrpc":"2.0","id":"initialize:1","method":"initialize","params":{"client_name":"cli-smoke","client_version":"0.1.0"}}"#,
     );
     let initialize = harness.recv_json();
     assert_eq!(initialize["id"], "initialize:1");
     assert_eq!(initialize["result"]["protocol_version"], "1");
-    assert_eq!(initialize["result"]["channel"], "stable");
+    assert_eq!(initialize["result"]["channel"], expected_channel);
     assert_eq!(initialize["result"]["capabilities"]["logs"], true);
 
     harness.send(r#"{"jsonrpc":"2.0","id":"logs:1","method":"logs/list","params":{"limit":1}}"#);
