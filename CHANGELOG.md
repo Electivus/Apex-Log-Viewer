@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Bug Fixes
+
+- Runtime/Logs: reduce startup request fan-out by letting the Logs panel fetch rows without waiting for org bootstrap/auth hydration, coalescing concurrent runtime `org/list` and `org/auth` requests, reusing auth during log-body preload, and avoiding redundant login-shell PATH probes when the current Windows PATH already resolves `sf`.
+- Tail/Logs: keep Tail webviews from re-running bootstrap work before the webview is ready, and stop advertising cancellation for Logs org listing when the backend work is not actually cancellable yet.
+
+### Tests
+
+- Runtime/Logs: add targeted coverage for concurrent startup behavior, runtime request coalescing, auth-hint reuse during log downloads, Tail ready-state refresh gating, and Windows PATH resolution fast paths.
+
 ## [0.38.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.36.0...v0.38.0) (2026-03-27)
 
 ### Features

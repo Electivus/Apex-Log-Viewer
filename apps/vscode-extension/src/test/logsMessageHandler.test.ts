@@ -78,4 +78,57 @@ suite('LogsMessageHandler telemetry', () => {
       }
     ]);
   });
+
+  test('starts refresh without waiting for org list on ready', async () => {
+    const events: Array<{ name: string; properties?: Record<string, string>; measurements?: Record<string, number> }> = [];
+    const calls: string[] = [];
+    let releaseSendOrgs: (() => void) | undefined;
+    const sendOrgsStarted = new Promise<void>(resolve => {
+      releaseSendOrgs = resolve;
+    });
+
+    const { LogsMessageHandler } = proxyquire('../provider/logsMessageHandler', {
+      '../shared/telemetry': {
+        safeSendEvent: (name: string, properties?: Record<string, string>, measurements?: Record<string, number>) => {
+          events.push({ name, properties, measurements });
+        },
+        '@noCallThru': true
+      },
+      '../../../../src/utils/logger': {
+        logInfo: () => undefined,
+        '@noCallThru': true
+      }
+    });
+
+    const handler = new LogsMessageHandler(
+      async () => {
+        calls.push('refresh');
+      },
+      async () => undefined,
+      async () => undefined,
+      async () => {
+        calls.push('sendOrgs');
+        await sendOrgsStarted;
+      },
+      () => undefined,
+      async () => undefined,
+      async () => undefined,
+      async () => undefined,
+      async () => undefined,
+      value => calls.push(`loading:${value}`),
+      async () => undefined,
+      async () => undefined
+    );
+
+    const pending = handler.handle({ type: 'ready' } as any);
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    assert.deepEqual(calls.slice(0, 3), ['loading:true', 'sendOrgs', 'refresh']);
+
+    releaseSendOrgs?.();
+    await pending;
+
+    assert.equal(calls.at(-1), 'loading:false');
+    assert.equal(events.length, 0);
+  });
 });

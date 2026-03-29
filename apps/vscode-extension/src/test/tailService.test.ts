@@ -545,6 +545,28 @@ suite('TailService', () => {
     assert.equal((provider as any).tailService.isRunning(), false, 'editor tail should stay idle until explicit start');
   });
 
+  test('editor tail panel ignores visibility refreshes until ready', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+    const provider = new SfLogTailViewProvider(context);
+    const webview = new MockWebview();
+    const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+    const calls: string[] = [];
+
+    (provider as any).refreshViewState = async () => {
+      calls.push('refreshViewState');
+    };
+
+    provider.resolveWebviewPanel(panel);
+    panel.fireVisible();
+    assert.deepEqual(calls, [], 'should not refresh while the webview has not reported ready');
+
+    await webview.emit({ type: 'ready' });
+    assert.deepEqual(calls, ['refreshViewState'], 'should refresh once after ready');
+  });
+
   test('syncSelectedOrg refreshes an existing editor tail session and stops the current stream', async () => {
     const context = {
       extensionUri: vscode.Uri.file(path.resolve('.')),

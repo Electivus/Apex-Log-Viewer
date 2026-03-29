@@ -140,6 +140,66 @@ suite('runtime client', () => {
     assert.equal(auth.username, 'demo@example.com');
   });
 
+  test('coalesces concurrent orgList requests with identical params', async () => {
+    let orgListCalls = 0;
+    let resolveOrgList: ((value: unknown) => void) | undefined;
+    const client = new RuntimeClient({
+      requestHandler: async (method, params) => {
+        assert.equal(method, 'org/list');
+        assert.deepEqual(params, { forceRefresh: false });
+        orgListCalls++;
+        return await new Promise(resolve => {
+          resolveOrgList = resolve;
+        });
+      }
+    });
+
+    const first = client.orgList({ forceRefresh: false });
+    const second = client.orgList({ forceRefresh: false });
+
+    assert.equal(orgListCalls, 1);
+    resolveOrgList?.([
+      {
+        username: 'demo@example.com',
+        alias: 'Demo',
+        isDefaultUsername: true
+      }
+    ]);
+
+    const [left, right] = await Promise.all([first, second]);
+    assert.equal(orgListCalls, 1);
+    assert.deepEqual(left, right);
+  });
+
+  test('coalesces concurrent getOrgAuth requests for the same username', async () => {
+    let authCalls = 0;
+    let resolveAuth: ((value: unknown) => void) | undefined;
+    const client = new RuntimeClient({
+      requestHandler: async (method, params) => {
+        assert.equal(method, 'org/auth');
+        assert.deepEqual(params, { username: 'demo@example.com' });
+        authCalls++;
+        return await new Promise(resolve => {
+          resolveAuth = resolve;
+        });
+      }
+    });
+
+    const first = client.getOrgAuth({ username: 'demo@example.com' });
+    const second = client.getOrgAuth({ username: 'demo@example.com' });
+
+    assert.equal(authCalls, 1);
+    resolveAuth?.({
+      username: 'demo@example.com',
+      instanceUrl: 'https://example.my.salesforce.com',
+      accessToken: 'token'
+    });
+
+    const [left, right] = await Promise.all([first, second]);
+    assert.equal(authCalls, 1);
+    assert.deepEqual(left, right);
+  });
+
   test('prepares daemon env before starting the runtime process', async () => {
     let prepareCalls = 0;
     let seenEnv: NodeJS.ProcessEnv | undefined;

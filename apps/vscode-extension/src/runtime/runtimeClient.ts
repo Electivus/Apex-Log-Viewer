@@ -56,6 +56,8 @@ export class RuntimeClient extends EventEmitter {
   private initializePromise: Promise<InitializeResult> | undefined;
   private nextRequestId = 0;
   private readonly pendingRequests = new Map<string, PendingRequest>();
+  private readonly inFlightOrgLists = new Map<string, Promise<OrgListItem[]>>();
+  private readonly inFlightOrgAuth = new Map<string, Promise<OrgAuth>>();
   private restartDelayMs = 250;
   private restartPromise: Promise<void> | undefined;
   private readonly clientName: string;
@@ -125,14 +127,38 @@ export class RuntimeClient extends EventEmitter {
     if (!this.requestHandler) {
       await this.initialize();
     }
-    return this.request<OrgListItem[]>('org/list', params);
+    const key = JSON.stringify({ forceRefresh: params.forceRefresh === true });
+    const pending = this.inFlightOrgLists.get(key);
+    if (pending) {
+      return pending;
+    }
+    const request = this.request<OrgListItem[]>('org/list', params);
+    const tracked = request.finally(() => {
+      if (this.inFlightOrgLists.get(key) === tracked) {
+        this.inFlightOrgLists.delete(key);
+      }
+    });
+    this.inFlightOrgLists.set(key, tracked);
+    return tracked;
   }
 
   async getOrgAuth(params: OrgAuthParams = {}): Promise<OrgAuth> {
     if (!this.requestHandler) {
       await this.initialize();
     }
-    return this.request<OrgAuth>('org/auth', params);
+    const key = JSON.stringify({ username: typeof params.username === 'string' ? params.username.trim() : '' });
+    const pending = this.inFlightOrgAuth.get(key);
+    if (pending) {
+      return pending;
+    }
+    const request = this.request<OrgAuth>('org/auth', params);
+    const tracked = request.finally(() => {
+      if (this.inFlightOrgAuth.get(key) === tracked) {
+        this.inFlightOrgAuth.delete(key);
+      }
+    });
+    this.inFlightOrgAuth.set(key, tracked);
+    return tracked;
   }
 
   async logsList(params: LogsListParams = {}, signal?: AbortSignal): Promise<RuntimeLogRow[]> {

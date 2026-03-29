@@ -44,7 +44,91 @@ suite('resolvePATHFromLoginShell', () => {
     __resetExecFileImplForTests();
   });
 
-  test('getLoginShellEnv preserves current PATH and still injects explicit sf.cmd on win32', async () => {
+  test('getLoginShellEnv uses the login-shell PATH when the current PATH does not resolve sf on win32', async () => {
+    const execModule = loadExecModule();
+    const { __setExecFileImplForTests, __resetExecFileImplForTests } = execModule;
+    const { getLoginShellEnv, __resetLoginShellPATHForTests } = loadPathModule({
+      platform: 'win32',
+      execModule
+    });
+    __resetLoginShellPATHForTests();
+
+    const originalPath = process.env.PATH;
+    const originalPathCase = process.env.Path;
+    const originalComSpec = process.env.ComSpec;
+    const currentPath = 'C:\\Users\\k2\\AppData\\Roaming\\fnm\\aliases\\default';
+    const loginPath = 'C:\\Users\\k2\\AppData\\Roaming\\fnm\\current\\bin';
+    const sfShim = `${loginPath}\\sf.cmd`;
+    process.env.PATH = currentPath;
+    process.env.Path = currentPath;
+    process.env.ComSpec = 'C:\\Windows\\System32\\cmd.exe';
+
+    let calls = 0;
+    __setExecFileImplForTests(((program: string, args: readonly string[] | undefined, opts: any, cb: any) => {
+      calls++;
+      if (calls === 1) {
+        assert.match(program.toLowerCase(), /cmd\.exe$/);
+        assert.deepEqual(args, ['/d', '/s', '/c', 'where sf']);
+        assert.equal(opts?.env?.PATH, currentPath);
+        assert.equal(opts?.env?.Path, currentPath);
+        cb(new Error('where failed'), '', '');
+        return undefined as any;
+      }
+
+      if (calls === 2) {
+        assert.equal(program, 'C:\\Program Files\\Git\\bin\\bash.exe');
+        assert.deepEqual(args, [
+          '-lc',
+          'command -v sf.cmd >/dev/null 2>&1 && cygpath -w "$(command -v sf.cmd)" || command -v sf >/dev/null 2>&1 && cygpath -w "$(command -v sf)"'
+        ]);
+        assert.equal(opts?.env?.PATH, currentPath);
+        assert.equal(opts?.env?.Path, currentPath);
+        cb(undefined, '', '');
+        return undefined as any;
+      }
+
+      if (calls === 3) {
+        assert.equal(program, 'pwsh');
+        assert.deepEqual(args, ['-NoLogo', '-Login', '-Command', '$env:PATH']);
+        cb(null, loginPath, '');
+        return undefined as any;
+      }
+
+      assert.match(program.toLowerCase(), /cmd\.exe$/);
+      assert.deepEqual(args, ['/d', '/s', '/c', 'where sf']);
+      assert.equal(opts?.env?.PATH, loginPath);
+      assert.equal(opts?.env?.Path, loginPath);
+      cb(null, `${loginPath}\\sf\r\n${sfShim}`, '');
+      return undefined as any;
+    }) as any);
+
+    try {
+      const envValue = await getLoginShellEnv();
+      assert.equal(envValue?.PATH, loginPath);
+      assert.equal(envValue?.Path, loginPath);
+      assert.equal(envValue?.ALV_SF_BIN_PATH, sfShim);
+      assert.equal(calls, 4);
+    } finally {
+      if (originalPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = originalPath;
+      }
+      if (originalPathCase === undefined) {
+        delete process.env.Path;
+      } else {
+        process.env.Path = originalPathCase;
+      }
+      if (originalComSpec === undefined) {
+        delete process.env.ComSpec;
+      } else {
+        process.env.ComSpec = originalComSpec;
+      }
+      __resetExecFileImplForTests();
+    }
+  });
+
+  test('getLoginShellEnv skips login-shell probing when current PATH already resolves sf.cmd on win32', async () => {
     const execModule = loadExecModule();
     const { __setExecFileImplForTests, __resetExecFileImplForTests } = execModule;
     const { getLoginShellEnv, __resetLoginShellPATHForTests } = loadPathModule({
@@ -65,13 +149,6 @@ suite('resolvePATHFromLoginShell', () => {
     let calls = 0;
     __setExecFileImplForTests(((program: string, args: readonly string[] | undefined, opts: any, cb: any) => {
       calls++;
-      if (calls === 1) {
-        assert.equal(program, 'pwsh');
-        assert.deepEqual(args, ['-NoLogo', '-Login', '-Command', '$env:PATH']);
-        cb(null, currentPath, '');
-        return undefined as any;
-      }
-
       assert.match(program.toLowerCase(), /cmd\.exe$/);
       assert.deepEqual(args, ['/d', '/s', '/c', 'where sf']);
       assert.equal(opts?.env?.PATH, currentPath);
@@ -85,7 +162,7 @@ suite('resolvePATHFromLoginShell', () => {
       assert.equal(envValue?.PATH, currentPath);
       assert.equal(envValue?.Path, currentPath);
       assert.equal(envValue?.ALV_SF_BIN_PATH, sfShim);
-      assert.equal(calls, 2);
+      assert.equal(calls, 1);
     } finally {
       if (originalPath === undefined) {
         delete process.env.PATH;
@@ -126,15 +203,38 @@ suite('resolvePATHFromLoginShell', () => {
     __setExecFileImplForTests(((program: string, args: readonly string[] | undefined, opts: any, cb: any) => {
       calls++;
       if (calls === 1) {
+        assert.match(program.toLowerCase(), /cmd\.exe$/);
+        assert.deepEqual(args, ['/d', '/s', '/c', 'where sf']);
+        assert.equal(opts?.env?.PATH, currentPath);
+        assert.equal(opts?.env?.Path, currentPath);
+        cb(new Error('where failed'), '', '');
+        return undefined as any;
+      }
+
+      if (calls === 2) {
+        assert.equal(program, 'C:\\Program Files\\Git\\bin\\bash.exe');
+        assert.deepEqual(args, [
+          '-lc',
+          'command -v sf.cmd >/dev/null 2>&1 && cygpath -w "$(command -v sf.cmd)" || command -v sf >/dev/null 2>&1 && cygpath -w "$(command -v sf)"'
+        ]);
+        assert.equal(opts?.env?.PATH, currentPath);
+        assert.equal(opts?.env?.Path, currentPath);
+        cb(undefined, '', '');
+        return undefined as any;
+      }
+
+      if (calls === 3) {
         assert.equal(program, 'pwsh');
         assert.deepEqual(args, ['-NoLogo', '-Login', '-Command', '$env:PATH']);
         cb(null, currentPath, '');
         return undefined as any;
       }
 
-      if (calls === 2) {
+      if (calls === 4) {
         assert.match(program.toLowerCase(), /cmd\.exe$/);
         assert.deepEqual(args, ['/d', '/s', '/c', 'where sf']);
+        assert.equal(opts?.env?.PATH, currentPath);
+        assert.equal(opts?.env?.Path, currentPath);
         cb(new Error('where failed'), '', '');
         return undefined as any;
       }
@@ -153,7 +253,7 @@ suite('resolvePATHFromLoginShell', () => {
     try {
       const envValue = await getLoginShellEnv();
       assert.equal(envValue?.ALV_SF_BIN_PATH, sfShim);
-      assert.equal(calls, 3);
+      assert.equal(calls, 5);
     } finally {
       if (originalPath === undefined) {
         delete process.env.PATH;

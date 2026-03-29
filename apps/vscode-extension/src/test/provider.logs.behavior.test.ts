@@ -257,14 +257,14 @@ suite('SfLogsViewProvider behavior', () => {
     } as any;
     (provider as any).logService.loadLogHeads = () => {};
 
-    const calls: Array<{ logs: any[]; signal?: AbortSignal }> = [];
+    const calls: Array<{ logs: any[]; signal?: AbortSignal; options?: any }> = [];
     (provider as any).logService.ensureLogsSaved = async (
       logs: any[],
       _org: string | undefined,
       signal?: AbortSignal,
-      _options?: any
+      options?: any
     ) => {
-      calls.push({ logs, signal });
+      calls.push({ logs, signal, options });
     };
     const purged: Array<{ keepIds?: Set<string>; maxAgeMs?: number; signal?: AbortSignal }> = [];
     workspace.purgeSavedLogs = async (opts: any) => {
@@ -282,6 +282,7 @@ suite('SfLogsViewProvider behavior', () => {
       'should pass fetched logs to ensureLogsSaved'
     );
     assert.equal(typeof calls[0]?.signal?.aborted, 'boolean', 'should pass abort signal to ensureLogsSaved');
+    assert.equal(calls[0]?.options?.authHint?.username, 'u', 'should pass auth hint to ensureLogsSaved');
     assert.equal(purged.length, 1, 'should purge cached logs after refresh');
     const keepIds = Array.from(purged[0]?.keepIds ?? []);
     assert.deepEqual(
@@ -414,6 +415,65 @@ suite('SfLogsViewProvider behavior', () => {
     assert.ok(triageSignal, 'should start runtime triage');
     assert.equal(triageSignal?.aborted, true, 'scan signal should be aborted when refresh is cancelled');
     assert.ok(posted.some(m => m?.type === 'errorScanStatus' && m?.state === 'running'), 'should have started scan status');
+  });
+
+  test('refresh posts logs before org auth completes', async () => {
+    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+    let releaseAuth!: () => void;
+    const authGate = new Promise<void>(resolve => {
+      releaseAuth = resolve;
+    });
+    cli.getOrgAuth = async () => {
+      await authGate;
+      return { username: 'u', instanceUrl: 'i', accessToken: 't' };
+    };
+    cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
+    workspace.purgeSavedLogs = async () => 0;
+
+    const context = makeContext();
+    const posted: any[] = [];
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => false;
+    (provider as any).logService.loadLogHeads = () => {};
+    (provider as any).view = {
+      webview: {
+        postMessage: (m: any) => {
+          posted.push(m);
+          return Promise.resolve(true);
+        }
+      }
+    } as any;
+
+    const refreshPromise = provider.refresh();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const postedLogsBeforeAuth = posted.some(m => m?.type === 'logs');
+    releaseAuth();
+    await refreshPromise;
+
+    assert.equal(postedLogsBeforeAuth, true, 'should render logs without waiting for org auth');
+  });
+
+  test('sendOrgs uses a non-cancellable progress notification', async () => {
+    const { SfLogsViewProvider, cli, vscode: vscodeMock } = createProviderHarness();
+    cli.orgList = async () => [{ username: 'demo@example.com', alias: 'Demo', isDefaultUsername: true }];
+
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    let progressOptions: any;
+    vscodeMock.window.withProgress = async (opts: any, task: any) => {
+      progressOptions = opts;
+      return task(
+        { report: () => {} },
+        {
+          onCancellationRequested: () => {},
+          isCancellationRequested: false
+        }
+      );
+    };
+
+    await provider.sendOrgs();
+
+    assert.equal(progressOptions?.cancellable, false, 'org listing progress should not advertise cancellation');
   });
 
   test('preloadFullLogBodies re-runs active search after downloads complete', async () => {

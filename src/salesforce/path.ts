@@ -32,9 +32,21 @@ export async function resolvePATHFromLoginShell(): Promise<string | undefined> {
 }
 
 export async function getLoginShellEnv(): Promise<NodeJS.ProcessEnv | undefined> {
-  const loginPath = await resolvePATHFromLoginShell();
   const env2: NodeJS.ProcessEnv = { ...process.env };
-  const effectivePath = loginPath || env2.PATH || env2.Path;
+  const currentPath = env2.PATH || env2.Path;
+  if (currentPath) {
+    env2.PATH = currentPath;
+    env2.Path = currentPath;
+  }
+  if (os.platform() === 'win32') {
+    const currentSfCliPath = await resolveSfCliPath(env2);
+    if (currentSfCliPath) {
+      env2.ALV_SF_BIN_PATH = currentSfCliPath;
+      return env2;
+    }
+  }
+  const loginPath = await resolvePATHFromLoginShell();
+  const effectivePath = loginPath || currentPath;
   if (effectivePath) {
     env2.PATH = effectivePath;
     env2.Path = effectivePath;

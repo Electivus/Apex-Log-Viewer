@@ -26,9 +26,13 @@ export class LogsMessageHandler {
       case 'ready':
         logInfo('Logs: message ready');
         this.setLoading(true);
-        await this.sendOrgs();
-        await this.refresh();
-        this.setLoading(false);
+        try {
+          const sendOrgsPromise = this.sendOrgs();
+          await this.refresh();
+          await sendOrgsPromise;
+        } finally {
+          this.setLoading(false);
+        }
         break;
       case 'refresh':
         logInfo('Logs: message refresh');

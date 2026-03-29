@@ -155,13 +155,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           clearListCache();
           this.pageLimit = this.configManager.getPageLimit();
           await this.orgManager.ensureProjectDefaultSelected();
-          const auth = await runtimeClient.getOrgAuth({ username: this.orgManager.getSelectedOrg() });
-          if (isCurrentRefresh()) {
-            const existingWarning = getApiVersionFallbackWarning(auth);
-            if (existingWarning) {
-              this.post({ type: 'warning', message: existingWarning });
-            }
-          }
+          const selectedOrg = this.orgManager.getSelectedOrg();
+          const authPromise = runtimeClient.getOrgAuth({ username: selectedOrg });
           if (ct.isCancellationRequested || !isCurrentRefresh()) {
             return;
           }
@@ -170,7 +165,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           this.cursorId = undefined;
           const logs = (await runtimeClient.logsList(
             {
-              username: this.orgManager.getSelectedOrg(),
+              username: selectedOrg,
               limit: this.pageLimit
             },
             controller.signal
@@ -185,16 +180,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             this.cursorStartTime = last?.StartTime;
             this.cursorId = last?.Id;
           }
-          if (isCurrentRefresh()) {
-            const warning = getApiVersionFallbackWarning(auth);
-            if (warning) {
-              this.post({ type: 'warning', message: warning });
-            }
-          }
           if (!isCurrentRefresh()) {
             return;
           }
-          this.preloadFullLogBodies(logs, auth, token, controller.signal);
           this.post({
             type: 'init',
             locale: vscode.env.language,
@@ -206,21 +194,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           this.setCurrentLogs(logs);
           this.postKnownErrorStateForLogs(logs);
           this.purgeLogCache(controller.signal);
-          this.logService.loadLogHeads(
-            logs,
-            auth,
-            token,
-            (logId, codeUnit) => {
-              if (token === this.refreshToken && !this.disposed) {
-                this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
-              }
-            },
-            controller.signal,
-            {
-              preferLocalBodies: this.configManager.shouldLoadFullLogBodies(),
-              selectedOrg: this.orgManager.getSelectedOrg()
-            }
-          );
+          this.startAuthHydration(logs, authPromise, token, selectedOrg, controller.signal);
           this.startErrorScanForCurrentLogs(token, controller.signal);
           if (this.lastSearchQuery.trim()) {
             this.rerunActiveSearch();
@@ -258,18 +232,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.post({ type: 'loading', value: true });
     this.post({ type: 'warning', message: undefined });
     try {
-      const auth = await runtimeClient.getOrgAuth({ username: this.orgManager.getSelectedOrg() });
-      if (isCurrentRefresh()) {
-        const existingWarning = getApiVersionFallbackWarning(auth);
-        if (existingWarning) {
-          this.post({ type: 'warning', message: existingWarning });
-        }
-      }
+      const selectedOrg = this.orgManager.getSelectedOrg();
+      const authPromise = runtimeClient.getOrgAuth({ username: selectedOrg });
       if (!isCurrentRefresh()) {
         return;
       }
       const logs = (await runtimeClient.logsList({
-        username: this.orgManager.getSelectedOrg(),
+        username: selectedOrg,
         limit: this.pageLimit,
         cursor:
           this.cursorStartTime && this.cursorId
@@ -283,29 +252,15 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         this.cursorStartTime = last?.StartTime;
         this.cursorId = last?.Id;
       }
-      if (isCurrentRefresh()) {
-        const warning = getApiVersionFallbackWarning(auth);
-        if (warning) {
-          this.post({ type: 'warning', message: warning });
-        }
-      }
       if (!isCurrentRefresh()) {
         return;
       }
-      this.preloadFullLogBodies(logs, auth, token);
       const hasMore = logs.length === this.pageLimit;
       this.post({ type: 'appendLogs', data: logs, hasMore });
       this.setCurrentLogs([...this.currentLogs, ...logs]);
       this.postKnownErrorStateForLogs(logs);
       this.purgeLogCache();
-      this.logService.loadLogHeads(logs, auth, token, (logId, codeUnit) => {
-        if (token === this.refreshToken && !this.disposed) {
-          this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
-        }
-      }, undefined, {
-        preferLocalBodies: this.configManager.shouldLoadFullLogBodies(),
-        selectedOrg: this.orgManager.getSelectedOrg()
-      });
+      this.startAuthHydration(logs, authPromise, token, selectedOrg);
       this.startErrorScanForCurrentLogs(token);
       this.rerunActiveSearch();
       try {
@@ -325,7 +280,53 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
   }
 
-  private preloadFullLogBodies(logs: ApexLogRow[], auth: OrgAuth, refreshToken: number, signal?: AbortSignal): void {
+  private startAuthHydration(
+    logs: ApexLogRow[],
+    authPromise: Promise<OrgAuth>,
+    refreshToken: number,
+    selectedOrg?: string,
+    signal?: AbortSignal
+  ): void {
+    void authPromise
+      .then(auth => {
+        if (signal?.aborted || refreshToken !== this.refreshToken || this.disposed) {
+          return;
+        }
+        const warning = getApiVersionFallbackWarning(auth);
+        if (warning) {
+          this.post({ type: 'warning', message: warning });
+        }
+        this.preloadFullLogBodies(logs, auth, refreshToken, signal, selectedOrg);
+        this.logService.loadLogHeads(
+          logs,
+          auth,
+          refreshToken,
+          (logId, codeUnit) => {
+            if (refreshToken === this.refreshToken && !this.disposed) {
+              this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
+            }
+          },
+          signal,
+          {
+            preferLocalBodies: this.configManager.shouldLoadFullLogBodies(),
+            selectedOrg
+          }
+        );
+      })
+      .catch(e => {
+        if (!signal?.aborted && refreshToken === this.refreshToken && !this.disposed) {
+          logWarn('Logs: auth hydration failed ->', getErrorMessage(e));
+        }
+      });
+  }
+
+  private preloadFullLogBodies(
+    logs: ApexLogRow[],
+    auth: OrgAuth,
+    refreshToken: number,
+    signal?: AbortSignal,
+    selectedOrg?: string
+  ): void {
     if (!this.configManager.shouldLoadFullLogBodies()) {
       return;
     }
@@ -351,7 +352,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       }, 150);
     };
     void this.logService
-      .ensureLogsSaved(logs, this.orgManager.getSelectedOrg(), signal, {
+      .ensureLogsSaved(logs, selectedOrg, signal, {
+        authHint: auth,
         onItemComplete: result => {
           if (signal?.aborted || this.disposed) {
             return;
@@ -370,7 +372,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             }
           }, signal, {
             preferLocalBodies: true,
-            selectedOrg: this.orgManager.getSelectedOrg()
+            selectedOrg
           });
           scheduleSearchRerun();
         }
@@ -1245,7 +1247,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       {
         location: vscode.ProgressLocation.Notification,
         title: localize('listingOrgs', 'Listing Salesforce orgs…'),
-        cancellable: true
+        cancellable: false
       },
       async (_progress, ct) => {
         try {
