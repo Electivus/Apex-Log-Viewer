@@ -37,6 +37,7 @@ function createExtensionHarness(options: {
   orgs?: Array<{ username: string; isDefaultUsername?: boolean }>;
   initialLogsSelectedOrg?: string;
   initialTailSelectedOrg?: string;
+  logsViewResolved?: boolean;
 }) {
   const commands = new Map<string, RegisteredCommand>();
   const events: Array<{ name: string; props?: Record<string, string>; measurements?: Record<string, number> }> = [];
@@ -53,6 +54,7 @@ function createExtensionHarness(options: {
   const tailSyncSelectedOrgCalls: Array<string | undefined> = [];
   const tailRefreshViewStateCalls: number[] = [];
   const logsTailCalls: number[] = [];
+  const logsRefreshCalls: number[] = [];
 
   const vscodeStub = {
     version: '1.90.0',
@@ -101,10 +103,12 @@ function createExtensionHarness(options: {
     }
 
     public hasResolvedView(): boolean {
-      return true;
+      return options.logsViewResolved ?? false;
     }
 
-    public async refresh(): Promise<void> {}
+    public async refresh(): Promise<void> {
+      logsRefreshCalls.push(1);
+    }
 
     public async sendOrgs(): Promise<void> {}
 
@@ -270,7 +274,8 @@ function createExtensionHarness(options: {
     tailEditorShows,
     tailSyncSelectedOrgCalls,
     tailRefreshViewStateCalls,
-    logsTailCalls
+    logsTailCalls,
+    logsRefreshCalls
   };
 }
 
@@ -366,11 +371,24 @@ suite('extension activation gating', () => {
   });
 
   test('refresh command emits duration telemetry after it completes', async () => {
+    const harness = createExtensionHarness({ logsViewResolved: true });
+
+    await harness.extension.activate(createContext());
+    await harness.commands.get('sfLogs.refresh')!();
+
+    assert.equal(harness.logsRefreshCalls.length, 1, 'should refresh an already resolved logs view');
+    const refreshEvent = harness.events.find(event => event.name === 'command.refresh');
+    assert.deepEqual(refreshEvent?.props, { outcome: 'invoked' });
+    assert.equal(typeof refreshEvent?.measurements?.durationMs, 'number');
+  });
+
+  test('refresh command skips provider.refresh until the logs view has resolved', async () => {
     const harness = createExtensionHarness({});
 
     await harness.extension.activate(createContext());
     await harness.commands.get('sfLogs.refresh')!();
 
+    assert.equal(harness.logsRefreshCalls.length, 0, 'should not refresh before the logs view resolves');
     const refreshEvent = harness.events.find(event => event.name === 'command.refresh');
     assert.deepEqual(refreshEvent?.props, { outcome: 'invoked' });
     assert.equal(typeof refreshEvent?.measurements?.durationMs, 'number');

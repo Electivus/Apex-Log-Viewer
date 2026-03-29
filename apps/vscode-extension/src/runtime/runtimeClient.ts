@@ -193,11 +193,11 @@ export class RuntimeClient extends EventEmitter {
   private async request<TResult>(method: string, params?: unknown, signal?: AbortSignal): Promise<TResult> {
     const t0 = Date.now();
     let attempts = 1;
-    if (signal?.aborted) {
-      throw this.createAbortError();
-    }
 
     try {
+      if (signal?.aborted) {
+        throw this.createAbortError();
+      }
       if (this.requestHandler) {
         const result = await this.requestHandler<TResult>(method, params, signal);
         this.sendRuntimeRequestTelemetry(method, 'ok', t0, attempts);
