@@ -21,13 +21,26 @@ function loadTailService(stubs?: {
   traceflags?: Record<string, unknown>;
   streaming?: Record<string, unknown>;
   jsforce?: Record<string, unknown>;
+  runtime?: Record<string, unknown>;
 }) {
   return proxyquireStrict('../../../../src/utils/tailService', {
     '../salesforce/cli': stubs?.cli ?? {},
     '../salesforce/http': stubs?.http ?? {},
     '../salesforce/traceflags': stubs?.traceflags ?? {},
     '../salesforce/streaming': stubs?.streaming ?? {},
-    '../salesforce/jsforce': stubs?.jsforce ?? {}
+    '../salesforce/jsforce': stubs?.jsforce ?? {},
+    '../../apps/vscode-extension/src/runtime/runtimeClient':
+      stubs?.runtime ?? {
+        runtimeClient: {
+          getOrgAuth:
+            stubs?.cli?.getOrgAuth ??
+            (async ({ username }: { username?: string } = {}) => ({
+              username,
+              instanceUrl: 'https://example.com',
+              accessToken: 'token'
+            }))
+        }
+      }
   }) as typeof import('../../../../src/utils/tailService');
 }
 
@@ -210,6 +223,62 @@ suite('TailService', () => {
     (cli as any).getOrgAuth = origGetAuth;
     (traceflags as any).ensureUserTraceFlag = origEnsure;
     (http as any).fetchApexLogs = origFetch;
+    service.stop();
+  });
+
+  test('start resolves auth through runtime client instead of salesforce cli', async () => {
+    const { TailService } = loadTailService({
+      cli: {
+        getOrgAuth: async () => {
+          throw new Error('should not call cli getOrgAuth');
+        }
+      },
+      runtime: {
+        runtimeClient: {
+          getOrgAuth: async ({ username }: { username?: string } = {}) => ({
+            username,
+            instanceUrl: 'https://example.com',
+            accessToken: 'token'
+          })
+        }
+      },
+      traceflags: {
+        ensureUserTraceFlag: async () => false
+      },
+      http: {
+        fetchApexLogs: async () => [],
+        getEffectiveApiVersion: () => '64.0'
+      },
+      streaming: {
+        createConnectionFromAuth: async (auth: any, apiVersion: string) => ({
+          version: apiVersion,
+          instanceUrl: auth.instanceUrl,
+          accessToken: auth.accessToken,
+          request: async () => '',
+          query: async () => ({ records: [] }),
+          queryMore: async () => ({ records: [] }),
+          tooling: {
+            query: async () => ({ records: [] }),
+            create: async () => ({ success: true, id: '1', errors: [] }),
+            update: async () => ({ success: true, id: '1', errors: [] }),
+            destroy: async () => ({ success: true, id: '1', errors: [] })
+          },
+          streaming: {} as any
+        }),
+        createLoggingStreamingClient: async () => ({
+          handshake: async () => {},
+          replay: () => {},
+          subscribe: async () => {},
+          disconnect: () => {}
+        })
+      }
+    });
+    const service = new TailService(() => {});
+    service.setOrg('runtime-user@example.com');
+
+    await service.start('DEBUG');
+
+    assert.equal((service as any).currentAuth?.username, 'runtime-user@example.com');
     service.stop();
   });
 

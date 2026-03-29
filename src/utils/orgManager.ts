@@ -2,7 +2,7 @@ import type * as vscode from 'vscode';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { pickSelectedOrg } from './orgs';
-import { listOrgs } from '../salesforce/cli';
+import { runtimeClient } from '../../apps/vscode-extension/src/runtime/runtimeClient';
 import type { OrgItem } from '../../apps/vscode-extension/src/shared/types';
 import { getWorkspaceRoot } from './workspace';
 import { logWarn } from './logger';
@@ -26,7 +26,12 @@ export class OrgManager {
   }
 
   async list(forceRefresh = false, signal?: AbortSignal): Promise<{ orgs: OrgItem[]; selected?: string }> {
-    const orgs = await listOrgs(forceRefresh, signal);
+    if (signal?.aborted) {
+      const error = new Error('Request aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
+    const orgs = await runtimeClient.orgList({ forceRefresh });
     await this.ensureProjectDefaultSelected(orgs);
     const selected = pickSelectedOrg(orgs, this.selectedOrg);
     this.selectedOrg = selected;

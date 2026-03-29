@@ -7,10 +7,14 @@ const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 function loadDebugFlagsPanel(stubs?: {
   traceflags?: Record<string, unknown>;
   telemetry?: Record<string, unknown>;
+  runtime?: Record<string, unknown>;
+  cli?: Record<string, unknown>;
 }) {
   return proxyquireStrict('../panel/DebugFlagsPanel', {
     '../../../../src/salesforce/traceflags': stubs?.traceflags ?? {},
-    '../shared/telemetry': stubs?.telemetry ?? {}
+    '../shared/telemetry': stubs?.telemetry ?? {},
+    '../runtime/runtimeClient': stubs?.runtime ?? {},
+    '../../../../src/salesforce/cli': stubs?.cli ?? {}
   }) as typeof import('../panel/DebugFlagsPanel');
 }
 
@@ -106,6 +110,76 @@ suite('DebugFlagsPanel', () => {
     assert.equal(panelLike.selectedOrg, 'new@example.com');
     assert.equal(panelLike.selectedTarget, undefined);
     assert.equal(bootstrapped, 1);
+  });
+
+  test('bootstrapData loads orgs and auth through runtime client', async () => {
+    const runtimeAuth = {
+      username: 'runtime@example.com',
+      instanceUrl: 'https://example.com',
+      accessToken: 'token'
+    };
+
+    const { DebugFlagsPanel } = loadDebugFlagsPanel({
+      runtime: {
+        runtimeClient: {
+          orgList: async () => [
+            {
+              username: 'runtime@example.com',
+              alias: 'Runtime',
+              isDefaultUsername: true
+            }
+          ],
+          getOrgAuth: async ({ username }: { username?: string } = {}) => ({
+            ...runtimeAuth,
+            username: username ?? runtimeAuth.username
+          })
+        }
+      },
+      cli: {
+        listOrgs: async () => {
+          throw new Error('should not call cli listOrgs');
+        },
+        getOrgAuth: async () => {
+          throw new Error('should not call cli getOrgAuth');
+        }
+      }
+    });
+
+    const posted: any[] = [];
+    const debugLevelCalls: Array<{ auth: typeof runtimeAuth; token?: number }> = [];
+    let searchUsersCalls = 0;
+    const panelLike = {
+      disposed: false,
+      orgBootstrapToken: 0,
+      selectedOrg: 'runtime@example.com',
+      post: (message: any) => {
+        posted.push(message);
+      },
+      getSelectedAuth: (DebugFlagsPanel as any).prototype.getSelectedAuth,
+      sendDebugLevelData: async (auth: typeof runtimeAuth, _selectedId?: string, token?: number) => {
+        debugLevelCalls.push({ auth, token });
+      },
+      searchUsers: async () => {
+        searchUsersCalls += 1;
+      }
+    };
+
+    await (DebugFlagsPanel as any).prototype.bootstrapData.call(panelLike);
+
+    assert.deepEqual(posted.find(message => message.type === 'debugFlagsOrgs'), {
+      type: 'debugFlagsOrgs',
+      data: [
+        {
+          username: 'runtime@example.com',
+          alias: 'Runtime',
+          isDefaultUsername: true
+        }
+      ],
+      selected: 'runtime@example.com'
+    });
+    assert.deepEqual(debugLevelCalls, [{ auth: runtimeAuth, token: 1 }]);
+    assert.equal(searchUsersCalls, 1);
+    assert.equal(posted.some(message => message.type === 'debugFlagsError'), false);
   });
 
   test('searchUsers emits sanitized telemetry on success', async () => {

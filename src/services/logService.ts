@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { promises as fs } from 'fs';
 import { createLimiter, type Limiter } from '../utils/limiter';
-import { getOrgAuth } from '../salesforce/cli';
 import { fetchApexLogBody, extractCodeUnitStartedFromLines } from '../salesforce/http';
 import type { ApexLogCursor } from '../salesforce/http';
 import type { OrgAuth } from '../salesforce/types';
@@ -12,6 +11,7 @@ import { getErrorMessage } from '../utils/error';
 import { logWarn, logInfo } from '../utils/logger';
 import { localize } from '../utils/localize';
 import { LogViewerPanel } from '../../apps/vscode-extension/src/panel/LogViewerPanel';
+import { runtimeClient } from '../../apps/vscode-extension/src/runtime/runtimeClient';
 import { fetchApexLogs } from '../salesforce/http';
 import { createUnreadableLogSummary, summarizeLogFile } from './logTriage';
 import type { LogTriageSummary } from '../../apps/vscode-extension/src/shared/logTriage';
@@ -135,7 +135,7 @@ export class LogService {
     signal?: AbortSignal,
     authHint?: OrgAuth
   ): Promise<string> {
-    const auth = authHint ?? (await getOrgAuth(selectedOrg, undefined, signal));
+    const auth = authHint ?? (await this.getOrgAuth(selectedOrg, signal));
     const existing = await findExistingLogFile(logId, auth.username);
     if (existing) {
       return existing;
@@ -212,10 +212,25 @@ export class LogService {
       return undefined;
     }
     try {
-      return (await getOrgAuth(selectedOrg, undefined, signal)).username;
+      return (await this.getOrgAuth(selectedOrg, signal)).username;
     } catch {
       return undefined;
     }
+  }
+
+  private async getOrgAuth(selectedOrg?: string, signal?: AbortSignal): Promise<OrgAuth> {
+    if (signal?.aborted) {
+      const error = new Error('Request aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
+    const auth = await runtimeClient.getOrgAuth({ username: selectedOrg });
+    if (signal?.aborted) {
+      const error = new Error('Request aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
+    return auth;
   }
 
   async classifyLogsForErrors(

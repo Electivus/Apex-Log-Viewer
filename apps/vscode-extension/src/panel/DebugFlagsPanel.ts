@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { getOrgAuth, listOrgs } from '../../../../src/salesforce/cli';
 import {
   createDebugLevel,
   deleteDebugLevel,
@@ -22,6 +21,7 @@ import { localize } from '../../../../src/utils/localize';
 import { getErrorMessage } from '../../../../src/utils/error';
 import { logInfo, logWarn } from '../../../../src/utils/logger';
 import { buildWebviewHtml } from '../../../../src/utils/webviewHtml';
+import { runtimeClient } from '../runtime/runtimeClient';
 
 interface ShowOptions {
   selectedOrg?: string;
@@ -164,7 +164,7 @@ export class DebugFlagsPanel {
     const token = ++this.orgBootstrapToken;
     this.post({ type: 'debugFlagsLoading', scope: 'orgs', value: true });
     try {
-      const orgs = await listOrgs();
+      const orgs = await runtimeClient.orgList();
       if (token !== this.orgBootstrapToken || this.disposed) {
         return;
       }
@@ -808,7 +808,18 @@ export class DebugFlagsPanel {
     if (!selected) {
       throw new Error(localize('debugFlags.noOrg', 'No Salesforce org is selected.'));
     }
-    return getOrgAuth(selected, undefined, signal);
+    if (signal?.aborted) {
+      const error = new Error('Request aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
+    const auth = await runtimeClient.getOrgAuth({ username: selected });
+    if (signal?.aborted) {
+      const error = new Error('Request aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
+    return auth;
   }
 
   private dispose(): void {

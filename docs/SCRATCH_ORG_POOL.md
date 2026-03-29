@@ -26,6 +26,11 @@ Create or update the pool records:
 npm run scratch-pool:bootstrap -- --target-org DevHubElectivus --pool-key alv-e2e --target-size 21
 ```
 
+Notes:
+
+- When invoking these scripts through `npm run`, keep the extra `--` before the script arguments. Without it, `npm` consumes flags like `--pool-key`, and the script fails with errors such as `Missing required --pool-key for bootstrap.`
+- If your shell already exports `SF_DEVHUB_ALIAS`, you can omit `--target-org` and run `npm run scratch-pool:bootstrap -- --pool-key alv-e2e --target-size 21`.
+
 Useful bootstrap overrides:
 
 - `--scratch-duration-days 30`
