@@ -88,6 +88,7 @@ suite('runtime client', () => {
         return {
           runtime_version: '0.1.0',
           protocol_version: '1',
+          channel: 'stable',
           platform: 'linux',
           arch: 'x64',
           capabilities: {
@@ -106,6 +107,7 @@ suite('runtime client', () => {
     const result = await client.initialize();
 
     assert.equal(result.protocol_version, '1');
+    assert.equal(result.channel, 'stable');
     assert.equal(result.capabilities.orgs, true);
   });
 
