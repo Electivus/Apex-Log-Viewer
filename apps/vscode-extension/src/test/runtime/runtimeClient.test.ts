@@ -270,6 +270,59 @@ suite('runtime client', () => {
     assert.equal(orgListCalls, 0);
   });
 
+  test('starts a fresh orgList request after a cancelled shared request aborts', async () => {
+    let orgListCalls = 0;
+    let rejectAbortedRequest: (() => void) | undefined;
+    let resolveRetriedRequest: ((value: OrgListItem[]) => void) | undefined;
+    const client = new RuntimeClient({
+      requestHandler: async <TResult>(method: string, params: unknown, signal?: AbortSignal) => {
+        assert.equal(method, 'org/list');
+        assert.deepEqual(params, { forceRefresh: false });
+        orgListCalls++;
+        return (await new Promise<OrgListItem[]>((resolve, reject) => {
+          if (orgListCalls === 1) {
+            signal?.addEventListener(
+              'abort',
+              () => {
+                rejectAbortedRequest = () => {
+                  const error = new Error('Request aborted');
+                  error.name = 'AbortError';
+                  reject(error);
+                };
+              },
+              { once: true }
+            );
+            return;
+          }
+
+          resolveRetriedRequest = resolve;
+        })) as TResult;
+      }
+    });
+
+    const controller = new AbortController();
+    const first = client.orgList({ forceRefresh: false }, controller.signal);
+    controller.abort();
+
+    const second = client.orgList({ forceRefresh: false });
+
+    assert.equal(orgListCalls, 2);
+    rejectAbortedRequest?.();
+    resolveRetriedRequest?.([
+      {
+        username: 'demo@example.com',
+        alias: 'Demo',
+        isDefaultUsername: true
+      }
+    ]);
+
+    await assert.rejects(
+      first,
+      (error: unknown) => error instanceof Error && error.name === 'AbortError'
+    );
+    await assert.doesNotReject(second);
+  });
+
   test('coalesces concurrent getOrgAuth requests for the same username', async () => {
     let authCalls = 0;
     let resolveAuth: ((value: OrgAuth) => void) | undefined;
@@ -442,6 +495,57 @@ suite('runtime client', () => {
       (error: unknown) => error instanceof Error && error.name === 'AbortError'
     );
     assert.equal(authCalls, 0);
+  });
+
+  test('starts a fresh getOrgAuth request after a cancelled shared request aborts', async () => {
+    let authCalls = 0;
+    let rejectAbortedRequest: (() => void) | undefined;
+    let resolveRetriedRequest: ((value: OrgAuth) => void) | undefined;
+    const client = new RuntimeClient({
+      requestHandler: async <TResult>(method: string, params: unknown, signal?: AbortSignal) => {
+        assert.equal(method, 'org/auth');
+        assert.deepEqual(params, { username: 'demo@example.com' });
+        authCalls++;
+        return (await new Promise<OrgAuth>((resolve, reject) => {
+          if (authCalls === 1) {
+            signal?.addEventListener(
+              'abort',
+              () => {
+                rejectAbortedRequest = () => {
+                  const error = new Error('Request aborted');
+                  error.name = 'AbortError';
+                  reject(error);
+                };
+              },
+              { once: true }
+            );
+            return;
+          }
+
+          resolveRetriedRequest = resolve;
+        })) as TResult;
+      }
+    });
+
+    const controller = new AbortController();
+    const first = client.getOrgAuth({ username: 'demo@example.com' }, controller.signal);
+    controller.abort();
+
+    const second = client.getOrgAuth({ username: 'demo@example.com' });
+
+    assert.equal(authCalls, 2);
+    rejectAbortedRequest?.();
+    resolveRetriedRequest?.({
+      username: 'demo@example.com',
+      instanceUrl: 'https://example.my.salesforce.com',
+      accessToken: 'token'
+    });
+
+    await assert.rejects(
+      first,
+      (error: unknown) => error instanceof Error && error.name === 'AbortError'
+    );
+    await assert.doesNotReject(second);
   });
 
   test('prepares daemon env before starting the runtime process', async () => {
