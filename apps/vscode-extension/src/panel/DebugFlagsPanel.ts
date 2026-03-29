@@ -813,7 +813,7 @@ export class DebugFlagsPanel {
       error.name = 'AbortError';
       throw error;
     }
-    const auth = await runtimeClient.getOrgAuth({ username: selected });
+    const auth = await runtimeClient.getOrgAuth({ username: selected }, signal);
     if (signal?.aborted) {
       const error = new Error('Request aborted');
       error.name = 'AbortError';

@@ -224,7 +224,7 @@ export class LogService {
       error.name = 'AbortError';
       throw error;
     }
-    const auth = await runtimeClient.getOrgAuth({ username: selectedOrg });
+    const auth = await runtimeClient.getOrgAuth({ username: selectedOrg }, signal);
     if (signal?.aborted) {
       const error = new Error('Request aborted');
       error.name = 'AbortError';

@@ -74,6 +74,9 @@ function loadTailProvider(stubs?: {
           }))
       }
     },
+    '../../../../src/utils/replayDebugger': {
+      ensureReplayDebuggerAvailable: async () => true
+    },
     '../../../../src/salesforce/traceflags': stubs?.traceflags ?? {},
     '../../../../src/utils/tailService': { TailService: TailServiceStub }
   }) as typeof import('../provider/SfLogTailViewProvider');
@@ -556,6 +559,59 @@ suite('TailService', () => {
 
     await assert.rejects(pending, /aborted/i);
     assert.equal(destroyed, true);
+  });
+
+  test('replay treats AbortError from ensureLogSaved as cancellation', async () => {
+    const originalExecuteCommand = vscode.commands.executeCommand;
+    const executed: Array<{ command: string; args: any[] }> = [];
+    (vscode.commands as any).executeCommand = async (command: string, ...args: any[]) => {
+      executed.push({ command, args });
+      return undefined;
+    };
+
+    try {
+      const { SfLogTailViewProvider } = loadTailProvider();
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const posted: any[] = [];
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+
+      (provider as any).post = (message: any) => {
+        posted.push(message);
+      };
+      (provider as any).sendOrgs = async () => {};
+      (provider as any).sendDebugLevels = async () => {};
+      await provider.resolveWebviewView(view);
+
+      (provider as any).tailService.ensureLogSaved = async () => {
+        const error = new Error('Request aborted');
+        error.name = 'AbortError';
+        throw error;
+      };
+
+      await webview.emit({ type: 'replay', logId: '07Lxx0000000001' });
+
+      assert.equal(
+        posted.some(message => message?.type === 'error'),
+        false,
+        'AbortError should be treated as cancellation'
+      );
+      assert.equal(
+        executed.some(
+          entry =>
+            entry.command === 'sf.launch.replay.debugger.logfile' ||
+            entry.command === 'sfdx.launch.replay.debugger.logfile'
+        ),
+        false,
+        'replay debugger should not launch after cancellation'
+      );
+    } finally {
+      (vscode.commands as any).executeCommand = originalExecuteCommand;
+    }
   });
 
   test('openDebugFlags opens debug flags panel from tail view', async () => {

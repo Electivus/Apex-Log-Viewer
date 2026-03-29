@@ -430,7 +430,7 @@ export class TailService {
       error.name = 'AbortError';
       throw error;
     }
-    const auth = await runtimeClient.getOrgAuth({ username: this.selectedOrg });
+    const auth = await runtimeClient.getOrgAuth({ username: this.selectedOrg }, signal);
     if (signal?.aborted) {
       const error = new Error('Request aborted');
       error.name = 'AbortError';
