@@ -39,6 +39,7 @@ type PendingRequest = {
 type InFlightRequest<TResult> = {
   activeObservers: number;
   controller: AbortController;
+  evict: () => void;
   promise: Promise<TResult>;
   settled: boolean;
 };
@@ -229,15 +230,18 @@ export class RuntimeClient extends EventEmitter {
     const entry: InFlightRequest<TResult> = {
       activeObservers: 0,
       controller,
+      evict: () => {
+        if (store.get(key) === entry) {
+          store.delete(key);
+        }
+      },
       promise: Promise.resolve(undefined as TResult),
       settled: false
     };
     const request = start(controller.signal);
     entry.promise = request.finally(() => {
       entry.settled = true;
-      if (store.get(key) === entry) {
-        store.delete(key);
-      }
+      entry.evict();
     });
     store.set(key, entry);
     return entry;
@@ -252,6 +256,7 @@ export class RuntimeClient extends EventEmitter {
     const release = () => {
       entry.activeObservers = Math.max(0, entry.activeObservers - 1);
       if (!entry.settled && entry.activeObservers === 0) {
+        entry.evict();
         entry.controller.abort();
       }
     };
