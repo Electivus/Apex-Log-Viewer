@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, time::Duration};
 
-use crate::{auth, cache};
+use crate::{auth, cache, cli_json::extract_json_object};
 
 const ORG_LIST_CACHE_KEY: &str = "org/list";
 const ORG_LIST_CACHE_TTL: Duration = Duration::from_secs(300);
@@ -30,7 +30,8 @@ pub fn list_orgs(force_refresh: bool) -> Result<Vec<OrgSummary>, String> {
 }
 
 pub fn list_orgs_from_json(json: &str) -> Result<Vec<OrgSummary>, String> {
-    let parsed = Parser::new(json).parse_value()?;
+    let normalized = extract_json_object(json);
+    let parsed = Parser::new(&normalized).parse_value()?;
     let root = match parsed {
         JsonValue::Object(root) => root,
         _ => return Err("org list payload must be a JSON object".to_string()),

@@ -15,6 +15,7 @@ use std::{
 };
 
 use crate::cli::build_command_invocation;
+use crate::cli_json::extract_json_object;
 
 pub const TEST_SF_LOG_LIST_JSON_ENV: &str = "ALV_TEST_SF_LOG_LIST_JSON";
 pub const TEST_APEX_LOG_FIXTURE_DIR_ENV: &str = "ALV_TEST_APEX_LOG_FIXTURE_DIR";
@@ -129,7 +130,8 @@ pub fn list_logs_with_cancel(
 }
 
 pub fn list_logs_from_json(json: &str) -> Result<Vec<LogRow>, String> {
-    let parsed: Value = serde_json::from_str(json)
+    let normalized = extract_json_object(json);
+    let parsed: Value = serde_json::from_str(&normalized)
         .map_err(|error| format!("invalid log list JSON fixture: {error}"))?;
 
     let records = parsed

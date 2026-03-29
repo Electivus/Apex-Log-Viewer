@@ -2,6 +2,7 @@ use serde_json::Value;
 use std::process::Command;
 
 use crate::cli::build_command_invocation;
+use crate::cli_json::extract_json_object;
 
 pub const TEST_ORG_LIST_JSON_ENV: &str = "ALV_TEST_SF_ORG_LIST_JSON";
 pub const TEST_ORG_DISPLAY_JSON_ENV: &str = "ALV_TEST_SF_ORG_DISPLAY_JSON";
@@ -136,8 +137,9 @@ where
 }
 
 pub fn resolve_org_auth_from_json(json: &str) -> Result<OrgAuth, String> {
-    let parsed: Value =
-        serde_json::from_str(json).map_err(|error| format!("invalid org auth JSON: {error}"))?;
+    let normalized = extract_json_object(json);
+    let parsed: Value = serde_json::from_str(&normalized)
+        .map_err(|error| format!("invalid org auth JSON: {error}"))?;
 
     let mut sources = vec![&parsed];
     if let Some(result) = parsed.get("result") {
@@ -246,6 +248,26 @@ mod tests {
         assert_eq!(auth.access_token, "00D-top-level");
         assert_eq!(auth.instance_url, "https://top-level.example.com");
         assert_eq!(auth.username.as_deref(), Some("top-level@example.com"));
+    }
+
+    #[test]
+    fn resolve_org_auth_from_json_accepts_update_warning_preamble() {
+        let auth = resolve_org_auth_from_json(
+            r#" »   Warning: @salesforce/cli update available from 2.127.2 to 2.128.5.
+{
+  "status": 0,
+  "result": {
+    "accessToken": "00D-warning-token",
+    "instanceUrl": "https://warning.example.com",
+    "username": "warning@example.com"
+  }
+}"#,
+        )
+        .expect("warning-prefixed auth payload should parse");
+
+        assert_eq!(auth.access_token, "00D-warning-token");
+        assert_eq!(auth.instance_url, "https://warning.example.com");
+        assert_eq!(auth.username.as_deref(), Some("warning@example.com"));
     }
 
     #[test]

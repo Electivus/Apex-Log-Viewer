@@ -87,3 +87,38 @@ fn orgs_smoke_resolves_org_auth_from_fixture() {
 
     std::env::remove_var("ALV_TEST_SF_ORG_DISPLAY_JSON");
 }
+
+#[test]
+fn orgs_smoke_lists_orgs_from_warning_prefixed_fixture() {
+    let _guard = test_guard()
+        .lock()
+        .expect("test guard lock should not be poisoned");
+
+    cache::clear_all();
+
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_LIST_JSON",
+        r#" »   Warning: @salesforce/cli update available from 2.127.2 to 2.128.5.
+{
+  "result": {
+    "nonScratchOrgs": [
+      {
+        "username": "warning@example.com",
+        "alias": "Warning",
+        "isDefaultUsername": true,
+        "instanceUrl": "https://warning.example.com"
+      }
+    ]
+  }
+}"#,
+    );
+
+    let orgs = list_orgs(true).expect("warning-prefixed org list fixture should succeed");
+    assert_eq!(orgs.len(), 1);
+    assert_eq!(orgs[0].username, "warning@example.com");
+    assert_eq!(orgs[0].alias.as_deref(), Some("Warning"));
+    assert!(orgs[0].is_default_username);
+
+    std::env::remove_var("ALV_TEST_SF_ORG_LIST_JSON");
+    cache::clear_all();
+}

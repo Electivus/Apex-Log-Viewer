@@ -113,6 +113,50 @@ fn logs_runtime_smoke_lists_logs_from_sf_fixture() {
 }
 
 #[test]
+fn logs_runtime_smoke_lists_logs_from_warning_prefixed_fixture() {
+    let _guard = lock_test_guard();
+
+    std::env::set_var(
+        TEST_SF_LOG_LIST_JSON_ENV,
+        r#" »   Warning: @salesforce/cli update available from 2.127.2 to 2.128.5.
+{
+  "result": {
+    "records": [
+      {
+        "Id": "07L000000000001AA",
+        "StartTime": "2026-03-27T12:00:00.000Z",
+        "Operation": "ExecuteAnonymous",
+        "Application": "Developer Console",
+        "DurationMilliseconds": 125,
+        "Status": "Success",
+        "Request": "REQ-1",
+        "LogLength": 4096,
+        "LogUser": { "Name": "Ada" }
+      }
+    ]
+  }
+}"#,
+    );
+
+    let rows = list_logs_with_cancel(
+        &LogsListParams {
+            username: Some("demo@example.com".to_string()),
+            limit: Some(50),
+            cursor: None,
+            offset: Some(0),
+        },
+        &CancellationToken::new(),
+    )
+    .expect("warning-prefixed logs/list fixture should parse");
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, "07L000000000001AA");
+    assert_eq!(rows[0].operation, "ExecuteAnonymous");
+
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+}
+
+#[test]
 fn logs_runtime_smoke_cancels_logs_list_before_fixture_returns() {
     let _guard = lock_test_guard();
 
