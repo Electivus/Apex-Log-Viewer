@@ -11,11 +11,24 @@ function loadTailService(stubs?: {
   cli?: Record<string, unknown>;
   http?: Record<string, unknown>;
   workspace?: Record<string, unknown>;
+  runtime?: Record<string, unknown>;
 }) {
   return proxyquireStrict('../../../../src/utils/tailService', {
     '../salesforce/cli': stubs?.cli ?? {},
     '../salesforce/http': stubs?.http ?? {},
-    './workspace': stubs?.workspace ?? {}
+    './workspace': stubs?.workspace ?? {},
+    '../../apps/vscode-extension/src/runtime/runtimeClient':
+      stubs?.runtime ?? {
+        runtimeClient: {
+          getOrgAuth:
+            stubs?.cli?.getOrgAuth ??
+            (async ({ username }: { username?: string } = {}) => ({
+              username,
+              instanceUrl: 'https://example.com',
+              accessToken: 'token'
+            }))
+        }
+      }
   }) as typeof import('../../../../src/utils/tailService');
 }
 

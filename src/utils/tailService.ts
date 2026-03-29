@@ -1,9 +1,9 @@
 import { promises as fs } from 'fs';
 import { fetchApexLogs, fetchApexLogBody, getEffectiveApiVersion } from '../salesforce/http';
-import { getOrgAuth } from '../salesforce/cli';
 import { ensureUserTraceFlag } from '../salesforce/traceflags';
 import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage } from '../../apps/vscode-extension/src/shared/messages';
+import { runtimeClient } from '../../apps/vscode-extension/src/runtime/runtimeClient';
 import { logInfo, logWarn, logError, showOutput } from './logger';
 import { localize } from './localize';
 import { getErrorMessage } from './error';
@@ -78,7 +78,7 @@ export class TailService {
     this.logIdToPath.clear();
     this.currentDebugLevel = debugLevel;
     try {
-      const auth = await getOrgAuth(this.selectedOrg);
+      const auth = await this.getOrgAuth();
       if (!this.tailRunning || this.disposed) {
         logWarn('Tail: start aborted while awaiting auth');
         return;
@@ -285,7 +285,7 @@ export class TailService {
     }
     this.seenLogIds.add(id);
     try {
-      const auth = this.currentAuth ?? (await getOrgAuth(this.selectedOrg));
+      const auth = this.currentAuth ?? (await this.getOrgAuth());
       this.currentAuth = auth;
       const conn =
         this.connection
@@ -364,7 +364,7 @@ export class TailService {
     if (existing) {
       return existing;
     }
-    const auth = this.currentAuth ?? (await getOrgAuth(this.selectedOrg, undefined, signal));
+    const auth = this.currentAuth ?? (await this.getOrgAuth(signal));
     this.currentAuth = auth;
     const connection =
       this.connection && !signal?.aborted
@@ -422,6 +422,21 @@ export class TailService {
       this.connection = await createConnectionFromAuth(auth, effectiveVersion);
     }
     return this.connection;
+  }
+
+  private async getOrgAuth(signal?: AbortSignal): Promise<OrgAuth> {
+    if (signal?.aborted) {
+      const error = new Error('Request aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
+    const auth = await runtimeClient.getOrgAuth({ username: this.selectedOrg });
+    if (signal?.aborted) {
+      const error = new Error('Request aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
+    return auth;
   }
 
   private getWorkspaceRoot(): string | undefined {

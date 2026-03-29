@@ -37,6 +37,21 @@ function createVscodeLogServiceStub(commandCalls: Array<{ command: string; uri: 
   };
 }
 
+function createRuntimeClientStub(auth: Partial<OrgAuth> = {}) {
+  return {
+    '../../apps/vscode-extension/src/runtime/runtimeClient': {
+      runtimeClient: {
+        getOrgAuth: async ({ username }: { username?: string } = {}) => ({
+          accessToken: 't',
+          instanceUrl: 'url',
+          username: username ?? auth.username,
+          ...auth
+        })
+      }
+    }
+  };
+}
+
 suite('LogService', () => {
   async function waitForCondition(
     predicate: () => boolean,
@@ -78,6 +93,53 @@ suite('LogService', () => {
     assert.equal(res.length, 1);
     assert.equal(calls.length, 1);
     assert.deepEqual(calls[0], { auth, limit: 2, offset: 0 });
+  });
+
+  test('openLog resolves auth through runtime client instead of salesforce cli', async () => {
+    const calls: any[] = [];
+    const vscodeMock = createVscodeLogServiceStub([]);
+    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+      vscode: vscodeMock,
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        fetchApexLogHead: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async () => ''
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => {
+          throw new Error('should not call cli getOrgAuth');
+        }
+      },
+      '../../apps/vscode-extension/src/runtime/runtimeClient': {
+        runtimeClient: {
+          getOrgAuth: async ({ username }: { username?: string } = {}) => ({
+            username,
+            accessToken: 't',
+            instanceUrl: 'url'
+          })
+        }
+      },
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async () => ({ dir: '', filePath: '/tmp/should-not-write.log' }),
+        findExistingLogFile: async (_logId: string, username?: string) =>
+          username === 'runtime@example.com' ? '/tmp/runtime.log' : undefined
+      },
+      '../../apps/vscode-extension/src/panel/LogViewerPanel': {
+        LogViewerPanel: class {
+          static async show(opts: any) {
+            calls.push(opts);
+          }
+        }
+      }
+    });
+
+    const svc = new LogService();
+    await svc.openLog('abc', 'runtime@example.com');
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.logId, 'abc');
+    assert.equal(calls[0]?.filePath, '/tmp/runtime.log');
   });
 
   test('loadLogHeads skips uncached logs instead of downloading full bodies', async () => {
@@ -226,12 +288,13 @@ suite('LogService', () => {
           extractCodeUnitStartedFromLines: () => undefined,
           fetchApexLogBody: async () => ''
         },
-        '../salesforce/cli': {
-          getOrgAuth: async () => ({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' })
-        },
-        '../utils/workspace': {
-          getLogFilePathWithUsername: async () => ({ dir: '', filePath: '/tmp/test.log' }),
-          findExistingLogFile: async (_logId: string, username?: string) =>
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' })
+      },
+      ...createRuntimeClientStub({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' }),
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async () => ({ dir: '', filePath: '/tmp/test.log' }),
+        findExistingLogFile: async (_logId: string, username?: string) =>
             username === 'user@example.com' ? '/tmp/test.log' : undefined
         },
         '../../apps/vscode-extension/src/panel/LogViewerPanel': {
@@ -304,6 +367,7 @@ suite('LogService', () => {
         '../salesforce/cli': {
           getOrgAuth: async () => ({ username: 'user', accessToken: 'token', instanceUrl: 'url' })
         },
+        ...createRuntimeClientStub({ username: 'user', accessToken: 'token', instanceUrl: 'url' }),
         '../utils/workspace': {
           getLogFilePathWithUsername: async () => ({ dir: path.dirname(filePath), filePath }),
           findExistingLogFile: async () => storedPath
@@ -344,6 +408,7 @@ suite('LogService', () => {
       '../salesforce/cli': {
         getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
       },
+      ...createRuntimeClientStub({ username: 'u', accessToken: 't', instanceUrl: 'url' }),
       '../utils/workspace': {
         getLogFilePathWithUsername: async (_username: string | undefined, logId: string) => ({
           dir: '/tmp',
