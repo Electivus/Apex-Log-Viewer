@@ -16,7 +16,6 @@ import type {
 import { createDaemonProcess } from '../../../../packages/app-server-client-ts/src/index';
 import type { JsonRpcRequest, OrgListItem, OrgListParams } from '../../../../packages/app-server-client-ts/src/index';
 import { logTrace } from '../../../../src/utils/logger';
-import { getConfig } from '../../../../src/utils/config';
 import { getLoginShellEnv } from '../../../../src/salesforce/path';
 import { safeSendEvent } from '../shared/telemetry';
 import { resolveBundledBinary } from './bundledBinary';
@@ -33,6 +32,12 @@ import {
 type TimerHandle = ReturnType<typeof setTimeout>;
 const RUNTIME_EXIT_MESSAGE_PREFIX = 'runtime exited (';
 const RUNTIME_TELEMETRY_METHODS = new Set(['initialize', 'org/list', 'org/auth', 'logs/list', 'search/query', 'logs/triage']);
+
+function getConfiguredRuntimePath(): string {
+  const { getConfig } = require('../../../../src/utils/config') as typeof import('../../../../src/utils/config');
+  return getConfig('electivus.apexLogs.runtimePath', '');
+}
+
 type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -98,7 +103,7 @@ export class RuntimeClient extends EventEmitter {
 
     const bundledPath = resolveBundledBinary(process.platform, process.arch);
     const executableResolution = resolveRuntimeExecutable({
-      configuredPath: getConfig('electivus.apexLogs.runtimePath', ''),
+      configuredPath: getConfiguredRuntimePath(),
       bundledPath
     });
     const env = await this.resolveProcessEnv();
