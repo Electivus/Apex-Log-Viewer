@@ -1,6 +1,6 @@
 const { spawn, execFile, spawnSync } = require('child_process');
 const { platform, tmpdir } = require('os');
-const { mkdtempSync, writeFileSync, mkdirSync, rmSync } = require('fs');
+const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } = require('fs');
 const { dirname, join, resolve } = require('path');
 const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } = require('@vscode/test-electron');
 const { build } = require('esbuild');

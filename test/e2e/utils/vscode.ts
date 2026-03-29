@@ -390,13 +390,12 @@ export async function launchVsCode(options: {
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
   let extensionsDir = resolveCachedSupportExtensionsDir(vscodeCachePath, vscodeVersion, supportExtensionIds);
   const supportExtensionsLockPath = resolveSupportExtensionsLockPath(extensionsDir);
-  let shouldCleanupExtensionsDir = false;
   await mkdir(extensionsDir, { recursive: true });
 
   // The extension is loaded via --extensionDevelopmentPath. Some E2E scenarios still
   // need support extensions in a reusable test cache (for example Replay Debugger),
   // so install manifest references plus scenario-specific ids.
-  const resolvedExtensionsDir = await timeE2eStep(
+  await timeE2eStep(
     'vscode.ensureSupportExtensions',
     async () =>
       await withFileLock(
@@ -410,11 +409,6 @@ export async function launchVsCode(options: {
           })
       )
   );
-  if (resolvedExtensionsDir !== extensionsDir) {
-    extensionsDir = resolvedExtensionsDir;
-    shouldCleanupExtensionsDir = false;
-  }
-
   const args = [
     options.workspacePath,
     `--extensionDevelopmentPath=${options.extensionDevelopmentPath}`,
@@ -470,9 +464,6 @@ export async function launchVsCode(options: {
       console.warn(`[e2e] Preserving VS Code user-data-dir at ${userDataDir}`);
     } else {
       await removePathBestEffort(userDataDir);
-    }
-    if (shouldCleanupExtensionsDir) {
-      await removePathBestEffort(extensionsDir);
     }
   };
 

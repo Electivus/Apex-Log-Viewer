@@ -36,6 +36,13 @@ test("VSIX smoke packaging delegates to the monorepo vsce helper", () => {
   assert.match(script, /'--skip-prepublish'/);
 });
 
+test("VSIX smoke validation keeps existsSync available for the packaged VSIX check", () => {
+  const script = fs.readFileSync(path.join(__dirname, "run-tests.js"), "utf8");
+
+  assert.match(script, /\{[^}]*existsSync[^}]*\}\s*=\s*require\('fs'\)/);
+  assert.match(script, /if \(!existsSync\(smokeVsixPath\)\) throw new Error\('\[smoke\] VSIX not found'\);/);
+});
+
 test("resolveMissingExtensionIds reports missing dependencies instead of relying on local user extensions", () => {
   const output = [
     "salesforce.salesforcedx-vscode@58.5.0",
