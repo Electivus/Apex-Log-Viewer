@@ -70,7 +70,7 @@ jobs:
         run: node scripts/resolve-vscode-cache-metadata.js
 
       - name: Restore VS Code test cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .vscode-test/vscode-*
           key: vscode-test-${{ runner.os }}-${{ steps.vscode-cache.outputs.version }}-${{ steps.vscode-cache.outputs.build }}
