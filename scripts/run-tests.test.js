@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { ensureDevHub, pretestSetup, resolveRequiredDevHubConfig } = require("./run-tests");
+const { ensureDevHub, pretestSetup, resolveMissingExtensionIds, resolveRequiredDevHubConfig } = require("./run-tests");
 
 const originalEnv = { ...process.env };
 
@@ -34,6 +34,21 @@ test("VSIX smoke packaging delegates to the monorepo vsce helper", () => {
 
   assert.match(script, /scripts',\s*'run-vsce\.js'/);
   assert.match(script, /'--skip-prepublish'/);
+});
+
+test("resolveMissingExtensionIds reports missing dependencies instead of relying on local user extensions", () => {
+  const output = [
+    "salesforce.salesforcedx-vscode@58.5.0",
+    "ms-vscode.cpptools@1.24.5"
+  ].join("\n");
+
+  assert.deepEqual(
+    resolveMissingExtensionIds(
+      ["salesforce.salesforcedx-vscode", "salesforce.salesforcedx-vscode-apex-replay-debugger"],
+      output
+    ),
+    ["salesforce.salesforcedx-vscode-apex-replay-debugger"]
+  );
 });
 
 test("resolveRequiredDevHubConfig ignores the legacy SFDX_AUTH_URL fallback", () => {
