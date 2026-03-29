@@ -166,15 +166,19 @@ jobs:
             *.vsix
           if-no-files-found: error
 
-  publish:
-    name: Publish to Marketplaces
+  prepare_publish:
+    name: Prepare release publishing
     if: github.repository == 'Electivus/Apex-Log-Viewer'
     needs: package
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      version: ${{ steps.determine_channel.outputs.version }}
+      pre_release: ${{ steps.determine_channel.outputs.pre_release }}
+      channel_suffix: ${{ steps.determine_channel.outputs.channel_suffix }}
+      artifact_name: apex-log-viewer-${{ steps.determine_channel.outputs.version }}-${{ steps.determine_channel.outputs.channel_suffix }}-publish-vsix
     permissions:
       contents: write
-    environment: marketplace
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -183,10 +187,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - name: Install dependencies
-        run: npm ci --workspaces=false
 
       - name: Verify tag matches extension package version
         shell: bash
@@ -198,9 +198,6 @@ jobs:
             echo "Tag $GITHUB_REF_NAME != apps/vscode-extension/package.json version $PKG_VERSION" >&2
             exit 1
           fi
-
-      - name: Build + generate NLS assets
-        run: npm run package
 
       - name: Determine channel (stable vs pre-release)
         id: determine_channel
@@ -284,61 +281,12 @@ jobs:
           fi
           find "${VSIX_DIR}" -name '*.vsix' -exec mv {} . \;
 
-      - name: Publish from VSIX artifact
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-          PRE_RELEASE: ${{ steps.determine_channel.outputs.pre_release }}
-          VERSION: ${{ steps.determine_channel.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${VSCE_PAT}" ]; then
-            echo "VSCE_PAT not set; skipping Marketplace publish."
-            exit 0
-          fi
-          shopt -s nullglob
-          FILES=( *.vsix )
-          if [ ${#FILES[@]} -eq 0 ]; then
-            echo "No VSIX found to publish" >&2
-            exit 1
-          fi
-          for FILE in "${FILES[@]}"; do
-            if [ "${PRE_RELEASE}" = "true" ]; then
-              echo "Publishing pre-release ${VERSION} from ${FILE}"
-              npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release
-            else
-              echo "Publishing stable ${VERSION} from ${FILE}"
-              npx --yes @vscode/vsce publish --packagePath "${FILE}"
-            fi
-          done
-
-      - name: Publish to Open VSX from VSIX artifact
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
-          PRE_RELEASE: ${{ steps.determine_channel.outputs.pre_release }}
-          VERSION: ${{ steps.determine_channel.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${OVSX_PAT}" ]; then
-            echo "OVSX_PAT not set; skipping Open VSX publish."
-            exit 0
-          fi
-          shopt -s nullglob
-          FILES=( *.vsix )
-          if [ ${#FILES[@]} -eq 0 ]; then
-            echo "No VSIX found to publish" >&2
-            exit 1
-          fi
-          for FILE in "${FILES[@]}"; do
-            if [ "${PRE_RELEASE}" = "true" ]; then
-              echo "Publishing pre-release ${VERSION} to Open VSX from ${FILE}"
-              npx --yes ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}" --pre-release
-            else
-              echo "Publishing stable ${VERSION} to Open VSX from ${FILE}"
-              npx --yes ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}"
-            fi
-          done
+      - name: Upload VSIX artifact for marketplace publish jobs
+        uses: actions/upload-artifact@v7
+        with:
+          name: apex-log-viewer-${{ steps.determine_channel.outputs.version }}-${{ steps.determine_channel.outputs.channel_suffix }}-publish-vsix
+          path: |
+            ./*.vsix
 
       - name: Create or update GitHub release (pre-release)
         if: steps.determine_channel.outputs.pre_release == 'true'
@@ -379,3 +327,97 @@ jobs:
           gh release upload "$TAG" ./*.vsix --clobber
 
   # Note: CHANGELOG.md is maintained manually by the project.
+
+  publish_marketplace:
+    name: Publish to VS Code Marketplace
+    if: github.repository == 'Electivus/Apex-Log-Viewer'
+    needs: prepare_publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: marketplace
+    steps:
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Download VSIX artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.prepare_publish.outputs.artifact_name }}
+          path: .
+
+      - name: Publish from VSIX artifact
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          PRE_RELEASE: ${{ needs.prepare_publish.outputs.pre_release }}
+          VERSION: ${{ needs.prepare_publish.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${VSCE_PAT}" ]; then
+            echo "VSCE_PAT not set; skipping Marketplace publish."
+            exit 0
+          fi
+          shopt -s nullglob
+          FILES=( *.vsix )
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No VSIX found to publish" >&2
+            exit 1
+          fi
+          for FILE in "${FILES[@]}"; do
+            if [ "${PRE_RELEASE}" = "true" ]; then
+              echo "Publishing pre-release ${VERSION} from ${FILE}"
+              npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release
+            else
+              echo "Publishing stable ${VERSION} from ${FILE}"
+              npx --yes @vscode/vsce publish --packagePath "${FILE}"
+            fi
+          done
+
+  publish_open_vsx:
+    name: Publish to Open VSX
+    if: github.repository == 'Electivus/Apex-Log-Viewer'
+    needs: prepare_publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: marketplace
+    steps:
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Download VSIX artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.prepare_publish.outputs.artifact_name }}
+          path: .
+
+      - name: Publish to Open VSX from VSIX artifact
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+          PRE_RELEASE: ${{ needs.prepare_publish.outputs.pre_release }}
+          VERSION: ${{ needs.prepare_publish.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${OVSX_PAT}" ]; then
+            echo "OVSX_PAT not set; skipping Open VSX publish."
+            exit 0
+          fi
+          shopt -s nullglob
+          FILES=( *.vsix )
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No VSIX found to publish" >&2
+            exit 1
+          fi
+          for FILE in "${FILES[@]}"; do
+            if [ "${PRE_RELEASE}" = "true" ]; then
+              echo "Publishing pre-release ${VERSION} to Open VSX from ${FILE}"
+              npx --yes ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}" --pre-release
+            else
+              echo "Publishing stable ${VERSION} to Open VSX from ${FILE}"
+              npx --yes ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}"
+            fi
+          done
