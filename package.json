@@ -30,7 +30,7 @@
     "nls:write": "node scripts/gen-nls.cjs",
     "prepackage": "npm run clean",
     "package": "npm run package:runtime && node apps/vscode-extension/esbuild.extension.mjs && (npm run -s nls:extract || true) && npm run nls:write && npm run build:webview",
-    "lint": "eslint src",
+    "lint": "eslint \"src/**/*.{ts,tsx}\" \"apps/vscode-extension/src/**/*.{ts,tsx}\" \"packages/app-server-client-ts/src/**/*.{ts,tsx}\" \"packages/webview/src/**/*.{ts,tsx}\"",
     "vsce:package": "node scripts/run-vsce.js package --no-yarn",
     "vsce:package:pre": "node scripts/run-vsce.js package --no-yarn --pre-release",
     "vsce:publish": "node scripts/run-vsce.js publish",

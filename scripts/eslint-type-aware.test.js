@@ -23,3 +23,13 @@ test("repo ESLint config reports floating promises in TypeScript files", async (
     `Expected @typescript-eslint/no-floating-promises, got ${JSON.stringify(result.messages, null, 2)}`,
   );
 });
+
+test("lint script covers the migrated monorepo source roots", () => {
+  const packageJsonPath = path.join(repoRoot, "package.json");
+  const packageJson = JSON.parse(require("node:fs").readFileSync(packageJsonPath, "utf8"));
+  const lintScript = packageJson.scripts?.lint ?? "";
+
+  assert.match(lintScript, /\bsrc\b/);
+  assert.match(lintScript, /apps\/vscode-extension\/src/);
+  assert.match(lintScript, /packages\/webview\/src/);
+});
