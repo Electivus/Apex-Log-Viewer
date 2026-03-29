@@ -33,19 +33,28 @@ suite('LogsMessageHandler telemetry', () => {
     );
   }
 
-  test('emits logs.search for sanitized search telemetry messages', async () => {
+  test('emits zero-duration logs.search telemetry when the search is cleared', async () => {
+    const events: Array<{ name: string; properties?: Record<string, string>; measurements?: Record<string, number> }> = [];
+    const handler = createHandler(events);
+
+    await handler.handle({ type: 'trackLogsSearch', outcome: 'cleared' } as any);
+
+    assert.deepEqual(events, [
+      {
+        name: 'logs.search',
+        properties: { outcome: 'cleared' },
+        measurements: { durationMs: 0, matchCount: 0, pendingCount: 0 }
+      }
+    ]);
+  });
+
+  test('does not emit searched logs.search telemetry from the message handler', async () => {
     const events: Array<{ name: string; properties?: Record<string, string>; measurements?: Record<string, number> }> = [];
     const handler = createHandler(events);
 
     await handler.handle({ type: 'trackLogsSearch', outcome: 'searched', queryLength: '4-10' } as any);
 
-    assert.deepEqual(events, [
-      {
-        name: 'logs.search',
-        properties: { outcome: 'searched', queryLength: '4-10' },
-        measurements: undefined
-      }
-    ]);
+    assert.deepEqual(events, []);
   });
 
   test('emits logs.filter for sanitized filter telemetry messages', async () => {

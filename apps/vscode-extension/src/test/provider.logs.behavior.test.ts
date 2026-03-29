@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'node:os';
@@ -11,8 +11,8 @@ const makeDisposable = (dispose: () => void = () => {}) => ({ dispose });
 
 function makeContext() {
   const context = {
-    extensionUri: vscode.Uri.file(path.resolve('.')),
-    subscriptions: [] as vscode.Disposable[]
+    extensionUri: makeUri(path.resolve('.')),
+    subscriptions: [] as Array<{ dispose?: () => void }>
   } as unknown as vscode.ExtensionContext;
   return context;
 }
@@ -35,6 +35,11 @@ async function waitForCondition(
 }
 
 function createProviderHarness() {
+  const telemetryEvents: Array<{
+    name: string;
+    properties?: Record<string, string>;
+    measurements?: Record<string, number>;
+  }> = [];
   const httpStub: any = {
     clearListCache: () => undefined,
     getApiVersionFallbackWarning: () => undefined
@@ -168,12 +173,33 @@ function createProviderHarness() {
   const module = proxyquireStrict('../provider/SfLogsViewProvider', {
     vscode: vscodeMock,
     '../../../../src/salesforce/http': httpStub,
+    '../../../../src/utils/logger': {
+      logInfo: () => undefined,
+      logWarn: () => undefined,
+      logError: () => undefined,
+      logTrace: () => undefined,
+      '@noCallThru': true
+    },
+    '../../../../src/utils/webviewHtml': {
+      buildWebviewHtml: () => '<html></html>',
+      '@noCallThru': true
+    },
     '../../../../src/utils/workspace': workspaceStub,
     '../runtime/runtimeClient': { runtimeClient: runtimeClientStub },
     '../utils/orgManager': { OrgManager: OrgManagerStub },
     '../../../../src/utils/configManager': { ConfigManager: ConfigManagerStub },
     '../../../../src/services/logService': { LogService: LogServiceStub },
-    '../panel/DebugFlagsPanel': { DebugFlagsPanel: debugFlagsPanelStub }
+    '../panel/DebugFlagsPanel': { DebugFlagsPanel: debugFlagsPanelStub },
+    '../shared/telemetry': {
+      safeSendEvent: (
+        name: string,
+        properties?: Record<string, string>,
+        measurements?: Record<string, number>
+      ) => {
+        telemetryEvents.push({ name, properties, measurements });
+      },
+      '@noCallThru': true
+    }
   }) as typeof import('../provider/SfLogsViewProvider');
 
   return {
@@ -182,6 +208,7 @@ function createProviderHarness() {
     http: httpStub,
     workspace: workspaceStub,
     DebugFlagsPanel: debugFlagsPanelStub,
+    telemetryEvents,
     vscode: vscodeMock
   };
 }
@@ -627,7 +654,7 @@ suite('SfLogsViewProvider behavior', () => {
   });
 
   test('searchQuery posts searchMatches from runtime search results', async () => {
-    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+    const { SfLogsViewProvider, cli, telemetryEvents, workspace } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
 
@@ -695,6 +722,11 @@ suite('SfLogsViewProvider behavior', () => {
       assert.ok(snippet?.text.includes(needle), 'snippet should contain the matched text');
       assert.ok(Array.isArray(matches?.pendingLogIds), 'should include pendingLogIds array');
       assert.equal((matches?.pendingLogIds || []).length, 0, 'pendingLogIds should be empty when cached');
+      const telemetry = telemetryEvents.filter(event => event.name === 'logs.search').pop();
+      assert.deepEqual(telemetry?.properties, { outcome: 'searched', queryLength: '4-10' });
+      assert.equal(typeof telemetry?.measurements?.durationMs, 'number');
+      assert.equal(telemetry?.measurements?.matchCount, 1);
+      assert.equal(telemetry?.measurements?.pendingCount, 0);
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }

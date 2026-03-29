@@ -69,6 +69,18 @@ AppEvents
 | order by Name asc, count_ desc
 ```
 
+### CLI command health
+
+```kusto
+AppEvents
+| where TimeGenerated > ago(30d)
+| where Name == "electivus.apex-log-viewer/cli.command"
+| extend props = parse_json(Properties), measurements = parse_json(Measurements)
+| extend command = tostring(props["command"]), outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"])
+| summarize total = count(), p50 = percentile(durationMs, 50), p95 = percentile(durationMs, 95) by command, outcome
+| order by command asc, outcome asc
+```
+
 ### Refresh health
 
 ```kusto
@@ -78,6 +90,30 @@ AppEvents
 | extend props = parse_json(Properties)
 | summarize total = count(), errors = countif(tostring(props["outcome"]) == "error")
 | extend errorRate = round(100.0 * todouble(errors) / todouble(total), 2)
+```
+
+### Search health
+
+```kusto
+AppEvents
+| where TimeGenerated > ago(30d)
+| where Name == "electivus.apex-log-viewer/logs.search"
+| extend props = parse_json(Properties), measurements = parse_json(Measurements)
+| extend outcome = tostring(props["outcome"]), queryLength = tostring(props["queryLength"]), durationMs = todouble(measurements["durationMs"]), matchCount = todouble(measurements["matchCount"]), pendingCount = todouble(measurements["pendingCount"])
+| summarize total = count(), errors = countif(outcome == "error"), p50 = percentile(durationMs, 50), p95 = percentile(durationMs, 95), avgMatches = avg(matchCount), avgPending = avg(pendingCount) by queryLength, outcome
+| order by queryLength asc, outcome asc
+```
+
+### Daemon request health
+
+```kusto
+AppEvents
+| where TimeGenerated > ago(30d)
+| where Name == "electivus.apex-log-viewer/daemon.request"
+| extend props = parse_json(Properties), measurements = parse_json(Measurements)
+| extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"]), attempts = todouble(measurements["attempts"])
+| summarize total = count(), errors = countif(outcome == "error"), retries = countif(attempts > 1), p50 = percentile(durationMs, 50), p95 = percentile(durationMs, 95) by method
+| order by p95 desc
 ```
 
 ### Debug Levels / Debug Flags health
@@ -111,6 +147,8 @@ Recommended first alerts:
 - `cli-discovery-regression`: detect `ENOENT` and `CLI_NOT_FOUND` spikes from CLI discovery flows.
 - `cli-timeout-spike`: detect `ETIMEDOUT` spikes from CLI execution or auth calls.
 - `refresh-failure-rate-spike`: detect high `logs.refresh` error rate on the main workflow.
+- `logs-search-degraded`: detect slow or failing search execution before it becomes user-visible.
+- `daemon-request-degraded`: detect runtime retries, failures, or high latency in the bundled daemon.
 - `debug-levels-degraded`: detect sustained `debugLevels.load` failures or severe latency.
 
 Alert queries:
@@ -174,8 +212,36 @@ AppEvents
 | where total >= 5 and (errorRate >= 50 or p95 >= 60000)
 ```
 
+### logs-search-degraded
+
+```kusto
+AppEvents
+| where TimeGenerated > ago(2h)
+| where Name == "electivus.apex-log-viewer/logs.search"
+| extend props = parse_json(Properties), measurements = parse_json(Measurements)
+| extend outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"])
+| where outcome in ("searched", "error")
+| summarize total = count(), errors = countif(outcome == "error"), p95 = percentile(durationMs, 95)
+| extend errorRate = iff(total == 0, 0.0, 100.0 * todouble(errors) / todouble(total))
+| where total >= 10 and (errorRate >= 20 or p95 >= 5000)
+```
+
+### daemon-request-degraded
+
+```kusto
+AppEvents
+| where TimeGenerated > ago(2h)
+| where Name == "electivus.apex-log-viewer/daemon.request"
+| extend props = parse_json(Properties), measurements = parse_json(Measurements)
+| extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"]), attempts = toint(measurements["attempts"])
+| summarize total = count(), errors = countif(outcome == "error"), retries = countif(attempts > 1), p95 = percentile(durationMs, 95) by method
+| extend errorRate = iff(total == 0, 0.0, 100.0 * todouble(errors) / todouble(total))
+| where total >= 10 and (errorRate >= 20 or retries >= 3 or p95 >= 15000)
+```
+
 Operational notes:
 
 - Create a dedicated action group for these alerts instead of relying on `Application Insights Smart Detection`.
-- The workspace currently reports `retentionInDays = 30`, so treat 30 days as the operational history unless retention is aligned.
+- Align the shared workspace to `retentionInDays = 90` if you want enough history for regression comparisons across releases and seasonal traffic.
+- In the monorepo, keep shared operational visibility in the same workspace and split user-facing environments with `_ResourceId` instead of creating separate Application Insights components for the JS CLI or the bundled daemon.
 - Use `_ResourceId` or `ResourceGUID` when you need to split production and E2E telemetry inside the shared workspace.

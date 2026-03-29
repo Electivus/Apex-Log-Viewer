@@ -5,7 +5,7 @@
       "type": 1,
       "name": "intro",
       "content": {
-        "json": "# Apex Log Viewer Telemetry\nThis workbook focuses on extension usage, CLI/auth friction, refresh health, and debug-level degradation."
+        "json": "# Apex Log Viewer Telemetry\nThis workbook focuses on extension usage, CLI/auth friction, refresh health, search performance, daemon health, and debug-level degradation."
       }
     },
     {
@@ -49,12 +49,51 @@
     },
     {
       "type": 3,
+      "name": "cliCommandHealth",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AppEvents | where TimeGenerated > ago(30d) | where Name == \"electivus.apex-log-viewer/cli.command\" | extend props = parse_json(Properties), measurements = parse_json(Measurements) | extend command = tostring(props[\"command\"]), outcome = tostring(props[\"outcome\"]), durationMs = todouble(measurements[\"durationMs\"]) | summarize total = count(), p50 = percentile(durationMs, 50), p95 = percentile(durationMs, 95) by command, outcome | order by command asc, outcome asc",
+        "size": 0,
+        "title": "CLI Command Health",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
       "name": "refreshHealth",
       "content": {
         "version": "KqlItem/1.0",
         "query": "AppEvents | where TimeGenerated > ago(30d) | where Name == \"electivus.apex-log-viewer/logs.refresh\" | extend props = parse_json(Properties) | summarize total = count(), errors = countif(tostring(props[\"outcome\"]) == \"error\") | extend errorRate = round(100.0 * todouble(errors) / todouble(total), 2)",
         "size": 0,
         "title": "Refresh Health",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "searchHealth",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AppEvents | where TimeGenerated > ago(30d) | where Name == \"electivus.apex-log-viewer/logs.search\" | extend props = parse_json(Properties), measurements = parse_json(Measurements) | extend outcome = tostring(props[\"outcome\"]), queryLength = tostring(props[\"queryLength\"]), durationMs = todouble(measurements[\"durationMs\"]), matchCount = todouble(measurements[\"matchCount\"]), pendingCount = todouble(measurements[\"pendingCount\"]) | summarize total = count(), errors = countif(outcome == \"error\"), p50 = percentile(durationMs, 50), p95 = percentile(durationMs, 95), avgMatches = avg(matchCount), avgPending = avg(pendingCount) by queryLength, outcome | order by queryLength asc, outcome asc",
+        "size": 0,
+        "title": "Search Health",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "daemonHealth",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "AppEvents | where TimeGenerated > ago(30d) | where Name == \"electivus.apex-log-viewer/daemon.request\" | extend props = parse_json(Properties), measurements = parse_json(Measurements) | extend method = tostring(props[\"method\"]), outcome = tostring(props[\"outcome\"]), durationMs = todouble(measurements[\"durationMs\"]), attempts = todouble(measurements[\"attempts\"]) | summarize total = count(), errors = countif(outcome == \"error\"), retries = countif(attempts > 1), p50 = percentile(durationMs, 50), p95 = percentile(durationMs, 95) by method | order by p95 desc",
+        "size": 0,
+        "title": "Daemon Request Health",
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
         "visualization": "table"

@@ -54,6 +54,12 @@
           "required": true,
           "values": ["invoked"]
         }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        }
       }
     },
     "command.selectOrg": {
@@ -296,18 +302,32 @@
       }
     },
     "logs.search": {
-      "description": "Search usage in the logs view.",
+      "description": "Search outcome in the logs view.",
       "properties": {
         "outcome": {
           "classification": "SystemMetaData",
           "purpose": "FeatureInsight",
           "required": true,
-          "values": ["searched", "cleared"]
+          "values": ["searched", "cleared", "error"]
         },
         "queryLength": {
           "classification": "SystemMetaData",
           "purpose": "FeatureInsight",
           "values": ["1-3", "4-10", "11-30", "31+"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "matchCount": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
+        },
+        "pendingCount": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight"
         }
       }
     },
@@ -556,6 +576,55 @@
           "classification": "SystemMetaData",
           "purpose": "PerformanceAndHealth",
           "values": ["sf", "sfdx"]
+        }
+      }
+    },
+    "cli.command": {
+      "description": "Salesforce CLI command execution outcome and latency.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "required": true,
+          "values": ["ok", "error", "timeout", "not_found"]
+        },
+        "command": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "values": ["sf", "sfdx", "other"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        }
+      }
+    },
+    "daemon.request": {
+      "description": "Daemon request outcome and latency at the extension/runtime boundary.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "required": true,
+          "values": ["ok", "error", "cancelled"]
+        },
+        "method": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "required": true,
+          "values": ["initialize", "org/list", "org/auth", "logs/list", "search/query", "logs/triage", "other"]
+        }
+      },
+      "measurements": {
+        "durationMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "attempts": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
         }
       }
     }

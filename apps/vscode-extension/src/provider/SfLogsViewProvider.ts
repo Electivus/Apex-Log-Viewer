@@ -20,6 +20,7 @@ import { affectsConfiguration, getConfig } from '../../../../src/utils/config';
 import { getWorkspaceRoot, purgeSavedLogs } from '../../../../src/utils/workspace';
 import { DEFAULT_LOGS_COLUMNS_CONFIG, normalizeLogsColumnsConfig, type NormalizedLogsColumnsConfig } from '../shared/logsColumns';
 import { normalizeLogTriageSummary, type LogTriageSummary } from '../shared/logTriage';
+import { bucketQueryLength } from '../shared/telemetryBuckets';
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
 
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
@@ -714,11 +715,17 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       }
       return;
     }
+    const t0 = Date.now();
+    const queryLength = bucketQueryLength(trimmed);
+    if (queryLength === '0') {
+      return;
+    }
     if (!this.configManager.shouldLoadFullLogBodies()) {
       if (isActive()) {
         this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
         this.postSearchStatus('idle');
       }
+      this.sendSearchTelemetry('searched', queryLength, { durationMs: 0, matchCount: 0, pendingCount: 0 });
       return;
     }
     const logsSnapshot = [...this.currentLogs];
@@ -732,6 +739,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
         this.postSearchStatus('idle');
       }
+      this.sendSearchTelemetry('searched', queryLength, { durationMs: 0, matchCount: 0, pendingCount: 0 });
       return;
     }
     if (isActive()) {
@@ -759,6 +767,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         snippets: result.snippets ?? {},
         pendingLogIds: Array.isArray(result.pendingLogIds) ? result.pendingLogIds : []
       });
+      this.sendSearchTelemetry('searched', queryLength, {
+        durationMs: Date.now() - t0,
+        matchCount: Array.isArray(result.logIds) ? result.logIds.length : 0,
+        pendingCount: Array.isArray(result.pendingLogIds) ? result.pendingLogIds.length : 0
+      });
       logTrace('Logs: executeSearch result', {
         queryLength: trimmed.length,
         matches: Array.isArray(result.logIds) ? result.logIds.length : 0,
@@ -769,12 +782,27 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       logWarn('Logs: search failed ->', getErrorMessage(e));
       if (token === this.searchToken && !this.disposed && !signal?.aborted) {
         this.post({ type: 'searchMatches', query: trimmed, logIds: [] });
+        this.sendSearchTelemetry('error', queryLength, {
+          durationMs: Date.now() - t0,
+          matchCount: 0,
+          pendingCount: 0
+        });
       }
     } finally {
       if (isActive()) {
         this.postSearchStatus('idle');
       }
     }
+  }
+
+  private sendSearchTelemetry(
+    outcome: 'searched' | 'error',
+    queryLength: '1-3' | '4-10' | '11-30' | '31+',
+    measurements: { durationMs: number; matchCount: number; pendingCount: number }
+  ): void {
+    try {
+      safeSendEvent('logs.search', { outcome, queryLength }, measurements);
+    } catch {}
   }
 
   private async fetchAllOrgLogs(selectedOrg: string | undefined, signal?: AbortSignal): Promise<ApexLogRow[]> {

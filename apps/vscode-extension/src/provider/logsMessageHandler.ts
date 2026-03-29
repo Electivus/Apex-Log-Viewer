@@ -71,12 +71,9 @@ export class LogsMessageHandler {
         await this.setSearchQuery(typeof message.value === 'string' ? message.value : '');
         break;
       case 'trackLogsSearch':
-        safeSendEvent(
-          'logs.search',
-          message.outcome === 'searched' && message.queryLength
-            ? { outcome: message.outcome, queryLength: message.queryLength }
-            : { outcome: message.outcome }
-        );
+        if (message.outcome === 'cleared') {
+          safeSendEvent('logs.search', { outcome: 'cleared' }, { durationMs: 0, matchCount: 0, pendingCount: 0 });
+        }
         break;
       case 'trackLogsFilter':
         safeSendEvent(
