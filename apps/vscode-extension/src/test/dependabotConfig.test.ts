@@ -11,6 +11,8 @@ type DependabotGroup = {
 type ParsedDependabotUpdate = {
   'package-ecosystem'?: unknown;
   directory?: unknown;
+  schedule?: unknown;
+  'open-pull-requests-limit'?: unknown;
   groups?: unknown;
 };
 
@@ -28,20 +30,29 @@ function asStringArray(value: unknown, message: string): string[] | undefined {
   return value as string[];
 }
 
-function getNpmGroups(raw: string): Record<string, unknown> {
+function getUpdateConfig(raw: string, packageEcosystem: string, directory: string): ParsedDependabotUpdate {
   const config = parse(raw) as ParsedDependabotConfig;
   assert.ok(Array.isArray(config.updates), 'dependabot.yml should parse into an updates array');
 
-  const npmUpdate = config.updates.find((entry): entry is ParsedDependabotUpdate => {
+  const update = config.updates.find((entry): entry is ParsedDependabotUpdate => {
     if (!entry || typeof entry !== 'object') {
       return false;
     }
 
-    const update = entry as ParsedDependabotUpdate;
-    return update['package-ecosystem'] === 'npm' && update.directory === '/';
+    const typedUpdate = entry as ParsedDependabotUpdate;
+    return typedUpdate['package-ecosystem'] === packageEcosystem && typedUpdate.directory === directory;
   });
 
-  assert.ok(npmUpdate, 'dependabot.yml should define an npm updater for the repository root');
+  assert.ok(
+    update,
+    `dependabot.yml should define a ${packageEcosystem} updater for the ${directory === '/' ? 'repository root' : directory}`
+  );
+
+  return update;
+}
+
+function getNpmGroups(raw: string): Record<string, unknown> {
+  const npmUpdate = getUpdateConfig(raw, 'npm', '/');
   assert.ok(
     npmUpdate.groups && typeof npmUpdate.groups === 'object' && !Array.isArray(npmUpdate.groups),
     'npm updater should define dependabot groups'
@@ -186,6 +197,37 @@ updates:
       testingGroup['update-types'],
       undefined,
       'testing group should not exclude major updates because Jest and ts-jest majors need to stay aligned'
+    );
+  });
+
+  test('keeps Nx majors grouped for the coupled workspace plugins', async () => {
+    const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
+    const raw = await readFile(path.join(repoRoot, '.github', 'dependabot.yml'), 'utf8');
+    const nxGroup = getNpmGroupConfig(raw, 'nx');
+
+    assert.ok(nxGroup.patterns?.includes('nx'), 'nx group should include nx');
+    assert.ok(nxGroup.patterns?.includes('@nx/*'), 'nx group should include the @nx/* plugin family');
+    assert.equal(
+      nxGroup['update-types'],
+      undefined,
+      'nx group should not exclude major updates because nx and its plugins move together'
+    );
+  });
+
+  test('defines a cargo updater at the workspace root for the Rust CLI stack', async () => {
+    const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
+    const raw = await readFile(path.join(repoRoot, '.github', 'dependabot.yml'), 'utf8');
+    const cargoUpdate = getUpdateConfig(raw, 'cargo', '/');
+
+    assert.deepEqual(
+      cargoUpdate.schedule,
+      { interval: 'weekly' },
+      'cargo updater should check the workspace root weekly like the other ecosystems'
+    );
+    assert.equal(
+      cargoUpdate['open-pull-requests-limit'],
+      20,
+      'cargo updater should use the same pull request limit as the other repository-level updaters'
     );
   });
 });
