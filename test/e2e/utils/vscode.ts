@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, cp, access, readdir, mkdir, open, stat, unlink, utimes } from 'node:fs/promises';
+import { mkdtemp, readFile, access, readdir, mkdir, open, stat, unlink, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
@@ -45,9 +45,16 @@ export function resolveExtensionDevelopmentPath(repoRoot: string): string {
 }
 
 export function resolveVscodeCachePath(extensionDevelopmentPath: string): string {
+  const normalizedPath = path.normalize(extensionDevelopmentPath);
+  const extensionDirName = path.basename(normalizedPath);
+  const parentDirName = path.basename(path.dirname(normalizedPath));
+  const cacheRoot =
+    extensionDirName === 'vscode-extension' && parentDirName === 'apps'
+      ? path.dirname(path.dirname(normalizedPath))
+      : normalizedPath;
   return process.env.VSCODE_TEST_CACHE_PATH
     ? path.resolve(process.env.VSCODE_TEST_CACHE_PATH)
-    : path.join(extensionDevelopmentPath, '.vscode-test');
+    : path.join(cacheRoot, '.vscode-test');
 }
 
 function getSupportExtensionsCacheKey(vscodeVersion: string, extensionIds: string[]): string {
@@ -91,8 +98,10 @@ export function resolveSupportExtensionIds(extensionIds: unknown[] = [], extraEx
   ).sort((a, b) => a.localeCompare(b));
 }
 
-export function shouldAllowLocalExtensionsDirFallback(): boolean {
-  return envFlag('ALV_E2E_ALLOW_LOCAL_EXTENSIONS_DIR');
+export function createMissingSupportExtensionsError(missingExtensionIds: string[]): Error {
+  return new Error(
+    `[e2e] Required VS Code support extensions are missing from the isolated profile: ${missingExtensionIds.join(', ')}`
+  );
 }
 
 export function resolveWindowSizeArg(windowSize?: Partial<VscodeWindowSize>): string | undefined {
@@ -102,33 +111,6 @@ export function resolveWindowSizeArg(windowSize?: Partial<VscodeWindowSize>): st
     return undefined;
   }
   return `--window-size=${Math.floor(width)},${Math.floor(height)}`;
-}
-
-export function resolveExtensionsDirForMissingDependencies(options: {
-  isolatedExtensionsDir: string;
-  missingExtensionIds: string[];
-  localExtensionsRoot?: string;
-}): { extensionsDir: string; warning?: string } {
-  if (!options.missingExtensionIds.length) {
-    return { extensionsDir: options.isolatedExtensionsDir };
-  }
-
-  const missingList = options.missingExtensionIds.join(', ');
-  if (options.localExtensionsRoot && shouldAllowLocalExtensionsDirFallback()) {
-    return {
-      extensionsDir: options.localExtensionsRoot,
-      warning: `[e2e] Falling back to local VS Code extensions dir: ${options.localExtensionsRoot}`
-    };
-  }
-
-  return {
-    extensionsDir: options.isolatedExtensionsDir,
-    warning:
-      `[e2e] Support extensions still missing in isolated profile: ${missingList}.` +
-      (options.localExtensionsRoot
-        ? ' Set ALV_E2E_ALLOW_LOCAL_EXTENSIONS_DIR=1 to opt into using the local VS Code extensions dir.'
-        : '')
-  };
 }
 
 async function readExtensionReferences(
@@ -227,14 +209,6 @@ async function withFileLock<T>(lockPath: string, action: () => Promise<T>): Prom
   }
 }
 
-function getExtensionSearchRoots(): string[] {
-  const roots = [
-    path.join(process.env.USERPROFILE || '', '.vscode', 'extensions'),
-    path.join(process.env.HOME || '', '.vscode', 'extensions')
-  ];
-  return Array.from(new Set(roots.filter(Boolean)));
-}
-
 async function findExtensionDirectoryInRoot(root: string, extensionId: string): Promise<string | undefined> {
   const normalizedId = extensionId.toLowerCase();
   const prefix = `${normalizedId}-`;
@@ -260,61 +234,6 @@ async function findExtensionDirectoryInRoot(root: string, extensionId: string): 
   }
 
   return matches.sort((a, b) => a.localeCompare(b)).at(-1);
-}
-
-async function findLocalExtensionDirectory(extensionId: string): Promise<string | undefined> {
-  for (const root of getExtensionSearchRoots()) {
-    const match = await findExtensionDirectoryInRoot(root, extensionId);
-    if (match) {
-      return match;
-    }
-  }
-  return undefined;
-}
-
-async function findLocalExtensionsRootForDependencies(extensionIds: string[]): Promise<string | undefined> {
-  for (const root of getExtensionSearchRoots()) {
-    let allPresent = true;
-    for (const extensionId of extensionIds) {
-      const match = await findExtensionDirectoryInRoot(root, extensionId);
-      if (!match) {
-        allPresent = false;
-        break;
-      }
-    }
-    if (allPresent) {
-      return root;
-    }
-  }
-  return undefined;
-}
-
-async function copyLocalExtensionWithDependencies(
-  extensionId: string,
-  extensionsDir: string,
-  seen = new Set<string>()
-): Promise<boolean> {
-  const normalizedId = extensionId.toLowerCase();
-  if (seen.has(normalizedId)) {
-    return false;
-  }
-  seen.add(normalizedId);
-
-  const sourceDir = await findLocalExtensionDirectory(extensionId);
-  if (!sourceDir) {
-    return false;
-  }
-
-  const destDir = path.join(extensionsDir, path.basename(sourceDir));
-  await cp(sourceDir, destDir, { recursive: true, force: true });
-  console.log(`[e2e] Reused locally installed VS Code support extension: ${extensionId}`);
-
-  const nestedDeps = await readExtensionReferences(sourceDir);
-  for (const dep of nestedDeps) {
-    await copyLocalExtensionWithDependencies(dep, extensionsDir, seen);
-  }
-
-  return true;
 }
 
 async function findMissingExtensionIdsInRoot(root: string, extensionIds: string[]): Promise<string[]> {
@@ -376,28 +295,13 @@ async function ensureExtensionDependenciesInstalled(args: {
   const cli = resolveCliArgsFromVSCodeExecutablePath(args.vscodeExecutablePath, { reuseMachineInstall: true });
   const cliPath = cli[0];
   const cliArgs = cli.slice(1);
-  const missingAfterInitialCheck = await findMissingExtensionIdsInRoot(args.extensionsDir, deps);
-  for (const dep of missingAfterInitialCheck) {
-    await copyLocalExtensionWithDependencies(dep, args.extensionsDir);
-  }
-
-  let toInstall = await findMissingExtensionIdsInRoot(args.extensionsDir, deps);
-  if (!cliPath) {
-    console.warn('[e2e] Could not resolve VS Code CLI path; skipping support extension install into isolated profile.');
-    const localRoot = await findLocalExtensionsRootForDependencies(deps);
-    const decision = resolveExtensionsDirForMissingDependencies({
-      isolatedExtensionsDir: args.extensionsDir,
-      missingExtensionIds: toInstall,
-      localExtensionsRoot: localRoot
-    });
-    if (decision.warning) {
-      console.warn(decision.warning);
-    }
-    return decision.extensionsDir;
-  }
-
+  const toInstall = await findMissingExtensionIdsInRoot(args.extensionsDir, deps);
   if (!toInstall.length) {
     return args.extensionsDir;
+  }
+
+  if (!cliPath) {
+    throw new Error('[e2e] Could not resolve VS Code CLI path to install required support extensions.');
   }
 
   installExtensions({
@@ -409,16 +313,10 @@ async function ensureExtensionDependenciesInstalled(args: {
   });
 
   const stillMissing = await findMissingExtensionIdsInRoot(args.extensionsDir, deps);
-  const localRoot = await findLocalExtensionsRootForDependencies(deps);
-  const decision = resolveExtensionsDirForMissingDependencies({
-    isolatedExtensionsDir: args.extensionsDir,
-    missingExtensionIds: stillMissing,
-    localExtensionsRoot: localRoot
-  });
-  if (decision.warning) {
-    console.warn(decision.warning);
+  if (stillMissing.length) {
+    throw createMissingSupportExtensionsError(stillMissing);
   }
-  return decision.extensionsDir;
+  return args.extensionsDir;
 }
 
 async function isAuxiliaryBarOpen(page: Page): Promise<boolean> {
@@ -492,35 +390,25 @@ export async function launchVsCode(options: {
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
   let extensionsDir = resolveCachedSupportExtensionsDir(vscodeCachePath, vscodeVersion, supportExtensionIds);
   const supportExtensionsLockPath = resolveSupportExtensionsLockPath(extensionsDir);
-  let shouldCleanupExtensionsDir = false;
   await mkdir(extensionsDir, { recursive: true });
 
   // The extension is loaded via --extensionDevelopmentPath. Some E2E scenarios still
   // need support extensions in a reusable test cache (for example Replay Debugger),
   // so install manifest references plus scenario-specific ids.
-  try {
-    const resolvedExtensionsDir = await timeE2eStep(
-      'vscode.ensureSupportExtensions',
-      async () =>
-        await withFileLock(
-          supportExtensionsLockPath,
-          async () =>
-            await ensureExtensionDependenciesInstalled({
-              vscodeExecutablePath,
-              userDataDir,
-              extensionsDir,
-              extensionIds: supportExtensionIds
-            })
-        )
-    );
-    if (resolvedExtensionsDir !== extensionsDir) {
-      extensionsDir = resolvedExtensionsDir;
-      shouldCleanupExtensionsDir = false;
-    }
-  } catch (e) {
-    console.warn('[e2e] Failed to ensure VS Code extension dependencies are installed:', e);
-  }
-
+  await timeE2eStep(
+    'vscode.ensureSupportExtensions',
+    async () =>
+      await withFileLock(
+        supportExtensionsLockPath,
+        async () =>
+          await ensureExtensionDependenciesInstalled({
+            vscodeExecutablePath,
+            userDataDir,
+            extensionsDir,
+            extensionIds: supportExtensionIds
+          })
+      )
+  );
   const args = [
     options.workspacePath,
     `--extensionDevelopmentPath=${options.extensionDevelopmentPath}`,
@@ -576,9 +464,6 @@ export async function launchVsCode(options: {
       console.warn(`[e2e] Preserving VS Code user-data-dir at ${userDataDir}`);
     } else {
       await removePathBestEffort(userDataDir);
-    }
-    if (shouldCleanupExtensionsDir) {
-      await removePathBestEffort(extensionsDir);
     }
   };
 

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 
 const modulePath = path.join(
   __dirname,
@@ -14,7 +15,7 @@ const modulePath = path.join(
 );
 
 test('copyPackageMetadata mirrors package docs and telemetry into the extension app root', async () => {
-  const mod = await import(modulePath);
+  const mod = await import(pathToFileURL(modulePath).href);
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-copy-package-metadata-'));
   const appRoot = path.join(repoRoot, 'apps', 'vscode-extension');
   fs.mkdirSync(appRoot, { recursive: true });

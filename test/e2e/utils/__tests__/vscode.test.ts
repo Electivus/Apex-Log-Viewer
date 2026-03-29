@@ -1,13 +1,12 @@
 import path from 'node:path';
 import {
+  createMissingSupportExtensionsError,
   resolveCachedSupportExtensionsDir,
   resolveExtensionDevelopmentPath,
   resolveSupportExtensionsLockPath,
   resolveVscodeCachePath,
   resolveWindowSizeArg,
-  resolveExtensionsDirForMissingDependencies,
-  resolveSupportExtensionIds,
-  shouldAllowLocalExtensionsDirFallback
+  resolveSupportExtensionIds
 } from '../vscode';
 
 describe('resolveSupportExtensionIds', () => {
@@ -27,45 +26,17 @@ describe('resolveSupportExtensionIds', () => {
   });
 });
 
-describe('extensions dir fallback policy', () => {
-  const originalEnv = { ...process.env };
-
-  afterEach(() => {
-    process.env = { ...originalEnv };
-  });
-
-  test('keeps the isolated extensions dir by default when support extensions are still missing', () => {
-    delete process.env.ALV_E2E_ALLOW_LOCAL_EXTENSIONS_DIR;
-
-    expect(shouldAllowLocalExtensionsDirFallback()).toBe(false);
+describe('missing support extensions', () => {
+  test('fails with an explicit error instead of falling back to local user extensions', () => {
     expect(
-      resolveExtensionsDirForMissingDependencies({
-        isolatedExtensionsDir: '/tmp/alv-e2e-exts',
-        missingExtensionIds: ['salesforce.salesforcedx-vscode-apex-replay-debugger'],
-        localExtensionsRoot: '/home/test/.vscode/extensions'
-      })
-    ).toEqual({
-      extensionsDir: '/tmp/alv-e2e-exts',
-      warning:
-        '[e2e] Support extensions still missing in isolated profile: salesforce.salesforcedx-vscode-apex-replay-debugger.' +
-        ' Set ALV_E2E_ALLOW_LOCAL_EXTENSIONS_DIR=1 to opt into using the local VS Code extensions dir.'
-    });
-  });
-
-  test('allows whole-dir fallback only when explicitly opted in', () => {
-    process.env.ALV_E2E_ALLOW_LOCAL_EXTENSIONS_DIR = '1';
-
-    expect(shouldAllowLocalExtensionsDirFallback()).toBe(true);
-    expect(
-      resolveExtensionsDirForMissingDependencies({
-        isolatedExtensionsDir: '/tmp/alv-e2e-exts',
-        missingExtensionIds: ['salesforce.salesforcedx-vscode-apex-replay-debugger'],
-        localExtensionsRoot: '/home/test/.vscode/extensions'
-      })
-    ).toEqual({
-      extensionsDir: '/home/test/.vscode/extensions',
-      warning: '[e2e] Falling back to local VS Code extensions dir: /home/test/.vscode/extensions'
-    });
+      createMissingSupportExtensionsError([
+        'salesforce.salesforcedx-vscode-core',
+        'salesforce.salesforcedx-vscode-apex-replay-debugger'
+      ]).message
+    ).toBe(
+      '[e2e] Required VS Code support extensions are missing from the isolated profile: ' +
+        'salesforce.salesforcedx-vscode-core, salesforce.salesforcedx-vscode-apex-replay-debugger'
+    );
   });
 });
 
@@ -76,10 +47,10 @@ describe('VS Code cache paths', () => {
     process.env = { ...originalEnv };
   });
 
-  test('defaults the VS Code cache path to the repo-local .vscode-test directory', () => {
+  test('defaults the VS Code cache path to the monorepo root .vscode-test directory', () => {
     delete process.env.VSCODE_TEST_CACHE_PATH;
 
-    expect(resolveVscodeCachePath('/workspace/alv')).toBe(path.join('/workspace/alv', '.vscode-test'));
+    expect(resolveVscodeCachePath('/workspace/alv/apps/vscode-extension')).toBe(path.join('/workspace/alv', '.vscode-test'));
   });
 
   test('honors VSCODE_TEST_CACHE_PATH when set', () => {

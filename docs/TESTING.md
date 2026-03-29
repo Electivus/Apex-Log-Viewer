@@ -22,7 +22,7 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 - VS Code is downloaded via `@vscode/test-electron` and launched with `--extensionDevelopmentPath` and `--extensionTestsPath` (the compiled runner).
 - A temporary workspace is created with a minimal `sfdx-project.json` (including `sourceApiVersion`) and opened during tests.
 - Playwright E2E runs keep the isolated VS Code profile intentionally minimal. Support extensions are installed per scenario instead of pulling the full Salesforce Extension Pack by default. Replay-specific specs opt into `salesforce.salesforcedx-vscode-apex-replay-debugger`, and the harness dismisses visible VS Code notifications during startup to reduce click interception flakiness.
-- By default, Playwright E2E keeps `--extensions-dir` isolated even when a support extension is missing. To intentionally reuse your machine-wide VS Code extensions dir as a fallback, set `ALV_E2E_ALLOW_LOCAL_EXTENSIONS_DIR=1`.
+- Playwright E2E keeps `--extensions-dir` isolated. If a required support extension is missing from that isolated profile, the harness now fails explicitly instead of reusing your machine-wide VS Code extensions.
 - On headless Linux, the script re‑executes under `xvfb-run` if available and sets Electron flags to reduce GPU/DBus issues.
 
 ## Environment variables
@@ -80,7 +80,6 @@ Useful env vars:
 - `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
 - `SF_TEST_KEEP_ORG=1`: Keep the scratch org after the run (recommended while iterating).
 - `SF_E2E_DEBUG_FLAGS_USERNAME`: Optional username for the Debug Flags E2E user. If unset, tests auto-manage `alv.debugflags.<orgid>@example.com` (create if missing, reuse if present). If the org has no spare Salesforce licenses, tests fall back to the authenticated user.
-- `ALV_E2E_ALLOW_LOCAL_EXTENSIONS_DIR=1`: Opt-in fallback that points the isolated VS Code run at your machine-wide extensions dir when a required support extension cannot be copied or installed into the temporary E2E profile.
 - `ALV_E2E_TIMING=1`: Prints per-step harness timings for scratch-org setup, VS Code startup, command-palette activation, and webview discovery.
 
 Pool-specific env vars:

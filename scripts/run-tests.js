@@ -1,6 +1,6 @@
 const { spawn, execFile, spawnSync } = require('child_process');
 const { platform, tmpdir } = require('os');
-const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync } = require('fs');
+const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } = require('fs');
 const { dirname, join, resolve } = require('path');
 const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } = require('@vscode/test-electron');
 const { build } = require('esbuild');
@@ -47,52 +47,6 @@ function addLocalBinToPath() {
   } catch (e) {
     console.warn('Failed to add local bin to PATH:', e && e.message ? e.message : e);
   }
-}
-
-function getExtensionSearchRoots() {
-  return Array.from(
-    new Set(
-      [join(process.env.USERPROFILE || '', '.vscode', 'extensions'), join(process.env.HOME || '', '.vscode', 'extensions')].filter(
-        Boolean
-      )
-    )
-  );
-}
-
-function findExtensionDirectoryInRoot(root, extensionId) {
-  if (!root || !existsSync(root)) {
-    return undefined;
-  }
-
-  const normalizedId = String(extensionId || '').trim().toLowerCase();
-  const prefix = `${normalizedId}-`;
-  const matches = [];
-  try {
-    const entries = readdirSync(root, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-      const entryName = entry.name.toLowerCase();
-      if (entryName === normalizedId || entryName.startsWith(prefix)) {
-        matches.push(join(root, entry.name));
-      }
-    }
-  } catch {
-    return undefined;
-  }
-
-  return matches.sort((a, b) => a.localeCompare(b)).at(-1);
-}
-
-function findLocalExtensionsRootForDependencies(extensionIds) {
-  for (const root of getExtensionSearchRoots()) {
-    const allPresent = extensionIds.every(extensionId => !!findExtensionDirectoryInRoot(root, extensionId));
-    if (allPresent) {
-      return root;
-    }
-  }
-  return undefined;
 }
 
 function normalizeForMatch(value) {
@@ -257,6 +211,20 @@ async function killLeakedVSCodeProcesses(markers) {
       }
     }
   }
+}
+
+function resolveMissingExtensionIds(requiredExtensionIds, listOutput) {
+  const installed = new Set(
+    String(listOutput || '')
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => line.split('@')[0].trim().toLowerCase())
+  );
+
+  return Array.from(new Set(requiredExtensionIds.map(id => String(id).trim()).filter(Boolean))).filter(
+    extensionId => !installed.has(extensionId.toLowerCase())
+  );
 }
 
 async function whichSf() {
@@ -701,7 +669,6 @@ async function run() {
   const unitExtensionsDir = join(tmpdir(), 'alv-extensions-unit');
   const cachedExtensionsDir = join(vscodeCachePath, 'extensions');
   let resolvedExtensionsDir = cachedExtensionsDir;
-  let sfExtPresent = false;
   if (shouldInstall) {
     const toInstall = (
       process.env.VSCODE_TEST_EXTENSIONS ||
@@ -778,7 +745,8 @@ async function run() {
         console.warn(`[deps] Failed to install ${id}. Continuing; tests may skip/fail.`);
       }
     }
-    // List extensions to aid debugging and flag presence
+    let installedOutput = '';
+    // List extensions to aid debugging and verify the isolated profile contents
     try {
       const list = spawnSync(
         cliPath,
@@ -798,27 +766,17 @@ async function run() {
           env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
         }
       );
-      const out = [list.stdout, list.stderr].filter(Boolean).join('\n').trim();
-      console.log('[deps] Extensions installed in test dir:\n' + out);
-      if (
-        /^salesforce\.salesforcedx-vscode-apex-replay-debugger(?:@|$)/m.test(out) ||
-        /^salesforce\.salesforcedx-vscode(?:@|$)/m.test(out) ||
-        /^salesforce\.salesforcedx-vscode-core(?:@|$)/m.test(out) ||
-        /^salesforce\.salesforcedx-vscode-apex(?:@|$)/m.test(out)
-      ) {
-        sfExtPresent = true;
-      }
+      installedOutput = [list.stdout, list.stderr].filter(Boolean).join('\n').trim();
+      console.log('[deps] Extensions installed in test dir:\n' + installedOutput);
     } catch (e) {
       console.warn('[deps] Failed to list installed extensions:', e && e.message ? e.message : e);
     }
 
-    if (!sfExtPresent) {
-      const localRoot = findLocalExtensionsRootForDependencies(toInstall);
-      if (localRoot) {
-        console.warn(`[deps] Falling back to locally installed VS Code extensions: ${localRoot}`);
-        resolvedExtensionsDir = localRoot;
-        sfExtPresent = true;
-      }
+    const missingExtensions = resolveMissingExtensionIds(toInstall, installedOutput);
+    if (missingExtensions.length) {
+      throw new Error(
+        `[deps] Required VS Code extensions are missing from the isolated test profile: ${missingExtensions.join(', ')}`
+      );
     }
   }
 
@@ -941,9 +899,6 @@ async function run() {
       ...(process.env.VSCODE_TEST_WORKSPACE ? [process.env.VSCODE_TEST_WORKSPACE] : [])
     ];
     const extensionTestsEnv = {};
-    if (sfExtPresent) {
-      extensionTestsEnv.SF_EXT_PRESENT = '1';
-    }
     if (process.env.NODE_V8_COVERAGE) {
       extensionTestsEnv.NODE_V8_COVERAGE = process.env.NODE_V8_COVERAGE;
     }
@@ -996,5 +951,6 @@ module.exports = {
   ensureDefaultScratch,
   ensureDevHub,
   pretestSetup,
+  resolveMissingExtensionIds,
   resolveRequiredDevHubConfig
 };
