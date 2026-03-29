@@ -50,13 +50,17 @@ struct WorkerCompletion {
     response: Option<String>,
 }
 
+fn release_channel_for_version(version: &str) -> &'static str {
+    if version.contains('-') {
+        "pre-release"
+    } else {
+        "stable"
+    }
+}
+
 pub fn handle_initialize(_params: InitializeParams) -> InitializeResult {
     let runtime_version = env!("CARGO_PKG_VERSION").to_string();
-    let channel = if runtime_version.contains('-') {
-        "pre-release".to_string()
-    } else {
-        "stable".to_string()
-    };
+    let channel = release_channel_for_version(&runtime_version).to_string();
 
     InitializeResult {
         runtime_version,
@@ -450,4 +454,19 @@ fn escape_json(value: &str) -> String {
         }
     }
     escaped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn release_channel_for_version_returns_stable_for_release_versions() {
+        assert_eq!(release_channel_for_version("0.1.0"), "stable");
+    }
+
+    #[test]
+    fn release_channel_for_version_returns_pre_release_for_prerelease_versions() {
+        assert_eq!(release_channel_for_version("0.1.0-alpha.1"), "pre-release");
+    }
 }
