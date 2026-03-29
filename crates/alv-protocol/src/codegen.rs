@@ -16,6 +16,7 @@ export type RuntimeCapabilities = {
 export type InitializeResult = {
   runtime_version: string;
   protocol_version: string;
+  channel: string;
   platform: string;
   arch: string;
   capabilities: RuntimeCapabilities;

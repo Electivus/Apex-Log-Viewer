@@ -138,6 +138,7 @@ fn cli_smoke_routes_initialize_and_logs_list_over_stdio() {
     let initialize = harness.recv_json();
     assert_eq!(initialize["id"], "initialize:1");
     assert_eq!(initialize["result"]["protocol_version"], "1");
+    assert_eq!(initialize["result"]["channel"], "stable");
     assert_eq!(initialize["result"]["capabilities"]["logs"], true);
 
     harness.send(r#"{"jsonrpc":"2.0","id":"logs:1","method":"logs/list","params":{"limit":1}}"#);

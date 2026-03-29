@@ -20,6 +20,7 @@ pub struct RuntimeCapabilities {
 pub struct InitializeResult {
     pub runtime_version: String,
     pub protocol_version: String,
+    pub channel: String,
     pub platform: String,
     pub arch: String,
     pub capabilities: RuntimeCapabilities,
