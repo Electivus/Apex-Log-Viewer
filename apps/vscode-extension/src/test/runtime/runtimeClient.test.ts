@@ -209,6 +209,67 @@ suite('runtime client', () => {
     assert.ok(seenSignal, 'orgList should provide an abortable signal to the runtime request');
   });
 
+  test('does not dispatch orgList after cancellation during initialize', async () => {
+    let orgListCalls = 0;
+    let releaseInitialize: (() => void) | undefined;
+    const daemon = createFakeDaemon({
+      onWrite(message, helpers) {
+        if (message.method === 'initialize') {
+          releaseInitialize = () => {
+            helpers.emitMessage({
+              jsonrpc: '2.0',
+              id: message.id,
+              result: {
+                runtime_version: '0.1.0',
+                protocol_version: '1',
+                platform: 'linux',
+                arch: 'x64',
+                capabilities: {
+                  orgs: true,
+                  logs: true,
+                  search: true,
+                  tail: true,
+                  debug_flags: true,
+                  doctor: true
+                },
+                state_dir: '.alv/state',
+                cache_dir: '.alv/cache'
+              }
+            });
+          };
+          return;
+        }
+        if (message.method === 'org/list') {
+          orgListCalls++;
+          helpers.emitMessage({
+            jsonrpc: '2.0',
+            id: message.id,
+            result: []
+          });
+          return;
+        }
+        throw new Error(`unexpected method: ${message.method}`);
+      }
+    });
+
+    const client = new RuntimeClient({
+      createProcess: () => daemon,
+      prepareProcessEnv: async () => undefined
+    });
+
+    const controller = new AbortController();
+    const pending = client.orgList({ forceRefresh: true }, controller.signal);
+    await new Promise(resolve => setImmediate(resolve));
+    controller.abort();
+    releaseInitialize?.();
+
+    await assert.rejects(
+      pending,
+      (error: unknown) => error instanceof Error && error.name === 'AbortError'
+    );
+    assert.equal(orgListCalls, 0);
+  });
+
   test('coalesces concurrent getOrgAuth requests for the same username', async () => {
     let authCalls = 0;
     let resolveAuth: ((value: OrgAuth) => void) | undefined;
@@ -316,6 +377,71 @@ suite('runtime client', () => {
       (error: unknown) => error instanceof Error && error.name === 'AbortError'
     );
     assert.ok(seenSignal, 'getOrgAuth should provide an abortable signal to the runtime request');
+  });
+
+  test('does not dispatch getOrgAuth after cancellation during initialize', async () => {
+    let authCalls = 0;
+    let releaseInitialize: (() => void) | undefined;
+    const daemon = createFakeDaemon({
+      onWrite(message, helpers) {
+        if (message.method === 'initialize') {
+          releaseInitialize = () => {
+            helpers.emitMessage({
+              jsonrpc: '2.0',
+              id: message.id,
+              result: {
+                runtime_version: '0.1.0',
+                protocol_version: '1',
+                platform: 'linux',
+                arch: 'x64',
+                capabilities: {
+                  orgs: true,
+                  logs: true,
+                  search: true,
+                  tail: true,
+                  debug_flags: true,
+                  doctor: true
+                },
+                state_dir: '.alv/state',
+                cache_dir: '.alv/cache'
+              }
+            });
+          };
+          return;
+        }
+        if (message.method === 'org/auth') {
+          authCalls++;
+          helpers.emitMessage({
+            jsonrpc: '2.0',
+            id: message.id,
+            result: {
+              username: 'demo@example.com',
+              instanceUrl: 'https://example.my.salesforce.com',
+              accessToken: 'token'
+            }
+          });
+          return;
+        }
+        throw new Error(`unexpected method: ${message.method}`);
+      }
+    });
+
+    const client = new RuntimeClient({
+      createProcess: () => daemon,
+      prepareProcessEnv: async () => undefined
+    });
+
+    const controller = new AbortController();
+    const pending = client.getOrgAuth({ username: 'demo@example.com' }, controller.signal);
+    await new Promise(resolve => setImmediate(resolve));
+    controller.abort();
+    releaseInitialize?.();
+
+    await assert.rejects(
+      pending,
+      (error: unknown) => error instanceof Error && error.name === 'AbortError'
+    );
+    assert.equal(authCalls, 0);
   });
 
   test('prepares daemon env before starting the runtime process', async () => {

@@ -135,6 +135,9 @@ export class RuntimeClient extends EventEmitter {
     if (!this.requestHandler) {
       await this.initialize();
     }
+    if (signal?.aborted) {
+      throw this.createAbortError();
+    }
     const key = JSON.stringify({ forceRefresh: params.forceRefresh === true });
     const pending = this.inFlightOrgLists.get(key);
     if (pending) {
@@ -149,6 +152,9 @@ export class RuntimeClient extends EventEmitter {
   async getOrgAuth(params: OrgAuthParams = {}, signal?: AbortSignal): Promise<OrgAuth> {
     if (!this.requestHandler) {
       await this.initialize();
+    }
+    if (signal?.aborted) {
+      throw this.createAbortError();
     }
     const key = JSON.stringify({ username: typeof params.username === 'string' ? params.username.trim() : '' });
     const pending = this.inFlightOrgAuth.get(key);
