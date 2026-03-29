@@ -563,11 +563,20 @@ suite('TailService', () => {
 
   test('replay treats AbortError from ensureLogSaved as cancellation', async () => {
     const originalExecuteCommand = vscode.commands.executeCommand;
+    const originalWithProgress = vscode.window.withProgress;
     const executed: Array<{ command: string; args: any[] }> = [];
     (vscode.commands as any).executeCommand = async (command: string, ...args: any[]) => {
       executed.push({ command, args });
       return undefined;
     };
+    (vscode.window as any).withProgress = async (_options: any, task: any) =>
+      task(
+        { report() {} },
+        {
+          isCancellationRequested: false,
+          onCancellationRequested: () => new MockDisposable()
+        }
+      );
 
     try {
       const { SfLogTailViewProvider } = loadTailProvider();
@@ -611,6 +620,7 @@ suite('TailService', () => {
       );
     } finally {
       (vscode.commands as any).executeCommand = originalExecuteCommand;
+      (vscode.window as any).withProgress = originalWithProgress;
     }
   });
 
