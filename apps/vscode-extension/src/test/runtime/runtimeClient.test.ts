@@ -1,4 +1,5 @@
 import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import proxyquire from 'proxyquire';
 import type {
@@ -9,6 +10,7 @@ import type {
   OrgListItem,
 } from '../../../../../packages/app-server-client-ts/src/index';
 import { resolveBundledBinary, resolveBundledBinaryCandidates } from '../../runtime/bundledBinary';
+import { RuntimeClient } from '../../runtime/runtimeClient';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 
@@ -43,9 +45,12 @@ function loadRuntimeClient(args: {
   }) as typeof import('../../runtime/runtimeClient');
 }
 
-const { RuntimeClient } = loadRuntimeClient({});
-
 suite('runtime client', () => {
+  function readExtensionPackageJson(): any {
+    const packagePath = path.resolve(__dirname, '..', '..', '..', 'package.json');
+    return JSON.parse(readFileSync(packagePath, 'utf8'));
+  }
+
   function createFakeDaemon(handlers: {
     onWrite: (
       message: { id: string; method: string; params?: unknown },
@@ -113,6 +118,15 @@ suite('runtime client', () => {
       path.resolve('/workspace/apps/vscode-extension/dist', '..', 'bin', 'linux-x64', 'apex-log-viewer'),
       path.resolve('/workspace/apps/vscode-extension/dist', '..', '..', 'bin', 'linux-x64', 'apex-log-viewer')
     ]);
+  });
+
+  test('runtimePath setting is machine scoped', () => {
+    const packageJson = readExtensionPackageJson();
+
+    assert.equal(
+      packageJson.contributes.configuration.properties['electivus.apexLogs.runtimePath']?.scope,
+      'machine'
+    );
   });
 
   test('startRuntime uses the resolved runtime executable path', async () => {
