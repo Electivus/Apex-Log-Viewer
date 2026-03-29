@@ -224,6 +224,7 @@ suite('runtime client', () => {
               result: {
                 runtime_version: '0.1.0',
                 protocol_version: '1',
+                channel: 'stable',
                 platform: 'linux',
                 arch: 'x64',
                 capabilities: {
@@ -447,6 +448,7 @@ suite('runtime client', () => {
               result: {
                 runtime_version: '0.1.0',
                 protocol_version: '1',
+                channel: 'stable',
                 platform: 'linux',
                 arch: 'x64',
                 capabilities: {
@@ -562,6 +564,7 @@ suite('runtime client', () => {
             result: {
               runtime_version: '0.1.0',
               protocol_version: '1',
+              channel: 'stable',
               platform: 'win32',
               arch: 'x64',
               capabilities: {
@@ -723,6 +726,7 @@ suite('runtime client', () => {
                   result: {
                     runtime_version: '0.1.0',
                     protocol_version: '1',
+                    channel: 'stable',
                     platform: 'linux',
                     arch: 'x64',
                     capabilities: {
@@ -754,6 +758,7 @@ suite('runtime client', () => {
                 result: {
                   runtime_version: '0.1.0',
                   protocol_version: '1',
+                  channel: 'stable',
                   platform: 'linux',
                   arch: 'x64',
                   capabilities: {
@@ -818,6 +823,7 @@ suite('runtime client', () => {
                   result: {
                     runtime_version: '0.1.0',
                     protocol_version: '1',
+                    channel: 'stable',
                     platform: 'linux',
                     arch: 'x64',
                     capabilities: {
@@ -849,6 +855,7 @@ suite('runtime client', () => {
                 result: {
                   runtime_version: '0.1.0',
                   protocol_version: '1',
+                  channel: 'stable',
                   platform: 'linux',
                   arch: 'x64',
                   capabilities: {
@@ -912,6 +919,7 @@ suite('runtime client', () => {
                   result: {
                     runtime_version: '0.1.0',
                     protocol_version: '1',
+                    channel: 'stable',
                     platform: 'linux',
                     arch: 'x64',
                     capabilities: {
@@ -946,6 +954,7 @@ suite('runtime client', () => {
                 result: {
                   runtime_version: '0.1.0',
                   protocol_version: '1',
+                  channel: 'stable',
                   platform: 'linux',
                   arch: 'x64',
                   capabilities: {
@@ -1008,6 +1017,7 @@ suite('runtime client', () => {
                 result: {
                   runtime_version: '0.1.0',
                   protocol_version: '1',
+                  channel: 'stable',
                   platform: 'linux',
                   arch: 'x64',
                   capabilities: {
@@ -1060,6 +1070,7 @@ suite('runtime client', () => {
                   result: {
                     runtime_version: '0.1.0',
                     protocol_version: '1',
+                    channel: 'stable',
                     platform: 'linux',
                     arch: 'x64',
                     capabilities: {
@@ -1094,6 +1105,7 @@ suite('runtime client', () => {
                 result: {
                   runtime_version: '0.1.0',
                   protocol_version: '1',
+                  channel: 'stable',
                   platform: 'linux',
                   arch: 'x64',
                   capabilities: {
