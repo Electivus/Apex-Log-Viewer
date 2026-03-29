@@ -165,19 +165,64 @@ updates:
     );
   });
 
-  test('keeps TypeScript ESLint majors grouped for the coupled plugin and parser', async () => {
+  test('keeps TypeScript majors grouped with the TypeScript ESLint stack', async () => {
     const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
     const raw = await readFile(path.join(repoRoot, '.github', 'dependabot.yml'), 'utf8');
-    const typescriptEslintGroup = getNpmGroupConfig(raw, 'typescript-eslint');
+    const typescriptToolingGroup = getNpmGroupConfig(raw, 'typescript-tooling');
 
     assert.ok(
-      typescriptEslintGroup.patterns?.includes('@typescript-eslint/*'),
-      'typescript-eslint group should include the full @typescript-eslint family'
+      typescriptToolingGroup.patterns?.includes('typescript'),
+      'typescript-tooling group should include typescript'
+    );
+    assert.ok(
+      typescriptToolingGroup.patterns?.includes('@typescript-eslint/*'),
+      'typescript-tooling group should include the full @typescript-eslint family'
     );
     assert.equal(
-      typescriptEslintGroup['update-types'],
+      typescriptToolingGroup['update-types'],
       undefined,
-      'typescript-eslint group should not exclude major updates because plugin and parser majors are coupled'
+      'typescript-tooling group should not exclude major updates because typescript and typescript-eslint need coordinated majors'
+    );
+  });
+
+  test('keeps Radix UI updates grouped as a low-risk minor and patch stack', async () => {
+    const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
+    const raw = await readFile(path.join(repoRoot, '.github', 'dependabot.yml'), 'utf8');
+    const radixGroup = getNpmGroupConfig(raw, 'radix-ui');
+
+    assert.ok(radixGroup.patterns?.includes('@radix-ui/*'), 'radix-ui group should include the full @radix-ui family');
+    assert.deepEqual(
+      radixGroup['update-types'],
+      ['minor', 'patch'],
+      'radix-ui group should keep majors separate while bundling routine updates'
+    );
+  });
+
+  test('keeps VS Code extension packaging and test tooling grouped', async () => {
+    const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
+    const raw = await readFile(path.join(repoRoot, '.github', 'dependabot.yml'), 'utf8');
+    const vscodeToolingGroup = getNpmGroupConfig(raw, 'vscode-extension-tooling');
+
+    assert.ok(
+      vscodeToolingGroup.patterns?.includes('@vscode/test-electron'),
+      'vscode-extension-tooling group should include @vscode/test-electron'
+    );
+    assert.ok(
+      vscodeToolingGroup.patterns?.includes('@vscode/vsce'),
+      'vscode-extension-tooling group should include @vscode/vsce'
+    );
+    assert.ok(
+      vscodeToolingGroup.patterns?.includes('vscode-nls'),
+      'vscode-extension-tooling group should include vscode-nls'
+    );
+    assert.ok(
+      vscodeToolingGroup.patterns?.includes('vscode-nls-dev'),
+      'vscode-extension-tooling group should include vscode-nls-dev'
+    );
+    assert.equal(
+      vscodeToolingGroup['update-types'],
+      undefined,
+      'vscode-extension-tooling group should not exclude majors because these tools support the same extension toolchain'
     );
   });
 
