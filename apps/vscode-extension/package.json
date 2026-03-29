@@ -108,6 +108,11 @@
           "default": "",
           "markdownDescription": "%configuration.electivus.apexLogs.cliPath.description%"
         },
+        "electivus.apexLogs.runtimePath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "%configuration.electivus.apexLogs.runtimePath.description%"
+        },
         "electivus.apexLogs.tailBufferSize": {
           "type": "number",
           "default": 10000,
