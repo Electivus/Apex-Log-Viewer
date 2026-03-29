@@ -36,6 +36,12 @@ type PendingRequest = {
   reject: (error: Error) => void;
   cleanup?: () => void;
 };
+type InFlightRequest<TResult> = {
+  activeObservers: number;
+  controller: AbortController;
+  promise: Promise<TResult>;
+  settled: boolean;
+};
 
 export type RuntimeRequestHandler = <TResult>(
   method: string,
@@ -58,8 +64,8 @@ export class RuntimeClient extends EventEmitter {
   private initializePromise: Promise<InitializeResult> | undefined;
   private nextRequestId = 0;
   private readonly pendingRequests = new Map<string, PendingRequest>();
-  private readonly inFlightOrgLists = new Map<string, Promise<OrgListItem[]>>();
-  private readonly inFlightOrgAuth = new Map<string, Promise<OrgAuth>>();
+  private readonly inFlightOrgLists = new Map<string, InFlightRequest<OrgListItem[]>>();
+  private readonly inFlightOrgAuth = new Map<string, InFlightRequest<OrgAuth>>();
   private restartDelayMs = 250;
   private restartPromise: Promise<void> | undefined;
   private readonly clientName: string;
@@ -125,23 +131,19 @@ export class RuntimeClient extends EventEmitter {
     return this.initializePromise;
   }
 
-  async orgList(params: OrgListParams = {}): Promise<OrgListItem[]> {
+  async orgList(params: OrgListParams = {}, signal?: AbortSignal): Promise<OrgListItem[]> {
     if (!this.requestHandler) {
       await this.initialize();
     }
     const key = JSON.stringify({ forceRefresh: params.forceRefresh === true });
     const pending = this.inFlightOrgLists.get(key);
     if (pending) {
-      return pending;
+      return this.observeInFlightRequest(pending, signal);
     }
-    const request = this.request<OrgListItem[]>('org/list', params);
-    const tracked = request.finally(() => {
-      if (this.inFlightOrgLists.get(key) === tracked) {
-        this.inFlightOrgLists.delete(key);
-      }
-    });
-    this.inFlightOrgLists.set(key, tracked);
-    return tracked;
+    const tracked = this.createInFlightRequest(this.inFlightOrgLists, key, requestSignal =>
+      this.request<OrgListItem[]>('org/list', params, requestSignal)
+    );
+    return this.observeInFlightRequest(tracked, signal);
   }
 
   async getOrgAuth(params: OrgAuthParams = {}, signal?: AbortSignal): Promise<OrgAuth> {
@@ -151,19 +153,12 @@ export class RuntimeClient extends EventEmitter {
     const key = JSON.stringify({ username: typeof params.username === 'string' ? params.username.trim() : '' });
     const pending = this.inFlightOrgAuth.get(key);
     if (pending) {
-      return this.observeWithSignal(pending, signal);
+      return this.observeInFlightRequest(pending, signal);
     }
-    const request = this.request<OrgAuth>('org/auth', params, signal);
-    if (signal) {
-      return request;
-    }
-    const tracked = request.finally(() => {
-      if (this.inFlightOrgAuth.get(key) === tracked) {
-        this.inFlightOrgAuth.delete(key);
-      }
-    });
-    this.inFlightOrgAuth.set(key, tracked);
-    return tracked;
+    const tracked = this.createInFlightRequest(this.inFlightOrgAuth, key, requestSignal =>
+      this.request<OrgAuth>('org/auth', params, requestSignal)
+    );
+    return this.observeInFlightRequest(tracked, signal);
   }
 
   async logsList(params: LogsListParams = {}, signal?: AbortSignal): Promise<RuntimeLogRow[]> {
@@ -219,34 +214,64 @@ export class RuntimeClient extends EventEmitter {
     this.emit(RUNTIME_CANCEL_EVENT, { requestId } satisfies RuntimeCancelEvent);
   }
 
-  private observeWithSignal<TResult>(underlying: Promise<TResult>, signal?: AbortSignal): Promise<TResult> {
-    if (!signal) {
-      return underlying;
-    }
-    if (signal.aborted) {
+  private createInFlightRequest<TResult>(
+    store: Map<string, InFlightRequest<TResult>>,
+    key: string,
+    start: (signal: AbortSignal) => Promise<TResult>
+  ): InFlightRequest<TResult> {
+    const controller = new AbortController();
+    const entry: InFlightRequest<TResult> = {
+      activeObservers: 0,
+      controller,
+      promise: Promise.resolve(undefined as TResult),
+      settled: false
+    };
+    const request = start(controller.signal);
+    entry.promise = request.finally(() => {
+      entry.settled = true;
+      if (store.get(key) === entry) {
+        store.delete(key);
+      }
+    });
+    store.set(key, entry);
+    return entry;
+  }
+
+  private observeInFlightRequest<TResult>(entry: InFlightRequest<TResult>, signal?: AbortSignal): Promise<TResult> {
+    if (signal?.aborted) {
       return Promise.reject(this.createAbortError());
     }
+
+    entry.activeObservers += 1;
+    const release = () => {
+      entry.activeObservers = Math.max(0, entry.activeObservers - 1);
+      if (!entry.settled && entry.activeObservers === 0) {
+        entry.controller.abort();
+      }
+    };
+
+    if (!signal) {
+      return entry.promise.finally(release);
+    }
+
     return new Promise<TResult>((resolve, reject) => {
-      let aborted = false;
-      const onAbort = () => {
-        aborted = true;
+      let finished = false;
+      const finish = (callback: () => void) => {
+        if (finished) {
+          return;
+        }
+        finished = true;
         signal.removeEventListener('abort', onAbort);
-        reject(this.createAbortError());
+        release();
+        callback();
+      };
+      const onAbort = () => {
+        finish(() => reject(this.createAbortError()));
       };
       signal.addEventListener('abort', onAbort, { once: true });
-      underlying.then(
-        value => {
-          signal.removeEventListener('abort', onAbort);
-          if (!aborted) {
-            resolve(value);
-          }
-        },
-        error => {
-          signal.removeEventListener('abort', onAbort);
-          if (!aborted) {
-            reject(error);
-          }
-        }
+      entry.promise.then(
+        value => finish(() => resolve(value)),
+        error => finish(() => reject(error))
       );
     });
   }

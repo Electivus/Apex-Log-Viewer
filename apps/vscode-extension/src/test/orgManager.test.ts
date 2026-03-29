@@ -94,4 +94,36 @@ suite('OrgManager', () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  test('list does not mutate selection after cancellation', async () => {
+    const controller = new AbortController();
+    const { OrgManager } = proxyquire('../utils/orgManager', {
+      '../../../../src/utils/orgs': {
+        pickSelectedOrg: () => 'u1',
+        '@noCallThru': true
+      },
+      '../runtime/runtimeClient': {
+        runtimeClient: {
+          orgList: async (_params: unknown, signal?: AbortSignal) => {
+            controller.abort();
+            if (signal?.aborted) {
+              const error = new Error('Request aborted');
+              error.name = 'AbortError';
+              throw error;
+            }
+            return [{ username: 'u1' }];
+          }
+        },
+        '@noCallThru': true
+      }
+    });
+    const mgr = new OrgManager({} as any);
+    mgr.setSelectedOrg('existing');
+
+    await assert.rejects(
+      mgr.list(false, controller.signal),
+      (error: unknown) => error instanceof Error && error.name === 'AbortError'
+    );
+    assert.equal(mgr.getSelectedOrg(), 'existing');
+  });
 });

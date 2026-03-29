@@ -26,8 +26,18 @@ export class OrgManager {
     this.selectedOrg = org;
   }
 
-  async list(forceRefresh = false): Promise<{ orgs: OrgItem[]; selected?: string }> {
-    const orgs = await runtimeClient.orgList({ forceRefresh });
+  async list(forceRefresh = false, signal?: AbortSignal): Promise<{ orgs: OrgItem[]; selected?: string }> {
+    if (signal?.aborted) {
+      const error = new Error('Request aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
+    const orgs = await runtimeClient.orgList({ forceRefresh }, signal);
+    if (signal?.aborted) {
+      const error = new Error('Request aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
     await this.ensureProjectDefaultSelected(orgs);
     const selected = pickSelectedOrg(orgs, this.selectedOrg);
     this.selectedOrg = selected;

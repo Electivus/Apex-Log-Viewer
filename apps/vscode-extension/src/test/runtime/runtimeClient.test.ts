@@ -173,6 +173,42 @@ suite('runtime client', () => {
     assert.deepEqual(left, right);
   });
 
+  test('forwards abort signals to orgList request handling', async () => {
+    let seenSignal: AbortSignal | undefined;
+    const client = new RuntimeClient({
+      requestHandler: async <TResult>(method: string, params: unknown, signal?: AbortSignal) => {
+        assert.equal(method, 'org/list');
+        assert.deepEqual(params, { forceRefresh: true });
+        seenSignal = signal;
+        return (await new Promise<OrgListItem[]>((_resolve, reject) => {
+          if (!signal) {
+            reject(new Error('missing signal'));
+            return;
+          }
+          signal.addEventListener(
+            'abort',
+            () => {
+              const error = new Error('Request aborted');
+              error.name = 'AbortError';
+              reject(error);
+            },
+            { once: true }
+          );
+        })) as TResult;
+      }
+    });
+
+    const controller = new AbortController();
+    const pending = client.orgList({ forceRefresh: true }, controller.signal);
+    controller.abort();
+
+    await assert.rejects(
+      pending,
+      (error: unknown) => error instanceof Error && error.name === 'AbortError'
+    );
+    assert.ok(seenSignal, 'orgList should provide an abortable signal to the runtime request');
+  });
+
   test('coalesces concurrent getOrgAuth requests for the same username', async () => {
     let authCalls = 0;
     let resolveAuth: ((value: OrgAuth) => void) | undefined;
@@ -200,6 +236,50 @@ suite('runtime client', () => {
     const [left, right] = await Promise.all([first, second]);
     assert.equal(authCalls, 1);
     assert.deepEqual(left, right);
+  });
+
+  test('coalesces concurrent signaled getOrgAuth requests for the same username', async () => {
+    let authCalls = 0;
+    let resolveAuth: ((value: OrgAuth) => void) | undefined;
+    const client = new RuntimeClient({
+      requestHandler: async <TResult>(method: string, params: unknown, signal?: AbortSignal) => {
+        assert.equal(method, 'org/auth');
+        assert.deepEqual(params, { username: 'demo@example.com' });
+        authCalls++;
+        return (await new Promise<OrgAuth>((resolve, reject) => {
+          resolveAuth = resolve;
+          signal?.addEventListener(
+            'abort',
+            () => {
+              const error = new Error('Request aborted');
+              error.name = 'AbortError';
+              reject(error);
+            },
+            { once: true }
+          );
+        })) as TResult;
+      }
+    });
+
+    const firstController = new AbortController();
+    const secondController = new AbortController();
+    const first = client.getOrgAuth({ username: 'demo@example.com' }, firstController.signal);
+    const second = client.getOrgAuth({ username: 'demo@example.com' }, secondController.signal);
+
+    assert.equal(authCalls, 1);
+    firstController.abort();
+    resolveAuth?.({
+      username: 'demo@example.com',
+      instanceUrl: 'https://example.my.salesforce.com',
+      accessToken: 'token'
+    });
+
+    await assert.rejects(
+      first,
+      (error: unknown) => error instanceof Error && error.name === 'AbortError'
+    );
+    await assert.doesNotReject(second);
+    assert.equal(authCalls, 1);
   });
 
   test('forwards abort signals to getOrgAuth request handling', async () => {
@@ -235,7 +315,7 @@ suite('runtime client', () => {
       pending,
       (error: unknown) => error instanceof Error && error.name === 'AbortError'
     );
-    assert.equal(seenSignal, controller.signal);
+    assert.ok(seenSignal, 'getOrgAuth should provide an abortable signal to the runtime request');
   });
 
   test('prepares daemon env before starting the runtime process', async () => {
