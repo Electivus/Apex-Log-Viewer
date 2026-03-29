@@ -21,7 +21,7 @@ on:
       playwright_workers:
         description: Playwright workers when the scratch-org pool is enabled
         required: false
-        default: '7'
+        default: '1'
         type: string
 
 concurrency:
