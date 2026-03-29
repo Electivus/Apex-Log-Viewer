@@ -422,7 +422,13 @@ jobs:
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Deleting pre-release $TAG due to downstream failure"
-            gh release delete "$TAG" --yes --cleanup-tag
+            gh release delete "$TAG" --yes --cleanup-tag || echo "Release delete failed; continuing with direct tag cleanup"
           else
-            echo "Pre-release $TAG does not exist; nothing to delete"
+            echo "Pre-release $TAG is not visible; continuing with direct tag cleanup"
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "Deleting remote tag $TAG"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG"
+          else
+            echo "Remote tag $TAG does not exist; nothing to delete"
           fi

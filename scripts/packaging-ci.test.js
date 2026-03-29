@@ -34,3 +34,18 @@ for (const workflowPath of ['.github/workflows/prerelease.yml', '.github/workflo
     );
   });
 }
+
+test('prerelease rollback deletes a stranded remote tag even if release lookup fails', () => {
+  const workflowSource = readFile('.github/workflows/prerelease.yml');
+
+  assert.match(
+    workflowSource,
+    /rollback_prerelease[\s\S]*gh api "repos\/\$GITHUB_REPOSITORY\/git\/ref\/tags\/\$TAG"/,
+    'expected prerelease rollback to check for a stranded remote tag'
+  );
+  assert.match(
+    workflowSource,
+    /rollback_prerelease[\s\S]*gh api -X DELETE "repos\/\$GITHUB_REPOSITORY\/git\/refs\/tags\/\$TAG"/,
+    'expected prerelease rollback to delete the remote tag when publish cleanup runs'
+  );
+});
