@@ -4,6 +4,8 @@ import type {
   DaemonProcess,
   JsonRpcErrorResponse,
   JsonRpcSuccessResponse,
+  OrgAuth,
+  OrgListItem,
 } from '../../../../../packages/app-server-client-ts/src/index';
 import { resolveBundledBinary, resolveBundledBinaryCandidates } from '../../runtime/bundledBinary';
 import { RuntimeClient } from '../../runtime/runtimeClient';
@@ -138,6 +140,66 @@ suite('runtime client', () => {
     assert.deepEqual(methods, ['org/list', 'org/auth']);
     assert.equal(orgs[0]?.username, 'demo@example.com');
     assert.equal(auth.username, 'demo@example.com');
+  });
+
+  test('coalesces concurrent orgList requests with identical params', async () => {
+    let orgListCalls = 0;
+    let resolveOrgList: ((value: OrgListItem[]) => void) | undefined;
+    const client = new RuntimeClient({
+      requestHandler: async <TResult>(method: string, params: unknown) => {
+        assert.equal(method, 'org/list');
+        assert.deepEqual(params, { forceRefresh: false });
+        orgListCalls++;
+        return (await new Promise<OrgListItem[]>(resolve => {
+          resolveOrgList = resolve;
+        })) as TResult;
+      }
+    });
+
+    const first = client.orgList({ forceRefresh: false });
+    const second = client.orgList({ forceRefresh: false });
+
+    assert.equal(orgListCalls, 1);
+    resolveOrgList?.([
+      {
+        username: 'demo@example.com',
+        alias: 'Demo',
+        isDefaultUsername: true
+      }
+    ]);
+
+    const [left, right] = await Promise.all([first, second]);
+    assert.equal(orgListCalls, 1);
+    assert.deepEqual(left, right);
+  });
+
+  test('coalesces concurrent getOrgAuth requests for the same username', async () => {
+    let authCalls = 0;
+    let resolveAuth: ((value: OrgAuth) => void) | undefined;
+    const client = new RuntimeClient({
+      requestHandler: async <TResult>(method: string, params: unknown) => {
+        assert.equal(method, 'org/auth');
+        assert.deepEqual(params, { username: 'demo@example.com' });
+        authCalls++;
+        return (await new Promise<OrgAuth>(resolve => {
+          resolveAuth = resolve;
+        })) as TResult;
+      }
+    });
+
+    const first = client.getOrgAuth({ username: 'demo@example.com' });
+    const second = client.getOrgAuth({ username: 'demo@example.com' });
+
+    assert.equal(authCalls, 1);
+    resolveAuth?.({
+      username: 'demo@example.com',
+      instanceUrl: 'https://example.my.salesforce.com',
+      accessToken: 'token'
+    });
+
+    const [left, right] = await Promise.all([first, second]);
+    assert.equal(authCalls, 1);
+    assert.deepEqual(left, right);
   });
 
   test('prepares daemon env before starting the runtime process', async () => {

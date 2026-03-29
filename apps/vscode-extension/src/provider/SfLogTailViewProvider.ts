@@ -23,6 +23,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   private readonly disposables: vscode.Disposable[] = [];
   private hostDisposables: vscode.Disposable[] = [];
   private disposed = false;
+  private ready = false;
   private selectedOrg: string | undefined;
   private tailService = new TailService(m => this.post(m));
 
@@ -73,6 +74,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         logInfo('Tail: received message from webview:', t);
       }
       if (message?.type === 'ready') {
+        this.ready = true;
         this.post({ type: 'init', locale: vscode.env.language });
         await this.refreshViewState();
         return;
@@ -369,6 +371,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     this.host = host;
     this.view = host;
     this.disposed = false;
+    this.ready = false;
     host.webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
@@ -382,6 +385,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
           return;
         }
         this.disposed = true;
+        this.ready = false;
         this.view = undefined;
         this.host = undefined;
         // Stop timers and clear caches, but keep controller disposal separate.
@@ -389,7 +393,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         logInfo(`Tail webview disposed; stopped tail (${host.kind}).`);
       }),
       host.onDidBecomeVisible(() => {
-        if (this.disposed) {
+        if (this.disposed || !this.ready) {
           return;
         }
         void this.refreshViewState();

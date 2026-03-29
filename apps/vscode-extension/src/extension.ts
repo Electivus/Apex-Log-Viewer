@@ -355,7 +355,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Removed legacy openTailPanel command to avoid focus changes
 
-  // Preload CLI caches (org list and default org auth) in background
+  // Preload runtime org list cache in background
   try {
     const enabled = getBooleanConfig('sfLogs.cliCache.enabled', true);
     // Heuristic: skip when running inside VS Code test harness to avoid interfering with unit tests

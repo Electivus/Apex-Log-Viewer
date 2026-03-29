@@ -37,6 +37,7 @@ export type EnsureLogsSavedSummary = {
 
 export type EnsureLogsSavedOptions = {
   downloadMissing?: boolean;
+  authHint?: OrgAuth;
   onMissing?: (logId: string) => void;
   onItemComplete?: (result: EnsureLogsSavedItemResult) => void;
 };
@@ -128,8 +129,13 @@ export class LogService {
     }
   }
 
-  private async ensureLogFile(logId: string, selectedOrg?: string, signal?: AbortSignal): Promise<string> {
-    const auth = await getOrgAuth(selectedOrg, undefined, signal);
+  private async ensureLogFile(
+    logId: string,
+    selectedOrg?: string,
+    signal?: AbortSignal,
+    authHint?: OrgAuth
+  ): Promise<string> {
+    const auth = authHint ?? (await getOrgAuth(selectedOrg, undefined, signal));
     const existing = await findExistingLogFile(logId, auth.username);
     if (existing) {
       return existing;
@@ -194,7 +200,14 @@ export class LogService {
     return undefined;
   }
 
-  private async resolveSelectedUsername(selectedOrg?: string, signal?: AbortSignal): Promise<string | undefined> {
+  private async resolveSelectedUsername(
+    selectedOrg?: string,
+    signal?: AbortSignal,
+    authHint?: OrgAuth
+  ): Promise<string | undefined> {
+    if (authHint?.username) {
+      return authHint.username;
+    }
     if (!selectedOrg || signal?.aborted) {
       return undefined;
     }
@@ -315,8 +328,9 @@ export class LogService {
     options?: EnsureLogsSavedOptions
   ): Promise<EnsureLogsSavedSummary> {
     const downloadMissing = options?.downloadMissing !== false;
+    const authHint = options?.authHint;
     const validLogs = logs.filter((log): log is ApexLogRow & { Id: string } => typeof log?.Id === 'string' && log.Id.length > 0);
-    const selectedUsername = await this.resolveSelectedUsername(selectedOrg, signal);
+    const selectedUsername = await this.resolveSelectedUsername(selectedOrg, signal, authHint);
     const summary: EnsureLogsSavedSummary = {
       total: validLogs.length,
       success: 0,
@@ -345,7 +359,7 @@ export class LogService {
                 options?.onItemComplete?.({ logId: log.Id, status: 'existing' });
                 return;
               }
-              await this.ensureLogFile(log.Id, selectedOrg, signal);
+              await this.ensureLogFile(log.Id, selectedOrg, signal, authHint);
               if (signal?.aborted) {
                 summary.cancelled++;
                 options?.onItemComplete?.({ logId: log.Id, status: 'cancelled' });

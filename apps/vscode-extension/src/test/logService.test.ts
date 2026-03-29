@@ -422,6 +422,58 @@ suite('LogService', () => {
     assert.ok(statuses.includes('existing'));
   });
 
+  test('ensureLogsSaved reuses authHint without calling CLI auth again', async () => {
+    let authCalls = 0;
+    const writeTargets: string[] = [];
+    const lookupCalls: Array<{ logId: string; username?: string }> = [];
+    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async () => 'body'
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => {
+          authCalls++;
+          return { username: 'u', accessToken: 't', instanceUrl: 'url' };
+        }
+      },
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async (username: string | undefined, logId: string) => ({
+          dir: '/tmp',
+          filePath: `/tmp/${username ?? 'none'}_${logId}.log`
+        }),
+        findExistingLogFile: async (logId: string, username?: string) => {
+          lookupCalls.push({ logId, username });
+          return undefined;
+        }
+      },
+      fs: {
+        promises: {
+          writeFile: async (target: string) => {
+            writeTargets.push(target);
+          }
+        }
+      }
+    });
+
+    const svc = new LogService(1);
+    const summary = await svc.ensureLogsSaved(
+      [{ Id: '1' } as ApexLogRow],
+      'default',
+      undefined,
+      {
+        authHint: { username: 'u', accessToken: 't', instanceUrl: 'url' }
+      } as any
+    );
+
+    assert.equal(authCalls, 0, 'should avoid a duplicate CLI auth lookup when authHint is provided');
+    assert.ok(lookupCalls.length >= 1, 'should check for existing files before writing');
+    assert.equal(lookupCalls.every(call => call.logId === '1' && call.username === 'u'), true);
+    assert.deepEqual(writeTargets, ['/tmp/u_1.log']);
+    assert.equal(summary.downloaded, 1);
+  });
+
   test('summarizeLogTextWithHeuristics returns a summary for error event lines', async () => {
     const { summarizeLogTextWithHeuristics } = proxyquireStrict('../../../../src/services/logTriage', {});
 
