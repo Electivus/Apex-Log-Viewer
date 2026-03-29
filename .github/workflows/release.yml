@@ -98,6 +98,13 @@ jobs:
       - name: Install Rust target for packaged runtime
         run: rustup target add ${{ matrix.cargo_target }}
 
+      - name: Install Linux ARM64 cross-linker
+        if: matrix.cargo_target == 'aarch64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
       - name: Verify tag matches extension package version
         shell: bash
         run: |
@@ -115,6 +122,7 @@ jobs:
       - name: Build packaged runtime for target
         shell: bash
         env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           MATRIX_TARGET: ${{ matrix.target }}
         run: node scripts/build-runtime-target.mjs "${MATRIX_TARGET}" release
 
