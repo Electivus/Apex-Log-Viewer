@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import * as path from 'node:path';
+import proxyquire from 'proxyquire';
 import type {
   DaemonProcess,
   JsonRpcErrorResponse,
@@ -8,7 +9,41 @@ import type {
   OrgListItem,
 } from '../../../../../packages/app-server-client-ts/src/index';
 import { resolveBundledBinary, resolveBundledBinaryCandidates } from '../../runtime/bundledBinary';
-import { RuntimeClient } from '../../runtime/runtimeClient';
+
+const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
+
+function loadRuntimeClient(args: {
+  configuredPath?: string;
+  bundledPath?: string;
+  resolvedExecutable?: string;
+}) {
+  return proxyquireStrict('../../runtime/runtimeClient', {
+    '../../../../src/utils/config': {
+      getConfig: (name: string, defaultValue?: string) => {
+        assert.equal(name, 'electivus.apexLogs.runtimePath');
+        return args.configuredPath ?? defaultValue ?? '';
+      }
+    },
+    './bundledBinary': {
+      resolveBundledBinary: () => args.bundledPath ?? '/tmp/bundled/apex-log-viewer'
+    },
+    './runtimeExecutable': {
+      resolveRuntimeExecutable: ({
+        configuredPath,
+        bundledPath
+      }: {
+        configuredPath: string;
+        bundledPath: string;
+      }) => ({
+        executable: args.resolvedExecutable ?? bundledPath,
+        source: configuredPath.trim() ? 'configured' : 'bundled',
+        showManualOverrideWarning: configuredPath.trim().length > 0
+      })
+    }
+  }) as typeof import('../../runtime/runtimeClient');
+}
+
+const { RuntimeClient } = loadRuntimeClient({});
 
 suite('runtime client', () => {
   function createFakeDaemon(handlers: {
@@ -77,6 +112,35 @@ suite('runtime client', () => {
     assert.deepEqual(distCandidates, [
       path.resolve('/workspace/apps/vscode-extension/dist', '..', 'bin', 'linux-x64', 'apex-log-viewer'),
       path.resolve('/workspace/apps/vscode-extension/dist', '..', '..', 'bin', 'linux-x64', 'apex-log-viewer')
+    ]);
+  });
+
+  test('startRuntime uses the resolved runtime executable path', async () => {
+    const createProcessCalls: Array<{ executable: string; env: NodeJS.ProcessEnv | undefined }> = [];
+    const { RuntimeClient: ProxyquiredRuntimeClient } = loadRuntimeClient({
+      configuredPath: '/tmp/custom/apex-log-viewer',
+      bundledPath: '/tmp/bundled/apex-log-viewer',
+      resolvedExecutable: '/tmp/resolved/apex-log-viewer'
+    });
+    const client = new ProxyquiredRuntimeClient({
+      createProcess: (executable, env) => {
+        createProcessCalls.push({ executable, env });
+        return createFakeDaemon({
+          onWrite() {
+            throw new Error('unexpected runtime write');
+          }
+        });
+      },
+      prepareProcessEnv: async () => undefined
+    });
+
+    await client.startRuntime();
+
+    assert.deepEqual(createProcessCalls, [
+      {
+        executable: '/tmp/resolved/apex-log-viewer',
+        env: undefined
+      }
     ]);
   });
 

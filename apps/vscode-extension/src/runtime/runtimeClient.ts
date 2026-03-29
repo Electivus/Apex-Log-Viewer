@@ -16,9 +16,11 @@ import type {
 import { createDaemonProcess } from '../../../../packages/app-server-client-ts/src/index';
 import type { JsonRpcRequest, OrgListItem, OrgListParams } from '../../../../packages/app-server-client-ts/src/index';
 import { logTrace } from '../../../../src/utils/logger';
+import { getConfig } from '../../../../src/utils/config';
 import { getLoginShellEnv } from '../../../../src/salesforce/path';
 import { safeSendEvent } from '../shared/telemetry';
 import { resolveBundledBinary } from './bundledBinary';
+import { resolveRuntimeExecutable } from './runtimeExecutable';
 import {
   RUNTIME_CANCEL_EVENT,
   RUNTIME_EXIT_EVENT,
@@ -94,10 +96,17 @@ export class RuntimeClient extends EventEmitter {
       return this.daemon;
     }
 
-    const executable = resolveBundledBinary(process.platform, process.arch);
+    const bundledPath = resolveBundledBinary(process.platform, process.arch);
+    const executableResolution = resolveRuntimeExecutable({
+      configuredPath: getConfig('electivus.apexLogs.runtimePath', ''),
+      bundledPath
+    });
     const env = await this.resolveProcessEnv();
-    logTrace('Runtime: starting daemon', executable);
-    const daemon = this.createProcess(executable, env);
+    if (executableResolution.showManualOverrideWarning) {
+      logTrace('Runtime: using manually configured runtime executable', executableResolution.executable);
+    }
+    logTrace('Runtime: starting daemon', executableResolution.executable);
+    const daemon = this.createProcess(executableResolution.executable, env);
     this.daemon = daemon;
     this.attachDaemonStderrLogger(daemon);
     daemon.onMessage(message => {
