@@ -351,7 +351,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         safeSendEvent('logs.replay', { view: 'tail', outcome: 'ok' }, { durationMs });
       } catch {}
     } catch (e) {
-      if (e instanceof Error && e.message === 'aborted') {
+      if (this.isAbortLikeError(e)) {
         // cancellation; no error message
       } else {
         const msg = getErrorMessage(e);
@@ -363,6 +363,15 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         } catch {}
       }
     }
+  }
+
+  private isAbortLikeError(err: unknown, message?: string): boolean {
+    if ((err as { name?: string } | undefined)?.name === 'AbortError') {
+      return true;
+    }
+
+    const normalized = String(message ?? getErrorMessage(err) ?? '').toLowerCase();
+    return normalized.includes('abort') || normalized.includes('canceled') || normalized.includes('cancelled');
   }
 
   private bindHost(host: BoundWebviewHost): void {
