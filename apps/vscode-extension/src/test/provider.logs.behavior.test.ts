@@ -187,6 +187,84 @@ function createProviderHarness() {
 }
 
 suite('SfLogsViewProvider behavior', () => {
+  test('refresh handles deferred auth rejection when logs listing fails', async () => {
+    const { SfLogsViewProvider, cli } = createProviderHarness();
+    let rejectAuth: ((error: Error) => void) | undefined;
+    cli.getOrgAuth = async () =>
+      await new Promise((_resolve, reject) => {
+        rejectAuth = reject;
+      });
+    cli.logsList = async () => {
+      throw new Error('logs list failed');
+    };
+
+    const context = makeContext();
+    const posted: any[] = [];
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).view = {
+      webview: {
+        postMessage: (m: any) => {
+          posted.push(m);
+          return Promise.resolve(true);
+        }
+      }
+    } as any;
+
+    let unhandled: unknown;
+    const onUnhandled = (error: unknown) => {
+      unhandled = error;
+    };
+    process.once('unhandledRejection', onUnhandled);
+    try {
+      await provider.refresh();
+      rejectAuth?.(new Error('auth failed after refresh error'));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      assert.equal(unhandled, undefined);
+      assert.equal(posted.some(message => message?.type === 'error'), true);
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled);
+    }
+  });
+
+  test('loadMore handles deferred auth rejection when logs listing fails', async () => {
+    const { SfLogsViewProvider, cli } = createProviderHarness();
+    let rejectAuth: ((error: Error) => void) | undefined;
+    cli.getOrgAuth = async () =>
+      await new Promise((_resolve, reject) => {
+        rejectAuth = reject;
+      });
+    cli.logsList = async () => {
+      throw new Error('load more failed');
+    };
+
+    const context = makeContext();
+    const posted: any[] = [];
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).view = {
+      webview: {
+        postMessage: (m: any) => {
+          posted.push(m);
+          return Promise.resolve(true);
+        }
+      }
+    } as any;
+
+    let unhandled: unknown;
+    const onUnhandled = (error: unknown) => {
+      unhandled = error;
+    };
+    process.once('unhandledRejection', onUnhandled);
+    try {
+      await (provider as any).loadMore();
+      rejectAuth?.(new Error('auth failed after loadMore error'));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      assert.equal(unhandled, undefined);
+      assert.equal(posted.some(message => message?.type === 'error'), true);
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled);
+    }
+  });
+
   test('refresh posts logs and logHead with code unit', async () => {
     const { SfLogsViewProvider, cli } = createProviderHarness();
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-provider-heads-'));

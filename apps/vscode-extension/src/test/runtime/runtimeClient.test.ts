@@ -4,6 +4,8 @@ import type {
   DaemonProcess,
   JsonRpcErrorResponse,
   JsonRpcSuccessResponse,
+  OrgAuth,
+  OrgListItem,
 } from '../../../../../packages/app-server-client-ts/src/index';
 import { resolveBundledBinary, resolveBundledBinaryCandidates } from '../../runtime/bundledBinary';
 import { RuntimeClient } from '../../runtime/runtimeClient';
@@ -142,15 +144,15 @@ suite('runtime client', () => {
 
   test('coalesces concurrent orgList requests with identical params', async () => {
     let orgListCalls = 0;
-    let resolveOrgList: ((value: unknown) => void) | undefined;
+    let resolveOrgList: ((value: OrgListItem[]) => void) | undefined;
     const client = new RuntimeClient({
-      requestHandler: async (method, params) => {
+      requestHandler: async <TResult>(method: string, params: unknown) => {
         assert.equal(method, 'org/list');
         assert.deepEqual(params, { forceRefresh: false });
         orgListCalls++;
-        return await new Promise(resolve => {
+        return (await new Promise<OrgListItem[]>(resolve => {
           resolveOrgList = resolve;
-        });
+        })) as TResult;
       }
     });
 
@@ -173,15 +175,15 @@ suite('runtime client', () => {
 
   test('coalesces concurrent getOrgAuth requests for the same username', async () => {
     let authCalls = 0;
-    let resolveAuth: ((value: unknown) => void) | undefined;
+    let resolveAuth: ((value: OrgAuth) => void) | undefined;
     const client = new RuntimeClient({
-      requestHandler: async (method, params) => {
+      requestHandler: async <TResult>(method: string, params: unknown) => {
         assert.equal(method, 'org/auth');
         assert.deepEqual(params, { username: 'demo@example.com' });
         authCalls++;
-        return await new Promise(resolve => {
+        return (await new Promise<OrgAuth>(resolve => {
           resolveAuth = resolve;
-        });
+        })) as TResult;
       }
     });
 

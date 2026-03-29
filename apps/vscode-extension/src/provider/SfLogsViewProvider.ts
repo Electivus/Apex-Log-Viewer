@@ -156,7 +156,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           this.pageLimit = this.configManager.getPageLimit();
           await this.orgManager.ensureProjectDefaultSelected();
           const selectedOrg = this.orgManager.getSelectedOrg();
-          const authPromise = runtimeClient.getOrgAuth({ username: selectedOrg });
+          const authHandle = this.observeDeferredAuth({ username: selectedOrg });
           if (ct.isCancellationRequested || !isCurrentRefresh()) {
             return;
           }
@@ -194,6 +194,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           this.setCurrentLogs(logs);
           this.postKnownErrorStateForLogs(logs);
           this.purgeLogCache(controller.signal);
+          const authPromise = authHandle.handoff();
           this.startAuthHydration(logs, authPromise, token, selectedOrg, controller.signal);
           this.startErrorScanForCurrentLogs(token, controller.signal);
           if (this.lastSearchQuery.trim()) {
@@ -233,7 +234,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.post({ type: 'warning', message: undefined });
     try {
       const selectedOrg = this.orgManager.getSelectedOrg();
-      const authPromise = runtimeClient.getOrgAuth({ username: selectedOrg });
+      const authHandle = this.observeDeferredAuth({ username: selectedOrg });
       if (!isCurrentRefresh()) {
         return;
       }
@@ -260,6 +261,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       this.setCurrentLogs([...this.currentLogs, ...logs]);
       this.postKnownErrorStateForLogs(logs);
       this.purgeLogCache();
+      const authPromise = authHandle.handoff();
       this.startAuthHydration(logs, authPromise, token, selectedOrg);
       this.startErrorScanForCurrentLogs(token);
       this.rerunActiveSearch();
@@ -318,6 +320,23 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           logWarn('Logs: auth hydration failed ->', getErrorMessage(e));
         }
       });
+  }
+
+  private observeDeferredAuth(params: { username?: string }): { handoff: () => Promise<OrgAuth> } {
+    const observed = runtimeClient.getOrgAuth(params).then(
+      auth => ({ ok: true as const, auth }),
+      error => ({ ok: false as const, error })
+    );
+
+    return {
+      handoff: () =>
+        observed.then(result => {
+          if (result.ok) {
+            return result.auth;
+          }
+          throw result.error;
+        })
+    };
   }
 
   private preloadFullLogBodies(

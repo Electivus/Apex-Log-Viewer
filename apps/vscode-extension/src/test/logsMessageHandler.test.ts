@@ -115,7 +115,7 @@ suite('LogsMessageHandler telemetry', () => {
       async () => undefined,
       async () => undefined,
       async () => undefined,
-      value => calls.push(`loading:${value}`),
+      (value: boolean) => calls.push(`loading:${value}`),
       async () => undefined,
       async () => undefined
     );
@@ -130,5 +130,59 @@ suite('LogsMessageHandler telemetry', () => {
 
     assert.equal(calls.at(-1), 'loading:false');
     assert.equal(events.length, 0);
+  });
+
+  test('waits for sendOrgs to settle before surfacing a refresh failure on ready', async () => {
+    const calls: string[] = [];
+    const refreshError = new Error('refresh failed');
+    const sendOrgsError = new Error('sendOrgs failed');
+    let rejectSendOrgs: ((error: Error) => void) | undefined;
+    const sendOrgsStarted = new Promise<void>((_resolve, reject) => {
+      rejectSendOrgs = reject;
+    });
+
+    const { LogsMessageHandler } = proxyquire('../provider/logsMessageHandler', {
+      '../shared/telemetry': {
+        safeSendEvent: () => undefined,
+        '@noCallThru': true
+      },
+      '../../../../src/utils/logger': {
+        logInfo: () => undefined,
+        '@noCallThru': true
+      }
+    });
+
+    const handler = new LogsMessageHandler(
+      async () => {
+        calls.push('refresh');
+        throw refreshError;
+      },
+      async () => undefined,
+      async () => undefined,
+      async () => {
+        calls.push('sendOrgs');
+        await sendOrgsStarted;
+      },
+      () => undefined,
+      async () => undefined,
+      async () => undefined,
+      async () => undefined,
+      async () => undefined,
+      (value: boolean) => calls.push(`loading:${value}`),
+      async () => undefined,
+      async () => undefined
+    );
+
+    let settled = false;
+    const pending = handler.handle({ type: 'ready' } as any).finally(() => {
+      settled = true;
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(settled, false);
+
+    rejectSendOrgs?.(sendOrgsError);
+    await assert.rejects(pending, error => error === refreshError);
+    assert.equal(calls.at(-1), 'loading:false');
   });
 });

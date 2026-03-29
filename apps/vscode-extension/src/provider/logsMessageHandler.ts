@@ -26,12 +26,26 @@ export class LogsMessageHandler {
       case 'ready':
         logInfo('Logs: message ready');
         this.setLoading(true);
+        let readyError: unknown;
         try {
           const sendOrgsPromise = this.sendOrgs();
-          await this.refresh();
-          await sendOrgsPromise;
+          try {
+            await this.refresh();
+          } catch (error) {
+            readyError = error;
+          }
+          try {
+            await sendOrgsPromise;
+          } catch (error) {
+            if (readyError === undefined) {
+              readyError = error;
+            }
+          }
         } finally {
           this.setLoading(false);
+        }
+        if (readyError !== undefined) {
+          throw readyError;
         }
         break;
       case 'refresh':
