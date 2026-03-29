@@ -50,7 +50,7 @@ jobs:
       SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
       HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
       SCRATCH_STRATEGY: pool
-      PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || '7' }}
+      PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || '1' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
