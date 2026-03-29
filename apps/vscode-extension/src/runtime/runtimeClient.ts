@@ -144,16 +144,19 @@ export class RuntimeClient extends EventEmitter {
     return tracked;
   }
 
-  async getOrgAuth(params: OrgAuthParams = {}): Promise<OrgAuth> {
+  async getOrgAuth(params: OrgAuthParams = {}, signal?: AbortSignal): Promise<OrgAuth> {
     if (!this.requestHandler) {
       await this.initialize();
     }
     const key = JSON.stringify({ username: typeof params.username === 'string' ? params.username.trim() : '' });
     const pending = this.inFlightOrgAuth.get(key);
     if (pending) {
-      return pending;
+      return this.observeWithSignal(pending, signal);
     }
-    const request = this.request<OrgAuth>('org/auth', params);
+    const request = this.request<OrgAuth>('org/auth', params, signal);
+    if (signal) {
+      return request;
+    }
     const tracked = request.finally(() => {
       if (this.inFlightOrgAuth.get(key) === tracked) {
         this.inFlightOrgAuth.delete(key);
@@ -214,6 +217,38 @@ export class RuntimeClient extends EventEmitter {
       }
     }
     this.emit(RUNTIME_CANCEL_EVENT, { requestId } satisfies RuntimeCancelEvent);
+  }
+
+  private observeWithSignal<TResult>(underlying: Promise<TResult>, signal?: AbortSignal): Promise<TResult> {
+    if (!signal) {
+      return underlying;
+    }
+    if (signal.aborted) {
+      return Promise.reject(this.createAbortError());
+    }
+    return new Promise<TResult>((resolve, reject) => {
+      let aborted = false;
+      const onAbort = () => {
+        aborted = true;
+        signal.removeEventListener('abort', onAbort);
+        reject(this.createAbortError());
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      underlying.then(
+        value => {
+          signal.removeEventListener('abort', onAbort);
+          if (!aborted) {
+            resolve(value);
+          }
+        },
+        error => {
+          signal.removeEventListener('abort', onAbort);
+          if (!aborted) {
+            reject(error);
+          }
+        }
+      );
+    });
   }
 
   private async request<TResult>(method: string, params?: unknown, signal?: AbortSignal): Promise<TResult> {

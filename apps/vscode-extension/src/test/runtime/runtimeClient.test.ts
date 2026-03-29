@@ -202,6 +202,42 @@ suite('runtime client', () => {
     assert.deepEqual(left, right);
   });
 
+  test('forwards abort signals to getOrgAuth request handling', async () => {
+    let seenSignal: AbortSignal | undefined;
+    const client = new RuntimeClient({
+      requestHandler: async <TResult>(method: string, params: unknown, signal?: AbortSignal) => {
+        assert.equal(method, 'org/auth');
+        assert.deepEqual(params, { username: 'demo@example.com' });
+        seenSignal = signal;
+        return (await new Promise<OrgAuth>((_resolve, reject) => {
+          if (!signal) {
+            reject(new Error('missing signal'));
+            return;
+          }
+          signal.addEventListener(
+            'abort',
+            () => {
+              const error = new Error('Request aborted');
+              error.name = 'AbortError';
+              reject(error);
+            },
+            { once: true }
+          );
+        })) as TResult;
+      }
+    });
+
+    const controller = new AbortController();
+    const pending = client.getOrgAuth({ username: 'demo@example.com' }, controller.signal);
+    controller.abort();
+
+    await assert.rejects(
+      pending,
+      (error: unknown) => error instanceof Error && error.name === 'AbortError'
+    );
+    assert.equal(seenSignal, controller.signal);
+  });
+
   test('prepares daemon env before starting the runtime process', async () => {
     let prepareCalls = 0;
     let seenEnv: NodeJS.ProcessEnv | undefined;

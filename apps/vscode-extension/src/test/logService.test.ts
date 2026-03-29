@@ -97,6 +97,7 @@ suite('LogService', () => {
 
   test('openLog resolves auth through runtime client instead of salesforce cli', async () => {
     const calls: any[] = [];
+    const authCalls: Array<{ username?: string }> = [];
     const vscodeMock = createVscodeLogServiceStub([]);
     const { LogService } = proxyquireStrict('../../../../src/services/logService', {
       vscode: vscodeMock,
@@ -113,11 +114,14 @@ suite('LogService', () => {
       },
       '../../apps/vscode-extension/src/runtime/runtimeClient': {
         runtimeClient: {
-          getOrgAuth: async ({ username }: { username?: string } = {}) => ({
-            username,
-            accessToken: 't',
-            instanceUrl: 'url'
-          })
+          getOrgAuth: async ({ username }: { username?: string } = {}) => {
+            authCalls.push({ username });
+            return {
+              username,
+              accessToken: 't',
+              instanceUrl: 'url'
+            };
+          }
         }
       },
       '../utils/workspace': {
@@ -138,6 +142,7 @@ suite('LogService', () => {
     await svc.openLog('abc', 'runtime@example.com');
 
     assert.equal(calls.length, 1);
+    assert.deepEqual(authCalls, [{ username: 'runtime@example.com' }]);
     assert.equal(calls[0]?.logId, 'abc');
     assert.equal(calls[0]?.filePath, '/tmp/runtime.log');
   });
