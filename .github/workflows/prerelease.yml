@@ -330,8 +330,8 @@ jobs:
             gh release upload "$TAG" "$FILE" --clobber
           done
 
-  marketplace:
-    name: Publish to Marketplaces (pre-release channel)
+  publish_marketplace:
+    name: Publish to VS Code Marketplace (pre-release channel)
     needs: [assemble_release, prepare, check_changes]
     if: github.repository == 'Electivus/Apex-Log-Viewer' && needs.check_changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
@@ -345,17 +345,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Install dependencies
-        run: npm ci --workspaces=false
-
-      - name: Set nightly version in apps/vscode-extension/package.json
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          node -e "const fs=require('fs');const pkgPath='apps/vscode-extension/package.json';const pkg=JSON.parse(fs.readFileSync(pkgPath,'utf8'));pkg.version=process.env.VERSION;fs.writeFileSync(pkgPath,JSON.stringify(pkg,null,2)+'\n')"
 
       - name: Download VSIX artifact from prerelease job
         uses: actions/download-artifact@v8
@@ -382,6 +371,28 @@ jobs:
             npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release
           done
 
+  publish_open_vsx:
+    name: Publish to Open VSX (pre-release channel)
+    needs: [assemble_release, prepare, check_changes]
+    if: github.repository == 'Electivus/Apex-Log-Viewer' && needs.check_changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: marketplace
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Download VSIX artifact from prerelease job
+        uses: actions/download-artifact@v8
+        with:
+          name: nightly-vsix
+          path: .
+
       - name: Publish pre-release to Open VSX from VSIX
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
@@ -404,12 +415,11 @@ jobs:
           done
 
   rollback_prerelease:
-    name: Roll back GitHub pre-release (if publish failed)
-    needs: [assemble_release, marketplace, prepare, check_changes]
+    name: Roll back GitHub pre-release (if assembly failed)
+    needs: [assemble_release, prepare, check_changes]
     if: >
       always() && needs.check_changes.outputs.has_changes == 'true' &&
-      (needs.assemble_release.result == 'failure' || needs.assemble_release.result == 'cancelled' ||
-      needs.marketplace.result == 'failure' || needs.marketplace.result == 'cancelled')
+      (needs.assemble_release.result == 'failure' || needs.assemble_release.result == 'cancelled')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -421,14 +431,8 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Deleting pre-release $TAG due to downstream failure"
-            gh release delete "$TAG" --yes --cleanup-tag || echo "Release delete failed; continuing with direct tag cleanup"
+            echo "Deleting pre-release $TAG due to assembly failure"
+            gh release delete "$TAG" --yes --cleanup-tag
           else
-            echo "Pre-release $TAG is not visible; continuing with direct tag cleanup"
-          fi
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
-            echo "Deleting remote tag $TAG"
-            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG"
-          else
-            echo "Remote tag $TAG does not exist; nothing to delete"
+            echo "Pre-release $TAG does not exist; nothing to delete"
           fi
