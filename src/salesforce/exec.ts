@@ -1,7 +1,7 @@
 import * as cp from 'child_process';
 import { logTrace, logWarn } from '../utils/logger';
 import { localize } from '../utils/localize';
-import { safeSendException } from '../../apps/vscode-extension/src/shared/telemetry';
+import { safeSendEvent, safeSendException } from '../../apps/vscode-extension/src/shared/telemetry';
 import { classifyCliExecTelemetryCode } from './cliTelemetry';
 const crossSpawn = require('cross-spawn');
 
@@ -151,6 +151,36 @@ function makeExecKey(program: string, args: string[], envOverride?: NodeJS.Proce
   return [program, ...args, hasAltPath ? 'loginPATH' : '', String(timeoutMs || '')].join('\u0000');
 }
 
+function normalizeCliProgramForTelemetry(program: string): 'sf' | 'sfdx' | 'other' {
+  const normalized = String(program || '').trim().replace(/\\/g, '/').toLowerCase();
+  if (/(^|\/)sfdx(?:\.cmd|\.exe)?$/.test(normalized)) {
+    return 'sfdx';
+  }
+  if (/(^|\/)sf(?:\.cmd|\.exe)?$/.test(normalized)) {
+    return 'sf';
+  }
+  return 'other';
+}
+
+function sendCliCommandTelemetry(
+  program: string,
+  outcome: 'ok' | 'error' | 'timeout' | 'not_found',
+  startedAt: number
+): void {
+  try {
+    safeSendEvent(
+      'cli.command',
+      {
+        command: normalizeCliProgramForTelemetry(program),
+        outcome
+      },
+      {
+        durationMs: Date.now() - startedAt
+      }
+    );
+  } catch {}
+}
+
 export function execCommand(
   program: string,
   args: string[],
@@ -165,6 +195,7 @@ export function execCommand(
     return wrapWithAbort(existing, signal);
   }
   const p = new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+    const t0 = Date.now();
     const opts: cp.ExecFileOptionsWithStringEncoding = {
       maxBuffer: 1024 * 1024 * 10,
       encoding: 'utf8'
@@ -194,6 +225,7 @@ export function execCommand(
           try {
             logTrace('execCommand ENOENT for', program);
           } catch {}
+          sendCliCommandTelemetry(program, 'not_found', t0);
           safeSendException('cli.exec', { code: 'ENOENT', command: program });
           reject(e);
           return;
@@ -202,6 +234,7 @@ export function execCommand(
           logTrace('execCommand error for', program, '->', (stderr || err.message || '').split('\n')[0]);
         } catch {}
         const telemetryCode = classifyCliExecTelemetryCode(err.code, stderr, stdout, err.message);
+        sendCliCommandTelemetry(program, 'error', t0);
         safeSendException('cli.exec', { code: telemetryCode, command: program });
         const code = typeof err.code === 'number' || typeof err.code === 'string' ? err.code : undefined;
         const cmdStr2 = [program, ...args].join(' ').trim();
@@ -223,6 +256,7 @@ export function execCommand(
       try {
         logTrace('execCommand success for', program, '(stdout length', String(stdout || '').length, ')');
       } catch {}
+      sendCliCommandTelemetry(program, 'ok', t0);
       resolve({ stdout, stderr });
     });
     timer = setTimeout(() => {
@@ -248,6 +282,7 @@ export function execCommand(
       err.code = 'ETIMEDOUT';
       err.telemetryCode = 'ETIMEDOUT';
       inFlightExecs.delete(key);
+      sendCliCommandTelemetry(program, 'timeout', t0);
       safeSendException('cli.exec', { code: 'ETIMEDOUT', command: program });
       reject(err);
     }, timeoutMs);

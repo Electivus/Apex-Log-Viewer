@@ -9,7 +9,7 @@ This folder is the versioned Azure Monitor home for the extension. It is meant t
 - Dedicated E2E Application Insights component
 - Optional workbook
 - Optional dedicated action group
-- Optional scheduled query alerts for the production component
+- Optional scheduled query alerts for the production component, including CLI/auth, search, and daemon regressions
 
 ## Files
 
@@ -56,7 +56,8 @@ To deploy alerts, either:
 
 ## Operational guidance
 
-- Keep `deployAlerts=false` until a dedicated action group exists.
-- Keep production and E2E in the same workspace only if you are comfortable filtering on `_ResourceId`.
+- Set `workspaceRetentionInDays=90` for the shared workspace unless your environment has a stricter retention policy.
+- Keep production and E2E in the same workspace and split them with `_ResourceId`; keep separate App Insights components by user-facing environment rather than by internal process.
+- Keep `deployAlerts=false` in sanitized public parameter files until a dedicated action group exists, but enable it in private/live deployments.
 - Treat the workspace as the operational source of truth for `AppEvents`.
 - Run `az bicep build --file infra/azure-monitor/main.bicep` in CI to catch schema drift early.

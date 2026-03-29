@@ -1,17 +1,29 @@
 # Testing
 
-This project uses VS Code integration tests (Mocha running inside the Extension Development Host) and also runs unit‑style tests that don’t require a real org. The same runner powers both paths.
+This project uses three test layers:
+
+- Node-only extension tests for modules that can run without a real `vscode` host.
+- VS Code integration tests (Mocha running inside the Extension Development Host) for activation, commands, providers, and other `vscode`-bound behavior.
+- Playwright E2E tests against a real org.
 
 ## Commands
 
 - `npm run test:webview`: executes the React webview suites under Jest with a jsdom environment (fast, no VS Code host required).
+- `npm run test:extension:node`: executes Node-only extension tests under Mocha without launching VS Code.
 - `npm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
 - `npm run test:integration`: installs dependency extensions if needed and runs integration tests.
-- `npm run test:all`: runs the Jest webview suites, then both unit and integration scopes.
+- `npm run test:all`: runs the Jest webview suites, the Node-only extension lane, and then both VS Code-hosted scopes.
 - `npm run test:e2e`: runs Playwright E2E tests against a real scratch org. The runner uses either the legacy single-scratch flow or the Dev Hub scratch-org pool, depending on the configured strategy.
 - `npm run test:e2e:telemetry`: runs the same Playwright E2E suite, but first resolves a dedicated App Insights component for E2E and then validates that telemetry from the current run arrived there.
 
-The test orchestrator lives in `scripts/run-tests.js` and the Mocha programmatic runner in `src/test/runner.ts`.
+The Node-only Mocha runner lives in `scripts/run-node-tests.js`. The VS Code-hosted test orchestrator lives in `scripts/run-tests.js` and the Mocha programmatic host runner in `apps/vscode-extension/src/test/runner.ts`.
+
+## Test placement guidance
+
+- Put tests in `apps/vscode-extension/src/node-test/` when the module can be loaded without a real `vscode` runtime. Prefer `proxyquire`, fakes, and narrow module seams here.
+- Put tests in `apps/vscode-extension/src/test/` when the subject imports `vscode`, depends on activation wiring, touches commands/providers/views, or needs the Extension Development Host lifecycle.
+- Keep the default CLI-driven VS Code runtime on `stable`. Use `VSCODE_TEST_VERSION` only when you are intentionally validating another build.
+- If a test can be rewritten to avoid `vscode` at runtime, prefer moving it to `src/node-test/` instead of expanding the host-bound suite.
 
 ### VS Code UI Test Runner (opcional)
 

@@ -2,6 +2,7 @@ using '../main.bicep'
 
 param location = 'eastus'
 param workspaceName = 'law-apex-log-viewer-telemetry'
+param workspaceRetentionInDays = 90
 param prodAppInsightsName = 'appi-apex-log-viewer-telemetry-prod'
 param e2eAppInsightsName = 'appi-apex-log-viewer-telemetry-e2e'
 

@@ -17,6 +17,7 @@ import { createDaemonProcess } from '../../../../packages/app-server-client-ts/s
 import type { JsonRpcRequest, OrgListItem, OrgListParams } from '../../../../packages/app-server-client-ts/src/index';
 import { logTrace } from '../../../../src/utils/logger';
 import { getLoginShellEnv } from '../../../../src/salesforce/path';
+import { safeSendEvent } from '../shared/telemetry';
 import { resolveBundledBinary } from './bundledBinary';
 import {
   RUNTIME_CANCEL_EVENT,
@@ -29,6 +30,7 @@ import {
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 const RUNTIME_EXIT_MESSAGE_PREFIX = 'runtime exited (';
+const RUNTIME_TELEMETRY_METHODS = new Set(['initialize', 'org/list', 'org/auth', 'logs/list', 'search/query', 'logs/triage']);
 type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -215,23 +217,41 @@ export class RuntimeClient extends EventEmitter {
   }
 
   private async request<TResult>(method: string, params?: unknown, signal?: AbortSignal): Promise<TResult> {
-    if (signal?.aborted) {
-      throw this.createAbortError();
-    }
-
-    if (this.requestHandler) {
-      return this.requestHandler<TResult>(method, params, signal);
-    }
+    const t0 = Date.now();
+    let attempts = 1;
 
     try {
-      return await this.requestOnce<TResult>(method, params, signal);
-    } catch (error) {
-      if (!this.shouldRetryAfterRuntimeExit(error, signal)) {
-        throw error;
+      if (signal?.aborted) {
+        throw this.createAbortError();
       }
-      logTrace('Runtime: retrying request after daemon exit', method);
-      await this.restartRuntimeSession(method);
-      return await this.requestOnce<TResult>(method, params, signal);
+      if (this.requestHandler) {
+        const result = await this.requestHandler<TResult>(method, params, signal);
+        this.sendRuntimeRequestTelemetry(method, 'ok', t0, attempts);
+        return result;
+      }
+
+      try {
+        const result = await this.requestOnce<TResult>(method, params, signal);
+        this.sendRuntimeRequestTelemetry(method, 'ok', t0, attempts);
+        return result;
+      } catch (error) {
+        if (!this.shouldRetryAfterRuntimeExit(error, signal)) {
+          throw error;
+        }
+        logTrace('Runtime: retrying request after daemon exit', method);
+        attempts += 1;
+        await this.restartRuntimeSession(method);
+        const result = await this.requestOnce<TResult>(method, params, signal);
+        this.sendRuntimeRequestTelemetry(method, 'ok', t0, attempts);
+        return result;
+      }
+    } catch (error) {
+      if (this.isAbortError(error)) {
+        this.sendRuntimeRequestTelemetry(method, 'cancelled', t0, attempts);
+      } else {
+        this.sendRuntimeRequestTelemetry(method, 'error', t0, attempts);
+      }
+      throw error;
     }
   }
 
@@ -400,6 +420,31 @@ export class RuntimeClient extends EventEmitter {
     const error = new Error('Request aborted');
     error.name = 'AbortError';
     return error;
+  }
+
+  private isAbortError(error: unknown): boolean {
+    return error instanceof Error && (error.name === 'AbortError' || error.message === 'Request aborted');
+  }
+
+  private sendRuntimeRequestTelemetry(
+    method: string,
+    outcome: 'ok' | 'error' | 'cancelled',
+    startedAt: number,
+    attempts: number
+  ): void {
+    try {
+      safeSendEvent(
+        'daemon.request',
+        {
+          method: RUNTIME_TELEMETRY_METHODS.has(method) ? method : 'other',
+          outcome
+        },
+        {
+          durationMs: Date.now() - startedAt,
+          attempts
+        }
+      );
+    } catch {}
   }
 
   private async resolveProcessEnv(): Promise<NodeJS.ProcessEnv | undefined> {
