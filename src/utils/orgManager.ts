@@ -31,7 +31,12 @@ export class OrgManager {
       error.name = 'AbortError';
       throw error;
     }
-    const orgs = await runtimeClient.orgList({ forceRefresh });
+    const orgs = await runtimeClient.orgList({ forceRefresh }, signal);
+    if (signal?.aborted) {
+      const error = new Error('Request aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
     await this.ensureProjectDefaultSelected(orgs);
     const selected = pickSelectedOrg(orgs, this.selectedOrg);
     this.selectedOrg = selected;
