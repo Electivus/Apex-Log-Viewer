@@ -74,6 +74,13 @@ test('resolvePackageForTarget maps supported platform and arch pairs to native p
   );
 });
 
+test('resolveExitCode falls back to 1 when the native binary exits via signal', async () => {
+  const launcher = await import(pathToFileURL(launcherPath).href);
+
+  assert.equal(launcher.resolveExitCode({ status: 3, signal: null }), 3);
+  assert.equal(launcher.resolveExitCode({ status: null, signal: 'SIGTERM' }), 1);
+});
+
 test('discoverBinaries finds packaged runtime binaries under apps/vscode-extension/bin', async () => {
   const mod = await import(pathToFileURL(modulePath).href);
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cli-discover-'));

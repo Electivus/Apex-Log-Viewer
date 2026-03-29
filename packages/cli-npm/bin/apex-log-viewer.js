@@ -31,13 +31,17 @@ export function resolveBinaryPath(platform = process.platform, arch = process.ar
   return path.join(path.dirname(packageJsonPath), 'bin', binaryName);
 }
 
+export function resolveExitCode(result) {
+  return result.status ?? (result.signal ? 1 : 0);
+}
+
 export function main(argv = process.argv.slice(2)) {
   const binaryPath = resolveBinaryPath();
   const result = spawnSync(binaryPath, argv, { stdio: 'inherit' });
   if (result.error) {
     throw result.error;
   }
-  process.exit(result.status ?? 0);
+  process.exit(resolveExitCode(result));
 }
 
 const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
