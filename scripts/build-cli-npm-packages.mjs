@@ -85,13 +85,13 @@ export function buildCliNpmPackages({ version, outDir, binaries }) {
   const metaTemplate = readText(path.join(cliNpmRoot, 'templates', 'package.meta.json'));
   const nativeTemplate = readText(path.join(cliNpmRoot, 'templates', 'package.native.json'));
   const launcherSource = path.join(cliNpmRoot, 'bin', 'apex-log-viewer.js');
+  const validatedNativePackages = [];
 
   const metaDir = path.join(outDir, 'meta');
   const metaPackage = JSON.parse(renderTemplate(metaTemplate, { __VERSION__: version }));
   writeJson(path.join(metaDir, 'package.json'), metaPackage);
   copyFile(launcherSource, path.join(metaDir, 'bin', 'apex-log-viewer.js'), 0o755);
 
-  const nativeDirs = {};
   for (const [target, binaryPath] of Object.entries(binaries)) {
     const targetMetadata = TARGET_METADATA[target];
     const packageName = PACKAGE_BY_TARGET[target];
@@ -102,6 +102,15 @@ export function buildCliNpmPackages({ version, outDir, binaries }) {
       throw new Error(`Binary for target ${target} does not exist: ${binaryPath}`);
     }
 
+    validatedNativePackages.push([target, binaryPath, targetMetadata, packageName]);
+  }
+
+  for (const target of Object.keys(TARGET_METADATA)) {
+    fs.rmSync(path.join(outDir, target), { recursive: true, force: true });
+  }
+
+  const nativeDirs = {};
+  for (const [target, binaryPath, targetMetadata, packageName] of validatedNativePackages) {
     const nativeDir = path.join(outDir, target);
     const nativePackage = JSON.parse(
       renderTemplate(nativeTemplate, {
