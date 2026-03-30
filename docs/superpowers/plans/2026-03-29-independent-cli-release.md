@@ -165,7 +165,7 @@ Run:
 ```bash
 cargo test -p alv-protocol --test protocol_schema
 cargo test -p alv-app-server --test app_server_smoke
-cargo test -p electivus-apex-log-viewer-cli --test cli_smoke
+cargo test -p apex-log-viewer-cli --test cli_smoke
 npm run test:extension:node
 node scripts/run-tests-cli.js --scope=unit
 ```
@@ -242,7 +242,7 @@ Run:
 ```bash
 cargo test -p alv-protocol --test protocol_schema
 cargo test -p alv-app-server --test app_server_smoke
-cargo test -p electivus-apex-log-viewer-cli --test cli_smoke
+cargo test -p apex-log-viewer-cli --test cli_smoke
 npm run test:extension:node
 node scripts/run-tests-cli.js --scope=unit
 ```
@@ -602,7 +602,7 @@ Update root scripts so the workflows use pinned assets for packaging:
 
 ```json
 "package:runtime": "node scripts/fetch-runtime-release.mjs",
-"package:runtime:local": "cargo build -p electivus-apex-log-viewer-cli --bin apex-log-viewer --release && node apps/vscode-extension/scripts/copy-runtime-binary.mjs release"
+"package:runtime:local": "cargo build -p apex-log-viewer-cli --bin apex-log-viewer --release && node apps/vscode-extension/scripts/copy-runtime-binary.mjs release"
 ```
 
 Update the extension release jobs to fetch the pinned CLI release asset per target instead of calling `build-runtime-target.mjs`.
@@ -648,7 +648,7 @@ assert.deepEqual(
   [
     'build',
     '-p',
-    'electivus-apex-log-viewer-cli',
+    'apex-log-viewer-cli',
     '--bin',
     'apex-log-viewer',
     '--release',
@@ -695,7 +695,7 @@ Rename the Cargo package:
 
 ```toml
 [package]
-name = "electivus-apex-log-viewer-cli"
+name = "apex-log-viewer-cli"
 version = "0.1.0"
 edition = "2021"
 
@@ -957,7 +957,7 @@ git commit -m "docs(release): document independent CLI publishing flow"
 - Wire contract remains `runtime_version` / `protocol_version` plus new `channel`.
 - Extension setting name is consistently `electivus.apexLogs.runtimePath`.
 - The public npm package name is consistently `@electivus/apex-log-viewer`.
-- The public Cargo package name is consistently `electivus-apex-log-viewer-cli`.
+- The public Cargo package name is consistently `apex-log-viewer-cli`.
 
 ## Execution Handoff
 

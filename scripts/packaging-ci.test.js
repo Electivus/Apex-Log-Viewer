@@ -9,6 +9,33 @@ function readFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
+function readCargoVersion(relativePath) {
+  const cargoToml = readFile(relativePath);
+  const match = cargoToml.match(/^version = "([^"]+)"$/m);
+
+  assert.ok(match, `expected ${relativePath} to declare a package version`);
+  return match[1];
+}
+
+function assertVersionedPathDependency(relativePath, dependencyName, version, dependencyPath) {
+  const cargoToml = readFile(relativePath);
+  const inlineTable = cargoToml.match(
+    new RegExp(`${dependencyName}\\s*=\\s*\\{([^}]*)\\}`, 'm')
+  );
+
+  assert.ok(inlineTable, `expected ${relativePath} to declare ${dependencyName} as an inline table dependency`);
+  assert.match(
+    inlineTable[1],
+    new RegExp(`\\bversion\\s*=\\s*"${version}"`),
+    `expected ${relativePath} to keep ${dependencyName} pinned to version ${version}`
+  );
+  assert.match(
+    inlineTable[1],
+    new RegExp(`\\bpath\\s*=\\s*"${dependencyPath.replaceAll('/', '\\/')}"`),
+    `expected ${relativePath} to keep ${dependencyName} pinned to path ${dependencyPath}`
+  );
+}
+
 test('package script rebuilds the extension packaging assets that vsce includes', () => {
   const rootPackageJson = JSON.parse(readFile('package.json'));
   const packageScript = String(rootPackageJson.scripts?.package || '');
@@ -24,7 +51,7 @@ test('package:runtime fetches the pinned CLI release asset and package:runtime:l
   assert.equal(rootPackageJson.scripts?.['package:runtime'], 'node scripts/fetch-runtime-release.mjs');
   assert.match(
     String(rootPackageJson.scripts?.['package:runtime:local'] || ''),
-    /cargo build -p electivus-apex-log-viewer-cli --bin apex-log-viewer --release && node apps\/vscode-extension\/scripts\/copy-runtime-binary\.mjs release/
+    /cargo build -p apex-log-viewer-cli --bin apex-log-viewer --release && node apps\/vscode-extension\/scripts\/copy-runtime-binary\.mjs release/
   );
 });
 
@@ -60,14 +87,52 @@ for (const workflowPath of ['.github/workflows/prerelease.yml', '.github/workflo
   });
 }
 
-test('rust-release workflow publishes crates.io only after the staged release package succeeds', () => {
+test('rust-release workflow bootstrap skips crates.io publishing', () => {
   const workflowSource = readFile('.github/workflows/rust-release.yml');
 
-  assert.match(
+  assert.doesNotMatch(
     workflowSource,
-    /publish_crate:\n(?:.*\n)*?\s+needs:\s+\[validate_tag, package_release\]/,
-    'expected crates.io publishing to wait for the staged release package job'
+    /publish_crate:/,
+    'expected the initial CLI release workflow to avoid crates.io publishing during npm-first bootstrap'
   );
+  assert.doesNotMatch(
+    workflowSource,
+    /cargo publish --manifest-path crates\/alv-cli\/Cargo\.toml/,
+    'expected the initial CLI release workflow to skip cargo publish during npm-first bootstrap'
+  );
+});
+
+test('published Rust manifests keep versioned local dependencies so cargo publish is valid', () => {
+  const appServerVersion = readCargoVersion('crates/alv-app-server/Cargo.toml');
+  const coreVersion = readCargoVersion('crates/alv-core/Cargo.toml');
+  const protocolVersion = readCargoVersion('crates/alv-protocol/Cargo.toml');
+  const cliVersion = readCargoVersion('crates/alv-cli/Cargo.toml');
+
+  assertVersionedPathDependency('crates/alv-app-server/Cargo.toml', 'alv-core', coreVersion, '../alv-core');
+  assertVersionedPathDependency(
+    'crates/alv-app-server/Cargo.toml',
+    'alv-protocol',
+    protocolVersion,
+    '../alv-protocol'
+  );
+  assertVersionedPathDependency(
+    'crates/alv-cli/Cargo.toml',
+    'alv-app-server',
+    appServerVersion,
+    '../alv-app-server'
+  );
+  assert.ok(cliVersion.length > 0, 'expected the CLI crate version to remain readable');
+});
+
+test('runtime bundle stays pinned to the first successful npm-backed CLI release', () => {
+  const runtimeBundle = JSON.parse(readFile('config/runtime-bundle.json'));
+
+  assert.deepEqual(runtimeBundle, {
+    cliVersion: '0.1.1',
+    tag: 'rust-v0.1.1',
+    channel: 'stable',
+    protocolVersion: '1'
+  });
 });
 
 test('rust-release workflow preserves per-artifact directories when downloading runtime binaries', () => {

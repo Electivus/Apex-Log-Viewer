@@ -37,6 +37,9 @@ test('buildCliNpmPackages generates the meta package with all native optionalDep
 
   assert.equal(metaPackage.name, '@electivus/apex-log-viewer');
   assert.equal(metaPackage.version, '1.2.3');
+  assert.deepEqual(metaPackage.bin, {
+    alv: 'bin/apex-log-viewer.js'
+  });
   assert.equal(metaPackage.optionalDependencies['@electivus/apex-log-viewer-linux-x64'], '1.2.3');
   assert.equal(metaPackage.optionalDependencies['@electivus/apex-log-viewer-darwin-arm64'], '1.2.3');
   assert.equal(

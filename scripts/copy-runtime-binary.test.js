@@ -51,7 +51,7 @@ test('resolveCargoBuildArgs includes the packaged runtime target triple', async 
     [
       'build',
       '-p',
-      'electivus-apex-log-viewer-cli',
+      'apex-log-viewer-cli',
       '--bin',
       'apex-log-viewer',
       '--release',
@@ -84,7 +84,7 @@ test('buildRuntimeTarget runs cargo for the requested target before copying the 
       args: [
         'build',
         '-p',
-        'electivus-apex-log-viewer-cli',
+        'apex-log-viewer-cli',
         '--bin',
         'apex-log-viewer',
         '--release',

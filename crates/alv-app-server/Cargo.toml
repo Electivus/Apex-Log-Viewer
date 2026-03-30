@@ -1,14 +1,18 @@
 [package]
 name = "alv-app-server"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
+description = "JSON-RPC app server for the Apex Log Viewer runtime"
+license = "MIT"
+repository = "https://github.com/Electivus/Apex-Log-Viewer"
+homepage = "https://github.com/Electivus/Apex-Log-Viewer"
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
-alv-core = { path = "../alv-core" }
-alv-protocol = { path = "../alv-protocol" }
+alv-core = { version = "0.1.1", path = "../alv-core" }
+alv-protocol = { version = "0.1.1", path = "../alv-protocol" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.47", features = ["sync"] }

@@ -14,7 +14,7 @@ const CARGO_TARGETS = {
 };
 
 export function resolveCargoBuildArgs(target, profile = 'release') {
-  const args = ['build', '-p', 'electivus-apex-log-viewer-cli', '--bin', 'apex-log-viewer'];
+  const args = ['build', '-p', 'apex-log-viewer-cli', '--bin', 'apex-log-viewer'];
   if (profile === 'release') {
     args.push('--release');
   }

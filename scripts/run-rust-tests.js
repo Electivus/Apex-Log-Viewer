@@ -69,7 +69,7 @@ function createRustTestPlan({
         steps: [
           {
             command: "cargo",
-            args: ["nextest", "run", "-p", "electivus-apex-log-viewer-cli", "--test", "cli_smoke"],
+            args: ["nextest", "run", "-p", "apex-log-viewer-cli", "--test", "cli_smoke"],
             options: baseOptions,
           },
           {
@@ -87,7 +87,7 @@ function createRustTestPlan({
       steps: [
         {
           command: "cargo",
-          args: ["test", "-p", "electivus-apex-log-viewer-cli", "--test", "cli_smoke", "--", "--nocapture"],
+          args: ["test", "-p", "apex-log-viewer-cli", "--test", "cli_smoke", "--", "--nocapture"],
           options: baseOptions,
         },
         {

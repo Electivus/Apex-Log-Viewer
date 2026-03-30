@@ -7,7 +7,7 @@ Maintainer quick start
 3. For standard extension releases, update `CHANGELOG.md` manually, bump `package.json`, and push a tag `vX.Y.Z`.
 4. The Release workflow on the tag builds, attaches the `.vsix`, and, if `VSCE_PAT`/`OVSX_PAT` exist, publishes automatically.
 5. For CLI releases, update `crates/alv-cli/Cargo.toml`, refresh `config/runtime-bundle.json` so extension packaging keeps using the pinned tested runtime, and push a tag `rust-vX.Y.Z` or `rust-vX.Y.Z-alpha.N`.
-6. The Rust CLI release workflow publishes GitHub assets, the standalone crate, and the npm native/meta packages for that tested CLI build.
+6. The Rust CLI release workflow publishes GitHub assets plus the npm native/meta packages for that tested CLI build. `crates.io` stays out of the first-phase bootstrap path for now.
 7. Alternatively, publish the extension locally with `npm run vsce:publish` (or `:pre`) and `npx --yes ovsx publish`.
 
 This repository includes automated publish flows for the Visual Studio Code Marketplace, Open VSX, and the standalone Rust CLI release train with first-class support for pre-releases. It uses GitHub Actions, `vsce`, `ovsx`, Cargo, and npm packaging helpers and follows a simple semver convention:
@@ -33,7 +33,8 @@ How it works
 - If `VSCE_PAT` is present, it publishes to Marketplace; otherwise it only attaches the `.vsix` artifact to the workflow run.
 - If `OVSX_PAT` is present, it publishes the same VSIX artifacts to Open VSX.
 - Tags matching `rust-v*` trigger the CLI packaging workflow (`.github/workflows/rust-release.yml`).
-- The CLI workflow publishes the tested CLI crate to `crates.io`, uploads GitHub release assets, and publishes the generated npm native and meta packages.
+- The CLI workflow uploads GitHub release assets and publishes the generated npm native and meta packages.
+- `crates.io` publication is intentionally deferred until the internal crate surface is ready to be maintained as a public registry contract.
 - The extension build consumes the pinned runtime metadata in `config/runtime-bundle.json`, so the extension release channel can stay separate from the CLI release train.
 
 
@@ -49,7 +50,7 @@ Quick recipes
 
 - Prepare a CLI release:
   - Bump `crates/alv-cli/Cargo.toml`, update `config/runtime-bundle.json` if the extension should follow the new tested CLI artifact, and tag `rust-vX.Y.Z` or `rust-vX.Y.Z-alpha.N`.
-  - The CLI workflow publishes the crate, npm packages, and release assets without changing the VS Code extension release train.
+  - The CLI workflow publishes the npm packages and release assets without changing the VS Code extension release train.
 
 Local packaging/publish
 
