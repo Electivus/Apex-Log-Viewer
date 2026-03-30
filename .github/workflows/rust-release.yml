@@ -257,7 +257,7 @@ jobs:
             [ -d "${dir}" ] || continue
             case "$(basename "${dir}")" in
               meta) continue ;;
-              *) npm publish "${dir}" --tag "${NPM_DIST_TAG}" --access public ;;
+              *) node scripts/publish-npm-package-if-needed.mjs "${dir}" --tag "${NPM_DIST_TAG}" --access public ;;
             esac
           done
 
@@ -286,7 +286,7 @@ jobs:
           path: dist/npm
 
       - name: Publish meta package
-        run: npm publish dist/npm/meta --tag "${NPM_DIST_TAG}" --access public
+        run: node scripts/publish-npm-package-if-needed.mjs dist/npm/meta --tag "${NPM_DIST_TAG}" --access public
 
   release:
     name: Create GitHub release
