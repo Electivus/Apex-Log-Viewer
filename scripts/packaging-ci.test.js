@@ -164,3 +164,18 @@ test('rust-release workflow configures the npm registry before publishing packag
     'expected meta npm publish job to configure the npm registry before publishing'
   );
 });
+
+test('rust-release publish jobs check out the repo before reading .nvmrc', () => {
+  const workflowSource = readFile('.github/workflows/rust-release.yml');
+
+  assert.match(
+    workflowSource,
+    /publish_npm_native:[\s\S]*?- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@v6[\s\S]*?- name:\s+Setup Node\.js from \.nvmrc/,
+    'expected native npm publish job to check out the repo before setup-node reads .nvmrc'
+  );
+  assert.match(
+    workflowSource,
+    /publish_npm_meta:[\s\S]*?- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@v6[\s\S]*?- name:\s+Setup Node\.js from \.nvmrc/,
+    'expected meta npm publish job to check out the repo before setup-node reads .nvmrc'
+  );
+});

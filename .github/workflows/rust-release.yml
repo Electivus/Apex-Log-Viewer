@@ -233,6 +233,9 @@ jobs:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       NPM_DIST_TAG: ${{ needs.validate_tag.outputs.npm_dist_tag }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@v6
         with:
@@ -267,6 +270,9 @@ jobs:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       NPM_DIST_TAG: ${{ needs.validate_tag.outputs.npm_dist_tag }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@v6
         with:
