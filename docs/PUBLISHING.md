@@ -4,11 +4,13 @@ Maintainer quick start
 
 1. Create a Marketplace publisher and PAT, add secret `VSCE_PAT` in GitHub.
 2. Create an Open VSX namespace + PAT, add secret `OVSX_PAT` in GitHub.
-3. For standard releases, update `CHANGELOG.md` manually, bump `package.json`, and push a tag `vX.Y.Z`.
-4. The Release workflow on the tag builds, attaches the `.vsix`, and—if `VSCE_PAT`/`OVSX_PAT` exist—publishes automatically.
-5. Alternatively, publish locally with `npm run vsce:publish` (or `:pre`) and `npx --yes ovsx publish`.
+3. For standard extension releases, update `CHANGELOG.md` manually, bump `package.json`, and push a tag `vX.Y.Z`.
+4. The Release workflow on the tag builds, attaches the `.vsix`, and, if `VSCE_PAT`/`OVSX_PAT` exist, publishes automatically.
+5. For CLI releases, update `crates/alv-cli/Cargo.toml`, refresh `config/runtime-bundle.json` so extension packaging keeps using the pinned tested runtime, and push a tag `rust-vX.Y.Z` or `rust-vX.Y.Z-alpha.N`.
+6. The Rust CLI release workflow publishes GitHub assets, the standalone crate, and the npm native/meta packages for that tested CLI build.
+7. Alternatively, publish the extension locally with `npm run vsce:publish` (or `:pre`) and `npx --yes ovsx publish`.
 
-This repository includes automated publish flows for the Visual Studio Code Marketplace and Open VSX with first‑class support for pre‑releases. It uses GitHub Actions, `vsce`, and `ovsx` and follows a simple semver convention:
+This repository includes automated publish flows for the Visual Studio Code Marketplace, Open VSX, and the standalone Rust CLI release train with first-class support for pre-releases. It uses GitHub Actions, `vsce`, `ovsx`, Cargo, and npm packaging helpers and follows a simple semver convention:
 
 - Stable: even minor versions (e.g., 0.6.0, 0.6.1).
 - Pre‑release: odd minor versions (e.g., 0.7.0, 0.7.1).
@@ -30,6 +32,9 @@ How it works
   - Even minor → stable → `vsce publish`.
 - If `VSCE_PAT` is present, it publishes to Marketplace; otherwise it only attaches the `.vsix` artifact to the workflow run.
 - If `OVSX_PAT` is present, it publishes the same VSIX artifacts to Open VSX.
+- Tags matching `rust-v*` trigger the CLI packaging workflow (`.github/workflows/rust-release.yml`).
+- The CLI workflow publishes the tested CLI crate to `crates.io`, uploads GitHub release assets, and publishes the generated npm native and meta packages.
+- The extension build consumes the pinned runtime metadata in `config/runtime-bundle.json`, so the extension release channel can stay separate from the CLI release train.
 
 
 Quick recipes
@@ -41,6 +46,10 @@ Quick recipes
 - Prepare a pre‑release (odd minor channel):
   - Bump `package.json` to the next odd minor/patch, commit, and tag (e.g., `v0.7.0`); CI will package/publish using the pre‑release channel.
   - Optional: append a suffix to the tag (e.g., `v0.7.0-pre`) to force the pre‑release path regardless of minor parity.
+
+- Prepare a CLI release:
+  - Bump `crates/alv-cli/Cargo.toml`, update `config/runtime-bundle.json` if the extension should follow the new tested CLI artifact, and tag `rust-vX.Y.Z` or `rust-vX.Y.Z-alpha.N`.
+  - The CLI workflow publishes the crate, npm packages, and release assets without changing the VS Code extension release train.
 
 Local packaging/publish
 

@@ -33,6 +33,14 @@ Messages from the extension arrive via `onDidReceiveMessage` and are dispatched 
 - `src/shared/` – TypeScript declarations for messages and data models shared by the extension and webview.
 - `src/utils/` – helper functions such as `localize.ts` for NLS and `limiter.ts` for concurrency control.
 
+## Runtime bundle and release trains
+
+The VS Code extension and the standalone Rust CLI now follow separate release trains.
+
+- The extension packaging flow consumes `config/runtime-bundle.json` as pinned runtime metadata, so the bundled executable comes from a tested CLI release instead of an arbitrary workspace build.
+- The runtime bundle lets maintainers keep the VS Code extension channel and the CLI release channel independent while still shipping a predictable executable with the extension.
+- Local developer overrides can still point the extension at a manually supplied executable, but release packaging uses the pinned bundle metadata by default.
+
 ## Testing and build tooling
 
 - Tests live in `src/test/` and are compiled to `out/test/`. The `scripts/run-tests.js` script orchestrates unit and integration tests.
