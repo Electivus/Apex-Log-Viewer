@@ -36,6 +36,16 @@ function assertVersionedPathDependency(relativePath, dependencyName, version, de
   );
 }
 
+function readWorkflowJob(relativePath, jobName) {
+  const workflowSource = readFile(relativePath);
+  const match = workflowSource.match(
+    new RegExp(`^  ${jobName}:\\n([\\s\\S]*?)(?=^  [a-z0-9_]+:\\n|\\Z)`, 'mi')
+  );
+
+  assert.ok(match, `expected ${relativePath} to declare the ${jobName} job`);
+  return match[1];
+}
+
 test('package script rebuilds the extension packaging assets that vsce includes', () => {
   const rootPackageJson = JSON.parse(readFile('package.json'));
   const packageScript = String(rootPackageJson.scripts?.package || '');
@@ -151,16 +161,33 @@ test('rust-release workflow preserves per-artifact directories when downloading 
 });
 
 test('rust-release workflow configures the npm registry before publishing packages', () => {
-  const workflowSource = readFile('.github/workflows/rust-release.yml');
+  const nativePublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_native');
+  const metaPublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_meta');
 
   assert.match(
-    workflowSource,
-    /publish_npm_native:[\s\S]*?uses:\s+actions\/setup-node@v6[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'/,
+    nativePublishJob,
+    /uses:\s+actions\/setup-node@v6[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'/,
     'expected native npm publish job to configure the npm registry before publishing'
   );
   assert.match(
-    workflowSource,
-    /publish_npm_meta:[\s\S]*?uses:\s+actions\/setup-node@v6[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'/,
+    metaPublishJob,
+    /uses:\s+actions\/setup-node@v6[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'/,
     'expected meta npm publish job to configure the npm registry before publishing'
+  );
+});
+
+test('rust-release publish jobs check out the repo before reading .nvmrc', () => {
+  const nativePublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_native');
+  const metaPublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_meta');
+
+  assert.match(
+    nativePublishJob,
+    /- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@v6[\s\S]*?- name:\s+Setup Node\.js from \.nvmrc/,
+    'expected native npm publish job to check out the repo before setup-node reads .nvmrc'
+  );
+  assert.match(
+    metaPublishJob,
+    /- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@v6[\s\S]*?- name:\s+Setup Node\.js from \.nvmrc/,
+    'expected meta npm publish job to check out the repo before setup-node reads .nvmrc'
   );
 });
