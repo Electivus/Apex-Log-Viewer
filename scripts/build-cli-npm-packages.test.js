@@ -57,6 +57,42 @@ test('buildCliNpmPackages generates the meta package with all native optionalDep
   fs.rmSync(binariesRoot, { recursive: true, force: true });
 });
 
+test('buildCliNpmPackages removes stale native package directories when rerun with fewer binaries', async () => {
+  const mod = await import(pathToFileURL(modulePath).href);
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cli-npm-'));
+  const binariesRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cli-binaries-'));
+
+  const firstResult = mod.buildCliNpmPackages({
+    version: '1.2.3',
+    outDir,
+    binaries: {
+      'linux-x64': makeBinary(binariesRoot, 'linux-x64'),
+      'darwin-arm64': makeBinary(binariesRoot, 'darwin-arm64')
+    }
+  });
+
+  assert.equal(fs.existsSync(firstResult.nativeDirs['linux-x64']), true);
+  assert.equal(fs.existsSync(firstResult.nativeDirs['darwin-arm64']), true);
+
+  const secondResult = mod.buildCliNpmPackages({
+    version: '1.2.3',
+    outDir,
+    binaries: {
+      'linux-x64': makeBinary(binariesRoot, 'linux-x64')
+    }
+  });
+
+  assert.equal(fs.existsSync(secondResult.nativeDirs['linux-x64']), true);
+  assert.equal(
+    fs.existsSync(path.join(outDir, 'darwin-arm64')),
+    false,
+    'expected stale native package directory to be removed on rerun'
+  );
+
+  fs.rmSync(outDir, { recursive: true, force: true });
+  fs.rmSync(binariesRoot, { recursive: true, force: true });
+});
+
 test('resolvePackageForTarget maps supported platform and arch pairs to native package names', async () => {
   const launcher = await import(pathToFileURL(launcherPath).href);
 
