@@ -17,6 +17,25 @@ function readCargoVersion(relativePath) {
   return match[1];
 }
 
+function assertVersionedPathDependency(relativePath, dependencyName, version, dependencyPath) {
+  const cargoToml = readFile(relativePath);
+  const inlineTable = cargoToml.match(
+    new RegExp(`${dependencyName}\\s*=\\s*\\{([^}]*)\\}`, 'm')
+  );
+
+  assert.ok(inlineTable, `expected ${relativePath} to declare ${dependencyName} as an inline table dependency`);
+  assert.match(
+    inlineTable[1],
+    new RegExp(`\\bversion\\s*=\\s*"${version}"`),
+    `expected ${relativePath} to keep ${dependencyName} pinned to version ${version}`
+  );
+  assert.match(
+    inlineTable[1],
+    new RegExp(`\\bpath\\s*=\\s*"${dependencyPath.replaceAll('/', '\\/')}"`),
+    `expected ${relativePath} to keep ${dependencyName} pinned to path ${dependencyPath}`
+  );
+}
+
 test('package script rebuilds the extension packaging assets that vsce includes', () => {
   const rootPackageJson = JSON.parse(readFile('package.json'));
   const packageScript = String(rootPackageJson.scripts?.package || '');
@@ -89,20 +108,18 @@ test('published Rust manifests keep versioned local dependencies so cargo publis
   const protocolVersion = readCargoVersion('crates/alv-protocol/Cargo.toml');
   const cliVersion = readCargoVersion('crates/alv-cli/Cargo.toml');
 
-  assert.match(
-    readFile('crates/alv-app-server/Cargo.toml'),
-    new RegExp(`alv-core = \\{ version = "${coreVersion}", path = "\\.\\./alv-core" \\}`),
-    'expected alv-app-server to keep a publishable versioned dependency on alv-core'
+  assertVersionedPathDependency('crates/alv-app-server/Cargo.toml', 'alv-core', coreVersion, '../alv-core');
+  assertVersionedPathDependency(
+    'crates/alv-app-server/Cargo.toml',
+    'alv-protocol',
+    protocolVersion,
+    '../alv-protocol'
   );
-  assert.match(
-    readFile('crates/alv-app-server/Cargo.toml'),
-    new RegExp(`alv-protocol = \\{ version = "${protocolVersion}", path = "\\.\\./alv-protocol" \\}`),
-    'expected alv-app-server to keep a publishable versioned dependency on alv-protocol'
-  );
-  assert.match(
-    readFile('crates/alv-cli/Cargo.toml'),
-    new RegExp(`alv-app-server = \\{ version = "${appServerVersion}", path = "\\.\\./alv-app-server" \\}`),
-    'expected the CLI crate to keep a publishable versioned dependency on alv-app-server'
+  assertVersionedPathDependency(
+    'crates/alv-cli/Cargo.toml',
+    'alv-app-server',
+    appServerVersion,
+    '../alv-app-server'
   );
   assert.ok(cliVersion.length > 0, 'expected the CLI crate version to remain readable');
 });

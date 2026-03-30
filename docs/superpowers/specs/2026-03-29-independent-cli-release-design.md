@@ -1,4 +1,4 @@
-# Release Independente do CLI com Publicacao em crates.io e npm
+# Release Independente do CLI com GitHub Releases e npm, com crates.io em fase futura
 
 **Data:** 2026-03-29  
 **Status:** Aprovado para planejamento (pre-implementacao)  
@@ -29,10 +29,10 @@ As decisoes abaixo foram aprovadas durante o brainstorming e sao parte do design
 - O CLI usa **tags dedicadas** no formato:
   - stable: `rust-vX.Y.Z`
   - pre-release: `rust-vX.Y.Z-alpha.N`
-- O CLI sera publicado em **tres canais oficiais**:
-  - `crates.io`
+- O bootstrap inicial do CLI sera publicado em **dois canais oficiais**:
   - `npm`
   - GitHub Releases
+- `crates.io` fica explicitamente como **fase futura**, depois que a superficie de crates internos estiver pronta para manutencao publica.
 - A distribuicao no `npm` seguira o padrao **meta package + pacotes nativos por plataforma**, sem `postinstall` que baixa binarios.
 - A extensao fica **pinada a uma versao exata do CLI**, que sera a versao embutida e validada na VSIX.
 - A extensao aceitara **sempre** um CLI externo configurado manualmente, **sem bloqueio de compatibilidade**.
@@ -43,7 +43,7 @@ As decisoes abaixo foram aprovadas durante o brainstorming e sao parte do design
 
 1. Publicar o CLI como produto proprio, independente da extensao.
 2. Permitir releases mais frequentes do CLI sem obrigar release simultaneo da extensao.
-3. Distribuir o CLI por `cargo install`, `npm install -g` e download direto de GitHub Release.
+3. Distribuir o CLI inicialmente por `npm install -g` e download direto de GitHub Release, deixando `cargo install` para a fase futura de `crates.io`.
 4. Preservar a extensao como consumidor conservador de uma versao validada do runtime.
 5. Permitir override manual do executavel do CLI sem bloqueio artificial.
 6. Tornar o pipeline de release do CLI previsivel, reproduzivel e proximo do modelo usado pelo Codex.
@@ -65,15 +65,15 @@ As decisoes abaixo foram aprovadas durante o brainstorming e sao parte do design
 Esse nome continua sendo usado:
 
 - no binario embutido pela extensao
-- no `npm` como comando exposto ao usuario
 - no runtime iniciado pela extensao via `app-server --stdio`
+- como nome do binario nativo resolvido pelo launcher npm
 
 ### Crate publico
 
 - Nome publico no `crates.io`: `apex-log-viewer-cli`
 - Comando instalado pelo crate: `apex-log-viewer`
 
-Para suportar a publicacao no `crates.io`, o package name do crate em `crates/alv-cli/Cargo.toml` passa a refletir esse nome publico. O diretorio pode continuar sendo `crates/alv-cli/`; o nome publico e o caminho no workspace nao precisam ser identicos.
+Para suportar a futura publicacao no `crates.io`, o package name do crate em `crates/alv-cli/Cargo.toml` passa a refletir esse nome publico. O diretorio pode continuar sendo `crates/alv-cli/`; o nome publico e o caminho no workspace nao precisam ser identicos.
 
 ### Pacotes npm
 
@@ -86,7 +86,7 @@ Para suportar a publicacao no `crates.io`, o package name do crate em `crates/al
   - `@electivus/apex-log-viewer-win32-x64`
   - `@electivus/apex-log-viewer-win32-arm64`
 
-O meta package expora o binario `apex-log-viewer` e resolvera o pacote nativo correspondente a plataforma atual.
+O meta package expora o comando `alv` e resolvera o pacote nativo correspondente a plataforma atual. Internamente, esse launcher delega para o binario nativo `apex-log-viewer`.
 
 ## Modelo de versionamento
 
@@ -120,11 +120,13 @@ A extensao continua com seu proprio versionamento e seu proprio processo de rele
 
 ## Distribuicao do CLI
 
-### 1. crates.io
+### 1. crates.io (fase futura)
 
-O workflow do CLI publica o crate `apex-log-viewer-cli` em `crates.io` sempre que uma tag `rust-v...` valida e promovida for disparada.
+A publicacao em `crates.io` ainda nao faz parte do bootstrap deste repo.
 
-O artefato publicado deve:
+Na fase em que `crates.io` for ativado, o workflow do CLI devera publicar o crate `apex-log-viewer-cli` sempre que uma tag `rust-v...` valida e promovida for disparada.
+
+Quando isso acontecer, o artefato publicado devera:
 
 - instalar o binario `apex-log-viewer`
 - refletir exatamente a mesma versao do release tag
@@ -161,6 +163,7 @@ O meta package `@electivus/apex-log-viewer` contem:
 - os `optionalDependencies` apontando para todos os pacotes nativos da mesma versao
 - a logica de resolucao de plataforma
 - a delegacao para o binario correto
+- a exposicao do comando `alv` para o usuario final
 
 #### Pacotes nativos
 
@@ -228,7 +231,7 @@ Gates obrigatorios antes de publicar:
 
 - `npm run test:rust`
 - smoke do launcher npm em staging para pelo menos:
-  - `apex-log-viewer --version`
+  - `alv --version`
   - smoke do `app-server` por `stdio`, abrindo o processo, enviando `initialize` e validando resposta estruturada
 
 O release do CLI nao depende da suite completa da extensao VS Code. O acoplamento aqui e intencionalmente baixo.
@@ -272,15 +275,7 @@ Canal:
 - stable -> `npm publish --tag latest`
 - pre-release -> `npm publish --tag next`
 
-### 6. Publicacao em crates.io
-
-O crate e publicado depois que a fase de build/testes passou e antes do fechamento do release.
-
-Segredo necessario:
-
-- `CARGO_REGISTRY_TOKEN`
-
-### 7. GitHub Release
+### 6. GitHub Release
 
 O workflow cria ou atualiza o GitHub Release da tag `rust-v...` e anexa:
 
@@ -288,6 +283,14 @@ O workflow cria ou atualiza o GitHub Release da tag `rust-v...` e anexa:
 - o arquivo de checksums
 
 O release fica marcado como pre-release quando a propria versao do CLI for pre-release.
+
+### 7. crates.io (fase futura)
+
+Quando a publicacao em `crates.io` for ativada, ela deve acontecer somente depois que a fase de build/testes e o staging dos artefatos npm/GitHub Release tiverem passado.
+
+Segredo necessario nessa fase:
+
+- `CARGO_REGISTRY_TOKEN`
 
 ## Empacotamento da extensao com CLI pinado
 
