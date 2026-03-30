@@ -1,5 +1,5 @@
 [package]
-name = "alv-cli"
+name = "electivus-apex-log-viewer-cli"
 version = "0.1.0"
 edition = "2021"
 

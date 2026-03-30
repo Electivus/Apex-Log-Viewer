@@ -1,0 +1,286 @@
+name: Rust CLI Release
+
+on:
+  push:
+    tags:
+      - 'rust-v*'
+
+concurrency:
+  group: rust-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  validate_tag:
+    name: Validate tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release_meta.outputs.version }}
+      pre_release: ${{ steps.release_meta.outputs.pre_release }}
+      npm_dist_tag: ${{ steps.release_meta.outputs.npm_dist_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Compute release metadata
+        id: release_meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG_VERSION=$(node -e "const fs=require('fs');const toml=fs.readFileSync('crates/alv-cli/Cargo.toml','utf8');const match=toml.match(/^version = \"([^\"]+)\"$/m);if(!match){process.exit(1)}process.stdout.write(match[1])")
+          TAG_VERSION="${GITHUB_REF_NAME#rust-v}"
+          if [ "${PKG_VERSION}" != "${TAG_VERSION}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} != crates/alv-cli/Cargo.toml version ${PKG_VERSION}" >&2
+            exit 1
+          fi
+          PRE_RELEASE=false
+          NPM_DIST_TAG=latest
+          if [[ "${PKG_VERSION}" == *-* ]]; then
+            PRE_RELEASE=true
+            NPM_DIST_TAG=next
+          fi
+          {
+            echo "version=${PKG_VERSION}"
+            echo "pre_release=${PRE_RELEASE}"
+            echo "npm_dist_tag=${NPM_DIST_TAG}"
+          } >> "${GITHUB_OUTPUT}"
+
+  test_rust:
+    name: Test Rust CLI
+    needs: validate_tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --workspaces=false
+
+      - name: Run Rust CLI tests
+        shell: bash
+        run: cargo test -p electivus-apex-log-viewer-cli --test cli_smoke -- --nocapture
+
+  build_matrix:
+    name: Build runtime and stage binaries (${{ matrix.target }})
+    needs: test_rust
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            cargo_target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: linux-arm64
+            cargo_target: aarch64-unknown-linux-gnu
+          - os: windows-latest
+            target: win32-x64
+            cargo_target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            target: win32-arm64
+            cargo_target: aarch64-pc-windows-msvc
+          - os: macos-latest
+            target: darwin-x64
+            cargo_target: x86_64-apple-darwin
+          - os: macos-latest
+            target: darwin-arm64
+            cargo_target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --workspaces=false
+
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.cargo_target }}
+
+      - name: Install Linux arm64 linker
+        if: matrix.target == 'linux-arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          mkdir -p "${HOME}/.cargo"
+          cat > "${HOME}/.cargo/config.toml" <<'EOF'
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+
+      - name: Build and copy runtime binary
+        run: node scripts/build-runtime-target.mjs "${{ matrix.target }}" release
+
+      - name: Upload runtime binary staging
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-binary-${{ matrix.target }}
+          path: apps/vscode-extension/bin/${{ matrix.target }}
+          if-no-files-found: error
+
+  package_release:
+    name: Package release assets and npm packages
+    needs: [validate_tag, build_matrix]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.validate_tag.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --workspaces=false
+
+      - name: Download runtime binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: rust-binary-*
+          path: .
+          merge-multiple: true
+
+      - name: Package CLI release assets
+        run: node scripts/package-cli-release.mjs --version "${VERSION}" --out-dir dist/release
+
+      - name: Stage CLI npm packages
+        run: node scripts/build-cli-npm-packages.mjs --version "${VERSION}" --out-dir dist/npm
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-release-assets
+          path: dist/release/*
+          if-no-files-found: error
+
+      - name: Upload npm packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-npm-packages
+          path: dist/npm/**
+          if-no-files-found: error
+
+  publish_npm_native:
+    name: Publish npm native packages
+    needs: [package_release, validate_tag]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      NPM_DIST_TAG: ${{ needs.validate_tag.outputs.npm_dist_tag }}
+    steps:
+      - name: Download staged npm packages
+        uses: actions/download-artifact@v8
+        with:
+          name: rust-npm-packages
+          path: dist/npm
+
+      - name: Publish native packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for dir in dist/npm/*; do
+            [ -d "${dir}" ] || continue
+            case "$(basename "${dir}")" in
+              meta) continue ;;
+              *) npm publish "${dir}" --tag "${NPM_DIST_TAG}" --access public ;;
+            esac
+          done
+
+  publish_npm_meta:
+    name: Publish npm meta package
+    needs: [publish_npm_native, validate_tag]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      NPM_DIST_TAG: ${{ needs.validate_tag.outputs.npm_dist_tag }}
+    steps:
+      - name: Download staged npm packages
+        uses: actions/download-artifact@v8
+        with:
+          name: rust-npm-packages
+          path: dist/npm
+
+      - name: Publish meta package
+        run: npm publish dist/npm/meta --tag "${NPM_DIST_TAG}" --access public
+
+  publish_crate:
+    name: Publish crates.io package
+    needs: test_rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Publish crate
+        run: cargo publish --manifest-path crates/alv-cli/Cargo.toml
+
+  release:
+    name: Create GitHub release
+    needs: [validate_tag, package_release, publish_npm_meta, publish_crate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PRE_RELEASE: ${{ needs.validate_tag.outputs.pre_release }}
+    steps:
+      - name: Download packaged release assets
+        uses: actions/download-artifact@v8
+        with:
+          name: rust-release-assets
+          path: dist/release
+
+      - name: Create or update GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          TITLE="${TAG}"
+          NOTES="Automated Rust CLI release."
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            if [ "${PRE_RELEASE}" = "true" ]; then
+              gh release edit "${TAG}" --title "${TITLE}" --notes "${NOTES}" --prerelease
+            else
+              gh release edit "${TAG}" --title "${TITLE}" --notes "${NOTES}"
+            fi
+          else
+            if [ "${PRE_RELEASE}" = "true" ]; then
+              gh release create "${TAG}" --title "${TITLE}" --notes "${NOTES}" --prerelease
+            else
+              gh release create "${TAG}" --title "${TITLE}" --notes "${NOTES}"
+            fi
+          fi
+
+      - name: Upload release assets
+        shell: bash
+        run: gh release upload "${GITHUB_REF_NAME}" dist/release/* --clobber
