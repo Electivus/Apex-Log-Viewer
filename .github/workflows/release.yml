@@ -51,27 +51,21 @@ jobs:
           - os: ubuntu-latest
             target: linux-x64
             npm_arch: x64
-            cargo_target: x86_64-unknown-linux-gnu
           - os: ubuntu-latest
             target: linux-arm64
             npm_arch: arm64
-            cargo_target: aarch64-unknown-linux-gnu
           - os: windows-latest
             target: win32-x64
             npm_arch: x64
-            cargo_target: x86_64-pc-windows-msvc
           - os: windows-latest
             target: win32-arm64
             npm_arch: arm64
-            cargo_target: aarch64-pc-windows-msvc
           - os: macos-latest
             target: darwin-x64
             npm_arch: x64
-            cargo_target: x86_64-apple-darwin
           - os: macos-latest
             target: darwin-arm64
             npm_arch: arm64
-            cargo_target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     permissions:
@@ -95,16 +89,6 @@ jobs:
       - name: Install dependencies
         run: npm ci --workspaces=false
 
-      - name: Install Rust target for packaged runtime
-        run: rustup target add ${{ matrix.cargo_target }}
-
-      - name: Install Linux ARM64 cross-linker
-        if: matrix.cargo_target == 'aarch64-unknown-linux-gnu'
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
       - name: Verify tag matches extension package version
         shell: bash
         run: |
@@ -116,15 +100,23 @@ jobs:
             exit 1
           fi
 
-      - name: Build + generate NLS assets
-        run: npm run package
+      - name: Build extension packaging assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run clean
+          npm run build:tree-sitter-runtime
+          npm run build:package-metadata
+          node apps/vscode-extension/esbuild.extension.mjs
+          (npm run -s nls:extract || true)
+          npm run nls:write
+          npm run build:webview
 
-      - name: Build packaged runtime for target
+      - name: Fetch packaged runtime for target
         shell: bash
         env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           MATRIX_TARGET: ${{ matrix.target }}
-        run: node scripts/build-runtime-target.mjs "${MATRIX_TARGET}" release
+        run: node scripts/fetch-runtime-release.mjs "${MATRIX_TARGET}"
 
       - name: Determine channel (stable vs pre-release)
         id: determine_channel

@@ -18,19 +18,34 @@ test('package script rebuilds the extension packaging assets that vsce includes'
   assert.match(packageScript, /\bbuild:package-metadata\b/);
 });
 
+test('package:runtime fetches the pinned CLI release asset and package:runtime:local keeps the local cargo fallback', () => {
+  const rootPackageJson = JSON.parse(readFile('package.json'));
+
+  assert.equal(rootPackageJson.scripts?.['package:runtime'], 'node scripts/fetch-runtime-release.mjs');
+  assert.match(
+    String(rootPackageJson.scripts?.['package:runtime:local'] || ''),
+    /cargo build -p alv-cli --bin apex-log-viewer --release && node apps\/vscode-extension\/scripts\/copy-runtime-binary\.mjs release/
+  );
+});
+
 for (const workflowPath of ['.github/workflows/prerelease.yml', '.github/workflows/release.yml']) {
-  test(`${workflowPath} provisions the linux-arm64 cross-linker before packaging`, () => {
+  test(`${workflowPath} fetches pinned CLI release assets instead of building Rust targets during packaging`, () => {
     const workflowSource = readFile(workflowPath);
 
     assert.match(
       workflowSource,
-      /Install Linux ARM64 cross-linker[\s\S]*apt-get install -y gcc-aarch64-linux-gnu/,
-      'expected workflow to install the aarch64 Linux GNU toolchain via apt-get'
+      /node scripts\/fetch-runtime-release\.mjs "\$\{MATRIX_TARGET\}"/,
+      'expected workflow to fetch the pinned CLI runtime release asset for the target'
     );
-    assert.match(
+    assert.doesNotMatch(
       workflowSource,
-      /CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER:\s*aarch64-linux-gnu-gcc/,
-      'expected workflow to export the linux-arm64 cargo linker'
+      /node scripts\/build-runtime-target\.mjs "\$\{MATRIX_TARGET\}" release/,
+      'expected workflow to stop building the Rust workspace head during extension packaging'
+    );
+    assert.doesNotMatch(
+      workflowSource,
+      /rustup target add|gcc-aarch64-linux-gnu|CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER/,
+      'expected workflow packaging jobs to stop installing Rust target build prerequisites'
     );
   });
 }
