@@ -176,6 +176,22 @@ test('rust-release workflow configures the npm registry before publishing packag
   );
 });
 
+test('rust-release workflow uses an idempotent npm publish helper for reruns of the same tag', () => {
+  const nativePublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_native');
+  const metaPublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_meta');
+
+  assert.match(
+    nativePublishJob,
+    /node scripts\/publish-npm-package-if-needed\.mjs "\$\{dir\}" --tag "\$\{NPM_DIST_TAG\}" --access public/,
+    'expected native npm publish job to skip versions that were already published during an earlier partial run'
+  );
+  assert.match(
+    metaPublishJob,
+    /node scripts\/publish-npm-package-if-needed\.mjs dist\/npm\/meta --tag "\$\{NPM_DIST_TAG\}" --access public/,
+    'expected meta npm publish job to skip versions that were already published during an earlier partial run'
+  );
+});
+
 test('rust-release publish jobs check out the repo before reading .nvmrc', () => {
   const nativePublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_native');
   const metaPublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_meta');
