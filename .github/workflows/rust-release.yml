@@ -233,6 +233,12 @@ jobs:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       NPM_DIST_TAG: ${{ needs.validate_tag.outputs.npm_dist_tag }}
     steps:
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          registry-url: 'https://registry.npmjs.org'
+
       - name: Download staged npm packages
         uses: actions/download-artifact@v8
         with:
@@ -261,6 +267,12 @@ jobs:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       NPM_DIST_TAG: ${{ needs.validate_tag.outputs.npm_dist_tag }}
     steps:
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          registry-url: 'https://registry.npmjs.org'
+
       - name: Download staged npm packages
         uses: actions/download-artifact@v8
         with:
