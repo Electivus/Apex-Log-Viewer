@@ -163,7 +163,7 @@ jobs:
         with:
           pattern: rust-binary-*
           path: .
-          merge-multiple: true
+          merge-multiple: false
 
       - name: Normalize downloaded runtime binaries
         shell: bash
@@ -174,19 +174,19 @@ jobs:
             if [ -f "${destination}" ]; then
               continue
             fi
+            source_candidate_artifact="rust-binary-${target}/${binary}"
+            if [ -f "${source_candidate_artifact}" ]; then
+              mkdir -p "$(dirname "${destination}")"
+              mv "${source_candidate_artifact}" "${destination}"
+              continue
+            fi
             source_candidate="${target}/${binary}"
             if [ -f "${source_candidate}" ]; then
               mkdir -p "$(dirname "${destination}")"
               mv "${source_candidate}" "${destination}"
               continue
             fi
-            source_candidate_root="${binary}"
-            if [ -f "${source_candidate_root}" ]; then
-              mkdir -p "$(dirname "${destination}")"
-              mv "${source_candidate_root}" "${destination}"
-              continue
-            fi
-            echo "Missing downloaded runtime binary for ${target}: expected ${destination}, ${source_candidate}, or ${source_candidate_root}" >&2
+            echo "Missing downloaded runtime binary for ${target}: expected ${destination}, ${source_candidate_artifact}, or ${source_candidate}" >&2
             exit 1
           done <<'EOF'
           linux-x64 apex-log-viewer
