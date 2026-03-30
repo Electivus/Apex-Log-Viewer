@@ -120,13 +120,24 @@ test('resolveExitCode falls back to 1 when the native binary exits via signal', 
   assert.equal(launcher.resolveExitCode({ status: null, signal: 'SIGTERM' }), 1);
 });
 
-test('isDirectExecution treats npm-style symlink entrypoints as direct execution', async () => {
+test('isDirectExecution treats npm-style symlink entrypoints as direct execution', async (t) => {
   const launcher = await import(pathToFileURL(launcherPath).href);
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cli-symlink-'));
   const symlinkPath = path.join(tempDir, 'alv');
 
   try {
-    fs.symlinkSync(launcherPath, symlinkPath);
+    if (process.platform === 'win32') {
+      t.skip('Windows symlink creation may require Developer Mode or elevated privileges');
+    }
+
+    try {
+      fs.symlinkSync(launcherPath, symlinkPath);
+    } catch (error) {
+      if (error && (error.code === 'EPERM' || error.code === 'EACCES')) {
+        t.skip('Symlink creation is not permitted in this environment');
+      }
+      throw error;
+    }
 
     assert.equal(typeof launcher.isDirectExecution, 'function');
     assert.equal(launcher.isDirectExecution(symlinkPath, pathToFileURL(launcherPath).href), true);
