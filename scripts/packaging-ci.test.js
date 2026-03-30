@@ -39,7 +39,7 @@ function assertVersionedPathDependency(relativePath, dependencyName, version, de
 function readWorkflowJob(relativePath, jobName) {
   const workflowSource = readFile(relativePath);
   const match = workflowSource.match(
-    new RegExp(`^  ${jobName}:\\n([\\s\\S]*?)(?=^  [a-z0-9_]+:\\n|\\Z)`, 'mi')
+    new RegExp(`^  ${jobName}:\\n([\\s\\S]*?)(?=^  [a-z0-9_]+:\\n|(?![\\s\\S]))`, 'mi')
   );
 
   assert.ok(match, `expected ${relativePath} to declare the ${jobName} job`);
@@ -189,5 +189,15 @@ test('rust-release publish jobs check out the repo before reading .nvmrc', () =>
     metaPublishJob,
     /- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@v6[\s\S]*?- name:\s+Setup Node\.js from \.nvmrc/,
     'expected meta npm publish job to check out the repo before setup-node reads .nvmrc'
+  );
+});
+
+test('rust-release release job checks out the repo before running gh release commands', () => {
+  const releaseJob = readWorkflowJob('.github/workflows/rust-release.yml', 'release');
+
+  assert.match(
+    releaseJob,
+    /- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@v6[\s\S]*?- name:\s+Create or update GitHub release/,
+    'expected release job to check out the repo before running gh release commands'
   );
 });
