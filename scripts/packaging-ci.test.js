@@ -70,17 +70,17 @@ test('rust-release workflow publishes crates.io only after the staged release pa
   );
 });
 
-test('rust-release workflow normalizes runtime binaries downloaded at the artifact root', () => {
+test('rust-release workflow preserves per-artifact directories when downloading runtime binaries', () => {
   const workflowSource = readFile('.github/workflows/rust-release.yml');
 
   assert.match(
     workflowSource,
-    /source_candidate_root="\$\{binary\}"/,
-    'expected the release packaging job to handle binaries downloaded directly at the artifact root'
+    /merge-multiple:\s+false/,
+    'expected release packaging to keep each downloaded runtime artifact in its own directory'
   );
   assert.match(
     workflowSource,
-    /if \[ -f "\$\{source_candidate_root\}" \]; then/,
-    'expected the release packaging job to move root-level downloaded binaries into apps\\/vscode-extension\\/bin'
+    /source_candidate_artifact="rust-binary-\$\{target\}\/\$\{binary\}"/,
+    'expected the release packaging job to normalize binaries from per-target artifact directories'
   );
 });
