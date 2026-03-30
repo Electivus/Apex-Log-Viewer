@@ -19,6 +19,7 @@ pub struct RuntimeCapabilities {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InitializeResult {
     pub runtime_version: String,
+    pub cli_version: String,
     pub protocol_version: String,
     pub channel: String,
     pub platform: String,

@@ -165,6 +165,7 @@ suite('runtime client', () => {
         assert.equal(method, 'initialize');
         return {
           runtime_version: '0.1.0',
+          cli_version: '0.1.0',
           protocol_version: '1',
           channel: 'stable',
           platform: 'linux',
@@ -185,6 +186,7 @@ suite('runtime client', () => {
     const result = await client.initialize();
 
     assert.equal(result.protocol_version, '1');
+    assert.equal(result.cli_version, '0.1.0');
     assert.equal(result.channel, 'stable');
     assert.equal(result.capabilities.orgs, true);
   });
@@ -301,6 +303,7 @@ suite('runtime client', () => {
               id: message.id,
               result: {
                 runtime_version: '0.1.0',
+                cli_version: '0.1.0',
                 protocol_version: '1',
                 channel: 'stable',
                 platform: 'linux',
@@ -525,6 +528,7 @@ suite('runtime client', () => {
               id: message.id,
               result: {
                 runtime_version: '0.1.0',
+                cli_version: '0.1.0',
                 protocol_version: '1',
                 channel: 'stable',
                 platform: 'linux',
@@ -641,6 +645,7 @@ suite('runtime client', () => {
             id: message.id,
             result: {
               runtime_version: '0.1.0',
+              cli_version: '0.1.0',
               protocol_version: '1',
               channel: 'stable',
               platform: 'win32',
@@ -803,6 +808,7 @@ suite('runtime client', () => {
                   id: message.id,
                   result: {
                     runtime_version: '0.1.0',
+                    cli_version: '0.1.0',
                     protocol_version: '1',
                     channel: 'stable',
                     platform: 'linux',
@@ -835,6 +841,7 @@ suite('runtime client', () => {
                 id: message.id,
                 result: {
                   runtime_version: '0.1.0',
+                  cli_version: '0.1.0',
                   protocol_version: '1',
                   channel: 'stable',
                   platform: 'linux',
@@ -900,6 +907,7 @@ suite('runtime client', () => {
                   id: message.id,
                   result: {
                     runtime_version: '0.1.0',
+                    cli_version: '0.1.0',
                     protocol_version: '1',
                     channel: 'stable',
                     platform: 'linux',
@@ -932,6 +940,7 @@ suite('runtime client', () => {
                 id: message.id,
                 result: {
                   runtime_version: '0.1.0',
+                  cli_version: '0.1.0',
                   protocol_version: '1',
                   channel: 'stable',
                   platform: 'linux',
@@ -996,6 +1005,7 @@ suite('runtime client', () => {
                   id: message.id,
                   result: {
                     runtime_version: '0.1.0',
+                    cli_version: '0.1.0',
                     protocol_version: '1',
                     channel: 'stable',
                     platform: 'linux',
@@ -1031,6 +1041,7 @@ suite('runtime client', () => {
                 id: message.id,
                 result: {
                   runtime_version: '0.1.0',
+                  cli_version: '0.1.0',
                   protocol_version: '1',
                   channel: 'stable',
                   platform: 'linux',
@@ -1094,6 +1105,7 @@ suite('runtime client', () => {
                 id: message.id,
                 result: {
                   runtime_version: '0.1.0',
+                  cli_version: '0.1.0',
                   protocol_version: '1',
                   channel: 'stable',
                   platform: 'linux',
@@ -1147,6 +1159,7 @@ suite('runtime client', () => {
                   id: message.id,
                   result: {
                     runtime_version: '0.1.0',
+                    cli_version: '0.1.0',
                     protocol_version: '1',
                     channel: 'stable',
                     platform: 'linux',
@@ -1182,6 +1195,7 @@ suite('runtime client', () => {
                 id: message.id,
                 result: {
                   runtime_version: '0.1.0',
+                  cli_version: '0.1.0',
                   protocol_version: '1',
                   channel: 'stable',
                   platform: 'linux',

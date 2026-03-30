@@ -72,6 +72,7 @@ fn app_server_smoke_reports_initialize_handshake() {
     });
 
     assert_eq!(result.runtime_version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(result.cli_version, env!("CARGO_PKG_VERSION"));
     assert_eq!(result.protocol_version, "1");
     assert_eq!(result.channel, expected_channel);
     assert_eq!(result.platform, std::env::consts::OS);

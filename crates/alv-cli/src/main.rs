@@ -4,6 +4,7 @@ fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
 
     if args.len() == 2 && args[0] == "app-server" && args[1] == "--stdio" {
+        env::set_var(alv_app_server::server::CLI_VERSION_ENV, env!("CARGO_PKG_VERSION"));
         alv_app_server::server::run_stdio().expect("app-server failed");
         return;
     }

@@ -1,5 +1,4 @@
 use std::{
-    fs,
     io::{BufRead, BufReader, Write},
     process::{Child, ChildStdin, Command, Stdio},
     sync::{
@@ -7,10 +6,13 @@ use std::{
         Mutex, OnceLock,
     },
     thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use serde_json::Value;
+
+#[cfg(windows)]
+use std::{fs, time::{SystemTime, UNIX_EPOCH}};
 
 fn test_guard() -> &'static Mutex<()> {
     static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
@@ -139,7 +141,12 @@ fn cli_smoke_routes_initialize_and_logs_list_over_stdio() {
     let runtime_version = initialize["result"]["runtime_version"]
         .as_str()
         .expect("initialize result should include runtime_version");
-    let expected_channel = if runtime_version.contains('-') {
+    let cli_version = initialize["result"]["cli_version"]
+        .as_str()
+        .expect("initialize result should include cli_version");
+    assert_eq!(runtime_version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(cli_version, env!("CARGO_PKG_VERSION"));
+    let expected_channel = if cli_version.contains('-') {
         "pre-release"
     } else {
         "stable"
