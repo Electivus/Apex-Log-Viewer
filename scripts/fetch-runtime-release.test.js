@@ -88,3 +88,37 @@ test('fetchRuntimeRelease reads config/runtime-bundle.json and installs the chos
 
   fs.rmSync(repoRoot, { recursive: true, force: true });
 });
+
+test('extractArchive embeds Windows paths directly in the PowerShell command', async () => {
+  const mod = await import(pathToFileURL(modulePath).href);
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-fetch-runtime-win-'));
+  const calls = [];
+  const archivePath = String.raw`C:\temp\O'Brien\apex-log-viewer.zip`;
+  const destinationDir = String.raw`D:\runtime\O'Brien`;
+
+  try {
+    mod.extractArchive({
+      archivePath,
+      destinationDir,
+      target: 'win32-x64',
+      spawnSyncImpl(command, args) {
+        calls.push({ command, args });
+        return { status: 0 };
+      }
+    });
+
+    assert.deepEqual(calls, [
+      {
+        command: 'powershell.exe',
+        args: [
+          '-NoLogo',
+          '-NoProfile',
+          '-Command',
+          `Expand-Archive -LiteralPath 'C:\\temp\\O''Brien\\apex-log-viewer.zip' -DestinationPath 'D:\\runtime\\O''Brien' -Force`
+        ]
+      }
+    ]);
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
