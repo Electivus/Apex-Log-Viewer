@@ -149,3 +149,18 @@ test('rust-release workflow preserves per-artifact directories when downloading 
     'expected the release packaging job to normalize binaries from per-target artifact directories'
   );
 });
+
+test('rust-release workflow configures the npm registry before publishing packages', () => {
+  const workflowSource = readFile('.github/workflows/rust-release.yml');
+
+  assert.match(
+    workflowSource,
+    /publish_npm_native:[\s\S]*?uses:\s+actions\/setup-node@v6[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'/,
+    'expected native npm publish job to configure the npm registry before publishing'
+  );
+  assert.match(
+    workflowSource,
+    /publish_npm_meta:[\s\S]*?uses:\s+actions\/setup-node@v6[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'/,
+    'expected meta npm publish job to configure the npm registry before publishing'
+  );
+});
