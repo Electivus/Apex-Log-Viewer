@@ -1,7 +1,11 @@
 [package]
 name = "alv-protocol"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
+description = "Protocol types for the Apex Log Viewer runtime"
+license = "MIT"
+repository = "https://github.com/Electivus/Apex-Log-Viewer"
+homepage = "https://github.com/Electivus/Apex-Log-Viewer"
 
 [lib]
 path = "src/lib.rs"

@@ -3,7 +3,7 @@
   "version": "__VERSION__",
   "type": "module",
   "bin": {
-    "apex-log-viewer": "bin/apex-log-viewer.js"
+    "alv": "bin/apex-log-viewer.js"
   },
   "optionalDependencies": {
     "@electivus/apex-log-viewer-linux-x64": "__VERSION__",

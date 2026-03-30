@@ -70,7 +70,7 @@ Esse nome continua sendo usado:
 
 ### Crate publico
 
-- Nome publico no `crates.io`: `electivus-apex-log-viewer-cli`
+- Nome publico no `crates.io`: `apex-log-viewer-cli`
 - Comando instalado pelo crate: `apex-log-viewer`
 
 Para suportar a publicacao no `crates.io`, o package name do crate em `crates/alv-cli/Cargo.toml` passa a refletir esse nome publico. O diretorio pode continuar sendo `crates/alv-cli/`; o nome publico e o caminho no workspace nao precisam ser identicos.
@@ -122,7 +122,7 @@ A extensao continua com seu proprio versionamento e seu proprio processo de rele
 
 ### 1. crates.io
 
-O workflow do CLI publica o crate `electivus-apex-log-viewer-cli` em `crates.io` sempre que uma tag `rust-v...` valida e promovida for disparada.
+O workflow do CLI publica o crate `apex-log-viewer-cli` em `crates.io` sempre que uma tag `rust-v...` valida e promovida for disparada.
 
 O artefato publicado deve:
 

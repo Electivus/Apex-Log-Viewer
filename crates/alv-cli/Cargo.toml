@@ -1,14 +1,18 @@
 [package]
-name = "electivus-apex-log-viewer-cli"
-version = "0.1.0"
+name = "apex-log-viewer-cli"
+version = "0.1.1"
 edition = "2021"
+description = "Rust CLI for Apex Log Viewer"
+license = "MIT"
+repository = "https://github.com/Electivus/Apex-Log-Viewer"
+homepage = "https://github.com/Electivus/Apex-Log-Viewer"
 
 [[bin]]
 name = "apex-log-viewer"
 path = "src/main.rs"
 
 [dependencies]
-alv-app-server = { path = "../alv-app-server" }
+alv-app-server = { version = "0.1.1", path = "../alv-app-server" }
 
 [dev-dependencies]
 serde_json = "1.0"

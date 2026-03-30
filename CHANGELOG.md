@@ -9,7 +9,7 @@
 
 ### Chores
 
-- Maintainers: add an independent Rust CLI release train with `rust-v...` tags, npm native packages, and `crates.io` publishing.
+- Maintainers: add an independent Rust CLI release train with `rust-v...` tags, GitHub release assets, and npm native/meta packages while leaving `crates.io` for a later phase.
 
 ### Tests
 

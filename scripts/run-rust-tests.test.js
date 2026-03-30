@@ -69,7 +69,7 @@ test("createRustTestPlan builds a CLI-first smoke plan without nextest", () => {
   assert.deepEqual(plan.steps, [
     {
       command: "cargo",
-      args: ["test", "-p", "electivus-apex-log-viewer-cli", "--test", "cli_smoke", "--", "--nocapture"],
+      args: ["test", "-p", "apex-log-viewer-cli", "--test", "cli_smoke", "--", "--nocapture"],
       options: {
         cwd: repoRoot,
         env: {},
@@ -103,7 +103,7 @@ test("createRustTestPlan builds a CLI-first smoke plan with nextest when availab
   assert.deepEqual(plan.steps, [
     {
       command: "cargo",
-      args: ["nextest", "run", "-p", "electivus-apex-log-viewer-cli", "--test", "cli_smoke"],
+      args: ["nextest", "run", "-p", "apex-log-viewer-cli", "--test", "cli_smoke"],
       options: {
         cwd: repoRoot,
         env: {},

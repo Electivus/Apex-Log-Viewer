@@ -1,7 +1,11 @@
 [package]
 name = "alv-mcp"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
+description = "MCP integration crate for Apex Log Viewer"
+license = "MIT"
+repository = "https://github.com/Electivus/Apex-Log-Viewer"
+homepage = "https://github.com/Electivus/Apex-Log-Viewer"
 
 [lib]
 path = "src/lib.rs"

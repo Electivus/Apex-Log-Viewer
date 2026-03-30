@@ -9,6 +9,14 @@ function readFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
+function readCargoVersion(relativePath) {
+  const cargoToml = readFile(relativePath);
+  const match = cargoToml.match(/^version = "([^"]+)"$/m);
+
+  assert.ok(match, `expected ${relativePath} to declare a package version`);
+  return match[1];
+}
+
 test('package script rebuilds the extension packaging assets that vsce includes', () => {
   const rootPackageJson = JSON.parse(readFile('package.json'));
   const packageScript = String(rootPackageJson.scripts?.package || '');
@@ -24,7 +32,7 @@ test('package:runtime fetches the pinned CLI release asset and package:runtime:l
   assert.equal(rootPackageJson.scripts?.['package:runtime'], 'node scripts/fetch-runtime-release.mjs');
   assert.match(
     String(rootPackageJson.scripts?.['package:runtime:local'] || ''),
-    /cargo build -p electivus-apex-log-viewer-cli --bin apex-log-viewer --release && node apps\/vscode-extension\/scripts\/copy-runtime-binary\.mjs release/
+    /cargo build -p apex-log-viewer-cli --bin apex-log-viewer --release && node apps\/vscode-extension\/scripts\/copy-runtime-binary\.mjs release/
   );
 });
 
@@ -60,14 +68,54 @@ for (const workflowPath of ['.github/workflows/prerelease.yml', '.github/workflo
   });
 }
 
-test('rust-release workflow publishes crates.io only after the staged release package succeeds', () => {
+test('rust-release workflow bootstrap skips crates.io publishing', () => {
   const workflowSource = readFile('.github/workflows/rust-release.yml');
 
-  assert.match(
+  assert.doesNotMatch(
     workflowSource,
-    /publish_crate:\n(?:.*\n)*?\s+needs:\s+\[validate_tag, package_release\]/,
-    'expected crates.io publishing to wait for the staged release package job'
+    /publish_crate:/,
+    'expected the initial CLI release workflow to avoid crates.io publishing during npm-first bootstrap'
   );
+  assert.doesNotMatch(
+    workflowSource,
+    /cargo publish --manifest-path crates\/alv-cli\/Cargo\.toml/,
+    'expected the initial CLI release workflow to skip cargo publish during npm-first bootstrap'
+  );
+});
+
+test('published Rust manifests keep versioned local dependencies so cargo publish is valid', () => {
+  const appServerVersion = readCargoVersion('crates/alv-app-server/Cargo.toml');
+  const coreVersion = readCargoVersion('crates/alv-core/Cargo.toml');
+  const protocolVersion = readCargoVersion('crates/alv-protocol/Cargo.toml');
+  const cliVersion = readCargoVersion('crates/alv-cli/Cargo.toml');
+
+  assert.match(
+    readFile('crates/alv-app-server/Cargo.toml'),
+    new RegExp(`alv-core = \\{ version = "${coreVersion}", path = "\\.\\./alv-core" \\}`),
+    'expected alv-app-server to keep a publishable versioned dependency on alv-core'
+  );
+  assert.match(
+    readFile('crates/alv-app-server/Cargo.toml'),
+    new RegExp(`alv-protocol = \\{ version = "${protocolVersion}", path = "\\.\\./alv-protocol" \\}`),
+    'expected alv-app-server to keep a publishable versioned dependency on alv-protocol'
+  );
+  assert.match(
+    readFile('crates/alv-cli/Cargo.toml'),
+    new RegExp(`alv-app-server = \\{ version = "${appServerVersion}", path = "\\.\\./alv-app-server" \\}`),
+    'expected the CLI crate to keep a publishable versioned dependency on alv-app-server'
+  );
+  assert.ok(cliVersion.length > 0, 'expected the CLI crate version to remain readable');
+});
+
+test('runtime bundle stays pinned to the first successful npm-backed CLI release', () => {
+  const runtimeBundle = JSON.parse(readFile('config/runtime-bundle.json'));
+
+  assert.deepEqual(runtimeBundle, {
+    cliVersion: '0.1.1',
+    tag: 'rust-v0.1.1',
+    channel: 'stable',
+    protocolVersion: '1'
+  });
 });
 
 test('rust-release workflow preserves per-artifact directories when downloading runtime binaries', () => {
