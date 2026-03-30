@@ -68,7 +68,7 @@ jobs:
 
       - name: Run Rust CLI tests
         shell: bash
-        run: cargo test -p electivus-apex-log-viewer-cli --test cli_smoke -- --nocapture
+        run: npm run test:rust
 
   build_matrix:
     name: Build runtime and stage binaries (${{ matrix.target }})
@@ -165,11 +165,44 @@ jobs:
           path: .
           merge-multiple: true
 
+      - name: Normalize downloaded runtime binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          while read -r target binary; do
+            destination="apps/vscode-extension/bin/${target}/${binary}"
+            if [ -f "${destination}" ]; then
+              continue
+            fi
+            source_candidate="${target}/${binary}"
+            if [ -f "${source_candidate}" ]; then
+              mkdir -p "$(dirname "${destination}")"
+              mv "${source_candidate}" "${destination}"
+              continue
+            fi
+            echo "Missing downloaded runtime binary for ${target}: expected ${destination} or ${source_candidate}" >&2
+            exit 1
+          done <<'EOF'
+          linux-x64 apex-log-viewer
+          linux-arm64 apex-log-viewer
+          darwin-x64 apex-log-viewer
+          darwin-arm64 apex-log-viewer
+          win32-x64 apex-log-viewer.exe
+          win32-arm64 apex-log-viewer.exe
+          EOF
+
       - name: Package CLI release assets
-        run: node scripts/package-cli-release.mjs --version "${VERSION}" --out-dir dist/release
+        run: node scripts/package-cli-release.mjs --version "${VERSION}" --out-dir dist/release linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64 win32-arm64
 
       - name: Stage CLI npm packages
-        run: node scripts/build-cli-npm-packages.mjs --version "${VERSION}" --out-dir dist/npm
+        run: |
+          node scripts/build-cli-npm-packages.mjs --version "${VERSION}" --out-dir dist/npm \
+            --binary linux-x64=apps/vscode-extension/bin/linux-x64/apex-log-viewer \
+            --binary linux-arm64=apps/vscode-extension/bin/linux-arm64/apex-log-viewer \
+            --binary darwin-x64=apps/vscode-extension/bin/darwin-x64/apex-log-viewer \
+            --binary darwin-arm64=apps/vscode-extension/bin/darwin-arm64/apex-log-viewer \
+            --binary win32-x64=apps/vscode-extension/bin/win32-x64/apex-log-viewer.exe \
+            --binary win32-arm64=apps/vscode-extension/bin/win32-arm64/apex-log-viewer.exe
 
       - name: Upload release assets
         uses: actions/upload-artifact@v7

@@ -45,3 +45,24 @@ test('packageCliRelease writes platform archives and a checksum file', async () 
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.rmSync(repoRoot, { recursive: true, force: true });
 });
+
+test('packageCliRelease requires all requested release targets to be present', async () => {
+  const mod = await import(pathToFileURL(modulePath).href);
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cli-release-repo-'));
+  const linuxBinary = path.join(repoRoot, 'apps', 'vscode-extension', 'bin', 'linux-x64', 'apex-log-viewer');
+
+  fs.mkdirSync(path.dirname(linuxBinary), { recursive: true });
+  fs.writeFileSync(linuxBinary, 'linux-binary');
+
+  assert.throws(
+    () =>
+      mod.packageCliRelease({
+        version: '1.2.3',
+        repoRoot,
+        requiredTargets: ['linux-x64', 'win32-x64']
+      }),
+    /missing built binaries for targets: win32-x64/i
+  );
+
+  fs.rmSync(repoRoot, { recursive: true, force: true });
+});

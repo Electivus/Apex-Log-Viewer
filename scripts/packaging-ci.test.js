@@ -24,7 +24,7 @@ test('package:runtime fetches the pinned CLI release asset and package:runtime:l
   assert.equal(rootPackageJson.scripts?.['package:runtime'], 'node scripts/fetch-runtime-release.mjs');
   assert.match(
     String(rootPackageJson.scripts?.['package:runtime:local'] || ''),
-    /cargo build -p alv-cli --bin apex-log-viewer --release && node apps\/vscode-extension\/scripts\/copy-runtime-binary\.mjs release/
+    /cargo build -p electivus-apex-log-viewer-cli --bin apex-log-viewer --release && node apps\/vscode-extension\/scripts\/copy-runtime-binary\.mjs release/
   );
 });
 
