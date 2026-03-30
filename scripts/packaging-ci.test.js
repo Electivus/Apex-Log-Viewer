@@ -28,6 +28,16 @@ test('package:runtime fetches the pinned CLI release asset and package:runtime:l
   );
 });
 
+test('test:scripts covers the runtime release fetch regression suite', () => {
+  const rootPackageJson = JSON.parse(readFile('package.json'));
+
+  assert.match(
+    String(rootPackageJson.scripts?.['test:scripts'] || ''),
+    /\bscripts\/fetch-runtime-release\.test\.js\b/,
+    'expected the pinned runtime fetch regression test to run in the default script test suite'
+  );
+});
+
 for (const workflowPath of ['.github/workflows/prerelease.yml', '.github/workflows/release.yml']) {
   test(`${workflowPath} fetches pinned CLI release assets instead of building Rust targets during packaging`, () => {
     const workflowSource = readFile(workflowPath);
