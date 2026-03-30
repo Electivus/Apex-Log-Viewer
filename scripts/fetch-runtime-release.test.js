@@ -88,3 +88,61 @@ test('fetchRuntimeRelease reads config/runtime-bundle.json and installs the chos
 
   fs.rmSync(repoRoot, { recursive: true, force: true });
 });
+
+test('extractArchive embeds Windows paths directly in the PowerShell command', async () => {
+  const mod = await import(pathToFileURL(modulePath).href);
+  const calls = [];
+  const archivePath = String.raw`C:\temp\O'Brien\apex-log-viewer.zip`;
+  const destinationDir = String.raw`D:\runtime\O'Brien`;
+  const rmSyncCalls = [];
+  const mkdirSyncCalls = [];
+  const originalRmSync = fs.rmSync;
+  const originalMkdirSync = fs.mkdirSync;
+
+  try {
+    fs.rmSync = (dir, options) => {
+      rmSyncCalls.push({ dir, options });
+    };
+    fs.mkdirSync = (dir, options) => {
+      mkdirSyncCalls.push({ dir, options });
+      return dir;
+    };
+
+    mod.extractArchive({
+      archivePath,
+      destinationDir,
+      target: 'win32-x64',
+      spawnSyncImpl(command, args) {
+        calls.push({ command, args });
+        return { status: 0 };
+      }
+    });
+
+    assert.deepEqual(calls, [
+      {
+        command: 'powershell.exe',
+        args: [
+          '-NoLogo',
+          '-NoProfile',
+          '-Command',
+          `Expand-Archive -LiteralPath 'C:\\temp\\O''Brien\\apex-log-viewer.zip' -DestinationPath 'D:\\runtime\\O''Brien' -Force`
+        ]
+      }
+    ]);
+    assert.deepEqual(rmSyncCalls, [
+      {
+        dir: destinationDir,
+        options: { recursive: true, force: true }
+      }
+    ]);
+    assert.deepEqual(mkdirSyncCalls, [
+      {
+        dir: destinationDir,
+        options: { recursive: true }
+      }
+    ]);
+  } finally {
+    fs.rmSync = originalRmSync;
+    fs.mkdirSync = originalMkdirSync;
+  }
+});

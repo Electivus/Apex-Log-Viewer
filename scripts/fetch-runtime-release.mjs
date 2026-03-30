@@ -58,6 +58,10 @@ function assertSpawnSucceeded(result, description) {
   }
 }
 
+function quotePowerShellLiteral(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
 export function extractArchive({
   archivePath,
   destinationDir,
@@ -74,9 +78,7 @@ export function extractArchive({
         '-NoLogo',
         '-NoProfile',
         '-Command',
-        'Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force',
-        archivePath,
-        destinationDir
+        `Expand-Archive -LiteralPath ${quotePowerShellLiteral(archivePath)} -DestinationPath ${quotePowerShellLiteral(destinationDir)} -Force`
       ],
       { stdio: 'inherit' }
     );
