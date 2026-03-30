@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -44,7 +45,16 @@ export function main(argv = process.argv.slice(2)) {
   process.exit(resolveExitCode(result));
 }
 
-const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
-if (entryPath && entryPath === fileURLToPath(import.meta.url)) {
+export function isDirectExecution(entryArgv1 = process.argv[1], moduleUrl = import.meta.url) {
+  if (!entryArgv1) {
+    return false;
+  }
+
+  const entryPath = path.resolve(entryArgv1);
+  const resolvedEntryPath = fs.existsSync(entryPath) ? fs.realpathSync.native(entryPath) : entryPath;
+  return resolvedEntryPath === fileURLToPath(moduleUrl);
+}
+
+if (isDirectExecution()) {
   main();
 }

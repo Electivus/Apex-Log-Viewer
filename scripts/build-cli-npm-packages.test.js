@@ -120,6 +120,25 @@ test('resolveExitCode falls back to 1 when the native binary exits via signal', 
   assert.equal(launcher.resolveExitCode({ status: null, signal: 'SIGTERM' }), 1);
 });
 
+test('isDirectExecution treats npm-style symlink entrypoints as direct execution', async () => {
+  const launcher = await import(pathToFileURL(launcherPath).href);
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cli-symlink-'));
+  const symlinkPath = path.join(tempDir, 'alv');
+
+  try {
+    fs.symlinkSync(launcherPath, symlinkPath);
+
+    assert.equal(typeof launcher.isDirectExecution, 'function');
+    assert.equal(launcher.isDirectExecution(symlinkPath, pathToFileURL(launcherPath).href), true);
+    assert.equal(
+      launcher.isDirectExecution(path.join(tempDir, 'different-entry.js'), pathToFileURL(launcherPath).href),
+      false
+    );
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('discoverBinaries finds packaged runtime binaries under apps/vscode-extension/bin', async () => {
   const mod = await import(pathToFileURL(modulePath).href);
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cli-discover-'));
