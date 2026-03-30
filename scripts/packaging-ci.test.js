@@ -69,3 +69,18 @@ test('rust-release workflow publishes crates.io only after the staged release pa
     'expected crates.io publishing to wait for the staged release package job'
   );
 });
+
+test('rust-release workflow normalizes runtime binaries downloaded at the artifact root', () => {
+  const workflowSource = readFile('.github/workflows/rust-release.yml');
+
+  assert.match(
+    workflowSource,
+    /source_candidate_root="\$\{binary\}"/,
+    'expected the release packaging job to handle binaries downloaded directly at the artifact root'
+  );
+  assert.match(
+    workflowSource,
+    /if \[ -f "\$\{source_candidate_root\}" \]; then/,
+    'expected the release packaging job to move root-level downloaded binaries into apps\\/vscode-extension\\/bin'
+  );
+});
