@@ -10,6 +10,7 @@ fn protocol_schema_serializes_initialize_contract() {
     };
 
     let result = InitializeResult {
+        runtime_version: "0.1.0".to_string(),
         cli_version: "0.1.0".to_string(),
         protocol_version: "1".to_string(),
         channel: "stable".to_string(),
@@ -37,6 +38,7 @@ fn protocol_schema_serializes_initialize_contract() {
     assert_eq!(
         serde_json::to_value(result).expect("result should serialize"),
         json!({
+            "runtime_version": "0.1.0",
             "cli_version": "0.1.0",
             "protocol_version": "1",
             "channel": "stable",
@@ -63,6 +65,7 @@ fn protocol_schema_prints_generated_typescript_surface() {
     assert!(generated.contains("export type InitializeParams"));
     assert!(generated.contains("export type InitializeResult"));
     assert!(generated.contains("channel: string;"));
+    assert!(generated.contains("runtime_version: string;"));
     assert!(generated.contains("cli_version: string;"));
     assert!(generated.contains("debug_flags: boolean;"));
 

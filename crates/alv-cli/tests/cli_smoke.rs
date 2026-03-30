@@ -138,9 +138,14 @@ fn cli_smoke_routes_initialize_and_logs_list_over_stdio() {
         r#"{"jsonrpc":"2.0","id":"initialize:1","method":"initialize","params":{"client_name":"cli-smoke","client_version":"0.1.0"}}"#,
     );
     let initialize = harness.recv_json();
+    let runtime_version = initialize["result"]["runtime_version"]
+        .as_str()
+        .expect("initialize result should include runtime_version");
     let cli_version = initialize["result"]["cli_version"]
         .as_str()
         .expect("initialize result should include cli_version");
+    assert_eq!(runtime_version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(cli_version, env!("CARGO_PKG_VERSION"));
     let expected_channel = if cli_version.contains('-') {
         "pre-release"
     } else {

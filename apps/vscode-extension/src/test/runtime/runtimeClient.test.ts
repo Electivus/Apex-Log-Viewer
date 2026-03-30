@@ -164,6 +164,7 @@ suite('runtime client', () => {
       requestHandler: async <TResult>(method: string): Promise<TResult> => {
         assert.equal(method, 'initialize');
         return {
+          runtime_version: '0.1.0',
           cli_version: '0.1.0',
           protocol_version: '1',
           channel: 'stable',
@@ -301,6 +302,7 @@ suite('runtime client', () => {
               jsonrpc: '2.0',
               id: message.id,
               result: {
+                runtime_version: '0.1.0',
                 cli_version: '0.1.0',
                 protocol_version: '1',
                 channel: 'stable',
@@ -525,6 +527,7 @@ suite('runtime client', () => {
               jsonrpc: '2.0',
               id: message.id,
               result: {
+                runtime_version: '0.1.0',
                 cli_version: '0.1.0',
                 protocol_version: '1',
                 channel: 'stable',
@@ -641,6 +644,7 @@ suite('runtime client', () => {
             jsonrpc: '2.0',
             id: message.id,
             result: {
+              runtime_version: '0.1.0',
               cli_version: '0.1.0',
               protocol_version: '1',
               channel: 'stable',
@@ -803,6 +807,7 @@ suite('runtime client', () => {
                   jsonrpc: '2.0',
                   id: message.id,
                   result: {
+                    runtime_version: '0.1.0',
                     cli_version: '0.1.0',
                     protocol_version: '1',
                     channel: 'stable',
@@ -835,6 +840,7 @@ suite('runtime client', () => {
                 jsonrpc: '2.0',
                 id: message.id,
                 result: {
+                  runtime_version: '0.1.0',
                   cli_version: '0.1.0',
                   protocol_version: '1',
                   channel: 'stable',
@@ -900,6 +906,7 @@ suite('runtime client', () => {
                   jsonrpc: '2.0',
                   id: message.id,
                   result: {
+                    runtime_version: '0.1.0',
                     cli_version: '0.1.0',
                     protocol_version: '1',
                     channel: 'stable',
@@ -932,6 +939,7 @@ suite('runtime client', () => {
                 jsonrpc: '2.0',
                 id: message.id,
                 result: {
+                  runtime_version: '0.1.0',
                   cli_version: '0.1.0',
                   protocol_version: '1',
                   channel: 'stable',
@@ -996,6 +1004,7 @@ suite('runtime client', () => {
                   jsonrpc: '2.0',
                   id: message.id,
                   result: {
+                    runtime_version: '0.1.0',
                     cli_version: '0.1.0',
                     protocol_version: '1',
                     channel: 'stable',
@@ -1031,6 +1040,7 @@ suite('runtime client', () => {
                 jsonrpc: '2.0',
                 id: message.id,
                 result: {
+                  runtime_version: '0.1.0',
                   cli_version: '0.1.0',
                   protocol_version: '1',
                   channel: 'stable',
@@ -1094,6 +1104,7 @@ suite('runtime client', () => {
                 jsonrpc: '2.0',
                 id: message.id,
                 result: {
+                  runtime_version: '0.1.0',
                   cli_version: '0.1.0',
                   protocol_version: '1',
                   channel: 'stable',
@@ -1147,6 +1158,7 @@ suite('runtime client', () => {
                   jsonrpc: '2.0',
                   id: message.id,
                   result: {
+                    runtime_version: '0.1.0',
                     cli_version: '0.1.0',
                     protocol_version: '1',
                     channel: 'stable',
@@ -1182,6 +1194,7 @@ suite('runtime client', () => {
                 jsonrpc: '2.0',
                 id: message.id,
                 result: {
+                  runtime_version: '0.1.0',
                   cli_version: '0.1.0',
                   protocol_version: '1',
                   channel: 'stable',

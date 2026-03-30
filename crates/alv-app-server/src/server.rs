@@ -24,6 +24,7 @@ mod orgs_handler;
 
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const JSONRPC_SERVER_ERROR: i32 = -32000;
+pub const CLI_VERSION_ENV: &str = "ALV_CLI_VERSION";
 
 enum ParsedRequest {
     Cancel { request_id: String },
@@ -59,10 +60,15 @@ fn release_channel_for_version(version: &str) -> &'static str {
 }
 
 pub fn handle_initialize(_params: InitializeParams) -> InitializeResult {
-    let cli_version = env!("CARGO_PKG_VERSION").to_string();
+    let cli_version = std::env::var(CLI_VERSION_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
     let channel = release_channel_for_version(&cli_version).to_string();
 
     InitializeResult {
+        runtime_version: cli_version.clone(),
         cli_version,
         protocol_version: "1".to_string(),
         channel,
@@ -408,7 +414,8 @@ fn jsonrpc_error(id: &str, code: i32, message: &str) -> String {
 
 fn serialize_initialize_result(result: &InitializeResult) -> String {
     format!(
-        "{{\"cli_version\":\"{}\",\"protocol_version\":\"{}\",\"channel\":\"{}\",\"platform\":\"{}\",\"arch\":\"{}\",\"capabilities\":{{\"orgs\":{},\"logs\":{},\"search\":{},\"tail\":{},\"debug_flags\":{},\"doctor\":{}}},\"state_dir\":\"{}\",\"cache_dir\":\"{}\"}}",
+        "{{\"runtime_version\":\"{}\",\"cli_version\":\"{}\",\"protocol_version\":\"{}\",\"channel\":\"{}\",\"platform\":\"{}\",\"arch\":\"{}\",\"capabilities\":{{\"orgs\":{},\"logs\":{},\"search\":{},\"tail\":{},\"debug_flags\":{},\"doctor\":{}}},\"state_dir\":\"{}\",\"cache_dir\":\"{}\"}}",
+        escape_json(&result.runtime_version),
         escape_json(&result.cli_version),
         escape_json(&result.protocol_version),
         escape_json(&result.channel),

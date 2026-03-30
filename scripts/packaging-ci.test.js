@@ -115,6 +115,7 @@ test('rust-release workflow bootstrap skips crates.io publishing', () => {
 test('published Rust manifests keep versioned local dependencies so cargo publish is valid', () => {
   const appServerVersion = readCargoVersion('crates/alv-app-server/Cargo.toml');
   const coreVersion = readCargoVersion('crates/alv-core/Cargo.toml');
+  const mcpVersion = readCargoVersion('crates/alv-mcp/Cargo.toml');
   const protocolVersion = readCargoVersion('crates/alv-protocol/Cargo.toml');
   const cliVersion = readCargoVersion('crates/alv-cli/Cargo.toml');
 
@@ -131,6 +132,18 @@ test('published Rust manifests keep versioned local dependencies so cargo publis
     appServerVersion,
     '../alv-app-server'
   );
+  assert.equal(
+    appServerVersion,
+    cliVersion,
+    'expected the app-server crate version to stay aligned with the distributed CLI crate version'
+  );
+  assert.equal(coreVersion, cliVersion, 'expected alv-core to stay aligned with the CLI crate version');
+  assert.equal(
+    protocolVersion,
+    cliVersion,
+    'expected alv-protocol to stay aligned with the CLI crate version'
+  );
+  assert.equal(mcpVersion, cliVersion, 'expected alv-mcp to stay aligned with the CLI crate version');
   assert.ok(cliVersion.length > 0, 'expected the CLI crate version to remain readable');
 });
 
