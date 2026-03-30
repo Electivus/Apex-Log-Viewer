@@ -13,7 +13,7 @@ export type RuntimeCapabilities = {
 };
 
 export type InitializeResult = {
-  runtime_version: string;
+  cli_version: string;
   protocol_version: string;
   channel: string;
   platform: string;

@@ -59,11 +59,11 @@ fn release_channel_for_version(version: &str) -> &'static str {
 }
 
 pub fn handle_initialize(_params: InitializeParams) -> InitializeResult {
-    let runtime_version = env!("CARGO_PKG_VERSION").to_string();
-    let channel = release_channel_for_version(&runtime_version).to_string();
+    let cli_version = env!("CARGO_PKG_VERSION").to_string();
+    let channel = release_channel_for_version(&cli_version).to_string();
 
     InitializeResult {
-        runtime_version,
+        cli_version,
         protocol_version: "1".to_string(),
         channel,
         platform: std::env::consts::OS.to_string(),
@@ -408,8 +408,8 @@ fn jsonrpc_error(id: &str, code: i32, message: &str) -> String {
 
 fn serialize_initialize_result(result: &InitializeResult) -> String {
     format!(
-        "{{\"runtime_version\":\"{}\",\"protocol_version\":\"{}\",\"channel\":\"{}\",\"platform\":\"{}\",\"arch\":\"{}\",\"capabilities\":{{\"orgs\":{},\"logs\":{},\"search\":{},\"tail\":{},\"debug_flags\":{},\"doctor\":{}}},\"state_dir\":\"{}\",\"cache_dir\":\"{}\"}}",
-        escape_json(&result.runtime_version),
+        "{{\"cli_version\":\"{}\",\"protocol_version\":\"{}\",\"channel\":\"{}\",\"platform\":\"{}\",\"arch\":\"{}\",\"capabilities\":{{\"orgs\":{},\"logs\":{},\"search\":{},\"tail\":{},\"debug_flags\":{},\"doctor\":{}}},\"state_dir\":\"{}\",\"cache_dir\":\"{}\"}}",
+        escape_json(&result.cli_version),
         escape_json(&result.protocol_version),
         escape_json(&result.channel),
         escape_json(&result.platform),

@@ -12,7 +12,7 @@ name = "apex-log-viewer"
 path = "src/main.rs"
 
 [dependencies]
-alv-app-server = { version = "0.1.1", path = "../alv-app-server" }
+alv-app-server = { version = "0.1.2", path = "../alv-app-server" }
 
 [dev-dependencies]
 serde_json = "1.0"
