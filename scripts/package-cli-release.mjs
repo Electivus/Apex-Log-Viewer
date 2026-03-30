@@ -14,6 +14,7 @@ const CARGO_TARGETS = {
 };
 
 const TARGET_ORDER = Object.keys(CARGO_TARGETS);
+export const RELEASE_TARGETS = [...TARGET_ORDER];
 
 function readText(filePath) {
   return fs.readFileSync(filePath, 'utf8');
@@ -196,12 +197,23 @@ export function packageCliRelease({
   version,
   outDir,
   binaries,
-  repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
+  requiredTargets
 }) {
   const releaseVersion = version ?? readCargoVersion(repoRoot);
   const releaseOutDir = outDir ?? path.join(repoRoot, 'dist', 'release');
   const requestedBinaries = binaries && Object.keys(binaries).length > 0 ? binaries : discoverReleaseBinaries(repoRoot);
-  const targets = Object.keys(requestedBinaries).sort(compareTargets);
+  const expectedTargets = (requiredTargets ??
+    (binaries && Object.keys(binaries).length > 0 ? Object.keys(binaries) : RELEASE_TARGETS)).slice();
+  const missingTargets = expectedTargets.filter(target => !requestedBinaries[target]);
+
+  if (missingTargets.length > 0) {
+    throw new Error(
+      `packageCliRelease is missing built binaries for targets: ${missingTargets.join(', ')}`
+    );
+  }
+
+  const targets = expectedTargets.sort(compareTargets);
 
   if (targets.length === 0) {
     throw new Error('packageCliRelease requires at least one built binary');
@@ -278,7 +290,8 @@ if (process.argv[1] === __filename) {
     version,
     outDir,
     binaries,
-    repoRoot: defaultRepoRoot
+    repoRoot: defaultRepoRoot,
+    requiredTargets: targets.length > 0 ? targets : RELEASE_TARGETS
   });
 
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
