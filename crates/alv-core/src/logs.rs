@@ -602,6 +602,9 @@ fn number_field(value: &Value, key: &str) -> Option<u64> {
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+    use std::sync::Mutex;
+
+    static STAGING_DIR_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
     fn list_staging_dirs() -> BTreeSet<PathBuf> {
         let Some(entries) = fs::read_dir(env::temp_dir()).ok() else {
@@ -623,6 +626,9 @@ mod tests {
 
     #[test]
     fn temp_staging_dir_helper_cleans_up_on_success() {
+        let _guard = STAGING_DIR_TEST_MUTEX
+            .lock()
+            .expect("staging dir test mutex should not be poisoned");
         let before = list_staging_dirs();
 
         let created = with_temp_staging_dir(|staging_dir| {
@@ -644,6 +650,9 @@ mod tests {
 
     #[test]
     fn temp_staging_dir_helper_cleans_up_on_error() {
+        let _guard = STAGING_DIR_TEST_MUTEX
+            .lock()
+            .expect("staging dir test mutex should not be poisoned");
         let before = list_staging_dirs();
 
         let error = with_temp_staging_dir(|staging_dir| -> Result<(), String> {
