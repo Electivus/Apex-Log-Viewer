@@ -266,7 +266,7 @@ jobs:
 
   publish_crate:
     name: Publish crates.io package
-    needs: test_rust
+    needs: [validate_tag, package_release]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:

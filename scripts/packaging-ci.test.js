@@ -59,3 +59,13 @@ for (const workflowPath of ['.github/workflows/prerelease.yml', '.github/workflo
     );
   });
 }
+
+test('rust-release workflow publishes crates.io only after the staged release package succeeds', () => {
+  const workflowSource = readFile('.github/workflows/rust-release.yml');
+
+  assert.match(
+    workflowSource,
+    /publish_crate:\n(?:.*\n)*?\s+needs:\s+\[validate_tag, package_release\]/,
+    'expected crates.io publishing to wait for the staged release package job'
+  );
+});
