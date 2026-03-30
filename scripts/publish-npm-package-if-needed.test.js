@@ -94,3 +94,16 @@ test('publishPackageIfNeeded publishes when npm view reports the version is miss
     fs.rmSync(packageDir, { recursive: true, force: true });
   }
 });
+
+test('isDirectExecution resolves relative CLI paths consistently with other repo scripts', async () => {
+  const mod = await import(pathToFileURL(modulePath).href);
+
+  assert.equal(
+    mod.isDirectExecution('scripts/publish-npm-package-if-needed.mjs', pathToFileURL(modulePath).href),
+    true
+  );
+  assert.equal(
+    mod.isDirectExecution('scripts/not-this-script.mjs', pathToFileURL(modulePath).href),
+    false
+  );
+});

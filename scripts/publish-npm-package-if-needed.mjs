@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 function defaultRunCommand(args, options = {}) {
   const result = spawnSync('npm', args, {
@@ -134,7 +134,11 @@ export function main(argv = process.argv.slice(2)) {
   publishPackageIfNeeded(packageDir, { tag, access });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+export function isDirectExecution(argvEntry, moduleUrl = import.meta.url) {
+  return Boolean(argvEntry) && path.resolve(argvEntry) === fileURLToPath(moduleUrl);
+}
+
+if (isDirectExecution(process.argv[1])) {
   try {
     main();
   } catch (error) {
