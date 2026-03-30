@@ -165,7 +165,7 @@ Run:
 ```bash
 cargo test -p alv-protocol --test protocol_schema
 cargo test -p alv-app-server --test app_server_smoke
-cargo test -p alv-cli --test cli_smoke
+cargo test -p electivus-apex-log-viewer-cli --test cli_smoke
 npm run test:extension:node
 node scripts/run-tests-cli.js --scope=unit
 ```
@@ -242,7 +242,7 @@ Run:
 ```bash
 cargo test -p alv-protocol --test protocol_schema
 cargo test -p alv-app-server --test app_server_smoke
-cargo test -p alv-cli --test cli_smoke
+cargo test -p electivus-apex-log-viewer-cli --test cli_smoke
 npm run test:extension:node
 node scripts/run-tests-cli.js --scope=unit
 ```
