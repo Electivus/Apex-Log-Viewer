@@ -48,7 +48,16 @@ test('resolveCargoBuildArgs includes the packaged runtime target triple', async 
 
   assert.deepEqual(
     mod.resolveCargoBuildArgs('linux-arm64', 'release'),
-    ['build', '-p', 'alv-cli', '--bin', 'apex-log-viewer', '--release', '--target', 'aarch64-unknown-linux-gnu']
+    [
+      'build',
+      '-p',
+      'electivus-apex-log-viewer-cli',
+      '--bin',
+      'apex-log-viewer',
+      '--release',
+      '--target',
+      'aarch64-unknown-linux-gnu'
+    ]
   );
 });
 
@@ -72,7 +81,16 @@ test('buildRuntimeTarget runs cargo for the requested target before copying the 
   assert.deepEqual(spawnCalls, [
     {
       command: 'cargo',
-      args: ['build', '-p', 'alv-cli', '--bin', 'apex-log-viewer', '--release', '--target', 'aarch64-pc-windows-msvc'],
+      args: [
+        'build',
+        '-p',
+        'electivus-apex-log-viewer-cli',
+        '--bin',
+        'apex-log-viewer',
+        '--release',
+        '--target',
+        'aarch64-pc-windows-msvc'
+      ],
       options: { cwd: '/repo', stdio: 'inherit' }
     }
   ]);
