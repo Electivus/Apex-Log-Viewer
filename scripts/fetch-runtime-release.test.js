@@ -91,12 +91,23 @@ test('fetchRuntimeRelease reads config/runtime-bundle.json and installs the chos
 
 test('extractArchive embeds Windows paths directly in the PowerShell command', async () => {
   const mod = await import(pathToFileURL(modulePath).href);
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-fetch-runtime-win-'));
   const calls = [];
   const archivePath = String.raw`C:\temp\O'Brien\apex-log-viewer.zip`;
   const destinationDir = String.raw`D:\runtime\O'Brien`;
+  const rmSyncCalls = [];
+  const mkdirSyncCalls = [];
+  const originalRmSync = fs.rmSync;
+  const originalMkdirSync = fs.mkdirSync;
 
   try {
+    fs.rmSync = (dir, options) => {
+      rmSyncCalls.push({ dir, options });
+    };
+    fs.mkdirSync = (dir, options) => {
+      mkdirSyncCalls.push({ dir, options });
+      return dir;
+    };
+
     mod.extractArchive({
       archivePath,
       destinationDir,
@@ -118,7 +129,20 @@ test('extractArchive embeds Windows paths directly in the PowerShell command', a
         ]
       }
     ]);
+    assert.deepEqual(rmSyncCalls, [
+      {
+        dir: destinationDir,
+        options: { recursive: true, force: true }
+      }
+    ]);
+    assert.deepEqual(mkdirSyncCalls, [
+      {
+        dir: destinationDir,
+        options: { recursive: true }
+      }
+    ]);
   } finally {
-    fs.rmSync(repoRoot, { recursive: true, force: true });
+    fs.rmSync = originalRmSync;
+    fs.mkdirSync = originalMkdirSync;
   }
 });
