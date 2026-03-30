@@ -603,6 +603,7 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
     use std::sync::Mutex;
+    use std::sync::Arc;
 
     static STAGING_DIR_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
@@ -624,11 +625,27 @@ mod tests {
             .collect()
     }
 
+    fn lock_staging_dir_test_mutex<'a>(mutex: &'a Mutex<()>) -> std::sync::MutexGuard<'a, ()> {
+        mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[test]
+    fn staging_dir_test_mutex_helper_recovers_from_poison() {
+        let poisoned_mutex = Arc::new(Mutex::new(()));
+        let poison_target = Arc::clone(&poisoned_mutex);
+
+        let _ = std::thread::spawn(move || {
+            let _guard = poison_target.lock().expect("poison test should acquire mutex");
+            panic!("poison the mutex for regression coverage");
+        })
+        .join();
+
+        let _guard = lock_staging_dir_test_mutex(&poisoned_mutex);
+    }
+
     #[test]
     fn temp_staging_dir_helper_cleans_up_on_success() {
-        let _guard = STAGING_DIR_TEST_MUTEX
-            .lock()
-            .expect("staging dir test mutex should not be poisoned");
+        let _guard = lock_staging_dir_test_mutex(&STAGING_DIR_TEST_MUTEX);
         let before = list_staging_dirs();
 
         let created = with_temp_staging_dir(|staging_dir| {
@@ -650,9 +667,7 @@ mod tests {
 
     #[test]
     fn temp_staging_dir_helper_cleans_up_on_error() {
-        let _guard = STAGING_DIR_TEST_MUTEX
-            .lock()
-            .expect("staging dir test mutex should not be poisoned");
+        let _guard = lock_staging_dir_test_mutex(&STAGING_DIR_TEST_MUTEX);
         let before = list_staging_dirs();
 
         let error = with_temp_staging_dir(|staging_dir| -> Result<(), String> {
