@@ -147,12 +147,12 @@ test('published Rust manifests keep versioned local dependencies so cargo publis
   assert.ok(cliVersion.length > 0, 'expected the CLI crate version to remain readable');
 });
 
-test('runtime bundle stays pinned to the first successful npm-backed CLI release', () => {
+test('runtime bundle stays pinned to the current tested CLI release', () => {
   const runtimeBundle = JSON.parse(readFile('config/runtime-bundle.json'));
 
   assert.deepEqual(runtimeBundle, {
-    cliVersion: '0.1.1',
-    tag: 'rust-v0.1.1',
+    cliVersion: '0.1.4',
+    tag: 'rust-v0.1.4',
     channel: 'stable',
     protocolVersion: '1'
   });
