@@ -101,11 +101,22 @@ fn triage_log_item(
             params.username.as_deref(),
             username,
         ),
-        None => find_raw_scoped_cached_log_path(
-            params.workspace_root.as_deref(),
-            log_id,
-            params.username.as_deref(),
-        ),
+        None => {
+            if let Some(raw_username) = params
+                .username
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                find_raw_scoped_cached_log_path(
+                    params.workspace_root.as_deref(),
+                    log_id,
+                    Some(raw_username),
+                )
+            } else {
+                log_store::find_cached_log_path(params.workspace_root.as_deref(), log_id, None)
+            }
+        }
     };
 
     let path = match existing_path {

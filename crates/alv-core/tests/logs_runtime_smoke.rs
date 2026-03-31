@@ -744,6 +744,7 @@ fn logs_runtime_smoke_triage_respects_cancellation_mid_file() {
     )
     .expect("cached log should be writable");
     std::env::set_var("ALV_TEST_TRIAGE_LINE_DELAY_MS", "5");
+    std::env::set_var("ALV_SF_BIN_PATH", workspace_root.join("missing-sf"));
 
     let token = CancellationToken::new();
     let cancel_handle = token.clone();
@@ -766,6 +767,45 @@ fn logs_runtime_smoke_triage_respects_cancellation_mid_file() {
         .contains("cancel"));
 
     std::env::remove_var("ALV_TEST_TRIAGE_LINE_DELAY_MS");
+    std::env::remove_var("ALV_SF_BIN_PATH");
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_triage_uses_default_legacy_cache_without_username() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("triage-default-legacy");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    let log_id = "07L0000000000DEF";
+    fs::write(
+        apexlogs_dir.join(format!("default_{log_id}.log")),
+        "\
+09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|DefaultCache.handle\n\
+09:00:01.0|EXCEPTION_THROWN|System.NullPointerException: boom\n",
+    )
+    .expect("default-scoped cached log should be writable");
+    std::env::set_var("ALV_SF_BIN_PATH", workspace_root.join("missing-sf"));
+
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![log_id.to_string()],
+        username: None,
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("logs/triage should reuse default-scoped legacy cache without calling sf");
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].code_unit_started.as_deref(),
+        Some("DefaultCache.handle")
+    );
+    assert_eq!(
+        items[0].summary.primary_reason.as_deref(),
+        Some("Fatal exception")
+    );
+
+    std::env::remove_var("ALV_SF_BIN_PATH");
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
 }
 
