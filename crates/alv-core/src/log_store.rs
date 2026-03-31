@@ -200,6 +200,18 @@ pub fn find_cached_log_path(
         if let Some(found) = find_log_in_tree(&scoped_root, log_id) {
             return Some(found);
         }
+
+        let safe_username = safe_target_org(username);
+        for candidate in [
+            root.join(format!("{safe_username}_{log_id}.log")),
+            root.join(format!("{log_id}.log")),
+        ] {
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+
+        return None;
     }
 
     let orgs_root = root.join("orgs");

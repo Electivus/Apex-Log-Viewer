@@ -284,8 +284,10 @@ fn resolve_search_target_org(
         return Ok(Some(requested.to_string()));
     }
 
-    let auth = auth::resolve_org_auth(Some(requested))?;
-    Ok(Some(auth.username.unwrap_or_else(|| requested.to_string())))
+    match auth::resolve_org_auth(Some(requested)) {
+        Ok(auth) => Ok(Some(auth.username.unwrap_or_else(|| requested.to_string()))),
+        Err(_) => Ok(Some(requested.to_string())),
+    }
 }
 
 fn find_org_metadata_by_alias(workspace_root: Option<&str>, alias: &str) -> Option<OrgMetadata> {

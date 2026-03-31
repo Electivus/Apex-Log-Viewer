@@ -62,7 +62,9 @@ pub fn search_query_with_cancel(
         .map_err(|error| format!("failed to build search matcher: {error}"))?;
 
     let mut result = SearchQueryResult::default();
-    let canonical_username = resolve_canonical_username(params.username.as_deref())?;
+    let canonical_username = resolve_canonical_username(params.username.as_deref())
+        .ok()
+        .flatten();
     let raw_username_hint = params
         .raw_username
         .as_deref()
@@ -77,7 +79,20 @@ pub fn search_query_with_cancel(
                 raw_username_hint,
                 username,
             ),
-            None => find_cached_log_paths(params.workspace_root.as_deref(), &log_id),
+            None => {
+                if let Some(raw_username) = raw_username_hint
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    find_raw_scoped_cached_log_paths(
+                        params.workspace_root.as_deref(),
+                        &log_id,
+                        raw_username,
+                    )
+                } else {
+                    find_cached_log_paths(params.workspace_root.as_deref(), &log_id)
+                }
+            }
         };
         if paths.is_empty() {
             result.pending_log_ids.push(log_id);
@@ -287,6 +302,35 @@ fn find_scoped_cached_log_paths(
     );
 
     push_legacy_scoped_paths(&mut paths, &root, log_id, raw_username, canonical_username);
+
+    paths.sort_by(|left, right| left.to_string_lossy().cmp(&right.to_string_lossy()));
+    paths.dedup();
+    paths
+}
+
+fn find_raw_scoped_cached_log_paths(
+    workspace_root: Option<&str>,
+    log_id: &str,
+    raw_username: &str,
+) -> Vec<PathBuf> {
+    let root = log_store::resolve_apexlogs_root(workspace_root);
+    let mut paths = Vec::new();
+
+    collect_log_paths_in_tree(
+        &log_store::org_dir(workspace_root, raw_username).join("logs"),
+        log_id,
+        &mut paths,
+    );
+
+    let raw_safe = log_store::safe_target_org(raw_username);
+    for candidate in [
+        root.join(format!("{raw_safe}_{log_id}.log")),
+        root.join(format!("{log_id}.log")),
+    ] {
+        if candidate.is_file() {
+            paths.push(candidate);
+        }
+    }
 
     paths.sort_by(|left, right| left.to_string_lossy().cmp(&right.to_string_lossy()));
     paths.dedup();

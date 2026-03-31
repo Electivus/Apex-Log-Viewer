@@ -16,8 +16,8 @@
 - Treat the VS Code extension and the standalone CLI as separate surfaces built on a shared architecture, not as copies of each other.
 - When a new capability is valuable to both the CLI and the extension, prefer implementing the core behavior in shared Rust/runtime layers first (`alv-core` plus app-server/runtime contracts), then expose it through the appropriate surface.
 - It is fine for the CLI to be the first consumer of a new shared capability, especially for human/operator and AI-agent workflows, but do not force the extension UX to depend on shelling out to user-facing CLI commands.
-- For log-local workflows, preserve the shared workspace contract around `apexlogs/` and the existing `<safeUser>_<logId>.log` naming instead of inventing a parallel cache layout.
-- If incremental log sync state is introduced, treat it as a shared runtime contract that the extension may adopt later; keep extension compatibility by avoiding changes that would break existing `apexlogs/` consumers.
+- For log-local workflows, treat the org-first `apexlogs/orgs/<safe-org>/logs/...` layout as the canonical structure while preserving the existing `<safeUser>_<logId>.log` files for backward compatibility; during the transition both layouts may coexist, but avoid introducing additional cache layouts.
+- If incremental log sync state is introduced, treat it as a shared runtime contract that the extension may adopt later; keep extension compatibility by avoiding changes that would break existing `apexlogs/` consumers in either the org-first or legacy flat layouts.
 - When a CLI flag overlaps with familiar Salesforce CLI behavior, prefer the `sf`-style spelling such as `--target-org`.
 
 ## Build and Development

@@ -429,6 +429,50 @@ fn logs_runtime_smoke_search_scoped_to_selected_org_uses_legacy_bare_log_fallbac
 }
 
 #[test]
+fn logs_runtime_smoke_search_falls_back_to_raw_alias_scoped_cache_without_auth() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("search-alias-offline");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    let log_id = "07L0000000000AS1";
+    fs::write(
+        apexlogs_dir.join(format!("Alias_Org_{log_id}.log")),
+        "09:00:00.0|FATAL_ERROR|AliasScopedNeedle\n",
+    )
+    .expect("legacy alias-scoped log should be writable");
+    let wrong_org_dir = apexlogs_dir
+        .join("orgs")
+        .join("other@example.com")
+        .join("logs")
+        .join("2026-03-30");
+    fs::create_dir_all(&wrong_org_dir).expect("wrong org log dir should exist");
+    fs::write(
+        wrong_org_dir.join(format!("{log_id}.log")),
+        "09:00:00.0|USER_INFO|other org should not match\n",
+    )
+    .expect("wrong org cached log should be writable");
+
+    let result = search_query(&SearchQueryParams {
+        query: "AliasScopedNeedle".to_string(),
+        log_ids: vec![log_id.to_string()],
+        username: Some("Alias Org".to_string()),
+        raw_username: None,
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("search/query should use the raw alias-scoped cache when auth is unavailable");
+
+    assert_eq!(result.log_ids, vec![log_id.to_string()]);
+    let snippet = result
+        .snippets
+        .get(log_id)
+        .expect("matched log should include snippet");
+    assert!(snippet.text.contains("AliasScopedNeedle"));
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
 fn logs_runtime_smoke_triage_downloads_missing_log_into_unknown_date_directory() {
     let _guard = lock_test_guard();
 

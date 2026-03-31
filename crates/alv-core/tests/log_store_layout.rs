@@ -110,6 +110,78 @@ fn log_store_falls_back_to_legacy_flat_files_when_new_layout_is_absent() {
 }
 
 #[test]
+fn log_store_scoped_lookup_uses_matching_legacy_flat_file_without_cross_org_leakage() {
+    let workspace_root = make_temp_workspace("scoped-legacy-only");
+    let apexlogs_root = workspace_root.join("apexlogs");
+    fs::create_dir_all(
+        apexlogs_root
+            .join("orgs")
+            .join("other@example.com")
+            .join("logs")
+            .join("2026-03-30"),
+    )
+    .expect("other org dir should be creatable");
+    let log_id = "07L0000000000SCO";
+    fs::write(
+        apexlogs_root
+            .join("orgs")
+            .join("other@example.com")
+            .join("logs")
+            .join("2026-03-30")
+            .join(format!("{log_id}.log")),
+        "other-org",
+    )
+    .expect("other org cached log should be writable");
+    let scoped_legacy = apexlogs_root.join(format!("selected@example.com_{log_id}.log"));
+    fs::write(&scoped_legacy, "scoped-legacy").expect("scoped legacy log should be writable");
+
+    let found = find_cached_log_path(
+        Some(
+            workspace_root
+                .to_str()
+                .expect("workspace path should be utf8"),
+        ),
+        log_id,
+        Some("selected@example.com"),
+    )
+    .expect("scoped lookup should return the matching legacy flat path");
+
+    assert_eq!(found, scoped_legacy);
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn log_store_scoped_lookup_does_not_scan_other_org_trees_when_scope_misses() {
+    let workspace_root = make_temp_workspace("scoped-no-cross-org");
+    let other_org_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("other@example.com")
+        .join("logs")
+        .join("2026-03-30");
+    fs::create_dir_all(&other_org_dir).expect("other org dir should be creatable");
+    let log_id = "07L0000000000MIS";
+    fs::write(other_org_dir.join(format!("{log_id}.log")), "other-org")
+        .expect("other org cached log should be writable");
+
+    let found = find_cached_log_path(
+        Some(
+            workspace_root
+                .to_str()
+                .expect("workspace path should be utf8"),
+        ),
+        log_id,
+        Some("selected@example.com"),
+    );
+
+    assert!(
+        found.is_none(),
+        "scoped lookup should not leak into other org trees"
+    );
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
 fn log_store_ignores_empty_log_ids() {
     let workspace_root = make_temp_workspace("empty-log-id");
     let workspace_text = workspace_root
