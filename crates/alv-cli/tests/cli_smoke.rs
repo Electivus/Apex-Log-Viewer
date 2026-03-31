@@ -383,6 +383,82 @@ fn cli_smoke_logs_search_json_resolves_alias_without_local_metadata() {
 }
 
 #[test]
+fn cli_smoke_logs_search_json_uses_local_alias_resolution_without_auth() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-search-local-alias-{unique}"));
+    let org_root = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default@example.com");
+    let log_dir = org_root.join("logs").join("2026-03-30");
+    fs::create_dir_all(&log_dir).expect("log dir should exist");
+    fs::write(
+        log_dir.join("07L000000000006AA.log"),
+        "09:00:00.0|FATAL_ERROR|System.NullPointerException\n",
+    )
+    .expect("cached log should be writable");
+    fs::write(
+        org_root.join("org.json"),
+        r#"{"targetOrg":"ALV_ALIAS","safeTargetOrg":"ALV_ALIAS","resolvedUsername":"default@example.com","alias":"ALV_ALIAS","instanceUrl":"https://default.example.com","updatedAt":"2026-03-31T12:00:00.000Z"}"#,
+    )
+    .expect("org metadata should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .args([
+            "logs",
+            "search",
+            "NullPointerException",
+            "--json",
+            "--target-org",
+            "ALV_ALIAS",
+        ])
+        .output()
+        .expect("search should execute");
+
+    assert!(output.status.success(), "search should exit successfully");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["target_org"], "default@example.com");
+    assert_eq!(json["matches"][0]["log_id"], "07L000000000006AA");
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_search_rejects_empty_query() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-search-empty-{unique}"));
+    fs::create_dir_all(&workspace_root).expect("workspace should exist");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .args(["logs", "search", "   "])
+        .output()
+        .expect("search should execute");
+
+    assert!(
+        !output.status.success(),
+        "search should fail for an empty query"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("search query must not be empty"),
+        "stderr should explain the validation failure"
+    );
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
 fn cli_smoke_routes_initialize_and_logs_list_over_stdio() {
     let _guard = lock_test_guard();
 

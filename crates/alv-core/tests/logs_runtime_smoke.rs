@@ -46,12 +46,14 @@ fn make_temp_workspace(name: &str) -> PathBuf {
 }
 
 fn org_dirs_in_iteration_order(orgs_root: &PathBuf) -> Vec<PathBuf> {
-    fs::read_dir(orgs_root)
+    let mut dirs: Vec<PathBuf> = fs::read_dir(orgs_root)
         .expect("orgs root should be readable")
         .flatten()
         .map(|entry| entry.path())
         .filter(|path| path.is_dir())
-        .collect()
+        .collect();
+    dirs.sort();
+    dirs
 }
 
 #[cfg(unix)]
@@ -248,6 +250,7 @@ fn logs_runtime_smoke_search_respects_cancellation_mid_scan() {
             query: "line 199".to_string(),
             log_ids: vec!["07L000000000001AA".to_string()],
             username: None,
+            raw_username: None,
             workspace_root: Some(workspace_root.display().to_string()),
         },
         &token,
@@ -283,6 +286,7 @@ fn logs_runtime_smoke_search_reads_org_first_cache_layout() {
         query: "NullPointerException".to_string(),
         log_ids: vec!["07L000000000001AA".to_string()],
         username: None,
+        raw_username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
     .expect("search/query should succeed");
@@ -335,6 +339,7 @@ fn logs_runtime_smoke_search_checks_duplicate_log_ids_across_org_trees() {
         query: "NeedleFromSecondOrg".to_string(),
         log_ids: vec!["07L000000000009AA".to_string()],
         username: None,
+        raw_username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
     .expect("search/query should succeed");
@@ -383,6 +388,7 @@ fn logs_runtime_smoke_search_scoped_to_selected_org_ignores_other_org_duplicate_
         query: "ScopedNeedleFromOtherOrg".to_string(),
         log_ids: vec!["07L00000000000SC1".to_string()],
         username: Some("selected@example.com".to_string()),
+        raw_username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
     .expect("search/query should succeed");
@@ -411,6 +417,7 @@ fn logs_runtime_smoke_search_scoped_to_selected_org_uses_legacy_bare_log_fallbac
         query: "LegacyBareNeedle".to_string(),
         log_ids: vec!["07L00000000000LB1".to_string()],
         username: Some("selected@example.com".to_string()),
+        raw_username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
     .expect("search/query should honor the legacy bare-log fallback");
@@ -632,6 +639,53 @@ fn logs_runtime_smoke_triage_uses_canonical_username_tree_for_alias_input() {
 }
 
 #[test]
+fn logs_runtime_smoke_triage_falls_back_to_raw_alias_scoped_cache_without_auth() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("triage-alias-offline");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    let wrong_org_dir = apexlogs_dir
+        .join("orgs")
+        .join("other@example.com")
+        .join("logs")
+        .join("2026-03-30");
+    fs::create_dir_all(&wrong_org_dir).expect("wrong org log dir should exist");
+    let log_id = "07L0000000000ALO";
+    fs::write(
+        wrong_org_dir.join(format!("{log_id}.log")),
+        "09:00:00.0|USER_INFO|wrong org cached copy\n",
+    )
+    .expect("wrong org cached log should be writable");
+    fs::write(
+        apexlogs_dir.join(format!("Alias_Org_{log_id}.log")),
+        "\
+09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|AliasOffline.handle\n\
+09:00:01.0|EXCEPTION_THROWN|System.NullPointerException: boom\n",
+    )
+    .expect("legacy alias-scoped log should be writable");
+
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![log_id.to_string()],
+        username: Some("Alias Org".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("logs/triage should reuse the raw alias-scoped cache when auth is unavailable");
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].code_unit_started.as_deref(),
+        Some("AliasOffline.handle")
+    );
+    assert_eq!(
+        items[0].summary.primary_reason.as_deref(),
+        Some("Fatal exception")
+    );
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
 fn logs_runtime_smoke_triage_respects_cancellation_mid_file() {
     let _guard = lock_test_guard();
 
@@ -691,6 +745,7 @@ fn logs_runtime_smoke_searches_cached_logs_with_pending_ids() {
             "07L000000000002AA".to_string(),
         ],
         username: None,
+        raw_username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
     .expect("search/query should succeed");

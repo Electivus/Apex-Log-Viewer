@@ -20,6 +20,8 @@ pub struct SearchQueryParams {
     #[serde(rename = "logIds", alias = "log_ids")]
     pub log_ids: Vec<String>,
     pub username: Option<String>,
+    #[serde(rename = "rawUsername", alias = "raw_username")]
+    pub raw_username: Option<String>,
     #[serde(rename = "workspaceRoot", alias = "workspace_root")]
     pub workspace_root: Option<String>,
 }
@@ -61,6 +63,10 @@ pub fn search_query_with_cancel(
 
     let mut result = SearchQueryResult::default();
     let canonical_username = resolve_canonical_username(params.username.as_deref())?;
+    let raw_username_hint = params
+        .raw_username
+        .as_deref()
+        .or(params.username.as_deref());
 
     for log_id in dedup_ids(&params.log_ids) {
         cancellation.check_cancelled()?;
@@ -68,7 +74,7 @@ pub fn search_query_with_cancel(
             Some(username) => find_scoped_cached_log_paths(
                 params.workspace_root.as_deref(),
                 &log_id,
-                params.username.as_deref(),
+                raw_username_hint,
                 username,
             ),
             None => find_cached_log_paths(params.workspace_root.as_deref(), &log_id),

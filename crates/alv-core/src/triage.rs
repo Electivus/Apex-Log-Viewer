@@ -61,14 +61,13 @@ pub fn triage_logs_with_cancel(
     cancellation: &CancellationToken,
 ) -> Result<Vec<LogTriageItem>, String> {
     let mut items = Vec::new();
-    let canonical_username = resolve_canonical_username(params.username.as_deref());
+    let canonical_username = resolve_canonical_username(params.username.as_deref())
+        .ok()
+        .flatten();
 
     for log_id in dedup_ids(&params.log_ids) {
         cancellation.check_cancelled()?;
-        let item = match &canonical_username {
-            Ok(username) => triage_log_item(&log_id, params, username.as_deref(), cancellation),
-            Err(error) => Err(error.clone()),
-        };
+        let item = triage_log_item(&log_id, params, canonical_username.as_deref(), cancellation);
 
         match item {
             Ok(item) => items.push(item),
@@ -102,7 +101,11 @@ fn triage_log_item(
             params.username.as_deref(),
             username,
         ),
-        None => log_store::find_cached_log_path(params.workspace_root.as_deref(), log_id, None),
+        None => find_raw_scoped_cached_log_path(
+            params.workspace_root.as_deref(),
+            log_id,
+            params.username.as_deref(),
+        ),
     };
 
     let path = match existing_path {
@@ -205,6 +208,33 @@ fn find_scoped_cached_log_path(
     }
 
     for candidate in legacy_scoped_paths(workspace_root, log_id, raw_username, canonical_username) {
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn find_raw_scoped_cached_log_path(
+    workspace_root: Option<&str>,
+    log_id: &str,
+    raw_username: Option<&str>,
+) -> Option<std::path::PathBuf> {
+    let raw_username = raw_username
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let scoped_root = log_store::org_dir(workspace_root, raw_username).join("logs");
+    if let Some(found) = find_log_in_tree(&scoped_root, log_id) {
+        return Some(found);
+    }
+
+    let root = log_store::resolve_apexlogs_root(workspace_root);
+    let raw_safe = log_store::safe_target_org(raw_username);
+    for candidate in [
+        root.join(format!("{raw_safe}_{log_id}.log")),
+        root.join(format!("{log_id}.log")),
+    ] {
         if candidate.is_file() {
             return Some(candidate);
         }

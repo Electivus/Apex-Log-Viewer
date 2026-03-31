@@ -110,6 +110,21 @@ fn log_store_falls_back_to_legacy_flat_files_when_new_layout_is_absent() {
 }
 
 #[test]
+fn log_store_ignores_empty_log_ids() {
+    let workspace_root = make_temp_workspace("empty-log-id");
+    let workspace_text = workspace_root
+        .to_str()
+        .expect("workspace path should be utf8");
+
+    assert!(find_cached_log_path(Some(workspace_text), "", None).is_none());
+    assert!(
+        find_cached_log_path(Some(workspace_text), "   ", Some("default@example.com")).is_none()
+    );
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
 fn log_store_round_trips_version_state_and_org_metadata() {
     let workspace_root = make_temp_workspace("state");
     let workspace_text = workspace_root

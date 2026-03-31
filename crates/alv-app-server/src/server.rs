@@ -371,6 +371,11 @@ fn parse_request_line(request: &str) -> Result<ParsedRequest, String> {
                 .get("username")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            raw_username: params
+                .get("rawUsername")
+                .and_then(Value::as_str)
+                .or_else(|| params.get("raw_username").and_then(Value::as_str))
+                .map(str::to_string),
             workspace_root: params
                 .get("workspaceRoot")
                 .and_then(Value::as_str)

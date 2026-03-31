@@ -189,6 +189,10 @@ pub fn find_cached_log_path(
     log_id: &str,
     resolved_username: Option<&str>,
 ) -> Option<PathBuf> {
+    if log_id.trim().is_empty() {
+        return None;
+    }
+
     let root = resolve_apexlogs_root(workspace_root);
 
     if let Some(username) = resolved_username.filter(|value| !value.trim().is_empty()) {

@@ -128,6 +128,11 @@ fn run_status(args: LogStatusArgs) -> Result<i32, String> {
 
 fn run_search(args: LogSearchArgs) -> Result<i32, String> {
     let workspace_root = workspace_root_string()?;
+    let query = args.query.trim().to_string();
+    if query.is_empty() {
+        return Err("search query must not be empty".to_string());
+    }
+
     let sync_state = log_store::read_sync_state(Some(&workspace_root))?;
     let resolved_username = resolve_search_target_org(
         args.target_org.as_deref(),
@@ -142,15 +147,14 @@ fn run_search(args: LogSearchArgs) -> Result<i32, String> {
         resolved_username.as_deref(),
         &legacy_scope_refs,
     )?;
-    let search_username = args
-        .target_org
-        .clone()
-        .or_else(|| resolved_username.clone());
-    let query = args.query.trim().to_string();
     let result = search_query(&SearchQueryParams {
         query: query.clone(),
         log_ids: log_ids.clone(),
-        username: search_username,
+        username: resolved_username.clone(),
+        raw_username: args
+            .target_org
+            .clone()
+            .filter(|raw| resolved_username.as_deref() != Some(raw.as_str())),
         workspace_root: Some(workspace_root),
     })?;
     let target_org = resolved_username.unwrap_or_else(|| "default".to_string());
