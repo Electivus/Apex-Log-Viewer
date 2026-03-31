@@ -1,6 +1,6 @@
 {
-  "cliVersion": "0.1.5",
-  "tag": "rust-v0.1.5",
+  "cliVersion": "0.1.6",
+  "tag": "rust-v0.1.6",
   "channel": "stable",
   "protocolVersion": "1"
 }
