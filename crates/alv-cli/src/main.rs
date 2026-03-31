@@ -1,13 +1,26 @@
-use std::env;
+mod cli;
+mod commands;
+
+use clap::CommandFactory;
+use clap::Parser;
 
 fn main() {
-    let args: Vec<String> = env::args().skip(1).collect();
-
-    if args.len() == 2 && args[0] == "app-server" && args[1] == "--stdio" {
-        env::set_var(alv_app_server::server::CLI_VERSION_ENV, env!("CARGO_PKG_VERSION"));
-        alv_app_server::server::run_stdio().expect("app-server failed");
+    if std::env::args_os().nth(1).is_none() {
+        let mut command = cli::Cli::command();
+        command
+            .print_long_help()
+            .expect("help output should be writable");
+        println!();
         return;
     }
 
-    println!("apex-log-viewer");
+    let cli = cli::Cli::parse();
+
+    match commands::run(cli) {
+        Ok(code) => std::process::exit(code),
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+    }
 }

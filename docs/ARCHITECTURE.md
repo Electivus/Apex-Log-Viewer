@@ -41,6 +41,17 @@ The VS Code extension and the standalone Rust CLI now follow separate release tr
 - The runtime bundle lets maintainers keep the VS Code extension channel and the CLI release channel independent while still shipping a predictable executable with the extension.
 - Local developer overrides can still point the extension at a manually supplied executable, but release packaging uses the pinned bundle metadata by default.
 
+## Shared local log storage
+
+The standalone CLI and the VS Code extension are separate surfaces over the same shared runtime architecture. Local Apex log storage is now evolving toward an org-first `apexlogs/` layout:
+
+- `apexlogs/.alv/version.json` stores the local layout version.
+- `apexlogs/.alv/sync-state.json` stores incremental sync checkpoints by org.
+- `apexlogs/orgs/<safe-target-org>/org.json` stores resolved org metadata.
+- `apexlogs/orgs/<safe-target-org>/logs/<YYYY-MM-DD>/<logId>.log` stores full log bodies.
+
+The Rust CLI is the first consumer of that shared storage through `apex-log-viewer logs sync`, `logs status`, and `logs search`, while the runtime still reads the legacy flat cache layout during the transition so the extension remains compatible.
+
 ## Testing and build tooling
 
 - Tests live in `src/test/` and are compiled to `out/test/`. The `scripts/run-tests.js` script orchestrates unit and integration tests.

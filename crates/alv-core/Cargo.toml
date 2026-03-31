@@ -11,6 +11,7 @@ homepage = "https://github.com/Electivus/Apex-Log-Viewer"
 path = "src/lib.rs"
 
 [dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 grep = "0.4"
 grep-matcher = "0.1"
 grep-regex = "0.1"

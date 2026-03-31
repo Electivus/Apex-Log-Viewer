@@ -1,6 +1,6 @@
-use crate::logs::{
-    ensure_log_file_cached_with_cancel, extract_code_unit_started, find_cached_log_path,
-    CancellationToken,
+use crate::{
+    auth, log_store,
+    logs::{download_log_to_path_with_cancel, extract_code_unit_started, CancellationToken},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -61,10 +61,15 @@ pub fn triage_logs_with_cancel(
     cancellation: &CancellationToken,
 ) -> Result<Vec<LogTriageItem>, String> {
     let mut items = Vec::new();
+    let canonical_username = resolve_canonical_username(params.username.as_deref())
+        .ok()
+        .flatten();
 
     for log_id in dedup_ids(&params.log_ids) {
         cancellation.check_cancelled()?;
-        match triage_log_item(&log_id, params, cancellation) {
+        let item = triage_log_item(&log_id, params, canonical_username.as_deref(), cancellation);
+
+        match item {
             Ok(item) => items.push(item),
             Err(error) => {
                 if cancellation.is_cancelled() {
@@ -86,16 +91,39 @@ pub fn triage_logs_with_cancel(
 fn triage_log_item(
     log_id: &str,
     params: &LogsTriageParams,
+    canonical_username: Option<&str>,
     cancellation: &CancellationToken,
 ) -> Result<LogTriageItem, String> {
-    let path = match find_cached_log_path(params.workspace_root.as_deref(), log_id) {
-        Some(existing) => existing,
-        None => ensure_log_file_cached_with_cancel(
+    let existing_path = match canonical_username {
+        Some(username) => find_scoped_cached_log_path(
+            params.workspace_root.as_deref(),
             log_id,
             params.username.as_deref(),
+            username,
+        ),
+        None => find_raw_scoped_cached_log_path(
             params.workspace_root.as_deref(),
-            cancellation,
-        )?,
+            log_id,
+            params.username.as_deref(),
+        ),
+    };
+
+    let path = match existing_path {
+        Some(existing) => existing,
+        None => {
+            let resolved_username = canonical_username.unwrap_or("default");
+            let target_path = log_store::unknown_date_log_path(
+                params.workspace_root.as_deref(),
+                resolved_username,
+                log_id,
+            );
+            download_log_to_path_with_cancel(
+                log_id,
+                params.username.as_deref(),
+                &target_path,
+                cancellation,
+            )?
+        }
     };
 
     let (code_unit_started, summary) = summarize_file(&path, cancellation)?;
@@ -151,6 +179,118 @@ fn summarize_file(
     };
 
     Ok((code_unit_started, summary))
+}
+
+fn resolve_canonical_username(username: Option<&str>) -> Result<Option<String>, String> {
+    let Some(raw_username) = username.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+
+    if raw_username.contains('@') {
+        return Ok(Some(raw_username.to_string()));
+    }
+
+    let auth = auth::resolve_org_auth(Some(raw_username))?;
+    Ok(Some(
+        auth.username.unwrap_or_else(|| raw_username.to_string()),
+    ))
+}
+
+fn find_scoped_cached_log_path(
+    workspace_root: Option<&str>,
+    log_id: &str,
+    raw_username: Option<&str>,
+    canonical_username: &str,
+) -> Option<std::path::PathBuf> {
+    let scoped_root = log_store::org_dir(workspace_root, canonical_username).join("logs");
+    if let Some(found) = find_log_in_tree(&scoped_root, log_id) {
+        return Some(found);
+    }
+
+    for candidate in legacy_scoped_paths(workspace_root, log_id, raw_username, canonical_username) {
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn find_raw_scoped_cached_log_path(
+    workspace_root: Option<&str>,
+    log_id: &str,
+    raw_username: Option<&str>,
+) -> Option<std::path::PathBuf> {
+    let raw_username = raw_username
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let scoped_root = log_store::org_dir(workspace_root, raw_username).join("logs");
+    if let Some(found) = find_log_in_tree(&scoped_root, log_id) {
+        return Some(found);
+    }
+
+    let root = log_store::resolve_apexlogs_root(workspace_root);
+    let raw_safe = log_store::safe_target_org(raw_username);
+    for candidate in [
+        root.join(format!("{raw_safe}_{log_id}.log")),
+        root.join(format!("{log_id}.log")),
+    ] {
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn legacy_scoped_paths(
+    workspace_root: Option<&str>,
+    log_id: &str,
+    raw_username: Option<&str>,
+    canonical_username: &str,
+) -> Vec<std::path::PathBuf> {
+    let root = log_store::resolve_apexlogs_root(workspace_root);
+    let mut candidates = Vec::new();
+    let canonical_safe = log_store::safe_target_org(canonical_username);
+    candidates.push(root.join(format!("{canonical_safe}_{log_id}.log")));
+
+    if let Some(raw_username) = raw_username
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let raw_safe = log_store::safe_target_org(raw_username);
+        if raw_safe != canonical_safe {
+            candidates.push(root.join(format!("{raw_safe}_{log_id}.log")));
+        }
+    }
+
+    candidates.push(root.join(format!("{log_id}.log")));
+    candidates
+}
+
+fn find_log_in_tree(root: &std::path::Path, log_id: &str) -> Option<std::path::PathBuf> {
+    if !root.exists() {
+        return None;
+    }
+
+    for entry in std::fs::read_dir(root).ok()?.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_log_in_tree(&path, log_id) {
+                return Some(found);
+            }
+            continue;
+        }
+
+        if path
+            .file_name()
+            .is_some_and(|file_name| file_name.to_string_lossy() == format!("{log_id}.log"))
+        {
+            return Some(path);
+        }
+    }
+
+    None
 }
 
 fn maybe_test_delay(cancellation: &CancellationToken) -> Result<(), String> {
@@ -334,10 +474,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after unix epoch")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "alv-triage-{}-{unique}.log",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("alv-triage-{}-{unique}.log", std::process::id()));
         let mut content = String::new();
         for index in 0..10 {
             content.push_str(&format!("09:00:{index:02}.0|USER_DEBUG|[1]|noop\n"));

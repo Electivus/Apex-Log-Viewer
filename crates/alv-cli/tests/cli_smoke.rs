@@ -1,4 +1,5 @@
 use std::{
+    fs,
     io::{BufRead, BufReader, Write},
     process::{Child, ChildStdin, Command, Stdio},
     sync::{
@@ -6,13 +7,10 @@ use std::{
         Mutex, OnceLock,
     },
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde_json::Value;
-
-#[cfg(windows)]
-use std::{fs, time::{SystemTime, UNIX_EPOCH}};
 
 fn test_guard() -> &'static Mutex<()> {
     static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
@@ -41,7 +39,10 @@ impl AppServerHarness {
             .expect("app-server process should start");
 
         let stdin = child.stdin.take().expect("child stdin should be available");
-        let stdout = child.stdout.take().expect("child stdout should be available");
+        let stdout = child
+            .stdout
+            .take()
+            .expect("child stdout should be available");
         let (sender, receiver) = mpsc::channel();
 
         thread::spawn(move || {
@@ -94,18 +95,477 @@ impl Drop for AppServerHarness {
 }
 
 #[test]
-fn cli_smoke_prints_banner_for_standalone_invocation() {
+fn cli_smoke_prints_help_for_standalone_invocation() {
     let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
         .output()
-        .expect("cli should execute");
+        .expect("help should execute");
 
-    assert!(output.status.success(), "cli should exit successfully");
-    assert_eq!(
-        String::from_utf8(output.stdout)
-            .expect("stdout should be utf8")
-            .trim(),
-        "apex-log-viewer"
+    assert!(output.status.success(), "help should exit successfully");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(stdout.contains("Local-first Apex log sync and analysis CLI"));
+    assert!(stdout.contains("logs"));
+    assert!(stdout.contains("app-server"));
+}
+
+#[test]
+fn cli_smoke_shows_logs_subcommands_in_help() {
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .args(["logs", "--help"])
+        .output()
+        .expect("help should execute");
+
+    assert!(output.status.success(), "help should exit successfully");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(stdout.contains("sync"));
+    assert!(stdout.contains("status"));
+    assert!(stdout.contains("search"));
+}
+
+#[test]
+fn cli_smoke_shows_target_org_in_sync_help() {
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .args(["logs", "sync", "--help"])
+        .output()
+        .expect("help should execute");
+
+    assert!(output.status.success(), "help should exit successfully");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(stdout.contains("--target-org"));
+    assert!(stdout.contains("--force-full"));
+}
+
+#[test]
+fn cli_smoke_logs_sync_json_emits_structured_result_and_writes_state() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-sync-{unique}"));
+    let fixture_dir = std::env::temp_dir().join(format!("alv-cli-sync-fixture-{unique}"));
+    fs::create_dir_all(&workspace_root).expect("workspace should exist");
+    fs::create_dir_all(&fixture_dir).expect("fixture dir should exist");
+    fs::write(
+        fixture_dir.join("07L000000000003AA.log"),
+        "09:00:00.0|USER_INFO|synced body\n",
+    )
+    .expect("fixture log should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .env(
+            "ALV_TEST_SF_LOG_LIST_JSON",
+            r#"{"result":{"records":[{"Id":"07L000000000003AA","StartTime":"2026-03-30T18:39:58.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-1","LogLength":4096}]}}"#,
+        )
+        .env(
+            "ALV_TEST_SF_ORG_DISPLAY_JSON",
+            r#"{"result":{"username":"default@example.com","accessToken":"token","instanceUrl":"https://default.example.com"}}"#,
+        )
+        .env("ALV_TEST_APEX_LOG_FIXTURE_DIR", &fixture_dir)
+        .args(["logs", "sync", "--json"])
+        .output()
+        .expect("sync should execute");
+
+    assert!(output.status.success(), "sync should exit successfully");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["status"], "success");
+    assert_eq!(json["target_org"], "default@example.com");
+    assert_eq!(json["downloaded"], 1);
+    assert!(workspace_root
+        .join("apexlogs")
+        .join(".alv")
+        .join("sync-state.json")
+        .is_file());
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+    fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_status_json_reads_existing_sync_state() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-status-{unique}"));
+    let state_dir = workspace_root.join("apexlogs").join(".alv");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    fs::write(
+        state_dir.join("sync-state.json"),
+        r#"{"version":1,"orgs":{"default@example.com":{"targetOrg":"default@example.com","safeTargetOrg":"default@example.com","orgDir":"apexlogs/orgs/default@example.com","lastSyncStartedAt":"2026-03-30T18:40:00.000Z","lastSyncCompletedAt":"2026-03-30T18:40:04.000Z","lastSyncedLogId":"07L000000000003AA","lastSyncedStartTime":"2026-03-30T18:39:58.000Z","downloadedCount":3,"cachedCount":12,"lastError":null}}}"#,
+    )
+    .expect("sync state should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .args([
+            "logs",
+            "status",
+            "--json",
+            "--target-org",
+            "default@example.com",
+        ])
+        .output()
+        .expect("status should execute");
+
+    assert!(output.status.success(), "status should exit successfully");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["target_org"], "default@example.com");
+    assert_eq!(json["last_synced_log_id"], "07L000000000003AA");
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_status_json_prefers_explicit_target_org_over_cached_default() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-status-target-{unique}"));
+    let state_dir = workspace_root.join("apexlogs").join(".alv");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    fs::write(
+        state_dir.join("sync-state.json"),
+        r#"{"version":1,"orgs":{"default@example.com":{"targetOrg":"default@example.com","safeTargetOrg":"default@example.com","orgDir":"apexlogs/orgs/default@example.com","lastSyncStartedAt":"2026-03-30T18:40:00.000Z","lastSyncCompletedAt":"2026-03-30T18:40:04.000Z","lastSyncedLogId":"07L000000000003AA","lastSyncedStartTime":"2026-03-30T18:39:58.000Z","downloadedCount":3,"cachedCount":12,"lastError":null}}}"#,
+    )
+    .expect("sync state should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .args(["logs", "status", "--json", "--target-org", "ALV_ALIAS"])
+        .output()
+        .expect("status should execute");
+
+    assert!(output.status.success(), "status should exit successfully");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["target_org"], "ALV_ALIAS");
+    assert_eq!(json["has_state"], false);
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_status_json_prefers_synced_metadata_when_alias_matches_multiple_orgs() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root =
+        std::env::temp_dir().join(format!("alv-cli-status-duplicate-alias-{unique}"));
+    let state_dir = workspace_root.join("apexlogs").join(".alv");
+    let older_org_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("aaa@example.com");
+    let synced_org_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("zzz@example.com");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    fs::create_dir_all(older_org_dir.join("logs").join("2026-03-30"))
+        .expect("older org log dir should exist");
+    fs::create_dir_all(synced_org_dir.join("logs").join("2026-03-30"))
+        .expect("synced org log dir should exist");
+    fs::write(
+        state_dir.join("sync-state.json"),
+        r#"{"version":1,"orgs":{"zzz@example.com":{"targetOrg":"zzz@example.com","safeTargetOrg":"zzz@example.com","orgDir":"apexlogs/orgs/zzz@example.com","lastSyncStartedAt":"2026-03-30T18:40:00.000Z","lastSyncCompletedAt":"2026-03-30T18:40:04.000Z","lastSyncedLogId":"07L000000000009AA","lastSyncedStartTime":"2026-03-30T18:39:58.000Z","downloadedCount":1,"cachedCount":0,"lastError":null}}}"#,
+    )
+    .expect("sync state should be writable");
+    fs::write(
+        older_org_dir.join("org.json"),
+        r#"{"targetOrg":"ALV_ALIAS","safeTargetOrg":"ALV_ALIAS","resolvedUsername":"aaa@example.com","alias":"ALV_ALIAS","instanceUrl":"https://aaa.example.com","updatedAt":"2026-03-30T18:40:00.000Z"}"#,
+    )
+    .expect("older org metadata should be writable");
+    fs::write(
+        synced_org_dir.join("org.json"),
+        r#"{"targetOrg":"ALV_ALIAS","safeTargetOrg":"ALV_ALIAS","resolvedUsername":"zzz@example.com","alias":"ALV_ALIAS","instanceUrl":"https://zzz.example.com","updatedAt":"2026-03-31T12:00:00.000Z"}"#,
+    )
+    .expect("synced org metadata should be writable");
+    fs::write(
+        older_org_dir
+            .join("logs")
+            .join("2026-03-30")
+            .join("07L000000000010AA.log"),
+        "older org log\n",
+    )
+    .expect("older org log should be writable");
+    fs::write(
+        synced_org_dir
+            .join("logs")
+            .join("2026-03-30")
+            .join("07L000000000009AA.log"),
+        "synced org log\n",
+    )
+    .expect("synced org log should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .args(["logs", "status", "--json", "--target-org", "ALV_ALIAS"])
+        .output()
+        .expect("status should execute");
+
+    assert!(output.status.success(), "status should exit successfully");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["target_org"], "zzz@example.com");
+    assert_eq!(json["last_synced_log_id"], "07L000000000009AA");
+    assert_eq!(json["log_count"], 1);
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_search_json_stays_local_first() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-search-{unique}"));
+    let log_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default@example.com")
+        .join("logs")
+        .join("2026-03-30");
+    fs::create_dir_all(&log_dir).expect("log dir should exist");
+    fs::write(
+        log_dir.join("07L000000000003AA.log"),
+        "09:00:00.0|FATAL_ERROR|System.NullPointerException\n",
+    )
+    .expect("cached log should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .args([
+            "logs",
+            "search",
+            "NullPointerException",
+            "--json",
+            "--target-org",
+            "default@example.com",
+        ])
+        .output()
+        .expect("search should execute");
+
+    assert!(output.status.success(), "search should exit successfully");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["target_org"], "default@example.com");
+    assert_eq!(json["matches"][0]["log_id"], "07L000000000003AA");
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_search_json_keeps_alias_scoped_legacy_logs() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-search-legacy-alias-{unique}"));
+    let apexlogs_root = workspace_root.join("apexlogs");
+    fs::create_dir_all(&apexlogs_root).expect("apexlogs dir should exist");
+    fs::write(
+        apexlogs_root.join("ALV_ALIAS_07L000000000005AA.log"),
+        "09:00:00.0|FATAL_ERROR|System.NullPointerException\n",
+    )
+    .expect("legacy alias-scoped log should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .env(
+            "ALV_TEST_SF_ORG_DISPLAY_JSON",
+            r#"{"result":{"username":"default@example.com","accessToken":"token","instanceUrl":"https://default.example.com"}}"#,
+        )
+        .args([
+            "logs",
+            "search",
+            "NullPointerException",
+            "--json",
+            "--target-org",
+            "ALV_ALIAS",
+        ])
+        .output()
+        .expect("search should execute");
+
+    assert!(output.status.success(), "search should exit successfully");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["target_org"], "default@example.com");
+    assert_eq!(json["matches"][0]["log_id"], "07L000000000005AA");
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_search_json_resolves_alias_without_local_metadata() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-search-alias-{unique}"));
+    let log_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default@example.com")
+        .join("logs")
+        .join("2026-03-30");
+    fs::create_dir_all(&log_dir).expect("log dir should exist");
+    fs::write(
+        log_dir.join("07L000000000004AA.log"),
+        "09:00:00.0|FATAL_ERROR|System.NullPointerException\n",
+    )
+    .expect("cached log should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .env(
+            "ALV_TEST_SF_ORG_DISPLAY_JSON",
+            r#"{"result":{"username":"default@example.com","accessToken":"token","instanceUrl":"https://default.example.com"}}"#,
+        )
+        .args([
+            "logs",
+            "search",
+            "NullPointerException",
+            "--json",
+            "--target-org",
+            "ALV_ALIAS",
+        ])
+        .output()
+        .expect("search should execute");
+
+    assert!(output.status.success(), "search should exit successfully");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["target_org"], "default@example.com");
+    assert_eq!(json["matches"][0]["log_id"], "07L000000000004AA");
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_search_json_uses_local_alias_resolution_without_auth() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-search-local-alias-{unique}"));
+    let org_root = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default@example.com");
+    let log_dir = org_root.join("logs").join("2026-03-30");
+    fs::create_dir_all(&log_dir).expect("log dir should exist");
+    fs::write(
+        log_dir.join("07L000000000006AA.log"),
+        "09:00:00.0|FATAL_ERROR|System.NullPointerException\n",
+    )
+    .expect("cached log should be writable");
+    fs::write(
+        org_root.join("org.json"),
+        r#"{"targetOrg":"ALV_ALIAS","safeTargetOrg":"ALV_ALIAS","resolvedUsername":"default@example.com","alias":"ALV_ALIAS","instanceUrl":"https://default.example.com","updatedAt":"2026-03-31T12:00:00.000Z"}"#,
+    )
+    .expect("org metadata should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .args([
+            "logs",
+            "search",
+            "NullPointerException",
+            "--json",
+            "--target-org",
+            "ALV_ALIAS",
+        ])
+        .output()
+        .expect("search should execute");
+
+    assert!(output.status.success(), "search should exit successfully");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["target_org"], "default@example.com");
+    assert_eq!(json["matches"][0]["log_id"], "07L000000000006AA");
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_search_json_falls_back_to_alias_cache_without_auth_or_metadata() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root =
+        std::env::temp_dir().join(format!("alv-cli-search-alias-offline-{unique}"));
+    let apexlogs_root = workspace_root.join("apexlogs");
+    fs::create_dir_all(&apexlogs_root).expect("apexlogs dir should exist");
+    fs::write(
+        apexlogs_root.join("ALV_ALIAS_07L000000000007AA.log"),
+        "09:00:00.0|FATAL_ERROR|AliasOfflineNeedle\n",
+    )
+    .expect("legacy alias-scoped log should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .args([
+            "logs",
+            "search",
+            "AliasOfflineNeedle",
+            "--json",
+            "--target-org",
+            "ALV_ALIAS",
+        ])
+        .output()
+        .expect("search should execute");
+
+    assert!(output.status.success(), "search should exit successfully");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["target_org"], "ALV_ALIAS");
+    assert_eq!(json["matches"][0]["log_id"], "07L000000000007AA");
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_search_rejects_empty_query() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-search-empty-{unique}"));
+    fs::create_dir_all(&workspace_root).expect("workspace should exist");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .args(["logs", "search", "   "])
+        .output()
+        .expect("search should execute");
+
+    assert!(
+        !output.status.success(),
+        "search should fail for an empty query"
     );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("search query must not be empty"),
+        "stderr should explain the validation failure"
+    );
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
 }
 
 #[test]
@@ -255,11 +715,8 @@ fn cli_smoke_uses_explicit_sf_cmd_shim_for_org_endpoints() {
         .duration_since(UNIX_EPOCH)
         .expect("clock should be after unix epoch")
         .as_nanos();
-    let temp_dir = std::env::temp_dir().join(format!(
-        "alv-cli-smoke-{}-{}",
-        std::process::id(),
-        unique
-    ));
+    let temp_dir =
+        std::env::temp_dir().join(format!("alv-cli-smoke-{}-{}", std::process::id(), unique));
     fs::create_dir_all(&temp_dir).expect("temp dir should be created");
     let sf_cmd = temp_dir.join("sf.cmd");
     fs::write(

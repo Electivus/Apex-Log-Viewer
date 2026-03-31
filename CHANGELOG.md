@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+- CLI/Logs: add a local-first Rust CLI logs workflow with `logs sync`, `logs status`, and `logs search`, backed by an org-first `apexlogs/` layout and incremental sync state under `apexlogs/.alv/`.
+
 ### Bug Fixes
 
 - Runtime/Logs: reduce startup request fan-out by letting the Logs panel fetch rows without waiting for org bootstrap/auth hydration, coalescing concurrent runtime `org/list` and `org/auth` requests, reusing auth during log-body preload, and avoiding redundant login-shell PATH probes when the current Windows PATH already resolves `sf`.

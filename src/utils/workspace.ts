@@ -132,12 +132,50 @@ function toSafeLogUserName(username: string | undefined): string {
   return (username || 'default').replace(/[^a-zA-Z0-9_.@-]+/g, '_');
 }
 
+async function findExistingLogFileInTree(rootDir: string, logId: string): Promise<string | undefined> {
+  let entries: import('fs').Dirent[];
+  try {
+    entries = await fs.readdir(rootDir, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+
+  for (const entry of entries) {
+    const filePath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      const nested = await findExistingLogFileInTree(filePath, logId);
+      if (nested) {
+        return nested;
+      }
+      continue;
+    }
+
+    if (entry.isFile() && entry.name === `${logId}.log`) {
+      return filePath;
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Find a previously saved log file (username-prefixed or legacy `<id>.log`).
  */
 export async function findExistingLogFile(logId: string, username?: string): Promise<string | undefined> {
   const dir = getApexLogsDir();
   try {
+    if (username) {
+      const orgFirst = await findExistingLogFileInTree(path.join(dir, 'orgs', toSafeLogUserName(username), 'logs'), logId);
+      if (orgFirst) {
+        return orgFirst;
+      }
+    } else {
+      const orgFirst = await findExistingLogFileInTree(path.join(dir, 'orgs'), logId);
+      if (orgFirst) {
+        return orgFirst;
+      }
+    }
+
     const entries = await fs.readdir(dir);
     if (username) {
       const exact = `${toSafeLogUserName(username)}_${logId}.log`;
