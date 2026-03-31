@@ -1,11 +1,12 @@
-use crate::logs::{find_cached_log_path, CancellationToken};
+use crate::{auth, log_store, logs::CancellationToken};
 use grep_matcher::Matcher;
 use grep_regex::RegexMatcherBuilder;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
-    fs::File,
+    fs::{self, File},
     io::{self, BufRead, BufReader},
+    path::{Path, PathBuf},
     thread,
     time::Duration,
 };
@@ -18,6 +19,7 @@ pub struct SearchQueryParams {
     pub query: String,
     #[serde(rename = "logIds", alias = "log_ids")]
     pub log_ids: Vec<String>,
+    pub username: Option<String>,
     #[serde(rename = "workspaceRoot", alias = "workspace_root")]
     pub workspace_root: Option<String>,
 }
@@ -58,29 +60,45 @@ pub fn search_query_with_cancel(
         .map_err(|error| format!("failed to build search matcher: {error}"))?;
 
     let mut result = SearchQueryResult::default();
+    let canonical_username = resolve_canonical_username(params.username.as_deref())?;
 
     for log_id in dedup_ids(&params.log_ids) {
         cancellation.check_cancelled()?;
-        let Some(path) = find_cached_log_path(params.workspace_root.as_deref(), &log_id) else {
+        let paths = match canonical_username.as_deref() {
+            Some(username) => find_scoped_cached_log_paths(
+                params.workspace_root.as_deref(),
+                &log_id,
+                params.username.as_deref(),
+                username,
+            ),
+            None => find_cached_log_paths(params.workspace_root.as_deref(), &log_id),
+        };
+        if paths.is_empty() {
             result.pending_log_ids.push(log_id);
             continue;
-        };
+        }
 
-        let file = File::open(&path)
-            .map_err(|error| format!("failed to search {}: {error}", path.display()))?;
-        let reader = BufReader::new(file);
         let mut matched_line = None::<String>;
-        for line in reader.lines() {
-            maybe_test_delay(cancellation).map_err(|error| error.to_string())?;
-            cancellation.check_cancelled()?;
-            let line =
-                line.map_err(|error| format!("failed to search {}: {error}", path.display()))?;
-            if matcher
-                .find(line.as_bytes())
-                .map_err(|error| format!("failed to search {}: {error}", path.display()))?
-                .is_some()
-            {
-                matched_line = Some(line);
+        for path in paths {
+            let file = File::open(&path)
+                .map_err(|error| format!("failed to search {}: {error}", path.display()))?;
+            let reader = BufReader::new(file);
+            for line in reader.lines() {
+                maybe_test_delay(cancellation).map_err(|error| error.to_string())?;
+                cancellation.check_cancelled()?;
+                let line =
+                    line.map_err(|error| format!("failed to search {}: {error}", path.display()))?;
+                if matcher
+                    .find(line.as_bytes())
+                    .map_err(|error| format!("failed to search {}: {error}", path.display()))?
+                    .is_some()
+                {
+                    matched_line = Some(line);
+                    break;
+                }
+            }
+
+            if matched_line.is_some() {
                 break;
             }
         }
@@ -204,4 +222,130 @@ fn dedup_ids(log_ids: &[String]) -> Vec<String> {
         deduped.push(trimmed.to_string());
     }
     deduped
+}
+
+fn resolve_canonical_username(username: Option<&str>) -> Result<Option<String>, String> {
+    let Some(raw_username) = username.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+
+    if raw_username.contains('@') {
+        return Ok(Some(raw_username.to_string()));
+    }
+
+    let auth = auth::resolve_org_auth(Some(raw_username))?;
+    Ok(Some(
+        auth.username.unwrap_or_else(|| raw_username.to_string()),
+    ))
+}
+
+fn find_cached_log_paths(workspace_root: Option<&str>, log_id: &str) -> Vec<PathBuf> {
+    let root = log_store::resolve_apexlogs_root(workspace_root);
+    let mut paths = Vec::new();
+
+    collect_log_paths_in_tree(&root.join("orgs"), log_id, &mut paths);
+
+    if let Ok(entries) = fs::read_dir(&root) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(file_name) = path.file_name() else {
+                continue;
+            };
+            let file_name = file_name.to_string_lossy();
+            if file_name == format!("{log_id}.log")
+                || file_name.ends_with(&format!("_{log_id}.log"))
+            {
+                paths.push(path);
+            }
+        }
+    }
+
+    paths.sort_by(|left, right| left.to_string_lossy().cmp(&right.to_string_lossy()));
+    paths.dedup();
+    paths
+}
+
+fn find_scoped_cached_log_paths(
+    workspace_root: Option<&str>,
+    log_id: &str,
+    raw_username: Option<&str>,
+    canonical_username: &str,
+) -> Vec<PathBuf> {
+    let root = log_store::resolve_apexlogs_root(workspace_root);
+    let mut paths = Vec::new();
+
+    collect_log_paths_in_tree(
+        &log_store::org_dir(workspace_root, canonical_username).join("logs"),
+        log_id,
+        &mut paths,
+    );
+
+    push_legacy_scoped_paths(&mut paths, &root, log_id, raw_username, canonical_username);
+
+    paths.sort_by(|left, right| left.to_string_lossy().cmp(&right.to_string_lossy()));
+    paths.dedup();
+    paths
+}
+
+fn push_legacy_scoped_paths(
+    paths: &mut Vec<PathBuf>,
+    root: &Path,
+    log_id: &str,
+    raw_username: Option<&str>,
+    canonical_username: &str,
+) {
+    for candidate in legacy_scoped_paths(root, log_id, raw_username, canonical_username) {
+        if candidate.is_file() {
+            paths.push(candidate);
+        }
+    }
+}
+
+fn legacy_scoped_paths(
+    root: &Path,
+    log_id: &str,
+    raw_username: Option<&str>,
+    canonical_username: &str,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    let canonical_safe = log_store::safe_target_org(canonical_username);
+    candidates.push(root.join(format!("{canonical_safe}_{log_id}.log")));
+
+    if let Some(raw_username) = raw_username
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let raw_safe = log_store::safe_target_org(raw_username);
+        if raw_safe != canonical_safe {
+            candidates.push(root.join(format!("{raw_safe}_{log_id}.log")));
+        }
+    }
+
+    candidates.push(root.join(format!("{log_id}.log")));
+    candidates
+}
+
+fn collect_log_paths_in_tree(root: &Path, log_id: &str, paths: &mut Vec<PathBuf>) {
+    if !root.exists() {
+        return;
+    }
+
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_log_paths_in_tree(&path, log_id, paths);
+            continue;
+        }
+
+        if path
+            .file_name()
+            .is_some_and(|file_name| file_name.to_string_lossy() == format!("{log_id}.log"))
+        {
+            paths.push(path);
+        }
+    }
 }

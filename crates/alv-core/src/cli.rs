@@ -28,7 +28,10 @@ where
 
     Ok(CommandInvocation {
         program: program.to_string(),
-        args: args.iter().map(|value| value.as_ref().to_string()).collect(),
+        args: args
+            .iter()
+            .map(|value| value.as_ref().to_string())
+            .collect(),
     })
 }
 
@@ -90,6 +93,9 @@ where
 
     CommandInvocation {
         program: normalized_path,
-        args: args.iter().map(|value| value.as_ref().to_string()).collect(),
+        args: args
+            .iter()
+            .map(|value| value.as_ref().to_string())
+            .collect(),
     }
 }

@@ -29,4 +29,49 @@ suite('integration: findExistingLogFile', () => {
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
+
+  test('findExistingLogFile resolves a nested org-first path for the matching username', async () => {
+    const dir = getApexLogsDir();
+    const logId = '07L000000000001AA';
+    const nested = path.join(dir, 'orgs', 'target@example.com', 'logs', '2026-03-30', `${logId}.log`);
+    await fs.mkdir(path.dirname(nested), { recursive: true });
+    await fs.writeFile(nested, 'body', 'utf8');
+
+    try {
+      const result = await findExistingLogFile(logId, 'target@example.com');
+      assert.equal(result, nested);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('findExistingLogFile does not resolve a nested path from the wrong org tree when username is provided', async () => {
+    const dir = getApexLogsDir();
+    const logId = '07L000000000003AA';
+    const wrongNested = path.join(dir, 'orgs', 'someone-else@example.com', 'logs', '2026-03-30', `${logId}.log`);
+    await fs.mkdir(path.dirname(wrongNested), { recursive: true });
+    await fs.writeFile(wrongNested, 'body', 'utf8');
+
+    try {
+      const result = await findExistingLogFile(logId, 'target@example.com');
+      assert.equal(result, undefined);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('findExistingLogFile can fall back to any org-first match when no username is provided', async () => {
+    const dir = getApexLogsDir();
+    const logId = '07L000000000002AA';
+    const nested = path.join(dir, 'orgs', 'default@example.com', 'logs', '2026-03-30', `${logId}.log`);
+    await fs.mkdir(path.dirname(nested), { recursive: true });
+    await fs.writeFile(nested, 'body', 'utf8');
+
+    try {
+      const result = await findExistingLogFile(logId);
+      assert.equal(result, nested);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 });

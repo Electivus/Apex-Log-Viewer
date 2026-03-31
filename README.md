@@ -58,6 +58,18 @@ sf org login web
 - From the Marketplace: use the install link above.
 - From the CLI: `code --install-extension electivus.apex-log-viewer`
 
+## Rust CLI
+
+The standalone Rust CLI now exposes a local-first `logs` surface for humans and coding agents:
+
+```bash
+apex-log-viewer logs sync --target-org my-org
+apex-log-viewer logs status --target-org my-org
+apex-log-viewer logs search "NullPointerException" --target-org my-org
+```
+
+`logs sync` materializes Apex log bodies under `apexlogs/`, keeps incremental state in `apexlogs/.alv/`, and writes the canonical org-first layout at `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log`, where `<safe-target-org>` is the sanitized directory name derived from the resolved org username. The VS Code extension and the CLI remain separate surfaces over the same shared runtime architecture, so the runtime still tolerates the legacy flat cache layout during the transition.
+
 ## Usage
 
 The extension activates automatically when the workspace contains `sfdx-project.json`. You can also activate it on demand by opening an Apex log or running one of the commands below.

@@ -221,22 +221,7 @@ pub fn resolve_apex_logs_dir(workspace_root: Option<&str>) -> PathBuf {
 }
 
 pub fn find_cached_log_path(workspace_root: Option<&str>, log_id: &str) -> Option<PathBuf> {
-    if log_id.trim().is_empty() {
-        return None;
-    }
-
-    let dir = resolve_apex_logs_dir(workspace_root);
-    let entries = fs::read_dir(dir).ok()?;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let file_name = path.file_name()?.to_string_lossy();
-        if file_name == format!("{log_id}.log") || file_name.ends_with(&format!("_{log_id}.log")) {
-            return Some(path);
-        }
-    }
-
-    None
+    crate::log_store::find_cached_log_path(workspace_root, log_id, None)
 }
 
 pub fn ensure_log_file_cached(
@@ -254,20 +239,29 @@ pub fn ensure_log_file_cached_with_cancel(
     cancellation: &CancellationToken,
 ) -> Result<PathBuf, String> {
     cancellation.check_cancelled()?;
-    if let Some(existing) = find_cached_log_path(workspace_root, log_id) {
+    if let Some(existing) = crate::log_store::find_cached_log_path(workspace_root, log_id, username)
+    {
         return Ok(existing);
     }
 
     let target_dir = resolve_apex_logs_dir(workspace_root);
-    fs::create_dir_all(&target_dir).map_err(|error| {
-        format!(
-            "failed to create apexlogs dir {}: {error}",
-            target_dir.display()
-        )
-    })?;
-
     let safe_user = sanitize_username(username);
     let target_path = target_dir.join(format!("{safe_user}_{log_id}.log"));
+
+    download_log_to_path_with_cancel(log_id, username, &target_path, cancellation)
+}
+
+pub fn download_log_to_path_with_cancel(
+    log_id: &str,
+    username: Option<&str>,
+    target_path: &Path,
+    cancellation: &CancellationToken,
+) -> Result<PathBuf, String> {
+    cancellation.check_cancelled()?;
+    if let Some(parent) = target_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+    }
 
     if let Ok(fixture_dir) = env::var(TEST_APEX_LOG_FIXTURE_DIR_ENV) {
         cancellation.check_cancelled()?;
@@ -278,14 +272,14 @@ pub fn ensure_log_file_cached_with_cancel(
                 source_path.display()
             ));
         }
-        fs::copy(&source_path, &target_path).map_err(|error| {
+        fs::copy(&source_path, target_path).map_err(|error| {
             format!(
                 "failed to copy fixture log {} into cache {}: {error}",
                 source_path.display(),
                 target_path.display()
             )
         })?;
-        return Ok(target_path);
+        return Ok(target_path.to_path_buf());
     }
 
     with_temp_staging_dir(|staging_dir| {
@@ -299,31 +293,26 @@ pub fn ensure_log_file_cached_with_cancel(
             "--output-dir".to_string(),
             staging_dir.display().to_string(),
         ];
-
         if let Some(value) = username.map(str::trim).filter(|value| !value.is_empty()) {
             args.push("--target-org".to_string());
             args.push(value.to_string());
         }
-
         run_command_with_cancel("sf", &args, cancellation)?;
         cancellation.check_cancelled()?;
-
         let downloaded_path = find_downloaded_log(staging_dir, log_id).ok_or_else(|| {
             format!(
                 "sf apex get log did not write a .log file for {log_id} in {}",
                 staging_dir.display()
             )
         })?;
-
-        fs::copy(&downloaded_path, &target_path).map_err(|error| {
+        fs::copy(&downloaded_path, target_path).map_err(|error| {
             format!(
                 "failed to copy downloaded log {} into cache {}: {error}",
                 downloaded_path.display(),
                 target_path.display()
             )
         })?;
-
-        Ok(target_path.clone())
+        Ok(target_path.to_path_buf())
     })
 }
 
@@ -602,8 +591,8 @@ fn number_field(value: &Value, key: &str) -> Option<u64> {
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
-    use std::sync::Mutex;
     use std::sync::Arc;
+    use std::sync::Mutex;
 
     static STAGING_DIR_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
@@ -626,7 +615,9 @@ mod tests {
     }
 
     fn lock_staging_dir_test_mutex<'a>(mutex: &'a Mutex<()>) -> std::sync::MutexGuard<'a, ()> {
-        mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        mutex
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     #[test]
@@ -635,7 +626,9 @@ mod tests {
         let poison_target = Arc::clone(&poisoned_mutex);
 
         let _ = std::thread::spawn(move || {
-            let _guard = poison_target.lock().expect("poison test should acquire mutex");
+            let _guard = poison_target
+                .lock()
+                .expect("poison test should acquire mutex");
             panic!("poison the mutex for regression coverage");
         })
         .join();

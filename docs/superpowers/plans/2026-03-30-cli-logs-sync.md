@@ -441,7 +441,7 @@ Expected: commit succeeds.
 
 - [ ] **Step 1: Write the failing sync-engine tests**
 
-Create `crates/alv-core/tests/logs_sync_smoke.rs` with these exact tests:
+Create `crates/alv-core/tests/logs_sync_smoke.rs` with these initial tests:
 
 ```rust
 use std::{fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
@@ -708,7 +708,10 @@ use crate::{
         write_sync_state, write_version_file, OrgMetadata, SyncState, SyncStateOrgEntry,
         LOG_STORE_LAYOUT_VERSION,
     },
-    logs::{download_log_to_path_with_cancel, list_logs_with_cancel, CancellationToken, LogsListParams},
+    logs::{
+        download_log_to_path_with_cancel, list_logs_with_cancel, CancellationToken, LogsCursor,
+        LogsListParams,
+    },
     orgs::list_orgs,
 };
 use serde::{Deserialize, Serialize};
@@ -759,45 +762,82 @@ pub fn sync_logs_with_cancel(
     let mut downloaded = 0usize;
     let mut cached = 0usize;
     let mut failed = 0usize;
-    let mut rows = list_logs_with_cancel(
-        &LogsListParams {
-            username: params.target_org.clone(),
-            limit: Some(SYNC_PAGE_SIZE),
-            cursor: None,
-            offset: Some(0),
-        },
-        cancellation,
-    )?;
-    rows.sort_by(|left, right| right.start_time.cmp(&left.start_time).then_with(|| right.id.cmp(&left.id)));
-
     let mut newest: Option<(String, String)> = None;
-    for row in rows {
-        let hit_checkpoint = !params.force_full
-            && previous.as_ref().is_some_and(|entry| {
-                entry.last_synced_log_id.as_deref() == Some(row.id.as_str())
-                    || entry.last_synced_start_time.as_deref() == Some(row.start_time.as_str())
-            });
-        if hit_checkpoint {
+    let mut cursor: Option<LogsCursor> = None;
+    let mut reached_checkpoint = false;
+
+    loop {
+        let mut rows = match list_logs_with_cancel(
+            &LogsListParams {
+                username: params.target_org.clone(),
+                limit: Some(SYNC_PAGE_SIZE),
+                cursor: cursor.clone(),
+                offset: Some(0),
+            },
+            cancellation,
+        ) {
+            Ok(rows) => rows,
+            Err(error) if error == "request cancelled" || cancellation.is_cancelled() => break,
+            Err(error) => return Err(error),
+        };
+        rows.sort_by(|left, right| right.start_time.cmp(&left.start_time).then_with(|| right.id.cmp(&left.id)));
+
+        let page_len = rows.len();
+        if page_len == 0 {
             break;
         }
 
-        let target_path = log_file_path_for_start_time(
-            params.workspace_root.as_deref(),
-            &resolved_username,
-            &row.start_time,
-            &row.id,
-        );
-        if target_path.is_file() {
-            cached += 1;
-        } else if download_log_to_path_with_cancel(&row.id, Some(&resolved_username), &target_path, cancellation).is_ok() {
-            downloaded += 1;
-        } else {
-            failed += 1;
-            continue;
+        let next_cursor = rows.last().map(|row| LogsCursor {
+            before_start_time: Some(row.start_time.clone()),
+            before_id: Some(row.id.clone()),
+        });
+
+        for row in rows {
+            let hit_checkpoint = !params.force_full
+                && previous.as_ref().is_some_and(|entry| {
+                    if let Some(last_synced_log_id) = entry
+                        .last_synced_log_id
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                    {
+                        last_synced_log_id == row.id.as_str()
+                    } else {
+                        entry.last_synced_start_time.as_deref() == Some(row.start_time.as_str())
+                    }
+                });
+
+            let target_path = log_file_path_for_start_time(
+                params.workspace_root.as_deref(),
+                &resolved_username,
+                &row.start_time,
+                &row.id,
+            );
+            if target_path.is_file() {
+                cached += 1;
+            } else if download_log_to_path_with_cancel(&row.id, Some(&resolved_username), &target_path, cancellation).is_ok() {
+                downloaded += 1;
+            } else {
+                failed += 1;
+                continue;
+            }
+
+            if newest.is_none() {
+                newest = Some((row.id.clone(), row.start_time.clone()));
+            }
+
+            if hit_checkpoint {
+                reached_checkpoint = true;
+                break;
+            }
         }
 
-        if newest.is_none() {
-            newest = Some((row.id.clone(), row.start_time.clone()));
+        if reached_checkpoint || cancellation.is_cancelled() || page_len < SYNC_PAGE_SIZE {
+            break;
+        }
+
+        cursor = next_cursor.and_then(LogsCursor::filter_active);
+        if cursor.is_none() {
+            break;
         }
     }
 
@@ -883,6 +923,8 @@ fn timestamp_now() -> String {
 Implementation notes for the real code while typing the module:
 - keep the `status` strings exactly `success`, `partial`, `cancelled`
 - if a later red/green cycle shows pagination is required beyond one page to find the checkpoint, extend the loop immediately instead of widening scope elsewhere
+- when `last_synced_log_id` is present, checkpoint matching must prefer exact `Id`; only fall back to `StartTime` when no id was persisted, so same-timestamp siblings are not skipped
+- if a later red/green cycle exposes additional sync-loop regressions, add focused smoke coverage in the same Task 2 test file rather than deferring them. The expected follow-up cases include pagination beyond `SYNC_PAGE_SIZE`, id-first checkpoint matching for shared timestamps, propagation of genuine list failures, and preserving `status = "cancelled"` when list fetch is cancelled
 
 - [ ] **Step 5: Run the sync tests to verify the green phase**
 
@@ -953,7 +995,7 @@ fn logs_runtime_smoke_search_reads_org_first_cache_layout() {
 }
 
 #[test]
-fn logs_runtime_smoke_ensure_log_file_cached_uses_unknown_date_directory() {
+fn logs_runtime_smoke_triage_downloads_missing_log_into_unknown_date_directory() {
     let _guard = lock_test_guard();
 
     let workspace_root = make_temp_workspace("ensure-new-layout");
@@ -966,8 +1008,16 @@ fn logs_runtime_smoke_ensure_log_file_cached_uses_unknown_date_directory() {
     .expect("fixture log should be writable");
 
     std::env::set_var(TEST_APEX_LOG_FIXTURE_DIR_ENV, fixture_dir.display().to_string());
-    let cached = ensure_log_file_cached(log_id, Some("default@example.com"), Some(&workspace_root.display().to_string()))
-        .expect("ensure_log_file_cached should copy fixture into workspace cache");
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![log_id.to_string()],
+        username: Some("default@example.com".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("logs/triage should download and summarize the fixture log");
+
+    assert_eq!(items.len(), 1);
+    let cached = find_cached_log_path(Some(&workspace_root.display().to_string()), log_id)
+        .expect("triage should cache the downloaded fixture log");
 
     assert!(cached.ends_with("apexlogs/orgs/default@example.com/logs/unknown-date/07L000000000001AA.log"));
 
@@ -990,6 +1040,21 @@ test('findExistingLogFile resolves a nested org-first path for the matching user
   try {
     const result = await findExistingLogFile(logId, 'target@example.com');
     assert.equal(result, nested);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('findExistingLogFile does not resolve a nested path from the wrong org tree when username is provided', async () => {
+  const dir = getApexLogsDir();
+  const logId = '07L000000000003AA';
+  const wrongNested = path.join(dir, 'orgs', 'someone-else@example.com', 'logs', '2026-03-30', `${logId}.log`);
+  await fs.mkdir(path.dirname(wrongNested), { recursive: true });
+  await fs.writeFile(wrongNested, 'body', 'utf8');
+
+  try {
+    const result = await findExistingLogFile(logId, 'target@example.com');
+    assert.equal(result, undefined);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -1024,43 +1089,54 @@ Expected: FAIL because Rust search/triage still only know the flat cache helpers
 
 - [ ] **Step 3: Refactor Rust and TypeScript readers to use the new layout**
 
-In `crates/alv-core/src/search.rs`, swap to the shared store lookup:
+In `crates/alv-core/src/search.rs`, keep the existing runtime `username` contract end-to-end and use it to scope local search when the caller already selected an org. The TypeScript runtime client already carries `SearchQueryParams.username`; the Rust/app-server path must preserve it so search does not leak a duplicate `logId` match from another org tree.
+
+Search behavior requirements:
+- when `username` is present, resolve it to the canonical org username when possible and search only that org-first tree plus legacy flat files for that org (`<safeUser>_<logId>.log`) and the bare legacy fallback (`<logId>.log`)
+- when `username` is absent, scan cached candidates in a stable order across org trees and stop on the first path whose contents actually match the query, instead of trusting whichever tree happens to be visited first
+
+Representative Rust shape:
 
 ```rust
-use crate::{log_store, logs::CancellationToken};
+use crate::{auth, log_store, logs::CancellationToken};
 
-let Some(path) = log_store::find_cached_log_path(
-    params.workspace_root.as_deref(),
-    &log_id,
-    None,
-) else {
+let canonical_username = resolve_canonical_username(params.username.as_deref())?;
+let paths = match canonical_username.as_deref() {
+    Some(username) => find_scoped_cached_log_paths(
+        params.workspace_root.as_deref(),
+        &log_id,
+        params.username.as_deref(),
+        username,
+    ),
+    None => find_cached_log_paths(params.workspace_root.as_deref(), &log_id),
+};
+if paths.is_empty() {
     result.pending_log_ids.push(log_id);
     continue;
-};
+}
 ```
 
-In `crates/alv-core/src/triage.rs`, use the shared lookup and write on-demand fetches into `unknown-date`:
+In `crates/alv-core/src/triage.rs`, use the shared lookup and write on-demand fetches into `unknown-date`. The cache tree key must be the canonical resolved username, even when the caller supplied an alias or target-org string, but scoped reads still need to preserve the same legacy flat fallback compatibility as search:
 
 ```rust
 use crate::{
+    auth,
     log_store,
     logs::{download_log_to_path_with_cancel, extract_code_unit_started, CancellationToken},
 };
 
-let path = match log_store::find_cached_log_path(
+let canonical_username = resolve_canonical_username(params.username.as_deref())?;
+let path = match find_scoped_cached_log_path(
     params.workspace_root.as_deref(),
     log_id,
     params.username.as_deref(),
+    canonical_username.as_deref().unwrap_or("default"),
 ) {
     Some(existing) => existing,
     None => {
-        let resolved_username = params
-            .username
-            .as_deref()
-            .unwrap_or("default");
         let target_path = log_store::unknown_date_log_path(
             params.workspace_root.as_deref(),
-            resolved_username,
+            canonical_username.as_deref().unwrap_or("default"),
             log_id,
         );
         download_log_to_path_with_cancel(
@@ -1072,6 +1148,12 @@ let path = match log_store::find_cached_log_path(
     }
 };
 ```
+
+If later red/green reveals a compatibility gap in scoped readers, preserve these fallback layers in this order:
+1. org-first canonical tree
+2. canonical flat file
+3. raw-alias flat file when it differs
+4. bare `<logId>.log`
 
 In `src/utils/workspace.ts`, keep writes backward-compatible for now, but teach reads to discover the new layout recursively:
 

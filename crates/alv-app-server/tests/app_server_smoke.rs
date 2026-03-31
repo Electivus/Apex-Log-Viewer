@@ -260,11 +260,10 @@ fn app_server_smoke_cancels_in_flight_request_and_keeps_processing_stdio() {
 
 #[test]
 fn app_server_smoke_escapes_control_chars_in_jsonrpc_errors() {
-    let response = handle_request_line(
-        r#"{"jsonrpc":"2.0","id":"bad:1","method":"\u001b[31munknown"}"#,
-    )
-    .expect("unknown method request should succeed")
-    .expect("unknown method should emit an error response");
+    let response =
+        handle_request_line(r#"{"jsonrpc":"2.0","id":"bad:1","method":"\u001b[31munknown"}"#)
+            .expect("unknown method request should succeed")
+            .expect("unknown method should emit an error response");
 
     let parsed: serde_json::Value =
         serde_json::from_str(&response).expect("error response should remain valid JSON");

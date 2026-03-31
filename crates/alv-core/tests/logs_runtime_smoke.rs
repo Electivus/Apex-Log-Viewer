@@ -14,6 +14,7 @@ use std::{
 };
 
 use alv_core::{
+    auth::TEST_ORG_DISPLAY_JSON_ENV,
     logs::{
         ensure_log_file_cached, extract_code_unit_started, find_cached_log_path,
         list_logs_with_cancel, CancellationToken, LogsListParams, TEST_APEX_LOG_FIXTURE_DIR_ENV,
@@ -42,6 +43,15 @@ fn make_temp_workspace(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("alv-{name}-{nonce}"));
     fs::create_dir_all(&root).expect("temp workspace should be creatable");
     root
+}
+
+fn org_dirs_in_iteration_order(orgs_root: &PathBuf) -> Vec<PathBuf> {
+    fs::read_dir(orgs_root)
+        .expect("orgs root should be readable")
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect()
 }
 
 #[cfg(unix)]
@@ -237,6 +247,7 @@ fn logs_runtime_smoke_search_respects_cancellation_mid_scan() {
         &SearchQueryParams {
             query: "line 199".to_string(),
             log_ids: vec!["07L000000000001AA".to_string()],
+            username: None,
             workspace_root: Some(workspace_root.display().to_string()),
         },
         &token,
@@ -248,6 +259,376 @@ fn logs_runtime_smoke_search_respects_cancellation_mid_scan() {
 
     std::env::remove_var("ALV_TEST_SEARCH_LINE_DELAY_MS");
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_search_reads_org_first_cache_layout() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("search-new-layout");
+    let org_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default@example.com")
+        .join("logs")
+        .join("2026-03-30");
+    fs::create_dir_all(&org_dir).expect("new layout log dir should exist");
+    fs::write(
+        org_dir.join("07L000000000001AA.log"),
+        "09:00:00.0|FATAL_ERROR|System.NullPointerException\n",
+    )
+    .expect("cached log should be writable");
+
+    let result = search_query(&SearchQueryParams {
+        query: "NullPointerException".to_string(),
+        log_ids: vec!["07L000000000001AA".to_string()],
+        username: None,
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("search/query should succeed");
+
+    assert_eq!(result.log_ids, vec!["07L000000000001AA".to_string()]);
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_search_checks_duplicate_log_ids_across_org_trees() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("search-duplicate-orgs");
+    let orgs_root = workspace_root.join("apexlogs").join("orgs");
+    let first_org_dir = orgs_root
+        .join("aaa@example.com")
+        .join("logs")
+        .join("2026-03-30");
+    let second_org_dir = orgs_root
+        .join("zzz@example.com")
+        .join("logs")
+        .join("2026-03-30");
+    fs::create_dir_all(&first_org_dir).expect("first org log dir should exist");
+    fs::create_dir_all(&second_org_dir).expect("second org log dir should exist");
+
+    let ordered_org_dirs = org_dirs_in_iteration_order(&orgs_root);
+    assert_eq!(
+        ordered_org_dirs.len(),
+        2,
+        "expected the two org trees we just created"
+    );
+    let first_scanned_log_dir = ordered_org_dirs[0].join("logs").join("2026-03-30");
+    let later_log_dir = ordered_org_dirs[1].join("logs").join("2026-03-30");
+
+    // The legacy implementation stops at the first cached path for the log id.
+    // Keep the first-scanned copy wrong and the later copy correct so this test
+    // only passes when search continues beyond the first org-tree match.
+    fs::write(
+        first_scanned_log_dir.join("07L000000000009AA.log"),
+        "09:00:00.0|USER_INFO|no matching content here\n",
+    )
+    .expect("first org cached log should be writable");
+    fs::write(
+        later_log_dir.join("07L000000000009AA.log"),
+        "09:00:00.0|FATAL_ERROR|NeedleFromSecondOrg\n",
+    )
+    .expect("later org cached log should be writable");
+
+    let result = search_query(&SearchQueryParams {
+        query: "NeedleFromSecondOrg".to_string(),
+        log_ids: vec!["07L000000000009AA".to_string()],
+        username: None,
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("search/query should succeed");
+
+    assert_eq!(result.log_ids, vec!["07L000000000009AA".to_string()]);
+    let snippet = result
+        .snippets
+        .get("07L000000000009AA")
+        .expect("matched log should include snippet");
+    assert!(snippet.text.contains("NeedleFromSecondOrg"));
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_search_scoped_to_selected_org_ignores_other_org_duplicate_match() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("search-scoped-ignore-other-org");
+    let selected_org_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("selected@example.com")
+        .join("logs")
+        .join("2026-03-30");
+    let other_org_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("other@example.com")
+        .join("logs")
+        .join("2026-03-30");
+    fs::create_dir_all(&selected_org_dir).expect("selected org log dir should exist");
+    fs::create_dir_all(&other_org_dir).expect("other org log dir should exist");
+    fs::write(
+        selected_org_dir.join("07L00000000000SC1.log"),
+        "09:00:00.0|USER_INFO|selected org does not contain the needle\n",
+    )
+    .expect("selected org cached log should be writable");
+    fs::write(
+        other_org_dir.join("07L00000000000SC1.log"),
+        "09:00:00.0|FATAL_ERROR|ScopedNeedleFromOtherOrg\n",
+    )
+    .expect("other org cached log should be writable");
+
+    let result = search_query(&SearchQueryParams {
+        query: "ScopedNeedleFromOtherOrg".to_string(),
+        log_ids: vec!["07L00000000000SC1".to_string()],
+        username: Some("selected@example.com".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("search/query should succeed");
+
+    assert!(result.log_ids.is_empty());
+    assert!(result.pending_log_ids.is_empty());
+    assert!(!result.snippets.contains_key("07L00000000000SC1"));
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_search_scoped_to_selected_org_uses_legacy_bare_log_fallback() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("search-scoped-legacy-bare");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    fs::write(
+        apexlogs_dir.join("07L00000000000LB1.log"),
+        "09:00:00.0|FATAL_ERROR|LegacyBareNeedle\n",
+    )
+    .expect("legacy bare log should be writable");
+
+    let result = search_query(&SearchQueryParams {
+        query: "LegacyBareNeedle".to_string(),
+        log_ids: vec!["07L00000000000LB1".to_string()],
+        username: Some("selected@example.com".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("search/query should honor the legacy bare-log fallback");
+
+    assert_eq!(result.log_ids, vec!["07L00000000000LB1".to_string()]);
+    assert!(result.pending_log_ids.is_empty());
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_triage_downloads_missing_log_into_unknown_date_directory() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("ensure-new-layout");
+    let fixture_dir = make_temp_workspace("ensure-fixture");
+    let log_id = "07L000000000001AA";
+    fs::write(
+        fixture_dir.join(format!("{log_id}.log")),
+        "09:00:00.0|USER_INFO|fixture body\n",
+    )
+    .expect("fixture log should be writable");
+
+    std::env::set_var(
+        TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        fixture_dir.display().to_string(),
+    );
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![log_id.to_string()],
+        username: Some("default@example.com".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("logs/triage should download and summarize the fixture log");
+
+    assert_eq!(items.len(), 1);
+    let cached = find_cached_log_path(Some(&workspace_root.display().to_string()), log_id)
+        .expect("triage should cache the downloaded fixture log");
+
+    assert!(cached
+        .ends_with("apexlogs/orgs/default@example.com/logs/unknown-date/07L000000000001AA.log"));
+
+    std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+    fs::remove_dir_all(fixture_dir).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_triage_uses_legacy_bare_log_fallback_for_scoped_requests() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("triage-scoped-legacy-bare");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    let log_id = "07L00000000000LB2";
+    fs::write(
+        apexlogs_dir.join(format!("{log_id}.log")),
+        "\
+09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|LegacyBare.handle\n\
+09:00:01.0|EXCEPTION_THROWN|System.NullPointerException: boom\n",
+    )
+    .expect("legacy bare log should be writable");
+
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![log_id.to_string()],
+        username: Some("selected@example.com".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("logs/triage should honor the legacy bare-log fallback");
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].code_unit_started.as_deref(),
+        Some("LegacyBare.handle")
+    );
+    assert_eq!(
+        items[0].summary.primary_reason.as_deref(),
+        Some("Fatal exception")
+    );
+    assert!(
+        !workspace_root
+            .join("apexlogs")
+            .join("orgs")
+            .join("selected@example.com")
+            .join("logs")
+            .join("unknown-date")
+            .join(format!("{log_id}.log"))
+            .exists(),
+        "triage should reuse the legacy bare log instead of downloading a duplicate copy"
+    );
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_triage_ignores_wrong_org_cached_copy_when_alias_resolves_canonical_user() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("triage-ignore-wrong-org");
+    let fixture_dir = make_temp_workspace("triage-ignore-wrong-org-fixture");
+    let log_id = "07L0000000000WR1";
+    let wrong_org_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("other@example.com")
+        .join("logs")
+        .join("2026-03-30");
+    fs::create_dir_all(&wrong_org_dir).expect("wrong org log dir should exist");
+    fs::write(
+        wrong_org_dir.join(format!("{log_id}.log")),
+        "09:00:00.0|USER_INFO|wrong org cached copy\n",
+    )
+    .expect("wrong org cached log should be writable");
+    fs::write(
+        fixture_dir.join(format!("{log_id}.log")),
+        "\
+09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|AccountService.handle\n\
+09:00:01.0|EXCEPTION_THROWN|System.NullPointerException: boom\n",
+    )
+    .expect("fixture log should be writable");
+
+    std::env::set_var(
+        TEST_ORG_DISPLAY_JSON_ENV,
+        r#"{
+          "result": {
+            "accessToken": "00D-token",
+            "instanceUrl": "https://example.my.salesforce.com",
+            "username": "canonical@example.com"
+          }
+        }"#,
+    );
+    std::env::set_var(
+        TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        fixture_dir.display().to_string(),
+    );
+
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![log_id.to_string()],
+        username: Some("Alias Org".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("logs/triage should ignore wrong-org cached copies and use the canonical tree");
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].code_unit_started.as_deref(),
+        Some("AccountService.handle")
+    );
+    assert_eq!(
+        items[0].summary.primary_reason.as_deref(),
+        Some("Fatal exception")
+    );
+
+    let canonical_cached = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("canonical@example.com")
+        .join("logs")
+        .join("unknown-date")
+        .join(format!("{log_id}.log"));
+    assert!(canonical_cached.is_file());
+
+    std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);
+    std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+    fs::remove_dir_all(fixture_dir).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_triage_uses_canonical_username_tree_for_alias_input() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("triage-alias");
+    let fixture_dir = make_temp_workspace("triage-alias-fixture");
+    let log_id = "07L0000000000AL1";
+    fs::write(
+        fixture_dir.join(format!("{log_id}.log")),
+        "\
+09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|AccountService.handle\n\
+09:00:01.0|EXCEPTION_THROWN|System.NullPointerException: boom\n",
+    )
+    .expect("fixture log should be writable");
+
+    std::env::set_var(
+        TEST_ORG_DISPLAY_JSON_ENV,
+        r#"{
+          "result": {
+            "accessToken": "00D-token",
+            "instanceUrl": "https://example.my.salesforce.com",
+            "username": "canonical@example.com"
+          }
+        }"#,
+    );
+    std::env::set_var(
+        TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        fixture_dir.display().to_string(),
+    );
+
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![log_id.to_string()],
+        username: Some("Alias Org".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("logs/triage should resolve alias input and download into the canonical tree");
+
+    assert_eq!(items.len(), 1);
+    let cached = find_cached_log_path(Some(&workspace_root.display().to_string()), log_id)
+        .expect("triage should cache the downloaded fixture log");
+    assert!(cached
+        .ends_with("apexlogs/orgs/canonical@example.com/logs/unknown-date/07L0000000000AL1.log"));
+    assert!(
+        !cached.to_string_lossy().contains("Alias_Org"),
+        "alias should not be used as the org-first directory key"
+    );
+
+    std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);
+    std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+    fs::remove_dir_all(fixture_dir).expect("temp workspace should be removable");
 }
 
 #[test]
@@ -309,6 +690,7 @@ fn logs_runtime_smoke_searches_cached_logs_with_pending_ids() {
             "07L000000000001AA".to_string(),
             "07L000000000002AA".to_string(),
         ],
+        username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
     .expect("search/query should succeed");
@@ -370,11 +752,9 @@ fn logs_runtime_smoke_triages_logs_and_caches_fixture_downloads() {
 
     let cached = find_cached_log_path(Some(&workspace_root.display().to_string()), log_id)
         .expect("triage should cache downloaded fixture log");
-    assert!(cached
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .contains("demo@example.com"));
+    assert!(
+        cached.ends_with("apexlogs/orgs/demo@example.com/logs/unknown-date/07L00000000000TRI.log")
+    );
 
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");

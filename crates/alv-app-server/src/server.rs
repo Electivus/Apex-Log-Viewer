@@ -367,6 +367,10 @@ fn parse_request_line(request: &str) -> Result<ParsedRequest, String> {
             log_ids: string_vec_field(&params, "logIds")
                 .or_else(|| string_vec_field(&params, "log_ids"))
                 .unwrap_or_default(),
+            username: params
+                .get("username")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             workspace_root: params
                 .get("workspaceRoot")
                 .and_then(Value::as_str)
@@ -475,5 +479,35 @@ mod tests {
     #[test]
     fn release_channel_for_version_returns_pre_release_for_prerelease_versions() {
         assert_eq!(release_channel_for_version("0.1.0-alpha.1"), "pre-release");
+    }
+
+    #[test]
+    fn parse_request_line_reads_search_query_username() {
+        let parsed = parse_request_line(
+            r#"{
+              "jsonrpc":"2.0",
+              "id":"search:1",
+              "method":"search/query",
+              "params":{
+                "query":"needle",
+                "logIds":["07L000000000001AA"],
+                "username":"selected@example.com",
+                "workspaceRoot":"/tmp/demo"
+              }
+            }"#,
+        )
+        .expect("search/query request should parse");
+
+        let ParsedRequest::Call(call) = parsed else {
+            panic!("expected a normal call");
+        };
+
+        let ServerOperation::SearchQuery(params) = call.operation else {
+            panic!("expected search/query operation");
+        };
+
+        assert_eq!(params.username.as_deref(), Some("selected@example.com"));
+        assert_eq!(params.workspace_root.as_deref(), Some("/tmp/demo"));
+        assert_eq!(params.log_ids, vec!["07L000000000001AA".to_string()]);
     }
 }
