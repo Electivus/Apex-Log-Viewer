@@ -354,9 +354,9 @@ fn build_logs_query(page_size: usize, offset: usize, params: &LogsListParams) ->
             .filter(|value| !value.trim().is_empty()),
     ) {
         (Some(before_start_time), Some(before_id)) => format!(
-            "{base_select} WHERE StartTime < '{}' OR (StartTime = '{}' AND Id < '{}') ORDER BY StartTime DESC, Id DESC LIMIT {page_size}",
-            escape_soql_literal(before_start_time),
-            escape_soql_literal(before_start_time),
+            "{base_select} WHERE StartTime < {} OR (StartTime = {} AND Id < '{}') ORDER BY StartTime DESC, Id DESC LIMIT {page_size}",
+            before_start_time,
+            before_start_time,
             escape_soql_literal(before_id)
         ),
         _ => format!(
@@ -675,5 +675,28 @@ mod tests {
             before,
             "staging dirs should not leak after errors"
         );
+    }
+
+    #[test]
+    fn build_logs_query_keeps_datetime_cursor_unquoted() {
+        let query = build_logs_query(
+            200,
+            0,
+            &LogsListParams {
+                username: Some("demo@example.com".to_string()),
+                limit: Some(200),
+                cursor: Some(LogsCursor {
+                    before_start_time: Some("2026-03-29T00:44:00.000+0000".to_string()),
+                    before_id: Some("07L000000000003AA".to_string()),
+                }),
+                offset: Some(0),
+            },
+        );
+
+        assert!(query.contains("StartTime < 2026-03-29T00:44:00.000+0000"));
+        assert!(query.contains("StartTime = 2026-03-29T00:44:00.000+0000"));
+        assert!(query.contains("Id < '07L000000000003AA'"));
+        assert!(!query.contains("StartTime < '2026-03-29T00:44:00.000+0000'"));
+        assert!(!query.contains("StartTime = '2026-03-29T00:44:00.000+0000'"));
     }
 }
