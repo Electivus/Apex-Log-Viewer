@@ -8,7 +8,7 @@ use std::{
 };
 
 use alv_core::{
-    log_store::{read_sync_state, resolve_apexlogs_root},
+    log_store::{org_metadata_path, read_sync_state, resolve_apexlogs_root, OrgMetadata},
     logs::{TEST_APEX_LOG_FIXTURE_DIR_ENV, TEST_SF_LOG_LIST_JSON_ENV},
     logs_sync::{sync_logs_with_cancel, LogsSyncParams},
 };
@@ -271,6 +271,58 @@ fn logs_sync_smoke_second_run_is_incremental() {
     assert_eq!(first.downloaded, 1);
     assert_eq!(second.downloaded, 0);
     assert_eq!(second.cached, 1);
+
+    std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    std::env::remove_var("ALV_TEST_SF_ORG_DISPLAY_JSON");
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+    fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
+}
+
+#[test]
+fn logs_sync_smoke_persists_requested_alias_when_org_list_is_unavailable() {
+    let _guard = lock_env_mutex();
+    let workspace_root = make_temp_workspace("persist-alias");
+    let fixture_dir = make_fixture_dir("fixture-persist-alias");
+    fs::write(
+        fixture_dir.join("07L000000000008AA.log"),
+        "09:00:00.0|USER_INFO|synced body\n",
+    )
+    .expect("fixture log should be writable");
+
+    std::env::set_var(
+        TEST_SF_LOG_LIST_JSON_ENV,
+        r#"{"result":{"records":[{"Id":"07L000000000008AA","StartTime":"2026-03-30T18:39:58.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-8","LogLength":4096}]}}"#,
+    );
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_DISPLAY_JSON",
+        r#"{"result":{"username":"default@example.com","accessToken":"token","instanceUrl":"https://default.example.com"}}"#,
+    );
+    std::env::set_var(
+        TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        fixture_dir.display().to_string(),
+    );
+
+    sync_logs_with_cancel(
+        &LogsSyncParams {
+            target_org: Some("ALV_ALIAS".to_string()),
+            workspace_root: Some(workspace_root.display().to_string()),
+            force_full: false,
+        },
+        &alv_core::logs::CancellationToken::new(),
+    )
+    .expect("sync should succeed");
+
+    let metadata: OrgMetadata = serde_json::from_slice(
+        &fs::read(org_metadata_path(
+            workspace_root.to_str(),
+            "default@example.com",
+        ))
+        .expect("org metadata should exist"),
+    )
+    .expect("org metadata should parse");
+    assert_eq!(metadata.target_org, "ALV_ALIAS");
+    assert_eq!(metadata.alias.as_deref(), Some("ALV_ALIAS"));
 
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);

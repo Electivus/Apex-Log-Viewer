@@ -264,7 +264,8 @@ fn resolve_local_target_org(
         return Some(requested.to_string());
     }
 
-    find_org_metadata_by_alias(workspace_root, requested).map(|metadata| metadata.resolved_username)
+    find_org_metadata_by_alias(workspace_root, requested, sync_state)
+        .map(|metadata| metadata.resolved_username)
 }
 
 fn resolve_search_target_org(
@@ -290,18 +291,27 @@ fn resolve_search_target_org(
     }
 }
 
-fn find_org_metadata_by_alias(workspace_root: Option<&str>, alias: &str) -> Option<OrgMetadata> {
+fn find_org_metadata_by_alias(
+    workspace_root: Option<&str>,
+    alias: &str,
+    sync_state: &SyncState,
+) -> Option<OrgMetadata> {
     let orgs_root = log_store::resolve_apexlogs_root(workspace_root).join("orgs");
-    find_org_metadata_by_alias_in_root(&orgs_root, alias)
+    find_org_metadata_by_alias_in_root(&orgs_root, alias, sync_state)
 }
 
-fn find_org_metadata_by_alias_in_root(orgs_root: &Path, alias: &str) -> Option<OrgMetadata> {
+fn find_org_metadata_by_alias_in_root(
+    orgs_root: &Path,
+    alias: &str,
+    sync_state: &SyncState,
+) -> Option<OrgMetadata> {
     let mut org_dirs = fs::read_dir(orgs_root)
         .ok()?
         .flatten()
         .map(|entry| entry.path())
         .collect::<Vec<_>>();
     org_dirs.sort();
+    let mut matches = Vec::new();
 
     for org_dir in org_dirs {
         if !org_dir.is_dir() {
@@ -316,11 +326,21 @@ fn find_org_metadata_by_alias_in_root(orgs_root: &Path, alias: &str) -> Option<O
             continue;
         };
         if metadata.alias.as_deref() == Some(alias) {
-            return Some(metadata);
+            matches.push(metadata);
         }
     }
 
-    None
+    matches.into_iter().max_by_key(|metadata| {
+        let sync_entry = sync_state.orgs.get(&metadata.resolved_username);
+        (
+            sync_entry.is_some(),
+            sync_entry
+                .and_then(|entry| entry.last_sync_completed_at.clone())
+                .unwrap_or_default(),
+            metadata.updated_at.clone(),
+            metadata.resolved_username.clone(),
+        )
+    })
 }
 
 fn discover_local_log_ids(
@@ -505,8 +525,9 @@ mod tests {
         )
         .expect("org metadata should be writable");
 
-        let metadata = find_org_metadata_by_alias_in_root(&orgs_root, "ALV_ALIAS")
-            .expect("alias should resolve even when earlier org dirs are unreadable");
+        let metadata =
+            find_org_metadata_by_alias_in_root(&orgs_root, "ALV_ALIAS", &SyncState::default())
+                .expect("alias should resolve even when earlier org dirs are unreadable");
 
         assert_eq!(metadata.resolved_username, "default@example.com");
 

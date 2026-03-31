@@ -251,6 +251,77 @@ fn cli_smoke_logs_status_json_prefers_explicit_target_org_over_cached_default() 
 }
 
 #[test]
+fn cli_smoke_logs_status_json_prefers_synced_metadata_when_alias_matches_multiple_orgs() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root =
+        std::env::temp_dir().join(format!("alv-cli-status-duplicate-alias-{unique}"));
+    let state_dir = workspace_root.join("apexlogs").join(".alv");
+    let older_org_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("aaa@example.com");
+    let synced_org_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("zzz@example.com");
+    fs::create_dir_all(&state_dir).expect("state dir should exist");
+    fs::create_dir_all(older_org_dir.join("logs").join("2026-03-30"))
+        .expect("older org log dir should exist");
+    fs::create_dir_all(synced_org_dir.join("logs").join("2026-03-30"))
+        .expect("synced org log dir should exist");
+    fs::write(
+        state_dir.join("sync-state.json"),
+        r#"{"version":1,"orgs":{"zzz@example.com":{"targetOrg":"zzz@example.com","safeTargetOrg":"zzz@example.com","orgDir":"apexlogs/orgs/zzz@example.com","lastSyncStartedAt":"2026-03-30T18:40:00.000Z","lastSyncCompletedAt":"2026-03-30T18:40:04.000Z","lastSyncedLogId":"07L000000000009AA","lastSyncedStartTime":"2026-03-30T18:39:58.000Z","downloadedCount":1,"cachedCount":0,"lastError":null}}}"#,
+    )
+    .expect("sync state should be writable");
+    fs::write(
+        older_org_dir.join("org.json"),
+        r#"{"targetOrg":"ALV_ALIAS","safeTargetOrg":"ALV_ALIAS","resolvedUsername":"aaa@example.com","alias":"ALV_ALIAS","instanceUrl":"https://aaa.example.com","updatedAt":"2026-03-30T18:40:00.000Z"}"#,
+    )
+    .expect("older org metadata should be writable");
+    fs::write(
+        synced_org_dir.join("org.json"),
+        r#"{"targetOrg":"ALV_ALIAS","safeTargetOrg":"ALV_ALIAS","resolvedUsername":"zzz@example.com","alias":"ALV_ALIAS","instanceUrl":"https://zzz.example.com","updatedAt":"2026-03-31T12:00:00.000Z"}"#,
+    )
+    .expect("synced org metadata should be writable");
+    fs::write(
+        older_org_dir
+            .join("logs")
+            .join("2026-03-30")
+            .join("07L000000000010AA.log"),
+        "older org log\n",
+    )
+    .expect("older org log should be writable");
+    fs::write(
+        synced_org_dir
+            .join("logs")
+            .join("2026-03-30")
+            .join("07L000000000009AA.log"),
+        "synced org log\n",
+    )
+    .expect("synced org log should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .args(["logs", "status", "--json", "--target-org", "ALV_ALIAS"])
+        .output()
+        .expect("status should execute");
+
+    assert!(output.status.success(), "status should exit successfully");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["target_org"], "zzz@example.com");
+    assert_eq!(json["last_synced_log_id"], "07L000000000009AA");
+    assert_eq!(json["log_count"], 1);
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
 fn cli_smoke_logs_search_json_stays_local_first() {
     let _guard = lock_test_guard();
 

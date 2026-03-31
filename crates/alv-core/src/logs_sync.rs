@@ -50,13 +50,20 @@ pub fn sync_logs_with_cancel(
         .clone()
         .unwrap_or_else(|| "default".to_string());
     let safe_org = safe_target_org(&resolved_username);
+    let requested_alias = params
+        .target_org
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != resolved_username && !value.contains('@'))
+        .map(ToOwned::to_owned);
     let alias = list_orgs(false)
         .ok()
         .and_then(|orgs| {
             orgs.into_iter()
                 .find(|org| org.username == resolved_username)
         })
-        .and_then(|org| org.alias);
+        .and_then(|org| org.alias)
+        .or(requested_alias);
     let previous = read_sync_state(params.workspace_root.as_deref())?
         .orgs
         .get(&resolved_username)
