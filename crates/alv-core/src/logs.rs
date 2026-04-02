@@ -1,27 +1,41 @@
+use reqwest::{Client, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    env, fs,
-    io::Read,
+    collections::BTreeMap,
+    env,
+    fs::{self, File},
+    future::Future,
+    io::Write,
     path::{Path, PathBuf},
-    process::{Command, ExitStatus, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc::{sync_channel, RecvTimeoutError},
+        Arc, Mutex, OnceLock,
     },
     thread,
     time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 
-use crate::cli::build_command_invocation;
-use crate::cli_json::extract_json_object;
+use crate::{
+    auth::{self, OrgAuth},
+    cli_json::extract_json_object,
+};
 
 pub const TEST_SF_LOG_LIST_JSON_ENV: &str = "ALV_TEST_SF_LOG_LIST_JSON";
 pub const TEST_APEX_LOG_FIXTURE_DIR_ENV: &str = "ALV_TEST_APEX_LOG_FIXTURE_DIR";
 const TEST_LOGS_CANCEL_DELAY_MS_ENV: &str = "ALV_TEST_LOGS_CANCEL_DELAY_MS";
 const CANCELLED_MESSAGE: &str = "request cancelled";
-const TRACE_RUNTIME_SPAWN_ENV: &str = "ALV_TRACE_RUNTIME_SPAWN";
+const DEFAULT_API_VERSION: &str = "64.0";
+const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const HTTP_CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+static API_VERSION_OVERRIDES: OnceLock<Mutex<BTreeMap<String, String>>> = OnceLock::new();
+static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
+static HTTP_RUNTIME: OnceLock<Runtime> = OnceLock::new();
 
 #[derive(Debug, Clone, Default)]
 pub struct CancellationToken {
@@ -145,7 +159,8 @@ pub fn list_logs_from_json(json: &str) -> Result<Vec<LogRow>, String> {
     for record in records {
         rows.push(LogRow {
             id: string_field(record, "Id").ok_or_else(|| "log record missing Id".to_string())?,
-            start_time: string_field(record, "StartTime").unwrap_or_default(),
+            start_time: string_field(record, "StartTime")
+                .ok_or_else(|| "log record missing StartTime".to_string())?,
             operation: string_field(record, "Operation").unwrap_or_default(),
             application: string_field(record, "Application").unwrap_or_default(),
             duration_milliseconds: number_field(record, "DurationMilliseconds").unwrap_or(0),
@@ -176,38 +191,13 @@ pub fn run_sf_log_list_json_with_cancel(
     params: &LogsListParams,
     cancellation: &CancellationToken,
 ) -> Result<String, String> {
-    if let Ok(fixture) = env::var(TEST_SF_LOG_LIST_JSON_ENV) {
-        maybe_test_delay(TEST_LOGS_CANCEL_DELAY_MS_ENV, cancellation)?;
-        cancellation.check_cancelled()?;
+    if let Some(fixture) = maybe_fixture_log_list_json(cancellation)? {
         return Ok(fixture);
     }
 
     cancellation.check_cancelled()?;
-    let safe_page_size = params.limit.unwrap_or(100).clamp(1, 200);
-    let safe_offset = params.offset.unwrap_or(0);
-    let soql = build_logs_query(safe_page_size, safe_offset, params);
-
-    let mut args = vec![
-        "data".to_string(),
-        "query".to_string(),
-        "--use-tooling-api".to_string(),
-        "--json".to_string(),
-        "--result-format".to_string(),
-        "json".to_string(),
-        "--query".to_string(),
-        soql,
-    ];
-
-    if let Some(username) = params
-        .username
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
-        args.push("--target-org".to_string());
-        args.push(username.trim().to_string());
-    }
-
-    run_command_with_cancel("sf", &args, cancellation)
+    let auth = auth::resolve_org_auth(params.username.as_deref())?;
+    run_tooling_logs_query_with_cancel(&auth, params, cancellation)
 }
 
 pub fn resolve_apex_logs_dir(workspace_root: Option<&str>) -> PathBuf {
@@ -251,9 +241,21 @@ pub fn ensure_log_file_cached_with_cancel(
     download_log_to_path_with_cancel(log_id, username, &target_path, cancellation)
 }
 
-pub fn download_log_to_path_with_cancel(
+pub(crate) fn list_logs_for_auth_with_cancel(
+    auth: &OrgAuth,
+    params: &LogsListParams,
+    cancellation: &CancellationToken,
+) -> Result<Vec<LogRow>, String> {
+    if let Some(fixture) = maybe_fixture_log_list_json(cancellation)? {
+        return list_logs_from_json(&fixture);
+    }
+    let json = run_tooling_logs_query_with_cancel(auth, params, cancellation)?;
+    list_logs_from_json(&json)
+}
+
+pub(crate) fn download_log_to_path_for_auth_with_cancel(
+    auth: &OrgAuth,
     log_id: &str,
-    username: Option<&str>,
     target_path: &Path,
     cancellation: &CancellationToken,
 ) -> Result<PathBuf, String> {
@@ -264,6 +266,7 @@ pub fn download_log_to_path_with_cancel(
     }
 
     if let Ok(fixture_dir) = env::var(TEST_APEX_LOG_FIXTURE_DIR_ENV) {
+        maybe_test_delay(TEST_LOGS_CANCEL_DELAY_MS_ENV, cancellation)?;
         cancellation.check_cancelled()?;
         let source_path = Path::new(&fixture_dir).join(format!("{log_id}.log"));
         if !source_path.is_file() {
@@ -272,48 +275,41 @@ pub fn download_log_to_path_with_cancel(
                 source_path.display()
             ));
         }
-        fs::copy(&source_path, target_path).map_err(|error| {
+        let bytes = fs::read(&source_path).map_err(|error| {
             format!(
-                "failed to copy fixture log {} into cache {}: {error}",
-                source_path.display(),
-                target_path.display()
+                "failed to read fixture log {}: {error}",
+                source_path.display()
             )
         })?;
-        return Ok(target_path.to_path_buf());
+        return write_bytes_atomically(target_path, &bytes, cancellation);
     }
 
-    with_temp_staging_dir(|staging_dir| {
-        let mut args = vec![
-            "apex".to_string(),
-            "get".to_string(),
-            "log".to_string(),
-            "--json".to_string(),
-            "--log-id".to_string(),
-            log_id.to_string(),
-            "--output-dir".to_string(),
-            staging_dir.display().to_string(),
-        ];
-        if let Some(value) = username.map(str::trim).filter(|value| !value.is_empty()) {
-            args.push("--target-org".to_string());
-            args.push(value.to_string());
-        }
-        run_command_with_cancel("sf", &args, cancellation)?;
-        cancellation.check_cancelled()?;
-        let downloaded_path = find_downloaded_log(staging_dir, log_id).ok_or_else(|| {
-            format!(
-                "sf apex get log did not write a .log file for {log_id} in {}",
-                staging_dir.display()
-            )
-        })?;
-        fs::copy(&downloaded_path, target_path).map_err(|error| {
-            format!(
-                "failed to copy downloaded log {} into cache {}: {error}",
-                downloaded_path.display(),
-                target_path.display()
-            )
-        })?;
-        Ok(target_path.to_path_buf())
-    })
+    let body = fetch_apex_log_body_with_cancel(auth, log_id, cancellation)?;
+    write_bytes_atomically(target_path, body.as_bytes(), cancellation)
+}
+
+pub fn download_log_to_path_with_cancel(
+    log_id: &str,
+    username: Option<&str>,
+    target_path: &Path,
+    cancellation: &CancellationToken,
+) -> Result<PathBuf, String> {
+    if env::var(TEST_APEX_LOG_FIXTURE_DIR_ENV).is_ok() {
+        let fallback_auth = OrgAuth {
+            access_token: String::new(),
+            instance_url: String::new(),
+            username: username.map(str::to_string),
+        };
+        return download_log_to_path_for_auth_with_cancel(
+            &fallback_auth,
+            log_id,
+            target_path,
+            cancellation,
+        );
+    }
+
+    let auth = auth::resolve_org_auth(username)?;
+    download_log_to_path_for_auth_with_cancel(&auth, log_id, target_path, cancellation)
 }
 
 pub fn extract_code_unit_started(lines: &[&str]) -> Option<String> {
@@ -341,12 +337,13 @@ pub fn extract_code_unit_started(lines: &[&str]) -> Option<String> {
 
 fn build_logs_query(page_size: usize, offset: usize, params: &LogsListParams) -> String {
     let base_select = "SELECT Id, StartTime, Operation, Application, DurationMilliseconds, Status, Request, LogLength, LogUser.Name FROM ApexLog";
+    let safe_before_start_time = params
+        .cursor
+        .as_ref()
+        .and_then(|cursor| cursor.before_start_time.as_deref())
+        .and_then(normalize_cursor_start_time);
     match (
-        params
-            .cursor
-            .as_ref()
-            .and_then(|cursor| cursor.before_start_time.as_deref())
-            .filter(|value| !value.trim().is_empty()),
+        safe_before_start_time.as_deref(),
         params
             .cursor
             .as_ref()
@@ -354,9 +351,9 @@ fn build_logs_query(page_size: usize, offset: usize, params: &LogsListParams) ->
             .filter(|value| !value.trim().is_empty()),
     ) {
         (Some(before_start_time), Some(before_id)) => format!(
-            "{base_select} WHERE StartTime < '{}' OR (StartTime = '{}' AND Id < '{}') ORDER BY StartTime DESC, Id DESC LIMIT {page_size}",
-            escape_soql_literal(before_start_time),
-            escape_soql_literal(before_start_time),
+            "{base_select} WHERE StartTime < {} OR (StartTime = {} AND Id < '{}') ORDER BY StartTime DESC, Id DESC LIMIT {page_size}",
+            before_start_time,
+            before_start_time,
             escape_soql_literal(before_id)
         ),
         _ => format!(
@@ -365,172 +362,16 @@ fn build_logs_query(page_size: usize, offset: usize, params: &LogsListParams) ->
     }
 }
 
-fn find_downloaded_log(staging_dir: &Path, log_id: &str) -> Option<PathBuf> {
-    let entries = fs::read_dir(staging_dir).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let file_name = path.file_name()?.to_string_lossy();
-        if !file_name.ends_with(".log") {
-            continue;
-        }
-        if file_name.contains(log_id) || file_name == format!("{log_id}.log") {
-            return Some(path);
-        }
-    }
-
-    let entries = fs::read_dir(staging_dir).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) == Some("log") {
-            return Some(path);
-        }
-    }
-
-    None
-}
-
-fn make_temp_staging_dir() -> Result<PathBuf, String> {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let path = env::temp_dir().join(format!("alv-log-fetch-{}-{nonce}", std::process::id()));
-    fs::create_dir_all(&path)
-        .map_err(|error| format!("failed to create staging dir {}: {error}", path.display()))?;
-    Ok(path)
-}
-
-fn with_temp_staging_dir<T>(run: impl FnOnce(&Path) -> Result<T, String>) -> Result<T, String> {
-    let staging_dir = make_temp_staging_dir()?;
-    let result = run(&staging_dir);
-    let _ = fs::remove_dir_all(&staging_dir);
-    result
-}
-
-fn run_command_with_cancel(
-    program: &str,
-    args: &[String],
+fn run_tooling_logs_query_with_cancel(
+    auth: &OrgAuth,
+    params: &LogsListParams,
     cancellation: &CancellationToken,
 ) -> Result<String, String> {
     cancellation.check_cancelled()?;
-
-    let invocation = build_command_invocation(program, args)?;
-    trace_runtime_spawn(&format!(
-        "spawn program={} args={:?}",
-        invocation.program, invocation.args
-    ));
-
-    let mut child = Command::new(&invocation.program)
-        .args(&invocation.args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("{program} failed to start: {error}"))?;
-    trace_runtime_spawn(&format!(
-        "child-started original={} pid={}",
-        program,
-        child.id()
-    ));
-
-    let stdout_reader = spawn_output_reader(child.stdout.take(), program, "stdout");
-    let stderr_reader = spawn_output_reader(child.stderr.take(), program, "stderr");
-
-    let status = loop {
-        if cancellation.is_cancelled() {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = join_output_reader(stdout_reader);
-            let _ = join_output_reader(stderr_reader);
-            trace_runtime_spawn(&format!("child-cancelled original={program}"));
-            return Err(CANCELLED_MESSAGE.to_string());
-        }
-
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                trace_runtime_spawn(&format!("child-exited original={program} status={status}"));
-                break status;
-            }
-            Ok(None) => thread::sleep(Duration::from_millis(10)),
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = join_output_reader(stdout_reader);
-                let _ = join_output_reader(stderr_reader);
-                trace_runtime_spawn(&format!(
-                    "child-poll-error original={program} error={error}"
-                ));
-                return Err(format!(
-                    "{program} failed while polling child process: {error}"
-                ));
-            }
-        }
-    };
-
-    let stdout = join_output_reader(stdout_reader)?;
-    let stderr = join_output_reader(stderr_reader)?;
-    command_output_to_result(program, status, stdout, stderr)
-}
-
-fn trace_runtime_spawn(message: &str) {
-    if env::var_os(TRACE_RUNTIME_SPAWN_ENV).is_some() {
-        eprintln!("[alv-core] {message}");
-    }
-}
-
-fn spawn_output_reader<R>(
-    pipe: Option<R>,
-    program: &str,
-    stream_name: &'static str,
-) -> thread::JoinHandle<Result<Vec<u8>, String>>
-where
-    R: Read + Send + 'static,
-{
-    let program = program.to_string();
-    thread::spawn(move || {
-        let Some(mut pipe) = pipe else {
-            return Ok(Vec::new());
-        };
-        let mut buffer = Vec::new();
-        pipe.read_to_end(&mut buffer)
-            .map_err(|error| format!("{program} failed while reading {stream_name}: {error}"))?;
-        Ok(buffer)
-    })
-}
-
-fn join_output_reader(
-    handle: thread::JoinHandle<Result<Vec<u8>, String>>,
-) -> Result<Vec<u8>, String> {
-    handle
-        .join()
-        .map_err(|_| "output reader thread panicked".to_string())?
-}
-
-fn command_output_to_result(
-    program: &str,
-    status: ExitStatus,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-) -> Result<String, String> {
-    let stdout = String::from_utf8_lossy(&stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
-
-    if status.success() {
-        if stdout.is_empty() {
-            return Err(format!("{program} returned empty output"));
-        }
-        return Ok(stdout);
-    }
-
-    if !stderr.is_empty() {
-        return Err(stderr);
-    }
-
-    if !stdout.is_empty() {
-        return Err(stdout);
-    }
-
-    Err(format!("{program} exited with status {status}"))
+    let safe_page_size = params.limit.unwrap_or(100).clamp(1, 200);
+    let safe_offset = params.offset.unwrap_or(0);
+    let soql = build_logs_query(safe_page_size, safe_offset, params);
+    request_tooling_query_json(auth, &soql, cancellation)
 }
 
 fn maybe_test_delay(env_key: &str, cancellation: &CancellationToken) -> Result<(), String> {
@@ -548,6 +389,16 @@ fn maybe_test_delay(env_key: &str, cancellation: &CancellationToken) -> Result<(
     }
 
     cancellation.check_cancelled()
+}
+
+fn maybe_fixture_log_list_json(cancellation: &CancellationToken) -> Result<Option<String>, String> {
+    let Ok(fixture) = env::var(TEST_SF_LOG_LIST_JSON_ENV) else {
+        return Ok(None);
+    };
+
+    maybe_test_delay(TEST_LOGS_CANCEL_DELAY_MS_ENV, cancellation)?;
+    cancellation.check_cancelled()?;
+    Ok(Some(fixture))
 }
 
 fn sanitize_username(username: Option<&str>) -> String {
@@ -570,6 +421,373 @@ fn escape_soql_literal(value: &str) -> String {
     value.replace('\\', "\\\\").replace('\'', "\\'")
 }
 
+fn format_cursor_start_time(parsed: chrono::DateTime<chrono::FixedOffset>) -> String {
+    parsed
+        .with_timezone(&chrono::Utc)
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+fn normalize_cursor_start_time(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(trimmed) {
+        return Some(format_cursor_start_time(parsed));
+    }
+
+    const FALLBACK_FORMATS: &[&str] = &[
+        "%Y-%m-%dT%H:%M:%S%.f%z",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%d %H:%M:%S%.f%z",
+        "%Y-%m-%d %H:%M:%S%z",
+    ];
+
+    for format in FALLBACK_FORMATS {
+        if let Ok(parsed) = chrono::DateTime::parse_from_str(trimmed, format) {
+            return Some(format_cursor_start_time(parsed));
+        }
+    }
+
+    None
+}
+
+fn strip_trailing_slashes(value: &str) -> &str {
+    value.trim_end_matches('/')
+}
+
+fn normalize_org_cache_key(auth: &OrgAuth) -> String {
+    let instance = strip_trailing_slashes(auth.instance_url.trim()).to_ascii_lowercase();
+    if !instance.is_empty() {
+        return instance;
+    }
+    auth.username
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn api_version_overrides() -> &'static Mutex<BTreeMap<String, String>> {
+    API_VERSION_OVERRIDES.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+fn get_effective_api_version(auth: &OrgAuth) -> String {
+    api_version_overrides()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&normalize_org_cache_key(auth))
+        .cloned()
+        .unwrap_or_else(|| DEFAULT_API_VERSION.to_string())
+}
+
+fn record_api_version_override(auth: &OrgAuth, version: &str) {
+    api_version_overrides()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(normalize_org_cache_key(auth), version.to_string());
+}
+
+fn parse_api_version(value: &str) -> Option<(u32, u32)> {
+    let trimmed = value.trim();
+    let (major, minor) = trimmed.split_once('.')?;
+    Some((major.parse().ok()?, minor.parse().ok()?))
+}
+
+fn build_versioned_url(auth: &OrgAuth, version: &str, path: &str) -> Result<Url, String> {
+    let base = strip_trailing_slashes(auth.instance_url.trim());
+    Url::parse(&format!("{base}/services/data/v{version}{path}"))
+        .map_err(|error| format!("invalid Salesforce URL: {error}"))
+}
+
+fn http_client() -> &'static Client {
+    HTTP_CLIENT.get_or_init(|| {
+        Client::builder()
+            .connect_timeout(HTTP_CONNECT_TIMEOUT)
+            .timeout(HTTP_REQUEST_TIMEOUT)
+            .build()
+            .expect("reqwest client should initialize")
+    })
+}
+
+fn http_runtime() -> &'static Runtime {
+    HTTP_RUNTIME.get_or_init(|| {
+        RuntimeBuilder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime should initialize")
+    })
+}
+
+#[derive(Debug)]
+enum HttpRequestError {
+    Cancelled,
+    Failed {
+        status: Option<StatusCode>,
+        message: String,
+    },
+}
+
+impl HttpRequestError {
+    fn to_string_message(&self) -> String {
+        match self {
+            Self::Cancelled => CANCELLED_MESSAGE.to_string(),
+            Self::Failed { message, .. } => message.clone(),
+        }
+    }
+}
+
+fn run_async_operation_with_cancel<T, F>(
+    future: F,
+    cancellation: &CancellationToken,
+) -> Result<T, HttpRequestError>
+where
+    T: Send + 'static,
+    F: Future<Output = Result<T, HttpRequestError>> + Send + 'static,
+{
+    cancellation
+        .check_cancelled()
+        .map_err(|_| HttpRequestError::Cancelled)?;
+
+    let (result_tx, result_rx) = sync_channel(1);
+    let task = http_runtime().spawn(async move {
+        let result = future.await;
+        let _ = result_tx.send(result);
+    });
+
+    loop {
+        match result_rx.try_recv() {
+            Ok(result) => return result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                return Err(HttpRequestError::Failed {
+                    status: None,
+                    message: "HTTP request task terminated unexpectedly".to_string(),
+                });
+            }
+        }
+
+        if cancellation.is_cancelled() {
+            task.abort();
+            return Err(HttpRequestError::Cancelled);
+        }
+
+        match result_rx.recv_timeout(HTTP_CANCEL_POLL_INTERVAL) {
+            Ok(result) => return result,
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(HttpRequestError::Failed {
+                    status: None,
+                    message: "HTTP request task terminated unexpectedly".to_string(),
+                });
+            }
+        }
+    }
+}
+
+fn run_http_request_with_cancel(
+    auth: &OrgAuth,
+    url: Url,
+    accept: &'static str,
+    cancellation: &CancellationToken,
+) -> Result<Vec<u8>, HttpRequestError> {
+    let auth = auth.clone();
+    run_async_operation_with_cancel(
+        async move {
+            let response = http_client()
+                .get(url)
+                .header("Authorization", format!("Bearer {}", auth.access_token))
+                .header("Accept", accept)
+                .send()
+                .await;
+
+            match response {
+                Ok(response) => {
+                    let status = response.status();
+                    match response.bytes().await {
+                        Ok(body) if status.is_success() => Ok(body.to_vec()),
+                        Ok(body) => Err(HttpRequestError::Failed {
+                            status: Some(status),
+                            message: String::from_utf8_lossy(&body).trim().to_string(),
+                        }),
+                        Err(error) => Err(HttpRequestError::Failed {
+                            status: Some(status),
+                            message: error.to_string(),
+                        }),
+                    }
+                }
+                Err(error) => Err(HttpRequestError::Failed {
+                    status: error.status(),
+                    message: error.to_string(),
+                }),
+            }
+        },
+        cancellation,
+    )
+}
+
+fn request_bytes_with_version_fallback(
+    auth: &OrgAuth,
+    path: &str,
+    query_pairs: &[(&str, &str)],
+    accept: &'static str,
+    cancellation: &CancellationToken,
+) -> Result<Vec<u8>, String> {
+    let mut attempted_fallback = false;
+
+    loop {
+        cancellation.check_cancelled()?;
+        let active_version = get_effective_api_version(auth);
+        let mut url = build_versioned_url(auth, &active_version, path)?;
+        for (key, value) in query_pairs {
+            url.query_pairs_mut().append_pair(key, value);
+        }
+
+        match run_http_request_with_cancel(auth, url, accept, cancellation) {
+            Ok(bytes) => return Ok(bytes),
+            Err(HttpRequestError::Cancelled) => return Err(CANCELLED_MESSAGE.to_string()),
+            Err(HttpRequestError::Failed {
+                status: Some(StatusCode::NOT_FOUND),
+                message,
+            }) if !attempted_fallback => {
+                let requested = parse_api_version(&active_version);
+                let Some(org_max_version) = discover_org_max_api_version(auth, cancellation)?
+                else {
+                    return Err(message);
+                };
+                let org_max = parse_api_version(&org_max_version);
+                if requested.is_some() && org_max.is_some() && requested > org_max {
+                    record_api_version_override(auth, &org_max_version);
+                    attempted_fallback = true;
+                    continue;
+                }
+                return Err(message);
+            }
+            Err(error) => return Err(error.to_string_message()),
+        }
+    }
+}
+
+fn request_tooling_query_json(
+    auth: &OrgAuth,
+    soql: &str,
+    cancellation: &CancellationToken,
+) -> Result<String, String> {
+    let bytes = request_bytes_with_version_fallback(
+        auth,
+        "/tooling/query",
+        &[("q", soql)],
+        "application/json",
+        cancellation,
+    )?;
+    String::from_utf8(bytes)
+        .map_err(|error| format!("invalid UTF-8 in Tooling query response: {error}"))
+}
+
+fn fetch_apex_log_body_with_cancel(
+    auth: &OrgAuth,
+    log_id: &str,
+    cancellation: &CancellationToken,
+) -> Result<String, String> {
+    let bytes = request_bytes_with_version_fallback(
+        auth,
+        &format!("/tooling/sobjects/ApexLog/{log_id}/Body"),
+        &[],
+        "text/plain",
+        cancellation,
+    )?;
+    String::from_utf8(bytes)
+        .map_err(|error| format!("invalid UTF-8 in ApexLog body response: {error}"))
+}
+
+fn discover_org_max_api_version(
+    auth: &OrgAuth,
+    cancellation: &CancellationToken,
+) -> Result<Option<String>, String> {
+    let url = Url::parse(&format!(
+        "{}/services/data",
+        strip_trailing_slashes(auth.instance_url.trim())
+    ))
+    .map_err(|error| format!("invalid Salesforce base URL: {error}"))?;
+    let bytes = match run_http_request_with_cancel(auth, url, "application/json", cancellation) {
+        Ok(bytes) => bytes,
+        Err(HttpRequestError::Cancelled) => return Err(CANCELLED_MESSAGE.to_string()),
+        Err(error) => return Err(error.to_string_message()),
+    };
+    let parsed: Value = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("invalid services/data response JSON: {error}"))?;
+    let Some(items) = parsed.as_array() else {
+        return Ok(None);
+    };
+
+    let mut best: Option<(u32, u32, String)> = None;
+    for item in items {
+        let Some(version_text) = item.get("version").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some((major, minor)) = parse_api_version(version_text) else {
+            continue;
+        };
+        if best
+            .as_ref()
+            .is_none_or(|(best_major, best_minor, _)| (major, minor) > (*best_major, *best_minor))
+        {
+            best = Some((major, minor, version_text.to_string()));
+        }
+    }
+
+    Ok(best.map(|(_, _, version)| version))
+}
+
+fn write_bytes_atomically(
+    target_path: &Path,
+    bytes: &[u8],
+    cancellation: &CancellationToken,
+) -> Result<PathBuf, String> {
+    cancellation.check_cancelled()?;
+    let parent = target_path
+        .parent()
+        .ok_or_else(|| format!("target path has no parent: {}", target_path.display()))?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let file_name = target_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("apex-log");
+    let temp_path = parent.join(format!(".{file_name}.part-{}-{nonce}", std::process::id()));
+
+    let write_result = (|| -> Result<(), String> {
+        let mut file = File::create(&temp_path)
+            .map_err(|error| format!("failed to create {}: {error}", temp_path.display()))?;
+        file.write_all(bytes)
+            .map_err(|error| format!("failed to write {}: {error}", temp_path.display()))?;
+        file.flush()
+            .map_err(|error| format!("failed to flush {}: {error}", temp_path.display()))?;
+        cancellation.check_cancelled()?;
+        fs::rename(&temp_path, target_path).map_err(|error| {
+            format!(
+                "failed to move {} into {}: {error}",
+                temp_path.display(),
+                target_path.display()
+            )
+        })?;
+        Ok(())
+    })();
+
+    if write_result.is_err() || cancellation.is_cancelled() {
+        let _ = fs::remove_file(&temp_path);
+    }
+
+    write_result?;
+    Ok(target_path.to_path_buf())
+}
+
 fn string_field(value: &Value, key: &str) -> Option<String> {
     value
         .get(key)
@@ -590,38 +808,10 @@ fn number_field(value: &Value, key: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
-    use std::sync::Arc;
-    use std::sync::Mutex;
-
-    static STAGING_DIR_TEST_MUTEX: Mutex<()> = Mutex::new(());
-
-    fn list_staging_dirs() -> BTreeSet<PathBuf> {
-        let Some(entries) = fs::read_dir(env::temp_dir()).ok() else {
-            return BTreeSet::new();
-        };
-
-        entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|value| value.to_str())
-                    .is_some_and(|value| {
-                        value.starts_with(&format!("alv-log-fetch-{}-", std::process::id()))
-                    })
-            })
-            .collect()
-    }
-
-    fn lock_staging_dir_test_mutex<'a>(mutex: &'a Mutex<()>) -> std::sync::MutexGuard<'a, ()> {
-        mutex
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
+    use std::sync::{Arc, Mutex};
 
     #[test]
-    fn staging_dir_test_mutex_helper_recovers_from_poison() {
+    fn lock_helper_recovers_from_poison() {
         let poisoned_mutex = Arc::new(Mutex::new(()));
         let poison_target = Arc::clone(&poisoned_mutex);
 
@@ -633,47 +823,153 @@ mod tests {
         })
         .join();
 
-        let _guard = lock_staging_dir_test_mutex(&poisoned_mutex);
+        let _guard = poisoned_mutex
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
     }
 
     #[test]
-    fn temp_staging_dir_helper_cleans_up_on_success() {
-        let _guard = lock_staging_dir_test_mutex(&STAGING_DIR_TEST_MUTEX);
-        let before = list_staging_dirs();
+    fn parse_api_version_accepts_major_minor() {
+        assert_eq!(parse_api_version("64.0"), Some((64, 0)));
+        assert_eq!(parse_api_version(" 61.2 "), Some((61, 2)));
+        assert_eq!(parse_api_version("v64.0"), None);
+    }
 
-        let created = with_temp_staging_dir(|staging_dir| {
-            assert!(staging_dir.is_dir());
-            Ok(staging_dir.to_path_buf())
-        })
-        .expect("expected temp staging dir helper to succeed");
+    #[test]
+    fn write_bytes_atomically_cleans_temp_file_on_cancellation() {
+        let root = env::temp_dir().join(format!(
+            "alv-log-write-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("temp root should be creatable");
+        let target = root.join("07L000000000001AA.log");
+        let token = CancellationToken::new();
+        token.cancel();
 
+        let error = write_bytes_atomically(&target, b"body", &token)
+            .expect_err("cancelled writes should abort");
+        assert!(error.contains("cancel"));
+        assert!(!target.exists());
+
+        let leftovers = fs::read_dir(&root)
+            .expect("temp root should be readable")
+            .flatten()
+            .map(|entry| entry.path())
+            .collect::<Vec<_>>();
         assert!(
-            !created.exists(),
-            "staging dir should be removed after success"
+            leftovers.is_empty(),
+            "cancelled atomic writes should not leave temp files behind"
         );
-        assert_eq!(
-            list_staging_dirs(),
-            before,
-            "staging dirs should not leak after success"
-        );
+
+        fs::remove_dir_all(&root).expect("temp root should be removable");
     }
 
     #[test]
-    fn temp_staging_dir_helper_cleans_up_on_error() {
-        let _guard = lock_staging_dir_test_mutex(&STAGING_DIR_TEST_MUTEX);
-        let before = list_staging_dirs();
+    fn build_logs_query_ignores_invalid_cursor_start_time() {
+        let query = build_logs_query(
+            50,
+            0,
+            &LogsListParams {
+                username: None,
+                limit: Some(50),
+                cursor: Some(LogsCursor {
+                    before_start_time: Some("2026-03-30T18:39:58.000Z' OR Name != ''".to_string()),
+                    before_id: Some("07L000000000003AA".to_string()),
+                }),
+                offset: Some(0),
+            },
+        );
 
-        let error = with_temp_staging_dir(|staging_dir| -> Result<(), String> {
-            assert!(staging_dir.is_dir());
-            Err(format!("boom: {}", staging_dir.display()))
-        })
-        .expect_err("expected temp staging dir helper to bubble up the error");
+        assert!(query.contains(" OFFSET 0"));
+        assert!(!query.contains(" WHERE StartTime < "));
+    }
 
-        assert!(error.starts_with("boom: "));
-        assert_eq!(
-            list_staging_dirs(),
-            before,
-            "staging dirs should not leak after errors"
+    #[test]
+    fn build_logs_query_normalizes_valid_cursor_start_time() {
+        let query = build_logs_query(
+            50,
+            0,
+            &LogsListParams {
+                username: None,
+                limit: Some(50),
+                cursor: Some(LogsCursor {
+                    before_start_time: Some("2026-03-30T18:39:58Z".to_string()),
+                    before_id: Some("07L000000000003AA".to_string()),
+                }),
+                offset: Some(0),
+            },
+        );
+
+        assert!(query.contains("StartTime < 2026-03-30T18:39:58.000Z"));
+        assert!(query.contains("Id < '07L000000000003AA'"));
+    }
+
+    #[test]
+    fn build_logs_query_normalizes_salesforce_offset_cursor_start_time() {
+        let query = build_logs_query(
+            50,
+            0,
+            &LogsListParams {
+                username: None,
+                limit: Some(50),
+                cursor: Some(LogsCursor {
+                    before_start_time: Some("2026-03-30T18:39:58.000+0000".to_string()),
+                    before_id: Some("07L000000000003AA".to_string()),
+                }),
+                offset: Some(0),
+            },
+        );
+
+        assert!(query.contains("StartTime < 2026-03-30T18:39:58.000Z"));
+        assert!(query.contains("Id < '07L000000000003AA'"));
+    }
+
+    #[test]
+    fn list_logs_from_json_requires_start_time() {
+        let error = list_logs_from_json(
+            r#"{
+                "result": {
+                    "records": [
+                        {
+                            "Id": "07L000000000003AA"
+                        }
+                    ]
+                }
+            }"#,
+        )
+        .expect_err("records without StartTime should fail");
+
+        assert!(error.contains("missing StartTime"));
+    }
+
+    #[test]
+    fn run_async_operation_with_cancel_returns_promptly_when_cancelled() {
+        let token = CancellationToken::new();
+        let cancel_handle = token.clone();
+        let started = std::time::Instant::now();
+
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            cancel_handle.cancel();
+        });
+
+        let error = run_async_operation_with_cancel(
+            async {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                Ok::<_, HttpRequestError>(Vec::<u8>::new())
+            },
+            &token,
+        )
+        .expect_err("cancelled async operations should abort promptly");
+
+        assert!(matches!(error, HttpRequestError::Cancelled));
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "cancelled operations should not wait for the full request timeout"
         );
     }
 }

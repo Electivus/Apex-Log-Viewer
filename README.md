@@ -63,12 +63,12 @@ sf org login web
 The standalone Rust CLI now exposes a local-first `logs` surface for humans and coding agents:
 
 ```bash
-apex-log-viewer logs sync --target-org my-org
+apex-log-viewer logs sync --target-org my-org --concurrency 6
 apex-log-viewer logs status --target-org my-org
 apex-log-viewer logs search "NullPointerException" --target-org my-org
 ```
 
-`logs sync` materializes Apex log bodies under `apexlogs/`, keeps incremental state in `apexlogs/.alv/`, and writes the canonical org-first layout at `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log`, where `<safe-target-org>` is the sanitized directory name derived from the resolved org username. The VS Code extension and the CLI remain separate surfaces over the same shared runtime architecture, so the runtime still tolerates the legacy flat cache layout during the transition.
+`logs sync` reuses `sf org display` for auth, then lists `ApexLog` rows and downloads raw log bodies over the Salesforce Tooling REST API. It materializes those bodies under `apexlogs/`, keeps incremental state in `apexlogs/.alv/`, and writes the canonical org-first layout at `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log`, where `<safe-target-org>` is the sanitized directory name derived from the resolved org username. Use `--concurrency` when you want to tune how many log bodies are downloaded in parallel; the default is `6` and `1` keeps the old serial-style troubleshooting mode. The VS Code extension and the CLI remain separate surfaces over the same shared runtime architecture, so the runtime still tolerates the legacy flat cache layout during the transition.
 
 ## Usage
 

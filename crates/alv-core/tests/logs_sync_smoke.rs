@@ -1,10 +1,9 @@
 use std::{
-    ffi::OsString,
     fs,
     path::PathBuf,
-    sync::{Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use alv_core::{
@@ -13,6 +12,7 @@ use alv_core::{
     logs_sync::{sync_logs_with_cancel, LogsSyncParams},
 };
 use serde_json::{json, Value};
+use tiny_http::{Header, Response, Server, StatusCode};
 
 static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
@@ -38,123 +38,47 @@ fn make_fixture_dir(label: &str) -> PathBuf {
     root
 }
 
-fn org_display_fixture() -> &'static str {
-    r#"{"result":{"username":"default@example.com","accessToken":"token","instanceUrl":"https://default.example.com"}}"#
-}
-
-fn write_log_list_fixture(path: &PathBuf, rows: &[(String, String)]) {
-    let records = rows
-        .iter()
-        .map(|(id, start_time)| {
-            json!({
-                "Id": id,
-                "StartTime": start_time,
-                "Operation": "ExecuteAnonymous",
-                "Application": "Developer Console",
-                "DurationMilliseconds": 125,
-                "Status": "Success",
-                "Request": format!("REQ-{id}"),
-                "LogLength": 4096
-            })
-        })
-        .collect::<Vec<Value>>();
-    fs::write(
-        path,
-        serde_json::to_string(&json!({ "result": { "records": records } }))
-            .expect("fixture JSON should serialize"),
+fn org_display_fixture(instance_url: &str) -> String {
+    format!(
+        r#"{{"result":{{"username":"default@example.com","accessToken":"token","instanceUrl":"{instance_url}"}}}}"#
     )
-    .expect("fixture JSON should be writable");
 }
 
-#[cfg(unix)]
-fn write_script(path: &PathBuf, body: &str) {
-    use std::os::unix::fs::PermissionsExt;
-
-    fs::write(path, body).expect("script should be writable");
-    let mut permissions = fs::metadata(path)
-        .expect("script metadata should exist")
-        .permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions).expect("script should be executable");
-}
-
-#[cfg(windows)]
-fn write_script(path: &PathBuf, body: &str) {
-    fs::write(path, body).expect("script should be writable");
-}
-
-#[cfg(unix)]
-fn write_paginated_fake_sf_command(
-    root: &PathBuf,
-    page_one_path: &PathBuf,
-    page_two_path: &PathBuf,
-    page_one_last_id: &str,
-) {
-    let script_path = root.join("sf");
-    let body = format!(
-        "#!/bin/sh\nquery=\"\"\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--query\" ]; then\n    query=\"$2\"\n    break\n  fi\n  shift\ndone\nif printf '%s' \"$query\" | grep -F \"{page_one_last_id}\" >/dev/null; then\n  cat '{}'\nelse\n  cat '{}'\nfi\n",
-        page_two_path.display(),
-        page_one_path.display()
-    );
-    write_script(&script_path, &body);
-}
-
-#[cfg(windows)]
-fn write_paginated_fake_sf_command(
-    root: &PathBuf,
-    page_one_path: &PathBuf,
-    page_two_path: &PathBuf,
-    page_one_last_id: &str,
-) {
-    let script_path = root.join("sf.cmd");
-    let body = format!(
-        "@echo off\r\nsetlocal EnableExtensions\r\nset \"args=%*\"\r\necho(%args% | findstr /C:\"{page_one_last_id}\" >nul\r\nif not errorlevel 1 (\r\n  type \"{}\"\r\n) else (\r\n  type \"{}\"\r\n)\r\n",
-        page_two_path.display(),
-        page_one_path.display()
-    );
-    write_script(&script_path, &body);
-}
-
-#[cfg(unix)]
-fn write_failing_fake_sf_command(root: &PathBuf, message: &str) {
-    let script_path = root.join("sf");
-    let body = format!("#!/bin/sh\necho \"{message}\" 1>&2\nexit 1\n");
-    write_script(&script_path, &body);
-}
-
-#[cfg(windows)]
-fn write_failing_fake_sf_command(root: &PathBuf, message: &str) {
-    let script_path = root.join("sf.cmd");
-    let body = format!("@echo off\r\necho {message} 1>&2\r\nexit /b 1\r\n");
-    write_script(&script_path, &body);
-}
-
-#[cfg(unix)]
-fn path_with_front(root: &PathBuf, old_path: Option<OsString>) -> OsString {
-    let mut updated = OsString::from(root.as_os_str());
-    if let Some(previous) = old_path.filter(|value| !value.is_empty()) {
-        updated.push(":");
-        updated.push(previous);
-    }
-    updated
-}
-
-#[cfg(windows)]
-fn path_with_front(root: &PathBuf, old_path: Option<OsString>) -> OsString {
-    let mut updated = OsString::from(root.as_os_str());
-    if let Some(previous) = old_path.filter(|value| !value.is_empty()) {
-        updated.push(";");
-        updated.push(previous);
-    }
-    updated
-}
-
-fn restore_path(old_path: Option<OsString>) {
-    if let Some(previous) = old_path {
-        std::env::set_var("PATH", previous);
-    } else {
-        std::env::remove_var("PATH");
-    }
+fn spawn_scripted_http_server(
+    responses: Vec<(u16, String)>,
+) -> (String, Arc<Mutex<Vec<String>>>, thread::JoinHandle<()>) {
+    let server = Server::http("127.0.0.1:0").expect("test server should bind");
+    let base_url = format!("http://{}", server.server_addr());
+    let observed_urls = Arc::new(Mutex::new(Vec::new()));
+    let observed_urls_for_thread = Arc::clone(&observed_urls);
+    let handle = thread::spawn(move || {
+        for (status, body) in responses {
+            let request = server.recv().expect("server should receive request");
+            let url = request.url().to_string();
+            assert!(
+                url.starts_with("/services/data/"),
+                "expected Salesforce services/data request, got {url}"
+            );
+            assert!(
+                url.contains("/tooling/query?") && url.contains("q="),
+                "expected Tooling query request, got {url}"
+            );
+            observed_urls_for_thread
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(url);
+            let response = Response::from_string(body)
+                .with_status_code(StatusCode(status))
+                .with_header(
+                    Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                        .expect("header should be valid"),
+                );
+            request
+                .respond(response)
+                .expect("server should send response");
+        }
+    });
+    (base_url, observed_urls, handle)
 }
 
 #[test]
@@ -186,6 +110,7 @@ fn logs_sync_smoke_writes_new_layout_and_updates_checkpoint() {
             target_org: None,
             workspace_root: Some(workspace_root.display().to_string()),
             force_full: false,
+            concurrency: None,
         },
         &alv_core::logs::CancellationToken::new(),
     )
@@ -254,6 +179,7 @@ fn logs_sync_smoke_second_run_is_incremental() {
             target_org: None,
             workspace_root: Some(workspace_root.display().to_string()),
             force_full: false,
+            concurrency: None,
         },
         &alv_core::logs::CancellationToken::new(),
     )
@@ -263,6 +189,7 @@ fn logs_sync_smoke_second_run_is_incremental() {
             target_org: None,
             workspace_root: Some(workspace_root.display().to_string()),
             force_full: false,
+            concurrency: None,
         },
         &alv_core::logs::CancellationToken::new(),
     )
@@ -270,12 +197,97 @@ fn logs_sync_smoke_second_run_is_incremental() {
 
     assert_eq!(first.downloaded, 1);
     assert_eq!(second.downloaded, 0);
-    assert_eq!(second.cached, 1);
+    assert_eq!(second.cached, 0);
 
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
     std::env::remove_var("ALV_TEST_SF_ORG_DISPLAY_JSON");
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+    fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
+}
+
+#[test]
+fn logs_sync_smoke_parallel_downloads_outpace_serial_mode() {
+    let _guard = lock_env_mutex();
+    let serial_workspace = make_temp_workspace("serial-speed");
+    let parallel_workspace = make_temp_workspace("parallel-speed");
+    let fixture_dir = make_fixture_dir("fixture-speed");
+    let rows = (1..=4)
+        .map(|index| {
+            let id = format!("07L0000000000S{index:02}A");
+            let start_time = format!("2026-03-30T18:39:{index:02}.000Z");
+            fs::write(
+                fixture_dir.join(format!("{id}.log")),
+                format!("09:00:00.0|USER_INFO|body for {id}\n"),
+            )
+            .expect("fixture log should be writable");
+            json!({
+                "Id": id,
+                "StartTime": start_time,
+                "Operation": "ExecuteAnonymous",
+                "Application": "Developer Console",
+                "DurationMilliseconds": 125,
+                "Status": "Success",
+                "Request": format!("REQ-{index}"),
+                "LogLength": 4096
+            })
+        })
+        .collect::<Vec<Value>>();
+
+    std::env::set_var(
+        TEST_SF_LOG_LIST_JSON_ENV,
+        serde_json::to_string(&json!({ "result": { "records": rows } }))
+            .expect("speed fixture JSON should serialize"),
+    );
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_DISPLAY_JSON",
+        org_display_fixture("https://default.example.com"),
+    );
+    std::env::set_var(
+        TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        fixture_dir.display().to_string(),
+    );
+    std::env::set_var("ALV_TEST_LOGS_CANCEL_DELAY_MS", "80");
+
+    let serial_started = Instant::now();
+    let serial = sync_logs_with_cancel(
+        &LogsSyncParams {
+            target_org: None,
+            workspace_root: Some(serial_workspace.display().to_string()),
+            force_full: false,
+            concurrency: Some(1),
+        },
+        &alv_core::logs::CancellationToken::new(),
+    )
+    .expect("serial sync should succeed");
+    let serial_elapsed = serial_started.elapsed();
+
+    let parallel_started = Instant::now();
+    let parallel = sync_logs_with_cancel(
+        &LogsSyncParams {
+            target_org: None,
+            workspace_root: Some(parallel_workspace.display().to_string()),
+            force_full: false,
+            concurrency: Some(4),
+        },
+        &alv_core::logs::CancellationToken::new(),
+    )
+    .expect("parallel sync should succeed");
+    let parallel_elapsed = parallel_started.elapsed();
+
+    assert_eq!(serial.downloaded, 4);
+    assert_eq!(parallel.downloaded, 4);
+    assert!(
+        parallel_elapsed < serial_elapsed,
+        "expected parallel sync to finish faster than serial sync, got serial={serial_elapsed:?} parallel={parallel_elapsed:?}"
+    );
+
+    std::env::remove_var("ALV_TEST_LOGS_CANCEL_DELAY_MS");
+    std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    std::env::remove_var("ALV_TEST_SF_ORG_DISPLAY_JSON");
+    fs::remove_dir_all(serial_workspace).expect("serial workspace should be removable");
+    fs::remove_dir_all(parallel_workspace).expect("parallel workspace should be removable");
     fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
 }
 
@@ -308,6 +320,7 @@ fn logs_sync_smoke_persists_requested_alias_when_org_list_is_unavailable() {
             target_org: Some("ALV_ALIAS".to_string()),
             workspace_root: Some(workspace_root.display().to_string()),
             force_full: false,
+            concurrency: None,
         },
         &alv_core::logs::CancellationToken::new(),
     )
@@ -363,6 +376,7 @@ fn logs_sync_smoke_keeps_previous_checkpoint_on_partial_failure() {
             target_org: None,
             workspace_root: Some(workspace_root.display().to_string()),
             force_full: false,
+            concurrency: None,
         },
         &alv_core::logs::CancellationToken::new(),
     )
@@ -388,13 +402,127 @@ fn logs_sync_smoke_keeps_previous_checkpoint_on_partial_failure() {
 }
 
 #[test]
+fn logs_sync_smoke_advances_checkpoint_to_first_successful_row_when_newest_fails() {
+    let _guard = lock_env_mutex();
+    let workspace_root = make_temp_workspace("checkpoint-first-success");
+    let fixture_dir = make_fixture_dir("fixture-checkpoint-first-success");
+    fs::write(
+        fixture_dir.join("07L000000000003AA.log"),
+        "09:00:00.0|USER_INFO|first successful body\n",
+    )
+    .expect("fixture log should be writable");
+
+    std::env::set_var(
+        TEST_SF_LOG_LIST_JSON_ENV,
+        r#"{"result":{"records":[
+          {"Id":"07L000000000004AA","StartTime":"2026-03-30T18:40:58.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-2","LogLength":4096},
+          {"Id":"07L000000000003AA","StartTime":"2026-03-30T18:39:58.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-1","LogLength":4096}
+        ]}}"#,
+    );
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_DISPLAY_JSON",
+        org_display_fixture("https://default.example.com"),
+    );
+    std::env::set_var(
+        TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        fixture_dir.display().to_string(),
+    );
+
+    let result = sync_logs_with_cancel(
+        &LogsSyncParams {
+            target_org: None,
+            workspace_root: Some(workspace_root.display().to_string()),
+            force_full: false,
+            concurrency: None,
+        },
+        &alv_core::logs::CancellationToken::new(),
+    )
+    .expect("sync should succeed with one failed row");
+
+    assert_eq!(result.status, "partial");
+    assert_eq!(result.downloaded, 1);
+    assert_eq!(result.failed, 1);
+    assert_eq!(
+        result.last_synced_log_id.as_deref(),
+        Some("07L000000000003AA")
+    );
+
+    std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    std::env::remove_var("ALV_TEST_SF_ORG_DISPLAY_JSON");
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+    fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
+}
+
+#[test]
+fn logs_sync_smoke_keeps_last_synced_log_id_on_successful_noop_incremental_sync() {
+    let _guard = lock_env_mutex();
+    let workspace_root = make_temp_workspace("noop-checkpoint");
+    let fixture_dir = make_fixture_dir("fixture-noop-checkpoint");
+    fs::write(
+        fixture_dir.join("07L000000000003AA.log"),
+        "09:00:00.0|USER_INFO|synced body\n",
+    )
+    .expect("fixture log should be writable");
+
+    std::env::set_var(
+        TEST_SF_LOG_LIST_JSON_ENV,
+        r#"{"result":{"records":[{"Id":"07L000000000003AA","StartTime":"2026-03-30T18:39:58.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-1","LogLength":4096}]}}"#,
+    );
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_DISPLAY_JSON",
+        org_display_fixture("https://default.example.com"),
+    );
+    std::env::set_var(
+        TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        fixture_dir.display().to_string(),
+    );
+
+    let first = sync_logs_with_cancel(
+        &LogsSyncParams {
+            target_org: None,
+            workspace_root: Some(workspace_root.display().to_string()),
+            force_full: false,
+            concurrency: None,
+        },
+        &alv_core::logs::CancellationToken::new(),
+    )
+    .expect("seed sync should succeed");
+    assert_eq!(
+        first.last_synced_log_id.as_deref(),
+        Some("07L000000000003AA")
+    );
+
+    let second = sync_logs_with_cancel(
+        &LogsSyncParams {
+            target_org: None,
+            workspace_root: Some(workspace_root.display().to_string()),
+            force_full: false,
+            concurrency: None,
+        },
+        &alv_core::logs::CancellationToken::new(),
+    )
+    .expect("noop sync should succeed");
+
+    assert_eq!(second.status, "success");
+    assert_eq!(second.downloaded, 0);
+    assert_eq!(
+        second.last_synced_log_id.as_deref(),
+        Some("07L000000000003AA")
+    );
+
+    std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    std::env::remove_var("ALV_TEST_SF_ORG_DISPLAY_JSON");
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+    fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
+}
+
+#[test]
 fn logs_sync_smoke_paginates_beyond_first_page() {
     let _guard = lock_env_mutex();
     let workspace_root = make_temp_workspace("paginated");
     let fixture_dir = make_fixture_dir("fixture-paginated");
-    let fake_sf_root = make_temp_workspace("fake-sf");
-    let page_one_path = fake_sf_root.join("page-1.json");
-    let page_two_path = fake_sf_root.join("page-2.json");
 
     let rows = (1..=201)
         .rev()
@@ -410,10 +538,6 @@ fn logs_sync_smoke_paginates_beyond_first_page() {
         .collect::<Vec<_>>();
     let page_one = rows[..200].to_vec();
     let page_two = rows[200..].to_vec();
-    let page_one_last_id = page_one
-        .last()
-        .map(|(id, _)| id.clone())
-        .expect("page one should contain rows");
 
     for (id, _) in &rows {
         fs::write(
@@ -422,20 +546,40 @@ fn logs_sync_smoke_paginates_beyond_first_page() {
         )
         .expect("fixture log should be writable");
     }
-    write_log_list_fixture(&page_one_path, &page_one);
-    write_log_list_fixture(&page_two_path, &page_two);
+    let page_one_json = serde_json::to_string(&json!({
+        "result": { "records": page_one.iter().map(|(id, start_time)| json!({
+            "Id": id,
+            "StartTime": start_time,
+            "Operation": "ExecuteAnonymous",
+            "Application": "Developer Console",
+            "DurationMilliseconds": 125,
+            "Status": "Success",
+            "Request": format!("REQ-{id}"),
+            "LogLength": 4096
+        })).collect::<Vec<Value>>() }
+    }))
+    .expect("page one JSON should serialize");
+    let page_two_json = serde_json::to_string(&json!({
+        "result": { "records": page_two.iter().map(|(id, start_time)| json!({
+            "Id": id,
+            "StartTime": start_time,
+            "Operation": "ExecuteAnonymous",
+            "Application": "Developer Console",
+            "DurationMilliseconds": 125,
+            "Status": "Success",
+            "Request": format!("REQ-{id}"),
+            "LogLength": 4096
+        })).collect::<Vec<Value>>() }
+    }))
+    .expect("page two JSON should serialize");
+    let (base_url, observed_urls, server_handle) =
+        spawn_scripted_http_server(vec![(200, page_one_json), (200, page_two_json)]);
 
-    write_paginated_fake_sf_command(
-        &fake_sf_root,
-        &page_one_path,
-        &page_two_path,
-        &page_one_last_id,
-    );
-
-    let old_path = std::env::var_os("PATH");
-    std::env::set_var("PATH", path_with_front(&fake_sf_root, old_path.clone()));
     std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
-    std::env::set_var("ALV_TEST_SF_ORG_DISPLAY_JSON", org_display_fixture());
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_DISPLAY_JSON",
+        org_display_fixture(&base_url),
+    );
     std::env::set_var(
         TEST_APEX_LOG_FIXTURE_DIR_ENV,
         fixture_dir.display().to_string(),
@@ -446,6 +590,7 @@ fn logs_sync_smoke_paginates_beyond_first_page() {
             target_org: None,
             workspace_root: Some(workspace_root.display().to_string()),
             force_full: false,
+            concurrency: None,
         },
         &alv_core::logs::CancellationToken::new(),
     )
@@ -480,10 +625,17 @@ fn logs_sync_smoke_paginates_beyond_first_page() {
 
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     std::env::remove_var("ALV_TEST_SF_ORG_DISPLAY_JSON");
-    restore_path(old_path);
+    server_handle.join().expect("server thread should complete");
+    let observed_urls = observed_urls
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    assert_eq!(observed_urls.len(), 2);
+    assert!(observed_urls[0].contains("OFFSET+0"));
+    assert!(observed_urls[1].contains("2026-03-30T18%3A00%3A02.000Z"));
+    assert!(observed_urls[1].contains("07L000000000002AA"));
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
     fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
-    fs::remove_dir_all(fake_sf_root).expect("fake sf dir should be removable");
 }
 
 #[test]
@@ -511,7 +663,10 @@ fn logs_sync_smoke_prefers_checkpoint_id_over_shared_timestamp() {
             r#"{{"result":{{"records":[{{"Id":"07L000000000003AA","StartTime":"{shared_start_time}","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-1","LogLength":4096}}]}}}}"#
         ),
     );
-    std::env::set_var("ALV_TEST_SF_ORG_DISPLAY_JSON", org_display_fixture());
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_DISPLAY_JSON",
+        org_display_fixture("https://default.example.com"),
+    );
     std::env::set_var(
         TEST_APEX_LOG_FIXTURE_DIR_ENV,
         fixture_dir.display().to_string(),
@@ -522,6 +677,7 @@ fn logs_sync_smoke_prefers_checkpoint_id_over_shared_timestamp() {
             target_org: None,
             workspace_root: Some(workspace_root.display().to_string()),
             force_full: false,
+            concurrency: None,
         },
         &alv_core::logs::CancellationToken::new(),
     )
@@ -543,6 +699,7 @@ fn logs_sync_smoke_prefers_checkpoint_id_over_shared_timestamp() {
             target_org: None,
             workspace_root: Some(workspace_root.display().to_string()),
             force_full: false,
+            concurrency: None,
         },
         &alv_core::logs::CancellationToken::new(),
     )
@@ -574,13 +731,13 @@ fn logs_sync_smoke_prefers_checkpoint_id_over_shared_timestamp() {
 fn logs_sync_smoke_propagates_list_failures() {
     let _guard = lock_env_mutex();
     let workspace_root = make_temp_workspace("list-failure");
-    let fake_sf_root = make_temp_workspace("fake-sf-failure");
-    let old_path = std::env::var_os("PATH");
-    write_failing_fake_sf_command(&fake_sf_root, "simulated list failure");
-
-    std::env::set_var("PATH", path_with_front(&fake_sf_root, old_path.clone()));
+    let (base_url, _observed_urls, server_handle) =
+        spawn_scripted_http_server(vec![(500, "simulated list failure".to_string())]);
     std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
-    std::env::set_var("ALV_TEST_SF_ORG_DISPLAY_JSON", org_display_fixture());
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_DISPLAY_JSON",
+        org_display_fixture(&base_url),
+    );
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
 
     let error = sync_logs_with_cancel(
@@ -588,6 +745,7 @@ fn logs_sync_smoke_propagates_list_failures() {
             target_org: None,
             workspace_root: Some(workspace_root.display().to_string()),
             force_full: false,
+            concurrency: None,
         },
         &alv_core::logs::CancellationToken::new(),
     )
@@ -599,9 +757,8 @@ fn logs_sync_smoke_propagates_list_failures() {
     );
 
     std::env::remove_var("ALV_TEST_SF_ORG_DISPLAY_JSON");
-    restore_path(old_path);
+    server_handle.join().expect("server thread should complete");
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
-    fs::remove_dir_all(fake_sf_root).expect("fake sf dir should be removable");
 }
 
 #[test]
@@ -613,7 +770,10 @@ fn logs_sync_smoke_returns_cancelled_result_when_list_fetch_is_cancelled() {
         TEST_SF_LOG_LIST_JSON_ENV,
         r#"{"result":{"records":[{"Id":"07L000000000003AA","StartTime":"2026-03-30T18:39:58.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-1","LogLength":4096}]}}"#,
     );
-    std::env::set_var("ALV_TEST_SF_ORG_DISPLAY_JSON", org_display_fixture());
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_DISPLAY_JSON",
+        org_display_fixture("https://default.example.com"),
+    );
     std::env::set_var("ALV_TEST_LOGS_CANCEL_DELAY_MS", "250");
 
     let token = alv_core::logs::CancellationToken::new();
@@ -628,6 +788,7 @@ fn logs_sync_smoke_returns_cancelled_result_when_list_fetch_is_cancelled() {
             target_org: None,
             workspace_root: Some(workspace_root.display().to_string()),
             force_full: false,
+            concurrency: None,
         },
         &token,
     )

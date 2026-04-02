@@ -5,6 +5,7 @@
 ### Features
 
 - CLI/Logs: add a local-first Rust CLI logs workflow with `logs sync`, `logs status`, and `logs search`, backed by an org-first `apexlogs/` layout and incremental sync state under `apexlogs/.alv/`.
+- CLI/Logs: make `logs sync` fetch ApexLog rows and bodies directly over the Salesforce Tooling REST API after reusing `sf org display` for auth, and add a `--concurrency` flag to control parallel body downloads.
 
 ### Bug Fixes
 
@@ -19,6 +20,7 @@
 ### Tests
 
 - Runtime/Logs: add targeted coverage for concurrent startup behavior, runtime request coalescing, auth-hint reuse during log downloads, Tail ready-state refresh gating, and Windows PATH resolution fast paths.
+- CLI/Logs: add Rust runtime coverage for REST log listing/body download, API-version fallback, and sync throughput with concurrent body downloads.
 
 ## [0.38.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.36.0...v0.38.0) (2026-03-27)
 

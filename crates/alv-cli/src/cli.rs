@@ -45,6 +45,8 @@ pub struct LogSyncArgs {
     pub json: bool,
     #[arg(long)]
     pub force_full: bool,
+    #[arg(long)]
+    pub concurrency: Option<usize>,
 }
 
 #[derive(Debug, Args)]

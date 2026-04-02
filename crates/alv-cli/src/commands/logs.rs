@@ -57,6 +57,7 @@ fn run_sync(args: LogSyncArgs) -> Result<i32, String> {
         target_org: args.target_org,
         workspace_root: Some(workspace_root_string()?),
         force_full: args.force_full,
+        concurrency: args.concurrency,
     };
     let result = sync_logs_with_cancel(&params, &CancellationToken::new())?;
 
