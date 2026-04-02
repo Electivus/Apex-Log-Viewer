@@ -1,7 +1,7 @@
 use std::{
     fs,
     path::PathBuf,
-    sync::{Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard},
     thread,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
@@ -44,12 +44,29 @@ fn org_display_fixture(instance_url: &str) -> String {
     )
 }
 
-fn spawn_scripted_http_server(responses: Vec<(u16, String)>) -> (String, thread::JoinHandle<()>) {
+fn spawn_scripted_http_server(
+    responses: Vec<(u16, String)>,
+) -> (String, Arc<Mutex<Vec<String>>>, thread::JoinHandle<()>) {
     let server = Server::http("127.0.0.1:0").expect("test server should bind");
     let base_url = format!("http://{}", server.server_addr());
+    let observed_urls = Arc::new(Mutex::new(Vec::new()));
+    let observed_urls_for_thread = Arc::clone(&observed_urls);
     let handle = thread::spawn(move || {
         for (status, body) in responses {
             let request = server.recv().expect("server should receive request");
+            let url = request.url().to_string();
+            assert!(
+                url.starts_with("/services/data/"),
+                "expected Salesforce services/data request, got {url}"
+            );
+            assert!(
+                url.contains("/tooling/query?") && url.contains("q="),
+                "expected Tooling query request, got {url}"
+            );
+            observed_urls_for_thread
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(url);
             let response = Response::from_string(body)
                 .with_status_code(StatusCode(status))
                 .with_header(
@@ -61,7 +78,7 @@ fn spawn_scripted_http_server(responses: Vec<(u16, String)>) -> (String, thread:
                 .expect("server should send response");
         }
     });
-    (base_url, handle)
+    (base_url, observed_urls, handle)
 }
 
 #[test]
@@ -555,7 +572,7 @@ fn logs_sync_smoke_paginates_beyond_first_page() {
         })).collect::<Vec<Value>>() }
     }))
     .expect("page two JSON should serialize");
-    let (base_url, server_handle) =
+    let (base_url, observed_urls, server_handle) =
         spawn_scripted_http_server(vec![(200, page_one_json), (200, page_two_json)]);
 
     std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
@@ -609,6 +626,14 @@ fn logs_sync_smoke_paginates_beyond_first_page() {
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     std::env::remove_var("ALV_TEST_SF_ORG_DISPLAY_JSON");
     server_handle.join().expect("server thread should complete");
+    let observed_urls = observed_urls
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    assert_eq!(observed_urls.len(), 2);
+    assert!(observed_urls[0].contains("OFFSET+0"));
+    assert!(observed_urls[1].contains("2026-03-30T18%3A00%3A02.000Z"));
+    assert!(observed_urls[1].contains("07L000000000002AA"));
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
     fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
 }
@@ -706,7 +731,7 @@ fn logs_sync_smoke_prefers_checkpoint_id_over_shared_timestamp() {
 fn logs_sync_smoke_propagates_list_failures() {
     let _guard = lock_env_mutex();
     let workspace_root = make_temp_workspace("list-failure");
-    let (base_url, server_handle) =
+    let (base_url, _observed_urls, server_handle) =
         spawn_scripted_http_server(vec![(500, "simulated list failure".to_string())]);
     std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
     std::env::set_var(

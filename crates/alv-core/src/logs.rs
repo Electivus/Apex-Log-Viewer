@@ -159,7 +159,8 @@ pub fn list_logs_from_json(json: &str) -> Result<Vec<LogRow>, String> {
     for record in records {
         rows.push(LogRow {
             id: string_field(record, "Id").ok_or_else(|| "log record missing Id".to_string())?,
-            start_time: string_field(record, "StartTime").unwrap_or_default(),
+            start_time: string_field(record, "StartTime")
+                .ok_or_else(|| "log record missing StartTime".to_string())?,
             operation: string_field(record, "Operation").unwrap_or_default(),
             application: string_field(record, "Application").unwrap_or_default(),
             duration_milliseconds: number_field(record, "DurationMilliseconds").unwrap_or(0),
@@ -420,13 +421,36 @@ fn escape_soql_literal(value: &str) -> String {
     value.replace('\\', "\\\\").replace('\'', "\\'")
 }
 
+fn format_cursor_start_time(parsed: chrono::DateTime<chrono::FixedOffset>) -> String {
+    parsed
+        .with_timezone(&chrono::Utc)
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
 fn normalize_cursor_start_time(value: &str) -> Option<String> {
-    let parsed = chrono::DateTime::parse_from_rfc3339(value.trim()).ok()?;
-    Some(
-        parsed
-            .with_timezone(&chrono::Utc)
-            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-    )
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(trimmed) {
+        return Some(format_cursor_start_time(parsed));
+    }
+
+    const FALLBACK_FORMATS: &[&str] = &[
+        "%Y-%m-%dT%H:%M:%S%.f%z",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%d %H:%M:%S%.f%z",
+        "%Y-%m-%d %H:%M:%S%z",
+    ];
+
+    for format in FALLBACK_FORMATS {
+        if let Ok(parsed) = chrono::DateTime::parse_from_str(trimmed, format) {
+            return Some(format_cursor_start_time(parsed));
+        }
+    }
+
+    None
 }
 
 fn strip_trailing_slashes(value: &str) -> &str {
@@ -882,6 +906,44 @@ mod tests {
 
         assert!(query.contains("StartTime < 2026-03-30T18:39:58.000Z"));
         assert!(query.contains("Id < '07L000000000003AA'"));
+    }
+
+    #[test]
+    fn build_logs_query_normalizes_salesforce_offset_cursor_start_time() {
+        let query = build_logs_query(
+            50,
+            0,
+            &LogsListParams {
+                username: None,
+                limit: Some(50),
+                cursor: Some(LogsCursor {
+                    before_start_time: Some("2026-03-30T18:39:58.000+0000".to_string()),
+                    before_id: Some("07L000000000003AA".to_string()),
+                }),
+                offset: Some(0),
+            },
+        );
+
+        assert!(query.contains("StartTime < 2026-03-30T18:39:58.000Z"));
+        assert!(query.contains("Id < '07L000000000003AA'"));
+    }
+
+    #[test]
+    fn list_logs_from_json_requires_start_time() {
+        let error = list_logs_from_json(
+            r#"{
+                "result": {
+                    "records": [
+                        {
+                            "Id": "07L000000000003AA"
+                        }
+                    ]
+                }
+            }"#,
+        )
+        .expect_err("records without StartTime should fail");
+
+        assert!(error.contains("missing StartTime"));
     }
 
     #[test]
