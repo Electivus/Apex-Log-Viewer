@@ -121,12 +121,6 @@ pub fn sync_logs_with_cancel(
         let (page_rows, reached_checkpoint) =
             select_sync_page_rows(rows, previous.as_ref(), params.force_full);
 
-        if newest.is_none() {
-            newest = page_rows
-                .first()
-                .map(|row| (row.id.clone(), row.start_time.clone()));
-        }
-
         let outcome = process_sync_page(
             &auth,
             params.workspace_root.as_deref(),
@@ -138,6 +132,9 @@ pub fn sync_logs_with_cancel(
         downloaded += outcome.downloaded;
         cached += outcome.cached;
         failed += outcome.failed;
+        if newest.is_none() {
+            newest = outcome.newest_synced.clone();
+        }
 
         if reached_checkpoint || cancellation.is_cancelled() || page_len < SYNC_PAGE_SIZE {
             break;
@@ -159,19 +156,17 @@ pub fn sync_logs_with_cancel(
     };
     let finished_at = timestamp_now();
 
-    if status == "success" {
-        let (last_synced_log_id, last_synced_start_time) = newest.clone().unwrap_or_else(|| {
+    let checkpoint = newest.clone().or_else(|| {
+        previous.as_ref().map(|entry| {
             (
-                previous
-                    .as_ref()
-                    .and_then(|entry| entry.last_synced_log_id.clone())
-                    .unwrap_or_default(),
-                previous
-                    .as_ref()
-                    .and_then(|entry| entry.last_synced_start_time.clone())
-                    .unwrap_or_default(),
+                entry.last_synced_log_id.clone().unwrap_or_default(),
+                entry.last_synced_start_time.clone().unwrap_or_default(),
             )
-        });
+        })
+    });
+
+    if status == "success" {
+        let (last_synced_log_id, last_synced_start_time) = checkpoint.clone().unwrap_or_default();
         state.orgs.insert(
             resolved_username.clone(),
             SyncStateOrgEntry {
@@ -224,7 +219,11 @@ pub fn sync_logs_with_cancel(
         state_file: crate::log_store::sync_state_path(params.workspace_root.as_deref())
             .display()
             .to_string(),
-        last_synced_log_id: newest.map(|(log_id, _)| log_id),
+        last_synced_log_id: if status == "success" {
+            checkpoint.map(|(log_id, _)| log_id)
+        } else {
+            newest.map(|(log_id, _)| log_id)
+        },
     })
 }
 
@@ -282,11 +281,12 @@ enum SyncItemStatus {
     Cancelled,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct PageSyncOutcome {
     downloaded: usize,
     cached: usize,
     failed: usize,
+    newest_synced: Option<(String, String)>,
 }
 
 fn process_sync_page(
@@ -301,8 +301,10 @@ fn process_sync_page(
         return PageSyncOutcome::default();
     }
 
-    let queue = Arc::new(Mutex::new(VecDeque::from(rows)));
-    let (tx, rx) = mpsc::channel::<SyncItemStatus>();
+    let queue = Arc::new(Mutex::new(
+        rows.into_iter().enumerate().collect::<VecDeque<_>>(),
+    ));
+    let (tx, rx) = mpsc::channel::<(usize, String, String, SyncItemStatus)>();
     let auth = auth.clone();
     let workspace_root = workspace_root.map(str::to_string);
     let resolved_username = resolved_username.to_string();
@@ -326,7 +328,7 @@ fn process_sync_page(
                     break;
                 }
 
-                let Some(row) = queue
+                let Some((index, row)) = queue
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .pop_front()
@@ -357,7 +359,7 @@ fn process_sync_page(
                     }
                 };
 
-                let _ = tx.send(status);
+                let _ = tx.send((index, row.id, row.start_time, status));
                 if status == SyncItemStatus::Cancelled {
                     break;
                 }
@@ -366,10 +368,20 @@ fn process_sync_page(
         drop(tx);
 
         let mut outcome = PageSyncOutcome::default();
-        for item in rx {
+        let mut best_index: Option<usize> = None;
+        for (index, row_id, start_time, item) in rx {
             match item {
-                SyncItemStatus::Downloaded => outcome.downloaded += 1,
-                SyncItemStatus::Cached => outcome.cached += 1,
+                SyncItemStatus::Downloaded | SyncItemStatus::Cached => {
+                    if item == SyncItemStatus::Downloaded {
+                        outcome.downloaded += 1;
+                    } else {
+                        outcome.cached += 1;
+                    }
+                    if best_index.is_none_or(|best| index < best) {
+                        best_index = Some(index);
+                        outcome.newest_synced = Some((row_id, start_time));
+                    }
+                }
                 SyncItemStatus::Failed => outcome.failed += 1,
                 SyncItemStatus::Cancelled => {}
             }

@@ -9,7 +9,6 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, RecvTimeoutError},
         Arc, Mutex, OnceLock,
     },
     thread,
@@ -27,7 +26,6 @@ pub const TEST_APEX_LOG_FIXTURE_DIR_ENV: &str = "ALV_TEST_APEX_LOG_FIXTURE_DIR";
 const TEST_LOGS_CANCEL_DELAY_MS_ENV: &str = "ALV_TEST_LOGS_CANCEL_DELAY_MS";
 const CANCELLED_MESSAGE: &str = "request cancelled";
 const DEFAULT_API_VERSION: &str = "64.0";
-const HTTP_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -333,12 +331,13 @@ pub fn extract_code_unit_started(lines: &[&str]) -> Option<String> {
 
 fn build_logs_query(page_size: usize, offset: usize, params: &LogsListParams) -> String {
     let base_select = "SELECT Id, StartTime, Operation, Application, DurationMilliseconds, Status, Request, LogLength, LogUser.Name FROM ApexLog";
+    let safe_before_start_time = params
+        .cursor
+        .as_ref()
+        .and_then(|cursor| cursor.before_start_time.as_deref())
+        .and_then(normalize_cursor_start_time);
     match (
-        params
-            .cursor
-            .as_ref()
-            .and_then(|cursor| cursor.before_start_time.as_deref())
-            .filter(|value| !value.trim().is_empty()),
+        safe_before_start_time.as_deref(),
         params
             .cursor
             .as_ref()
@@ -347,8 +346,8 @@ fn build_logs_query(page_size: usize, offset: usize, params: &LogsListParams) ->
     ) {
         (Some(before_start_time), Some(before_id)) => format!(
             "{base_select} WHERE StartTime < {} OR (StartTime = {} AND Id < '{}') ORDER BY StartTime DESC, Id DESC LIMIT {page_size}",
-            before_start_time.trim(),
-            before_start_time.trim(),
+            before_start_time,
+            before_start_time,
             escape_soql_literal(before_id)
         ),
         _ => format!(
@@ -414,6 +413,15 @@ fn sanitize_username(username: Option<&str>) -> String {
 
 fn escape_soql_literal(value: &str) -> String {
     value.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
+fn normalize_cursor_start_time(value: &str) -> Option<String> {
+    let parsed = chrono::DateTime::parse_from_rfc3339(value.trim()).ok()?;
+    Some(
+        parsed
+            .with_timezone(&chrono::Utc)
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+    )
 }
 
 fn strip_trailing_slashes(value: &str) -> &str {
@@ -502,55 +510,35 @@ fn run_http_request_with_cancel(
         .check_cancelled()
         .map_err(|_| HttpRequestError::Cancelled)?;
 
-    let auth = auth.clone();
-    let url_string = url.to_string();
-    let token = cancellation.clone();
-    let (tx, rx) = mpsc::sync_channel(1);
+    let response = http_client()
+        .get(url)
+        .header("Authorization", format!("Bearer {}", auth.access_token))
+        .header("Accept", accept)
+        .send();
 
-    thread::spawn(move || {
-        let response = http_client()
-            .get(url_string)
-            .header("Authorization", format!("Bearer {}", auth.access_token))
-            .header("Accept", accept)
-            .send();
-        let result = match response {
-            Ok(response) => {
-                let status = response.status();
-                match response.bytes() {
-                    Ok(body) if status.is_success() => Ok(body.to_vec()),
-                    Ok(body) => Err(HttpRequestError::Failed {
-                        status: Some(status),
-                        message: String::from_utf8_lossy(&body).trim().to_string(),
-                    }),
-                    Err(error) => Err(HttpRequestError::Failed {
-                        status: Some(status),
-                        message: error.to_string(),
-                    }),
-                }
-            }
-            Err(error) => Err(HttpRequestError::Failed {
-                status: error.status(),
-                message: error.to_string(),
-            }),
-        };
-        let _ = tx.send(result);
-    });
+    cancellation
+        .check_cancelled()
+        .map_err(|_| HttpRequestError::Cancelled)?;
 
-    loop {
-        if token.is_cancelled() {
-            return Err(HttpRequestError::Cancelled);
-        }
-
-        match rx.recv_timeout(HTTP_POLL_INTERVAL) {
-            Ok(result) => return result,
-            Err(RecvTimeoutError::Timeout) => continue,
-            Err(RecvTimeoutError::Disconnected) => {
-                return Err(HttpRequestError::Failed {
-                    status: None,
-                    message: "HTTP worker disconnected before returning a response".to_string(),
-                });
+    match response {
+        Ok(response) => {
+            let status = response.status();
+            match response.bytes() {
+                Ok(body) if status.is_success() => Ok(body.to_vec()),
+                Ok(body) => Err(HttpRequestError::Failed {
+                    status: Some(status),
+                    message: String::from_utf8_lossy(&body).trim().to_string(),
+                }),
+                Err(error) => Err(HttpRequestError::Failed {
+                    status: Some(status),
+                    message: error.to_string(),
+                }),
             }
         }
+        Err(error) => Err(HttpRequestError::Failed {
+            status: error.status(),
+            message: error.to_string(),
+        }),
     }
 }
 
@@ -793,5 +781,45 @@ mod tests {
         );
 
         fs::remove_dir_all(&root).expect("temp root should be removable");
+    }
+
+    #[test]
+    fn build_logs_query_ignores_invalid_cursor_start_time() {
+        let query = build_logs_query(
+            50,
+            0,
+            &LogsListParams {
+                username: None,
+                limit: Some(50),
+                cursor: Some(LogsCursor {
+                    before_start_time: Some("2026-03-30T18:39:58.000Z' OR Name != ''".to_string()),
+                    before_id: Some("07L000000000003AA".to_string()),
+                }),
+                offset: Some(0),
+            },
+        );
+
+        assert!(query.contains(" OFFSET 0"));
+        assert!(!query.contains(" WHERE StartTime < "));
+    }
+
+    #[test]
+    fn build_logs_query_normalizes_valid_cursor_start_time() {
+        let query = build_logs_query(
+            50,
+            0,
+            &LogsListParams {
+                username: None,
+                limit: Some(50),
+                cursor: Some(LogsCursor {
+                    before_start_time: Some("2026-03-30T18:39:58Z".to_string()),
+                    before_id: Some("07L000000000003AA".to_string()),
+                }),
+                offset: Some(0),
+            },
+        );
+
+        assert!(query.contains("StartTime < 2026-03-30T18:39:58.000Z"));
+        assert!(query.contains("Id < '07L000000000003AA'"));
     }
 }

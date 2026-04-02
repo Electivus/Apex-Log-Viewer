@@ -385,6 +385,123 @@ fn logs_sync_smoke_keeps_previous_checkpoint_on_partial_failure() {
 }
 
 #[test]
+fn logs_sync_smoke_advances_checkpoint_to_first_successful_row_when_newest_fails() {
+    let _guard = lock_env_mutex();
+    let workspace_root = make_temp_workspace("checkpoint-first-success");
+    let fixture_dir = make_fixture_dir("fixture-checkpoint-first-success");
+    fs::write(
+        fixture_dir.join("07L000000000003AA.log"),
+        "09:00:00.0|USER_INFO|first successful body\n",
+    )
+    .expect("fixture log should be writable");
+
+    std::env::set_var(
+        TEST_SF_LOG_LIST_JSON_ENV,
+        r#"{"result":{"records":[
+          {"Id":"07L000000000004AA","StartTime":"2026-03-30T18:40:58.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-2","LogLength":4096},
+          {"Id":"07L000000000003AA","StartTime":"2026-03-30T18:39:58.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-1","LogLength":4096}
+        ]}}"#,
+    );
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_DISPLAY_JSON",
+        org_display_fixture("https://default.example.com"),
+    );
+    std::env::set_var(
+        TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        fixture_dir.display().to_string(),
+    );
+
+    let result = sync_logs_with_cancel(
+        &LogsSyncParams {
+            target_org: None,
+            workspace_root: Some(workspace_root.display().to_string()),
+            force_full: false,
+            concurrency: None,
+        },
+        &alv_core::logs::CancellationToken::new(),
+    )
+    .expect("sync should succeed with one failed row");
+
+    assert_eq!(result.status, "partial");
+    assert_eq!(result.downloaded, 1);
+    assert_eq!(result.failed, 1);
+    assert_eq!(
+        result.last_synced_log_id.as_deref(),
+        Some("07L000000000003AA")
+    );
+
+    std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    std::env::remove_var("ALV_TEST_SF_ORG_DISPLAY_JSON");
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+    fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
+}
+
+#[test]
+fn logs_sync_smoke_keeps_last_synced_log_id_on_successful_noop_incremental_sync() {
+    let _guard = lock_env_mutex();
+    let workspace_root = make_temp_workspace("noop-checkpoint");
+    let fixture_dir = make_fixture_dir("fixture-noop-checkpoint");
+    fs::write(
+        fixture_dir.join("07L000000000003AA.log"),
+        "09:00:00.0|USER_INFO|synced body\n",
+    )
+    .expect("fixture log should be writable");
+
+    std::env::set_var(
+        TEST_SF_LOG_LIST_JSON_ENV,
+        r#"{"result":{"records":[{"Id":"07L000000000003AA","StartTime":"2026-03-30T18:39:58.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-1","LogLength":4096}]}}"#,
+    );
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_DISPLAY_JSON",
+        org_display_fixture("https://default.example.com"),
+    );
+    std::env::set_var(
+        TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        fixture_dir.display().to_string(),
+    );
+
+    let first = sync_logs_with_cancel(
+        &LogsSyncParams {
+            target_org: None,
+            workspace_root: Some(workspace_root.display().to_string()),
+            force_full: false,
+            concurrency: None,
+        },
+        &alv_core::logs::CancellationToken::new(),
+    )
+    .expect("seed sync should succeed");
+    assert_eq!(
+        first.last_synced_log_id.as_deref(),
+        Some("07L000000000003AA")
+    );
+
+    let second = sync_logs_with_cancel(
+        &LogsSyncParams {
+            target_org: None,
+            workspace_root: Some(workspace_root.display().to_string()),
+            force_full: false,
+            concurrency: None,
+        },
+        &alv_core::logs::CancellationToken::new(),
+    )
+    .expect("noop sync should succeed");
+
+    assert_eq!(second.status, "success");
+    assert_eq!(second.downloaded, 0);
+    assert_eq!(
+        second.last_synced_log_id.as_deref(),
+        Some("07L000000000003AA")
+    );
+
+    std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    std::env::remove_var("ALV_TEST_SF_ORG_DISPLAY_JSON");
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+    fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
+}
+
+#[test]
 fn logs_sync_smoke_paginates_beyond_first_page() {
     let _guard = lock_env_mutex();
     let workspace_root = make_temp_workspace("paginated");
