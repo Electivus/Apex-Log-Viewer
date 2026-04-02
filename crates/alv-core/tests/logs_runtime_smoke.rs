@@ -473,6 +473,53 @@ fn logs_runtime_smoke_search_falls_back_to_raw_alias_scoped_cache_without_auth()
 }
 
 #[test]
+fn logs_runtime_smoke_search_uses_legacy_alias_scoped_cache_when_alias_resolves() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("search-alias-canonical-legacy");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    let log_id = "07L0000000000AC1";
+    fs::write(
+        apexlogs_dir.join(format!("Alias_Org_{log_id}.log")),
+        "09:00:00.0|FATAL_ERROR|AliasCanonicalLegacyNeedle\n",
+    )
+    .expect("legacy alias-scoped log should be writable");
+
+    std::env::set_var(
+        TEST_ORG_DISPLAY_JSON_ENV,
+        r#"{
+            "status": 0,
+            "result": {
+                "username": "canonical@example.com",
+                "accessToken": "00D-token",
+                "instanceUrl": "https://example.my.salesforce.com"
+            }
+        }"#,
+    );
+
+    let result = search_query(&SearchQueryParams {
+        query: "AliasCanonicalLegacyNeedle".to_string(),
+        log_ids: vec![log_id.to_string()],
+        username: Some("Alias Org".to_string()),
+        raw_username: None,
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("search/query should keep the alias-scoped legacy fallback after alias resolution");
+
+    assert_eq!(result.log_ids, vec![log_id.to_string()]);
+    assert!(result.pending_log_ids.is_empty());
+    let snippet = result
+        .snippets
+        .get(log_id)
+        .expect("matched log should include snippet");
+    assert!(snippet.text.contains("AliasCanonicalLegacyNeedle"));
+
+    std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
 fn logs_runtime_smoke_triage_downloads_missing_log_into_unknown_date_directory() {
     let _guard = lock_test_guard();
 

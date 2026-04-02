@@ -9,6 +9,7 @@
 ### Bug Fixes
 
 - CLI/npm: publish the global meta package with both `alv` and `apex-log-viewer` shims so Windows and other npm installs expose the familiar long command name too.
+- Runtime/Logs: avoid repeated recursive cache walks during CLI log search by indexing candidate local log paths once per request while preserving org-first and legacy-layout fallback behavior.
 - Runtime/Logs: reduce startup request fan-out by letting the Logs panel fetch rows without waiting for org bootstrap/auth hydration, coalescing concurrent runtime `org/list` and `org/auth` requests, reusing auth during log-body preload, and avoiding redundant login-shell PATH probes when the current Windows PATH already resolves `sf`.
 - Tail/Logs: keep Tail webviews from re-running bootstrap work before the webview is ready, and stop advertising cancellation for Logs org listing when the backend work is not actually cancellable yet.
 
