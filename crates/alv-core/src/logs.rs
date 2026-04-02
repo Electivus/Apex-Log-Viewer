@@ -1,20 +1,23 @@
-use reqwest::{blocking::Client, StatusCode, Url};
+use reqwest::{Client, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
     env,
     fs::{self, File},
+    future::Future,
     io::Write,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
+        mpsc::{sync_channel, RecvTimeoutError},
         Arc, Mutex, OnceLock,
     },
     thread,
     time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 
 use crate::{
     auth::{self, OrgAuth},
@@ -28,9 +31,11 @@ const CANCELLED_MESSAGE: &str = "request cancelled";
 const DEFAULT_API_VERSION: &str = "64.0";
 const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const HTTP_CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 static API_VERSION_OVERRIDES: OnceLock<Mutex<BTreeMap<String, String>>> = OnceLock::new();
 static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
+static HTTP_RUNTIME: OnceLock<Runtime> = OnceLock::new();
 
 #[derive(Debug, Clone, Default)]
 pub struct CancellationToken {
@@ -478,7 +483,16 @@ fn http_client() -> &'static Client {
             .connect_timeout(HTTP_CONNECT_TIMEOUT)
             .timeout(HTTP_REQUEST_TIMEOUT)
             .build()
-            .expect("reqwest blocking client should initialize")
+            .expect("reqwest client should initialize")
+    })
+}
+
+fn http_runtime() -> &'static Runtime {
+    HTTP_RUNTIME.get_or_init(|| {
+        RuntimeBuilder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime should initialize")
     })
 }
 
@@ -500,46 +514,93 @@ impl HttpRequestError {
     }
 }
 
+fn run_async_operation_with_cancel<T, F>(
+    future: F,
+    cancellation: &CancellationToken,
+) -> Result<T, HttpRequestError>
+where
+    T: Send + 'static,
+    F: Future<Output = Result<T, HttpRequestError>> + Send + 'static,
+{
+    cancellation
+        .check_cancelled()
+        .map_err(|_| HttpRequestError::Cancelled)?;
+
+    let (result_tx, result_rx) = sync_channel(1);
+    let task = http_runtime().spawn(async move {
+        let result = future.await;
+        let _ = result_tx.send(result);
+    });
+
+    loop {
+        match result_rx.try_recv() {
+            Ok(result) => return result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                return Err(HttpRequestError::Failed {
+                    status: None,
+                    message: "HTTP request task terminated unexpectedly".to_string(),
+                });
+            }
+        }
+
+        if cancellation.is_cancelled() {
+            task.abort();
+            return Err(HttpRequestError::Cancelled);
+        }
+
+        match result_rx.recv_timeout(HTTP_CANCEL_POLL_INTERVAL) {
+            Ok(result) => return result,
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(HttpRequestError::Failed {
+                    status: None,
+                    message: "HTTP request task terminated unexpectedly".to_string(),
+                });
+            }
+        }
+    }
+}
+
 fn run_http_request_with_cancel(
     auth: &OrgAuth,
     url: Url,
     accept: &'static str,
     cancellation: &CancellationToken,
 ) -> Result<Vec<u8>, HttpRequestError> {
-    cancellation
-        .check_cancelled()
-        .map_err(|_| HttpRequestError::Cancelled)?;
+    let auth = auth.clone();
+    run_async_operation_with_cancel(
+        async move {
+            let response = http_client()
+                .get(url)
+                .header("Authorization", format!("Bearer {}", auth.access_token))
+                .header("Accept", accept)
+                .send()
+                .await;
 
-    let response = http_client()
-        .get(url)
-        .header("Authorization", format!("Bearer {}", auth.access_token))
-        .header("Accept", accept)
-        .send();
-
-    cancellation
-        .check_cancelled()
-        .map_err(|_| HttpRequestError::Cancelled)?;
-
-    match response {
-        Ok(response) => {
-            let status = response.status();
-            match response.bytes() {
-                Ok(body) if status.is_success() => Ok(body.to_vec()),
-                Ok(body) => Err(HttpRequestError::Failed {
-                    status: Some(status),
-                    message: String::from_utf8_lossy(&body).trim().to_string(),
-                }),
+            match response {
+                Ok(response) => {
+                    let status = response.status();
+                    match response.bytes().await {
+                        Ok(body) if status.is_success() => Ok(body.to_vec()),
+                        Ok(body) => Err(HttpRequestError::Failed {
+                            status: Some(status),
+                            message: String::from_utf8_lossy(&body).trim().to_string(),
+                        }),
+                        Err(error) => Err(HttpRequestError::Failed {
+                            status: Some(status),
+                            message: error.to_string(),
+                        }),
+                    }
+                }
                 Err(error) => Err(HttpRequestError::Failed {
-                    status: Some(status),
+                    status: error.status(),
                     message: error.to_string(),
                 }),
             }
-        }
-        Err(error) => Err(HttpRequestError::Failed {
-            status: error.status(),
-            message: error.to_string(),
-        }),
-    }
+        },
+        cancellation,
+    )
 }
 
 fn request_bytes_with_version_fallback(
@@ -821,5 +882,32 @@ mod tests {
 
         assert!(query.contains("StartTime < 2026-03-30T18:39:58.000Z"));
         assert!(query.contains("Id < '07L000000000003AA'"));
+    }
+
+    #[test]
+    fn run_async_operation_with_cancel_returns_promptly_when_cancelled() {
+        let token = CancellationToken::new();
+        let cancel_handle = token.clone();
+        let started = std::time::Instant::now();
+
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            cancel_handle.cancel();
+        });
+
+        let error = run_async_operation_with_cancel(
+            async {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                Ok::<_, HttpRequestError>(Vec::<u8>::new())
+            },
+            &token,
+        )
+        .expect_err("cancelled async operations should abort promptly");
+
+        assert!(matches!(error, HttpRequestError::Cancelled));
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "cancelled operations should not wait for the full request timeout"
+        );
     }
 }
