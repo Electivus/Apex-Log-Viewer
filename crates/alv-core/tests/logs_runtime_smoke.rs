@@ -1,5 +1,3 @@
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::{
     fs,
     path::PathBuf,
@@ -23,6 +21,7 @@ use alv_core::{
     search::{search_query, search_query_with_cancel, SearchQueryParams},
     triage::{triage_logs, triage_logs_with_cancel, LogsTriageParams},
 };
+use tiny_http::{Header, Response, Server, StatusCode};
 
 fn test_guard() -> &'static Mutex<()> {
     static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
@@ -45,6 +44,41 @@ fn make_temp_workspace(name: &str) -> PathBuf {
     root
 }
 
+fn org_display_fixture(instance_url: &str) -> String {
+    format!(
+        r#"{{"result":{{"username":"demo@example.com","accessToken":"token","instanceUrl":"{instance_url}"}}}}"#
+    )
+}
+
+#[derive(Clone)]
+struct ScriptedHttpResponse {
+    status: u16,
+    content_type: &'static str,
+    body: Vec<u8>,
+}
+
+fn spawn_scripted_http_server(
+    responses: Vec<ScriptedHttpResponse>,
+) -> (String, thread::JoinHandle<()>) {
+    let server = Server::http("127.0.0.1:0").expect("test server should bind");
+    let base_url = format!("http://{}", server.server_addr());
+    let handle = thread::spawn(move || {
+        for item in responses {
+            let request = server.recv().expect("server should receive request");
+            let response = Response::from_data(item.body)
+                .with_status_code(StatusCode(item.status))
+                .with_header(
+                    Header::from_bytes(&b"Content-Type"[..], item.content_type.as_bytes())
+                        .expect("header should be valid"),
+                );
+            request
+                .respond(response)
+                .expect("server should send response");
+        }
+    });
+    (base_url, handle)
+}
+
 fn org_dirs_in_iteration_order(orgs_root: &PathBuf) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = fs::read_dir(orgs_root)
         .expect("orgs root should be readable")
@@ -54,17 +88,6 @@ fn org_dirs_in_iteration_order(orgs_root: &PathBuf) -> Vec<PathBuf> {
         .collect();
     dirs.sort();
     dirs
-}
-
-#[cfg(unix)]
-fn write_fake_sf_command(root: &PathBuf, body: &str) {
-    let script_path = root.join("sf");
-    fs::write(&script_path, body).expect("fake sf script should be writable");
-    let mut permissions = fs::metadata(&script_path)
-        .expect("fake sf script metadata should exist")
-        .permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&script_path, permissions).expect("fake sf script should be executable");
 }
 
 #[cfg(windows)]
@@ -166,6 +189,110 @@ fn logs_runtime_smoke_lists_logs_from_warning_prefixed_fixture() {
     assert_eq!(rows[0].operation, "ExecuteAnonymous");
 
     std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+}
+
+#[test]
+fn logs_runtime_smoke_lists_logs_over_rest_with_auth_fixture() {
+    let _guard = lock_test_guard();
+
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    let payload = serde_json::json!({
+        "result": {
+            "records": [{
+                "Id": "07L000000000REST",
+                "StartTime": "2026-03-27T12:00:00.000Z",
+                "Operation": "ExecuteAnonymous",
+                "Application": "Developer Console",
+                "DurationMilliseconds": 125,
+                "Status": "Success",
+                "Request": "REQ-REST",
+                "LogLength": 4096
+            }]
+        }
+    });
+    let (base_url, server_handle) = spawn_scripted_http_server(vec![ScriptedHttpResponse {
+        status: 200,
+        content_type: "application/json",
+        body: serde_json::to_vec(&payload).expect("payload should serialize"),
+    }]);
+    std::env::set_var(TEST_ORG_DISPLAY_JSON_ENV, org_display_fixture(&base_url));
+
+    let rows = list_logs_with_cancel(
+        &LogsListParams {
+            username: Some("demo@example.com".to_string()),
+            limit: Some(1),
+            cursor: None,
+            offset: Some(0),
+        },
+        &CancellationToken::new(),
+    )
+    .expect("logs/list should use the REST runtime path");
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, "07L000000000REST");
+
+    std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);
+    server_handle.join().expect("server thread should complete");
+}
+
+#[test]
+fn logs_runtime_smoke_falls_back_to_org_max_api_version_for_logs_list() {
+    let _guard = lock_test_guard();
+
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    let payload = serde_json::json!({
+        "result": {
+            "records": [{
+                "Id": "07L000000000FALL",
+                "StartTime": "2026-03-27T12:00:00.000Z",
+                "Operation": "ExecuteAnonymous",
+                "Application": "Developer Console",
+                "DurationMilliseconds": 125,
+                "Status": "Success",
+                "Request": "REQ-FALL",
+                "LogLength": 4096
+            }]
+        }
+    });
+    let services_data = serde_json::json!([
+        { "version": "60.0" },
+        { "version": "61.0" }
+    ]);
+    let (base_url, server_handle) = spawn_scripted_http_server(vec![
+        ScriptedHttpResponse {
+            status: 404,
+            content_type: "application/json",
+            body: br#"{"message":"The requested resource does not exist"}"#.to_vec(),
+        },
+        ScriptedHttpResponse {
+            status: 200,
+            content_type: "application/json",
+            body: serde_json::to_vec(&services_data).expect("services/data should serialize"),
+        },
+        ScriptedHttpResponse {
+            status: 200,
+            content_type: "application/json",
+            body: serde_json::to_vec(&payload).expect("payload should serialize"),
+        },
+    ]);
+    std::env::set_var(TEST_ORG_DISPLAY_JSON_ENV, org_display_fixture(&base_url));
+
+    let rows = list_logs_with_cancel(
+        &LogsListParams {
+            username: Some("demo@example.com".to_string()),
+            limit: Some(1),
+            cursor: None,
+            offset: Some(0),
+        },
+        &CancellationToken::new(),
+    )
+    .expect("logs/list should retry with the org max API version");
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, "07L000000000FALL");
+
+    std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);
+    server_handle.join().expect("server thread should complete");
 }
 
 #[test]
@@ -1011,25 +1138,78 @@ fn logs_runtime_smoke_ensure_log_cache_uses_fixture_copy() {
     fs::remove_dir_all(fixture_root).expect("fixture workspace should be removable");
 }
 
+#[test]
+fn logs_runtime_smoke_downloads_log_body_over_rest_into_cache() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("ensure-cache-rest");
+    let log_id = "07L000000000REST";
+    let (base_url, server_handle) = spawn_scripted_http_server(vec![ScriptedHttpResponse {
+        status: 200,
+        content_type: "text/plain",
+        body: b"09:00:00.0|USER_INFO|rest body\n".to_vec(),
+    }]);
+    std::env::set_var(TEST_ORG_DISPLAY_JSON_ENV, org_display_fixture(&base_url));
+
+    let cached = ensure_log_file_cached(
+        log_id,
+        Some("demo@example.com"),
+        Some(&workspace_root.display().to_string()),
+    )
+    .expect("ensure_log_file_cached should fetch the ApexLog body via REST");
+    assert!(cached.exists());
+    assert_eq!(
+        fs::read_to_string(&cached).expect("cached log should be readable"),
+        "09:00:00.0|USER_INFO|rest body\n"
+    );
+
+    std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);
+    server_handle.join().expect("server thread should complete");
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
 #[cfg(windows)]
 #[test]
 fn logs_runtime_smoke_uses_explicit_sf_cmd_shim_for_logs_list() {
     let _guard = lock_test_guard();
 
     std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);
+    let payload = serde_json::json!({
+        "result": {
+            "records": [{
+                "Id": "07L000000000001AA",
+                "StartTime": "2026-03-27T12:00:00.000Z",
+                "Operation": "ExecuteAnonymous",
+                "Application": "Developer Console",
+                "DurationMilliseconds": 125,
+                "Status": "Success",
+                "Request": "REQ-1",
+                "LogLength": 4096,
+                "LogUser": { "Name": "Ada" }
+            }]
+        }
+    });
+    let (base_url, server_handle) = spawn_scripted_http_server(vec![ScriptedHttpResponse {
+        status: 200,
+        content_type: "application/json",
+        body: serde_json::to_vec(&payload).expect("payload should serialize"),
+    }]);
 
     let fake_bin_root = make_temp_workspace("sf-cmd-logs-list");
-    let sf_cmd = write_fake_sf_cmd(
-        &fake_bin_root,
-        r#"@echo off
-if /I "%~1 %~2 %~3 %~4 %~5 %~6"=="data query --use-tooling-api --json --result-format json" (
-  echo {"result":{"records":[{"Id":"07L000000000001AA","StartTime":"2026-03-27T12:00:00.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-1","LogLength":4096,"LogUser":{"Name":"Ada"}}]}}
+    let script_body = r#"@echo off
+if /I "%*"=="org display --json --verbose -o demo@example.com" (
+  echo __ORG_DISPLAY_JSON__
   exit /b 0
 )
 echo Unexpected sf args: %* 1>&2
 exit /b 1
-"#,
+"#
+    .replace(
+        "__ORG_DISPLAY_JSON__",
+        &org_display_fixture(&base_url).replace('\"', "\"\""),
     );
+    let sf_cmd = write_fake_sf_cmd(&fake_bin_root, &script_body);
 
     std::env::set_var("ALV_SF_BIN_PATH", &sf_cmd);
 
@@ -1056,47 +1236,35 @@ exit /b 1
     );
 
     std::env::remove_var("ALV_SF_BIN_PATH");
+    server_handle.join().expect("server thread should complete");
     fs::remove_dir_all(fake_bin_root).expect("fake sf workspace should be removable");
 }
 
-#[cfg(unix)]
 #[test]
-fn logs_runtime_smoke_drains_large_sf_json_output_without_hanging() {
+fn logs_runtime_smoke_reads_large_rest_json_payload_without_hanging() {
     let _guard = lock_test_guard();
 
-    let fake_bin_root = make_temp_workspace("sf-large-output");
-    write_fake_sf_command(
-        &fake_bin_root,
-        r#"#!/usr/bin/env bash
-python3 - <<'PY'
-import json
-payload = {
-    "result": {
-        "records": [
-            {
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    let payload = serde_json::json!({
+        "result": {
+            "records": [{
                 "Id": "07L000000000001AA",
                 "StartTime": "2026-03-27T12:00:00.000Z",
-                "Operation": "X" * 200000,
+                "Operation": "X".repeat(200000),
                 "Application": "Developer Console",
                 "DurationMilliseconds": 125,
                 "Status": "Success",
                 "Request": "REQ-1",
                 "LogLength": 4096
-            }
-        ]
-    }
-}
-print(json.dumps(payload))
-PY
-"#,
-    );
-
-    let previous_path = std::env::var("PATH").unwrap_or_default();
-    std::env::set_var(
-        "PATH",
-        format!("{}:{}", fake_bin_root.display(), previous_path),
-    );
-    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+            }]
+        }
+    });
+    let (base_url, server_handle) = spawn_scripted_http_server(vec![ScriptedHttpResponse {
+        status: 200,
+        content_type: "application/json",
+        body: serde_json::to_vec(&payload).expect("payload should serialize"),
+    }]);
+    std::env::set_var(TEST_ORG_DISPLAY_JSON_ENV, org_display_fixture(&base_url));
 
     let rows = list_logs_with_cancel(
         &LogsListParams {
@@ -1107,11 +1275,11 @@ PY
         },
         &CancellationToken::new(),
     )
-    .expect("logs/list should read large stdout payloads");
+    .expect("logs/list should read large HTTP payloads");
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].operation.len(), 200000);
 
-    std::env::set_var("PATH", previous_path);
-    fs::remove_dir_all(fake_bin_root).expect("fake sf workspace should be removable");
+    std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);
+    server_handle.join().expect("server thread should complete");
 }

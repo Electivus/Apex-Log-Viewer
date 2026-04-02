@@ -50,7 +50,7 @@ The standalone CLI and the VS Code extension are separate surfaces over the same
 - `apexlogs/orgs/<safe-target-org>/org.json` stores resolved org metadata.
 - `apexlogs/orgs/<safe-target-org>/logs/<YYYY-MM-DD>/<logId>.log` stores full log bodies.
 
-The Rust CLI is the first consumer of that shared storage through `apex-log-viewer logs sync`, `logs status`, and `logs search`, while the runtime still reads the legacy flat cache layout during the transition so the extension remains compatible.
+The Rust CLI is the first consumer of that shared storage through `apex-log-viewer logs sync`, `logs status`, and `logs search`, while the runtime still reads the legacy flat cache layout during the transition so the extension remains compatible. For `logs sync`, the CLI still reuses `sf org display` for org auth, but the actual list/body fetches now go straight to the Salesforce Tooling REST API and can download bodies concurrently per page via `--concurrency`.
 
 ## Testing and build tooling
 

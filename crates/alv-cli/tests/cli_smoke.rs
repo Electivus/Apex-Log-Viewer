@@ -132,6 +132,7 @@ fn cli_smoke_shows_target_org_in_sync_help() {
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
     assert!(stdout.contains("--target-org"));
     assert!(stdout.contains("--force-full"));
+    assert!(stdout.contains("--concurrency"));
 }
 
 #[test]
@@ -163,7 +164,7 @@ fn cli_smoke_logs_sync_json_emits_structured_result_and_writes_state() {
             r#"{"result":{"username":"default@example.com","accessToken":"token","instanceUrl":"https://default.example.com"}}"#,
         )
         .env("ALV_TEST_APEX_LOG_FIXTURE_DIR", &fixture_dir)
-        .args(["logs", "sync", "--json"])
+        .args(["logs", "sync", "--json", "--concurrency", "3"])
         .output()
         .expect("sync should execute");
 
