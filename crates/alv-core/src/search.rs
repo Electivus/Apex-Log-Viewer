@@ -312,7 +312,7 @@ fn build_scoped_cached_log_path_index(
         }
     }
 
-    collect_root_log_path_index(&root, &allowed_prefixes, true, cancellation, &mut index)?;
+    collect_root_log_path_index(&root, &allowed_prefixes, false, cancellation, &mut index)?;
     sort_and_dedup_path_index(&mut index);
 
     Ok(index)
@@ -334,7 +334,7 @@ fn build_raw_scoped_cached_log_path_index(
 
     let raw_safe = log_store::safe_target_org(raw_username);
     let allowed_prefixes = vec![raw_safe];
-    collect_root_log_path_index(&root, &allowed_prefixes, true, cancellation, &mut index)?;
+    collect_root_log_path_index(&root, &allowed_prefixes, false, cancellation, &mut index)?;
     sort_and_dedup_path_index(&mut index);
 
     Ok(index)

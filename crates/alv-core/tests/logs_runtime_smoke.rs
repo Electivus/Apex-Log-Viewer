@@ -401,6 +401,41 @@ fn logs_runtime_smoke_search_scoped_to_selected_org_ignores_other_org_duplicate_
 }
 
 #[test]
+fn logs_runtime_smoke_search_scoped_to_selected_org_ignores_other_legacy_root_match() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("search-scoped-ignore-other-legacy-root");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    let log_id = "07L00000000000SR1";
+    fs::write(
+        apexlogs_dir.join(format!("selected@example.com_{log_id}.log")),
+        "09:00:00.0|USER_INFO|selected root cache does not contain the needle\n",
+    )
+    .expect("selected-org legacy root log should be writable");
+    fs::write(
+        apexlogs_dir.join(format!("other@example.com_{log_id}.log")),
+        "09:00:00.0|FATAL_ERROR|ScopedLegacyRootNeedle\n",
+    )
+    .expect("other-org legacy root log should be writable");
+
+    let result = search_query(&SearchQueryParams {
+        query: "ScopedLegacyRootNeedle".to_string(),
+        log_ids: vec![log_id.to_string()],
+        username: Some("selected@example.com".to_string()),
+        raw_username: None,
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("search/query should ignore other-org legacy flat cache files");
+
+    assert!(result.log_ids.is_empty());
+    assert!(result.pending_log_ids.is_empty());
+    assert!(!result.snippets.contains_key(log_id));
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
 fn logs_runtime_smoke_search_scoped_to_selected_org_uses_legacy_bare_log_fallback() {
     let _guard = lock_test_guard();
 
@@ -468,6 +503,41 @@ fn logs_runtime_smoke_search_falls_back_to_raw_alias_scoped_cache_without_auth()
         .get(log_id)
         .expect("matched log should include snippet");
     assert!(snippet.text.contains("AliasScopedNeedle"));
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_search_raw_alias_scope_ignores_other_legacy_root_match() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("search-alias-offline-legacy-root");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    let log_id = "07L0000000000AR1";
+    fs::write(
+        apexlogs_dir.join(format!("Alias_Org_{log_id}.log")),
+        "09:00:00.0|USER_INFO|alias root cache does not contain the needle\n",
+    )
+    .expect("alias-scoped legacy root log should be writable");
+    fs::write(
+        apexlogs_dir.join(format!("other@example.com_{log_id}.log")),
+        "09:00:00.0|FATAL_ERROR|AliasRootScopeNeedle\n",
+    )
+    .expect("other-org legacy root log should be writable");
+
+    let result = search_query(&SearchQueryParams {
+        query: "AliasRootScopeNeedle".to_string(),
+        log_ids: vec![log_id.to_string()],
+        username: Some("Alias Org".to_string()),
+        raw_username: None,
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("search/query should ignore unrelated legacy root files during raw alias fallback");
+
+    assert!(result.log_ids.is_empty());
+    assert!(result.pending_log_ids.is_empty());
+    assert!(!result.snippets.contains_key(log_id));
 
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
 }
