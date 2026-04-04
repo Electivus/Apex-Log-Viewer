@@ -72,12 +72,11 @@ The app server will normalize the lookup key as:
 - normalized username scope
 - log id
 
-The server process will cache both hits and misses for the lifetime of the daemon:
+The server process will cache resolved hits for the lifetime of the daemon:
 
 - hit: resolved absolute file path
-- miss: explicit negative cache entry
 
-This keeps repeated extension lookups cheap without introducing persistent shared state into `alv-core`.
+Misses will still use the bounded shared lookup, but they will not be memoized because the extension can create a log file locally later in the same daemon session. This keeps repeated successful lookups cheap without introducing stale negative entries.
 
 ### 3. Extension integration
 
@@ -118,7 +117,7 @@ Fallback rules:
 - Empty or whitespace `logId` returns no path.
 - Username-scoped requests do not leak into another org tree.
 - Runtime transport errors do not block the user; they trigger the local fallback path.
-- Negative cache entries live only for the daemon session, so restarting the runtime naturally invalidates stale misses.
+- Cached hits live only for the daemon session, so restarting the runtime naturally invalidates stale paths.
 
 ## Testing Strategy
 
@@ -131,7 +130,7 @@ Fallback rules:
 ### `alv-app-server`
 
 - Add a JSON-RPC smoke test for `logs/resolveCachedPath`.
-- Add coverage that repeated identical requests can reuse cached hit/miss results without changing behavior.
+- Add coverage that repeated identical requests can reuse cached hits without changing behavior.
 
 ### Extension
 
