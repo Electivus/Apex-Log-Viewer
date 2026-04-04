@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    path::Path,
     sync::{Mutex, OnceLock},
 };
 
@@ -34,9 +35,13 @@ pub fn resolve_cached_log_path(
     }
 
     let cache = LOG_PATH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Ok(guard) = cache.lock() {
-        if let Some(existing) = guard.get(&key) {
-            return Some(existing.clone());
+    if let Ok(mut guard) = cache.lock() {
+        if let Some(existing) = guard.get(&key).cloned() {
+            if Path::new(&existing).is_file() {
+                return Some(existing);
+            }
+
+            guard.remove(&key);
         }
     }
 

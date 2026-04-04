@@ -133,6 +133,10 @@ function toSafeLogUserName(username: string | undefined): string {
   return (username || 'default').replace(/[^a-zA-Z0-9_.@-]+/g, '_');
 }
 
+function isSupportedLogDayDirName(name: string): boolean {
+  return name === 'unknown-date' || /^\d{4}-\d{2}-\d{2}$/.test(name);
+}
+
 async function findExistingLogFileInLogsDir(logsDir: string, logId: string): Promise<string | undefined> {
   let entries: import('fs').Dirent[];
   try {
@@ -142,7 +146,7 @@ async function findExistingLogFileInLogsDir(logsDir: string, logId: string): Pro
   }
 
   for (const entry of entries) {
-    if (!entry.isDirectory()) {
+    if (!entry.isDirectory() || !isSupportedLogDayDirName(entry.name)) {
       continue;
     }
 
