@@ -90,6 +90,13 @@ fn org_dirs_in_iteration_order(orgs_root: &PathBuf) -> Vec<PathBuf> {
     dirs
 }
 
+fn write_legacy_root_noise_logs(apexlogs_dir: &PathBuf, prefix: &str, count: usize) {
+    for index in 0..count {
+        fs::write(apexlogs_dir.join(format!("{prefix}_{index:05}.log")), "")
+            .expect("noise log should be writable");
+    }
+}
+
 #[cfg(windows)]
 fn write_fake_sf_cmd(root: &PathBuf, body: &str) -> PathBuf {
     let script_path = root.join("sf.cmd");
@@ -423,6 +430,43 @@ fn logs_runtime_smoke_search_reads_org_first_cache_layout() {
 }
 
 #[test]
+fn logs_runtime_smoke_search_with_blank_log_ids_short_circuits_before_cache_indexing() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("search-empty-log-ids");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    write_legacy_root_noise_logs(&apexlogs_dir, "noise", 64);
+    std::env::set_var("ALV_TEST_SEARCH_ROOT_INDEX_DELAY_MS", "2");
+
+    let token = CancellationToken::new();
+    let cancel_handle = token.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(50));
+        cancel_handle.cancel();
+    });
+
+    let result = search_query_with_cancel(
+        &SearchQueryParams {
+            query: "needle".to_string(),
+            log_ids: vec!["   ".to_string()],
+            username: None,
+            raw_username: None,
+            workspace_root: Some(workspace_root.display().to_string()),
+        },
+        &token,
+    )
+    .expect("blank log ids should return before indexing cache paths");
+
+    assert!(result.log_ids.is_empty());
+    assert!(result.pending_log_ids.is_empty());
+    assert!(result.snippets.is_empty());
+
+    std::env::remove_var("ALV_TEST_SEARCH_ROOT_INDEX_DELAY_MS");
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
 fn logs_runtime_smoke_search_checks_duplicate_log_ids_across_org_trees() {
     let _guard = lock_test_guard();
 
@@ -587,6 +631,57 @@ fn logs_runtime_smoke_search_scoped_to_selected_org_uses_legacy_bare_log_fallbac
     assert_eq!(result.log_ids, vec!["07L00000000000LB1".to_string()]);
     assert!(result.pending_log_ids.is_empty());
 
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_search_scoped_hit_skips_unrelated_legacy_root_scan() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("search-scoped-skip-legacy-root-scan");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    let selected_org_dir = apexlogs_dir
+        .join("orgs")
+        .join("selected@example.com")
+        .join("logs")
+        .join("2026-03-30");
+    fs::create_dir_all(&selected_org_dir).expect("selected org log dir should exist");
+    let log_id = "07L00000000000SX1";
+    fs::write(
+        selected_org_dir.join(format!("{log_id}.log")),
+        "09:00:00.0|FATAL_ERROR|ScopedIndexedNeedle\n",
+    )
+    .expect("selected org cached log should be writable");
+    write_legacy_root_noise_logs(&apexlogs_dir, "otherorg", 64);
+    std::env::set_var("ALV_TEST_SEARCH_ROOT_INDEX_DELAY_MS", "2");
+
+    let token = CancellationToken::new();
+    let cancel_handle = token.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(50));
+        cancel_handle.cancel();
+    });
+
+    let result = search_query_with_cancel(
+        &SearchQueryParams {
+            query: "ScopedIndexedNeedle".to_string(),
+            log_ids: vec![log_id.to_string()],
+            username: Some("selected@example.com".to_string()),
+            raw_username: None,
+            workspace_root: Some(workspace_root.display().to_string()),
+        },
+        &token,
+    )
+    .expect("scoped search should not scan unrelated legacy root entries");
+
+    assert_eq!(result.log_ids, vec![log_id.to_string()]);
+    let snippet = result
+        .snippets
+        .get(log_id)
+        .expect("matched log should include snippet");
+    assert!(snippet.text.contains("ScopedIndexedNeedle"));
+
+    std::env::remove_var("ALV_TEST_SEARCH_ROOT_INDEX_DELAY_MS");
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
 }
 
