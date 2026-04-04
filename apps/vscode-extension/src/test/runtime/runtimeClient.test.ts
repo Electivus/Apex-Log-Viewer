@@ -224,6 +224,36 @@ suite('runtime client', () => {
     assert.equal(auth.username, 'demo@example.com');
   });
 
+  test('resolveCachedLogPath uses the runtime request method', async () => {
+    const methods: string[] = [];
+    const client = new RuntimeClient({
+      requestHandler: async (method, params) => {
+        methods.push(method);
+        assert.equal(method, 'logs/resolveCachedPath');
+        assert.deepEqual(params, {
+          logId: '07L000000000001AA',
+          username: 'demo@example.com',
+          workspaceRoot: '/tmp/alv-workspace'
+        });
+        return {
+          path: '/tmp/alv-workspace/apexlogs/orgs/demo@example.com/logs/2026-03-30/07L000000000001AA.log'
+        } as never;
+      }
+    });
+
+    const result = await client.resolveCachedLogPath({
+      logId: '07L000000000001AA',
+      username: 'demo@example.com',
+      workspaceRoot: '/tmp/alv-workspace'
+    });
+
+    assert.deepEqual(methods, ['logs/resolveCachedPath']);
+    assert.equal(
+      result.path,
+      '/tmp/alv-workspace/apexlogs/orgs/demo@example.com/logs/2026-03-30/07L000000000001AA.log'
+    );
+  });
+
   test('coalesces concurrent orgList requests with identical params', async () => {
     let orgListCalls = 0;
     let resolveOrgList: ((value: OrgListItem[]) => void) | undefined;
