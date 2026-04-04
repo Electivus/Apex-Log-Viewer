@@ -7,6 +7,8 @@ import type {
   JsonRpcSuccessResponse,
   InitializeResult,
   LogsListParams,
+  ResolveCachedLogPathParams,
+  ResolveCachedLogPathResult,
   LogsTriageEntry,
   LogsTriageParams,
   RuntimeLogRow,
@@ -201,6 +203,16 @@ export class RuntimeClient extends EventEmitter {
       await this.initialize();
     }
     return this.request<LogsTriageEntry[]>('logs/triage', params, signal);
+  }
+
+  async resolveCachedLogPath(
+    params: ResolveCachedLogPathParams,
+    signal?: AbortSignal
+  ): Promise<ResolveCachedLogPathResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<ResolveCachedLogPathResult>('logs/resolveCachedPath', params, signal);
   }
 
   scheduleRestart(): void {

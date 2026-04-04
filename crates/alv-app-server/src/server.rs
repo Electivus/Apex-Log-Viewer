@@ -43,6 +43,7 @@ enum ServerOperation {
     LogsList(LogsListParams),
     SearchQuery(SearchQueryParams),
     LogsTriage(LogsTriageParams),
+    ResolveCachedPath(logs_handler::ResolveCachedLogPathParams),
     Unknown(String),
 }
 
@@ -257,6 +258,10 @@ fn execute_call(call: ServerCall, cancellation: &CancellationToken) -> Result<St
             let payload = logs_handler::handle_logs_triage_with_cancel(params, cancellation)?;
             Ok(jsonrpc_result(&call.id, &payload))
         }
+        ServerOperation::ResolveCachedPath(params) => {
+            let payload = logs_handler::handle_resolve_cached_path(params)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
         ServerOperation::Unknown(method) => Ok(jsonrpc_error(
             &call.id,
             -32601,
@@ -396,6 +401,24 @@ fn parse_request_line(request: &str) -> Result<ParsedRequest, String> {
                 .or_else(|| params.get("workspace_root").and_then(Value::as_str))
                 .map(str::to_string),
         }),
+        "logs/resolveCachedPath" => {
+            ServerOperation::ResolveCachedPath(logs_handler::ResolveCachedLogPathParams {
+                log_id: params
+                    .get("logId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                username: params
+                    .get("username")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                workspace_root: params
+                    .get("workspaceRoot")
+                    .and_then(Value::as_str)
+                    .or_else(|| params.get("workspace_root").and_then(Value::as_str))
+                    .map(str::to_string),
+            })
+        }
         _ => ServerOperation::Unknown(method.to_string()),
     };
 

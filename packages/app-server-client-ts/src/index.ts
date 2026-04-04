@@ -91,6 +91,16 @@ export type LogsTriageEntry = {
   summary: RuntimeLogTriageSummary;
 };
 
+export type ResolveCachedLogPathParams = {
+  logId: string;
+  username?: string;
+  workspaceRoot?: string;
+};
+
+export type ResolveCachedLogPathResult = {
+  path?: string;
+};
+
 export type JsonRpcRequest = {
   jsonrpc: '2.0';
   id: string;

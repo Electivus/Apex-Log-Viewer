@@ -197,7 +197,7 @@ pub fn find_cached_log_path(
 
     if let Some(username) = resolved_username.filter(|value| !value.trim().is_empty()) {
         let scoped_root = org_dir(workspace_root, username).join("logs");
-        if let Some(found) = find_log_in_tree(&scoped_root, log_id) {
+        if let Some(found) = find_log_in_logs_dir(&scoped_root, log_id) {
             return Some(found);
         }
 
@@ -215,7 +215,7 @@ pub fn find_cached_log_path(
     }
 
     let orgs_root = root.join("orgs");
-    if let Some(found) = find_log_in_tree(&orgs_root, log_id) {
+    if let Some(found) = find_log_in_orgs_root(&orgs_root, log_id) {
         return Some(found);
     }
 
@@ -231,22 +231,51 @@ pub fn find_cached_log_path(
     None
 }
 
-fn find_log_in_tree(root: &Path, log_id: &str) -> Option<PathBuf> {
-    if !root.exists() {
+fn find_log_in_logs_dir(logs_root: &Path, log_id: &str) -> Option<PathBuf> {
+    if !logs_root.is_dir() {
         return None;
     }
 
-    for entry in fs::read_dir(root).ok()?.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if let Some(found) = find_log_in_tree(&path, log_id) {
-                return Some(found);
-            }
+    for entry in fs::read_dir(logs_root).ok()?.flatten() {
+        let day_dir = entry.path();
+        if !day_dir.is_dir() || !is_supported_log_day_dir_name(entry.file_name().to_string_lossy().as_ref()) {
             continue;
         }
 
-        if path.file_name()?.to_string_lossy() == format!("{log_id}.log") {
-            return Some(path);
+        let candidate = day_dir.join(format!("{log_id}.log"));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn is_supported_log_day_dir_name(name: &str) -> bool {
+    name == "unknown-date"
+        || matches!(
+            name.as_bytes(),
+            [y1, y2, y3, y4, b'-', m1, m2, b'-', d1, d2]
+                if y1.is_ascii_digit()
+                    && y2.is_ascii_digit()
+                    && y3.is_ascii_digit()
+                    && y4.is_ascii_digit()
+                    && m1.is_ascii_digit()
+                    && m2.is_ascii_digit()
+                    && d1.is_ascii_digit()
+                    && d2.is_ascii_digit()
+        )
+}
+
+fn find_log_in_orgs_root(orgs_root: &Path, log_id: &str) -> Option<PathBuf> {
+    if !orgs_root.is_dir() {
+        return None;
+    }
+
+    for entry in fs::read_dir(orgs_root).ok()?.flatten() {
+        let found = find_log_in_logs_dir(&entry.path().join("logs"), log_id);
+        if found.is_some() {
+            return found;
         }
     }
 

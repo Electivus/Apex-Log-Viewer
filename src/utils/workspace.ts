@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';
 import { promises as fs } from 'fs';
+import { runtimeClient } from '../../apps/vscode-extension/src/runtime/runtimeClient';
 import { logInfo, logWarn } from './logger';
 
 export interface SalesforceProjectInfo {
@@ -132,26 +133,53 @@ function toSafeLogUserName(username: string | undefined): string {
   return (username || 'default').replace(/[^a-zA-Z0-9_.@-]+/g, '_');
 }
 
-async function findExistingLogFileInTree(rootDir: string, logId: string): Promise<string | undefined> {
+function isSupportedLogDayDirName(name: string): boolean {
+  return name === 'unknown-date' || /^\d{4}-\d{2}-\d{2}$/.test(name);
+}
+
+async function findExistingLogFileInLogsDir(logsDir: string, logId: string): Promise<string | undefined> {
   let entries: import('fs').Dirent[];
   try {
-    entries = await fs.readdir(rootDir, { withFileTypes: true });
+    entries = await fs.readdir(logsDir, { withFileTypes: true });
   } catch {
     return undefined;
   }
 
   for (const entry of entries) {
-    const filePath = path.join(rootDir, entry.name);
-    if (entry.isDirectory()) {
-      const nested = await findExistingLogFileInTree(filePath, logId);
-      if (nested) {
-        return nested;
-      }
+    if (!entry.isDirectory() || !isSupportedLogDayDirName(entry.name)) {
       continue;
     }
 
-    if (entry.isFile() && entry.name === `${logId}.log`) {
-      return filePath;
+    const candidate = path.join(logsDir, entry.name, `${logId}.log`);
+    try {
+      const stat = await fs.stat(candidate);
+      if (stat.isFile()) {
+        return candidate;
+      }
+    } catch {
+      // ignore missing or unreadable candidates
+    }
+  }
+
+  return undefined;
+}
+
+async function findExistingLogFileInOrgsDir(orgsDir: string, logId: string): Promise<string | undefined> {
+  let entries: import('fs').Dirent[];
+  try {
+    entries = await fs.readdir(orgsDir, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const found = await findExistingLogFileInLogsDir(path.join(orgsDir, entry.name, 'logs'), logId);
+    if (found) {
+      return found;
     }
   }
 
@@ -163,14 +191,29 @@ async function findExistingLogFileInTree(rootDir: string, logId: string): Promis
  */
 export async function findExistingLogFile(logId: string, username?: string): Promise<string | undefined> {
   const dir = getApexLogsDir();
+  const workspaceRoot = getWorkspaceRoot();
+
+  try {
+    const resolved = await runtimeClient.resolveCachedLogPath({
+      logId,
+      username,
+      workspaceRoot
+    });
+    if (typeof resolved.path === 'string' && resolved.path.trim().length > 0) {
+      return resolved.path;
+    }
+  } catch (error) {
+    logWarn('Workspace: runtime cached log lookup failed ->', getErrorMessage(error));
+  }
+
   try {
     if (username) {
-      const orgFirst = await findExistingLogFileInTree(path.join(dir, 'orgs', toSafeLogUserName(username), 'logs'), logId);
+      const orgFirst = await findExistingLogFileInLogsDir(path.join(dir, 'orgs', toSafeLogUserName(username), 'logs'), logId);
       if (orgFirst) {
         return orgFirst;
       }
     } else {
-      const orgFirst = await findExistingLogFileInTree(path.join(dir, 'orgs'), logId);
+      const orgFirst = await findExistingLogFileInOrgsDir(path.join(dir, 'orgs'), logId);
       if (orgFirst) {
         return orgFirst;
       }

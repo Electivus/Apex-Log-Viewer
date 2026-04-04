@@ -188,6 +188,81 @@ fn app_server_smoke_routes_logs_search_and_triage_requests() {
 }
 
 #[test]
+fn app_server_smoke_resolves_cached_log_paths() {
+    let workspace_root = make_temp_dir("resolve-cache");
+    let cached_path = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("demo@example.com")
+        .join("logs")
+        .join("2026-03-30")
+        .join("07L000000000001AA.log");
+    fs::create_dir_all(
+        cached_path
+            .parent()
+            .expect("cached log parent should exist"),
+    )
+    .expect("cached log dir should be creatable");
+    fs::write(&cached_path, "body").expect("cached log should be writable");
+
+    let response = handle_request_line(&format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":\"resolve:1\",\"method\":\"logs/resolveCachedPath\",\"params\":{{\"logId\":\"07L000000000001AA\",\"username\":\"demo@example.com\",\"workspaceRoot\":\"{}\"}}}}",
+        workspace_root.display()
+    ))
+    .expect("resolve request should succeed")
+    .expect("resolve request should emit a response");
+
+    assert!(response.contains("\"id\":\"resolve:1\""));
+    assert!(response.contains("\"path\":\""));
+    assert!(response.contains("07L000000000001AA.log"));
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
+fn app_server_smoke_drops_stale_cached_log_path_hits() {
+    let workspace_root = make_temp_dir("resolve-cache-stale");
+    let cached_path = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("demo@example.com")
+        .join("logs")
+        .join("2026-03-30")
+        .join("07L000000000009AA.log");
+    fs::create_dir_all(
+        cached_path
+            .parent()
+            .expect("cached log parent should exist"),
+    )
+    .expect("cached log dir should be creatable");
+    fs::write(&cached_path, "body").expect("cached log should be writable");
+
+    let first_response = handle_request_line(&format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":\"resolve:stale-1\",\"method\":\"logs/resolveCachedPath\",\"params\":{{\"logId\":\"07L000000000009AA\",\"username\":\"demo@example.com\",\"workspaceRoot\":\"{}\"}}}}",
+        workspace_root.display()
+    ))
+    .expect("first resolve request should succeed")
+    .expect("first resolve request should emit a response");
+    assert!(first_response.contains("07L000000000009AA.log"));
+
+    fs::remove_file(&cached_path).expect("cached log should be removable");
+
+    let second_response = handle_request_line(&format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":\"resolve:stale-2\",\"method\":\"logs/resolveCachedPath\",\"params\":{{\"logId\":\"07L000000000009AA\",\"username\":\"demo@example.com\",\"workspaceRoot\":\"{}\"}}}}",
+        workspace_root.display()
+    ))
+    .expect("second resolve request should succeed")
+    .expect("second resolve request should emit a response");
+
+    assert!(
+        !second_response.contains("\"path\":\""),
+        "stale cache hits should not keep returning a removed file path"
+    );
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
 fn app_server_smoke_cancels_in_flight_request_and_keeps_processing_stdio() {
     let _guard = test_guard().lock().expect("test guard should lock");
 
