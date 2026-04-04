@@ -182,6 +182,67 @@ fn log_store_scoped_lookup_does_not_scan_other_org_trees_when_scope_misses() {
 }
 
 #[test]
+fn log_store_ignores_matching_files_outside_logs_day_directories() {
+    let workspace_root = make_temp_workspace("bounded-layout");
+    let off_layout = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default@example.com")
+        .join("logs")
+        .join("archive")
+        .join("2026-03-30");
+    fs::create_dir_all(&off_layout).expect("archive dir should be creatable");
+    fs::write(off_layout.join("07L0000000000BAD.log"), "off-layout")
+        .expect("off-layout file should be writable");
+
+    let found = find_cached_log_path(
+        Some(
+            workspace_root
+                .to_str()
+                .expect("workspace path should be utf8"),
+        ),
+        "07L0000000000BAD",
+        Some("default@example.com"),
+    );
+
+    assert!(
+        found.is_none(),
+        "lookup should ignore files outside logs/<day>/"
+    );
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn log_store_unscoped_lookup_ignores_matching_files_outside_logs_day_directories() {
+    let workspace_root = make_temp_workspace("bounded-unscoped");
+    let off_layout = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("other@example.com")
+        .join("tmp")
+        .join("2026-03-30");
+    fs::create_dir_all(&off_layout).expect("tmp dir should be creatable");
+    fs::write(off_layout.join("07L0000000000OFF.log"), "off-layout")
+        .expect("off-layout file should be writable");
+
+    let found = find_cached_log_path(
+        Some(
+            workspace_root
+                .to_str()
+                .expect("workspace path should be utf8"),
+        ),
+        "07L0000000000OFF",
+        None,
+    );
+
+    assert!(
+        found.is_none(),
+        "unscoped lookup should still respect the supported layout"
+    );
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
 fn log_store_ignores_empty_log_ids() {
     let workspace_root = make_temp_workspace("empty-log-id");
     let workspace_text = workspace_root

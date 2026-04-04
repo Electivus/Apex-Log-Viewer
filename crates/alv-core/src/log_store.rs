@@ -197,7 +197,7 @@ pub fn find_cached_log_path(
 
     if let Some(username) = resolved_username.filter(|value| !value.trim().is_empty()) {
         let scoped_root = org_dir(workspace_root, username).join("logs");
-        if let Some(found) = find_log_in_tree(&scoped_root, log_id) {
+        if let Some(found) = find_log_in_logs_dir(&scoped_root, log_id) {
             return Some(found);
         }
 
@@ -215,7 +215,7 @@ pub fn find_cached_log_path(
     }
 
     let orgs_root = root.join("orgs");
-    if let Some(found) = find_log_in_tree(&orgs_root, log_id) {
+    if let Some(found) = find_log_in_orgs_root(&orgs_root, log_id) {
         return Some(found);
     }
 
@@ -231,22 +231,35 @@ pub fn find_cached_log_path(
     None
 }
 
-fn find_log_in_tree(root: &Path, log_id: &str) -> Option<PathBuf> {
-    if !root.exists() {
+fn find_log_in_logs_dir(logs_root: &Path, log_id: &str) -> Option<PathBuf> {
+    if !logs_root.is_dir() {
         return None;
     }
 
-    for entry in fs::read_dir(root).ok()?.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if let Some(found) = find_log_in_tree(&path, log_id) {
-                return Some(found);
-            }
+    for entry in fs::read_dir(logs_root).ok()?.flatten() {
+        let day_dir = entry.path();
+        if !day_dir.is_dir() {
             continue;
         }
 
-        if path.file_name()?.to_string_lossy() == format!("{log_id}.log") {
-            return Some(path);
+        let candidate = day_dir.join(format!("{log_id}.log"));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn find_log_in_orgs_root(orgs_root: &Path, log_id: &str) -> Option<PathBuf> {
+    if !orgs_root.is_dir() {
+        return None;
+    }
+
+    for entry in fs::read_dir(orgs_root).ok()?.flatten() {
+        let found = find_log_in_logs_dir(&entry.path().join("logs"), log_id);
+        if found.is_some() {
+            return found;
         }
     }
 
