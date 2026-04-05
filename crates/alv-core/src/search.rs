@@ -12,7 +12,9 @@ use std::{
 };
 
 const TEST_SEARCH_LINE_DELAY_MS_ENV: &str = "ALV_TEST_SEARCH_LINE_DELAY_MS";
+const TEST_SEARCH_ROOT_INDEX_DELAY_MS_ENV: &str = "ALV_TEST_SEARCH_ROOT_INDEX_DELAY_MS";
 const CANCELLED_MESSAGE: &str = "request cancelled";
+type CachedLogPathIndex = BTreeMap<String, Vec<PathBuf>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct SearchQueryParams {
@@ -60,6 +62,10 @@ pub fn search_query_with_cancel(
         .case_insensitive(true)
         .build(query)
         .map_err(|error| format!("failed to build search matcher: {error}"))?;
+    let log_ids = dedup_ids(&params.log_ids);
+    if log_ids.is_empty() {
+        return Ok(SearchQueryResult::default());
+    }
 
     let mut result = SearchQueryResult::default();
     let canonical_username = resolve_canonical_username(params.username.as_deref())
@@ -69,35 +75,20 @@ pub fn search_query_with_cancel(
         .raw_username
         .as_deref()
         .or(params.username.as_deref());
+    let path_index = build_cached_log_path_index(
+        params.workspace_root.as_deref(),
+        raw_username_hint,
+        canonical_username.as_deref(),
+        &log_ids,
+        cancellation,
+    )?;
 
-    for log_id in dedup_ids(&params.log_ids) {
+    for log_id in log_ids {
         cancellation.check_cancelled()?;
-        let paths = match canonical_username.as_deref() {
-            Some(username) => find_scoped_cached_log_paths(
-                params.workspace_root.as_deref(),
-                &log_id,
-                raw_username_hint,
-                username,
-            ),
-            None => {
-                if let Some(raw_username) = raw_username_hint
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                {
-                    find_raw_scoped_cached_log_paths(
-                        params.workspace_root.as_deref(),
-                        &log_id,
-                        raw_username,
-                    )
-                } else {
-                    find_cached_log_paths(params.workspace_root.as_deref(), &log_id)
-                }
-            }
-        };
-        if paths.is_empty() {
+        let Some(paths) = path_index.get(&log_id) else {
             result.pending_log_ids.push(log_id);
             continue;
-        }
+        };
 
         let mut matched_line = None::<String>;
         for path in paths {
@@ -138,7 +129,15 @@ pub fn search_query_with_cancel(
 }
 
 fn maybe_test_delay(cancellation: &CancellationToken) -> io::Result<()> {
-    let Some(delay_ms) = std::env::var(TEST_SEARCH_LINE_DELAY_MS_ENV)
+    maybe_test_delay_for_env(TEST_SEARCH_LINE_DELAY_MS_ENV, cancellation)
+}
+
+fn maybe_test_root_index_delay(cancellation: &CancellationToken) -> io::Result<()> {
+    maybe_test_delay_for_env(TEST_SEARCH_ROOT_INDEX_DELAY_MS_ENV, cancellation)
+}
+
+fn maybe_test_delay_for_env(env_name: &str, cancellation: &CancellationToken) -> io::Result<()> {
+    let Some(delay_ms) = std::env::var(env_name)
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())
     else {
@@ -260,142 +259,265 @@ fn resolve_canonical_username(username: Option<&str>) -> Result<Option<String>, 
     ))
 }
 
-fn find_cached_log_paths(workspace_root: Option<&str>, log_id: &str) -> Vec<PathBuf> {
-    let root = log_store::resolve_apexlogs_root(workspace_root);
-    let mut paths = Vec::new();
-
-    collect_log_paths_in_tree(&root.join("orgs"), log_id, &mut paths);
-
-    if let Ok(entries) = fs::read_dir(&root) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Some(file_name) = path.file_name() else {
-                continue;
-            };
-            let file_name = file_name.to_string_lossy();
-            if file_name == format!("{log_id}.log")
-                || file_name.ends_with(&format!("_{log_id}.log"))
+fn build_cached_log_path_index(
+    workspace_root: Option<&str>,
+    raw_username_hint: Option<&str>,
+    canonical_username: Option<&str>,
+    requested_log_ids: &[String],
+    cancellation: &CancellationToken,
+) -> Result<CachedLogPathIndex, String> {
+    match canonical_username {
+        Some(username) => build_scoped_cached_log_path_index(
+            workspace_root,
+            raw_username_hint,
+            username,
+            requested_log_ids,
+            cancellation,
+        ),
+        None => {
+            if let Some(raw_username) = raw_username_hint
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
             {
-                paths.push(path);
+                build_raw_scoped_cached_log_path_index(
+                    workspace_root,
+                    raw_username,
+                    requested_log_ids,
+                    cancellation,
+                )
+            } else {
+                build_unscoped_cached_log_path_index(workspace_root, cancellation)
             }
         }
     }
-
-    paths.sort_by(|left, right| left.to_string_lossy().cmp(&right.to_string_lossy()));
-    paths.dedup();
-    paths
 }
 
-fn find_scoped_cached_log_paths(
+fn build_unscoped_cached_log_path_index(
     workspace_root: Option<&str>,
-    log_id: &str,
+    cancellation: &CancellationToken,
+) -> Result<CachedLogPathIndex, String> {
+    let root = log_store::resolve_apexlogs_root(workspace_root);
+    let mut index = CachedLogPathIndex::new();
+
+    collect_log_path_index_in_tree(&root.join("orgs"), cancellation, &mut index)?;
+    collect_root_log_path_index(&root, &[], true, cancellation, &mut index)?;
+    sort_and_dedup_path_index(&mut index);
+
+    Ok(index)
+}
+
+fn build_scoped_cached_log_path_index(
+    workspace_root: Option<&str>,
     raw_username: Option<&str>,
     canonical_username: &str,
-) -> Vec<PathBuf> {
+    requested_log_ids: &[String],
+    cancellation: &CancellationToken,
+) -> Result<CachedLogPathIndex, String> {
     let root = log_store::resolve_apexlogs_root(workspace_root);
-    let mut paths = Vec::new();
+    let mut index = CachedLogPathIndex::new();
 
-    collect_log_paths_in_tree(
+    collect_log_path_index_in_tree(
         &log_store::org_dir(workspace_root, canonical_username).join("logs"),
-        log_id,
-        &mut paths,
-    );
+        cancellation,
+        &mut index,
+    )?;
 
-    push_legacy_scoped_paths(&mut paths, &root, log_id, raw_username, canonical_username);
-
-    paths.sort_by(|left, right| left.to_string_lossy().cmp(&right.to_string_lossy()));
-    paths.dedup();
-    paths
-}
-
-fn find_raw_scoped_cached_log_paths(
-    workspace_root: Option<&str>,
-    log_id: &str,
-    raw_username: &str,
-) -> Vec<PathBuf> {
-    let root = log_store::resolve_apexlogs_root(workspace_root);
-    let mut paths = Vec::new();
-
-    collect_log_paths_in_tree(
-        &log_store::org_dir(workspace_root, raw_username).join("logs"),
-        log_id,
-        &mut paths,
-    );
-
-    let raw_safe = log_store::safe_target_org(raw_username);
-    for candidate in [
-        root.join(format!("{raw_safe}_{log_id}.log")),
-        root.join(format!("{log_id}.log")),
-    ] {
-        if candidate.is_file() {
-            paths.push(candidate);
-        }
-    }
-
-    paths.sort_by(|left, right| left.to_string_lossy().cmp(&right.to_string_lossy()));
-    paths.dedup();
-    paths
-}
-
-fn push_legacy_scoped_paths(
-    paths: &mut Vec<PathBuf>,
-    root: &Path,
-    log_id: &str,
-    raw_username: Option<&str>,
-    canonical_username: &str,
-) {
-    for candidate in legacy_scoped_paths(root, log_id, raw_username, canonical_username) {
-        if candidate.is_file() {
-            paths.push(candidate);
-        }
-    }
-}
-
-fn legacy_scoped_paths(
-    root: &Path,
-    log_id: &str,
-    raw_username: Option<&str>,
-    canonical_username: &str,
-) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
     let canonical_safe = log_store::safe_target_org(canonical_username);
-    candidates.push(root.join(format!("{canonical_safe}_{log_id}.log")));
-
+    let mut allowed_prefixes = vec![canonical_safe];
     if let Some(raw_username) = raw_username
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
         let raw_safe = log_store::safe_target_org(raw_username);
-        if raw_safe != canonical_safe {
-            candidates.push(root.join(format!("{raw_safe}_{log_id}.log")));
+        if raw_safe != allowed_prefixes[0] {
+            allowed_prefixes.push(raw_safe);
         }
     }
 
-    candidates.push(root.join(format!("{log_id}.log")));
-    candidates
+    collect_requested_root_log_paths(
+        &root,
+        requested_log_ids,
+        &allowed_prefixes,
+        true,
+        cancellation,
+        &mut index,
+    )?;
+    sort_and_dedup_path_index(&mut index);
+
+    Ok(index)
 }
 
-fn collect_log_paths_in_tree(root: &Path, log_id: &str, paths: &mut Vec<PathBuf>) {
+fn build_raw_scoped_cached_log_path_index(
+    workspace_root: Option<&str>,
+    raw_username: &str,
+    requested_log_ids: &[String],
+    cancellation: &CancellationToken,
+) -> Result<CachedLogPathIndex, String> {
+    let root = log_store::resolve_apexlogs_root(workspace_root);
+    let mut index = CachedLogPathIndex::new();
+
+    collect_log_path_index_in_tree(
+        &log_store::org_dir(workspace_root, raw_username).join("logs"),
+        cancellation,
+        &mut index,
+    )?;
+
+    let raw_safe = log_store::safe_target_org(raw_username);
+    let allowed_prefixes = vec![raw_safe];
+    collect_requested_root_log_paths(
+        &root,
+        requested_log_ids,
+        &allowed_prefixes,
+        true,
+        cancellation,
+        &mut index,
+    )?;
+    sort_and_dedup_path_index(&mut index);
+
+    Ok(index)
+}
+
+fn collect_log_path_index_in_tree(
+    root: &Path,
+    cancellation: &CancellationToken,
+    index: &mut CachedLogPathIndex,
+) -> Result<(), String> {
     if !root.exists() {
-        return;
+        return Ok(());
     }
 
     let Ok(entries) = fs::read_dir(root) else {
-        return;
+        return Ok(());
     };
 
     for entry in entries.flatten() {
+        cancellation.check_cancelled()?;
+
         let path = entry.path();
         if path.is_dir() {
-            collect_log_paths_in_tree(&path, log_id, paths);
+            collect_log_path_index_in_tree(&path, cancellation, index)?;
             continue;
         }
 
-        if path
-            .file_name()
-            .is_some_and(|file_name| file_name.to_string_lossy() == format!("{log_id}.log"))
-        {
-            paths.push(path);
+        let Some(file_name) = path.file_name() else {
+            continue;
+        };
+        let file_name = file_name.to_string_lossy().into_owned();
+        let Some(log_id) = file_name.strip_suffix(".log") else {
+            continue;
+        };
+        if log_id.trim().is_empty() {
+            continue;
         }
+
+        push_index_path(index, &log_id, path);
+    }
+
+    Ok(())
+}
+
+fn collect_requested_root_log_paths(
+    root: &Path,
+    requested_log_ids: &[String],
+    allowed_prefixes: &[String],
+    include_bare_log: bool,
+    cancellation: &CancellationToken,
+    index: &mut CachedLogPathIndex,
+) -> Result<(), String> {
+    for log_id in requested_log_ids {
+        cancellation.check_cancelled()?;
+
+        for candidate in root_log_candidates(root, log_id, allowed_prefixes, include_bare_log) {
+            if candidate.is_file() {
+                push_index_path(index, log_id, candidate);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_root_log_path_index(
+    root: &Path,
+    allowed_prefixes: &[String],
+    include_all_prefixed_paths: bool,
+    cancellation: &CancellationToken,
+    index: &mut CachedLogPathIndex,
+) -> Result<(), String> {
+    let Ok(entries) = fs::read_dir(root) else {
+        return Ok(());
+    };
+
+    for entry in entries.flatten() {
+        cancellation.check_cancelled()?;
+        maybe_test_root_index_delay(cancellation).map_err(|error| error.to_string())?;
+
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let Some(file_name) = path.file_name() else {
+            continue;
+        };
+        let file_name = file_name.to_string_lossy().into_owned();
+        let Some((prefix, log_id)) = parse_root_log_file_name(&file_name) else {
+            continue;
+        };
+
+        if let Some(prefix) = prefix {
+            let include_prefixed = include_all_prefixed_paths
+                || allowed_prefixes
+                    .iter()
+                    .any(|allowed_prefix| allowed_prefix == prefix);
+            if !include_prefixed {
+                continue;
+            }
+        }
+
+        if log_id.trim().is_empty() {
+            continue;
+        }
+        push_index_path(index, &log_id, path);
+    }
+
+    Ok(())
+}
+
+fn root_log_candidates(
+    root: &Path,
+    log_id: &str,
+    allowed_prefixes: &[String],
+    include_bare_log: bool,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    for prefix in allowed_prefixes {
+        candidates.push(root.join(format!("{prefix}_{log_id}.log")));
+    }
+    if include_bare_log {
+        candidates.push(root.join(format!("{log_id}.log")));
+    }
+    candidates
+}
+
+fn parse_root_log_file_name(file_name: &str) -> Option<(Option<&str>, &str)> {
+    let stem = file_name.strip_suffix(".log")?;
+    match stem.rsplit_once('_') {
+        Some((prefix, log_id)) if !prefix.is_empty() && !log_id.is_empty() => {
+            Some((Some(prefix), log_id))
+        }
+        _ if !stem.is_empty() => Some((None, stem)),
+        _ => None,
+    }
+}
+
+fn push_index_path(index: &mut CachedLogPathIndex, log_id: &str, path: PathBuf) {
+    index.entry(log_id.to_string()).or_default().push(path);
+}
+
+fn sort_and_dedup_path_index(index: &mut CachedLogPathIndex) {
+    for paths in index.values_mut() {
+        paths.sort_by(|left, right| left.to_string_lossy().cmp(&right.to_string_lossy()));
+        paths.dedup();
     }
 }
