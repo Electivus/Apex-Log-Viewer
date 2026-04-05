@@ -95,6 +95,9 @@ jobs:
             exit 1
           fi
 
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
       - name: Install extension dependencies
         run: npm ci
         env:

@@ -73,8 +73,9 @@ security controls detect risk.
   mutable tags.
 - Pull requests run dependency review and fail on new moderate-or-higher risk
   dependencies in runtime or development scopes.
-- CI runs `npm run security:dependency-sources` to block unapproved dependency
-  source types such as arbitrary git, tarball, file, or URL dependencies.
+- Before any workflow `npm ci`, CI runs `node scripts/check-dependency-sources.mjs`
+  to block unapproved dependency source types in both manifests and
+  `package-lock.json`, including arbitrary git, tarball, file, or URL sources.
 - CI also runs `npm audit signatures` so npm registry signature/attestation
   coverage is validated as part of the gated path.
 - The Rust workspace keeps a checked-in `Cargo.lock` and uses `cargo-deny`

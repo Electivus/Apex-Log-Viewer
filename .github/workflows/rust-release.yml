@@ -63,6 +63,9 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
       - name: Install dependencies
         run: npm ci --workspaces=false
 
@@ -107,6 +110,9 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
 
       - name: Install dependencies
         run: npm ci --workspaces=false
@@ -154,6 +160,9 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
 
       - name: Install dependencies
         run: npm ci --workspaces=false

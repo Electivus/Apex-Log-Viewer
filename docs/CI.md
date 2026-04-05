@@ -2,7 +2,7 @@
 
 This repository uses GitHub Actions to build, test, package, and publish the extension.
 
-- Workflow CI (`.github/workflows/ci.yml`): build/test only on `push` and `pull_request`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`). This workflow also enforces dependency provenance (`npm run security:dependency-sources`) and npm registry signature verification (`npm run security:npm-signatures`) before compile/test.
+- Workflow CI (`.github/workflows/ci.yml`): build/test only on `push` and `pull_request`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`). This workflow enforces dependency provenance with `node scripts/check-dependency-sources.mjs` before every `npm ci`, then runs npm registry signature verification (`npm run security:npm-signatures`) before compile/test.
 - Workflow Dependency Review (`.github/workflows/dependency-review.yml`): blocks pull requests that introduce new moderate-or-higher dependency risk in runtime or development scopes.
 - Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. This workflow is now pool-only in CI: it requires `SF_SCRATCH_POOL_NAME` plus `SF_DEVHUB_AUTH_URL`, reuses pooled scratch orgs through each slot's stored `sfdxAuthUrl`, and defaults to `7` Playwright workers so the current seven E2E specs can run in parallel. When Azure OIDC secrets and the E2E telemetry target variables are configured, it runs the full `npm run test:e2e:telemetry` path and validates telemetry by querying `AppEvents` in the linked Log Analytics workspace scoped to the E2E Application Insights component resource. Without that Azure configuration, it still runs the full `npm run test:e2e` suite and simply skips the telemetry-validation layer.
 - Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace (if `VSCE_PAT` is configured) and Open VSX (if `OVSX_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
@@ -26,8 +26,9 @@ Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref.
 
 - Third-party and GitHub-owned Actions are pinned to full commit SHAs rather
   than mutable tags.
-- Dependency-source policy allows only registry packages plus the explicit
-  pinned `tree-sitter-sfapex` git exception.
+- Dependency-source policy allows only registry packages, in-repo workspace
+  links, plus the explicit pinned `tree-sitter-sfapex` git exception, and it
+  validates both manifests and `package-lock.json` before dependency install.
 - If `npm audit signatures` fails in CI, treat it as a provenance problem:
   investigate the package metadata or lockfile change instead of removing the
   gate.

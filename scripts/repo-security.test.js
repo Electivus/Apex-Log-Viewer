@@ -45,8 +45,38 @@ test('dependency review workflow exists and is wired to pull_request', () => {
 
 test('CI workflow enforces dependency provenance and npm signature verification', () => {
   const workflow = read('.github/workflows/ci.yml');
-  assert.match(workflow, /\bnpm run security:dependency-sources\b/);
+  assert.match(workflow, /\bnode scripts\/check-dependency-sources\.mjs\b/);
   assert.match(workflow, /\bnpm run security:npm-signatures\b/);
+});
+
+test('every workflow npm ci step is preceded by dependency provenance validation', () => {
+  for (const workflowPath of workflowFiles()) {
+    const workflow = read(workflowPath);
+    const provenanceChecks = Array.from(
+      workflow.matchAll(/run:\s+node scripts\/check-dependency-sources\.mjs/g),
+      match => match.index ?? -1
+    );
+    const npmInstalls = Array.from(
+      workflow.matchAll(/run:\s+npm ci(?:\s[^\r\n]*)?/g),
+      match => match.index ?? -1
+    );
+
+    if (npmInstalls.length === 0) {
+      continue;
+    }
+
+    assert.equal(
+      provenanceChecks.length,
+      npmInstalls.length,
+      `${workflowPath} should validate dependency provenance before every npm ci step`
+    );
+    for (let index = 0; index < npmInstalls.length; index += 1) {
+      assert.ok(
+        provenanceChecks[index] < npmInstalls[index],
+        `${workflowPath} should run dependency provenance validation before npm ci step ${index + 1}`
+      );
+    }
+  }
 });
 
 test('CODEOWNERS covers workflows, manifests, lockfiles, and release metadata', () => {
