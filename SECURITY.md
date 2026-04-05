@@ -63,6 +63,35 @@ Out of scope
 - Third‑party dependencies upstream (unless a vulnerability is directly caused
   by our usage/integration).
 
+## Repository Hardening Controls
+
+The repository enforces a stricter supply-chain posture than a default VS Code
+extension project. Maintainers should expect some PR and release friction when
+security controls detect risk.
+
+- GitHub Actions workflow references are pinned to full commit SHAs instead of
+  mutable tags.
+- Pull requests run dependency review and fail on new moderate-or-higher risk
+  dependencies in runtime or development scopes.
+- CI runs `npm run security:dependency-sources` to block unapproved dependency
+  source types such as arbitrary git, tarball, file, or URL dependencies.
+- CI also runs `npm audit signatures` so npm registry signature/attestation
+  coverage is validated as part of the gated path.
+- The Rust workspace keeps a checked-in `Cargo.lock` and uses `cargo-deny`
+  with the committed `deny.toml` allowlist for advisory, license, and source
+  checks.
+- Workflow files, package manifests, lockfiles, runtime bundle metadata, and
+  release/publish scripts are protected by `CODEOWNERS`.
+
+Exceptions
+
+- Any exception to these controls should be rare, reviewed by maintainers, and
+  documented in the relevant pull request with the specific reason and planned
+  follow-up.
+- The only currently approved non-registry JavaScript dependency source is the
+  pinned `tree-sitter-sfapex` git dependency. Changes to that exception should
+  be treated as a security-sensitive review item.
+
 ## Hardening Feedback
 
 We welcome non‑sensitive hardening proposals and dependency upgrade suggestions

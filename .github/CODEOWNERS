@@ -1,0 +1,16 @@
+* @Electivus/maintainers
+/.github/workflows/ @Electivus/maintainers
+/.github/dependabot.yml @Electivus/maintainers
+/.github/dependency-review-config.yml @Electivus/maintainers
+/package.json @Electivus/maintainers
+/package-lock.json @Electivus/maintainers
+/Cargo.toml @Electivus/maintainers
+/Cargo.lock @Electivus/maintainers
+/deny.toml @Electivus/maintainers
+/config/runtime-bundle.json @Electivus/maintainers
+/apps/vscode-extension/scripts/copy-tree-sitter-runtime.mjs @Electivus/maintainers
+/apps/vscode-extension/scripts/copy-package-metadata.mjs @Electivus/maintainers
+/scripts/fetch-runtime-release.mjs @Electivus/maintainers
+/scripts/build-cli-npm-packages.mjs @Electivus/maintainers
+/scripts/package-cli-release.mjs @Electivus/maintainers
+/scripts/publish-npm-package-if-needed.mjs @Electivus/maintainers

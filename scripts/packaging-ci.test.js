@@ -179,12 +179,12 @@ test('rust-release workflow configures the npm registry before publishing packag
 
   assert.match(
     nativePublishJob,
-    /uses:\s+actions\/setup-node@v6[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'/,
+    /uses:\s+actions\/setup-node@[0-9a-f]{40}[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'/,
     'expected native npm publish job to configure the npm registry before publishing'
   );
   assert.match(
     metaPublishJob,
-    /uses:\s+actions\/setup-node@v6[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'/,
+    /uses:\s+actions\/setup-node@[0-9a-f]{40}[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'/,
     'expected meta npm publish job to configure the npm registry before publishing'
   );
 });
@@ -211,12 +211,12 @@ test('rust-release publish jobs check out the repo before reading .nvmrc', () =>
 
   assert.match(
     nativePublishJob,
-    /- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@v6[\s\S]*?- name:\s+Setup Node\.js from \.nvmrc/,
+    /- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@[0-9a-f]{40}[\s\S]*?- name:\s+Setup Node\.js from \.nvmrc/,
     'expected native npm publish job to check out the repo before setup-node reads .nvmrc'
   );
   assert.match(
     metaPublishJob,
-    /- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@v6[\s\S]*?- name:\s+Setup Node\.js from \.nvmrc/,
+    /- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@[0-9a-f]{40}[\s\S]*?- name:\s+Setup Node\.js from \.nvmrc/,
     'expected meta npm publish job to check out the repo before setup-node reads .nvmrc'
   );
 });
@@ -226,7 +226,7 @@ test('rust-release release job checks out the repo before running gh release com
 
   assert.match(
     releaseJob,
-    /- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@v6[\s\S]*?- name:\s+Create or update GitHub release/,
+    /- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@[0-9a-f]{40}[\s\S]*?- name:\s+Create or update GitHub release/,
     'expected release job to check out the repo before running gh release commands'
   );
 });

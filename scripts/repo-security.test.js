@@ -43,6 +43,12 @@ test('dependency review workflow exists and is wired to pull_request', () => {
   assert.match(workflow, /config-file:\s+\.\/\.github\/dependency-review-config\.yml/);
 });
 
+test('CI workflow enforces dependency provenance and npm signature verification', () => {
+  const workflow = read('.github/workflows/ci.yml');
+  assert.match(workflow, /\bnpm run security:dependency-sources\b/);
+  assert.match(workflow, /\bnpm run security:npm-signatures\b/);
+});
+
 test('CODEOWNERS covers workflows, manifests, lockfiles, and release metadata', () => {
   const owners = read('.github/CODEOWNERS');
   for (const expected of [
@@ -64,6 +70,7 @@ test('CODEOWNERS covers workflows, manifests, lockfiles, and release metadata', 
 test('package.json runs repo-security and dependency-source checks in the default script lane', () => {
   const pkg = JSON.parse(read('package.json'));
   assert.match(String(pkg.scripts?.['test:scripts'] || ''), /\bscripts\/repo-security\.test\.js\b/);
+  assert.match(String(pkg.scripts?.['test:scripts'] || ''), /\bnode scripts\/check-dependency-sources\.mjs\b/);
   assert.equal(pkg.scripts?.['security:dependency-sources'], 'node scripts/check-dependency-sources.mjs');
 });
 
@@ -73,4 +80,11 @@ test('Rust workspace keeps a checked-in Cargo.lock and cargo-deny config', () =>
   assert.match(denyToml, /^\[sources\]$/m);
   assert.match(denyToml, /^unknown-registry = "deny"$/m);
   assert.match(denyToml, /^unknown-git = "deny"$/m);
+});
+
+test('Rust supply-chain workflow runs cargo-deny on PRs and main pushes', () => {
+  const workflow = read('.github/workflows/rust-supply-chain.yml');
+  assert.match(workflow, /^name:\s+Rust Supply Chain$/m);
+  assert.match(workflow, /^on:\s*[\r\n]+  pull_request:\s*[\r\n]+  push:\s*[\r\n]+    branches:\s*[\r\n]+      - main/m);
+  assert.match(workflow, /\bcargo deny check advisories bans licenses sources\b/);
 });
