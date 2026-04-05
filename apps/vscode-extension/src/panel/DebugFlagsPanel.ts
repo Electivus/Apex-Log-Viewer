@@ -13,7 +13,7 @@ import {
 import { DEBUG_LEVEL_PRESETS } from '../shared/debugLevelPresets';
 import { bucketQueryLength } from '../shared/telemetryBuckets';
 import { clearApexLogs } from '../../../../src/services/apexLogCleanup';
-import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '../shared/debugFlagsMessages';
+import { parseDebugFlagsFromWebviewMessage, type DebugFlagsToWebviewMessage } from '../shared/debugFlagsMessages';
 import type { DebugLevelRecord, TraceFlagTarget, TraceFlagTargetStatus } from '../shared/debugFlagsTypes';
 import { safeSendEvent } from '../shared/telemetry';
 import { pickSelectedOrg } from '../../../../src/utils/orgs';
@@ -93,7 +93,7 @@ export class DebugFlagsPanel {
     );
 
     this.panel.onDidDispose(() => this.dispose());
-    this.panel.webview.onDidReceiveMessage(message => this.onMessage(message as DebugFlagsFromWebviewMessage));
+    this.panel.webview.onDidReceiveMessage(message => this.onMessage(message));
     DebugFlagsPanel.context?.subscriptions.push(this.panel);
   }
 
@@ -118,8 +118,9 @@ export class DebugFlagsPanel {
     void this.panel.webview.postMessage(message);
   }
 
-  private async onMessage(message: DebugFlagsFromWebviewMessage): Promise<void> {
-    if (!message?.type || this.disposed) {
+  private async onMessage(rawMessage: unknown): Promise<void> {
+    const message = parseDebugFlagsFromWebviewMessage(rawMessage);
+    if (!message || this.disposed) {
       return;
     }
 
