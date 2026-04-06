@@ -44,7 +44,8 @@ function isValidConfiguredRuntimePath(configuredPath: string): boolean {
   }
 
   try {
-    if (!fs.statSync(configuredPath).isFile()) {
+    const stats = fs.statSync(configuredPath);
+    if (!stats.isFile() || stats.size <= 0) {
       return false;
     }
     if (process.platform === 'win32') {

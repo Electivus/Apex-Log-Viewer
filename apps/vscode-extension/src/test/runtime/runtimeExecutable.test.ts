@@ -16,7 +16,7 @@ suite('runtime executable', () => {
 
     try {
       const configuredFile = path.join(tempDir, 'apex-log-viewer');
-      writeFileSync(configuredFile, '');
+      writeFileSync(configuredFile, '#!/bin/sh\n');
       if (process.platform !== 'win32') {
         chmodSync(configuredFile, 0o755);
       }
@@ -29,6 +29,30 @@ suite('runtime executable', () => {
       assert.equal(result.executable, configuredFile);
       assert.equal(result.source, 'configured');
       assert.equal(result.showManualOverrideWarning, true);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('zero-byte configured runtimePath falls back to the bundled path', () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'alv-runtime-'));
+
+    try {
+      const configuredFile = path.join(tempDir, 'apex-log-viewer');
+      writeFileSync(configuredFile, '');
+      if (process.platform !== 'win32') {
+        chmodSync(configuredFile, 0o755);
+      }
+
+      const result = resolveRuntimeExecutable({
+        configuredPath: configuredFile,
+        bundledPath: '/tmp/bundled/apex-log-viewer'
+      });
+
+      assert.equal(result.executable, '/tmp/bundled/apex-log-viewer');
+      assert.equal(result.source, 'bundled');
+      assert.equal(result.showManualOverrideWarning, false);
+      assert.equal(result.invalidConfiguredPath, configuredFile);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

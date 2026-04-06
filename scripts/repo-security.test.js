@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const shellQuote = require('shell-quote');
 
 const repoRoot = path.join(__dirname, '..');
 
@@ -95,22 +96,50 @@ function shellCommandSegments(command) {
 }
 
 function heredocTerminator(command) {
-  const match = command.match(/<<-?\s*(["']?)([A-Za-z_][A-Za-z0-9_]*)\1/);
-  return match?.[2];
+  const tokens = parseShellTokens(command);
+  for (let index = 0; index < tokens.length - 2; index += 1) {
+    if (tokens[index]?.op === '<' && tokens[index + 1]?.op === '<' && typeof tokens[index + 2] === 'string') {
+      return tokens[index + 2].replace(/^-/, '');
+    }
+  }
+  return undefined;
+}
+
+function parseShellTokens(segment) {
+  const sanitized = segment.replace(/\$\{\{.*?\}\}/g, 'GITHUB_EXPR');
+  try {
+    return shellQuote.parse(sanitized);
+  } catch {
+    return [sanitized];
+  }
 }
 
 function normalizeCommandSegment(segment) {
-  let normalized = segment.trim().replace(/^\(+\s*/, '');
+  const tokens = parseShellTokens(segment);
+  let index = 0;
 
-  for (;;) {
-    const assignment = normalized.match(/^[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s"'()]+)\s+/);
-    if (!assignment) {
-      break;
-    }
-    normalized = normalized.slice(assignment[0].length);
+  while (tokens[index]?.op === '(') {
+    index += 1;
   }
 
-  return normalized;
+  while (typeof tokens[index] === 'string' && /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(tokens[index])) {
+    index += 1;
+  }
+
+  while (typeof tokens[index] === 'string' && (tokens[index] === 'env' || tokens[index] === 'time')) {
+    const wrapper = tokens[index];
+    index += 1;
+    while (typeof tokens[index] === 'string' && tokens[index].startsWith('-')) {
+      index += 1;
+    }
+    if (wrapper === 'env') {
+      while (typeof tokens[index] === 'string' && /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(tokens[index])) {
+        index += 1;
+      }
+    }
+  }
+
+  return tokens.slice(index).filter(token => typeof token === 'string').join(' ');
 }
 
 function isProvenanceCheckCommand(command) {
