@@ -38,6 +38,7 @@ function runCommandLines(workflow) {
     const runValue = match[2].trimEnd();
     if (/^[>|][+-]?$/.test(runValue.trim())) {
       let continuedCommand = '';
+      let heredocDelimiter;
 
       for (index += 1; index < lines.length; index += 1) {
         const blockLine = lines[index].replace(/\r$/, '');
@@ -48,6 +49,12 @@ function runCommandLines(workflow) {
           index -= 1;
           break;
         }
+        if (heredocDelimiter) {
+          if (trimmedBlockLine === heredocDelimiter) {
+            heredocDelimiter = undefined;
+          }
+          continue;
+        }
         if (trimmedBlockLine !== '' && !trimmedBlockLine.startsWith('#')) {
           const nextCommand = continuedCommand ? `${continuedCommand} ${trimmedBlockLine}` : trimmedBlockLine;
           if (nextCommand.endsWith('\\')) {
@@ -56,6 +63,7 @@ function runCommandLines(workflow) {
           }
 
           commands.push(nextCommand);
+          heredocDelimiter = heredocTerminator(nextCommand);
           continuedCommand = '';
         }
       }
@@ -86,14 +94,33 @@ function shellCommandSegments(command) {
     .filter(Boolean);
 }
 
+function heredocTerminator(command) {
+  const match = command.match(/<<-?\s*(["']?)([A-Za-z_][A-Za-z0-9_]*)\1/);
+  return match?.[2];
+}
+
+function normalizeCommandSegment(segment) {
+  let normalized = segment.trim().replace(/^\(+\s*/, '');
+
+  for (;;) {
+    const assignment = normalized.match(/^[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s"'()]+)\s+/);
+    if (!assignment) {
+      break;
+    }
+    normalized = normalized.slice(assignment[0].length);
+  }
+
+  return normalized;
+}
+
 function isProvenanceCheckCommand(command) {
   return shellCommandSegments(command).some(segment =>
-    /^node scripts\/check-dependency-sources\.mjs(?=$|[\s|])/.test(segment)
+    /^node scripts\/check-dependency-sources\.mjs(?=$|[\s|)])/.test(normalizeCommandSegment(segment))
   );
 }
 
 function isNpmCiCommand(command) {
-  return shellCommandSegments(command).some(segment => /^npm ci(?=$|[\s|])/.test(segment));
+  return shellCommandSegments(command).some(segment => /^npm ci(?=$|[\s|)])/.test(normalizeCommandSegment(segment)));
 }
 
 test('usesRefs matches dash-prefixed workflow steps', () => {
@@ -245,6 +272,37 @@ test('npm ci provenance detection handles line continuations in run blocks', () 
     '      - run: |',
     '          npm \\',
     '          ci'
+  ].join('\n');
+
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+  assert.equal(npmInstalls.length, 1);
+});
+
+test('echoed heredoc payload does not count as provenance validation', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: |',
+    "          cat <<'EOF'",
+    '          node scripts/check-dependency-sources.mjs',
+    '          EOF',
+    '          npm ci'
+  ].join('\n');
+
+  const provenanceChecks = commandIndexes(workflow, isProvenanceCheckCommand);
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+
+  assert.equal(provenanceChecks.length, 0);
+  assert.equal(npmInstalls.length, 1);
+});
+
+test('npm ci provenance detection handles shell-prefixed installs', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: FOO=1 npm ci'
   ].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
