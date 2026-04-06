@@ -303,3 +303,41 @@ test('rejects lockfile links whose metadata name spoofs the package path identit
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('rejects manifest git protocol dependency sources', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writeJson(tempDir, 'package.json', {
+      name: 'fixture',
+      private: true,
+      dependencies: {
+        leftpad: 'git://evil.example/leftpad.git#deadbeef'
+      }
+    });
+    writeJson(tempDir, 'package-lock.json', {
+      name: 'fixture',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: 'fixture',
+          dependencies: {
+            leftpad: '^1.0.0'
+          }
+        },
+        'node_modules/leftpad': {
+          version: '1.0.0',
+          resolved: 'https://registry.npmjs.org/leftpad/-/leftpad-1.0.0.tgz',
+          integrity: 'sha512-registry'
+        }
+      }
+    });
+
+    const result = runCheck(tempDir);
+    assert.notEqual(result.status, 0, 'expected git protocol manifest source to fail provenance checks');
+    assert.match(result.stderr, /package\.json -> leftpad@git:\/\/evil\.example\/leftpad\.git#deadbeef/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

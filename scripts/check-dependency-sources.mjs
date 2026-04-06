@@ -18,7 +18,7 @@ const allowedGitDependencies = new Map([
     }
   ]
 ]);
-const disallowedPrefixes = ['git+', 'github:', 'http://', 'https://', 'file:', 'link:'];
+const disallowedPrefixes = ['git+', 'git://', 'github:', 'http://', 'https://', 'file:', 'link:'];
 
 function resolveRepoRoot(args) {
   const rootFlagIndex = args.indexOf('--root');

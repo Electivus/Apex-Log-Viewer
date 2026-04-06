@@ -110,6 +110,34 @@ suite('runtime executable', () => {
     }
   });
 
+  test('network-share style runtimePath falls back to the bundled path', () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'alv-runtime-'));
+
+    try {
+      const configuredFile = path.join(tempDir, 'apex-log-viewer');
+      writeFileSync(configuredFile, '');
+      if (process.platform !== 'win32') {
+        chmodSync(configuredFile, 0o755);
+      }
+
+      const networkSharePath =
+        process.platform === 'win32'
+          ? `//${configuredFile.replace(/\\/g, '/')}`
+          : `//${configuredFile.replace(/^\/+/, '')}`;
+      const result = resolveRuntimeExecutable({
+        configuredPath: networkSharePath,
+        bundledPath: '/tmp/bundled/apex-log-viewer'
+      });
+
+      assert.equal(result.executable, '/tmp/bundled/apex-log-viewer');
+      assert.equal(result.source, 'bundled');
+      assert.equal(result.showManualOverrideWarning, false);
+      assert.equal(result.invalidConfiguredPath, networkSharePath);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   test('manifest exposes electivus.apexLogs.runtimePath as a string setting', () => {
     const packageJson = readJson('package.json');
 

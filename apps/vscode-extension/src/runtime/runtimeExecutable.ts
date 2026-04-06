@@ -36,6 +36,9 @@ function isValidConfiguredRuntimePath(configuredPath: string): boolean {
   if (configuredPath.includes('://') || configuredPath.startsWith('file:')) {
     return false;
   }
+  if (configuredPath.startsWith('\\\\') || configuredPath.startsWith('//')) {
+    return false;
+  }
   if (!path.isAbsolute(configuredPath)) {
     return false;
   }
