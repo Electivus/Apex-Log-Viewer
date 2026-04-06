@@ -40,6 +40,7 @@ export const DEFAULT_LOGS_COLUMNS_CONFIG: NormalizedLogsColumnsConfig = {
 };
 
 const KNOWN_KEYS = new Set<LogsColumnKey>(DEFAULT_LOGS_COLUMN_ORDER);
+const MAX_ORDER_INPUT_LENGTH = DEFAULT_LOGS_COLUMN_ORDER.length * 4;
 
 function isLogsColumnKey(value: unknown): value is LogsColumnKey {
   return typeof value === 'string' && KNOWN_KEYS.has(value as LogsColumnKey);
@@ -52,7 +53,7 @@ function dedupe<T>(values: T[]): T[] {
 export function normalizeLogsColumnsConfig(raw: unknown): NormalizedLogsColumnsConfig {
   const input = raw && typeof raw === 'object' ? (raw as LogsColumnsConfig) : {};
 
-  const rawOrder = Array.isArray(input.order) ? input.order : [];
+  const rawOrder = Array.isArray(input.order) ? input.order.slice(0, MAX_ORDER_INPUT_LENGTH) : [];
   const filteredOrder = rawOrder.filter(isLogsColumnKey);
   const order = dedupe([...filteredOrder, ...DEFAULT_LOGS_COLUMN_ORDER]);
 
@@ -72,4 +73,3 @@ export function normalizeLogsColumnsConfig(raw: unknown): NormalizedLogsColumnsC
 
   return { order, visibility, widths };
 }
-

@@ -33,6 +33,21 @@ function resolveRepoRoot(args) {
   return path.resolve(rootValue);
 }
 
+function rootManifest() {
+  return JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+}
+
+function workspacePatterns() {
+  const workspaces = rootManifest().workspaces;
+  if (Array.isArray(workspaces)) {
+    return workspaces.filter(pattern => typeof pattern === 'string' && pattern.trim());
+  }
+  if (Array.isArray(workspaces?.packages)) {
+    return workspaces.packages.filter(pattern => typeof pattern === 'string' && pattern.trim());
+  }
+  return [];
+}
+
 function collectWorkspacePaths(baseDir, fileName) {
   const dirPath = path.join(repoRoot, baseDir);
   if (!fs.existsSync(dirPath)) {
@@ -96,13 +111,44 @@ function isPathInsideRepo(candidatePath) {
   return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
 }
 
-function isWorkspaceLink(resolved) {
+function declaredWorkspacePackages() {
+  const packages = new Map();
+
+  for (const pattern of workspacePatterns()) {
+    const normalizedPattern = pattern.replace(/\\/g, '/').replace(/\/+$/, '');
+    const wildcardSuffix = '/*';
+    const packageJsonPaths = normalizedPattern.endsWith(wildcardSuffix)
+      ? collectWorkspacePaths(normalizedPattern.slice(0, -wildcardSuffix.length), 'package.json')
+      : [path.join(repoRoot, normalizedPattern, 'package.json')].filter(filePath => fs.existsSync(filePath));
+
+    for (const packageJsonPath of packageJsonPaths) {
+      const packageDir = path.dirname(packageJsonPath);
+      const manifest = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+      const packageName = typeof manifest.name === 'string' ? manifest.name.trim() : '';
+      if (!packageName) {
+        continue;
+      }
+
+      packages.set(packageDir, packageName);
+    }
+  }
+
+  return packages;
+}
+
+const workspacePackageNamesByDir = declaredWorkspacePackages();
+
+function isWorkspaceLink(packageName, resolved) {
   if (looksLikeUrl(resolved) || path.isAbsolute(resolved)) {
     return false;
   }
 
   const resolvedPath = path.resolve(repoRoot, resolved);
-  return isPathInsideRepo(resolvedPath) && fs.existsSync(resolvedPath);
+  if (!isPathInsideRepo(resolvedPath) || !fs.existsSync(resolvedPath)) {
+    return false;
+  }
+
+  return workspacePackageNamesByDir.get(resolvedPath) === packageName;
 }
 
 function lockEntryName(packagePath, packageMeta) {
@@ -161,12 +207,17 @@ for (const manifestPath of manifests()) {
     }
 
     for (const [name, version] of Object.entries(dependencies)) {
-      if (typeof version !== 'string' || version.startsWith('workspace:')) {
+      if (typeof version !== 'string') {
         continue;
       }
 
-      if (hasBlockedManifestSource(version) && !isAllowedManifestSource(name, version)) {
-        failures.push(`${path.relative(repoRoot, manifestPath)} -> ${name}@${version}`);
+      const normalizedVersion = version.trim();
+      if (!normalizedVersion || normalizedVersion.startsWith('workspace:')) {
+        continue;
+      }
+
+      if (hasBlockedManifestSource(normalizedVersion) && !isAllowedManifestSource(name, normalizedVersion)) {
+        failures.push(`${path.relative(repoRoot, manifestPath)} -> ${name}@${normalizedVersion}`);
       }
     }
   }
@@ -188,7 +239,7 @@ for (const lockfilePath of lockfiles()) {
       const packageName = lockEntryName(packagePath, packageMeta);
       const allowed =
         isAllowedLockSource(packageName, resolved) ||
-        (packageMeta.link === true && isWorkspaceLink(resolved)) ||
+        (packageMeta.link === true && isWorkspaceLink(packageName, resolved)) ||
         isRegistryTarball(resolved);
 
       if (!allowed) {
@@ -205,7 +256,7 @@ for (const lockfilePath of lockfiles()) {
 
     const allowed =
       isAllowedLockSource(name, source) ||
-      (packageMeta.link === true && isWorkspaceLink(source)) ||
+      (packageMeta.link === true && isWorkspaceLink(name, source)) ||
       isRegistryTarball(source);
 
     if (!allowed) {
