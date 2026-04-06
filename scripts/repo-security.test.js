@@ -17,8 +17,84 @@ function workflowFiles() {
 }
 
 function usesRefs(relativePath) {
-  return Array.from(read(relativePath).matchAll(/^\s+uses:\s+([^\s#]+)\s*$/gm), match => match[1]);
+  return Array.from(
+    read(relativePath).matchAll(/^\s*(?:-\s*)?uses:\s+([^\s#]+?)(?:\s+#.*)?\s*$/gm),
+    match => match[1]
+  );
 }
+
+function runCommandLines(workflow) {
+  const commands = [];
+  const lines = workflow.split('\n');
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].replace(/\r$/, '');
+    const match = /^(\s*)(?:-\s*)?run:\s*(.*)$/.exec(line);
+    if (!match) {
+      continue;
+    }
+
+    const indent = match[1].length;
+    const runValue = match[2].trimEnd();
+    if (/^[>|][+-]?$/.test(runValue.trim())) {
+      for (index += 1; index < lines.length; index += 1) {
+        const blockLine = lines[index].replace(/\r$/, '');
+        const blockIndent = blockLine.match(/^\s*/)?.[0].length ?? 0;
+
+        if (blockLine.trim() !== '' && blockIndent <= indent) {
+          index -= 1;
+          break;
+        }
+        if (blockLine.trim() !== '') {
+          commands.push(blockLine.trim());
+        }
+      }
+      continue;
+    }
+
+    if (runValue.trim() !== '') {
+      commands.push(runValue.trim());
+    }
+  }
+
+  return commands;
+}
+
+function commandIndexes(workflow, matcher) {
+  return runCommandLines(workflow)
+    .map((command, index) => (matcher(command) ? index : -1))
+    .filter(index => index !== -1);
+}
+
+test('usesRefs matches dash-prefixed workflow steps', () => {
+  assert.deepEqual(usesRefs('.github/workflows/semantic-pr.yml'), [
+    'amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50'
+  ]);
+});
+
+test('usesRefs keeps pinned refs when the line has an inline comment', () => {
+  const tempDir = fs.mkdtempSync(path.join(repoRoot, '.tmp-repo-security-'));
+  const fixturePath = path.join(tempDir, 'inline-comment.yml');
+  const relativeFixturePath = path.relative(repoRoot, fixturePath);
+
+  try {
+    fs.writeFileSync(
+      fixturePath,
+      [
+        'jobs:',
+        '  test:',
+        '    steps:',
+        '      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned'
+      ].join('\n')
+    );
+
+    assert.deepEqual(usesRefs(relativeFixturePath), [
+      'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd'
+    ]);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
 
 test('all workflow uses refs are pinned to full commit SHAs', () => {
   for (const workflowPath of workflowFiles()) {
@@ -49,17 +125,35 @@ test('CI workflow enforces dependency provenance and npm signature verification'
   assert.match(workflow, /\bnpm run security:npm-signatures\b/);
 });
 
+test('npm ci provenance detection handles multiline run blocks', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: |',
+    '          node scripts/check-dependency-sources.mjs',
+    '          npm ci'
+  ].join('\n');
+
+  const provenanceChecks = commandIndexes(
+    workflow,
+    command => /\bnode scripts\/check-dependency-sources\.mjs\b/.test(command)
+  );
+  const npmInstalls = commandIndexes(workflow, command => /^npm ci(?:\s|$)/.test(command));
+
+  assert.equal(provenanceChecks.length, 1);
+  assert.equal(npmInstalls.length, 1);
+  assert.ok(provenanceChecks[0] < npmInstalls[0]);
+});
+
 test('every workflow npm ci step is preceded by dependency provenance validation', () => {
   for (const workflowPath of workflowFiles()) {
     const workflow = read(workflowPath);
-    const provenanceChecks = Array.from(
-      workflow.matchAll(/run:\s+node scripts\/check-dependency-sources\.mjs/g),
-      match => match.index ?? -1
+    const provenanceChecks = commandIndexes(
+      workflow,
+      command => /\bnode scripts\/check-dependency-sources\.mjs\b/.test(command)
     );
-    const npmInstalls = Array.from(
-      workflow.matchAll(/run:\s+npm ci(?:\s[^\r\n]*)?/g),
-      match => match.index ?? -1
-    );
+    const npmInstalls = commandIndexes(workflow, command => /^npm ci(?:\s|$)/.test(command));
 
     if (npmInstalls.length === 0) {
       continue;

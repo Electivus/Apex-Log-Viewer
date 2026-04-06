@@ -122,6 +122,24 @@ function lockEntryName(packagePath, packageMeta) {
   return packagePath.slice(markerIndex + marker.length);
 }
 
+function collectLegacyLockEntries(dependencies, trail = []) {
+  if (!dependencies || typeof dependencies !== 'object') {
+    return [];
+  }
+
+  const entries = [];
+  for (const [name, packageMeta] of Object.entries(dependencies)) {
+    if (!packageMeta || typeof packageMeta !== 'object') {
+      continue;
+    }
+
+    const dependencyPath = trail.length === 0 ? name : `${trail.join(' > ')} > ${name}`;
+    entries.push({ dependencyPath, name, packageMeta });
+    entries.push(...collectLegacyLockEntries(packageMeta.dependencies, [...trail, name]));
+  }
+  return entries;
+}
+
 const failures = [];
 
 for (const manifestPath of manifests()) {
@@ -146,28 +164,42 @@ for (const manifestPath of manifests()) {
 
 for (const lockfilePath of lockfiles()) {
   const lockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
-  if (!lockfile.packages || typeof lockfile.packages !== 'object') {
-    continue;
+  if (lockfile.packages && typeof lockfile.packages === 'object') {
+    for (const [packagePath, packageMeta] of Object.entries(lockfile.packages)) {
+      if (!packageMeta || typeof packageMeta !== 'object') {
+        continue;
+      }
+
+      const resolved = typeof packageMeta.resolved === 'string' ? packageMeta.resolved.trim() : '';
+      if (!resolved) {
+        continue;
+      }
+
+      const packageName = lockEntryName(packagePath, packageMeta);
+      const allowed =
+        isAllowedLockSource(packageName, resolved) ||
+        (packageMeta.link === true && isWorkspaceLink(resolved)) ||
+        isRegistryTarball(resolved);
+
+      if (!allowed) {
+        failures.push(`${path.relative(repoRoot, lockfilePath)} -> ${packagePath || '(root)'} -> ${resolved}`);
+      }
+    }
   }
 
-  for (const [packagePath, packageMeta] of Object.entries(lockfile.packages)) {
-    if (!packageMeta || typeof packageMeta !== 'object') {
-      continue;
-    }
-
+  for (const { dependencyPath, name, packageMeta } of collectLegacyLockEntries(lockfile.dependencies)) {
     const resolved = typeof packageMeta.resolved === 'string' ? packageMeta.resolved.trim() : '';
     if (!resolved) {
       continue;
     }
 
-    const packageName = lockEntryName(packagePath, packageMeta);
     const allowed =
-      isAllowedLockSource(packageName, resolved) ||
+      isAllowedLockSource(name, resolved) ||
       (packageMeta.link === true && isWorkspaceLink(resolved)) ||
       isRegistryTarball(resolved);
 
     if (!allowed) {
-      failures.push(`${path.relative(repoRoot, lockfilePath)} -> ${packagePath || '(root)'} -> ${resolved}`);
+      failures.push(`${path.relative(repoRoot, lockfilePath)} -> ${dependencyPath} -> ${resolved}`);
     }
   }
 }
