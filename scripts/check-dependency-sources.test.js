@@ -259,3 +259,47 @@ test('rejects manifest dependency sources with leading whitespace', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('rejects lockfile links whose metadata name spoofs the package path identity', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writeJson(tempDir, 'package.json', {
+      name: 'fixture',
+      private: true,
+      workspaces: ['packages/*'],
+      dependencies: {
+        leftpad: '^1.0.0'
+      }
+    });
+    writeJson(tempDir, 'packages/example/package.json', {
+      name: '@alv/example',
+      version: '1.0.0'
+    });
+    writeJson(tempDir, 'package-lock.json', {
+      name: 'fixture',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: 'fixture',
+          workspaces: ['packages/*'],
+          dependencies: {
+            leftpad: '^1.0.0'
+          }
+        },
+        'node_modules/leftpad': {
+          name: '@alv/example',
+          resolved: 'packages/example',
+          link: true
+        }
+      }
+    });
+
+    const result = runCheck(tempDir);
+    assert.notEqual(result.status, 0, 'expected spoofed lockfile package name to fail provenance checks');
+    assert.match(result.stderr, /package-lock\.json -> node_modules\/leftpad -> packages\/example/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

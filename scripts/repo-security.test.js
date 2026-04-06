@@ -66,6 +66,10 @@ function commandIndexes(workflow, matcher) {
     .filter(index => index !== -1);
 }
 
+function isNpmCiCommand(command) {
+  return /\bnpm ci(?:\s|$)/.test(command);
+}
+
 test('usesRefs matches dash-prefixed workflow steps', () => {
   assert.deepEqual(usesRefs('.github/workflows/semantic-pr.yml'), [
     'amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50'
@@ -139,11 +143,23 @@ test('npm ci provenance detection handles multiline run blocks', () => {
     workflow,
     command => /\bnode scripts\/check-dependency-sources\.mjs\b/.test(command)
   );
-  const npmInstalls = commandIndexes(workflow, command => /^npm ci(?:\s|$)/.test(command));
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
 
   assert.equal(provenanceChecks.length, 1);
   assert.equal(npmInstalls.length, 1);
   assert.ok(provenanceChecks[0] < npmInstalls[0]);
+});
+
+test('npm ci provenance detection handles inline command chains', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: echo prep && npm ci'
+  ].join('\n');
+
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+  assert.equal(npmInstalls.length, 1);
 });
 
 test('every workflow npm ci step is preceded by dependency provenance validation', () => {
@@ -153,7 +169,7 @@ test('every workflow npm ci step is preceded by dependency provenance validation
       workflow,
       command => /\bnode scripts\/check-dependency-sources\.mjs\b/.test(command)
     );
-    const npmInstalls = commandIndexes(workflow, command => /^npm ci(?:\s|$)/.test(command));
+    const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
 
     if (npmInstalls.length === 0) {
       continue;

@@ -152,6 +152,12 @@ function isWorkspaceLink(packageName, resolved) {
 }
 
 function lockEntryName(packagePath, packageMeta) {
+  const marker = 'node_modules/';
+  const markerIndex = packagePath.lastIndexOf(marker);
+  if (markerIndex !== -1) {
+    return packagePath.slice(markerIndex + marker.length);
+  }
+
   if (typeof packageMeta.name === 'string' && packageMeta.name.trim()) {
     return packageMeta.name.trim();
   }
@@ -159,13 +165,7 @@ function lockEntryName(packagePath, packageMeta) {
     return '(root)';
   }
 
-  const marker = 'node_modules/';
-  const markerIndex = packagePath.lastIndexOf(marker);
-  if (markerIndex === -1) {
-    return packagePath;
-  }
-
-  return packagePath.slice(markerIndex + marker.length);
+  return packagePath;
 }
 
 function collectLegacyLockEntries(dependencies, trail = []) {
