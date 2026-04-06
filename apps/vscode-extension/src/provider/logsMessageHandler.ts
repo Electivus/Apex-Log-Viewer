@@ -48,7 +48,7 @@ export class LogsMessageHandler {
         await this.clearLogs(message.scope === 'mine' ? 'mine' : 'all');
         break;
       case 'selectOrg':
-        this.setSelectedOrg(typeof message.target === 'string' ? message.target.trim() : undefined);
+        this.setSelectedOrg(typeof message.target === 'string' ? message.target.trim() || undefined : undefined);
         logInfo('Logs: selected org set');
         await this.refresh();
         break;

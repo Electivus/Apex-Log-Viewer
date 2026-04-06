@@ -37,6 +37,8 @@ function runCommandLines(workflow) {
     const indent = match[1].length;
     const runValue = match[2].trimEnd();
     if (/^[>|][+-]?$/.test(runValue.trim())) {
+      let continuedCommand = '';
+
       for (index += 1; index < lines.length; index += 1) {
         const blockLine = lines[index].replace(/\r$/, '');
         const blockIndent = blockLine.match(/^\s*/)?.[0].length ?? 0;
@@ -47,8 +49,18 @@ function runCommandLines(workflow) {
           break;
         }
         if (trimmedBlockLine !== '' && !trimmedBlockLine.startsWith('#')) {
-          commands.push(trimmedBlockLine);
+          const nextCommand = continuedCommand ? `${continuedCommand} ${trimmedBlockLine}` : trimmedBlockLine;
+          if (nextCommand.endsWith('\\')) {
+            continuedCommand = nextCommand.slice(0, -1).trimEnd();
+            continue;
+          }
+
+          commands.push(nextCommand);
+          continuedCommand = '';
         }
+      }
+      if (continuedCommand) {
+        commands.push(continuedCommand);
       }
       continue;
     }
@@ -67,8 +79,21 @@ function commandIndexes(workflow, matcher) {
     .filter(index => index !== -1);
 }
 
+function shellCommandSegments(command) {
+  return command
+    .split(/&&|\|\||;/)
+    .map(segment => segment.trim())
+    .filter(Boolean);
+}
+
+function isProvenanceCheckCommand(command) {
+  return shellCommandSegments(command).some(segment =>
+    /^node scripts\/check-dependency-sources\.mjs(?=$|[\s|])/.test(segment)
+  );
+}
+
 function isNpmCiCommand(command) {
-  return /\bnpm ci(?=$|[\s;&|)])/.test(command);
+  return shellCommandSegments(command).some(segment => /^npm ci(?=$|[\s|])/.test(segment));
 }
 
 test('usesRefs matches dash-prefixed workflow steps', () => {
@@ -142,7 +167,7 @@ test('npm ci provenance detection handles multiline run blocks', () => {
 
   const provenanceChecks = commandIndexes(
     workflow,
-    command => /\bnode scripts\/check-dependency-sources\.mjs\b/.test(command)
+    isProvenanceCheckCommand
   );
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
 
@@ -187,11 +212,42 @@ test('commented workflow lines do not count as provenance commands', () => {
 
   const provenanceChecks = commandIndexes(
     workflow,
-    command => /\bnode scripts\/check-dependency-sources\.mjs\b/.test(command)
+    isProvenanceCheckCommand
   );
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
 
   assert.equal(provenanceChecks.length, 0);
+  assert.equal(npmInstalls.length, 1);
+});
+
+test('echoed provenance command text does not count as validation', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: |',
+    '          echo \"node scripts/check-dependency-sources.mjs\"',
+    '          npm ci'
+  ].join('\n');
+
+  const provenanceChecks = commandIndexes(workflow, isProvenanceCheckCommand);
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+
+  assert.equal(provenanceChecks.length, 0);
+  assert.equal(npmInstalls.length, 1);
+});
+
+test('npm ci provenance detection handles line continuations in run blocks', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: |',
+    '          npm \\',
+    '          ci'
+  ].join('\n');
+
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
   assert.equal(npmInstalls.length, 1);
 });
 
@@ -200,7 +256,7 @@ test('every workflow npm ci step is preceded by dependency provenance validation
     const workflow = read(workflowPath);
     const provenanceChecks = commandIndexes(
       workflow,
-      command => /\bnode scripts\/check-dependency-sources\.mjs\b/.test(command)
+      isProvenanceCheckCommand
     );
     const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
 

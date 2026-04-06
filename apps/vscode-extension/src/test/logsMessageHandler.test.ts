@@ -215,4 +215,22 @@ suite('LogsMessageHandler telemetry', () => {
     assert.deepEqual(opened, []);
     assert.deepEqual(events, []);
   });
+
+  test('normalizes blank selectOrg targets to undefined', async () => {
+    const selected: Array<string | undefined> = [];
+    let refreshCount = 0;
+    const handler = createHandler([], {
+      setSelectedOrg: (org?: string) => {
+        selected.push(org);
+      },
+      refresh: async () => {
+        refreshCount += 1;
+      }
+    });
+
+    await handler.handle({ type: 'selectOrg', target: '   ' } as any);
+
+    assert.deepEqual(selected, [undefined]);
+    assert.equal(refreshCount, 1);
+  });
 });
