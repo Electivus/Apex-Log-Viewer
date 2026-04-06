@@ -68,7 +68,7 @@ function commandIndexes(workflow, matcher) {
 }
 
 function isNpmCiCommand(command) {
-  return /\bnpm ci(?:\s|$)/.test(command);
+  return /\bnpm ci(?=$|[\s;&|)])/.test(command);
 }
 
 test('usesRefs matches dash-prefixed workflow steps', () => {
@@ -157,6 +157,18 @@ test('npm ci provenance detection handles inline command chains', () => {
     '  test:',
     '    steps:',
     '      - run: echo prep && npm ci'
+  ].join('\n');
+
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+  assert.equal(npmInstalls.length, 1);
+});
+
+test('npm ci provenance detection handles shell operators without surrounding spaces', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: npm ci&&npm run test'
   ].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
