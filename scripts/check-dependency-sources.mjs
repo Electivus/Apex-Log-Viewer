@@ -140,6 +140,16 @@ function collectLegacyLockEntries(dependencies, trail = []) {
   return entries;
 }
 
+function legacyLockSource(packageMeta) {
+  const resolved = typeof packageMeta.resolved === 'string' ? packageMeta.resolved.trim() : '';
+  if (resolved) {
+    return resolved;
+  }
+
+  const version = typeof packageMeta.version === 'string' ? packageMeta.version.trim() : '';
+  return looksLikeUrl(version) ? version : '';
+}
+
 const failures = [];
 
 for (const manifestPath of manifests()) {
@@ -188,18 +198,18 @@ for (const lockfilePath of lockfiles()) {
   }
 
   for (const { dependencyPath, name, packageMeta } of collectLegacyLockEntries(lockfile.dependencies)) {
-    const resolved = typeof packageMeta.resolved === 'string' ? packageMeta.resolved.trim() : '';
-    if (!resolved) {
+    const source = legacyLockSource(packageMeta);
+    if (!source) {
       continue;
     }
 
     const allowed =
-      isAllowedLockSource(name, resolved) ||
-      (packageMeta.link === true && isWorkspaceLink(resolved)) ||
-      isRegistryTarball(resolved);
+      isAllowedLockSource(name, source) ||
+      (packageMeta.link === true && isWorkspaceLink(source)) ||
+      isRegistryTarball(source);
 
     if (!allowed) {
-      failures.push(`${path.relative(repoRoot, lockfilePath)} -> ${dependencyPath} -> ${resolved}`);
+      failures.push(`${path.relative(repoRoot, lockfilePath)} -> ${dependencyPath} -> ${source}`);
     }
   }
 }

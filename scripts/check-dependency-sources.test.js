@@ -147,3 +147,34 @@ test('rejects legacy lockfile dependency resolved URLs when packages metadata is
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('rejects legacy lockfile dependency version URLs when resolved is absent', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writeJson(tempDir, 'package.json', {
+      name: 'fixture',
+      private: true,
+      dependencies: {
+        leftpad: '^1.0.0'
+      }
+    });
+    writeJson(tempDir, 'package-lock.json', {
+      name: 'fixture',
+      lockfileVersion: 2,
+      requires: true,
+      dependencies: {
+        leftpad: {
+          version: 'https://evil.example/leftpad-1.0.0.tgz',
+          integrity: 'sha512-evil'
+        }
+      }
+    });
+
+    const result = runCheck(tempDir);
+    assert.notEqual(result.status, 0, 'expected legacy lockfile version source check to fail');
+    assert.match(result.stderr, /package-lock\.json -> leftpad -> https:\/\/evil\.example\/leftpad-1\.0\.0\.tgz/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
