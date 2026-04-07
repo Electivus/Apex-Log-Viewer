@@ -68,11 +68,41 @@ function commandIndexes(workflow, matcher) {
     .filter(index => index !== -1);
 }
 
+function shellTokensToCommand(tokens) {
+  return tokens
+    .map(token => {
+      if (typeof token !== 'string') {
+        return token?.op || '';
+      }
+      return /[\s;&|]/.test(token) ? JSON.stringify(token) : token;
+    })
+    .join(' ')
+    .trim();
+}
+
 function shellCommandSegments(command) {
-  return command
-    .split(/&&|\|\||;/)
-    .map(segment => segment.trim())
-    .filter(Boolean);
+  const segments = [];
+  let current = [];
+
+  for (const token of parseShellTokens(command)) {
+    if (token?.op === '&&' || token?.op === '||' || token?.op === ';') {
+      const segment = shellTokensToCommand(current);
+      if (segment) {
+        segments.push(segment);
+      }
+      current = [];
+      continue;
+    }
+
+    current.push(token);
+  }
+
+  const trailingSegment = shellTokensToCommand(current);
+  if (trailingSegment) {
+    segments.push(trailingSegment);
+  }
+
+  return segments;
 }
 
 function heredocTerminator(command) {
@@ -94,7 +124,7 @@ function parseShellTokens(segment) {
   }
 }
 
-function normalizeCommandSegment(segment) {
+function normalizedCommandTokens(segment) {
   const tokens = parseShellTokens(segment);
   let index = 0;
   const shellWrappers = new Set(['env', 'time', 'command', 'sudo']);
@@ -125,7 +155,51 @@ function normalizeCommandSegment(segment) {
     index += 1;
   }
 
-  return tokens.slice(index).filter(token => typeof token === 'string').join(' ');
+  return tokens.slice(index).filter(token => typeof token === 'string');
+}
+
+function normalizeCommandSegment(segment) {
+  return normalizedCommandTokens(segment).join(' ');
+}
+
+function shellInterpreterCommand(segment) {
+  const tokens = normalizedCommandTokens(segment);
+  const shell = tokens[0];
+  if (typeof shell !== 'string') {
+    return undefined;
+  }
+
+  const shellName = shell.split(/[\\/]/).pop()?.replace(/\.exe$/i, '') || shell;
+  if (!new Set(['sh', 'bash', 'zsh', 'dash', 'ksh']).has(shellName)) {
+    return undefined;
+  }
+
+  for (let index = 1; index < tokens.length - 1; index += 1) {
+    const token = tokens[index];
+    if (typeof token !== 'string' || !token.startsWith('-')) {
+      continue;
+    }
+    if (token === '-c' || token === '--command' || token.slice(1).includes('c')) {
+      const innerTokens = tokens.slice(index + 1);
+      return innerTokens.length > 0 ? innerTokens.join(' ') : undefined;
+    }
+  }
+
+  return undefined;
+}
+
+function segmentMatchesCommand(segment, matcher) {
+  const normalized = normalizeCommandSegment(segment);
+  if (matcher(normalized)) {
+    return true;
+  }
+
+  const innerCommand = shellInterpreterCommand(segment);
+  if (!innerCommand || innerCommand === segment) {
+    return false;
+  }
+
+  return shellCommandSegments(innerCommand).some(innerSegment => segmentMatchesCommand(innerSegment, matcher));
 }
 
 function commandsFromRunValue(runValue) {
@@ -219,12 +293,14 @@ function npmCiProvenanceViolations(workflow) {
 
 function isProvenanceCheckCommand(command) {
   return shellCommandSegments(command).some(segment =>
-    /^node scripts\/check-dependency-sources\.mjs(?=$|[\s|)])/.test(normalizeCommandSegment(segment))
+    segmentMatchesCommand(segment, normalized => /^node scripts\/check-dependency-sources\.mjs(?=$|[\s|)])/.test(normalized))
   );
 }
 
 function isNpmCiCommand(command) {
-  return shellCommandSegments(command).some(segment => /^npm ci(?=$|[\s|)])/.test(normalizeCommandSegment(segment)));
+  return shellCommandSegments(command).some(segment =>
+    segmentMatchesCommand(segment, normalized => /^npm ci(?=$|[\s|)])/.test(normalized))
+  );
 }
 
 test('usesRefs matches dash-prefixed workflow steps', () => {
@@ -368,6 +444,23 @@ test('echoed provenance command text does not count as validation', () => {
   assert.equal(npmInstalls.length, 1);
 });
 
+test('provenance detection handles shell interpreter wrappers', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: bash -c \"node scripts/check-dependency-sources.mjs\"',
+    '      - run: npm ci'
+  ].join('\n');
+
+  const provenanceChecks = commandIndexes(workflow, isProvenanceCheckCommand);
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+
+  assert.equal(provenanceChecks.length, 1);
+  assert.equal(npmInstalls.length, 1);
+  assert.ok(provenanceChecks[0] < npmInstalls[0]);
+});
+
 test('npm ci provenance detection handles line continuations in run blocks', () => {
   const workflow = [
     'jobs:',
@@ -443,6 +536,18 @@ test('npm ci provenance detection handles inline shell conditionals', () => {
     '  test:',
     '    steps:',
     '      - run: if true; then npm ci && npm test; fi'
+  ].join('\n');
+
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+  assert.equal(npmInstalls.length, 1);
+});
+
+test('npm ci provenance detection handles shell interpreter wrappers', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: bash -c \"npm ci\"'
   ].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
