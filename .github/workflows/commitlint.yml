@@ -29,6 +29,6 @@ jobs:
         run: npm i -D @commitlint/cli @commitlint/config-conventional
 
       - name: Run commitlint on PR commits
-        uses: wagoid/commitlint-github-action@6cf16efdf4da5277c791d335142c03a0bdf1766e
+        uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed
         with:
           configFile: commitlint.config.mjs
