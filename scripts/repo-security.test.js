@@ -226,6 +226,7 @@ function wrapperOptionConsumesNextValue(wrapper, option) {
       '--user'
     ]),
     time: new Set(['-f', '--format', '-o', '--output']),
+    ionice: new Set(['-c', '--class', '-n', '--classdata']),
     nice: new Set(['-n', '--adjustment']),
     stdbuf: new Set(['-e', '--error', '-i', '--input', '-o', '--output'])
   };
@@ -252,7 +253,7 @@ function wrapperOptionConsumesNextValue(wrapper, option) {
 function normalizedCommandTokens(segment) {
   const tokens = parseShellTokens(segment);
   let index = 0;
-  const shellWrappers = new Set(['command', 'env', 'nice', 'nohup', 'setsid', 'stdbuf', 'sudo', 'time']);
+  const shellWrappers = new Set(['command', 'env', 'ionice', 'nice', 'nohup', 'setsid', 'stdbuf', 'sudo', 'time']);
   const shellControlKeywords = new Set(['then', 'do', 'else']);
 
   while (tokens[index]?.op === '(') {
@@ -616,12 +617,47 @@ function workflowJobs(workflow) {
     .filter(([, job]) => job && typeof job === 'object')
     .map(([jobName, job]) => ({
       jobName,
-      steps: Array.isArray(job.steps) ? job.steps : []
+      steps: Array.isArray(job.steps)
+        ? job.steps.filter(step => step && typeof step === 'object')
+        : []
     }));
 }
 
-function jobCommandLines(job) {
-  return job.steps.flatMap(step => commandsFromRunValue(step?.run));
+function shellTemplateEnablesErrexit(shell) {
+  if (typeof shell !== 'string' || !shell.trim()) {
+    return true;
+  }
+
+  const tokens = parseShellTokens(shell).filter(token => typeof token === 'string');
+  const shellToken = tokens[0];
+  if (typeof shellToken !== 'string') {
+    return false;
+  }
+
+  const shellName = shellToken.split(/[\\/]/).pop()?.replace(/\.exe$/i, '') || shellToken;
+  if (!new Set(['sh', 'bash', 'zsh', 'dash', 'ksh']).has(shellName)) {
+    return false;
+  }
+
+  for (let index = 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token === '-o' || token === '+o') {
+      if (tokens[index + 1] === 'errexit') {
+        return token === '-o';
+      }
+      continue;
+    }
+
+    if (token.startsWith('-') && token.slice(1).includes('e')) {
+      return true;
+    }
+
+    if (token.startsWith('+') && token.slice(1).includes('e')) {
+      return false;
+    }
+  }
+
+  return false;
 }
 
 function npmCiProvenanceViolations(workflow) {
@@ -636,7 +672,7 @@ function npmCiProvenanceViolations(workflow) {
     for (const segment of jobExecutionSegments(job)) {
       if (segment.stepIndex !== currentStepIndex) {
         currentStepIndex = segment.stepIndex;
-        errexitDisabled = false;
+        errexitDisabled = !shellTemplateEnablesErrexit(job.steps[currentStepIndex]?.shell);
       }
 
       const errexitMode = segmentErrexitMode(segment.text);
@@ -1021,7 +1057,8 @@ test('npm ci provenance detection handles utility-prefixed installs', () => {
     '  test:',
     '    steps:',
     '      - run: nohup npm ci',
-    '      - run: nice -n 5 npm ci'
+    '      - run: nice -n 5 npm ci',
+    '      - run: ionice -c3 npm ci'
   ].join('\n');
 
   assert.deepEqual(npmCiProvenanceViolations(workflow), [
@@ -1032,6 +1069,10 @@ test('npm ci provenance detection handles utility-prefixed installs', () => {
     {
       jobName: 'test',
       installIndex: 1
+    },
+    {
+      jobName: 'test',
+      installIndex: 2
     }
   ]);
 });
@@ -1131,6 +1172,29 @@ test('dependency provenance validation is enforced within each job', () => {
   assert.deepEqual(npmCiProvenanceViolations(workflow), [
     {
       jobName: 'install',
+      installIndex: 0
+    }
+  ]);
+});
+
+test('step shell metadata controls initial errexit protection', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - shell: bash {0}',
+    '        run: |',
+    '          node scripts/check-dependency-sources.mjs',
+    '          npm ci',
+    '      - shell: bash -e {0}',
+    '        run: |',
+    '          node scripts/check-dependency-sources.mjs',
+    '          npm ci'
+  ].join('\n');
+
+  assert.deepEqual(npmCiProvenanceViolations(workflow), [
+    {
+      jobName: 'test',
       installIndex: 0
     }
   ]);
