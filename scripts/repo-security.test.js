@@ -330,8 +330,12 @@ function npmCiProvenanceViolations(workflow) {
 }
 
 function isProvenanceCheckCommand(command) {
-  return shellCommandClauses(command).some(({ separatorAfter, separatorBefore, text }) =>
-    separatorAfter !== '||' &&
+  const clauses = shellCommandClauses(command);
+  if (clauses.some(clause => clause.separatorAfter === '||')) {
+    return false;
+  }
+
+  return clauses.some(({ separatorBefore, text }) =>
     separatorBefore !== '||' &&
     segmentMatchesCommand(
       text,
@@ -510,6 +514,22 @@ test('fail-open provenance commands do not count as validation', () => {
     '  test:',
     '    steps:',
     '      - run: node scripts/check-dependency-sources.mjs || true',
+    '      - run: npm ci'
+  ].join('\n');
+
+  const provenanceChecks = commandIndexes(workflow, isProvenanceCheckCommand);
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+
+  assert.equal(provenanceChecks.length, 0);
+  assert.equal(npmInstalls.length, 1);
+});
+
+test('provenance commands in top-level OR fallback chains do not count as validation', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: node scripts/check-dependency-sources.mjs && echo ok || true',
     '      - run: npm ci'
   ].join('\n');
 
