@@ -341,3 +341,80 @@ test('rejects manifest git protocol dependency sources', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('rejects lockfile package version URLs when resolved is absent', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writeJson(tempDir, 'package.json', {
+      name: 'fixture',
+      private: true,
+      dependencies: {
+        leftpad: '^1.0.0'
+      }
+    });
+    writeJson(tempDir, 'package-lock.json', {
+      name: 'fixture',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: 'fixture',
+          dependencies: {
+            leftpad: '^1.0.0'
+          }
+        },
+        'node_modules/leftpad': {
+          version: 'git+ssh://git@github.com/evil/leftpad.git#deadbeef'
+        }
+      }
+    });
+
+    const result = runCheck(tempDir);
+    assert.notEqual(result.status, 0, 'expected packages.version git source to fail provenance checks');
+    assert.match(
+      result.stderr,
+      /package-lock\.json -> node_modules\/leftpad -> git\+ssh:\/\/git@github\.com\/evil\/leftpad\.git#deadbeef/
+    );
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('rejects hosted git shorthand manifest dependency sources', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writeJson(tempDir, 'package.json', {
+      name: 'fixture',
+      private: true,
+      dependencies: {
+        leftpad: 'npm/cli'
+      }
+    });
+    writeJson(tempDir, 'package-lock.json', {
+      name: 'fixture',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: 'fixture',
+          dependencies: {
+            leftpad: '^1.0.0'
+          }
+        },
+        'node_modules/leftpad': {
+          version: '1.0.0',
+          resolved: 'https://registry.npmjs.org/leftpad/-/leftpad-1.0.0.tgz',
+          integrity: 'sha512-registry'
+        }
+      }
+    });
+
+    const result = runCheck(tempDir);
+    assert.notEqual(result.status, 0, 'expected hosted git shorthand to fail provenance checks');
+    assert.match(result.stderr, /package\.json -> leftpad@npm\/cli/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

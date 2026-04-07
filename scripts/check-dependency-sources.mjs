@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import hostedGitInfo from 'hosted-git-info';
 
 const repoRoot = resolveRepoRoot(process.argv.slice(2));
 const treeSitterSfapexCommit = '685c57c5461eb247d019b244f2130e198c7cc706';
@@ -18,7 +19,7 @@ const allowedGitDependencies = new Map([
     }
   ]
 ]);
-const disallowedPrefixes = ['git+', 'git://', 'github:', 'http://', 'https://', 'file:', 'link:'];
+const disallowedSchemes = new Set(['git:', 'github:', 'http:', 'https:', 'file:', 'link:']);
 
 function resolveRepoRoot(args) {
   const rootFlagIndex = args.indexOf('--root');
@@ -78,7 +79,7 @@ function lockfiles() {
 }
 
 function hasBlockedManifestSource(version) {
-  return disallowedPrefixes.some(prefix => version.startsWith(prefix));
+  return isRemoteDependencySpec(version);
 }
 
 function isAllowedManifestSource(name, version) {
@@ -91,6 +92,23 @@ function isAllowedLockSource(name, version) {
 
 function looksLikeUrl(value) {
   return /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(value);
+}
+
+function normalizedDependencyScheme(value) {
+  const match = value.match(/^([a-zA-Z][a-zA-Z\d+.-]*:)/);
+  if (!match) {
+    return '';
+  }
+  return match[1].toLowerCase();
+}
+
+function isRemoteDependencySpec(value) {
+  const scheme = normalizedDependencyScheme(value);
+  if (scheme) {
+    return scheme.startsWith('git+') || disallowedSchemes.has(scheme);
+  }
+
+  return hostedGitInfo.fromUrl(value) != null;
 }
 
 function isRegistryTarball(resolved) {
@@ -193,7 +211,17 @@ function legacyLockSource(packageMeta) {
   }
 
   const version = typeof packageMeta.version === 'string' ? packageMeta.version.trim() : '';
-  return looksLikeUrl(version) ? version : '';
+  return isRemoteDependencySpec(version) ? version : '';
+}
+
+function lockPackageSource(packageMeta) {
+  const resolved = typeof packageMeta.resolved === 'string' ? packageMeta.resolved.trim() : '';
+  if (resolved) {
+    return resolved;
+  }
+
+  const version = typeof packageMeta.version === 'string' ? packageMeta.version.trim() : '';
+  return isRemoteDependencySpec(version) ? version : '';
 }
 
 const failures = [];
@@ -231,19 +259,19 @@ for (const lockfilePath of lockfiles()) {
         continue;
       }
 
-      const resolved = typeof packageMeta.resolved === 'string' ? packageMeta.resolved.trim() : '';
-      if (!resolved) {
+      const source = lockPackageSource(packageMeta);
+      if (!source) {
         continue;
       }
 
       const packageName = lockEntryName(packagePath, packageMeta);
       const allowed =
-        isAllowedLockSource(packageName, resolved) ||
-        (packageMeta.link === true && isWorkspaceLink(packageName, resolved)) ||
-        isRegistryTarball(resolved);
+        isAllowedLockSource(packageName, source) ||
+        (packageMeta.link === true && isWorkspaceLink(packageName, source)) ||
+        isRegistryTarball(source);
 
       if (!allowed) {
-        failures.push(`${path.relative(repoRoot, lockfilePath)} -> ${packagePath || '(root)'} -> ${resolved}`);
+        failures.push(`${path.relative(repoRoot, lockfilePath)} -> ${packagePath || '(root)'} -> ${source}`);
       }
     }
   }
