@@ -246,7 +246,7 @@ const failures = [];
 
 for (const manifestPath of manifests()) {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+  for (const section of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
     const dependencies = manifest[section];
     if (!dependencies || typeof dependencies !== 'object') {
       continue;

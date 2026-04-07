@@ -267,6 +267,44 @@ test('rejects manifest dependency sources with leading whitespace', () => {
   }
 });
 
+test('rejects peer dependency sources that resolve to git remotes', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writeJson(tempDir, 'package.json', {
+      name: 'fixture',
+      private: true,
+      peerDependencies: {
+        leftpad: 'git+https://evil.example/leftpad.git#deadbeef'
+      }
+    });
+    writeJson(tempDir, 'package-lock.json', {
+      name: 'fixture',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: 'fixture',
+          peerDependencies: {
+            leftpad: '^1.0.0'
+          }
+        },
+        'node_modules/leftpad': {
+          version: '1.0.0',
+          resolved: 'https://registry.npmjs.org/leftpad/-/leftpad-1.0.0.tgz',
+          integrity: 'sha512-registry'
+        }
+      }
+    });
+
+    const result = runCheck(tempDir);
+    assert.notEqual(result.status, 0, 'expected peer dependency source to fail provenance checks');
+    assert.match(result.stderr, /package\.json -> leftpad@git\+https:\/\/evil\.example\/leftpad\.git#deadbeef/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('rejects lockfile links whose metadata name spoofs the package path identity', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
 

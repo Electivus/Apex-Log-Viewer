@@ -68,6 +68,41 @@ function commandIndexes(workflow, matcher) {
     .filter(index => index !== -1);
 }
 
+function shellCommandClauses(command) {
+  const clauses = [];
+  let current = [];
+  let separatorBefore;
+
+  for (const token of parseShellTokens(command)) {
+    if (token?.op === '&&' || token?.op === '||' || token?.op === ';') {
+      const segment = shellTokensToCommand(current);
+      if (segment) {
+        clauses.push({
+          separatorAfter: token.op,
+          separatorBefore,
+          text: segment
+        });
+      }
+      current = [];
+      separatorBefore = token.op;
+      continue;
+    }
+
+    current.push(token);
+  }
+
+  const trailingSegment = shellTokensToCommand(current);
+  if (trailingSegment) {
+    clauses.push({
+      separatorAfter: undefined,
+      separatorBefore,
+      text: trailingSegment
+    });
+  }
+
+  return clauses;
+}
+
 function shellTokensToCommand(tokens) {
   return tokens
     .map(token => {
@@ -81,28 +116,7 @@ function shellTokensToCommand(tokens) {
 }
 
 function shellCommandSegments(command) {
-  const segments = [];
-  let current = [];
-
-  for (const token of parseShellTokens(command)) {
-    if (token?.op === '&&' || token?.op === '||' || token?.op === ';') {
-      const segment = shellTokensToCommand(current);
-      if (segment) {
-        segments.push(segment);
-      }
-      current = [];
-      continue;
-    }
-
-    current.push(token);
-  }
-
-  const trailingSegment = shellTokensToCommand(current);
-  if (trailingSegment) {
-    segments.push(trailingSegment);
-  }
-
-  return segments;
+  return shellCommandClauses(command).map(clause => clause.text);
 }
 
 function heredocTerminator(command) {
@@ -202,6 +216,30 @@ function segmentMatchesCommand(segment, matcher) {
   return shellCommandSegments(innerCommand).some(innerSegment => segmentMatchesCommand(innerSegment, matcher));
 }
 
+function matchesNpmCiInvocation(normalized) {
+  const tokens = parseShellTokens(normalized).filter(token => typeof token === 'string');
+  if (tokens[0] !== 'npm') {
+    return false;
+  }
+
+  for (let index = 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token === 'ci') {
+      return true;
+    }
+    if (!token.startsWith('-')) {
+      return false;
+    }
+
+    const nextToken = tokens[index + 1];
+    if (typeof nextToken === 'string' && !nextToken.startsWith('-') && nextToken !== 'ci') {
+      index += 1;
+    }
+  }
+
+  return false;
+}
+
 function commandsFromRunValue(runValue) {
   if (typeof runValue !== 'string') {
     return [];
@@ -292,14 +330,19 @@ function npmCiProvenanceViolations(workflow) {
 }
 
 function isProvenanceCheckCommand(command) {
-  return shellCommandSegments(command).some(segment =>
-    segmentMatchesCommand(segment, normalized => /^node scripts\/check-dependency-sources\.mjs(?=$|[\s|)])/.test(normalized))
+  return shellCommandClauses(command).some(({ separatorAfter, separatorBefore, text }) =>
+    separatorAfter !== '||' &&
+    separatorBefore !== '||' &&
+    segmentMatchesCommand(
+      text,
+      normalized => /^node scripts\/check-dependency-sources\.mjs(?=$|[\s|)])/.test(normalized)
+    )
   );
 }
 
 function isNpmCiCommand(command) {
   return shellCommandSegments(command).some(segment =>
-    segmentMatchesCommand(segment, normalized => /^npm ci(?=$|[\s|)])/.test(normalized))
+    segmentMatchesCommand(segment, normalized => matchesNpmCiInvocation(normalized))
   );
 }
 
@@ -461,6 +504,22 @@ test('provenance detection handles shell interpreter wrappers', () => {
   assert.ok(provenanceChecks[0] < npmInstalls[0]);
 });
 
+test('fail-open provenance commands do not count as validation', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: node scripts/check-dependency-sources.mjs || true',
+    '      - run: npm ci'
+  ].join('\n');
+
+  const provenanceChecks = commandIndexes(workflow, isProvenanceCheckCommand);
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+
+  assert.equal(provenanceChecks.length, 0);
+  assert.equal(npmInstalls.length, 1);
+});
+
 test('npm ci provenance detection handles line continuations in run blocks', () => {
   const workflow = [
     'jobs:',
@@ -548,6 +607,18 @@ test('npm ci provenance detection handles shell interpreter wrappers', () => {
     '  test:',
     '    steps:',
     '      - run: bash -c \"npm ci\"'
+  ].join('\n');
+
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+  assert.equal(npmInstalls.length, 1);
+});
+
+test('npm ci provenance detection handles npm flags before the subcommand', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: npm --prefix . ci'
   ].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
