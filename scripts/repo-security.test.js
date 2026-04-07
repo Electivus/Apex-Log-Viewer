@@ -318,6 +318,144 @@ function shellInterpreterCommand(segment) {
   return undefined;
 }
 
+function findBacktickCommandEnd(command, startIndex) {
+  for (let index = startIndex; index < command.length; index += 1) {
+    if (command[index] === '\\') {
+      index += 1;
+      continue;
+    }
+    if (command[index] === '`') {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function commandSubstitutionOpenerLength(command, startIndex) {
+  if (command[startIndex] !== '$') {
+    return 0;
+  }
+
+  let index = startIndex + 1;
+  while (/\s/.test(command[index] || '')) {
+    index += 1;
+  }
+
+  return command[index] === '(' ? index - startIndex + 1 : 0;
+}
+
+function findCommandSubstitutionEnd(command, startIndex) {
+  let depth = 1;
+  let singleQuoted = false;
+  let doubleQuoted = false;
+
+  for (let index = startIndex; index < command.length; index += 1) {
+    const char = command[index];
+
+    if (singleQuoted) {
+      if (char === '\'') {
+        singleQuoted = false;
+      }
+      continue;
+    }
+
+    if (char === '\\') {
+      index += 1;
+      continue;
+    }
+
+    if (!doubleQuoted && char === '\'') {
+      singleQuoted = true;
+      continue;
+    }
+
+    if (char === '"') {
+      doubleQuoted = !doubleQuoted;
+      continue;
+    }
+
+    if (char === '`') {
+      const endIndex = findBacktickCommandEnd(command, index + 1);
+      if (endIndex === -1) {
+        return -1;
+      }
+      index = endIndex;
+      continue;
+    }
+
+    const openerLength = commandSubstitutionOpenerLength(command, index);
+    if (openerLength > 0) {
+      depth += 1;
+      index += openerLength - 1;
+      continue;
+    }
+
+    if (!doubleQuoted && char === ')') {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+
+  return -1;
+}
+
+function shellCommandSubstitutions(command) {
+  const substitutions = [];
+  let singleQuoted = false;
+  let doubleQuoted = false;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+
+    if (singleQuoted) {
+      if (char === '\'') {
+        singleQuoted = false;
+      }
+      continue;
+    }
+
+    if (char === '\\') {
+      index += 1;
+      continue;
+    }
+
+    if (!doubleQuoted && char === '\'') {
+      singleQuoted = true;
+      continue;
+    }
+
+    if (char === '"') {
+      doubleQuoted = !doubleQuoted;
+      continue;
+    }
+
+    if (char === '`') {
+      const endIndex = findBacktickCommandEnd(command, index + 1);
+      if (endIndex === -1) {
+        break;
+      }
+      substitutions.push(command.slice(index + 1, endIndex));
+      index = endIndex;
+      continue;
+    }
+
+    const openerLength = commandSubstitutionOpenerLength(command, index);
+    if (openerLength > 0) {
+      const endIndex = findCommandSubstitutionEnd(command, index + openerLength);
+      if (endIndex === -1) {
+        break;
+      }
+      substitutions.push(command.slice(index + openerLength, endIndex));
+      index = endIndex;
+    }
+  }
+
+  return substitutions;
+}
+
 function hasTopLevelPipeline(command) {
   return parseShellTokens(command).some(token => token?.op === '|');
 }
@@ -498,7 +636,15 @@ function isNpmCiCommand(command) {
 }
 
 function isNpmCiSegment(segment) {
-  return segmentMatchesCommand(segment.text, normalized => matchesNpmCiInvocation(normalized));
+  if (segmentMatchesCommand(segment.text, normalized => matchesNpmCiInvocation(normalized))) {
+    return true;
+  }
+
+  return shellCommandSubstitutions(segment.text).some(substitution =>
+    shellCommandSegments(substitution).some(innerSegment =>
+      isNpmCiSegment({ text: innerSegment })
+    )
+  );
 }
 
 test('usesRefs matches dash-prefixed workflow steps', () => {
@@ -772,6 +918,27 @@ test('npm ci provenance detection handles shell-prefixed installs', () => {
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
   assert.equal(npmInstalls.length, 1);
+});
+
+test('npm ci provenance detection handles command substitutions', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: echo $(npm ci)',
+    '      - run: echo `npm ci`'
+  ].join('\n');
+
+  assert.deepEqual(npmCiProvenanceViolations(workflow), [
+    {
+      jobName: 'test',
+      installIndex: 0
+    },
+    {
+      jobName: 'test',
+      installIndex: 1
+    }
+  ]);
 });
 
 test('npm ci provenance detection handles wrapper options with separate values', () => {
