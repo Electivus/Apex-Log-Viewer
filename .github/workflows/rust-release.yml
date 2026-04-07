@@ -22,7 +22,7 @@ jobs:
       npm_dist_tag: ${{ steps.release_meta.outputs.npm_dist_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Compute release metadata
         id: release_meta
@@ -54,14 +54,17 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
 
       - name: Install dependencies
         run: npm ci --workspaces=false
@@ -99,14 +102,17 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
 
       - name: Install dependencies
         run: npm ci --workspaces=false
@@ -131,7 +137,7 @@ jobs:
         run: node scripts/build-runtime-target.mjs "${{ matrix.target }}" release
 
       - name: Upload runtime binary staging
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: rust-binary-${{ matrix.target }}
           path: apps/vscode-extension/bin/${{ matrix.target }}
@@ -146,20 +152,23 @@ jobs:
       VERSION: ${{ needs.validate_tag.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
       - name: Install dependencies
         run: npm ci --workspaces=false
 
       - name: Download runtime binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           pattern: rust-binary-*
           path: .
@@ -211,14 +220,14 @@ jobs:
             --binary win32-arm64=apps/vscode-extension/bin/win32-arm64/apex-log-viewer.exe
 
       - name: Upload release assets
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: rust-release-assets
           path: dist/release/*
           if-no-files-found: error
 
       - name: Upload npm packages
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: rust-npm-packages
           path: dist/npm/**
@@ -234,16 +243,16 @@ jobs:
       NPM_DIST_TAG: ${{ needs.validate_tag.outputs.npm_dist_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
           node-version-file: .nvmrc
           registry-url: 'https://registry.npmjs.org'
 
       - name: Download staged npm packages
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: rust-npm-packages
           path: dist/npm
@@ -271,16 +280,16 @@ jobs:
       NPM_DIST_TAG: ${{ needs.validate_tag.outputs.npm_dist_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
           node-version-file: .nvmrc
           registry-url: 'https://registry.npmjs.org'
 
       - name: Download staged npm packages
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: rust-npm-packages
           path: dist/npm
@@ -298,10 +307,10 @@ jobs:
       PRE_RELEASE: ${{ needs.validate_tag.outputs.pre_release }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Download packaged release assets
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: rust-release-assets
           path: dist/release

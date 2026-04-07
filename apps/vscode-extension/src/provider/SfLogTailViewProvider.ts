@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { localize } from '../../../../src/utils/localize';
 import { listDebugLevels, getActiveUserDebugLevel, ensureDefaultTailDebugLevel } from '../../../../src/salesforce/traceflags';
 import type { OrgAuth } from '../../../../src/salesforce/types';
-import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
+import { parseWebviewToExtensionMessage, type ExtensionToWebviewMessage } from '../shared/messages';
 import { logInfo, logWarn } from '../../../../src/utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
 import { ensureReplayDebuggerAvailable } from '../../../../src/utils/replayDebugger';
@@ -68,75 +68,80 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     this.bindHost(createWebviewPanelHost(panel));
   }
 
-  private async onMessage(message: WebviewToExtensionMessage): Promise<void> {
-      const t = (message as any)?.type;
-      if (t) {
-        logInfo('Tail: received message from webview:', t);
-      }
-      if (message?.type === 'ready') {
-        this.ready = true;
-        this.post({ type: 'init', locale: vscode.env.language });
-        await this.refreshViewState();
-        return;
-      }
-      if (message?.type === 'selectOrg') {
-        const target = typeof message.target === 'string' ? message.target.trim() : undefined;
-        const next = target || undefined;
-        const prev = this.selectedOrg;
-        this.setSelectedOrg(next);
-        this.tailService.setOrg(next);
-        if (prev !== next) {
-          this.tailService.stop();
-        }
-        logInfo('Tail: selected org set to', next || '(none)');
-        this.post({ type: 'loading', value: true });
-        try {
-          await this.sendOrgs();
-          await this.sendDebugLevels();
-        } finally {
-          this.post({ type: 'loading', value: false });
-        }
-        return;
-      }
-      if (message?.type === 'openLog' && (message as any).logId) {
-        const id = (message as any).logId;
-        logInfo('Tail: openLog requested for', id);
-        await this.openLog(id);
-        return;
-      }
-      if (message?.type === 'openDebugFlags') {
-        logInfo('Tail: openDebugFlags requested');
-        await DebugFlagsPanel.show({
-          selectedOrg: this.selectedOrg,
-          sourceView: 'tail'
-        });
-        return;
-      }
-      if (message?.type === 'replay' && (message as any).logId) {
-        const id = (message as any).logId;
-        logInfo('Tail: replay requested for', id);
-        await this.replayLog(id);
-        return;
-      }
-      if (message?.type === 'tailStart') {
-        // Surface loading while ensuring TraceFlag and priming tail
-        this.post({ type: 'loading', value: true });
-        try {
-          await this.tailService.start(typeof message.debugLevel === 'string' ? message.debugLevel.trim() : undefined);
-        } finally {
-          this.post({ type: 'loading', value: false });
-        }
-        return;
-      }
-      if (message?.type === 'tailStop') {
+  private async onMessage(rawMessage: unknown): Promise<void> {
+    const message = parseWebviewToExtensionMessage(rawMessage);
+    const t = message?.type;
+    if (t) {
+      logInfo('Tail: received message from webview:', t);
+    }
+    if (!message) {
+      logWarn('Tail: ignored invalid webview message');
+      return;
+    }
+    if (message.type === 'ready') {
+      this.ready = true;
+      this.post({ type: 'init', locale: vscode.env.language });
+      await this.refreshViewState();
+      return;
+    }
+    if (message.type === 'selectOrg') {
+      const target = typeof message.target === 'string' ? message.target.trim() : undefined;
+      const next = target || undefined;
+      const prev = this.selectedOrg;
+      this.setSelectedOrg(next);
+      this.tailService.setOrg(next);
+      if (prev !== next) {
         this.tailService.stop();
-        return;
       }
-      if (message?.type === 'tailClear') {
-        this.tailService.clearLogPaths();
-        this.post({ type: 'tailReset' });
-        return;
+      logInfo('Tail: selected org set to', next || '(none)');
+      this.post({ type: 'loading', value: true });
+      try {
+        await this.sendOrgs();
+        await this.sendDebugLevels();
+      } finally {
+        this.post({ type: 'loading', value: false });
       }
+      return;
+    }
+    if (message.type === 'openLog') {
+      const id = message.logId;
+      logInfo('Tail: openLog requested for', id);
+      await this.openLog(id);
+      return;
+    }
+    if (message.type === 'openDebugFlags') {
+      logInfo('Tail: openDebugFlags requested');
+      await DebugFlagsPanel.show({
+        selectedOrg: this.selectedOrg,
+        sourceView: 'tail'
+      });
+      return;
+    }
+    if (message.type === 'replay') {
+      const id = message.logId;
+      logInfo('Tail: replay requested for', id);
+      await this.replayLog(id);
+      return;
+    }
+    if (message.type === 'tailStart') {
+      // Surface loading while ensuring TraceFlag and priming tail
+      this.post({ type: 'loading', value: true });
+      try {
+        await this.tailService.start(typeof message.debugLevel === 'string' ? message.debugLevel.trim() : undefined);
+      } finally {
+        this.post({ type: 'loading', value: false });
+      }
+      return;
+    }
+    if (message.type === 'tailStop') {
+      this.tailService.stop();
+      return;
+    }
+    if (message.type === 'tailClear') {
+      this.tailService.clearLogPaths();
+      this.post({ type: 'tailReset' });
+      return;
+    }
   }
 
   public getSelectedOrg(): string | undefined {
@@ -408,7 +413,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         void this.refreshViewState();
       }),
       host.webview.onDidReceiveMessage(message => {
-        void this.onMessage(message as WebviewToExtensionMessage);
+        void this.onMessage(message);
       })
     );
   }

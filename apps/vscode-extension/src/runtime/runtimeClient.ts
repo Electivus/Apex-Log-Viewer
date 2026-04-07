@@ -17,7 +17,7 @@ import type {
 } from '../../../../packages/app-server-client-ts/src/index';
 import { createDaemonProcess } from '../../../../packages/app-server-client-ts/src/index';
 import type { JsonRpcRequest, OrgListItem, OrgListParams } from '../../../../packages/app-server-client-ts/src/index';
-import { logTrace } from '../../../../src/utils/logger';
+import { logTrace, logWarn } from '../../../../src/utils/logger';
 import { getLoginShellEnv } from '../../../../src/salesforce/path';
 import { safeSendEvent } from '../shared/telemetry';
 import { resolveBundledBinary } from './bundledBinary';
@@ -109,8 +109,11 @@ export class RuntimeClient extends EventEmitter {
       bundledPath
     });
     const env = await this.resolveProcessEnv();
+    if (executableResolution.invalidConfiguredPath) {
+      logWarn('Runtime: ignoring invalid configured runtime executable', executableResolution.invalidConfiguredPath);
+    }
     if (executableResolution.showManualOverrideWarning) {
-      logTrace('Runtime: using manually configured runtime executable', executableResolution.executable);
+      logWarn('Runtime: using manually configured runtime executable', executableResolution.executable);
     }
     logTrace('Runtime: starting daemon', executableResolution.executable);
     const daemon = this.createProcess(executableResolution.executable, env);

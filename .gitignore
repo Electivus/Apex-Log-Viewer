@@ -27,7 +27,6 @@ dist
 .nx/
 .vscode-test/
 target/
-Cargo.lock
 sample-workspace/
 .sfdx/
 .sf/

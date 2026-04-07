@@ -3,7 +3,23 @@ import assert from 'assert/strict';
 const proxyquire: any = require('proxyquire').noCallThru();
 
 suite('LogsMessageHandler telemetry', () => {
-  function createHandler(events: Array<{ name: string; properties?: Record<string, string>; measurements?: Record<string, number> }>) {
+  function createHandler(
+    events: Array<{ name: string; properties?: Record<string, string>; measurements?: Record<string, number> }>,
+    overrides?: Partial<{
+      refresh: () => Promise<void>;
+      downloadAllLogs: () => Promise<void>;
+      clearLogs: (scope: 'all' | 'mine') => Promise<void>;
+      sendOrgs: () => Promise<void>;
+      setSelectedOrg: (org?: string) => void;
+      openDebugFlags: () => Promise<void>;
+      openLog: (logId: string) => Promise<void>;
+      debugLog: (logId: string) => Promise<void>;
+      loadMore: () => Promise<void>;
+      setLoading: (value: boolean) => void;
+      setSearchQuery: (value: string) => Promise<void>;
+      setLogsColumns: (value: unknown) => Promise<void>;
+    }>
+  ) {
     const { LogsMessageHandler } = proxyquire('../provider/logsMessageHandler', {
       '../shared/telemetry': {
         safeSendEvent: (name: string, properties?: Record<string, string>, measurements?: Record<string, number>) => {
@@ -13,23 +29,24 @@ suite('LogsMessageHandler telemetry', () => {
       },
       '../../../../src/utils/logger': {
         logInfo: () => undefined,
+        logWarn: () => undefined,
         '@noCallThru': true
       }
     });
 
     return new LogsMessageHandler(
-      async () => undefined,
-      async () => undefined,
-      async () => undefined,
-      async () => undefined,
-      () => undefined,
-      async () => undefined,
-      async () => undefined,
-      async () => undefined,
-      async () => undefined,
-      () => undefined,
-      async () => undefined,
-      async () => undefined
+      overrides?.refresh ?? (async () => undefined),
+      overrides?.downloadAllLogs ?? (async () => undefined),
+      overrides?.clearLogs ?? (async () => undefined),
+      overrides?.sendOrgs ?? (async () => undefined),
+      overrides?.setSelectedOrg ?? (() => undefined),
+      overrides?.openDebugFlags ?? (async () => undefined),
+      overrides?.openLog ?? (async () => undefined),
+      overrides?.debugLog ?? (async () => undefined),
+      overrides?.loadMore ?? (async () => undefined),
+      overrides?.setLoading ?? (() => undefined),
+      overrides?.setSearchQuery ?? (async () => undefined),
+      overrides?.setLogsColumns ?? (async () => undefined)
     );
   }
 
@@ -105,6 +122,7 @@ suite('LogsMessageHandler telemetry', () => {
       },
       '../../../../src/utils/logger': {
         logInfo: () => undefined,
+        logWarn: () => undefined,
         '@noCallThru': true
       }
     });
@@ -154,6 +172,7 @@ suite('LogsMessageHandler telemetry', () => {
       },
       '../../../../src/utils/logger': {
         logInfo: () => undefined,
+        logWarn: () => undefined,
         '@noCallThru': true
       }
     });
@@ -180,5 +199,38 @@ suite('LogsMessageHandler telemetry', () => {
 
     await assert.rejects(handler.handle({ type: 'ready' } as any), error => error === sendOrgsError);
     assert.deepEqual(calls, ['loading:true', 'sendOrgs', 'loading:false']);
+  });
+
+  test('ignores malformed openLog payloads before invoking callbacks', async () => {
+    const events: Array<{ name: string; properties?: Record<string, string>; measurements?: Record<string, number> }> = [];
+    const opened: string[] = [];
+    const handler = createHandler(events, {
+      openLog: async (logId: string) => {
+        opened.push(logId);
+      }
+    });
+
+    await handler.handle({ type: 'openLog', logId: { bad: true } } as any);
+
+    assert.deepEqual(opened, []);
+    assert.deepEqual(events, []);
+  });
+
+  test('normalizes blank selectOrg targets to undefined', async () => {
+    const selected: Array<string | undefined> = [];
+    let refreshCount = 0;
+    const handler = createHandler([], {
+      setSelectedOrg: (org?: string) => {
+        selected.push(org);
+      },
+      refresh: async () => {
+        refreshCount += 1;
+      }
+    });
+
+    await handler.handle({ type: 'selectOrg', target: '   ' } as any);
+
+    assert.deepEqual(selected, [undefined]);
+    assert.equal(refreshCount, 1);
   });
 });

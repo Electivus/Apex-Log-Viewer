@@ -1,6 +1,6 @@
-import type { WebviewToExtensionMessage } from '../shared/messages';
+import { parseWebviewToExtensionMessage } from '../shared/messages';
 import { safeSendEvent } from '../shared/telemetry';
-import { logInfo } from '../../../../src/utils/logger';
+import { logInfo, logWarn } from '../../../../src/utils/logger';
 
 export class LogsMessageHandler {
   constructor(
@@ -18,8 +18,10 @@ export class LogsMessageHandler {
     private readonly setLogsColumns: (value: unknown) => Promise<void>
   ) {}
 
-  async handle(message: WebviewToExtensionMessage): Promise<void> {
-    if (!message?.type) {
+  async handle(rawMessage: unknown): Promise<void> {
+    const message = parseWebviewToExtensionMessage(rawMessage);
+    if (!message) {
+      logWarn('Logs: ignored invalid webview message');
       return;
     }
     switch (message.type) {
@@ -46,7 +48,7 @@ export class LogsMessageHandler {
         await this.clearLogs(message.scope === 'mine' ? 'mine' : 'all');
         break;
       case 'selectOrg':
-        this.setSelectedOrg(typeof message.target === 'string' ? message.target.trim() : undefined);
+        this.setSelectedOrg(typeof message.target === 'string' ? message.target.trim() || undefined : undefined);
         logInfo('Logs: selected org set');
         await this.refresh();
         break;

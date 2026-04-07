@@ -15,6 +15,13 @@ suite('logsColumns config', () => {
     assert.ok(cfg.order.includes('match'));
   });
 
+  test('caps inspected order entries for oversized payloads', () => {
+    const cfg = normalizeLogsColumnsConfig({
+      order: [...Array.from({ length: 1000 }, () => 'nope'), 'time']
+    });
+    assert.deepEqual(cfg.order, DEFAULT_LOGS_COLUMNS_CONFIG.order);
+  });
+
   test('ignores invalid widths and preserves valid widths', () => {
     const cfg = normalizeLogsColumnsConfig({
       widths: {
@@ -28,4 +35,3 @@ suite('logsColumns config', () => {
     assert.equal(cfg.widths.match, undefined);
   });
 });
-

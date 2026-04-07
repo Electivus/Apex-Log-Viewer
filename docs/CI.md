@@ -2,21 +2,36 @@
 
 This repository uses GitHub Actions to build, test, package, and publish the extension.
 
-- Workflow CI (`.github/workflows/ci.yml`): build/test only on `push` and `pull_request`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`).
+- Workflow CI (`.github/workflows/ci.yml`): build/test only on `push` and `pull_request`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`). This workflow enforces dependency provenance with `node scripts/check-dependency-sources.mjs` before every `npm ci`, then runs npm registry signature verification (`npm run security:npm-signatures`) before compile/test.
+- Workflow Dependency Review (`.github/workflows/dependency-review.yml`): blocks pull requests that introduce new moderate-or-higher dependency risk in runtime or development scopes.
 - Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. This workflow is now pool-only in CI: it requires `SF_SCRATCH_POOL_NAME` plus `SF_DEVHUB_AUTH_URL`, reuses pooled scratch orgs through each slot's stored `sfdxAuthUrl`, and defaults to `7` Playwright workers so the current seven E2E specs can run in parallel. When Azure OIDC secrets and the E2E telemetry target variables are configured, it runs the full `npm run test:e2e:telemetry` path and validates telemetry by querying `AppEvents` in the linked Log Analytics workspace scoped to the E2E Application Insights component resource. Without that Azure configuration, it still runs the full `npm run test:e2e` suite and simply skips the telemetry-validation layer.
 - Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace (if `VSCE_PAT` is configured) and Open VSX (if `OVSX_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
 - Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes automatically to the Marketplace and Open VSX pre‑release channels (when `VSCE_PAT`/`OVSX_PAT` are set).
 - Workflow Rust CLI Release (`.github/workflows/rust-release.yml`): runs on `rust-v*` tags, publishes the npm meta/native packages and GitHub release assets built from the tested CLI release bundle, and intentionally keeps `crates.io` out of the bootstrap path for now. Required repository secret for the initial CLI publish path is `NPM_TOKEN`.
+- Workflow Rust Supply Chain (`.github/workflows/rust-supply-chain.yml`): runs `cargo deny check advisories bans licenses sources` on pull requests and pushes to `main`.
 
 Build & Test basics:
 
 - Node from `.nvmrc` on `ubuntu-latest` with npm cache.
 - `npm ci` → `npm run build` → tests. CI defaults to unit tests on manual runs; Release runs all tests.
+- `npm run test:scripts` includes the repository security regression suite plus `node scripts/check-dependency-sources.mjs`, so local script verification catches dependency source drift without waiting for CI.
 - Local Rust fast path: `npm run test:rust:smoke` exercises the CLI/app-server smoke layer first (`alv-cli` `cli_smoke` plus `alv-core` `orgs_smoke`) before involving the VS Code host or Playwright.
 - Optional Rust acceleration: if `cargo-nextest` is installed, `npm run test:rust` and `npm run test:rust:smoke` prefer it automatically. You can force it with `npm run test:rust:nextest` or `npm run test:rust:smoke:nextest`.
 - Extension packaging consumes `config/runtime-bundle.json` so the bundled runtime stays pinned to a tested CLI release instead of building workspace HEAD during extension packaging.
+- The Rust workspace supply-chain policy is committed in `deny.toml` and evaluated against the checked-in root `Cargo.lock`.
 
 Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref.
+
+## Workflow Supply Chain Controls
+
+- Third-party and GitHub-owned Actions are pinned to full commit SHAs rather
+  than mutable tags.
+- Dependency-source policy allows only registry packages, in-repo workspace
+  links, plus the explicit pinned `tree-sitter-sfapex` git exception, and it
+  validates both manifests and `package-lock.json` before dependency install.
+- If `npm audit signatures` fails in CI, treat it as a provenance problem:
+  investigate the package metadata or lockfile change instead of removing the
+  gate.
 
 ## E2E Scratch Org Strategy
 

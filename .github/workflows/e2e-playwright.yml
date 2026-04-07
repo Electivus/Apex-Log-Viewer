@@ -53,10 +53,10 @@ jobs:
       PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || '1' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup Node.js from .nvmrc
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -70,7 +70,7 @@ jobs:
         run: node scripts/resolve-vscode-cache-metadata.js
 
       - name: Restore VS Code test cache
-        uses: actions/cache@v5
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
           path: .vscode-test/vscode-*
           key: vscode-test-${{ runner.os }}-${{ steps.vscode-cache.outputs.version }}-${{ steps.vscode-cache.outputs.build }}
@@ -95,6 +95,9 @@ jobs:
             exit 1
           fi
 
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
       - name: Install extension dependencies
         run: npm ci
         env:
@@ -105,7 +108,7 @@ jobs:
 
       - name: Azure login for dedicated App Insights validation
         if: ${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' && env.HAS_AZURE_E2E_TELEMETRY_CONFIG == '1' }}
-        uses: azure/login@v3
+        uses: azure/login@93381592711f247e165c389ebb30b596c84cdc48
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
           tenant-id: ${{ env.AZURE_TENANT_ID }}
@@ -142,7 +145,7 @@ jobs:
 
       - name: Upload Playwright artifacts
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: playwright-e2e
           path: output/playwright/

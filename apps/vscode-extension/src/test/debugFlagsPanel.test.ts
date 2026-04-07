@@ -265,4 +265,24 @@ suite('DebugFlagsPanel', () => {
     });
     assert.equal(typeof events[0]?.measurements?.durationMs, 'number');
   });
+
+  test('onMessage ignores malformed apply payloads before invoking actions', async () => {
+    const { DebugFlagsPanel } = loadDebugFlagsPanel();
+    let applyCalls = 0;
+    const panelLike = {
+      disposed: false,
+      applyTraceFlag: async () => {
+        applyCalls += 1;
+      }
+    };
+
+    await (DebugFlagsPanel as any).prototype.onMessage.call(panelLike, {
+      type: 'debugFlagsApply',
+      target: { type: 'user' },
+      debugLevelName: 'SFDC_DevConsole',
+      ttlMinutes: 30
+    });
+
+    assert.equal(applyCalls, 0);
+  });
 });

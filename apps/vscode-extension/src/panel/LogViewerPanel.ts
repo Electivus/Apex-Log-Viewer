@@ -6,10 +6,10 @@ import { logInfo, logWarn } from '../../../../src/utils/logger';
 import { getErrorMessage } from '../../../../src/utils/error';
 import { summarizeLogFile } from '../../../../src/services/logTriage';
 import { normalizeLogTriageSummary, type LogDiagnostic } from '../shared/logTriage';
-import type {
-  LogViewerFromWebviewMessage,
-  LogViewerToWebviewMessage,
-  LogViewerTriagePayload
+import {
+  parseLogViewerFromWebviewMessage,
+  type LogViewerToWebviewMessage,
+  type LogViewerTriagePayload
 } from '../shared/logViewerMessages';
 
 interface ShowOptions {
@@ -121,7 +121,7 @@ export class LogViewerPanel {
       }
     });
 
-    this.panel.webview.onDidReceiveMessage(message => this.onMessage(message as LogViewerFromWebviewMessage));
+    this.panel.webview.onDidReceiveMessage(message => this.onMessage(message));
 
     LogViewerPanel.context?.subscriptions.push(this.panel);
   }
@@ -136,8 +136,9 @@ export class LogViewerPanel {
     return this.panel.webview.asWebviewUri(resourceWithCacheBust).toString();
   }
 
-  private async onMessage(message: LogViewerFromWebviewMessage): Promise<void> {
-    if (this.disposed) {
+  private async onMessage(rawMessage: unknown): Promise<void> {
+    const message = parseLogViewerFromWebviewMessage(rawMessage);
+    if (!message || this.disposed) {
       return;
     }
     switch (message.type) {

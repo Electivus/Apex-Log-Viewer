@@ -1,0 +1,21 @@
+name: Rust Supply Chain
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-deny:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked --version 0.19.0
+      - name: Run cargo-deny
+        run: cargo deny check advisories bans licenses sources
