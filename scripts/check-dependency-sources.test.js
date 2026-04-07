@@ -388,6 +388,45 @@ test('rejects lockfile package version URLs when resolved is absent', () => {
   }
 });
 
+test('rejects lockfile package ssh URLs when resolved is absent', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writeJson(tempDir, 'package.json', {
+      name: 'fixture',
+      private: true,
+      dependencies: {
+        leftpad: '^1.0.0'
+      }
+    });
+    writeJson(tempDir, 'package-lock.json', {
+      name: 'fixture',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: 'fixture',
+          dependencies: {
+            leftpad: '^1.0.0'
+          }
+        },
+        'node_modules/leftpad': {
+          version: 'ssh://git@github.com/evil/leftpad.git#deadbeef'
+        }
+      }
+    });
+
+    const result = runCheck(tempDir);
+    assert.notEqual(result.status, 0, 'expected packages.version ssh source to fail provenance checks');
+    assert.match(
+      result.stderr,
+      /package-lock\.json -> node_modules\/leftpad -> ssh:\/\/git@github\.com\/evil\/leftpad\.git#deadbeef/
+    );
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('rejects hosted git shorthand manifest dependency sources', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
 

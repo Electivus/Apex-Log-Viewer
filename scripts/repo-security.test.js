@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const shellQuote = require('shell-quote');
+const yaml = require('yaml');
 
 const repoRoot = path.join(__dirname, '..');
 
@@ -38,45 +39,24 @@ function runCommandLines(workflow) {
     const indent = match[1].length;
     const runValue = match[2].trimEnd();
     if (/^[>|][+-]?$/.test(runValue.trim())) {
-      let continuedCommand = '';
-      let heredocDelimiter;
+      const blockLines = [];
 
       for (index += 1; index < lines.length; index += 1) {
         const blockLine = lines[index].replace(/\r$/, '');
         const blockIndent = blockLine.match(/^\s*/)?.[0].length ?? 0;
-        const trimmedBlockLine = blockLine.trim();
+        const trimmedBlockLine = blockLine.trimEnd();
 
-        if (trimmedBlockLine !== '' && blockIndent <= indent) {
+        if (trimmedBlockLine.trim() !== '' && blockIndent <= indent) {
           index -= 1;
           break;
         }
-        if (heredocDelimiter) {
-          if (trimmedBlockLine === heredocDelimiter) {
-            heredocDelimiter = undefined;
-          }
-          continue;
-        }
-        if (trimmedBlockLine !== '' && !trimmedBlockLine.startsWith('#')) {
-          const nextCommand = continuedCommand ? `${continuedCommand} ${trimmedBlockLine}` : trimmedBlockLine;
-          if (nextCommand.endsWith('\\')) {
-            continuedCommand = nextCommand.slice(0, -1).trimEnd();
-            continue;
-          }
-
-          commands.push(nextCommand);
-          heredocDelimiter = heredocTerminator(nextCommand);
-          continuedCommand = '';
-        }
+        blockLines.push(blockLine);
       }
-      if (continuedCommand) {
-        commands.push(continuedCommand);
-      }
+      commands.push(...commandsFromRunValue(blockLines.join('\n')));
       continue;
     }
 
-    if (runValue.trim() !== '' && !runValue.trim().startsWith('#')) {
-      commands.push(runValue.trim());
-    }
+    commands.push(...commandsFromRunValue(runValue.trim()));
   }
 
   return commands;
@@ -117,6 +97,7 @@ function parseShellTokens(segment) {
 function normalizeCommandSegment(segment) {
   const tokens = parseShellTokens(segment);
   let index = 0;
+  const shellWrappers = new Set(['env', 'time', 'command']);
 
   while (tokens[index]?.op === '(') {
     index += 1;
@@ -126,7 +107,7 @@ function normalizeCommandSegment(segment) {
     index += 1;
   }
 
-  while (typeof tokens[index] === 'string' && (tokens[index] === 'env' || tokens[index] === 'time')) {
+  while (typeof tokens[index] === 'string' && shellWrappers.has(tokens[index])) {
     const wrapper = tokens[index];
     index += 1;
     while (typeof tokens[index] === 'string' && tokens[index].startsWith('-')) {
@@ -140,6 +121,95 @@ function normalizeCommandSegment(segment) {
   }
 
   return tokens.slice(index).filter(token => typeof token === 'string').join(' ');
+}
+
+function commandsFromRunValue(runValue) {
+  if (typeof runValue !== 'string') {
+    return [];
+  }
+
+  const commands = [];
+  let continuedCommand = '';
+  let heredocDelimiter;
+
+  for (const rawLine of runValue.split('\n')) {
+    const trimmedLine = rawLine.replace(/\r$/, '').trim();
+    if (heredocDelimiter) {
+      if (trimmedLine === heredocDelimiter) {
+        heredocDelimiter = undefined;
+      }
+      continue;
+    }
+
+    if (trimmedLine === '' || trimmedLine.startsWith('#')) {
+      continue;
+    }
+
+    const nextCommand = continuedCommand ? `${continuedCommand} ${trimmedLine}` : trimmedLine;
+    if (nextCommand.endsWith('\\')) {
+      continuedCommand = nextCommand.slice(0, -1).trimEnd();
+      continue;
+    }
+
+    commands.push(nextCommand);
+    heredocDelimiter = heredocTerminator(nextCommand);
+    continuedCommand = '';
+  }
+
+  if (continuedCommand) {
+    commands.push(continuedCommand);
+  }
+
+  return commands;
+}
+
+function workflowJobs(workflow) {
+  const parsed = yaml.parse(workflow);
+  if (!parsed?.jobs || typeof parsed.jobs !== 'object') {
+    return [];
+  }
+
+  return Object.entries(parsed.jobs)
+    .filter(([, job]) => job && typeof job === 'object')
+    .map(([jobName, job]) => ({
+      jobName,
+      steps: Array.isArray(job.steps) ? job.steps : []
+    }));
+}
+
+function jobCommandLines(job) {
+  return job.steps.flatMap(step => commandsFromRunValue(step?.run));
+}
+
+function commandIndexesInCommands(commands, matcher) {
+  return commands
+    .map((command, index) => (matcher(command) ? index : -1))
+    .filter(index => index !== -1);
+}
+
+function npmCiProvenanceViolations(workflow) {
+  const violations = [];
+
+  for (const job of workflowJobs(workflow)) {
+    const commands = jobCommandLines(job);
+    const provenanceChecks = commandIndexesInCommands(commands, isProvenanceCheckCommand);
+    const npmInstalls = commandIndexesInCommands(commands, isNpmCiCommand);
+
+    let matchedChecks = 0;
+    for (let installIndex = 0; installIndex < npmInstalls.length; installIndex += 1) {
+      if (matchedChecks < provenanceChecks.length && provenanceChecks[matchedChecks] < npmInstalls[installIndex]) {
+        matchedChecks += 1;
+        continue;
+      }
+
+      violations.push({
+        jobName: job.jobName,
+        installIndex
+      });
+    }
+  }
+
+  return violations;
 }
 
 function isProvenanceCheckCommand(command) {
@@ -338,31 +408,64 @@ test('npm ci provenance detection handles shell-prefixed installs', () => {
   assert.equal(npmInstalls.length, 1);
 });
 
+test('npm ci provenance detection handles shell-builtin-prefixed installs', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: command npm ci'
+  ].join('\n');
+
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+  assert.equal(npmInstalls.length, 1);
+});
+
+test('dependency provenance validation is enforced within each job', () => {
+  const workflow = [
+    'jobs:',
+    '  validate:',
+    '    steps:',
+    '      - run: node scripts/check-dependency-sources.mjs',
+    '  install:',
+    '    steps:',
+    '      - run: npm ci'
+  ].join('\n');
+
+  assert.deepEqual(npmCiProvenanceViolations(workflow), [
+    {
+      jobName: 'install',
+      installIndex: 0
+    }
+  ]);
+});
+
 test('every workflow npm ci step is preceded by dependency provenance validation', () => {
   for (const workflowPath of workflowFiles()) {
     const workflow = read(workflowPath);
-    const provenanceChecks = commandIndexes(
-      workflow,
-      isProvenanceCheckCommand
-    );
-    const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+    const violations = npmCiProvenanceViolations(workflow);
 
-    if (npmInstalls.length === 0) {
-      continue;
-    }
-
-    assert.equal(
-      provenanceChecks.length,
-      npmInstalls.length,
-      `${workflowPath} should validate dependency provenance before every npm ci step`
+    assert.deepEqual(
+      violations,
+      [],
+      `${workflowPath} should validate dependency provenance before every npm ci step in the same job`
     );
-    for (let index = 0; index < npmInstalls.length; index += 1) {
-      assert.ok(
-        provenanceChecks[index] < npmInstalls[index],
-        `${workflowPath} should run dependency provenance validation before npm ci step ${index + 1}`
-      );
-    }
   }
+});
+
+test('package.json declares shell-quote for repo-security tests', () => {
+  const pkg = JSON.parse(read('package.json'));
+  assert.match(
+    String(pkg.devDependencies?.['shell-quote'] || ''),
+    /^\S+$/,
+    'package.json should declare shell-quote explicitly'
+  );
+});
+
+test('package.json runs repo-security and dependency-source checks in the default script lane', () => {
+  const pkg = JSON.parse(read('package.json'));
+  assert.match(String(pkg.scripts?.['test:scripts'] || ''), /\bscripts\/repo-security\.test\.js\b/);
+  assert.match(String(pkg.scripts?.['test:scripts'] || ''), /\bnode scripts\/check-dependency-sources\.mjs\b/);
+  assert.equal(pkg.scripts?.['security:dependency-sources'], 'node scripts/check-dependency-sources.mjs');
 });
 
 test('CODEOWNERS covers workflows, manifests, lockfiles, and release metadata', () => {
@@ -381,13 +484,6 @@ test('CODEOWNERS covers workflows, manifests, lockfiles, and release metadata', 
   ]) {
     assert.match(owners, new RegExp(`^${expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
   }
-});
-
-test('package.json runs repo-security and dependency-source checks in the default script lane', () => {
-  const pkg = JSON.parse(read('package.json'));
-  assert.match(String(pkg.scripts?.['test:scripts'] || ''), /\bscripts\/repo-security\.test\.js\b/);
-  assert.match(String(pkg.scripts?.['test:scripts'] || ''), /\bnode scripts\/check-dependency-sources\.mjs\b/);
-  assert.equal(pkg.scripts?.['security:dependency-sources'], 'node scripts/check-dependency-sources.mjs');
 });
 
 test('Rust workspace keeps a checked-in Cargo.lock and cargo-deny config', () => {

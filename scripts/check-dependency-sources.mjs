@@ -20,6 +20,7 @@ const allowedGitDependencies = new Map([
 ]);
 const disallowedSchemes = new Set([
   'git:',
+  'ssh:',
   'github:',
   'gitlab:',
   'bitbucket:',
