@@ -81,11 +81,15 @@ function manifests() {
 }
 
 function lockfiles() {
-  return [
-    path.join(repoRoot, 'package-lock.json'),
-    ...collectWorkspacePaths('apps', 'package-lock.json'),
-    ...collectWorkspacePaths('packages', 'package-lock.json')
-  ].filter(filePath => fs.existsSync(filePath));
+  return Array.from(
+    new Set(
+      ['package-lock.json', 'npm-shrinkwrap.json'].flatMap(fileName => [
+        path.join(repoRoot, fileName),
+        ...collectWorkspacePaths('apps', fileName),
+        ...collectWorkspacePaths('packages', fileName)
+      ])
+    )
+  ).filter(filePath => fs.existsSync(filePath));
 }
 
 function hasBlockedManifestSource(version) {
@@ -120,7 +124,36 @@ function looksLikeScpStyleGitSpec(value) {
   return /^[^/\s@]+@[^:/\s]+:[^/\s]+\/[^/\s#]+(?:#[^\s]+)?$/.test(value);
 }
 
+function npmAliasTargetSpec(value) {
+  if (!value.toLowerCase().startsWith('npm:')) {
+    return '';
+  }
+
+  const aliasTarget = value.slice('npm:'.length).trim();
+  if (!aliasTarget) {
+    return '';
+  }
+
+  if (aliasTarget.startsWith('@')) {
+    const scopeSeparatorIndex = aliasTarget.indexOf('/');
+    if (scopeSeparatorIndex === -1) {
+      return '';
+    }
+
+    const targetSeparatorIndex = aliasTarget.indexOf('@', scopeSeparatorIndex + 1);
+    return targetSeparatorIndex === -1 ? '' : aliasTarget.slice(targetSeparatorIndex + 1).trim();
+  }
+
+  const targetSeparatorIndex = aliasTarget.indexOf('@');
+  return targetSeparatorIndex === -1 ? '' : aliasTarget.slice(targetSeparatorIndex + 1).trim();
+}
+
 function isRemoteDependencySpec(value) {
+  const aliasTarget = npmAliasTargetSpec(value);
+  if (aliasTarget) {
+    return isRemoteDependencySpec(aliasTarget);
+  }
+
   const scheme = normalizedDependencyScheme(value);
   if (scheme) {
     return scheme.startsWith('git+') || disallowedSchemes.has(scheme);

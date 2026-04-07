@@ -267,6 +267,47 @@ test('rejects manifest dependency sources with leading whitespace', () => {
   }
 });
 
+test('rejects npm alias manifest dependency sources that target remote specs', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writeJson(tempDir, 'package.json', {
+      name: 'fixture',
+      private: true,
+      dependencies: {
+        leftpad: 'npm:evil-pkg@git+https://evil.example/evil.git#deadbeef'
+      }
+    });
+    writeJson(tempDir, 'package-lock.json', {
+      name: 'fixture',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: 'fixture',
+          dependencies: {
+            leftpad: '^1.0.0'
+          }
+        },
+        'node_modules/leftpad': {
+          version: '1.0.0',
+          resolved: 'https://registry.npmjs.org/leftpad/-/leftpad-1.0.0.tgz',
+          integrity: 'sha512-registry'
+        }
+      }
+    });
+
+    const result = runCheck(tempDir);
+    assert.notEqual(result.status, 0, 'expected remote npm alias manifest source to fail provenance checks');
+    assert.match(
+      result.stderr,
+      /package\.json -> leftpad@npm:evil-pkg@git\+https:\/\/evil\.example\/evil\.git#deadbeef/
+    );
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('rejects peer dependency sources that resolve to git remotes', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
 
@@ -300,6 +341,45 @@ test('rejects peer dependency sources that resolve to git remotes', () => {
     const result = runCheck(tempDir);
     assert.notEqual(result.status, 0, 'expected peer dependency source to fail provenance checks');
     assert.match(result.stderr, /package\.json -> leftpad@git\+https:\/\/evil\.example\/leftpad\.git#deadbeef/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('rejects lockfile npm alias version sources when resolved is absent', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writeJson(tempDir, 'package.json', {
+      name: 'fixture',
+      private: true,
+      dependencies: {
+        leftpad: '^1.0.0'
+      }
+    });
+    writeJson(tempDir, 'package-lock.json', {
+      name: 'fixture',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: 'fixture',
+          dependencies: {
+            leftpad: '^1.0.0'
+          }
+        },
+        'node_modules/leftpad': {
+          version: 'npm:evil-pkg@git+https://evil.example/evil.git#deadbeef'
+        }
+      }
+    });
+
+    const result = runCheck(tempDir);
+    assert.notEqual(result.status, 0, 'expected lockfile npm alias source to fail provenance checks');
+    assert.match(
+      result.stderr,
+      /package-lock\.json -> node_modules\/leftpad -> npm:evil-pkg@git\+https:\/\/evil\.example\/evil\.git#deadbeef/
+    );
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -344,6 +424,44 @@ test('rejects lockfile links whose metadata name spoofs the package path identit
     const result = runCheck(tempDir);
     assert.notEqual(result.status, 0, 'expected spoofed lockfile package name to fail provenance checks');
     assert.match(result.stderr, /package-lock\.json -> node_modules\/leftpad -> packages\/example/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('rejects disallowed sources from npm-shrinkwrap.json', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writeJson(tempDir, 'package.json', {
+      name: 'fixture',
+      private: true,
+      dependencies: {
+        leftpad: '^1.0.0'
+      }
+    });
+    writeJson(tempDir, 'npm-shrinkwrap.json', {
+      name: 'fixture',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: 'fixture',
+          dependencies: {
+            leftpad: '^1.0.0'
+          }
+        },
+        'node_modules/leftpad': {
+          version: '1.0.0',
+          resolved: 'https://evil.example/leftpad-1.0.0.tgz',
+          integrity: 'sha512-evil'
+        }
+      }
+    });
+
+    const result = runCheck(tempDir);
+    assert.notEqual(result.status, 0, 'expected npm-shrinkwrap provenance check to fail');
+    assert.match(result.stderr, /npm-shrinkwrap\.json -> node_modules\/leftpad -> https:\/\/evil\.example\/leftpad-1\.0\.0\.tgz/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
