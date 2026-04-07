@@ -194,12 +194,43 @@ function shellInterpreterCommand(segment) {
       continue;
     }
     if (token === '-c' || token === '--command' || token.slice(1).includes('c')) {
-      const innerTokens = tokens.slice(index + 1);
-      return innerTokens.length > 0 ? innerTokens.join(' ') : undefined;
+      return typeof tokens[index + 1] === 'string' ? tokens[index + 1] : undefined;
     }
   }
 
   return undefined;
+}
+
+function hasTopLevelPipeline(command) {
+  return parseShellTokens(command).some(token => token?.op === '|');
+}
+
+function commandExecutionSegments(command, inheritedState = { failOpen: false, piped: false }) {
+  const clauses = shellCommandClauses(command);
+  const failOpen = inheritedState.failOpen || clauses.some(clause => clause.separatorAfter === '||');
+
+  return clauses.flatMap(clause => {
+    const segmentState = {
+      failOpen,
+      piped: inheritedState.piped || hasTopLevelPipeline(clause.text)
+    };
+    const innerCommand = shellInterpreterCommand(clause.text);
+
+    if (innerCommand && innerCommand !== clause.text) {
+      return commandExecutionSegments(innerCommand, segmentState);
+    }
+
+    return [
+      {
+        text: clause.text,
+        ...segmentState
+      }
+    ];
+  });
+}
+
+function jobExecutionSegments(job) {
+  return jobCommandLines(job).flatMap(command => commandExecutionSegments(command));
 }
 
 function segmentMatchesCommand(segment, matcher) {
@@ -298,31 +329,32 @@ function jobCommandLines(job) {
   return job.steps.flatMap(step => commandsFromRunValue(step?.run));
 }
 
-function commandIndexesInCommands(commands, matcher) {
-  return commands
-    .map((command, index) => (matcher(command) ? index : -1))
-    .filter(index => index !== -1);
-}
-
 function npmCiProvenanceViolations(workflow) {
   const violations = [];
 
   for (const job of workflowJobs(workflow)) {
-    const commands = jobCommandLines(job);
-    const provenanceChecks = commandIndexesInCommands(commands, isProvenanceCheckCommand);
-    const npmInstalls = commandIndexesInCommands(commands, isNpmCiCommand);
+    let availableChecks = 0;
+    let installIndex = 0;
 
-    let matchedChecks = 0;
-    for (let installIndex = 0; installIndex < npmInstalls.length; installIndex += 1) {
-      if (matchedChecks < provenanceChecks.length && provenanceChecks[matchedChecks] < npmInstalls[installIndex]) {
-        matchedChecks += 1;
-        continue;
+    for (const segment of jobExecutionSegments(job)) {
+      if (isProvenanceCheckSegment(segment)) {
+        availableChecks += 1;
       }
 
-      violations.push({
-        jobName: job.jobName,
-        installIndex
-      });
+      if (isNpmCiSegment(segment)) {
+        if (availableChecks > 0) {
+          availableChecks -= 1;
+          installIndex += 1;
+          continue;
+        }
+
+        violations.push({
+          jobName: job.jobName,
+          installIndex
+        });
+        installIndex += 1;
+        continue;
+      }
     }
   }
 
@@ -330,24 +362,26 @@ function npmCiProvenanceViolations(workflow) {
 }
 
 function isProvenanceCheckCommand(command) {
-  const clauses = shellCommandClauses(command);
-  if (clauses.some(clause => clause.separatorAfter === '||')) {
+  return commandExecutionSegments(command).some(isProvenanceCheckSegment);
+}
+
+function isProvenanceCheckSegment(segment) {
+  if (segment.failOpen || segment.piped) {
     return false;
   }
 
-  return clauses.some(({ separatorBefore, text }) =>
-    separatorBefore !== '||' &&
-    segmentMatchesCommand(
-      text,
-      normalized => /^node scripts\/check-dependency-sources\.mjs(?=$|[\s|)])/.test(normalized)
-    )
+  return segmentMatchesCommand(
+    segment.text,
+    normalized => /^node scripts\/check-dependency-sources\.mjs(?=$|[\s)])/.test(normalized)
   );
 }
 
 function isNpmCiCommand(command) {
-  return shellCommandSegments(command).some(segment =>
-    segmentMatchesCommand(segment, normalized => matchesNpmCiInvocation(normalized))
-  );
+  return commandExecutionSegments(command).some(isNpmCiSegment);
+}
+
+function isNpmCiSegment(segment) {
+  return segmentMatchesCommand(segment.text, normalized => matchesNpmCiInvocation(normalized));
 }
 
 test('usesRefs matches dash-prefixed workflow steps', () => {
@@ -653,6 +687,34 @@ test('dependency provenance validation is enforced within each job', () => {
     '      - run: node scripts/check-dependency-sources.mjs',
     '  install:',
     '    steps:',
+    '      - run: npm ci'
+  ].join('\n');
+
+  assert.deepEqual(npmCiProvenanceViolations(workflow), [
+    {
+      jobName: 'install',
+      installIndex: 0
+    }
+  ]);
+});
+
+test('dependency provenance validation accepts same-line checks before npm ci', () => {
+  const workflow = [
+    'jobs:',
+    '  install:',
+    '    steps:',
+    '      - run: node scripts/check-dependency-sources.mjs && npm ci'
+  ].join('\n');
+
+  assert.deepEqual(npmCiProvenanceViolations(workflow), []);
+});
+
+test('piped provenance checks do not satisfy npm ci validation', () => {
+  const workflow = [
+    'jobs:',
+    '  install:',
+    '    steps:',
+    '      - run: node scripts/check-dependency-sources.mjs | cat',
     '      - run: npm ci'
   ].join('\n');
 
