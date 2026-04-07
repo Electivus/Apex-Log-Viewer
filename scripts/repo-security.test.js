@@ -98,6 +98,7 @@ function normalizeCommandSegment(segment) {
   const tokens = parseShellTokens(segment);
   let index = 0;
   const shellWrappers = new Set(['env', 'time', 'command', 'sudo']);
+  const shellControlKeywords = new Set(['then', 'do', 'else']);
 
   while (tokens[index]?.op === '(') {
     index += 1;
@@ -118,6 +119,10 @@ function normalizeCommandSegment(segment) {
         index += 1;
       }
     }
+  }
+
+  while (typeof tokens[index] === 'string' && shellControlKeywords.has(tokens[index])) {
+    index += 1;
   }
 
   return tokens.slice(index).filter(token => typeof token === 'string').join(' ');
@@ -426,6 +431,18 @@ test('npm ci provenance detection handles sudo-prefixed installs', () => {
     '  test:',
     '    steps:',
     '      - run: sudo npm ci'
+  ].join('\n');
+
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+  assert.equal(npmInstalls.length, 1);
+});
+
+test('npm ci provenance detection handles inline shell conditionals', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: if true; then npm ci && npm test; fi'
   ].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
