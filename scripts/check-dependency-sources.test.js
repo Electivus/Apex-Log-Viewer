@@ -308,6 +308,42 @@ test('rejects npm alias manifest dependency sources that target remote specs', (
   }
 });
 
+test('rejects manifest dependency sources in workspaces outside apps and packages', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writeJson(tempDir, 'package.json', {
+      name: 'fixture',
+      private: true,
+      workspaces: ['tools/*']
+    });
+    writeJson(tempDir, 'tools/cli/package.json', {
+      name: '@alv/cli',
+      version: '1.0.0',
+      dependencies: {
+        leftpad: 'git+https://evil.example/leftpad.git#deadbeef'
+      }
+    });
+    writeJson(tempDir, 'package-lock.json', {
+      name: 'fixture',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: 'fixture',
+          workspaces: ['tools/*']
+        }
+      }
+    });
+
+    const result = runCheck(tempDir);
+    assert.notEqual(result.status, 0, 'expected out-of-tree workspace manifest source to fail provenance checks');
+    assert.match(result.stderr, /tools\/cli\/package\.json -> leftpad@git\+https:\/\/evil\.example\/leftpad\.git#deadbeef/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('rejects peer dependency sources that resolve to git remotes', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
 
@@ -341,6 +377,46 @@ test('rejects peer dependency sources that resolve to git remotes', () => {
     const result = runCheck(tempDir);
     assert.notEqual(result.status, 0, 'expected peer dependency source to fail provenance checks');
     assert.match(result.stderr, /package\.json -> leftpad@git\+https:\/\/evil\.example\/leftpad\.git#deadbeef/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('rejects shrinkwrap sources in workspaces outside apps and packages', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writeJson(tempDir, 'package.json', {
+      name: 'fixture',
+      private: true,
+      workspaces: ['tools/*']
+    });
+    writeJson(tempDir, 'tools/cli/package.json', {
+      name: '@alv/cli',
+      version: '1.0.0'
+    });
+    writeJson(tempDir, 'tools/cli/npm-shrinkwrap.json', {
+      name: '@alv/cli',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: '@alv/cli',
+          dependencies: {
+            leftpad: '^1.0.0'
+          }
+        },
+        'node_modules/leftpad': {
+          version: '1.0.0',
+          resolved: 'https://evil.example/leftpad-1.0.0.tgz',
+          integrity: 'sha512-evil'
+        }
+      }
+    });
+
+    const result = runCheck(tempDir);
+    assert.notEqual(result.status, 0, 'expected out-of-tree workspace shrinkwrap to fail provenance checks');
+    assert.match(result.stderr, /tools\/cli\/npm-shrinkwrap\.json -> node_modules\/leftpad -> https:\/\/evil\.example\/leftpad-1\.0\.0\.tgz/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

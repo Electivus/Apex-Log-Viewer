@@ -225,7 +225,9 @@ function wrapperOptionConsumesNextValue(wrapper, option) {
       '-u',
       '--user'
     ]),
-    time: new Set(['-f', '--format', '-o', '--output'])
+    time: new Set(['-f', '--format', '-o', '--output']),
+    nice: new Set(['-n', '--adjustment']),
+    stdbuf: new Set(['-e', '--error', '-i', '--input', '-o', '--output'])
   };
   const candidates = optionsWithValues[wrapper];
   if (!candidates) {
@@ -250,7 +252,7 @@ function wrapperOptionConsumesNextValue(wrapper, option) {
 function normalizedCommandTokens(segment) {
   const tokens = parseShellTokens(segment);
   let index = 0;
-  const shellWrappers = new Set(['env', 'time', 'command', 'sudo']);
+  const shellWrappers = new Set(['command', 'env', 'nice', 'nohup', 'setsid', 'stdbuf', 'sudo', 'time']);
   const shellControlKeywords = new Set(['then', 'do', 'else']);
 
   while (tokens[index]?.op === '(') {
@@ -291,6 +293,37 @@ function normalizedCommandTokens(segment) {
 
 function normalizeCommandSegment(segment) {
   return normalizedCommandTokens(segment).join(' ');
+}
+
+function segmentErrexitMode(segment) {
+  const tokens = normalizedCommandTokens(segment);
+  if (tokens[0] !== 'set') {
+    return undefined;
+  }
+
+  for (let index = 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (typeof token !== 'string') {
+      continue;
+    }
+
+    if (token === '-o' || token === '+o') {
+      if (tokens[index + 1] === 'errexit') {
+        return token === '-o';
+      }
+      continue;
+    }
+
+    if (token.startsWith('-') && token.slice(1).includes('e')) {
+      return true;
+    }
+
+    if (token.startsWith('+') && token.slice(1).includes('e')) {
+      return false;
+    }
+  }
+
+  return undefined;
 }
 
 function shellInterpreterCommand(segment) {
@@ -485,7 +518,14 @@ function commandExecutionSegments(command, inheritedState = { failOpen: false, p
 }
 
 function jobExecutionSegments(job) {
-  return jobCommandLines(job).flatMap(command => commandExecutionSegments(command));
+  return job.steps.flatMap((step, stepIndex) =>
+    commandsFromRunValue(step?.run).flatMap(command =>
+      commandExecutionSegments(command).map(segment => ({
+        ...segment,
+        stepIndex
+      }))
+    )
+  );
 }
 
 function segmentMatchesCommand(segment, matcher) {
@@ -590,9 +630,18 @@ function npmCiProvenanceViolations(workflow) {
   for (const job of workflowJobs(workflow)) {
     let availableChecks = 0;
     let installIndex = 0;
+    let currentStepIndex = -1;
+    let errexitDisabled = false;
 
     for (const segment of jobExecutionSegments(job)) {
-      if (isProvenanceCheckSegment(segment)) {
+      if (segment.stepIndex !== currentStepIndex) {
+        currentStepIndex = segment.stepIndex;
+        errexitDisabled = false;
+      }
+
+      const errexitMode = segmentErrexitMode(segment.text);
+
+      if (!errexitDisabled && isProvenanceCheckSegment(segment)) {
         availableChecks += 1;
       }
 
@@ -609,6 +658,10 @@ function npmCiProvenanceViolations(workflow) {
         });
         installIndex += 1;
         continue;
+      }
+
+      if (errexitMode !== undefined) {
+        errexitDisabled = !errexitMode;
       }
     }
   }
@@ -927,6 +980,48 @@ test('npm ci provenance detection handles command substitutions', () => {
     '    steps:',
     '      - run: echo $(npm ci)',
     '      - run: echo `npm ci`'
+  ].join('\n');
+
+  assert.deepEqual(npmCiProvenanceViolations(workflow), [
+    {
+      jobName: 'test',
+      installIndex: 0
+    },
+    {
+      jobName: 'test',
+      installIndex: 1
+    }
+  ]);
+});
+
+test('set +e disables provenance protection until errexit is restored', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: set +e; node scripts/check-dependency-sources.mjs; npm ci',
+    '      - run: set +e; node scripts/check-dependency-sources.mjs; set -e; npm ci'
+  ].join('\n');
+
+  assert.deepEqual(npmCiProvenanceViolations(workflow), [
+    {
+      jobName: 'test',
+      installIndex: 0
+    },
+    {
+      jobName: 'test',
+      installIndex: 1
+    }
+  ]);
+});
+
+test('npm ci provenance detection handles utility-prefixed installs', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: nohup npm ci',
+    '      - run: nice -n 5 npm ci'
   ].join('\n');
 
   assert.deepEqual(npmCiProvenanceViolations(workflow), [

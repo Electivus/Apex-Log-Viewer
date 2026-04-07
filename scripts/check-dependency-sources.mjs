@@ -72,11 +72,33 @@ function collectWorkspacePaths(baseDir, fileName) {
     .filter(filePath => fs.existsSync(filePath));
 }
 
+function workspaceFilePaths(fileName) {
+  const paths = new Set();
+  const wildcardSuffix = '/*';
+
+  for (const pattern of workspacePatterns()) {
+    const normalizedPattern = pattern.replace(/\\/g, '/').replace(/\/+$/, '');
+
+    if (normalizedPattern.endsWith(wildcardSuffix)) {
+      for (const filePath of collectWorkspacePaths(normalizedPattern.slice(0, -wildcardSuffix.length), fileName)) {
+        paths.add(filePath);
+      }
+      continue;
+    }
+
+    const filePath = path.join(repoRoot, normalizedPattern, fileName);
+    if (fs.existsSync(filePath)) {
+      paths.add(filePath);
+    }
+  }
+
+  return Array.from(paths);
+}
+
 function manifests() {
   return [
     path.join(repoRoot, 'package.json'),
-    ...collectWorkspacePaths('apps', 'package.json'),
-    ...collectWorkspacePaths('packages', 'package.json')
+    ...workspaceFilePaths('package.json')
   ];
 }
 
@@ -85,8 +107,7 @@ function lockfiles() {
     new Set(
       ['package-lock.json', 'npm-shrinkwrap.json'].flatMap(fileName => [
         path.join(repoRoot, fileName),
-        ...collectWorkspacePaths('apps', fileName),
-        ...collectWorkspacePaths('packages', fileName)
+        ...workspaceFilePaths(fileName)
       ])
     )
   ).filter(filePath => fs.existsSync(filePath));
@@ -183,23 +204,15 @@ function isPathInsideRepo(candidatePath) {
 function declaredWorkspacePackages() {
   const packages = new Map();
 
-  for (const pattern of workspacePatterns()) {
-    const normalizedPattern = pattern.replace(/\\/g, '/').replace(/\/+$/, '');
-    const wildcardSuffix = '/*';
-    const packageJsonPaths = normalizedPattern.endsWith(wildcardSuffix)
-      ? collectWorkspacePaths(normalizedPattern.slice(0, -wildcardSuffix.length), 'package.json')
-      : [path.join(repoRoot, normalizedPattern, 'package.json')].filter(filePath => fs.existsSync(filePath));
-
-    for (const packageJsonPath of packageJsonPaths) {
-      const packageDir = path.dirname(packageJsonPath);
-      const manifest = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-      const packageName = typeof manifest.name === 'string' ? manifest.name.trim() : '';
-      if (!packageName) {
-        continue;
-      }
-
-      packages.set(packageDir, packageName);
+  for (const packageJsonPath of workspaceFilePaths('package.json')) {
+    const packageDir = path.dirname(packageJsonPath);
+    const manifest = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    const packageName = typeof manifest.name === 'string' ? manifest.name.trim() : '';
+    if (!packageName) {
+      continue;
     }
+
+    packages.set(packageDir, packageName);
   }
 
   return packages;
