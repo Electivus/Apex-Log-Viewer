@@ -97,7 +97,7 @@ function parseShellTokens(segment) {
 function normalizeCommandSegment(segment) {
   const tokens = parseShellTokens(segment);
   let index = 0;
-  const shellWrappers = new Set(['env', 'time', 'command']);
+  const shellWrappers = new Set(['env', 'time', 'command', 'sudo']);
 
   while (tokens[index]?.op === '(') {
     index += 1;
@@ -414,6 +414,18 @@ test('npm ci provenance detection handles shell-builtin-prefixed installs', () =
     '  test:',
     '    steps:',
     '      - run: command npm ci'
+  ].join('\n');
+
+  const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
+  assert.equal(npmInstalls.length, 1);
+});
+
+test('npm ci provenance detection handles sudo-prefixed installs', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: sudo npm ci'
   ].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
