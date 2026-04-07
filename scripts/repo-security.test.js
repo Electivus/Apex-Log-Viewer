@@ -120,12 +120,66 @@ function shellCommandSegments(command) {
 }
 
 function heredocTerminator(command) {
-  const tokens = parseShellTokens(command);
-  for (let index = 0; index < tokens.length - 2; index += 1) {
-    if (tokens[index]?.op === '<' && tokens[index + 1]?.op === '<' && typeof tokens[index + 2] === 'string') {
-      return tokens[index + 2].replace(/^-/, '');
+  for (let index = 0; index < command.length - 1; index += 1) {
+    const char = command[index];
+
+    if (char === '\\') {
+      index += 1;
+      continue;
     }
+
+    if (char === '\'' || char === '"') {
+      const quote = char;
+      index += 1;
+      while (index < command.length) {
+        if (command[index] === '\\' && quote === '"') {
+          index += 2;
+          continue;
+        }
+        if (command[index] === quote) {
+          break;
+        }
+        index += 1;
+      }
+      continue;
+    }
+
+    if (char !== '<' || command[index + 1] !== '<') {
+      continue;
+    }
+
+    let delimiterIndex = index + 2;
+    if (command[delimiterIndex] === '-') {
+      delimiterIndex += 1;
+    }
+    while (/\s/.test(command[delimiterIndex] || '')) {
+      delimiterIndex += 1;
+    }
+    if (delimiterIndex >= command.length) {
+      return undefined;
+    }
+
+    const delimiterQuote = command[delimiterIndex];
+    if (delimiterQuote === '\'' || delimiterQuote === '"') {
+      const start = delimiterIndex + 1;
+      delimiterIndex = start;
+      while (delimiterIndex < command.length) {
+        if (command[delimiterIndex] === '\\' && delimiterQuote === '"') {
+          delimiterIndex += 2;
+          continue;
+        }
+        if (command[delimiterIndex] === delimiterQuote) {
+          return command.slice(start, delimiterIndex);
+        }
+        delimiterIndex += 1;
+      }
+      return undefined;
+    }
+
+    const match = /^[^\s;&|<>()]+/.exec(command.slice(delimiterIndex));
+    return match?.[0];
   }
+
   return undefined;
 }
 
@@ -136,6 +190,61 @@ function parseShellTokens(segment) {
   } catch {
     return [sanitized];
   }
+}
+
+function wrapperOptionConsumesNextValue(wrapper, option) {
+  const optionsWithValues = {
+    env: new Set([
+      '-C',
+      '--chdir',
+      '-S',
+      '--split-string',
+      '-u',
+      '--unset',
+      '--block-signal',
+      '--default-signal',
+      '--ignore-signal'
+    ]),
+    sudo: new Set([
+      '-C',
+      '--close-from',
+      '-D',
+      '--chdir',
+      '-g',
+      '--group',
+      '-h',
+      '--host',
+      '-p',
+      '--prompt',
+      '-R',
+      '--chroot',
+      '-r',
+      '--role',
+      '-t',
+      '--type',
+      '-u',
+      '--user'
+    ]),
+    time: new Set(['-f', '--format', '-o', '--output'])
+  };
+  const candidates = optionsWithValues[wrapper];
+  if (!candidates) {
+    return false;
+  }
+
+  for (const candidate of candidates) {
+    if (option === candidate) {
+      return true;
+    }
+    if (candidate.startsWith('--')) {
+      continue;
+    }
+    if (option.startsWith(candidate) && option.length > candidate.length) {
+      return false;
+    }
+  }
+
+  return false;
 }
 
 function normalizedCommandTokens(segment) {
@@ -156,7 +265,15 @@ function normalizedCommandTokens(segment) {
     const wrapper = tokens[index];
     index += 1;
     while (typeof tokens[index] === 'string' && tokens[index].startsWith('-')) {
+      const option = tokens[index];
       index += 1;
+      if (
+        wrapperOptionConsumesNextValue(wrapper, option) &&
+        typeof tokens[index] === 'string' &&
+        !tokens[index].startsWith('-')
+      ) {
+        index += 1;
+      }
     }
     if (wrapper === 'env') {
       while (typeof tokens[index] === 'string' && /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(tokens[index])) {
@@ -607,6 +724,44 @@ test('echoed heredoc payload does not count as provenance validation', () => {
   assert.equal(npmInstalls.length, 1);
 });
 
+test('quoted dash heredoc terminators do not hide later npm ci commands', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: |',
+    "          cat <<'-EOF'",
+    '          node scripts/check-dependency-sources.mjs',
+    '          -EOF',
+    '          npm ci'
+  ].join('\n');
+
+  assert.deepEqual(npmCiProvenanceViolations(workflow), [
+    {
+      jobName: 'test',
+      installIndex: 0
+    }
+  ]);
+});
+
+test('echoed heredoc opener text does not hide later npm ci commands', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: |',
+    "          echo \"<<'-EOF'\"",
+    '          npm ci'
+  ].join('\n');
+
+  assert.deepEqual(npmCiProvenanceViolations(workflow), [
+    {
+      jobName: 'test',
+      installIndex: 0
+    }
+  ]);
+});
+
 test('npm ci provenance detection handles shell-prefixed installs', () => {
   const workflow = [
     'jobs:',
@@ -617,6 +772,27 @@ test('npm ci provenance detection handles shell-prefixed installs', () => {
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
   assert.equal(npmInstalls.length, 1);
+});
+
+test('npm ci provenance detection handles wrapper options with separate values', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: sudo -u root npm ci',
+    '      - run: env -u PATH npm ci'
+  ].join('\n');
+
+  assert.deepEqual(npmCiProvenanceViolations(workflow), [
+    {
+      jobName: 'test',
+      installIndex: 0
+    },
+    {
+      jobName: 'test',
+      installIndex: 1
+    }
+  ]);
 });
 
 test('npm ci provenance detection handles shell-builtin-prefixed installs', () => {
