@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import hostedGitInfo from 'hosted-git-info';
 
 const repoRoot = resolveRepoRoot(process.argv.slice(2));
 const treeSitterSfapexCommit = '685c57c5461eb247d019b244f2130e198c7cc706';
@@ -19,7 +18,17 @@ const allowedGitDependencies = new Map([
     }
   ]
 ]);
-const disallowedSchemes = new Set(['git:', 'github:', 'http:', 'https:', 'file:', 'link:']);
+const disallowedSchemes = new Set([
+  'git:',
+  'github:',
+  'gitlab:',
+  'bitbucket:',
+  'gist:',
+  'http:',
+  'https:',
+  'file:',
+  'link:'
+]);
 
 function resolveRepoRoot(args) {
   const rootFlagIndex = args.indexOf('--root');
@@ -102,13 +111,21 @@ function normalizedDependencyScheme(value) {
   return match[1].toLowerCase();
 }
 
+function looksLikeHostedGitShorthand(value) {
+  return /^[^./@\s][^/\s]*\/[^/\s#]+(?:#[^\s]+)?$/.test(value);
+}
+
+function looksLikeScpStyleGitSpec(value) {
+  return /^[^/\s@]+@[^:/\s]+:[^/\s]+\/[^/\s#]+(?:#[^\s]+)?$/.test(value);
+}
+
 function isRemoteDependencySpec(value) {
   const scheme = normalizedDependencyScheme(value);
   if (scheme) {
     return scheme.startsWith('git+') || disallowedSchemes.has(scheme);
   }
 
-  return hostedGitInfo.fromUrl(value) != null;
+  return looksLikeHostedGitShorthand(value) || looksLikeScpStyleGitSpec(value);
 }
 
 function isRegistryTarball(resolved) {

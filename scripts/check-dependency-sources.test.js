@@ -21,6 +21,13 @@ function runCheck(baseDir) {
   });
 }
 
+function runCheckWithScript(scriptFilePath, baseDir) {
+  return spawnSync(process.execPath, [scriptFilePath, '--root', baseDir], {
+    cwd: baseDir,
+    encoding: 'utf8'
+  });
+}
+
 test('allows registry tarballs, workspace links, and the approved pinned git lock entry', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
 
@@ -413,6 +420,49 @@ test('rejects hosted git shorthand manifest dependency sources', () => {
 
     const result = runCheck(tempDir);
     assert.notEqual(result.status, 0, 'expected hosted git shorthand to fail provenance checks');
+    assert.match(result.stderr, /package\.json -> leftpad@npm\/cli/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('runs without installed dependencies while still rejecting hosted git shorthand', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
+
+  try {
+    writeJson(tempDir, 'package.json', {
+      name: 'fixture',
+      private: true,
+      dependencies: {
+        leftpad: 'npm/cli'
+      }
+    });
+    writeJson(tempDir, 'package-lock.json', {
+      name: 'fixture',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': {
+          name: 'fixture',
+          dependencies: {
+            leftpad: '^1.0.0'
+          }
+        },
+        'node_modules/leftpad': {
+          version: '1.0.0',
+          resolved: 'https://registry.npmjs.org/leftpad/-/leftpad-1.0.0.tgz',
+          integrity: 'sha512-registry'
+        }
+      }
+    });
+
+    const isolatedScriptPath = path.join(tempDir, 'scripts', 'check-dependency-sources.mjs');
+    fs.mkdirSync(path.dirname(isolatedScriptPath), { recursive: true });
+    fs.copyFileSync(scriptPath, isolatedScriptPath);
+
+    const result = runCheckWithScript(isolatedScriptPath, tempDir);
+    assert.notEqual(result.status, 0, 'expected hosted git shorthand to fail provenance checks');
+    assert.doesNotMatch(result.stderr, /ERR_MODULE_NOT_FOUND|Cannot find package 'hosted-git-info'/);
     assert.match(result.stderr, /package\.json -> leftpad@npm\/cli/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
