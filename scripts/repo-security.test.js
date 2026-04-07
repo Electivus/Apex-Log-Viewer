@@ -494,11 +494,106 @@ function hasTopLevelPipeline(command) {
   return parseShellTokens(command).some(token => token?.op === '|');
 }
 
-function commandExecutionSegments(command, inheritedState = { failOpen: false, piped: false }) {
+function shellFunctionDefinitionStart(segment) {
+  const tokens = parseShellTokens(segment);
+  let index = 0;
+
+  if (tokens[index] === 'function') {
+    index += 1;
+  }
+
+  const name = tokens[index];
+  if (typeof name !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    return undefined;
+  }
+  index += 1;
+
+  if (tokens[index]?.op === '(' && tokens[index + 1]?.op === ')') {
+    index += 2;
+  }
+
+  if (tokens[index] !== '{') {
+    return undefined;
+  }
+
+  const initialBody = shellTokensToCommand(tokens.slice(index + 1));
+  return {
+    initialBody,
+    name
+  };
+}
+
+function closesShellFunctionDefinition(segment) {
+  return segment.trim() === '}';
+}
+
+function invokedShellFunction(segment, shellFunctions) {
+  const tokens = normalizedCommandTokens(segment);
+  const name = tokens[0];
+  if (typeof name !== 'string' || !shellFunctions.has(name)) {
+    return undefined;
+  }
+
+  return {
+    bodyCommands: shellFunctions.get(name) ?? [],
+    name
+  };
+}
+
+function commandExecutionSegments(
+  command,
+  inheritedState = { failOpen: false, piped: false },
+  shellFunctions = new Map(),
+  pendingFunction,
+  activeFunctions = new Set()
+) {
   const clauses = shellCommandClauses(command);
   const failOpen = inheritedState.failOpen || clauses.some(clause => clause.separatorAfter === '||');
+  const segments = [];
+  let openFunction = pendingFunction;
 
-  return clauses.flatMap(clause => {
+  for (const clause of clauses) {
+    if (openFunction) {
+      if (closesShellFunctionDefinition(clause.text)) {
+        shellFunctions.set(openFunction.name, [...openFunction.bodyCommands]);
+        openFunction = undefined;
+        continue;
+      }
+
+      openFunction.bodyCommands.push(clause.text);
+      continue;
+    }
+
+    const functionDefinition = shellFunctionDefinitionStart(clause.text);
+    if (functionDefinition) {
+      openFunction = {
+        bodyCommands: functionDefinition.initialBody ? [functionDefinition.initialBody] : [],
+        name: functionDefinition.name
+      };
+      continue;
+    }
+
+    const invokedFunction = invokedShellFunction(clause.text, shellFunctions);
+    if (invokedFunction && !activeFunctions.has(invokedFunction.name)) {
+      const nextActiveFunctions = new Set(activeFunctions);
+      nextActiveFunctions.add(invokedFunction.name);
+
+      for (const bodyCommand of invokedFunction.bodyCommands) {
+        const result = commandExecutionSegments(
+          bodyCommand,
+          {
+            failOpen,
+            piped: inheritedState.piped || hasTopLevelPipeline(clause.text)
+          },
+          shellFunctions,
+          undefined,
+          nextActiveFunctions
+        );
+        segments.push(...result.segments);
+      }
+      continue;
+    }
+
     const segmentState = {
       failOpen,
       piped: inheritedState.piped || hasTopLevelPipeline(clause.text)
@@ -506,26 +601,43 @@ function commandExecutionSegments(command, inheritedState = { failOpen: false, p
     const innerCommand = shellInterpreterCommand(clause.text);
 
     if (innerCommand && innerCommand !== clause.text) {
-      return commandExecutionSegments(innerCommand, segmentState);
+      const result = commandExecutionSegments(innerCommand, segmentState);
+      segments.push(...result.segments);
+      continue;
     }
 
-    return [
-      {
-        text: clause.text,
-        ...segmentState
-      }
-    ];
-  });
+    segments.push({
+      text: clause.text,
+      ...segmentState
+    });
+  }
+
+  return {
+    pendingFunction: openFunction,
+    segments
+  };
+}
+
+function stepExecutionSegments(step) {
+  const shellFunctions = new Map();
+  let pendingFunction;
+  const segments = [];
+
+  for (const command of commandsFromRunValue(step?.run)) {
+    const result = commandExecutionSegments(command, { failOpen: false, piped: false }, shellFunctions, pendingFunction);
+    pendingFunction = result.pendingFunction;
+    segments.push(...result.segments);
+  }
+
+  return segments;
 }
 
 function jobExecutionSegments(job) {
   return job.steps.flatMap((step, stepIndex) =>
-    commandsFromRunValue(step?.run).flatMap(command =>
-      commandExecutionSegments(command).map(segment => ({
-        ...segment,
-        stepIndex
-      }))
-    )
+    stepExecutionSegments(step).map(segment => ({
+      ...segment,
+      stepIndex
+    }))
   );
 }
 
@@ -706,7 +818,7 @@ function npmCiProvenanceViolations(workflow) {
 }
 
 function isProvenanceCheckCommand(command) {
-  return commandExecutionSegments(command).some(isProvenanceCheckSegment);
+  return commandExecutionSegments(command).segments.some(isProvenanceCheckSegment);
 }
 
 function isProvenanceCheckSegment(segment) {
@@ -721,7 +833,7 @@ function isProvenanceCheckSegment(segment) {
 }
 
 function isNpmCiCommand(command) {
-  return commandExecutionSegments(command).some(isNpmCiSegment);
+  return commandExecutionSegments(command).segments.some(isNpmCiSegment);
 }
 
 function isNpmCiSegment(segment) {
@@ -1144,6 +1256,42 @@ test('npm ci provenance detection handles shell interpreter wrappers', () => {
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
   assert.equal(npmInstalls.length, 1);
+});
+
+test('npm ci provenance detection handles shell function invocations', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: |',
+    '          f() {',
+    '            npm ci',
+    '          }',
+    '      - run: inline(){ npm ci; }; inline',
+    '      - run: |',
+    '          g() {',
+    '            npm ci',
+    '          }',
+    '          g',
+    '      - run: check_inline(){ node scripts/check-dependency-sources.mjs; npm ci; }; check_inline',
+    '      - run: |',
+    '          h() {',
+    '            node scripts/check-dependency-sources.mjs',
+    '            npm ci',
+    '          }',
+    '          h'
+  ].join('\n');
+
+  assert.deepEqual(npmCiProvenanceViolations(workflow), [
+    {
+      jobName: 'test',
+      installIndex: 0
+    },
+    {
+      jobName: 'test',
+      installIndex: 1
+    }
+  ]);
 });
 
 test('npm ci provenance detection handles npm flags before the subcommand', () => {
