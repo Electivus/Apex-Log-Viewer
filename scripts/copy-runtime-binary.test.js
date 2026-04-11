@@ -61,9 +61,70 @@ test('resolveCargoBuildArgs includes the packaged runtime target triple', async 
   );
 });
 
+test('ensureBootstrapCargoTargetInstalled adds the linux-x64 musl target when it is missing', async () => {
+  const mod = await import(pathToFileURL(buildModulePath).href);
+  const spawnCalls = [];
+
+  mod.ensureBootstrapCargoTargetInstalled({
+    repoRoot: '/repo',
+    target: 'linux-x64',
+    spawnSyncImpl(command, args, options) {
+      spawnCalls.push({ command, args, options });
+      if (args[1] === 'list') {
+        return { status: 0, stdout: 'x86_64-unknown-linux-gnu\n' };
+      }
+      return { status: 0 };
+    }
+  });
+
+  assert.deepEqual(spawnCalls, [
+    {
+      command: 'rustup',
+      args: ['target', 'list', '--installed'],
+      options: { cwd: '/repo', encoding: 'utf8' }
+    },
+    {
+      command: 'rustup',
+      args: ['target', 'add', 'x86_64-unknown-linux-musl'],
+      options: { cwd: '/repo', stdio: 'inherit' }
+    }
+  ]);
+});
+
+test('ensureBootstrapCargoTargetInstalled skips work when linux-x64 musl is already installed or the target is unrelated', async () => {
+  const mod = await import(pathToFileURL(buildModulePath).href);
+  const spawnCalls = [];
+
+  mod.ensureBootstrapCargoTargetInstalled({
+    repoRoot: '/repo',
+    target: 'linux-x64',
+    spawnSyncImpl(command, args, options) {
+      spawnCalls.push({ command, args, options });
+      return { status: 0, stdout: 'x86_64-unknown-linux-musl\n' };
+    }
+  });
+  mod.ensureBootstrapCargoTargetInstalled({
+    repoRoot: '/repo',
+    target: 'win32-x64',
+    spawnSyncImpl(command, args, options) {
+      spawnCalls.push({ command, args, options });
+      return { status: 0 };
+    }
+  });
+
+  assert.deepEqual(spawnCalls, [
+    {
+      command: 'rustup',
+      args: ['target', 'list', '--installed'],
+      options: { cwd: '/repo', encoding: 'utf8' }
+    }
+  ]);
+});
+
 test('buildRuntimeTarget runs cargo for the requested target before copying the runtime', async () => {
   const mod = await import(pathToFileURL(buildModulePath).href);
   const spawnCalls = [];
+  const bootstrapCalls = [];
 
   const result = mod.buildRuntimeTarget({
     repoRoot: '/repo',
@@ -75,9 +136,19 @@ test('buildRuntimeTarget runs cargo for the requested target before copying the 
     },
     copyRuntimeBinaryImpl(args) {
       return { copied: true, ...args };
+    },
+    ensureBootstrapCargoTargetInstalledImpl(args) {
+      bootstrapCalls.push(args);
     }
   });
 
+  assert.deepEqual(bootstrapCalls, [
+    {
+      repoRoot: '/repo',
+      spawnSyncImpl: bootstrapCalls[0].spawnSyncImpl,
+      target: 'win32-arm64'
+    }
+  ]);
   assert.equal(spawnCalls.length, 1);
   assert.deepEqual(spawnCalls[0].args, [
     'build',
@@ -92,7 +163,6 @@ test('buildRuntimeTarget runs cargo for the requested target before copying the 
   assert.equal(spawnCalls[0].command, 'cargo');
   assert.equal(spawnCalls[0].options.cwd, '/repo');
   assert.equal(spawnCalls[0].options.stdio, 'inherit');
-  assert.equal(spawnCalls[0].options.env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER, undefined);
   assert.deepEqual(result, {
     copied: true,
     profile: 'release',
@@ -108,7 +178,12 @@ test('resolveCargoBuildEnv pins the musl linker for linux-x64 while leaving othe
     mod.resolveCargoBuildEnv('linux-x64', {}).CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER,
     'musl-gcc'
   );
-  assert.equal(mod.resolveCargoBuildEnv('win32-x64', {}).CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER, undefined);
+  assert.equal(
+    mod.resolveCargoBuildEnv('win32-x64', {
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: '/inherited/musl-gcc'
+    }).CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER,
+    '/inherited/musl-gcc'
+  );
   assert.equal(
     mod.resolveCargoBuildEnv('linux-x64', {
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: '/custom/musl-gcc'

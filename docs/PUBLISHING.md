@@ -67,4 +67,4 @@ Notes
 - `CHANGELOG.md` is manual. Keep entries concise; document breaking changes clearly.
 - Versions must be unique between stable and pre‑releases; do not re‑use the same `major.minor.patch` for both channels.
 - The Marketplace listing for this extension will show a “Pre‑Release” tab for users who opt in to pre‑releases.
-- Local Linux packaging that rebuilds the bundled runtime (`npm run package:runtime:local`) now expects a musl toolchain with `musl-gcc` on `PATH`; on Ubuntu the workflow installs `musl-tools`, while Arch users typically need the `musl` package.
+- When rebuilding the bundled `linux-x64` runtime on Linux with `npm run package:runtime:local`, the workflow expects a musl toolchain with `musl-gcc` on `PATH`; on Ubuntu it installs `musl-tools`, while Arch users typically need the `musl` package.

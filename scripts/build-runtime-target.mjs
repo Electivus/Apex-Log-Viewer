@@ -13,13 +13,17 @@ const CARGO_TARGETS = {
   'darwin-arm64': 'aarch64-apple-darwin'
 };
 
+export function resolveCargoTarget(target) {
+  return CARGO_TARGETS[target];
+}
+
 export function resolveCargoBuildArgs(target, profile = 'release') {
   const args = ['build', '-p', 'apex-log-viewer-cli', '--bin', 'apex-log-viewer'];
   if (profile === 'release') {
     args.push('--release');
   }
 
-  const cargoTarget = CARGO_TARGETS[target];
+  const cargoTarget = resolveCargoTarget(target);
   if (cargoTarget) {
     args.push('--target', cargoTarget);
   }
@@ -38,13 +42,62 @@ export function resolveCargoBuildEnv(target, inheritedEnv = process.env) {
   return env;
 }
 
+export function ensureBootstrapCargoTargetInstalled({
+  repoRoot,
+  target,
+  spawnSyncImpl = spawnSync
+}) {
+  const cargoTarget = resolveCargoTarget(target);
+  if (!cargoTarget || target !== 'linux-x64') {
+    return;
+  }
+
+  const installedTargets = spawnSyncImpl('rustup', ['target', 'list', '--installed'], {
+    cwd: repoRoot,
+    encoding: 'utf8'
+  });
+
+  if (installedTargets.error) {
+    throw installedTargets.error;
+  }
+  if ((installedTargets.status ?? 0) !== 0) {
+    throw new Error(
+      `rustup target list --installed failed with exit code ${installedTargets.status ?? 'unknown'}`
+    );
+  }
+
+  const installed = new Set(
+    String(installedTargets.stdout ?? '')
+      .split(/\r?\n/u)
+      .map(value => value.trim())
+      .filter(Boolean)
+  );
+  if (installed.has(cargoTarget)) {
+    return;
+  }
+
+  const addTarget = spawnSyncImpl('rustup', ['target', 'add', cargoTarget], {
+    cwd: repoRoot,
+    stdio: 'inherit'
+  });
+
+  if (addTarget.error) {
+    throw addTarget.error;
+  }
+  if ((addTarget.status ?? 0) !== 0) {
+    throw new Error(`rustup target add ${cargoTarget} failed with exit code ${addTarget.status ?? 'unknown'}`);
+  }
+}
+
 export function buildRuntimeTarget({
   repoRoot,
   target,
   profile = 'release',
   spawnSyncImpl = spawnSync,
-  copyRuntimeBinaryImpl = copyRuntimeBinary
+  copyRuntimeBinaryImpl = copyRuntimeBinary,
+  ensureBootstrapCargoTargetInstalledImpl = ensureBootstrapCargoTargetInstalled
 }) {
+  ensureBootstrapCargoTargetInstalledImpl({ repoRoot, target, spawnSyncImpl });
   const args = resolveCargoBuildArgs(target, profile);
   const env = resolveCargoBuildEnv(target);
   const result = spawnSyncImpl('cargo', args, {
