@@ -1,4 +1,4 @@
-![Apex Log Viewer banner](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/media/banner.png)
+![Apex Log Viewer banner](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/banner.png)
 
 # Electivus Apex Log Viewer
 
@@ -24,7 +24,7 @@ Search downloaded Salesforce Apex logs inside VS Code, jump straight to the righ
 
 ## Screenshots
 
-![Search, snippets, triage, and local log search](media/docs/hero.png)
+![Search, snippets, triage, and local log search](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/docs/hero.png)
 
 Search in the logs panel is optimized for locally saved log bodies, so the most effective flow is:
 
@@ -34,11 +34,11 @@ Search in the logs panel is optimized for locally saved log bodies, so the most 
 4. Use **Download all logs** when the refreshed and scrolled set still did not surface what you need, or when you want to pull the whole org backlog into the workspace in one shot.
 5. Open the best candidate in the dedicated viewer.
 
-![Dedicated Apex Log Viewer with diagnostics](media/docs/log-viewer.png)
+![Dedicated Apex Log Viewer with diagnostics](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/docs/log-viewer.png)
 
-![Apex Debug Flags editor](media/docs/debug-flags.png)
+![Apex Debug Flags editor](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/docs/debug-flags.png)
 
-![Real-time Apex log tail](media/docs/tail.png)
+![Real-time Apex log tail](https://raw.githubusercontent.com/Electivus/Apex-Log-Viewer/main/apps/vscode-extension/media/docs/tail.png)
 
 ## Requirements
 
