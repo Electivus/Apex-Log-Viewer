@@ -2,6 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 test('release docs mention the dedicated CLI workflow and pinned runtime metadata', () => {
   const ci = fs.readFileSync('docs/CI.md', 'utf8');
   const publishing = fs.readFileSync('docs/PUBLISHING.md', 'utf8');
@@ -16,6 +20,25 @@ test('release docs mention the dedicated CLI workflow and pinned runtime metadat
   assert.match(publishing, /crates\.io.*deferred/i);
   assert.match(architecture, /config\/runtime-bundle\.json/);
   assert.match(changelog, /independent Rust CLI release train/i);
+});
+
+test('README screenshot assets point at the published extension media paths', () => {
+  const readme = fs.readFileSync('README.md', 'utf8');
+  const assetPaths = [
+    'apps/vscode-extension/media/banner.png',
+    'apps/vscode-extension/media/docs/hero.png',
+    'apps/vscode-extension/media/docs/log-viewer.png',
+    'apps/vscode-extension/media/docs/debug-flags.png',
+    'apps/vscode-extension/media/docs/tail.png'
+  ];
+
+  for (const assetPath of assetPaths) {
+    assert.equal(fs.existsSync(assetPath), true, `expected ${assetPath} to exist`);
+    assert.match(readme, new RegExp(escapeRegExp(assetPath)));
+  }
+
+  assert.doesNotMatch(readme, /raw\.githubusercontent\.com\/Electivus\/Apex-Log-Viewer\/main\/media\//);
+  assert.doesNotMatch(readme, /!\[[^\]]*\]\(media\//);
 });
 
 test('test:scripts includes the release docs smoke test', () => {

@@ -10,6 +10,7 @@
 ### Bug Fixes
 
 - CLI/npm: publish the global meta package with both `alv` and `apex-log-viewer` shims so Windows and other npm installs expose the familiar long command name too.
+- Docs/Marketplace: point README banner and screenshot images at the actual published extension asset paths so GitHub and the VS Code Marketplace render them instead of broken placeholders.
 - Runtime/Logs: avoid repeated recursive cache walks during CLI log search by indexing candidate local log paths once per request while preserving org-first and legacy-layout fallback behavior.
 - Runtime/Logs: reduce startup request fan-out by letting the Logs panel fetch rows without waiting for org bootstrap/auth hydration, coalescing concurrent runtime `org/list` and `org/auth` requests, reusing auth during log-body preload, and avoiding redundant login-shell PATH probes when the current Windows PATH already resolves `sf`.
 - Runtime/Logs: stop repeated recursive cached-log scans by resolving saved log paths through the shared Rust lookup first, caching runtime hits in-process, and limiting the extension's local fallback to the supported `orgs/<org>/logs/<day>/` layout plus legacy flat files.
