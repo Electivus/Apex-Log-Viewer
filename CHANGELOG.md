@@ -14,6 +14,7 @@
 - Runtime/Logs: reduce startup request fan-out by letting the Logs panel fetch rows without waiting for org bootstrap/auth hydration, coalescing concurrent runtime `org/list` and `org/auth` requests, reusing auth during log-body preload, and avoiding redundant login-shell PATH probes when the current Windows PATH already resolves `sf`.
 - Runtime/Logs: stop repeated recursive cached-log scans by resolving saved log paths through the shared Rust lookup first, caching runtime hits in-process, and limiting the extension's local fallback to the supported `orgs/<org>/logs/<day>/` layout plus legacy flat files.
 - Tail/Logs: keep Tail webviews from re-running bootstrap work before the webview is ready, and stop advertising cancellation for Logs org listing when the backend work is not actually cancellable yet.
+- Runtime/Packaging: publish the bundled `linux-x64` sidecar from `x86_64-unknown-linux-musl` so the extension runtime works in older-glibc environments such as Agentforce Vibes IDE / Salesforce Code Builder.
 
 ### Chores
 
