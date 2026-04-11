@@ -8,6 +8,8 @@ This repository uses GitHub Actions to build, test, package, and publish the ext
 - Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace (if `VSCE_PAT` is configured) and Open VSX (if `OVSX_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
 - Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes automatically to the Marketplace and Open VSX pre‑release channels (when `VSCE_PAT`/`OVSX_PAT` are set).
 - Workflow Rust CLI Release (`.github/workflows/rust-release.yml`): runs on `rust-v*` tags, publishes the npm meta/native packages and GitHub release assets built from the tested CLI release bundle, and intentionally keeps `crates.io` out of the bootstrap path for now. Required repository secret for the initial CLI publish path is `NPM_TOKEN`.
+- The `linux-x64` runtime artifact in that workflow is built from `x86_64-unknown-linux-musl`, which avoids binding the shipped sidecar to the GitHub runner's host `glibc`.
+- That workflow installs Ubuntu `musl-tools` and drives Cargo through `musl-gcc`; local Linux maintainers need the equivalent musl compiler package for their distro when they run `npm run package:runtime:local`.
 - Workflow Rust Supply Chain (`.github/workflows/rust-supply-chain.yml`): runs `cargo deny check advisories bans licenses sources` on pull requests and pushes to `main`.
 
 Build & Test basics:

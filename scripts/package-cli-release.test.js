@@ -66,3 +66,18 @@ test('packageCliRelease requires all requested release targets to be present', a
 
   fs.rmSync(repoRoot, { recursive: true, force: true });
 });
+
+test('discoverReleaseBinaries finds linux-x64 musl cargo output before the generic host fallback', async () => {
+  const mod = await import(pathToFileURL(modulePath).href);
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cli-release-repo-'));
+  const linuxBinary = path.join(repoRoot, 'target', 'x86_64-unknown-linux-musl', 'release', 'apex-log-viewer');
+
+  fs.mkdirSync(path.dirname(linuxBinary), { recursive: true });
+  fs.writeFileSync(linuxBinary, 'linux-binary');
+
+  assert.deepEqual(mod.discoverReleaseBinaries(repoRoot, ['linux-x64']), {
+    'linux-x64': linuxBinary
+  });
+
+  fs.rmSync(repoRoot, { recursive: true, force: true });
+});

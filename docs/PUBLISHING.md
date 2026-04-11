@@ -34,6 +34,7 @@ How it works
 - If `OVSX_PAT` is present, it publishes the same VSIX artifacts to Open VSX.
 - Tags matching `rust-v*` trigger the CLI packaging workflow (`.github/workflows/rust-release.yml`).
 - The CLI workflow uploads GitHub release assets and publishes the generated npm native and meta packages.
+- The canonical `linux-x64` CLI/runtime artifact is built from `x86_64-unknown-linux-musl` so the extension sidecar remains compatible with older-glibc Linux environments.
 - `crates.io` publication is intentionally deferred until the internal crate surface is ready to be maintained as a public registry contract.
 - The extension build consumes the pinned runtime metadata in `config/runtime-bundle.json`, so the extension release channel can stay separate from the CLI release train.
 
@@ -66,3 +67,4 @@ Notes
 - `CHANGELOG.md` is manual. Keep entries concise; document breaking changes clearly.
 - Versions must be unique between stable and pre‑releases; do not re‑use the same `major.minor.patch` for both channels.
 - The Marketplace listing for this extension will show a “Pre‑Release” tab for users who opt in to pre‑releases.
+- Local Linux packaging that rebuilds the bundled runtime (`npm run package:runtime:local`) now expects a musl toolchain with `musl-gcc` on `PATH`; on Ubuntu the workflow installs `musl-tools`, while Arch users typically need the `musl` package.

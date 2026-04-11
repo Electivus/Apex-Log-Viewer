@@ -12,9 +12,9 @@ test('resolveSourceCandidates prefers target-specific cargo output before host f
   const mod = await import(pathToFileURL(modulePath).href);
 
   assert.deepEqual(
-    mod.resolveSourceCandidates('/repo', 'linux-arm64', 'release'),
+    mod.resolveSourceCandidates('/repo', 'linux-x64', 'release'),
     [
-      path.join('/repo', 'target', 'aarch64-unknown-linux-gnu', 'release', 'apex-log-viewer'),
+      path.join('/repo', 'target', 'x86_64-unknown-linux-musl', 'release', 'apex-log-viewer'),
       path.join('/repo', 'target', 'release', 'apex-log-viewer')
     ]
   );
@@ -47,7 +47,7 @@ test('resolveCargoBuildArgs includes the packaged runtime target triple', async 
   const mod = await import(pathToFileURL(buildModulePath).href);
 
   assert.deepEqual(
-    mod.resolveCargoBuildArgs('linux-arm64', 'release'),
+    mod.resolveCargoBuildArgs('linux-x64', 'release'),
     [
       'build',
       '-p',
@@ -56,7 +56,7 @@ test('resolveCargoBuildArgs includes the packaged runtime target triple', async 
       'apex-log-viewer',
       '--release',
       '--target',
-      'aarch64-unknown-linux-gnu'
+      'x86_64-unknown-linux-musl'
     ]
   );
 });
@@ -78,26 +78,62 @@ test('buildRuntimeTarget runs cargo for the requested target before copying the 
     }
   });
 
-  assert.deepEqual(spawnCalls, [
-    {
-      command: 'cargo',
-      args: [
-        'build',
-        '-p',
-        'apex-log-viewer-cli',
-        '--bin',
-        'apex-log-viewer',
-        '--release',
-        '--target',
-        'aarch64-pc-windows-msvc'
-      ],
-      options: { cwd: '/repo', stdio: 'inherit' }
-    }
+  assert.equal(spawnCalls.length, 1);
+  assert.deepEqual(spawnCalls[0].args, [
+    'build',
+    '-p',
+    'apex-log-viewer-cli',
+    '--bin',
+    'apex-log-viewer',
+    '--release',
+    '--target',
+    'aarch64-pc-windows-msvc'
   ]);
+  assert.equal(spawnCalls[0].command, 'cargo');
+  assert.equal(spawnCalls[0].options.cwd, '/repo');
+  assert.equal(spawnCalls[0].options.stdio, 'inherit');
+  assert.equal(spawnCalls[0].options.env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER, undefined);
   assert.deepEqual(result, {
     copied: true,
     profile: 'release',
     repoRoot: '/repo',
     target: 'win32-arm64'
+  });
+});
+
+test('resolveCargoBuildEnv pins the musl linker for linux-x64 while leaving other targets untouched', async () => {
+  const mod = await import(pathToFileURL(buildModulePath).href);
+
+  assert.equal(
+    mod.resolveCargoBuildEnv('linux-x64', {}).CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER,
+    'musl-gcc'
+  );
+  assert.equal(mod.resolveCargoBuildEnv('win32-x64', {}).CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER, undefined);
+  assert.equal(
+    mod.resolveCargoBuildEnv('linux-x64', {
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: '/custom/musl-gcc'
+    }).CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER,
+    '/custom/musl-gcc'
+  );
+});
+
+test('resolveBuildArguments defaults to the current target and treats a lone profile argument as release mode selection', async () => {
+  const mod = await import(pathToFileURL(buildModulePath).href);
+
+  assert.deepEqual(mod.resolveBuildArguments([], 'linux-x64'), {
+    target: 'linux-x64',
+    profile: 'release'
+  });
+  assert.deepEqual(mod.resolveBuildArguments(['release'], 'linux-x64'), {
+    target: 'linux-x64',
+    profile: 'release'
+  });
+  assert.deepEqual(mod.resolveBuildArguments(['linux-arm64'], 'linux-x64'), {
+    target: 'linux-arm64',
+    profile: 'release'
+  });
+  assert.deepEqual(mod.resolveBuildArguments(['linux-arm64', 'debug'], 'linux-x64'), {
+    target: 'linux-arm64',
+    profile: 'debug'
   });
 });

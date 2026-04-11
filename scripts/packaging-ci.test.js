@@ -55,13 +55,13 @@ test('package script rebuilds the extension packaging assets that vsce includes'
   assert.match(packageScript, /\bbuild:package-metadata\b/);
 });
 
-test('package:runtime fetches the pinned CLI release asset and package:runtime:local keeps the local cargo fallback', () => {
+test('package:runtime fetches the pinned CLI release asset and package:runtime:local builds the canonical host target locally', () => {
   const rootPackageJson = JSON.parse(readFile('package.json'));
 
   assert.equal(rootPackageJson.scripts?.['package:runtime'], 'node scripts/fetch-runtime-release.mjs');
-  assert.match(
-    String(rootPackageJson.scripts?.['package:runtime:local'] || ''),
-    /cargo build -p apex-log-viewer-cli --bin apex-log-viewer --release && node apps\/vscode-extension\/scripts\/copy-runtime-binary\.mjs release/
+  assert.equal(
+    rootPackageJson.scripts?.['package:runtime:local'],
+    'node scripts/build-runtime-target.mjs release'
   );
 });
 
@@ -156,6 +156,21 @@ test('runtime bundle stays pinned to the current tested CLI release', () => {
     channel: 'stable',
     protocolVersion: '1'
   });
+});
+
+test('rust-release workflow builds linux-x64 with musl to avoid coupling the shipped runtime to the host glibc', () => {
+  const workflowSource = readFile('.github/workflows/rust-release.yml');
+
+  assert.match(
+    workflowSource,
+    /target:\s+linux-x64[\s\S]*?cargo_target:\s+x86_64-unknown-linux-musl/,
+    'expected linux-x64 runtime releases to use the musl Rust target'
+  );
+  assert.match(
+    workflowSource,
+    /Install Linux x64 musl toolchain[\s\S]*?musl-tools/,
+    'expected the rust-release workflow to install musl build tools for linux-x64 packaging'
+  );
 });
 
 test('rust-release workflow preserves per-artifact directories when downloading runtime binaries', () => {
