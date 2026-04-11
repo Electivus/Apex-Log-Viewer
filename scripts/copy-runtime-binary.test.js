@@ -121,6 +121,22 @@ test('ensureBootstrapCargoTargetInstalled skips work when linux-x64 musl is alre
   ]);
 });
 
+test('ensureBootstrapCargoTargetInstalled tolerates missing rustup so distro-managed toolchains can still rely on cargo directly', async () => {
+  const mod = await import(pathToFileURL(buildModulePath).href);
+
+  assert.doesNotThrow(() =>
+    mod.ensureBootstrapCargoTargetInstalled({
+      repoRoot: '/repo',
+      target: 'linux-x64',
+      spawnSyncImpl() {
+        return {
+          error: Object.assign(new Error('spawn rustup ENOENT'), { code: 'ENOENT' })
+        };
+      }
+    })
+  );
+});
+
 test('buildRuntimeTarget runs cargo for the requested target before copying the runtime', async () => {
   const mod = await import(pathToFileURL(buildModulePath).href);
   const spawnCalls = [];

@@ -58,6 +58,9 @@ export function ensureBootstrapCargoTargetInstalled({
   });
 
   if (installedTargets.error) {
+    if (installedTargets.error.code === 'ENOENT') {
+      return;
+    }
     throw installedTargets.error;
   }
   if ((installedTargets.status ?? 0) !== 0) {
@@ -82,6 +85,9 @@ export function ensureBootstrapCargoTargetInstalled({
   });
 
   if (addTarget.error) {
+    if (addTarget.error.code === 'ENOENT') {
+      return;
+    }
     throw addTarget.error;
   }
   if ((addTarget.status ?? 0) !== 0) {
