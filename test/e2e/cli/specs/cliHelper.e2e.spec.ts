@@ -2,7 +2,7 @@ import { chmod, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { resolveAlvCliBinaryPath, runAlvCli } from '../utils/cli';
+import { resolveAlvCliBinaryPath, resolveAlvCliInvocation, runAlvCli } from '../utils/cli';
 
 async function withTempRepo<T>(fn: (repoRoot: string) => Promise<T>): Promise<T> {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'alv-cli-helper-'));
@@ -27,6 +27,14 @@ async function writeFakeStandaloneBinary(repoRoot: string, scriptBody: string): 
   return binaryPath;
 }
 
+async function writeFakeWindowsCommandShim(repoRoot: string, scriptBody: string): Promise<string> {
+  const binaryDir = path.join(repoRoot, 'target', 'debug');
+  const shimPath = path.join(binaryDir, 'apex-log-viewer.cmd');
+  await mkdir(binaryDir, { recursive: true });
+  await writeFile(shimPath, scriptBody, 'utf8');
+  return shimPath;
+}
+
 test('resolveAlvCliBinaryPath rejects extension runtime fallback when standalone binary is missing', async () => {
   await withTempRepo(async repoRoot => {
     const binaryName = process.platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
@@ -47,14 +55,19 @@ test('resolveAlvCliBinaryPath rejects extension runtime fallback when standalone
 
 test('runAlvCli parses stdoutJson separately from stderrJson', async () => {
   await withTempRepo(async repoRoot => {
-    await writeFakeStandaloneBinary(
-      repoRoot,
-      process.platform === 'win32'
-        ? '@echo off\r\necho {\"stream\":\"stdout\",\"status\":\"success\"}\r\necho {\"stream\":\"stderr\",\"status\":\"warning\"} 1>&2\r\n'
-        : '#!/bin/sh\nprintf \'{"stream":"stdout","status":"success"}\\n\'\nprintf \'{"stream":"stderr","status":"warning"}\\n\' >&2\n'
-    );
+    if (process.platform === 'win32') {
+      await writeFakeWindowsCommandShim(
+        repoRoot,
+        '@echo off\r\necho {\"stream\":\"stdout\",\"status\":\"success\"}\r\necho {\"stream\":\"stderr\",\"status\":\"warning\"} 1>&2\r\n'
+      );
+    } else {
+      await writeFakeStandaloneBinary(
+        repoRoot,
+        '#!/bin/sh\nprintf \'{"stream":"stdout","status":"success"}\\n\'\nprintf \'{"stream":"stderr","status":"warning"}\\n\' >&2\n'
+      );
+    }
 
-    const result = await runAlvCli([], { repoRoot } as any);
+    const result = await runAlvCli([], { repoRoot, allowWindowsCommandShim: process.platform === 'win32' });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdoutJson).toEqual({ stream: 'stdout', status: 'success' });
@@ -64,16 +77,39 @@ test('runAlvCli parses stdoutJson separately from stderrJson', async () => {
 
 test('runAlvCli returns diagnostics on timeout instead of rejecting', async () => {
   await withTempRepo(async repoRoot => {
-    await writeFakeStandaloneBinary(
-      repoRoot,
-      process.platform === 'win32'
-        ? '@echo off\r\nping -n 6 127.0.0.1 >nul\r\n'
-        : '#!/bin/sh\nsleep 5\n'
-    );
+    if (process.platform === 'win32') {
+      await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\nping -n 6 127.0.0.1 >nul\r\n');
+    } else {
+      await writeFakeStandaloneBinary(repoRoot, '#!/bin/sh\nsleep 5\n');
+    }
 
-    const result = await runAlvCli([], { repoRoot, timeoutMs: 50 } as any);
+    const result = await runAlvCli(
+      [],
+      { repoRoot, timeoutMs: 50, allowWindowsCommandShim: process.platform === 'win32' }
+    );
 
     expect(result.exitCode).toBe(-1);
     expect(result.errorMessage).toBeTruthy();
+  });
+});
+
+test('resolveAlvCliBinaryPath stays strict when only a Windows command shim exists', async () => {
+  await withTempRepo(async repoRoot => {
+    await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\nexit /b 0\r\n');
+
+    expect(() => resolveAlvCliBinaryPath({ repoRoot, platform: 'win32' })).toThrow(
+      /Unable to locate apex-log-viewer standalone binary/
+    );
+  });
+});
+
+test('resolveAlvCliInvocation can use a Windows command shim for helper-only coverage', async () => {
+  await withTempRepo(async repoRoot => {
+    const shimPath = await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\nexit /b 0\r\n');
+
+    expect(resolveAlvCliInvocation({ repoRoot, platform: 'win32', allowWindowsCommandShim: true })).toEqual({
+      command: process.env.ComSpec || 'cmd.exe',
+      args: ['/d', '/s', '/c', shimPath]
+    });
   });
 });

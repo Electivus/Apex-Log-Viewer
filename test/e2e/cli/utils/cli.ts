@@ -7,6 +7,7 @@ export type CliExecOptions = {
   env?: NodeJS.ProcessEnv;
   repoRoot?: string;
   timeoutMs?: number;
+  allowWindowsCommandShim?: boolean;
 };
 
 export type CliRunResult = {
@@ -21,8 +22,8 @@ export type CliRunResult = {
   signal?: NodeJS.Signals | string;
 };
 
-function resolveBinaryName(): string {
-  return process.platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
+function resolveBinaryName(platform = process.platform): string {
+  return platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
 }
 
 function resolveRepoRoot(): string {
@@ -32,11 +33,20 @@ function resolveRepoRoot(): string {
 type ResolveAlvCliBinaryPathOptions = {
   repoRoot?: string;
   cargoBuildTarget?: string;
+  platform?: NodeJS.Platform;
 };
 
-function resolveBinaryCandidates(options: ResolveAlvCliBinaryPathOptions = {}): string[] {
+type ResolveAlvCliInvocationOptions = ResolveAlvCliBinaryPathOptions & {
+  allowWindowsCommandShim?: boolean;
+};
+
+type CliInvocation = {
+  command: string;
+  args: string[];
+};
+
+function resolveBinaryCandidatesForName(binaryName: string, options: ResolveAlvCliBinaryPathOptions = {}): string[] {
   const repoRoot = options.repoRoot || resolveRepoRoot();
-  const binaryName = resolveBinaryName();
   const candidates = [path.join(repoRoot, 'target', 'debug', binaryName)];
   const cargoBuildTarget = String(options.cargoBuildTarget ?? process.env.CARGO_BUILD_TARGET ?? '').trim();
 
@@ -45,6 +55,10 @@ function resolveBinaryCandidates(options: ResolveAlvCliBinaryPathOptions = {}): 
   }
 
   return [...new Set(candidates)];
+}
+
+function resolveBinaryCandidates(options: ResolveAlvCliBinaryPathOptions = {}): string[] {
+  return resolveBinaryCandidatesForName(resolveBinaryName(options.platform), options);
 }
 
 function tryParseCliJson(raw: string): any | undefined {
@@ -84,13 +98,40 @@ export function resolveAlvCliBinaryPath(options: ResolveAlvCliBinaryPathOptions 
   return binaryPath;
 }
 
+export function resolveAlvCliInvocation(options: ResolveAlvCliInvocationOptions = {}): CliInvocation {
+  const binaryPath = resolveBinaryCandidates(options).find(candidate => existsSync(candidate));
+  if (binaryPath) {
+    return {
+      command: binaryPath,
+      args: []
+    };
+  }
+
+  if (options.allowWindowsCommandShim && (options.platform ?? process.platform) === 'win32') {
+    const shimPath = resolveBinaryCandidatesForName('apex-log-viewer.cmd', options).find(candidate => existsSync(candidate));
+    if (shimPath) {
+      return {
+        command: process.env.ComSpec || 'cmd.exe',
+        args: ['/d', '/s', '/c', shimPath]
+      };
+    }
+  }
+
+  throw new Error(
+    `Unable to locate apex-log-viewer standalone binary. Checked: ${resolveBinaryCandidates(options).join(', ')}`
+  );
+}
+
 export async function runAlvCli(args: string[], options: CliExecOptions = {}): Promise<CliRunResult> {
-  const command = resolveAlvCliBinaryPath({ repoRoot: options.repoRoot });
-  const finalArgs = args.map(value => String(value ?? ''));
+  const invocation = resolveAlvCliInvocation({
+    repoRoot: options.repoRoot,
+    allowWindowsCommandShim: options.allowWindowsCommandShim
+  });
+  const finalArgs = [...invocation.args, ...args.map(value => String(value ?? ''))];
 
   return await new Promise(resolve => {
     execFile(
-      command,
+      invocation.command,
       finalArgs,
       {
         cwd: options.cwd,
@@ -110,7 +151,7 @@ export async function runAlvCli(args: string[], options: CliExecOptions = {}): P
 
         if (!error) {
           resolve({
-            command,
+            command: invocation.command,
             args: finalArgs,
             exitCode: 0,
             stdout: stdoutText,
@@ -123,7 +164,7 @@ export async function runAlvCli(args: string[], options: CliExecOptions = {}): P
 
         const execError = error as NodeJS.ErrnoException & { code?: unknown; signal?: NodeJS.Signals | string | null };
         resolve({
-          command,
+          command: invocation.command,
           args: finalArgs,
           exitCode: typeof execError.code === 'number' ? Number(execError.code) : -1,
           stdout: stdoutText,
