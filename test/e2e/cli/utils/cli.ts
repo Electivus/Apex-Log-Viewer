@@ -25,19 +25,20 @@ function resolveRepoRoot(): string {
   return path.resolve(__dirname, '..', '..', '..', '..');
 }
 
-function resolveBinaryCandidates(): string[] {
-  const repoRoot = resolveRepoRoot();
+type ResolveAlvCliBinaryPathOptions = {
+  repoRoot?: string;
+  cargoBuildTarget?: string;
+};
+
+function resolveBinaryCandidates(options: ResolveAlvCliBinaryPathOptions = {}): string[] {
+  const repoRoot = options.repoRoot || resolveRepoRoot();
   const binaryName = resolveBinaryName();
   const candidates = [path.join(repoRoot, 'target', 'debug', binaryName)];
-  const cargoBuildTarget = String(process.env.CARGO_BUILD_TARGET || '').trim();
+  const cargoBuildTarget = String(options.cargoBuildTarget ?? process.env.CARGO_BUILD_TARGET ?? '').trim();
 
   if (cargoBuildTarget) {
     candidates.push(path.join(repoRoot, 'target', cargoBuildTarget, 'debug', binaryName));
   }
-
-  candidates.push(
-    path.join(repoRoot, 'apps', 'vscode-extension', 'bin', `${process.platform}-${process.arch}`, binaryName)
-  );
 
   return [...new Set(candidates)];
 }
@@ -68,11 +69,12 @@ function tryParseCliJson(raw: string): any | undefined {
   return undefined;
 }
 
-export function resolveAlvCliBinaryPath(): string {
-  const binaryPath = resolveBinaryCandidates().find(candidate => existsSync(candidate));
+export function resolveAlvCliBinaryPath(options: ResolveAlvCliBinaryPathOptions = {}): string {
+  const candidates = resolveBinaryCandidates(options);
+  const binaryPath = candidates.find(candidate => existsSync(candidate));
   if (!binaryPath) {
     throw new Error(
-      `Unable to locate apex-log-viewer standalone binary. Checked: ${resolveBinaryCandidates().join(', ')}`
+      `Unable to locate apex-log-viewer standalone binary. Checked: ${candidates.join(', ')}`
     );
   }
   return binaryPath;

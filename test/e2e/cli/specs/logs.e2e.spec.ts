@@ -2,8 +2,8 @@ import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from '../fixtures/alvCliE2E';
 
-test('logs sync --json downloads the seeded Apex log into the workspace cache', async ({ runCli, workspacePath, seededLog }) => {
-  const result = await runCli(['logs', 'sync', '--json']);
+test('logs sync --json downloads the seeded Apex log into the workspace cache', async ({ runCli, workspacePath, seededLog, scratchAlias }) => {
+  const result = await runCli(['logs', 'sync', '--json', '--target-org', scratchAlias]);
 
   expect(result.exitCode).toBe(0);
   expect(result.json?.status).toBe('success');
