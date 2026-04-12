@@ -12,6 +12,17 @@ function resolveCliBinaryRelativePath(targetPlatform = process.platform) {
 
 const requiredBuildArtifacts = [resolveCliBinaryRelativePath()];
 
+function resolveAcceptedCliBinaryRelativePaths(targetPlatform = process.platform, env = process.env) {
+  const paths = [resolveCliBinaryRelativePath(targetPlatform)];
+  const cargoBuildTarget = String(env.CARGO_BUILD_TARGET || '').trim();
+  if (cargoBuildTarget) {
+    const bin = targetPlatform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
+    paths.push(path.posix.join('target', cargoBuildTarget, 'debug', bin));
+  }
+
+  return [...new Set(paths)];
+}
+
 function resolveBuildInvocation(targetPlatform = process.platform) {
   if (targetPlatform === 'win32') {
     return {
@@ -27,7 +38,10 @@ function resolveBuildInvocation(targetPlatform = process.platform) {
 }
 
 function findMissingBuildArtifacts(repoRoot) {
-  return requiredBuildArtifacts.filter(relativePath => !existsSync(path.join(repoRoot, relativePath)));
+  const acceptedCliPaths = resolveAcceptedCliBinaryRelativePaths();
+  return acceptedCliPaths.some(relativePath => existsSync(path.join(repoRoot, relativePath)))
+    ? []
+    : [acceptedCliPaths.join(' or ')];
 }
 
 function spawnAsync(command, args, options = {}, spawnImpl = spawn) {
@@ -75,7 +89,7 @@ function resolvePlaywrightInvocation(extraArgs) {
 
   return {
     command: process.execPath,
-    args: [cliPath, 'test', configArg, ...extraArgs]
+    args: [cliPath, 'test', configArg, '--pass-with-no-tests', ...extraArgs]
   };
 }
 
@@ -118,5 +132,6 @@ module.exports = {
   requiredBuildArtifacts,
   resolveBuildInvocation,
   resolveCliBinaryRelativePath,
+  resolveAcceptedCliBinaryRelativePaths,
   resolvePlaywrightInvocation
 };

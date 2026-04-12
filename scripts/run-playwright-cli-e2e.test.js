@@ -40,6 +40,28 @@ test('resolveCliBinaryRelativePath targets the debug CLI binary on Windows', () 
   assert.equal(runner.resolveCliBinaryRelativePath('win32'), 'target/debug/apex-log-viewer.exe');
 });
 
+test('findMissingBuildArtifacts accepts a cross-target debug binary when CARGO_BUILD_TARGET is set', () => {
+  const repoRoot = createTempRepo();
+  const originalCargoBuildTarget = process.env.CARGO_BUILD_TARGET;
+  process.env.CARGO_BUILD_TARGET = 'x86_64-unknown-linux-musl';
+
+  try {
+    const runner = loadRunner();
+    const cliBinaryPath = path.join(repoRoot, 'target', process.env.CARGO_BUILD_TARGET, 'debug', 'apex-log-viewer');
+    fs.mkdirSync(path.dirname(cliBinaryPath), { recursive: true });
+    fs.writeFileSync(cliBinaryPath, '', 'utf8');
+
+    assert.deepEqual(runner.findMissingBuildArtifacts(repoRoot), []);
+  } finally {
+    if (originalCargoBuildTarget === undefined) {
+      delete process.env.CARGO_BUILD_TARGET;
+    } else {
+      process.env.CARGO_BUILD_TARGET = originalCargoBuildTarget;
+    }
+    cleanupTempRepo(repoRoot);
+  }
+});
+
 test('ensureBuildArtifacts runs npm run build:runtime when the CLI binary is missing', async () => {
   const repoRoot = createTempRepo();
   try {
@@ -98,6 +120,46 @@ test('ensureBuildArtifacts fails when build completes without producing the CLI 
   }
 });
 
+test('ensureBuildArtifacts accepts a cross-target debug binary produced by build:runtime when CARGO_BUILD_TARGET is set', async () => {
+  const repoRoot = createTempRepo();
+  const originalCargoBuildTarget = process.env.CARGO_BUILD_TARGET;
+  process.env.CARGO_BUILD_TARGET = 'x86_64-unknown-linux-musl';
+
+  try {
+    const runner = loadRunner();
+    let recordedCall;
+
+    await runner.ensureBuildArtifacts(repoRoot, {
+      spawnImpl(command, args, options) {
+        recordedCall = { command, args, options };
+        const child = new EventEmitter();
+        process.nextTick(() => {
+          const cliBinaryPath = path.join(
+            repoRoot,
+            'target',
+            process.env.CARGO_BUILD_TARGET,
+            'debug',
+            'apex-log-viewer'
+          );
+          fs.mkdirSync(path.dirname(cliBinaryPath), { recursive: true });
+          fs.writeFileSync(cliBinaryPath, '', 'utf8');
+          child.emit('exit', 0, null);
+        });
+        return child;
+      }
+    });
+
+    assert.ok(recordedCall, 'expected ensureBuildArtifacts to invoke the build command');
+  } finally {
+    if (originalCargoBuildTarget === undefined) {
+      delete process.env.CARGO_BUILD_TARGET;
+    } else {
+      process.env.CARGO_BUILD_TARGET = originalCargoBuildTarget;
+    }
+    cleanupTempRepo(repoRoot);
+  }
+});
+
 test('resolvePlaywrightInvocation throws when @playwright/test/cli cannot be resolved instead of falling back to npx', () => {
   const runner = loadRunner();
   const originalResolveFilename = Module._resolveFilename;
@@ -116,6 +178,20 @@ test('resolvePlaywrightInvocation throws when @playwright/test/cli cannot be res
   } finally {
     Module._resolveFilename = originalResolveFilename;
   }
+});
+
+test('resolvePlaywrightInvocation includes --pass-with-no-tests for the temporary empty suite state', () => {
+  const runner = loadRunner();
+  const invocation = runner.resolvePlaywrightInvocation(['--grep', 'smoke']);
+
+  assert.deepEqual(invocation.args.slice(0, 5), [
+    require.resolve('@playwright/test/cli'),
+    'test',
+    '--config=playwright.cli.config.ts',
+    '--pass-with-no-tests',
+    '--grep'
+  ]);
+  assert.equal(invocation.args[5], 'smoke');
 });
 
 test('package.json exposes pretest:e2e:cli = npm run build:runtime', () => {
