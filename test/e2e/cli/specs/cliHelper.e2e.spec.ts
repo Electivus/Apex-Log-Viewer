@@ -170,24 +170,21 @@ test('resolveAlvCliBinaryPath prefers the host debug binary when CARGO_BUILD_TAR
   });
 });
 
-test('resolveAlvCliBinaryPath falls back to the cross-target debug binary when the host binary is missing', async () => {
+test('resolveAlvCliBinaryPath ignores cross-target debug binaries when the host binary is missing', async () => {
   await withTempRepo(async repoRoot => {
     const cargoBuildTarget = 'x86_64-unknown-linux-musl';
     const originalCargoBuildTarget = process.env.CARGO_BUILD_TARGET;
     process.env.CARGO_BUILD_TARGET = cargoBuildTarget;
 
     try {
-      const crossTargetBinaryPath = await writeFakeCrossTargetBinary(
+      await writeFakeCrossTargetBinary(
         repoRoot,
         cargoBuildTarget,
         '#!/bin/sh\nexit 0\n'
       );
 
-      expect(resolveAlvCliBinaryPath({ repoRoot })).toBe(crossTargetBinaryPath);
-      expect(resolveAlvCliInvocation({ repoRoot })).toEqual({
-        command: crossTargetBinaryPath,
-        args: []
-      });
+      expect(() => resolveAlvCliBinaryPath({ repoRoot })).toThrow(/Unable to locate apex-log-viewer standalone binary/);
+      expect(() => resolveAlvCliInvocation({ repoRoot })).toThrow(/Unable to locate apex-log-viewer standalone binary/);
     } finally {
       if (originalCargoBuildTarget === undefined) {
         delete process.env.CARGO_BUILD_TARGET;
