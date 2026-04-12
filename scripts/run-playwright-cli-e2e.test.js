@@ -47,7 +47,8 @@ test('findMissingBuildArtifacts accepts a cross-target debug binary when CARGO_B
 
   try {
     const runner = loadRunner();
-    const cliBinaryPath = path.join(repoRoot, 'target', process.env.CARGO_BUILD_TARGET, 'debug', 'apex-log-viewer');
+    const cliBinaryName = path.basename(runner.resolveCliBinaryRelativePath(process.platform));
+    const cliBinaryPath = path.join(repoRoot, 'target', process.env.CARGO_BUILD_TARGET, 'debug', cliBinaryName);
     fs.mkdirSync(path.dirname(cliBinaryPath), { recursive: true });
     fs.writeFileSync(cliBinaryPath, '', 'utf8');
 
@@ -128,6 +129,7 @@ test('ensureBuildArtifacts accepts a cross-target debug binary produced by build
   try {
     const runner = loadRunner();
     let recordedCall;
+    const cliBinaryName = path.basename(runner.resolveCliBinaryRelativePath(process.platform));
 
     await runner.ensureBuildArtifacts(repoRoot, {
       spawnImpl(command, args, options) {
@@ -139,7 +141,7 @@ test('ensureBuildArtifacts accepts a cross-target debug binary produced by build
             'target',
             process.env.CARGO_BUILD_TARGET,
             'debug',
-            'apex-log-viewer'
+            cliBinaryName
           );
           fs.mkdirSync(path.dirname(cliBinaryPath), { recursive: true });
           fs.writeFileSync(cliBinaryPath, '', 'utf8');

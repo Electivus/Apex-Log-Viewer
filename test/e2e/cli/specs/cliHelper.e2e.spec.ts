@@ -35,6 +35,32 @@ async function writeFakeWindowsCommandShim(repoRoot: string, scriptBody: string)
   return shimPath;
 }
 
+async function writeFakeCrossTargetBinary(
+  repoRoot: string,
+  cargoBuildTarget: string,
+  scriptBody: string,
+  platform: NodeJS.Platform = process.platform
+): Promise<string> {
+  const binaryDir = path.join(
+    repoRoot,
+    'target',
+    cargoBuildTarget,
+    'debug'
+  );
+  const binaryPath = path.join(
+    binaryDir,
+    platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer'
+  );
+
+  await mkdir(binaryDir, { recursive: true });
+  await writeFile(binaryPath, scriptBody, 'utf8');
+  if (platform !== 'win32') {
+    await chmod(binaryPath, 0o755);
+  }
+
+  return binaryPath;
+}
+
 test('resolveAlvCliBinaryPath rejects extension runtime fallback when standalone binary is missing', async () => {
   await withTempRepo(async repoRoot => {
     const binaryName = process.platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
@@ -111,5 +137,35 @@ test('resolveAlvCliInvocation can use a Windows command shim for helper-only cov
       command: process.env.ComSpec || 'cmd.exe',
       args: ['/d', '/s', '/c', shimPath]
     });
+  });
+});
+
+test('resolveAlvCliBinaryPath prefers the cross-target debug binary when CARGO_BUILD_TARGET is set', async () => {
+  await withTempRepo(async repoRoot => {
+    const cargoBuildTarget = 'x86_64-unknown-linux-musl';
+    const originalCargoBuildTarget = process.env.CARGO_BUILD_TARGET;
+    process.env.CARGO_BUILD_TARGET = cargoBuildTarget;
+
+    try {
+      const hostBinaryPath = await writeFakeStandaloneBinary(repoRoot, '#!/bin/sh\nexit 0\n');
+      const crossTargetBinaryPath = await writeFakeCrossTargetBinary(
+        repoRoot,
+        cargoBuildTarget,
+        '#!/bin/sh\nexit 0\n'
+      );
+
+      expect(resolveAlvCliBinaryPath({ repoRoot })).toBe(crossTargetBinaryPath);
+      expect(resolveAlvCliInvocation({ repoRoot })).toEqual({
+        command: crossTargetBinaryPath,
+        args: []
+      });
+      expect(hostBinaryPath).not.toBe(crossTargetBinaryPath);
+    } finally {
+      if (originalCargoBuildTarget === undefined) {
+        delete process.env.CARGO_BUILD_TARGET;
+      } else {
+        process.env.CARGO_BUILD_TARGET = originalCargoBuildTarget;
+      }
+    }
   });
 });
