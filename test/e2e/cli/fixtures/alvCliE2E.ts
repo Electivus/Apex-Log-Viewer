@@ -126,6 +126,9 @@ export const test = base.extend<Fixtures>({
       );
       await attachTextArtifact(`${prefix}.stdout.txt`, result.stdout, testInfo.attach.bind(testInfo));
       await attachTextArtifact(`${prefix}.stderr.txt`, result.stderr, testInfo.attach.bind(testInfo));
+      if (result.errorMessage) {
+        await attachTextArtifact(`${prefix}.error.txt`, result.errorMessage, testInfo.attach.bind(testInfo));
+      }
 
       return result;
     });

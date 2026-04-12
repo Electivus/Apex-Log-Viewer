@@ -5,6 +5,7 @@ import path from 'node:path';
 export type CliExecOptions = {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  repoRoot?: string;
   timeoutMs?: number;
 };
 
@@ -14,7 +15,10 @@ export type CliRunResult = {
   exitCode: number;
   stdout: string;
   stderr: string;
-  json?: any;
+  stdoutJson?: any;
+  stderrJson?: any;
+  errorMessage?: string;
+  signal?: NodeJS.Signals | string;
 };
 
 function resolveBinaryName(): string {
@@ -81,10 +85,10 @@ export function resolveAlvCliBinaryPath(options: ResolveAlvCliBinaryPathOptions 
 }
 
 export async function runAlvCli(args: string[], options: CliExecOptions = {}): Promise<CliRunResult> {
-  const command = resolveAlvCliBinaryPath();
+  const command = resolveAlvCliBinaryPath({ repoRoot: options.repoRoot });
   const finalArgs = args.map(value => String(value ?? ''));
 
-  return await new Promise((resolve, reject) => {
+  return await new Promise(resolve => {
     execFile(
       command,
       finalArgs,
@@ -101,7 +105,8 @@ export async function runAlvCli(args: string[], options: CliExecOptions = {}): P
       (error, stdout, stderr) => {
         const stdoutText = String(stdout || '');
         const stderrText = String(stderr || '');
-        const json = tryParseCliJson(stdoutText) ?? tryParseCliJson(stderrText);
+        const stdoutJson = tryParseCliJson(stdoutText);
+        const stderrJson = tryParseCliJson(stderrText);
 
         if (!error) {
           resolve({
@@ -110,24 +115,24 @@ export async function runAlvCli(args: string[], options: CliExecOptions = {}): P
             exitCode: 0,
             stdout: stdoutText,
             stderr: stderrText,
-            json
+            stdoutJson,
+            stderrJson
           });
           return;
         }
 
-        if (typeof (error as NodeJS.ErrnoException & { code?: unknown }).code === 'number') {
-          resolve({
-            command,
-            args: finalArgs,
-            exitCode: Number((error as NodeJS.ErrnoException & { code?: unknown }).code),
-            stdout: stdoutText,
-            stderr: stderrText,
-            json
-          });
-          return;
-        }
-
-        reject(error);
+        const execError = error as NodeJS.ErrnoException & { code?: unknown; signal?: NodeJS.Signals | string | null };
+        resolve({
+          command,
+          args: finalArgs,
+          exitCode: typeof execError.code === 'number' ? Number(execError.code) : -1,
+          stdout: stdoutText,
+          stderr: stderrText,
+          stdoutJson,
+          stderrJson,
+          errorMessage: execError.message || String(error),
+          signal: execError.signal || undefined
+        });
       }
     );
   });
