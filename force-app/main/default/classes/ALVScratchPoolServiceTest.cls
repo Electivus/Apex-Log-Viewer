@@ -43,7 +43,7 @@ private class ALVScratchPoolServiceTest {
         healthy.ScratchExpiresAt__c = Datetime.now().addDays(7);
         update healthy;
 
-        Test.startTest();
+        System.Test.startTest();
         ALVScratchPoolService.LeaseResponse response = ALVScratchPoolService.acquire(new Map<String, Object>{
             'poolKey' => 'alv-e2e',
             'leaseOwner' => 'jest:test',
@@ -52,7 +52,7 @@ private class ALVScratchPoolServiceTest {
             'seedVersion' => 'seed-v1',
             'minRemainingMinutes' => 60
         });
-        Test.stopTest();
+        System.Test.stopTest();
 
         System.assertEquals(true, response.ok);
         System.assertEquals('slot-01', response.slotKey);
@@ -73,7 +73,7 @@ private class ALVScratchPoolServiceTest {
         slot.ScratchExpiresAt__c = Datetime.now().addDays(7);
         update slot;
 
-        Test.startTest();
+        System.Test.startTest();
         ALVScratchPoolService.LeaseResponse response = ALVScratchPoolService.acquire(new Map<String, Object>{
             'poolKey' => 'alv-auth',
             'leaseOwner' => 'jest:test',
@@ -82,7 +82,7 @@ private class ALVScratchPoolServiceTest {
             'seedVersion' => 'seed-v1',
             'minRemainingMinutes' => 60
         });
-        Test.stopTest();
+        System.Test.stopTest();
 
         System.assertEquals('slot-01', response.slotKey);
         System.assertEquals(true, response.needsCreate);
@@ -100,7 +100,7 @@ private class ALVScratchPoolServiceTest {
         slot.HealthState__c = 'broken';
         update slot;
 
-        Test.startTest();
+        System.Test.startTest();
         ALVScratchPoolService.LeaseResponse response = ALVScratchPoolService.acquire(new Map<String, Object>{
             'poolKey' => 'alv-expired',
             'leaseOwner' => 'new-owner',
@@ -109,7 +109,7 @@ private class ALVScratchPoolServiceTest {
             'seedVersion' => 'seed-v1',
             'minRemainingMinutes' => 60
         });
-        Test.stopTest();
+        System.Test.stopTest();
 
         System.assertEquals('slot-expired', response.slotKey);
         System.assertEquals(true, response.needsCreate);
@@ -126,14 +126,14 @@ private class ALVScratchPoolServiceTest {
         slot.LeaseExpiresAt__c = Datetime.now().addMinutes(5);
         update slot;
 
-        Test.startTest();
+        System.Test.startTest();
         ALVScratchPoolService.LeaseResponse response = ALVScratchPoolService.heartbeat(new Map<String, Object>{
             'poolKey' => 'alv-heartbeat',
             'slotKey' => 'slot-heartbeat',
             'leaseToken' => 'lease-token',
             'leaseTtlSeconds' => 3600
         });
-        Test.stopTest();
+        System.Test.stopTest();
 
         System.assertEquals('slot-heartbeat', response.slotKey);
         System.assertNotEquals(null, response.leaseExpiresAt);
@@ -150,7 +150,7 @@ private class ALVScratchPoolServiceTest {
         slot.LeaseExpiresAt__c = Datetime.now().addMinutes(5);
         update slot;
 
-        Test.startTest();
+        System.Test.startTest();
         ALVScratchPoolService.LeaseResponse response = ALVScratchPoolService.releaseLease(new Map<String, Object>{
             'poolKey' => 'alv-release',
             'slotKey' => 'slot-release',
@@ -161,7 +161,7 @@ private class ALVScratchPoolServiceTest {
             'errorMessage' => 'slot failed health checks',
             'scratchAuthUrl' => 'force://stale-auth'
         });
-        Test.stopTest();
+        System.Test.stopTest();
 
         System.assertEquals('slot-release', response.slotKey);
         ALV_ScratchOrgPoolSlot__c refreshed = [
@@ -187,7 +187,7 @@ private class ALVScratchPoolServiceTest {
         slot.LeaseExpiresAt__c = Datetime.now().addMinutes(5);
         update slot;
 
-        Test.startTest();
+        System.Test.startTest();
         ALVScratchPoolService.releaseLease(new Map<String, Object>{
             'poolKey' => 'alv-release-success',
             'slotKey' => 'slot-release-success',
@@ -196,7 +196,7 @@ private class ALVScratchPoolServiceTest {
             'needsRecreate' => true,
             'lastRunResult' => 'completed'
         });
-        Test.stopTest();
+        System.Test.stopTest();
 
         ALV_ScratchOrgPoolSlot__c refreshed = [
             SELECT HealthState__c, ScratchAuthUrl__c, UsageCount__c
