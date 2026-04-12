@@ -258,11 +258,12 @@ The CLI E2E suite should preserve the same debugging posture as the extension E2
 
 ### Command and Config Surface
 
-Add a dedicated command in `package.json`:
+Add a dedicated command pair in `package.json`:
 
+- `pretest:e2e:cli`
 - `test:e2e:cli`
 
-The CLI E2E runner should build the local CLI runtime with `npm run build:runtime` only when the local CLI binary is missing.
+The pretest should build the local CLI runtime needed by the suite.
 
 Add a dedicated Playwright config for the CLI suite, separate from the extension suite, so that:
 
