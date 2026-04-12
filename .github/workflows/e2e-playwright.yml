@@ -114,6 +114,36 @@ jobs:
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Run CLI real-org E2E
+        shell: bash
+        run: |
+          echo "Scratch strategy: ${SCRATCH_STRATEGY}"
+          echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
+          npm run test:e2e:cli
+        env:
+          PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
+          SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
+          SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
+          SF_SCRATCH_POOL_OWNER: github:${{ github.run_id }}/${{ github.run_attempt }}
+          SF_SCRATCH_POOL_LEASE_TTL_SECONDS: ${{ vars.SF_SCRATCH_POOL_LEASE_TTL_SECONDS }}
+          SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS: ${{ vars.SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS }}
+          SF_SCRATCH_POOL_HEARTBEAT_SECONDS: ${{ vars.SF_SCRATCH_POOL_HEARTBEAT_SECONDS }}
+          SF_SCRATCH_POOL_MIN_REMAINING_MINUTES: ${{ vars.SF_SCRATCH_POOL_MIN_REMAINING_MINUTES }}
+          SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
+          SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
+          SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
+          SF_DEVHUB_ALIAS: DevHubElectivus
+          SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || '1' }}
+          SF_TEST_KEEP_ORG: '1'
+
+      - name: Upload CLI E2E artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: playwright-cli-e2e
+          path: output/playwright-cli/
+          if-no-files-found: ignore
+
       - name: Run Playwright E2E
         shell: bash
         run: |
