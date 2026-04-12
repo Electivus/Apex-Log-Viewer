@@ -1,6 +1,7 @@
 import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from '../fixtures/alvCliE2E';
+import { getOrgAuth } from '../../utils/tooling';
 
 async function findFileNamed(rootDir: string, fileName: string): Promise<string | undefined> {
   const entries = await readdir(rootDir, { withFileTypes: true });
@@ -23,6 +24,7 @@ async function findFileNamed(rootDir: string, fileName: string): Promise<string 
 }
 
 test('logs sync --json downloads the seeded Apex log into the workspace cache', async ({ runCli, workspacePath, seededLog, scratchAlias }) => {
+  const scratchAuth = await getOrgAuth(scratchAlias);
   const result = await runCli(['logs', 'sync', '--json', '--target-org', scratchAlias]);
   const json = result.stdoutJson;
 
@@ -32,7 +34,8 @@ test('logs sync --json downloads the seeded Apex log into the workspace cache', 
   expect(Number(json?.downloaded ?? 0)).toBeGreaterThanOrEqual(1);
   expect(json?.last_synced_log_id).toBeTruthy();
   expect(json?.last_synced_log_id).toBe(seededLog.logId);
-  expect(String(json?.target_org || '')).toContain('@');
+  expect(scratchAuth.username).toBeTruthy();
+  expect(json?.target_org).toBe(scratchAuth.username);
   expect(String(json?.safe_target_org || '')).toBeTruthy();
 
   const syncStatePath = path.join(workspacePath, 'apexlogs', '.alv', 'sync-state.json');
