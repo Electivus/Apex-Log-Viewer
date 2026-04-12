@@ -124,7 +124,7 @@ For Dev Hub bootstrap, operational scripts, and GitHub Actions / Codex Cloud set
 
 Troubleshooting:
 
-- If `npm run test:e2e:cli` reports a missing CLI binary, rerun `npm run build:runtime` or let the pretest step rebuild it for you.
+- If `npm run test:e2e:cli` reports a missing CLI binary, rerun `npm run build:runtime` or let the runner rebuild it for you.
 - If the Logs panel shows **“Salesforce CLI not found”**, set the VS Code setting `electivus.apexLogs.cliPath` to the absolute path of your `sf` executable.
 
 - CLI artifacts (screenshots/traces/videos and attached command/stdout/stderr files on failure) are written under `output/playwright-cli/`.

@@ -62,7 +62,6 @@
     "test:smoke:vsix": "node scripts/run-tests.js --scope=unit --smoke-vsix",
     "pretest:e2e": "npm run build",
     "test:e2e": "node scripts/run-playwright-e2e.js",
-    "pretest:e2e:cli": "npm run build:runtime",
     "test:e2e:cli": "node scripts/run-playwright-cli-e2e.js",
     "predocs:screenshots": "npm run build",
     "docs:screenshots": "node scripts/run-playwright-e2e.js --config=playwright.docs.config.ts",

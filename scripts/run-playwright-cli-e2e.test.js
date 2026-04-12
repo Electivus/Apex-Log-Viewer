@@ -215,10 +215,10 @@ test('resolvePlaywrightInvocation omits --pass-with-no-tests when the CLI suite 
   }
 });
 
-test('package.json exposes pretest:e2e:cli = npm run build:runtime', () => {
+test('package.json does not expose a separate pretest:e2e:cli build hook', () => {
   const scripts = readPackageScripts();
 
-  assert.equal(scripts['pretest:e2e:cli'], 'npm run build:runtime');
+  assert.equal(scripts['pretest:e2e:cli'], undefined);
 });
 
 test('package.json exposes test:e2e:cli = node scripts/run-playwright-cli-e2e.js', () => {
