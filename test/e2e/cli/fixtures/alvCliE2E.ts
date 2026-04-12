@@ -15,11 +15,17 @@ type ScratchLeaseState = {
   failureMessage?: string;
 };
 
+type SyncLogsResult = {
+  result: CliRunResult;
+  json: any;
+};
+
 type Fixtures = {
   scratchAlias: string;
   seededLog: SeededLog;
   workspacePath: string;
   runCli: (args: string[], options?: CliExecOptions) => Promise<CliRunResult>;
+  syncLogs: () => Promise<SyncLogsResult>;
   scratchLeaseState: ScratchLeaseState;
 };
 
@@ -131,6 +137,24 @@ export const test = base.extend<Fixtures>({
       }
 
       return result;
+    });
+  },
+
+  syncLogs: async ({ runCli, scratchAlias }, use) => {
+    await use(async () => {
+      const result = await runCli(['logs', 'sync', '--json', '--target-org', scratchAlias]);
+      const json = result.stdoutJson;
+
+      expect(result.exitCode).toBe(0);
+      expect(json).toBeTruthy();
+      expect(json?.status).toBe('success');
+      expect(Number(json?.downloaded ?? 0)).toBeGreaterThanOrEqual(1);
+      expect(json?.last_synced_log_id).toBeTruthy();
+
+      return {
+        result,
+        json
+      };
     });
   }
 });
