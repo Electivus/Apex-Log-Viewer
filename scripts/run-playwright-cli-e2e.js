@@ -60,22 +60,22 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
       typeof result.code === 'number' ? `exit code ${result.code}` : `signal ${result.signal || 'unknown'}`;
     throw new Error(`npm run build:runtime failed while preparing CLI Playwright E2E (${details}).`);
   }
+
+  const remainingMissingArtifacts = findMissingBuildArtifacts(repoRoot);
+  if (remainingMissingArtifacts.length) {
+    throw new Error(
+      `npm run build:runtime did not produce required CLI artifact(s): ${remainingMissingArtifacts.join(', ')}.`
+    );
+  }
 }
 
 function resolvePlaywrightInvocation(extraArgs) {
   const configArg = '--config=playwright.cli.config.ts';
-
-  try {
-    const cliPath = require.resolve('@playwright/test/cli');
-    return {
-      command: process.execPath,
-      args: [cliPath, 'test', configArg, ...extraArgs]
-    };
-  } catch {}
+  const cliPath = require.resolve('@playwright/test/cli');
 
   return {
-    command: process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    args: ['playwright', 'test', configArg, ...extraArgs]
+    command: process.execPath,
+    args: [cliPath, 'test', configArg, ...extraArgs]
   };
 }
 

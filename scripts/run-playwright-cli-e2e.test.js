@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
+const Module = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -49,7 +50,12 @@ test('ensureBuildArtifacts runs npm run build:runtime when the CLI binary is mis
       spawnImpl(command, args, options) {
         recordedCall = { command, args, options };
         const child = new EventEmitter();
-        process.nextTick(() => child.emit('exit', 0, null));
+        process.nextTick(() => {
+          const cliBinaryPath = path.join(repoRoot, runner.resolveCliBinaryRelativePath());
+          fs.mkdirSync(path.dirname(cliBinaryPath), { recursive: true });
+          fs.writeFileSync(cliBinaryPath, '', 'utf8');
+          child.emit('exit', 0, null);
+        });
         return child;
       }
     });
@@ -68,6 +74,47 @@ test('ensureBuildArtifacts runs npm run build:runtime when the CLI binary is mis
     assert.equal(recordedCall.options.stdio, 'inherit');
   } finally {
     cleanupTempRepo(repoRoot);
+  }
+});
+
+test('ensureBuildArtifacts fails when build completes without producing the CLI binary', async () => {
+  const repoRoot = createTempRepo();
+  try {
+    const runner = loadRunner();
+
+    await assert.rejects(
+      () =>
+        runner.ensureBuildArtifacts(repoRoot, {
+          spawnImpl() {
+            const child = new EventEmitter();
+            process.nextTick(() => child.emit('exit', 0, null));
+            return child;
+          }
+        }),
+      /did not produce required CLI artifact/
+    );
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
+});
+
+test('resolvePlaywrightInvocation throws when @playwright/test/cli cannot be resolved instead of falling back to npx', () => {
+  const runner = loadRunner();
+  const originalResolveFilename = Module._resolveFilename;
+  Module._resolveFilename = function patchedResolveFilename(request, parent, isMain, options) {
+    if (request === '@playwright/test/cli') {
+      const error = new Error("Cannot find module '@playwright/test/cli'");
+      error.code = 'MODULE_NOT_FOUND';
+      throw error;
+    }
+
+    return originalResolveFilename.call(this, request, parent, isMain, options);
+  };
+
+  try {
+    assert.throws(() => runner.resolvePlaywrightInvocation([]), /@playwright\/test\/cli/);
+  } finally {
+    Module._resolveFilename = originalResolveFilename;
   }
 });
 
