@@ -1,0 +1,132 @@
+import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+
+export type CliExecOptions = {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  timeoutMs?: number;
+};
+
+export type CliRunResult = {
+  command: string;
+  args: string[];
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  json?: any;
+};
+
+function resolveBinaryName(): string {
+  return process.platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
+}
+
+function resolveRepoRoot(): string {
+  return path.resolve(__dirname, '..', '..', '..', '..');
+}
+
+function resolveBinaryCandidates(): string[] {
+  const repoRoot = resolveRepoRoot();
+  const binaryName = resolveBinaryName();
+  const candidates = [path.join(repoRoot, 'target', 'debug', binaryName)];
+  const cargoBuildTarget = String(process.env.CARGO_BUILD_TARGET || '').trim();
+
+  if (cargoBuildTarget) {
+    candidates.push(path.join(repoRoot, 'target', cargoBuildTarget, 'debug', binaryName));
+  }
+
+  candidates.push(
+    path.join(repoRoot, 'apps', 'vscode-extension', 'bin', `${process.platform}-${process.arch}`, binaryName)
+  );
+
+  return [...new Set(candidates)];
+}
+
+function tryParseCliJson(raw: string): any | undefined {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Some command wrappers may add ANSI noise before the JSON payload.
+  }
+
+  const cleaned = trimmed.replace(/\u001b\[[0-9;]*m/g, '');
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    try {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
+}
+
+export function resolveAlvCliBinaryPath(): string {
+  const binaryPath = resolveBinaryCandidates().find(candidate => existsSync(candidate));
+  if (!binaryPath) {
+    throw new Error(
+      `Unable to locate apex-log-viewer standalone binary. Checked: ${resolveBinaryCandidates().join(', ')}`
+    );
+  }
+  return binaryPath;
+}
+
+export async function runAlvCli(args: string[], options: CliExecOptions = {}): Promise<CliRunResult> {
+  const command = resolveAlvCliBinaryPath();
+  const finalArgs = args.map(value => String(value ?? ''));
+
+  return await new Promise((resolve, reject) => {
+    execFile(
+      command,
+      finalArgs,
+      {
+        cwd: options.cwd,
+        env: {
+          ...process.env,
+          ...options.env
+        },
+        encoding: 'utf8',
+        timeout: options.timeoutMs ?? 120_000,
+        maxBuffer: 1024 * 1024 * 20
+      },
+      (error, stdout, stderr) => {
+        const stdoutText = String(stdout || '');
+        const stderrText = String(stderr || '');
+        const json = tryParseCliJson(stdoutText) ?? tryParseCliJson(stderrText);
+
+        if (!error) {
+          resolve({
+            command,
+            args: finalArgs,
+            exitCode: 0,
+            stdout: stdoutText,
+            stderr: stderrText,
+            json
+          });
+          return;
+        }
+
+        if (typeof (error as NodeJS.ErrnoException & { code?: unknown }).code === 'number') {
+          resolve({
+            command,
+            args: finalArgs,
+            exitCode: Number((error as NodeJS.ErrnoException & { code?: unknown }).code),
+            stdout: stdoutText,
+            stderr: stderrText,
+            json
+          });
+          return;
+        }
+
+        reject(error);
+      }
+    );
+  });
+}
