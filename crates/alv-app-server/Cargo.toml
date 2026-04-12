@@ -15,4 +15,4 @@ alv-core = { version = "0.1.7", path = "../alv-core" }
 alv-protocol = { version = "0.1.7", path = "../alv-protocol" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.47", features = ["sync"] }
+tokio = { version = "1.51", features = ["sync"] }
