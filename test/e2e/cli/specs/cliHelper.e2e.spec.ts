@@ -140,7 +140,7 @@ test('resolveAlvCliInvocation can use a Windows command shim for helper-only cov
   });
 });
 
-test('resolveAlvCliBinaryPath prefers the cross-target debug binary when CARGO_BUILD_TARGET is set', async () => {
+test('resolveAlvCliBinaryPath prefers the host debug binary when CARGO_BUILD_TARGET is set', async () => {
   await withTempRepo(async repoRoot => {
     const cargoBuildTarget = 'x86_64-unknown-linux-musl';
     const originalCargoBuildTarget = process.env.CARGO_BUILD_TARGET;
@@ -154,12 +154,40 @@ test('resolveAlvCliBinaryPath prefers the cross-target debug binary when CARGO_B
         '#!/bin/sh\nexit 0\n'
       );
 
+      expect(resolveAlvCliBinaryPath({ repoRoot })).toBe(hostBinaryPath);
+      expect(resolveAlvCliInvocation({ repoRoot })).toEqual({
+        command: hostBinaryPath,
+        args: []
+      });
+      expect(hostBinaryPath).not.toBe(crossTargetBinaryPath);
+    } finally {
+      if (originalCargoBuildTarget === undefined) {
+        delete process.env.CARGO_BUILD_TARGET;
+      } else {
+        process.env.CARGO_BUILD_TARGET = originalCargoBuildTarget;
+      }
+    }
+  });
+});
+
+test('resolveAlvCliBinaryPath falls back to the cross-target debug binary when the host binary is missing', async () => {
+  await withTempRepo(async repoRoot => {
+    const cargoBuildTarget = 'x86_64-unknown-linux-musl';
+    const originalCargoBuildTarget = process.env.CARGO_BUILD_TARGET;
+    process.env.CARGO_BUILD_TARGET = cargoBuildTarget;
+
+    try {
+      const crossTargetBinaryPath = await writeFakeCrossTargetBinary(
+        repoRoot,
+        cargoBuildTarget,
+        '#!/bin/sh\nexit 0\n'
+      );
+
       expect(resolveAlvCliBinaryPath({ repoRoot })).toBe(crossTargetBinaryPath);
       expect(resolveAlvCliInvocation({ repoRoot })).toEqual({
         command: crossTargetBinaryPath,
         args: []
       });
-      expect(hostBinaryPath).not.toBe(crossTargetBinaryPath);
     } finally {
       if (originalCargoBuildTarget === undefined) {
         delete process.env.CARGO_BUILD_TARGET;

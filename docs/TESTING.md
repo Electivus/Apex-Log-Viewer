@@ -97,7 +97,7 @@ Useful env vars:
 - `SF_DEVHUB_AUTH_URL`: Explicit Dev Hub auth for the run. Set this or `SF_DEVHUB_ALIAS`.
 - `SF_DEVHUB_ALIAS`: Explicit Dev Hub alias to use. Set this or `SF_DEVHUB_AUTH_URL`.
 - `SF_SCRATCH_STRATEGY`: `single` or `pool`. If unset, the helper auto-enables pool mode when `SF_SCRATCH_POOL_NAME` is present. Local runs can use either mode; CI forces `pool`.
-- `PLAYWRIGHT_WORKERS`: Number of Playwright workers. Default `1` locally; the GitHub Actions pool workflow sets this to `7` by default so the current seven E2E specs can run in parallel.
+- `PLAYWRIGHT_WORKERS`: Number of Playwright workers. Default `1` locally; the GitHub Actions pool workflow also defaults to `1` unless overridden by workflow-dispatch input.
 - `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_E2E_Scratch`).
 - `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
 - `SF_TEST_KEEP_ORG=1`: Keep the scratch org after the run (recommended while iterating).

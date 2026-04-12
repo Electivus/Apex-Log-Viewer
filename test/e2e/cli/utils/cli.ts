@@ -48,13 +48,11 @@ type CliInvocation = {
 function resolveBinaryCandidatesForName(binaryName: string, options: ResolveAlvCliBinaryPathOptions = {}): string[] {
   const repoRoot = options.repoRoot || resolveRepoRoot();
   const cargoBuildTarget = String(options.cargoBuildTarget ?? process.env.CARGO_BUILD_TARGET ?? '').trim();
-  const candidates: string[] = [];
+  const candidates: string[] = [path.join(repoRoot, 'target', 'debug', binaryName)];
 
   if (cargoBuildTarget) {
     candidates.push(path.join(repoRoot, 'target', cargoBuildTarget, 'debug', binaryName));
   }
-
-  candidates.push(path.join(repoRoot, 'target', 'debug', binaryName));
 
   return [...new Set(candidates)];
 }
