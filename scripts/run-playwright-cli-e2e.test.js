@@ -180,18 +180,43 @@ test('resolvePlaywrightInvocation throws when @playwright/test/cli cannot be res
   }
 });
 
-test('resolvePlaywrightInvocation includes --pass-with-no-tests for the temporary empty suite state', () => {
-  const runner = loadRunner();
-  const invocation = runner.resolvePlaywrightInvocation(['--grep', 'smoke']);
+test('resolvePlaywrightInvocation includes --pass-with-no-tests when the CLI suite root is absent', () => {
+  const repoRoot = createTempRepo();
+  try {
+    const runner = loadRunner();
+    const invocation = runner.resolvePlaywrightInvocation(['--grep', 'smoke'], { repoRoot });
 
-  assert.deepEqual(invocation.args.slice(0, 5), [
-    require.resolve('@playwright/test/cli'),
-    'test',
-    '--config=playwright.cli.config.ts',
-    '--pass-with-no-tests',
-    '--grep'
-  ]);
-  assert.equal(invocation.args[5], 'smoke');
+    assert.deepEqual(invocation.args.slice(0, 5), [
+      require.resolve('@playwright/test/cli'),
+      'test',
+      '--config=playwright.cli.config.ts',
+      '--pass-with-no-tests',
+      '--grep'
+    ]);
+    assert.equal(invocation.args[5], 'smoke');
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
+});
+
+test('resolvePlaywrightInvocation omits --pass-with-no-tests when the CLI suite root exists', () => {
+  const repoRoot = createTempRepo();
+  try {
+    const runner = loadRunner();
+    fs.mkdirSync(path.join(repoRoot, 'test', 'e2e', 'cli'), { recursive: true });
+    const invocation = runner.resolvePlaywrightInvocation(['--grep', 'smoke'], { repoRoot });
+
+    assert.deepEqual(invocation.args.slice(0, 4), [
+      require.resolve('@playwright/test/cli'),
+      'test',
+      '--config=playwright.cli.config.ts',
+      '--grep'
+    ]);
+    assert.equal(invocation.args[4], 'smoke');
+    assert.ok(!invocation.args.includes('--pass-with-no-tests'));
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
 });
 
 test('package.json exposes pretest:e2e:cli = npm run build:runtime', () => {

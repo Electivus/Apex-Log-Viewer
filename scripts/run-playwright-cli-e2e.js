@@ -12,6 +12,10 @@ function resolveCliBinaryRelativePath(targetPlatform = process.platform) {
 
 const requiredBuildArtifacts = [resolveCliBinaryRelativePath()];
 
+function resolveCliSuiteRelativePath() {
+  return path.join('test', 'e2e', 'cli');
+}
+
 function resolveAcceptedCliBinaryRelativePaths(targetPlatform = process.platform, env = process.env) {
   const paths = [resolveCliBinaryRelativePath(targetPlatform)];
   const cargoBuildTarget = String(env.CARGO_BUILD_TARGET || '').trim();
@@ -83,13 +87,16 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
   }
 }
 
-function resolvePlaywrightInvocation(extraArgs) {
+function resolvePlaywrightInvocation(extraArgs, options = {}) {
   const configArg = '--config=playwright.cli.config.ts';
   const cliPath = require.resolve('@playwright/test/cli');
+  const repoRoot = options.repoRoot || path.join(__dirname, '..');
+  const cliSuiteRoot = path.join(repoRoot, resolveCliSuiteRelativePath());
+  const maybePassWithNoTests = existsSync(cliSuiteRoot) ? [] : ['--pass-with-no-tests'];
 
   return {
     command: process.execPath,
-    args: [cliPath, 'test', configArg, '--pass-with-no-tests', ...extraArgs]
+    args: [cliPath, 'test', configArg, ...maybePassWithNoTests, ...extraArgs]
   };
 }
 
@@ -133,5 +140,6 @@ module.exports = {
   resolveBuildInvocation,
   resolveCliBinaryRelativePath,
   resolveAcceptedCliBinaryRelativePaths,
+  resolveCliSuiteRelativePath,
   resolvePlaywrightInvocation
 };
