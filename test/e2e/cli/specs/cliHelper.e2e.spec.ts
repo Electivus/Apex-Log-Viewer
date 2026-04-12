@@ -132,10 +132,11 @@ test('resolveAlvCliBinaryPath stays strict when only a Windows command shim exis
 test('resolveAlvCliInvocation can use a Windows command shim for helper-only coverage', async () => {
   await withTempRepo(async repoRoot => {
     const shimPath = await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\nexit /b 0\r\n');
+    const quotedShimPath = `"${shimPath.replace(/"/g, '""')}"`;
 
     expect(resolveAlvCliInvocation({ repoRoot, platform: 'win32', allowWindowsCommandShim: true })).toEqual({
       command: process.env.ComSpec || 'cmd.exe',
-      args: ['/d', '/s', '/c', shimPath]
+      args: ['/d', '/s', '/c', quotedShimPath]
     });
   });
 });

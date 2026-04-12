@@ -40,7 +40,7 @@ test('resolveCliBinaryRelativePath targets the debug CLI binary on Windows', () 
   assert.equal(runner.resolveCliBinaryRelativePath('win32'), 'target/debug/apex-log-viewer.exe');
 });
 
-test('findMissingBuildArtifacts accepts a cross-target debug binary when CARGO_BUILD_TARGET is set', () => {
+test('findMissingBuildArtifacts still requires the host debug binary when CARGO_BUILD_TARGET is set', () => {
   const repoRoot = createTempRepo();
   const originalCargoBuildTarget = process.env.CARGO_BUILD_TARGET;
   process.env.CARGO_BUILD_TARGET = 'x86_64-unknown-linux-musl';
@@ -52,7 +52,7 @@ test('findMissingBuildArtifacts accepts a cross-target debug binary when CARGO_B
     fs.mkdirSync(path.dirname(cliBinaryPath), { recursive: true });
     fs.writeFileSync(cliBinaryPath, '', 'utf8');
 
-    assert.deepEqual(runner.findMissingBuildArtifacts(repoRoot), []);
+    assert.deepEqual(runner.findMissingBuildArtifacts(repoRoot), [runner.resolveCliBinaryRelativePath()]);
   } finally {
     if (originalCargoBuildTarget === undefined) {
       delete process.env.CARGO_BUILD_TARGET;
@@ -121,7 +121,7 @@ test('ensureBuildArtifacts fails when build completes without producing the CLI 
   }
 });
 
-test('ensureBuildArtifacts accepts a cross-target debug binary produced by build:runtime when CARGO_BUILD_TARGET is set', async () => {
+test('ensureBuildArtifacts clears CARGO_BUILD_TARGET and requires a host debug binary', async () => {
   const repoRoot = createTempRepo();
   const originalCargoBuildTarget = process.env.CARGO_BUILD_TARGET;
   process.env.CARGO_BUILD_TARGET = 'x86_64-unknown-linux-musl';
@@ -129,20 +129,13 @@ test('ensureBuildArtifacts accepts a cross-target debug binary produced by build
   try {
     const runner = loadRunner();
     let recordedCall;
-    const cliBinaryName = path.basename(runner.resolveCliBinaryRelativePath(process.platform));
 
     await runner.ensureBuildArtifacts(repoRoot, {
       spawnImpl(command, args, options) {
         recordedCall = { command, args, options };
         const child = new EventEmitter();
         process.nextTick(() => {
-          const cliBinaryPath = path.join(
-            repoRoot,
-            'target',
-            process.env.CARGO_BUILD_TARGET,
-            'debug',
-            cliBinaryName
-          );
+          const cliBinaryPath = path.join(repoRoot, runner.resolveCliBinaryRelativePath());
           fs.mkdirSync(path.dirname(cliBinaryPath), { recursive: true });
           fs.writeFileSync(cliBinaryPath, '', 'utf8');
           child.emit('exit', 0, null);
@@ -152,6 +145,7 @@ test('ensureBuildArtifacts accepts a cross-target debug binary produced by build
     });
 
     assert.ok(recordedCall, 'expected ensureBuildArtifacts to invoke the build command');
+    assert.equal(recordedCall.options.env.CARGO_BUILD_TARGET, undefined);
   } finally {
     if (originalCargoBuildTarget === undefined) {
       delete process.env.CARGO_BUILD_TARGET;

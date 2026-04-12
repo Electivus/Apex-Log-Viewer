@@ -103,9 +103,10 @@ export function resolveAlvCliInvocation(options: ResolveAlvCliInvocationOptions 
   if (options.allowWindowsCommandShim && (options.platform ?? process.platform) === 'win32') {
     const shimPath = resolveBinaryCandidatesForName('apex-log-viewer.cmd', options).find(candidate => existsSync(candidate));
     if (shimPath) {
+      const quotedShimPath = `"${shimPath.replace(/"/g, '""')}"`;
       return {
         command: process.env.ComSpec || 'cmd.exe',
-        args: ['/d', '/s', '/c', shimPath]
+        args: ['/d', '/s', '/c', quotedShimPath]
       };
     }
   }

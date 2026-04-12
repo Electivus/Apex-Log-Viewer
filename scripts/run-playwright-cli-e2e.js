@@ -16,15 +16,8 @@ function resolveCliSuiteRelativePath() {
   return path.join('test', 'e2e', 'cli');
 }
 
-function resolveAcceptedCliBinaryRelativePaths(targetPlatform = process.platform, env = process.env) {
-  const paths = [resolveCliBinaryRelativePath(targetPlatform)];
-  const cargoBuildTarget = String(env.CARGO_BUILD_TARGET || '').trim();
-  if (cargoBuildTarget) {
-    const bin = targetPlatform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
-    paths.push(path.posix.join('target', cargoBuildTarget, 'debug', bin));
-  }
-
-  return [...new Set(paths)];
+function resolveAcceptedCliBinaryRelativePaths(targetPlatform = process.platform) {
+  return [resolveCliBinaryRelativePath(targetPlatform)];
 }
 
 function resolveBuildInvocation(targetPlatform = process.platform) {
@@ -66,10 +59,12 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
     `[e2e:cli] Missing build artifacts (${missingArtifacts.join(', ')}). Running npm run build:runtime before Playwright...`
   );
   const buildInvocation = resolveBuildInvocation();
+  const buildEnv = { ...process.env };
+  delete buildEnv.CARGO_BUILD_TARGET;
   const result = await spawnAsync(
     buildInvocation.command,
     buildInvocation.args,
-    { cwd: repoRoot, env: process.env, stdio: 'inherit' },
+    { cwd: repoRoot, env: buildEnv, stdio: 'inherit' },
     options.spawnImpl
   );
 
