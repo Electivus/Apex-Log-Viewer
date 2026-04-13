@@ -2,20 +2,22 @@
 
 ## Unreleased
 
+## [0.40.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.38.0...v0.40.0) (2026-04-13)
+
 ### Features
 
-- CLI/Logs: add a local-first Rust CLI logs workflow with `logs sync`, `logs status`, and `logs search`, backed by an org-first `apexlogs/` layout and incremental sync state under `apexlogs/.alv/`.
-- CLI/Logs: make `logs sync` fetch ApexLog rows and bodies directly over the Salesforce Tooling REST API after reusing `sf org display` for auth, and add a `--concurrency` flag to control parallel body downloads.
+- CLI/Logs: add a local-first Rust CLI logs workflow with `logs sync`, `logs status`, and `logs search`, backed by an org-first `apexlogs/` layout and incremental sync state under `apexlogs/.alv/`. ([#689](https://github.com/Electivus/Apex-Log-Viewer/pull/689))
+- CLI/Logs: make `logs sync` fetch ApexLog rows and bodies directly over the Salesforce Tooling REST API after reusing `sf org display` for auth, and add a `--concurrency` flag to control parallel body downloads. ([#695](https://github.com/Electivus/Apex-Log-Viewer/pull/695))
 
 ### Bug Fixes
 
-- CLI/npm: publish the global meta package with both `alv` and `apex-log-viewer` shims so Windows and other npm installs expose the familiar long command name too.
-- Docs/Marketplace: point README banner and screenshot images at the actual published extension asset paths so GitHub and the VS Code Marketplace render them instead of broken placeholders.
-- Runtime/Logs: avoid repeated recursive cache walks during CLI log search by indexing candidate local log paths once per request while preserving org-first and legacy-layout fallback behavior.
-- Runtime/Logs: reduce startup request fan-out by letting the Logs panel fetch rows without waiting for org bootstrap/auth hydration, coalescing concurrent runtime `org/list` and `org/auth` requests, reusing auth during log-body preload, and avoiding redundant login-shell PATH probes when the current Windows PATH already resolves `sf`.
-- Runtime/Logs: stop repeated recursive cached-log scans by resolving saved log paths through the shared Rust lookup first, caching runtime hits in-process, and limiting the extension's local fallback to the supported `orgs/<org>/logs/<day>/` layout plus legacy flat files.
-- Tail/Logs: keep Tail webviews from re-running bootstrap work before the webview is ready, and stop advertising cancellation for Logs org listing when the backend work is not actually cancellable yet.
-- Runtime/Packaging: publish the bundled `linux-x64` sidecar from `x86_64-unknown-linux-musl` so the extension runtime works in older-glibc environments such as Agentforce Vibes IDE / Salesforce Code Builder.
+- CLI/npm: publish the global meta package with both `alv` and `apex-log-viewer` shims so Windows and other npm installs expose the familiar long command name too. ([#686](https://github.com/Electivus/Apex-Log-Viewer/pull/686)) ([#693](https://github.com/Electivus/Apex-Log-Viewer/pull/693))
+- Docs/Marketplace: point README banner and screenshot images at the actual published extension asset paths so GitHub and the VS Code Marketplace render them instead of broken placeholders. ([#715](https://github.com/Electivus/Apex-Log-Viewer/pull/715))
+- Runtime/Logs: avoid repeated recursive cache walks during CLI log search by indexing candidate local log paths once per request while preserving org-first and legacy-layout fallback behavior. ([#699](https://github.com/Electivus/Apex-Log-Viewer/pull/699))
+- Runtime/Logs: reduce startup request fan-out by letting the Logs panel fetch rows without waiting for org bootstrap/auth hydration, coalescing concurrent runtime `org/list` and `org/auth` requests, reusing auth during log-body preload, and avoiding redundant login-shell PATH probes when the current Windows PATH already resolves `sf`. ([#669](https://github.com/Electivus/Apex-Log-Viewer/pull/669)) ([#657](https://github.com/Electivus/Apex-Log-Viewer/pull/657))
+- Runtime/Logs: stop repeated recursive cached-log scans by resolving saved log paths through the shared Rust lookup first, caching runtime hits in-process, and limiting the extension's local fallback to the supported `orgs/<org>/logs/<day>/` layout plus legacy flat files. ([#698](https://github.com/Electivus/Apex-Log-Viewer/pull/698))
+- Tail/Logs: keep Tail webviews from re-running bootstrap work before the webview is ready, and stop advertising cancellation for Logs org listing when the backend work is not actually cancellable yet. ([60aa94e](https://github.com/Electivus/Apex-Log-Viewer/commit/60aa94eac202757bdee4c062d5914b0b7037beaa))
+- Runtime/Packaging: publish the bundled `linux-x64` sidecar from `x86_64-unknown-linux-musl` so the extension runtime works in older-glibc environments such as Agentforce Vibes IDE / Salesforce Code Builder. ([#712](https://github.com/Electivus/Apex-Log-Viewer/pull/712))
 
 ### Chores
 
@@ -23,8 +25,8 @@
 
 ### Tests
 
-- Runtime/Logs: add targeted coverage for concurrent startup behavior, runtime request coalescing, auth-hint reuse during log downloads, Tail ready-state refresh gating, and Windows PATH resolution fast paths.
-- CLI/Logs: add Rust runtime coverage for REST log listing/body download, API-version fallback, and sync throughput with concurrent body downloads.
+- Runtime/Logs: add targeted coverage for concurrent startup behavior, runtime request coalescing, auth-hint reuse during log downloads, Tail ready-state refresh gating, and Windows PATH resolution fast paths. ([#669](https://github.com/Electivus/Apex-Log-Viewer/pull/669)) ([#657](https://github.com/Electivus/Apex-Log-Viewer/pull/657))
+- CLI/Logs: add Rust runtime coverage for REST log listing/body download, API-version fallback, and sync throughput with concurrent body downloads. ([#689](https://github.com/Electivus/Apex-Log-Viewer/pull/689)) ([#695](https://github.com/Electivus/Apex-Log-Viewer/pull/695))
 
 ## [0.38.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.36.0...v0.38.0) (2026-03-27)
 
