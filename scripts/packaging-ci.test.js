@@ -245,3 +245,20 @@ test('rust-release release job checks out the repo before running gh release com
     'expected release job to check out the repo before running gh release commands'
   );
 });
+
+for (const [workflowPath, jobName, description] of [
+  ['.github/workflows/release.yml', 'publish_marketplace', 'Marketplace publish'],
+  ['.github/workflows/release.yml', 'publish_open_vsx', 'Open VSX publish'],
+  ['.github/workflows/prerelease.yml', 'publish_marketplace', 'pre-release Marketplace publish'],
+  ['.github/workflows/prerelease.yml', 'publish_open_vsx', 'pre-release Open VSX publish']
+]) {
+  test(`${description} job checks out the repo before setup-node reads .nvmrc`, () => {
+    const publishJob = readWorkflowJob(workflowPath, jobName);
+
+    assert.match(
+      publishJob,
+      /- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@[0-9a-f]{40}[\s\S]*?- name:\s+Setup Node\.js from \.nvmrc/,
+      `expected ${workflowPath} ${jobName} to check out the repo before setup-node reads .nvmrc`
+    );
+  });
+}
