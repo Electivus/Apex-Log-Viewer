@@ -21,7 +21,7 @@
 
 ### Chores
 
-- Maintainers: add an independent Rust CLI release train with `rust-v...` tags, GitHub release assets, and npm native/meta packages while leaving `crates.io` for a later phase.
+- Maintainers: add an independent Rust CLI release train with `rust-v...` tags, GitHub release assets, and npm native/meta packages while leaving `crates.io` for a later phase. ([#679](https://github.com/Electivus/Apex-Log-Viewer/pull/679))
 
 ### Tests
 
