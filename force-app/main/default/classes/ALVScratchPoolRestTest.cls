@@ -27,35 +27,35 @@ private class ALVScratchPoolRestTest {
             SeedVersion__c = 'seed'
         );
 
-        RestRequest request = new RestRequest();
-        request.requestUri = '/services/apexrest/alv/scratch-pool/v1/acquire';
+        System.RestRequest request = new System.RestRequest();
+        request.requestURI = '/services/apexrest/alv/scratch-pool/v1/acquire';
         request.httpMethod = 'POST';
         request.requestBody = Blob.valueOf('{"poolKey":"rest-pool","leaseOwner":"rest-test","leaseTtlSeconds":120,"definitionHash":"hash","seedVersion":"seed","minRemainingMinutes":15}');
-        RestContext.request = request;
-        RestContext.response = new RestResponse();
+        System.RestContext.request = request;
+        System.RestContext.response = new System.RestResponse();
 
-        Test.startTest();
+        System.Test.startTest();
         ALVScratchPoolRest.handlePost();
-        Test.stopTest();
+        System.Test.stopTest();
 
-        System.assertEquals(200, RestContext.response.statusCode);
-        System.assert(RestContext.response.responseBody.toString().contains('"slotKey":"rest-slot"'));
-        System.assert(RestContext.response.responseBody.toString().contains('"scratchAuthUrl":"force://rest-slot-auth"'));
+        System.assertEquals(200, System.RestContext.response.statusCode);
+        System.assert(System.RestContext.response.responseBody.toString().contains('"slotKey":"rest-slot"'));
+        System.assert(System.RestContext.response.responseBody.toString().contains('"scratchAuthUrl":"force://rest-slot-auth"'));
     }
 
     @IsTest
     static void restUnknownRouteReturns404() {
-        RestRequest request = new RestRequest();
-        request.requestUri = '/services/apexrest/alv/scratch-pool/v1/unknown';
+        System.RestRequest request = new System.RestRequest();
+        request.requestURI = '/services/apexrest/alv/scratch-pool/v1/unknown';
         request.httpMethod = 'POST';
         request.requestBody = Blob.valueOf('{}');
-        RestContext.request = request;
-        RestContext.response = new RestResponse();
+        System.RestContext.request = request;
+        System.RestContext.response = new System.RestResponse();
 
-        Test.startTest();
+        System.Test.startTest();
         ALVScratchPoolRest.handlePost();
-        Test.stopTest();
+        System.Test.stopTest();
 
-        System.assertEquals(404, RestContext.response.statusCode);
+        System.assertEquals(404, System.RestContext.response.statusCode);
     }
 }

@@ -2,15 +2,15 @@
 global without sharing class ALVScratchPoolRest {
     @HttpPost
     global static void handlePost() {
-        RestRequest request = RestContext.request;
-        RestResponse response = RestContext.response;
+        System.RestRequest request = System.RestContext.request;
+        System.RestResponse response = System.RestContext.response;
         response.addHeader('Content-Type', 'application/json');
 
         try {
             String body = request.requestBody == null ? null : request.requestBody.toString();
             Map<String, Object> payload = String.isBlank(body)
                 ? new Map<String, Object>()
-                : (Map<String, Object>) JSON.deserializeUntyped(body);
+                : (Map<String, Object>) System.JSON.deserializeUntyped(body);
 
             Object result;
             if (request.requestURI.endsWith('/acquire')) {
@@ -28,7 +28,7 @@ global without sharing class ALVScratchPoolRest {
             }
 
             response.statusCode = 200;
-            response.responseBody = Blob.valueOf(JSON.serialize(result));
+            response.responseBody = Blob.valueOf(System.JSON.serialize(result));
         } catch (ALVScratchPoolService.PoolRequestException error) {
             String message = error.getMessage();
             Integer separator = message != null ? message.indexOf('|') : -1;
@@ -39,10 +39,10 @@ global without sharing class ALVScratchPoolRest {
                 detail = message.substring(separator + 1);
             }
             response.statusCode = statusCode;
-            response.responseBody = Blob.valueOf('{"ok":false,"message":' + JSON.serialize(detail) + '}');
+            response.responseBody = Blob.valueOf('{"ok":false,"message":' + System.JSON.serialize(detail) + '}');
         } catch (Exception error) {
             response.statusCode = 500;
-            response.responseBody = Blob.valueOf('{"ok":false,"message":' + JSON.serialize(error.getMessage()) + '}');
+            response.responseBody = Blob.valueOf('{"ok":false,"message":' + System.JSON.serialize(error.getMessage()) + '}');
         }
     }
 }

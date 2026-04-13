@@ -4,7 +4,7 @@ This project uses three test layers:
 
 - Node-only extension tests for modules that can run without a real `vscode` host.
 - VS Code integration tests (Mocha running inside the Extension Development Host) for activation, commands, providers, and other `vscode`-bound behavior.
-- Playwright E2E tests against a real org.
+- Playwright E2E tests against a real org across two surfaces: the standalone CLI and the VS Code extension.
 
 ## Commands
 
@@ -13,10 +13,11 @@ This project uses three test layers:
 - `npm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
 - `npm run test:integration`: installs dependency extensions if needed and runs integration tests.
 - `npm run test:all`: runs the Jest webview suites, the Node-only extension lane, and then both VS Code-hosted scopes.
+- `npm run test:e2e:cli`: runs the standalone CLI real-org Playwright suite. If the CLI binary is missing, it builds the Rust CLI runtime before validating `logs sync`, `logs status`, and `logs search` against a seeded scratch org.
 - `npm run test:e2e`: runs Playwright E2E tests against a real scratch org. The runner uses either the legacy single-scratch flow or the Dev Hub scratch-org pool, depending on the configured strategy.
 - `npm run test:e2e:telemetry`: runs the same Playwright E2E suite, but first resolves a dedicated App Insights component for E2E and then validates that telemetry from the current run arrived there.
 
-The Node-only Mocha runner lives in `scripts/run-node-tests.js`. The VS Code-hosted test orchestrator lives in `scripts/run-tests.js` and the Mocha programmatic host runner in `apps/vscode-extension/src/test/runner.ts`.
+The Node-only Mocha runner lives in `scripts/run-node-tests.js`. The standalone CLI real-org runner lives in `scripts/run-playwright-cli-e2e.js` and uses `playwright.cli.config.ts`. The VS Code-hosted test orchestrator lives in `scripts/run-tests.js` and the Mocha programmatic host runner in `apps/vscode-extension/src/test/runner.ts`.
 
 ## Test placement guidance
 
@@ -33,6 +34,7 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 
 - VS Code is downloaded via `@vscode/test-electron` and launched with `--extensionDevelopmentPath` and `--extensionTestsPath` (the compiled runner).
 - A temporary workspace is created with a minimal `sfdx-project.json` (including `sourceApiVersion`) and opened during tests.
+- The CLI real-org suite uses the same scratch-org helper layer as the extension suite, but it stays entirely outside the VS Code host and validates the standalone CLI workflows directly.
 - Playwright E2E runs keep the isolated VS Code profile intentionally minimal. Support extensions are installed per scenario instead of pulling the full Salesforce Extension Pack by default. Replay-specific specs opt into `salesforce.salesforcedx-vscode-apex-replay-debugger`, and the harness dismisses visible VS Code notifications during startup to reduce click interception flakiness.
 - Playwright E2E keeps `--extensions-dir` isolated. If a required support extension is missing from that isolated profile, the harness now fails explicitly instead of reusing your machine-wide VS Code extensions.
 - On headless Linux, the script re‑executes under `xvfb-run` if available and sets Electron flags to reduce GPU/DBus issues.
@@ -68,17 +70,25 @@ Tests do not require an authenticated org by default. If you want the runner to 
 
 ## Playwright E2E (real org)
 
-The Playwright suite validates the webview UX end-to-end by:
+The standalone CLI and VS Code extension suites share the same real-org setup contract:
 
 1. Validating/authenticating the explicitly configured Dev Hub
 2. Creating/reusing a scratch org or acquiring one from the scratch-org pool
 3. Seeding an Apex log (anonymous Apex with a unique marker)
-4. Launching VS Code and verifying the Logs panel + Log Viewer show that log
+
+The CLI suite then validates the standalone binary directly:
+
+1. `logs sync --json` downloads the seeded log into the workspace cache
+2. `logs status --json` reports the synced scratch-org metadata
+3. `logs search --json` finds the seeded marker locally
+
+The VS Code suite launches the extension host and validates the Logs panel + Log Viewer webview UX against the same seeded org.
 
 ### Run locally
 
 From the repo root:
 
+- `SF_TEST_KEEP_ORG=1 npm run test:e2e:cli`
 - `SF_TEST_KEEP_ORG=1 npm run test:e2e`
 - `SF_TEST_KEEP_ORG=1 npm run test:e2e:telemetry`
 
@@ -86,8 +96,8 @@ Useful env vars:
 
 - `SF_DEVHUB_AUTH_URL`: Explicit Dev Hub auth for the run. Set this or `SF_DEVHUB_ALIAS`.
 - `SF_DEVHUB_ALIAS`: Explicit Dev Hub alias to use. Set this or `SF_DEVHUB_AUTH_URL`.
-- `SF_SCRATCH_STRATEGY`: `single` or `pool`. If unset, the helper auto-enables pool mode when `SF_SCRATCH_POOL_NAME` is present.
-- `PLAYWRIGHT_WORKERS`: Number of Playwright workers. Default `1` locally; the GitHub Actions pool workflow sets this to `7` by default so the current seven E2E specs can run in parallel.
+- `SF_SCRATCH_STRATEGY`: `single` or `pool`. If unset, the helper auto-enables pool mode when `SF_SCRATCH_POOL_NAME` is present. Local runs can use either mode; CI forces `pool`.
+- `PLAYWRIGHT_WORKERS`: Number of Playwright workers. Default `1` locally; the GitHub Actions pool workflow also defaults to `1` unless overridden by workflow-dispatch input.
 - `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_E2E_Scratch`).
 - `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
 - `SF_TEST_KEEP_ORG=1`: Keep the scratch org after the run (recommended while iterating).
@@ -114,9 +124,11 @@ For Dev Hub bootstrap, operational scripts, and GitHub Actions / Codex Cloud set
 
 Troubleshooting:
 
+- If `npm run test:e2e:cli` reports a missing CLI binary, rerun `npm run build:runtime` or let the runner rebuild it for you.
 - If the Logs panel shows **“Salesforce CLI not found”**, set the VS Code setting `electivus.apexLogs.cliPath` to the absolute path of your `sf` executable.
 
-Artifacts (screenshots/traces/videos on failure) are written under `output/playwright/`.
+- CLI artifacts (screenshots/traces/videos and attached command/stdout/stderr files on failure) are written under `output/playwright-cli/`.
+- VS Code Playwright artifacts (screenshots/traces/videos on failure) are written under `output/playwright/`.
 
 ### Playwright E2E + dedicated App Insights validation
 
