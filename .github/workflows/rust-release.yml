@@ -217,6 +217,9 @@ jobs:
       - name: Package CLI release assets
         run: node scripts/package-cli-release.mjs --version "${VERSION}" --out-dir dist/release linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64 win32-arm64
 
+      - name: Verify packaged linux-x64 runtime compatibility
+        run: node scripts/verify-runtime-compatibility.mjs --target linux-x64 --archive "dist/release/apex-log-viewer-${VERSION}-linux-x64.tar.gz"
+
       - name: Stage CLI npm packages
         run: |
           node scripts/build-cli-npm-packages.mjs --version "${VERSION}" --out-dir dist/npm \

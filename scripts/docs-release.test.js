@@ -14,6 +14,7 @@ test('release docs mention the dedicated CLI workflow and pinned runtime metadat
 
   assert.match(ci, /rust-release\.yml/);
   assert.match(ci, /NPM_TOKEN/);
+  assert.match(ci, /verify-runtime-compatibility\.mjs/);
   assert.doesNotMatch(ci, /CARGO_REGISTRY_TOKEN/);
   assert.match(publishing, /rust-vX\.Y\.Z/);
   assert.match(publishing, /npm native\/meta packages/i);

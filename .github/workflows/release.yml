@@ -124,6 +124,10 @@ jobs:
           MATRIX_TARGET: ${{ matrix.target }}
         run: node scripts/fetch-runtime-release.mjs "${MATRIX_TARGET}"
 
+      - name: Verify fetched linux-x64 runtime compatibility
+        if: matrix.target == 'linux-x64'
+        run: node scripts/verify-runtime-compatibility.mjs --target linux-x64 --binary "apps/vscode-extension/bin/linux-x64/apex-log-viewer"
+
       - name: Determine channel (stable vs pre-release)
         id: determine_channel
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
