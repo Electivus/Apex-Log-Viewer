@@ -226,6 +226,10 @@ jobs:
           MATRIX_TARGET: ${{ matrix.target }}
         run: node scripts/fetch-runtime-release.mjs "${MATRIX_TARGET}"
 
+      - name: Verify fetched linux-x64 runtime compatibility
+        if: matrix.target == 'linux-x64'
+        run: node scripts/verify-runtime-compatibility.mjs --target linux-x64 --binary "apps/vscode-extension/bin/linux-x64/apex-log-viewer"
+
       - name: Clean previous VSIX artifacts
         run: |
           node -e "const fs=require('fs');for (const f of fs.readdirSync('.')) if (f.endsWith('.vsix')) fs.rmSync(f);"

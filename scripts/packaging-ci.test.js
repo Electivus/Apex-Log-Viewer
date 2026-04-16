@@ -97,6 +97,18 @@ for (const workflowPath of ['.github/workflows/prerelease.yml', '.github/workflo
   });
 }
 
+for (const workflowPath of ['.github/workflows/prerelease.yml', '.github/workflows/release.yml']) {
+  test(`${workflowPath} verifies the fetched linux-x64 runtime before VSIX packaging`, () => {
+    const workflowSource = readFile(workflowPath);
+
+    assert.match(
+      workflowSource,
+      /Verify fetched linux-x64 runtime compatibility[\s\S]*?if:\s+matrix\.target == 'linux-x64'[\s\S]*?node scripts\/verify-runtime-compatibility\.mjs --target linux-x64 --binary "apps\/vscode-extension\/bin\/linux-x64\/apex-log-viewer"/,
+      'expected extension packaging workflows to verify the fetched linux-x64 runtime binary before packaging'
+    );
+  });
+}
+
 test('rust-release workflow bootstrap skips crates.io publishing', () => {
   const workflowSource = readFile('.github/workflows/rust-release.yml');
 
@@ -185,6 +197,16 @@ test('rust-release workflow preserves per-artifact directories when downloading 
     workflowSource,
     /source_candidate_artifact="rust-binary-\$\{target\}\/\$\{binary\}"/,
     'expected the release packaging job to normalize binaries from per-target artifact directories'
+  );
+});
+
+test('rust-release workflow verifies the packaged linux-x64 release artifact before publishing it', () => {
+  const packageReleaseJob = readWorkflowJob('.github/workflows/rust-release.yml', 'package_release');
+
+  assert.match(
+    packageReleaseJob,
+    /- name:\s+Package CLI release assets[\s\S]*?- name:\s+Verify packaged linux-x64 runtime compatibility[\s\S]*?node scripts\/verify-runtime-compatibility\.mjs --target linux-x64 --archive "dist\/release\/apex-log-viewer-\$\{VERSION\}-linux-x64\.tar\.gz"[\s\S]*?- name:\s+Stage CLI npm packages/,
+    'expected the release packaging job to verify the final linux-x64 archive before upload and npm publication'
   );
 });
 
