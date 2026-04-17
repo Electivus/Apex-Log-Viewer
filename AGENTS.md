@@ -4,12 +4,15 @@
 - This file defines guidance for the whole repository.
 
 ## Project Structure
-- `src/` contains extension host, services, providers, and shared types.
-- `src/webview/` contains the webview React UI.
-- `src/test/` contains VS Code extension unit/integration tests and test harness code.
+- `apps/vscode-extension/` contains the VS Code extension host, extension-specific tests, packaging scripts, and bundled media.
+- `packages/webview/` contains the webview React UI.
+- `packages/app-server-client-ts/` contains the TypeScript client for shared app-server/runtime contracts.
+- `packages/cli-npm/` contains the npm packaging for the standalone CLI.
+- `crates/` contains the shared Rust runtime crates (`alv-core`, CLI, app server, MCP, and protocol).
+- Root `src/` contains shared TypeScript Salesforce helpers, services, shims, and utilities used across surfaces.
 - `test/e2e/` contains Playwright scratch-org E2E specs, fixtures, and utilities.
+- `config/` holds runtime bundle and scratch-org configuration.
 - `docs/` holds architecture/testing/publishing notes and plan docs.
-- `media/` stores bundled webview assets.
 - `scripts/` contains build/test helper scripts.
 
 ## Shared Runtime Strategy
@@ -23,19 +26,33 @@
 ## Build and Development
 - Use Node `22` via `.nvmrc`.
 - Install deps with `npm ci`.
+- Clean generated outputs with `npm run clean`.
+- Build the Rust runtime only with `npm run build:runtime`.
+- Fetch the pinned runtime bundle for packaging with `npm run package:runtime`.
 - Type-check only with `npm run check-types`.
 - Lint with `npm run lint`.
 - Lint + extension TypeScript validation with `npm run compile`.
 - Build with `npm run build`.
 - Prepare a publishable package with `npm run package`.
 - Watch mode: `npm run watch`.
+- Extension-only watch: `npm run watch:extension`.
+- Webview-only watch: `npm run watch:webview`.
 - Default local test command: `npm test`.
+- Node-only extension suite: `npm run test:extension:node`.
+- E2E utility Jest suite: `npm run test:e2e:utils`.
+- Script/security regression suite: `npm run test:scripts`.
 - Unit-focused local test suite: `npm run test:unit`.
 - Integration suite: `npm run test:integration`.
 - Combined local test sweep: `npm run test:all`.
 - Full CI-equivalent suite: `npm run test:ci`.
+- Rust workspace suite: `npm run test:rust`.
+- Fast Rust smoke suite: `npm run test:rust:smoke`.
+- Optional `cargo-nextest` variants: `npm run test:rust:nextest` and `npm run test:rust:smoke:nextest`.
 - Webview-only Jest suite: `npm run test:webview`.
 - Playwright scratch-org E2E: `npm run test:e2e`.
+- Standalone CLI Playwright E2E: `npm run test:e2e:cli`.
+- Telemetry-validated Playwright E2E: `npm run test:e2e:telemetry`.
+- Docs screenshot capture: `npm run docs:screenshots`.
 - VSIX smoke test: `npm run test:smoke:vsix`.
 - Test cache cleanup: `npm run test:clean` or `npm run test:clean:all`.
 
@@ -88,6 +105,7 @@ See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 ## Security and Configuration Tips
 - Salesforce CLI (`sf`/`sfdx`) is required for runtime usage.
 - Never commit tokens or org-sensitive data.
+- Run dependency/provenance checks with `npm run security:dependency-sources` and `npm run security:npm-signatures`.
 - Keep logs under `apexlogs/`.
 - `*.log` and `*.txt` are blocked by hooks/CI.
 
