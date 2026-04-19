@@ -440,4 +440,36 @@ suite('SfLogsViewProvider webview', () => {
       clock.dispose();
     }
   });
+
+  test('retries org bootstrap after a failed org snapshot on remount', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const panel = new MockWebviewPanel('sfLogViewer.editorPanel', webview);
+      const calls: string[] = [];
+
+      (provider as any).post({ type: 'orgs', data: [], selected: undefined });
+      (provider as any).setCurrentLogs([]);
+      (provider as any).post({ type: 'logs', data: [], hasMore: false });
+      (provider as any).orgsBootstrapNeedsRefresh = true;
+      (provider as any).sendOrgs = async () => {
+        calls.push('sendOrgs');
+      };
+
+      provider.resolveWebviewPanel(panel);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.deepEqual(calls, ['sendOrgs']);
+    } finally {
+      clock.dispose();
+    }
+  });
 });

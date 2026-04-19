@@ -46,9 +46,11 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   private loadingState = false;
   private orgsSnapshot: OrgItem[] = [];
   private hasOrgsSnapshot = false;
+  private orgsBootstrapNeedsRefresh = false;
   private debugLevelsSnapshot: string[] = [];
   private activeDebugLevelSnapshot: string | undefined;
   private hasDebugLevelsSnapshot = false;
+  private debugLevelsBootstrapNeedsRefresh = false;
   private tailRunningSnapshot = false;
   private tailBufferSizeSnapshot = DEFAULT_TAIL_BUFFER_LINES;
   private errorMessage: string | undefined;
@@ -322,7 +324,11 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     this.clearReadyTimer();
     this.post({ type: 'init', locale: vscode.env.language });
     this.replaySnapshot();
-    const needsBootstrap = !this.hasOrgsSnapshot || !this.hasDebugLevelsSnapshot;
+    const needsBootstrap =
+      !this.hasOrgsSnapshot ||
+      !this.hasDebugLevelsSnapshot ||
+      this.orgsBootstrapNeedsRefresh ||
+      this.debugLevelsBootstrapNeedsRefresh;
     if (needsBootstrap) {
       await this.refreshViewState();
     }
@@ -401,6 +407,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       const selected = pickSelectedOrg(orgs, this.selectedOrg);
       this.setSelectedOrg(selected);
       this.tailService.setOrg(selected);
+      this.orgsBootstrapNeedsRefresh = false;
       this.post({ type: 'orgs', data: orgs, selected });
       try {
         const durationMs = Date.now() - t0;
@@ -408,6 +415,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       } catch {}
     } catch (e) {
       logWarn('Tail: sendOrgs failed ->', getErrorMessage(e));
+      this.orgsBootstrapNeedsRefresh = true;
       this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
       try {
         const durationMs = Date.now() - t0;
@@ -464,6 +472,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       auth = await runtimeClient.getOrgAuth({ username: this.selectedOrg });
     } catch (e) {
       logWarn('Tail: could not load auth for debug levels ->', getErrorMessage(e));
+      this.debugLevelsBootstrapNeedsRefresh = true;
       this.post({ type: 'debugLevels', data: [] });
       try {
         const durationMs = Date.now() - t0;
@@ -505,6 +514,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     if (!active && out.length > 0) {
       active = out[0];
     }
+    this.debugLevelsBootstrapNeedsRefresh = out.length === 0;
     this.post({ type: 'debugLevels', data: out, active });
     try {
       const durationMs = Date.now() - t0;

@@ -68,6 +68,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private orgsSnapshot: OrgItem[] = [];
   private selectedOrgSnapshot: string | undefined;
   private hasOrgsSnapshot = false;
+  private orgsBootstrapNeedsRefresh = false;
   private logHeadByLogId = new Map<string, LogHeadSnapshot>();
   private errorByLogId = new Map<string, LogTriageSummary>();
   private errorMessage: string | undefined;
@@ -1344,6 +1345,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           await this.orgManager.ensureProjectDefaultSelected(orgs);
           const selected = pickSelectedOrg(orgs, this.orgManager.getSelectedOrg());
           this.orgManager.setSelectedOrg(selected);
+          this.orgsBootstrapNeedsRefresh = false;
           if (ct.isCancellationRequested) {
             return;
           }
@@ -1356,6 +1358,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           if (!ct.isCancellationRequested) {
             const msg = getErrorMessage(e);
             logError('Logs: list orgs failed ->', msg);
+            this.orgsBootstrapNeedsRefresh = true;
             void vscode.window.showErrorMessage(localize('sendOrgsFailed', 'Failed to list Salesforce orgs: {0}', msg));
             this.post({ type: 'orgs', data: [], selected: this.orgManager.getSelectedOrg() });
             try {
@@ -1533,7 +1536,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     });
     this.replaySnapshot();
 
-    const shouldRefreshOrgs = !this.hasOrgsSnapshot;
+    const shouldRefreshOrgs = !this.hasOrgsSnapshot || this.orgsBootstrapNeedsRefresh;
     const shouldRefreshLogs = !this.hasLogsSnapshot && this.activeRefreshToken === undefined;
     if (shouldRefreshOrgs) {
       await this.sendOrgs();
