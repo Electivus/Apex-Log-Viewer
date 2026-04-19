@@ -39,6 +39,8 @@ export class TailService {
   private streamingClient: StreamingClient | undefined;
   private connection: Connection | undefined;
   private lastReplayId: number | undefined;
+  private bufferLimit = 10000;
+  private bufferedLines: string[] = [];
 
   constructor(private readonly post: (msg: ExtensionToWebviewMessage) => void) {}
 
@@ -50,8 +52,20 @@ export class TailService {
     this.windowActive = active;
   }
 
+  setBufferLimit(limit: number): void {
+    if (!Number.isFinite(limit)) {
+      return;
+    }
+    this.bufferLimit = Math.max(1000, Math.floor(limit));
+    this.trimBufferedLines();
+  }
+
   isRunning(): boolean {
     return this.tailRunning;
+  }
+
+  getBufferedLines(): string[] {
+    return [...this.bufferedLines];
   }
 
   promptPoll(): void {
@@ -278,6 +292,10 @@ export class TailService {
     this.logIdToPath.clear();
   }
 
+  clearBufferedLines(): void {
+    this.bufferedLines = [];
+  }
+
   // Streaming handler: fetch body and header fields through the active jsforce connection when available.
   private async handleIncomingLogId(id: string): Promise<void> {
     if (!this.tailRunning || this.disposed) {
@@ -346,7 +364,23 @@ export class TailService {
         lines.push(l);
       }
     }
+    this.appendBufferedLines(lines);
     this.post({ type: 'tailData', lines });
+  }
+
+  private appendBufferedLines(lines: string[]): void {
+    if (!Array.isArray(lines) || lines.length === 0) {
+      return;
+    }
+    this.bufferedLines = this.bufferedLines.concat(lines);
+    this.trimBufferedLines();
+  }
+
+  private trimBufferedLines(): void {
+    const drop = Math.max(0, this.bufferedLines.length - this.bufferLimit);
+    if (drop > 0) {
+      this.bufferedLines = this.bufferedLines.slice(drop);
+    }
   }
 
   private addLogPath(logId: string, filePath: string): void {

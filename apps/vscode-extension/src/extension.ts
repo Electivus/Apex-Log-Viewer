@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as fs from 'node:fs';
 import { SfLogsViewProvider } from './provider/SfLogsViewProvider';
 import { SfLogTailViewProvider } from './provider/SfLogTailViewProvider';
 import type { OrgItem } from './shared/types';
@@ -18,13 +17,6 @@ import { getBooleanConfig, affectsConfiguration } from '../../../src/utils/confi
 import { getErrorMessage } from '../../../src/utils/error';
 import { findSalesforceProjectInfo, isApexLogDocument, getLogIdFromLogFilePath } from '../../../src/utils/workspace';
 import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
-import {
-  buildRemoteWebviewTroubleshootingMessage,
-  buildWebviewTroubleshootingMessage,
-  getLocalUiWebviewCachePaths,
-  getRemoteEnvironmentLabel,
-  getWebviewServiceWorkerPath
-} from '../../../src/utils/webviewTroubleshooting';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
   username: string;
@@ -90,18 +82,14 @@ export async function activate(context: vscode.ExtensionContext) {
   const provider = new SfLogsViewProvider(context);
   context.subscriptions.push(
     provider,
-    vscode.window.registerWebviewViewProvider(SfLogsViewProvider.viewType, provider, {
-      webviewOptions: { retainContextWhenHidden: true }
-    })
+    vscode.window.registerWebviewViewProvider(SfLogsViewProvider.viewType, provider)
   );
 
   // Register Tail view provider
   const tailProvider = new SfLogTailViewProvider(context);
   context.subscriptions.push(
     tailProvider,
-    vscode.window.registerWebviewViewProvider(SfLogTailViewProvider.viewType, tailProvider, {
-      webviewOptions: { retainContextWhenHidden: true }
-    })
+    vscode.window.registerWebviewViewProvider(SfLogTailViewProvider.viewType, tailProvider)
   );
 
   context.subscriptions.push(
@@ -261,84 +249,6 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('sfLogs.showOutput', () => {
       safeSendEvent('command.showOutput', { outcome: 'invoked' });
       showOutput(true);
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.troubleshootWebview', async () => {
-      safeSendEvent('command.troubleshootWebview', { outcome: 'invoked' });
-      const appName = vscode.env.appName || 'VS Code';
-      const remoteName = vscode.env.remoteName;
-      const showOutputLabel = localize('webviewTroubleshooting.showOutput', 'Show Extension Output');
-
-      if (remoteName) {
-        const cachePaths = getLocalUiWebviewCachePaths(appName);
-        const remoteLabel = getRemoteEnvironmentLabel(remoteName);
-        const message = localize(
-          'webviewTroubleshooting.remoteMessage',
-          buildRemoteWebviewTroubleshootingMessage(appName, remoteLabel, cachePaths),
-          appName,
-          remoteLabel,
-          cachePaths.windows,
-          cachePaths.macos,
-          cachePaths.linux
-        );
-        const copyStepsLabel = localize('webviewTroubleshooting.copySteps', 'Copy Recovery Steps');
-        const choice = await vscode.window.showWarningMessage(
-          message,
-          { modal: true },
-          copyStepsLabel,
-          showOutputLabel
-        );
-
-        if (choice === copyStepsLabel) {
-          await vscode.env.clipboard.writeText(message);
-          void vscode.window.showInformationMessage(
-            localize('webviewTroubleshooting.remoteCopied', 'Copied webview recovery steps.')
-          );
-          return;
-        }
-
-        if (choice === showOutputLabel) {
-          showOutput(true);
-        }
-        return;
-      }
-
-      const serviceWorkerPath = getWebviewServiceWorkerPath({ appName });
-      const message = localize(
-        'webviewTroubleshooting.message',
-        buildWebviewTroubleshootingMessage(appName, serviceWorkerPath),
-        appName,
-        serviceWorkerPath
-      );
-      const openFolderLabel = localize('webviewTroubleshooting.openFolder', 'Open Cache Folder');
-      const copyPathLabel = localize('webviewTroubleshooting.copyPath', 'Copy Cache Path');
-      const choice = await vscode.window.showWarningMessage(
-        message,
-        { modal: true },
-        openFolderLabel,
-        copyPathLabel,
-        showOutputLabel
-      );
-
-      if (choice === openFolderLabel) {
-        const target = fs.existsSync(serviceWorkerPath) ? serviceWorkerPath : path.dirname(serviceWorkerPath);
-        await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(target));
-        return;
-      }
-
-      if (choice === copyPathLabel) {
-        await vscode.env.clipboard.writeText(serviceWorkerPath);
-        void vscode.window.showInformationMessage(
-          localize('webviewTroubleshooting.copied', 'Copied webview cache path: {0}', serviceWorkerPath)
-        );
-        return;
-      }
-
-      if (choice === showOutputLabel) {
-        showOutput(true);
-      }
     })
   );
 

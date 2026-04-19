@@ -37,19 +37,33 @@ class MockWebviewView implements vscode.WebviewView {
   description?: string | undefined;
   badge?: { value: number; tooltip: string } | undefined;
   webview: vscode.Webview;
+  private visibilityListeners: Array<() => void> = [];
+  private disposeListener: (() => void) | undefined;
   constructor(webview: vscode.Webview) {
     this.webview = webview;
   }
   show(_preserveFocus?: boolean | undefined): void {
     /* noop */
   }
-  onDidChangeVisibility: vscode.Event<void> = () => new MockDisposable();
-  onDidDispose: vscode.Event<void> = () => new MockDisposable();
+  onDidChangeVisibility: vscode.Event<void> = listener => {
+    this.visibilityListeners.push(listener);
+    return new MockDisposable();
+  };
+  onDidDispose: vscode.Event<void> = listener => {
+    this.disposeListener = listener;
+    return new MockDisposable();
+  };
+  fireVisible(visible: boolean): void {
+    this.visible = visible;
+    for (const listener of this.visibilityListeners) {
+      listener();
+    }
+  }
 }
 
 class MockWebviewPanel implements vscode.WebviewPanel {
   readonly active = true;
-  readonly visible = true;
+  visible = true;
   readonly options: vscode.WebviewPanelOptions = {};
   public title = 'Electivus Apex Logs';
   public viewColumn: vscode.ViewColumn = vscode.ViewColumn.Active;
@@ -83,13 +97,18 @@ class MockWebviewPanel implements vscode.WebviewPanel {
     return new MockDisposable();
   }
 
-  fireVisible(): void {
+  fireVisible(visible = true): void {
+    this.visible = visible;
     this.viewStateListener?.({ webviewPanel: this } as vscode.WebviewPanelOnDidChangeViewStateEvent);
   }
 }
 
 suite('SfLogsViewProvider webview', () => {
-  test('sets HTML with CSP and main.js on resolve', async () => {
+  async function delay(ms: number): Promise<void> {
+    await new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  test('mounts the logs view after visibility stabilizes', async () => {
     const context = {
       extensionUri: vscode.Uri.file(path.resolve('.')),
       subscriptions: [] as vscode.Disposable[]
@@ -102,7 +121,9 @@ suite('SfLogsViewProvider webview', () => {
     await provider.resolveWebviewView(view);
 
     assert.equal(webview.options.enableScripts, true, 'enableScripts should be set');
-    assert.ok(webview.html.includes('Content-Security-Policy'), 'CSP meta should be present');
+    assert.ok(!webview.html.includes('Content-Security-Policy'), 'real html should not mount immediately');
+    await delay(250);
+    assert.ok(webview.html.includes('Content-Security-Policy'), 'CSP meta should be present after delayed mount');
     assert.ok(webview.html.includes('media/main.js'), 'bundled webview script should be referenced');
   });
 
@@ -115,7 +136,7 @@ suite('SfLogsViewProvider webview', () => {
     await provider.refresh(); // should not throw or attempt CLI/network without a view
   });
 
-  test('sets HTML with CSP and main.js when resolved as editor panel', async () => {
+  test('mounts editor html after visibility stabilizes', async () => {
     const context = {
       extensionUri: vscode.Uri.file(path.resolve('.')),
       subscriptions: [] as vscode.Disposable[]
@@ -128,6 +149,8 @@ suite('SfLogsViewProvider webview', () => {
     provider.resolveWebviewPanel(panel);
 
     assert.equal(webview.options.enableScripts, true, 'enableScripts should be set for editor panel');
+    assert.ok(!webview.html.includes('Content-Security-Policy'), 'real html should not mount immediately for editor panel');
+    await delay(250);
     assert.ok(webview.html.includes('Content-Security-Policy'), 'CSP meta should be present');
     assert.ok(webview.html.includes('media/main.js'), 'bundled webview script should be referenced');
   });
@@ -151,10 +174,56 @@ suite('SfLogsViewProvider webview', () => {
     };
 
     provider.resolveWebviewPanel(panel);
+    await delay(250);
     webview.emit({ type: 'ready' });
     await new Promise(resolve => setTimeout(resolve, 0));
 
     assert.deepEqual(calls, ['sendOrgs', 'refresh']);
+  });
+
+  test('replays cached logs on remount without forcing another refresh', async () => {
+    const context = {
+      extensionUri: vscode.Uri.file(path.resolve('.')),
+      subscriptions: [] as vscode.Disposable[]
+    } as unknown as vscode.ExtensionContext;
+
+    const provider = new SfLogsViewProvider(context);
+    const webview = new MockWebview();
+    const view = new MockWebviewView(webview);
+    const posted: any[] = [];
+    webview.postMessage = (message: any) => {
+      posted.push(message);
+      return Promise.resolve(true);
+    };
+
+    (provider as any).sendOrgs = async () => {
+      posted.push({ type: 'sendOrgsCalled' });
+      (provider as any).post({ type: 'orgs', data: [], selected: 'test@example.com' });
+    };
+    (provider as any).refresh = async () => {
+      posted.push({ type: 'refreshCalled' });
+      (provider as any).setCurrentLogs([{ Id: '07L000000000001', StartTime: '2024-01-01T00:00:00.000Z' }]);
+      (provider as any).post({
+        type: 'logs',
+        data: [{ Id: '07L000000000001', StartTime: '2024-01-01T00:00:00.000Z' }],
+        hasMore: false
+      });
+    };
+
+    await provider.resolveWebviewView(view);
+    await delay(250);
+    webview.emit({ type: 'ready' });
+    await delay(10);
+    posted.length = 0;
+
+    view.fireVisible(false);
+    view.fireVisible(true);
+    await delay(250);
+    webview.emit({ type: 'ready' });
+    await delay(10);
+
+    assert.equal(posted.some(message => message?.type === 'refreshCalled'), false, 'should not force remote refresh');
+    assert.ok(posted.some(message => message?.type === 'logs'), 'should replay cached logs');
   });
 
   test('syncSelectedOrg refreshes an existing editor session when the org changes', async () => {

@@ -6,16 +6,23 @@ import type { VsCodeWebviewApi } from '../vscodeApi';
 import { LogsApp } from '../main';
 
 describe('Logs webview App', () => {
-  function createVsCodeMock() {
+  function createVsCodeMock(initialState?: unknown) {
     const posted: WebviewToExtensionMessage[] = [];
+    let savedState = initialState;
     const vscode: VsCodeWebviewApi<WebviewToExtensionMessage> = {
       postMessage: msg => {
         posted.push(msg);
       },
-      getState: () => undefined,
-      setState: () => {}
+      getState: () => savedState as any,
+      setState: state => {
+        savedState = state;
+      }
     };
-    return { vscode, posted };
+    return {
+      vscode,
+      posted,
+      getSavedState: () => savedState
+    };
   }
 
   function sendMessage(bus: EventTarget, message: ExtensionToWebviewMessage) {
@@ -375,5 +382,28 @@ describe('Logs webview App', () => {
     expect(screen.queryByText('NormalCandidate')).toBeNull();
     expect(screen.getByText('Error')).toBeInTheDocument();
     expect(screen.getByText('Validation failure')).toBeInTheDocument();
+  });
+
+  it('restores and persists logs UI state through the VS Code webview api', async () => {
+    const { vscode, getSavedState } = createVsCodeMock({
+      query: 'persisted query',
+      errorsOnly: true,
+      sortBy: 'user',
+      sortDir: 'asc'
+    });
+    const bus = new EventTarget();
+    render(<LogsApp vscode={vscode} messageBus={bus} />);
+
+    const searchInput = screen.getByLabelText('Search logs…') as HTMLInputElement;
+    expect(searchInput.value).toBe('persisted query');
+
+    fireEvent.change(searchInput, { target: { value: 'updated query' } });
+
+    await waitFor(() => {
+      expect((getSavedState() as any)?.query).toBe('updated query');
+      expect((getSavedState() as any)?.errorsOnly).toBe(true);
+      expect((getSavedState() as any)?.sortBy).toBe('user');
+      expect((getSavedState() as any)?.sortDir).toBe('asc');
+    });
   });
 });

@@ -6,16 +6,23 @@ import type { VsCodeWebviewApi } from '../vscodeApi';
 import { TailApp } from '../tail';
 
 describe('Tail webview App', () => {
-  function createVsCodeMock() {
+  function createVsCodeMock(initialState?: unknown) {
     const posted: WebviewToExtensionMessage[] = [];
+    let savedState = initialState;
     const vscode: VsCodeWebviewApi<WebviewToExtensionMessage> = {
       postMessage: msg => {
         posted.push(msg);
       },
-      getState: () => undefined,
-      setState: () => {}
+      getState: () => savedState as any,
+      setState: state => {
+        savedState = state;
+      }
     };
-    return { vscode, posted };
+    return {
+      vscode,
+      posted,
+      getSavedState: () => savedState
+    };
   }
 
   function send(bus: EventTarget, message: ExtensionToWebviewMessage) {
@@ -120,6 +127,39 @@ describe('Tail webview App', () => {
 
     await waitFor(() => {
       expect(posted).toContainEqual({ type: 'tailStart', debugLevel: 'ALV_E2E' });
+    });
+  });
+
+  it('restores and persists tail UI state through the VS Code webview api', async () => {
+    const { vscode, posted, getSavedState } = createVsCodeMock({
+      query: 'persisted tail query',
+      onlyUserDebug: true,
+      autoScroll: false,
+      colorize: true,
+      debugLevel: 'CLOUD'
+    });
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+
+    send(bus, { type: 'init', locale: 'en' });
+    send(bus, { type: 'debugLevels', data: ['DETAILED', 'CLOUD'], active: 'DETAILED' });
+    await screen.findByText('Start');
+
+    const searchInput = screen.getByPlaceholderText('Search live logs…') as HTMLInputElement;
+    expect(searchInput.value).toBe('persisted tail query');
+
+    fireEvent.change(searchInput, { target: { value: 'updated tail query' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+
+    await waitFor(() => {
+      expect((getSavedState() as any)?.query).toBe('updated tail query');
+      expect((getSavedState() as any)?.onlyUserDebug).toBe(true);
+      expect((getSavedState() as any)?.autoScroll).toBe(false);
+      expect((getSavedState() as any)?.colorize).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(posted).toContainEqual({ type: 'tailStart', debugLevel: 'CLOUD' });
     });
   });
 });

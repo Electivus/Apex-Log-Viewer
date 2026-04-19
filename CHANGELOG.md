@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Bug Fixes
+
+- Tail/Logs: remove the webview troubleshooting command and harden Logs/Tail webviews for destroy-and-remount lifecycles by delaying mounts until visibility stabilizes, timing out failed boots silently, replaying provider-side snapshots, and persisting only UI state in the webview.
+
 ## [0.40.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.38.0...v0.40.0) (2026-04-13)
 
 ### Features

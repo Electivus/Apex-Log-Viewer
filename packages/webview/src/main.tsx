@@ -20,6 +20,42 @@ import type { LogHeadMap } from './components/LogsTable';
 
 type SortKey = Exclude<LogsColumnKey, 'match'>;
 
+interface LogsUiState {
+  query: string;
+  filterUser: string;
+  filterOperation: string;
+  filterStatus: string;
+  filterCodeUnit: string;
+  errorsOnly: boolean;
+  sortBy: SortKey;
+  sortDir: 'asc' | 'desc';
+}
+
+function readInitialUiState(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>): LogsUiState {
+  const raw = vscode.getState<Partial<LogsUiState>>() ?? {};
+  const sortBy = raw.sortBy;
+  return {
+    query: typeof raw.query === 'string' ? raw.query : '',
+    filterUser: typeof raw.filterUser === 'string' ? raw.filterUser : '',
+    filterOperation: typeof raw.filterOperation === 'string' ? raw.filterOperation : '',
+    filterStatus: typeof raw.filterStatus === 'string' ? raw.filterStatus : '',
+    filterCodeUnit: typeof raw.filterCodeUnit === 'string' ? raw.filterCodeUnit : '',
+    errorsOnly: raw.errorsOnly === true,
+    sortBy:
+      sortBy === 'user' ||
+      sortBy === 'application' ||
+      sortBy === 'operation' ||
+      sortBy === 'time' ||
+      sortBy === 'duration' ||
+      sortBy === 'status' ||
+      sortBy === 'size' ||
+      sortBy === 'codeUnit'
+        ? sortBy
+        : 'time',
+    sortDir: raw.sortDir === 'asc' ? 'asc' : 'desc'
+  };
+}
+
 export interface LogsAppProps {
   vscode?: VsCodeWebviewApi<WebviewToExtensionMessage>;
   messageBus?: MessageBus;
@@ -29,6 +65,7 @@ export function LogsApp({
   vscode = getDefaultVsCodeApi<WebviewToExtensionMessage>(),
   messageBus = getDefaultMessageBus()
 }: LogsAppProps = {}) {
+  const initialUiStateRef = useRef<LogsUiState>(readInitialUiState(vscode));
   const [locale, setLocale] = useState('en');
   const [t, setT] = useState<Messages>(() => getMessages('en'));
   const [loading, setLoading] = useState(false);
@@ -62,16 +99,16 @@ export function LogsApp({
   const lastTrackedFilterStateRef = useRef<string | undefined>(undefined);
 
   // Search + filters
-  const [query, setQueryState] = useState('');
-  const [filterUser, setFilterUser] = useState('');
-  const [filterOperation, setFilterOperation] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-  const [filterCodeUnit, setFilterCodeUnit] = useState('');
-  const [errorsOnly, setErrorsOnly] = useState(false);
+  const [query, setQueryState] = useState(initialUiStateRef.current.query);
+  const [filterUser, setFilterUser] = useState(initialUiStateRef.current.filterUser);
+  const [filterOperation, setFilterOperation] = useState(initialUiStateRef.current.filterOperation);
+  const [filterStatus, setFilterStatus] = useState(initialUiStateRef.current.filterStatus);
+  const [filterCodeUnit, setFilterCodeUnit] = useState(initialUiStateRef.current.filterCodeUnit);
+  const [errorsOnly, setErrorsOnly] = useState(initialUiStateRef.current.errorsOnly);
 
   // Sorting
-  const [sortBy, setSortBy] = useState<SortKey>('time');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [sortBy, setSortBy] = useState<SortKey>(initialUiStateRef.current.sortBy);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialUiStateRef.current.sortDir);
 
   const loadMoreFooterRef = useRef<HTMLDivElement | null>(null);
   const [loadMoreFooterHeightPx, setLoadMoreFooterHeightPx] = useState(0);
@@ -207,6 +244,19 @@ export function LogsApp({
       setPendingLogCount(0);
     }
   }, [query]);
+
+  useEffect(() => {
+    vscode.setState({
+      query,
+      filterUser,
+      filterOperation,
+      filterStatus,
+      filterCodeUnit,
+      errorsOnly,
+      sortBy,
+      sortDir
+    } satisfies LogsUiState);
+  }, [errorsOnly, filterCodeUnit, filterOperation, filterStatus, filterUser, query, sortBy, sortDir, vscode]);
 
   useEffect(() => {
     if (!messageBus) {

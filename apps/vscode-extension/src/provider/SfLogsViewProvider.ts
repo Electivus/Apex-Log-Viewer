@@ -2,9 +2,13 @@ import * as vscode from 'vscode';
 import { localize } from '../../../../src/utils/localize';
 import { clearListCache, getApiVersionFallbackWarning } from '../../../../src/salesforce/http';
 import { pickSelectedOrg } from '../../../../src/utils/orgs';
-import type { ApexLogRow } from '../shared/types';
+import type { ApexLogRow, OrgItem } from '../shared/types';
 import type { OrgAuth } from '../../../../src/salesforce/types';
-import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/messages';
+import {
+  parseWebviewToExtensionMessage,
+  type ExtensionToWebviewMessage,
+  type WebviewToExtensionMessage
+} from '../shared/messages';
 import { logInfo, logWarn, logError, logTrace } from '../../../../src/utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
 import { buildWebviewHtml } from '../../../../src/utils/webviewHtml';
@@ -19,11 +23,20 @@ import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { affectsConfiguration, getConfig } from '../../../../src/utils/config';
 import { getWorkspaceRoot, purgeSavedLogs } from '../../../../src/utils/workspace';
 import { DEFAULT_LOGS_COLUMNS_CONFIG, normalizeLogsColumnsConfig, type NormalizedLogsColumnsConfig } from '../shared/logsColumns';
-import { normalizeLogTriageSummary, type LogTriageSummary } from '../shared/logTriage';
+import { normalizeLogTriageSummary, type LogDiagnostic, type LogTriageSummary } from '../shared/logTriage';
 import { bucketQueryLength } from '../shared/telemetryBuckets';
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
 
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
+const WEBVIEW_STABLE_VISIBILITY_DELAY_MS = 200;
+const WEBVIEW_READY_TIMEOUT_MS = 5000;
+
+interface LogHeadSnapshot {
+  codeUnitStarted?: string;
+  hasErrors?: boolean;
+  primaryReason?: string;
+  reasons?: LogDiagnostic[];
+}
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = 'sfLogViewer';
@@ -31,16 +44,43 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private host?: BoundWebviewHost;
   private readonly disposables: vscode.Disposable[] = [];
   private hostDisposables: vscode.Disposable[] = [];
+  private readonly readyTimeoutListeners = new Set<() => void>();
   private pageLimit = 100;
   private currentOffset = 0;
   private disposed = false;
+  private ready = false;
+  private bootstrapFailed = false;
+  private mountTimer: ReturnType<typeof setTimeout> | undefined;
+  private readyTimer: ReturnType<typeof setTimeout> | undefined;
+  private mountSequence = 0;
   private refreshToken = 0;
   private messageHandler: LogsMessageHandler;
   private cursorStartTime: string | undefined;
   private cursorId: string | undefined;
   private currentLogs: ApexLogRow[] = [];
+  private currentHasMore = false;
+  private hasLogsSnapshot = false;
   private currentLogIds = new Set<string>();
+  private orgsSnapshot: OrgItem[] = [];
+  private selectedOrgSnapshot: string | undefined;
+  private hasOrgsSnapshot = false;
+  private logHeadByLogId = new Map<string, LogHeadSnapshot>();
   private errorByLogId = new Map<string, LogTriageSummary>();
+  private warningMessage: string | undefined;
+  private loadingState = false;
+  private errorScanStatusSnapshot: { state: 'idle' | 'running'; processed: number; total: number; errorsFound: number } = {
+    state: 'idle',
+    processed: 0,
+    total: 0,
+    errorsFound: 0
+  };
+  private searchStatusSnapshot: 'idle' | 'loading' = 'idle';
+  private searchMatchesSnapshot: {
+    query: string;
+    logIds: string[];
+    snippets?: Record<string, { text: string; ranges: [number, number][] }>;
+    pendingLogIds?: string[];
+  } = { query: '', logIds: [] };
   private errorScanAbortController: AbortController | undefined;
   private errorScanToken = 0;
   private errorScanLastPostedAt = 0;
@@ -65,13 +105,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       () => this.refresh(),
       () => this.downloadAllLogs(),
       scope => this.clearLogs(scope),
-      () => this.sendOrgs(),
       o => this.setSelectedOrg(o),
       () => this.openDebugFlags(),
       id => this.logService.openLog(id, this.orgManager.getSelectedOrg()),
       id => this.logService.debugLog(id, this.orgManager.getSelectedOrg()),
       () => this.loadMore(),
-      v => this.post({ type: 'loading', value: v }),
       value => this.setSearchQuery(value),
       value => this.saveLogsColumns(value)
     );
@@ -107,16 +145,33 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     return this.orgManager.getSelectedOrg();
   }
 
+  public isReady(): boolean {
+    return this.ready && !this.disposed;
+  }
+
+  public onDidReadyTimeout(listener: () => void): vscode.Disposable {
+    this.readyTimeoutListeners.add(listener);
+    return {
+      dispose: () => {
+        this.readyTimeoutListeners.delete(listener);
+      }
+    };
+  }
+
   public dispose(): void {
     this.disposed = true;
+    this.ready = false;
+    this.bootstrapFailed = false;
     this.view = undefined;
     this.host = undefined;
+    this.clearBootstrapTimers();
     this.refreshToken++;
     this.cancelErrorScan();
     if (this.searchAbortController) {
       this.searchAbortController.abort();
       this.searchAbortController = undefined;
     }
+    this.readyTimeoutListeners.clear();
     vscode.Disposable.from(...this.hostDisposables).dispose();
     this.hostDisposables = [];
     vscode.Disposable.from(...this.disposables).dispose();
@@ -141,6 +196,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         ct.onCancellationRequested(() => controller.abort());
         this.cancelErrorScan();
         this.errorByLogId.clear();
+        this.logHeadByLogId.clear();
         this.postErrorScanStatus(
           {
             state: 'idle',
@@ -472,6 +528,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         .map(log => log?.Id)
         .filter((id): id is string => typeof id === 'string' && id.length > 0)
     );
+    for (const logId of [...this.logHeadByLogId.keys()]) {
+      if (!this.currentLogIds.has(logId)) {
+        this.logHeadByLogId.delete(logId);
+      }
+    }
   }
 
   private cancelErrorScan(): void {
@@ -1370,17 +1431,190 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     });
   }
 
+  private getPlaceholderHtml(): string {
+    const title = this.escapeHtml(localize('salesforce.logs.view.name', 'Electivus Apex Logs'));
+    return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>${title}</title>
+  </head>
+  <body></body>
+</html>`;
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private clearMountTimer(): void {
+    if (this.mountTimer) {
+      clearTimeout(this.mountTimer);
+      this.mountTimer = undefined;
+    }
+  }
+
+  private clearReadyTimer(): void {
+    if (this.readyTimer) {
+      clearTimeout(this.readyTimer);
+      this.readyTimer = undefined;
+    }
+  }
+
+  private clearBootstrapTimers(): void {
+    this.clearMountTimer();
+    this.clearReadyTimer();
+  }
+
+  private showPlaceholder(host: BoundWebviewHost): void {
+    host.webview.html = this.getPlaceholderHtml();
+  }
+
+  private scheduleMount(host = this.host): void {
+    if (!host || this.disposed || !host.visible) {
+      return;
+    }
+    this.clearMountTimer();
+    this.mountTimer = setTimeout(() => {
+      this.mountTimer = undefined;
+      if (this.host !== host || this.disposed || !host.visible) {
+        return;
+      }
+      this.mountWebview(host);
+    }, WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+  }
+
+  private mountWebview(host: BoundWebviewHost): void {
+    this.ready = false;
+    this.bootstrapFailed = false;
+    const mountId = ++this.mountSequence;
+    host.webview.html = this.getHtmlForWebview(host.webview);
+    this.clearReadyTimer();
+    this.readyTimer = setTimeout(() => {
+      this.readyTimer = undefined;
+      if (this.host !== host || this.disposed || this.ready || mountId !== this.mountSequence) {
+        return;
+      }
+      logWarn(`Logs webview did not report ready within ${WEBVIEW_READY_TIMEOUT_MS}ms (${host.kind}).`);
+      this.ready = false;
+      this.bootstrapFailed = true;
+      this.showPlaceholder(host);
+      if (host.kind === 'editor') {
+        this.fireReadyTimeout();
+      }
+    }, WEBVIEW_READY_TIMEOUT_MS);
+    logInfo(`Logs webview mounted (${host.kind}).`);
+  }
+
+  private fireReadyTimeout(): void {
+    for (const listener of [...this.readyTimeoutListeners]) {
+      try {
+        listener();
+      } catch {}
+    }
+  }
+
+  private handleVisibilityChange(host: BoundWebviewHost, visible: boolean): void {
+    if (this.host !== host || this.disposed) {
+      return;
+    }
+    if (!visible) {
+      this.ready = false;
+      this.bootstrapFailed = false;
+      this.clearBootstrapTimers();
+      this.showPlaceholder(host);
+      return;
+    }
+    this.scheduleMount(host);
+  }
+
+  private async handleReadyMessage(): Promise<void> {
+    if (!this.host || this.disposed || this.ready) {
+      return;
+    }
+    this.ready = true;
+    this.bootstrapFailed = false;
+    this.clearReadyTimer();
+    logInfo(`Logs webview ready (${this.host.kind}).`);
+    await this.bootstrapWebview();
+  }
+
+  private async bootstrapWebview(): Promise<void> {
+    this.post({
+      type: 'init',
+      locale: vscode.env.language,
+      fullLogSearchEnabled: this.configManager.shouldLoadFullLogBodies(),
+      logsColumns: this.logsColumns
+    });
+    this.replaySnapshot();
+
+    const shouldRefreshOrgs = !this.hasOrgsSnapshot;
+    const shouldRefreshLogs = !this.hasLogsSnapshot;
+    if (shouldRefreshOrgs) {
+      await this.sendOrgs();
+    }
+    if (shouldRefreshLogs) {
+      await this.refresh();
+      return;
+    }
+    if (this.lastSearchQuery.trim()) {
+      this.rerunActiveSearch();
+    }
+  }
+
+  private replaySnapshot(): void {
+    if (this.hasOrgsSnapshot) {
+      this.post({
+        type: 'orgs',
+        data: this.orgsSnapshot,
+        selected: this.selectedOrgSnapshot
+      });
+    }
+    this.post({ type: 'warning', message: this.warningMessage });
+    this.post({ type: 'loading', value: this.loadingState });
+    this.post({ type: 'errorScanStatus', ...this.errorScanStatusSnapshot });
+    if (this.hasLogsSnapshot) {
+      this.post({ type: 'logs', data: this.currentLogs, hasMore: this.currentHasMore });
+      for (const [logId, snapshot] of this.logHeadByLogId.entries()) {
+        this.post({
+          type: 'logHead',
+          logId,
+          ...(snapshot.codeUnitStarted !== undefined ? { codeUnitStarted: snapshot.codeUnitStarted } : {}),
+          ...(snapshot.hasErrors !== undefined ? { hasErrors: snapshot.hasErrors } : {}),
+          ...(snapshot.primaryReason !== undefined ? { primaryReason: snapshot.primaryReason } : {}),
+          ...(snapshot.reasons !== undefined ? { reasons: snapshot.reasons } : {})
+        });
+      }
+      this.post({
+        type: 'searchMatches',
+        query: this.searchMatchesSnapshot.query,
+        logIds: this.searchMatchesSnapshot.logIds,
+        ...(this.searchMatchesSnapshot.snippets ? { snippets: this.searchMatchesSnapshot.snippets } : {}),
+        ...(this.searchMatchesSnapshot.pendingLogIds ? { pendingLogIds: this.searchMatchesSnapshot.pendingLogIds } : {})
+      });
+      this.post({ type: 'searchStatus', state: this.searchStatusSnapshot });
+    }
+  }
+
   private bindHost(host: BoundWebviewHost): void {
     vscode.Disposable.from(...this.hostDisposables).dispose();
     this.hostDisposables = [];
     this.host = host;
     this.view = host;
     this.disposed = false;
+    this.ready = false;
+    this.bootstrapFailed = false;
+    this.clearBootstrapTimers();
     host.webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
     };
-    host.webview.html = this.getHtmlForWebview(host.webview);
+    this.showPlaceholder(host);
     logInfo(`Logs webview resolved (${host.kind}).`);
 
     this.hostDisposables.push(
@@ -1389,8 +1623,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           return;
         }
         this.disposed = true;
+        this.ready = false;
+        this.bootstrapFailed = false;
         this.view = undefined;
         this.host = undefined;
+        this.clearBootstrapTimers();
         this.refreshToken++;
         this.cancelErrorScan();
         if (this.searchAbortController) {
@@ -1399,13 +1636,74 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         }
         logInfo(`Logs webview disposed (${host.kind}).`);
       }),
+      host.onDidChangeVisibility(visible => {
+        this.handleVisibilityChange(host, visible);
+      }),
       host.webview.onDidReceiveMessage(message => {
+        const parsed = parseWebviewToExtensionMessage(message);
+        if (parsed?.type === 'ready') {
+          void this.handleReadyMessage();
+          return;
+        }
         void this.messageHandler.handle(message);
       })
     );
+
+    this.handleVisibilityChange(host, host.visible);
   }
 
   private post(msg: ExtensionToWebviewMessage): void {
+    switch (msg.type) {
+      case 'loading':
+        this.loadingState = !!msg.value;
+        break;
+      case 'warning':
+        this.warningMessage = msg.message;
+        break;
+      case 'orgs':
+        this.hasOrgsSnapshot = true;
+        this.orgsSnapshot = Array.isArray(msg.data) ? [...msg.data] : [];
+        this.selectedOrgSnapshot = msg.selected;
+        break;
+      case 'logs':
+        this.hasLogsSnapshot = true;
+        this.currentHasMore = !!msg.hasMore;
+        break;
+      case 'appendLogs':
+        this.hasLogsSnapshot = true;
+        this.currentHasMore = !!msg.hasMore;
+        break;
+      case 'logHead': {
+        const previous = this.logHeadByLogId.get(msg.logId) ?? {};
+        this.logHeadByLogId.set(msg.logId, {
+          ...previous,
+          ...(msg.codeUnitStarted !== undefined ? { codeUnitStarted: msg.codeUnitStarted } : {}),
+          ...(msg.hasErrors !== undefined ? { hasErrors: msg.hasErrors } : {}),
+          ...(msg.primaryReason !== undefined ? { primaryReason: msg.primaryReason } : {}),
+          ...(msg.reasons !== undefined ? { reasons: msg.reasons } : {})
+        });
+        break;
+      }
+      case 'errorScanStatus':
+        this.errorScanStatusSnapshot = {
+          state: msg.state,
+          processed: msg.processed,
+          total: msg.total,
+          errorsFound: msg.errorsFound
+        };
+        break;
+      case 'searchMatches':
+        this.searchMatchesSnapshot = {
+          query: msg.query,
+          logIds: Array.isArray(msg.logIds) ? [...msg.logIds] : [],
+          ...(msg.snippets ? { snippets: msg.snippets } : {}),
+          ...(msg.pendingLogIds ? { pendingLogIds: [...msg.pendingLogIds] } : {})
+        };
+        break;
+      case 'searchStatus':
+        this.searchStatusSnapshot = msg.state === 'loading' ? 'loading' : 'idle';
+        break;
+    }
     this.view?.webview.postMessage(msg);
   }
 }

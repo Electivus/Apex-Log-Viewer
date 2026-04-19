@@ -7,13 +7,11 @@ export class LogsMessageHandler {
     private readonly refresh: () => Promise<void>,
     private readonly downloadAllLogs: () => Promise<void>,
     private readonly clearLogs: (scope: 'all' | 'mine') => Promise<void>,
-    private readonly sendOrgs: () => Promise<void>,
     private readonly setSelectedOrg: (org?: string) => void,
     private readonly openDebugFlags: () => Promise<void>,
     private readonly openLog: (logId: string) => Promise<void>,
     private readonly debugLog: (logId: string) => Promise<void>,
     private readonly loadMore: () => Promise<void>,
-    private readonly setLoading: (val: boolean) => void,
     private readonly setSearchQuery: (value: string) => Promise<void>,
     private readonly setLogsColumns: (value: unknown) => Promise<void>
   ) {}
@@ -25,16 +23,6 @@ export class LogsMessageHandler {
       return;
     }
     switch (message.type) {
-      case 'ready':
-        logInfo('Logs: message ready');
-        this.setLoading(true);
-        try {
-          await this.sendOrgs();
-          await this.refresh();
-        } finally {
-          this.setLoading(false);
-        }
-        break;
       case 'refresh':
         logInfo('Logs: message refresh');
         await this.refresh();

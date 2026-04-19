@@ -5,6 +5,7 @@ export interface BoundWebviewHost {
   readonly webview: vscode.Webview;
   readonly visible: boolean;
   onDidDispose(listener: () => void): vscode.Disposable;
+  onDidChangeVisibility(listener: (visible: boolean) => void): vscode.Disposable;
   onDidBecomeVisible(listener: () => void): vscode.Disposable;
 }
 
@@ -19,6 +20,11 @@ export function createWebviewViewHost(view: vscode.WebviewView): BoundWebviewHos
     },
     onDidDispose(listener: () => void): vscode.Disposable {
       return view.onDidDispose(listener);
+    },
+    onDidChangeVisibility(listener: (visible: boolean) => void): vscode.Disposable {
+      return view.onDidChangeVisibility(() => {
+        listener(view.visible);
+      });
     },
     onDidBecomeVisible(listener: () => void): vscode.Disposable {
       return view.onDidChangeVisibility(() => {
@@ -41,6 +47,11 @@ export function createWebviewPanelHost(panel: vscode.WebviewPanel): BoundWebview
     },
     onDidDispose(listener: () => void): vscode.Disposable {
       return panel.onDidDispose(listener);
+    },
+    onDidChangeVisibility(listener: (visible: boolean) => void): vscode.Disposable {
+      return panel.onDidChangeViewState(event => {
+        listener(event.webviewPanel.visible);
+      });
     },
     onDidBecomeVisible(listener: () => void): vscode.Disposable {
       return panel.onDidChangeViewState(event => {

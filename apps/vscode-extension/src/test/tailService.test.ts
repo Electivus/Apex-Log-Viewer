@@ -51,12 +51,17 @@ function loadTailProvider(stubs?: {
   class TailServiceStub {
     setOrg(_username?: string): void {}
     setWindowActive(_active: boolean): void {}
+    setBufferLimit(_limit: number): void {}
     isRunning(): boolean {
       return false;
+    }
+    getBufferedLines(): string[] {
+      return [];
     }
     promptPoll(): void {}
     stop(): void {}
     clearLogPaths(): void {}
+    clearBufferedLines(): void {}
     ensureLogSaved = async () => '/tmp/test.log';
     start = async () => undefined;
   }
@@ -115,19 +120,33 @@ class MockWebviewView implements vscode.WebviewView {
   description?: string | undefined;
   badge?: { value: number; tooltip: string } | undefined;
   webview: vscode.Webview;
+  private visibilityListeners: Array<() => void> = [];
+  private disposeListener: (() => void) | undefined;
   constructor(webview: vscode.Webview) {
     this.webview = webview;
   }
   show(): void {
     /* noop */
   }
-  onDidChangeVisibility: vscode.Event<void> = () => new MockDisposable();
-  onDidDispose: vscode.Event<void> = () => new MockDisposable();
+  onDidChangeVisibility: vscode.Event<void> = listener => {
+    this.visibilityListeners.push(listener);
+    return new MockDisposable();
+  };
+  onDidDispose: vscode.Event<void> = listener => {
+    this.disposeListener = listener;
+    return new MockDisposable();
+  };
+  fireVisible(visible: boolean): void {
+    this.visible = visible;
+    for (const listener of this.visibilityListeners) {
+      listener();
+    }
+  }
 }
 
 class MockWebviewPanel implements vscode.WebviewPanel {
   readonly active = true;
-  readonly visible = true;
+  visible = true;
   readonly options: vscode.WebviewPanelOptions = {};
   public title = 'Electivus Apex Logs Tail';
   public viewColumn: vscode.ViewColumn = vscode.ViewColumn.Active;
@@ -161,13 +180,17 @@ class MockWebviewPanel implements vscode.WebviewPanel {
     return new MockDisposable();
   }
 
-  fireVisible(): void {
+  fireVisible(visible = true): void {
+    this.visible = visible;
     this.viewStateListener?.({ webviewPanel: this } as vscode.WebviewPanelOnDidChangeViewStateEvent);
   }
 }
 
 suite('TailService', () => {
   const originalDebugFlagsShow = DebugFlagsPanel.show;
+  const delay = async (ms: number) => {
+    await new Promise(resolve => setTimeout(resolve, ms));
+  };
 
   teardown(() => {
     (DebugFlagsPanel as any).show = originalDebugFlagsShow;
@@ -671,6 +694,7 @@ suite('TailService', () => {
     };
 
     provider.resolveWebviewPanel(panel);
+    await delay(250);
     await webview.emit({ type: 'ready' });
 
     assert.ok(webview.html.includes('media/tail.js'));
@@ -695,7 +719,7 @@ suite('TailService', () => {
     };
 
     provider.resolveWebviewPanel(panel);
-    panel.fireVisible();
+    await delay(250);
     assert.deepEqual(calls, [], 'should not refresh while the webview has not reported ready');
 
     await webview.emit({ type: 'ready' });

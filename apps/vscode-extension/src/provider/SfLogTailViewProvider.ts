@@ -11,10 +11,14 @@ import { TailService } from '../../../../src/utils/tailService';
 import { pickSelectedOrg } from '../../../../src/utils/orgs';
 import { getNumberConfig, affectsConfiguration } from '../../../../src/utils/config';
 import { getErrorMessage } from '../../../../src/utils/error';
+import type { OrgItem } from '../shared/types';
 import { LogViewerPanel } from '../panel/LogViewerPanel';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { runtimeClient } from '../runtime/runtimeClient';
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
+
+const WEBVIEW_STABLE_VISIBILITY_DELAY_MS = 200;
+const WEBVIEW_READY_TIMEOUT_MS = 5000;
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = 'sfLogTail';
@@ -22,13 +26,28 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   private host?: BoundWebviewHost;
   private readonly disposables: vscode.Disposable[] = [];
   private hostDisposables: vscode.Disposable[] = [];
+  private readonly readyTimeoutListeners = new Set<() => void>();
   private disposed = false;
   private ready = false;
+  private bootstrapFailed = false;
+  private mountTimer: ReturnType<typeof setTimeout> | undefined;
+  private readyTimer: ReturnType<typeof setTimeout> | undefined;
+  private mountSequence = 0;
   private selectedOrg: string | undefined;
   private tailService = new TailService(m => this.post(m));
+  private loadingState = false;
+  private orgsSnapshot: OrgItem[] = [];
+  private hasOrgsSnapshot = false;
+  private debugLevelsSnapshot: string[] = [];
+  private activeDebugLevelSnapshot: string | undefined;
+  private hasDebugLevelsSnapshot = false;
+  private tailRunningSnapshot = false;
+  private tailBufferSizeSnapshot = 10000;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.tailService.setOrg(this.selectedOrg);
+    this.tailBufferSizeSnapshot = this.getTailBufferSize();
+    this.tailService.setBufferLimit(this.tailBufferSizeSnapshot);
 
     // React to tail buffer size changes live
     this.disposables.push(
@@ -36,6 +55,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         if (affectsConfiguration(e, 'sfLogs.tailBufferSize')) {
           try {
             const size = this.getTailBufferSize();
+            this.tailService.setBufferLimit(size);
             this.post({ type: 'tailConfig', tailBufferSize: size });
           } catch {
             // ignore
@@ -79,9 +99,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       return;
     }
     if (message.type === 'ready') {
-      this.ready = true;
-      this.post({ type: 'init', locale: vscode.env.language });
-      await this.refreshViewState();
+      await this.handleReadyMessage();
       return;
     }
     if (message.type === 'selectOrg') {
@@ -139,6 +157,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     }
     if (message.type === 'tailClear') {
       this.tailService.clearLogPaths();
+      this.tailService.clearBufferedLines();
       this.post({ type: 'tailReset' });
       return;
     }
@@ -148,11 +167,28 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     return this.selectedOrg;
   }
 
+  public isReady(): boolean {
+    return this.ready && !this.disposed;
+  }
+
+  public onDidReadyTimeout(listener: () => void): vscode.Disposable {
+    this.readyTimeoutListeners.add(listener);
+    return {
+      dispose: () => {
+        this.readyTimeoutListeners.delete(listener);
+      }
+    };
+  }
+
   public dispose(): void {
     this.disposed = true;
+    this.ready = false;
+    this.bootstrapFailed = false;
     this.view = undefined;
     this.host = undefined;
+    this.clearBootstrapTimers();
     this.tailService.stop();
+    this.readyTimeoutListeners.clear();
     vscode.Disposable.from(...this.hostDisposables).dispose();
     this.hostDisposables = [];
     vscode.Disposable.from(...this.disposables).dispose();
@@ -168,7 +204,162 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     );
   }
 
+  private getPlaceholderHtml(): string {
+    const title = this.escapeHtml(localize('salesforce.tail.view.name', 'Electivus Apex Logs Tail'));
+    return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>${title}</title>
+  </head>
+  <body></body>
+</html>`;
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private clearMountTimer(): void {
+    if (this.mountTimer) {
+      clearTimeout(this.mountTimer);
+      this.mountTimer = undefined;
+    }
+  }
+
+  private clearReadyTimer(): void {
+    if (this.readyTimer) {
+      clearTimeout(this.readyTimer);
+      this.readyTimer = undefined;
+    }
+  }
+
+  private clearBootstrapTimers(): void {
+    this.clearMountTimer();
+    this.clearReadyTimer();
+  }
+
+  private showPlaceholder(host: BoundWebviewHost): void {
+    host.webview.html = this.getPlaceholderHtml();
+  }
+
+  private scheduleMount(host = this.host): void {
+    if (!host || this.disposed || !host.visible) {
+      return;
+    }
+    this.clearMountTimer();
+    this.mountTimer = setTimeout(() => {
+      this.mountTimer = undefined;
+      if (this.host !== host || this.disposed || !host.visible) {
+        return;
+      }
+      this.mountWebview(host);
+    }, WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+  }
+
+  private mountWebview(host: BoundWebviewHost): void {
+    this.ready = false;
+    this.bootstrapFailed = false;
+    const mountId = ++this.mountSequence;
+    host.webview.html = this.getHtmlForWebview(host.webview);
+    this.clearReadyTimer();
+    this.readyTimer = setTimeout(() => {
+      this.readyTimer = undefined;
+      if (this.host !== host || this.disposed || this.ready || mountId !== this.mountSequence) {
+        return;
+      }
+      logWarn(`Tail webview did not report ready within ${WEBVIEW_READY_TIMEOUT_MS}ms (${host.kind}).`);
+      this.ready = false;
+      this.bootstrapFailed = true;
+      this.showPlaceholder(host);
+      if (host.kind === 'editor') {
+        this.fireReadyTimeout();
+      }
+    }, WEBVIEW_READY_TIMEOUT_MS);
+    logInfo(`Tail webview mounted (${host.kind}).`);
+  }
+
+  private fireReadyTimeout(): void {
+    for (const listener of [...this.readyTimeoutListeners]) {
+      try {
+        listener();
+      } catch {}
+    }
+  }
+
+  private handleVisibilityChange(host: BoundWebviewHost, visible: boolean): void {
+    if (this.host !== host || this.disposed) {
+      return;
+    }
+    if (!visible) {
+      this.ready = false;
+      this.bootstrapFailed = false;
+      this.clearBootstrapTimers();
+      this.showPlaceholder(host);
+      return;
+    }
+    this.scheduleMount(host);
+  }
+
+  private async handleReadyMessage(): Promise<void> {
+    if (!this.host || this.disposed || this.ready) {
+      return;
+    }
+    this.ready = true;
+    this.bootstrapFailed = false;
+    this.clearReadyTimer();
+    this.post({ type: 'init', locale: vscode.env.language });
+    this.replaySnapshot();
+    const needsBootstrap = !this.hasOrgsSnapshot || !this.hasDebugLevelsSnapshot;
+    if (needsBootstrap) {
+      await this.refreshViewState();
+    }
+  }
+
+  private replaySnapshot(): void {
+    this.post({ type: 'loading', value: this.loadingState });
+    if (this.hasOrgsSnapshot) {
+      this.post({ type: 'orgs', data: this.orgsSnapshot, selected: this.selectedOrg });
+    }
+    if (this.hasDebugLevelsSnapshot) {
+      this.post({ type: 'debugLevels', data: this.debugLevelsSnapshot, active: this.activeDebugLevelSnapshot });
+    }
+    this.post({ type: 'tailConfig', tailBufferSize: this.tailBufferSizeSnapshot });
+    this.post({ type: 'tailStatus', running: this.tailRunningSnapshot });
+    const bufferedLines = this.tailService.getBufferedLines();
+    if (bufferedLines.length > 0) {
+      this.post({ type: 'tailReset' });
+      this.post({ type: 'tailData', lines: bufferedLines });
+    }
+  }
+
   private post(msg: ExtensionToWebviewMessage): void {
+    switch (msg.type) {
+      case 'loading':
+        this.loadingState = !!msg.value;
+        break;
+      case 'orgs':
+        this.hasOrgsSnapshot = true;
+        this.orgsSnapshot = Array.isArray(msg.data) ? [...msg.data] : [];
+        this.selectedOrg = msg.selected;
+        break;
+      case 'debugLevels':
+        this.hasDebugLevelsSnapshot = true;
+        this.debugLevelsSnapshot = Array.isArray(msg.data) ? [...msg.data] : [];
+        this.activeDebugLevelSnapshot = msg.active;
+        break;
+      case 'tailStatus':
+        this.tailRunningSnapshot = !!msg.running;
+        break;
+      case 'tailConfig':
+        this.tailBufferSizeSnapshot = msg.tailBufferSize;
+        break;
+    }
     this.view?.webview.postMessage(msg);
   }
 
@@ -386,11 +577,13 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     this.view = host;
     this.disposed = false;
     this.ready = false;
+    this.bootstrapFailed = false;
+    this.clearBootstrapTimers();
     host.webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
     };
-    host.webview.html = this.getHtmlForWebview(host.webview);
+    this.showPlaceholder(host);
     logInfo(`Tail webview resolved (${host.kind}).`);
 
     this.hostDisposables.push(
@@ -400,21 +593,22 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         }
         this.disposed = true;
         this.ready = false;
+        this.bootstrapFailed = false;
         this.view = undefined;
         this.host = undefined;
+        this.clearBootstrapTimers();
         // Stop timers and clear caches, but keep controller disposal separate.
         this.tailService.stop();
         logInfo(`Tail webview disposed; stopped tail (${host.kind}).`);
       }),
-      host.onDidBecomeVisible(() => {
-        if (this.disposed || !this.ready) {
-          return;
-        }
-        void this.refreshViewState();
+      host.onDidChangeVisibility(visible => {
+        this.handleVisibilityChange(host, visible);
       }),
       host.webview.onDidReceiveMessage(message => {
         void this.onMessage(message);
       })
     );
+
+    this.handleVisibilityChange(host, host.visible);
   }
 }

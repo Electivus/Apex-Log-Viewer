@@ -9,13 +9,11 @@ suite('LogsMessageHandler telemetry', () => {
       refresh: () => Promise<void>;
       downloadAllLogs: () => Promise<void>;
       clearLogs: (scope: 'all' | 'mine') => Promise<void>;
-      sendOrgs: () => Promise<void>;
       setSelectedOrg: (org?: string) => void;
       openDebugFlags: () => Promise<void>;
       openLog: (logId: string) => Promise<void>;
       debugLog: (logId: string) => Promise<void>;
       loadMore: () => Promise<void>;
-      setLoading: (value: boolean) => void;
       setSearchQuery: (value: string) => Promise<void>;
       setLogsColumns: (value: unknown) => Promise<void>;
     }>
@@ -38,13 +36,11 @@ suite('LogsMessageHandler telemetry', () => {
       overrides?.refresh ?? (async () => undefined),
       overrides?.downloadAllLogs ?? (async () => undefined),
       overrides?.clearLogs ?? (async () => undefined),
-      overrides?.sendOrgs ?? (async () => undefined),
       overrides?.setSelectedOrg ?? (() => undefined),
       overrides?.openDebugFlags ?? (async () => undefined),
       overrides?.openLog ?? (async () => undefined),
       overrides?.debugLog ?? (async () => undefined),
       overrides?.loadMore ?? (async () => undefined),
-      overrides?.setLoading ?? (() => undefined),
       overrides?.setSearchQuery ?? (async () => undefined),
       overrides?.setLogsColumns ?? (async () => undefined)
     );
@@ -103,102 +99,6 @@ suite('LogsMessageHandler telemetry', () => {
         measurements: { activeCount: 2 }
       }
     ]);
-  });
-
-  test('waits for org list before starting refresh on ready', async () => {
-    const events: Array<{ name: string; properties?: Record<string, string>; measurements?: Record<string, number> }> = [];
-    const calls: string[] = [];
-    let releaseSendOrgs: (() => void) | undefined;
-    const sendOrgsStarted = new Promise<void>(resolve => {
-      releaseSendOrgs = resolve;
-    });
-
-    const { LogsMessageHandler } = proxyquire('../provider/logsMessageHandler', {
-      '../shared/telemetry': {
-        safeSendEvent: (name: string, properties?: Record<string, string>, measurements?: Record<string, number>) => {
-          events.push({ name, properties, measurements });
-        },
-        '@noCallThru': true
-      },
-      '../../../../src/utils/logger': {
-        logInfo: () => undefined,
-        logWarn: () => undefined,
-        '@noCallThru': true
-      }
-    });
-
-    const handler = new LogsMessageHandler(
-      async () => {
-        calls.push('refresh');
-      },
-      async () => undefined,
-      async () => undefined,
-      async () => {
-        calls.push('sendOrgs');
-        await sendOrgsStarted;
-      },
-      () => undefined,
-      async () => undefined,
-      async () => undefined,
-      async () => undefined,
-      async () => undefined,
-      (value: boolean) => calls.push(`loading:${value}`),
-      async () => undefined,
-      async () => undefined
-    );
-
-    const pending = handler.handle({ type: 'ready' } as any);
-    await new Promise(resolve => setTimeout(resolve, 10));
-
-    assert.deepEqual(calls, ['loading:true', 'sendOrgs']);
-
-    releaseSendOrgs?.();
-    await new Promise(resolve => setTimeout(resolve, 10));
-    assert.deepEqual(calls.slice(0, 3), ['loading:true', 'sendOrgs', 'refresh']);
-    await pending;
-
-    assert.equal(calls.at(-1), 'loading:false');
-    assert.equal(events.length, 0);
-  });
-
-  test('surfaces sendOrgs failure before starting refresh on ready', async () => {
-    const calls: string[] = [];
-    const sendOrgsError = new Error('sendOrgs failed');
-
-    const { LogsMessageHandler } = proxyquire('../provider/logsMessageHandler', {
-      '../shared/telemetry': {
-        safeSendEvent: () => undefined,
-        '@noCallThru': true
-      },
-      '../../../../src/utils/logger': {
-        logInfo: () => undefined,
-        logWarn: () => undefined,
-        '@noCallThru': true
-      }
-    });
-
-    const handler = new LogsMessageHandler(
-      async () => {
-        calls.push('refresh');
-      },
-      async () => undefined,
-      async () => undefined,
-      async () => {
-        calls.push('sendOrgs');
-        throw sendOrgsError;
-      },
-      () => undefined,
-      async () => undefined,
-      async () => undefined,
-      async () => undefined,
-      async () => undefined,
-      (value: boolean) => calls.push(`loading:${value}`),
-      async () => undefined,
-      async () => undefined
-    );
-
-    await assert.rejects(handler.handle({ type: 'ready' } as any), error => error === sendOrgsError);
-    assert.deepEqual(calls, ['loading:true', 'sendOrgs', 'loading:false']);
   });
 
   test('ignores malformed openLog payloads before invoking callbacks', async () => {

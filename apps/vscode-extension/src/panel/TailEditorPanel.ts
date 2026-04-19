@@ -6,6 +6,14 @@ interface ShowOptions {
   selectedOrg?: string;
 }
 
+function disposeAll(disposables: vscode.Disposable[]): void {
+  for (const disposable of disposables.splice(0, disposables.length)) {
+    try {
+      disposable.dispose();
+    } catch {}
+  }
+}
+
 export class TailEditorPanel {
   private static context: vscode.ExtensionContext | undefined;
   private static instance: TailEditorPanel | undefined;
@@ -30,29 +38,42 @@ export class TailEditorPanel {
     this.instance = new TailEditorPanel(context, options);
   }
 
-  private readonly panel: vscode.WebviewPanel;
   private readonly controller: SfLogTailViewProvider;
+  private readonly context: vscode.ExtensionContext;
+  private readonly instanceDisposables: vscode.Disposable[] = [];
+  private panel: vscode.WebviewPanel;
+  private panelDisposables: vscode.Disposable[] = [];
+  private recreating = false;
+  private retryAttempted = false;
 
   private constructor(context: vscode.ExtensionContext, options?: ShowOptions) {
+    this.context = context;
     this.controller = new SfLogTailViewProvider(context);
     if (typeof options?.selectedOrg === 'string' && options.selectedOrg.trim()) {
       this.controller.setSelectedOrg(options.selectedOrg);
     }
+    this.instanceDisposables.push(
+      this.controller.onDidReadyTimeout(() => {
+        void this.handleReadyTimeout();
+      })
+    );
 
-    this.panel = vscode.window.createWebviewPanel(
+    this.panel = this.createPanel();
+    this.bindPanel(this.panel);
+  }
+
+  private createPanel(): vscode.WebviewPanel {
+    const panel = vscode.window.createWebviewPanel(
       TailEditorPanel.viewType,
       localize('salesforce.tail.view.name', 'Electivus Apex Logs Tail'),
       { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
       {
         enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
+        localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
       }
     );
-
-    this.controller.resolveWebviewPanel(this.panel);
-    this.panel.onDidDispose(() => this.dispose());
-    context.subscriptions.push(this.panel);
+    this.context.subscriptions.push(panel);
+    return panel;
   }
 
   private reveal(): void {
@@ -63,10 +84,46 @@ export class TailEditorPanel {
     await this.controller.syncSelectedOrg(selectedOrg);
   }
 
+  private bindPanel(panel: vscode.WebviewPanel): void {
+    disposeAll(this.panelDisposables);
+    this.panel = panel;
+    this.controller.resolveWebviewPanel(panel);
+    this.panelDisposables.push(
+      panel.onDidDispose(() => {
+        this.handlePanelDisposed();
+      })
+    );
+  }
+
+  private async handleReadyTimeout(): Promise<void> {
+    if (this.retryAttempted || this.recreating || !this.panel.visible) {
+      return;
+    }
+    this.retryAttempted = true;
+    this.recreating = true;
+    const nextPanel = this.createPanel();
+    const oldPanel = this.panel;
+    this.bindPanel(nextPanel);
+    try {
+      oldPanel.dispose();
+    } finally {
+      this.recreating = false;
+    }
+  }
+
+  private handlePanelDisposed(): void {
+    if (this.recreating) {
+      return;
+    }
+    this.dispose();
+  }
+
   private dispose(): void {
     if (TailEditorPanel.instance === this) {
       TailEditorPanel.instance = undefined;
     }
+    disposeAll(this.panelDisposables);
+    disposeAll(this.instanceDisposables);
     this.controller.dispose();
   }
 }
