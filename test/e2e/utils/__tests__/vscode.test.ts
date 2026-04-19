@@ -51,19 +51,26 @@ describe('resolveCliSpawnInvocation', () => {
     );
   });
 
-  test('wraps Windows .cmd CLIs through cmd.exe with quoted arguments', () => {
-    const invocation = resolveCliSpawnInvocation(
+  test('wraps Windows .cmd CLIs through cmd.exe with separate arguments', () => {
+    expect(
+      resolveCliSpawnInvocation(
       'C:\\VS Code\\bin\\code.cmd',
       ['--extensions-dir', 'C:\\Temp\\support extensions', '--install-extension', 'publisher.extension'],
       'win32'
-    );
-
-    expect(invocation.command).toBe(process.env.ComSpec || 'cmd.exe');
-    expect(invocation.args.slice(0, 3)).toEqual(['/d', '/s', '/c']);
-    expect(invocation.args[3]).toContain('"C:\\VS Code\\bin\\code.cmd"');
-    expect(invocation.args[3]).toContain('--extensions-dir');
-    expect(invocation.args[3]).toContain('"C:\\Temp\\support extensions"');
-    expect(invocation.args[3]).toContain('publisher.extension');
+      )
+    ).toEqual({
+      command: process.env.ComSpec || 'cmd.exe',
+      args: [
+        '/d',
+        '/s',
+        '/c',
+        'C:\\VS Code\\bin\\code.cmd',
+        '--extensions-dir',
+        'C:\\Temp\\support extensions',
+        '--install-extension',
+        'publisher.extension'
+      ]
+    });
   });
 });
 

@@ -104,14 +104,6 @@ export function createMissingSupportExtensionsError(missingExtensionIds: string[
   );
 }
 
-function quoteWindowsShellArg(value: string): string {
-  if (!value.length) {
-    return '""';
-  }
-
-  return /[\s"&()[\]{}^=;!'+,`~|<>]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
 export function resolveCliSpawnInvocation(
   cliPath: string,
   cliArgs: string[] = [],
@@ -122,7 +114,7 @@ export function resolveCliSpawnInvocation(
     // VS Code CLI through `cmd.exe` when the resolved launcher is a batch file.
     return {
       command: process.env.ComSpec || 'cmd.exe',
-      args: ['/d', '/s', '/c', [cliPath, ...cliArgs].map(quoteWindowsShellArg).join(' ')]
+      args: ['/d', '/s', '/c', cliPath, ...cliArgs]
     };
   }
 
@@ -292,8 +284,9 @@ function installExtensions(args: {
       args.extensionsDir
     ]);
     const res = spawnSync(invocation.command, invocation.args, {
-      stdio: ['ignore', 'inherit', 'inherit'],
+      stdio: ['pipe', 'inherit', 'inherit'],
       encoding: 'utf8',
+      input: 'y\n',
       env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
     });
     if (res.error || res.status !== 0) {
