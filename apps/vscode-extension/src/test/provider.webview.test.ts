@@ -1,6 +1,7 @@
 import assert from 'assert/strict';
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { createWebviewPanelHost } from '../provider/webviewHost';
 import {
   SfLogsViewProvider,
   WEBVIEW_READY_TIMEOUT_MS,
@@ -74,7 +75,7 @@ class MockWebviewPanel implements vscode.WebviewPanel {
   public viewColumn: vscode.ViewColumn = vscode.ViewColumn.Active;
   public webview: vscode.Webview;
   private disposeListener: (() => void) | undefined;
-  private viewStateListener: ((event: vscode.WebviewPanelOnDidChangeViewStateEvent) => void) | undefined;
+  private viewStateListeners: Array<(event: vscode.WebviewPanelOnDidChangeViewStateEvent) => void> = [];
 
   constructor(
     public viewType: string,
@@ -97,13 +98,15 @@ class MockWebviewPanel implements vscode.WebviewPanel {
   }
 
   onDidChangeViewState(listener: (e: vscode.WebviewPanelOnDidChangeViewStateEvent) => any): vscode.Disposable {
-    this.viewStateListener = listener;
+    this.viewStateListeners.push(listener);
     return new MockDisposable();
   }
 
   fireVisible(visible = true): void {
     this.visible = visible;
-    this.viewStateListener?.({ webviewPanel: this } as vscode.WebviewPanelOnDidChangeViewStateEvent);
+    for (const listener of this.viewStateListeners) {
+      listener({ webviewPanel: this } as vscode.WebviewPanelOnDidChangeViewStateEvent);
+    }
   }
 }
 
@@ -166,6 +169,29 @@ suite('SfLogsViewProvider webview', () => {
     } finally {
       clock.dispose();
     }
+  });
+
+  test('editor visibility callbacks fire only on actual visibility transitions', () => {
+    const panel = new MockWebviewPanel('sfLogViewer.editorPanel', new MockWebview());
+    const host = createWebviewPanelHost(panel);
+    const transitions: boolean[] = [];
+    let becameVisibleCount = 0;
+
+    host.onDidChangeVisibility(visible => {
+      transitions.push(visible);
+    });
+    host.onDidBecomeVisible(() => {
+      becameVisibleCount += 1;
+    });
+
+    panel.fireVisible(true);
+    panel.fireVisible(false);
+    panel.fireVisible(false);
+    panel.fireVisible(true);
+    panel.fireVisible(true);
+
+    assert.deepEqual(transitions, [false, true]);
+    assert.equal(becameVisibleCount, 1);
   });
 
   test('retries timed-out sidebar mounts while the view stays visible', async () => {

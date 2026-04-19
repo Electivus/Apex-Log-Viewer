@@ -37,6 +37,18 @@ export function createWebviewViewHost(view: vscode.WebviewView): BoundWebviewHos
 }
 
 export function createWebviewPanelHost(panel: vscode.WebviewPanel): BoundWebviewHost {
+  const onVisibilityTransition = (listener: (visible: boolean) => void): vscode.Disposable => {
+    let lastVisible = panel.visible;
+    return panel.onDidChangeViewState(event => {
+      const visible = event.webviewPanel.visible;
+      if (visible === lastVisible) {
+        return;
+      }
+      lastVisible = visible;
+      listener(visible);
+    });
+  };
+
   return {
     kind: 'editor',
     get webview() {
@@ -49,13 +61,11 @@ export function createWebviewPanelHost(panel: vscode.WebviewPanel): BoundWebview
       return panel.onDidDispose(listener);
     },
     onDidChangeVisibility(listener: (visible: boolean) => void): vscode.Disposable {
-      return panel.onDidChangeViewState(event => {
-        listener(event.webviewPanel.visible);
-      });
+      return onVisibilityTransition(listener);
     },
     onDidBecomeVisible(listener: () => void): vscode.Disposable {
-      return panel.onDidChangeViewState(event => {
-        if (event.webviewPanel.visible) {
+      return onVisibilityTransition(visible => {
+        if (visible) {
           listener();
         }
       });
