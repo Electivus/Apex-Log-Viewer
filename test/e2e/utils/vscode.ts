@@ -104,6 +104,23 @@ export function createMissingSupportExtensionsError(missingExtensionIds: string[
   );
 }
 
+export function resolveCliSpawnInvocation(
+  cliPath: string,
+  cliArgs: string[] = [],
+  targetPlatform: NodeJS.Platform = process.platform
+): { command: string; args: string[] } {
+  if (targetPlatform === 'win32' && /\.cmd$/i.test(cliPath)) {
+    // `spawnSync(code.cmd, ...)` can fail with EINVAL on Windows, so route the
+    // VS Code CLI through `cmd.exe` when the resolved launcher is a batch file.
+    return {
+      command: process.env.ComSpec || 'cmd.exe',
+      args: ['/d', '/s', '/c', 'call', cliPath, ...cliArgs]
+    };
+  }
+
+  return { command: cliPath, args: cliArgs };
+}
+
 export function resolveWindowSizeArg(windowSize?: Partial<VscodeWindowSize>): string | undefined {
   const width = Number(windowSize?.width);
   const height = Number(windowSize?.height);
@@ -256,27 +273,32 @@ function installExtensions(args: {
 }): void {
   for (const id of args.extensionIds) {
     console.log(`[e2e] Installing VS Code support extension: ${id}`);
-    const res = spawnSync(
-      args.cliPath,
-      [
-        ...args.cliArgs,
-        '--install-extension',
-        id,
-        '--force',
-        '--user-data-dir',
-        args.userDataDir,
-        '--extensions-dir',
-        args.extensionsDir
-      ],
-      {
-        stdio: ['pipe', 'inherit', 'inherit'],
-        encoding: 'utf8',
-        input: 'y\n',
-        env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
-      }
-    );
-    if (res.status !== 0) {
-      console.warn(`[e2e] Failed to install VS Code support extension: ${id}`);
+    const invocation = resolveCliSpawnInvocation(args.cliPath, [
+      ...args.cliArgs,
+      '--install-extension',
+      id,
+      '--force',
+      '--user-data-dir',
+      args.userDataDir,
+      '--extensions-dir',
+      args.extensionsDir
+    ]);
+    const res = spawnSync(invocation.command, invocation.args, {
+      stdio: ['pipe', 'inherit', 'inherit'],
+      encoding: 'utf8',
+      input: 'y\n',
+      env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
+    });
+    if (res.error || res.status !== 0) {
+      const details = [
+        typeof res.status === 'number' ? `exit code ${res.status}` : undefined,
+        res.error?.message
+      ]
+        .filter(Boolean)
+        .join('; ');
+      console.warn(
+        `[e2e] Failed to install VS Code support extension: ${id}${details ? ` (${details})` : ''}`
+      );
     }
   }
 }

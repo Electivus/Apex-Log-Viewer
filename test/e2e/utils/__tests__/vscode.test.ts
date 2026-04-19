@@ -2,6 +2,7 @@ import path from 'node:path';
 import {
   createMissingSupportExtensionsError,
   resolveCachedSupportExtensionsDir,
+  resolveCliSpawnInvocation,
   resolveExtensionDevelopmentPath,
   resolveSupportExtensionsLockPath,
   resolveVscodeCachePath,
@@ -37,6 +38,40 @@ describe('missing support extensions', () => {
       '[e2e] Required VS Code support extensions are missing from the isolated profile: ' +
         'salesforce.salesforcedx-vscode-core, salesforce.salesforcedx-vscode-apex-replay-debugger'
     );
+  });
+});
+
+describe('resolveCliSpawnInvocation', () => {
+  test('keeps direct CLI execution on non-Windows platforms', () => {
+    expect(resolveCliSpawnInvocation('/usr/local/bin/code', ['--install-extension', 'publisher.extension'], 'linux')).toEqual(
+      {
+        command: '/usr/local/bin/code',
+        args: ['--install-extension', 'publisher.extension']
+      }
+    );
+  });
+
+  test('wraps Windows .cmd CLIs through cmd.exe with separate arguments', () => {
+    expect(
+      resolveCliSpawnInvocation(
+        'C:\\VS Code\\bin\\code.cmd',
+        ['--extensions-dir', 'C:\\Temp\\support extensions', '--install-extension', 'publisher.extension'],
+        'win32'
+      )
+    ).toEqual({
+      command: process.env.ComSpec || 'cmd.exe',
+      args: [
+        '/d',
+        '/s',
+        '/c',
+        'call',
+        'C:\\VS Code\\bin\\code.cmd',
+        '--extensions-dir',
+        'C:\\Temp\\support extensions',
+        '--install-extension',
+        'publisher.extension'
+      ]
+    });
   });
 });
 
