@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { PassThrough } from 'stream';
 import proxyquire from 'proxyquire';
-import { TailService } from '../../../../src/utils/tailService';
+import { MAX_TAIL_BUFFER_LINES, TailService } from '../../../../src/utils/tailService';
 import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
 import * as cli from '../../../../src/salesforce/cli';
 import * as http from '../../../../src/salesforce/http';
@@ -395,6 +395,15 @@ suite('TailService', () => {
     assert.equal((service as any).lastReplayId, undefined);
   });
 
+  test('setBufferLimit clamps to the shared maximum and trims buffered replay lines', () => {
+    const service = new TailService(() => {});
+    (service as any).bufferedLines = Array.from({ length: MAX_TAIL_BUFFER_LINES + 25 }, (_, index) => `line-${index}`);
+
+    service.setBufferLimit(Number.MAX_SAFE_INTEGER);
+
+    assert.equal(service.getBufferedLines().length, MAX_TAIL_BUFFER_LINES);
+  });
+
   test('selectOrg resets caches and stops tail', async () => {
     const context = {
       extensionUri: vscode.Uri.file(path.resolve('.')),
@@ -772,6 +781,59 @@ suite('TailService', () => {
 
       await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
       assert.ok(webview.html.includes('media/tail.js'), 'visible sidebar should auto-remount after timeout');
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('tail remount replays the latest error until successful data clears it', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const posted: any[] = [];
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      (provider as any).post({ type: 'error', message: 'tail failed' });
+      posted.length = 0;
+
+      view.fireVisible(false);
+      view.fireVisible(true);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === 'tail failed'),
+        true
+      );
+
+      (provider as any).post({ type: 'tailData', lines: ['USER_DEBUG|hello'] });
+      posted.length = 0;
+
+      view.fireVisible(false);
+      view.fireVisible(true);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.equal(
+        posted.some(message => message?.type === 'error'),
+        false
+      );
     } finally {
       clock.dispose();
     }

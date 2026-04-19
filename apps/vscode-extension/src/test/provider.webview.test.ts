@@ -385,4 +385,59 @@ suite('SfLogsViewProvider webview', () => {
       clock.dispose();
     }
   });
+
+  test('replays the latest logs error across remounts until logs clear it', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const posted: any[] = [];
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      (provider as any).post({ type: 'error', message: 'load failed' });
+      posted.length = 0;
+
+      view.fireVisible(false);
+      view.fireVisible(true);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === 'load failed'),
+        true
+      );
+
+      (provider as any).setCurrentLogs([]);
+      (provider as any).post({ type: 'logs', data: [], hasMore: false });
+      posted.length = 0;
+
+      view.fireVisible(false);
+      view.fireVisible(true);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.equal(
+        posted.some(message => message?.type === 'error'),
+        false
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
 });

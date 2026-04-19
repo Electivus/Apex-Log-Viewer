@@ -24,6 +24,10 @@ import { requestTextWithConnection } from '../salesforce/jsforce';
 /**
  * Handles Apex log tailing mechanics independent of the webview.
  */
+export const DEFAULT_TAIL_BUFFER_LINES = 10000;
+export const MIN_TAIL_BUFFER_LINES = 1000;
+export const MAX_TAIL_BUFFER_LINES = 200000;
+
 export class TailService {
   private tailRunning = false;
   private tailHardStopTimer: NodeJS.Timeout | undefined;
@@ -39,7 +43,7 @@ export class TailService {
   private streamingClient: StreamingClient | undefined;
   private connection: Connection | undefined;
   private lastReplayId: number | undefined;
-  private bufferLimit = 10000;
+  private bufferLimit = DEFAULT_TAIL_BUFFER_LINES;
   private bufferedLines: string[] = [];
 
   constructor(private readonly post: (msg: ExtensionToWebviewMessage) => void) {}
@@ -56,7 +60,7 @@ export class TailService {
     if (!Number.isFinite(limit)) {
       return;
     }
-    this.bufferLimit = Math.max(1000, Math.floor(limit));
+    this.bufferLimit = Math.max(MIN_TAIL_BUFFER_LINES, Math.min(MAX_TAIL_BUFFER_LINES, Math.floor(limit)));
     this.trimBufferedLines();
   }
 
@@ -305,13 +309,12 @@ export class TailService {
     try {
       const auth = this.currentAuth ?? (await this.getOrgAuth());
       this.currentAuth = auth;
-      const conn =
-        this.connection
-          ? await this.getActiveConnection(auth).catch(error => {
-              logWarn('Tail: failed to refresh active connection; falling back to HTTP path ->', getErrorMessage(error));
-              return undefined;
-            })
-          : undefined;
+      const conn = this.connection
+        ? await this.getActiveConnection(auth).catch(error => {
+            logWarn('Tail: failed to refresh active connection; falling back to HTTP path ->', getErrorMessage(error));
+            return undefined;
+          })
+        : undefined;
       if (!conn) {
         // fallback: use existing HTTP path
         const body = await fetchApexLogBody(auth, id);
@@ -372,14 +375,14 @@ export class TailService {
     if (!Array.isArray(lines) || lines.length === 0) {
       return;
     }
-    this.bufferedLines = this.bufferedLines.concat(lines);
+    this.bufferedLines.push(...lines);
     this.trimBufferedLines();
   }
 
   private trimBufferedLines(): void {
     const drop = Math.max(0, this.bufferedLines.length - this.bufferLimit);
     if (drop > 0) {
-      this.bufferedLines = this.bufferedLines.slice(drop);
+      this.bufferedLines.splice(0, drop);
     }
   }
 
@@ -403,16 +406,18 @@ export class TailService {
     const connection =
       this.connection && !signal?.aborted
         ? await this.getActiveConnection(auth).catch(error => {
-            logWarn('Tail: failed to refresh active connection for save; falling back to HTTP path ->', getErrorMessage(error));
+            logWarn(
+              'Tail: failed to refresh active connection for save; falling back to HTTP path ->',
+              getErrorMessage(error)
+            );
             return undefined;
           })
         : undefined;
-    const body =
-      connection
-        ? await this.fetchLogBodyFromConnection(auth, connection, logId, signal).catch(() =>
-            fetchApexLogBody(auth, logId, undefined, signal)
-          )
-        : await fetchApexLogBody(auth, logId, undefined, signal);
+    const body = connection
+      ? await this.fetchLogBodyFromConnection(auth, connection, logId, signal).catch(() =>
+          fetchApexLogBody(auth, logId, undefined, signal)
+        )
+      : await fetchApexLogBody(auth, logId, undefined, signal);
     const { filePath } = await this.getLogFilePathWithUsername(auth.username, logId);
     await fs.writeFile(filePath, body, 'utf8');
     this.addLogPath(logId, filePath);
@@ -420,12 +425,19 @@ export class TailService {
     return filePath;
   }
 
-  private async fetchLogMetadataFromConnection(connection: Connection, logId: string): Promise<Record<string, unknown> | undefined> {
-    const escapedId = String(logId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  private async fetchLogMetadataFromConnection(
+    connection: Connection,
+    logId: string
+  ): Promise<Record<string, unknown> | undefined> {
+    const escapedId = String(logId || '')
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'");
     const result = await connection.tooling.query<Record<string, unknown>>(
       `SELECT Id, StartTime, Operation, Status, LogLength FROM ApexLog WHERE Id = '${escapedId}' LIMIT 1`
     );
-    return Array.isArray((result as any)?.records) ? ((result as any).records[0] as Record<string, unknown> | undefined) : undefined;
+    return Array.isArray((result as any)?.records)
+      ? ((result as any).records[0] as Record<string, unknown> | undefined)
+      : undefined;
   }
 
   private async fetchLogBodyFromConnection(

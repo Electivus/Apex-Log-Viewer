@@ -35,7 +35,7 @@ export type WebviewToExtensionMessage =
 // Messages sent from Extension -> Webview
 export type ExtensionToWebviewMessage =
   | { type: 'loading'; value: boolean }
-  | { type: 'error'; message: string }
+  | { type: 'error'; message?: string }
   | { type: 'warning'; message?: string }
   | { type: 'init'; locale: string; fullLogSearchEnabled?: boolean; logsColumns?: NormalizedLogsColumnsConfig }
   | { type: 'logsColumns'; value: NormalizedLogsColumnsConfig }

@@ -118,6 +118,7 @@
           "type": "number",
           "default": 10000,
           "minimum": 1000,
+          "maximum": 200000,
           "markdownDescription": "%configuration.electivus.apexLogs.tailBufferSize.description%"
         },
         "electivus.apexLogs.cliCache.enabled": {
@@ -300,6 +301,7 @@
           "type": "number",
           "default": 10000,
           "minimum": 1000,
+          "maximum": 200000,
           "markdownDescription": "%configuration.electivus.apexLogs.tailBufferSize.description%",
           "deprecationMessage": "Deprecated: use electivus.apexLogs.tailBufferSize"
         },

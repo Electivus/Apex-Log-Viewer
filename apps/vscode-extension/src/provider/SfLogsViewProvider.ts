@@ -70,6 +70,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private hasOrgsSnapshot = false;
   private logHeadByLogId = new Map<string, LogHeadSnapshot>();
   private errorByLogId = new Map<string, LogTriageSummary>();
+  private errorMessage: string | undefined;
   private warningMessage: string | undefined;
   private loadingState = false;
   private errorScanStatusSnapshot: {
@@ -1554,6 +1555,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         selected: this.selectedOrgSnapshot
       });
     }
+    if (this.errorMessage !== undefined) {
+      this.post({ type: 'error', message: this.errorMessage });
+    }
     this.post({ type: 'warning', message: this.warningMessage });
     this.post({ type: 'loading', value: this.loadingState });
     this.post({ type: 'errorScanStatus', ...this.errorScanStatusSnapshot });
@@ -1638,6 +1642,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       case 'warning':
         this.warningMessage = msg.message;
         break;
+      case 'error':
+        this.errorMessage = msg.message;
+        break;
       case 'orgs':
         this.hasOrgsSnapshot = true;
         this.orgsSnapshot = Array.isArray(msg.data) ? [...msg.data] : [];
@@ -1646,6 +1653,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       case 'logs':
         this.hasLogsSnapshot = true;
         this.currentHasMore = !!msg.hasMore;
+        this.errorMessage = undefined;
         break;
       case 'appendLogs':
         this.hasLogsSnapshot = true;

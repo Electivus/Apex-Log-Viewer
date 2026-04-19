@@ -11,7 +11,12 @@ import { logInfo, logWarn } from '../../../../src/utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
 import { ensureReplayDebuggerAvailable } from '../../../../src/utils/replayDebugger';
 import { buildWebviewHtml } from '../../../../src/utils/webviewHtml';
-import { TailService } from '../../../../src/utils/tailService';
+import {
+  DEFAULT_TAIL_BUFFER_LINES,
+  MAX_TAIL_BUFFER_LINES,
+  MIN_TAIL_BUFFER_LINES,
+  TailService
+} from '../../../../src/utils/tailService';
 import { pickSelectedOrg } from '../../../../src/utils/orgs';
 import { getNumberConfig, affectsConfiguration } from '../../../../src/utils/config';
 import { getErrorMessage } from '../../../../src/utils/error';
@@ -45,7 +50,8 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   private activeDebugLevelSnapshot: string | undefined;
   private hasDebugLevelsSnapshot = false;
   private tailRunningSnapshot = false;
-  private tailBufferSizeSnapshot = 10000;
+  private tailBufferSizeSnapshot = DEFAULT_TAIL_BUFFER_LINES;
+  private errorMessage: string | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.tailService.setOrg(this.selectedOrg);
@@ -324,6 +330,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
 
   private replaySnapshot(): void {
     this.post({ type: 'loading', value: this.loadingState });
+    if (this.errorMessage !== undefined) {
+      this.post({ type: 'error', message: this.errorMessage });
+    }
     if (this.hasOrgsSnapshot) {
       this.post({ type: 'orgs', data: this.orgsSnapshot, selected: this.selectedOrg });
     }
@@ -344,6 +353,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       case 'loading':
         this.loadingState = !!msg.value;
         break;
+      case 'error':
+        this.errorMessage = msg.message;
+        break;
       case 'orgs':
         this.hasOrgsSnapshot = true;
         this.orgsSnapshot = Array.isArray(msg.data) ? [...msg.data] : [];
@@ -356,6 +368,14 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         break;
       case 'tailStatus':
         this.tailRunningSnapshot = !!msg.running;
+        if (msg.running) {
+          this.errorMessage = undefined;
+        }
+        break;
+      case 'tailData':
+        if (Array.isArray(msg.lines) && msg.lines.length > 0) {
+          this.errorMessage = undefined;
+        }
         break;
       case 'tailConfig':
         this.tailBufferSizeSnapshot = msg.tailBufferSize;
@@ -365,7 +385,12 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   }
 
   private getTailBufferSize(): number {
-    return getNumberConfig('sfLogs.tailBufferSize', 10000, 1000, Number.MAX_SAFE_INTEGER);
+    return getNumberConfig(
+      'sfLogs.tailBufferSize',
+      DEFAULT_TAIL_BUFFER_LINES,
+      MIN_TAIL_BUFFER_LINES,
+      MAX_TAIL_BUFFER_LINES
+    );
   }
 
   public async sendOrgs(): Promise<void> {
