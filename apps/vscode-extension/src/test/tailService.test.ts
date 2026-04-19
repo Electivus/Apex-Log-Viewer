@@ -412,17 +412,29 @@ suite('TailService', () => {
     const provider = new SfLogTailViewProvider(context);
     const webview = new MockWebview();
     const view = new MockWebviewView(webview);
+    const posted: any[] = [];
+    webview.postMessage = (message: any) => {
+      posted.push(message);
+      return Promise.resolve(true);
+    };
     (provider as any).sendOrgs = async () => {};
     (provider as any).sendDebugLevels = async () => {};
     await provider.resolveWebviewView(view);
     const service = (provider as any).tailService;
     (service as any).seenLogIds.add('x');
     (service as any).logIdToPath.set('x', 'y');
+    (service as any).bufferedLines = ['USER_DEBUG|stale'];
     (service as any).tailRunning = true;
     await webview.emit({ type: 'selectOrg', target: 'newOrg' });
     assert.equal((service as any).seenLogIds.size, 0);
     assert.equal((service as any).logIdToPath.size, 0);
+    assert.deepEqual(service.getBufferedLines(), []);
     assert.equal(service.isRunning(), false);
+    assert.equal(
+      posted.some(message => message?.type === 'tailReset'),
+      true,
+      'switching orgs should clear the visible tail buffer'
+    );
   });
 
   test('sendDebugLevels selects the first available level when no active trace flag exists', async () => {
@@ -1008,10 +1020,16 @@ suite('TailService', () => {
     const webview = new MockWebview();
     const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
     const calls: string[] = [];
+    const posted: any[] = [];
+    webview.postMessage = (message: any) => {
+      posted.push(message);
+      return Promise.resolve(true);
+    };
 
     provider.resolveWebviewPanel(panel);
     provider.setSelectedOrg('tail-first@example.com');
     (provider as any).tailService.setOrg('tail-first@example.com');
+    (provider as any).tailService.bufferedLines = ['USER_DEBUG|stale'];
     (provider as any).tailService.tailRunning = true;
     (provider as any).refreshViewState = async () => {
       calls.push('refreshViewState');
@@ -1020,7 +1038,13 @@ suite('TailService', () => {
     await provider.syncSelectedOrg('tail-second@example.com');
 
     assert.equal(provider.getSelectedOrg(), 'tail-second@example.com');
+    assert.deepEqual((provider as any).tailService.getBufferedLines(), []);
     assert.equal((provider as any).tailService.isRunning(), false, 'should stop the previous tail session');
+    assert.equal(
+      posted.some(message => message?.type === 'tailReset'),
+      true,
+      'syncSelectedOrg should clear buffered lines before refreshing the next org'
+    );
     assert.deepEqual(calls, ['refreshViewState']);
   });
 });

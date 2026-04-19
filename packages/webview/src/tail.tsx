@@ -48,7 +48,8 @@ export function TailApp({
   vscode = getDefaultVsCodeApi<WebviewToExtensionMessage>(),
   messageBus = getDefaultMessageBus()
 }: TailAppProps = {}) {
-  const initialUiStateRef = useRef<TailUiState>(readInitialUiState(vscode));
+  const [initialUiState] = useState<TailUiState>(() => readInitialUiState(vscode));
+  const initialUiStateRef = useRef<TailUiState>(initialUiState);
   const [locale, setLocale] = useState('en');
   const [orgs, setOrgs] = useState<OrgItem[]>([]);
   const [selectedOrg, setSelectedOrg] = useState<string | undefined>(undefined);

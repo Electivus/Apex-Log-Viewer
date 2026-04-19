@@ -65,7 +65,8 @@ export function LogsApp({
   vscode = getDefaultVsCodeApi<WebviewToExtensionMessage>(),
   messageBus = getDefaultMessageBus()
 }: LogsAppProps = {}) {
-  const initialUiStateRef = useRef<LogsUiState>(readInitialUiState(vscode));
+  const [initialUiState] = useState<LogsUiState>(() => readInitialUiState(vscode));
+  const initialUiStateRef = useRef<LogsUiState>(initialUiState);
   const [locale, setLocale] = useState('en');
   const [t, setT] = useState<Messages>(() => getMessages('en'));
   const [loading, setLoading] = useState(false);

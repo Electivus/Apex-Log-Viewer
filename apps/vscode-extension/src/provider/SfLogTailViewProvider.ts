@@ -121,6 +121,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       this.tailService.setOrg(next);
       if (prev !== next) {
         this.tailService.stop();
+        this.clearTailReplayState();
       }
       logInfo('Tail: selected org set to', next || '(none)');
       this.post({ type: 'loading', value: true });
@@ -361,6 +362,11 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     }
   }
 
+  private clearTailReplayState(): void {
+    this.tailService.clearBufferedLines();
+    this.post({ type: 'tailReset' });
+  }
+
   private post(msg: ExtensionToWebviewMessage, options?: { replay?: boolean }): void {
     let shouldClearWebviewError = false;
     switch (msg.type) {
@@ -473,6 +479,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     this.tailService.setOrg(next);
     if (previous !== next) {
       this.tailService.stop();
+      this.clearTailReplayState();
     }
 
     if (!this.view || this.disposed) {

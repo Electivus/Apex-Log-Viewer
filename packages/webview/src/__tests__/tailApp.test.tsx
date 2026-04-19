@@ -12,11 +12,15 @@ describe('Tail webview App', () => {
   function createVsCodeMock(initialState?: unknown) {
     const posted: WebviewToExtensionMessage[] = [];
     let savedState = initialState;
+    let getStateCallCount = 0;
     const vscode: VsCodeWebviewApi<WebviewToExtensionMessage> = {
       postMessage: msg => {
         posted.push(msg);
       },
-      getState: () => savedState as any,
+      getState: () => {
+        getStateCallCount += 1;
+        return savedState as any;
+      },
       setState: state => {
         savedState = state;
       }
@@ -24,7 +28,8 @@ describe('Tail webview App', () => {
     return {
       vscode,
       posted,
-      getSavedState: () => savedState
+      getSavedState: () => savedState,
+      getStateCallCount: () => getStateCallCount
     };
   }
 
@@ -107,6 +112,19 @@ describe('Tail webview App', () => {
       );
     });
   }, 15000);
+
+  it('reads initial saved UI state only once across rerenders', async () => {
+    const { vscode, getStateCallCount } = createVsCodeMock({ query: 'seed query' });
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+
+    expect(getStateCallCount()).toBe(1);
+
+    send(bus, { type: 'tailStatus', running: true });
+    await screen.findByText('Stop');
+
+    expect(getStateCallCount()).toBe(1);
+  });
 
   it('falls back to the first available debug level when the active selection changes', async () => {
     const { vscode, posted } = createVsCodeMock();

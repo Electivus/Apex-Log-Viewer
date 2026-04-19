@@ -9,11 +9,15 @@ describe('Logs webview App', () => {
   function createVsCodeMock(initialState?: unknown) {
     const posted: WebviewToExtensionMessage[] = [];
     let savedState = initialState;
+    let getStateCallCount = 0;
     const vscode: VsCodeWebviewApi<WebviewToExtensionMessage> = {
       postMessage: msg => {
         posted.push(msg);
       },
-      getState: () => savedState as any,
+      getState: () => {
+        getStateCallCount += 1;
+        return savedState as any;
+      },
       setState: state => {
         savedState = state;
       }
@@ -21,7 +25,8 @@ describe('Logs webview App', () => {
     return {
       vscode,
       posted,
-      getSavedState: () => savedState
+      getSavedState: () => savedState,
+      getStateCallCount: () => getStateCallCount
     };
   }
 
@@ -231,6 +236,19 @@ describe('Logs webview App', () => {
       const loadCalls = posted.filter(msg => msg.type === 'loadMore').length;
       expect(loadCalls).toBeGreaterThan(baselineLoads);
     });
+  });
+
+  it('reads initial saved UI state only once across rerenders', async () => {
+    const { vscode, getStateCallCount } = createVsCodeMock({ query: 'seed query' });
+    const bus = new EventTarget();
+    render(<LogsApp vscode={vscode} messageBus={bus} />);
+
+    expect(getStateCallCount()).toBe(1);
+
+    sendMessage(bus, { type: 'loading', value: true });
+    await screen.findAllByText('Loading…');
+
+    expect(getStateCallCount()).toBe(1);
   });
 
   it('surfaces manual pagination even when no filters are active', async () => {
