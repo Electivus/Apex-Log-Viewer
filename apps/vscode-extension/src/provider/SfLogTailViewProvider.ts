@@ -331,6 +331,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       this.debugLevelsBootstrapNeedsRefresh;
     if (needsBootstrap) {
       await this.refreshViewState();
+      return;
+    }
+    if (this.mountSequence > 1) {
+      void this.refreshViewState({ showLoading: false });
     }
   }
 
@@ -433,19 +437,24 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     }
   }
 
-  public async refreshViewState(): Promise<void> {
+  public async refreshViewState(options?: { showLoading?: boolean }): Promise<void> {
     if (!this.view || this.disposed) {
       return;
     }
 
-    this.post({ type: 'loading', value: true });
+    const showLoading = options?.showLoading !== false;
+    if (showLoading) {
+      this.post({ type: 'loading', value: true });
+    }
     try {
       await this.sendOrgs();
       await this.sendDebugLevels();
       this.post({ type: 'tailConfig', tailBufferSize: this.getTailBufferSize() });
       this.post({ type: 'tailStatus', running: this.tailService.isRunning() });
     } finally {
-      this.post({ type: 'loading', value: false });
+      if (showLoading) {
+        this.post({ type: 'loading', value: false });
+      }
     }
   }
 

@@ -962,6 +962,43 @@ suite('TailService', () => {
     }
   });
 
+  test('tail remount refreshes cached metadata in the background', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const calls: Array<{ showLoading?: boolean }> = [];
+
+      (provider as any).post({ type: 'orgs', data: [], selected: undefined });
+      (provider as any).post({ type: 'debugLevels', data: [] });
+      (provider as any).refreshViewState = async (options?: { showLoading?: boolean }) => {
+        calls.push(options ?? {});
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.deepEqual(calls, [], 'initial ready should rely on the cached snapshot');
+
+      view.fireVisible(false);
+      view.fireVisible(true);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.deepEqual(calls, [{ showLoading: false }], 'remount should silently refresh cached metadata');
+    } finally {
+      clock.dispose();
+    }
+  });
+
   test('syncSelectedOrg refreshes an existing editor tail session and stops the current stream', async () => {
     const context = {
       extensionUri: vscode.Uri.file(path.resolve('.')),
