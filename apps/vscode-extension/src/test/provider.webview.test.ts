@@ -282,6 +282,95 @@ suite('SfLogsViewProvider webview', () => {
     }
   });
 
+  test('forces a refresh when reopening after an offscreen refresh dirties the cached logs snapshot', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const cachedLogs = [{ Id: '07L000000000001AA', StartTime: '2026-04-19T00:00:00.000Z' }] as any[];
+
+      (provider as any).post({ type: 'orgs', data: [], selected: 'cached@example.com' });
+      (provider as any).setCurrentLogs(cachedLogs);
+      (provider as any).post({ type: 'logs', data: cachedLogs, hasMore: false });
+
+      await provider.refresh();
+
+      const webview = new MockWebview();
+      const panel = new MockWebviewPanel('sfLogViewer.editorPanel', webview);
+      const posted: any[] = [];
+      const calls: string[] = [];
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+      (provider as any).refresh = async () => {
+        calls.push('refresh');
+      };
+
+      provider.resolveWebviewPanel(panel);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.deepEqual(calls, ['refresh']);
+      assert.equal(
+        posted.some(message => message?.type === 'logs'),
+        false,
+        'dirty snapshots should not replay stale logs before refresh runs'
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('forces a refresh when reopening after an offscreen org switch dirties cached logs', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const cachedLogs = [{ Id: '07L000000000002AA', StartTime: '2026-04-19T00:01:00.000Z' }] as any[];
+
+      (provider as any).post({ type: 'orgs', data: [], selected: 'cached@example.com' });
+      (provider as any).setCurrentLogs(cachedLogs);
+      (provider as any).post({ type: 'logs', data: cachedLogs, hasMore: false });
+      provider.setSelectedOrg('switched@example.com');
+
+      const webview = new MockWebview();
+      const panel = new MockWebviewPanel('sfLogViewer.editorPanel', webview);
+      const posted: any[] = [];
+      const calls: string[] = [];
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+      (provider as any).refresh = async () => {
+        calls.push('refresh');
+      };
+
+      provider.resolveWebviewPanel(panel);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.deepEqual(calls, ['refresh']);
+      assert.equal(
+        posted.some(message => message?.type === 'logs'),
+        false,
+        'org changes outside the view should invalidate stale log replay'
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
   test('syncSelectedOrg refreshes an existing editor session when the org changes', async () => {
     const context = {
       extensionUri: vscode.Uri.file(path.resolve('.')),
@@ -493,6 +582,63 @@ suite('SfLogsViewProvider webview', () => {
       assert.equal(
         posted.some(message => message?.type === 'error'),
         false
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('appendLogs clears stale loadMore errors and prevents them from replaying', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const posted: any[] = [];
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      const logs = [{ Id: '07L000000000003AA', StartTime: '2026-04-19T00:02:00.000Z' }] as any[];
+      (provider as any).setCurrentLogs(logs);
+      (provider as any).post({ type: 'logs', data: logs, hasMore: true });
+      (provider as any).post({ type: 'error', message: 'load more failed' });
+      posted.length = 0;
+
+      (provider as any).post({
+        type: 'appendLogs',
+        data: [{ Id: '07L000000000004AA', StartTime: '2026-04-19T00:03:00.000Z' }],
+        hasMore: false
+      });
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === undefined),
+        true,
+        'successful appendLogs should clear the webview error banner'
+      );
+
+      posted.length = 0;
+      view.fireVisible(false);
+      view.fireVisible(true);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.equal(
+        posted.some(message => message?.type === 'error'),
+        false,
+        'cleared loadMore errors should not replay on remount'
       );
     } finally {
       clock.dispose();

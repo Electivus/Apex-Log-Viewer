@@ -64,6 +64,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private currentLogs: ApexLogRow[] = [];
   private currentHasMore = false;
   private hasLogsSnapshot = false;
+  private logsBootstrapNeedsRefresh = false;
   private currentLogIds = new Set<string>();
   private orgsSnapshot: OrgItem[] = [];
   private selectedOrgSnapshot: string | undefined;
@@ -191,6 +192,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
 
   public async refresh() {
     if (!this.view) {
+      this.logsBootstrapNeedsRefresh = true;
       return;
     }
     const token = ++this.refreshToken;
@@ -1374,6 +1376,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   // Expose for command integration
   public setSelectedOrg(username?: string) {
     const selected = typeof username === 'string' ? username.trim() || undefined : undefined;
+    if (selected !== this.orgManager.getSelectedOrg()) {
+      this.logsBootstrapNeedsRefresh = true;
+    }
     this.orgManager.setSelectedOrg(selected);
     this.selectedOrgSnapshot = selected;
   }
@@ -1537,7 +1542,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.replaySnapshot();
 
     const shouldRefreshOrgs = !this.hasOrgsSnapshot || this.orgsBootstrapNeedsRefresh;
-    const shouldRefreshLogs = !this.hasLogsSnapshot && this.activeRefreshToken === undefined;
+    const shouldRefreshLogs =
+      (!this.hasLogsSnapshot || this.logsBootstrapNeedsRefresh) && this.activeRefreshToken === undefined;
     if (shouldRefreshOrgs) {
       await this.sendOrgs();
     }
@@ -1564,7 +1570,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.post({ type: 'warning', message: this.warningMessage }, { replay: true });
     this.post({ type: 'loading', value: this.loadingState }, { replay: true });
     this.post({ type: 'errorScanStatus', ...this.errorScanStatusSnapshot }, { replay: true });
-    if (this.hasLogsSnapshot) {
+    if (this.hasLogsSnapshot && !this.logsBootstrapNeedsRefresh) {
       this.post({ type: 'logs', data: this.currentLogs, hasMore: this.currentHasMore }, { replay: true });
       for (const [logId, snapshot] of this.logHeadByLogId.entries()) {
         this.post(
@@ -1653,6 +1659,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   }
 
   private post(msg: ExtensionToWebviewMessage, options?: { replay?: boolean }): void {
+    let shouldClearWebviewError = false;
     switch (msg.type) {
       case 'loading':
         this.loadingState = !!msg.value;
@@ -1672,12 +1679,20 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         this.hasLogsSnapshot = true;
         this.currentHasMore = !!msg.hasMore;
         if (!options?.replay) {
+          this.logsBootstrapNeedsRefresh = false;
           this.errorMessage = undefined;
         }
         break;
       case 'appendLogs':
         this.hasLogsSnapshot = true;
         this.currentHasMore = !!msg.hasMore;
+        if (!options?.replay) {
+          this.logsBootstrapNeedsRefresh = false;
+          if (this.errorMessage !== undefined) {
+            this.errorMessage = undefined;
+            shouldClearWebviewError = true;
+          }
+        }
         break;
       case 'logHead': {
         const previous = this.logHeadByLogId.get(msg.logId) ?? {};
@@ -1711,5 +1726,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         break;
     }
     this.view?.webview.postMessage(msg);
+    if (shouldClearWebviewError) {
+      this.view?.webview.postMessage({ type: 'error', message: undefined });
+    }
   }
 }
