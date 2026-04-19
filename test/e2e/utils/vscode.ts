@@ -114,7 +114,7 @@ export function resolveCliSpawnInvocation(
     // VS Code CLI through `cmd.exe` when the resolved launcher is a batch file.
     return {
       command: process.env.ComSpec || 'cmd.exe',
-      args: ['/d', '/c', cliPath, ...cliArgs]
+      args: ['/d', '/s', '/c', 'call', cliPath, ...cliArgs]
     };
   }
 
