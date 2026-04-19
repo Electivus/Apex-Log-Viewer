@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 import { localize } from '../../../../src/utils/localize';
-import { listDebugLevels, getActiveUserDebugLevel, ensureDefaultTailDebugLevel } from '../../../../src/salesforce/traceflags';
+import {
+  listDebugLevels,
+  getActiveUserDebugLevel,
+  ensureDefaultTailDebugLevel
+} from '../../../../src/salesforce/traceflags';
 import type { OrgAuth } from '../../../../src/salesforce/types';
 import { parseWebviewToExtensionMessage, type ExtensionToWebviewMessage } from '../shared/messages';
 import { logInfo, logWarn } from '../../../../src/utils/logger';
@@ -17,8 +21,8 @@ import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { runtimeClient } from '../runtime/runtimeClient';
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
 
-const WEBVIEW_STABLE_VISIBILITY_DELAY_MS = 200;
-const WEBVIEW_READY_TIMEOUT_MS = 5000;
+export const WEBVIEW_STABLE_VISIBILITY_DELAY_MS = 200;
+export const WEBVIEW_READY_TIMEOUT_MS = 5000;
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = 'sfLogTail';
@@ -29,7 +33,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   private readonly readyTimeoutListeners = new Set<() => void>();
   private disposed = false;
   private ready = false;
-  private bootstrapFailed = false;
   private mountTimer: ReturnType<typeof setTimeout> | undefined;
   private readyTimer: ReturnType<typeof setTimeout> | undefined;
   private mountSequence = 0;
@@ -183,7 +186,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   public dispose(): void {
     this.disposed = true;
     this.ready = false;
-    this.bootstrapFailed = false;
     this.view = undefined;
     this.host = undefined;
     this.clearBootstrapTimers();
@@ -264,7 +266,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
 
   private mountWebview(host: BoundWebviewHost): void {
     this.ready = false;
-    this.bootstrapFailed = false;
     const mountId = ++this.mountSequence;
     host.webview.html = this.getHtmlForWebview(host.webview);
     this.clearReadyTimer();
@@ -275,7 +276,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       }
       logWarn(`Tail webview did not report ready within ${WEBVIEW_READY_TIMEOUT_MS}ms (${host.kind}).`);
       this.ready = false;
-      this.bootstrapFailed = true;
       this.showPlaceholder(host);
       if (host.kind === 'editor') {
         this.fireReadyTimeout();
@@ -298,7 +298,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     }
     if (!visible) {
       this.ready = false;
-      this.bootstrapFailed = false;
       this.clearBootstrapTimers();
       this.showPlaceholder(host);
       return;
@@ -311,7 +310,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       return;
     }
     this.ready = true;
-    this.bootstrapFailed = false;
     this.clearReadyTimer();
     this.post({ type: 'init', locale: vscode.env.language });
     this.replaySnapshot();
@@ -450,7 +448,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     // doesn't block the other and result in an empty combobox.
     const [levelsResult, activeLevel] = await Promise.all([
       listDebugLevels(auth)
-        .then((data) => ({ ok: true as const, data }))
+        .then(data => ({ ok: true as const, data }))
         .catch(() => {
           logWarn('Tail: listDebugLevels failed');
           return { ok: false as const, data: [] as string[] };
@@ -577,7 +575,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     this.view = host;
     this.disposed = false;
     this.ready = false;
-    this.bootstrapFailed = false;
     this.clearBootstrapTimers();
     host.webview.options = {
       enableScripts: true,
@@ -593,7 +590,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         }
         this.disposed = true;
         this.ready = false;
-        this.bootstrapFailed = false;
         this.view = undefined;
         this.host = undefined;
         this.clearBootstrapTimers();

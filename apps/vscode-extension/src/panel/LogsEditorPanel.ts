@@ -1,17 +1,10 @@
 import * as vscode from 'vscode';
 import { SfLogsViewProvider } from '../provider/SfLogsViewProvider';
 import { localize } from '../../../../src/utils/localize';
+import { disposeAll } from './disposeAll';
 
 interface ShowOptions {
   selectedOrg?: string;
-}
-
-function disposeAll(disposables: vscode.Disposable[]): void {
-  for (const disposable of disposables.splice(0, disposables.length)) {
-    try {
-      disposable.dispose();
-    } catch {}
-  }
 }
 
 export class LogsEditorPanel {

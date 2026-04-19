@@ -22,14 +22,18 @@ import { ConfigManager } from '../../../../src/utils/configManager';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { affectsConfiguration, getConfig } from '../../../../src/utils/config';
 import { getWorkspaceRoot, purgeSavedLogs } from '../../../../src/utils/workspace';
-import { DEFAULT_LOGS_COLUMNS_CONFIG, normalizeLogsColumnsConfig, type NormalizedLogsColumnsConfig } from '../shared/logsColumns';
+import {
+  DEFAULT_LOGS_COLUMNS_CONFIG,
+  normalizeLogsColumnsConfig,
+  type NormalizedLogsColumnsConfig
+} from '../shared/logsColumns';
 import { normalizeLogTriageSummary, type LogDiagnostic, type LogTriageSummary } from '../shared/logTriage';
 import { bucketQueryLength } from '../shared/telemetryBuckets';
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
 
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
-const WEBVIEW_STABLE_VISIBILITY_DELAY_MS = 200;
-const WEBVIEW_READY_TIMEOUT_MS = 5000;
+export const WEBVIEW_STABLE_VISIBILITY_DELAY_MS = 200;
+export const WEBVIEW_READY_TIMEOUT_MS = 5000;
 
 interface LogHeadSnapshot {
   codeUnitStarted?: string;
@@ -49,11 +53,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private currentOffset = 0;
   private disposed = false;
   private ready = false;
-  private bootstrapFailed = false;
   private mountTimer: ReturnType<typeof setTimeout> | undefined;
   private readyTimer: ReturnType<typeof setTimeout> | undefined;
   private mountSequence = 0;
   private refreshToken = 0;
+  private activeRefreshToken: number | undefined;
   private messageHandler: LogsMessageHandler;
   private cursorStartTime: string | undefined;
   private cursorId: string | undefined;
@@ -68,7 +72,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private errorByLogId = new Map<string, LogTriageSummary>();
   private warningMessage: string | undefined;
   private loadingState = false;
-  private errorScanStatusSnapshot: { state: 'idle' | 'running'; processed: number; total: number; errorsFound: number } = {
+  private errorScanStatusSnapshot: {
+    state: 'idle' | 'running';
+    processed: number;
+    total: number;
+    errorsFound: number;
+  } = {
     state: 'idle',
     processed: 0,
     total: 0,
@@ -161,11 +170,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   public dispose(): void {
     this.disposed = true;
     this.ready = false;
-    this.bootstrapFailed = false;
     this.view = undefined;
     this.host = undefined;
     this.clearBootstrapTimers();
     this.refreshToken++;
+    this.activeRefreshToken = undefined;
     this.cancelErrorScan();
     if (this.searchAbortController) {
       this.searchAbortController.abort();
@@ -183,6 +192,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       return;
     }
     const token = ++this.refreshToken;
+    this.activeRefreshToken = token;
     const t0 = Date.now();
     await vscode.window.withProgress(
       {
@@ -274,6 +284,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             } catch {}
           }
         } finally {
+          if (this.activeRefreshToken === token) {
+            this.activeRefreshToken = undefined;
+          }
           this.post({ type: 'loading', value: false });
         }
       }
@@ -442,14 +455,21 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           if (!log) {
             return;
           }
-          this.logService.loadLogHeads([log], auth, refreshToken, (logId, codeUnit) => {
-            if (refreshToken === this.refreshToken && !this.disposed && this.currentLogIds.has(logId)) {
-              this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
+          this.logService.loadLogHeads(
+            [log],
+            auth,
+            refreshToken,
+            (logId, codeUnit) => {
+              if (refreshToken === this.refreshToken && !this.disposed && this.currentLogIds.has(logId)) {
+                this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
+              }
+            },
+            signal,
+            {
+              preferLocalBodies: true,
+              selectedOrg
             }
-          }, signal, {
-            preferLocalBodies: true,
-            selectedOrg
-          });
+          );
           scheduleSearchRerun();
         }
       })
@@ -524,9 +544,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private setCurrentLogs(logs: ApexLogRow[]): void {
     this.currentLogs = logs.slice();
     this.currentLogIds = new Set(
-      logs
-        .map(log => log?.Id)
-        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      logs.map(log => log?.Id).filter((id): id is string => typeof id === 'string' && id.length > 0)
     );
     for (const logId of [...this.logHeadByLogId.keys()]) {
       if (!this.currentLogIds.has(logId)) {
@@ -898,10 +916,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         {
           username: selectedOrg,
           limit: this.pageLimit,
-          cursor:
-            cursorStartTime && cursorId
-              ? { beforeStartTime: cursorStartTime, beforeId: cursorId }
-              : undefined
+          cursor: cursorStartTime && cursorId ? { beforeStartTime: cursorStartTime, beforeId: cursorId } : undefined
         },
         signal
       )) as ApexLogRow[];
@@ -1076,12 +1091,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       } else {
         if (result.failed > 0) {
           void vscode.window.showWarningMessage(
-            localize(
-              'logsCleanup.partial',
-              'Deleted {0} log(s), but {1} failed.',
-              result.deleted,
-              result.failed
-            )
+            localize('logsCleanup.partial', 'Deleted {0} log(s), but {1} failed.', result.deleted, result.failed)
           );
         } else {
           void vscode.window.showInformationMessage(
@@ -1104,11 +1114,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       logError('Logs: cleanup failed ->', msg);
       void vscode.window.showErrorMessage(localize('logsCleanup.failed', 'Failed to clear logs: {0}', msg));
       try {
-        safeSendEvent(
-          'logs.cleanup',
-          { outcome: 'error', scope, sourceView: 'logs' },
-          { durationMs: Date.now() - t0 }
-        );
+        safeSendEvent('logs.cleanup', { outcome: 'error', scope, sourceView: 'logs' }, { durationMs: Date.now() - t0 });
       } catch {}
     } finally {
       this.clearLogsInProgress = false;
@@ -1128,10 +1134,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       const selectedOrg = this.orgManager.getSelectedOrg();
       const confirmAction = localize('downloadAllLogsConfirmAction', 'Download');
       const confirmation = await vscode.window.showWarningMessage(
-        localize(
-          'downloadAllLogsPreflightConfirm',
-          'Download all Apex logs for the selected org?'
-        ),
+        localize('downloadAllLogsPreflightConfirm', 'Download all Apex logs for the selected org?'),
         {
           modal: true,
           detail: localize(
@@ -1143,11 +1146,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       );
       if (confirmation !== confirmAction) {
         try {
-          safeSendEvent(
-            'logs.downloadAll',
-            { outcome: 'cancel', sourceView: 'logs' },
-            { durationMs: Date.now() - t0 }
-          );
+          safeSendEvent('logs.downloadAll', { outcome: 'cancel', sourceView: 'logs' }, { durationMs: Date.now() - t0 });
         } catch {}
         return;
       }
@@ -1196,12 +1195,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           let progressPct = 0;
           const total = logs.length;
           progress.report({
-            message: localize(
-              'downloadAllLogsProgressMessage',
-              'Processed {0}/{1} logs…',
-              processed,
-              total
-            )
+            message: localize('downloadAllLogsProgressMessage', 'Processed {0}/{1} logs…', processed, total)
           });
           const summary = await this.logService.ensureLogsSaved(logs, selectedOrg, controller.signal, {
             onItemComplete: () => {
@@ -1211,12 +1205,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
               progressPct = Math.max(progressPct, nextPct);
               progress.report({
                 increment,
-                message: localize(
-                  'downloadAllLogsProgressMessage',
-                  'Processed {0}/{1} logs…',
-                  processed,
-                  total
-                )
+                message: localize('downloadAllLogsProgressMessage', 'Processed {0}/{1} logs…', processed, total)
               });
             }
           });
@@ -1252,11 +1241,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           localize('downloadAllLogsNoLogs', 'No Apex logs were found for the selected org.')
         );
         try {
-          safeSendEvent(
-            'logs.downloadAll',
-            { outcome: 'empty', sourceView: 'logs' },
-            { durationMs: Date.now() - t0 }
-          );
+          safeSendEvent('logs.downloadAll', { outcome: 'empty', sourceView: 'logs' }, { durationMs: Date.now() - t0 });
         } catch {}
         return;
       }
@@ -1328,17 +1313,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         localize('downloadAllLogsFailed', 'Failed to download all org logs: {0}', msg)
       );
       try {
-        safeSendEvent(
-          'logs.downloadAll',
-          { outcome: 'error', sourceView: 'logs' },
-          { durationMs: Date.now() - t0 }
-        );
+        safeSendEvent('logs.downloadAll', { outcome: 'error', sourceView: 'logs' }, { durationMs: Date.now() - t0 });
       } catch {}
     } finally {
       this.bulkDownloadInProgress = false;
     }
   }
-
 
   private getHtmlForWebview(webview: vscode.Webview): string {
     return buildWebviewHtml(
@@ -1375,9 +1355,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           if (!ct.isCancellationRequested) {
             const msg = getErrorMessage(e);
             logError('Logs: list orgs failed ->', msg);
-            void vscode.window.showErrorMessage(
-              localize('sendOrgsFailed', 'Failed to list Salesforce orgs: {0}', msg)
-            );
+            void vscode.window.showErrorMessage(localize('sendOrgsFailed', 'Failed to list Salesforce orgs: {0}', msg));
             this.post({ type: 'orgs', data: [], selected: this.orgManager.getSelectedOrg() });
             try {
               const durationMs = Date.now() - t0;
@@ -1391,7 +1369,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
 
   // Expose for command integration
   public setSelectedOrg(username?: string) {
-    this.orgManager.setSelectedOrg(username);
+    const selected = typeof username === 'string' ? username.trim() || undefined : undefined;
+    this.orgManager.setSelectedOrg(selected);
+    this.selectedOrgSnapshot = selected;
   }
 
   public async syncSelectedOrg(username?: string): Promise<void> {
@@ -1491,7 +1471,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
 
   private mountWebview(host: BoundWebviewHost): void {
     this.ready = false;
-    this.bootstrapFailed = false;
     const mountId = ++this.mountSequence;
     host.webview.html = this.getHtmlForWebview(host.webview);
     this.clearReadyTimer();
@@ -1502,7 +1481,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       }
       logWarn(`Logs webview did not report ready within ${WEBVIEW_READY_TIMEOUT_MS}ms (${host.kind}).`);
       this.ready = false;
-      this.bootstrapFailed = true;
       this.showPlaceholder(host);
       if (host.kind === 'editor') {
         this.fireReadyTimeout();
@@ -1525,7 +1503,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
     if (!visible) {
       this.ready = false;
-      this.bootstrapFailed = false;
       this.clearBootstrapTimers();
       this.showPlaceholder(host);
       return;
@@ -1538,7 +1515,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       return;
     }
     this.ready = true;
-    this.bootstrapFailed = false;
     this.clearReadyTimer();
     logInfo(`Logs webview ready (${this.host.kind}).`);
     await this.bootstrapWebview();
@@ -1554,7 +1530,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.replaySnapshot();
 
     const shouldRefreshOrgs = !this.hasOrgsSnapshot;
-    const shouldRefreshLogs = !this.hasLogsSnapshot;
+    const shouldRefreshLogs = !this.hasLogsSnapshot && this.activeRefreshToken === undefined;
     if (shouldRefreshOrgs) {
       await this.sendOrgs();
     }
@@ -1562,7 +1538,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       await this.refresh();
       return;
     }
-    if (this.lastSearchQuery.trim()) {
+    if (this.hasLogsSnapshot && this.lastSearchQuery.trim()) {
       this.rerunActiveSearch();
     }
   }
@@ -1608,7 +1584,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.view = host;
     this.disposed = false;
     this.ready = false;
-    this.bootstrapFailed = false;
     this.clearBootstrapTimers();
     host.webview.options = {
       enableScripts: true,
@@ -1624,11 +1599,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         }
         this.disposed = true;
         this.ready = false;
-        this.bootstrapFailed = false;
         this.view = undefined;
         this.host = undefined;
         this.clearBootstrapTimers();
         this.refreshToken++;
+        this.activeRefreshToken = undefined;
         this.cancelErrorScan();
         if (this.searchAbortController) {
           this.searchAbortController.abort();

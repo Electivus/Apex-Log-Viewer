@@ -10,8 +10,14 @@ import * as http from '../../../../src/salesforce/http';
 import * as jsforce from '../../../../src/salesforce/jsforce';
 import * as streaming from '../../../../src/salesforce/streaming';
 import * as traceflags from '../../../../src/salesforce/traceflags';
-import { __resetApiVersionFallbackStateForTests, recordApiVersionFallback, setApiVersion } from '../../../../src/salesforce/apiVersion';
+import {
+  __resetApiVersionFallbackStateForTests,
+  recordApiVersionFallback,
+  setApiVersion
+} from '../../../../src/salesforce/apiVersion';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
+import { WEBVIEW_STABLE_VISIBILITY_DELAY_MS } from '../provider/SfLogTailViewProvider';
+import { TestClock } from './testClock';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 
@@ -29,25 +35,21 @@ function loadTailService(stubs?: {
     '../salesforce/traceflags': stubs?.traceflags ?? {},
     '../salesforce/streaming': stubs?.streaming ?? {},
     '../salesforce/jsforce': stubs?.jsforce ?? {},
-    '../../apps/vscode-extension/src/runtime/runtimeClient':
-      stubs?.runtime ?? {
-        runtimeClient: {
-          getOrgAuth:
-            stubs?.cli?.getOrgAuth ??
-            (async ({ username }: { username?: string } = {}) => ({
-              username,
-              instanceUrl: 'https://example.com',
-              accessToken: 'token'
-            }))
-        }
+    '../../apps/vscode-extension/src/runtime/runtimeClient': stubs?.runtime ?? {
+      runtimeClient: {
+        getOrgAuth:
+          stubs?.cli?.getOrgAuth ??
+          (async ({ username }: { username?: string } = {}) => ({
+            username,
+            instanceUrl: 'https://example.com',
+            accessToken: 'token'
+          }))
       }
+    }
   }) as typeof import('../../../../src/utils/tailService');
 }
 
-function loadTailProvider(stubs?: {
-  cli?: Record<string, unknown>;
-  traceflags?: Record<string, unknown>;
-}) {
+function loadTailProvider(stubs?: { cli?: Record<string, unknown>; traceflags?: Record<string, unknown> }) {
   class TailServiceStub {
     setOrg(_username?: string): void {}
     setWindowActive(_active: boolean): void {}
@@ -152,11 +154,12 @@ class MockWebviewPanel implements vscode.WebviewPanel {
   public viewColumn: vscode.ViewColumn = vscode.ViewColumn.Active;
   public webview: vscode.Webview;
   private disposeListener: (() => void) | undefined;
-  private viewStateListener:
-    | ((event: vscode.WebviewPanelOnDidChangeViewStateEvent) => void)
-    | undefined;
+  private viewStateListener: ((event: vscode.WebviewPanelOnDidChangeViewStateEvent) => void) | undefined;
 
-  constructor(public viewType: string, webview: vscode.Webview) {
+  constructor(
+    public viewType: string,
+    webview: vscode.Webview
+  ) {
     this.webview = webview;
   }
 
@@ -173,9 +176,7 @@ class MockWebviewPanel implements vscode.WebviewPanel {
     return new MockDisposable();
   }
 
-  onDidChangeViewState(
-    listener: (e: vscode.WebviewPanelOnDidChangeViewStateEvent) => any
-  ): vscode.Disposable {
+  onDidChangeViewState(listener: (e: vscode.WebviewPanelOnDidChangeViewStateEvent) => any): vscode.Disposable {
     this.viewStateListener = listener;
     return new MockDisposable();
   }
@@ -188,9 +189,6 @@ class MockWebviewPanel implements vscode.WebviewPanel {
 
 suite('TailService', () => {
   const originalDebugFlagsShow = DebugFlagsPanel.show;
-  const delay = async (ms: number) => {
-    await new Promise(resolve => setTimeout(resolve, ms));
-  };
 
   teardown(() => {
     (DebugFlagsPanel as any).show = originalDebugFlagsShow;
@@ -222,21 +220,24 @@ suite('TailService', () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     (traceflags as any).ensureUserTraceFlag = async () => false;
     (http as any).fetchApexLogs = async () => [];
-    jsforce.__setConnectionFactoryForTests(async () => ({
-      version: '64.0',
-      instanceUrl: 'i',
-      accessToken: 't',
-      request: async () => '',
-      query: async () => ({ records: [] }),
-      queryMore: async () => ({ records: [] }),
-      tooling: {
-        query: async () => ({ records: [] }),
-        create: async () => ({ success: true, id: '1', errors: [] }),
-        update: async () => ({ success: true, id: '1', errors: [] }),
-        destroy: async () => ({ success: true, id: '1', errors: [] })
-      },
-      streaming: {} as any
-    }) as any);
+    jsforce.__setConnectionFactoryForTests(
+      async () =>
+        ({
+          version: '64.0',
+          instanceUrl: 'i',
+          accessToken: 't',
+          request: async () => '',
+          query: async () => ({ records: [] }),
+          queryMore: async () => ({ records: [] }),
+          tooling: {
+            query: async () => ({ records: [] }),
+            create: async () => ({ success: true, id: '1', errors: [] }),
+            update: async () => ({ success: true, id: '1', errors: [] }),
+            destroy: async () => ({ success: true, id: '1', errors: [] })
+          },
+          streaming: {} as any
+        }) as any
+    );
     streaming.__setStreamingClientFactoryForTests(async () => ({
       handshake: async () => {},
       replay: () => {},
@@ -673,57 +674,82 @@ suite('TailService', () => {
   });
 
   test('editor tail panel resolves html and stays idle after ready', async () => {
-    const context = {
-      extensionUri: vscode.Uri.file(path.resolve('.')),
-      subscriptions: [] as vscode.Disposable[]
-    } as unknown as vscode.ExtensionContext;
-    const provider = new SfLogTailViewProvider(context);
-    const posted: any[] = [];
-    const webview = new MockWebview();
-    webview.postMessage = (message: any) => {
-      posted.push(message);
-      return Promise.resolve(true);
-    };
-    const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const posted: any[] = [];
+      const webview = new MockWebview();
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+      const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
 
-    (provider as any).sendOrgs = async () => {
-      posted.push({ type: 'sendOrgsCalled' });
-    };
-    (provider as any).sendDebugLevels = async () => {
-      posted.push({ type: 'sendDebugLevelsCalled' });
-    };
+      (provider as any).sendOrgs = async () => {
+        posted.push({ type: 'sendOrgsCalled' });
+      };
+      (provider as any).sendDebugLevels = async () => {
+        posted.push({ type: 'sendDebugLevelsCalled' });
+      };
 
-    provider.resolveWebviewPanel(panel);
-    await delay(250);
-    await webview.emit({ type: 'ready' });
+      provider.resolveWebviewPanel(panel);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
 
-    assert.ok(webview.html.includes('media/tail.js'));
-    assert.ok(posted.some(message => message?.type === 'init'), 'should post init message');
-    assert.ok(posted.some(message => message?.type === 'sendOrgsCalled'), 'should refresh org state on ready');
-    assert.ok(posted.some(message => message?.type === 'sendDebugLevelsCalled'), 'should refresh debug levels on ready');
-    assert.equal((provider as any).tailService.isRunning(), false, 'editor tail should stay idle until explicit start');
+      assert.ok(webview.html.includes('media/tail.js'));
+      assert.ok(
+        posted.some(message => message?.type === 'init'),
+        'should post init message'
+      );
+      assert.ok(
+        posted.some(message => message?.type === 'sendOrgsCalled'),
+        'should refresh org state on ready'
+      );
+      assert.ok(
+        posted.some(message => message?.type === 'sendDebugLevelsCalled'),
+        'should refresh debug levels on ready'
+      );
+      assert.equal(
+        (provider as any).tailService.isRunning(),
+        false,
+        'editor tail should stay idle until explicit start'
+      );
+    } finally {
+      clock.dispose();
+    }
   });
 
   test('editor tail panel ignores visibility refreshes until ready', async () => {
-    const context = {
-      extensionUri: vscode.Uri.file(path.resolve('.')),
-      subscriptions: [] as vscode.Disposable[]
-    } as unknown as vscode.ExtensionContext;
-    const provider = new SfLogTailViewProvider(context);
-    const webview = new MockWebview();
-    const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
-    const calls: string[] = [];
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+      const calls: string[] = [];
 
-    (provider as any).refreshViewState = async () => {
-      calls.push('refreshViewState');
-    };
+      (provider as any).refreshViewState = async () => {
+        calls.push('refreshViewState');
+      };
 
-    provider.resolveWebviewPanel(panel);
-    await delay(250);
-    assert.deepEqual(calls, [], 'should not refresh while the webview has not reported ready');
+      provider.resolveWebviewPanel(panel);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      assert.deepEqual(calls, [], 'should not refresh while the webview has not reported ready');
 
-    await webview.emit({ type: 'ready' });
-    assert.deepEqual(calls, ['refreshViewState'], 'should refresh once after ready');
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+      assert.deepEqual(calls, ['refreshViewState'], 'should refresh once after ready');
+    } finally {
+      clock.dispose();
+    }
   });
 
   test('syncSelectedOrg refreshes an existing editor tail session and stops the current stream', async () => {
