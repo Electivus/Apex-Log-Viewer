@@ -1,4 +1,4 @@
-import { parseWebviewToExtensionMessage } from '../shared/messages';
+import { parseWebviewToExtensionMessage, type WebviewToExtensionMessage } from '../shared/messages';
 import { safeSendEvent } from '../shared/telemetry';
 import { logInfo, logWarn } from '../../../../src/utils/logger';
 
@@ -22,6 +22,10 @@ export class LogsMessageHandler {
       logWarn('Logs: ignored invalid webview message');
       return;
     }
+    await this.handleMessage(message);
+  }
+
+  async handleMessage(message: WebviewToExtensionMessage): Promise<void> {
     switch (message.type) {
       case 'refresh':
         logInfo('Logs: message refresh');

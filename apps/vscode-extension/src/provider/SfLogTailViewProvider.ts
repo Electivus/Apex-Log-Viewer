@@ -335,26 +335,30 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   }
 
   private replaySnapshot(): void {
-    this.post({ type: 'loading', value: this.loadingState });
-    if (this.errorMessage !== undefined) {
-      this.post({ type: 'error', message: this.errorMessage });
-    }
+    this.post({ type: 'loading', value: this.loadingState }, { replay: true });
     if (this.hasOrgsSnapshot) {
-      this.post({ type: 'orgs', data: this.orgsSnapshot, selected: this.selectedOrg });
+      this.post({ type: 'orgs', data: this.orgsSnapshot, selected: this.selectedOrg }, { replay: true });
     }
     if (this.hasDebugLevelsSnapshot) {
-      this.post({ type: 'debugLevels', data: this.debugLevelsSnapshot, active: this.activeDebugLevelSnapshot });
+      this.post(
+        { type: 'debugLevels', data: this.debugLevelsSnapshot, active: this.activeDebugLevelSnapshot },
+        { replay: true }
+      );
     }
-    this.post({ type: 'tailConfig', tailBufferSize: this.tailBufferSizeSnapshot });
-    this.post({ type: 'tailStatus', running: this.tailRunningSnapshot });
+    this.post({ type: 'tailConfig', tailBufferSize: this.tailBufferSizeSnapshot }, { replay: true });
+    this.post({ type: 'tailStatus', running: this.tailRunningSnapshot }, { replay: true });
     const bufferedLines = this.tailService.getBufferedLines();
     if (bufferedLines.length > 0) {
-      this.post({ type: 'tailReset' });
-      this.post({ type: 'tailData', lines: bufferedLines });
+      this.post({ type: 'tailReset' }, { replay: true });
+      this.post({ type: 'tailData', lines: bufferedLines }, { replay: true });
+    }
+    if (this.errorMessage !== undefined) {
+      this.post({ type: 'error', message: this.errorMessage }, { replay: true });
     }
   }
 
-  private post(msg: ExtensionToWebviewMessage): void {
+  private post(msg: ExtensionToWebviewMessage, options?: { replay?: boolean }): void {
+    let shouldClearWebviewError = false;
     switch (msg.type) {
       case 'loading':
         this.loadingState = !!msg.value;
@@ -374,13 +378,15 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         break;
       case 'tailStatus':
         this.tailRunningSnapshot = !!msg.running;
-        if (msg.running) {
+        if (msg.running && !options?.replay && this.errorMessage !== undefined) {
           this.errorMessage = undefined;
+          shouldClearWebviewError = true;
         }
         break;
       case 'tailData':
-        if (Array.isArray(msg.lines) && msg.lines.length > 0) {
+        if (Array.isArray(msg.lines) && msg.lines.length > 0 && !options?.replay && this.errorMessage !== undefined) {
           this.errorMessage = undefined;
+          shouldClearWebviewError = true;
         }
         break;
       case 'tailConfig':
@@ -388,6 +394,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         break;
     }
     this.view?.webview.postMessage(msg);
+    if (shouldClearWebviewError) {
+      this.view?.webview.postMessage({ type: 'error', message: undefined });
+    }
   }
 
   private getTailBufferSize(): number {

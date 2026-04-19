@@ -839,6 +839,99 @@ suite('TailService', () => {
     }
   });
 
+  test('tail remount preserves errors across replayed buffered lines until live recovery clears them', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const posted: any[] = [];
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      (provider as any).tailService.bufferedLines = ['USER_DEBUG|buffered'];
+      (provider as any).post({ type: 'error', message: 'tail failed' });
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        posted.length = 0;
+        view.fireVisible(false);
+        view.fireVisible(true);
+        await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+        await webview.emit({ type: 'ready' });
+        await clock.flushMicrotasks();
+
+        assert.equal(
+          posted.some(message => message?.type === 'error' && message?.message === 'tail failed'),
+          true
+        );
+      }
+
+      posted.length = 0;
+      (provider as any).post({ type: 'tailData', lines: ['USER_DEBUG|recovered'] });
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === undefined),
+        true
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('tail recovery clears the webview error banner when status or data succeeds', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+      const posted: any[] = [];
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      provider.resolveWebviewPanel(panel);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      (provider as any).post({ type: 'error', message: 'tail failed' });
+      posted.length = 0;
+      (provider as any).post({ type: 'tailStatus', running: true });
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === undefined),
+        true
+      );
+
+      (provider as any).post({ type: 'error', message: 'tail failed again' });
+      posted.length = 0;
+      (provider as any).post({ type: 'tailData', lines: ['USER_DEBUG|hello'] });
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === undefined),
+        true
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
   test('tail retries bootstrap after a failed debug-level snapshot on remount', async () => {
     const clock = new TestClock();
     try {

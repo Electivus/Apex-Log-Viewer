@@ -441,6 +441,64 @@ suite('SfLogsViewProvider webview', () => {
     }
   });
 
+  test('preserves refresh errors when replaying cached logs across repeated remounts', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const posted: any[] = [];
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      (provider as any).setCurrentLogs([]);
+      (provider as any).post({ type: 'logs', data: [], hasMore: false });
+      (provider as any).post({ type: 'error', message: 'refresh failed' });
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        posted.length = 0;
+        view.fireVisible(false);
+        view.fireVisible(true);
+        await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+        webview.emit({ type: 'ready' });
+        await clock.flushMicrotasks();
+
+        assert.equal(
+          posted.some(message => message?.type === 'error' && message?.message === 'refresh failed'),
+          true
+        );
+      }
+
+      (provider as any).post({ type: 'logs', data: [], hasMore: false });
+      posted.length = 0;
+
+      view.fireVisible(false);
+      view.fireVisible(true);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.equal(
+        posted.some(message => message?.type === 'error'),
+        false
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
   test('retries org bootstrap after a failed org snapshot on remount', async () => {
     const clock = new TestClock();
     try {

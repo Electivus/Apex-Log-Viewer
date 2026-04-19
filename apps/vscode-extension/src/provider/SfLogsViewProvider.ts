@@ -1552,38 +1552,49 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
 
   private replaySnapshot(): void {
     if (this.hasOrgsSnapshot) {
-      this.post({
-        type: 'orgs',
-        data: this.orgsSnapshot,
-        selected: this.selectedOrgSnapshot
-      });
+      this.post(
+        {
+          type: 'orgs',
+          data: this.orgsSnapshot,
+          selected: this.selectedOrgSnapshot
+        },
+        { replay: true }
+      );
+    }
+    this.post({ type: 'warning', message: this.warningMessage }, { replay: true });
+    this.post({ type: 'loading', value: this.loadingState }, { replay: true });
+    this.post({ type: 'errorScanStatus', ...this.errorScanStatusSnapshot }, { replay: true });
+    if (this.hasLogsSnapshot) {
+      this.post({ type: 'logs', data: this.currentLogs, hasMore: this.currentHasMore }, { replay: true });
+      for (const [logId, snapshot] of this.logHeadByLogId.entries()) {
+        this.post(
+          {
+            type: 'logHead',
+            logId,
+            ...(snapshot.codeUnitStarted !== undefined ? { codeUnitStarted: snapshot.codeUnitStarted } : {}),
+            ...(snapshot.hasErrors !== undefined ? { hasErrors: snapshot.hasErrors } : {}),
+            ...(snapshot.primaryReason !== undefined ? { primaryReason: snapshot.primaryReason } : {}),
+            ...(snapshot.reasons !== undefined ? { reasons: snapshot.reasons } : {})
+          },
+          { replay: true }
+        );
+      }
+      this.post(
+        {
+          type: 'searchMatches',
+          query: this.searchMatchesSnapshot.query,
+          logIds: this.searchMatchesSnapshot.logIds,
+          ...(this.searchMatchesSnapshot.snippets ? { snippets: this.searchMatchesSnapshot.snippets } : {}),
+          ...(this.searchMatchesSnapshot.pendingLogIds
+            ? { pendingLogIds: this.searchMatchesSnapshot.pendingLogIds }
+            : {})
+        },
+        { replay: true }
+      );
+      this.post({ type: 'searchStatus', state: this.searchStatusSnapshot }, { replay: true });
     }
     if (this.errorMessage !== undefined) {
-      this.post({ type: 'error', message: this.errorMessage });
-    }
-    this.post({ type: 'warning', message: this.warningMessage });
-    this.post({ type: 'loading', value: this.loadingState });
-    this.post({ type: 'errorScanStatus', ...this.errorScanStatusSnapshot });
-    if (this.hasLogsSnapshot) {
-      this.post({ type: 'logs', data: this.currentLogs, hasMore: this.currentHasMore });
-      for (const [logId, snapshot] of this.logHeadByLogId.entries()) {
-        this.post({
-          type: 'logHead',
-          logId,
-          ...(snapshot.codeUnitStarted !== undefined ? { codeUnitStarted: snapshot.codeUnitStarted } : {}),
-          ...(snapshot.hasErrors !== undefined ? { hasErrors: snapshot.hasErrors } : {}),
-          ...(snapshot.primaryReason !== undefined ? { primaryReason: snapshot.primaryReason } : {}),
-          ...(snapshot.reasons !== undefined ? { reasons: snapshot.reasons } : {})
-        });
-      }
-      this.post({
-        type: 'searchMatches',
-        query: this.searchMatchesSnapshot.query,
-        logIds: this.searchMatchesSnapshot.logIds,
-        ...(this.searchMatchesSnapshot.snippets ? { snippets: this.searchMatchesSnapshot.snippets } : {}),
-        ...(this.searchMatchesSnapshot.pendingLogIds ? { pendingLogIds: this.searchMatchesSnapshot.pendingLogIds } : {})
-      });
-      this.post({ type: 'searchStatus', state: this.searchStatusSnapshot });
+      this.post({ type: 'error', message: this.errorMessage }, { replay: true });
     }
   }
 
@@ -1626,18 +1637,22 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       }),
       host.webview.onDidReceiveMessage(message => {
         const parsed = parseWebviewToExtensionMessage(message);
-        if (parsed?.type === 'ready') {
+        if (!parsed) {
+          logWarn('Logs: ignored invalid webview message');
+          return;
+        }
+        if (parsed.type === 'ready') {
           void this.handleReadyMessage();
           return;
         }
-        void this.messageHandler.handle(message);
+        void this.messageHandler.handleMessage(parsed);
       })
     );
 
     this.handleVisibilityChange(host, host.visible);
   }
 
-  private post(msg: ExtensionToWebviewMessage): void {
+  private post(msg: ExtensionToWebviewMessage, options?: { replay?: boolean }): void {
     switch (msg.type) {
       case 'loading':
         this.loadingState = !!msg.value;
@@ -1656,7 +1671,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       case 'logs':
         this.hasLogsSnapshot = true;
         this.currentHasMore = !!msg.hasMore;
-        this.errorMessage = undefined;
+        if (!options?.replay) {
+          this.errorMessage = undefined;
+        }
         break;
       case 'appendLogs':
         this.hasLogsSnapshot = true;

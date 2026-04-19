@@ -3,7 +3,10 @@ import type { ListImperativeAPI } from 'react-window';
 import { createRoot } from 'react-dom/client';
 import { getMessages } from './i18n';
 import type { OrgItem } from '../../../apps/vscode-extension/src/shared/types';
-import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../../../apps/vscode-extension/src/shared/messages';
+import type {
+  ExtensionToWebviewMessage,
+  WebviewToExtensionMessage
+} from '../../../apps/vscode-extension/src/shared/messages';
 import { TailToolbar } from './components/tail/TailToolbar';
 import { TailList } from './components/tail/TailList';
 import { LoadingOverlay } from './components/LoadingOverlay';
@@ -52,6 +55,7 @@ export function TailApp({
   const [running, setRunning] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
   const [tailMaxLines, setTailMaxLines] = useState(10000);
+  const tailMaxLinesRef = useRef(10000);
   const [query, setQuery] = useState(initialUiStateRef.current.query);
   const [onlyUserDebug, setOnlyUserDebug] = useState(initialUiStateRef.current.onlyUserDebug);
   const [autoScroll, setAutoScroll] = useState(initialUiStateRef.current.autoScroll);
@@ -81,6 +85,7 @@ export function TailApp({
       if (msg.type === 'tailConfig') {
         const n = typeof (msg as any).tailBufferSize === 'number' ? Math.floor((msg as any).tailBufferSize) : 10000;
         const clamped = Math.max(1000, Math.min(200000, n));
+        tailMaxLinesRef.current = clamped;
         setTailMaxLines(clamped);
       }
       if (msg.type === 'loading') {
@@ -108,7 +113,7 @@ export function TailApp({
         const incoming = Array.isArray(msg.lines) ? msg.lines : [];
         setLines(prev => {
           const merged = prev.length ? prev.concat(incoming) : [...incoming];
-          const drop = Math.max(0, merged.length - tailMaxLines);
+          const drop = Math.max(0, merged.length - tailMaxLinesRef.current);
           if (drop > 0) {
             // Adjust selection to account for trimmed prefix
             setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
@@ -127,7 +132,7 @@ export function TailApp({
     messageBus.addEventListener('message', handler as EventListener);
     vscode.postMessage({ type: 'ready' });
     return () => messageBus.removeEventListener('message', handler as EventListener);
-  }, [messageBus, vscode, tailMaxLines]);
+  }, [messageBus, vscode]);
 
   useEffect(() => {
     vscode.setState({
@@ -141,6 +146,7 @@ export function TailApp({
   }, [autoScroll, colorize, debugLevel, onlyUserDebug, query, selectedIndex, vscode]);
 
   useEffect(() => {
+    tailMaxLinesRef.current = tailMaxLines;
     setLines(prev => {
       const drop = Math.max(0, prev.length - tailMaxLines);
       if (drop <= 0) {

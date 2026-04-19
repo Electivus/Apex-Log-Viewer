@@ -1,7 +1,10 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../../../../apps/vscode-extension/src/shared/messages';
+import type {
+  ExtensionToWebviewMessage,
+  WebviewToExtensionMessage
+} from '../../../../apps/vscode-extension/src/shared/messages';
 import type { VsCodeWebviewApi } from '../vscodeApi';
 import { TailApp } from '../tail';
 
@@ -128,6 +131,29 @@ describe('Tail webview App', () => {
     await waitFor(() => {
       expect(posted).toContainEqual({ type: 'tailStart', debugLevel: 'ALV_E2E' });
     });
+  });
+
+  it('applies an updated tail buffer size before processing immediate replayed lines', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<TailApp vscode={vscode} messageBus={bus} />);
+
+    send(bus, { type: 'init', locale: 'en' });
+    await screen.findByText('Start');
+
+    const replayLines = [
+      'USER_DEBUG|keep-this-line',
+      ...Array.from({ length: 10019 }, (_, index) => `USER_DEBUG|line-${index + 1}`)
+    ];
+
+    send(bus, { type: 'tailConfig', tailBufferSize: replayLines.length });
+    send(bus, { type: 'tailData', lines: replayLines });
+
+    fireEvent.change(screen.getByPlaceholderText('Search live logs…'), {
+      target: { value: 'keep-this-line' }
+    });
+
+    await screen.findByText('USER_DEBUG|keep-this-line');
   });
 
   it('restores and persists tail UI state through the VS Code webview api', async () => {
