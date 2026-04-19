@@ -62,7 +62,6 @@ describe('resolveCliSpawnInvocation', () => {
       command: process.env.ComSpec || 'cmd.exe',
       args: [
         '/d',
-        '/s',
         '/c',
         'C:\\VS Code\\bin\\code.cmd',
         '--extensions-dir',
