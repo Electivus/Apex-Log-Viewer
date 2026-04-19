@@ -279,6 +279,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       this.showPlaceholder(host);
       if (host.kind === 'editor') {
         this.fireReadyTimeout();
+      } else if (host.visible) {
+        // Sidebar views need an internal remount because they do not recreate themselves.
+        this.scheduleMount(host);
       }
     }, WEBVIEW_READY_TIMEOUT_MS);
     logInfo(`Tail webview mounted (${host.kind}).`);

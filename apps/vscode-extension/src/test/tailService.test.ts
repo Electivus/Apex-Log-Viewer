@@ -16,7 +16,7 @@ import {
   setApiVersion
 } from '../../../../src/salesforce/apiVersion';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
-import { WEBVIEW_STABLE_VISIBILITY_DELAY_MS } from '../provider/SfLogTailViewProvider';
+import { WEBVIEW_READY_TIMEOUT_MS, WEBVIEW_STABLE_VISIBILITY_DELAY_MS } from '../provider/SfLogTailViewProvider';
 import { TestClock } from './testClock';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
@@ -747,6 +747,31 @@ suite('TailService', () => {
       await webview.emit({ type: 'ready' });
       await clock.flushMicrotasks();
       assert.deepEqual(calls, ['refreshViewState'], 'should refresh once after ready');
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('tail sidebar retries timed-out mounts while it stays visible', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      assert.ok(webview.html.includes('media/tail.js'), 'initial mount should render the tail webview');
+
+      await clock.advanceBy(WEBVIEW_READY_TIMEOUT_MS);
+      assert.ok(!webview.html.includes('media/tail.js'), 'timeout should fall back to placeholder html');
+
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      assert.ok(webview.html.includes('media/tail.js'), 'visible sidebar should auto-remount after timeout');
     } finally {
       clock.dispose();
     }

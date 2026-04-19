@@ -1484,6 +1484,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       this.showPlaceholder(host);
       if (host.kind === 'editor') {
         this.fireReadyTimeout();
+      } else if (host.visible) {
+        // Sidebar views need an internal remount because they do not recreate themselves.
+        this.scheduleMount(host);
       }
     }, WEBVIEW_READY_TIMEOUT_MS);
     logInfo(`Logs webview mounted (${host.kind}).`);

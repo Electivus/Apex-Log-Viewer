@@ -1,7 +1,11 @@
 import assert from 'assert/strict';
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { SfLogsViewProvider, WEBVIEW_STABLE_VISIBILITY_DELAY_MS } from '../provider/SfLogsViewProvider';
+import {
+  SfLogsViewProvider,
+  WEBVIEW_READY_TIMEOUT_MS,
+  WEBVIEW_STABLE_VISIBILITY_DELAY_MS
+} from '../provider/SfLogsViewProvider';
 import { TestClock } from './testClock';
 
 class MockDisposable implements vscode.Disposable {
@@ -159,6 +163,32 @@ suite('SfLogsViewProvider webview', () => {
       await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
       assert.ok(webview.html.includes('Content-Security-Policy'), 'CSP meta should be present');
       assert.ok(webview.html.includes('media/main.js'), 'bundled webview script should be referenced');
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('retries timed-out sidebar mounts while the view stays visible', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      assert.ok(webview.html.includes('Content-Security-Policy'), 'initial mount should render real html');
+
+      await clock.advanceBy(WEBVIEW_READY_TIMEOUT_MS);
+      assert.ok(!webview.html.includes('Content-Security-Policy'), 'timeout should fall back to placeholder html');
+
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      assert.ok(webview.html.includes('Content-Security-Policy'), 'visible sidebar should auto-remount after timeout');
     } finally {
       clock.dispose();
     }
