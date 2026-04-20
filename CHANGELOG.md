@@ -2,9 +2,17 @@
 
 ## Unreleased
 
+## [0.42.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.40.0...v0.42.0) (2026-04-20)
+
 ### Bug Fixes
 
-- Tail/Logs: remove the webview troubleshooting command and harden Logs/Tail webviews for destroy-and-remount lifecycles by delaying mounts until visibility stabilizes, timing out failed boots silently, replaying provider-side snapshots, and persisting only UI state in the webview.
+- Build/Runtime: verify the bundled `linux-x64` runtime compatibility path for older-glibc environments and update `rustls-webpki` to a patched release so CI and published binaries stay aligned. ([#727](https://github.com/Electivus/Apex-Log-Viewer/pull/727)) ([#731](https://github.com/Electivus/Apex-Log-Viewer/pull/731))
+- E2E/Windows: fix support-extension installation so Windows end-to-end runs can bootstrap the helper extension reliably. ([#732](https://github.com/Electivus/Apex-Log-Viewer/pull/732))
+- Tail/Logs: remove the webview troubleshooting command and harden Logs/Tail webviews for destroy-and-remount lifecycles by delaying mounts until visibility stabilizes, timing out failed boots silently, replaying provider-side snapshots, and persisting only UI state in the webview. ([#733](https://github.com/Electivus/Apex-Log-Viewer/pull/733))
+
+### Docs
+
+- Maintainers/Docs: refresh AGENTS and repository workflow guidance so local build, test, release, and repo-navigation instructions match the current project layout. ([#730](https://github.com/Electivus/Apex-Log-Viewer/pull/730))
 
 ## [0.40.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.38.0...v0.40.0) (2026-04-13)
 
