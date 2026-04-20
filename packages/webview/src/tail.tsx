@@ -24,6 +24,12 @@ interface TailUiState {
   selectedIndex?: number;
 }
 
+function buildReadyMessage(): WebviewToExtensionMessage {
+  const content = document.querySelector('meta[name="alv-mount-sequence"]')?.getAttribute('content');
+  const mountSequence = content ? Number.parseInt(content, 10) : Number.NaN;
+  return Number.isInteger(mountSequence) && mountSequence >= 0 ? { type: 'ready', mountSequence } : { type: 'ready' };
+}
+
 function readInitialUiState(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>): TailUiState {
   const raw = vscode.getState<Partial<TailUiState>>() ?? {};
   return {
@@ -72,7 +78,7 @@ export function TailApp({
 
   useEffect(() => {
     if (!messageBus) {
-      vscode.postMessage({ type: 'ready' });
+      vscode.postMessage(buildReadyMessage());
       return;
     }
     const handler = (event: MessageEvent) => {
@@ -131,7 +137,7 @@ export function TailApp({
       }
     };
     messageBus.addEventListener('message', handler as EventListener);
-    vscode.postMessage({ type: 'ready' });
+    vscode.postMessage(buildReadyMessage());
     return () => messageBus.removeEventListener('message', handler as EventListener);
   }, [messageBus, vscode]);
 

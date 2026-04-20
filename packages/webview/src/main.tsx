@@ -31,6 +31,12 @@ interface LogsUiState {
   sortDir: 'asc' | 'desc';
 }
 
+function buildReadyMessage(): WebviewToExtensionMessage {
+  const content = document.querySelector('meta[name="alv-mount-sequence"]')?.getAttribute('content');
+  const mountSequence = content ? Number.parseInt(content, 10) : Number.NaN;
+  return Number.isInteger(mountSequence) && mountSequence >= 0 ? { type: 'ready', mountSequence } : { type: 'ready' };
+}
+
 function readInitialUiState(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>): LogsUiState {
   const raw = vscode.getState<Partial<LogsUiState>>() ?? {};
   const sortBy = raw.sortBy;
@@ -132,7 +138,7 @@ export function LogsApp({
 
   useEffect(() => {
     if (!messageBus) {
-      vscode.postMessage({ type: 'ready' });
+      vscode.postMessage(buildReadyMessage());
       return;
     }
     const onMsg = (event: MessageEvent) => {
@@ -216,7 +222,7 @@ export function LogsApp({
       }
     };
     messageBus.addEventListener('message', onMsg as EventListener);
-    vscode.postMessage({ type: 'ready' });
+    vscode.postMessage(buildReadyMessage());
     return () => messageBus.removeEventListener('message', onMsg as EventListener);
   }, [messageBus, vscode]);
 

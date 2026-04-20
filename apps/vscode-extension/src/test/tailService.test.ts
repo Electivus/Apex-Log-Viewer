@@ -798,6 +798,39 @@ suite('TailService', () => {
     }
   });
 
+  test('tail sidebar ignores stale ready events from a previous mount after timeout remounts', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const calls: string[] = [];
+
+      (provider as any).refreshViewState = async () => {
+        calls.push('refreshViewState');
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await clock.advanceBy(WEBVIEW_READY_TIMEOUT_MS);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+
+      await webview.emit({ type: 'ready', mountSequence: 1 });
+      await clock.flushMicrotasks();
+      assert.deepEqual(calls, [], 'stale ready should not bootstrap the remounted tail view');
+
+      await webview.emit({ type: 'ready', mountSequence: 2 });
+      await clock.flushMicrotasks();
+      assert.deepEqual(calls, ['refreshViewState']);
+    } finally {
+      clock.dispose();
+    }
+  });
+
   test('tail remount replays the latest error until successful data clears it', async () => {
     const clock = new TestClock();
     try {

@@ -1324,12 +1324,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
   }
 
-  private getHtmlForWebview(webview: vscode.Webview): string {
+  private getHtmlForWebview(webview: vscode.Webview, mountSequence?: number): string {
     return buildWebviewHtml(
       webview,
       this.context.extensionUri,
       'main.js',
-      localize('salesforce.logs.view.name', 'Electivus Apex Logs')
+      localize('salesforce.logs.view.name', 'Electivus Apex Logs'),
+      { mountSequence }
     );
   }
 
@@ -1481,7 +1482,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private mountWebview(host: BoundWebviewHost): void {
     this.ready = false;
     const mountId = ++this.mountSequence;
-    host.webview.html = this.getHtmlForWebview(host.webview);
+    host.webview.html = this.getHtmlForWebview(host.webview, mountId);
     this.clearReadyTimer();
     this.readyTimer = setTimeout(() => {
       this.readyTimer = undefined;
@@ -1522,8 +1523,13 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.scheduleMount(host);
   }
 
-  private async handleReadyMessage(): Promise<void> {
+  private async handleReadyMessage(mountSequence?: number): Promise<void> {
     if (!this.host || this.disposed || this.ready) {
+      return;
+    }
+    const readyMountSequence = mountSequence ?? this.mountSequence;
+    if (readyMountSequence !== this.mountSequence) {
+      logInfo(`Logs webview ignored stale ready (${this.host.kind}).`);
       return;
     }
     this.ready = true;
@@ -1648,7 +1654,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           return;
         }
         if (parsed.type === 'ready') {
-          void this.handleReadyMessage();
+          void this.handleReadyMessage(parsed.mountSequence);
           return;
         }
         void this.messageHandler.handleMessage(parsed);

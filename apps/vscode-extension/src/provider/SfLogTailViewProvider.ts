@@ -110,7 +110,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       return;
     }
     if (message.type === 'ready') {
-      await this.handleReadyMessage();
+      await this.handleReadyMessage(message.mountSequence);
       return;
     }
     if (message.type === 'selectOrg') {
@@ -206,12 +206,13 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     this.disposables.length = 0;
   }
 
-  private getHtmlForWebview(webview: vscode.Webview): string {
+  private getHtmlForWebview(webview: vscode.Webview, mountSequence?: number): string {
     return buildWebviewHtml(
       webview,
       this.context.extensionUri,
       'tail.js',
-      localize('salesforce.tail.view.name', 'Electivus Apex Logs Tail')
+      localize('salesforce.tail.view.name', 'Electivus Apex Logs Tail'),
+      { mountSequence }
     );
   }
 
@@ -276,7 +277,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   private mountWebview(host: BoundWebviewHost): void {
     this.ready = false;
     const mountId = ++this.mountSequence;
-    host.webview.html = this.getHtmlForWebview(host.webview);
+    host.webview.html = this.getHtmlForWebview(host.webview, mountId);
     this.clearReadyTimer();
     this.readyTimer = setTimeout(() => {
       this.readyTimer = undefined;
@@ -317,8 +318,13 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     this.scheduleMount(host);
   }
 
-  private async handleReadyMessage(): Promise<void> {
+  private async handleReadyMessage(mountSequence?: number): Promise<void> {
     if (!this.host || this.disposed || this.ready) {
+      return;
+    }
+    const readyMountSequence = mountSequence ?? this.mountSequence;
+    if (readyMountSequence !== this.mountSequence) {
+      logInfo(`Tail webview ignored stale ready (${this.host.kind}).`);
       return;
     }
     this.ready = true;

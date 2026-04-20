@@ -220,6 +220,43 @@ suite('SfLogsViewProvider webview', () => {
     }
   });
 
+  test('ignores stale ready events from a previous logs mount after timeout remounts', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const calls: string[] = [];
+
+      (provider as any).sendOrgs = async () => {
+        calls.push('sendOrgs');
+      };
+      (provider as any).refresh = async () => {
+        calls.push('refresh');
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await clock.advanceBy(WEBVIEW_READY_TIMEOUT_MS);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+
+      await webview.emit({ type: 'ready', mountSequence: 1 });
+      await clock.flushMicrotasks();
+      assert.deepEqual(calls, [], 'stale ready should not bootstrap the remounted logs view');
+
+      await webview.emit({ type: 'ready', mountSequence: 2 });
+      await clock.flushMicrotasks();
+      assert.deepEqual(calls, ['sendOrgs', 'refresh']);
+    } finally {
+      clock.dispose();
+    }
+  });
+
   test('editor panel ready message triggers org bootstrap and refresh flow', async () => {
     const clock = new TestClock();
     try {
