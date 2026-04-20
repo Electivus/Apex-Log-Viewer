@@ -1527,8 +1527,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     if (!this.host || this.disposed || this.ready) {
       return;
     }
-    const readyMountSequence = mountSequence ?? this.mountSequence;
-    if (readyMountSequence !== this.mountSequence) {
+    if (mountSequence === undefined) {
+      if (this.mountSequence > 1) {
+        logInfo(`Logs webview ignored unsequenced stale ready (${this.host.kind}).`);
+        return;
+      }
+    } else if (mountSequence !== this.mountSequence) {
       logInfo(`Logs webview ignored stale ready (${this.host.kind}).`);
       return;
     }

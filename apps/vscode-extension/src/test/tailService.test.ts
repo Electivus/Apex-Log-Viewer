@@ -835,6 +835,10 @@ suite('TailService', () => {
       await clock.flushMicrotasks();
       assert.deepEqual(calls, [], 'stale ready should not bootstrap the remounted tail view');
 
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+      assert.deepEqual(calls, [], 'unsequenced stale ready should not bootstrap the remounted tail view');
+
       await webview.emit({ type: 'ready', mountSequence: 2 });
       await clock.flushMicrotasks();
       assert.deepEqual(calls, ['refreshViewState']);
@@ -870,7 +874,7 @@ suite('TailService', () => {
       view.fireVisible(false);
       view.fireVisible(true);
       await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      await webview.emit({ type: 'ready' });
+      await webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
       await clock.flushMicrotasks();
 
       assert.equal(
@@ -884,7 +888,7 @@ suite('TailService', () => {
       view.fireVisible(false);
       view.fireVisible(true);
       await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      await webview.emit({ type: 'ready' });
+      await webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
       await clock.flushMicrotasks();
 
       assert.equal(
@@ -925,7 +929,7 @@ suite('TailService', () => {
         view.fireVisible(false);
         view.fireVisible(true);
         await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-        await webview.emit({ type: 'ready' });
+        await webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
         await clock.flushMicrotasks();
 
         assert.equal(
@@ -1047,7 +1051,7 @@ suite('TailService', () => {
       view.fireVisible(false);
       view.fireVisible(true);
       await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      await webview.emit({ type: 'ready' });
+      await webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
       await clock.flushMicrotasks();
 
       assert.deepEqual(calls, [{ showLoading: false }], 'remount should silently refresh cached metadata');

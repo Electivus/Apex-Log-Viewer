@@ -249,6 +249,10 @@ suite('SfLogsViewProvider webview', () => {
       await clock.flushMicrotasks();
       assert.deepEqual(calls, [], 'stale ready should not bootstrap the remounted logs view');
 
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+      assert.deepEqual(calls, [], 'unsequenced stale ready should not bootstrap the remounted logs view');
+
       await webview.emit({ type: 'ready', mountSequence: 2 });
       await clock.flushMicrotasks();
       assert.deepEqual(calls, ['sendOrgs', 'refresh']);
@@ -328,7 +332,7 @@ suite('SfLogsViewProvider webview', () => {
       view.fireVisible(false);
       view.fireVisible(true);
       await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      webview.emit({ type: 'ready' });
+      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
       await clock.flushMicrotasks();
 
       assert.equal(
@@ -544,7 +548,7 @@ suite('SfLogsViewProvider webview', () => {
       view.fireVisible(false);
       view.fireVisible(true);
       await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      webview.emit({ type: 'ready' });
+      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
       await clock.flushMicrotasks();
 
       const replayedOrgs = posted.find(message => message?.type === 'orgs');
@@ -613,7 +617,7 @@ suite('SfLogsViewProvider webview', () => {
       view.fireVisible(false);
       view.fireVisible(true);
       await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      webview.emit({ type: 'ready' });
+      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
       await clock.flushMicrotasks();
 
       assert.equal(
@@ -628,7 +632,7 @@ suite('SfLogsViewProvider webview', () => {
       view.fireVisible(false);
       view.fireVisible(true);
       await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      webview.emit({ type: 'ready' });
+      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
       await clock.flushMicrotasks();
 
       assert.equal(
@@ -671,7 +675,7 @@ suite('SfLogsViewProvider webview', () => {
         view.fireVisible(false);
         view.fireVisible(true);
         await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-        webview.emit({ type: 'ready' });
+        webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
         await clock.flushMicrotasks();
 
         assert.equal(
@@ -686,7 +690,7 @@ suite('SfLogsViewProvider webview', () => {
       view.fireVisible(false);
       view.fireVisible(true);
       await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      webview.emit({ type: 'ready' });
+      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
       await clock.flushMicrotasks();
 
       assert.equal(
@@ -742,7 +746,7 @@ suite('SfLogsViewProvider webview', () => {
       view.fireVisible(false);
       view.fireVisible(true);
       await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      webview.emit({ type: 'ready' });
+      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
       await clock.flushMicrotasks();
 
       assert.equal(

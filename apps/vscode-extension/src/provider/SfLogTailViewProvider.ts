@@ -322,8 +322,12 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     if (!this.host || this.disposed || this.ready) {
       return;
     }
-    const readyMountSequence = mountSequence ?? this.mountSequence;
-    if (readyMountSequence !== this.mountSequence) {
+    if (mountSequence === undefined) {
+      if (this.mountSequence > 1) {
+        logInfo(`Tail webview ignored unsequenced stale ready (${this.host.kind}).`);
+        return;
+      }
+    } else if (mountSequence !== this.mountSequence) {
       logInfo(`Tail webview ignored stale ready (${this.host.kind}).`);
       return;
     }
