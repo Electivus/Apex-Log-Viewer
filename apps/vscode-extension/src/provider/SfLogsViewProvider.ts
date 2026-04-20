@@ -1548,11 +1548,15 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.replaySnapshot();
 
     const shouldRefreshOrgs = !this.hasOrgsSnapshot || this.orgsBootstrapNeedsRefresh;
-    const shouldRefreshLogs =
-      (!this.hasLogsSnapshot || this.logsBootstrapNeedsRefresh) && this.activeRefreshToken === undefined;
+    const selectedOrgBeforeBootstrap = this.selectedOrgSnapshot;
     if (shouldRefreshOrgs) {
       await this.sendOrgs();
     }
+    const shouldRefreshLogs =
+      (!this.hasLogsSnapshot ||
+        this.logsBootstrapNeedsRefresh ||
+        selectedOrgBeforeBootstrap !== this.selectedOrgSnapshot) &&
+      this.activeRefreshToken === undefined;
     if (shouldRefreshLogs) {
       await this.refresh();
       return;

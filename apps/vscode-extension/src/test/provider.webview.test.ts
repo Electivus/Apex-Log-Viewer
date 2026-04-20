@@ -434,6 +434,53 @@ suite('SfLogsViewProvider webview', () => {
     }
   });
 
+  test('forces a refresh when org bootstrap changes the selected org during remount', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const calls: string[] = [];
+
+      (provider as any).post({
+        type: 'orgs',
+        data: [{ username: 'first@example.com', alias: 'First', isDefaultUsername: true }],
+        selected: 'first@example.com'
+      });
+      (provider as any).post({
+        type: 'logs',
+        data: [],
+        hasMore: false
+      });
+      (provider as any).orgsBootstrapNeedsRefresh = true;
+      (provider as any).sendOrgs = async () => {
+        calls.push('sendOrgs');
+        (provider as any).post({
+          type: 'orgs',
+          data: [{ username: 'second@example.com', alias: 'Second', isDefaultUsername: true }],
+          selected: 'second@example.com'
+        });
+      };
+      (provider as any).refresh = async () => {
+        calls.push('refresh');
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.deepEqual(calls, ['sendOrgs', 'refresh']);
+    } finally {
+      clock.dispose();
+    }
+  });
+
   test('syncSelectedOrg refreshes an existing editor session when the org changes', async () => {
     const context = {
       extensionUri: vscode.Uri.file(path.resolve('.')),
