@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { SfLogsViewProvider } from '../provider/SfLogsViewProvider';
 import { localize } from '../../../../src/utils/localize';
+import { disposeAll } from './disposeAll';
 
 interface ShowOptions {
   selectedOrg?: string;
@@ -30,29 +31,42 @@ export class LogsEditorPanel {
     this.instance = new LogsEditorPanel(context, options);
   }
 
-  private readonly panel: vscode.WebviewPanel;
   private readonly controller: SfLogsViewProvider;
+  private readonly context: vscode.ExtensionContext;
+  private readonly instanceDisposables: vscode.Disposable[] = [];
+  private panel: vscode.WebviewPanel;
+  private panelDisposables: vscode.Disposable[] = [];
+  private recreating = false;
+  private retryAttempted = false;
 
   private constructor(context: vscode.ExtensionContext, options?: ShowOptions) {
+    this.context = context;
     this.controller = new SfLogsViewProvider(context);
     if (typeof options?.selectedOrg === 'string' && options.selectedOrg.trim()) {
       this.controller.setSelectedOrg(options.selectedOrg);
     }
+    this.instanceDisposables.push(
+      this.controller.onDidReadyTimeout(() => {
+        void this.handleReadyTimeout();
+      })
+    );
 
-    this.panel = vscode.window.createWebviewPanel(
+    this.panel = this.createPanel();
+    this.bindPanel(this.panel);
+  }
+
+  private createPanel(): vscode.WebviewPanel {
+    const panel = vscode.window.createWebviewPanel(
       LogsEditorPanel.viewType,
       localize('salesforce.logs.view.name', 'Electivus Apex Logs'),
       { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
       {
         enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
+        localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
       }
     );
-
-    this.controller.resolveWebviewPanel(this.panel);
-    this.panel.onDidDispose(() => this.dispose());
-    context.subscriptions.push(this.panel);
+    this.context.subscriptions.push(panel);
+    return panel;
   }
 
   private reveal(): void {
@@ -63,10 +77,46 @@ export class LogsEditorPanel {
     await this.controller.syncSelectedOrg(selectedOrg);
   }
 
+  private bindPanel(panel: vscode.WebviewPanel): void {
+    disposeAll(this.panelDisposables);
+    this.panel = panel;
+    this.controller.resolveWebviewPanel(panel);
+    this.panelDisposables.push(
+      panel.onDidDispose(() => {
+        this.handlePanelDisposed();
+      })
+    );
+  }
+
+  private async handleReadyTimeout(): Promise<void> {
+    if (this.retryAttempted || this.recreating || !this.panel.visible) {
+      return;
+    }
+    this.retryAttempted = true;
+    this.recreating = true;
+    const nextPanel = this.createPanel();
+    const oldPanel = this.panel;
+    this.bindPanel(nextPanel);
+    try {
+      oldPanel.dispose();
+    } finally {
+      this.recreating = false;
+    }
+  }
+
+  private handlePanelDisposed(): void {
+    if (this.recreating) {
+      return;
+    }
+    this.dispose();
+  }
+
   private dispose(): void {
     if (LogsEditorPanel.instance === this) {
       LogsEditorPanel.instance = undefined;
     }
+    disposeAll(this.panelDisposables);
+    disposeAll(this.instanceDisposables);
     this.controller.dispose();
   }
 }

@@ -11,7 +11,6 @@
   "command.openLogsEditor.title": "Open Logs in Editor Area",
   "command.openTailEditor.title": "Open Tail in Editor Area",
   "command.openLogInViewer.title": "Open in Apex Log Viewer",
-  "command.troubleshootWebview.title": "Troubleshoot Webview Error",
   "configuration.title": "Electivus Apex Logs",
   "configuration.electivus.apexLogs.pageSize.description": "Number of logs to fetch per page (effective maximum: 200). Higher values fetch more per request but may slow the UI or increase API load.",
   "configuration.electivus.apexLogs.headConcurrency.description": "Maximum concurrent requests to fetch log headers. Very high values may overload Salesforce APIs or hit rate limits.",

@@ -3,7 +3,10 @@ import type { ListImperativeAPI } from 'react-window';
 import { createRoot } from 'react-dom/client';
 import { getMessages } from './i18n';
 import type { OrgItem } from '../../../apps/vscode-extension/src/shared/types';
-import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../../../apps/vscode-extension/src/shared/messages';
+import type {
+  ExtensionToWebviewMessage,
+  WebviewToExtensionMessage
+} from '../../../apps/vscode-extension/src/shared/messages';
 import { TailToolbar } from './components/tail/TailToolbar';
 import { TailList } from './components/tail/TailList';
 import { LoadingOverlay } from './components/LoadingOverlay';
@@ -11,6 +14,36 @@ import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
 
 type TailMessage = ExtensionToWebviewMessage;
+
+interface TailUiState {
+  query: string;
+  onlyUserDebug: boolean;
+  autoScroll: boolean;
+  colorize: boolean;
+  debugLevel: string;
+  selectedIndex?: number;
+}
+
+function buildReadyMessage(): WebviewToExtensionMessage {
+  const content = document.querySelector('meta[name="alv-mount-sequence"]')?.getAttribute('content');
+  const mountSequence = content ? Number.parseInt(content, 10) : Number.NaN;
+  return Number.isInteger(mountSequence) && mountSequence >= 0 ? { type: 'ready', mountSequence } : { type: 'ready' };
+}
+
+function readInitialUiState(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>): TailUiState {
+  const raw = vscode.getState<Partial<TailUiState>>() ?? {};
+  return {
+    query: typeof raw.query === 'string' ? raw.query : '',
+    onlyUserDebug: raw.onlyUserDebug === true,
+    autoScroll: raw.autoScroll !== false,
+    colorize: raw.colorize === true,
+    debugLevel: typeof raw.debugLevel === 'string' ? raw.debugLevel : '',
+    selectedIndex:
+      typeof raw.selectedIndex === 'number' && Number.isInteger(raw.selectedIndex) && raw.selectedIndex >= 0
+        ? raw.selectedIndex
+        : undefined
+  };
+}
 
 export interface TailAppProps {
   vscode?: VsCodeWebviewApi<WebviewToExtensionMessage>;
@@ -21,28 +54,31 @@ export function TailApp({
   vscode = getDefaultVsCodeApi<WebviewToExtensionMessage>(),
   messageBus = getDefaultMessageBus()
 }: TailAppProps = {}) {
+  const [initialUiState] = useState<TailUiState>(() => readInitialUiState(vscode));
+  const initialUiStateRef = useRef<TailUiState>(initialUiState);
   const [locale, setLocale] = useState('en');
   const [orgs, setOrgs] = useState<OrgItem[]>([]);
   const [selectedOrg, setSelectedOrg] = useState<string | undefined>(undefined);
   const [running, setRunning] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
   const [tailMaxLines, setTailMaxLines] = useState(10000);
-  const [query, setQuery] = useState('');
-  const [onlyUserDebug, setOnlyUserDebug] = useState(false);
-  const [autoScroll, setAutoScroll] = useState(true);
+  const tailMaxLinesRef = useRef(10000);
+  const [query, setQuery] = useState(initialUiStateRef.current.query);
+  const [onlyUserDebug, setOnlyUserDebug] = useState(initialUiStateRef.current.onlyUserDebug);
+  const [autoScroll, setAutoScroll] = useState(initialUiStateRef.current.autoScroll);
   const autoScrollPausedByScrollRef = useRef(false);
-  const [colorize, setColorize] = useState(false);
+  const [colorize, setColorize] = useState(initialUiStateRef.current.colorize);
   const [debugLevels, setDebugLevels] = useState<string[]>([]);
-  const [debugLevel, setDebugLevel] = useState('');
+  const [debugLevel, setDebugLevel] = useState(initialUiStateRef.current.debugLevel);
   const [error, setError] = useState<string | undefined>(undefined);
-  const [selectedIndex, setSelectedIndex] = useState<number | undefined>(undefined);
+  const [selectedIndex, setSelectedIndex] = useState<number | undefined>(initialUiStateRef.current.selectedIndex);
   const [loading, setLoading] = useState(false);
   const t = getMessages(locale) as any;
   const listRef = useRef<ListImperativeAPI | null>(null);
 
   useEffect(() => {
     if (!messageBus) {
-      vscode.postMessage({ type: 'ready' });
+      vscode.postMessage(buildReadyMessage());
       return;
     }
     const handler = (event: MessageEvent) => {
@@ -56,6 +92,7 @@ export function TailApp({
       if (msg.type === 'tailConfig') {
         const n = typeof (msg as any).tailBufferSize === 'number' ? Math.floor((msg as any).tailBufferSize) : 10000;
         const clamped = Math.max(1000, Math.min(200000, n));
+        tailMaxLinesRef.current = clamped;
         setTailMaxLines(clamped);
       }
       if (msg.type === 'loading') {
@@ -69,7 +106,7 @@ export function TailApp({
         const nextLevels = msg.data || [];
         setDebugLevels(nextLevels);
         if (typeof msg.active === 'string' && msg.active) {
-          setDebugLevel(msg.active);
+          setDebugLevel(prev => (prev && nextLevels.includes(prev) ? prev : msg.active));
         } else if (nextLevels.length > 0) {
           setDebugLevel(prev => (prev && nextLevels.includes(prev) ? prev : nextLevels[0]!));
         } else {
@@ -83,7 +120,7 @@ export function TailApp({
         const incoming = Array.isArray(msg.lines) ? msg.lines : [];
         setLines(prev => {
           const merged = prev.length ? prev.concat(incoming) : [...incoming];
-          const drop = Math.max(0, merged.length - tailMaxLines);
+          const drop = Math.max(0, merged.length - tailMaxLinesRef.current);
           if (drop > 0) {
             // Adjust selection to account for trimmed prefix
             setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
@@ -100,9 +137,32 @@ export function TailApp({
       }
     };
     messageBus.addEventListener('message', handler as EventListener);
-    vscode.postMessage({ type: 'ready' });
+    vscode.postMessage(buildReadyMessage());
     return () => messageBus.removeEventListener('message', handler as EventListener);
-  }, [messageBus, vscode, tailMaxLines]);
+  }, [messageBus, vscode]);
+
+  useEffect(() => {
+    vscode.setState({
+      query,
+      onlyUserDebug,
+      autoScroll,
+      colorize,
+      debugLevel,
+      selectedIndex
+    } satisfies TailUiState);
+  }, [autoScroll, colorize, debugLevel, onlyUserDebug, query, selectedIndex, vscode]);
+
+  useEffect(() => {
+    tailMaxLinesRef.current = tailMaxLines;
+    setLines(prev => {
+      const drop = Math.max(0, prev.length - tailMaxLines);
+      if (drop <= 0) {
+        return prev;
+      }
+      setSelectedIndex(idx => (idx === undefined ? undefined : idx - drop >= 0 ? idx - drop : undefined));
+      return prev.slice(drop);
+    });
+  }, [tailMaxLines]);
 
   const filteredIndexes = useMemo(() => {
     const q = query.trim().toLowerCase();

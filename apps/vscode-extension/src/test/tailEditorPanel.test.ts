@@ -55,6 +55,10 @@ suite('TailEditorPanel', () => {
         this.syncedOrgs.push(org);
       }
 
+      onDidReadyTimeout(): { dispose(): void } {
+        return createDisposable();
+      }
+
       resolveWebviewPanel(nextPanel: any): void {
         this.resolvedPanels.push(nextPanel);
       }
@@ -111,6 +115,10 @@ suite('TailEditorPanel', () => {
       }
 
       setSelectedOrg(_org?: string): void {}
+
+      onDidReadyTimeout(): { dispose(): void } {
+        return createDisposable();
+      }
 
       resolveWebviewPanel(_panel: any): void {}
 

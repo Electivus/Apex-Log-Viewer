@@ -118,6 +118,7 @@
           "type": "number",
           "default": 10000,
           "minimum": 1000,
+          "maximum": 200000,
           "markdownDescription": "%configuration.electivus.apexLogs.tailBufferSize.description%"
         },
         "electivus.apexLogs.cliCache.enabled": {
@@ -300,6 +301,7 @@
           "type": "number",
           "default": 10000,
           "minimum": 1000,
+          "maximum": 200000,
           "markdownDescription": "%configuration.electivus.apexLogs.tailBufferSize.description%",
           "deprecationMessage": "Deprecated: use electivus.apexLogs.tailBufferSize"
         },
@@ -406,11 +408,6 @@
         "category": "Electivus Apex Logs"
       },
       {
-        "command": "sfLogs.troubleshootWebview",
-        "title": "%command.troubleshootWebview.title%",
-        "category": "Electivus Apex Logs"
-      },
-      {
         "command": "sfLogs.resetCliCache",
         "title": "Reset CLI Cache",
         "category": "Electivus Apex Logs"
@@ -439,11 +436,6 @@
           "when": "view == sfLogTail",
           "group": "navigation@10",
           "icon": "$(open-preview)"
-        },
-        {
-          "command": "sfLogs.troubleshootWebview",
-          "when": "view == sfLogViewer || view == sfLogTail",
-          "group": "moreActions@97"
         },
         {
           "command": "sfLogs.resetCliCache",

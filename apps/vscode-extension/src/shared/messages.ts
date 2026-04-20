@@ -5,7 +5,7 @@ import { normalizeLogsColumnsConfig } from './logsColumns';
 
 // Messages sent from Webview -> Extension
 export type WebviewToExtensionMessage =
-  | { type: 'ready' }
+  | { type: 'ready'; mountSequence?: number }
   | { type: 'refresh' }
   | { type: 'downloadAllLogs' }
   | { type: 'clearLogs'; scope: 'all' | 'mine' }
@@ -35,7 +35,7 @@ export type WebviewToExtensionMessage =
 // Messages sent from Extension -> Webview
 export type ExtensionToWebviewMessage =
   | { type: 'loading'; value: boolean }
-  | { type: 'error'; message: string }
+  | { type: 'error'; message?: string }
   | { type: 'warning'; message?: string }
   | { type: 'init'; locale: string; fullLogSearchEnabled?: boolean; logsColumns?: NormalizedLogsColumnsConfig }
   | { type: 'logsColumns'; value: NormalizedLogsColumnsConfig }
@@ -115,7 +115,6 @@ export function parseWebviewToExtensionMessage(raw: unknown): WebviewToExtension
   }
 
   switch (message.type) {
-    case 'ready':
     case 'refresh':
     case 'downloadAllLogs':
     case 'openDebugFlags':
@@ -123,6 +122,10 @@ export function parseWebviewToExtensionMessage(raw: unknown): WebviewToExtension
     case 'tailStop':
     case 'tailClear':
       return { type: message.type };
+    case 'ready': {
+      const mountSequence = parseNonNegativeInteger(message.mountSequence);
+      return mountSequence === undefined ? { type: 'ready' } : { type: 'ready', mountSequence };
+    }
     case 'clearLogs':
       if (message.scope === 'all' || message.scope === 'mine') {
         return { type: 'clearLogs', scope: message.scope };

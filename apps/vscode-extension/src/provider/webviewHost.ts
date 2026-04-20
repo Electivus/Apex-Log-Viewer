@@ -5,6 +5,7 @@ export interface BoundWebviewHost {
   readonly webview: vscode.Webview;
   readonly visible: boolean;
   onDidDispose(listener: () => void): vscode.Disposable;
+  onDidChangeVisibility(listener: (visible: boolean) => void): vscode.Disposable;
   onDidBecomeVisible(listener: () => void): vscode.Disposable;
 }
 
@@ -20,6 +21,11 @@ export function createWebviewViewHost(view: vscode.WebviewView): BoundWebviewHos
     onDidDispose(listener: () => void): vscode.Disposable {
       return view.onDidDispose(listener);
     },
+    onDidChangeVisibility(listener: (visible: boolean) => void): vscode.Disposable {
+      return view.onDidChangeVisibility(() => {
+        listener(view.visible);
+      });
+    },
     onDidBecomeVisible(listener: () => void): vscode.Disposable {
       return view.onDidChangeVisibility(() => {
         if (view.visible) {
@@ -31,6 +37,18 @@ export function createWebviewViewHost(view: vscode.WebviewView): BoundWebviewHos
 }
 
 export function createWebviewPanelHost(panel: vscode.WebviewPanel): BoundWebviewHost {
+  const onVisibilityTransition = (listener: (visible: boolean) => void): vscode.Disposable => {
+    let lastVisible = panel.visible;
+    return panel.onDidChangeViewState(event => {
+      const visible = event.webviewPanel.visible;
+      if (visible === lastVisible) {
+        return;
+      }
+      lastVisible = visible;
+      listener(visible);
+    });
+  };
+
   return {
     kind: 'editor',
     get webview() {
@@ -42,9 +60,12 @@ export function createWebviewPanelHost(panel: vscode.WebviewPanel): BoundWebview
     onDidDispose(listener: () => void): vscode.Disposable {
       return panel.onDidDispose(listener);
     },
+    onDidChangeVisibility(listener: (visible: boolean) => void): vscode.Disposable {
+      return onVisibilityTransition(listener);
+    },
     onDidBecomeVisible(listener: () => void): vscode.Disposable {
-      return panel.onDidChangeViewState(event => {
-        if (event.webviewPanel.visible) {
+      return onVisibilityTransition(visible => {
+        if (visible) {
           listener();
         }
       });

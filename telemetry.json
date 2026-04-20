@@ -143,17 +143,6 @@
         }
       }
     },
-    "command.troubleshootWebview": {
-      "description": "Troubleshoot-webview command was invoked from VS Code.",
-      "properties": {
-        "outcome": {
-          "classification": "SystemMetaData",
-          "purpose": "FeatureInsight",
-          "required": true,
-          "values": ["invoked"]
-        }
-      }
-    },
     "command.resetCliCache": {
       "description": "Reset-CLI-cache command outcome.",
       "properties": {

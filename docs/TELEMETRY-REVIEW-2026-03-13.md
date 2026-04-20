@@ -35,7 +35,6 @@
      - `command.selectOrg`
      - `command.refresh`
      - `command.tail`
-     - `command.troubleshootWebview`
      - `command.resetCliCache`
      - `debugFlags.remove`
      - `logs.replay`

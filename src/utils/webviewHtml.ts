@@ -7,10 +7,15 @@ export function buildWebviewHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
   scriptFile: string,
-  title: string
+  title: string,
+  options?: { mountSequence?: number }
 ): string {
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', scriptFile));
   const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'webview.css'));
+  const mountSequenceMeta =
+    typeof options?.mountSequence === 'number'
+      ? `<meta name="alv-mount-sequence" content="${options.mountSequence}">`
+      : '';
   // Allow service/worker scripts and fetches against the webview source. VS Code
   // registers an internal service worker to serve local resources. Without an
   // explicit worker-src and connect-src, the default-src ('none') can cause
@@ -24,6 +29,7 @@ export function buildWebviewHtml(
       <meta charset="UTF-8">
       <meta http-equiv="Content-Security-Policy" content="${csp}">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      ${mountSequenceMeta}
       <link rel="stylesheet" href="${styleUri}">
       <title>${title}</title>
       </head>

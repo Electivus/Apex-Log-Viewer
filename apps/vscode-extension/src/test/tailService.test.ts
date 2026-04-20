@@ -3,15 +3,21 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { PassThrough } from 'stream';
 import proxyquire from 'proxyquire';
-import { TailService } from '../../../../src/utils/tailService';
+import { MAX_TAIL_BUFFER_LINES, TailService } from '../../../../src/utils/tailService';
 import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
 import * as cli from '../../../../src/salesforce/cli';
 import * as http from '../../../../src/salesforce/http';
 import * as jsforce from '../../../../src/salesforce/jsforce';
 import * as streaming from '../../../../src/salesforce/streaming';
 import * as traceflags from '../../../../src/salesforce/traceflags';
-import { __resetApiVersionFallbackStateForTests, recordApiVersionFallback, setApiVersion } from '../../../../src/salesforce/apiVersion';
+import {
+  __resetApiVersionFallbackStateForTests,
+  recordApiVersionFallback,
+  setApiVersion
+} from '../../../../src/salesforce/apiVersion';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
+import { WEBVIEW_READY_TIMEOUT_MS, WEBVIEW_STABLE_VISIBILITY_DELAY_MS } from '../provider/SfLogTailViewProvider';
+import { TestClock } from './testClock';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 
@@ -29,34 +35,35 @@ function loadTailService(stubs?: {
     '../salesforce/traceflags': stubs?.traceflags ?? {},
     '../salesforce/streaming': stubs?.streaming ?? {},
     '../salesforce/jsforce': stubs?.jsforce ?? {},
-    '../../apps/vscode-extension/src/runtime/runtimeClient':
-      stubs?.runtime ?? {
-        runtimeClient: {
-          getOrgAuth:
-            stubs?.cli?.getOrgAuth ??
-            (async ({ username }: { username?: string } = {}) => ({
-              username,
-              instanceUrl: 'https://example.com',
-              accessToken: 'token'
-            }))
-        }
+    '../../apps/vscode-extension/src/runtime/runtimeClient': stubs?.runtime ?? {
+      runtimeClient: {
+        getOrgAuth:
+          stubs?.cli?.getOrgAuth ??
+          (async ({ username }: { username?: string } = {}) => ({
+            username,
+            instanceUrl: 'https://example.com',
+            accessToken: 'token'
+          }))
       }
+    }
   }) as typeof import('../../../../src/utils/tailService');
 }
 
-function loadTailProvider(stubs?: {
-  cli?: Record<string, unknown>;
-  traceflags?: Record<string, unknown>;
-}) {
+function loadTailProvider(stubs?: { cli?: Record<string, unknown>; traceflags?: Record<string, unknown> }) {
   class TailServiceStub {
     setOrg(_username?: string): void {}
     setWindowActive(_active: boolean): void {}
+    setBufferLimit(_limit: number): void {}
     isRunning(): boolean {
       return false;
+    }
+    getBufferedLines(): string[] {
+      return [];
     }
     promptPoll(): void {}
     stop(): void {}
     clearLogPaths(): void {}
+    clearBufferedLines(): void {}
     ensureLogSaved = async () => '/tmp/test.log';
     start = async () => undefined;
   }
@@ -115,29 +122,44 @@ class MockWebviewView implements vscode.WebviewView {
   description?: string | undefined;
   badge?: { value: number; tooltip: string } | undefined;
   webview: vscode.Webview;
+  private visibilityListeners: Array<() => void> = [];
+  private disposeListener: (() => void) | undefined;
   constructor(webview: vscode.Webview) {
     this.webview = webview;
   }
   show(): void {
     /* noop */
   }
-  onDidChangeVisibility: vscode.Event<void> = () => new MockDisposable();
-  onDidDispose: vscode.Event<void> = () => new MockDisposable();
+  onDidChangeVisibility: vscode.Event<void> = listener => {
+    this.visibilityListeners.push(listener);
+    return new MockDisposable();
+  };
+  onDidDispose: vscode.Event<void> = listener => {
+    this.disposeListener = listener;
+    return new MockDisposable();
+  };
+  fireVisible(visible: boolean): void {
+    this.visible = visible;
+    for (const listener of this.visibilityListeners) {
+      listener();
+    }
+  }
 }
 
 class MockWebviewPanel implements vscode.WebviewPanel {
   readonly active = true;
-  readonly visible = true;
+  visible = true;
   readonly options: vscode.WebviewPanelOptions = {};
   public title = 'Electivus Apex Logs Tail';
   public viewColumn: vscode.ViewColumn = vscode.ViewColumn.Active;
   public webview: vscode.Webview;
   private disposeListener: (() => void) | undefined;
-  private viewStateListener:
-    | ((event: vscode.WebviewPanelOnDidChangeViewStateEvent) => void)
-    | undefined;
+  private viewStateListener: ((event: vscode.WebviewPanelOnDidChangeViewStateEvent) => void) | undefined;
 
-  constructor(public viewType: string, webview: vscode.Webview) {
+  constructor(
+    public viewType: string,
+    webview: vscode.Webview
+  ) {
     this.webview = webview;
   }
 
@@ -154,14 +176,13 @@ class MockWebviewPanel implements vscode.WebviewPanel {
     return new MockDisposable();
   }
 
-  onDidChangeViewState(
-    listener: (e: vscode.WebviewPanelOnDidChangeViewStateEvent) => any
-  ): vscode.Disposable {
+  onDidChangeViewState(listener: (e: vscode.WebviewPanelOnDidChangeViewStateEvent) => any): vscode.Disposable {
     this.viewStateListener = listener;
     return new MockDisposable();
   }
 
-  fireVisible(): void {
+  fireVisible(visible = true): void {
+    this.visible = visible;
     this.viewStateListener?.({ webviewPanel: this } as vscode.WebviewPanelOnDidChangeViewStateEvent);
   }
 }
@@ -199,21 +220,24 @@ suite('TailService', () => {
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     (traceflags as any).ensureUserTraceFlag = async () => false;
     (http as any).fetchApexLogs = async () => [];
-    jsforce.__setConnectionFactoryForTests(async () => ({
-      version: '64.0',
-      instanceUrl: 'i',
-      accessToken: 't',
-      request: async () => '',
-      query: async () => ({ records: [] }),
-      queryMore: async () => ({ records: [] }),
-      tooling: {
-        query: async () => ({ records: [] }),
-        create: async () => ({ success: true, id: '1', errors: [] }),
-        update: async () => ({ success: true, id: '1', errors: [] }),
-        destroy: async () => ({ success: true, id: '1', errors: [] })
-      },
-      streaming: {} as any
-    }) as any);
+    jsforce.__setConnectionFactoryForTests(
+      async () =>
+        ({
+          version: '64.0',
+          instanceUrl: 'i',
+          accessToken: 't',
+          request: async () => '',
+          query: async () => ({ records: [] }),
+          queryMore: async () => ({ records: [] }),
+          tooling: {
+            query: async () => ({ records: [] }),
+            create: async () => ({ success: true, id: '1', errors: [] }),
+            update: async () => ({ success: true, id: '1', errors: [] }),
+            destroy: async () => ({ success: true, id: '1', errors: [] })
+          },
+          streaming: {} as any
+        }) as any
+    );
     streaming.__setStreamingClientFactoryForTests(async () => ({
       handshake: async () => {},
       replay: () => {},
@@ -371,6 +395,27 @@ suite('TailService', () => {
     assert.equal((service as any).lastReplayId, undefined);
   });
 
+  test('setBufferLimit clamps to the shared maximum and trims buffered replay lines', () => {
+    const service = new TailService(() => {});
+    (service as any).bufferedLines = Array.from({ length: MAX_TAIL_BUFFER_LINES + 25 }, (_, index) => `line-${index}`);
+
+    service.setBufferLimit(Number.MAX_SAFE_INTEGER);
+
+    assert.equal(service.getBufferedLines().length, MAX_TAIL_BUFFER_LINES);
+  });
+
+  test('buffer trimming preserves the newest logical tail window without shifting the whole array each append', () => {
+    const service = new TailService(() => {});
+    service.setBufferLimit(1000);
+
+    (service as any).appendBufferedLines(Array.from({ length: 1000 }, (_, index) => `line-${index}`));
+    (service as any).appendBufferedLines(['line-1000']);
+
+    assert.deepEqual(service.getBufferedLines().slice(0, 3), ['line-1', 'line-2', 'line-3']);
+    assert.deepEqual(service.getBufferedLines().slice(-3), ['line-998', 'line-999', 'line-1000']);
+    assert.equal((service as any).bufferedLinesOffset > 0, true, 'trim should advance the logical head');
+  });
+
   test('selectOrg resets caches and stops tail', async () => {
     const context = {
       extensionUri: vscode.Uri.file(path.resolve('.')),
@@ -379,17 +424,29 @@ suite('TailService', () => {
     const provider = new SfLogTailViewProvider(context);
     const webview = new MockWebview();
     const view = new MockWebviewView(webview);
+    const posted: any[] = [];
+    webview.postMessage = (message: any) => {
+      posted.push(message);
+      return Promise.resolve(true);
+    };
     (provider as any).sendOrgs = async () => {};
     (provider as any).sendDebugLevels = async () => {};
     await provider.resolveWebviewView(view);
     const service = (provider as any).tailService;
     (service as any).seenLogIds.add('x');
     (service as any).logIdToPath.set('x', 'y');
+    (service as any).bufferedLines = ['USER_DEBUG|stale'];
     (service as any).tailRunning = true;
     await webview.emit({ type: 'selectOrg', target: 'newOrg' });
     assert.equal((service as any).seenLogIds.size, 0);
     assert.equal((service as any).logIdToPath.size, 0);
+    assert.deepEqual(service.getBufferedLines(), []);
     assert.equal(service.isRunning(), false);
+    assert.equal(
+      posted.some(message => message?.type === 'tailReset'),
+      true,
+      'switching orgs should clear the visible tail buffer'
+    );
   });
 
   test('sendDebugLevels selects the first available level when no active trace flag exists', async () => {
@@ -650,56 +707,357 @@ suite('TailService', () => {
   });
 
   test('editor tail panel resolves html and stays idle after ready', async () => {
-    const context = {
-      extensionUri: vscode.Uri.file(path.resolve('.')),
-      subscriptions: [] as vscode.Disposable[]
-    } as unknown as vscode.ExtensionContext;
-    const provider = new SfLogTailViewProvider(context);
-    const posted: any[] = [];
-    const webview = new MockWebview();
-    webview.postMessage = (message: any) => {
-      posted.push(message);
-      return Promise.resolve(true);
-    };
-    const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const posted: any[] = [];
+      const webview = new MockWebview();
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+      const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
 
-    (provider as any).sendOrgs = async () => {
-      posted.push({ type: 'sendOrgsCalled' });
-    };
-    (provider as any).sendDebugLevels = async () => {
-      posted.push({ type: 'sendDebugLevelsCalled' });
-    };
+      (provider as any).sendOrgs = async () => {
+        posted.push({ type: 'sendOrgsCalled' });
+      };
+      (provider as any).sendDebugLevels = async () => {
+        posted.push({ type: 'sendDebugLevelsCalled' });
+      };
 
-    provider.resolveWebviewPanel(panel);
-    await webview.emit({ type: 'ready' });
+      provider.resolveWebviewPanel(panel);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
 
-    assert.ok(webview.html.includes('media/tail.js'));
-    assert.ok(posted.some(message => message?.type === 'init'), 'should post init message');
-    assert.ok(posted.some(message => message?.type === 'sendOrgsCalled'), 'should refresh org state on ready');
-    assert.ok(posted.some(message => message?.type === 'sendDebugLevelsCalled'), 'should refresh debug levels on ready');
-    assert.equal((provider as any).tailService.isRunning(), false, 'editor tail should stay idle until explicit start');
+      assert.ok(webview.html.includes('media/tail.js'));
+      assert.ok(
+        posted.some(message => message?.type === 'init'),
+        'should post init message'
+      );
+      assert.ok(
+        posted.some(message => message?.type === 'sendOrgsCalled'),
+        'should refresh org state on ready'
+      );
+      assert.ok(
+        posted.some(message => message?.type === 'sendDebugLevelsCalled'),
+        'should refresh debug levels on ready'
+      );
+      assert.equal(
+        (provider as any).tailService.isRunning(),
+        false,
+        'editor tail should stay idle until explicit start'
+      );
+    } finally {
+      clock.dispose();
+    }
   });
 
   test('editor tail panel ignores visibility refreshes until ready', async () => {
-    const context = {
-      extensionUri: vscode.Uri.file(path.resolve('.')),
-      subscriptions: [] as vscode.Disposable[]
-    } as unknown as vscode.ExtensionContext;
-    const provider = new SfLogTailViewProvider(context);
-    const webview = new MockWebview();
-    const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
-    const calls: string[] = [];
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+      const calls: string[] = [];
 
-    (provider as any).refreshViewState = async () => {
-      calls.push('refreshViewState');
-    };
+      (provider as any).refreshViewState = async () => {
+        calls.push('refreshViewState');
+      };
 
-    provider.resolveWebviewPanel(panel);
-    panel.fireVisible();
-    assert.deepEqual(calls, [], 'should not refresh while the webview has not reported ready');
+      provider.resolveWebviewPanel(panel);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      assert.deepEqual(calls, [], 'should not refresh while the webview has not reported ready');
 
-    await webview.emit({ type: 'ready' });
-    assert.deepEqual(calls, ['refreshViewState'], 'should refresh once after ready');
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+      assert.deepEqual(calls, ['refreshViewState'], 'should refresh once after ready');
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('tail sidebar retries timed-out mounts while it stays visible', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      assert.ok(webview.html.includes('media/tail.js'), 'initial mount should render the tail webview');
+
+      await clock.advanceBy(WEBVIEW_READY_TIMEOUT_MS);
+      assert.ok(!webview.html.includes('media/tail.js'), 'timeout should fall back to placeholder html');
+
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      assert.ok(webview.html.includes('media/tail.js'), 'visible sidebar should auto-remount after timeout');
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('tail sidebar ignores stale ready events from a previous mount after timeout remounts', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const calls: string[] = [];
+
+      (provider as any).refreshViewState = async () => {
+        calls.push('refreshViewState');
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await clock.advanceBy(WEBVIEW_READY_TIMEOUT_MS);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+
+      await webview.emit({ type: 'ready', mountSequence: 1 });
+      await clock.flushMicrotasks();
+      assert.deepEqual(calls, [], 'stale ready should not bootstrap the remounted tail view');
+
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+      assert.deepEqual(calls, [], 'unsequenced stale ready should not bootstrap the remounted tail view');
+
+      await webview.emit({ type: 'ready', mountSequence: 2 });
+      await clock.flushMicrotasks();
+      assert.deepEqual(calls, ['refreshViewState']);
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('tail remount replays the latest error until successful data clears it', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const posted: any[] = [];
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      (provider as any).post({ type: 'error', message: 'tail failed' });
+      posted.length = 0;
+
+      view.fireVisible(false);
+      view.fireVisible(true);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
+      await clock.flushMicrotasks();
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === 'tail failed'),
+        true
+      );
+
+      (provider as any).post({ type: 'tailData', lines: ['USER_DEBUG|hello'] });
+      posted.length = 0;
+
+      view.fireVisible(false);
+      view.fireVisible(true);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
+      await clock.flushMicrotasks();
+
+      assert.equal(
+        posted.some(message => message?.type === 'error'),
+        false
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('tail remount preserves errors across replayed buffered lines until live recovery clears them', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const posted: any[] = [];
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      (provider as any).tailService.bufferedLines = ['USER_DEBUG|buffered'];
+      (provider as any).post({ type: 'error', message: 'tail failed' });
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        posted.length = 0;
+        view.fireVisible(false);
+        view.fireVisible(true);
+        await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+        await webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
+        await clock.flushMicrotasks();
+
+        assert.equal(
+          posted.some(message => message?.type === 'error' && message?.message === 'tail failed'),
+          true
+        );
+      }
+
+      posted.length = 0;
+      (provider as any).post({ type: 'tailData', lines: ['USER_DEBUG|recovered'] });
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === undefined),
+        true
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('tail recovery clears the webview error banner when status or data succeeds', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+      const posted: any[] = [];
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      provider.resolveWebviewPanel(panel);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      (provider as any).post({ type: 'error', message: 'tail failed' });
+      posted.length = 0;
+      (provider as any).post({ type: 'tailStatus', running: true });
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === undefined),
+        true
+      );
+
+      (provider as any).post({ type: 'error', message: 'tail failed again' });
+      posted.length = 0;
+      (provider as any).post({ type: 'tailData', lines: ['USER_DEBUG|hello'] });
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === undefined),
+        true
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('tail retries bootstrap after a failed debug-level snapshot on remount', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+      const calls: string[] = [];
+
+      (provider as any).post({ type: 'orgs', data: [], selected: undefined });
+      (provider as any).post({ type: 'debugLevels', data: [] });
+      (provider as any).debugLevelsBootstrapNeedsRefresh = true;
+      (provider as any).refreshViewState = async () => {
+        calls.push('refreshViewState');
+      };
+
+      provider.resolveWebviewPanel(panel);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.deepEqual(calls, ['refreshViewState']);
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('tail remount refreshes cached metadata in the background', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+      const provider = new SfLogTailViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const calls: Array<{ showLoading?: boolean }> = [];
+
+      (provider as any).post({ type: 'orgs', data: [], selected: undefined });
+      (provider as any).post({ type: 'debugLevels', data: [] });
+      (provider as any).refreshViewState = async (options?: { showLoading?: boolean }) => {
+        calls.push(options ?? {});
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready' });
+      await clock.flushMicrotasks();
+
+      assert.deepEqual(calls, [], 'initial ready should rely on the cached snapshot');
+
+      view.fireVisible(false);
+      view.fireVisible(true);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
+      await clock.flushMicrotasks();
+
+      assert.deepEqual(calls, [{ showLoading: false }], 'remount should silently refresh cached metadata');
+    } finally {
+      clock.dispose();
+    }
   });
 
   test('syncSelectedOrg refreshes an existing editor tail session and stops the current stream', async () => {
@@ -711,10 +1069,16 @@ suite('TailService', () => {
     const webview = new MockWebview();
     const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
     const calls: string[] = [];
+    const posted: any[] = [];
+    webview.postMessage = (message: any) => {
+      posted.push(message);
+      return Promise.resolve(true);
+    };
 
     provider.resolveWebviewPanel(panel);
     provider.setSelectedOrg('tail-first@example.com');
     (provider as any).tailService.setOrg('tail-first@example.com');
+    (provider as any).tailService.bufferedLines = ['USER_DEBUG|stale'];
     (provider as any).tailService.tailRunning = true;
     (provider as any).refreshViewState = async () => {
       calls.push('refreshViewState');
@@ -723,7 +1087,13 @@ suite('TailService', () => {
     await provider.syncSelectedOrg('tail-second@example.com');
 
     assert.equal(provider.getSelectedOrg(), 'tail-second@example.com');
+    assert.deepEqual((provider as any).tailService.getBufferedLines(), []);
     assert.equal((provider as any).tailService.isRunning(), false, 'should stop the previous tail session');
+    assert.equal(
+      posted.some(message => message?.type === 'tailReset'),
+      true,
+      'syncSelectedOrg should clear buffered lines before refreshing the next org'
+    );
     assert.deepEqual(calls, ['refreshViewState']);
   });
 });
