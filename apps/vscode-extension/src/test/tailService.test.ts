@@ -404,6 +404,18 @@ suite('TailService', () => {
     assert.equal(service.getBufferedLines().length, MAX_TAIL_BUFFER_LINES);
   });
 
+  test('buffer trimming preserves the newest logical tail window without shifting the whole array each append', () => {
+    const service = new TailService(() => {});
+    service.setBufferLimit(1000);
+
+    (service as any).appendBufferedLines(Array.from({ length: 1000 }, (_, index) => `line-${index}`));
+    (service as any).appendBufferedLines(['line-1000']);
+
+    assert.deepEqual(service.getBufferedLines().slice(0, 3), ['line-1', 'line-2', 'line-3']);
+    assert.deepEqual(service.getBufferedLines().slice(-3), ['line-998', 'line-999', 'line-1000']);
+    assert.equal((service as any).bufferedLinesOffset > 0, true, 'trim should advance the logical head');
+  });
+
   test('selectOrg resets caches and stops tail', async () => {
     const context = {
       extensionUri: vscode.Uri.file(path.resolve('.')),

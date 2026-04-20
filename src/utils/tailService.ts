@@ -45,6 +45,7 @@ export class TailService {
   private lastReplayId: number | undefined;
   private bufferLimit = DEFAULT_TAIL_BUFFER_LINES;
   private bufferedLines: string[] = [];
+  private bufferedLinesOffset = 0;
 
   constructor(private readonly post: (msg: ExtensionToWebviewMessage) => void) {}
 
@@ -69,7 +70,7 @@ export class TailService {
   }
 
   getBufferedLines(): string[] {
-    return [...this.bufferedLines];
+    return this.bufferedLinesOffset > 0 ? this.bufferedLines.slice(this.bufferedLinesOffset) : [...this.bufferedLines];
   }
 
   promptPoll(): void {
@@ -298,6 +299,7 @@ export class TailService {
 
   clearBufferedLines(): void {
     this.bufferedLines = [];
+    this.bufferedLinesOffset = 0;
   }
 
   // Streaming handler: fetch body and header fields through the active jsforce connection when available.
@@ -375,14 +377,31 @@ export class TailService {
     if (!Array.isArray(lines) || lines.length === 0) {
       return;
     }
+    this.compactBufferedLinesIfNeeded();
     this.bufferedLines.push(...lines);
     this.trimBufferedLines();
   }
 
   private trimBufferedLines(): void {
-    const drop = Math.max(0, this.bufferedLines.length - this.bufferLimit);
+    const logicalLength = this.bufferedLines.length - this.bufferedLinesOffset;
+    const drop = Math.max(0, logicalLength - this.bufferLimit);
     if (drop > 0) {
-      this.bufferedLines.splice(0, drop);
+      this.bufferedLinesOffset += drop;
+      this.compactBufferedLinesIfNeeded();
+    }
+  }
+
+  private compactBufferedLinesIfNeeded(force = false): void {
+    if (this.bufferedLinesOffset <= 0) {
+      return;
+    }
+    if (
+      force ||
+      this.bufferedLinesOffset >= this.bufferLimit ||
+      this.bufferedLinesOffset * 2 >= this.bufferedLines.length
+    ) {
+      this.bufferedLines = this.bufferedLines.slice(this.bufferedLinesOffset);
+      this.bufferedLinesOffset = 0;
     }
   }
 
