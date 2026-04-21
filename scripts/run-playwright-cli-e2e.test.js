@@ -246,6 +246,25 @@ test('resolvePlaywrightInvocation includes a retries override when PLAYWRIGHT_RE
   }
 });
 
+test('resolvePlaywrightInvocation rejects invalid PLAYWRIGHT_RETRIES values', () => {
+  const originalRetries = process.env.PLAYWRIGHT_RETRIES;
+  process.env.PLAYWRIGHT_RETRIES = '-1';
+
+  try {
+    const runner = loadRunner();
+    assert.throws(
+      () => runner.resolvePlaywrightInvocation([]),
+      /PLAYWRIGHT_RETRIES must be a non-negative integer, got '-1'/
+    );
+  } finally {
+    if (originalRetries === undefined) {
+      delete process.env.PLAYWRIGHT_RETRIES;
+    } else {
+      process.env.PLAYWRIGHT_RETRIES = originalRetries;
+    }
+  }
+});
+
 test('package.json does not expose a separate pretest:e2e:cli build hook', () => {
   const scripts = readPackageScripts();
 
