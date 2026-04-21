@@ -930,6 +930,7 @@ test('Claude review workflow skips the action when the OAuth token is unavailabl
   assert.equal(job.permissions.contents, 'read');
   assert.equal(job.permissions['pull-requests'], 'write');
   assert.equal(job.permissions.actions, 'read');
+  assert.equal(job.permissions.checks, 'read');
   assert.equal(job.permissions.issues, undefined);
   assert.equal(job.env.CLAUDE_CODE_OAUTH_TOKEN, '${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}');
   assert.equal(actionStep.if, "${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}");
@@ -941,7 +942,10 @@ test('Claude review workflow skips the action when the OAuth token is unavailabl
   assert.equal(limitStep.env.GITHUB_TOKEN, '${{ github.token }}');
   assert.match(limitStep.run, /claude-execution-output\.json/);
   assert.match(limitStep.run, /actions\/runs\/\$\{runId\}\/jobs/);
-  assert.match(limitStep.run, /actions\/jobs\/\$\{job\.id\}\/logs/);
+  assert.match(limitStep.run, /actions\/jobs\/\$\{job\.id\}/);
+  assert.match(limitStep.run, /checkRun\.check_run_url/);
+  assert.match(limitStep.run, /\/annotations/);
+  assert.match(limitStep.run, /Action failed with error:/);
   assert.match(limitStep.run, /You've hit your limit/);
   assert.match(limitStep.run, /subtype !== 'success'/);
   assert.equal(skipStep.if, "${{ env.CLAUDE_CODE_OAUTH_TOKEN == '' }}");
