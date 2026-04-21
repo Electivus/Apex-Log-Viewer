@@ -45,9 +45,11 @@ jobs:
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: |
           real_bun="$(command -v bun)"
-          wrapper="$RUNNER_TEMP/claude-review-bun"
+          wrapper_dir="$RUNNER_TEMP/claude-review-bun"
+          wrapper="$wrapper_dir/bun"
           log_file="$RUNNER_TEMP/claude-review-bun.log"
 
+          mkdir -p "$wrapper_dir"
           cat > "$wrapper" <<'EOF'
           #!/usr/bin/env bash
           set -o pipefail
