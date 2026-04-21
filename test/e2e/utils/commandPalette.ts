@@ -5,11 +5,17 @@ function getModifierKey(): 'Control' | 'Meta' {
   return process.platform === 'darwin' ? 'Meta' : 'Control';
 }
 
+function getQuickInput(page: Page) {
+  const widget = page.locator('div.quick-input-widget');
+  const input = widget.getByRole('combobox');
+  return { widget, input };
+}
+
 async function openQuickOpen(page: Page): Promise<void> {
   const modifier = getModifierKey();
   await page.keyboard.press(`${modifier}+P`);
 
-  const input = page.locator('div.quick-input-widget input');
+  const { input } = getQuickInput(page);
   await input.waitFor({ state: 'visible', timeout: 15_000 });
 }
 
@@ -23,8 +29,7 @@ function normalizeCommandQuery(command: string): string {
 
 async function openQuickOpenWithCommand(page: Page, command: string): Promise<boolean> {
   await openQuickOpen(page);
-  const widget = page.locator('div.quick-input-widget');
-  const input = widget.locator('input');
+  const { widget, input } = getQuickInput(page);
   await input.fill(normalizeCommandQuery(command));
   await page.waitForTimeout(50);
   return !(await noMatchingResults(widget).isVisible());
@@ -83,8 +88,7 @@ export async function runCommandWhenAvailable(
 export async function executeCommandId(page: Page, commandId: string): Promise<void> {
   await runCommand(page, 'Developer: Execute Command...');
 
-  const widget = page.locator('div.quick-input-widget');
-  const input = widget.locator('input');
+  const { widget, input } = getQuickInput(page);
   await input.waitFor({ state: 'visible', timeout: 15_000 });
   await input.fill(commandId);
   await page.waitForTimeout(50);
@@ -101,8 +105,7 @@ export async function executeCommandId(page: Page, commandId: string): Promise<v
 export async function openView(page: Page, viewName: string): Promise<void> {
   await runCommand(page, 'View: Open View...');
 
-  const widget = page.locator('div.quick-input-widget');
-  const input = widget.locator('input');
+  const { widget, input } = getQuickInput(page);
   await input.waitFor({ state: 'visible', timeout: 15_000 });
   await input.fill(viewName);
   await page.waitForTimeout(50);
