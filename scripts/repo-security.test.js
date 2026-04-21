@@ -930,6 +930,7 @@ test('Claude review workflow skips the action when the OAuth token is unavailabl
   assert.equal(job.env.CLAUDE_CODE_OAUTH_TOKEN, '${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}');
   assert.equal(actionStep.if, "${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}");
   assert.equal(actionStep.with.claude_code_oauth_token, '${{ env.CLAUDE_CODE_OAUTH_TOKEN }}');
+  assert.equal(actionStep.with.github_token, '${{ github.token }}');
   assert.match(actionStep.with.claude_args, /--model\s+claude-opus-4-7/);
   assert.equal(skipStep.if, "${{ env.CLAUDE_CODE_OAUTH_TOKEN == '' }}");
   assert.match(skipStep.run, /Skipping Claude Code Review because CLAUDE_CODE_OAUTH_TOKEN is unavailable/);
