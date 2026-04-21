@@ -920,6 +920,9 @@ test('Claude review workflow skips the action when the OAuth token is unavailabl
   const workflow = yaml.parse(read('.github/workflows/claude-code-review.yml'));
   const job = workflow.jobs['claude-review'];
   const actionStep = job.steps.find(step => step.id === 'claude-review');
+  const limitStep = job.steps.find(
+    step => step.name === 'Allow Claude usage-limit exhaustion'
+  );
   const skipStep = job.steps.find(
     step => step.name === 'Skip Claude Code Review when OAuth token is unavailable'
   );
@@ -931,7 +934,12 @@ test('Claude review workflow skips the action when the OAuth token is unavailabl
   assert.equal(actionStep.if, "${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}");
   assert.equal(actionStep.with.claude_code_oauth_token, '${{ env.CLAUDE_CODE_OAUTH_TOKEN }}');
   assert.equal(actionStep.with.github_token, '${{ github.token }}');
+  assert.equal(actionStep['continue-on-error'], true);
   assert.equal(actionStep.with.claude_args, undefined);
+  assert.equal(limitStep.if, "${{ steps.claude-review.outcome == 'failure' }}");
+  assert.match(limitStep.run, /claude-execution-output\.json/);
+  assert.match(limitStep.run, /You've hit your limit/);
+  assert.match(limitStep.run, /subtype !== 'success'/);
   assert.equal(skipStep.if, "${{ env.CLAUDE_CODE_OAUTH_TOKEN == '' }}");
   assert.match(skipStep.run, /Skipping Claude Code Review because CLAUDE_CODE_OAUTH_TOKEN is unavailable/);
 });

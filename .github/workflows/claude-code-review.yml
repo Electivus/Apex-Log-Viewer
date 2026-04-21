@@ -36,6 +36,7 @@ jobs:
       - name: Run Claude Code Review
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         id: claude-review
+        continue-on-error: true
         uses: anthropics/claude-code-action@5d5c10a4f389689f992ea10bb14dcb6fcc83146d # v1
         with:
           claude_code_oauth_token: ${{ env.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -45,6 +46,40 @@ jobs:
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
+
+      - name: Allow Claude usage-limit exhaustion
+        if: ${{ steps.claude-review.outcome == 'failure' }}
+        run: |
+          node <<'EOF'
+          const fs = require('fs');
+          const path = `${process.env.RUNNER_TEMP}/claude-execution-output.json`;
+
+          if (!fs.existsSync(path)) {
+            throw new Error(`Claude execution log not found at ${path}`);
+          }
+
+          const messages = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const result = [...messages].reverse().find(message => message?.type === 'result');
+
+          if (!result) {
+            throw new Error('Claude execution log did not contain a result message');
+          }
+
+          if (result.subtype !== 'success') {
+            throw new Error(`Claude review failed with subtype ${result.subtype}`);
+          }
+
+          if (
+            result.is_error === true &&
+            typeof result.result === 'string' &&
+            result.result.includes("You've hit your limit")
+          ) {
+            console.log('::warning::Claude Code Review hit the usage limit and was treated as non-blocking for this run.');
+            process.exit(0);
+          }
+
+          throw new Error(`Claude review failed for a non-limit reason: ${result.result ?? 'unknown error'}`);
+          EOF
 
       - name: Skip Claude Code Review when OAuth token is unavailable
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN == '' }}
