@@ -88,10 +88,17 @@ function resolvePlaywrightInvocation(extraArgs, options = {}) {
   const repoRoot = options.repoRoot || path.join(__dirname, '..');
   const cliSuiteRoot = path.join(repoRoot, resolveCliSuiteRelativePath());
   const maybePassWithNoTests = existsSync(cliSuiteRoot) ? [] : ['--pass-with-no-tests'];
+  const configuredRetries = String((options.env || process.env).PLAYWRIGHT_RETRIES || '').trim();
+
+  if (configuredRetries !== '' && !/^\d+$/.test(configuredRetries)) {
+    throw new Error(`PLAYWRIGHT_RETRIES must be a non-negative integer, got '${configuredRetries}'.`);
+  }
+
+  const retryArgs = configuredRetries === '' ? [] : [`--retries=${configuredRetries}`];
 
   return {
     command: process.execPath,
-    args: [cliPath, 'test', configArg, ...maybePassWithNoTests, ...extraArgs]
+    args: [cliPath, 'test', configArg, ...maybePassWithNoTests, ...retryArgs, ...extraArgs]
   };
 }
 

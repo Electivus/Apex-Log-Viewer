@@ -99,19 +99,25 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
 }
 
 function resolvePlaywrightInvocation(extraArgs) {
+  const configuredRetries = String(process.env.PLAYWRIGHT_RETRIES || '').trim();
+  if (configuredRetries !== '' && !/^\d+$/.test(configuredRetries)) {
+    throw new Error(`PLAYWRIGHT_RETRIES must be a non-negative integer, got '${configuredRetries}'.`);
+  }
+  const retryArgs = configuredRetries === '' ? [] : [`--retries=${configuredRetries}`];
+
   try {
     // Prefer the local Playwright CLI directly. On Windows under Git Bash,
     // spawning npx.cmd can throw EINVAL before Playwright even starts.
     const cliPath = require.resolve('@playwright/test/cli');
     return {
       command: process.execPath,
-      args: [cliPath, 'test', ...extraArgs]
+      args: [cliPath, 'test', ...retryArgs, ...extraArgs]
     };
   } catch {}
 
   return {
     command: process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    args: ['playwright', 'test', ...extraArgs]
+    args: ['playwright', 'test', ...retryArgs, ...extraArgs]
   };
 }
 

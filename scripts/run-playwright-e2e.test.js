@@ -10,7 +10,8 @@ const {
   findMissingBuildArtifacts,
   requiredBuildArtifacts,
   resolveRuntimeBinaryRelativePath,
-  resolveBuildInvocation
+  resolveBuildInvocation,
+  resolvePlaywrightInvocation
 } = require('./run-playwright-e2e');
 
 function createTempRepo() {
@@ -125,4 +126,45 @@ test('resolveBuildInvocation uses cmd.exe on Windows to avoid npm.cmd spawn issu
 
   assert.equal(invocation.command, process.env.ComSpec || 'cmd.exe');
   assert.deepEqual(invocation.args, ['/d', '/s', '/c', 'npm.cmd', 'run', 'build']);
+});
+
+test('resolvePlaywrightInvocation includes a retries override when PLAYWRIGHT_RETRIES is set', () => {
+  const originalRetries = process.env.PLAYWRIGHT_RETRIES;
+  process.env.PLAYWRIGHT_RETRIES = '0';
+
+  try {
+    const invocation = resolvePlaywrightInvocation(['--grep', 'smoke']);
+
+    assert.deepEqual(invocation.args.slice(0, 5), [
+      require.resolve('@playwright/test/cli'),
+      'test',
+      '--retries=0',
+      '--grep',
+      'smoke'
+    ]);
+  } finally {
+    if (originalRetries === undefined) {
+      delete process.env.PLAYWRIGHT_RETRIES;
+    } else {
+      process.env.PLAYWRIGHT_RETRIES = originalRetries;
+    }
+  }
+});
+
+test('resolvePlaywrightInvocation rejects invalid PLAYWRIGHT_RETRIES values', () => {
+  const originalRetries = process.env.PLAYWRIGHT_RETRIES;
+  process.env.PLAYWRIGHT_RETRIES = 'abc';
+
+  try {
+    assert.throws(
+      () => resolvePlaywrightInvocation([]),
+      /PLAYWRIGHT_RETRIES must be a non-negative integer, got 'abc'/
+    );
+  } finally {
+    if (originalRetries === undefined) {
+      delete process.env.PLAYWRIGHT_RETRIES;
+    } else {
+      process.env.PLAYWRIGHT_RETRIES = originalRetries;
+    }
+  }
 });

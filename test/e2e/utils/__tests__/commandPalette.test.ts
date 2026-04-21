@@ -1,9 +1,45 @@
 import { runCommandWhenAvailable } from '../commandPalette';
 
+function createComposableLocator(...delegates: Array<{ waitFor: (...args: any[]) => Promise<void>; fill: (...args: any[]) => Promise<void> }>) {
+  return {
+    waitFor: async (...args: any[]) => {
+      let lastError: unknown;
+      for (const delegate of delegates) {
+        try {
+          await delegate.waitFor(...args);
+          return;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError;
+    },
+    fill: async (...args: any[]) => {
+      let lastError: unknown;
+      for (const delegate of delegates) {
+        try {
+          await delegate.fill(...args);
+          return;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError;
+    },
+    or(other: { waitFor: (...args: any[]) => Promise<void>; fill: (...args: any[]) => Promise<void> }) {
+      return createComposableLocator(...delegates, other);
+    },
+    first() {
+      return this;
+    }
+  };
+}
+
 function createFakePage(
   noMatchVisibility: boolean[],
   options?: {
     requireComboboxSelector?: boolean;
+    requireTextboxFallback?: boolean;
   }
 ) {
   const keyboardPress = jest.fn(async () => {});
@@ -21,6 +57,8 @@ function createFakePage(
   });
   const comboboxWaitFor = jest.fn(async () => {});
   const comboboxFill = jest.fn(async () => {});
+  const textboxWaitFor = jest.fn(async () => {});
+  const textboxFill = jest.fn(async () => {});
   const isVisible = jest.fn(async () => noMatchVisibility.shift() ?? false);
 
   const legacyInputLocator = {
@@ -33,18 +71,36 @@ function createFakePage(
     fill: comboboxFill
   };
 
+  const textboxLocator = {
+    waitFor: textboxWaitFor,
+    fill: textboxFill
+  };
+
   const widgetLocator = {
     locator: jest.fn((selector: string) => {
       if (selector !== 'input') {
         throw new Error(`Unexpected widget selector: ${selector}`);
       }
-      return legacyInputLocator;
+      return createComposableLocator(legacyInputLocator);
     }),
     getByRole: jest.fn((role: string) => {
-      if (role !== 'combobox') {
-        throw new Error(`Unexpected widget role: ${role}`);
+      if (role === 'combobox') {
+        if (options?.requireTextboxFallback) {
+          return createComposableLocator({
+            waitFor: jest.fn(async () => {
+              throw strictModeError;
+            }),
+            fill: jest.fn(async () => {
+              throw strictModeError;
+            })
+          });
+        }
+        return createComposableLocator(comboboxLocator);
       }
-      return comboboxLocator;
+      if (role === 'textbox') {
+        return createComposableLocator(textboxLocator);
+      }
+      throw new Error(`Unexpected widget role: ${role}`);
     }),
     getByText: jest.fn(() => ({
       isVisible
@@ -73,12 +129,14 @@ function createFakePage(
     legacyInputFill,
     comboboxWaitFor,
     comboboxFill,
+    textboxWaitFor,
+    textboxFill,
     isVisible
   };
 }
 
 describe('runCommandWhenAvailable', () => {
-  test('retries until the command appears and executes from the successful quick-open session', async () => {
+  test('retries until the command appears and executes from the successful command-palette session', async () => {
     const fake = createFakePage([true, true, false]);
 
     await runCommandWhenAvailable(fake.page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 5_000 });
@@ -87,7 +145,7 @@ describe('runCommandWhenAvailable', () => {
     expect(fake.comboboxFill).toHaveBeenNthCalledWith(2, '> Electivus Apex Logs: Refresh Logs');
     expect(fake.comboboxFill).toHaveBeenNthCalledWith(3, '> Electivus Apex Logs: Refresh Logs');
 
-    const modifierShortcut = process.platform === 'darwin' ? 'Meta+P' : 'Control+P';
+    const modifierShortcut = process.platform === 'darwin' ? 'Meta+Shift+P' : 'Control+Shift+P';
     expect(fake.keyboardPress.mock.calls.map(call => call[0])).toEqual([
       modifierShortcut,
       'Escape',
@@ -114,5 +172,14 @@ describe('runCommandWhenAvailable', () => {
 
     expect(fake.comboboxWaitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 15_000 });
     expect(fake.comboboxFill).toHaveBeenCalledWith('> Electivus Apex Logs: Refresh Logs');
+  });
+
+  test('falls back to the quick input textbox when the command palette does not expose a combobox role', async () => {
+    const fake = createFakePage([false], { requireTextboxFallback: true });
+
+    await runCommandWhenAvailable(fake.page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 1_000 });
+
+    expect(fake.textboxWaitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 15_000 });
+    expect(fake.textboxFill).toHaveBeenCalledWith('> Electivus Apex Logs: Refresh Logs');
   });
 });

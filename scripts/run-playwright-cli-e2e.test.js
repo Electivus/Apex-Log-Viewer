@@ -215,6 +215,56 @@ test('resolvePlaywrightInvocation omits --pass-with-no-tests when the CLI suite 
   }
 });
 
+test('resolvePlaywrightInvocation includes a retries override when PLAYWRIGHT_RETRIES is set', () => {
+  const originalRetries = process.env.PLAYWRIGHT_RETRIES;
+  process.env.PLAYWRIGHT_RETRIES = '0';
+
+  try {
+    const runner = loadRunner();
+    const repoRoot = createTempRepo();
+    try {
+      fs.mkdirSync(path.join(repoRoot, 'test', 'e2e', 'cli'), { recursive: true });
+      const invocation = runner.resolvePlaywrightInvocation(['--grep', 'smoke'], { repoRoot });
+
+      assert.deepEqual(invocation.args.slice(0, 5), [
+        require.resolve('@playwright/test/cli'),
+        'test',
+        '--config=playwright.cli.config.ts',
+        '--retries=0',
+        '--grep'
+      ]);
+      assert.equal(invocation.args[5], 'smoke');
+    } finally {
+      cleanupTempRepo(repoRoot);
+    }
+  } finally {
+    if (originalRetries === undefined) {
+      delete process.env.PLAYWRIGHT_RETRIES;
+    } else {
+      process.env.PLAYWRIGHT_RETRIES = originalRetries;
+    }
+  }
+});
+
+test('resolvePlaywrightInvocation rejects invalid PLAYWRIGHT_RETRIES values', () => {
+  const originalRetries = process.env.PLAYWRIGHT_RETRIES;
+  process.env.PLAYWRIGHT_RETRIES = '-1';
+
+  try {
+    const runner = loadRunner();
+    assert.throws(
+      () => runner.resolvePlaywrightInvocation([]),
+      /PLAYWRIGHT_RETRIES must be a non-negative integer, got '-1'/
+    );
+  } finally {
+    if (originalRetries === undefined) {
+      delete process.env.PLAYWRIGHT_RETRIES;
+    } else {
+      process.env.PLAYWRIGHT_RETRIES = originalRetries;
+    }
+  }
+});
+
 test('package.json does not expose a separate pretest:e2e:cli build hook', () => {
   const scripts = readPackageScripts();
 
