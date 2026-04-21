@@ -89,7 +89,7 @@ jobs:
         run: |
           node <<'EOF'
           const fs = require('fs');
-          const path = `${process.env.RUNNER_TEMP}/claude-execution-output.json`;
+          const executionOutputPath = `${process.env.RUNNER_TEMP}/claude-execution-output.json`;
           const logPath = process.env.CLAUDE_BUN_LOG_PATH || `${process.env.RUNNER_TEMP}/claude-review-bun.log`;
           const usageLimitMarker = "Claude Code returned an error result: You've hit your limit";
 
@@ -112,8 +112,8 @@ jobs:
           }
 
           async function main() {
-            if (fs.existsSync(path)) {
-              const messages = JSON.parse(fs.readFileSync(path, 'utf8'));
+            if (fs.existsSync(executionOutputPath)) {
+              const messages = JSON.parse(fs.readFileSync(executionOutputPath, 'utf8'));
               const result = [...messages].reverse().find(message => message?.type === 'result');
 
               if (!result) {
@@ -146,7 +146,9 @@ jobs:
               }
             }
 
-            throw new Error(`Claude review failed and no usage-limit marker was found in ${path} or ${logPath}`);
+            throw new Error(
+              `Claude review failed and no usage-limit marker was found in ${executionOutputPath} or ${logPath}`
+            );
           }
 
           main().catch(error => {

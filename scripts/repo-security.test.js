@@ -26,6 +26,7 @@ function usesRefs(relativePath) {
 }
 
 function findRequiredStep(steps, description, predicate) {
+  assert.ok(Array.isArray(steps), `${description} should define a steps array`);
   const step = steps.find(predicate);
   assert.ok(step, `${description} step should exist`);
   return step;
@@ -48,6 +49,13 @@ function assertUsesDefaultClaudeModel(step, description) {
     `${description} should not override the default Claude model`
   );
 }
+
+test('findRequiredStep fails clearly when the workflow omits the steps list', () => {
+  assert.throws(
+    () => findRequiredStep(undefined, 'Example workflow', () => true),
+    /Example workflow should define a steps array/
+  );
+});
 
 function runCommandLines(workflow) {
   const commands = [];
