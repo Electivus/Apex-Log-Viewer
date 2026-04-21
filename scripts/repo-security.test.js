@@ -25,6 +25,30 @@ function usesRefs(relativePath) {
   );
 }
 
+function findRequiredStep(steps, description, predicate) {
+  const step = steps.find(predicate);
+  assert.ok(step, `${description} step should exist`);
+  return step;
+}
+
+function assertUsesDefaultClaudeModel(step, description) {
+  const claudeArgs = step.with?.claude_args;
+  if (claudeArgs === undefined) {
+    return;
+  }
+
+  assert.equal(
+    typeof claudeArgs,
+    'string',
+    `${description} claude_args should be a string when present`
+  );
+  assert.doesNotMatch(
+    claudeArgs,
+    /(^|\s)--model(?:=|\s)/,
+    `${description} should not override the default Claude model`
+  );
+}
+
 function runCommandLines(workflow) {
   const commands = [];
   const lines = workflow.split('\n');
@@ -896,7 +920,11 @@ test('all workflow uses refs are pinned to full commit SHAs', () => {
 test('Claude workflow only responds to trusted collaborators and has write permissions for repo actions', () => {
   const workflow = yaml.parse(read('.github/workflows/claude.yml'));
   const job = workflow.jobs.claude;
-  const actionStep = job.steps.find(step => step.id === 'claude');
+  const actionStep = findRequiredStep(
+    job.steps,
+    'Claude workflow Run Claude Code',
+    step => step.id === 'claude'
+  );
 
   assert.deepEqual(Object.keys(workflow.on).sort(), [
     'issue_comment',
@@ -913,23 +941,35 @@ test('Claude workflow only responds to trusted collaborators and has write permi
   assert.match(job.if, /github\.event\.review\.author_association == 'OWNER'/);
   assert.match(job.if, /github\.event\.review\.author_association == 'MEMBER'/);
   assert.match(job.if, /github\.event\.review\.author_association == 'COLLABORATOR'/);
-  assert.equal(actionStep.with.claude_args, undefined);
+  assertUsesDefaultClaudeModel(actionStep, 'Claude workflow Run Claude Code');
 });
 
 test('Claude review workflow skips the action when the OAuth token is unavailable', () => {
   const workflow = yaml.parse(read('.github/workflows/claude-code-review.yml'));
   const job = workflow.jobs['claude-review'];
-  const bunSetupStep = job.steps.find(
+  const bunSetupStep = findRequiredStep(
+    job.steps,
+    'Claude review Install Bun for Claude review wrapper',
     step => step.name === 'Install Bun for Claude review wrapper'
   );
-  const bunWrapperStep = job.steps.find(
+  const bunWrapperStep = findRequiredStep(
+    job.steps,
+    'Claude review Prepare Claude review Bun wrapper',
     step => step.name === 'Prepare Claude review Bun wrapper'
   );
-  const actionStep = job.steps.find(step => step.id === 'claude-review');
-  const limitStep = job.steps.find(
+  const actionStep = findRequiredStep(
+    job.steps,
+    'Claude review Run Claude Code Review',
+    step => step.id === 'claude-review'
+  );
+  const limitStep = findRequiredStep(
+    job.steps,
+    'Claude review Allow Claude usage-limit exhaustion',
     step => step.name === 'Allow Claude usage-limit exhaustion'
   );
-  const skipStep = job.steps.find(
+  const skipStep = findRequiredStep(
+    job.steps,
+    'Claude review Skip Claude Code Review when OAuth token is unavailable',
     step => step.name === 'Skip Claude Code Review when OAuth token is unavailable'
   );
 
@@ -952,7 +992,7 @@ test('Claude review workflow skips the action when the OAuth token is unavailabl
   assert.equal(actionStep.with.github_token, '${{ github.token }}');
   assert.equal(actionStep.with.path_to_bun_executable, '${{ env.CLAUDE_REVIEW_BUN_PATH }}');
   assert.equal(actionStep['continue-on-error'], true);
-  assert.equal(actionStep.with.claude_args, undefined);
+  assertUsesDefaultClaudeModel(actionStep, 'Claude review Run Claude Code Review');
   assert.equal(limitStep.if, "${{ steps.claude-review.outcome == 'failure' }}");
   assert.equal(limitStep.env.CLAUDE_BUN_LOG_PATH, '${{ env.CLAUDE_BUN_LOG_PATH }}');
   assert.match(limitStep.run, /claude-execution-output\.json/);
