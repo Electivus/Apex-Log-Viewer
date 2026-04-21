@@ -893,6 +893,45 @@ test('all workflow uses refs are pinned to full commit SHAs', () => {
   }
 });
 
+test('Claude workflow only responds to trusted collaborators and has write permissions for repo actions', () => {
+  const workflow = yaml.parse(read('.github/workflows/claude.yml'));
+  const job = workflow.jobs.claude;
+
+  assert.deepEqual(Object.keys(workflow.on).sort(), [
+    'issue_comment',
+    'pull_request_review',
+    'pull_request_review_comment'
+  ]);
+  assert.equal(job.permissions.contents, 'write');
+  assert.equal(job.permissions['pull-requests'], 'write');
+  assert.equal(job.permissions.issues, 'write');
+  assert.equal(job.permissions.actions, 'read');
+  assert.match(job.if, /github\.event\.comment\.author_association == 'OWNER'/);
+  assert.match(job.if, /github\.event\.comment\.author_association == 'MEMBER'/);
+  assert.match(job.if, /github\.event\.comment\.author_association == 'COLLABORATOR'/);
+  assert.match(job.if, /github\.event\.review\.author_association == 'OWNER'/);
+  assert.match(job.if, /github\.event\.review\.author_association == 'MEMBER'/);
+  assert.match(job.if, /github\.event\.review\.author_association == 'COLLABORATOR'/);
+});
+
+test('Claude review workflow skips the action when the OAuth token is unavailable', () => {
+  const workflow = yaml.parse(read('.github/workflows/claude-code-review.yml'));
+  const job = workflow.jobs['claude-review'];
+  const actionStep = job.steps.find(step => step.id === 'claude-review');
+  const skipStep = job.steps.find(
+    step => step.name === 'Skip Claude Code Review when OAuth token is unavailable'
+  );
+
+  assert.equal(job.permissions.contents, 'read');
+  assert.equal(job.permissions['pull-requests'], 'write');
+  assert.equal(job.permissions.issues, undefined);
+  assert.equal(job.env.CLAUDE_CODE_OAUTH_TOKEN, '${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}');
+  assert.equal(actionStep.if, "${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}");
+  assert.equal(actionStep.with.claude_code_oauth_token, '${{ env.CLAUDE_CODE_OAUTH_TOKEN }}');
+  assert.equal(skipStep.if, "${{ env.CLAUDE_CODE_OAUTH_TOKEN == '' }}");
+  assert.match(skipStep.run, /Skipping Claude Code Review because CLAUDE_CODE_OAUTH_TOKEN is unavailable/);
+});
+
 test('dependency review workflow exists and is wired to pull_request', () => {
   const workflow = read('.github/workflows/dependency-review.yml');
   assert.match(workflow, /^name:\s+Dependency Review$/m);
