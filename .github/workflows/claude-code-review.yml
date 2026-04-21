@@ -22,7 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: read
-      checks: read
       contents: read
       pull-requests: write
       id-token: write
@@ -35,14 +34,46 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Install Bun for Claude review wrapper
+        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.6
+          token: ${{ github.token }}
+
+      - name: Prepare Claude review Bun wrapper
+        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          real_bun="$(command -v bun)"
+          wrapper="$RUNNER_TEMP/claude-review-bun"
+          log_file="$RUNNER_TEMP/claude-review-bun.log"
+
+          cat > "$wrapper" <<'EOF'
+          #!/usr/bin/env bash
+          set -o pipefail
+          "${REAL_BUN_PATH:?}" "$@" 2>&1 | tee -a "${CLAUDE_BUN_LOG_PATH:?}"
+          exit "${PIPESTATUS[0]}"
+          EOF
+
+          chmod +x "$wrapper"
+          : > "$log_file"
+
+          echo "REAL_BUN_PATH=$real_bun" >> "$GITHUB_ENV"
+          echo "CLAUDE_REVIEW_BUN_PATH=$wrapper" >> "$GITHUB_ENV"
+          echo "CLAUDE_BUN_LOG_PATH=$log_file" >> "$GITHUB_ENV"
+
       - name: Run Claude Code Review
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         id: claude-review
         continue-on-error: true
         uses: anthropics/claude-code-action@5d5c10a4f389689f992ea10bb14dcb6fcc83146d # v1
+        env:
+          REAL_BUN_PATH: ${{ env.REAL_BUN_PATH }}
+          CLAUDE_BUN_LOG_PATH: ${{ env.CLAUDE_BUN_LOG_PATH }}
         with:
           claude_code_oauth_token: ${{ env.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
+          path_to_bun_executable: ${{ env.CLAUDE_REVIEW_BUN_PATH }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
@@ -52,81 +83,13 @@ jobs:
       - name: Allow Claude usage-limit exhaustion
         if: ${{ steps.claude-review.outcome == 'failure' }}
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          CLAUDE_BUN_LOG_PATH: ${{ env.CLAUDE_BUN_LOG_PATH }}
         run: |
           node <<'EOF'
           const fs = require('fs');
-          const repo = process.env.GITHUB_REPOSITORY;
-          const runId = process.env.GITHUB_RUN_ID;
-          const token = process.env.GITHUB_TOKEN;
-          const apiBase = process.env.GITHUB_API_URL || 'https://api.github.com';
           const path = `${process.env.RUNNER_TEMP}/claude-execution-output.json`;
-          const annotationPollAttempts = 15;
-          const annotationPollDelayMs = 2000;
-
-          async function fetchJson(url) {
-            const response = await fetch(url, {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                Accept: 'application/vnd.github+json',
-                'X-GitHub-Api-Version': '2022-11-28',
-              },
-            });
-
-            if (!response.ok) {
-              throw new Error(`GitHub API request failed for ${url}: ${response.status} ${response.statusText}`);
-            }
-
-            return response.json();
-          }
-
-          function sleep(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-          }
-
-          async function readCurrentJobFailureAnnotation() {
-            const jobsResponse = await fetchJson(`${apiBase}/repos/${repo}/actions/runs/${runId}/jobs`);
-            const job = jobsResponse.jobs.find(candidate => candidate.name === 'claude-review');
-
-            if (!job) {
-              throw new Error('Could not find the current claude-review job in the workflow run');
-            }
-
-            const checkRun = await fetchJson(`${apiBase}/repos/${repo}/actions/jobs/${job.id}`);
-
-            if (!checkRun.check_run_url) {
-              throw new Error('Could not find the current claude-review check run in the workflow run');
-            }
-
-            for (let attempt = 1; attempt <= annotationPollAttempts; attempt++) {
-              try {
-                const annotations = await fetchJson(`${checkRun.check_run_url}/annotations`);
-                const actionFailure = annotations.find(annotation =>
-                  typeof annotation?.message === 'string' &&
-                  annotation.message.includes('Action failed with error:')
-                );
-
-                if (actionFailure) {
-                  return actionFailure.message;
-                }
-              } catch (error) {
-                if (attempt === annotationPollAttempts) {
-                  throw error;
-                }
-              }
-
-              if (attempt < annotationPollAttempts) {
-                console.log(
-                  `Waiting for Claude review check-run annotations (${attempt}/${annotationPollAttempts})...`
-                );
-                await sleep(annotationPollDelayMs);
-              }
-            }
-
-            throw new Error(
-              `Claude review failed and no actionable check-run annotation was found after ${annotationPollAttempts} attempts`
-            );
-          }
+          const logPath = process.env.CLAUDE_BUN_LOG_PATH || `${process.env.RUNNER_TEMP}/claude-review-bun.log`;
+          const usageLimitMarker = "Claude Code returned an error result: You've hit your limit";
 
           function isUsageLimitResult(result) {
             return (
@@ -135,6 +98,15 @@ jobs:
               typeof result?.result === 'string' &&
               result.result.includes("You've hit your limit")
             );
+          }
+
+          function readActionFailureFromLog(logContents) {
+            return logContents
+              .split(/\r?\n/)
+              .find(line =>
+                line.includes('Action failed with error:') ||
+                line.includes('SDK execution error:')
+              );
           }
 
           async function main() {
@@ -158,14 +130,21 @@ jobs:
               throw new Error(`Claude review failed for a non-limit reason: ${result.result ?? 'unknown error'}`);
             }
 
-            const actionFailureMessage = await readCurrentJobFailureAnnotation();
+            if (fs.existsSync(logPath)) {
+              const logContents = fs.readFileSync(logPath, 'utf8');
 
-            if (actionFailureMessage.includes("You've hit your limit")) {
-              console.log('::warning::Claude Code Review hit the usage limit and was treated as non-blocking for this run.');
-              return;
+              if (logContents.includes(usageLimitMarker)) {
+                console.log('::warning::Claude Code Review hit the usage limit and was treated as non-blocking for this run.');
+                return;
+              }
+
+              const actionFailureMessage = readActionFailureFromLog(logContents);
+              if (actionFailureMessage) {
+                throw new Error(`Claude review failed for a non-limit reason: ${actionFailureMessage}`);
+              }
             }
 
-            throw new Error(`Claude review failed for a non-limit reason: ${actionFailureMessage}`);
+            throw new Error(`Claude review failed and no usage-limit marker was found in ${path} or ${logPath}`);
           }
 
           main().catch(error => {

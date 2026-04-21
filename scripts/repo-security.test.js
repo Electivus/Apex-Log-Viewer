@@ -919,6 +919,12 @@ test('Claude workflow only responds to trusted collaborators and has write permi
 test('Claude review workflow skips the action when the OAuth token is unavailable', () => {
   const workflow = yaml.parse(read('.github/workflows/claude-code-review.yml'));
   const job = workflow.jobs['claude-review'];
+  const bunSetupStep = job.steps.find(
+    step => step.name === 'Install Bun for Claude review wrapper'
+  );
+  const bunWrapperStep = job.steps.find(
+    step => step.name === 'Prepare Claude review Bun wrapper'
+  );
   const actionStep = job.steps.find(step => step.id === 'claude-review');
   const limitStep = job.steps.find(
     step => step.name === 'Allow Claude usage-limit exhaustion'
@@ -930,21 +936,28 @@ test('Claude review workflow skips the action when the OAuth token is unavailabl
   assert.equal(job.permissions.contents, 'read');
   assert.equal(job.permissions['pull-requests'], 'write');
   assert.equal(job.permissions.actions, 'read');
-  assert.equal(job.permissions.checks, 'read');
+  assert.equal(job.permissions.checks, undefined);
   assert.equal(job.permissions.issues, undefined);
   assert.equal(job.env.CLAUDE_CODE_OAUTH_TOKEN, '${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}');
+  assert.equal(bunSetupStep.if, "${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}");
+  assert.equal(bunWrapperStep.if, "${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}");
+  assert.match(bunWrapperStep.run, /REAL_BUN_PATH=/);
+  assert.match(bunWrapperStep.run, /CLAUDE_REVIEW_BUN_PATH=/);
+  assert.match(bunWrapperStep.run, /CLAUDE_BUN_LOG_PATH=/);
+  assert.match(bunWrapperStep.run, /tee -a "\$\{CLAUDE_BUN_LOG_PATH:\?\}"/);
   assert.equal(actionStep.if, "${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}");
+  assert.equal(actionStep.env.REAL_BUN_PATH, '${{ env.REAL_BUN_PATH }}');
+  assert.equal(actionStep.env.CLAUDE_BUN_LOG_PATH, '${{ env.CLAUDE_BUN_LOG_PATH }}');
   assert.equal(actionStep.with.claude_code_oauth_token, '${{ env.CLAUDE_CODE_OAUTH_TOKEN }}');
   assert.equal(actionStep.with.github_token, '${{ github.token }}');
+  assert.equal(actionStep.with.path_to_bun_executable, '${{ env.CLAUDE_REVIEW_BUN_PATH }}');
   assert.equal(actionStep['continue-on-error'], true);
   assert.equal(actionStep.with.claude_args, undefined);
   assert.equal(limitStep.if, "${{ steps.claude-review.outcome == 'failure' }}");
-  assert.equal(limitStep.env.GITHUB_TOKEN, '${{ github.token }}');
+  assert.equal(limitStep.env.CLAUDE_BUN_LOG_PATH, '${{ env.CLAUDE_BUN_LOG_PATH }}');
   assert.match(limitStep.run, /claude-execution-output\.json/);
-  assert.match(limitStep.run, /actions\/runs\/\$\{runId\}\/jobs/);
-  assert.match(limitStep.run, /actions\/jobs\/\$\{job\.id\}/);
-  assert.match(limitStep.run, /checkRun\.check_run_url/);
-  assert.match(limitStep.run, /\/annotations/);
+  assert.match(limitStep.run, /claude-review-bun\.log/);
+  assert.match(limitStep.run, /CLAUDE_BUN_LOG_PATH/);
   assert.match(limitStep.run, /Action failed with error:/);
   assert.match(limitStep.run, /You've hit your limit/);
   assert.match(limitStep.run, /subtype !== 'success'/);
