@@ -38,7 +38,8 @@ function installMinimalDomShims(): void {
 
 function shouldFallbackToMinimalDom(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  const code = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code || '') : '';
+  const rawCode = typeof error === 'object' && error && 'code' in error ? (error as { code?: unknown }).code : undefined;
+  const code = typeof rawCode === 'string' ? rawCode : '';
   return (
     (code === 'ERR_REQUIRE_ESM' || /ERR_REQUIRE_ESM/.test(message)) &&
     (/html-encoding-sniffer/.test(message) || /@exodus\/bytes/.test(message) || /jsdom/.test(message))
