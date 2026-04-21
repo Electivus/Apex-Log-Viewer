@@ -896,6 +896,7 @@ test('all workflow uses refs are pinned to full commit SHAs', () => {
 test('Claude workflow only responds to trusted collaborators and has write permissions for repo actions', () => {
   const workflow = yaml.parse(read('.github/workflows/claude.yml'));
   const job = workflow.jobs.claude;
+  const actionStep = job.steps.find(step => step.id === 'claude');
 
   assert.deepEqual(Object.keys(workflow.on).sort(), [
     'issue_comment',
@@ -912,6 +913,7 @@ test('Claude workflow only responds to trusted collaborators and has write permi
   assert.match(job.if, /github\.event\.review\.author_association == 'OWNER'/);
   assert.match(job.if, /github\.event\.review\.author_association == 'MEMBER'/);
   assert.match(job.if, /github\.event\.review\.author_association == 'COLLABORATOR'/);
+  assert.match(actionStep.with.claude_args, /--model\s+claude-opus-4-7/);
 });
 
 test('Claude review workflow skips the action when the OAuth token is unavailable', () => {
@@ -928,6 +930,7 @@ test('Claude review workflow skips the action when the OAuth token is unavailabl
   assert.equal(job.env.CLAUDE_CODE_OAUTH_TOKEN, '${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}');
   assert.equal(actionStep.if, "${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}");
   assert.equal(actionStep.with.claude_code_oauth_token, '${{ env.CLAUDE_CODE_OAUTH_TOKEN }}');
+  assert.match(actionStep.with.claude_args, /--model\s+claude-opus-4-7/);
   assert.equal(skipStep.if, "${{ env.CLAUDE_CODE_OAUTH_TOKEN == '' }}");
   assert.match(skipStep.run, /Skipping Claude Code Review because CLAUDE_CODE_OAUTH_TOKEN is unavailable/);
 });
