@@ -78,7 +78,7 @@ function createFakePage(
 }
 
 describe('runCommandWhenAvailable', () => {
-  test('retries until the command appears and executes from the successful quick-open session', async () => {
+  test('retries until the command appears and executes from the successful command-palette session', async () => {
     const fake = createFakePage([true, true, false]);
 
     await runCommandWhenAvailable(fake.page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 5_000 });
@@ -87,7 +87,7 @@ describe('runCommandWhenAvailable', () => {
     expect(fake.comboboxFill).toHaveBeenNthCalledWith(2, '> Electivus Apex Logs: Refresh Logs');
     expect(fake.comboboxFill).toHaveBeenNthCalledWith(3, '> Electivus Apex Logs: Refresh Logs');
 
-    const modifierShortcut = process.platform === 'darwin' ? 'Meta+P' : 'Control+P';
+    const modifierShortcut = process.platform === 'darwin' ? 'Meta+Shift+P' : 'Control+Shift+P';
     expect(fake.keyboardPress.mock.calls.map(call => call[0])).toEqual([
       modifierShortcut,
       'Escape',

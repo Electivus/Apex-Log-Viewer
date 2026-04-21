@@ -11,9 +11,9 @@ function getQuickInput(page: Page) {
   return { widget, input };
 }
 
-async function openQuickOpen(page: Page): Promise<void> {
+async function openCommandPalette(page: Page): Promise<void> {
   const modifier = getModifierKey();
-  await page.keyboard.press(`${modifier}+P`);
+  await page.keyboard.press(`${modifier}+Shift+P`);
 
   const { input } = getQuickInput(page);
   await input.waitFor({ state: 'visible', timeout: 15_000 });
@@ -27,8 +27,8 @@ function normalizeCommandQuery(command: string): string {
   return command.trim().startsWith('>') ? command.trim() : `> ${command}`;
 }
 
-async function openQuickOpenWithCommand(page: Page, command: string): Promise<boolean> {
-  await openQuickOpen(page);
+async function openCommandPaletteWithCommand(page: Page, command: string): Promise<boolean> {
+  await openCommandPalette(page);
   const { widget, input } = getQuickInput(page);
   await input.fill(normalizeCommandQuery(command));
   await page.waitForTimeout(50);
@@ -36,7 +36,7 @@ async function openQuickOpenWithCommand(page: Page, command: string): Promise<bo
 }
 
 export async function runCommand(page: Page, command: string): Promise<void> {
-  if (!(await openQuickOpenWithCommand(page, command))) {
+  if (!(await openCommandPaletteWithCommand(page, command))) {
     await page.keyboard.press('Escape');
     throw new Error(`Command not found in palette: "${command}"`);
   }
@@ -53,7 +53,7 @@ export async function waitForCommandAvailable(
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    const ok = await openQuickOpenWithCommand(page, query);
+    const ok = await openCommandPaletteWithCommand(page, query);
     await page.keyboard.press('Escape');
     if (ok) {
       return;
@@ -73,7 +73,7 @@ export async function runCommandWhenAvailable(
     const deadline = Date.now() + timeoutMs;
 
     while (Date.now() < deadline) {
-      const ok = await openQuickOpenWithCommand(page, command);
+      const ok = await openCommandPaletteWithCommand(page, command);
       if (ok) {
         await page.keyboard.press('Enter');
         return;
