@@ -95,3 +95,13 @@ test('real-org Playwright workflow keeps the CLI scratch-env contract aligned wi
     );
   }
 });
+
+test('real-org Playwright workflow disables Playwright retries for the expensive CI run', () => {
+  const workflow = readWorkflow();
+
+  assert.equal(
+    workflow?.jobs?.playwright_e2e?.env?.PLAYWRIGHT_RETRIES,
+    '0',
+    'expected the real-org Playwright workflow to disable retries via PLAYWRIGHT_RETRIES=0'
+  );
+});

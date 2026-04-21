@@ -51,6 +51,7 @@ jobs:
       HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
       SCRATCH_STRATEGY: pool
       PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || '1' }}
+      PLAYWRIGHT_RETRIES: '0'
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
