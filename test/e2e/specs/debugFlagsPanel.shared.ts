@@ -49,6 +49,14 @@ async function waitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Fr
   );
 }
 
+async function tryWaitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Frame | undefined> {
+  try {
+    return await waitForDebugFlagsFrame(page, timeoutMs);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function openDebugFlagsFromLogs(vscodePage: Page): Promise<Frame> {
   await runCommandWhenAvailable(vscodePage, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 90_000 });
   await closeQuickInputIfOpen(vscodePage);
@@ -69,6 +77,20 @@ export async function openDebugFlagsFromLogs(vscodePage: Page): Promise<Frame> {
   await closeQuickInputIfOpen(vscodePage);
   await openDebugFlags.click({ force: true });
 
+  const initialFrame = await tryWaitForDebugFlagsFrame(vscodePage, 10_000);
+  if (initialFrame) {
+    return initialFrame;
+  }
+
+  await openDebugFlags.focus().catch(() => {});
+  await openDebugFlags.press('Enter').catch(() => {});
+
+  const keyboardFrame = await tryWaitForDebugFlagsFrame(vscodePage, 10_000);
+  if (keyboardFrame) {
+    return keyboardFrame;
+  }
+
+  await openDebugFlags.evaluate((button: HTMLButtonElement) => button.click()).catch(() => {});
   return await waitForDebugFlagsFrame(vscodePage, 180_000);
 }
 

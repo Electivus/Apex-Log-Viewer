@@ -1,15 +1,36 @@
 import { runCommandWhenAvailable } from '../commandPalette';
 
-function createFakePage(noMatchVisibility: boolean[]) {
+function createFakePage(
+  noMatchVisibility: boolean[],
+  options?: {
+    requireComboboxSelector?: boolean;
+  }
+) {
   const keyboardPress = jest.fn(async () => {});
   const waitForTimeout = jest.fn(async () => {});
-  const inputWaitFor = jest.fn(async () => {});
-  const inputFill = jest.fn(async () => {});
+  const strictModeError = new Error('strict mode violation');
+  const legacyInputWaitFor = jest.fn(async () => {
+    if (options?.requireComboboxSelector) {
+      throw strictModeError;
+    }
+  });
+  const legacyInputFill = jest.fn(async () => {
+    if (options?.requireComboboxSelector) {
+      throw strictModeError;
+    }
+  });
+  const comboboxWaitFor = jest.fn(async () => {});
+  const comboboxFill = jest.fn(async () => {});
   const isVisible = jest.fn(async () => noMatchVisibility.shift() ?? false);
 
-  const inputLocator = {
-    waitFor: inputWaitFor,
-    fill: inputFill
+  const legacyInputLocator = {
+    waitFor: legacyInputWaitFor,
+    fill: legacyInputFill
+  };
+
+  const comboboxLocator = {
+    waitFor: comboboxWaitFor,
+    fill: comboboxFill
   };
 
   const widgetLocator = {
@@ -17,7 +38,13 @@ function createFakePage(noMatchVisibility: boolean[]) {
       if (selector !== 'input') {
         throw new Error(`Unexpected widget selector: ${selector}`);
       }
-      return inputLocator;
+      return legacyInputLocator;
+    }),
+    getByRole: jest.fn((role: string) => {
+      if (role !== 'combobox') {
+        throw new Error(`Unexpected widget role: ${role}`);
+      }
+      return comboboxLocator;
     }),
     getByText: jest.fn(() => ({
       isVisible
@@ -26,7 +53,7 @@ function createFakePage(noMatchVisibility: boolean[]) {
 
   const locator = jest.fn((selector: string) => {
     if (selector === 'div.quick-input-widget input') {
-      return inputLocator;
+      return legacyInputLocator;
     }
     if (selector === 'div.quick-input-widget') {
       return widgetLocator;
@@ -42,8 +69,10 @@ function createFakePage(noMatchVisibility: boolean[]) {
     } as any,
     keyboardPress,
     waitForTimeout,
-    inputWaitFor,
-    inputFill,
+    legacyInputWaitFor,
+    legacyInputFill,
+    comboboxWaitFor,
+    comboboxFill,
     isVisible
   };
 }
@@ -54,9 +83,9 @@ describe('runCommandWhenAvailable', () => {
 
     await runCommandWhenAvailable(fake.page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 5_000 });
 
-    expect(fake.inputFill).toHaveBeenNthCalledWith(1, '> Electivus Apex Logs: Refresh Logs');
-    expect(fake.inputFill).toHaveBeenNthCalledWith(2, '> Electivus Apex Logs: Refresh Logs');
-    expect(fake.inputFill).toHaveBeenNthCalledWith(3, '> Electivus Apex Logs: Refresh Logs');
+    expect(fake.comboboxFill).toHaveBeenNthCalledWith(1, '> Electivus Apex Logs: Refresh Logs');
+    expect(fake.comboboxFill).toHaveBeenNthCalledWith(2, '> Electivus Apex Logs: Refresh Logs');
+    expect(fake.comboboxFill).toHaveBeenNthCalledWith(3, '> Electivus Apex Logs: Refresh Logs');
 
     const modifierShortcut = process.platform === 'darwin' ? 'Meta+P' : 'Control+P';
     expect(fake.keyboardPress.mock.calls.map(call => call[0])).toEqual([
@@ -75,6 +104,15 @@ describe('runCommandWhenAvailable', () => {
 
     await runCommandWhenAvailable(fake.page, '> View: Open View...', { timeoutMs: 1_000 });
 
-    expect(fake.inputFill).toHaveBeenCalledWith('> View: Open View...');
+    expect(fake.comboboxFill).toHaveBeenCalledWith('> View: Open View...');
+  });
+
+  test('targets the quick input combobox when a checkbox input is also present', async () => {
+    const fake = createFakePage([false], { requireComboboxSelector: true });
+
+    await runCommandWhenAvailable(fake.page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 1_000 });
+
+    expect(fake.comboboxWaitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 15_000 });
+    expect(fake.comboboxFill).toHaveBeenCalledWith('> Electivus Apex Logs: Refresh Logs');
   });
 });
