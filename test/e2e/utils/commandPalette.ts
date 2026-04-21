@@ -1,13 +1,13 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { timeE2eStep } from './timing';
 
 function getModifierKey(): 'Control' | 'Meta' {
   return process.platform === 'darwin' ? 'Meta' : 'Control';
 }
 
-function getQuickInput(page: Page) {
+function getQuickInput(page: Page): { widget: Locator; input: Locator } {
   const widget = page.locator('div.quick-input-widget');
-  const input = widget.getByRole('combobox');
+  const input = widget.getByRole('combobox').or(widget.getByRole('textbox')).first();
   return { widget, input };
 }
 
