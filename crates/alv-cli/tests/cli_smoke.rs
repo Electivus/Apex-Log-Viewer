@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, ErrorKind, Read, Write},
     net::TcpListener,
     process::{Child, ChildStdin, Command, Stdio},
     sync::{
@@ -12,6 +12,15 @@ use std::{
 };
 
 use serde_json::Value;
+
+const PROXY_ENV_VARS: &[&str] = &[
+    "ALL_PROXY",
+    "all_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+];
 
 fn test_guard() -> &'static Mutex<()> {
     static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
@@ -30,6 +39,16 @@ fn org_display_fixture(instance_url: &str) -> String {
     )
 }
 
+fn apex_log_viewer_command() -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"));
+    for key in PROXY_ENV_VARS {
+        command.env_remove(key);
+    }
+    command.env("NO_PROXY", "127.0.0.1,localhost");
+    command.env("no_proxy", "127.0.0.1,localhost");
+    command
+}
+
 fn spawn_single_http_response(
     status: &str,
     content_type: &str,
@@ -42,9 +61,23 @@ fn spawn_single_http_response(
     let status = status.to_string();
     let content_type = content_type.to_string();
     let handle = thread::spawn(move || {
-        let (mut stream, _) = listener
-            .accept()
-            .expect("test server should accept request");
+        listener
+            .set_nonblocking(true)
+            .expect("test server should become nonblocking");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let (mut stream, _) = loop {
+            match listener.accept() {
+                Ok(connection) => break connection,
+                Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "test server timed out waiting for request"
+                    );
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("test server accept failed: {error}"),
+            }
+        };
         let mut buffer = [0_u8; 4096];
         let _ = stream.read(&mut buffer);
         let headers = format!(
@@ -69,7 +102,7 @@ struct AppServerHarness {
 
 impl AppServerHarness {
     fn spawn() -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        let mut child = apex_log_viewer_command()
             .args(["app-server", "--stdio"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -134,7 +167,7 @@ impl Drop for AppServerHarness {
 
 #[test]
 fn cli_smoke_prints_help_for_standalone_invocation() {
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .output()
         .expect("help should execute");
 
@@ -147,7 +180,7 @@ fn cli_smoke_prints_help_for_standalone_invocation() {
 
 #[test]
 fn cli_smoke_shows_logs_subcommands_in_help() {
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .args(["logs", "--help"])
         .output()
         .expect("help should execute");
@@ -161,7 +194,7 @@ fn cli_smoke_shows_logs_subcommands_in_help() {
 
 #[test]
 fn cli_smoke_shows_target_org_in_sync_help() {
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .args(["logs", "sync", "--help"])
         .output()
         .expect("help should execute");
@@ -191,7 +224,7 @@ fn cli_smoke_logs_sync_json_emits_structured_result_and_writes_state() {
     )
     .expect("fixture log should be writable");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .current_dir(&workspace_root)
         .env(
             "ALV_TEST_SF_LOG_LIST_JSON",
@@ -237,7 +270,7 @@ fn cli_smoke_logs_sync_failure_prints_http_details() {
         b"simulated list failure",
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .current_dir(&workspace_root)
         .env(
             "ALV_TEST_SF_ORG_DISPLAY_JSON",
@@ -290,7 +323,7 @@ fn cli_smoke_logs_sync_json_failure_prints_error_data() {
         br#"{"message":"temporary Salesforce failure"}"#,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .current_dir(&workspace_root)
         .env(
             "ALV_TEST_SF_ORG_DISPLAY_JSON",
@@ -337,7 +370,7 @@ fn cli_smoke_logs_status_json_reads_existing_sync_state() {
     )
     .expect("sync state should be writable");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .current_dir(&workspace_root)
         .args([
             "logs",
@@ -374,7 +407,7 @@ fn cli_smoke_logs_status_json_prefers_explicit_target_org_over_cached_default() 
     )
     .expect("sync state should be writable");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .current_dir(&workspace_root)
         .args(["logs", "status", "--json", "--target-org", "ALV_ALIAS"])
         .output()
@@ -444,7 +477,7 @@ fn cli_smoke_logs_status_json_prefers_synced_metadata_when_alias_matches_multipl
     )
     .expect("synced org log should be writable");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .current_dir(&workspace_root)
         .args(["logs", "status", "--json", "--target-org", "ALV_ALIAS"])
         .output()
@@ -481,7 +514,7 @@ fn cli_smoke_logs_search_json_stays_local_first() {
     )
     .expect("cached log should be writable");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .current_dir(&workspace_root)
         .args([
             "logs",
@@ -519,7 +552,7 @@ fn cli_smoke_logs_search_json_keeps_alias_scoped_legacy_logs() {
     )
     .expect("legacy alias-scoped log should be writable");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .current_dir(&workspace_root)
         .env(
             "ALV_TEST_SF_ORG_DISPLAY_JSON",
@@ -566,7 +599,7 @@ fn cli_smoke_logs_search_json_resolves_alias_without_local_metadata() {
     )
     .expect("cached log should be writable");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .current_dir(&workspace_root)
         .env(
             "ALV_TEST_SF_ORG_DISPLAY_JSON",
@@ -617,7 +650,7 @@ fn cli_smoke_logs_search_json_uses_local_alias_resolution_without_auth() {
     )
     .expect("org metadata should be writable");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .current_dir(&workspace_root)
         .args([
             "logs",
@@ -656,7 +689,7 @@ fn cli_smoke_logs_search_json_falls_back_to_alias_cache_without_auth_or_metadata
     )
     .expect("legacy alias-scoped log should be writable");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .current_dir(&workspace_root)
         .args([
             "logs",
@@ -688,7 +721,7 @@ fn cli_smoke_logs_search_rejects_empty_query() {
     let workspace_root = std::env::temp_dir().join(format!("alv-cli-search-empty-{unique}"));
     fs::create_dir_all(&workspace_root).expect("workspace should exist");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+    let output = apex_log_viewer_command()
         .current_dir(&workspace_root)
         .args(["logs", "search", "   "])
         .output()
