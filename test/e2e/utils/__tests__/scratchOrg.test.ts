@@ -52,6 +52,18 @@ function createPoolConfigResponse(body: Record<string, unknown> = {}): Response 
   });
 }
 
+function createDevHubDisplayResult(): Record<string, unknown> {
+  return {
+    status: 0,
+    result: {
+      status: 'Active',
+      accessToken: 'devhub-token',
+      instanceUrl: 'https://devhub.example.com',
+      username: 'devhub@example.com'
+    }
+  };
+}
+
 describe('ensureScratchOrg', () => {
   const originalEnv = { ...process.env };
   let consoleInfoSpy: jest.SpiedFunction<typeof console.info>;
@@ -294,6 +306,33 @@ describe('ensureScratchOrg', () => {
     );
   });
 
+  test('fails immediately when SF_DEVHUB_AUTH_URL login does not produce a usable alias', async () => {
+    process.env = {
+      ...originalEnv,
+      SF_DEVHUB_ALIAS: 'ConfiguredDevHub',
+      SF_DEVHUB_AUTH_URL: 'force://redacted',
+      SF_SCRATCH_ALIAS: 'ALV_E2E_Scratch',
+      SF_TEST_KEEP_ORG: '1'
+    };
+
+    runSfJsonMock.mockImplementation(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
+        return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        throw new Error('DomainNotFoundError: The org cannot be found');
+      }
+
+      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
+    });
+
+    await expect(ensureScratchOrg()).rejects.toThrow(
+      "Dev Hub auth URL login completed, but alias 'ConfiguredDevHub' is not available."
+    );
+    expect(runSfJsonMock).toHaveBeenCalledTimes(2);
+  });
+
   test('uses the default dev hub alias when SF_DEVHUB_AUTH_URL is set without SF_DEVHUB_ALIAS', async () => {
     process.env = {
       ...originalEnv,
@@ -309,6 +348,10 @@ describe('ensureScratchOrg', () => {
     runSfJsonMock.mockImplementation(async args => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
         return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        return createDevHubDisplayResult();
       }
 
       if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_Scratch')) {
@@ -445,6 +488,10 @@ describe('ensureScratchOrg', () => {
         return { status: 0, result: {} };
       }
 
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        return createDevHubDisplayResult();
+      }
+
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ALV_E2E_POOL_01')) {
         return { status: 0, result: {} };
       }
@@ -538,6 +585,10 @@ describe('ensureScratchOrg', () => {
         return { status: 0, result: {} };
       }
 
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        return createDevHubDisplayResult();
+      }
+
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ALV_E2E_POOL_01')) {
         return { status: 0, result: {} };
       }
@@ -610,6 +661,10 @@ describe('ensureScratchOrg', () => {
     runSfJsonMock.mockImplementation(async args => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
         return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        return createDevHubDisplayResult();
       }
 
       if (args[0] === 'org' && args[1] === 'logout' && args.includes('ALV_E2E_POOL_02')) {
@@ -738,6 +793,10 @@ describe('ensureScratchOrg', () => {
         return { status: 0, result: {} };
       }
 
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        return createDevHubDisplayResult();
+      }
+
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ALV_E2E_POOL_03')) {
         throw new Error('INVALID_SFDX_AUTH_URL: expired refresh token');
       }
@@ -852,6 +911,10 @@ describe('ensureScratchOrg', () => {
     runSfJsonMock.mockImplementation(async args => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
         return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        return createDevHubDisplayResult();
       }
 
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ALV_E2E_POOL_03')) {
@@ -970,6 +1033,10 @@ describe('ensureScratchOrg', () => {
         return { status: 0, result: {} };
       }
 
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        return createDevHubDisplayResult();
+      }
+
       if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_03')) {
         return {
           status: 0,
@@ -1036,6 +1103,10 @@ describe('ensureScratchOrg', () => {
         return { status: 0, result: {} };
       }
 
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        return createDevHubDisplayResult();
+      }
+
       throw new Error(`Unexpected sf command: ${args.join(' ')}`);
     });
 
@@ -1079,6 +1150,10 @@ describe('ensureScratchOrg', () => {
     runSfJsonMock.mockImplementation(async args => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
         return { status: 0, result: {} };
+      }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        return createDevHubDisplayResult();
       }
 
       throw new Error(`Unexpected sf command: ${args.join(' ')}`);
@@ -1141,6 +1216,11 @@ describe('ensureScratchOrg', () => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
         return { status: 0, result: {} };
       }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        return createDevHubDisplayResult();
+      }
+
       if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_05')) {
         return {
           status: 0,
@@ -1206,6 +1286,11 @@ describe('ensureScratchOrg', () => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
         return { status: 0, result: {} };
       }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        return createDevHubDisplayResult();
+      }
+
       if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_06')) {
         return {
           status: 0,
@@ -1279,6 +1364,11 @@ describe('ensureScratchOrg', () => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
         return { status: 0, result: {} };
       }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        return createDevHubDisplayResult();
+      }
+
       if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_06B')) {
         if (!simulateCleanupAuthUrlMissing) {
           return {
@@ -1382,6 +1472,11 @@ describe('ensureScratchOrg', () => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
         return { status: 0, result: {} };
       }
+
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+        return createDevHubDisplayResult();
+      }
+
       if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_07')) {
         return {
           status: 0,

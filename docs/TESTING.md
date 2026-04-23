@@ -91,6 +91,7 @@ From the repo root:
 - `SF_TEST_KEEP_ORG=1 npm run test:e2e:cli`
 - `SF_TEST_KEEP_ORG=1 npm run test:e2e`
 - `SF_TEST_KEEP_ORG=1 npm run test:e2e:telemetry`
+- `SF_TEST_KEEP_ORG=1 npm run test:e2e:proxy-lab`
 
 Useful env vars:
 
@@ -103,11 +104,50 @@ Useful env vars:
 - `SF_TEST_KEEP_ORG=1`: Keep the scratch org after the run (recommended while iterating).
 - `SF_E2E_DEBUG_FLAGS_USERNAME`: Optional username for the Debug Flags E2E user. If unset, tests auto-manage `alv.debugflags.<orgid>@example.com` (create if missing, reuse if present). If the org has no spare Salesforce licenses, tests fall back to the authenticated user.
 - `ALV_E2E_TIMING=1`: Prints per-step harness timings for scratch-org setup, VS Code startup, command-palette activation, and webview discovery.
+- `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`: Primary corporate-proxy configuration path, for example `HTTP_PROXY=http://username:pwd@proxy.company.com:8080`. These are honored by the Node-side E2E helpers, scratch-org pool REST calls, Salesforce CLI, VS Code download step, the VS Code extension host, and the runtime daemon environment. The Playwright configs now enable `NODE_USE_ENV_PROXY=1` automatically when one of these proxy vars is present.
+- `ALV_E2E_PROXY_SERVER`: Optional E2E-only shorthand for ad-hoc local runs when you do not want to export the standard proxy vars globally. Prefer `HTTP_PROXY` / `HTTPS_PROXY` for corporate parity.
+- `ALV_E2E_PROXY_BYPASS`: Optional E2E-only shorthand for proxy bypass entries (same semantics as `NO_PROXY`).
+- `ALV_E2E_PROXY_PAC_URL`: Adds `--proxy-pac-url=...` to the isolated VS Code launch when your corporate desktop depends on a PAC file.
+- `ALV_E2E_PROXY_STRICT_SSL=0`: Writes `http.proxyStrictSSL=false` into the temporary VS Code user profile for legacy MITM proxies that do not have their CA installed yet. Prefer CA-based trust instead when possible.
+- `ALV_E2E_USE_SYSTEM_CA=1`: Enables `NODE_USE_SYSTEM_CA=1` for Node-side E2E helpers so scratch-org and telemetry requests can trust the OS certificate store.
+- `NODE_EXTRA_CA_CERTS=/path/to/company-ca.pem`: Adds one or more extra PEM certificates for Node-side E2E traffic when the corporate CA is not in the system store.
+
+### Corporate proxy lab
+
+`npm run test:e2e:proxy-lab` runs the E2E command inside Docker Compose with a real proxy in front of the runner:
+
+- `runner` is attached only to an internal Docker network, so direct internet egress is blocked.
+- `proxy` is attached to both the internal network and an external egress network, exposing Tinyproxy on `http://proxy:8888` only inside Compose.
+- The runner exports only the standard `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` proxy variables before installing dependencies and running Playwright.
+- The proxy requires Basic authentication using test-only credentials in the proxy URL, matching the corporate shape `http://username:pwd@proxy.company.com:8080`.
+- The lab first verifies that `curl --noproxy '*' https://example.com` fails, verifies that unauthenticated proxy egress fails, then verifies that `curl https://example.com` and Node `fetch()` succeed through the authenticated proxy.
+- When `SF_DEVHUB_AUTH_URL` is present, the lab authenticates it inside the clean container as `ConfiguredDevHub` by default. Override this container-local alias with `ALV_E2E_PROXY_LAB_DEVHUB_ALIAS` if needed.
+- The lab sets `SFDX_DISABLE_DNS_CHECK=true` because the runner has no direct DNS/egress path to Salesforce; Salesforce CLI traffic must be validated through the proxy instead.
+- `ALV_E2E_PROXY_LAB_PROXY_URL` can override the runner proxy URL for negative tests; by default it is `http://alv-proxy-user:alv-proxy-pass@proxy:8888`.
+
+By default the lab runs `npm run test:e2e`. To run another E2E command inside the same proxy-only network:
+
+```bash
+npm run test:e2e:proxy-lab -- npm run test:e2e:cli
+```
+
+To target the extension runtime/daemon path that powers `logs/list` without paying the full VS Code UI startup cost:
+
+```bash
+npm run test:e2e:proxy-lab -- npm run test:e2e:cli -- test/e2e/cli/specs/runtimeDaemon.e2e.spec.ts
+```
+
+For faster iteration after the named Docker volumes already contain dependencies:
+
+```bash
+ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1 npm run test:e2e:proxy-lab -- npm run test:e2e:cli
+```
 
 Pool-specific env vars:
 
 - `SF_SCRATCH_POOL_NAME`
-- `SF_DEVHUB_AUTH_URL` or `SF_DEVHUB_ALIAS`
+- `SF_DEVHUB_AUTH_URL`
+- `ALV_E2E_PROXY_LAB_DEVHUB_ALIAS`
 - `SF_SCRATCH_POOL_OWNER`
 - `SF_SCRATCH_POOL_LEASE_TTL_SECONDS`
 - `SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS`

@@ -1,0 +1,12 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates tinyproxy netcat-openbsd \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY test/e2e/proxy-lab/tinyproxy.conf /etc/tinyproxy/tinyproxy.conf
+RUN sed -i 's/\r$//' /etc/tinyproxy/tinyproxy.conf
+
+EXPOSE 8888
+
+CMD ["tinyproxy", "-d", "-c", "/etc/tinyproxy/tinyproxy.conf"]

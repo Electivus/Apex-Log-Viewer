@@ -1,5 +1,8 @@
 import path from 'path';
 import { defineConfig } from '@playwright/test';
+import { applyE2eNetworkEnvironment } from './test/e2e/utils/proxy';
+
+applyE2eNetworkEnvironment();
 
 const repoRoot = __dirname;
 const artifactsRoot = path.join(repoRoot, 'output', 'playwright');
