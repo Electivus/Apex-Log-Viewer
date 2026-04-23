@@ -21,6 +21,7 @@ const requiredBuildArtifacts = [
   'apps/vscode-extension/media/logViewer.js',
   'apps/vscode-extension/media/debugFlags.js'
 ];
+const DEFAULT_PLAYWRIGHT_RETRIES = '2';
 
 function execFileAsync(file, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -99,11 +100,12 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
 }
 
 function resolvePlaywrightInvocation(extraArgs) {
-  const configuredRetries = String(process.env.PLAYWRIGHT_RETRIES || '').trim();
-  if (configuredRetries !== '' && !/^\d+$/.test(configuredRetries)) {
+  const rawRetries = String(process.env.PLAYWRIGHT_RETRIES ?? '').trim();
+  const configuredRetries = rawRetries === '' ? DEFAULT_PLAYWRIGHT_RETRIES : rawRetries;
+  if (!/^\d+$/.test(configuredRetries)) {
     throw new Error(`PLAYWRIGHT_RETRIES must be a non-negative integer, got '${configuredRetries}'.`);
   }
-  const retryArgs = configuredRetries === '' ? [] : [`--retries=${configuredRetries}`];
+  const retryArgs = [`--retries=${configuredRetries}`];
 
   try {
     // Prefer the local Playwright CLI directly. On Windows under Git Bash,

@@ -243,6 +243,47 @@ fn logs_runtime_smoke_lists_logs_over_rest_with_auth_fixture() {
 }
 
 #[test]
+fn logs_runtime_smoke_includes_http_status_url_and_body_in_list_failures() {
+    let _guard = lock_test_guard();
+
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    let (base_url, server_handle) = spawn_scripted_http_server(vec![ScriptedHttpResponse {
+        status: 403,
+        content_type: "application/json",
+        body: br#"[{"message":"Session expired or invalid","errorCode":"INVALID_SESSION_ID"}]"#
+            .to_vec(),
+    }]);
+    std::env::set_var(TEST_ORG_DISPLAY_JSON_ENV, org_display_fixture(&base_url));
+
+    let error = list_logs_with_cancel(
+        &LogsListParams {
+            username: Some("demo@example.com".to_string()),
+            limit: Some(1),
+            cursor: None,
+            offset: Some(0),
+        },
+        &CancellationToken::new(),
+    )
+    .expect_err("logs/list should surface the REST failure details");
+
+    assert!(
+        error.contains("HTTP 403 Forbidden"),
+        "expected status in error, got: {error}"
+    );
+    assert!(
+        error.contains("/services/data/v64.0/tooling/query"),
+        "expected request URL in error, got: {error}"
+    );
+    assert!(
+        error.contains("INVALID_SESSION_ID") && error.contains("Session expired or invalid"),
+        "expected response body in error, got: {error}"
+    );
+
+    std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);
+    server_handle.join().expect("server thread should complete");
+}
+
+#[test]
 fn logs_runtime_smoke_falls_back_to_org_max_api_version_for_logs_list() {
     let _guard = lock_test_guard();
 
@@ -1417,10 +1458,7 @@ if /I "%*"=="org display --json --verbose -o demo@example.com" (
 echo Unexpected sf args: %* 1>&2
 exit /b 1
 "#
-    .replace(
-        "__ORG_DISPLAY_JSON__",
-        &org_display_fixture(&base_url).replace('\"', "\"\""),
-    );
+    .replace("__ORG_DISPLAY_JSON__", &org_display_fixture(&base_url));
     let sf_cmd = write_fake_sf_cmd(&fake_bin_root, &script_body);
 
     std::env::set_var("ALV_SF_BIN_PATH", &sf_cmd);

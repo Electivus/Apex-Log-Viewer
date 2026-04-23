@@ -128,6 +128,29 @@ test('resolveBuildInvocation uses cmd.exe on Windows to avoid npm.cmd spawn issu
   assert.deepEqual(invocation.args, ['/d', '/s', '/c', 'npm.cmd', 'run', 'build']);
 });
 
+test('resolvePlaywrightInvocation defaults to two retries for three total E2E attempts', () => {
+  const originalRetries = process.env.PLAYWRIGHT_RETRIES;
+  delete process.env.PLAYWRIGHT_RETRIES;
+
+  try {
+    const invocation = resolvePlaywrightInvocation(['--grep', 'smoke']);
+
+    assert.deepEqual(invocation.args.slice(0, 5), [
+      require.resolve('@playwright/test/cli'),
+      'test',
+      '--retries=2',
+      '--grep',
+      'smoke'
+    ]);
+  } finally {
+    if (originalRetries === undefined) {
+      delete process.env.PLAYWRIGHT_RETRIES;
+    } else {
+      process.env.PLAYWRIGHT_RETRIES = originalRetries;
+    }
+  }
+});
+
 test('resolvePlaywrightInvocation includes a retries override when PLAYWRIGHT_RETRIES is set', () => {
   const originalRetries = process.env.PLAYWRIGHT_RETRIES;
   process.env.PLAYWRIGHT_RETRIES = '0';
