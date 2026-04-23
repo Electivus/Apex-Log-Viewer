@@ -4,6 +4,38 @@ import {
   resolveVsCodeProxyLaunchArgs,
   resolveVsCodeUserProxySettings
 } from '../proxy';
+import { Agent, getGlobalDispatcher, setGlobalDispatcher } from 'undici';
+
+const PROXY_ENV_NAMES = [
+  'ALV_E2E_PROXY_SERVER',
+  'ALV_E2E_PROXY_BYPASS',
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'no_proxy'
+] as const;
+
+function clearProcessProxyEnv(): Record<string, string | undefined> {
+  const previous: Record<string, string | undefined> = {};
+  for (const name of PROXY_ENV_NAMES) {
+    previous[name] = process.env[name];
+    delete process.env[name];
+  }
+  return previous;
+}
+
+function restoreProcessProxyEnv(previous: Record<string, string | undefined>): void {
+  for (const name of PROXY_ENV_NAMES) {
+    const value = previous[name];
+    if (value === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = value;
+    }
+  }
+}
 
 describe('resolveE2eProxyConfig', () => {
   test('normalizes an explicit proxy URL, strips credentials for Chromium, and derives auth headers', () => {
@@ -37,6 +69,19 @@ describe('resolveE2eProxyConfig', () => {
     expect(config.proxyServer).toBe('http://proxy.corp.local:3128');
     expect(config.bypass).toBe('localhost,.corp.local');
     expect(config.hasProxy).toBe(true);
+  });
+
+  test('rejects malformed proxy URLs without echoing credentials in the error', () => {
+    try {
+      resolveE2eProxyConfig({
+        HTTPS_PROXY: 'http://username:pwd@'
+      });
+      throw new Error('Expected malformed proxy URL to be rejected.');
+    } catch (error) {
+      expect(String(error)).toContain('Invalid proxy URL');
+      expect(String(error)).not.toContain('username');
+      expect(String(error)).not.toContain('pwd');
+    }
   });
 });
 
@@ -77,6 +122,30 @@ describe('applyE2eNetworkEnvironment', () => {
     expect(env.http_proxy).toBe('http://proxy-http.corp.local:8080');
     expect(env.https_proxy).toBe('http://proxy-https.corp.local:8443');
     expect(env.NODE_USE_ENV_PROXY).toBe('1');
+  });
+
+  test('restores the previous global fetch dispatcher after process proxy variables are removed', () => {
+    const originalEnv = clearProcessProxyEnv();
+    const originalDispatcher = getGlobalDispatcher();
+    const baselineDispatcher = new Agent();
+
+    try {
+      setGlobalDispatcher(baselineDispatcher);
+      process.env.HTTP_PROXY = 'http://proxy.corp.local:8080';
+      applyE2eNetworkEnvironment();
+
+      const proxiedDispatcher = getGlobalDispatcher();
+      expect(proxiedDispatcher).not.toBe(baselineDispatcher);
+
+      delete process.env.HTTP_PROXY;
+      delete process.env.http_proxy;
+      applyE2eNetworkEnvironment();
+
+      expect(getGlobalDispatcher()).toBe(baselineDispatcher);
+    } finally {
+      setGlobalDispatcher(originalDispatcher);
+      restoreProcessProxyEnv(originalEnv);
+    }
   });
 });
 

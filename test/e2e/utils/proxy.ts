@@ -1,9 +1,10 @@
-import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
+import { Agent, EnvHttpProxyAgent, getGlobalDispatcher, setGlobalDispatcher } from 'undici';
 
 const TRUE_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const FALSE_ENV_VALUES = new Set(['0', 'false', 'no', 'off']);
 
 let appliedFetchProxyKey: string | undefined;
+let fetchProxyBaselineDispatcher: ReturnType<typeof getGlobalDispatcher> | undefined;
 
 export type E2eProxyConfig = {
   proxyUrl?: string;
@@ -79,10 +80,7 @@ function normalizeProxyUrl(rawValue: string): { proxyUrl: string; proxyServer: s
   try {
     parsed = new URL(candidate);
   } catch {
-    return {
-      proxyUrl: trimmed,
-      proxyServer: trimmed
-    };
+    throw new Error('Invalid proxy URL. Check the proxy scheme, host, port, and optional credentials.');
   }
 
   const username = decodeUserInfo(parsed.username);
@@ -196,6 +194,11 @@ function applyGlobalFetchProxyDispatcher(env: NodeJS.ProcessEnv): void {
   const httpProxy = readEnvValue(['HTTP_PROXY', 'http_proxy'], env);
   const httpsProxy = readEnvValue(['HTTPS_PROXY', 'https_proxy'], env);
   if (!httpProxy && !httpsProxy) {
+    if (appliedFetchProxyKey !== undefined) {
+      setGlobalDispatcher(fetchProxyBaselineDispatcher ?? new Agent());
+      appliedFetchProxyKey = undefined;
+      fetchProxyBaselineDispatcher = undefined;
+    }
     return;
   }
 
@@ -203,6 +206,10 @@ function applyGlobalFetchProxyDispatcher(env: NodeJS.ProcessEnv): void {
   const key = JSON.stringify({ httpProxy, httpsProxy, noProxy });
   if (appliedFetchProxyKey === key) {
     return;
+  }
+
+  if (appliedFetchProxyKey === undefined) {
+    fetchProxyBaselineDispatcher = getGlobalDispatcher();
   }
 
   setGlobalDispatcher(
