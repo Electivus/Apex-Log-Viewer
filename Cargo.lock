@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "alv-app-server"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "alv-core",
  "alv-protocol",
@@ -24,7 +24,7 @@ dependencies = [
 
 [[package]]
 name = "alv-core"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "chrono",
  "grep",
@@ -40,11 +40,11 @@ dependencies = [
 
 [[package]]
 name = "alv-mcp"
-version = "0.1.7"
+version = "0.1.8"
 
 [[package]]
 name = "alv-protocol"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "serde",
  "serde_json",
@@ -111,7 +111,7 @@ dependencies = [
 
 [[package]]
 name = "apex-log-viewer-cli"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "alv-app-server",
  "alv-core",

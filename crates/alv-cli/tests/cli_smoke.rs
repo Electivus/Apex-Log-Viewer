@@ -1,6 +1,7 @@
 use std::{
     fs,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
+    net::TcpListener,
     process::{Child, ChildStdin, Command, Stdio},
     sync::{
         mpsc::{self, Receiver},
@@ -21,6 +22,43 @@ fn lock_test_guard() -> std::sync::MutexGuard<'static, ()> {
     test_guard()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn org_display_fixture(instance_url: &str) -> String {
+    format!(
+        r#"{{"result":{{"username":"default@example.com","accessToken":"token","instanceUrl":"{instance_url}"}}}}"#
+    )
+}
+
+fn spawn_single_http_response(
+    status: &str,
+    content_type: &str,
+    body: &'static [u8],
+) -> (String, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("test server should bind");
+    let address = listener
+        .local_addr()
+        .expect("test server address should be available");
+    let status = status.to_string();
+    let content_type = content_type.to_string();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener
+            .accept()
+            .expect("test server should accept request");
+        let mut buffer = [0_u8; 4096];
+        let _ = stream.read(&mut buffer);
+        let headers = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream
+            .write_all(headers.as_bytes())
+            .expect("test server should write headers");
+        stream
+            .write_all(body)
+            .expect("test server should write body");
+    });
+    (format!("http://{address}"), handle)
 }
 
 struct AppServerHarness {
@@ -181,6 +219,105 @@ fn cli_smoke_logs_sync_json_emits_structured_result_and_writes_state() {
 
     fs::remove_dir_all(workspace_root).expect("workspace should be removable");
     fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_sync_failure_prints_http_details() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-sync-failure-{unique}"));
+    fs::create_dir_all(&workspace_root).expect("workspace should exist");
+    let (base_url, server_handle) = spawn_single_http_response(
+        "500 Internal Server Error",
+        "text/plain",
+        b"simulated list failure",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .env(
+            "ALV_TEST_SF_ORG_DISPLAY_JSON",
+            org_display_fixture(&base_url),
+        )
+        .args(["logs", "sync"])
+        .output()
+        .expect("sync should execute");
+
+    assert!(!output.status.success(), "sync should fail");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("HTTP 500 Internal Server Error"),
+        "expected HTTP message, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("HTTP status: 500"),
+        "expected status detail, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("URL:"),
+        "expected URL detail, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("/services/data/") && stderr.contains("/tooling/query"),
+        "expected tooling query URL, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("Response body:") && stderr.contains("simulated list failure"),
+        "expected response body detail, got: {stderr}"
+    );
+
+    server_handle.join().expect("server thread should complete");
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_sync_json_failure_prints_error_data() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-sync-json-failure-{unique}"));
+    fs::create_dir_all(&workspace_root).expect("workspace should exist");
+    let (base_url, server_handle) = spawn_single_http_response(
+        "503 Service Unavailable",
+        "application/json",
+        br#"{"message":"temporary Salesforce failure"}"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_apex-log-viewer"))
+        .current_dir(&workspace_root)
+        .env(
+            "ALV_TEST_SF_ORG_DISPLAY_JSON",
+            org_display_fixture(&base_url),
+        )
+        .args(["logs", "sync", "--json"])
+        .output()
+        .expect("sync should execute");
+
+    assert!(!output.status.success(), "sync should fail");
+    let stderr_json: Value =
+        serde_json::from_slice(&output.stderr).expect("stderr should be valid json");
+    assert_eq!(stderr_json["status"], "error");
+    assert_eq!(stderr_json["data"]["status"], 503);
+    assert!(
+        stderr_json["data"]["url"]
+            .as_str()
+            .is_some_and(|value| value.contains("/tooling/query")),
+        "expected tooling query URL, got: {stderr_json}"
+    );
+    assert_eq!(
+        stderr_json["data"]["responseBody"],
+        r#"{"message":"temporary Salesforce failure"}"#
+    );
+
+    server_handle.join().expect("server thread should complete");
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
 }
 
 #[test]
