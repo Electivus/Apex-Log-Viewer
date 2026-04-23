@@ -1,6 +1,7 @@
 use std::{
     fs,
-    io::{self, Write},
+    io::{self, Read, Write},
+    net::TcpListener,
     sync::Arc,
     sync::{Mutex, OnceLock},
     thread,
@@ -10,7 +11,10 @@ use std::{
 
 use alv_app_server::server::{handle_initialize, handle_request_line, run_event_loop};
 use alv_app_server::transport_stdio::{bounded_transport_channel, TRANSPORT_QUEUE_CAPACITY};
-use alv_core::logs::{TEST_APEX_LOG_FIXTURE_DIR_ENV, TEST_SF_LOG_LIST_JSON_ENV};
+use alv_core::{
+    auth::TEST_ORG_DISPLAY_JSON_ENV,
+    logs::{TEST_APEX_LOG_FIXTURE_DIR_ENV, TEST_SF_LOG_LIST_JSON_ENV},
+};
 use alv_protocol::messages::InitializeParams;
 
 fn test_guard() -> &'static Mutex<()> {
@@ -26,6 +30,43 @@ fn make_temp_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("alv-app-server-{name}-{nonce}"));
     fs::create_dir_all(&dir).expect("temp dir should be created");
     dir
+}
+
+fn org_display_fixture(instance_url: &str) -> String {
+    format!(
+        r#"{{"result":{{"username":"demo@example.com","accessToken":"token","instanceUrl":"{instance_url}"}}}}"#
+    )
+}
+
+fn spawn_single_http_response(
+    status: &str,
+    content_type: &str,
+    body: &'static [u8],
+) -> (String, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("test server should bind");
+    let address = listener
+        .local_addr()
+        .expect("test server address should be available");
+    let status = status.to_string();
+    let content_type = content_type.to_string();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener
+            .accept()
+            .expect("test server should accept request");
+        let mut buffer = [0_u8; 4096];
+        let _ = stream.read(&mut buffer);
+        let headers = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream
+            .write_all(headers.as_bytes())
+            .expect("test server should write headers");
+        stream
+            .write_all(body)
+            .expect("test server should write body");
+    });
+    (format!("http://{address}"), handle)
 }
 
 #[derive(Clone, Default)]
@@ -162,21 +203,37 @@ fn app_server_smoke_routes_logs_search_and_triage_requests() {
     assert!(list_response.contains("\"Id\":\"07L000000000001AA\""));
     assert!(list_response.contains("\"Operation\":\"ExecuteAnonymous\""));
 
-    let search_response = handle_request_line(&format!(
-        "{{\"jsonrpc\":\"2.0\",\"id\":\"search:1\",\"method\":\"search/query\",\"params\":{{\"query\":\"nullpointerexception\",\"logIds\":[\"07L000000000001AA\",\"07L000000000002AA\"],\"workspaceRoot\":\"{}\"}}}}",
-        workspace_root.display()
-    ))
-    .expect("search/query request should succeed")
-    .expect("search/query should emit a response");
+    let search_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "search:1",
+        "method": "search/query",
+        "params": {
+            "query": "nullpointerexception",
+            "logIds": ["07L000000000001AA", "07L000000000002AA"],
+            "workspaceRoot": workspace_root.display().to_string()
+        }
+    })
+    .to_string();
+    let search_response = handle_request_line(&search_request)
+        .expect("search/query request should succeed")
+        .expect("search/query should emit a response");
     assert!(search_response.contains("\"logIds\":[\"07L000000000001AA\"]"));
     assert!(search_response.contains("\"pendingLogIds\":[\"07L000000000002AA\"]"));
 
-    let triage_response = handle_request_line(&format!(
-        "{{\"jsonrpc\":\"2.0\",\"id\":\"triage:1\",\"method\":\"logs/triage\",\"params\":{{\"username\":\"demo@example.com\",\"logIds\":[\"07L00000000000TRI\"],\"workspaceRoot\":\"{}\"}}}}",
-        workspace_root.display()
-    ))
-    .expect("logs/triage request should succeed")
-    .expect("logs/triage should emit a response");
+    let triage_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "triage:1",
+        "method": "logs/triage",
+        "params": {
+            "username": "demo@example.com",
+            "logIds": ["07L00000000000TRI"],
+            "workspaceRoot": workspace_root.display().to_string()
+        }
+    })
+    .to_string();
+    let triage_response = handle_request_line(&triage_request)
+        .expect("logs/triage request should succeed")
+        .expect("logs/triage should emit a response");
     assert!(triage_response.contains("\"logId\":\"07L00000000000TRI\""));
     assert!(triage_response.contains("\"codeUnitStarted\":\"AccountService.handle\""));
     assert!(triage_response.contains("\"primaryReason\":\"Fatal exception\""));
@@ -185,6 +242,59 @@ fn app_server_smoke_routes_logs_search_and_triage_requests() {
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     fs::remove_dir_all(workspace_root).expect("workspace should be removable");
     fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
+}
+
+#[test]
+fn app_server_smoke_includes_structured_logs_error_data_in_jsonrpc_response() {
+    let _guard = test_guard().lock().expect("test guard should lock");
+
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    let (base_url, server_handle) = spawn_single_http_response(
+        "403 Forbidden",
+        "application/json",
+        br#"[{"message":"Session expired or invalid","errorCode":"INVALID_SESSION_ID"}]"#,
+    );
+    std::env::set_var(TEST_ORG_DISPLAY_JSON_ENV, org_display_fixture(&base_url));
+
+    let (sender, receiver) = bounded_transport_channel::<String>();
+    let writer = SharedBuffer::default();
+    sender
+        .blocking_send(
+            r#"{"jsonrpc":"2.0","id":"logs:error-data","method":"logs/list","params":{"limit":1}}"#
+                .to_string(),
+        )
+        .expect("logs/list request should be sent");
+    drop(sender);
+
+    run_event_loop(receiver, writer.clone()).expect("event loop should process failed request");
+    let output = writer.into_string();
+    let parsed: serde_json::Value =
+        serde_json::from_str(output.trim()).expect("error response should be valid JSON");
+
+    assert_eq!(parsed["id"].as_str(), Some("logs:error-data"));
+    assert_eq!(parsed["error"]["code"].as_i64(), Some(-32000));
+    assert!(
+        parsed["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("HTTP 403 Forbidden")),
+        "expected status in error message, got: {parsed}"
+    );
+    assert_eq!(parsed["error"]["data"]["status"].as_u64(), Some(403));
+    assert!(
+        parsed["error"]["data"]["url"]
+            .as_str()
+            .is_some_and(|url| url.contains("/services/data/v64.0/tooling/query")),
+        "expected request URL in error data, got: {parsed}"
+    );
+    assert!(
+        parsed["error"]["data"]["responseBody"]
+            .as_str()
+            .is_some_and(|body| body.contains("INVALID_SESSION_ID")),
+        "expected Salesforce response body in error data, got: {parsed}"
+    );
+
+    std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);
+    server_handle.join().expect("test server should complete");
 }
 
 #[test]
@@ -205,12 +315,20 @@ fn app_server_smoke_resolves_cached_log_paths() {
     .expect("cached log dir should be creatable");
     fs::write(&cached_path, "body").expect("cached log should be writable");
 
-    let response = handle_request_line(&format!(
-        "{{\"jsonrpc\":\"2.0\",\"id\":\"resolve:1\",\"method\":\"logs/resolveCachedPath\",\"params\":{{\"logId\":\"07L000000000001AA\",\"username\":\"demo@example.com\",\"workspaceRoot\":\"{}\"}}}}",
-        workspace_root.display()
-    ))
-    .expect("resolve request should succeed")
-    .expect("resolve request should emit a response");
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "resolve:1",
+        "method": "logs/resolveCachedPath",
+        "params": {
+            "logId": "07L000000000001AA",
+            "username": "demo@example.com",
+            "workspaceRoot": workspace_root.display().to_string()
+        }
+    })
+    .to_string();
+    let response = handle_request_line(&request)
+        .expect("resolve request should succeed")
+        .expect("resolve request should emit a response");
 
     assert!(response.contains("\"id\":\"resolve:1\""));
     assert!(response.contains("\"path\":\""));
@@ -237,22 +355,38 @@ fn app_server_smoke_drops_stale_cached_log_path_hits() {
     .expect("cached log dir should be creatable");
     fs::write(&cached_path, "body").expect("cached log should be writable");
 
-    let first_response = handle_request_line(&format!(
-        "{{\"jsonrpc\":\"2.0\",\"id\":\"resolve:stale-1\",\"method\":\"logs/resolveCachedPath\",\"params\":{{\"logId\":\"07L000000000009AA\",\"username\":\"demo@example.com\",\"workspaceRoot\":\"{}\"}}}}",
-        workspace_root.display()
-    ))
-    .expect("first resolve request should succeed")
-    .expect("first resolve request should emit a response");
+    let first_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "resolve:stale-1",
+        "method": "logs/resolveCachedPath",
+        "params": {
+            "logId": "07L000000000009AA",
+            "username": "demo@example.com",
+            "workspaceRoot": workspace_root.display().to_string()
+        }
+    })
+    .to_string();
+    let first_response = handle_request_line(&first_request)
+        .expect("first resolve request should succeed")
+        .expect("first resolve request should emit a response");
     assert!(first_response.contains("07L000000000009AA.log"));
 
     fs::remove_file(&cached_path).expect("cached log should be removable");
 
-    let second_response = handle_request_line(&format!(
-        "{{\"jsonrpc\":\"2.0\",\"id\":\"resolve:stale-2\",\"method\":\"logs/resolveCachedPath\",\"params\":{{\"logId\":\"07L000000000009AA\",\"username\":\"demo@example.com\",\"workspaceRoot\":\"{}\"}}}}",
-        workspace_root.display()
-    ))
-    .expect("second resolve request should succeed")
-    .expect("second resolve request should emit a response");
+    let second_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "resolve:stale-2",
+        "method": "logs/resolveCachedPath",
+        "params": {
+            "logId": "07L000000000009AA",
+            "username": "demo@example.com",
+            "workspaceRoot": workspace_root.display().to_string()
+        }
+    })
+    .to_string();
+    let second_response = handle_request_line(&second_request)
+        .expect("second resolve request should succeed")
+        .expect("second resolve request should emit a response");
 
     assert!(
         !second_response.contains("\"path\":\""),

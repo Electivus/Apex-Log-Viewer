@@ -5,6 +5,7 @@ use std::{
     collections::BTreeMap,
     env,
     error::Error as StdError,
+    fmt,
     fs::{self, File},
     future::Future,
     io::Write,
@@ -134,6 +135,57 @@ pub struct LogRow {
     pub log_user: Option<LogUser>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeErrorData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_body: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub causes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogsRuntimeError {
+    message: String,
+    data: Option<RuntimeErrorData>,
+}
+
+impl LogsRuntimeError {
+    pub fn from_message(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            data: None,
+        }
+    }
+
+    fn with_data(message: impl Into<String>, data: Option<RuntimeErrorData>) -> Self {
+        Self {
+            message: message.into(),
+            data,
+        }
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    pub fn data(&self) -> Option<&RuntimeErrorData> {
+        self.data.as_ref()
+    }
+}
+
+impl fmt::Display for LogsRuntimeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl StdError for LogsRuntimeError {}
+
 pub fn list_logs(params: &LogsListParams) -> Result<Vec<LogRow>, String> {
     list_logs_with_cancel(params, &CancellationToken::new())
 }
@@ -142,8 +194,15 @@ pub fn list_logs_with_cancel(
     params: &LogsListParams,
     cancellation: &CancellationToken,
 ) -> Result<Vec<LogRow>, String> {
-    let json = run_sf_log_list_json_with_cancel(params, cancellation)?;
-    list_logs_from_json(&json)
+    list_logs_detailed_with_cancel(params, cancellation).map_err(|error| error.to_string())
+}
+
+pub fn list_logs_detailed_with_cancel(
+    params: &LogsListParams,
+    cancellation: &CancellationToken,
+) -> Result<Vec<LogRow>, LogsRuntimeError> {
+    let json = run_sf_log_list_json_detailed_with_cancel(params, cancellation)?;
+    list_logs_from_json(&json).map_err(LogsRuntimeError::from_message)
 }
 
 pub fn list_logs_from_json(json: &str) -> Result<Vec<LogRow>, String> {
@@ -194,13 +253,26 @@ pub fn run_sf_log_list_json_with_cancel(
     params: &LogsListParams,
     cancellation: &CancellationToken,
 ) -> Result<String, String> {
-    if let Some(fixture) = maybe_fixture_log_list_json(cancellation)? {
+    run_sf_log_list_json_detailed_with_cancel(params, cancellation)
+        .map_err(|error| error.to_string())
+}
+
+pub fn run_sf_log_list_json_detailed_with_cancel(
+    params: &LogsListParams,
+    cancellation: &CancellationToken,
+) -> Result<String, LogsRuntimeError> {
+    if let Some(fixture) =
+        maybe_fixture_log_list_json(cancellation).map_err(LogsRuntimeError::from_message)?
+    {
         return Ok(fixture);
     }
 
-    cancellation.check_cancelled()?;
-    let auth = auth::resolve_org_auth(params.username.as_deref())?;
-    run_tooling_logs_query_with_cancel(&auth, params, cancellation)
+    cancellation
+        .check_cancelled()
+        .map_err(LogsRuntimeError::from_message)?;
+    let auth = auth::resolve_org_auth(params.username.as_deref())
+        .map_err(LogsRuntimeError::from_message)?;
+    run_tooling_logs_query_with_cancel_detailed(&auth, params, cancellation)
 }
 
 pub fn resolve_apex_logs_dir(workspace_root: Option<&str>) -> PathBuf {
@@ -370,11 +442,22 @@ fn run_tooling_logs_query_with_cancel(
     params: &LogsListParams,
     cancellation: &CancellationToken,
 ) -> Result<String, String> {
-    cancellation.check_cancelled()?;
+    run_tooling_logs_query_with_cancel_detailed(auth, params, cancellation)
+        .map_err(|error| error.to_string())
+}
+
+fn run_tooling_logs_query_with_cancel_detailed(
+    auth: &OrgAuth,
+    params: &LogsListParams,
+    cancellation: &CancellationToken,
+) -> Result<String, LogsRuntimeError> {
+    cancellation
+        .check_cancelled()
+        .map_err(LogsRuntimeError::from_message)?;
     let safe_page_size = params.limit.unwrap_or(100).clamp(1, 200);
     let safe_offset = params.offset.unwrap_or(0);
     let soql = build_logs_query(safe_page_size, safe_offset, params);
-    request_tooling_query_json(auth, &soql, cancellation)
+    request_tooling_query_json_detailed(auth, &soql, cancellation)
 }
 
 fn maybe_test_delay(env_key: &str, cancellation: &CancellationToken) -> Result<(), String> {
@@ -569,6 +652,15 @@ fn response_body_text(body: &[u8]) -> String {
     String::from_utf8_lossy(body).trim().to_string()
 }
 
+fn optional_truncated_text(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(truncate_for_trace(trimmed))
+    }
+}
+
 fn format_status_error(status: StatusCode, url: &str, body: &[u8]) -> String {
     let body_text = response_body_text(body);
     if body_text.is_empty() {
@@ -581,27 +673,34 @@ fn format_status_error(status: StatusCode, url: &str, body: &[u8]) -> String {
     }
 }
 
-fn format_request_error(error: &reqwest::Error, url: &str) -> String {
+fn request_error_causes(error: &reqwest::Error) -> Vec<String> {
+    let mut causes = Vec::new();
+    let mut source = StdError::source(error);
+    while let Some(error_source) = source {
+        let text = error_source.to_string();
+        if !text.trim().is_empty() {
+            causes.push(truncate_for_trace(text.trim()));
+        }
+        source = error_source.source();
+        if causes.len() >= 8 {
+            break;
+        }
+    }
+    if causes.is_empty() {
+        causes.push(truncate_for_trace(&error.to_string()));
+    }
+    causes
+}
+
+fn format_request_error(error: &reqwest::Error, url: &str, causes: &[String]) -> String {
     let mut message = match error.status() {
         Some(status) => format!("HTTP request failed with {status} for {url}: {error}"),
         None => format!("HTTP request failed for {url}: {error}"),
     };
 
-    let mut sources = Vec::new();
-    let mut source = StdError::source(error);
-    while let Some(error_source) = source {
-        let text = error_source.to_string();
-        if !text.trim().is_empty() {
-            sources.push(text);
-        }
-        source = error_source.source();
-        if sources.len() >= 8 {
-            break;
-        }
-    }
-    if !sources.is_empty() {
+    if !causes.is_empty() {
         message.push_str("; caused by: ");
-        message.push_str(&sources.join(" -> "));
+        message.push_str(&causes.join(" -> "));
     }
     message
 }
@@ -612,6 +711,7 @@ enum HttpRequestError {
     Failed {
         status: Option<StatusCode>,
         message: String,
+        data: Option<RuntimeErrorData>,
     },
 }
 
@@ -620,6 +720,13 @@ impl HttpRequestError {
         match self {
             Self::Cancelled => CANCELLED_MESSAGE.to_string(),
             Self::Failed { message, .. } => message.clone(),
+        }
+    }
+
+    fn into_logs_runtime_error(self) -> LogsRuntimeError {
+        match self {
+            Self::Cancelled => LogsRuntimeError::from_message(CANCELLED_MESSAGE),
+            Self::Failed { message, data, .. } => LogsRuntimeError::with_data(message, data),
         }
     }
 }
@@ -650,6 +757,7 @@ where
                 return Err(HttpRequestError::Failed {
                     status: None,
                     message: "HTTP request task terminated unexpectedly".to_string(),
+                    data: None,
                 });
             }
         }
@@ -666,6 +774,7 @@ where
                 return Err(HttpRequestError::Failed {
                     status: None,
                     message: "HTTP request task terminated unexpectedly".to_string(),
+                    data: None,
                 });
             }
         }
@@ -702,11 +811,18 @@ fn run_http_request_with_cancel(
                             Ok(body.to_vec())
                         }
                         Ok(body) => {
+                            let body_text = response_body_text(&body);
                             let message = format_status_error(status, &request_url, &body);
                             trace_http(&format!("HTTP response error {message}"));
                             Err(HttpRequestError::Failed {
                                 status: Some(status),
                                 message,
+                                data: Some(RuntimeErrorData {
+                                    status: Some(status.as_u16()),
+                                    url: Some(request_url.clone()),
+                                    response_body: optional_truncated_text(body_text),
+                                    causes: Vec::new(),
+                                }),
                             })
                         }
                         Err(error) => {
@@ -717,15 +833,31 @@ fn run_http_request_with_cancel(
                             Err(HttpRequestError::Failed {
                                 status: Some(status),
                                 message,
+                                data: Some(RuntimeErrorData {
+                                    status: Some(status.as_u16()),
+                                    url: Some(request_url.clone()),
+                                    response_body: None,
+                                    causes: vec![truncate_for_trace(&error.to_string())],
+                                }),
                             })
                         }
                     }
                 }
                 Err(error) => {
                     let status = error.status();
-                    let message = format_request_error(&error, &request_url);
+                    let causes = request_error_causes(&error);
+                    let message = format_request_error(&error, &request_url, &causes);
                     trace_http(&message);
-                    Err(HttpRequestError::Failed { status, message })
+                    Err(HttpRequestError::Failed {
+                        status,
+                        message,
+                        data: Some(RuntimeErrorData {
+                            status: status.map(|value| value.as_u16()),
+                            url: Some(request_url.clone()),
+                            response_body: None,
+                            causes,
+                        }),
+                    })
                 }
             }
         },
@@ -740,27 +872,45 @@ fn request_bytes_with_version_fallback(
     accept: &'static str,
     cancellation: &CancellationToken,
 ) -> Result<Vec<u8>, String> {
+    request_bytes_with_version_fallback_detailed(auth, path, query_pairs, accept, cancellation)
+        .map_err(|error| error.to_string())
+}
+
+fn request_bytes_with_version_fallback_detailed(
+    auth: &OrgAuth,
+    path: &str,
+    query_pairs: &[(&str, &str)],
+    accept: &'static str,
+    cancellation: &CancellationToken,
+) -> Result<Vec<u8>, LogsRuntimeError> {
     let mut attempted_fallback = false;
 
     loop {
-        cancellation.check_cancelled()?;
+        cancellation
+            .check_cancelled()
+            .map_err(LogsRuntimeError::from_message)?;
         let active_version = get_effective_api_version(auth);
-        let mut url = build_versioned_url(auth, &active_version, path)?;
+        let mut url = build_versioned_url(auth, &active_version, path)
+            .map_err(LogsRuntimeError::from_message)?;
         for (key, value) in query_pairs {
             url.query_pairs_mut().append_pair(key, value);
         }
 
         match run_http_request_with_cancel(auth, url, accept, cancellation) {
             Ok(bytes) => return Ok(bytes),
-            Err(HttpRequestError::Cancelled) => return Err(CANCELLED_MESSAGE.to_string()),
+            Err(HttpRequestError::Cancelled) => {
+                return Err(LogsRuntimeError::from_message(CANCELLED_MESSAGE));
+            }
             Err(HttpRequestError::Failed {
                 status: Some(StatusCode::NOT_FOUND),
                 message,
+                data,
             }) if !attempted_fallback => {
                 let requested = parse_api_version(&active_version);
-                let Some(org_max_version) = discover_org_max_api_version(auth, cancellation)?
+                let Some(org_max_version) = discover_org_max_api_version(auth, cancellation)
+                    .map_err(LogsRuntimeError::from_message)?
                 else {
-                    return Err(message);
+                    return Err(LogsRuntimeError::with_data(message, data));
                 };
                 let org_max = parse_api_version(&org_max_version);
                 if requested.is_some() && org_max.is_some() && requested > org_max {
@@ -768,27 +918,28 @@ fn request_bytes_with_version_fallback(
                     attempted_fallback = true;
                     continue;
                 }
-                return Err(message);
+                return Err(LogsRuntimeError::with_data(message, data));
             }
-            Err(error) => return Err(error.to_string_message()),
+            Err(error) => return Err(error.into_logs_runtime_error()),
         }
     }
 }
 
-fn request_tooling_query_json(
+fn request_tooling_query_json_detailed(
     auth: &OrgAuth,
     soql: &str,
     cancellation: &CancellationToken,
-) -> Result<String, String> {
-    let bytes = request_bytes_with_version_fallback(
+) -> Result<String, LogsRuntimeError> {
+    let bytes = request_bytes_with_version_fallback_detailed(
         auth,
         "/tooling/query",
         &[("q", soql)],
         "application/json",
         cancellation,
     )?;
-    String::from_utf8(bytes)
-        .map_err(|error| format!("invalid UTF-8 in Tooling query response: {error}"))
+    String::from_utf8(bytes).map_err(|error| {
+        LogsRuntimeError::from_message(format!("invalid UTF-8 in Tooling query response: {error}"))
+    })
 }
 
 fn fetch_apex_log_body_with_cancel(

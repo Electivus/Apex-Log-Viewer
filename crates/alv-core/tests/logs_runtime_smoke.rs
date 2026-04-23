@@ -15,8 +15,8 @@ use alv_core::{
     auth::TEST_ORG_DISPLAY_JSON_ENV,
     logs::{
         ensure_log_file_cached, extract_code_unit_started, find_cached_log_path,
-        list_logs_with_cancel, CancellationToken, LogsListParams, TEST_APEX_LOG_FIXTURE_DIR_ENV,
-        TEST_SF_LOG_LIST_JSON_ENV,
+        list_logs_detailed_with_cancel, list_logs_with_cancel, CancellationToken, LogsListParams,
+        TEST_APEX_LOG_FIXTURE_DIR_ENV, TEST_SF_LOG_LIST_JSON_ENV,
     },
     search::{search_query, search_query_with_cancel, SearchQueryParams},
     triage::{triage_logs, triage_logs_with_cancel, LogsTriageParams},
@@ -277,6 +277,51 @@ fn logs_runtime_smoke_includes_http_status_url_and_body_in_list_failures() {
     assert!(
         error.contains("INVALID_SESSION_ID") && error.contains("Session expired or invalid"),
         "expected response body in error, got: {error}"
+    );
+
+    std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);
+    server_handle.join().expect("server thread should complete");
+}
+
+#[test]
+fn logs_runtime_smoke_exposes_structured_http_error_data() {
+    let _guard = lock_test_guard();
+
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    let (base_url, server_handle) = spawn_scripted_http_server(vec![ScriptedHttpResponse {
+        status: 403,
+        content_type: "application/json",
+        body: br#"[{"message":"Session expired or invalid","errorCode":"INVALID_SESSION_ID"}]"#
+            .to_vec(),
+    }]);
+    std::env::set_var(TEST_ORG_DISPLAY_JSON_ENV, org_display_fixture(&base_url));
+
+    let error = list_logs_detailed_with_cancel(
+        &LogsListParams {
+            username: Some("demo@example.com".to_string()),
+            limit: Some(1),
+            cursor: None,
+            offset: Some(0),
+        },
+        &CancellationToken::new(),
+    )
+    .expect_err("logs/list should expose structured REST failure details");
+
+    let data = error
+        .data()
+        .expect("HTTP list failures should include structured data");
+    assert_eq!(data.status, Some(403));
+    assert!(
+        data.url
+            .as_deref()
+            .is_some_and(|url| url.contains("/services/data/v64.0/tooling/query")),
+        "expected request URL in data, got: {data:?}"
+    );
+    assert!(
+        data.response_body
+            .as_deref()
+            .is_some_and(|body| body.contains("INVALID_SESSION_ID")),
+        "expected response body in data, got: {data:?}"
     );
 
     std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);

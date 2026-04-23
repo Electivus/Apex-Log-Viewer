@@ -1,5 +1,5 @@
 use alv_core::{
-    logs::{CancellationToken, LogsCursor, LogsListParams},
+    logs::{CancellationToken, LogsCursor, LogsListParams, LogsRuntimeError},
     search::SearchQueryParams,
     triage::LogsTriageParams,
 };
@@ -25,6 +25,47 @@ mod orgs_handler;
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const JSONRPC_SERVER_ERROR: i32 = -32000;
 pub const CLI_VERSION_ENV: &str = "ALV_CLI_VERSION";
+
+#[derive(Debug, Clone)]
+struct ServerError {
+    message: String,
+    data_json: Option<String>,
+}
+
+impl ServerError {
+    fn message(&self) -> &str {
+        &self.message
+    }
+
+    fn data_json(&self) -> Option<&str> {
+        self.data_json.as_deref()
+    }
+
+    fn into_message(self) -> String {
+        self.message
+    }
+}
+
+impl From<String> for ServerError {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            data_json: None,
+        }
+    }
+}
+
+impl From<LogsRuntimeError> for ServerError {
+    fn from(error: LogsRuntimeError) -> Self {
+        let data_json = error
+            .data()
+            .and_then(|data| serde_json::to_string(data).ok());
+        Self {
+            message: error.message().to_string(),
+            data_json,
+        }
+    }
+}
 
 enum ParsedRequest {
     Cancel { request_id: String },
@@ -163,7 +204,9 @@ pub fn handle_request_line(request: &str) -> Result<Option<String>, String> {
         ParsedRequest::Cancel { .. } => Ok(None),
         ParsedRequest::Call(call) => {
             let cancellation = CancellationToken::new();
-            execute_call(call, &cancellation).map(Some)
+            execute_call(call, &cancellation)
+                .map(Some)
+                .map_err(ServerError::into_message)
         }
     }
 }
@@ -200,8 +243,15 @@ fn spawn_request_worker(
         let response = match execute_call(call, &cancellation) {
             Ok(response) if !cancellation.is_cancelled() => Some(response),
             Ok(_) => None,
-            Err(error) if cancellation.is_cancelled() || is_cancelled_error(&error) => None,
-            Err(error) => Some(jsonrpc_error(&request_id, JSONRPC_SERVER_ERROR, &error)),
+            Err(error) if cancellation.is_cancelled() || is_cancelled_error(error.message()) => {
+                None
+            }
+            Err(error) => Some(jsonrpc_error(
+                &request_id,
+                JSONRPC_SERVER_ERROR,
+                error.message(),
+                error.data_json(),
+            )),
         };
 
         let _ = worker_sender.send(WorkerCompletion {
@@ -229,7 +279,7 @@ fn finish_request<W: Write>(
     Ok(())
 }
 
-fn execute_call(call: ServerCall, cancellation: &CancellationToken) -> Result<String, String> {
+fn execute_call(call: ServerCall, cancellation: &CancellationToken) -> Result<String, ServerError> {
     match call.operation {
         ServerOperation::Initialize(params) => {
             let result = handle_initialize(params);
@@ -266,6 +316,7 @@ fn execute_call(call: ServerCall, cancellation: &CancellationToken) -> Result<St
             &call.id,
             -32601,
             &format!("method not found: {method}"),
+            None,
         )),
     }
 }
@@ -436,9 +487,12 @@ fn jsonrpc_result(id: &str, result_json: &str) -> String {
     )
 }
 
-fn jsonrpc_error(id: &str, code: i32, message: &str) -> String {
+fn jsonrpc_error(id: &str, code: i32, message: &str, data_json: Option<&str>) -> String {
+    let data = data_json
+        .map(|json| format!(",\"data\":{json}"))
+        .unwrap_or_default();
     format!(
-        "{{\"jsonrpc\":\"2.0\",\"id\":\"{}\",\"error\":{{\"code\":{code},\"message\":\"{}\"}}}}",
+        "{{\"jsonrpc\":\"2.0\",\"id\":\"{}\",\"error\":{{\"code\":{code},\"message\":\"{}\"{data}}}}}",
         escape_json(id),
         escape_json(message)
     )
