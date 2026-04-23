@@ -1,5 +1,5 @@
 use alv_core::{
-    logs::{list_logs_with_cancel, CancellationToken, LogsListParams},
+    logs::{list_logs_detailed_with_cancel, CancellationToken, LogsListParams, LogsRuntimeError},
     search::{search_query_with_cancel, SearchQueryParams},
     triage::{triage_logs_with_cancel, LogsTriageParams},
 };
@@ -22,10 +22,11 @@ pub struct ResolveCachedLogPathResult {
 pub fn handle_logs_list_with_cancel(
     params: LogsListParams,
     cancellation: &CancellationToken,
-) -> Result<String, String> {
-    let rows = list_logs_with_cancel(&params, cancellation)?;
-    serde_json::to_string(&rows)
-        .map_err(|error| format!("failed to serialize logs/list response: {error}"))
+) -> Result<String, LogsRuntimeError> {
+    let rows = list_logs_detailed_with_cancel(&params, cancellation)?;
+    serde_json::to_string(&rows).map_err(|error| {
+        LogsRuntimeError::from_message(format!("failed to serialize logs/list response: {error}"))
+    })
 }
 
 pub fn handle_search_query_with_cancel(
