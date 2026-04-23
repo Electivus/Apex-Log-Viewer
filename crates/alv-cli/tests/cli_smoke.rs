@@ -78,6 +78,9 @@ fn spawn_single_http_response(
                 Err(error) => panic!("test server accept failed: {error}"),
             }
         };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .expect("test server should set read timeout");
         let mut buffer = [0_u8; 4096];
         let _ = stream.read(&mut buffer);
         let headers = format!(
