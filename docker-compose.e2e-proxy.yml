@@ -1,0 +1,79 @@
+services:
+  proxy:
+    build:
+      context: .
+      dockerfile: test/e2e/proxy-lab/Dockerfile.proxy
+    networks:
+      e2e_proxy_egress: {}
+      e2e_proxy_internal:
+        aliases:
+          - proxy
+    expose:
+      - "8888"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8888"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  runner:
+    build:
+      context: .
+      dockerfile: test/e2e/proxy-lab/Dockerfile.runner
+    depends_on:
+      proxy:
+        condition: service_healthy
+    working_dir: /workspace
+    networks:
+      - e2e_proxy_internal
+    volumes:
+      - .:/workspace
+      - e2e_proxy_node_modules:/workspace/node_modules
+      - e2e_proxy_cargo_registry:/root/.cargo/registry
+      - e2e_proxy_cargo_git:/root/.cargo/git
+      - e2e_proxy_target:/workspace/target
+      - e2e_proxy_vscode_test:/workspace/.vscode-test
+      - e2e_proxy_npm_cache:/root/.npm
+    environment:
+      HTTP_PROXY: ${ALV_E2E_PROXY_LAB_PROXY_URL:-http://alv-proxy-user:alv-proxy-pass@proxy:8888}
+      HTTPS_PROXY: ${ALV_E2E_PROXY_LAB_PROXY_URL:-http://alv-proxy-user:alv-proxy-pass@proxy:8888}
+      http_proxy: ${ALV_E2E_PROXY_LAB_PROXY_URL:-http://alv-proxy-user:alv-proxy-pass@proxy:8888}
+      https_proxy: ${ALV_E2E_PROXY_LAB_PROXY_URL:-http://alv-proxy-user:alv-proxy-pass@proxy:8888}
+      NO_PROXY: localhost,127.0.0.1,::1,proxy
+      no_proxy: localhost,127.0.0.1,::1,proxy
+      ALV_E2E_USE_SYSTEM_CA: "1"
+      SFDX_DISABLE_DNS_CHECK: ${SFDX_DISABLE_DNS_CHECK:-true}
+      HUSKY: "0"
+      PLAYWRIGHT_WORKERS: ${PLAYWRIGHT_WORKERS:-1}
+      PLAYWRIGHT_RETRIES: ${PLAYWRIGHT_RETRIES:-0}
+      VSCODE_TEST_VERSION: ${VSCODE_TEST_VERSION:-stable}
+      SF_DEVHUB_AUTH_URL: ${SF_DEVHUB_AUTH_URL:-}
+      SF_DEVHUB_ALIAS: ${ALV_E2E_PROXY_LAB_DEVHUB_ALIAS:-ConfiguredDevHub}
+      SF_SCRATCH_STRATEGY: ${SF_SCRATCH_STRATEGY:-}
+      SF_SCRATCH_POOL_NAME: ${SF_SCRATCH_POOL_NAME:-}
+      SF_SCRATCH_POOL_OWNER: ${SF_SCRATCH_POOL_OWNER:-}
+      SF_SCRATCH_POOL_LEASE_TTL_SECONDS: ${SF_SCRATCH_POOL_LEASE_TTL_SECONDS:-}
+      SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS: ${SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS:-}
+      SF_SCRATCH_POOL_HEARTBEAT_SECONDS: ${SF_SCRATCH_POOL_HEARTBEAT_SECONDS:-}
+      SF_SCRATCH_POOL_MIN_REMAINING_MINUTES: ${SF_SCRATCH_POOL_MIN_REMAINING_MINUTES:-}
+      SF_SCRATCH_POOL_SEED_VERSION: ${SF_SCRATCH_POOL_SEED_VERSION:-}
+      SF_SCRATCH_POOL_SNAPSHOT_NAME: ${SF_SCRATCH_POOL_SNAPSHOT_NAME:-}
+      SF_SCRATCH_ALIAS: ${SF_SCRATCH_ALIAS:-}
+      SF_SCRATCH_DURATION: ${SF_SCRATCH_DURATION:-1}
+      SF_TEST_KEEP_ORG: ${SF_TEST_KEEP_ORG:-1}
+      ALV_E2E_PROXY_LAB_SKIP_NPM_CI: ${ALV_E2E_PROXY_LAB_SKIP_NPM_CI:-}
+      ALV_E2E_PROXY_LAB_COMMAND: ${ALV_E2E_PROXY_LAB_COMMAND:-}
+    command: ["bash", "test/e2e/proxy-lab/run.sh"]
+
+networks:
+  e2e_proxy_internal:
+    internal: true
+  e2e_proxy_egress: {}
+
+volumes:
+  e2e_proxy_node_modules: {}
+  e2e_proxy_cargo_registry: {}
+  e2e_proxy_cargo_git: {}
+  e2e_proxy_target: {}
+  e2e_proxy_vscode_test: {}
+  e2e_proxy_npm_cache: {}

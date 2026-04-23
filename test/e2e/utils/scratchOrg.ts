@@ -275,6 +275,14 @@ async function ensureDevHubAuth(config: DevHubConfig): Promise<string> {
     const resolvedDevHubAlias = config.alias || DEFAULT_DEV_HUB_ALIAS;
     args.push('--alias', resolvedDevHubAlias);
     await runSfJson(args);
+    try {
+      await getOrgDisplayOrThrow(resolvedDevHubAlias);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Dev Hub auth URL login completed, but alias '${resolvedDevHubAlias}' is not available. ${detail}`.trim()
+      );
+    }
     return resolvedDevHubAlias;
   } finally {
     await rm(dir, { recursive: true, force: true });

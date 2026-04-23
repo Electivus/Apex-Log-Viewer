@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, access, readdir, mkdir, open, stat, unlink, utimes } from 'node:fs/promises';
+import { mkdtemp, readFile, access, readdir, mkdir, open, stat, unlink, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
@@ -8,6 +8,7 @@ import { _electron as electron, type ElectronApplication, type Page } from 'play
 import { envFlag } from './envFlag';
 import { removePathBestEffort } from './fsCleanup';
 import { dismissAllNotifications } from './notifications';
+import { applyE2eNetworkEnvironment, resolveVsCodeProxyLaunchArgs, resolveVsCodeUserProxySettings } from './proxy';
 import { timeE2eStep } from './timing';
 
 export type VscodeLaunch = {
@@ -171,6 +172,20 @@ async function removeFileBestEffort(targetPath: string): Promise<void> {
   try {
     await unlink(targetPath);
   } catch {}
+}
+
+function resolveVsCodeUserSettingsPath(userDataDir: string): string {
+  return path.join(userDataDir, 'User', 'settings.json');
+}
+
+async function writeVsCodeUserSettings(userDataDir: string, settings: Record<string, unknown>): Promise<void> {
+  if (Object.keys(settings).length === 0) {
+    return;
+  }
+
+  const settingsPath = resolveVsCodeUserSettingsPath(userDataDir);
+  await mkdir(path.dirname(settingsPath), { recursive: true });
+  await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
 }
 
 async function getFileAgeMs(targetPath: string): Promise<number | undefined> {
@@ -393,6 +408,7 @@ export async function launchVsCode(options: {
   extensionIds?: string[];
   windowSize?: Partial<VscodeWindowSize>;
 }): Promise<VscodeLaunch> {
+  applyE2eNetworkEnvironment();
   const vscodeVersion = getVsCodeVersion();
   const vscodeCachePath = resolveVscodeCachePath(options.extensionDevelopmentPath);
   const supportExtensionIds = await readExtensionReferences(
@@ -410,6 +426,7 @@ export async function launchVsCode(options: {
   );
 
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-e2e-user-'));
+  await writeVsCodeUserSettings(userDataDir, resolveVsCodeUserProxySettings());
   let extensionsDir = resolveCachedSupportExtensionsDir(vscodeCachePath, vscodeVersion, supportExtensionIds);
   const supportExtensionsLockPath = resolveSupportExtensionsLockPath(extensionsDir);
   await mkdir(extensionsDir, { recursive: true });
@@ -442,6 +459,7 @@ export async function launchVsCode(options: {
     '--disable-updates',
     '--no-sandbox'
   ];
+  args.push(...resolveVsCodeProxyLaunchArgs());
   const windowSizeArg = resolveWindowSizeArg(options.windowSize);
   if (windowSizeArg) {
     args.push(windowSizeArg);
