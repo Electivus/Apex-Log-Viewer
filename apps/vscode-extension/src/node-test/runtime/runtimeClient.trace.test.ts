@@ -3,7 +3,8 @@ import proxyquire from 'proxyquire';
 import type {
   DaemonProcess,
   JsonRpcErrorResponse,
-  JsonRpcSuccessResponse
+  JsonRpcSuccessResponse,
+  LogsListParams
 } from '../../../../../packages/app-server-client-ts/src/index';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
@@ -47,7 +48,7 @@ suite('runtime client trace logging', () => {
     const traceEntries: unknown[][] = [];
     const { RuntimeClient } = proxyquireStrict('../../runtime/runtimeClient', {
       '../../../../src/utils/logger': {
-        isTraceEnabled: () => false,
+        isTraceEnabled: () => true,
         logTrace: (...parts: unknown[]) => traceEntries.push(parts),
         logWarn: () => undefined,
         '@noCallThru': true
@@ -128,7 +129,7 @@ suite('runtime client trace logging', () => {
     const traceEntries: unknown[][] = [];
     const { RuntimeClient } = proxyquireStrict('../../runtime/runtimeClient', {
       '../../../../src/utils/logger': {
-        isTraceEnabled: () => false,
+        isTraceEnabled: () => true,
         logTrace: (...parts: unknown[]) => traceEntries.push(parts),
         logWarn: () => undefined,
         '@noCallThru': true
@@ -211,6 +212,97 @@ suite('runtime client trace logging', () => {
     assert.match(serializedTrace, /received error response/);
     assert.match(serializedTrace, /"code":-32000/);
     assert.match(serializedTrace, /INVALID_SESSION_ID/);
+  });
+
+  test('skips trace payload redaction when trace logging is disabled', async () => {
+    const traceMessages: string[] = [];
+    const { RuntimeClient } = proxyquireStrict('../../runtime/runtimeClient', {
+      '../../../../src/utils/logger': {
+        isTraceEnabled: () => false,
+        logTrace: (...parts: unknown[]) => {
+          traceMessages.push(String(parts[0]));
+        },
+        logWarn: () => undefined,
+        '@noCallThru': true
+      },
+      '../../../../src/salesforce/path': {
+        getLoginShellEnv: async () => undefined,
+        '@noCallThru': true
+      },
+      '../../../../src/utils/config': {
+        getConfig: () => '',
+        '@noCallThru': true
+      },
+      '../shared/telemetry': {
+        safeSendEvent: () => undefined,
+        '@noCallThru': true
+      }
+    }) as typeof import('../../runtime/runtimeClient');
+
+    const requestParams = {};
+    Object.defineProperty(requestParams, 'accessToken', {
+      enumerable: true,
+      get() {
+        throw new Error('request trace payload should not be evaluated');
+      }
+    });
+    const responseRow = {};
+    Object.defineProperty(responseRow, 'accessToken', {
+      enumerable: true,
+      get() {
+        throw new Error('response trace payload should not be evaluated');
+      }
+    });
+
+    const daemon = createFakeDaemon({
+      onWrite(message, helpers) {
+        if (message.method === 'initialize') {
+          helpers.emitMessage({
+            jsonrpc: '2.0',
+            id: message.id,
+            result: {
+              runtime_version: '0.1.0',
+              cli_version: '0.1.0',
+              protocol_version: '1',
+              channel: 'stable',
+              platform: 'win32',
+              arch: 'x64',
+              capabilities: {
+                orgs: true,
+                logs: true,
+                search: true,
+                tail: true,
+                debug_flags: true,
+                doctor: true
+              },
+              state_dir: '.alv/state',
+              cache_dir: '.alv/cache'
+            }
+          });
+          return;
+        }
+        if (message.method === 'logs/list') {
+          helpers.emitMessage({
+            jsonrpc: '2.0',
+            id: message.id,
+            result: [responseRow]
+          });
+          return;
+        }
+        throw new Error(`unexpected method: ${message.method}`);
+      }
+    });
+
+    const client = new RuntimeClient({
+      createProcess: () => daemon,
+      prepareProcessEnv: async () => undefined
+    });
+
+    const rows = await client.logsList(requestParams as LogsListParams);
+
+    assert.equal(rows.length, 1);
+    assert.equal(traceMessages.includes('Runtime: send request'), false);
+    assert.equal(traceMessages.includes('Runtime: received success response'), false);
   });
 
   test('passes ALV_TRACE to the runtime process when extension trace logging is enabled', async () => {

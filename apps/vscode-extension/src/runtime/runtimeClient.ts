@@ -474,7 +474,9 @@ export class RuntimeClient extends EventEmitter {
       });
     });
 
-    logTrace('Runtime: send request', redactRuntimeTraceValue({ id, method, params }));
+    if (isTraceEnabled()) {
+      logTrace('Runtime: send request', redactRuntimeTraceValue({ id, method, params }));
+    }
     try {
       daemon.writeMessage(request);
     } catch (error) {
@@ -550,12 +552,16 @@ export class RuntimeClient extends EventEmitter {
     pending.cleanup?.();
 
     if (response.error) {
-      logTrace('Runtime: received error response', redactRuntimeTraceValue({ method: pending.method, response }));
+      if (isTraceEnabled()) {
+        logTrace('Runtime: received error response', redactRuntimeTraceValue({ method: pending.method, response }));
+      }
       pending.reject(createRuntimeResponseError(response));
       return;
     }
 
-    logTrace('Runtime: received success response', redactRuntimeTraceValue({ method: pending.method, response }));
+    if (isTraceEnabled()) {
+      logTrace('Runtime: received success response', redactRuntimeTraceValue({ method: pending.method, response }));
+    }
     pending.resolve(response.result);
   }
 
