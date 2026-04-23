@@ -2,8 +2,8 @@ use crate::cli::{LogSearchArgs, LogStatusArgs, LogSyncArgs, LogsArgs, LogsComman
 use alv_core::{
     auth,
     log_store::{self, OrgMetadata, SyncState},
-    logs::CancellationToken,
-    logs_sync::{sync_logs_with_cancel, LogsSyncParams, LogsSyncResult},
+    logs::{CancellationToken, LogsRuntimeError, RuntimeErrorData},
+    logs_sync::{sync_logs_detailed_with_cancel, LogsSyncParams, LogsSyncResult},
     search::{search_query, SearchQueryParams, SearchQueryResult, SearchSnippet},
 };
 use serde::Serialize;
@@ -44,6 +44,14 @@ struct SearchResult {
     pending_log_ids: Vec<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct CommandErrorResult<'a> {
+    status: &'static str,
+    message: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<&'a RuntimeErrorData>,
+}
+
 pub fn run(args: LogsArgs) -> Result<i32, String> {
     match args.command {
         LogsCommand::Sync(sync) => run_sync(sync),
@@ -53,15 +61,17 @@ pub fn run(args: LogsArgs) -> Result<i32, String> {
 }
 
 fn run_sync(args: LogSyncArgs) -> Result<i32, String> {
+    let json = args.json;
     let params = LogsSyncParams {
         target_org: args.target_org,
         workspace_root: Some(workspace_root_string()?),
         force_full: args.force_full,
         concurrency: args.concurrency,
     };
-    let result = sync_logs_with_cancel(&params, &CancellationToken::new())?;
+    let result = sync_logs_detailed_with_cancel(&params, &CancellationToken::new())
+        .map_err(|error| format_logs_error(&error, json))?;
 
-    if args.json {
+    if json {
         print_json(&result)?;
     } else {
         print_sync_summary(&result);
@@ -213,6 +223,43 @@ fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
     let output = serde_json::to_string_pretty(value).map_err(|error| error.to_string())?;
     println!("{output}");
     Ok(())
+}
+
+fn format_logs_error(error: &LogsRuntimeError, json: bool) -> String {
+    if json {
+        let output = CommandErrorResult {
+            status: "error",
+            message: error.message(),
+            data: error.data(),
+        };
+        return serde_json::to_string_pretty(&output)
+            .unwrap_or_else(|_| error.message().to_string());
+    }
+
+    let mut lines = vec![error.message().to_string()];
+    if let Some(data) = error.data() {
+        if let Some(status) = data.status {
+            lines.push(format!("HTTP status: {status}"));
+        }
+        if let Some(url) = data.url.as_deref().filter(|value| !value.trim().is_empty()) {
+            lines.push(format!("URL: {url}"));
+        }
+        if let Some(body) = data
+            .response_body
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            lines.push("Response body:".to_string());
+            lines.push(body.to_string());
+        }
+        if !data.causes.is_empty() {
+            lines.push("Caused by:".to_string());
+            for cause in &data.causes {
+                lines.push(format!("- {cause}"));
+            }
+        }
+    }
+    lines.join("\n")
 }
 
 fn print_sync_summary(result: &LogsSyncResult) {

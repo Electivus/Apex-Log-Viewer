@@ -5,6 +5,7 @@
 ### Bug Fixes
 
 - Runtime/Logs: include sanitized runtime request/response payloads and propagate Salesforce HTTP failure status, URL, response body, and transport causes in trace logging so log refresh errors are diagnosable without exposing auth tokens.
+- CLI/Logs: bump the bundled runtime train to `0.1.8` and make `logs sync` print the propagated Salesforce HTTP status, URL, response body, and causes in both text and `--json` error output.
 
 ## [0.42.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.40.0...v0.42.0) (2026-04-20)
 

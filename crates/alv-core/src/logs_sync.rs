@@ -7,8 +7,8 @@ use crate::{
         LOG_STORE_LAYOUT_VERSION,
     },
     logs::{
-        download_log_to_path_for_auth_with_cancel, list_logs_for_auth_with_cancel,
-        CancellationToken, LogRow, LogsCursor, LogsListParams,
+        download_log_to_path_for_auth_with_cancel, list_logs_for_auth_detailed_with_cancel,
+        CancellationToken, LogRow, LogsCursor, LogsListParams, LogsRuntimeError,
     },
     orgs::list_orgs,
 };
@@ -49,11 +49,22 @@ pub fn sync_logs_with_cancel(
     params: &LogsSyncParams,
     cancellation: &CancellationToken,
 ) -> Result<LogsSyncResult, String> {
-    cancellation.check_cancelled()?;
-    write_version_file(params.workspace_root.as_deref(), LOG_STORE_LAYOUT_VERSION)?;
+    sync_logs_detailed_with_cancel(params, cancellation).map_err(|error| error.to_string())
+}
+
+pub fn sync_logs_detailed_with_cancel(
+    params: &LogsSyncParams,
+    cancellation: &CancellationToken,
+) -> Result<LogsSyncResult, LogsRuntimeError> {
+    cancellation
+        .check_cancelled()
+        .map_err(LogsRuntimeError::from_message)?;
+    write_version_file(params.workspace_root.as_deref(), LOG_STORE_LAYOUT_VERSION)
+        .map_err(LogsRuntimeError::from_message)?;
     let started_at = timestamp_now();
 
-    let auth = auth::resolve_org_auth(params.target_org.as_deref())?;
+    let auth = auth::resolve_org_auth(params.target_org.as_deref())
+        .map_err(LogsRuntimeError::from_message)?;
     let resolved_username = auth
         .username
         .clone()
@@ -73,12 +84,14 @@ pub fn sync_logs_with_cancel(
         })
         .and_then(|org| org.alias)
         .or(requested_alias);
-    let previous = read_sync_state(params.workspace_root.as_deref())?
+    let previous = read_sync_state(params.workspace_root.as_deref())
+        .map_err(LogsRuntimeError::from_message)?
         .orgs
         .get(&resolved_username)
         .cloned();
 
-    let mut state = read_sync_state(params.workspace_root.as_deref())?;
+    let mut state = read_sync_state(params.workspace_root.as_deref())
+        .map_err(LogsRuntimeError::from_message)?;
     let mut downloaded = 0usize;
     let mut cached = 0usize;
     let mut failed = 0usize;
@@ -87,7 +100,7 @@ pub fn sync_logs_with_cancel(
     let sync_concurrency = normalize_sync_concurrency(params.concurrency);
 
     loop {
-        let mut rows = match list_logs_for_auth_with_cancel(
+        let mut rows = match list_logs_for_auth_detailed_with_cancel(
             &auth,
             &LogsListParams {
                 username: params.target_org.clone(),
@@ -98,7 +111,9 @@ pub fn sync_logs_with_cancel(
             cancellation,
         ) {
             Ok(rows) => rows,
-            Err(error) if error == CANCELLED_MESSAGE || cancellation.is_cancelled() => break,
+            Err(error) if error.message() == CANCELLED_MESSAGE || cancellation.is_cancelled() => {
+                break
+            }
             Err(error) => return Err(error),
         };
         rows.sort_by(|left, right| {
@@ -190,7 +205,8 @@ pub fn sync_logs_with_cancel(
                 last_error: None,
             },
         );
-        write_sync_state(params.workspace_root.as_deref(), &state)?;
+        write_sync_state(params.workspace_root.as_deref(), &state)
+            .map_err(LogsRuntimeError::from_message)?;
     }
 
     write_org_metadata(
@@ -206,7 +222,8 @@ pub fn sync_logs_with_cancel(
             instance_url: Some(auth.instance_url),
             updated_at: finished_at.clone(),
         },
-    )?;
+    )
+    .map_err(LogsRuntimeError::from_message)?;
 
     Ok(LogsSyncResult {
         status: status.clone(),
