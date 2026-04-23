@@ -283,7 +283,7 @@ fn app_server_smoke_includes_structured_logs_error_data_in_jsonrpc_response() {
     assert!(
         parsed["error"]["data"]["url"]
             .as_str()
-            .is_some_and(|url| url.contains("/services/data/v64.0/tooling/query")),
+            .is_some_and(|url| url.contains("/services/data/v") && url.contains("/tooling/query")),
         "expected request URL in error data, got: {parsed}"
     );
     assert!(

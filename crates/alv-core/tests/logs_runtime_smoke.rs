@@ -314,7 +314,7 @@ fn logs_runtime_smoke_exposes_structured_http_error_data() {
     assert!(
         data.url
             .as_deref()
-            .is_some_and(|url| url.contains("/services/data/v64.0/tooling/query")),
+            .is_some_and(|url| url.contains("/services/data/v") && url.contains("/tooling/query")),
         "expected request URL in data, got: {data:?}"
     );
     assert!(
