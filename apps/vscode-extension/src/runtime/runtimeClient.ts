@@ -17,7 +17,7 @@ import type {
 } from '../../../../packages/app-server-client-ts/src/index';
 import { createDaemonProcess } from '../../../../packages/app-server-client-ts/src/index';
 import type { JsonRpcRequest, OrgListItem, OrgListParams } from '../../../../packages/app-server-client-ts/src/index';
-import { logTrace, logWarn } from '../../../../src/utils/logger';
+import { isTraceEnabled, logTrace, logWarn } from '../../../../src/utils/logger';
 import { getLoginShellEnv } from '../../../../src/salesforce/path';
 import { safeSendEvent } from '../shared/telemetry';
 import { resolveBundledBinary } from './bundledBinary';
@@ -34,6 +34,21 @@ import {
 type TimerHandle = ReturnType<typeof setTimeout>;
 const RUNTIME_EXIT_MESSAGE_PREFIX = 'runtime exited (';
 const RUNTIME_TELEMETRY_METHODS = new Set(['initialize', 'org/list', 'org/auth', 'logs/list', 'search/query', 'logs/triage']);
+const RUNTIME_TRACE_REDACTED = '[redacted]';
+const RUNTIME_TRACE_MAX_STRING_LENGTH = 8192;
+const RUNTIME_TRACE_SECRET_KEYS = new Set([
+  'accesstoken',
+  'access_token',
+  'authorization',
+  'clientsecret',
+  'client_secret',
+  'password',
+  'refreshtoken',
+  'refresh_token',
+  'sessionid',
+  'session_id',
+  'token'
+]);
 
 function getConfiguredRuntimePath(): string {
   const { getConfig } = require('../../../../src/utils/config') as typeof import('../../../../src/utils/config');
@@ -41,6 +56,7 @@ function getConfiguredRuntimePath(): string {
 }
 
 type PendingRequest = {
+  method: string;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   cleanup?: () => void;
@@ -69,6 +85,80 @@ export interface RuntimeClientOptions {
   schedule?: (callback: () => void, delayMs: number) => TimerHandle;
 }
 
+function redactRuntimeTraceValue(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (typeof value === 'string') {
+    if (value.length <= RUNTIME_TRACE_MAX_STRING_LENGTH) {
+      return value;
+    }
+    return `${value.slice(0, RUNTIME_TRACE_MAX_STRING_LENGTH)}... [truncated ${
+      value.length - RUNTIME_TRACE_MAX_STRING_LENGTH
+    } chars]`;
+  }
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return value;
+  }
+  if (seen.has(value)) {
+    return '[circular]';
+  }
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    return value.map(item => redactRuntimeTraceValue(item, seen));
+  }
+
+  const redacted: Record<string, unknown> = {};
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    const normalizedKey = key.replace(/[-_]/g, '').toLowerCase();
+    redacted[key] = RUNTIME_TRACE_SECRET_KEYS.has(normalizedKey)
+      ? RUNTIME_TRACE_REDACTED
+      : redactRuntimeTraceValue(nestedValue, seen);
+  }
+  return redacted;
+}
+
+function formatRuntimeErrorData(data: unknown): string | undefined {
+  if (data === undefined) {
+    return undefined;
+  }
+  try {
+    const formatted = JSON.stringify(redactRuntimeTraceValue(data));
+    return formatted && formatted !== 'undefined' ? formatted : undefined;
+  } catch {
+    if (typeof data === 'string') {
+      return data;
+    }
+    if (
+      typeof data === 'number' ||
+      typeof data === 'boolean' ||
+      typeof data === 'bigint' ||
+      typeof data === 'symbol'
+    ) {
+      return String(data);
+    }
+    return Object.prototype.toString.call(data);
+  }
+}
+
+function createRuntimeResponseError(response: Partial<JsonRpcErrorResponse>): Error {
+  const message = response.error?.message || 'Runtime request failed';
+  const detail = formatRuntimeErrorData(response.error?.data);
+  const error = new Error(detail ? `${message}; data=${detail}` : message) as Error & {
+    code?: number;
+    data?: unknown;
+    responseId?: string;
+  };
+  if (typeof response.error?.code === 'number') {
+    error.code = response.error.code;
+  }
+  if (response.error?.data !== undefined) {
+    error.data = response.error.data;
+  }
+  if (typeof response.id === 'string') {
+    error.responseId = response.id;
+  }
+  return error;
+}
+
 export class RuntimeClient extends EventEmitter {
   private daemon: DaemonProcess | undefined;
   private initializePromise: Promise<InitializeResult> | undefined;
@@ -85,6 +175,7 @@ export class RuntimeClient extends EventEmitter {
   private readonly requestHandler: RuntimeRequestHandler | undefined;
   private readonly schedule: (callback: () => void, delayMs: number) => TimerHandle;
   private processEnvPromise: Promise<NodeJS.ProcessEnv | undefined> | undefined;
+  private daemonTraceEnabled: boolean | undefined;
 
   constructor(options: RuntimeClientOptions = {}) {
     super();
@@ -99,6 +190,15 @@ export class RuntimeClient extends EventEmitter {
   }
 
   async startRuntime(): Promise<DaemonProcess> {
+    const traceEnabled = isTraceEnabled();
+    if (this.daemon) {
+      if (this.daemonTraceEnabled !== traceEnabled && this.pendingRequests.size === 0) {
+        this.disposeDaemonAfterTraceModeChange(traceEnabled);
+      } else {
+        return this.daemon;
+      }
+    }
+
     if (this.daemon) {
       return this.daemon;
     }
@@ -108,7 +208,7 @@ export class RuntimeClient extends EventEmitter {
       configuredPath: getConfiguredRuntimePath(),
       bundledPath
     });
-    const env = await this.resolveProcessEnv();
+    const env = await this.resolveProcessEnv(traceEnabled);
     if (executableResolution.invalidConfiguredPath) {
       logWarn('Runtime: ignoring invalid configured runtime executable', executableResolution.invalidConfiguredPath);
     }
@@ -118,6 +218,7 @@ export class RuntimeClient extends EventEmitter {
     logTrace('Runtime: starting daemon', executableResolution.executable);
     const daemon = this.createProcess(executableResolution.executable, env);
     this.daemon = daemon;
+    this.daemonTraceEnabled = traceEnabled;
     this.attachDaemonStderrLogger(daemon);
     daemon.onMessage(message => {
       this.handleMessage(message);
@@ -356,7 +457,7 @@ export class RuntimeClient extends EventEmitter {
   }
 
   private async requestOnce<TResult>(method: string, params?: unknown, signal?: AbortSignal): Promise<TResult> {
-    const daemon = this.daemon ?? (await this.startRuntime());
+    const daemon = await this.startRuntime();
     const id = `${method}:${++this.nextRequestId}`;
     const request: JsonRpcRequest = {
       jsonrpc: '2.0',
@@ -377,13 +478,16 @@ export class RuntimeClient extends EventEmitter {
       }
       cleanup = signal ? () => signal.removeEventListener('abort', onAbort) : undefined;
       this.pendingRequests.set(id, {
+        method,
         resolve: value => resolve(value as TResult),
         reject,
         cleanup
       });
     });
 
-    logTrace('Runtime: send request', { id, method });
+    if (isTraceEnabled()) {
+      logTrace('Runtime: send request', redactRuntimeTraceValue({ id, method, params }));
+    }
     try {
       daemon.writeMessage(request);
     } catch (error) {
@@ -424,6 +528,7 @@ export class RuntimeClient extends EventEmitter {
     logTrace('Runtime: restarting session', method);
     if (method === 'initialize') {
       this.daemon = undefined;
+      this.daemonTraceEnabled = undefined;
       this.initializePromise = undefined;
       return;
     }
@@ -459,12 +564,16 @@ export class RuntimeClient extends EventEmitter {
     pending.cleanup?.();
 
     if (response.error) {
-      logTrace('Runtime: received error response', { id: response.id, message: response.error.message });
-      pending.reject(new Error(response.error.message));
+      if (isTraceEnabled()) {
+        logTrace('Runtime: received error response', redactRuntimeTraceValue({ method: pending.method, response }));
+      }
+      pending.reject(createRuntimeResponseError(response));
       return;
     }
 
-    logTrace('Runtime: received success response', response.id);
+    if (isTraceEnabled()) {
+      logTrace('Runtime: received success response', redactRuntimeTraceValue({ method: pending.method, response }));
+    }
     pending.resolve(response.result);
   }
 
@@ -489,8 +598,26 @@ export class RuntimeClient extends EventEmitter {
     logTrace('Runtime: daemon failure', { code, signal, message: error.message });
     this.failPendingRequests(error);
     this.daemon = undefined;
+    this.daemonTraceEnabled = undefined;
     this.initializePromise = undefined;
     this.emit(RUNTIME_EXIT_EVENT, { code, signal } satisfies RuntimeExitEvent);
+  }
+
+  private disposeDaemonAfterTraceModeChange(traceEnabled: boolean): void {
+    const daemon = this.daemon;
+    if (!daemon) {
+      return;
+    }
+    logTrace('Runtime: restarting daemon after trace mode change', { traceEnabled });
+    this.daemon = undefined;
+    this.daemonTraceEnabled = undefined;
+    this.initializePromise = undefined;
+    this.restartPromise = undefined;
+    try {
+      daemon.dispose();
+    } catch (error) {
+      logTrace('Runtime: daemon dispose after trace mode change failed', error instanceof Error ? error.message : String(error));
+    }
   }
 
   private normalizeDaemonError(error: Error): Error {
@@ -547,9 +674,9 @@ export class RuntimeClient extends EventEmitter {
     } catch {}
   }
 
-  private async resolveProcessEnv(): Promise<NodeJS.ProcessEnv | undefined> {
+  private async resolveProcessEnv(traceEnabled: boolean): Promise<NodeJS.ProcessEnv | undefined> {
     if (!this.prepareProcessEnv) {
-      return undefined;
+      return traceEnabled ? { ...process.env, ALV_TRACE: '1' } : undefined;
     }
     if (!this.processEnvPromise) {
       this.processEnvPromise = this.prepareProcessEnv().catch(error => {
@@ -557,7 +684,15 @@ export class RuntimeClient extends EventEmitter {
         return undefined;
       });
     }
-    return this.processEnvPromise;
+    const env = await this.processEnvPromise;
+    if (!traceEnabled) {
+      return env;
+    }
+    return {
+      ...process.env,
+      ...env,
+      ALV_TRACE: '1'
+    };
   }
 }
 

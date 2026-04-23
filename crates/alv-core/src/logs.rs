@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::{
     collections::BTreeMap,
     env,
+    error::Error as StdError,
     fs::{self, File},
     future::Future,
     io::Write,
@@ -32,6 +33,8 @@ const DEFAULT_API_VERSION: &str = "64.0";
 const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const HTTP_CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const TRACE_ENV: &str = "ALV_TRACE";
+const TRACE_BODY_LIMIT: usize = 8192;
 
 static API_VERSION_OVERRIDES: OnceLock<Mutex<BTreeMap<String, String>>> = OnceLock::new();
 static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
@@ -520,6 +523,89 @@ fn http_runtime() -> &'static Runtime {
     })
 }
 
+fn trace_enabled() -> bool {
+    env::var(TRACE_ENV)
+        .ok()
+        .map(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            !normalized.is_empty()
+                && normalized != "0"
+                && normalized != "false"
+                && normalized != "off"
+        })
+        .unwrap_or(false)
+}
+
+fn trace_http(message: &str) {
+    if trace_enabled() {
+        eprintln!("[alv-core trace] {message}");
+    }
+}
+
+fn truncate_for_trace(value: &str) -> String {
+    let mut end = 0;
+    for (index, _) in value.char_indices() {
+        if index > TRACE_BODY_LIMIT {
+            break;
+        }
+        end = index;
+    }
+
+    if value.len() <= TRACE_BODY_LIMIT {
+        return value.to_string();
+    }
+
+    if end == 0 {
+        end = TRACE_BODY_LIMIT.min(value.len());
+    }
+    format!(
+        "{}... [truncated {} bytes]",
+        &value[..end],
+        value.len().saturating_sub(end)
+    )
+}
+
+fn response_body_text(body: &[u8]) -> String {
+    String::from_utf8_lossy(body).trim().to_string()
+}
+
+fn format_status_error(status: StatusCode, url: &str, body: &[u8]) -> String {
+    let body_text = response_body_text(body);
+    if body_text.is_empty() {
+        format!("HTTP {status} from {url}")
+    } else {
+        format!(
+            "HTTP {status} from {url}: {}",
+            truncate_for_trace(&body_text)
+        )
+    }
+}
+
+fn format_request_error(error: &reqwest::Error, url: &str) -> String {
+    let mut message = match error.status() {
+        Some(status) => format!("HTTP request failed with {status} for {url}: {error}"),
+        None => format!("HTTP request failed for {url}: {error}"),
+    };
+
+    let mut sources = Vec::new();
+    let mut source = StdError::source(error);
+    while let Some(error_source) = source {
+        let text = error_source.to_string();
+        if !text.trim().is_empty() {
+            sources.push(text);
+        }
+        source = error_source.source();
+        if sources.len() >= 8 {
+            break;
+        }
+    }
+    if !sources.is_empty() {
+        message.push_str("; caused by: ");
+        message.push_str(&sources.join(" -> "));
+    }
+    message
+}
+
 #[derive(Debug)]
 enum HttpRequestError {
     Cancelled,
@@ -593,8 +679,10 @@ fn run_http_request_with_cancel(
     cancellation: &CancellationToken,
 ) -> Result<Vec<u8>, HttpRequestError> {
     let auth = auth.clone();
+    let request_url = url.to_string();
     run_async_operation_with_cancel(
         async move {
+            trace_http(&format!("HTTP GET {request_url}"));
             let response = http_client()
                 .get(url)
                 .header("Authorization", format!("Bearer {}", auth.access_token))
@@ -606,21 +694,39 @@ fn run_http_request_with_cancel(
                 Ok(response) => {
                     let status = response.status();
                     match response.bytes().await {
-                        Ok(body) if status.is_success() => Ok(body.to_vec()),
-                        Ok(body) => Err(HttpRequestError::Failed {
-                            status: Some(status),
-                            message: String::from_utf8_lossy(&body).trim().to_string(),
-                        }),
-                        Err(error) => Err(HttpRequestError::Failed {
-                            status: Some(status),
-                            message: error.to_string(),
-                        }),
+                        Ok(body) if status.is_success() => {
+                            trace_http(&format!(
+                                "HTTP response {status} {request_url} body_bytes={}",
+                                body.len()
+                            ));
+                            Ok(body.to_vec())
+                        }
+                        Ok(body) => {
+                            let message = format_status_error(status, &request_url, &body);
+                            trace_http(&format!("HTTP response error {message}"));
+                            Err(HttpRequestError::Failed {
+                                status: Some(status),
+                                message,
+                            })
+                        }
+                        Err(error) => {
+                            let message = format!(
+                                "failed to read HTTP response body from {request_url} after {status}: {error}"
+                            );
+                            trace_http(&message);
+                            Err(HttpRequestError::Failed {
+                                status: Some(status),
+                                message,
+                            })
+                        }
                     }
                 }
-                Err(error) => Err(HttpRequestError::Failed {
-                    status: error.status(),
-                    message: error.to_string(),
-                }),
+                Err(error) => {
+                    let status = error.status();
+                    let message = format_request_error(&error, &request_url);
+                    trace_http(&message);
+                    Err(HttpRequestError::Failed { status, message })
+                }
             }
         },
         cancellation,

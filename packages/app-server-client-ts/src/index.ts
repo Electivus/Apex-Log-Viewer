@@ -117,6 +117,7 @@ export type JsonRpcSuccessResponse<TResult> = {
 export type JsonRpcErrorObject = {
   code: number;
   message: string;
+  data?: unknown;
 };
 
 export type JsonRpcErrorResponse = {
