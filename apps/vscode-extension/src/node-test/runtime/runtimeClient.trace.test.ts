@@ -344,4 +344,58 @@ suite('runtime client trace logging', () => {
     assert.equal(seenEnv?.ALV_TRACE, '1');
     assert.equal(seenEnv?.PATH, 'C:\\sf\\bin');
   });
+
+  test('recreates the runtime process when trace logging is enabled after startup', async () => {
+    let traceEnabled = false;
+    let disposeCount = 0;
+    const seenEnvs: Array<NodeJS.ProcessEnv | undefined> = [];
+    const { RuntimeClient } = proxyquireStrict('../../runtime/runtimeClient', {
+      '../../../../src/utils/logger': {
+        isTraceEnabled: () => traceEnabled,
+        logTrace: () => undefined,
+        logWarn: () => undefined,
+        '@noCallThru': true
+      },
+      '../../../../src/salesforce/path': {
+        getLoginShellEnv: async () => ({ PATH: 'C:\\sf\\bin' }),
+        '@noCallThru': true
+      },
+      '../../../../src/utils/config': {
+        getConfig: () => '',
+        '@noCallThru': true
+      },
+      '../shared/telemetry': {
+        safeSendEvent: () => undefined,
+        '@noCallThru': true
+      }
+    }) as typeof import('../../runtime/runtimeClient');
+
+    const client = new RuntimeClient({
+      createProcess: (_executable, env) => {
+        seenEnvs.push(env);
+        const daemon = createFakeDaemon({
+          onWrite() {
+            throw new Error('unexpected runtime write');
+          }
+        });
+        return {
+          ...daemon,
+          dispose() {
+            disposeCount += 1;
+          }
+        };
+      }
+    });
+
+    await client.startRuntime();
+    traceEnabled = true;
+    await client.startRuntime();
+
+    assert.equal(disposeCount, 1);
+    assert.equal(seenEnvs.length, 2);
+    assert.equal(seenEnvs[0]?.ALV_TRACE, undefined);
+    assert.equal(seenEnvs[0]?.PATH, 'C:\\sf\\bin');
+    assert.equal(seenEnvs[1]?.ALV_TRACE, '1');
+    assert.equal(seenEnvs[1]?.PATH, 'C:\\sf\\bin');
+  });
 });

@@ -175,6 +175,7 @@ export class RuntimeClient extends EventEmitter {
   private readonly requestHandler: RuntimeRequestHandler | undefined;
   private readonly schedule: (callback: () => void, delayMs: number) => TimerHandle;
   private processEnvPromise: Promise<NodeJS.ProcessEnv | undefined> | undefined;
+  private daemonTraceEnabled: boolean | undefined;
 
   constructor(options: RuntimeClientOptions = {}) {
     super();
@@ -189,6 +190,15 @@ export class RuntimeClient extends EventEmitter {
   }
 
   async startRuntime(): Promise<DaemonProcess> {
+    const traceEnabled = isTraceEnabled();
+    if (this.daemon) {
+      if (this.daemonTraceEnabled !== traceEnabled && this.pendingRequests.size === 0) {
+        this.disposeDaemonAfterTraceModeChange(traceEnabled);
+      } else {
+        return this.daemon;
+      }
+    }
+
     if (this.daemon) {
       return this.daemon;
     }
@@ -198,7 +208,7 @@ export class RuntimeClient extends EventEmitter {
       configuredPath: getConfiguredRuntimePath(),
       bundledPath
     });
-    const env = await this.resolveProcessEnv();
+    const env = await this.resolveProcessEnv(traceEnabled);
     if (executableResolution.invalidConfiguredPath) {
       logWarn('Runtime: ignoring invalid configured runtime executable', executableResolution.invalidConfiguredPath);
     }
@@ -208,6 +218,7 @@ export class RuntimeClient extends EventEmitter {
     logTrace('Runtime: starting daemon', executableResolution.executable);
     const daemon = this.createProcess(executableResolution.executable, env);
     this.daemon = daemon;
+    this.daemonTraceEnabled = traceEnabled;
     this.attachDaemonStderrLogger(daemon);
     daemon.onMessage(message => {
       this.handleMessage(message);
@@ -446,7 +457,7 @@ export class RuntimeClient extends EventEmitter {
   }
 
   private async requestOnce<TResult>(method: string, params?: unknown, signal?: AbortSignal): Promise<TResult> {
-    const daemon = this.daemon ?? (await this.startRuntime());
+    const daemon = await this.startRuntime();
     const id = `${method}:${++this.nextRequestId}`;
     const request: JsonRpcRequest = {
       jsonrpc: '2.0',
@@ -517,6 +528,7 @@ export class RuntimeClient extends EventEmitter {
     logTrace('Runtime: restarting session', method);
     if (method === 'initialize') {
       this.daemon = undefined;
+      this.daemonTraceEnabled = undefined;
       this.initializePromise = undefined;
       return;
     }
@@ -586,8 +598,26 @@ export class RuntimeClient extends EventEmitter {
     logTrace('Runtime: daemon failure', { code, signal, message: error.message });
     this.failPendingRequests(error);
     this.daemon = undefined;
+    this.daemonTraceEnabled = undefined;
     this.initializePromise = undefined;
     this.emit(RUNTIME_EXIT_EVENT, { code, signal } satisfies RuntimeExitEvent);
+  }
+
+  private disposeDaemonAfterTraceModeChange(traceEnabled: boolean): void {
+    const daemon = this.daemon;
+    if (!daemon) {
+      return;
+    }
+    logTrace('Runtime: restarting daemon after trace mode change', { traceEnabled });
+    this.daemon = undefined;
+    this.daemonTraceEnabled = undefined;
+    this.initializePromise = undefined;
+    this.restartPromise = undefined;
+    try {
+      daemon.dispose();
+    } catch (error) {
+      logTrace('Runtime: daemon dispose after trace mode change failed', error instanceof Error ? error.message : String(error));
+    }
   }
 
   private normalizeDaemonError(error: Error): Error {
@@ -644,9 +674,9 @@ export class RuntimeClient extends EventEmitter {
     } catch {}
   }
 
-  private async resolveProcessEnv(): Promise<NodeJS.ProcessEnv | undefined> {
+  private async resolveProcessEnv(traceEnabled: boolean): Promise<NodeJS.ProcessEnv | undefined> {
     if (!this.prepareProcessEnv) {
-      return isTraceEnabled() ? { ...process.env, ALV_TRACE: '1' } : undefined;
+      return traceEnabled ? { ...process.env, ALV_TRACE: '1' } : undefined;
     }
     if (!this.processEnvPromise) {
       this.processEnvPromise = this.prepareProcessEnv().catch(error => {
@@ -655,7 +685,7 @@ export class RuntimeClient extends EventEmitter {
       });
     }
     const env = await this.processEnvPromise;
-    if (!isTraceEnabled()) {
+    if (!traceEnabled) {
       return env;
     }
     return {
