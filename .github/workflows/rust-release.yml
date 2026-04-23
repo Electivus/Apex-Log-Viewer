@@ -145,7 +145,7 @@ jobs:
         run: node scripts/build-runtime-target.mjs "${{ matrix.target }}" release
 
       - name: Upload runtime binary staging
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: rust-binary-${{ matrix.target }}
           path: apps/vscode-extension/bin/${{ matrix.target }}
@@ -231,14 +231,14 @@ jobs:
             --binary win32-arm64=apps/vscode-extension/bin/win32-arm64/apex-log-viewer.exe
 
       - name: Upload release assets
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: rust-release-assets
           path: dist/release/*
           if-no-files-found: error
 
       - name: Upload npm packages
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: rust-npm-packages
           path: dist/npm/**
