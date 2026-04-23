@@ -316,16 +316,18 @@ pub fn ensure_log_file_cached_with_cancel(
     download_log_to_path_with_cancel(log_id, username, &target_path, cancellation)
 }
 
-pub(crate) fn list_logs_for_auth_with_cancel(
+pub(crate) fn list_logs_for_auth_detailed_with_cancel(
     auth: &OrgAuth,
     params: &LogsListParams,
     cancellation: &CancellationToken,
-) -> Result<Vec<LogRow>, String> {
-    if let Some(fixture) = maybe_fixture_log_list_json(cancellation)? {
-        return list_logs_from_json(&fixture);
+) -> Result<Vec<LogRow>, LogsRuntimeError> {
+    if let Some(fixture) =
+        maybe_fixture_log_list_json(cancellation).map_err(LogsRuntimeError::from_message)?
+    {
+        return list_logs_from_json(&fixture).map_err(LogsRuntimeError::from_message);
     }
-    let json = run_tooling_logs_query_with_cancel(auth, params, cancellation)?;
-    list_logs_from_json(&json)
+    let json = run_tooling_logs_query_with_cancel_detailed(auth, params, cancellation)?;
+    list_logs_from_json(&json).map_err(LogsRuntimeError::from_message)
 }
 
 pub(crate) fn download_log_to_path_for_auth_with_cancel(
@@ -435,15 +437,6 @@ fn build_logs_query(page_size: usize, offset: usize, params: &LogsListParams) ->
             "{base_select} ORDER BY StartTime DESC, Id DESC LIMIT {page_size} OFFSET {offset}"
         ),
     }
-}
-
-fn run_tooling_logs_query_with_cancel(
-    auth: &OrgAuth,
-    params: &LogsListParams,
-    cancellation: &CancellationToken,
-) -> Result<String, String> {
-    run_tooling_logs_query_with_cancel_detailed(auth, params, cancellation)
-        .map_err(|error| error.to_string())
 }
 
 fn run_tooling_logs_query_with_cancel_detailed(
