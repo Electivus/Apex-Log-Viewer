@@ -75,6 +75,16 @@ test('test:scripts covers the runtime release fetch regression suite', () => {
   );
 });
 
+test('test:scripts covers the prerelease version computation regression suite', () => {
+  const rootPackageJson = JSON.parse(readFile('package.json'));
+
+  assert.match(
+    String(rootPackageJson.scripts?.['test:scripts'] || ''),
+    /\bscripts\/compute-prerelease-version\.test\.js\b/,
+    'expected the prerelease version regression test to run in the default script test suite'
+  );
+});
+
 for (const workflowPath of ['.github/workflows/prerelease.yml', '.github/workflows/release.yml']) {
   test(`${workflowPath} fetches pinned CLI release assets instead of building Rust targets during packaging`, () => {
     const workflowSource = readFile(workflowPath);
@@ -108,6 +118,21 @@ for (const workflowPath of ['.github/workflows/prerelease.yml', '.github/workflo
     );
   });
 }
+
+test('prerelease workflow computes the next Marketplace version via the dedicated helper script', () => {
+  const workflowSource = readFile('.github/workflows/prerelease.yml');
+
+  assert.match(
+    workflowSource,
+    /NEW_VERSION=\$\(node scripts\/compute-prerelease-version\.mjs --manifest apps\/vscode-extension\/package\.json\)/,
+    'expected the prerelease workflow to delegate Marketplace version selection to the dedicated helper'
+  );
+  assert.doesNotMatch(
+    workflowSource,
+    /spawnSync\('\.\/node_modules\/\.bin\/vsce'/,
+    'expected the prerelease workflow to stop embedding the vsce Marketplace query inline in YAML'
+  );
+});
 
 test('rust-release workflow bootstrap skips crates.io publishing', () => {
   const workflowSource = readFile('.github/workflows/rust-release.yml');
