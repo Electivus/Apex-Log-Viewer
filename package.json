@@ -148,7 +148,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cross-spawn": "^7.0.6",
-    "lucide-react": "^1.7.0",
+    "lucide-react": "^1.8.0",
     "tailwind-merge": "^3.5.0",
     "tree-sitter-sfapex": "git+https://github.com/manoelcalixto/tree-sitter-sfapex.git#685c57c5461eb247d019b244f2130e198c7cc706",
     "vscode-nls": "^5.2.0"
