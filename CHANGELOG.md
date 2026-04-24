@@ -2,11 +2,23 @@
 
 ## Unreleased
 
+## [0.44.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.42.0...v0.44.0) (2026-04-24)
+
 ### Bug Fixes
 
-- Runtime/Logs: include sanitized runtime request/response payloads and propagate Salesforce HTTP failure status, URL, response body, and transport causes in trace logging so log refresh errors are diagnosable without exposing auth tokens.
-- CLI/Logs: bump the bundled runtime train to `0.1.8` and make `logs sync` print the propagated Salesforce HTTP status, URL, response body, and causes in both text and `--json` error output.
-- Runtime/CLI: trust native OS TLS roots and system proxy settings so CLI and bundled runtime requests succeed in corporate MITM environments on Windows, macOS, and Linux.
+- Runtime/Logs: include sanitized runtime request/response payloads and propagate Salesforce HTTP failure status, URL, response body, and transport causes in trace logging so log refresh errors are diagnosable without exposing auth tokens. ([#751](https://github.com/Electivus/Apex-Log-Viewer/pull/751)) ([#753](https://github.com/Electivus/Apex-Log-Viewer/pull/753))
+- CLI/Logs: bump the bundled runtime train to `0.1.9` and make `logs sync` print the propagated Salesforce HTTP status, URL, response body, and causes in both text and `--json` error output. ([#755](https://github.com/Electivus/Apex-Log-Viewer/pull/755)) ([#757](https://github.com/Electivus/Apex-Log-Viewer/pull/757))
+- Runtime/CLI: trust native OS TLS roots and system proxy settings so CLI and bundled runtime requests succeed in corporate MITM environments on Windows, macOS, and Linux. ([#756](https://github.com/Electivus/Apex-Log-Viewer/pull/756))
+- Tests/Extension: restore VS Code 1.90 extension-host compatibility. ([#743](https://github.com/Electivus/Apex-Log-Viewer/pull/743))
+- CI/Prerelease: compute unique nightly pre-release versions and keep Claude review on the default model. ([#745](https://github.com/Electivus/Apex-Log-Viewer/pull/745)) ([#752](https://github.com/Electivus/Apex-Log-Viewer/pull/752))
+
+### Tests
+
+- E2E/Proxy: add an authenticated proxy lab for runtime and extension networking coverage. ([#754](https://github.com/Electivus/Apex-Log-Viewer/pull/754))
+
+### Chores
+
+- GitHub/Automation: add the Claude Code GitHub workflow. ([#742](https://github.com/Electivus/Apex-Log-Viewer/pull/742))
 
 ## [0.42.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.40.0...v0.42.0) (2026-04-20)
 
