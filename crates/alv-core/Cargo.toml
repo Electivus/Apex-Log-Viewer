@@ -16,7 +16,13 @@ grep = "0.4"
 grep-matcher = "0.1"
 grep-regex = "0.1"
 grep-searcher = "0.1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# Keep native roots and system proxy support enabled so corporate TLS interception
+# works through the OS trust store on Windows, macOS, and Linux.
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls-webpki-roots",
+    "rustls-tls-native-roots",
+    "system-proxy",
+] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.47", features = ["rt-multi-thread", "time"] }
