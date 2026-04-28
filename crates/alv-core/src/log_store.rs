@@ -202,39 +202,19 @@ pub fn find_cached_log_path(
         return None;
     }
 
-    let root = resolve_apexlogs_root(workspace_root);
-
     if let Some(username) = resolved_username.filter(|value| !value.trim().is_empty()) {
         let scoped_root = org_dir(workspace_root, username).join("logs");
         if let Some(found) = find_log_in_logs_dir(&scoped_root, log_id) {
             return Some(found);
         }
 
-        let safe_username = safe_target_org(username);
-        for candidate in [
-            root.join(format!("{safe_username}_{log_id}.log")),
-            root.join(format!("{log_id}.log")),
-        ] {
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-
         return None;
     }
 
+    let root = resolve_apexlogs_root(workspace_root);
     let orgs_root = root.join("orgs");
     if let Some(found) = find_log_in_orgs_root(&orgs_root, log_id) {
         return Some(found);
-    }
-
-    let entries = fs::read_dir(&root).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let file_name = path.file_name()?.to_string_lossy();
-        if file_name == format!("{log_id}.log") || file_name.ends_with(&format!("_{log_id}.log")) {
-            return Some(path);
-        }
     }
 
     None

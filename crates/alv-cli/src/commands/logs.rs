@@ -99,15 +99,7 @@ fn run_status(args: LogStatusArgs) -> Result<i32, String> {
     let safe_target_org = log_store::safe_target_org(&resolved_username);
     let apexlogs_root = log_store::resolve_apexlogs_root(Some(&workspace_root));
     let entry = sync_state.orgs.get(&resolved_username);
-    let legacy_scopes =
-        legacy_scope_candidates(args.target_org.as_deref(), Some(&resolved_username));
-    let legacy_scope_refs = legacy_scopes.iter().map(String::as_str).collect::<Vec<_>>();
-    let log_count = discover_local_log_ids(
-        Some(&workspace_root),
-        Some(&resolved_username),
-        &legacy_scope_refs,
-    )?
-    .len();
+    let log_count = discover_local_log_ids(Some(&workspace_root), Some(&resolved_username))?.len();
 
     let result = StatusResult {
         target_org: resolved_username,
@@ -150,14 +142,7 @@ fn run_search(args: LogSearchArgs) -> Result<i32, String> {
         Some(&workspace_root),
         &sync_state,
     )?;
-    let legacy_scopes =
-        legacy_scope_candidates(args.target_org.as_deref(), resolved_username.as_deref());
-    let legacy_scope_refs = legacy_scopes.iter().map(String::as_str).collect::<Vec<_>>();
-    let log_ids = discover_local_log_ids(
-        Some(&workspace_root),
-        resolved_username.as_deref(),
-        &legacy_scope_refs,
-    )?;
+    let log_ids = discover_local_log_ids(Some(&workspace_root), resolved_username.as_deref())?;
     let result = search_query(&SearchQueryParams {
         query: query.clone(),
         log_ids: log_ids.clone(),
@@ -394,58 +379,24 @@ fn find_org_metadata_by_alias_in_root(
 fn discover_local_log_ids(
     workspace_root: Option<&str>,
     resolved_username: Option<&str>,
-    legacy_scopes: &[&str],
 ) -> Result<Vec<String>, String> {
     let mut ids = BTreeSet::new();
     let apexlogs_root = log_store::resolve_apexlogs_root(workspace_root);
 
     if let Some(target_org) = resolved_username {
-        collect_log_ids_in_tree(
+        collect_log_ids_in_logs_dir(
             &log_store::org_dir(workspace_root, target_org).join("logs"),
             &mut ids,
         )?;
-        let scopes = if legacy_scopes.is_empty() {
-            vec![target_org]
-        } else {
-            legacy_scopes.to_vec()
-        };
-        for scope in scopes {
-            collect_legacy_scoped_log_ids(&apexlogs_root, scope, &mut ids)?;
-        }
     } else {
-        collect_log_ids_in_tree(&apexlogs_root.join("orgs"), &mut ids)?;
-        collect_legacy_flat_log_ids(&apexlogs_root, &mut ids)?;
+        collect_log_ids_in_orgs_root(&apexlogs_root.join("orgs"), &mut ids)?;
     }
 
     Ok(ids.into_iter().collect())
 }
 
-fn legacy_scope_candidates(
-    requested_target_org: Option<&str>,
-    resolved_username: Option<&str>,
-) -> Vec<String> {
-    let mut scopes = Vec::new();
-
-    if let Some(resolved_username) = resolved_username
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        scopes.push(resolved_username.to_string());
-    }
-
-    if let Some(requested_target_org) = requested_target_org
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .filter(|value| !scopes.iter().any(|existing| existing == value))
-    {
-        scopes.push(requested_target_org.to_string());
-    }
-
-    scopes
-}
-
-fn collect_log_ids_in_tree(root: &Path, ids: &mut BTreeSet<String>) -> Result<(), String> {
-    if !root.exists() {
+fn collect_log_ids_in_orgs_root(root: &Path, ids: &mut BTreeSet<String>) -> Result<(), String> {
+    if !root.is_dir() {
         return Ok(());
     }
 
@@ -454,91 +405,81 @@ fn collect_log_ids_in_tree(root: &Path, ids: &mut BTreeSet<String>) -> Result<()
     {
         let entry = entry.map_err(|error| format!("failed to read {}: {error}", root.display()))?;
         let path = entry.path();
-        if path.is_dir() {
-            collect_log_ids_in_tree(&path, ids)?;
+        if !path.is_dir() {
             continue;
         }
 
-        if path.extension().and_then(|value| value.to_str()) != Some("log") {
+        collect_log_ids_in_logs_dir(&path.join("logs"), ids)?;
+    }
+
+    Ok(())
+}
+
+fn collect_log_ids_in_logs_dir(logs_root: &Path, ids: &mut BTreeSet<String>) -> Result<(), String> {
+    if !logs_root.is_dir() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(logs_root)
+        .map_err(|error| format!("failed to read {}: {error}", logs_root.display()))?
+    {
+        let entry =
+            entry.map_err(|error| format!("failed to read {}: {error}", logs_root.display()))?;
+        let day_dir = entry.path();
+        if !day_dir.is_dir()
+            || !is_supported_log_day_dir_name(entry.file_name().to_string_lossy().as_ref())
+        {
             continue;
         }
 
-        if let Some(log_id) = extract_log_id(&path) {
-            ids.insert(log_id);
+        for file_entry in fs::read_dir(&day_dir)
+            .map_err(|error| format!("failed to read {}: {error}", day_dir.display()))?
+        {
+            let file_entry = file_entry
+                .map_err(|error| format!("failed to read {}: {error}", day_dir.display()))?;
+            let path = file_entry.path();
+            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("log") {
+                continue;
+            }
+
+            if let Some(log_id) = extract_log_id(&path) {
+                ids.insert(log_id);
+            }
         }
     }
 
     Ok(())
 }
 
-fn collect_legacy_flat_log_ids(root: &Path, ids: &mut BTreeSet<String>) -> Result<(), String> {
-    if !root.exists() {
-        return Ok(());
-    }
-
-    for entry in
-        fs::read_dir(root).map_err(|error| format!("failed to read {}: {error}", root.display()))?
-    {
-        let entry = entry.map_err(|error| format!("failed to read {}: {error}", root.display()))?;
-        let path = entry.path();
-        if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("log") {
-            continue;
-        }
-
-        if let Some(log_id) = extract_log_id(&path) {
-            ids.insert(log_id);
-        }
-    }
-
-    Ok(())
+fn is_supported_log_day_dir_name(name: &str) -> bool {
+    name == "unknown-date" || is_yyyy_mm_dd(name)
 }
 
-fn collect_legacy_scoped_log_ids(
-    root: &Path,
-    target_org: &str,
-    ids: &mut BTreeSet<String>,
-) -> Result<(), String> {
-    if !root.exists() {
-        return Ok(());
-    }
-
-    let prefix = format!("{}_", log_store::safe_target_org(target_org));
-    for entry in
-        fs::read_dir(root).map_err(|error| format!("failed to read {}: {error}", root.display()))?
-    {
-        let entry = entry.map_err(|error| format!("failed to read {}: {error}", root.display()))?;
-        let path = entry.path();
-        if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("log") {
-            continue;
-        }
-
-        let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
-            continue;
-        };
-        let is_bare = !file_name.contains('_');
-        if !file_name.starts_with(&prefix) && !is_bare {
-            continue;
-        }
-
-        if let Some(log_id) = extract_log_id(&path) {
-            ids.insert(log_id);
-        }
-    }
-
-    Ok(())
+fn is_yyyy_mm_dd(value: &str) -> bool {
+    matches!(
+        value.as_bytes(),
+        [y1, y2, y3, y4, b'-', m1, m2, b'-', d1, d2]
+            if y1.is_ascii_digit()
+                && y2.is_ascii_digit()
+                && y3.is_ascii_digit()
+                && y4.is_ascii_digit()
+                && m1.is_ascii_digit()
+                && m2.is_ascii_digit()
+                && d1.is_ascii_digit()
+                && d2.is_ascii_digit()
+    )
 }
 
 fn extract_log_id(path: &Path) -> Option<String> {
     let stem = path.file_stem()?.to_str()?.trim();
-    if stem.is_empty() {
-        return None;
-    }
-
-    let log_id = stem.rsplit('_').next().unwrap_or(stem).trim();
-    if log_id.is_empty() {
-        None
+    if (15..=18).contains(&stem.len())
+        && stem
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
+    {
+        Some(stem.to_string())
     } else {
-        Some(log_id.to_string())
+        None
     }
 }
 

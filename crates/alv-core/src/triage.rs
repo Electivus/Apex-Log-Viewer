@@ -294,18 +294,12 @@ fn resolve_canonical_username(username: Option<&str>) -> Result<Option<String>, 
 fn find_scoped_cached_log_path(
     workspace_root: Option<&str>,
     log_id: &str,
-    raw_username: Option<&str>,
+    _raw_username: Option<&str>,
     canonical_username: &str,
 ) -> Option<std::path::PathBuf> {
     let scoped_root = log_store::org_dir(workspace_root, canonical_username).join("logs");
     if let Some(found) = find_log_in_tree(&scoped_root, log_id) {
         return Some(found);
-    }
-
-    for candidate in legacy_scoped_paths(workspace_root, log_id, raw_username, canonical_username) {
-        if candidate.is_file() {
-            return Some(candidate);
-        }
     }
 
     None
@@ -324,43 +318,7 @@ fn find_raw_scoped_cached_log_path(
         return Some(found);
     }
 
-    let root = log_store::resolve_apexlogs_root(workspace_root);
-    let raw_safe = log_store::safe_target_org(raw_username);
-    for candidate in [
-        root.join(format!("{raw_safe}_{log_id}.log")),
-        root.join(format!("{log_id}.log")),
-    ] {
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-
     None
-}
-
-fn legacy_scoped_paths(
-    workspace_root: Option<&str>,
-    log_id: &str,
-    raw_username: Option<&str>,
-    canonical_username: &str,
-) -> Vec<std::path::PathBuf> {
-    let root = log_store::resolve_apexlogs_root(workspace_root);
-    let mut candidates = Vec::new();
-    let canonical_safe = log_store::safe_target_org(canonical_username);
-    candidates.push(root.join(format!("{canonical_safe}_{log_id}.log")));
-
-    if let Some(raw_username) = raw_username
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        let raw_safe = log_store::safe_target_org(raw_username);
-        if raw_safe != canonical_safe {
-            candidates.push(root.join(format!("{raw_safe}_{log_id}.log")));
-        }
-    }
-
-    candidates.push(root.join(format!("{log_id}.log")));
-    candidates
 }
 
 fn find_log_in_tree(root: &Path, log_id: &str) -> Option<PathBuf> {
