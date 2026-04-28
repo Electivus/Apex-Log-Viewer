@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
-import { promises as fs } from 'fs';
+import { constants as fsConstants, promises as fs } from 'fs';
 import * as path from 'path';
 import { createLimiter, type Limiter } from '../utils/limiter';
 import { fetchApexLogBody, extractCodeUnitStartedFromLines } from '../salesforce/http';
 import type { ApexLogCursor } from '../salesforce/http';
 import type { OrgAuth } from '../salesforce/types';
 import type { ApexLogRow } from '../../apps/vscode-extension/src/shared/types';
-import { getLogFilePathWithUsername, findExistingLogFile } from '../utils/workspace';
+import { buildLogFilePathWithUsername, getLogFilePathWithUsername, findExistingLogFile } from '../utils/workspace';
 import { ensureReplayDebuggerAvailable } from '../utils/replayDebugger';
 import { getErrorMessage } from '../utils/error';
 import { logWarn, logInfo } from '../utils/logger';
@@ -190,6 +190,7 @@ export class LogService {
         : await getLogFilePathWithUsername(auth.username, logId, startTime);
       const body = await fetchApexLogBody(auth, logId, undefined, signal);
       this.throwIfAborted(signal);
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, body, 'utf8');
       return { filePath, source: 'downloaded' };
     })();
@@ -211,7 +212,7 @@ export class LogService {
       return undefined;
     }
 
-    return (await getLogFilePathWithUsername(username, logId, startTime)).filePath;
+    return buildLogFilePathWithUsername(username, logId, startTime).filePath;
   }
 
   private async fileExists(filePath: string): Promise<boolean> {
@@ -241,9 +242,12 @@ export class LogService {
     this.throwIfAborted(signal);
     try {
       await fs.mkdir(path.dirname(preferredPath), { recursive: true });
-      await fs.copyFile(existingPath, preferredPath);
+      await fs.copyFile(existingPath, preferredPath, fsConstants.COPYFILE_EXCL);
       return { filePath: preferredPath, source: 'existing' };
     } catch (e: any) {
+      if (e && e.code === 'EEXIST' && (await this.fileExists(preferredPath))) {
+        return { filePath: preferredPath, source: 'existing' };
+      }
       if (e && e.code === 'ENOENT') {
         return undefined;
       }

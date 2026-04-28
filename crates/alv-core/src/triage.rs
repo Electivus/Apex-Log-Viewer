@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     fs::{self, File},
-    io::{BufRead, BufReader},
+    io::{copy, BufRead, BufReader},
     path::{Path, PathBuf},
     thread,
     time::Duration,
@@ -192,15 +192,42 @@ fn materialize_existing_at_preferred_path(
         fs::create_dir_all(parent)
             .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
     }
-    match fs::copy(existing_path, preferred_path) {
-        Ok(_) => Ok(Some(preferred_path.to_path_buf())),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(format!(
+    let mut source = match File::open(existing_path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "failed to read cached log {}: {error}",
+                existing_path.display()
+            ))
+        }
+    };
+    let mut destination = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(preferred_path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Ok(Some(preferred_path.to_path_buf()));
+        }
+        Err(error) => {
+            return Err(format!(
+                "failed to create cached log {}: {error}",
+                preferred_path.display()
+            ));
+        }
+    };
+    if let Err(error) = copy(&mut source, &mut destination) {
+        let _ = fs::remove_file(preferred_path);
+        return Err(format!(
             "failed to materialize cached log {} from {}: {error}",
             preferred_path.display(),
             existing_path.display()
-        )),
+        ));
     }
+
+    Ok(Some(preferred_path.to_path_buf()))
 }
 
 fn summarize_file(

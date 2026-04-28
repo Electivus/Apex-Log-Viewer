@@ -2,6 +2,7 @@ import assert from 'assert/strict';
 import proxyquire from 'proxyquire';
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
+import { constants as fsConstants } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { OrgAuth } from '../../../../src/salesforce/types';
@@ -382,6 +383,7 @@ suite('LogService', () => {
         },
         fs: {
           promises: {
+            mkdir: async () => {},
             writeFile: async (target: string) => {
               await new Promise(resolve => setTimeout(resolve, 1));
               storedPath = target;
@@ -422,10 +424,12 @@ suite('LogService', () => {
         findExistingLogFile: async (logId: string) => (logId === '1' ? '/tmp/1.log' : undefined)
       },
       fs: {
+        constants: fsConstants,
         promises: {
           access: async (): Promise<never> => {
             throw Object.assign(new Error('missing'), { code: 'ENOENT' });
           },
+          mkdir: async () => {},
           writeFile: async () => {}
         }
       }
@@ -467,7 +471,7 @@ suite('LogService', () => {
       },
       ...createRuntimeClientStub({ username: 'u', accessToken: 't', instanceUrl: 'url' }),
       '../utils/workspace': {
-        getLogFilePathWithUsername: async (
+        buildLogFilePathWithUsername: (
           username: string | undefined,
           logId: string,
           startTime?: string
@@ -475,10 +479,17 @@ suite('LogService', () => {
           pathCalls.push({ username, logId, startTime });
           return { dir: '/tmp', filePath: `/tmp/${logId}.log` };
         },
+        getLogFilePathWithUsername: async () => {
+          throw new Error('dated path computation should not create directories early');
+        },
         findExistingLogFile: async () => undefined
       },
       fs: {
         promises: {
+          access: async (): Promise<never> => {
+            throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+          },
+          mkdir: async () => {},
           writeFile: async () => {}
         }
       }
@@ -521,7 +532,7 @@ suite('LogService', () => {
       },
       ...createRuntimeClientStub({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' }),
       '../utils/workspace': {
-        getLogFilePathWithUsername: async (
+        buildLogFilePathWithUsername: (
           username: string | undefined,
           id: string,
           startTime?: string
@@ -531,10 +542,14 @@ suite('LogService', () => {
           assert.equal(startTime, '2026-03-30T18:39:58.000Z');
           return { dir: path.dirname(datedPath), filePath: datedPath };
         },
+        getLogFilePathWithUsername: async () => {
+          throw new Error('dated path computation should not create directories early');
+        },
         findExistingLogFile: async (id: string, username?: string) =>
           id === logId && username === 'user@example.com' ? existingPath : undefined
       },
       fs: {
+        constants: fsConstants,
         promises: {
           access: async (target: string): Promise<void> => {
             if (target === datedPath) {
@@ -542,7 +557,8 @@ suite('LogService', () => {
             }
           },
           mkdir: async () => {},
-          copyFile: async (from: string, to: string) => {
+          copyFile: async (from: string, to: string, mode?: number) => {
+            assert.equal(mode, fsConstants.COPYFILE_EXCL);
             copies.push({ from, to });
           },
           writeFile: async () => {
@@ -561,6 +577,68 @@ suite('LogService', () => {
     assert.deepEqual(copies, [{ from: existingPath, to: datedPath }]);
     assert.equal(fetchCalls, 0, 'should not download when an older cached body exists');
     assert.equal(writeCalls, 0, 'should not rewrite the body after copying the cache hit');
+    assert.equal(summary.success, 1);
+    assert.equal(summary.existing, 1);
+    assert.equal(summary.downloaded, 0);
+  });
+
+  test('ensureLogsSaved does not overwrite a dated cache created during materialization', async () => {
+    const logId = '07L0000000000DT2';
+    const existingPath = '/tmp/apexlogs/orgs/user@example.com/logs/unknown-date/07L0000000000DT2.log';
+    const datedPath = '/tmp/apexlogs/orgs/user@example.com/logs/2026-03-30/07L0000000000DT2.log';
+    let accessCalls = 0;
+    let copyCalls = 0;
+
+    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async () => {
+          throw new Error('should not download when a cache hit exists');
+        }
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' })
+      },
+      ...createRuntimeClientStub({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' }),
+      '../utils/workspace': {
+        buildLogFilePathWithUsername: () => ({ dir: path.dirname(datedPath), filePath: datedPath }),
+        getLogFilePathWithUsername: async () => {
+          throw new Error('dated path computation should not create directories early');
+        },
+        findExistingLogFile: async () => existingPath
+      },
+      fs: {
+        constants: fsConstants,
+        promises: {
+          access: async (target: string): Promise<void> => {
+            assert.equal(target, datedPath);
+            accessCalls++;
+            if (accessCalls === 1) {
+              throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+            }
+          },
+          mkdir: async () => {},
+          copyFile: async (_from: string, _to: string, mode?: number) => {
+            copyCalls++;
+            assert.equal(mode, fsConstants.COPYFILE_EXCL);
+            throw Object.assign(new Error('exists'), { code: 'EEXIST' });
+          },
+          writeFile: async () => {
+            throw new Error('should not rewrite the dated cache');
+          }
+        }
+      }
+    });
+
+    const svc = new LogService(1);
+    const summary = await svc.ensureLogsSaved(
+      [{ Id: logId, StartTime: '2026-03-30T18:39:58.000Z' } as ApexLogRow],
+      'default'
+    );
+
+    assert.equal(copyCalls, 1);
+    assert.equal(accessCalls, 2, 'should re-check the dated path after EEXIST');
     assert.equal(summary.success, 1);
     assert.equal(summary.existing, 1);
     assert.equal(summary.downloaded, 0);
@@ -635,6 +713,7 @@ suite('LogService', () => {
       },
       fs: {
         promises: {
+          mkdir: async () => {},
           writeFile: async (target: string) => {
             writeTargets.push(target);
           }

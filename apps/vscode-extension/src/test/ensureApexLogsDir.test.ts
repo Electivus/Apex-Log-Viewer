@@ -9,6 +9,56 @@ function delay(ms: number): Promise<void> {
 }
 
 suite('ensureApexLogsDir', () => {
+  test('buildLogFilePathWithUsername computes paths without creating directories', () => {
+    const workspaceRoot = path.join('/tmp', 'alv-workspace');
+
+    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict('../../../../src/utils/workspace', {
+      './logger': {
+        logInfo: () => undefined,
+        logWarn: () => undefined
+      },
+      vscode: {
+        workspace: {
+          workspaceFolders: [{ uri: { fsPath: workspaceRoot } }]
+        },
+        Range: class {
+          constructor(
+            public readonly startLine: number,
+            public readonly startCharacter: number,
+            public readonly endLine: number,
+            public readonly endCharacter: number
+          ) {}
+        }
+      },
+      fs: {
+        promises: {
+          mkdir: async (): Promise<never> => {
+            throw new Error('pure path builder should not create directories');
+          }
+        }
+      }
+    });
+
+    const result = workspaceModule.buildLogFilePathWithUsername(
+      'User Name@example.com',
+      '07L000000000001AA',
+      '2026-03-30T18:39:58.000Z'
+    );
+
+    assert.deepEqual(result, {
+      dir: path.join(workspaceRoot, 'apexlogs', 'orgs', 'User_Name@example.com', 'logs', '2026-03-30'),
+      filePath: path.join(
+        workspaceRoot,
+        'apexlogs',
+        'orgs',
+        'User_Name@example.com',
+        'logs',
+        '2026-03-30',
+        '07L000000000001AA.log'
+      )
+    });
+  });
+
   test('getLogFilePathWithUsername builds org-first dated paths', async () => {
     const workspaceRoot = path.join('/tmp', 'alv-workspace');
     const apexlogsDir = path.join(workspaceRoot, 'apexlogs');

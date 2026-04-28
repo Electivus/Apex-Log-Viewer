@@ -117,18 +117,31 @@ export async function ensureApexLogsDir(): Promise<string> {
 }
 
 /**
- * Build an org-first log file path under `apexlogs`.
+ * Build an org-first log file path under `apexlogs` without touching the filesystem.
+ */
+export function buildLogFilePathWithUsername(
+  username: string | undefined,
+  logId: string,
+  startTime?: string
+): { dir: string; filePath: string } {
+  const rootDir = getApexLogsDir();
+  const safeUser = toSafeLogUserName(username);
+  const dir = path.join(rootDir, 'orgs', safeUser, 'logs', toLogDayDirName(startTime));
+  const filePath = path.join(dir, `${logId}.log`);
+  return { dir, filePath };
+}
+
+/**
+ * Build an org-first log file path under `apexlogs` and ensure its directories exist.
  */
 export async function getLogFilePathWithUsername(
   username: string | undefined,
   logId: string,
   startTime?: string
 ): Promise<{ dir: string; filePath: string }> {
-  const rootDir = await ensureApexLogsDir();
-  const safeUser = toSafeLogUserName(username);
-  const dir = path.join(rootDir, 'orgs', safeUser, 'logs', toLogDayDirName(startTime));
+  await ensureApexLogsDir();
+  const { dir, filePath } = buildLogFilePathWithUsername(username, logId, startTime);
   await fs.mkdir(dir, { recursive: true });
-  const filePath = path.join(dir, `${logId}.log`);
   return { dir, filePath };
 }
 
