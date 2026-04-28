@@ -1259,6 +1259,69 @@ fn logs_runtime_smoke_triage_uses_raw_alias_org_first_cache_without_auth() {
 }
 
 #[test]
+fn logs_runtime_smoke_triage_materializes_raw_alias_cache_to_raw_alias_date() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("triage-alias-offline-dated");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    let alias_org_dir = apexlogs_dir
+        .join("orgs")
+        .join("Alias_Org")
+        .join("logs")
+        .join("unknown-date");
+    fs::create_dir_all(&alias_org_dir).expect("alias org log dir should exist");
+    let log_id = "07L0000000000ALD";
+    fs::write(
+        alias_org_dir.join(format!("{log_id}.log")),
+        "\
+09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|AliasDated.handle\n\
+09:00:01.0|EXCEPTION_THROWN|System.NullPointerException: boom\n",
+    )
+    .expect("alias-scoped log should be writable");
+
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![log_id.to_string()],
+        log_start_times: std::collections::BTreeMap::from([(
+            log_id.to_string(),
+            "2026-03-30T18:39:58.000Z".to_string(),
+        )]),
+        username: Some("Alias Org".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("logs/triage should reuse the raw alias org-first cache when auth is unavailable");
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].code_unit_started.as_deref(),
+        Some("AliasDated.handle")
+    );
+    assert!(
+        workspace_root
+            .join("apexlogs")
+            .join("orgs")
+            .join("Alias_Org")
+            .join("logs")
+            .join("2026-03-30")
+            .join(format!("{log_id}.log"))
+            .is_file(),
+        "triage should materialize the dated cache under the raw alias org"
+    );
+    assert!(
+        !workspace_root
+            .join("apexlogs")
+            .join("orgs")
+            .join("default")
+            .join("logs")
+            .join("2026-03-30")
+            .join(format!("{log_id}.log"))
+            .exists(),
+        "triage should not materialize alias caches under default"
+    );
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
 fn logs_runtime_smoke_triage_respects_cancellation_mid_file() {
     let _guard = lock_test_guard();
 

@@ -98,7 +98,13 @@ fn triage_log_item(
     canonical_username: Option<&str>,
     cancellation: &CancellationToken,
 ) -> Result<LogTriageItem, String> {
-    let resolved_username = canonical_username.unwrap_or("default");
+    let fallback_username = params
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("default");
+    let resolved_username = canonical_username.unwrap_or(fallback_username);
     let preferred_path = params.log_start_times.get(log_id).map(|start_time| {
         log_store::log_file_path_for_start_time(
             params.workspace_root.as_deref(),
