@@ -685,6 +685,66 @@ suite('LogService', () => {
     assert.ok(statuses.includes('existing'));
   });
 
+  test('ensureLogsSaved reuses existing local cache when auth is unavailable', async () => {
+    const logId = '07L0000000000CA1';
+    const cachedPath = '/tmp/apexlogs/orgs/user@example.com/logs/2026-03-30/07L0000000000CA1.log';
+    const lookupCalls: Array<{ logId: string; username?: string }> = [];
+    let authCalls = 0;
+    let fetchCalls = 0;
+    let writeCalls = 0;
+
+    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async () => {
+          fetchCalls++;
+          return 'body';
+        }
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => {
+          throw new Error('should use runtime auth');
+        }
+      },
+      '../../apps/vscode-extension/src/runtime/runtimeClient': {
+        runtimeClient: {
+          getOrgAuth: async () => {
+            authCalls++;
+            throw new Error('auth unavailable');
+          }
+        }
+      },
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async () => ({ dir: '/tmp', filePath: '/tmp/should-not-write.log' }),
+        findExistingLogFile: async (id: string, username?: string) => {
+          lookupCalls.push({ logId: id, username });
+          return id === logId && username === 'user@example.com' ? cachedPath : undefined;
+        }
+      },
+      fs: {
+        promises: {
+          mkdir: async () => {},
+          writeFile: async () => {
+            writeCalls++;
+          }
+        }
+      }
+    });
+
+    const svc = new LogService(1);
+    const summary = await svc.ensureLogsSaved([{ Id: logId } as ApexLogRow], 'user@example.com');
+
+    assert.deepEqual(lookupCalls, [{ logId, username: 'user@example.com' }]);
+    assert.equal(authCalls, 0, 'should check the selected org cache before resolving auth');
+    assert.equal(fetchCalls, 0, 'should not download when a local cache exists');
+    assert.equal(writeCalls, 0, 'should not write when a local cache exists');
+    assert.equal(summary.success, 1);
+    assert.equal(summary.existing, 1);
+    assert.equal(summary.downloaded, 0);
+    assert.equal(summary.failed, 0);
+  });
+
   test('ensureLogsSaved reuses authHint without calling CLI auth again', async () => {
     let authCalls = 0;
     const writeTargets: string[] = [];

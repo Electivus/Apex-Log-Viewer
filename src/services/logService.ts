@@ -150,21 +150,32 @@ export class LogService {
     selectedOrg?: string,
     signal?: AbortSignal,
     authHint?: OrgAuth,
-    startTime?: string
+    startTime?: string,
+    options?: { checkCacheBeforeAuth?: boolean }
   ): Promise<EnsureLogFileResult> {
-    const auth = authHint ?? (await this.getOrgAuth(selectedOrg, signal));
-    const preferredPath = await this.resolvePreferredLogPath(auth.username, logId, startTime);
-    if (preferredPath && (await this.fileExists(preferredPath))) {
-      return { filePath: preferredPath, source: 'existing' };
+    const preAuthUsername =
+      authHint?.username ?? (selectedOrg && selectedOrg !== 'default' ? selectedOrg : undefined);
+    if (options?.checkCacheBeforeAuth && preAuthUsername) {
+      const preAuthExisting = await findExistingLogFile(logId, preAuthUsername);
+      if (preAuthExisting) {
+        return { filePath: preAuthExisting, source: 'existing' };
+      }
     }
 
-    const existing = await findExistingLogFile(logId, auth.username);
-    if (existing) {
-      const materialized = await this.materializeExistingAtPreferredPath(existing, preferredPath, signal);
-      if (materialized) {
-        return materialized;
+    let auth: OrgAuth;
+    try {
+      auth = authHint ?? (await this.getOrgAuth(selectedOrg, signal));
+    } catch (error) {
+      const cachedWithoutAuth = await this.resolveCachedLogResult(logId, undefined, undefined, signal);
+      if (cachedWithoutAuth) {
+        return cachedWithoutAuth;
       }
-      return { filePath: existing, source: 'existing' };
+      throw error;
+    }
+    const preferredPath = await this.resolvePreferredLogPath(auth.username, logId, startTime);
+    const cached = await this.resolveCachedLogResult(logId, auth.username, preferredPath, signal);
+    if (cached) {
+      return cached;
     }
 
     const key = `${auth.username ?? ''}:${logId}:${preferredPath ?? ''}`;
@@ -177,13 +188,9 @@ export class LogService {
         return { filePath: preferredPath, source: 'existing' };
       }
 
-      const maybeExisting = await findExistingLogFile(logId, auth.username);
-      if (maybeExisting) {
-        const materialized = await this.materializeExistingAtPreferredPath(maybeExisting, preferredPath, signal);
-        if (materialized) {
-          return materialized;
-        }
-        return { filePath: maybeExisting, source: 'existing' };
+      const maybeCached = await this.resolveCachedLogResult(logId, auth.username, preferredPath, signal);
+      if (maybeCached) {
+        return maybeCached;
       }
       const { filePath } = preferredPath
         ? { filePath: preferredPath }
@@ -201,6 +208,28 @@ export class LogService {
     } finally {
       this.inFlightSaves.delete(key);
     }
+  }
+
+  private async resolveCachedLogResult(
+    logId: string,
+    username: string | undefined,
+    preferredPath: string | undefined,
+    signal?: AbortSignal
+  ): Promise<EnsureLogFileResult | undefined> {
+    if (preferredPath && (await this.fileExists(preferredPath))) {
+      return { filePath: preferredPath, source: 'existing' };
+    }
+
+    const existing = await findExistingLogFile(logId, username);
+    if (!existing) {
+      return undefined;
+    }
+
+    const materialized = await this.materializeExistingAtPreferredPath(existing, preferredPath, signal);
+    if (materialized) {
+      return materialized;
+    }
+    return { filePath: existing, source: 'existing' };
   }
 
   private async resolvePreferredLogPath(
@@ -446,7 +475,9 @@ export class LogService {
     const downloadMissing = options?.downloadMissing !== false;
     const authHint = options?.authHint;
     const validLogs = logs.filter((log): log is ApexLogRow & { Id: string } => typeof log?.Id === 'string' && log.Id.length > 0);
-    const selectedUsername = await this.resolveSelectedUsername(selectedOrg, signal, authHint);
+    const selectedUsername = downloadMissing
+      ? authHint?.username
+      : await this.resolveSelectedUsername(selectedOrg, signal, authHint);
     const summary: EnsureLogsSavedSummary = {
       total: validLogs.length,
       success: 0,
@@ -468,7 +499,9 @@ export class LogService {
           }
           try {
             if (downloadMissing) {
-              const result = await this.ensureLogFileResult(log.Id, selectedOrg, signal, authHint, log.StartTime);
+              const result = await this.ensureLogFileResult(log.Id, selectedOrg, signal, authHint, log.StartTime, {
+                checkCacheBeforeAuth: true
+              });
               if (signal?.aborted) {
                 summary.cancelled++;
                 options?.onItemComplete?.({ logId: log.Id, status: 'cancelled' });
