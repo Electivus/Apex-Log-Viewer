@@ -539,48 +539,6 @@ fn cli_smoke_logs_search_json_stays_local_first() {
 }
 
 #[test]
-fn cli_smoke_logs_search_json_keeps_alias_scoped_legacy_logs() {
-    let _guard = lock_test_guard();
-
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock should be after unix epoch")
-        .as_nanos();
-    let workspace_root = std::env::temp_dir().join(format!("alv-cli-search-legacy-alias-{unique}"));
-    let apexlogs_root = workspace_root.join("apexlogs");
-    fs::create_dir_all(&apexlogs_root).expect("apexlogs dir should exist");
-    fs::write(
-        apexlogs_root.join("ALV_ALIAS_07L000000000005AA.log"),
-        "09:00:00.0|FATAL_ERROR|System.NullPointerException\n",
-    )
-    .expect("legacy alias-scoped log should be writable");
-
-    let output = apex_log_viewer_command()
-        .current_dir(&workspace_root)
-        .env(
-            "ALV_TEST_SF_ORG_DISPLAY_JSON",
-            r#"{"result":{"username":"default@example.com","accessToken":"token","instanceUrl":"https://default.example.com"}}"#,
-        )
-        .args([
-            "logs",
-            "search",
-            "NullPointerException",
-            "--json",
-            "--target-org",
-            "ALV_ALIAS",
-        ])
-        .output()
-        .expect("search should execute");
-
-    assert!(output.status.success(), "search should exit successfully");
-    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
-    assert_eq!(json["target_org"], "default@example.com");
-    assert_eq!(json["matches"][0]["log_id"], "07L000000000005AA");
-
-    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
-}
-
-#[test]
 fn cli_smoke_logs_search_json_resolves_alias_without_local_metadata() {
     let _guard = lock_test_guard();
 
@@ -675,7 +633,7 @@ fn cli_smoke_logs_search_json_uses_local_alias_resolution_without_auth() {
 }
 
 #[test]
-fn cli_smoke_logs_search_json_falls_back_to_alias_cache_without_auth_or_metadata() {
+fn cli_smoke_logs_search_json_uses_alias_org_first_cache_without_auth_or_metadata() {
     let _guard = lock_test_guard();
 
     let unique = SystemTime::now()
@@ -684,13 +642,18 @@ fn cli_smoke_logs_search_json_falls_back_to_alias_cache_without_auth_or_metadata
         .as_nanos();
     let workspace_root =
         std::env::temp_dir().join(format!("alv-cli-search-alias-offline-{unique}"));
-    let apexlogs_root = workspace_root.join("apexlogs");
-    fs::create_dir_all(&apexlogs_root).expect("apexlogs dir should exist");
+    let log_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("ALV_ALIAS")
+        .join("logs")
+        .join("2026-03-30");
+    fs::create_dir_all(&log_dir).expect("log dir should exist");
     fs::write(
-        apexlogs_root.join("ALV_ALIAS_07L000000000007AA.log"),
+        log_dir.join("07L000000000007AA.log"),
         "09:00:00.0|FATAL_ERROR|AliasOfflineNeedle\n",
     )
-    .expect("legacy alias-scoped log should be writable");
+    .expect("alias-scoped log should be writable");
 
     let output = apex_log_viewer_command()
         .current_dir(&workspace_root)

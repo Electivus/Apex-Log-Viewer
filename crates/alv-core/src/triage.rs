@@ -4,8 +4,10 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::File,
-    io::{BufRead, BufReader},
+    collections::BTreeMap,
+    fs::{self, File},
+    io::{copy, BufRead, BufReader},
+    path::{Path, PathBuf},
     thread,
     time::Duration,
 };
@@ -17,6 +19,8 @@ const TEST_TRIAGE_LINE_DELAY_MS_ENV: &str = "ALV_TEST_TRIAGE_LINE_DELAY_MS";
 pub struct LogsTriageParams {
     #[serde(alias = "log_ids")]
     pub log_ids: Vec<String>,
+    #[serde(default, rename = "logStartTimes", alias = "log_start_times")]
+    pub log_start_times: BTreeMap<String, String>,
     pub username: Option<String>,
     #[serde(alias = "workspace_root")]
     pub workspace_root: Option<String>,
@@ -94,6 +98,31 @@ fn triage_log_item(
     canonical_username: Option<&str>,
     cancellation: &CancellationToken,
 ) -> Result<LogTriageItem, String> {
+    let fallback_username = params
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("default");
+    let resolved_username = canonical_username.unwrap_or(fallback_username);
+    let preferred_path = params.log_start_times.get(log_id).map(|start_time| {
+        log_store::log_file_path_for_start_time(
+            params.workspace_root.as_deref(),
+            resolved_username,
+            start_time,
+            log_id,
+        )
+    });
+
+    if let Some(path) = preferred_path.as_ref().filter(|path| path.is_file()) {
+        let (code_unit_started, summary) = summarize_file(path, cancellation)?;
+        return Ok(LogTriageItem {
+            log_id: log_id.to_string(),
+            code_unit_started,
+            summary,
+        });
+    }
+
     let existing_path = match canonical_username {
         Some(username) => find_scoped_cached_log_path(
             params.workspace_root.as_deref(),
@@ -120,14 +149,20 @@ fn triage_log_item(
     };
 
     let path = match existing_path {
-        Some(existing) => existing,
+        Some(existing) => materialize_existing_at_preferred_path(
+            &existing,
+            preferred_path.as_deref(),
+            cancellation,
+        )?
+        .unwrap_or(existing),
         None => {
-            let resolved_username = canonical_username.unwrap_or("default");
-            let target_path = log_store::unknown_date_log_path(
-                params.workspace_root.as_deref(),
-                resolved_username,
-                log_id,
-            );
+            let target_path = preferred_path.unwrap_or_else(|| {
+                log_store::unknown_date_log_path(
+                    params.workspace_root.as_deref(),
+                    resolved_username,
+                    log_id,
+                )
+            });
             download_log_to_path_with_cancel(
                 log_id,
                 params.username.as_deref(),
@@ -146,8 +181,63 @@ fn triage_log_item(
     })
 }
 
+fn materialize_existing_at_preferred_path(
+    existing_path: &Path,
+    preferred_path: Option<&Path>,
+    cancellation: &CancellationToken,
+) -> Result<Option<PathBuf>, String> {
+    let Some(preferred_path) = preferred_path else {
+        return Ok(None);
+    };
+    if existing_path == preferred_path {
+        return Ok(Some(preferred_path.to_path_buf()));
+    }
+
+    cancellation.check_cancelled()?;
+    if let Some(parent) = preferred_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+    }
+    let mut source = match File::open(existing_path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "failed to read cached log {}: {error}",
+                existing_path.display()
+            ))
+        }
+    };
+    let mut destination = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(preferred_path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Ok(Some(preferred_path.to_path_buf()));
+        }
+        Err(error) => {
+            return Err(format!(
+                "failed to create cached log {}: {error}",
+                preferred_path.display()
+            ));
+        }
+    };
+    if let Err(error) = copy(&mut source, &mut destination) {
+        let _ = fs::remove_file(preferred_path);
+        return Err(format!(
+            "failed to materialize cached log {} from {}: {error}",
+            preferred_path.display(),
+            existing_path.display()
+        ));
+    }
+
+    Ok(Some(preferred_path.to_path_buf()))
+}
+
 fn summarize_file(
-    path: &std::path::Path,
+    path: &Path,
     cancellation: &CancellationToken,
 ) -> Result<(Option<String>, LogTriageSummary), String> {
     let file = File::open(path)
@@ -210,18 +300,12 @@ fn resolve_canonical_username(username: Option<&str>) -> Result<Option<String>, 
 fn find_scoped_cached_log_path(
     workspace_root: Option<&str>,
     log_id: &str,
-    raw_username: Option<&str>,
+    _raw_username: Option<&str>,
     canonical_username: &str,
 ) -> Option<std::path::PathBuf> {
     let scoped_root = log_store::org_dir(workspace_root, canonical_username).join("logs");
     if let Some(found) = find_log_in_tree(&scoped_root, log_id) {
         return Some(found);
-    }
-
-    for candidate in legacy_scoped_paths(workspace_root, log_id, raw_username, canonical_username) {
-        if candidate.is_file() {
-            return Some(candidate);
-        }
     }
 
     None
@@ -240,64 +324,27 @@ fn find_raw_scoped_cached_log_path(
         return Some(found);
     }
 
-    let root = log_store::resolve_apexlogs_root(workspace_root);
-    let raw_safe = log_store::safe_target_org(raw_username);
-    for candidate in [
-        root.join(format!("{raw_safe}_{log_id}.log")),
-        root.join(format!("{log_id}.log")),
-    ] {
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-
     None
 }
 
-fn legacy_scoped_paths(
-    workspace_root: Option<&str>,
-    log_id: &str,
-    raw_username: Option<&str>,
-    canonical_username: &str,
-) -> Vec<std::path::PathBuf> {
-    let root = log_store::resolve_apexlogs_root(workspace_root);
-    let mut candidates = Vec::new();
-    let canonical_safe = log_store::safe_target_org(canonical_username);
-    candidates.push(root.join(format!("{canonical_safe}_{log_id}.log")));
-
-    if let Some(raw_username) = raw_username
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        let raw_safe = log_store::safe_target_org(raw_username);
-        if raw_safe != canonical_safe {
-            candidates.push(root.join(format!("{raw_safe}_{log_id}.log")));
-        }
-    }
-
-    candidates.push(root.join(format!("{log_id}.log")));
-    candidates
-}
-
-fn find_log_in_tree(root: &std::path::Path, log_id: &str) -> Option<std::path::PathBuf> {
-    if !root.exists() {
+fn find_log_in_tree(root: &Path, log_id: &str) -> Option<PathBuf> {
+    if !root.is_dir() {
         return None;
     }
 
     for entry in std::fs::read_dir(root).ok()?.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if let Some(found) = find_log_in_tree(&path, log_id) {
-                return Some(found);
-            }
+        let day_dir = entry.path();
+        if !day_dir.is_dir()
+            || !log_store::is_supported_log_day_dir_name(
+                entry.file_name().to_string_lossy().as_ref(),
+            )
+        {
             continue;
         }
 
-        if path
-            .file_name()
-            .is_some_and(|file_name| file_name.to_string_lossy() == format!("{log_id}.log"))
-        {
-            return Some(path);
+        let candidate = day_dir.join(format!("{log_id}.log"));
+        if candidate.is_file() {
+            return Some(candidate);
         }
     }
 

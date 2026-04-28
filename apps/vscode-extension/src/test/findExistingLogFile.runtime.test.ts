@@ -55,8 +55,66 @@ suite('findExistingLogFile runtime lookup', () => {
     ]);
   });
 
-  test('falls back to local lookup when the runtime request fails', async () => {
-    const localPath = path.join('/tmp/alv-workspace', 'apexlogs', 'demo_07L000000000002AA.log');
+  test('falls back to org-first local lookup when the runtime request fails', async () => {
+    const localPath = path.join(
+      '/tmp/alv-workspace',
+      'apexlogs',
+      'orgs',
+      'demo',
+      'logs',
+      '2026-03-30',
+      '07L000000000002AA.log'
+    );
+    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict(
+      '../../../../src/utils/workspace',
+      {
+        vscode: {
+          workspace: {
+            workspaceFolders: [{ uri: { fsPath: '/tmp/alv-workspace' } }]
+          }
+        },
+        '../../apps/vscode-extension/src/runtime/runtimeClient': {
+          runtimeClient: {
+            resolveCachedLogPath: async () => {
+              throw new Error('daemon unavailable');
+            }
+          }
+        },
+        fs: {
+          promises: {
+            readdir: async (target: string, options?: { withFileTypes?: boolean }) => {
+              if (target.endsWith(path.join('orgs', 'demo', 'logs'))) {
+                return [directoryEntry('2026-03-30')];
+              }
+              if (target.endsWith(path.join('orgs', 'demo', 'logs', '2026-03-30'))) {
+                return [];
+              }
+              if (options?.withFileTypes) {
+                return [];
+              }
+              return [];
+            },
+            stat: async (target: string) => {
+              if (target === localPath) {
+                return { isFile: () => true };
+              }
+              throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+            }
+          }
+        },
+        './logger': {
+          logInfo: () => undefined,
+          logWarn: () => undefined
+        }
+      }
+    );
+
+    const result = await workspaceModule.findExistingLogFile('07L000000000002AA', 'demo');
+
+    assert.equal(result, localPath);
+  });
+
+  test('ignores flat files when the runtime request fails', async () => {
     const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict(
       '../../../../src/utils/workspace',
       {
@@ -94,7 +152,7 @@ suite('findExistingLogFile runtime lookup', () => {
 
     const result = await workspaceModule.findExistingLogFile('07L000000000002AA', 'demo');
 
-    assert.equal(result, localPath);
+    assert.equal(result, undefined);
   });
 
   test('ignores unsupported local log subdirectories when the runtime request fails', async () => {

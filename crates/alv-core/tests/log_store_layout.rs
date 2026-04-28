@@ -50,7 +50,35 @@ fn log_store_places_logs_under_org_and_day_directory() {
 }
 
 #[test]
-fn log_store_finds_new_layout_before_legacy_flat_files() {
+fn log_store_uses_unknown_date_for_invalid_start_time_values() {
+    let workspace_root = make_temp_workspace("invalid-day");
+    let file_path = log_file_path_for_start_time(
+        Some(
+            workspace_root
+                .to_str()
+                .expect("workspace path should be utf8"),
+        ),
+        "default@example.com",
+        "undefined-date",
+        "07L000000000003AA",
+    );
+
+    assert_eq!(
+        file_path,
+        workspace_root
+            .join("apexlogs")
+            .join("orgs")
+            .join("default@example.com")
+            .join("logs")
+            .join("unknown-date")
+            .join("07L000000000003AA.log")
+    );
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn log_store_uses_org_first_layout_when_flat_files_also_exist() {
     let workspace_root = make_temp_workspace("find-cache");
     let safe_org = safe_target_org("default@example.com");
     let new_path = workspace_root
@@ -64,10 +92,10 @@ fn log_store_finds_new_layout_before_legacy_flat_files() {
         .expect("new layout dir should be creatable");
     fs::write(&new_path, "new-layout").expect("new layout log should be writable");
 
-    let legacy_path = workspace_root
+    let flat_path = workspace_root
         .join("apexlogs")
         .join("default_07L000000000001AA.log");
-    fs::write(&legacy_path, "legacy-layout").expect("legacy log should be writable");
+    fs::write(&flat_path, "flat-layout").expect("flat log should be writable");
 
     let found = find_cached_log_path(
         Some(
@@ -85,14 +113,13 @@ fn log_store_finds_new_layout_before_legacy_flat_files() {
 }
 
 #[test]
-fn log_store_falls_back_to_legacy_flat_files_when_new_layout_is_absent() {
-    let workspace_root = make_temp_workspace("legacy-only");
-    fs::create_dir_all(workspace_root.join("apexlogs"))
-        .expect("legacy cache dir should be creatable");
-    let legacy_path = workspace_root
+fn log_store_ignores_flat_files_when_org_first_layout_is_absent() {
+    let workspace_root = make_temp_workspace("flat-only");
+    fs::create_dir_all(workspace_root.join("apexlogs")).expect("cache dir should be creatable");
+    let flat_path = workspace_root
         .join("apexlogs")
         .join("default_07L000000000002AA.log");
-    fs::write(&legacy_path, "legacy-layout").expect("legacy log should be writable");
+    fs::write(&flat_path, "flat-layout").expect("flat log should be writable");
 
     let found = find_cached_log_path(
         Some(
@@ -102,16 +129,18 @@ fn log_store_falls_back_to_legacy_flat_files_when_new_layout_is_absent() {
         ),
         "07L000000000002AA",
         None,
-    )
-    .expect("cache lookup should return a legacy path");
+    );
 
-    assert_eq!(found, legacy_path);
+    assert!(
+        found.is_none(),
+        "cache lookup should ignore flat files at apexlogs root"
+    );
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
 }
 
 #[test]
-fn log_store_scoped_lookup_uses_matching_legacy_flat_file_without_cross_org_leakage() {
-    let workspace_root = make_temp_workspace("scoped-legacy-only");
+fn log_store_scoped_lookup_ignores_matching_flat_file_without_cross_org_leakage() {
+    let workspace_root = make_temp_workspace("scoped-flat-only");
     let apexlogs_root = workspace_root.join("apexlogs");
     fs::create_dir_all(
         apexlogs_root
@@ -132,8 +161,8 @@ fn log_store_scoped_lookup_uses_matching_legacy_flat_file_without_cross_org_leak
         "other-org",
     )
     .expect("other org cached log should be writable");
-    let scoped_legacy = apexlogs_root.join(format!("selected@example.com_{log_id}.log"));
-    fs::write(&scoped_legacy, "scoped-legacy").expect("scoped legacy log should be writable");
+    let scoped_flat = apexlogs_root.join(format!("selected@example.com_{log_id}.log"));
+    fs::write(&scoped_flat, "scoped-flat").expect("scoped flat log should be writable");
 
     let found = find_cached_log_path(
         Some(
@@ -143,10 +172,12 @@ fn log_store_scoped_lookup_uses_matching_legacy_flat_file_without_cross_org_leak
         ),
         log_id,
         Some("selected@example.com"),
-    )
-    .expect("scoped lookup should return the matching legacy flat path");
+    );
 
-    assert_eq!(found, scoped_legacy);
+    assert!(
+        found.is_none(),
+        "scoped lookup should ignore matching flat files at apexlogs root"
+    );
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
 }
 

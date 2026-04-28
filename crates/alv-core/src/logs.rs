@@ -275,16 +275,6 @@ pub fn run_sf_log_list_json_detailed_with_cancel(
     run_tooling_logs_query_with_cancel_detailed(&auth, params, cancellation)
 }
 
-pub fn resolve_apex_logs_dir(workspace_root: Option<&str>) -> PathBuf {
-    match workspace_root
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        Some(root) => Path::new(root).join("apexlogs"),
-        None => env::temp_dir().join("apexlogs"),
-    }
-}
-
 pub fn find_cached_log_path(workspace_root: Option<&str>, log_id: &str) -> Option<PathBuf> {
     crate::log_store::find_cached_log_path(workspace_root, log_id, None)
 }
@@ -309,9 +299,11 @@ pub fn ensure_log_file_cached_with_cancel(
         return Ok(existing);
     }
 
-    let target_dir = resolve_apex_logs_dir(workspace_root);
-    let safe_user = sanitize_username(username);
-    let target_path = target_dir.join(format!("{safe_user}_{log_id}.log"));
+    let target_path = crate::log_store::unknown_date_log_path(
+        workspace_root,
+        username.unwrap_or("default"),
+        log_id,
+    );
 
     download_log_to_path_with_cancel(log_id, username, &target_path, cancellation)
 }
@@ -478,22 +470,6 @@ fn maybe_fixture_log_list_json(cancellation: &CancellationToken) -> Result<Optio
     maybe_test_delay(TEST_LOGS_CANCEL_DELAY_MS_ENV, cancellation)?;
     cancellation.check_cancelled()?;
     Ok(Some(fixture))
-}
-
-fn sanitize_username(username: Option<&str>) -> String {
-    let trimmed = username.unwrap_or("default").trim();
-    let sanitized = trimmed
-        .chars()
-        .map(|character| match character {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '.' | '@' | '-' => character,
-            _ => '_',
-        })
-        .collect::<String>();
-    if sanitized.is_empty() {
-        "default".to_string()
-    } else {
-        sanitized
-    }
 }
 
 fn escape_soql_literal(value: &str) -> String {

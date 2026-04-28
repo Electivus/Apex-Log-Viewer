@@ -18,14 +18,16 @@ const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyq
 const { getLogIdFromLogFilePath } = workspaceModule;
 
 suite('getLogIdFromLogFilePath', () => {
-  test('extracts log id from username-prefixed filenames', () => {
-    const result = getLogIdFromLogFilePath('/tmp/default_07L000000000001AA.log');
+  test('extracts log id from org-first log filenames', () => {
+    const result = getLogIdFromLogFilePath(
+      '/tmp/apexlogs/orgs/default@example.com/logs/2026-03-30/07L000000000001AA.log'
+    );
     assert.equal(result, '07L000000000001AA');
   });
 
-  test('extracts log id from legacy filenames', () => {
-    const result = getLogIdFromLogFilePath('/tmp/07L000000000001AA.log');
-    assert.equal(result, '07L000000000001AA');
+  test('returns undefined for username-prefixed flat filenames', () => {
+    const result = getLogIdFromLogFilePath('/tmp/default_07L000000000001AA.log');
+    assert.equal(result, undefined);
   });
 
   test('returns undefined for non-matching filenames', () => {

@@ -74,4 +74,34 @@ suite('integration: findExistingLogFile', () => {
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
+
+  test('findExistingLogFile ignores flat files when username is provided', async () => {
+    const dir = getApexLogsDir();
+    const logId = '07L000000000004AA';
+    const flatFile = path.join(dir, `target@example.com_${logId}.log`);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(flatFile, 'body', 'utf8');
+
+    try {
+      const result = await findExistingLogFile(logId, 'target@example.com');
+      assert.equal(result, undefined);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('findExistingLogFile ignores flat files when no username is provided', async () => {
+    const dir = getApexLogsDir();
+    const logId = '07L000000000005AA';
+    const flatFile = path.join(dir, `${logId}.log`);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(flatFile, 'body', 'utf8');
+
+    try {
+      const result = await findExistingLogFile(logId);
+      assert.equal(result, undefined);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 });

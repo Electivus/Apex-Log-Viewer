@@ -343,7 +343,11 @@ export class TailService {
     const header = `=== ApexLog ${id ?? ''} | ${r?.StartTime ?? ''} | ${r?.Operation ?? ''} | ${r?.Status ?? ''} | ${r?.LogLength ?? ''}`;
     lines.push(header);
     try {
-      const { filePath } = await this.getLogFilePathWithUsername(auth.username, id ?? String(Date.now()));
+      const { filePath } = await this.getLogFilePathWithUsername(
+        auth.username,
+        id ?? String(Date.now()),
+        typeof r?.StartTime === 'string' ? r.StartTime : undefined
+      );
       await fs.writeFile(filePath, body, 'utf8');
       if (id) {
         this.addLogPath(id, filePath);
@@ -514,8 +518,9 @@ export class TailService {
 
   private async getLogFilePathWithUsername(
     username: string | undefined,
-    logId: string
+    logId: string,
+    startTime?: string
   ): Promise<{ dir: string; filePath: string }> {
-    return utilGetLogFilePathWithUsername(username, logId);
+    return utilGetLogFilePathWithUsername(username, logId, startTime);
   }
 }

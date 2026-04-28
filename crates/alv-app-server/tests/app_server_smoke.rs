@@ -176,10 +176,15 @@ fn app_server_smoke_routes_logs_search_and_triage_requests() {
     );
 
     let workspace_root = make_temp_dir("workspace");
-    let apexlogs_dir = workspace_root.join("apexlogs");
-    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should be created");
+    let cache_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default")
+        .join("logs")
+        .join("unknown-date");
+    fs::create_dir_all(&cache_dir).expect("apexlogs dir should be created");
     fs::write(
-        apexlogs_dir.join("default_07L000000000001AA.log"),
+        cache_dir.join("07L000000000001AA.log"),
         "09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|AccountService.handle\n09:00:01.0|EXCEPTION_THROWN|System.NullPointerException: boom\n",
     )
     .expect("cached log should be writable");

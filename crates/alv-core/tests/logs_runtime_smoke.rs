@@ -90,13 +90,6 @@ fn org_dirs_in_iteration_order(orgs_root: &PathBuf) -> Vec<PathBuf> {
     dirs
 }
 
-fn write_legacy_root_noise_logs(apexlogs_dir: &PathBuf, prefix: &str, count: usize) {
-    for index in 0..count {
-        fs::write(apexlogs_dir.join(format!("{prefix}_{index:05}.log")), "")
-            .expect("noise log should be writable");
-    }
-}
-
 #[cfg(windows)]
 fn write_fake_sf_cmd(root: &PathBuf, body: &str) -> PathBuf {
     let script_path = root.join("sf.cmd");
@@ -447,10 +440,15 @@ fn logs_runtime_smoke_search_respects_cancellation_mid_scan() {
     let _guard = lock_test_guard();
 
     let workspace_root = make_temp_workspace("search-cancel");
-    let apexlogs_dir = workspace_root.join("apexlogs");
-    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    let cache_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default")
+        .join("logs")
+        .join("unknown-date");
+    fs::create_dir_all(&cache_dir).expect("cache dir should exist");
     fs::write(
-        apexlogs_dir.join("default_07L000000000001AA.log"),
+        cache_dir.join("07L000000000001AA.log"),
         (0..200)
             .map(|index| format!("09:00:{index:02}.0|USER_INFO|line {index}\n"))
             .collect::<String>(),
@@ -520,10 +518,6 @@ fn logs_runtime_smoke_search_with_blank_log_ids_short_circuits_before_cache_inde
     let _guard = lock_test_guard();
 
     let workspace_root = make_temp_workspace("search-empty-log-ids");
-    let apexlogs_dir = workspace_root.join("apexlogs");
-    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
-    write_legacy_root_noise_logs(&apexlogs_dir, "noise", 64);
-    std::env::set_var("ALV_TEST_SEARCH_ROOT_INDEX_DELAY_MS", "2");
 
     let token = CancellationToken::new();
     let cancel_handle = token.clone();
@@ -548,7 +542,6 @@ fn logs_runtime_smoke_search_with_blank_log_ids_short_circuits_before_cache_inde
     assert!(result.pending_log_ids.is_empty());
     assert!(result.snippets.is_empty());
 
-    std::env::remove_var("ALV_TEST_SEARCH_ROOT_INDEX_DELAY_MS");
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
 }
 
@@ -578,7 +571,6 @@ fn logs_runtime_smoke_search_checks_duplicate_log_ids_across_org_trees() {
     let first_scanned_log_dir = ordered_org_dirs[0].join("logs").join("2026-03-30");
     let later_log_dir = ordered_org_dirs[1].join("logs").join("2026-03-30");
 
-    // The legacy implementation stops at the first cached path for the log id.
     // Keep the first-scanned copy wrong and the later copy correct so this test
     // only passes when search continues beyond the first org-tree match.
     fs::write(
@@ -658,10 +650,10 @@ fn logs_runtime_smoke_search_scoped_to_selected_org_ignores_other_org_duplicate_
 }
 
 #[test]
-fn logs_runtime_smoke_search_scoped_to_selected_org_ignores_other_legacy_root_match() {
+fn logs_runtime_smoke_search_scoped_to_selected_org_ignores_flat_root_matches() {
     let _guard = lock_test_guard();
 
-    let workspace_root = make_temp_workspace("search-scoped-ignore-other-legacy-root");
+    let workspace_root = make_temp_workspace("search-scoped-ignore-flat-root");
     let apexlogs_dir = workspace_root.join("apexlogs");
     fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
     let log_id = "07L00000000000SR1";
@@ -669,62 +661,65 @@ fn logs_runtime_smoke_search_scoped_to_selected_org_ignores_other_legacy_root_ma
         apexlogs_dir.join(format!("selected@example.com_{log_id}.log")),
         "09:00:00.0|USER_INFO|selected root cache does not contain the needle\n",
     )
-    .expect("selected-org legacy root log should be writable");
+    .expect("selected-org flat root log should be writable");
     fs::write(
         apexlogs_dir.join(format!("other@example.com_{log_id}.log")),
-        "09:00:00.0|FATAL_ERROR|ScopedLegacyRootNeedle\n",
+        "09:00:00.0|FATAL_ERROR|ScopedFlatRootNeedle\n",
     )
-    .expect("other-org legacy root log should be writable");
+    .expect("other-org flat root log should be writable");
 
     let result = search_query(&SearchQueryParams {
-        query: "ScopedLegacyRootNeedle".to_string(),
+        query: "ScopedFlatRootNeedle".to_string(),
         log_ids: vec![log_id.to_string()],
         username: Some("selected@example.com".to_string()),
         raw_username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
-    .expect("search/query should ignore other-org legacy flat cache files");
+    .expect("search/query should ignore flat cache files");
 
     assert!(result.log_ids.is_empty());
-    assert!(result.pending_log_ids.is_empty());
+    assert_eq!(result.pending_log_ids, vec![log_id.to_string()]);
     assert!(!result.snippets.contains_key(log_id));
 
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
 }
 
 #[test]
-fn logs_runtime_smoke_search_scoped_to_selected_org_uses_legacy_bare_log_fallback() {
+fn logs_runtime_smoke_search_scoped_to_selected_org_ignores_bare_flat_log() {
     let _guard = lock_test_guard();
 
-    let workspace_root = make_temp_workspace("search-scoped-legacy-bare");
+    let workspace_root = make_temp_workspace("search-scoped-flat-bare");
     let apexlogs_dir = workspace_root.join("apexlogs");
     fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
     fs::write(
         apexlogs_dir.join("07L00000000000LB1.log"),
-        "09:00:00.0|FATAL_ERROR|LegacyBareNeedle\n",
+        "09:00:00.0|FATAL_ERROR|FlatBareNeedle\n",
     )
-    .expect("legacy bare log should be writable");
+    .expect("bare flat log should be writable");
 
     let result = search_query(&SearchQueryParams {
-        query: "LegacyBareNeedle".to_string(),
+        query: "FlatBareNeedle".to_string(),
         log_ids: vec!["07L00000000000LB1".to_string()],
         username: Some("selected@example.com".to_string()),
         raw_username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
-    .expect("search/query should honor the legacy bare-log fallback");
+    .expect("search/query should ignore bare flat logs");
 
-    assert_eq!(result.log_ids, vec!["07L00000000000LB1".to_string()]);
-    assert!(result.pending_log_ids.is_empty());
+    assert!(result.log_ids.is_empty());
+    assert_eq!(
+        result.pending_log_ids,
+        vec!["07L00000000000LB1".to_string()]
+    );
 
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
 }
 
 #[test]
-fn logs_runtime_smoke_search_scoped_hit_skips_unrelated_legacy_root_scan() {
+fn logs_runtime_smoke_search_scoped_hit_ignores_unrelated_flat_root_files() {
     let _guard = lock_test_guard();
 
-    let workspace_root = make_temp_workspace("search-scoped-skip-legacy-root-scan");
+    let workspace_root = make_temp_workspace("search-scoped-ignore-flat-root");
     let apexlogs_dir = workspace_root.join("apexlogs");
     let selected_org_dir = apexlogs_dir
         .join("orgs")
@@ -738,8 +733,10 @@ fn logs_runtime_smoke_search_scoped_hit_skips_unrelated_legacy_root_scan() {
         "09:00:00.0|FATAL_ERROR|ScopedIndexedNeedle\n",
     )
     .expect("selected org cached log should be writable");
-    write_legacy_root_noise_logs(&apexlogs_dir, "otherorg", 64);
-    std::env::set_var("ALV_TEST_SEARCH_ROOT_INDEX_DELAY_MS", "2");
+    for index in 0..64 {
+        fs::write(apexlogs_dir.join(format!("otherorg_{index:05}.log")), "")
+            .expect("flat noise log should be writable");
+    }
 
     let token = CancellationToken::new();
     let cancel_handle = token.clone();
@@ -758,7 +755,7 @@ fn logs_runtime_smoke_search_scoped_hit_skips_unrelated_legacy_root_scan() {
         },
         &token,
     )
-    .expect("scoped search should not scan unrelated legacy root entries");
+    .expect("scoped search should ignore unrelated flat root entries");
 
     assert_eq!(result.log_ids, vec![log_id.to_string()]);
     let snippet = result
@@ -767,23 +764,27 @@ fn logs_runtime_smoke_search_scoped_hit_skips_unrelated_legacy_root_scan() {
         .expect("matched log should include snippet");
     assert!(snippet.text.contains("ScopedIndexedNeedle"));
 
-    std::env::remove_var("ALV_TEST_SEARCH_ROOT_INDEX_DELAY_MS");
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
 }
 
 #[test]
-fn logs_runtime_smoke_search_falls_back_to_raw_alias_scoped_cache_without_auth() {
+fn logs_runtime_smoke_search_uses_raw_alias_org_first_cache_without_auth() {
     let _guard = lock_test_guard();
 
     let workspace_root = make_temp_workspace("search-alias-offline");
     let apexlogs_dir = workspace_root.join("apexlogs");
-    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    let alias_org_dir = apexlogs_dir
+        .join("orgs")
+        .join("Alias_Org")
+        .join("logs")
+        .join("2026-03-30");
+    fs::create_dir_all(&alias_org_dir).expect("alias org log dir should exist");
     let log_id = "07L0000000000AS1";
     fs::write(
-        apexlogs_dir.join(format!("Alias_Org_{log_id}.log")),
+        alias_org_dir.join(format!("{log_id}.log")),
         "09:00:00.0|FATAL_ERROR|AliasScopedNeedle\n",
     )
-    .expect("legacy alias-scoped log should be writable");
+    .expect("alias-scoped log should be writable");
     let wrong_org_dir = apexlogs_dir
         .join("orgs")
         .join("other@example.com")
@@ -803,7 +804,9 @@ fn logs_runtime_smoke_search_falls_back_to_raw_alias_scoped_cache_without_auth()
         raw_username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
-    .expect("search/query should use the raw alias-scoped cache when auth is unavailable");
+    .expect(
+        "search/query should use the raw alias-scoped org-first cache when auth is unavailable",
+    );
 
     assert_eq!(result.log_ids, vec![log_id.to_string()]);
     let snippet = result
@@ -816,10 +819,10 @@ fn logs_runtime_smoke_search_falls_back_to_raw_alias_scoped_cache_without_auth()
 }
 
 #[test]
-fn logs_runtime_smoke_search_raw_alias_scope_ignores_other_legacy_root_match() {
+fn logs_runtime_smoke_search_raw_alias_scope_ignores_flat_root_matches() {
     let _guard = lock_test_guard();
 
-    let workspace_root = make_temp_workspace("search-alias-offline-legacy-root");
+    let workspace_root = make_temp_workspace("search-alias-offline-flat-root");
     let apexlogs_dir = workspace_root.join("apexlogs");
     fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
     let log_id = "07L0000000000AR1";
@@ -827,12 +830,12 @@ fn logs_runtime_smoke_search_raw_alias_scope_ignores_other_legacy_root_match() {
         apexlogs_dir.join(format!("Alias_Org_{log_id}.log")),
         "09:00:00.0|USER_INFO|alias root cache does not contain the needle\n",
     )
-    .expect("alias-scoped legacy root log should be writable");
+    .expect("alias-scoped flat root log should be writable");
     fs::write(
         apexlogs_dir.join(format!("other@example.com_{log_id}.log")),
         "09:00:00.0|FATAL_ERROR|AliasRootScopeNeedle\n",
     )
-    .expect("other-org legacy root log should be writable");
+    .expect("other-org flat root log should be writable");
 
     let result = search_query(&SearchQueryParams {
         query: "AliasRootScopeNeedle".to_string(),
@@ -841,28 +844,28 @@ fn logs_runtime_smoke_search_raw_alias_scope_ignores_other_legacy_root_match() {
         raw_username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
-    .expect("search/query should ignore unrelated legacy root files during raw alias fallback");
+    .expect("search/query should ignore flat root files during raw alias lookup");
 
     assert!(result.log_ids.is_empty());
-    assert!(result.pending_log_ids.is_empty());
+    assert_eq!(result.pending_log_ids, vec![log_id.to_string()]);
     assert!(!result.snippets.contains_key(log_id));
 
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
 }
 
 #[test]
-fn logs_runtime_smoke_search_uses_legacy_alias_scoped_cache_when_alias_resolves() {
+fn logs_runtime_smoke_search_alias_resolution_ignores_flat_alias_cache() {
     let _guard = lock_test_guard();
 
-    let workspace_root = make_temp_workspace("search-alias-canonical-legacy");
+    let workspace_root = make_temp_workspace("search-alias-canonical-flat");
     let apexlogs_dir = workspace_root.join("apexlogs");
     fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
     let log_id = "07L0000000000AC1";
     fs::write(
         apexlogs_dir.join(format!("Alias_Org_{log_id}.log")),
-        "09:00:00.0|FATAL_ERROR|AliasCanonicalLegacyNeedle\n",
+        "09:00:00.0|FATAL_ERROR|AliasCanonicalFlatNeedle\n",
     )
-    .expect("legacy alias-scoped log should be writable");
+    .expect("flat alias-scoped log should be writable");
 
     std::env::set_var(
         TEST_ORG_DISPLAY_JSON_ENV,
@@ -877,21 +880,17 @@ fn logs_runtime_smoke_search_uses_legacy_alias_scoped_cache_when_alias_resolves(
     );
 
     let result = search_query(&SearchQueryParams {
-        query: "AliasCanonicalLegacyNeedle".to_string(),
+        query: "AliasCanonicalFlatNeedle".to_string(),
         log_ids: vec![log_id.to_string()],
         username: Some("Alias Org".to_string()),
         raw_username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
-    .expect("search/query should keep the alias-scoped legacy fallback after alias resolution");
+    .expect("search/query should ignore flat alias-scoped cache after alias resolution");
 
-    assert_eq!(result.log_ids, vec![log_id.to_string()]);
-    assert!(result.pending_log_ids.is_empty());
-    let snippet = result
-        .snippets
-        .get(log_id)
-        .expect("matched log should include snippet");
-    assert!(snippet.text.contains("AliasCanonicalLegacyNeedle"));
+    assert!(result.log_ids.is_empty());
+    assert_eq!(result.pending_log_ids, vec![log_id.to_string()]);
+    assert!(!result.snippets.contains_key(log_id));
 
     std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
@@ -916,6 +915,7 @@ fn logs_runtime_smoke_triage_downloads_missing_log_into_unknown_date_directory()
     );
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("default@example.com".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })
@@ -934,49 +934,144 @@ fn logs_runtime_smoke_triage_downloads_missing_log_into_unknown_date_directory()
 }
 
 #[test]
-fn logs_runtime_smoke_triage_uses_legacy_bare_log_fallback_for_scoped_requests() {
+fn logs_runtime_smoke_triage_downloads_missing_log_into_start_time_day_directory() {
     let _guard = lock_test_guard();
 
-    let workspace_root = make_temp_workspace("triage-scoped-legacy-bare");
+    let workspace_root = make_temp_workspace("ensure-dated-layout");
+    let fixture_dir = make_temp_workspace("ensure-dated-fixture");
+    let log_id = "07L00000000000DT1";
+    fs::write(
+        fixture_dir.join(format!("{log_id}.log")),
+        "09:00:00.0|USER_INFO|fixture body\n",
+    )
+    .expect("fixture log should be writable");
+
+    std::env::set_var(
+        TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        fixture_dir.display().to_string(),
+    );
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![log_id.to_string()],
+        log_start_times: std::collections::BTreeMap::from([(
+            log_id.to_string(),
+            "2026-03-30T18:39:58.000Z".to_string(),
+        )]),
+        username: Some("default@example.com".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("logs/triage should download and summarize the fixture log");
+
+    assert_eq!(items.len(), 1);
+    let cached = find_cached_log_path(Some(&workspace_root.display().to_string()), log_id)
+        .expect("triage should cache the downloaded fixture log");
+
+    assert!(
+        cached.ends_with("apexlogs/orgs/default@example.com/logs/2026-03-30/07L00000000000DT1.log")
+    );
+
+    std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+    fs::remove_dir_all(fixture_dir).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_triage_materializes_unknown_date_cache_for_known_start_time() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("triage-materialize-dated-layout");
+    let log_id = "07L00000000000DM1";
+    let unknown_path = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default@example.com")
+        .join("logs")
+        .join("unknown-date")
+        .join(format!("{log_id}.log"));
+    fs::create_dir_all(
+        unknown_path
+            .parent()
+            .expect("unknown-date parent should exist"),
+    )
+    .expect("unknown-date parent should be creatable");
+    fs::write(
+        &unknown_path,
+        "09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|Materialized.handle\n",
+    )
+    .expect("unknown-date cached log should be writable");
+
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![log_id.to_string()],
+        log_start_times: std::collections::BTreeMap::from([(
+            log_id.to_string(),
+            "2026-03-30T18:39:58.000Z".to_string(),
+        )]),
+        username: Some("default@example.com".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect(
+        "logs/triage should materialize the dated cache path from an existing unknown-date copy",
+    );
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].code_unit_started.as_deref(),
+        Some("Materialized.handle")
+    );
+    let dated_path = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default@example.com")
+        .join("logs")
+        .join("2026-03-30")
+        .join(format!("{log_id}.log"));
+    assert!(
+        dated_path.is_file(),
+        "triage should create the dated cache copy"
+    );
+    assert!(
+        unknown_path.is_file(),
+        "triage should preserve the older cache hit"
+    );
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_triage_ignores_bare_flat_log_for_scoped_requests() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("triage-scoped-flat-bare");
     let apexlogs_dir = workspace_root.join("apexlogs");
     fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
     let log_id = "07L00000000000LB2";
     fs::write(
         apexlogs_dir.join(format!("{log_id}.log")),
         "\
-09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|LegacyBare.handle\n\
+09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|FlatBare.handle\n\
 09:00:01.0|EXCEPTION_THROWN|System.NullPointerException: boom\n",
     )
-    .expect("legacy bare log should be writable");
+    .expect("bare flat log should be writable");
+    std::env::set_var("ALV_SF_BIN_PATH", workspace_root.join("missing-sf"));
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("selected@example.com".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })
-    .expect("logs/triage should honor the legacy bare-log fallback");
+    .expect("logs/triage should ignore the bare flat log and report the missing download path");
 
     assert_eq!(items.len(), 1);
-    assert_eq!(
-        items[0].code_unit_started.as_deref(),
-        Some("LegacyBare.handle")
-    );
-    assert_eq!(
-        items[0].summary.primary_reason.as_deref(),
-        Some("Fatal exception")
-    );
-    assert!(
-        !workspace_root
-            .join("apexlogs")
-            .join("orgs")
-            .join("selected@example.com")
-            .join("logs")
-            .join("unknown-date")
-            .join(format!("{log_id}.log"))
-            .exists(),
-        "triage should reuse the legacy bare log instead of downloading a duplicate copy"
-    );
+    assert_eq!(items[0].code_unit_started, None);
+    assert!(items[0].summary.has_errors);
+    assert!(items[0]
+        .summary
+        .primary_reason
+        .as_deref()
+        .unwrap_or_default()
+        .contains("Log triage unavailable"));
 
+    std::env::remove_var("ALV_SF_BIN_PATH");
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
 }
 
@@ -1024,6 +1119,7 @@ fn logs_runtime_smoke_triage_ignores_wrong_org_cached_copy_when_alias_resolves_c
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("Alias Org".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })
@@ -1086,6 +1182,7 @@ fn logs_runtime_smoke_triage_uses_canonical_username_tree_for_alias_input() {
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("Alias Org".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })
@@ -1108,7 +1205,7 @@ fn logs_runtime_smoke_triage_uses_canonical_username_tree_for_alias_input() {
 }
 
 #[test]
-fn logs_runtime_smoke_triage_falls_back_to_raw_alias_scoped_cache_without_auth() {
+fn logs_runtime_smoke_triage_uses_raw_alias_org_first_cache_without_auth() {
     let _guard = lock_test_guard();
 
     let workspace_root = make_temp_workspace("triage-alias-offline");
@@ -1126,20 +1223,27 @@ fn logs_runtime_smoke_triage_falls_back_to_raw_alias_scoped_cache_without_auth()
         "09:00:00.0|USER_INFO|wrong org cached copy\n",
     )
     .expect("wrong org cached log should be writable");
+    let alias_org_dir = apexlogs_dir
+        .join("orgs")
+        .join("Alias_Org")
+        .join("logs")
+        .join("2026-03-30");
+    fs::create_dir_all(&alias_org_dir).expect("alias org log dir should exist");
     fs::write(
-        apexlogs_dir.join(format!("Alias_Org_{log_id}.log")),
+        alias_org_dir.join(format!("{log_id}.log")),
         "\
 09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|AliasOffline.handle\n\
 09:00:01.0|EXCEPTION_THROWN|System.NullPointerException: boom\n",
     )
-    .expect("legacy alias-scoped log should be writable");
+    .expect("alias-scoped log should be writable");
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("Alias Org".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })
-    .expect("logs/triage should reuse the raw alias-scoped cache when auth is unavailable");
+    .expect("logs/triage should reuse the raw alias org-first cache when auth is unavailable");
 
     assert_eq!(items.len(), 1);
     assert_eq!(
@@ -1155,14 +1259,82 @@ fn logs_runtime_smoke_triage_falls_back_to_raw_alias_scoped_cache_without_auth()
 }
 
 #[test]
+fn logs_runtime_smoke_triage_materializes_raw_alias_cache_to_raw_alias_date() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("triage-alias-offline-dated");
+    let apexlogs_dir = workspace_root.join("apexlogs");
+    let alias_org_dir = apexlogs_dir
+        .join("orgs")
+        .join("Alias_Org")
+        .join("logs")
+        .join("unknown-date");
+    fs::create_dir_all(&alias_org_dir).expect("alias org log dir should exist");
+    let log_id = "07L0000000000ALD";
+    fs::write(
+        alias_org_dir.join(format!("{log_id}.log")),
+        "\
+09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|AliasDated.handle\n\
+09:00:01.0|EXCEPTION_THROWN|System.NullPointerException: boom\n",
+    )
+    .expect("alias-scoped log should be writable");
+
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![log_id.to_string()],
+        log_start_times: std::collections::BTreeMap::from([(
+            log_id.to_string(),
+            "2026-03-30T18:39:58.000Z".to_string(),
+        )]),
+        username: Some("Alias Org".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("logs/triage should reuse the raw alias org-first cache when auth is unavailable");
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].code_unit_started.as_deref(),
+        Some("AliasDated.handle")
+    );
+    assert!(
+        workspace_root
+            .join("apexlogs")
+            .join("orgs")
+            .join("Alias_Org")
+            .join("logs")
+            .join("2026-03-30")
+            .join(format!("{log_id}.log"))
+            .is_file(),
+        "triage should materialize the dated cache under the raw alias org"
+    );
+    assert!(
+        !workspace_root
+            .join("apexlogs")
+            .join("orgs")
+            .join("default")
+            .join("logs")
+            .join("2026-03-30")
+            .join(format!("{log_id}.log"))
+            .exists(),
+        "triage should not materialize alias caches under default"
+    );
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
 fn logs_runtime_smoke_triage_respects_cancellation_mid_file() {
     let _guard = lock_test_guard();
 
     let workspace_root = make_temp_workspace("triage-cancel");
-    let apexlogs_dir = workspace_root.join("apexlogs");
-    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    let cache_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default")
+        .join("logs")
+        .join("unknown-date");
+    fs::create_dir_all(&cache_dir).expect("cache dir should exist");
     fs::write(
-        apexlogs_dir.join("default_07L000000000001AA.log"),
+        cache_dir.join("07L000000000001AA.log"),
         (0..200)
             .map(|index| format!("09:00:{index:02}.0|USER_INFO|line {index}\n"))
             .collect::<String>(),
@@ -1181,6 +1353,7 @@ fn logs_runtime_smoke_triage_respects_cancellation_mid_file() {
     let result = triage_logs_with_cancel(
         &LogsTriageParams {
             log_ids: vec!["07L000000000001AA".to_string()],
+            log_start_times: Default::default(),
             username: None,
             workspace_root: Some(workspace_root.display().to_string()),
         },
@@ -1197,10 +1370,10 @@ fn logs_runtime_smoke_triage_respects_cancellation_mid_file() {
 }
 
 #[test]
-fn logs_runtime_smoke_triage_uses_default_legacy_cache_without_username() {
+fn logs_runtime_smoke_triage_ignores_default_flat_cache_without_username() {
     let _guard = lock_test_guard();
 
-    let workspace_root = make_temp_workspace("triage-default-legacy");
+    let workspace_root = make_temp_workspace("triage-default-flat");
     let apexlogs_dir = workspace_root.join("apexlogs");
     fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
     let log_id = "07L0000000000DEF";
@@ -1210,25 +1383,26 @@ fn logs_runtime_smoke_triage_uses_default_legacy_cache_without_username() {
 09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|DefaultCache.handle\n\
 09:00:01.0|EXCEPTION_THROWN|System.NullPointerException: boom\n",
     )
-    .expect("default-scoped cached log should be writable");
+    .expect("default-scoped flat log should be writable");
     std::env::set_var("ALV_SF_BIN_PATH", workspace_root.join("missing-sf"));
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
-    .expect("logs/triage should reuse default-scoped legacy cache without calling sf");
+    .expect("logs/triage should ignore default-scoped flat cache without calling sf");
 
     assert_eq!(items.len(), 1);
-    assert_eq!(
-        items[0].code_unit_started.as_deref(),
-        Some("DefaultCache.handle")
-    );
-    assert_eq!(
-        items[0].summary.primary_reason.as_deref(),
-        Some("Fatal exception")
-    );
+    assert_eq!(items[0].code_unit_started, None);
+    assert!(items[0].summary.has_errors);
+    assert!(items[0]
+        .summary
+        .primary_reason
+        .as_deref()
+        .unwrap_or_default()
+        .contains("Log triage unavailable"));
 
     std::env::remove_var("ALV_SF_BIN_PATH");
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
@@ -1239,10 +1413,15 @@ fn logs_runtime_smoke_searches_cached_logs_with_pending_ids() {
     let _guard = lock_test_guard();
 
     let workspace_root = make_temp_workspace("search");
-    let apexlogs_dir = workspace_root.join("apexlogs");
-    fs::create_dir_all(&apexlogs_dir).expect("apexlogs dir should exist");
+    let cache_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default")
+        .join("logs")
+        .join("unknown-date");
+    fs::create_dir_all(&cache_dir).expect("cache dir should exist");
     fs::write(
-        apexlogs_dir.join("default_07L000000000001AA.log"),
+        cache_dir.join("07L000000000001AA.log"),
         "09:00:00.0|USER_INFO|NullPointerException happened here\n",
     )
     .expect("cached log should be writable");
@@ -1296,6 +1475,7 @@ fn logs_runtime_smoke_triages_logs_and_caches_fixture_downloads() {
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("demo@example.com".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })
@@ -1348,6 +1528,7 @@ fn logs_runtime_smoke_triage_returns_partial_results_when_one_log_is_unreadable(
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![missing_log_id.to_string(), readable_log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("demo@example.com".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })
@@ -1430,6 +1611,13 @@ fn logs_runtime_smoke_ensure_log_cache_uses_fixture_copy() {
     )
     .expect("ensure_log_file_cached should copy fixture into workspace cache");
     assert!(cached.exists());
+    assert!(
+        cached.ends_with("apexlogs/orgs/cache@example.com/logs/unknown-date/07L00000000000ENS.log")
+    );
+    assert!(!workspace_root
+        .join("apexlogs")
+        .join(format!("cache@example.com_{log_id}.log"))
+        .exists());
 
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
@@ -1456,6 +1644,13 @@ fn logs_runtime_smoke_downloads_log_body_over_rest_into_cache() {
     )
     .expect("ensure_log_file_cached should fetch the ApexLog body via REST");
     assert!(cached.exists());
+    assert!(
+        cached.ends_with("apexlogs/orgs/demo@example.com/logs/unknown-date/07L000000000REST.log")
+    );
+    assert!(!workspace_root
+        .join("apexlogs")
+        .join(format!("demo@example.com_{log_id}.log"))
+        .exists());
     assert_eq!(
         fs::read_to_string(&cached).expect("cached log should be readable"),
         "09:00:00.0|USER_INFO|rest body\n"

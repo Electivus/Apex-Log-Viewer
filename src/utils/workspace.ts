@@ -117,20 +117,42 @@ export async function ensureApexLogsDir(): Promise<string> {
 }
 
 /**
- * Build a username-prefixed log file path under `apexlogs`.
+ * Build an org-first log file path under `apexlogs` without touching the filesystem.
+ */
+export function buildLogFilePathWithUsername(
+  username: string | undefined,
+  logId: string,
+  startTime?: string
+): { dir: string; filePath: string } {
+  const rootDir = getApexLogsDir();
+  const safeUser = toSafeLogUserName(username);
+  const dir = path.join(rootDir, 'orgs', safeUser, 'logs', toLogDayDirName(startTime));
+  const filePath = path.join(dir, `${logId}.log`);
+  return { dir, filePath };
+}
+
+/**
+ * Build an org-first log file path under `apexlogs` and ensure its directories exist.
  */
 export async function getLogFilePathWithUsername(
   username: string | undefined,
-  logId: string
+  logId: string,
+  startTime?: string
 ): Promise<{ dir: string; filePath: string }> {
-  const dir = await ensureApexLogsDir();
-  const safeUser = toSafeLogUserName(username);
-  const filePath = path.join(dir, `${safeUser}_${logId}.log`);
+  await ensureApexLogsDir();
+  const { dir, filePath } = buildLogFilePathWithUsername(username, logId, startTime);
+  await fs.mkdir(dir, { recursive: true });
   return { dir, filePath };
 }
 
 function toSafeLogUserName(username: string | undefined): string {
   return (username || 'default').replace(/[^a-zA-Z0-9_.@-]+/g, '_');
+}
+
+function toLogDayDirName(startTime: string | undefined): string {
+  const value = typeof startTime === 'string' ? startTime.trim() : '';
+  const day = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : 'unknown-date';
 }
 
 function isSupportedLogDayDirName(name: string): boolean {
@@ -187,7 +209,7 @@ async function findExistingLogFileInOrgsDir(orgsDir: string, logId: string): Pro
 }
 
 /**
- * Find a previously saved log file (username-prefixed or legacy `<id>.log`).
+ * Find a previously saved log file in the org-first log cache.
  */
 export async function findExistingLogFile(logId: string, username?: string): Promise<string | undefined> {
   const dir = getApexLogsDir();
@@ -218,31 +240,13 @@ export async function findExistingLogFile(logId: string, username?: string): Pro
         return orgFirst;
       }
     }
-
-    const entries = await fs.readdir(dir);
-    if (username) {
-      const exact = `${toSafeLogUserName(username)}_${logId}.log`;
-      if (entries.includes(exact)) {
-        return path.join(dir, exact);
-      }
-    }
-    const legacy = entries.find(name => name === `${logId}.log`);
-    if (legacy) {
-      return path.join(dir, legacy);
-    }
-    if (!username) {
-      const preferred = entries.find(name => name.endsWith(`_${logId}.log`));
-      if (preferred) {
-        return path.join(dir, preferred);
-      }
-    }
   } catch {
     // ignore
   }
   return undefined;
 }
 
-const LOG_FILE_REGEX = /^(?:[a-zA-Z0-9_.@-]+_)?([a-zA-Z0-9]{15,18})\.log$/;
+const LOG_FILE_REGEX = /^([a-zA-Z0-9]{15,18})\.log$/;
 
 function extractLogIdFromFileName(fileName: string): string | undefined {
   if (!fileName.toLowerCase().endsWith('.log')) {
@@ -250,6 +254,49 @@ function extractLogIdFromFileName(fileName: string): string | undefined {
   }
   const match = LOG_FILE_REGEX.exec(fileName);
   return match ? match[1] : undefined;
+}
+
+function isPurgeCandidateFile(entry: import('fs').Dirent): boolean {
+  return entry.isFile() && !entry.isSymbolicLink();
+}
+
+async function readPurgeDir(dir: string): Promise<import('fs').Dirent[]> {
+  try {
+    return await fs.readdir(dir, { withFileTypes: true });
+  } catch (error: any) {
+    if (error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) {
+      return [];
+    }
+    logWarn('Workspace: failed to inspect cached log directory', dir, '->', error);
+    return [];
+  }
+}
+
+async function collectOrgFirstPurgeCandidatePaths(rootDir: string): Promise<string[]> {
+  const orgsDir = path.join(rootDir, 'orgs');
+  const candidates: string[] = [];
+
+  for (const orgEntry of await readPurgeDir(orgsDir)) {
+    if (!orgEntry.isDirectory()) {
+      continue;
+    }
+
+    const logsDir = path.join(orgsDir, orgEntry.name, 'logs');
+    for (const dayEntry of await readPurgeDir(logsDir)) {
+      if (!dayEntry.isDirectory() || !isSupportedLogDayDirName(dayEntry.name)) {
+        continue;
+      }
+
+      const dayDir = path.join(logsDir, dayEntry.name);
+      for (const fileEntry of await readPurgeDir(dayDir)) {
+        if (isPurgeCandidateFile(fileEntry)) {
+          candidates.push(path.join(dayDir, fileEntry.name));
+        }
+      }
+    }
+  }
+
+  return candidates;
 }
 
 export function getLogIdFromLogFilePath(filePath: string): string | undefined {
@@ -266,33 +313,21 @@ export async function purgeSavedLogs(options: {
   if (signal?.aborted) {
     throw new Error('aborted');
   }
-  const dir = getApexLogsDir();
-  let entries: import('fs').Dirent[];
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
-  } catch (e: any) {
-    if (e && e.code === 'ENOENT') {
-      return 0;
-    }
-    throw e;
-  }
   let removed = 0;
   const now = Date.now();
-  for (const entry of entries) {
+  const candidatePaths = await collectOrgFirstPurgeCandidatePaths(getApexLogsDir());
+
+  for (const filePath of candidatePaths) {
     if (signal?.aborted) {
       throw new Error('aborted');
     }
-    if (!entry.isFile() || entry.isSymbolicLink()) {
-      continue;
-    }
-    const logId = extractLogIdFromFileName(entry.name);
+    const logId = getLogIdFromLogFilePath(filePath);
     if (!logId) {
       continue;
     }
     if (keepIds?.has(logId)) {
       continue;
     }
-    const filePath = path.join(dir, entry.name);
     try {
       if (typeof maxAgeMs === 'number' && Number.isFinite(maxAgeMs)) {
         const stat = await fs.stat(filePath);
