@@ -916,6 +916,7 @@ fn logs_runtime_smoke_triage_downloads_missing_log_into_unknown_date_directory()
     );
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("default@example.com".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })
@@ -931,6 +932,109 @@ fn logs_runtime_smoke_triage_downloads_missing_log_into_unknown_date_directory()
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
     fs::remove_dir_all(fixture_dir).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_triage_downloads_missing_log_into_start_time_day_directory() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("ensure-dated-layout");
+    let fixture_dir = make_temp_workspace("ensure-dated-fixture");
+    let log_id = "07L00000000000DT1";
+    fs::write(
+        fixture_dir.join(format!("{log_id}.log")),
+        "09:00:00.0|USER_INFO|fixture body\n",
+    )
+    .expect("fixture log should be writable");
+
+    std::env::set_var(
+        TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        fixture_dir.display().to_string(),
+    );
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![log_id.to_string()],
+        log_start_times: std::collections::BTreeMap::from([(
+            log_id.to_string(),
+            "2026-03-30T18:39:58.000Z".to_string(),
+        )]),
+        username: Some("default@example.com".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("logs/triage should download and summarize the fixture log");
+
+    assert_eq!(items.len(), 1);
+    let cached = find_cached_log_path(Some(&workspace_root.display().to_string()), log_id)
+        .expect("triage should cache the downloaded fixture log");
+
+    assert!(
+        cached.ends_with("apexlogs/orgs/default@example.com/logs/2026-03-30/07L00000000000DT1.log")
+    );
+
+    std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+    fs::remove_dir_all(fixture_dir).expect("temp workspace should be removable");
+}
+
+#[test]
+fn logs_runtime_smoke_triage_materializes_unknown_date_cache_for_known_start_time() {
+    let _guard = lock_test_guard();
+
+    let workspace_root = make_temp_workspace("triage-materialize-dated-layout");
+    let log_id = "07L00000000000DM1";
+    let unknown_path = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default@example.com")
+        .join("logs")
+        .join("unknown-date")
+        .join(format!("{log_id}.log"));
+    fs::create_dir_all(
+        unknown_path
+            .parent()
+            .expect("unknown-date parent should exist"),
+    )
+    .expect("unknown-date parent should be creatable");
+    fs::write(
+        &unknown_path,
+        "09:00:00.0|CODE_UNIT_STARTED|[EXTERNAL]|Materialized.handle\n",
+    )
+    .expect("unknown-date cached log should be writable");
+
+    let items = triage_logs(&LogsTriageParams {
+        log_ids: vec![log_id.to_string()],
+        log_start_times: std::collections::BTreeMap::from([(
+            log_id.to_string(),
+            "2026-03-30T18:39:58.000Z".to_string(),
+        )]),
+        username: Some("default@example.com".to_string()),
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect(
+        "logs/triage should materialize the dated cache path from an existing unknown-date copy",
+    );
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].code_unit_started.as_deref(),
+        Some("Materialized.handle")
+    );
+    let dated_path = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default@example.com")
+        .join("logs")
+        .join("2026-03-30")
+        .join(format!("{log_id}.log"));
+    assert!(
+        dated_path.is_file(),
+        "triage should create the dated cache copy"
+    );
+    assert!(
+        unknown_path.is_file(),
+        "triage should preserve the older cache hit"
+    );
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
 }
 
 #[test]
@@ -951,6 +1055,7 @@ fn logs_runtime_smoke_triage_uses_legacy_bare_log_fallback_for_scoped_requests()
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("selected@example.com".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })
@@ -1024,6 +1129,7 @@ fn logs_runtime_smoke_triage_ignores_wrong_org_cached_copy_when_alias_resolves_c
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("Alias Org".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })
@@ -1086,6 +1192,7 @@ fn logs_runtime_smoke_triage_uses_canonical_username_tree_for_alias_input() {
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("Alias Org".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })
@@ -1136,6 +1243,7 @@ fn logs_runtime_smoke_triage_falls_back_to_raw_alias_scoped_cache_without_auth()
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("Alias Org".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })
@@ -1181,6 +1289,7 @@ fn logs_runtime_smoke_triage_respects_cancellation_mid_file() {
     let result = triage_logs_with_cancel(
         &LogsTriageParams {
             log_ids: vec!["07L000000000001AA".to_string()],
+            log_start_times: Default::default(),
             username: None,
             workspace_root: Some(workspace_root.display().to_string()),
         },
@@ -1215,6 +1324,7 @@ fn logs_runtime_smoke_triage_uses_default_legacy_cache_without_username() {
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
@@ -1296,6 +1406,7 @@ fn logs_runtime_smoke_triages_logs_and_caches_fixture_downloads() {
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("demo@example.com".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })
@@ -1348,6 +1459,7 @@ fn logs_runtime_smoke_triage_returns_partial_results_when_one_log_is_unreadable(
 
     let items = triage_logs(&LogsTriageParams {
         log_ids: vec![missing_log_id.to_string(), readable_log_id.to_string()],
+        log_start_times: Default::default(),
         username: Some("demo@example.com".to_string()),
         workspace_root: Some(workspace_root.display().to_string()),
     })

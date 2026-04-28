@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { promises as fs } from 'fs';
+import * as path from 'path';
 import { createLimiter, type Limiter } from '../utils/limiter';
 import { fetchApexLogBody, extractCodeUnitStartedFromLines } from '../salesforce/http';
 import type { ApexLogCursor } from '../salesforce/http';
@@ -42,6 +43,11 @@ export type EnsureLogsSavedOptions = {
   onItemComplete?: (result: EnsureLogsSavedItemResult) => void;
 };
 
+type EnsureLogFileResult = {
+  filePath: string;
+  source: 'existing' | 'downloaded';
+};
+
 export type ClassifyLogsForErrorsProgress = {
   logId: string;
   summary: LogTriageSummary;
@@ -63,7 +69,7 @@ export class LogService {
   private saveConcurrency: number;
   private classifyLimiter: Limiter;
   private classifyConcurrency: number;
-  private inFlightSaves = new Map<string, Promise<string>>();
+  private inFlightSaves = new Map<string, Promise<EnsureLogFileResult>>();
 
   constructor(headConcurrency = 5) {
     this.headConcurrency = headConcurrency;
@@ -133,27 +139,59 @@ export class LogService {
     logId: string,
     selectedOrg?: string,
     signal?: AbortSignal,
-    authHint?: OrgAuth
+    authHint?: OrgAuth,
+    startTime?: string
   ): Promise<string> {
+    return (await this.ensureLogFileResult(logId, selectedOrg, signal, authHint, startTime)).filePath;
+  }
+
+  private async ensureLogFileResult(
+    logId: string,
+    selectedOrg?: string,
+    signal?: AbortSignal,
+    authHint?: OrgAuth,
+    startTime?: string
+  ): Promise<EnsureLogFileResult> {
     const auth = authHint ?? (await this.getOrgAuth(selectedOrg, signal));
+    const preferredPath = await this.resolvePreferredLogPath(auth.username, logId, startTime);
+    if (preferredPath && (await this.fileExists(preferredPath))) {
+      return { filePath: preferredPath, source: 'existing' };
+    }
+
     const existing = await findExistingLogFile(logId, auth.username);
     if (existing) {
-      return existing;
+      const materialized = await this.materializeExistingAtPreferredPath(existing, preferredPath, signal);
+      if (materialized) {
+        return materialized;
+      }
+      return { filePath: existing, source: 'existing' };
     }
-    const key = `${auth.username ?? ''}:${logId}`;
+
+    const key = `${auth.username ?? ''}:${logId}:${preferredPath ?? ''}`;
     const pending = this.inFlightSaves.get(key);
     if (pending) {
       return pending;
     }
-    const task = (async () => {
+    const task: Promise<EnsureLogFileResult> = (async (): Promise<EnsureLogFileResult> => {
+      if (preferredPath && (await this.fileExists(preferredPath))) {
+        return { filePath: preferredPath, source: 'existing' };
+      }
+
       const maybeExisting = await findExistingLogFile(logId, auth.username);
       if (maybeExisting) {
-        return maybeExisting;
+        const materialized = await this.materializeExistingAtPreferredPath(maybeExisting, preferredPath, signal);
+        if (materialized) {
+          return materialized;
+        }
+        return { filePath: maybeExisting, source: 'existing' };
       }
-      const { filePath } = await getLogFilePathWithUsername(auth.username, logId);
+      const { filePath } = preferredPath
+        ? { filePath: preferredPath }
+        : await getLogFilePathWithUsername(auth.username, logId, startTime);
       const body = await fetchApexLogBody(auth, logId, undefined, signal);
+      this.throwIfAborted(signal);
       await fs.writeFile(filePath, body, 'utf8');
-      return filePath;
+      return { filePath, source: 'downloaded' };
     })();
     this.inFlightSaves.set(key, task);
     try {
@@ -162,6 +200,64 @@ export class LogService {
     } finally {
       this.inFlightSaves.delete(key);
     }
+  }
+
+  private async resolvePreferredLogPath(
+    username: string | undefined,
+    logId: string,
+    startTime?: string
+  ): Promise<string | undefined> {
+    if (typeof startTime !== 'string' || startTime.trim().length === 0) {
+      return undefined;
+    }
+
+    return (await getLogFilePathWithUsername(username, logId, startTime)).filePath;
+  }
+
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch (e: any) {
+      if (e && e.code === 'ENOENT') {
+        return false;
+      }
+      throw e;
+    }
+  }
+
+  private async materializeExistingAtPreferredPath(
+    existingPath: string,
+    preferredPath: string | undefined,
+    signal?: AbortSignal
+  ): Promise<EnsureLogFileResult | undefined> {
+    if (!preferredPath) {
+      return undefined;
+    }
+    if (path.resolve(existingPath) === path.resolve(preferredPath)) {
+      return { filePath: preferredPath, source: 'existing' };
+    }
+
+    this.throwIfAborted(signal);
+    try {
+      await fs.mkdir(path.dirname(preferredPath), { recursive: true });
+      await fs.copyFile(existingPath, preferredPath);
+      return { filePath: preferredPath, source: 'existing' };
+    } catch (e: any) {
+      if (e && e.code === 'ENOENT') {
+        return undefined;
+      }
+      throw e;
+    }
+  }
+
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (!signal?.aborted) {
+      return;
+    }
+    const error = new Error('Request aborted');
+    error.name = 'AbortError';
+    throw error;
   }
 
   private async loadCodeUnitFromSavedLog(
@@ -262,7 +358,8 @@ export class LogService {
               return;
             }
             const existingPath = await findExistingLogFile(log.Id, selectedUsername);
-            const filePath = existingPath ?? (await this.ensureLogFile(log.Id, selectedOrg, signal));
+            const filePath =
+              existingPath ?? (await this.ensureLogFile(log.Id, selectedOrg, signal, undefined, log.StartTime));
             if (signal?.aborted) {
               return;
             }
@@ -367,22 +464,15 @@ export class LogService {
           }
           try {
             if (downloadMissing) {
-              const existing = await findExistingLogFile(log.Id, selectedUsername);
-              if (existing) {
-                summary.success++;
-                summary.existing++;
-                options?.onItemComplete?.({ logId: log.Id, status: 'existing' });
-                return;
-              }
-              await this.ensureLogFile(log.Id, selectedOrg, signal, authHint);
+              const result = await this.ensureLogFileResult(log.Id, selectedOrg, signal, authHint, log.StartTime);
               if (signal?.aborted) {
                 summary.cancelled++;
                 options?.onItemComplete?.({ logId: log.Id, status: 'cancelled' });
                 return;
               }
               summary.success++;
-              summary.downloaded++;
-              options?.onItemComplete?.({ logId: log.Id, status: 'downloaded' });
+              summary[result.source]++;
+              options?.onItemComplete?.({ logId: log.Id, status: result.source });
             } else {
               const existing = await findExistingLogFile(log.Id, selectedUsername);
               if (!existing) {

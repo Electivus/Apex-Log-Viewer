@@ -83,6 +83,7 @@ export type RuntimeLogTriageSummary = {
 export type LogsTriageParams = {
   username?: string;
   logIds: string[];
+  logStartTimes?: Record<string, string>;
   workspaceRoot?: string;
 };
 

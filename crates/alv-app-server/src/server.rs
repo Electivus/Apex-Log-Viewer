@@ -6,7 +6,7 @@ use alv_core::{
 use alv_protocol::messages::{InitializeParams, InitializeResult, RuntimeCapabilities};
 use serde_json::Value;
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fmt::Write as _,
     io::{self, BufRead, Write},
     sync::mpsc::{self, RecvTimeoutError},
@@ -442,6 +442,9 @@ fn parse_request_line(request: &str) -> Result<ParsedRequest, String> {
             log_ids: string_vec_field(&params, "logIds")
                 .or_else(|| string_vec_field(&params, "log_ids"))
                 .unwrap_or_default(),
+            log_start_times: string_map_field(&params, "logStartTimes")
+                .or_else(|| string_map_field(&params, "log_start_times"))
+                .unwrap_or_default(),
             username: params
                 .get("username")
                 .and_then(Value::as_str)
@@ -530,6 +533,23 @@ fn string_vec_field(source: &Value, field: &str) -> Option<Vec<String>> {
     })
 }
 
+fn string_map_field(source: &Value, field: &str) -> Option<BTreeMap<String, String>> {
+    source.get(field).and_then(Value::as_object).map(|items| {
+        items
+            .iter()
+            .filter_map(|(key, value)| {
+                let key = key.trim();
+                let value = value.as_str()?.trim();
+                if key.is_empty() || value.is_empty() {
+                    None
+                } else {
+                    Some((key.to_string(), value.to_string()))
+                }
+            })
+            .collect()
+    })
+}
+
 fn escape_json(value: &str) -> String {
     let mut escaped = String::new();
     for character in value.chars() {
@@ -591,5 +611,42 @@ mod tests {
         assert_eq!(params.username.as_deref(), Some("selected@example.com"));
         assert_eq!(params.workspace_root.as_deref(), Some("/tmp/demo"));
         assert_eq!(params.log_ids, vec!["07L000000000001AA".to_string()]);
+    }
+
+    #[test]
+    fn parse_request_line_reads_logs_triage_start_times() {
+        let parsed = parse_request_line(
+            r#"{
+              "jsonrpc":"2.0",
+              "id":"triage:1",
+              "method":"logs/triage",
+              "params":{
+                "logIds":["07L000000000001AA"],
+                "logStartTimes":{"07L000000000001AA":"2026-03-30T18:39:58.000Z"},
+                "username":"selected@example.com",
+                "workspaceRoot":"/tmp/demo"
+              }
+            }"#,
+        )
+        .expect("logs/triage request should parse");
+
+        let ParsedRequest::Call(call) = parsed else {
+            panic!("expected a normal call");
+        };
+
+        let ServerOperation::LogsTriage(params) = call.operation else {
+            panic!("expected logs/triage operation");
+        };
+
+        assert_eq!(params.username.as_deref(), Some("selected@example.com"));
+        assert_eq!(params.workspace_root.as_deref(), Some("/tmp/demo"));
+        assert_eq!(params.log_ids, vec!["07L000000000001AA".to_string()]);
+        assert_eq!(
+            params
+                .log_start_times
+                .get("07L000000000001AA")
+                .map(String::as_str),
+            Some("2026-03-30T18:39:58.000Z")
+        );
     }
 }

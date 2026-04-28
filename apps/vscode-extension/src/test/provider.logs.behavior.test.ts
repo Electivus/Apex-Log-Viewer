@@ -401,11 +401,11 @@ suite('SfLogsViewProvider behavior', () => {
     const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     cli.logsList = async () => [
-      { Id: '07L000000000001AA', LogLength: 10 },
-      { Id: '07L000000000002AA', LogLength: 20 }
+      { Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 },
+      { Id: '07L000000000002AA', StartTime: '2026-03-30T18:40:58.000Z', LogLength: 20 }
     ];
-    const triageCalls: Array<{ logIds: string[]; workspaceRoot?: string }> = [];
-    cli.logsTriage = async (params: { logIds: string[]; workspaceRoot?: string }) => {
+    const triageCalls: Array<{ logIds: string[]; logStartTimes?: Record<string, string>; workspaceRoot?: string }> = [];
+    cli.logsTriage = async (params: { logIds: string[]; logStartTimes?: Record<string, string>; workspaceRoot?: string }) => {
       triageCalls.push(params);
       return [
         {
@@ -462,6 +462,10 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(errorHead?.primaryReason, 'Fatal exception');
     assert.equal(errorHead?.reasons?.[0]?.code, 'fatal_exception');
     assert.equal(triageCalls[0]?.workspaceRoot, '/tmp/alv-workspace');
+    assert.deepEqual(triageCalls[0]?.logStartTimes, {
+      '07L000000000001AA': '2026-03-30T18:39:58.000Z',
+      '07L000000000002AA': '2026-03-30T18:40:58.000Z'
+    });
   });
 
   test('refresh cancellation aborts background error scan', async () => {

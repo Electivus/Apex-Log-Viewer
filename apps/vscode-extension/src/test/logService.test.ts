@@ -423,6 +423,9 @@ suite('LogService', () => {
       },
       fs: {
         promises: {
+          access: async (): Promise<never> => {
+            throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+          },
           writeFile: async () => {}
         }
       }
@@ -449,6 +452,118 @@ suite('LogService', () => {
     assert.ok(itemStatuses.includes('existing'));
     assert.ok(itemStatuses.includes('downloaded'));
     assert.ok(itemStatuses.includes('failed'));
+  });
+
+  test('ensureLogsSaved passes StartTime to the log file path builder', async () => {
+    const pathCalls: Array<{ username?: string; logId: string; startTime?: string }> = [];
+    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async () => 'body'
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
+      },
+      ...createRuntimeClientStub({ username: 'u', accessToken: 't', instanceUrl: 'url' }),
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async (
+          username: string | undefined,
+          logId: string,
+          startTime?: string
+        ) => {
+          pathCalls.push({ username, logId, startTime });
+          return { dir: '/tmp', filePath: `/tmp/${logId}.log` };
+        },
+        findExistingLogFile: async () => undefined
+      },
+      fs: {
+        promises: {
+          writeFile: async () => {}
+        }
+      }
+    });
+
+    const svc = new LogService(1);
+    await svc.ensureLogsSaved(
+      [{ Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z' } as ApexLogRow],
+      'default'
+    );
+
+    assert.deepEqual(pathCalls, [
+      {
+        username: 'u',
+        logId: '07L000000000001AA',
+        startTime: '2026-03-30T18:39:58.000Z'
+      }
+    ]);
+  });
+
+  test('ensureLogsSaved materializes known StartTime caches into the dated path', async () => {
+    const logId = '07L0000000000DT1';
+    const existingPath = '/tmp/apexlogs/orgs/user@example.com/logs/unknown-date/07L0000000000DT1.log';
+    const datedPath = '/tmp/apexlogs/orgs/user@example.com/logs/2026-03-30/07L0000000000DT1.log';
+    const copies: Array<{ from: string; to: string }> = [];
+    let fetchCalls = 0;
+    let writeCalls = 0;
+
+    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        extractCodeUnitStartedFromLines: () => undefined,
+        fetchApexLogBody: async () => {
+          fetchCalls++;
+          return 'body';
+        }
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' })
+      },
+      ...createRuntimeClientStub({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' }),
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async (
+          username: string | undefined,
+          id: string,
+          startTime?: string
+        ) => {
+          assert.equal(username, 'user@example.com');
+          assert.equal(id, logId);
+          assert.equal(startTime, '2026-03-30T18:39:58.000Z');
+          return { dir: path.dirname(datedPath), filePath: datedPath };
+        },
+        findExistingLogFile: async (id: string, username?: string) =>
+          id === logId && username === 'user@example.com' ? existingPath : undefined
+      },
+      fs: {
+        promises: {
+          access: async (target: string): Promise<void> => {
+            if (target === datedPath) {
+              throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+            }
+          },
+          mkdir: async () => {},
+          copyFile: async (from: string, to: string) => {
+            copies.push({ from, to });
+          },
+          writeFile: async () => {
+            writeCalls++;
+          }
+        }
+      }
+    });
+
+    const svc = new LogService(1);
+    const summary = await svc.ensureLogsSaved(
+      [{ Id: logId, StartTime: '2026-03-30T18:39:58.000Z' } as ApexLogRow],
+      'default'
+    );
+
+    assert.deepEqual(copies, [{ from: existingPath, to: datedPath }]);
+    assert.equal(fetchCalls, 0, 'should not download when an older cached body exists');
+    assert.equal(writeCalls, 0, 'should not rewrite the body after copying the cache hit');
+    assert.equal(summary.success, 1);
+    assert.equal(summary.existing, 1);
+    assert.equal(summary.downloaded, 0);
   });
 
   test('ensureLogsSaved reports missing logs when downloadMissing is disabled', async () => {

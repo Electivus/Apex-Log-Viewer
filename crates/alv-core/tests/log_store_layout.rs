@@ -50,6 +50,34 @@ fn log_store_places_logs_under_org_and_day_directory() {
 }
 
 #[test]
+fn log_store_uses_unknown_date_for_invalid_start_time_values() {
+    let workspace_root = make_temp_workspace("invalid-day");
+    let file_path = log_file_path_for_start_time(
+        Some(
+            workspace_root
+                .to_str()
+                .expect("workspace path should be utf8"),
+        ),
+        "default@example.com",
+        "undefined-date",
+        "07L000000000003AA",
+    );
+
+    assert_eq!(
+        file_path,
+        workspace_root
+            .join("apexlogs")
+            .join("orgs")
+            .join("default@example.com")
+            .join("logs")
+            .join("unknown-date")
+            .join("07L000000000003AA.log")
+    );
+
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+}
+
+#[test]
 fn log_store_finds_new_layout_before_legacy_flat_files() {
     let workspace_root = make_temp_workspace("find-cache");
     let safe_org = safe_target_org("default@example.com");

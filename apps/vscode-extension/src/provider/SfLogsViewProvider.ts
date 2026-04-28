@@ -662,6 +662,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           {
             username: selectedOrg,
             logIds: toScan.map(log => log.Id),
+            logStartTimes: Object.fromEntries(
+              toScan
+                .filter(log => typeof log.StartTime === 'string' && log.StartTime.trim().length > 0)
+                .map(log => [log.Id, log.StartTime])
+            ),
             workspaceRoot: getWorkspaceRoot()
           },
           controller.signal

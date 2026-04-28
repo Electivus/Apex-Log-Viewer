@@ -117,20 +117,29 @@ export async function ensureApexLogsDir(): Promise<string> {
 }
 
 /**
- * Build a username-prefixed log file path under `apexlogs`.
+ * Build an org-first log file path under `apexlogs`.
  */
 export async function getLogFilePathWithUsername(
   username: string | undefined,
-  logId: string
+  logId: string,
+  startTime?: string
 ): Promise<{ dir: string; filePath: string }> {
-  const dir = await ensureApexLogsDir();
+  const rootDir = await ensureApexLogsDir();
   const safeUser = toSafeLogUserName(username);
-  const filePath = path.join(dir, `${safeUser}_${logId}.log`);
+  const dir = path.join(rootDir, 'orgs', safeUser, 'logs', toLogDayDirName(startTime));
+  await fs.mkdir(dir, { recursive: true });
+  const filePath = path.join(dir, `${logId}.log`);
   return { dir, filePath };
 }
 
 function toSafeLogUserName(username: string | undefined): string {
   return (username || 'default').replace(/[^a-zA-Z0-9_.@-]+/g, '_');
+}
+
+function toLogDayDirName(startTime: string | undefined): string {
+  const value = typeof startTime === 'string' ? startTime.trim() : '';
+  const day = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : 'unknown-date';
 }
 
 function isSupportedLogDayDirName(name: string): boolean {

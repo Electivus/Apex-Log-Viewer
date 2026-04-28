@@ -94,15 +94,24 @@ pub fn log_file_path_for_start_time(
     start_time: &str,
     log_id: &str,
 ) -> PathBuf {
-    let day = start_time
-        .get(0..10)
-        .filter(|value| value.len() == 10)
-        .unwrap_or("unknown-date");
+    let day = log_day_dir_name_for_start_time(start_time);
 
     org_dir(workspace_root, raw_org)
         .join("logs")
         .join(day)
         .join(format!("{log_id}.log"))
+}
+
+fn log_day_dir_name_for_start_time(start_time: &str) -> &str {
+    let Some(day) = start_time.get(0..10) else {
+        return "unknown-date";
+    };
+
+    if is_yyyy_mm_dd(day) {
+        day
+    } else {
+        "unknown-date"
+    }
 }
 
 pub fn unknown_date_log_path(workspace_root: Option<&str>, raw_org: &str, log_id: &str) -> PathBuf {
@@ -238,7 +247,9 @@ fn find_log_in_logs_dir(logs_root: &Path, log_id: &str) -> Option<PathBuf> {
 
     for entry in fs::read_dir(logs_root).ok()?.flatten() {
         let day_dir = entry.path();
-        if !day_dir.is_dir() || !is_supported_log_day_dir_name(entry.file_name().to_string_lossy().as_ref()) {
+        if !day_dir.is_dir()
+            || !is_supported_log_day_dir_name(entry.file_name().to_string_lossy().as_ref())
+        {
             continue;
         }
 
@@ -251,20 +262,23 @@ fn find_log_in_logs_dir(logs_root: &Path, log_id: &str) -> Option<PathBuf> {
     None
 }
 
-fn is_supported_log_day_dir_name(name: &str) -> bool {
-    name == "unknown-date"
-        || matches!(
-            name.as_bytes(),
-            [y1, y2, y3, y4, b'-', m1, m2, b'-', d1, d2]
-                if y1.is_ascii_digit()
-                    && y2.is_ascii_digit()
-                    && y3.is_ascii_digit()
-                    && y4.is_ascii_digit()
-                    && m1.is_ascii_digit()
-                    && m2.is_ascii_digit()
-                    && d1.is_ascii_digit()
-                    && d2.is_ascii_digit()
-        )
+pub(crate) fn is_supported_log_day_dir_name(name: &str) -> bool {
+    name == "unknown-date" || is_yyyy_mm_dd(name)
+}
+
+fn is_yyyy_mm_dd(value: &str) -> bool {
+    matches!(
+        value.as_bytes(),
+        [y1, y2, y3, y4, b'-', m1, m2, b'-', d1, d2]
+            if y1.is_ascii_digit()
+                && y2.is_ascii_digit()
+                && y3.is_ascii_digit()
+                && y4.is_ascii_digit()
+                && m1.is_ascii_digit()
+                && m2.is_ascii_digit()
+                && d1.is_ascii_digit()
+                && d2.is_ascii_digit()
+    )
 }
 
 fn find_log_in_orgs_root(orgs_root: &Path, log_id: &str) -> Option<PathBuf> {
