@@ -143,6 +143,17 @@
         }
       }
     },
+    "command.copyDiagnostics": {
+      "description": "Copy-diagnostics command outcome.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "FeatureInsight",
+          "required": true,
+          "values": ["ok", "error"]
+        }
+      }
+    },
     "command.resetCliCache": {
       "description": "Reset-CLI-cache command outcome.",
       "properties": {

@@ -16,10 +16,18 @@ class MockDisposable implements vscode.Disposable {
 }
 
 class MockWebview implements vscode.Webview {
-  html = '';
+  private _html = '';
+  readonly htmlAssignments: string[] = [];
   options: vscode.WebviewOptions = {};
   cspSource = 'vscode-resource://test';
   private messageHandler: ((e: any) => void) | undefined;
+  get html(): string {
+    return this._html;
+  }
+  set html(value: string) {
+    this._html = value;
+    this.htmlAssignments.push(value);
+  }
   asWebviewUri(uri: vscode.Uri): vscode.Uri {
     return uri;
   }
@@ -110,7 +118,36 @@ class MockWebviewPanel implements vscode.WebviewPanel {
   }
 }
 
+async function remountLogsSidebar(
+  provider: SfLogsViewProvider,
+  clock: TestClock,
+  posted: any[]
+): Promise<MockWebview> {
+  const webview = new MockWebview();
+  webview.postMessage = (message: any) => {
+    posted.push(message);
+    return Promise.resolve(true);
+  };
+  const view = new MockWebviewView(webview);
+  await provider.resolveWebviewView(view);
+  await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+  await webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
+  await clock.flushMicrotasks();
+  return webview;
+}
+
 suite('SfLogsViewProvider webview', () => {
+  test('uses corporate-friendly webview bootstrap timing windows', () => {
+    assert.ok(
+      WEBVIEW_STABLE_VISIBILITY_DELAY_MS >= 1000,
+      'visibility should be stable for at least 1s before mounting webview content'
+    );
+    assert.ok(
+      WEBVIEW_READY_TIMEOUT_MS >= 30000,
+      'webview ready watchdog should allow at least 30s for slow corporate machines'
+    );
+  });
+
   test('mounts the logs view after visibility stabilizes', async () => {
     const clock = new TestClock();
     try {
@@ -215,6 +252,200 @@ suite('SfLogsViewProvider webview', () => {
 
       await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
       assert.ok(webview.html.includes('Content-Security-Policy'), 'visible sidebar should auto-remount after timeout');
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('accepts delayed logs ready messages from slow corporate webview startup', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const calls: string[] = [];
+
+      (provider as any).sendOrgs = async () => {
+        calls.push('sendOrgs');
+      };
+      (provider as any).refresh = async () => {
+        calls.push('refresh');
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      const mountSequence = (provider as any).mountSequence;
+      assert.ok(webview.html.includes('Content-Security-Policy'), 'initial mount should render real html');
+
+      await clock.advanceBy(20_000);
+      assert.ok(
+        webview.html.includes('Content-Security-Policy'),
+        'slow startup should not be replaced with placeholder before the ready timeout'
+      );
+
+      webview.emit({ type: 'ready', mountSequence });
+      await clock.flushMicrotasks();
+
+      assert.deepEqual(calls, ['sendOrgs', 'refresh']);
+      assert.equal(provider.isReady(), true, 'delayed ready should mark the provider ready');
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('keeps a ready retained sidebar webview mounted across hide and show', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+
+      (provider as any).sendOrgs = async () => undefined;
+      (provider as any).refresh = async () => undefined;
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      const mountedHtml = webview.html;
+      const mountedAssignments = webview.htmlAssignments.length;
+      const mountSequence = (provider as any).mountSequence;
+
+      await webview.emit({ type: 'ready', mountSequence });
+      await clock.flushMicrotasks();
+
+      view.fireVisible(false);
+      assert.equal(webview.html, mountedHtml, 'hiding a retained ready webview should not replace html');
+      assert.equal(webview.htmlAssignments.length, mountedAssignments, 'hide should not write placeholder html');
+      assert.equal(provider.isReady(), true, 'ready retained webview should stay ready while hidden');
+
+      view.fireVisible(true);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+
+      assert.equal(webview.html, mountedHtml, 'showing a retained ready webview should not remount html');
+      assert.equal(webview.htmlAssignments.length, mountedAssignments, 'show should not write a new html document');
+      assert.equal((provider as any).mountSequence, mountSequence, 'show should keep the same mount sequence');
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('requeues retained sidebar replay when visible postMessage is dropped', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const posted: any[] = [];
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      (provider as any).sendOrgs = async () => undefined;
+      (provider as any).refresh = async () => undefined;
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      await webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
+      await clock.flushMicrotasks();
+
+      view.fireVisible(false);
+      (provider as any).post({
+        type: 'logs',
+        data: [{ Id: '07Lxx0000000001', StartTime: '2026-04-29T16:00:00.000Z', Status: 'Success' }],
+        hasMore: false
+      });
+      await clock.flushMicrotasks();
+
+      assert.equal((provider as any).needsReplayOnVisible, true, 'hidden update should request replay on show');
+
+      posted.length = 0;
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(false);
+      };
+      view.fireVisible(true);
+      await clock.flushMicrotasks();
+
+      assert.ok(posted.some(message => message?.type === 'init'), 'visible transition should attempt init replay');
+      assert.equal(
+        (provider as any).needsReplayOnVisible,
+        true,
+        'dropped visible replay should stay requested until a retry delivers it'
+      );
+
+      posted.length = 0;
+      webview.postMessage = (message: any) => {
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+      await clock.advanceBy(1000);
+
+      assert.equal((provider as any).needsReplayOnVisible, false, 'successful retry should clear replay request');
+      assert.ok(posted.some(message => message?.type === 'init'), 'visible retry should resend init');
+      assert.ok(posted.some(message => message?.type === 'logs'), 'visible retry should resend logs');
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('keeps an initializing retained sidebar webview mounted while hidden', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const calls: string[] = [];
+
+      (provider as any).sendOrgs = async () => {
+        calls.push('sendOrgs');
+      };
+      (provider as any).refresh = async () => {
+        calls.push('refresh');
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      const mountedHtml = webview.html;
+      const mountedAssignments = webview.htmlAssignments.length;
+      const mountSequence = (provider as any).mountSequence;
+
+      view.fireVisible(false);
+      await clock.advanceBy(WEBVIEW_READY_TIMEOUT_MS + WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+
+      assert.equal(webview.html, mountedHtml, 'hidden initializing retained webview should not fall back to placeholder');
+      assert.equal(webview.htmlAssignments.length, mountedAssignments, 'hidden initializing webview should not remount');
+
+      view.fireVisible(true);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+
+      assert.equal(webview.html, mountedHtml, 'visible restore should reuse the initializing document');
+      assert.equal((provider as any).mountSequence, mountSequence, 'visible restore should not allocate a new mount');
+
+      await webview.emit({ type: 'ready', mountSequence });
+      await clock.flushMicrotasks();
+
+      assert.deepEqual(calls, ['sendOrgs', 'refresh']);
+      assert.equal(provider.isReady(), true);
     } finally {
       clock.dispose();
     }
@@ -329,11 +560,7 @@ suite('SfLogsViewProvider webview', () => {
       await clock.flushMicrotasks();
       posted.length = 0;
 
-      view.fireVisible(false);
-      view.fireVisible(true);
-      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
-      await clock.flushMicrotasks();
+      await remountLogsSidebar(provider, clock, posted);
 
       assert.equal(
         posted.some(message => message?.type === 'refreshCalled'),
@@ -545,11 +772,7 @@ suite('SfLogsViewProvider webview', () => {
       provider.setSelectedOrg('second@example.com');
       posted.length = 0;
 
-      view.fireVisible(false);
-      view.fireVisible(true);
-      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
-      await clock.flushMicrotasks();
+      await remountLogsSidebar(provider, clock, posted);
 
       const replayedOrgs = posted.find(message => message?.type === 'orgs');
       assert.equal(replayedOrgs?.selected, 'second@example.com');
@@ -614,11 +837,7 @@ suite('SfLogsViewProvider webview', () => {
       (provider as any).post({ type: 'error', message: 'load failed' });
       posted.length = 0;
 
-      view.fireVisible(false);
-      view.fireVisible(true);
-      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
-      await clock.flushMicrotasks();
+      await remountLogsSidebar(provider, clock, posted);
 
       assert.equal(
         posted.some(message => message?.type === 'error' && message?.message === 'load failed'),
@@ -629,11 +848,7 @@ suite('SfLogsViewProvider webview', () => {
       (provider as any).post({ type: 'logs', data: [], hasMore: false });
       posted.length = 0;
 
-      view.fireVisible(false);
-      view.fireVisible(true);
-      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
-      await clock.flushMicrotasks();
+      await remountLogsSidebar(provider, clock, posted);
 
       assert.equal(
         posted.some(message => message?.type === 'error'),
@@ -672,11 +887,7 @@ suite('SfLogsViewProvider webview', () => {
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
         posted.length = 0;
-        view.fireVisible(false);
-        view.fireVisible(true);
-        await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-        webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
-        await clock.flushMicrotasks();
+        await remountLogsSidebar(provider, clock, posted);
 
         assert.equal(
           posted.some(message => message?.type === 'error' && message?.message === 'refresh failed'),
@@ -687,11 +898,7 @@ suite('SfLogsViewProvider webview', () => {
       (provider as any).post({ type: 'logs', data: [], hasMore: false });
       posted.length = 0;
 
-      view.fireVisible(false);
-      view.fireVisible(true);
-      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
-      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
-      await clock.flushMicrotasks();
+      await remountLogsSidebar(provider, clock, posted);
 
       assert.equal(
         posted.some(message => message?.type === 'error'),
@@ -753,6 +960,289 @@ suite('SfLogsViewProvider webview', () => {
         posted.some(message => message?.type === 'error'),
         false,
         'cleared loadMore errors should not replay on remount'
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('replays an explicit logs error clear after hidden recovery', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const posted: any[] = [];
+      let dropVisibleReplay = false;
+      webview.postMessage = (message: any) => {
+        if (!view.visible) {
+          return Promise.resolve(false);
+        }
+        if (dropVisibleReplay) {
+          return Promise.resolve(false);
+        }
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
+      await clock.flushMicrotasks();
+
+      (provider as any).post({ type: 'error', message: 'load more failed' });
+      posted.length = 0;
+
+      view.fireVisible(false);
+      (provider as any).post({
+        type: 'appendLogs',
+        data: [{ Id: '07L000000000005AA', StartTime: '2026-04-19T00:04:00.000Z' }],
+        hasMore: false
+      });
+      await clock.flushMicrotasks();
+
+      assert.equal(posted.length, 0, 'hidden clear is not delivered in this test harness');
+
+      dropVisibleReplay = true;
+      view.fireVisible(true);
+      await clock.flushMicrotasks();
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === undefined),
+        false,
+        'dropped visible replay should not count as a delivered clear'
+      );
+
+      dropVisibleReplay = false;
+      posted.length = 0;
+      await clock.advanceBy(1000);
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === undefined),
+        true,
+        'visible retry should still include the stale retained logs error clear'
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('retries a dropped visible logs error clear', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const posted: any[] = [];
+      let dropVisibleClear = false;
+      webview.postMessage = (message: any) => {
+        if (dropVisibleClear && message?.type === 'error' && message?.message === undefined) {
+          return Promise.resolve(false);
+        }
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
+      await clock.flushMicrotasks();
+
+      (provider as any).post({ type: 'error', message: 'load more failed' });
+      posted.length = 0;
+
+      dropVisibleClear = true;
+      (provider as any).post({
+        type: 'appendLogs',
+        data: [{ Id: '07L000000000006AA', StartTime: '2026-04-19T00:05:00.000Z' }],
+        hasMore: false
+      });
+      await clock.flushMicrotasks();
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === undefined),
+        false,
+        'dropped visible clear should not be treated as delivered'
+      );
+
+      dropVisibleClear = false;
+      posted.length = 0;
+      await clock.advanceBy(1000);
+
+      assert.equal(
+        posted.some(message => message?.type === 'error' && message?.message === undefined),
+        true,
+        'visible retry should resend a dropped logs error clear'
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('retries retained replay after a dropped visible appendLogs update', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const posted: any[] = [];
+      let dropNextAppendLogs = false;
+      webview.postMessage = (message: any) => {
+        if (dropNextAppendLogs && message?.type === 'appendLogs') {
+          dropNextAppendLogs = false;
+          return Promise.resolve(false);
+        }
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
+      await clock.flushMicrotasks();
+
+      const logs = [{ Id: '07L000000000007AA', StartTime: '2026-04-19T00:06:00.000Z' }] as any[];
+      posted.length = 0;
+      dropNextAppendLogs = true;
+      (provider as any).post({ type: 'appendLogs', data: logs, hasMore: false });
+      (provider as any).setCurrentLogs(logs);
+      await clock.flushMicrotasks();
+
+      assert.equal(
+        (provider as any).needsReplayOnVisible,
+        true,
+        'dropped visible appendLogs should request a retained replay'
+      );
+
+      posted.length = 0;
+      await clock.advanceBy(1000);
+
+      assert.equal((provider as any).needsReplayOnVisible, false, 'successful logs retry should clear replay request');
+      assert.ok(posted.some(message => message?.type === 'init'), 'visible retry should resend logs init');
+      assert.ok(
+        posted.some(message => message?.type === 'logs' && message?.data?.[0]?.Id === logs[0].Id),
+        'visible retry should replay the latest retained logs snapshot'
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('resets visible replay retry budget after a successful logs retry', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      const posted: any[] = [];
+      let dropNextAppendLogs = false;
+      webview.postMessage = (message: any) => {
+        if (dropNextAppendLogs && message?.type === 'appendLogs') {
+          dropNextAppendLogs = false;
+          return Promise.resolve(false);
+        }
+        posted.push(message);
+        return Promise.resolve(true);
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
+      await clock.flushMicrotasks();
+
+      const logs = [{ Id: '07L000000000008AA', StartTime: '2026-04-19T00:07:00.000Z' }] as any[];
+      dropNextAppendLogs = true;
+      (provider as any).post({ type: 'appendLogs', data: logs, hasMore: false });
+      (provider as any).setCurrentLogs(logs);
+      await clock.flushMicrotasks();
+
+      assert.equal((provider as any).visibleReplayRetryAttempts, 1, 'dropped logs update should consume retry budget');
+
+      posted.length = 0;
+      await clock.advanceBy(1000);
+
+      assert.equal(
+        (provider as any).visibleReplayRetryAttempts,
+        0,
+        'successful logs replay retry should reset the retry budget'
+      );
+    } finally {
+      clock.dispose();
+    }
+  });
+
+  test('stops retrying visible logs replay after the retry budget is exhausted', async () => {
+    const clock = new TestClock();
+    try {
+      const context = {
+        extensionUri: vscode.Uri.file(path.resolve('.')),
+        subscriptions: [] as vscode.Disposable[]
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new SfLogsViewProvider(context);
+      const webview = new MockWebview();
+      const view = new MockWebviewView(webview);
+      let dropAppendThenAllReplay = false;
+      let dropAllReplay = false;
+      webview.postMessage = (message: any) => {
+        if (dropAppendThenAllReplay && message?.type === 'appendLogs') {
+          dropAppendThenAllReplay = false;
+          dropAllReplay = true;
+          return Promise.resolve(false);
+        }
+        if (dropAllReplay) {
+          return Promise.resolve(false);
+        }
+        return Promise.resolve(true);
+      };
+
+      await provider.resolveWebviewView(view);
+      await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
+      webview.emit({ type: 'ready', mountSequence: (provider as any).mountSequence });
+      await clock.flushMicrotasks();
+
+      const logs = [{ Id: '07L000000000009AA', StartTime: '2026-04-19T00:08:00.000Z' }] as any[];
+      dropAppendThenAllReplay = true;
+      (provider as any).post({ type: 'appendLogs', data: logs, hasMore: false });
+      (provider as any).setCurrentLogs(logs);
+      await clock.flushMicrotasks();
+
+      await clock.advanceBy(1000);
+
+      assert.equal(
+        (provider as any).visibleReplayRetryAttempts,
+        3,
+        'failed logs replay retries should consume the configured retry budget'
+      );
+      assert.equal(
+        (provider as any).visibleReplayRetryTimer,
+        undefined,
+        'logs replay should stop scheduling immediate retries after the budget is exhausted'
+      );
+      assert.equal(
+        (provider as any).needsReplayOnVisible,
+        true,
+        'logs replay should remain pending for a future hide/show after immediate retries are exhausted'
       );
     } finally {
       clock.dispose();

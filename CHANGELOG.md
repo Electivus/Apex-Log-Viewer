@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Bug Fixes
+
+- Logs/Tail: increase webview startup timing windows so slow corporate machines can finish VS Code webview/service-worker bootstrap before the extension retries the mount.
+- Logs/Tail: retain webview context while hidden, avoid placeholder remounts during hide/show, and add a diagnostics package command with lifecycle evidence for service-worker/bootstrap failures.
+
 ## [0.46.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.44.0...v0.46.0) (2026-04-29)
 
 ### Bug Fixes

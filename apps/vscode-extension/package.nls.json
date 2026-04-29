@@ -11,6 +11,7 @@
   "command.openLogsEditor.title": "Open Logs in Editor Area",
   "command.openTailEditor.title": "Open Tail in Editor Area",
   "command.openLogInViewer.title": "Open in Apex Log Viewer",
+  "command.copyDiagnostics.title": "Copy Diagnostics Package",
   "configuration.title": "Electivus Apex Logs",
   "configuration.electivus.apexLogs.pageSize.description": "Number of logs to fetch per page (effective maximum: 200). Higher values fetch more per request but may slow the UI or increase API load.",
   "configuration.electivus.apexLogs.headConcurrency.description": "Maximum concurrent requests to fetch log headers. Very high values may overload Salesforce APIs or hit rate limits.",
@@ -61,5 +62,7 @@
   "logsCleanup.done": "Deleted {0} Apex log(s).",
   "logsCleanup.failed": "Failed to clear logs: {0}",
   "logsCleanup.hintStorageFull": "Org log storage appears to be full. Use “Clear logs” → “All org logs” to free up space.",
-  "logsCleanup.actionClearAll": "Clear org logs…"
+  "logsCleanup.actionClearAll": "Clear org logs…",
+  "diagnostics.copied": "Electivus Apex Logs: diagnostics package copied to clipboard.",
+  "diagnostics.copyFailed": "Electivus Apex Logs: failed to copy diagnostics: {0}"
 }

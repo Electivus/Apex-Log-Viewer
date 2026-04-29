@@ -25,9 +25,38 @@ import { LogViewerPanel } from '../panel/LogViewerPanel';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { runtimeClient } from '../runtime/runtimeClient';
 import { createWebviewPanelHost, createWebviewViewHost, type BoundWebviewHost } from './webviewHost';
+import { recordWebviewEvent, type WebviewProviderDiagnosticState } from '../shared/webviewDiagnostics';
 
-export const WEBVIEW_STABLE_VISIBILITY_DELAY_MS = 200;
-export const WEBVIEW_READY_TIMEOUT_MS = 5000;
+// Corporate-managed notebooks can take several seconds to initialize VS Code
+// webviews and their internal service worker. Keep these windows generous so a
+// slow-but-healthy startup is not torn down into a remount loop.
+export const WEBVIEW_STABLE_VISIBILITY_DELAY_MS = 1000;
+export const WEBVIEW_READY_TIMEOUT_MS = 30000;
+const WEBVIEW_REPLAY_RETRY_DELAY_MS = 250;
+const WEBVIEW_REPLAY_MAX_RETRIES = 3;
+const TAIL_REPLAYABLE_VISIBLE_UPDATE_TYPES = new Set<ExtensionToWebviewMessage['type']>([
+  'loading',
+  'error',
+  'orgs',
+  'debugLevels',
+  'tailStatus',
+  'tailData',
+  'tailReset',
+  'tailConfig'
+]);
+
+interface ReplayDeliveryBatch {
+  pending: number;
+  dropped: boolean;
+  resetRetryBudgetOnSuccess: boolean;
+}
+
+interface WebviewPostOptions {
+  replay?: boolean;
+  requeueReplayOnDrop?: boolean;
+  onDelivered?: () => void;
+  replayBatch?: ReplayDeliveryBatch;
+}
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = 'sfLogTail';
@@ -38,8 +67,12 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   private readonly readyTimeoutListeners = new Set<() => void>();
   private disposed = false;
   private ready = false;
+  private contentMounted = false;
+  private needsReplayOnVisible = false;
   private mountTimer: ReturnType<typeof setTimeout> | undefined;
   private readyTimer: ReturnType<typeof setTimeout> | undefined;
+  private visibleReplayRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  private visibleReplayRetryAttempts = 0;
   private mountSequence = 0;
   private selectedOrg: string | undefined;
   private tailService = new TailService(m => this.post(m));
@@ -53,7 +86,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   private debugLevelsBootstrapNeedsRefresh = false;
   private tailRunningSnapshot = false;
   private tailBufferSizeSnapshot = DEFAULT_TAIL_BUFFER_LINES;
+  private tailResetNeedsReplay = false;
   private errorMessage: string | undefined;
+  private errorClearNeedsReplay = false;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.tailService.setOrg(this.selectedOrg);
@@ -183,6 +218,36 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     return this.ready && !this.disposed;
   }
 
+  public getWebviewDiagnosticState(): WebviewProviderDiagnosticState {
+    return {
+      surface: 'tail',
+      hasHost: !!this.host,
+      hostKind: this.host?.kind,
+      visible: this.host?.visible,
+      ready: this.ready,
+      disposed: this.disposed,
+      contentMounted: this.contentMounted,
+      mountSequence: this.mountSequence,
+      mountTimerActive: this.mountTimer !== undefined,
+      readyTimerActive: this.readyTimer !== undefined,
+      needsReplayOnVisible: this.needsReplayOnVisible,
+      snapshots: {
+        loading: this.loadingState,
+        hasOrgsSnapshot: this.hasOrgsSnapshot,
+        orgCount: this.orgsSnapshot.length,
+        hasDebugLevelsSnapshot: this.hasDebugLevelsSnapshot,
+        debugLevelCount: this.debugLevelsSnapshot.length,
+        tailRunning: this.tailRunningSnapshot,
+        tailBufferSize: this.tailBufferSizeSnapshot,
+        bufferedLineCount: this.tailService.getBufferedLines().length,
+        tailResetNeedsReplay: this.tailResetNeedsReplay,
+        hasError: this.errorMessage !== undefined,
+        visibleReplayRetryTimerActive: this.visibleReplayRetryTimer !== undefined,
+        visibleReplayRetryAttempts: this.visibleReplayRetryAttempts
+      }
+    };
+  }
+
   public onDidReadyTimeout(listener: () => void): vscode.Disposable {
     this.readyTimeoutListeners.add(listener);
     return {
@@ -195,6 +260,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
   public dispose(): void {
     this.disposed = true;
     this.ready = false;
+    this.contentMounted = false;
+    this.needsReplayOnVisible = false;
+    this.visibleReplayRetryAttempts = 0;
+    this.tailResetNeedsReplay = false;
     this.view = undefined;
     this.host = undefined;
     this.clearBootstrapTimers();
@@ -251,13 +320,31 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     }
   }
 
+  private clearVisibleReplayRetryTimer(): void {
+    if (this.visibleReplayRetryTimer) {
+      clearTimeout(this.visibleReplayRetryTimer);
+      this.visibleReplayRetryTimer = undefined;
+    }
+  }
+
   private clearBootstrapTimers(): void {
     this.clearMountTimer();
     this.clearReadyTimer();
+    this.clearVisibleReplayRetryTimer();
   }
 
   private showPlaceholder(host: BoundWebviewHost): void {
+    this.contentMounted = false;
     host.webview.html = this.getPlaceholderHtml();
+    recordWebviewEvent({
+      surface: 'tail',
+      event: 'placeholder',
+      hostKind: host.kind,
+      mountSequence: this.mountSequence,
+      visible: host.visible,
+      ready: this.ready,
+      contentMounted: this.contentMounted
+    });
   }
 
   private scheduleMount(host = this.host): void {
@@ -265,6 +352,16 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       return;
     }
     this.clearMountTimer();
+    recordWebviewEvent({
+      surface: 'tail',
+      event: 'mountScheduled',
+      hostKind: host.kind,
+      mountSequence: this.mountSequence,
+      visible: host.visible,
+      ready: this.ready,
+      contentMounted: this.contentMounted,
+      details: { delayMs: WEBVIEW_STABLE_VISIBILITY_DELAY_MS }
+    });
     this.mountTimer = setTimeout(() => {
       this.mountTimer = undefined;
       if (this.host !== host || this.disposed || !host.visible) {
@@ -276,8 +373,25 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
 
   private mountWebview(host: BoundWebviewHost): void {
     this.ready = false;
+    this.needsReplayOnVisible = false;
+    this.visibleReplayRetryAttempts = 0;
     const mountId = ++this.mountSequence;
+    this.contentMounted = true;
     host.webview.html = this.getHtmlForWebview(host.webview, mountId);
+    this.startReadyTimer(host, mountId);
+    recordWebviewEvent({
+      surface: 'tail',
+      event: 'mounted',
+      hostKind: host.kind,
+      mountSequence: mountId,
+      visible: host.visible,
+      ready: this.ready,
+      contentMounted: this.contentMounted
+    });
+    logInfo(`Tail webview mounted (${host.kind}).`);
+  }
+
+  private startReadyTimer(host: BoundWebviewHost, mountId: number): void {
     this.clearReadyTimer();
     this.readyTimer = setTimeout(() => {
       this.readyTimer = undefined;
@@ -285,6 +399,16 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         return;
       }
       logWarn(`Tail webview did not report ready within ${WEBVIEW_READY_TIMEOUT_MS}ms (${host.kind}).`);
+      recordWebviewEvent({
+        surface: 'tail',
+        event: 'readyTimeout',
+        hostKind: host.kind,
+        mountSequence: mountId,
+        visible: host.visible,
+        ready: this.ready,
+        contentMounted: this.contentMounted,
+        details: { timeoutMs: WEBVIEW_READY_TIMEOUT_MS }
+      });
       this.ready = false;
       this.showPlaceholder(host);
       if (host.kind === 'editor') {
@@ -294,7 +418,6 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         this.scheduleMount(host);
       }
     }, WEBVIEW_READY_TIMEOUT_MS);
-    logInfo(`Tail webview mounted (${host.kind}).`);
   }
 
   private fireReadyTimeout(): void {
@@ -310,9 +433,45 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       return;
     }
     if (!visible) {
-      this.ready = false;
       this.clearBootstrapTimers();
-      this.showPlaceholder(host);
+      recordWebviewEvent({
+        surface: 'tail',
+        event: 'hidden',
+        hostKind: host.kind,
+        mountSequence: this.mountSequence,
+        visible,
+        ready: this.ready,
+        contentMounted: this.contentMounted
+      });
+      return;
+    }
+    recordWebviewEvent({
+      surface: 'tail',
+      event: 'visible',
+      hostKind: host.kind,
+      mountSequence: this.mountSequence,
+      visible,
+      ready: this.ready,
+      contentMounted: this.contentMounted,
+      details: { needsReplayOnVisible: this.needsReplayOnVisible }
+    });
+    if (this.ready) {
+      if (this.needsReplayOnVisible) {
+        this.replayRetainedState(host, visible, 'replayedOnVisible', true);
+      }
+      return;
+    }
+    if (this.contentMounted && this.mountSequence > 0) {
+      this.startReadyTimer(host, this.mountSequence);
+      recordWebviewEvent({
+        surface: 'tail',
+        event: 'resumedPendingReady',
+        hostKind: host.kind,
+        mountSequence: this.mountSequence,
+        visible,
+        ready: this.ready,
+        contentMounted: this.contentMounted
+      });
       return;
     }
     this.scheduleMount(host);
@@ -325,14 +484,42 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     if (mountSequence === undefined) {
       if (this.mountSequence > 1) {
         logInfo(`Tail webview ignored unsequenced stale ready (${this.host.kind}).`);
+        recordWebviewEvent({
+          surface: 'tail',
+          event: 'ignoredUnsequencedReady',
+          hostKind: this.host.kind,
+          mountSequence: this.mountSequence,
+          visible: this.host.visible,
+          ready: this.ready,
+          contentMounted: this.contentMounted
+        });
         return;
       }
     } else if (mountSequence !== this.mountSequence) {
       logInfo(`Tail webview ignored stale ready (${this.host.kind}).`);
+      recordWebviewEvent({
+        surface: 'tail',
+        event: 'ignoredStaleReady',
+        hostKind: this.host.kind,
+        mountSequence: this.mountSequence,
+        visible: this.host.visible,
+        ready: this.ready,
+        contentMounted: this.contentMounted,
+        details: { receivedMountSequence: mountSequence }
+      });
       return;
     }
     this.ready = true;
     this.clearReadyTimer();
+    recordWebviewEvent({
+      surface: 'tail',
+      event: 'ready',
+      hostKind: this.host.kind,
+      mountSequence: this.mountSequence,
+      visible: this.host.visible,
+      ready: this.ready,
+      contentMounted: this.contentMounted
+    });
     this.post({ type: 'init', locale: vscode.env.language });
     this.replaySnapshot();
     const needsBootstrap =
@@ -349,26 +536,74 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     }
   }
 
-  private replaySnapshot(): void {
-    this.post({ type: 'loading', value: this.loadingState }, { replay: true });
+  private replayRetainedState(
+    host: BoundWebviewHost,
+    visible: boolean,
+    event: string,
+    resetRetryBudget: boolean
+  ): void {
+    if (resetRetryBudget) {
+      this.visibleReplayRetryAttempts = 0;
+    }
+    const replayBatch: ReplayDeliveryBatch = {
+      pending: 0,
+      dropped: false,
+      resetRetryBudgetOnSuccess: !resetRetryBudget
+    };
+    this.needsReplayOnVisible = false;
+    this.post({ type: 'init', locale: vscode.env.language }, { requeueReplayOnDrop: true, replayBatch });
+    this.replaySnapshot({ requeueReplayOnDrop: true, replayBatch });
+    recordWebviewEvent({
+      surface: 'tail',
+      event,
+      hostKind: host.kind,
+      mountSequence: this.mountSequence,
+      visible,
+      ready: this.ready,
+      contentMounted: this.contentMounted,
+      details: { retryAttempts: this.visibleReplayRetryAttempts }
+    });
+  }
+
+  private replaySnapshot(options?: WebviewPostOptions): void {
+    const replayOptions: WebviewPostOptions = {
+      replay: true,
+      requeueReplayOnDrop: options?.requeueReplayOnDrop,
+      replayBatch: options?.replayBatch
+    };
+    this.post({ type: 'loading', value: this.loadingState }, replayOptions);
     if (this.hasOrgsSnapshot) {
-      this.post({ type: 'orgs', data: this.orgsSnapshot, selected: this.selectedOrg }, { replay: true });
+      this.post({ type: 'orgs', data: this.orgsSnapshot, selected: this.selectedOrg }, replayOptions);
     }
     if (this.hasDebugLevelsSnapshot) {
       this.post(
         { type: 'debugLevels', data: this.debugLevelsSnapshot, active: this.activeDebugLevelSnapshot },
-        { replay: true }
+        replayOptions
       );
     }
-    this.post({ type: 'tailConfig', tailBufferSize: this.tailBufferSizeSnapshot }, { replay: true });
-    this.post({ type: 'tailStatus', running: this.tailRunningSnapshot }, { replay: true });
+    this.post({ type: 'tailConfig', tailBufferSize: this.tailBufferSizeSnapshot }, replayOptions);
+    this.post({ type: 'tailStatus', running: this.tailRunningSnapshot }, replayOptions);
     const bufferedLines = this.tailService.getBufferedLines();
     if (bufferedLines.length > 0) {
-      this.post({ type: 'tailReset' }, { replay: true });
-      this.post({ type: 'tailData', lines: bufferedLines }, { replay: true });
+      this.post({ type: 'tailReset' }, replayOptions);
+      this.post({ type: 'tailData', lines: bufferedLines }, replayOptions);
+    } else if (this.tailResetNeedsReplay) {
+      this.post({ type: 'tailReset' }, replayOptions);
     }
     if (this.errorMessage !== undefined) {
-      this.post({ type: 'error', message: this.errorMessage }, { replay: true });
+      this.post({ type: 'error', message: this.errorMessage }, replayOptions);
+    } else if (this.errorClearNeedsReplay) {
+      this.post(
+        { type: 'error', message: undefined },
+        {
+          ...replayOptions,
+          onDelivered: () => {
+            if (this.errorMessage === undefined) {
+              this.errorClearNeedsReplay = false;
+            }
+          }
+        }
+      );
     }
   }
 
@@ -377,7 +612,29 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     this.post({ type: 'tailReset' });
   }
 
-  private post(msg: ExtensionToWebviewMessage, options?: { replay?: boolean }): void {
+  private settleReplayDeliveryBatch(batch: ReplayDeliveryBatch | undefined): void {
+    if (!batch) {
+      return;
+    }
+    batch.pending = Math.max(0, batch.pending - 1);
+    if (batch.pending > 0) {
+      return;
+    }
+    if (!batch.dropped && batch.resetRetryBudgetOnSuccess && !this.needsReplayOnVisible) {
+      this.visibleReplayRetryAttempts = 0;
+      recordWebviewEvent({
+        surface: 'tail',
+        event: 'replayRetryBudgetResetAfterDelivery',
+        hostKind: this.host?.kind,
+        mountSequence: this.mountSequence,
+        visible: this.host?.visible,
+        ready: this.ready,
+        contentMounted: this.contentMounted
+      });
+    }
+  }
+
+  private post(msg: ExtensionToWebviewMessage, options?: WebviewPostOptions): void {
     let shouldClearWebviewError = false;
     switch (msg.type) {
       case 'loading':
@@ -385,6 +642,9 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         break;
       case 'error':
         this.errorMessage = msg.message;
+        if (msg.message !== undefined) {
+          this.errorClearNeedsReplay = false;
+        }
         break;
       case 'orgs':
         this.hasOrgsSnapshot = true;
@@ -409,13 +669,173 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
           shouldClearWebviewError = true;
         }
         break;
+      case 'tailReset':
+        if (!options?.replay) {
+          this.tailResetNeedsReplay = true;
+        }
+        break;
       case 'tailConfig':
         this.tailBufferSizeSnapshot = msg.tailBufferSize;
         break;
     }
-    this.view?.webview.postMessage(msg);
+    const visible = this.host?.visible ?? false;
+    if (this.host && !visible && !options?.replay) {
+      this.needsReplayOnVisible = true;
+      this.visibleReplayRetryAttempts = 0;
+      recordWebviewEvent({
+        surface: 'tail',
+        event: 'messagePostedWhileHidden',
+        hostKind: this.host.kind,
+        mountSequence: this.mountSequence,
+        messageType: msg.type,
+        visible,
+        ready: this.ready,
+        contentMounted: this.contentMounted
+      });
+    }
+    const postContext = {
+      hostKind: this.host?.kind,
+      mountSequence: this.mountSequence,
+      visible: this.host?.visible,
+      ready: this.ready,
+      contentMounted: this.contentMounted
+    };
+    const scheduleVisibleReplayRetry = () => {
+      if (
+        !postContext.visible ||
+        !this.host ||
+        !this.host.visible ||
+        !this.ready ||
+        this.visibleReplayRetryTimer ||
+        this.visibleReplayRetryAttempts >= WEBVIEW_REPLAY_MAX_RETRIES
+      ) {
+        return;
+      }
+
+      const host = this.host;
+      const mountSequence = this.mountSequence;
+      const attempt = ++this.visibleReplayRetryAttempts;
+      this.visibleReplayRetryTimer = setTimeout(() => {
+        this.visibleReplayRetryTimer = undefined;
+        if (
+          this.disposed ||
+          this.host !== host ||
+          !host.visible ||
+          !this.ready ||
+          mountSequence !== this.mountSequence ||
+          !this.needsReplayOnVisible
+        ) {
+          return;
+        }
+        this.replayRetainedState(host, true, 'retriedReplayAfterDroppedPost', false);
+      }, WEBVIEW_REPLAY_RETRY_DELAY_MS);
+      recordWebviewEvent({
+        surface: 'tail',
+        event: 'scheduledReplayRetryAfterDroppedPost',
+        hostKind: postContext.hostKind,
+        mountSequence: postContext.mountSequence,
+        messageType: msg.type,
+        visible: postContext.visible,
+        ready: postContext.ready,
+        contentMounted: postContext.contentMounted,
+        details: { attempt, delayMs: WEBVIEW_REPLAY_RETRY_DELAY_MS }
+      });
+    };
+    const requeueReplay = () => {
+      const requeueReason = options?.requeueReplayOnDrop
+        ? 'explicit'
+        : !options?.replay &&
+            postContext.visible === true &&
+            postContext.ready === true &&
+            TAIL_REPLAYABLE_VISIBLE_UPDATE_TYPES.has(msg.type)
+          ? 'visibleUpdate'
+          : undefined;
+      if (!requeueReason || this.disposed || postContext.mountSequence !== this.mountSequence) {
+        return;
+      }
+      this.needsReplayOnVisible = true;
+      scheduleVisibleReplayRetry();
+      recordWebviewEvent({
+        surface: 'tail',
+        event: 'replayRequeuedAfterDroppedPost',
+        hostKind: postContext.hostKind,
+        mountSequence: postContext.mountSequence,
+        messageType: msg.type,
+        visible: postContext.visible,
+        ready: postContext.ready,
+        contentMounted: postContext.contentMounted,
+        details: { reason: requeueReason }
+      });
+    };
+    const replayBatch = options?.replayBatch;
+    if (replayBatch) {
+      replayBatch.pending += 1;
+    }
+    const postResult = this.view?.webview.postMessage(msg);
+    if (postResult) {
+      postResult.then(
+        delivered => {
+          if (!delivered) {
+            if (replayBatch) {
+              replayBatch.dropped = true;
+            }
+            recordWebviewEvent({
+              surface: 'tail',
+              event: 'messageDropped',
+              hostKind: postContext.hostKind,
+              mountSequence: postContext.mountSequence,
+              messageType: msg.type,
+              visible: postContext.visible,
+              ready: postContext.ready,
+              contentMounted: postContext.contentMounted
+            });
+            logInfo('Tail webview postMessage dropped', msg.type);
+            requeueReplay();
+          } else {
+            if (msg.type === 'tailReset') {
+              this.tailResetNeedsReplay = false;
+            }
+            options?.onDelivered?.();
+          }
+          this.settleReplayDeliveryBatch(replayBatch);
+        },
+        error => {
+          if (replayBatch) {
+            replayBatch.dropped = true;
+          }
+          recordWebviewEvent({
+            surface: 'tail',
+            event: 'messagePostRejected',
+            hostKind: postContext.hostKind,
+            mountSequence: postContext.mountSequence,
+            messageType: msg.type,
+            visible: postContext.visible,
+            ready: postContext.ready,
+            contentMounted: postContext.contentMounted,
+            details: { error: getErrorMessage(error) }
+          });
+          logWarn('Tail webview postMessage failed ->', getErrorMessage(error));
+          requeueReplay();
+          this.settleReplayDeliveryBatch(replayBatch);
+        }
+      );
+    } else if (replayBatch) {
+      replayBatch.dropped = true;
+      this.settleReplayDeliveryBatch(replayBatch);
+    }
     if (shouldClearWebviewError) {
-      this.view?.webview.postMessage({ type: 'error', message: undefined });
+      this.errorClearNeedsReplay = true;
+      this.post(
+        { type: 'error', message: undefined },
+        {
+          requeueReplayOnDrop: true,
+          onDelivered: () => {
+            if (this.errorMessage === undefined) {
+              this.errorClearNeedsReplay = false;
+            }
+          }
+        }
+      );
     }
   }
 
@@ -648,6 +1068,10 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     this.view = host;
     this.disposed = false;
     this.ready = false;
+    this.contentMounted = false;
+    this.needsReplayOnVisible = false;
+    this.visibleReplayRetryAttempts = 0;
+    this.tailResetNeedsReplay = false;
     this.clearBootstrapTimers();
     host.webview.options = {
       enableScripts: true,
@@ -655,6 +1079,15 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     };
     this.showPlaceholder(host);
     logInfo(`Tail webview resolved (${host.kind}).`);
+    recordWebviewEvent({
+      surface: 'tail',
+      event: 'resolved',
+      hostKind: host.kind,
+      mountSequence: this.mountSequence,
+      visible: host.visible,
+      ready: this.ready,
+      contentMounted: this.contentMounted
+    });
 
     this.hostDisposables.push(
       host.onDidDispose(() => {
@@ -663,12 +1096,24 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         }
         this.disposed = true;
         this.ready = false;
+        this.contentMounted = false;
+        this.needsReplayOnVisible = false;
+        this.visibleReplayRetryAttempts = 0;
         this.view = undefined;
         this.host = undefined;
         this.clearBootstrapTimers();
         // Stop timers and clear caches, but keep controller disposal separate.
         this.tailService.stop();
         logInfo(`Tail webview disposed; stopped tail (${host.kind}).`);
+        recordWebviewEvent({
+          surface: 'tail',
+          event: 'disposed',
+          hostKind: host.kind,
+          mountSequence: this.mountSequence,
+          visible: host.visible,
+          ready: this.ready,
+          contentMounted: this.contentMounted
+        });
       }),
       host.onDidChangeVisibility(visible => {
         this.handleVisibilityChange(host, visible);
