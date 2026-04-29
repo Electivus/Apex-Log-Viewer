@@ -37,6 +37,7 @@ suite('LogsEditorPanel', () => {
   test('creates a panel once and syncs the selected org when reusing it', async () => {
     const createdProviders: any[] = [];
     const panel = createPanel();
+    const panelOptions: any[] = [];
 
     class FakeLogsProvider {
       selectedOrgs: Array<string | undefined> = [];
@@ -68,7 +69,10 @@ suite('LogsEditorPanel', () => {
 
     const vscodeStub = {
       window: {
-        createWebviewPanel: () => panel
+        createWebviewPanel: (_viewType: string, _title: string, _showOptions: unknown, options: unknown) => {
+          panelOptions.push(options);
+          return panel;
+        }
       },
       ViewColumn: {
         Active: 1
@@ -100,6 +104,7 @@ suite('LogsEditorPanel', () => {
     assert.deepEqual(createdProviders[0]?.syncedOrgs, ['second@example.com']);
     assert.equal(createdProviders[0]?.resolvedPanels.length, 1, 'should bind the editor panel once');
     assert.equal(panel.revealCount, 1, 'should reveal the existing panel on reopen');
+    assert.equal(panelOptions[0]?.retainContextWhenHidden, true, 'logs editor should retain context while hidden');
   });
 
   test('clears the singleton after dispose so a new editor panel can be created', async () => {

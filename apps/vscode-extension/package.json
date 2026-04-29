@@ -408,6 +408,11 @@
         "category": "Electivus Apex Logs"
       },
       {
+        "command": "sfLogs.copyDiagnostics",
+        "title": "%command.copyDiagnostics.title%",
+        "category": "Electivus Apex Logs"
+      },
+      {
         "command": "sfLogs.resetCliCache",
         "title": "Reset CLI Cache",
         "category": "Electivus Apex Logs"
@@ -443,9 +448,14 @@
           "group": "moreActions@98"
         },
         {
-          "command": "sfLogs.showOutput",
+          "command": "sfLogs.copyDiagnostics",
           "when": "view == sfLogViewer || view == sfLogTail",
           "group": "moreActions@99"
+        },
+        {
+          "command": "sfLogs.showOutput",
+          "when": "view == sfLogViewer || view == sfLogTail",
+          "group": "moreActions@100"
         }
       ],
       "editor/title": [

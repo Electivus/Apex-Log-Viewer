@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
 import { localize } from '../../../../src/utils/localize';
 import { disposeAll } from './disposeAll';
+import type { WebviewProviderDiagnosticState } from '../shared/webviewDiagnostics';
 
 interface ShowOptions {
   selectedOrg?: string;
@@ -14,6 +15,10 @@ export class TailEditorPanel {
 
   static initialize(context: vscode.ExtensionContext): void {
     this.context = context;
+  }
+
+  static getDiagnosticState(): WebviewProviderDiagnosticState | undefined {
+    return this.instance?.controller.getWebviewDiagnosticState();
   }
 
   static async show(options?: ShowOptions): Promise<void> {
@@ -62,6 +67,7 @@ export class TailEditorPanel {
       { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
       {
         enableScripts: true,
+        retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')]
       }
     );

@@ -55,11 +55,23 @@ function createExtensionHarness(options: {
   const tailRefreshViewStateCalls: number[] = [];
   const logsTailCalls: number[] = [];
   const logsRefreshCalls: number[] = [];
+  const webviewProviderRegistrations: Array<{ viewId: string; options?: any }> = [];
+  const clipboardWrites: string[] = [];
 
   const vscodeStub = {
     version: '1.90.0',
     env: {
-      appRoot: options.appRoot ?? '/usr/share/code'
+      appRoot: options.appRoot ?? '/usr/share/code',
+      appName: 'Visual Studio Code',
+      appHost: 'desktop',
+      language: 'en',
+      remoteName: undefined,
+      uiKind: 1,
+      clipboard: {
+        writeText: async (value: string) => {
+          clipboardWrites.push(value);
+        }
+      }
     },
     workspace: {
       workspaceFolders: options.salesforceProject ? [{ uri: { fsPath: options.salesforceProject.workspaceRoot } }] : [],
@@ -68,7 +80,10 @@ function createExtensionHarness(options: {
     },
     window: {
       activeTextEditor: options.activeDocument ? { document: options.activeDocument } : undefined,
-      registerWebviewViewProvider: () => createDisposable(),
+      registerWebviewViewProvider: (viewId: string, _provider: unknown, options?: any) => {
+        webviewProviderRegistrations.push({ viewId, options });
+        return createDisposable();
+      },
       showWarningMessage: async (message: string) => {
         warningMessages.push(message);
         return undefined;
@@ -106,6 +121,15 @@ function createExtensionHarness(options: {
       return options.logsViewResolved ?? false;
     }
 
+    public getWebviewDiagnosticState() {
+      return {
+        surface: 'logs',
+        hasHost: options.logsViewResolved ?? false,
+        visible: options.logsViewResolved ?? false,
+        ready: options.logsViewResolved ?? false
+      };
+    }
+
     public async refresh(): Promise<void> {
       logsRefreshCalls.push(1);
     }
@@ -137,6 +161,15 @@ function createExtensionHarness(options: {
 
     public getSelectedOrg(): string | undefined {
       return this.selectedOrg;
+    }
+
+    public getWebviewDiagnosticState() {
+      return {
+        surface: 'tail',
+        hasHost: false,
+        visible: false,
+        ready: false
+      };
     }
 
     public setSelectedOrg(username?: string): void {
@@ -178,6 +211,19 @@ function createExtensionHarness(options: {
     './panel/LogsEditorPanel': {
       LogsEditorPanel: {
         initialize: () => undefined,
+        getDiagnosticState: () => ({
+          surface: 'logs',
+          hasHost: true,
+          hostKind: 'editor',
+          ready: true,
+          disposed: false,
+          contentMounted: true,
+          mountSequence: 7,
+          mountTimerActive: false,
+          readyTimerActive: false,
+          needsReplayOnVisible: false,
+          snapshots: {}
+        }),
         show: async (options?: { selectedOrg?: string }) => {
           logsEditorShows.push(options ?? {});
         }
@@ -186,6 +232,7 @@ function createExtensionHarness(options: {
     './panel/TailEditorPanel': {
       TailEditorPanel: {
         initialize: () => undefined,
+        getDiagnosticState: () => undefined,
         show: async (options?: { selectedOrg?: string }) => {
           tailEditorShows.push(options ?? {});
         }
@@ -204,6 +251,7 @@ function createExtensionHarness(options: {
       logInfo: () => undefined,
       logWarn: () => undefined,
       logError: () => undefined,
+      getRecentLogEntries: () => [{ timestamp: '2026-04-29T12:00:00.000Z', level: 'warn', message: 'sample warn' }],
       showOutput: () => undefined,
       setTraceEnabled: () => undefined,
       disposeLogger: () => undefined
@@ -275,7 +323,9 @@ function createExtensionHarness(options: {
     tailSyncSelectedOrgCalls,
     tailRefreshViewStateCalls,
     logsTailCalls,
-    logsRefreshCalls
+    logsRefreshCalls,
+    webviewProviderRegistrations,
+    clipboardWrites
   };
 }
 
@@ -391,5 +441,36 @@ suite('extension activation gating', () => {
     const refreshEvent = harness.events.find(event => event.name === 'command.refresh');
     assert.deepEqual(refreshEvent?.props, { outcome: 'invoked' });
     assert.equal(typeof refreshEvent?.measurements?.durationMs, 'number');
+  });
+
+  test('registers retained sidebar webviews', async () => {
+    const harness = createExtensionHarness({});
+
+    await harness.extension.activate(createContext());
+
+    assert.deepEqual(
+      harness.webviewProviderRegistrations.map(registration => ({
+        viewId: registration.viewId,
+        retainContextWhenHidden: registration.options?.webviewOptions?.retainContextWhenHidden
+      })),
+      [
+        { viewId: 'sfLogViewer', retainContextWhenHidden: true },
+        { viewId: 'sfLogTail', retainContextWhenHidden: true }
+      ]
+    );
+  });
+
+  test('copy diagnostics command writes a markdown package with json evidence', async () => {
+    const harness = createExtensionHarness({ logsViewResolved: true });
+
+    await harness.extension.activate(createContext());
+    await harness.commands.get('sfLogs.copyDiagnostics')!();
+
+    const copied = harness.clipboardWrites[0] ?? '';
+    assert.ok(copied.includes('# Electivus Apex Logs Diagnostics'), 'should copy a markdown diagnostics package');
+    assert.ok(copied.includes('```json'), 'should include machine-readable JSON');
+    assert.ok(copied.includes('"logs"'), 'should include logs provider state');
+    assert.ok(copied.includes('"hostKind": "editor"'), 'should include active editor panel provider state');
+    assert.ok(copied.includes('sample warn'), 'should include recent extension output entries');
   });
 });

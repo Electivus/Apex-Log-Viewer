@@ -1,10 +1,22 @@
 import * as vscode from 'vscode';
-import { SfLogsViewProvider } from './provider/SfLogsViewProvider';
+import {
+  SfLogsViewProvider,
+  WEBVIEW_READY_TIMEOUT_MS,
+  WEBVIEW_STABLE_VISIBILITY_DELAY_MS
+} from './provider/SfLogsViewProvider';
 import { SfLogTailViewProvider } from './provider/SfLogTailViewProvider';
 import type { OrgItem } from './shared/types';
 import * as path from 'path';
 import { setApiVersion, getApiVersion, clearListCache } from '../../../src/salesforce/http';
-import { logInfo, logWarn, logError, showOutput, setTraceEnabled, disposeLogger } from '../../../src/utils/logger';
+import {
+  logInfo,
+  logWarn,
+  logError,
+  showOutput,
+  setTraceEnabled,
+  disposeLogger,
+  getRecentLogEntries
+} from '../../../src/utils/logger';
 import { localize } from '../../../src/utils/localize';
 import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry } from './shared/telemetry';
 import { CacheManager } from '../../../src/utils/cacheManager';
@@ -17,9 +29,78 @@ import { getBooleanConfig, affectsConfiguration } from '../../../src/utils/confi
 import { getErrorMessage } from '../../../src/utils/error';
 import { findSalesforceProjectInfo, isApexLogDocument, getLogIdFromLogFilePath } from '../../../src/utils/workspace';
 import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
+import { getWebviewDiagnosticEvents } from './shared/webviewDiagnostics';
+import { formatDiagnosticsPackageMarkdown, type DiagnosticsPackage } from './shared/diagnosticsPackage';
 
 interface OrgQuickPick extends vscode.QuickPickItem {
   username: string;
+}
+
+function getExtensionVersion(context: vscode.ExtensionContext): string {
+  const packageJSON = (context as any).extension?.packageJSON ?? (context as any).extensionPackageJSON;
+  return typeof packageJSON?.version === 'string' ? packageJSON.version : 'unknown';
+}
+
+function buildDiagnosticsPackage(
+  context: vscode.ExtensionContext,
+  provider: SfLogsViewProvider,
+  tailProvider: SfLogTailViewProvider,
+  salesforceProject: Awaited<ReturnType<typeof findSalesforceProjectInfo>>,
+  generatedAt = new Date().toISOString()
+): DiagnosticsPackage {
+  const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+  const providerStates = [provider.getWebviewDiagnosticState(), tailProvider.getWebviewDiagnosticState()];
+  const logsEditorState = LogsEditorPanel.getDiagnosticState();
+  const tailEditorState = TailEditorPanel.getDiagnosticState();
+  if (logsEditorState) {
+    providerStates.push(logsEditorState);
+  }
+  if (tailEditorState) {
+    providerStates.push(tailEditorState);
+  }
+  return {
+    generatedAt,
+    extension: {
+      name: 'Electivus Apex Log Viewer',
+      version: getExtensionVersion(context)
+    },
+    vscode: {
+      version: vscode.version,
+      appName: vscode.env.appName,
+      appHost: (vscode.env as any).appHost,
+      appRoot: (vscode.env as any).appRoot,
+      language: vscode.env.language,
+      remoteName: vscode.env.remoteName,
+      uiKind: vscode.env.uiKind
+    },
+    process: {
+      platform: process.platform,
+      arch: process.arch,
+      versions: {
+        node: process.versions.node,
+        electron: process.versions.electron,
+        chrome: process.versions.chrome,
+        v8: process.versions.v8
+      }
+    },
+    workspace: {
+      hasWorkspace: workspaceFolders.length > 0,
+      workspaceFolderCount: workspaceFolders.length,
+      workspaceFolders: workspaceFolders.map(folder => folder.uri.fsPath),
+      hasSalesforceProject: !!salesforceProject,
+      salesforceProjectRoot: salesforceProject?.workspaceRoot,
+      salesforceProjectFile: salesforceProject?.projectFilePath,
+      sourceApiVersion: salesforceProject?.sourceApiVersion
+    },
+    webview: {
+      retainContextWhenHidden: true,
+      stableVisibilityDelayMs: WEBVIEW_STABLE_VISIBILITY_DELAY_MS,
+      readyTimeoutMs: WEBVIEW_READY_TIMEOUT_MS,
+      providers: providerStates,
+      events: getWebviewDiagnosticEvents()
+    },
+    recentLogs: getRecentLogEntries()
+  };
 }
 
 async function initializePersistentCache(context: vscode.ExtensionContext): Promise<void> {
@@ -82,14 +163,18 @@ export async function activate(context: vscode.ExtensionContext) {
   const provider = new SfLogsViewProvider(context);
   context.subscriptions.push(
     provider,
-    vscode.window.registerWebviewViewProvider(SfLogsViewProvider.viewType, provider)
+    vscode.window.registerWebviewViewProvider(SfLogsViewProvider.viewType, provider, {
+      webviewOptions: { retainContextWhenHidden: true }
+    })
   );
 
   // Register Tail view provider
   const tailProvider = new SfLogTailViewProvider(context);
   context.subscriptions.push(
     tailProvider,
-    vscode.window.registerWebviewViewProvider(SfLogTailViewProvider.viewType, tailProvider)
+    vscode.window.registerWebviewViewProvider(SfLogTailViewProvider.viewType, tailProvider, {
+      webviewOptions: { retainContextWhenHidden: true }
+    })
   );
 
   context.subscriptions.push(
@@ -249,6 +334,34 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('sfLogs.showOutput', () => {
       safeSendEvent('command.showOutput', { outcome: 'invoked' });
       showOutput(true);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('sfLogs.copyDiagnostics', async () => {
+      try {
+        const diagnostics = buildDiagnosticsPackage(context, provider, tailProvider, salesforceProject);
+        const markdown = formatDiagnosticsPackageMarkdown(diagnostics);
+        await vscode.env.clipboard.writeText(markdown);
+        logInfo(
+          'Diagnostics package copied to clipboard with',
+          diagnostics.webview.events.length,
+          'webview event(s) and',
+          diagnostics.recentLogs.length,
+          'log line(s).'
+        );
+        vscode.window.showInformationMessage(
+          localize('diagnostics.copied', 'Electivus Apex Logs: diagnostics package copied to clipboard.')
+        );
+        safeSendEvent('command.copyDiagnostics', { outcome: 'ok' });
+      } catch (e) {
+        const msg = getErrorMessage(e);
+        logWarn('Command sfLogs.copyDiagnostics failed ->', msg);
+        vscode.window.showErrorMessage(
+          localize('diagnostics.copyFailed', 'Electivus Apex Logs: failed to copy diagnostics: {0}', msg)
+        );
+        safeSendEvent('command.copyDiagnostics', { outcome: 'error' });
+      }
     })
   );
 
