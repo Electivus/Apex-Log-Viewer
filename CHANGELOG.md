@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## [0.46.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.44.0...v0.46.0) (2026-04-29)
+
+### Bug Fixes
+
+- Logs/Runtime: make the org-first dated cache layout canonical, stop reading or writing legacy flat log files, keep unknown log dates under `unknown-date`, and preserve local cache reuse during bulk saves when org auth is unavailable. ([#765](https://github.com/Electivus/Apex-Log-Viewer/pull/765))
+
+### Chores
+
+- CLI/Runtime: bump the standalone runtime train to `0.1.10` so the extension release packages the org-first-only runtime assets.
+
 ## [0.44.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.42.0...v0.44.0) (2026-04-24)
 
 ### Bug Fixes
