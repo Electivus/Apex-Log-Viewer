@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+- Runtime/Logs: share the Rust `logs/sync` path between CLI and extension, index synced log bodies in `apexlogs/.alv/log-index.sqlite`, add `logs index rebuild`, and let Refresh Logs start sync in the background before rerunning triage/search.
+
 ### Bug Fixes
 
 - Logs/Tail: increase webview startup timing windows so slow corporate machines can finish VS Code webview/service-worker bootstrap before the extension retries the mount.

@@ -1,6 +1,7 @@
 use crate::{
     auth,
     auth::OrgAuth,
+    log_index::{self, LogIndexRecord},
     log_store::{
         log_file_path_for_start_time, read_sync_state, safe_target_org, write_org_metadata,
         write_sync_state, write_version_file, OrgMetadata, SyncStateOrgEntry,
@@ -39,9 +40,13 @@ pub struct LogsSyncResult {
     pub safe_target_org: String,
     pub downloaded: usize,
     pub cached: usize,
+    pub indexed: usize,
     pub failed: usize,
     pub checkpoint_advanced: bool,
     pub state_file: String,
+    pub index_file: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index_error: Option<String>,
     pub last_synced_log_id: Option<String>,
 }
 
@@ -94,10 +99,15 @@ pub fn sync_logs_detailed_with_cancel(
         .map_err(LogsRuntimeError::from_message)?;
     let mut downloaded = 0usize;
     let mut cached = 0usize;
+    let mut indexed = 0usize;
     let mut failed = 0usize;
+    let mut index_error: Option<String> = None;
     let mut newest: Option<(String, String)> = None;
     let mut cursor: Option<LogsCursor> = None;
     let sync_concurrency = normalize_sync_concurrency(params.concurrency);
+    let index_count_before =
+        log_index::count_indexed_logs(params.workspace_root.as_deref(), &resolved_username)
+            .unwrap_or(0);
 
     loop {
         let mut rows = match list_logs_for_auth_detailed_with_cancel(
@@ -147,6 +157,22 @@ pub fn sync_logs_detailed_with_cancel(
         downloaded += outcome.downloaded;
         cached += outcome.cached;
         failed += outcome.failed;
+        if !outcome.synced.is_empty() {
+            match log_index::index_synced_logs(
+                params.workspace_root.as_deref(),
+                &resolved_username,
+                &safe_org,
+                &outcome.synced,
+                cancellation,
+            ) {
+                Ok(count) => indexed += count,
+                Err(error) => {
+                    if index_error.is_none() {
+                        index_error = Some(error);
+                    }
+                }
+            }
+        }
         if newest.is_none() {
             newest = outcome.newest_synced.clone();
         }
@@ -170,6 +196,21 @@ pub fn sync_logs_detailed_with_cancel(
         "success".to_string()
     };
     let finished_at = timestamp_now();
+
+    if indexed == 0 && index_count_before == 0 && !cancellation.is_cancelled() {
+        match log_index::rebuild_org_index(
+            params.workspace_root.as_deref(),
+            &resolved_username,
+            cancellation,
+        ) {
+            Ok(count) => indexed += count,
+            Err(error) => {
+                if index_error.is_none() {
+                    index_error = Some(error);
+                }
+            }
+        }
+    }
 
     let checkpoint = newest.clone().or_else(|| {
         previous.as_ref().map(|entry| {
@@ -202,7 +243,7 @@ pub fn sync_logs_detailed_with_cancel(
                 },
                 downloaded_count: downloaded,
                 cached_count: cached,
-                last_error: None,
+                last_error: index_error.clone(),
             },
         );
         write_sync_state(params.workspace_root.as_deref(), &state)
@@ -231,11 +272,16 @@ pub fn sync_logs_detailed_with_cancel(
         safe_target_org: safe_org,
         downloaded,
         cached,
+        indexed,
         failed,
         checkpoint_advanced: status == "success",
         state_file: crate::log_store::sync_state_path(params.workspace_root.as_deref())
             .display()
             .to_string(),
+        index_file: crate::log_index::index_path(params.workspace_root.as_deref())
+            .display()
+            .to_string(),
+        index_error,
         last_synced_log_id: if status == "success" {
             checkpoint.map(|(log_id, _)| log_id)
         } else {
@@ -304,6 +350,7 @@ struct PageSyncOutcome {
     cached: usize,
     failed: usize,
     newest_synced: Option<(String, String)>,
+    synced: Vec<LogIndexRecord>,
 }
 
 fn process_sync_page(
@@ -321,7 +368,7 @@ fn process_sync_page(
     let queue = Arc::new(Mutex::new(
         rows.into_iter().enumerate().collect::<VecDeque<_>>(),
     ));
-    let (tx, rx) = mpsc::channel::<(usize, String, String, SyncItemStatus)>();
+    let (tx, rx) = mpsc::channel::<(usize, LogRow, std::path::PathBuf, SyncItemStatus)>();
     let auth = auth.clone();
     let workspace_root = workspace_root.map(str::to_string);
     let resolved_username = resolved_username.to_string();
@@ -376,7 +423,7 @@ fn process_sync_page(
                     }
                 };
 
-                let _ = tx.send((index, row.id, row.start_time, status));
+                let _ = tx.send((index, row, target_path, status));
                 if status == SyncItemStatus::Cancelled {
                     break;
                 }
@@ -386,7 +433,7 @@ fn process_sync_page(
 
         let mut outcome = PageSyncOutcome::default();
         let mut best_index: Option<usize> = None;
-        for (index, row_id, start_time, item) in rx {
+        for (index, row, path, item) in rx {
             match item {
                 SyncItemStatus::Downloaded | SyncItemStatus::Cached => {
                     if item == SyncItemStatus::Downloaded {
@@ -396,8 +443,9 @@ fn process_sync_page(
                     }
                     if best_index.is_none_or(|best| index < best) {
                         best_index = Some(index);
-                        outcome.newest_synced = Some((row_id, start_time));
+                        outcome.newest_synced = Some((row.id.clone(), row.start_time.clone()));
                     }
+                    outcome.synced.push(LogIndexRecord { row, path });
                 }
                 SyncItemStatus::Failed => outcome.failed += 1,
                 SyncItemStatus::Cancelled => {}

@@ -6,7 +6,7 @@ This document explains the internal structure of the Apex Log Viewer extension a
 
 The extension has two main sides:
 
-1. **Extension host** – runs in Node.js inside VS Code and handles commands, log retrieval, and runtime communication with Salesforce via jsforce-backed API calls.
+1. **Extension host** – runs in Node.js inside VS Code and handles commands, webview orchestration, and runtime communication with Salesforce through the shared Rust sidecar plus remaining jsforce-backed flows.
 2. **Webview UI** – a React application bundled to `media/main.js` and rendered inside a VS Code webview. It presents logs, filters, and user interactions.
 
 Both sides exchange messages using the `vscode` webview API with shared TypeScript interfaces defined in `src/shared`.
@@ -18,7 +18,7 @@ The activation entry point is `src/extension.ts`. It registers commands such as 
 Key responsibilities:
 
 - Use Salesforce CLI (`sf` or legacy `sfdx`) to discover authenticated orgs and reuse existing auth.
-- Use jsforce-backed REST/Tooling/Streaming API calls for runtime log retrieval, tailing, and debug-flag management.
+- Use the shared Rust runtime for log list, sync, search, triage, and cached-path lookup, while jsforce-backed flows continue to handle tailing and debug-flag management.
 - Maintain per-org state such as selected org and log cache.
 - Forward trace output to the "Electivus Apex Log Viewer" output channel when `electivus.apexLogs.trace` is enabled.
 
@@ -47,10 +47,11 @@ The standalone CLI and the VS Code extension are separate surfaces over the same
 
 - `apexlogs/.alv/version.json` stores the local layout version.
 - `apexlogs/.alv/sync-state.json` stores incremental sync checkpoints by org.
+- `apexlogs/.alv/log-index.sqlite` stores a local SQLite/FTS index for synced log body search.
 - `apexlogs/orgs/<safe-target-org>/org.json` stores resolved org metadata.
 - `apexlogs/orgs/<safe-target-org>/logs/<YYYY-MM-DD>/<logId>.log` stores full log bodies.
 
-The Rust CLI is the first consumer of that shared storage through `apex-log-viewer logs sync`, `logs status`, and `logs search`, while the runtime still reads the legacy flat cache layout during the transition so the extension remains compatible. For `logs sync`, the CLI still reuses `sf org display` for org auth, but the actual list/body fetches now go straight to the Salesforce Tooling REST API and can download bodies concurrently per page via `--concurrency`.
+The Rust CLI exposes that shared storage through `apex-log-viewer logs sync`, `logs status`, `logs search`, and `logs index rebuild`. The VS Code Logs panel uses the same app-server contract for `logs/list`, starts `logs/sync` in the background after refresh/load-more, and reruns triage/search after synced bodies have been indexed. For `logs sync`, the runtime still reuses `sf org display` for org auth, but the actual list/body fetches go straight to the Salesforce Tooling REST API and can download bodies concurrently per page.
 
 ## Testing and build tooling
 
@@ -60,7 +61,7 @@ The Rust CLI is the first consumer of that shared storage through `apex-log-view
 ## Data flow summary
 
 1. The user triggers a command (e.g., refresh).
-2. The extension resolves the selected org via Salesforce CLI-backed auth reuse and then queries Salesforce through jsforce.
-3. Results are sent to the webview over the messaging channel.
+2. The extension asks the shared runtime for the visible log rows and posts them to the webview as soon as they arrive.
+3. The runtime syncs full log bodies and updates the local index in the background.
 4. The React UI updates the table and exposes actions like open or tail.
-5. Actions from the UI send messages back to the extension for further processing.
+5. Search and error triage reuse synced bodies through the shared runtime/index instead of re-downloading rows already present locally.

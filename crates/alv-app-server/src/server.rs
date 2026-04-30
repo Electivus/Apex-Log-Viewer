@@ -1,5 +1,6 @@
 use alv_core::{
     logs::{CancellationToken, LogsCursor, LogsListParams, LogsRuntimeError},
+    logs_sync::LogsSyncParams,
     search::SearchQueryParams,
     triage::LogsTriageParams,
 };
@@ -82,6 +83,7 @@ enum ServerOperation {
     OrgList { force_refresh: bool },
     OrgAuth { username: Option<String> },
     LogsList(LogsListParams),
+    LogsSync(LogsSyncParams),
     SearchQuery(SearchQueryParams),
     LogsTriage(LogsTriageParams),
     ResolveCachedPath(logs_handler::ResolveCachedLogPathParams),
@@ -300,6 +302,10 @@ fn execute_call(call: ServerCall, cancellation: &CancellationToken) -> Result<St
             let payload = logs_handler::handle_logs_list_with_cancel(params, cancellation)?;
             Ok(jsonrpc_result(&call.id, &payload))
         }
+        ServerOperation::LogsSync(params) => {
+            let payload = logs_handler::handle_logs_sync_with_cancel(params, cancellation)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
         ServerOperation::SearchQuery(params) => {
             let payload = logs_handler::handle_search_query_with_cancel(params, cancellation)?;
             Ok(jsonrpc_result(&call.id, &payload))
@@ -414,6 +420,27 @@ fn parse_request_line(request: &str) -> Result<ParsedRequest, String> {
                     .map(|value| value as usize),
             })
         }
+        "logs/sync" => ServerOperation::LogsSync(LogsSyncParams {
+            target_org: params
+                .get("targetOrg")
+                .and_then(Value::as_str)
+                .or_else(|| params.get("target_org").and_then(Value::as_str))
+                .map(str::to_string),
+            workspace_root: params
+                .get("workspaceRoot")
+                .and_then(Value::as_str)
+                .or_else(|| params.get("workspace_root").and_then(Value::as_str))
+                .map(str::to_string),
+            force_full: params
+                .get("forceFull")
+                .and_then(Value::as_bool)
+                .or_else(|| params.get("force_full").and_then(Value::as_bool))
+                .unwrap_or(false),
+            concurrency: params
+                .get("concurrency")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize),
+        }),
         "search/query" => ServerOperation::SearchQuery(SearchQueryParams {
             query: params
                 .get("query")
@@ -648,5 +675,36 @@ mod tests {
                 .map(String::as_str),
             Some("2026-03-30T18:39:58.000Z")
         );
+    }
+
+    #[test]
+    fn parse_request_line_reads_logs_sync_params() {
+        let parsed = parse_request_line(
+            r#"{
+              "jsonrpc":"2.0",
+              "id":"sync:1",
+              "method":"logs/sync",
+              "params":{
+                "targetOrg":"selected@example.com",
+                "workspaceRoot":"/tmp/demo",
+                "forceFull":true,
+                "concurrency":3
+              }
+            }"#,
+        )
+        .expect("logs/sync request should parse");
+
+        let ParsedRequest::Call(call) = parsed else {
+            panic!("expected a normal call");
+        };
+
+        let ServerOperation::LogsSync(params) = call.operation else {
+            panic!("expected logs/sync operation");
+        };
+
+        assert_eq!(params.target_org.as_deref(), Some("selected@example.com"));
+        assert_eq!(params.workspace_root.as_deref(), Some("/tmp/demo"));
+        assert!(params.force_full);
+        assert_eq!(params.concurrency, Some(3));
     }
 }

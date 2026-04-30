@@ -136,6 +136,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private lastSearchQuery = '';
   private searchToken = 0;
   private searchAbortController: AbortController | undefined;
+  private backgroundSyncAbortController: AbortController | undefined;
   private purgePromise: Promise<void> | undefined;
   private readonly logCacheMaxAgeMs = 1000 * 60 * 60 * 24;
   private logsColumns: NormalizedLogsColumnsConfig = DEFAULT_LOGS_COLUMNS_CONFIG;
@@ -253,6 +254,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       this.searchAbortController.abort();
       this.searchAbortController = undefined;
     }
+    if (this.backgroundSyncAbortController) {
+      this.backgroundSyncAbortController.abort();
+      this.backgroundSyncAbortController = undefined;
+    }
     this.readyTimeoutListeners.clear();
     vscode.Disposable.from(...this.hostDisposables).dispose();
     this.hostDisposables = [];
@@ -337,7 +342,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           this.purgeLogCache(controller.signal);
           const authPromise = authHandle.handoff();
           this.startAuthHydration(logs, authPromise, token, selectedOrg, controller.signal);
-          this.startErrorScanForCurrentLogs(token, controller.signal);
+          this.startBackgroundSync(selectedOrg, false, token, controller.signal);
           if (this.lastSearchQuery.trim()) {
             this.rerunActiveSearch();
           } else {
@@ -407,7 +412,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       this.purgeLogCache();
       const authPromise = authHandle.handoff();
       this.startAuthHydration(logs, authPromise, token, selectedOrg);
-      this.startErrorScanForCurrentLogs(token);
+      this.startBackgroundSync(selectedOrg, false, token);
       this.rerunActiveSearch();
       try {
         const durationMs = Date.now() - t0;
@@ -442,7 +447,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         if (warning) {
           this.post({ type: 'warning', message: warning });
         }
-        this.preloadFullLogBodies(logs, auth, refreshToken, signal, selectedOrg);
         this.logService.loadLogHeads(
           logs,
           auth,
@@ -466,6 +470,92 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       });
   }
 
+  private getBackgroundSyncConcurrency(): number {
+    return Math.max(1, Math.min(3, this.configManager.getHeadConcurrency()));
+  }
+
+  private startBackgroundSync(
+    selectedOrg: string | undefined,
+    forceFull: boolean,
+    refreshToken: number,
+    parentSignal?: AbortSignal
+  ): void {
+    if (this.bulkDownloadInProgress || parentSignal?.aborted) {
+      return;
+    }
+    if (this.backgroundSyncAbortController) {
+      this.backgroundSyncAbortController.abort();
+    }
+    const controller = new AbortController();
+    this.backgroundSyncAbortController = controller;
+    if (parentSignal) {
+      const onAbort = () => controller.abort();
+      parentSignal.addEventListener('abort', onAbort, { once: true });
+      controller.signal.addEventListener(
+        'abort',
+        () => {
+          try {
+            parentSignal.removeEventListener('abort', onAbort);
+          } catch {}
+        },
+        { once: true }
+      );
+    }
+
+    const workspaceRoot = getWorkspaceRoot();
+    void runtimeClient
+      .logsSync(
+        {
+          targetOrg: selectedOrg,
+          workspaceRoot,
+          forceFull,
+          concurrency: this.getBackgroundSyncConcurrency()
+        },
+        controller.signal
+      )
+      .then(result => {
+        if (
+          controller.signal.aborted ||
+          refreshToken !== this.refreshToken ||
+          this.disposed ||
+          this.backgroundSyncAbortController !== controller
+        ) {
+          return;
+        }
+        logInfo('Logs: background sync finished', {
+          status: result.status,
+          downloaded: result.downloaded,
+          cached: result.cached,
+          indexed: result.indexed,
+          failed: result.failed
+        });
+        if (result.index_error) {
+          logWarn('Logs: background sync index warning ->', result.index_error);
+        }
+        this.startErrorScanForCurrentLogs(refreshToken, controller.signal);
+        this.rerunActiveSearch();
+      })
+      .catch(error => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        logWarn('Logs: background sync failed ->', getErrorMessage(error));
+        if (
+          refreshToken !== this.refreshToken ||
+          this.disposed ||
+          this.backgroundSyncAbortController !== controller
+        ) {
+          return;
+        }
+        this.startErrorScanForCurrentLogs(refreshToken, controller.signal);
+      })
+      .finally(() => {
+        if (this.backgroundSyncAbortController === controller) {
+          this.backgroundSyncAbortController = undefined;
+        }
+      });
+  }
+
   private observeDeferredAuth(params: { username?: string }): { handoff: () => Promise<OrgAuth> } {
     const observed = runtimeClient.getOrgAuth(params).then(
       auth => ({ ok: true as const, auth }),
@@ -481,94 +571,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           throw result.error;
         })
     };
-  }
-
-  private preloadFullLogBodies(
-    logs: ApexLogRow[],
-    auth: OrgAuth,
-    refreshToken: number,
-    signal?: AbortSignal,
-    selectedOrg?: string
-  ): void {
-    if (!this.configManager.shouldLoadFullLogBodies()) {
-      return;
-    }
-    if (!Array.isArray(logs) || logs.length === 0) {
-      return;
-    }
-    const logsById = new Map(
-      logs
-        .filter((log): log is ApexLogRow & { Id: string } => typeof log?.Id === 'string' && log.Id.length > 0)
-        .map(log => [log.Id, log] as const)
-    );
-    let searchRerunTimer: ReturnType<typeof setTimeout> | undefined;
-    const scheduleSearchRerun = () => {
-      if (searchRerunTimer) {
-        return;
-      }
-      searchRerunTimer = setTimeout(() => {
-        searchRerunTimer = undefined;
-        if (!signal?.aborted && !this.disposed) {
-          logTrace('Logs: rerunning active search after body preload');
-          this.rerunActiveSearch();
-        }
-      }, 150);
-    };
-    void this.logService
-      .ensureLogsSaved(logs, selectedOrg, signal, {
-        authHint: auth,
-        onItemComplete: result => {
-          if (signal?.aborted || this.disposed) {
-            return;
-          }
-          if (result.status !== 'downloaded' && result.status !== 'existing') {
-            return;
-          }
-          logTrace('Logs: preload body completed', { logId: result.logId, status: result.status });
-          const log = logsById.get(result.logId);
-          if (!log) {
-            return;
-          }
-          this.logService.loadLogHeads(
-            [log],
-            auth,
-            refreshToken,
-            (logId, codeUnit) => {
-              if (refreshToken === this.refreshToken && !this.disposed && this.currentLogIds.has(logId)) {
-                this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
-              }
-            },
-            signal,
-            {
-              preferLocalBodies: true,
-              selectedOrg
-            }
-          );
-          scheduleSearchRerun();
-        }
-      })
-      .then(summary => {
-        if (searchRerunTimer) {
-          clearTimeout(searchRerunTimer);
-          searchRerunTimer = undefined;
-        }
-        if (signal?.aborted || this.disposed) {
-          return;
-        }
-        if (summary.success > 0) {
-          logTrace('Logs: rerunning active search after preload summary', summary);
-          this.rerunActiveSearch();
-        }
-      })
-      .catch(e => {
-        if (searchRerunTimer) {
-          clearTimeout(searchRerunTimer);
-          searchRerunTimer = undefined;
-        }
-        if (!signal?.aborted) {
-          logWarn('Logs: preload full log bodies failed ->', getErrorMessage(e));
-        }
-      });
   }
 
   private rerunActiveSearch(): void {
@@ -765,6 +767,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             this.post({
               type: 'logHead',
               logId: entry.logId,
+              codeUnitStarted: entry.codeUnitStarted,
               hasErrors: summary.hasErrors,
               primaryReason: summary.primaryReason,
               reasons: summary.reasons
@@ -984,49 +987,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     } catch {}
   }
 
-  private async fetchAllOrgLogs(selectedOrg: string | undefined, signal?: AbortSignal): Promise<ApexLogRow[]> {
-    const all: ApexLogRow[] = [];
-    const seen = new Set<string>();
-    let cursorStartTime: string | undefined;
-    let cursorId: string | undefined;
-    let lastCursorKey: string | undefined;
-    while (!signal?.aborted) {
-      const batch = (await runtimeClient.logsList(
-        {
-          username: selectedOrg,
-          limit: this.pageLimit,
-          cursor: cursorStartTime && cursorId ? { beforeStartTime: cursorStartTime, beforeId: cursorId } : undefined
-        },
-        signal
-      )) as ApexLogRow[];
-      if (!Array.isArray(batch) || batch.length === 0) {
-        break;
-      }
-      for (const log of batch) {
-        if (!log?.Id || seen.has(log.Id)) {
-          continue;
-        }
-        seen.add(log.Id);
-        all.push(log);
-      }
-      if (batch.length < this.pageLimit) {
-        break;
-      }
-      const last = batch[batch.length - 1];
-      if (!last?.StartTime || !last?.Id) {
-        break;
-      }
-      const cursorKey = `${last.StartTime}|${last.Id}`;
-      if (cursorKey === lastCursorKey) {
-        break;
-      }
-      lastCursorKey = cursorKey;
-      cursorStartTime = last.StartTime;
-      cursorId = last.Id;
-    }
-    return all;
-  }
-
   private async clearLogs(scope: 'all' | 'mine'): Promise<void> {
     if (this.clearLogsInProgress) {
       void vscode.window.showInformationMessage(
@@ -1230,9 +1190,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         return;
       }
 
-      this.pageLimit = this.configManager.getPageLimit();
       type BulkDownloadRunResult =
-        | { kind: 'cancelled-before-download'; listed: number }
+        | { kind: 'cancelled'; processed: number }
         | { kind: 'empty' }
         | {
             kind: 'done';
@@ -1251,52 +1210,60 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           ct.onCancellationRequested(() => controller.abort());
 
           progress.report({
-            message: localize('downloadAllLogsProgressListing', 'Listing logs from the selected org…')
+            message: localize('downloadAllLogsProgressSyncing', 'Syncing logs from the selected org…')
           });
-          let logs: ApexLogRow[] = [];
+          let result: Awaited<ReturnType<typeof runtimeClient.logsSync>>;
           try {
-            logs = await this.fetchAllOrgLogs(selectedOrg, controller.signal);
+            result = await runtimeClient.logsSync(
+              {
+                targetOrg: selectedOrg,
+                workspaceRoot: getWorkspaceRoot(),
+                forceFull: true,
+                concurrency: this.getBackgroundSyncConcurrency()
+              },
+              controller.signal
+            );
           } catch (e) {
             const msg = getErrorMessage(e);
             if (controller.signal.aborted || this.isAbortLikeError(e, msg)) {
-              return { kind: 'cancelled-before-download', listed: 0 };
+              return { kind: 'cancelled', processed: 0 };
             }
             throw e;
           }
-          if (controller.signal.aborted) {
-            return { kind: 'cancelled-before-download', listed: logs.length };
+          const processed = result.downloaded + result.cached + result.failed;
+          const success = result.downloaded + result.cached;
+          const summary: EnsureLogsSavedSummary = {
+            total: processed,
+            success,
+            downloaded: result.downloaded,
+            existing: result.cached,
+            missing: 0,
+            failed: result.failed,
+            cancelled: result.status === 'cancelled' ? processed : 0,
+            failedLogIds: []
+          };
+          progress.report({
+            increment: 100,
+            message: localize('downloadAllLogsProgressMessage', 'Processed {0}/{1} logs…', processed, processed)
+          });
+          if (result.index_error) {
+            logWarn('Logs: downloadAllLogs index warning ->', result.index_error);
           }
-          if (logs.length === 0) {
+          if (result.status === 'cancelled') {
+            return { kind: 'cancelled', processed };
+          }
+          if (processed === 0) {
             return { kind: 'empty' };
           }
-
-          let processed = 0;
-          let progressPct = 0;
-          const total = logs.length;
-          progress.report({
-            message: localize('downloadAllLogsProgressMessage', 'Processed {0}/{1} logs…', processed, total)
-          });
-          const summary = await this.logService.ensureLogsSaved(logs, selectedOrg, controller.signal, {
-            onItemComplete: () => {
-              processed += 1;
-              const nextPct = Math.floor((processed / total) * 100);
-              const increment = nextPct > progressPct ? nextPct - progressPct : undefined;
-              progressPct = Math.max(progressPct, nextPct);
-              progress.report({
-                increment,
-                message: localize('downloadAllLogsProgressMessage', 'Processed {0}/{1} logs…', processed, total)
-              });
-            }
-          });
-          return { kind: 'done', total, processed, summary };
+          return { kind: 'done', total: processed, processed, summary };
         }
       );
 
-      if (runResult.kind === 'cancelled-before-download') {
+      if (runResult.kind === 'cancelled') {
         void vscode.window.showWarningMessage(
           localize(
-            'downloadAllLogsSummaryCancelledBeforeDownload',
-            'Bulk download cancelled while listing logs for the selected org.'
+            'downloadAllLogsSummaryCancelledDuringSync',
+            'Bulk download cancelled while syncing logs for the selected org.'
           )
         );
         try {
@@ -1305,10 +1272,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             { outcome: 'cancelled', sourceView: 'logs' },
             {
               durationMs: Date.now() - t0,
-              total: runResult.listed,
+              total: runResult.processed,
               success: 0,
               failed: 0,
-              cancelled: runResult.listed
+              cancelled: runResult.processed
             }
           );
         } catch {}

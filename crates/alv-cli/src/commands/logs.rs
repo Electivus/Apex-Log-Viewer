@@ -1,6 +1,9 @@
-use crate::cli::{LogSearchArgs, LogStatusArgs, LogSyncArgs, LogsArgs, LogsCommand};
+use crate::cli::{
+    LogIndexArgs, LogIndexCommand, LogIndexRebuildArgs, LogSearchArgs, LogStatusArgs, LogSyncArgs,
+    LogsArgs, LogsCommand,
+};
 use alv_core::{
-    auth,
+    auth, log_index,
     log_store::{self, OrgMetadata, SyncState},
     logs::{CancellationToken, LogsRuntimeError, RuntimeErrorData},
     logs_sync::{sync_logs_detailed_with_cancel, LogsSyncParams, LogsSyncResult},
@@ -24,6 +27,8 @@ struct StatusResult {
     last_synced_start_time: Option<String>,
     downloaded_count: usize,
     cached_count: usize,
+    indexed_count: usize,
+    index_file: String,
     last_error: Option<String>,
 }
 
@@ -44,6 +49,15 @@ struct SearchResult {
     pending_log_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct IndexRebuildResult {
+    target_org: String,
+    safe_target_org: String,
+    workspace_root: String,
+    index_file: String,
+    indexed_count: usize,
+}
+
 #[derive(Debug, Serialize)]
 struct CommandErrorResult<'a> {
     status: &'static str,
@@ -57,6 +71,7 @@ pub fn run(args: LogsArgs) -> Result<i32, String> {
         LogsCommand::Sync(sync) => run_sync(sync),
         LogsCommand::Status(status) => run_status(status),
         LogsCommand::Search(search) => run_search(search),
+        LogsCommand::Index(index) => run_index(index),
     }
 }
 
@@ -100,9 +115,11 @@ fn run_status(args: LogStatusArgs) -> Result<i32, String> {
     let apexlogs_root = log_store::resolve_apexlogs_root(Some(&workspace_root));
     let entry = sync_state.orgs.get(&resolved_username);
     let log_count = discover_local_log_ids(Some(&workspace_root), Some(&resolved_username))?.len();
+    let indexed_count =
+        log_index::count_indexed_logs(Some(&workspace_root), &resolved_username).unwrap_or(0);
 
     let result = StatusResult {
-        target_org: resolved_username,
+        target_org: resolved_username.clone(),
         safe_target_org,
         workspace_root: workspace_root.clone(),
         apexlogs_root: apexlogs_root.display().to_string(),
@@ -117,6 +134,10 @@ fn run_status(args: LogStatusArgs) -> Result<i32, String> {
         last_synced_start_time: entry.and_then(|value| value.last_synced_start_time.clone()),
         downloaded_count: entry.map(|value| value.downloaded_count).unwrap_or(0),
         cached_count: entry.map(|value| value.cached_count).unwrap_or(0),
+        indexed_count,
+        index_file: log_index::index_path(Some(&workspace_root))
+            .display()
+            .to_string(),
         last_error: entry.and_then(|value| value.last_error.clone()),
     };
 
@@ -124,6 +145,48 @@ fn run_status(args: LogStatusArgs) -> Result<i32, String> {
         print_json(&result)?;
     } else {
         print_status_summary(&result);
+    }
+
+    Ok(0)
+}
+
+fn run_index(args: LogIndexArgs) -> Result<i32, String> {
+    match args.command {
+        LogIndexCommand::Rebuild(rebuild) => run_index_rebuild(rebuild),
+    }
+}
+
+fn run_index_rebuild(args: LogIndexRebuildArgs) -> Result<i32, String> {
+    let workspace_root = workspace_root_string()?;
+    let sync_state = log_store::read_sync_state(Some(&workspace_root))?;
+    let target_org = resolve_search_target_org(
+        args.target_org.as_deref(),
+        Some(&workspace_root),
+        &sync_state,
+    )?
+    .or_else(|| sync_state.orgs.keys().next().cloned())
+    .unwrap_or_else(|| "default".to_string());
+    let indexed_count = log_index::rebuild_org_index(
+        Some(&workspace_root),
+        &target_org,
+        &CancellationToken::new(),
+    )?;
+    let result = IndexRebuildResult {
+        safe_target_org: log_store::safe_target_org(&target_org),
+        target_org,
+        workspace_root: workspace_root.clone(),
+        index_file: log_index::index_path(Some(&workspace_root))
+            .display()
+            .to_string(),
+        indexed_count,
+    };
+
+    if args.json {
+        print_json(&result)?;
+    } else {
+        println!("Rebuilt Apex log index");
+        println!("Indexed: {}", result.indexed_count);
+        println!("Index file: {}", result.index_file);
     }
 
     Ok(0)
@@ -252,9 +315,14 @@ fn print_sync_summary(result: &LogsSyncResult) {
     println!("Status: {}", result.status);
     println!("Downloaded: {}", result.downloaded);
     println!("Cached: {}", result.cached);
+    println!("Indexed: {}", result.indexed);
     println!("Failed: {}", result.failed);
     println!("Checkpoint advanced: {}", result.checkpoint_advanced);
     println!("State file: {}", result.state_file);
+    println!("Index file: {}", result.index_file);
+    if let Some(error) = result.index_error.as_deref() {
+        println!("Index warning: {error}");
+    }
 }
 
 fn print_status_summary(result: &StatusResult) {
@@ -262,7 +330,9 @@ fn print_status_summary(result: &StatusResult) {
     println!("Workspace: {}", result.workspace_root);
     println!("Apex logs root: {}", result.apexlogs_root);
     println!("State file: {}", result.state_file);
+    println!("Index file: {}", result.index_file);
     println!("Local logs: {}", result.log_count);
+    println!("Indexed logs: {}", result.indexed_count);
     if result.has_state {
         println!("Last sync completed: {:?}", result.last_sync_completed_at);
     } else {
