@@ -48,6 +48,28 @@ export type LogsListParams = {
   cursor?: LogsListCursor;
 };
 
+export type LogsSyncParams = {
+  targetOrg?: string;
+  workspaceRoot?: string;
+  forceFull?: boolean;
+  concurrency?: number;
+};
+
+export type LogsSyncResult = {
+  status: string;
+  target_org: string;
+  safe_target_org: string;
+  downloaded: number;
+  cached: number;
+  indexed: number;
+  failed: number;
+  checkpoint_advanced: boolean;
+  state_file: string;
+  index_file: string;
+  index_error?: string;
+  last_synced_log_id?: string;
+};
+
 export type SearchSnippet = {
   text: string;
   ranges: [number, number][];
@@ -89,6 +111,7 @@ export type LogsTriageParams = {
 
 export type LogsTriageEntry = {
   logId: string;
+  codeUnitStarted?: string;
   summary: RuntimeLogTriageSummary;
 };
 

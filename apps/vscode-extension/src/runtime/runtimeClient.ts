@@ -7,6 +7,8 @@ import type {
   JsonRpcSuccessResponse,
   InitializeResult,
   LogsListParams,
+  LogsSyncParams,
+  LogsSyncResult,
   ResolveCachedLogPathParams,
   ResolveCachedLogPathResult,
   LogsTriageEntry,
@@ -33,7 +35,15 @@ import {
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 const RUNTIME_EXIT_MESSAGE_PREFIX = 'runtime exited (';
-const RUNTIME_TELEMETRY_METHODS = new Set(['initialize', 'org/list', 'org/auth', 'logs/list', 'search/query', 'logs/triage']);
+const RUNTIME_TELEMETRY_METHODS = new Set([
+  'initialize',
+  'org/list',
+  'org/auth',
+  'logs/list',
+  'logs/sync',
+  'search/query',
+  'logs/triage'
+]);
 const RUNTIME_TRACE_REDACTED = '[redacted]';
 const RUNTIME_TRACE_MAX_STRING_LENGTH = 8192;
 const RUNTIME_TRACE_SECRET_KEYS = new Set([
@@ -293,6 +303,13 @@ export class RuntimeClient extends EventEmitter {
       await this.initialize();
     }
     return this.request<RuntimeLogRow[]>('logs/list', params, signal);
+  }
+
+  async logsSync(params: LogsSyncParams = {}, signal?: AbortSignal): Promise<LogsSyncResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<LogsSyncResult>('logs/sync', params, signal);
   }
 
   async searchQuery(params: SearchQueryParams, signal?: AbortSignal): Promise<SearchQueryResult> {

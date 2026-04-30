@@ -1,4 +1,4 @@
-use crate::{auth, log_store, logs::CancellationToken};
+use crate::{auth, log_index, log_store, logs::CancellationToken};
 use grep_matcher::Matcher;
 use grep_regex::RegexMatcherBuilder;
 use serde::{Deserialize, Serialize};
@@ -74,6 +74,44 @@ pub fn search_query_with_cancel(
         .raw_username
         .as_deref()
         .or(params.username.as_deref());
+
+    let target_org_for_index = canonical_username
+        .as_deref()
+        .or(raw_username_hint)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let mut scan_log_ids = log_ids.clone();
+    if let Some(target_org) = target_org_for_index {
+        if let Some(index_result) = log_index::search_index_lines(
+            params.workspace_root.as_deref(),
+            target_org,
+            query,
+            &log_ids,
+            cancellation,
+        )
+        .unwrap_or(None)
+        {
+            scan_log_ids.clear();
+            for log_id in &log_ids {
+                cancellation.check_cancelled()?;
+                if !index_result.indexed_log_ids.contains(log_id) {
+                    scan_log_ids.push(log_id.clone());
+                    continue;
+                }
+                let Some(line) = index_result.matched_lines.get(log_id) else {
+                    continue;
+                };
+                result.log_ids.push(log_id.clone());
+                if let Some(snippet) = build_snippet(&matcher, line) {
+                    result.snippets.insert(log_id.clone(), snippet);
+                }
+            }
+            if scan_log_ids.is_empty() {
+                return Ok(result);
+            }
+        }
+    }
+
     let path_index = build_cached_log_path_index(
         params.workspace_root.as_deref(),
         raw_username_hint,
@@ -81,7 +119,7 @@ pub fn search_query_with_cancel(
         cancellation,
     )?;
 
-    for log_id in log_ids {
+    for log_id in scan_log_ids {
         cancellation.check_cancelled()?;
         let Some(paths) = path_index.get(&log_id) else {
             result.pending_log_ids.push(log_id);

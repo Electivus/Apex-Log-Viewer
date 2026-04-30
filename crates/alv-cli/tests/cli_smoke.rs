@@ -193,6 +193,7 @@ fn cli_smoke_shows_logs_subcommands_in_help() {
     assert!(stdout.contains("sync"));
     assert!(stdout.contains("status"));
     assert!(stdout.contains("search"));
+    assert!(stdout.contains("index"));
 }
 
 #[test]
@@ -247,14 +248,73 @@ fn cli_smoke_logs_sync_json_emits_structured_result_and_writes_state() {
     assert_eq!(json["status"], "success");
     assert_eq!(json["target_org"], "default@example.com");
     assert_eq!(json["downloaded"], 1);
+    assert_eq!(json["indexed"], 1);
+    assert!(json["index_file"]
+        .as_str()
+        .is_some_and(|value| value.ends_with("apexlogs/.alv/log-index.sqlite")));
     assert!(workspace_root
         .join("apexlogs")
         .join(".alv")
         .join("sync-state.json")
         .is_file());
+    assert!(workspace_root
+        .join("apexlogs")
+        .join(".alv")
+        .join("log-index.sqlite")
+        .is_file());
 
     fs::remove_dir_all(workspace_root).expect("workspace should be removable");
     fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_index_rebuild_json_indexes_existing_org_logs() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-index-{unique}"));
+    let log_dir = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default")
+        .join("logs")
+        .join("unknown-date");
+    fs::create_dir_all(&log_dir).expect("log dir should exist");
+    fs::write(
+        log_dir.join("07L000000000003AA.log"),
+        "09:00:00.0|USER_INFO|indexed body\n",
+    )
+    .expect("fixture log should be writable");
+
+    let output = apex_log_viewer_command()
+        .current_dir(&workspace_root)
+        .args([
+            "logs",
+            "index",
+            "rebuild",
+            "--target-org",
+            "default",
+            "--json",
+        ])
+        .output()
+        .expect("index rebuild should execute");
+
+    assert!(
+        output.status.success(),
+        "index rebuild should exit successfully: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["target_org"], "default");
+    assert_eq!(json["indexed_count"], 1);
+    assert!(workspace_root
+        .join("apexlogs")
+        .join(".alv")
+        .join("log-index.sqlite")
+        .is_file());
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
 }
 
 #[test]

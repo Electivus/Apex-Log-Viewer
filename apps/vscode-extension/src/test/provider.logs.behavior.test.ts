@@ -55,11 +55,21 @@ function createProviderHarness() {
   };
   const runtimeClientStub: any = {
     orgList: async () => [],
-    getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' }),
-    logsList: async () => [],
-    searchQuery: async () => ({ logIds: [], snippets: {}, pendingLogIds: [] }),
-    logsTriage: async () => []
-  };
+	    getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' }),
+	    logsList: async () => [],
+	    searchQuery: async () => ({ logIds: [], snippets: {}, pendingLogIds: [] }),
+	    logsTriage: async () => [],
+	    logsSync: async () => ({
+	      status: 'success',
+	      downloaded: 0,
+	      cached: 0,
+	      failed: 0,
+	      indexed: 0,
+	      checkpoint_advanced: false,
+	      state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+	      index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+	    })
+	  };
   const cliStub: any = runtimeClientStub;
   const vscodeMock: any = {
     Uri: {
@@ -344,11 +354,11 @@ suite('SfLogsViewProvider behavior', () => {
     }
   });
 
-  test('refresh preloads full log bodies when enabled', async () => {
-    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
-    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    cli.logsList = async () => [
-      { Id: '07L000000000001AA' },
+	  test('refresh starts shared background sync after listing logs', async () => {
+	    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+	    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+	    cli.logsList = async () => [
+	      { Id: '07L000000000001AA' },
       { Id: '07L000000000002AA' }
     ];
 
@@ -359,37 +369,41 @@ suite('SfLogsViewProvider behavior', () => {
       webview: {
         postMessage: () => Promise.resolve(true)
       }
-    } as any;
-    (provider as any).logService.loadLogHeads = () => {};
+	    } as any;
+	    (provider as any).logService.loadLogHeads = () => {};
 
-    const calls: Array<{ logs: any[]; signal?: AbortSignal; options?: any }> = [];
-    (provider as any).logService.ensureLogsSaved = async (
-      logs: any[],
-      _org: string | undefined,
-      signal?: AbortSignal,
-      options?: any
-    ) => {
-      calls.push({ logs, signal, options });
-    };
-    const purged: Array<{ keepIds?: Set<string>; maxAgeMs?: number; signal?: AbortSignal }> = [];
-    workspace.purgeSavedLogs = async (opts: any) => {
-      purged.push(opts);
-      return 3;
-    };
+	    const syncCalls: Array<{ params: any; signal?: AbortSignal }> = [];
+	    cli.logsSync = async (params: any, signal?: AbortSignal) => {
+	      syncCalls.push({ params, signal });
+	      return {
+	        status: 'success',
+	        downloaded: 2,
+	        cached: 0,
+	        failed: 0,
+	        indexed: 2,
+	        checkpoint_advanced: true,
+	        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+	        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+	      };
+	    };
+	    const purged: Array<{ keepIds?: Set<string>; maxAgeMs?: number; signal?: AbortSignal }> = [];
+	    workspace.purgeSavedLogs = async (opts: any) => {
+	      purged.push(opts);
+	      return 3;
+	    };
 
-    await provider.refresh();
-    await new Promise(resolve => setTimeout(resolve, 20));
+	    await provider.refresh();
+	    await waitForCondition(() => syncCalls.length === 1);
 
-    assert.equal(calls.length, 1, 'should preload log bodies once');
-    assert.deepEqual(
-      calls[0]?.logs.map(l => l.Id),
-      ['07L000000000001AA', '07L000000000002AA'],
-      'should pass fetched logs to ensureLogsSaved'
-    );
-    assert.equal(typeof calls[0]?.signal?.aborted, 'boolean', 'should pass abort signal to ensureLogsSaved');
-    assert.equal(calls[0]?.options?.authHint?.username, 'u', 'should pass auth hint to ensureLogsSaved');
-    assert.equal(purged.length, 1, 'should purge cached logs after refresh');
-    const keepIds = Array.from(purged[0]?.keepIds ?? []);
+	    assert.deepEqual(syncCalls[0]?.params, {
+	      targetOrg: undefined,
+	      workspaceRoot: '/tmp/alv-workspace',
+	      forceFull: false,
+	      concurrency: 3
+	    });
+	    assert.equal(typeof syncCalls[0]?.signal?.aborted, 'boolean', 'should pass abort signal to runtime sync');
+	    assert.equal(purged.length, 1, 'should purge cached logs after refresh');
+	    const keepIds = Array.from(purged[0]?.keepIds ?? []);
     assert.deepEqual(
       keepIds.sort(),
       ['07L000000000001AA', '07L000000000002AA'],
@@ -397,10 +411,10 @@ suite('SfLogsViewProvider behavior', () => {
     );
   });
 
-  test('refresh posts progressive error scan status and marks visible logs with errors', async () => {
-    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
-    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    cli.logsList = async () => [
+	  test('refresh scans visible logs for errors after background sync completes', async () => {
+	    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+	    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+	    cli.logsList = async () => [
       { Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 },
       { Id: '07L000000000002AA', StartTime: '2026-03-30T18:40:58.000Z', LogLength: 20 }
     ];
@@ -430,10 +444,24 @@ suite('SfLogsViewProvider behavior', () => {
             hasErrors: false,
             reasons: []
           }
-        }
-      ];
-    };
-    workspace.purgeSavedLogs = async () => 0;
+	        }
+	      ];
+	    };
+	    const syncCalls: any[] = [];
+	    cli.logsSync = async (params: any) => {
+	      syncCalls.push(params);
+	      return {
+	        status: 'success',
+	        downloaded: 2,
+	        cached: 0,
+	        failed: 0,
+	        indexed: 2,
+	        checkpoint_advanced: true,
+	        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+	        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+	      };
+	    };
+	    workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
     const posted: any[] = [];
@@ -449,29 +477,77 @@ suite('SfLogsViewProvider behavior', () => {
       }
     } as any;
 
-    await provider.refresh();
-    await new Promise(resolve => setTimeout(resolve, 30));
+	    await provider.refresh();
+	    await waitForCondition(() => triageCalls.length === 1);
 
-    const scanRunning = posted.find(m => m?.type === 'errorScanStatus' && m?.state === 'running');
+	    const scanRunning = posted.find(m => m?.type === 'errorScanStatus' && m?.state === 'running');
     const scanIdle = posted.find(m => m?.type === 'errorScanStatus' && m?.state === 'idle' && m?.total === 2);
     const errorHead = posted.find(m => m?.type === 'logHead' && m?.logId === '07L000000000001AA' && m?.hasErrors === true);
 
-    assert.ok(scanRunning, 'should post running scan status');
-    assert.ok(scanIdle, 'should post idle scan status after completion');
-    assert.ok(errorHead, 'should mark visible error log in logHead stream');
-    assert.equal(errorHead?.primaryReason, 'Fatal exception');
+	    assert.ok(scanRunning, 'should post running scan status');
+	    assert.ok(scanIdle, 'should post idle scan status after completion');
+	    assert.ok(errorHead, 'should mark visible error log in logHead stream');
+	    assert.equal(syncCalls.length, 1, 'should complete shared sync before triage');
+	    assert.equal(errorHead?.primaryReason, 'Fatal exception');
     assert.equal(errorHead?.reasons?.[0]?.code, 'fatal_exception');
     assert.equal(triageCalls[0]?.workspaceRoot, '/tmp/alv-workspace');
     assert.deepEqual(triageCalls[0]?.logStartTimes, {
       '07L000000000001AA': '2026-03-30T18:39:58.000Z',
       '07L000000000002AA': '2026-03-30T18:40:58.000Z'
     });
-  });
+	  });
 
-  test('refresh cancellation aborts background error scan', async () => {
-    const { SfLogsViewProvider, cli, workspace, vscode: vscodeMock } = createProviderHarness();
-    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
+	  test('refresh scans visible logs for errors when background sync fails', async () => {
+	    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+	    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+	    cli.logsList = async () => [
+	      { Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 }
+	    ];
+	    cli.logsSync = async () => {
+	      throw new Error('sync failed');
+	    };
+	    const triageCalls: any[] = [];
+	    cli.logsTriage = async (params: any) => {
+	      triageCalls.push(params);
+	      return [
+	        {
+	          logId: params.logIds[0],
+	          summary: {
+	            hasErrors: true,
+	            primaryReason: 'Fatal exception',
+	            reasons: [{ code: 'fatal_exception', severity: 'error', summary: 'Fatal exception' }]
+	          }
+	        }
+	      ];
+	    };
+	    workspace.purgeSavedLogs = async () => 0;
+
+	    const context = makeContext();
+	    const posted: any[] = [];
+	    const provider = new SfLogsViewProvider(context);
+	    (provider as any).logService.loadLogHeads = () => {};
+	    (provider as any).view = {
+	      webview: {
+	        postMessage: (m: any) => {
+	          posted.push(m);
+	          return Promise.resolve(true);
+	        }
+	      }
+	    } as any;
+
+	    await provider.refresh();
+	    await waitForCondition(() => triageCalls.length === 1);
+
+	    assert.ok(
+	      posted.some(m => m?.type === 'logHead' && m?.logId === '07L000000000001AA' && m?.hasErrors === true),
+	      'should still mark visible logs after sync failure'
+	    );
+	  });
+
+	  test('refresh cancellation aborts background sync', async () => {
+	    const { SfLogsViewProvider, cli, workspace, vscode: vscodeMock } = createProviderHarness();
+	    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+	    cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
     workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
@@ -487,21 +563,30 @@ suite('SfLogsViewProvider behavior', () => {
           return Promise.resolve(true);
         }
       }
-    } as any;
+	    } as any;
 
-    let triageSignal: AbortSignal | undefined;
-    let triageStarted!: () => void;
-    const started = new Promise<void>(resolve => {
-      triageStarted = resolve;
-    });
-    cli.logsTriage = async (_params: { logIds: string[] }, signal?: AbortSignal) => {
-      if (signal) {
-        triageSignal = signal;
-      }
-      triageStarted();
-      await new Promise(resolve => setTimeout(resolve, 30));
-      return [];
-    };
+	    let syncSignal: AbortSignal | undefined;
+	    let syncStarted!: () => void;
+	    const started = new Promise<void>(resolve => {
+	      syncStarted = resolve;
+	    });
+	    cli.logsSync = async (_params: any, signal?: AbortSignal) => {
+	      if (signal) {
+	        syncSignal = signal;
+	      }
+	      syncStarted();
+	      await new Promise(resolve => setTimeout(resolve, 30));
+	      return {
+	        status: signal?.aborted ? 'cancelled' : 'success',
+	        downloaded: 0,
+	        cached: 0,
+	        failed: 0,
+	        indexed: 0,
+	        checkpoint_advanced: false,
+	        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+	        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+	      };
+	    };
 
     vscodeMock.window.withProgress = async (_opts: any, task: any) => {
       let cancel: (() => void) | undefined;
@@ -518,13 +603,17 @@ suite('SfLogsViewProvider behavior', () => {
       return resultPromise;
     };
 
-    await provider.refresh();
-    await new Promise(resolve => setTimeout(resolve, 60));
+	    await provider.refresh();
+	    await new Promise(resolve => setTimeout(resolve, 60));
 
-    assert.ok(triageSignal, 'should start runtime triage');
-    assert.equal(triageSignal?.aborted, true, 'scan signal should be aborted when refresh is cancelled');
-    assert.ok(posted.some(m => m?.type === 'errorScanStatus' && m?.state === 'running'), 'should have started scan status');
-  });
+	    assert.ok(syncSignal, 'should start shared runtime sync');
+	    assert.equal(syncSignal?.aborted, true, 'sync signal should be aborted when refresh is cancelled');
+	    assert.equal(
+	      posted.some(m => m?.type === 'errorScanStatus' && m?.state === 'running'),
+	      false,
+	      'should not scan when refresh cancellation aborts sync first'
+	    );
+	  });
 
   test('refresh posts logs before org auth completes', async () => {
     const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
@@ -583,183 +672,6 @@ suite('SfLogsViewProvider behavior', () => {
     await provider.sendOrgs();
 
     assert.equal(progressOptions?.cancellable, false, 'org listing progress should not advertise cancellation');
-  });
-
-  test('preloadFullLogBodies re-runs active search after downloads complete', async () => {
-    const { SfLogsViewProvider } = createProviderHarness();
-    const context = makeContext();
-    const provider = new SfLogsViewProvider(context);
-    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).lastSearchQuery = 'error';
-
-    const searchCalls: string[] = [];
-    (provider as any).executeSearch = async (query: string) => {
-      searchCalls.push(query);
-    };
-    (provider as any).logService.ensureLogsSaved = async (
-      _logs: any[],
-      _selectedOrg?: string,
-      _signal?: AbortSignal,
-      options?: { onItemComplete?: (result: { logId: string; status: string }) => void }
-    ) => {
-      options?.onItemComplete?.({ logId: '07L000000000001AA', status: 'downloaded' });
-      return {
-        total: 1,
-        success: 1,
-        downloaded: 1,
-        existing: 0,
-        missing: 0,
-        failed: 0,
-        cancelled: 0,
-        failedLogIds: []
-      };
-    };
-
-    (provider as any).preloadFullLogBodies(
-      [{ Id: '07L000000000001AA' }],
-      { username: 'u', instanceUrl: 'i', accessToken: 't' },
-      0
-    );
-    await new Promise(resolve => setTimeout(resolve, 20));
-
-    assert.deepEqual(searchCalls, ['error'], 'should re-run active search after preload saves logs');
-  });
-
-  test('preloadFullLogBodies re-runs active search when bodies became available via a parallel cache writer', async () => {
-    const { SfLogsViewProvider } = createProviderHarness();
-    const context = makeContext();
-    const provider = new SfLogsViewProvider(context);
-    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).lastSearchQuery = 'error';
-
-    const searchCalls: string[] = [];
-    (provider as any).executeSearch = async (query: string) => {
-      searchCalls.push(query);
-    };
-    (provider as any).logService.ensureLogsSaved = async () => ({
-      total: 1,
-      success: 1,
-      downloaded: 0,
-      existing: 1,
-      missing: 0,
-      failed: 0,
-      cancelled: 0,
-      failedLogIds: []
-    });
-
-    (provider as any).preloadFullLogBodies(
-      [{ Id: '07L000000000001AA' }],
-      { username: 'u', instanceUrl: 'i', accessToken: 't' },
-      0
-    );
-    await new Promise(resolve => setTimeout(resolve, 20));
-
-    assert.deepEqual(
-      searchCalls,
-      ['error'],
-      'should re-run active search when preload confirms files already exist locally'
-    );
-  });
-
-  test('preloadFullLogBodies re-runs active search before the full save batch finishes', async () => {
-    const { SfLogsViewProvider } = createProviderHarness();
-    const context = makeContext();
-    const provider = new SfLogsViewProvider(context);
-    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).lastSearchQuery = 'error';
-
-    const searchCalls: string[] = [];
-    let batchFinished = false;
-    (provider as any).executeSearch = async (query: string) => {
-      searchCalls.push(query);
-    };
-    (provider as any).logService.loadLogHeads = () => {};
-    (provider as any).logService.ensureLogsSaved = async (
-      _logs: any[],
-      _selectedOrg?: string,
-      _signal?: AbortSignal,
-      options?: { onItemComplete?: (result: { logId: string; status: string }) => void }
-    ) => {
-      options?.onItemComplete?.({ logId: '07L000000000001AA', status: 'downloaded' });
-      await new Promise(resolve => setTimeout(resolve, 400));
-      batchFinished = true;
-      return {
-        total: 1,
-        success: 1,
-        downloaded: 1,
-        existing: 0,
-        missing: 0,
-        failed: 0,
-        cancelled: 0,
-        failedLogIds: []
-      };
-    };
-
-    (provider as any).preloadFullLogBodies(
-      [{ Id: '07L000000000001AA' }],
-      { username: 'u', instanceUrl: 'i', accessToken: 't' },
-      0
-    );
-
-    await waitForCondition(() => searchCalls.length === 1, { timeoutMs: 300, intervalMs: 20 });
-    assert.equal(batchFinished, false, 'should not wait for the full save batch before re-running search');
-  });
-
-  test('preloadFullLogBodies re-hydrates code unit metadata from the saved full bodies', async () => {
-    const { SfLogsViewProvider } = createProviderHarness();
-    const context = makeContext();
-    const provider = new SfLogsViewProvider(context);
-    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).view = {
-      webview: {
-        postMessage: () => Promise.resolve(true)
-      }
-    } as any;
-    (provider as any).setCurrentLogs([{ Id: '07L000000000001AA' }]);
-
-    const loadHeadCalls: any[] = [];
-    (provider as any).logService.ensureLogsSaved = async (
-      _logs: any[],
-      _selectedOrg?: string,
-      _signal?: AbortSignal,
-      options?: { onItemComplete?: (result: { logId: string; status: string }) => void }
-    ) => {
-      options?.onItemComplete?.({ logId: '07L000000000001AA', status: 'downloaded' });
-      return {
-        total: 1,
-        success: 1,
-        downloaded: 1,
-        existing: 0,
-        missing: 0,
-        failed: 0,
-        cancelled: 0,
-        failedLogIds: []
-      };
-    };
-    (provider as any).logService.loadLogHeads = (
-      logs: any[],
-      auth: any,
-      refreshToken: number,
-      post: (logId: string, codeUnit: string) => void
-    ) => {
-      loadHeadCalls.push({ logs, auth, refreshToken });
-      post('07L000000000001AA', 'AccountService.handle');
-    };
-
-    const posted: any[] = [];
-    (provider as any).post = (message: any) => {
-      posted.push(message);
-    };
-
-    (provider as any).preloadFullLogBodies(
-      [{ Id: '07L000000000001AA' }],
-      { username: 'u', instanceUrl: 'i', accessToken: 't' },
-      0
-    );
-    await new Promise(resolve => setTimeout(resolve, 20));
-
-    assert.equal(loadHeadCalls.length, 1, 'should refresh code unit metadata after bodies are saved');
-    assert.equal(posted.some(m => m?.type === 'logHead' && m?.codeUnitStarted === 'AccountService.handle'), true);
   });
 
   test('refresh posts API version fallback warning when available', async () => {
@@ -1097,65 +1009,39 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(executed[0], 'abc');
   });
 
-  test('downloadAllLogs message performs explicit bulk download flow', async () => {
-    const { SfLogsViewProvider, cli, vscode: vscodeMock } = createProviderHarness();
-    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    const context = makeContext();
+	  test('downloadAllLogs message performs explicit bulk download flow', async () => {
+	    const { SfLogsViewProvider, cli, vscode: vscodeMock } = createProviderHarness();
+	    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+	    const context = makeContext();
     const provider = new SfLogsViewProvider(context);
     (provider as any).lastSearchQuery = 'error';
-    (provider as any).configManager.getPageLimit = () => 2;
+	    (provider as any).configManager.getPageLimit = () => 2;
 
-    const callOrder: string[] = [];
-    const listSignals: AbortSignal[] = [];
-    const listCalls: any[] = [];
-    cli.logsList = async (params: any, signal?: AbortSignal) => {
-      callOrder.push('list');
-      listCalls.push(params);
-      if (signal) {
-        listSignals.push(signal);
-      }
-      if (listCalls.length === 1) {
-        return [
-          { Id: '07L000000000001AA', StartTime: '2026-01-01T00:00:00.000Z', LogLength: 10 },
-          { Id: '07L000000000002AA', StartTime: '2025-12-31T23:59:59.000Z', LogLength: 20 }
-        ] as any;
-      }
-      if (listCalls.length === 2) {
-        return [
-          { Id: '07L000000000003AA', StartTime: '2025-12-31T23:59:58.000Z', LogLength: 30 }
-        ] as any;
-      }
-      return [] as any;
-    };
-    const searchCalls: string[] = [];
-    (provider as any).executeSearch = async (query: string) => {
-      searchCalls.push(query);
-    };
+	    const callOrder: string[] = [];
+	    const syncCalls: Array<{ params: any; signal?: AbortSignal }> = [];
+	    cli.logsSync = async (params: any, signal?: AbortSignal) => {
+	      callOrder.push('sync');
+	      syncCalls.push({ params, signal });
+	      if (signal) {
+	        assert.equal(typeof signal.aborted, 'boolean');
+	      }
+	      return {
+	        status: 'success',
+	        downloaded: 2,
+	        cached: 1,
+	        failed: 0,
+	        indexed: 3,
+	        checkpoint_advanced: true,
+	        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+	        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+	      };
+	    };
+	    const searchCalls: string[] = [];
+	    (provider as any).executeSearch = async (query: string) => {
+	      searchCalls.push(query);
+	    };
 
-    const ensureCalls: Array<{ count: number; selectedOrg?: string }> = [];
-    (provider as any).logService.ensureLogsSaved = async (
-      logs: any[],
-      selectedOrg?: string,
-      _signal?: AbortSignal,
-      options?: { onItemComplete?: (result: { logId: string; status: string }) => void }
-    ) => {
-      ensureCalls.push({ count: logs.length, selectedOrg });
-      for (const log of logs) {
-        options?.onItemComplete?.({ logId: log.Id, status: 'downloaded' });
-      }
-      return {
-        total: logs.length,
-        success: logs.length,
-        downloaded: logs.length,
-        existing: 0,
-        missing: 0,
-        failed: 0,
-        cancelled: 0,
-        failedLogIds: []
-      };
-    };
-
-    const warningCalls: any[] = [];
+	    const warningCalls: any[] = [];
     vscodeMock.window.showWarningMessage = async (...args: any[]) => {
       callOrder.push('confirm');
       warningCalls.push(args);
@@ -1198,64 +1084,59 @@ suite('SfLogsViewProvider behavior', () => {
     }
     const webview = new MockWebview();
     const view = new MockWebviewView(webview);
-    await provider.resolveWebviewView(view);
-    await (webview as any).emit({ type: 'downloadAllLogs' });
-    await new Promise(resolve => setTimeout(resolve, 20));
+	    await provider.resolveWebviewView(view);
+	    await (webview as any).emit({ type: 'downloadAllLogs' });
+	    await new Promise(resolve => setTimeout(resolve, 20));
 
-    assert.equal(ensureCalls.length, 1, 'should perform one bulk save run');
-    assert.equal(ensureCalls[0]?.count, 3, 'should include all paged logs fetched for the org');
-    assert.ok(warningCalls.length >= 1, 'should request user confirmation');
-    assert.ok(infoCalls.length >= 1, 'should show completion summary');
-    assert.equal(callOrder[0], 'confirm', 'should confirm before listing org logs');
-    assert.equal(typeof listSignals[0]?.aborted, 'boolean', 'should pass cancellation signal while listing logs');
-    assert.ok(searchCalls.includes('error'), 'should re-run active search query after bulk download');
-    assert.deepEqual(listCalls[0], { username: undefined, limit: 2, cursor: undefined });
-    assert.deepEqual(listCalls[1], {
-      username: undefined,
-      limit: 2,
-      cursor: {
-        beforeStartTime: '2025-12-31T23:59:59.000Z',
-        beforeId: '07L000000000002AA'
-      }
-    });
-  });
+	    assert.equal(syncCalls.length, 1, 'should perform one shared runtime sync');
+	    assert.deepEqual(syncCalls[0]?.params, {
+	      targetOrg: undefined,
+	      workspaceRoot: '/tmp/alv-workspace',
+	      forceFull: true,
+	      concurrency: 3
+	    });
+	    assert.ok(warningCalls.length >= 1, 'should request user confirmation');
+	    assert.ok(infoCalls.length >= 1, 'should show completion summary');
+	    assert.deepEqual(callOrder, ['confirm', 'sync'], 'should confirm before starting shared sync');
+	    assert.equal(typeof syncCalls[0]?.signal?.aborted, 'boolean', 'should pass cancellation signal to shared sync');
+	    assert.ok(searchCalls.includes('error'), 'should re-run active search query after bulk download');
+	  });
 
-  test('downloadAllLogs supports cancellation while listing org logs', async () => {
-    const { SfLogsViewProvider, cli, vscode: vscodeMock } = createProviderHarness();
-    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-    const context = makeContext();
-    const provider = new SfLogsViewProvider(context);
+	  test('downloadAllLogs supports cancellation while shared sync is running', async () => {
+	    const { SfLogsViewProvider, cli, vscode: vscodeMock } = createProviderHarness();
+	    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+	    const context = makeContext();
+	    const provider = new SfLogsViewProvider(context);
 
-    const listSignals: AbortSignal[] = [];
-    cli.logsList = async (_params: any, signal?: AbortSignal) => {
-      if (signal) {
-        listSignals.push(signal);
-      }
-      await new Promise(resolve => setTimeout(resolve, 30));
-      if (signal?.aborted) {
-        const error = new Error('The operation was aborted');
-        (error as { name?: string }).name = 'AbortError';
-        throw error;
-      }
-      return [
-        { Id: '07L000000000001AA', StartTime: '2026-01-01T00:00:00.000Z', LogLength: 10 }
-      ] as any;
-    };
-
-    let ensureCalled = false;
-    (provider as any).logService.ensureLogsSaved = async () => {
-      ensureCalled = true;
-      return {
-        total: 0,
-        success: 0,
-        downloaded: 0,
-        existing: 0,
-        missing: 0,
-        failed: 0,
-        cancelled: 0,
-        failedLogIds: []
-      };
-    };
+	    const syncSignals: AbortSignal[] = [];
+	    cli.logsSync = async (_params: any, signal?: AbortSignal) => {
+	      if (signal) {
+	        syncSignals.push(signal);
+	      }
+	      await new Promise(resolve => setTimeout(resolve, 30));
+	      if (signal?.aborted) {
+	        return {
+	          status: 'cancelled',
+	          downloaded: 0,
+	          failed: 0,
+	          cached: 0,
+	          indexed: 0,
+	          checkpoint_advanced: false,
+	          state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+	          index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+	        };
+	      }
+	      return {
+	        status: 'success',
+	        downloaded: 0,
+	        failed: 0,
+	        cached: 0,
+	        indexed: 0,
+	        checkpoint_advanced: false,
+	        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+	        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+	      };
+	    };
 
     const warningCalls: string[] = [];
     const errorCalls: string[] = [];
@@ -1309,18 +1190,17 @@ suite('SfLogsViewProvider behavior', () => {
     const webview = new MockWebview();
     const view = new MockWebviewView(webview);
     await provider.resolveWebviewView(view);
-    await (webview as any).emit({ type: 'downloadAllLogs' });
-    await new Promise(resolve => setTimeout(resolve, 50));
+	    await (webview as any).emit({ type: 'downloadAllLogs' });
+	    await new Promise(resolve => setTimeout(resolve, 50));
 
-    assert.equal(ensureCalled, false, 'should not start downloads when cancelled during listing');
-    assert.equal(listSignals.length >= 1, true, 'should pass signal to listing calls');
-    assert.equal(listSignals[0]?.aborted, true, 'listing signal should be aborted after cancellation');
-    assert.ok(
-      warningCalls.some(msg => msg.includes('cancelled while listing logs')),
-      'should show cancellation summary for listing stage'
-    );
-    assert.equal(errorCalls.length, 0, 'should not show hard error toast for listing abort');
-  });
+	    assert.equal(syncSignals.length >= 1, true, 'should pass signal to shared sync');
+	    assert.equal(syncSignals[0]?.aborted, true, 'sync signal should be aborted after cancellation');
+	    assert.ok(
+	      warningCalls.some(msg => msg.includes('cancelled while syncing logs')),
+	      'should show cancellation summary for sync setup stage'
+	    );
+	    assert.equal(errorCalls.length, 0, 'should not show hard error toast for listing abort');
+	  });
 
   test('openDebugFlags opens debug flags panel', async () => {
     const { SfLogsViewProvider, DebugFlagsPanel } = createProviderHarness();

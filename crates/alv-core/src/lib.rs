@@ -3,6 +3,7 @@ pub mod cache;
 pub(crate) mod cli;
 pub(crate) mod cli_json;
 pub mod debug_flags;
+pub mod log_index;
 pub mod log_store;
 pub mod logs;
 pub mod logs_sync;

@@ -724,7 +724,7 @@ suite('runtime client', () => {
     assert.equal(seenEnv?.Path, 'C:\\custom\\sf\\bin');
   });
 
-  test('logsList, searchQuery, and logsTriage use runtime request methods', async () => {
+  test('logsList, logsSync, searchQuery, and logsTriage use runtime request methods', async () => {
     const methods: string[] = [];
     const client = new RuntimeClient({
       requestHandler: async (method, params) => {
@@ -750,6 +750,24 @@ suite('runtime client', () => {
               LogLength: 123
             }
           ] as never;
+        }
+        if (method === 'logs/sync') {
+          assert.deepEqual(params, {
+            targetOrg: 'demo@example.com',
+            workspaceRoot: '/workspace/project',
+            forceFull: true,
+            concurrency: 3
+          });
+          return {
+            status: 'success',
+            downloaded: 12,
+            cached: 5,
+            failed: 0,
+            indexed: 17,
+            checkpoint_advanced: true,
+            state_file: '/workspace/project/apexlogs/.alv/sync-state.json',
+            index_file: '/workspace/project/apexlogs/.alv/log-index.sqlite'
+          } as never;
         }
         if (method === 'search/query') {
           assert.deepEqual(params, {
@@ -804,6 +822,12 @@ suite('runtime client', () => {
         beforeId: '07L000000000001AA'
       }
     });
+    const syncResult = await client.logsSync({
+      targetOrg: 'demo@example.com',
+      workspaceRoot: '/workspace/project',
+      forceFull: true,
+      concurrency: 3
+    });
     const searchResult = await client.searchQuery({
       username: 'demo@example.com',
       query: 'NullPointerException',
@@ -814,8 +838,9 @@ suite('runtime client', () => {
       logIds: ['07L000000000001AA']
     });
 
-    assert.deepEqual(methods, ['logs/list', 'search/query', 'logs/triage']);
+    assert.deepEqual(methods, ['logs/list', 'logs/sync', 'search/query', 'logs/triage']);
     assert.equal(logs[0]?.Id, '07L000000000001AA');
+    assert.equal(syncResult.indexed, 17);
     assert.equal(searchResult.logIds[0], '07L000000000001AA');
     assert.equal(searchResult.snippets?.['07L000000000001AA']?.ranges[0]?.[0], 7);
     assert.equal(triageEntries[0]?.summary.primaryReason, 'Fatal exception');

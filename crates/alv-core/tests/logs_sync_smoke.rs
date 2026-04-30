@@ -10,6 +10,7 @@ use alv_core::{
     log_store::{org_metadata_path, read_sync_state, resolve_apexlogs_root, OrgMetadata},
     logs::{TEST_APEX_LOG_FIXTURE_DIR_ENV, TEST_SF_LOG_LIST_JSON_ENV},
     logs_sync::{sync_logs_with_cancel, LogsSyncParams},
+    search::{search_query, SearchQueryParams},
 };
 use serde_json::{json, Value};
 use tiny_http::{Header, Response, Server, StatusCode};
@@ -118,6 +119,11 @@ fn logs_sync_smoke_writes_new_layout_and_updates_checkpoint() {
 
     assert_eq!(result.status, "success");
     assert_eq!(result.downloaded, 1);
+    assert_eq!(result.indexed, 1);
+    assert!(
+        PathBuf::from(&result.index_file).is_file(),
+        "sync should create the shared SQLite search index"
+    );
     assert!(resolve_apexlogs_root(Some(
         workspace_root
             .to_str()
@@ -142,6 +148,16 @@ fn logs_sync_smoke_writes_new_layout_and_updates_checkpoint() {
             .as_deref(),
         Some("07L000000000003AA")
     );
+    let search_result = search_query(&SearchQueryParams {
+        query: "synced body".to_string(),
+        log_ids: vec!["07L000000000003AA".to_string()],
+        username: Some("default@example.com".to_string()),
+        raw_username: None,
+        workspace_root: Some(workspace_root.display().to_string()),
+    })
+    .expect("search should read synced bodies through the shared index");
+    assert_eq!(search_result.log_ids, vec!["07L000000000003AA".to_string()]);
+    assert!(search_result.pending_log_ids.is_empty());
 
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);

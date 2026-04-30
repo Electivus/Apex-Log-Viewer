@@ -66,9 +66,10 @@ The standalone Rust CLI now exposes a local-first `logs` surface for humans and 
 apex-log-viewer logs sync --target-org my-org --concurrency 6
 apex-log-viewer logs status --target-org my-org
 apex-log-viewer logs search "NullPointerException" --target-org my-org
+apex-log-viewer logs index rebuild --target-org my-org
 ```
 
-`logs sync` reuses `sf org display` for auth, then lists `ApexLog` rows and downloads raw log bodies over the Salesforce Tooling REST API. It materializes those bodies under `apexlogs/`, keeps incremental state in `apexlogs/.alv/`, and writes the canonical org-first layout at `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log`, where `<safe-target-org>` is the sanitized directory name derived from the resolved org username. Use `--concurrency` when you want to tune how many log bodies are downloaded in parallel; the default is `6` and `1` keeps the old serial-style troubleshooting mode. The VS Code extension and the CLI remain separate surfaces over the same shared runtime architecture, so the runtime still tolerates the legacy flat cache layout during the transition.
+`logs sync` reuses `sf org display` for auth, then lists `ApexLog` rows and downloads raw log bodies over the Salesforce Tooling REST API. It materializes those bodies under `apexlogs/`, keeps incremental state in `apexlogs/.alv/sync-state.json`, updates the local SQLite/FTS search index at `apexlogs/.alv/log-index.sqlite`, and writes the canonical org-first layout at `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log`, where `<safe-target-org>` is the sanitized directory name derived from the resolved org username. Use `--concurrency` when you want to tune how many log bodies are downloaded in parallel; the default is `6` and `1` keeps the old serial-style troubleshooting mode. The VS Code extension and the CLI remain separate surfaces over the same shared Rust runtime architecture, and both can reuse the same local bodies, sync checkpoints, and index.
 
 ## Usage
 
@@ -82,8 +83,8 @@ The extension activates automatically when the workspace contains `sfdx-project.
 
 ### Search Downloaded Logs
 
-- Run **Refresh Logs** to populate the list and download the bodies used by local search.
-- Use the search box to search visible metadata plus those saved log bodies.
+- Run **Refresh Logs** to populate the list immediately while the shared runtime syncs bodies and the local index in the background.
+- Use the search box to search visible metadata plus locally synced log bodies.
 - Match snippets appear in the `Match` column when the hit comes from the saved log file.
 - Scroll to load more rows from the current list when you want to keep widening the search incrementally.
 - Use **Download all logs** when the refreshed and scrolled set still is not enough, or when you want to pull all logs from the selected org into local search in one action.

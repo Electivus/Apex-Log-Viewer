@@ -35,6 +35,7 @@ pub enum LogsCommand {
     Sync(LogSyncArgs),
     Status(LogStatusArgs),
     Search(LogSearchArgs),
+    Index(LogIndexArgs),
 }
 
 #[derive(Debug, Args)]
@@ -60,6 +61,25 @@ pub struct LogStatusArgs {
 #[derive(Debug, Args)]
 pub struct LogSearchArgs {
     pub query: String,
+    #[arg(long = "target-org")]
+    pub target_org: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct LogIndexArgs {
+    #[command(subcommand)]
+    pub command: LogIndexCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum LogIndexCommand {
+    Rebuild(LogIndexRebuildArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct LogIndexRebuildArgs {
     #[arg(long = "target-org")]
     pub target_org: Option<String>,
     #[arg(long)]

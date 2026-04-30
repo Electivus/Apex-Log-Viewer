@@ -1,5 +1,6 @@
 use alv_core::{
     logs::{list_logs_detailed_with_cancel, CancellationToken, LogsListParams, LogsRuntimeError},
+    logs_sync::{sync_logs_detailed_with_cancel, LogsSyncParams},
     search::{search_query_with_cancel, SearchQueryParams},
     triage::{triage_logs_with_cancel, LogsTriageParams},
 };
@@ -26,6 +27,16 @@ pub fn handle_logs_list_with_cancel(
     let rows = list_logs_detailed_with_cancel(&params, cancellation)?;
     serde_json::to_string(&rows).map_err(|error| {
         LogsRuntimeError::from_message(format!("failed to serialize logs/list response: {error}"))
+    })
+}
+
+pub fn handle_logs_sync_with_cancel(
+    params: LogsSyncParams,
+    cancellation: &CancellationToken,
+) -> Result<String, LogsRuntimeError> {
+    let result = sync_logs_detailed_with_cancel(&params, cancellation)?;
+    serde_json::to_string(&result).map_err(|error| {
+        LogsRuntimeError::from_message(format!("failed to serialize logs/sync response: {error}"))
     })
 }
 
