@@ -61,6 +61,7 @@ test('proxy lab compose uses mitmproxy with a shared CA volume instead of Tinypr
   assert.match(compose, /mitmproxy-ca-cert\.cer/);
   assert.match(compose, /ALV_TEST_TELEMETRY_CONNECTION_STRING:/);
   assert.match(compose, /ALV_TEST_TELEMETRY_RUN_ID:/);
+  assert.match(compose, /^\s+VSCODE_TEST_DOWNLOAD_TIMEOUT_MS: \$\{VSCODE_TEST_DOWNLOAD_TIMEOUT_MS:-\}$/m);
   assert.doesNotMatch(compose, /tinyproxy/i);
 });
 

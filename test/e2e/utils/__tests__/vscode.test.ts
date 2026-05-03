@@ -6,6 +6,7 @@ import {
   resolveExtensionDevelopmentPath,
   resolveSupportExtensionsLockPath,
   resolveVscodeCachePath,
+  resolveVscodeDownloadTimeoutMs,
   resolveWindowSizeArg,
   resolveSupportExtensionIds
 } from '../vscode';
@@ -145,6 +146,22 @@ describe('VS Code cache paths', () => {
     ]);
 
     expect(resolveSupportExtensionsLockPath(extensionsDir)).toBe(path.join(extensionsDir, '.install.lock'));
+  });
+});
+
+describe('resolveVscodeDownloadTimeoutMs', () => {
+  test('defaults the VS Code download timeout to 120 seconds', () => {
+    expect(resolveVscodeDownloadTimeoutMs({})).toBe(120_000);
+  });
+
+  test('honors VSCODE_TEST_DOWNLOAD_TIMEOUT_MS when set to a positive integer', () => {
+    expect(resolveVscodeDownloadTimeoutMs({ VSCODE_TEST_DOWNLOAD_TIMEOUT_MS: '300000' })).toBe(300_000);
+  });
+
+  test('falls back to the default for invalid, empty, or non-positive values', () => {
+    for (const value of ['', 'abc', '0', '-1', '1.5', 'Infinity']) {
+      expect(resolveVscodeDownloadTimeoutMs({ VSCODE_TEST_DOWNLOAD_TIMEOUT_MS: value })).toBe(120_000);
+    }
   });
 });
 

@@ -31,6 +31,7 @@ export type VscodeWindowSize = {
 const VSCODE_DOWNLOAD_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
 const VSCODE_DOWNLOAD_LOCK_POLL_MS = 250;
 const VSCODE_DOWNLOAD_LOCK_REFRESH_MS = 30 * 1000;
+const DEFAULT_VSCODE_DOWNLOAD_TIMEOUT_MS = 120_000;
 
 function getModifierKey(): 'Control' | 'Meta' {
   return process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -56,6 +57,18 @@ export function resolveVscodeCachePath(extensionDevelopmentPath: string): string
   return process.env.VSCODE_TEST_CACHE_PATH
     ? path.resolve(process.env.VSCODE_TEST_CACHE_PATH)
     : path.join(cacheRoot, '.vscode-test');
+}
+
+export function resolveVscodeDownloadTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const rawTimeoutMs = env.VSCODE_TEST_DOWNLOAD_TIMEOUT_MS?.trim();
+  if (!rawTimeoutMs) {
+    return DEFAULT_VSCODE_DOWNLOAD_TIMEOUT_MS;
+  }
+
+  const timeoutMs = Number(rawTimeoutMs);
+  return Number.isFinite(timeoutMs) && Number.isInteger(timeoutMs) && timeoutMs > 0
+    ? timeoutMs
+    : DEFAULT_VSCODE_DOWNLOAD_TIMEOUT_MS;
 }
 
 function getSupportExtensionsCacheKey(vscodeVersion: string, extensionIds: string[]): string {
@@ -421,7 +434,12 @@ export async function launchVsCode(options: {
     async () =>
       await withFileLock(
         vscodeDownloadLockPath,
-        async () => await downloadAndUnzipVSCode({ version: vscodeVersion, cachePath: vscodeCachePath })
+        async () =>
+          await downloadAndUnzipVSCode({
+            version: vscodeVersion,
+            cachePath: vscodeCachePath,
+            timeout: resolveVscodeDownloadTimeoutMs()
+          })
       )
   );
 
