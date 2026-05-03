@@ -1,8 +1,16 @@
 FROM debian:bookworm-slim
 
+ARG ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS=20
+ARG ALV_E2E_PROXY_LAB_APT_RETRIES=3
+
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update \
+RUN { \
+    echo "Acquire::Retries \"${ALV_E2E_PROXY_LAB_APT_RETRIES}\";"; \
+    echo "Acquire::http::Timeout \"${ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS}\";"; \
+    echo "Acquire::https::Timeout \"${ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS}\";"; \
+  } > /etc/apt/apt.conf.d/99alv-proxy-lab-timeouts \
+  && apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
     mitmproxy \

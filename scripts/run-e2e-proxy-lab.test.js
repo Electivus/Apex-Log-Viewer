@@ -22,6 +22,10 @@ function readRunnerDockerfile() {
   return read('test/e2e/proxy-lab/Dockerfile.runner');
 }
 
+function readProxyDockerfile() {
+  return read('test/e2e/proxy-lab/Dockerfile.proxy');
+}
+
 test('resolveComposeArgs runs the proxy lab runner with the compose file', () => {
   const repoRoot = path.join('/workspace', 'apex-log-viewer');
   assert.deepEqual(resolveComposeArgs([], { repoRoot }), [
@@ -175,4 +179,42 @@ test('proxy lab runner image installs xauth for xvfb-run', () => {
   assert.ok(aptInstallBlock, 'expected runner Dockerfile to contain an apt package list');
   assert.match(aptInstallBlock, /^\s+xvfb\s+\\$/m);
   assert.match(aptInstallBlock, /^\s+xauth\s+\\$/m);
+});
+
+test('proxy lab Dockerfiles bound apt network waits during image builds', () => {
+  for (const [name, dockerfile] of [
+    ['runner', readRunnerDockerfile()],
+    ['proxy', readProxyDockerfile()]
+  ]) {
+    assert.match(
+      dockerfile,
+      /ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS=20/,
+      `expected ${name} Dockerfile to define a short apt network timeout`
+    );
+    assert.match(
+      dockerfile,
+      /ALV_E2E_PROXY_LAB_APT_RETRIES=3/,
+      `expected ${name} Dockerfile to define bounded apt retries`
+    );
+    assert.match(
+      dockerfile,
+      /Acquire::Retries \\"\$\{ALV_E2E_PROXY_LAB_APT_RETRIES\}\\";/,
+      `expected ${name} Dockerfile apt-get calls to retry transient apt failures`
+    );
+    assert.match(
+      dockerfile,
+      /Acquire::http::Timeout \\"\$\{ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS\}\\";/,
+      `expected ${name} Dockerfile apt-get calls to time out stalled HTTP mirrors`
+    );
+    assert.match(
+      dockerfile,
+      /Acquire::https::Timeout \\"\$\{ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS\}\\";/,
+      `expected ${name} Dockerfile apt-get calls to time out stalled HTTPS mirrors`
+    );
+    assert.match(
+      dockerfile,
+      /\/etc\/apt\/apt\.conf\.d\/99alv-proxy-lab-timeouts/,
+      `expected ${name} Dockerfile to apply the apt timeout config before apt-get`
+    );
+  }
 });
