@@ -247,8 +247,8 @@ export function resolveVsCodeUserProxySettings(env: NodeJS.ProcessEnv = process.
   const config = resolveE2eProxyConfig(env);
   const settings: Record<string, unknown> = {};
 
-  if (config.proxyServer) {
-    settings['http.proxy'] = config.proxyServer;
+  if (config.proxyUrl) {
+    settings['http.proxy'] = config.proxyUrl;
   }
   if (config.authorization) {
     settings['http.proxyAuthorization'] = config.authorization;

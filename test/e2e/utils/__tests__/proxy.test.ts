@@ -201,14 +201,14 @@ describe('applyE2eNetworkEnvironment', () => {
 });
 
 describe('resolveVsCodeUserProxySettings', () => {
-  test('writes a sanitized proxy URL plus explicit auth header for the isolated VS Code profile', () => {
+  test('embeds proxy URL credentials for isolated VS Code CLI extension installs', () => {
     const settings = resolveVsCodeUserProxySettings({
       HTTPS_PROXY: 'http://username:pwd@proxy.corp.local:8080',
       ALV_E2E_PROXY_STRICT_SSL: '0'
     });
 
     expect(settings).toEqual({
-      'http.proxy': 'http://proxy.corp.local:8080',
+      'http.proxy': 'http://username:pwd@proxy.corp.local:8080',
       'http.proxyAuthorization': 'Basic dXNlcm5hbWU6cHdk',
       'http.proxyStrictSSL': false
     });
