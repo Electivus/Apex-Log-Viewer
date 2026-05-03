@@ -86,8 +86,8 @@
     "azure:monitor:what-if": "node scripts/deploy-azure-monitor.js --what-if"
   },
   "devDependencies": {
-    "@commitlint/cli": "^20.5.2",
-    "@commitlint/config-conventional": "^20.5.0",
+    "@commitlint/cli": "^20.5.3",
+    "@commitlint/config-conventional": "^20.5.3",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/cli": "^4.2.2",
     "@testing-library/jest-dom": "^6.9.1",
