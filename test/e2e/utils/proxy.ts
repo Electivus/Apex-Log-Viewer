@@ -111,6 +111,25 @@ function normalizeChromiumBypassList(value: string | undefined): string | undefi
   return parts.length > 0 ? parts.join(';') : undefined;
 }
 
+function applyNpmProxyEnvironment(env: NodeJS.ProcessEnv): void {
+  if (readEnvValue(['npm_config_proxy', 'npm_config_https_proxy'], env)) {
+    return;
+  }
+
+  const httpProxy = readEnvValue(['HTTP_PROXY', 'http_proxy'], env);
+  const httpsProxy = readEnvValue(['HTTPS_PROXY', 'https_proxy'], env);
+
+  const npmProxy = httpProxy || httpsProxy;
+  if (npmProxy) {
+    env.npm_config_proxy = npmProxy;
+  }
+
+  const npmHttpsProxy = httpsProxy || httpProxy;
+  if (npmHttpsProxy) {
+    env.npm_config_https_proxy = npmHttpsProxy;
+  }
+}
+
 export function resolveE2eProxyConfig(env: NodeJS.ProcessEnv = process.env): E2eProxyConfig {
   const proxyValue = readEnvValue(
     ['ALV_E2E_PROXY_SERVER', 'HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy'],
@@ -162,6 +181,8 @@ export function applyE2eNetworkEnvironment(env: NodeJS.ProcessEnv = process.env)
       env.http_proxy = env.http_proxy || httpProxy;
     }
   }
+
+  applyNpmProxyEnvironment(env);
 
   if (config.proxyUrl) {
     env.NODE_USE_ENV_PROXY = env.NODE_USE_ENV_PROXY || '1';
