@@ -38,13 +38,24 @@ function ensureHostVolumeMountpoints(repoRoot, fsImpl = fs) {
   }
 }
 
+function resolveProxyLabEnv(env = process.env, processImpl = process) {
+  const resolved = { ...env };
+  if (!resolved.ALV_E2E_PROXY_LAB_HOST_UID && typeof processImpl.getuid === 'function') {
+    resolved.ALV_E2E_PROXY_LAB_HOST_UID = String(processImpl.getuid());
+  }
+  if (!resolved.ALV_E2E_PROXY_LAB_HOST_GID && typeof processImpl.getgid === 'function') {
+    resolved.ALV_E2E_PROXY_LAB_HOST_GID = String(processImpl.getgid());
+  }
+  return resolved;
+}
+
 function main() {
   const repoRoot = path.join(__dirname, '..');
   const docker = process.env.DOCKER || 'docker';
   ensureHostVolumeMountpoints(repoRoot);
   const child = spawn(docker, resolveComposeArgs(process.argv.slice(2), { repoRoot }), {
     cwd: repoRoot,
-    env: process.env,
+    env: resolveProxyLabEnv(),
     stdio: 'inherit'
   });
   child.on('exit', exitWithChildResult);
@@ -60,5 +71,6 @@ if (require.main === module) {
 
 module.exports = {
   ensureHostVolumeMountpoints,
+  resolveProxyLabEnv,
   resolveComposeArgs
 };

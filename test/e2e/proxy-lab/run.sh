@@ -5,11 +5,49 @@ MITM_CA_SOURCE="${ALV_E2E_PROXY_LAB_MITM_CA_SOURCE:-/mitmproxy/mitmproxy-ca-cert
 MITM_CA_DEST="${ALV_E2E_PROXY_LAB_MITM_CA_DEST:-/usr/local/share/ca-certificates/alv-mitmproxy-ca.crt}"
 SYSTEM_CA_BUNDLE="${ALV_E2E_PROXY_LAB_SYSTEM_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}"
 DEVHUB_ALIAS="${SF_DEVHUB_ALIAS:-ConfiguredDevHub}"
+HOST_GENERATED_PATHS=(
+  "apps/vscode-extension/bin"
+  "apps/vscode-extension/dist"
+  "apps/vscode-extension/media"
+  "apps/vscode-extension/node_modules/tree-sitter-sfapex"
+  "apexlogs"
+  "dist"
+  "out"
+  "output"
+)
 
 fail() {
   echo "[proxy-lab] $*" >&2
   exit 1
 }
+
+restore_host_ownership() {
+  local host_uid="${ALV_E2E_PROXY_LAB_HOST_UID:-}"
+  local host_gid="${ALV_E2E_PROXY_LAB_HOST_GID:-}"
+
+  if [[ -z "${host_uid}" || -z "${host_gid}" ]]; then
+    return 0
+  fi
+  if ! [[ "${host_uid}" =~ ^[0-9]+$ && "${host_gid}" =~ ^[0-9]+$ ]]; then
+    echo "[proxy-lab] Skipping host ownership restore because host uid/gid are invalid." >&2
+    return 0
+  fi
+
+  local existing_paths=()
+  local path
+  for path in "${HOST_GENERATED_PATHS[@]}"; do
+    if [[ -e "${path}" ]]; then
+      existing_paths+=("${path}")
+    fi
+  done
+
+  if [[ "${#existing_paths[@]}" -gt 0 ]]; then
+    echo "[proxy-lab] Restoring ownership for generated bind-mounted paths..."
+    chown -R "${host_uid}:${host_gid}" "${existing_paths[@]}" || true
+  fi
+}
+
+trap restore_host_ownership EXIT
 
 wait_for_mitm_ca() {
   echo "[proxy-lab] Waiting for mitmproxy CA at ${MITM_CA_SOURCE}..."
@@ -313,16 +351,18 @@ preflight_salesforce_cli() {
 run_requested_command() {
   if [[ "$#" -gt 0 ]]; then
     echo "[proxy-lab] Running command: $*"
-    exec "$@"
+    "$@"
+    return
   fi
 
   if [[ -n "${ALV_E2E_PROXY_LAB_COMMAND:-}" ]]; then
     echo "[proxy-lab] Running command: ${ALV_E2E_PROXY_LAB_COMMAND}"
-    exec bash -lc "${ALV_E2E_PROXY_LAB_COMMAND}"
+    bash -lc "${ALV_E2E_PROXY_LAB_COMMAND}"
+    return
   fi
 
   echo "[proxy-lab] Running default command: npm run test:e2e"
-  exec npm run test:e2e
+  npm run test:e2e
 }
 
 wait_for_mitm_ca

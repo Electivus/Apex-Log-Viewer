@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { ensureHostVolumeMountpoints, resolveComposeArgs } = require('./run-e2e-proxy-lab');
+const { ensureHostVolumeMountpoints, resolveComposeArgs, resolveProxyLabEnv } = require('./run-e2e-proxy-lab');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
@@ -74,7 +74,42 @@ test('proxy lab runner prepares host volume mountpoints before spawning compose'
 
   assert.ok(mainBody, 'expected run-e2e-proxy-lab.js to define main()');
   assert.match(mainBody, /ensureHostVolumeMountpoints\(repoRoot\)/);
+  assert.match(mainBody, /resolveProxyLabEnv\(\)/);
   assert.match(mainBody, /spawn\(docker,/);
+});
+
+test('resolveProxyLabEnv forwards the host uid and gid for bind-mounted cleanup', () => {
+  const env = resolveProxyLabEnv(
+    { EXISTING_ENV: '1' },
+    {
+      getuid: () => 1001,
+      getgid: () => 1002
+    }
+  );
+
+  assert.equal(env.EXISTING_ENV, '1');
+  assert.equal(env.ALV_E2E_PROXY_LAB_HOST_UID, '1001');
+  assert.equal(env.ALV_E2E_PROXY_LAB_HOST_GID, '1002');
+});
+
+test('proxy lab compose forwards host ownership ids into the runner', () => {
+  const compose = readComposeFile();
+
+  assert.match(compose, /^\s+ALV_E2E_PROXY_LAB_HOST_UID: \$\{ALV_E2E_PROXY_LAB_HOST_UID:-\}$/m);
+  assert.match(compose, /^\s+ALV_E2E_PROXY_LAB_HOST_GID: \$\{ALV_E2E_PROXY_LAB_HOST_GID:-\}$/m);
+});
+
+test('proxy lab runner restores ownership of bind-mounted generated outputs on exit', () => {
+  const script = readProxyLabScript();
+
+  assert.match(script, /restore_host_ownership\(\)/);
+  assert.match(script, /trap restore_host_ownership EXIT/);
+  assert.match(script, /ALV_E2E_PROXY_LAB_HOST_UID/);
+  assert.match(script, /apps\/vscode-extension\/bin/);
+  assert.match(script, /output/);
+  assert.doesNotMatch(script, /exec "\$@"/);
+  assert.doesNotMatch(script, /exec bash -lc/);
+  assert.doesNotMatch(script, /exec npm run test:e2e/);
 });
 
 test('proxy lab compose uses mitmproxy with a shared CA volume instead of Tinyproxy', () => {

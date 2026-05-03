@@ -69,6 +69,8 @@ services:
       SF_TEST_KEEP_ORG: ${SF_TEST_KEEP_ORG:-1}
       ALV_E2E_PROXY_LAB_SKIP_NPM_CI: ${ALV_E2E_PROXY_LAB_SKIP_NPM_CI:-}
       ALV_E2E_PROXY_LAB_COMMAND: ${ALV_E2E_PROXY_LAB_COMMAND:-}
+      ALV_E2E_PROXY_LAB_HOST_UID: ${ALV_E2E_PROXY_LAB_HOST_UID:-}
+      ALV_E2E_PROXY_LAB_HOST_GID: ${ALV_E2E_PROXY_LAB_HOST_GID:-}
     command: ["bash", "test/e2e/proxy-lab/run.sh"]
 
 networks:
