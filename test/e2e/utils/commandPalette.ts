@@ -2,6 +2,7 @@ import type { Locator, Page } from '@playwright/test';
 import { timeE2eStep } from './timing';
 
 const COMMAND_PALETTE_SHORTCUT_TIMEOUT_MS = 3_000;
+const OPEN_QUICK_ACCESS_BUTTON_TIMEOUT_MS = 2_000;
 const QUICK_INPUT_TIMEOUT_MS = 15_000;
 
 function getModifierKey(): 'Control' | 'Meta' {
@@ -27,7 +28,13 @@ async function openCommandPalette(page: Page): Promise<void> {
     await waitForQuickInput(page, COMMAND_PALETTE_SHORTCUT_TIMEOUT_MS);
     return;
   } catch {
-    await page.getByRole('button', { name: /Open Quick Access/i }).click();
+    try {
+      await page
+        .getByRole('button', { name: /Open Quick Access/i })
+        .click({ timeout: OPEN_QUICK_ACCESS_BUTTON_TIMEOUT_MS });
+    } catch {
+      // Older or renamed VS Code layouts may not expose this Chat-focus fallback.
+    }
   }
 
   await waitForQuickInput(page, QUICK_INPUT_TIMEOUT_MS);

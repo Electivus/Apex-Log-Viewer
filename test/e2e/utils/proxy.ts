@@ -245,12 +245,15 @@ function applyGlobalFetchProxyDispatcher(env: NodeJS.ProcessEnv): void {
 
 export function resolveVsCodeUserProxySettings(env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {
   const config = resolveE2eProxyConfig(env);
+  const explicitAuthorization = readEnvValue(['ALV_E2E_PROXY_AUTHORIZATION'], env);
+  const hasEmbeddedProxyCredentials = Boolean(config.proxyUrl && config.proxyServer && config.proxyUrl !== config.proxyServer);
   const settings: Record<string, unknown> = {};
 
   if (config.proxyUrl) {
+    // VS Code CLI extension installs in the isolated profile require credentials in http.proxy.
     settings['http.proxy'] = config.proxyUrl;
   }
-  if (config.authorization) {
+  if (explicitAuthorization || (config.authorization && !hasEmbeddedProxyCredentials)) {
     settings['http.proxyAuthorization'] = config.authorization;
   }
   if (config.strictSslConfigured || (!config.strictSsl && config.hasProxy)) {
