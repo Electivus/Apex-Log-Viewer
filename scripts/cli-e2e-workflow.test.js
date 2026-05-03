@@ -141,3 +141,14 @@ test('real-org Playwright workflow disables Playwright retries for the expensive
     'expected the real-org Playwright workflow to disable retries via PLAYWRIGHT_RETRIES=0'
   );
 });
+
+test('real-org Playwright workflow uses the org-allowlisted Azure login pin', () => {
+  const workflow = readWorkflow();
+  const { step } = getWorkflowStep(workflow, 'Azure login for dedicated App Insights validation');
+
+  assert.equal(
+    step.uses,
+    'azure/login@93381592711f247e165c389ebb30b596c84cdc48',
+    'expected azure/login to stay pinned to the SHA currently allowed by the Electivus org action policy'
+  );
+});
