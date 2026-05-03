@@ -1,9 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
-const { resolveComposeArgs } = require('./run-e2e-proxy-lab');
+const { ensureHostVolumeMountpoints, resolveComposeArgs } = require('./run-e2e-proxy-lab');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
@@ -50,6 +51,30 @@ test('resolveComposeArgs forwards an explicit E2E command through the lab script
     'run',
     'test:e2e:cli'
   ]);
+});
+
+test('ensureHostVolumeMountpoints creates Docker volume mountpoints before compose runs', () => {
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-proxy-lab-'));
+
+  try {
+    ensureHostVolumeMountpoints(repoRoot);
+
+    for (const relativePath of ['node_modules', 'target', '.vscode-test']) {
+      const fullPath = path.join(repoRoot, relativePath);
+      assert.equal(fs.statSync(fullPath).isDirectory(), true, `expected ${relativePath} to be a directory`);
+    }
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('proxy lab runner prepares host volume mountpoints before spawning compose', () => {
+  const script = read('scripts/run-e2e-proxy-lab.js');
+  const mainBody = script.match(/function main\(\) \{(?<body>[\s\S]*?)\n\}/)?.groups.body;
+
+  assert.ok(mainBody, 'expected run-e2e-proxy-lab.js to define main()');
+  assert.match(mainBody, /ensureHostVolumeMountpoints\(repoRoot\)/);
+  assert.match(mainBody, /spawn\(docker,/);
 });
 
 test('proxy lab compose uses mitmproxy with a shared CA volume instead of Tinyproxy', () => {

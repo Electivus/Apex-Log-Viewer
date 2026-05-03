@@ -2,7 +2,10 @@
 'use strict';
 
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
+
+const HOST_VOLUME_MOUNTPOINTS = ['node_modules', 'target', '.vscode-test'];
 
 function resolveComposeArgs(commandArgs = [], options = {}) {
   const repoRoot = options.repoRoot || path.join(__dirname, '..');
@@ -29,9 +32,16 @@ function exitWithChildResult(code, signal) {
   process.exit(1);
 }
 
+function ensureHostVolumeMountpoints(repoRoot, fsImpl = fs) {
+  for (const relativePath of HOST_VOLUME_MOUNTPOINTS) {
+    fsImpl.mkdirSync(path.join(repoRoot, relativePath), { recursive: true });
+  }
+}
+
 function main() {
   const repoRoot = path.join(__dirname, '..');
   const docker = process.env.DOCKER || 'docker';
+  ensureHostVolumeMountpoints(repoRoot);
   const child = spawn(docker, resolveComposeArgs(process.argv.slice(2), { repoRoot }), {
     cwd: repoRoot,
     env: process.env,
@@ -49,5 +59,6 @@ if (require.main === module) {
 }
 
 module.exports = {
+  ensureHostVolumeMountpoints,
   resolveComposeArgs
 };
