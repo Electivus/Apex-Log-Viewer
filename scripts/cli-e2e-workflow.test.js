@@ -59,8 +59,12 @@ test('real-org Playwright workflow runs the CLI suite before the extension suite
 
   assert.match(
     String(cliStep.step.run || ''),
-    /\bnpm run test:e2e:cli\b/,
-    'expected the workflow to run npm run test:e2e:cli in a dedicated CLI real-org step'
+    /\bnpm run test:e2e:proxy-lab -- npm run test:e2e:cli\b/,
+    'expected the workflow to run CLI real-org E2E through the MITM proxy lab'
+  );
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(cliStep.step.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'),
+    'expected CLI real-org E2E to populate the proxy-lab dependency volume'
   );
   assert.equal(
     uploadArtifactsStep.step?.with?.path,
@@ -94,6 +98,38 @@ test('real-org Playwright workflow keeps the CLI scratch-env contract aligned wi
       `expected CLI real-org step env '${key}' to stay aligned with the extension Playwright step`
     );
   }
+});
+
+test('real-org Playwright workflow runs the extension suite through the MITM proxy lab', () => {
+  const workflow = readWorkflow();
+  const { step: extensionStep } = getWorkflowStep(workflow, 'Run Playwright E2E');
+  const runBlock = String(extensionStep.run || '');
+
+  assert.match(
+    runBlock,
+    /^\s*npm run test:e2e:telemetry\s*$/m,
+    'expected telemetry validation to remain a host-side workflow command'
+  );
+  assert.doesNotMatch(
+    runBlock,
+    /\btest:e2e:proxy-lab -- npm run test:e2e:telemetry\b/,
+    'expected telemetry wrapper not to be launched directly through the MITM proxy lab'
+  );
+  assert.match(
+    runBlock,
+    /^\s*npm run test:e2e:proxy-lab -- npm run test:e2e\s*$/m,
+    'expected the non-telemetry extension suite to run through the MITM proxy lab'
+  );
+  assert.equal(
+    extensionStep.env?.ALV_E2E_TELEMETRY_PROXY_LAB,
+    '1',
+    'expected telemetry wrapper to launch its Playwright child through the MITM proxy lab'
+  );
+  assert.equal(
+    extensionStep.env?.ALV_E2E_PROXY_LAB_SKIP_NPM_CI,
+    '1',
+    'expected extension E2E to reuse the dependency volume populated by the CLI proxy-lab step'
+  );
 });
 
 test('real-org Playwright workflow disables Playwright retries for the expensive CI run', () => {
