@@ -42,6 +42,7 @@ RUN apt-get update \
     pkg-config \
     python3 \
     sudo \
+    xauth \
     xvfb \
   && rm -rf /var/lib/apt/lists/*
 

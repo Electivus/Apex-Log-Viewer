@@ -17,6 +17,10 @@ function readProxyLabScript() {
   return read('test/e2e/proxy-lab/run.sh');
 }
 
+function readRunnerDockerfile() {
+  return read('test/e2e/proxy-lab/Dockerfile.runner');
+}
+
 test('resolveComposeArgs runs the proxy lab runner with the compose file', () => {
   const repoRoot = path.join('/workspace', 'apex-log-viewer');
   assert.deepEqual(resolveComposeArgs([], { repoRoot }), [
@@ -99,4 +103,15 @@ test('proxy lab runner guards against proxy auth and Node dependency regressions
   assert.match(script, /require\(['"]node:buffer['"]\)/);
   assert.match(script, /require\(['"]node:url['"]\)/);
   assert.match(script, /trap 'rm -f "\$\{auth_file\}"' RETURN ERR/);
+});
+
+test('proxy lab runner image installs xauth for xvfb-run', () => {
+  const dockerfile = readRunnerDockerfile();
+  const aptInstallBlock = dockerfile.match(
+    /apt-get install -y --no-install-recommends \\\n(?<packages>[\s\S]*?)\n\s*&& rm -rf \/var\/lib\/apt\/lists\/\*/
+  )?.groups.packages;
+
+  assert.ok(aptInstallBlock, 'expected runner Dockerfile to contain an apt package list');
+  assert.match(aptInstallBlock, /^\s+xvfb\s+\\$/m);
+  assert.match(aptInstallBlock, /^\s+xauth\s+\\$/m);
 });
