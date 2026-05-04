@@ -1,9 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 
 const {
   buildRunValidationQuery,
   resolveConfig,
+  resolvePlaywrightChildInvocation,
   spawnAsync,
   summarizeTelemetry
 } = require('./run-playwright-e2e-telemetry');
@@ -77,4 +79,36 @@ test('spawnAsync rejects when the child process cannot be started', async () => 
       })),
     /spawn ENOENT/
   );
+});
+
+test('resolvePlaywrightChildInvocation runs Playwright directly by default', () => {
+  const repoRoot = path.join('/repo', 'apex-log-viewer');
+  const invocation = resolvePlaywrightChildInvocation(['--grep', 'logs'], {}, repoRoot);
+
+  assert.deepEqual(invocation, {
+    command: process.execPath,
+    args: [path.join(repoRoot, 'scripts', 'run-playwright-e2e.js'), '--grep', 'logs']
+  });
+});
+
+test('resolvePlaywrightChildInvocation can run the Playwright child through the proxy lab', () => {
+  const repoRoot = path.join('/repo', 'apex-log-viewer');
+  const invocation = resolvePlaywrightChildInvocation(
+    ['--grep', 'logs'],
+    { ALV_E2E_TELEMETRY_PROXY_LAB: '1' },
+    repoRoot
+  );
+
+  assert.deepEqual(invocation, {
+    command: process.execPath,
+    args: [
+      path.join(repoRoot, 'scripts', 'run-e2e-proxy-lab.js'),
+      'npm',
+      'run',
+      'test:e2e',
+      '--',
+      '--grep',
+      'logs'
+    ]
+  });
 });

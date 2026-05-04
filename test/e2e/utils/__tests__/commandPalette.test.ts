@@ -40,11 +40,17 @@ function createFakePage(
   options?: {
     requireComboboxSelector?: boolean;
     requireTextboxFallback?: boolean;
+    keyboardShortcutMissesQuickInput?: boolean;
+    quickInputWaitFailuresBeforeVisible?: number;
+    quickAccessClickError?: Error;
   }
 ) {
   const keyboardPress = jest.fn(async () => {});
   const waitForTimeout = jest.fn(async () => {});
   const strictModeError = new Error('strict mode violation');
+  const quickInputMissingError = new Error('Timed out waiting for quick input');
+  let quickInputVisible = !options?.keyboardShortcutMissesQuickInput;
+  let quickInputWaitFailuresBeforeVisible = options?.quickInputWaitFailuresBeforeVisible ?? 0;
   const legacyInputWaitFor = jest.fn(async () => {
     if (options?.requireComboboxSelector) {
       throw strictModeError;
@@ -55,11 +61,41 @@ function createFakePage(
       throw strictModeError;
     }
   });
-  const comboboxWaitFor = jest.fn(async () => {});
+  const comboboxWaitFor = jest.fn(async () => {
+    if (quickInputWaitFailuresBeforeVisible > 0) {
+      quickInputWaitFailuresBeforeVisible -= 1;
+      throw quickInputMissingError;
+    }
+    if (!quickInputVisible) {
+      throw quickInputMissingError;
+    }
+  });
   const comboboxFill = jest.fn(async () => {});
-  const textboxWaitFor = jest.fn(async () => {});
+  const textboxWaitFor = jest.fn(async () => {
+    if (quickInputWaitFailuresBeforeVisible > 0) {
+      quickInputWaitFailuresBeforeVisible -= 1;
+      throw quickInputMissingError;
+    }
+    if (!quickInputVisible) {
+      throw quickInputMissingError;
+    }
+  });
   const textboxFill = jest.fn(async () => {});
   const isVisible = jest.fn(async () => noMatchVisibility.shift() ?? false);
+  const quickAccessClick = jest.fn(async () => {
+    if (options?.quickAccessClickError) {
+      throw options.quickAccessClickError;
+    }
+    quickInputVisible = true;
+  });
+  const getByRole = jest.fn((role: string, roleOptions?: { name?: string | RegExp }) => {
+    if (role === 'button' && roleOptions?.name instanceof RegExp && roleOptions.name.test('Open Quick Access')) {
+      return {
+        click: quickAccessClick
+      };
+    }
+    throw new Error(`Unexpected page role: ${role}`);
+  });
 
   const legacyInputLocator = {
     waitFor: legacyInputWaitFor,
@@ -121,10 +157,13 @@ function createFakePage(
     page: {
       keyboard: { press: keyboardPress },
       locator,
+      getByRole,
       waitForTimeout
     } as any,
     keyboardPress,
     waitForTimeout,
+    getByRole,
+    quickAccessClick,
     legacyInputWaitFor,
     legacyInputFill,
     comboboxWaitFor,
@@ -133,6 +172,14 @@ function createFakePage(
     textboxFill,
     isVisible
   };
+}
+
+function expectBriefQuickInputWait(waitFor: jest.Mock): void {
+  expect(waitFor).toHaveBeenCalled();
+  const firstCallOptions = waitFor.mock.calls[0][0];
+  expect(firstCallOptions).toMatchObject({ state: 'visible' });
+  expect(firstCallOptions.timeout).toBeGreaterThan(0);
+  expect(firstCallOptions.timeout).toBeLessThan(15_000);
 }
 
 describe('runCommandWhenAvailable', () => {
@@ -155,6 +202,7 @@ describe('runCommandWhenAvailable', () => {
       'Enter'
     ]);
     expect(fake.waitForTimeout.mock.calls.map(call => call[0])).toEqual([50, 500, 50, 500, 50]);
+    expectBriefQuickInputWait(fake.comboboxWaitFor);
   });
 
   test('preserves an explicit command prefix', async () => {
@@ -170,7 +218,7 @@ describe('runCommandWhenAvailable', () => {
 
     await runCommandWhenAvailable(fake.page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 1_000 });
 
-    expect(fake.comboboxWaitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 15_000 });
+    expectBriefQuickInputWait(fake.comboboxWaitFor);
     expect(fake.comboboxFill).toHaveBeenCalledWith('> Electivus Apex Logs: Refresh Logs');
   });
 
@@ -179,7 +227,36 @@ describe('runCommandWhenAvailable', () => {
 
     await runCommandWhenAvailable(fake.page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 1_000 });
 
-    expect(fake.textboxWaitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 15_000 });
+    expectBriefQuickInputWait(fake.textboxWaitFor);
     expect(fake.textboxFill).toHaveBeenCalledWith('> Electivus Apex Logs: Refresh Logs');
+  });
+
+  test('clicks Open Quick Access when the keyboard shortcut does not reveal quick input', async () => {
+    const fake = createFakePage([false], { keyboardShortcutMissesQuickInput: true });
+
+    await runCommandWhenAvailable(fake.page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 1_000 });
+
+    expectBriefQuickInputWait(fake.comboboxWaitFor);
+    expect(fake.getByRole).toHaveBeenCalledWith('button', { name: /Open Quick Access/i });
+    expect(fake.quickAccessClick).toHaveBeenCalledWith({ timeout: expect.any(Number) });
+    expect(fake.quickAccessClick.mock.calls[0][0].timeout).toBeGreaterThan(0);
+    expect(fake.quickAccessClick.mock.calls[0][0].timeout).toBeLessThan(15_000);
+    expect(fake.comboboxWaitFor).toHaveBeenLastCalledWith({ state: 'visible', timeout: 15_000 });
+    expect(fake.comboboxFill).toHaveBeenCalledWith('> Electivus Apex Logs: Refresh Logs');
+  });
+
+  test('continues waiting for delayed shortcut quick input when Open Quick Access is missing or renamed', async () => {
+    const fake = createFakePage([false], {
+      quickInputWaitFailuresBeforeVisible: 2,
+      quickAccessClickError: new Error('Open Quick Access button not found')
+    });
+
+    await runCommandWhenAvailable(fake.page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 1_000 });
+
+    expect(fake.getByRole).toHaveBeenCalledWith('button', { name: /Open Quick Access/i });
+    expect(fake.quickAccessClick).toHaveBeenCalledWith({ timeout: expect.any(Number) });
+    expect(fake.comboboxWaitFor).toHaveBeenNthCalledWith(1, { state: 'visible', timeout: expect.any(Number) });
+    expect(fake.comboboxWaitFor).toHaveBeenLastCalledWith({ state: 'visible', timeout: 15_000 });
+    expect(fake.comboboxFill).toHaveBeenCalledWith('> Electivus Apex Logs: Refresh Logs');
   });
 });

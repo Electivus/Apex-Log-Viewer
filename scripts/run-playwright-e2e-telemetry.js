@@ -114,6 +114,32 @@ function readEnv(env, name) {
   return String(env[name] || '').trim();
 }
 
+function envFlag(env, name) {
+  const normalized = String(env[name] || '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function resolvePlaywrightChildInvocation(extraArgs, env = process.env, repoRoot = REPO_ROOT) {
+  if (envFlag(env, 'ALV_E2E_TELEMETRY_PROXY_LAB')) {
+    return {
+      command: process.execPath,
+      args: [
+        path.join(repoRoot, 'scripts', 'run-e2e-proxy-lab.js'),
+        'npm',
+        'run',
+        'test:e2e',
+        '--',
+        ...extraArgs
+      ]
+    };
+  }
+
+  return {
+    command: process.execPath,
+    args: [path.join(repoRoot, 'scripts', 'run-playwright-e2e.js'), ...extraArgs]
+  };
+}
+
 function resolveConfig(env = process.env) {
   const config = {
     appName: readEnv(env, 'ALV_E2E_TELEMETRY_APP'),
@@ -191,15 +217,12 @@ async function main() {
     ALV_TEST_TELEMETRY_RUN_ID: runId
   };
 
-  const child = await spawnAsync(
-    process.execPath,
-    [path.join(__dirname, 'run-playwright-e2e.js'), ...process.argv.slice(2)],
-    {
-      cwd: REPO_ROOT,
-      env: childEnv,
-      stdio: 'inherit'
-    }
-  );
+  const childInvocation = resolvePlaywrightChildInvocation(process.argv.slice(2), childEnv, REPO_ROOT);
+  const child = await spawnAsync(childInvocation.command, childInvocation.args, {
+    cwd: REPO_ROOT,
+    env: childEnv,
+    stdio: 'inherit'
+  });
 
   if (typeof child.code === 'number' && child.code !== 0) {
     process.exit(child.code);
@@ -229,6 +252,7 @@ if (require.main === module) {
 module.exports = {
   buildRunValidationQuery,
   resolveConfig,
+  resolvePlaywrightChildInvocation,
   spawnAsync,
   summarizeTelemetry
 };

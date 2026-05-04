@@ -109,7 +109,7 @@ jobs:
 
       - name: Azure login for dedicated App Insights validation
         if: ${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' && env.HAS_AZURE_E2E_TELEMETRY_CONFIG == '1' }}
-        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43
+        uses: azure/login@93381592711f247e165c389ebb30b596c84cdc48
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
           tenant-id: ${{ env.AZURE_TENANT_ID }}
@@ -120,7 +120,7 @@ jobs:
         run: |
           echo "Scratch strategy: ${SCRATCH_STRATEGY}"
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
-          npm run test:e2e:cli
+          npm run test:e2e:proxy-lab -- npm run test:e2e:cli
         env:
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
@@ -151,14 +151,16 @@ jobs:
           echo "Scratch strategy: ${SCRATCH_STRATEGY}"
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
           if [[ -n "${AZURE_CLIENT_ID}" && -n "${AZURE_TENANT_ID}" && -n "${AZURE_SUBSCRIPTION_ID}" && "${HAS_AZURE_E2E_TELEMETRY_CONFIG}" == "1" ]]; then
-            echo "Running full Playwright E2E with dedicated App Insights validation."
+            echo "Running full Playwright E2E with dedicated App Insights validation through the MITM proxy lab."
             npm run test:e2e:telemetry
           else
-            echo "Azure OIDC secrets or E2E telemetry target variables are not fully configured; running the full Playwright E2E suite without telemetry validation."
-            npm run test:e2e
+            echo "Azure OIDC secrets or E2E telemetry target variables are not fully configured; running the full Playwright E2E suite without telemetry validation through the MITM proxy lab."
+            npm run test:e2e:proxy-lab -- npm run test:e2e
           fi
         env:
           VSCODE_TEST_VERSION: ${{ github.event.inputs.vscode_version || 'stable' }}
+          ALV_E2E_TELEMETRY_PROXY_LAB: '1'
+          ALV_E2E_PROXY_LAB_SKIP_NPM_CI: '1'
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
           SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}

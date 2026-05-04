@@ -91,12 +91,12 @@ From the repo root:
 - `SF_TEST_KEEP_ORG=1 npm run test:e2e:cli`
 - `SF_TEST_KEEP_ORG=1 npm run test:e2e`
 - `SF_TEST_KEEP_ORG=1 npm run test:e2e:telemetry`
-- `SF_TEST_KEEP_ORG=1 npm run test:e2e:proxy-lab`
+- `SF_DEVHUB_AUTH_URL=force://REDACTED_DEVHUB_AUTH_URL SF_TEST_KEEP_ORG=1 npm run test:e2e:proxy-lab`
 
 Useful env vars:
 
-- `SF_DEVHUB_AUTH_URL`: Explicit Dev Hub auth for the run. Set this or `SF_DEVHUB_ALIAS`.
-- `SF_DEVHUB_ALIAS`: Explicit Dev Hub alias to use. Set this or `SF_DEVHUB_AUTH_URL`.
+- `SF_DEVHUB_AUTH_URL`: Explicit Dev Hub auth for the run. Required for real-org `test:e2e:proxy-lab` runs because the clean runner container cannot use a host `SF_DEVHUB_ALIAS`.
+- `SF_DEVHUB_ALIAS`: Explicit Dev Hub alias to use for non-proxy-lab runs. Set this or `SF_DEVHUB_AUTH_URL`.
 - `SF_SCRATCH_STRATEGY`: `single` or `pool`. If unset, the helper auto-enables pool mode when `SF_SCRATCH_POOL_NAME` is present. Local runs can use either mode; CI forces `pool`.
 - `PLAYWRIGHT_WORKERS`: Number of Playwright workers. Default `1` locally; the GitHub Actions pool workflow also defaults to `1` unless overridden by workflow-dispatch input.
 - `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_E2E_Scratch`).
@@ -117,11 +117,13 @@ Useful env vars:
 `npm run test:e2e:proxy-lab` runs the E2E command inside Docker Compose with a real proxy in front of the runner:
 
 - `runner` is attached only to an internal Docker network, so direct internet egress is blocked.
-- `proxy` is attached to both the internal network and an external egress network, exposing Tinyproxy on `http://proxy:8888` only inside Compose.
-- The runner exports only the standard `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` proxy variables before installing dependencies and running Playwright.
+- `proxy` is attached to both the internal network and an external egress network, exposing mitmproxy on `http://proxy:8888` only inside Compose.
 - The proxy requires Basic authentication using test-only credentials in the proxy URL, matching the corporate shape `http://username:pwd@proxy.company.com:8080`.
-- The lab first verifies that `curl --noproxy '*' https://example.com` fails, verifies that unauthenticated proxy egress fails, then verifies that `curl https://example.com` and Node `fetch()` succeed through the authenticated proxy.
-- When `SF_DEVHUB_AUTH_URL` is present, the lab authenticates it inside the clean container as `ConfiguredDevHub` by default. Override this container-local alias with `ALV_E2E_PROXY_LAB_DEVHUB_ALIAS` if needed.
+- The lab waits for mitmproxy to generate its CA, then proves that authenticated HTTPS through the proxy fails before that CA is trusted.
+- The runner installs the mitmproxy CA into the container trust store, exports `NODE_USE_SYSTEM_CA=1`, `ALV_E2E_USE_SYSTEM_CA=1`, `NODE_EXTRA_CA_CERTS`, and `SSL_CERT_FILE`, and keeps VS Code `http.proxyStrictSSL` enabled.
+- The lab verifies that `curl` and a dependency-free Node HTTPS check can reach the internet through the authenticated MITM proxy after CA trust is installed. When `SF_DEVHUB_AUTH_URL` is provided, it also verifies Salesforce CLI traffic can reach Salesforce through the proxy; otherwise `run.sh` skips that preflight.
+- Real-org proxy-lab runs require `SF_DEVHUB_AUTH_URL`; a host `SF_DEVHUB_ALIAS` is not sufficient inside the clean runner container.
+- After logging in from `SF_DEVHUB_AUTH_URL`, the lab uses `ConfiguredDevHub` as the container-local Dev Hub alias by default. `ALV_E2E_PROXY_LAB_DEVHUB_ALIAS` only changes that container-local alias.
 - The lab sets `SFDX_DISABLE_DNS_CHECK=true` because the runner has no direct DNS/egress path to Salesforce; Salesforce CLI traffic must be validated through the proxy instead.
 - `ALV_E2E_PROXY_LAB_PROXY_URL` can override the runner proxy URL for negative tests; by default it is `http://alv-proxy-user:alv-proxy-pass@proxy:8888`.
 
@@ -142,6 +144,8 @@ For faster iteration after the named Docker volumes already contain dependencies
 ```bash
 ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1 npm run test:e2e:proxy-lab -- npm run test:e2e:cli
 ```
+
+The standard GitHub Playwright E2E workflow runs both real-org surfaces through this MITM proxy lab. The CLI step populates the proxy-lab dependency volume, and the extension step reuses that volume with `ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1`. When telemetry validation is configured, Azure resource resolution and Log Analytics queries stay on the GitHub runner host while the Playwright child run executes inside the MITM proxy lab.
 
 Pool-specific env vars:
 

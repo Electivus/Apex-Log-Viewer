@@ -31,6 +31,8 @@ export type VscodeWindowSize = {
 const VSCODE_DOWNLOAD_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
 const VSCODE_DOWNLOAD_LOCK_POLL_MS = 250;
 const VSCODE_DOWNLOAD_LOCK_REFRESH_MS = 30 * 1000;
+const DEFAULT_VSCODE_DOWNLOAD_TIMEOUT_MS = 120_000;
+const REDACTED_SETTING_VALUE = '[redacted]';
 
 function getModifierKey(): 'Control' | 'Meta' {
   return process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -56,6 +58,18 @@ export function resolveVscodeCachePath(extensionDevelopmentPath: string): string
   return process.env.VSCODE_TEST_CACHE_PATH
     ? path.resolve(process.env.VSCODE_TEST_CACHE_PATH)
     : path.join(cacheRoot, '.vscode-test');
+}
+
+export function resolveVscodeDownloadTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const rawTimeoutMs = env.VSCODE_TEST_DOWNLOAD_TIMEOUT_MS?.trim();
+  if (!rawTimeoutMs) {
+    return DEFAULT_VSCODE_DOWNLOAD_TIMEOUT_MS;
+  }
+
+  const timeoutMs = Number(rawTimeoutMs);
+  return Number.isFinite(timeoutMs) && Number.isInteger(timeoutMs) && timeoutMs > 0
+    ? timeoutMs
+    : DEFAULT_VSCODE_DOWNLOAD_TIMEOUT_MS;
 }
 
 function getSupportExtensionsCacheKey(vscodeVersion: string, extensionIds: string[]): string {
@@ -186,6 +200,57 @@ async function writeVsCodeUserSettings(userDataDir: string, settings: Record<str
   const settingsPath = resolveVsCodeUserSettingsPath(userDataDir);
   await mkdir(path.dirname(settingsPath), { recursive: true });
   await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+}
+
+function redactProxyUrlCredentials(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  try {
+    const parsed = new URL(value);
+    if (!parsed.username && !parsed.password) {
+      return value;
+    }
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return value.includes('@') ? REDACTED_SETTING_VALUE : value;
+  }
+}
+
+function redactVsCodeUserSettingsForPreservation(settings: Record<string, unknown>): Record<string, unknown> {
+  const redacted = { ...settings };
+
+  if (Object.prototype.hasOwnProperty.call(redacted, 'http.proxy')) {
+    redacted['http.proxy'] = redactProxyUrlCredentials(redacted['http.proxy']);
+  }
+  if (Object.prototype.hasOwnProperty.call(redacted, 'http.proxyAuthorization')) {
+    redacted['http.proxyAuthorization'] = REDACTED_SETTING_VALUE;
+  }
+
+  return redacted;
+}
+
+export async function redactPreservedVsCodeUserData(userDataDir: string): Promise<void> {
+  const settingsPath = resolveVsCodeUserSettingsPath(userDataDir);
+  let settings: Record<string, unknown>;
+  try {
+    const rawSettings = await readFile(settingsPath, 'utf8');
+    const parsed = JSON.parse(rawSettings);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return;
+    }
+    settings = parsed as Record<string, unknown>;
+  } catch {
+    return;
+  }
+
+  const redacted = redactVsCodeUserSettingsForPreservation(settings);
+  if (JSON.stringify(redacted) !== JSON.stringify(settings)) {
+    await writeFile(settingsPath, JSON.stringify(redacted, null, 2), 'utf8');
+  }
 }
 
 async function getFileAgeMs(targetPath: string): Promise<number | undefined> {
@@ -421,7 +486,12 @@ export async function launchVsCode(options: {
     async () =>
       await withFileLock(
         vscodeDownloadLockPath,
-        async () => await downloadAndUnzipVSCode({ version: vscodeVersion, cachePath: vscodeCachePath })
+        async () =>
+          await downloadAndUnzipVSCode({
+            version: vscodeVersion,
+            cachePath: vscodeCachePath,
+            timeout: resolveVscodeDownloadTimeoutMs()
+          })
       )
   );
 
@@ -501,6 +571,7 @@ export async function launchVsCode(options: {
       await app.close();
     } catch {}
     if (cleanupOptions?.keep || shouldKeepUserDataDir()) {
+      await redactPreservedVsCodeUserData(userDataDir);
       console.warn(`[e2e] Preserving VS Code user-data-dir at ${userDataDir}`);
     } else {
       await removePathBestEffort(userDataDir);

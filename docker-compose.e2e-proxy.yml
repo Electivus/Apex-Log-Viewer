@@ -10,11 +10,13 @@ services:
           - proxy
     expose:
       - "8888"
+    volumes:
+      - e2e_proxy_mitmproxy_ca:/mitmproxy
     healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 8888"]
+      test: ["CMD-SHELL", "test -s /mitmproxy/mitmproxy-ca-cert.cer && nc -z 127.0.0.1 8888"]
       interval: 5s
       timeout: 3s
-      retries: 12
+      retries: 24
 
   runner:
     build:
@@ -34,6 +36,7 @@ services:
       - e2e_proxy_target:/workspace/target
       - e2e_proxy_vscode_test:/workspace/.vscode-test
       - e2e_proxy_npm_cache:/root/.npm
+      - e2e_proxy_mitmproxy_ca:/mitmproxy:ro
     environment:
       HTTP_PROXY: ${ALV_E2E_PROXY_LAB_PROXY_URL:-http://alv-proxy-user:alv-proxy-pass@proxy:8888}
       HTTPS_PROXY: ${ALV_E2E_PROXY_LAB_PROXY_URL:-http://alv-proxy-user:alv-proxy-pass@proxy:8888}
@@ -41,12 +44,15 @@ services:
       https_proxy: ${ALV_E2E_PROXY_LAB_PROXY_URL:-http://alv-proxy-user:alv-proxy-pass@proxy:8888}
       NO_PROXY: localhost,127.0.0.1,::1,proxy
       no_proxy: localhost,127.0.0.1,::1,proxy
-      ALV_E2E_USE_SYSTEM_CA: "1"
       SFDX_DISABLE_DNS_CHECK: ${SFDX_DISABLE_DNS_CHECK:-true}
       HUSKY: "0"
       PLAYWRIGHT_WORKERS: ${PLAYWRIGHT_WORKERS:-1}
       PLAYWRIGHT_RETRIES: ${PLAYWRIGHT_RETRIES:-0}
       VSCODE_TEST_VERSION: ${VSCODE_TEST_VERSION:-stable}
+      VSCODE_TEST_DOWNLOAD_TIMEOUT_MS: ${VSCODE_TEST_DOWNLOAD_TIMEOUT_MS:-}
+      ALV_ENABLE_TEST_TELEMETRY: ${ALV_ENABLE_TEST_TELEMETRY:-}
+      ALV_TEST_TELEMETRY_CONNECTION_STRING: ${ALV_TEST_TELEMETRY_CONNECTION_STRING:-}
+      ALV_TEST_TELEMETRY_RUN_ID: ${ALV_TEST_TELEMETRY_RUN_ID:-}
       SF_DEVHUB_AUTH_URL: ${SF_DEVHUB_AUTH_URL:-}
       SF_DEVHUB_ALIAS: ${ALV_E2E_PROXY_LAB_DEVHUB_ALIAS:-ConfiguredDevHub}
       SF_SCRATCH_STRATEGY: ${SF_SCRATCH_STRATEGY:-}
@@ -63,6 +69,8 @@ services:
       SF_TEST_KEEP_ORG: ${SF_TEST_KEEP_ORG:-1}
       ALV_E2E_PROXY_LAB_SKIP_NPM_CI: ${ALV_E2E_PROXY_LAB_SKIP_NPM_CI:-}
       ALV_E2E_PROXY_LAB_COMMAND: ${ALV_E2E_PROXY_LAB_COMMAND:-}
+      ALV_E2E_PROXY_LAB_HOST_UID: ${ALV_E2E_PROXY_LAB_HOST_UID:-}
+      ALV_E2E_PROXY_LAB_HOST_GID: ${ALV_E2E_PROXY_LAB_HOST_GID:-}
     command: ["bash", "test/e2e/proxy-lab/run.sh"]
 
 networks:
@@ -77,3 +85,4 @@ volumes:
   e2e_proxy_target: {}
   e2e_proxy_vscode_test: {}
   e2e_proxy_npm_cache: {}
+  e2e_proxy_mitmproxy_ca: {}
