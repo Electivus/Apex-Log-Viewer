@@ -14,7 +14,9 @@ const PROXY_ENV_NAMES = [
   'NO_PROXY',
   'http_proxy',
   'https_proxy',
-  'no_proxy'
+  'no_proxy',
+  'npm_config_proxy',
+  'npm_config_https_proxy'
 ] as const;
 
 function clearProcessProxyEnv(): Record<string, string | undefined> {
@@ -101,6 +103,8 @@ describe('applyE2eNetworkEnvironment', () => {
     expect(env.HTTPS_PROXY).toBe('http://proxy.corp.local:8080');
     expect(env.http_proxy).toBe('http://proxy.corp.local:8080');
     expect(env.https_proxy).toBe('http://proxy.corp.local:8080');
+    expect(env.npm_config_proxy).toBe('http://proxy.corp.local:8080');
+    expect(env.npm_config_https_proxy).toBe('http://proxy.corp.local:8080');
     expect(env.NO_PROXY).toBe('localhost,.corp.local');
     expect(env.no_proxy).toBe('localhost,.corp.local');
     expect(env.NODE_USE_ENV_PROXY).toBe('1');
@@ -121,7 +125,54 @@ describe('applyE2eNetworkEnvironment', () => {
     expect(env.HTTPS_PROXY).toBe('http://proxy-https.corp.local:8443');
     expect(env.http_proxy).toBe('http://proxy-http.corp.local:8080');
     expect(env.https_proxy).toBe('http://proxy-https.corp.local:8443');
+    expect(env.npm_config_proxy).toBe('http://proxy-http.corp.local:8080');
+    expect(env.npm_config_https_proxy).toBe('http://proxy-https.corp.local:8443');
     expect(env.NODE_USE_ENV_PROXY).toBe('1');
+  });
+
+  test('preserves explicit npm proxy values when the caller already configured them', () => {
+    const env: NodeJS.ProcessEnv = {
+      ALV_E2E_PROXY_SERVER: 'http://proxy.corp.local:8080',
+      npm_config_proxy: 'http://npm-http-proxy.corp.local:8080',
+      npm_config_https_proxy: 'http://npm-https-proxy.corp.local:8443'
+    };
+
+    applyE2eNetworkEnvironment(env);
+
+    expect(env.HTTP_PROXY).toBe('http://proxy.corp.local:8080');
+    expect(env.HTTPS_PROXY).toBe('http://proxy.corp.local:8080');
+    expect(env.npm_config_proxy).toBe('http://npm-http-proxy.corp.local:8080');
+    expect(env.npm_config_https_proxy).toBe('http://npm-https-proxy.corp.local:8443');
+  });
+
+  test('does not synthesize npm HTTPS proxy when npm HTTP proxy is already configured', () => {
+    const env: NodeJS.ProcessEnv = {
+      HTTP_PROXY: 'http://proxy-http.corp.local:8080',
+      HTTPS_PROXY: 'http://proxy-https.corp.local:8443',
+      npm_config_proxy: 'http://npm-http-proxy.corp.local:8080'
+    };
+
+    applyE2eNetworkEnvironment(env);
+
+    expect(env.HTTP_PROXY).toBe('http://proxy-http.corp.local:8080');
+    expect(env.HTTPS_PROXY).toBe('http://proxy-https.corp.local:8443');
+    expect(env.npm_config_proxy).toBe('http://npm-http-proxy.corp.local:8080');
+    expect(env.npm_config_https_proxy).toBeUndefined();
+  });
+
+  test('does not synthesize npm HTTP proxy when npm HTTPS proxy is already configured', () => {
+    const env: NodeJS.ProcessEnv = {
+      HTTP_PROXY: 'http://proxy-http.corp.local:8080',
+      HTTPS_PROXY: 'http://proxy-https.corp.local:8443',
+      npm_config_https_proxy: 'http://npm-https-proxy.corp.local:8443'
+    };
+
+    applyE2eNetworkEnvironment(env);
+
+    expect(env.HTTP_PROXY).toBe('http://proxy-http.corp.local:8080');
+    expect(env.HTTPS_PROXY).toBe('http://proxy-https.corp.local:8443');
+    expect(env.npm_config_proxy).toBeUndefined();
+    expect(env.npm_config_https_proxy).toBe('http://npm-https-proxy.corp.local:8443');
   });
 
   test('restores the previous global fetch dispatcher after process proxy variables are removed', () => {
@@ -150,16 +201,27 @@ describe('applyE2eNetworkEnvironment', () => {
 });
 
 describe('resolveVsCodeUserProxySettings', () => {
-  test('writes a sanitized proxy URL plus explicit auth header for the isolated VS Code profile', () => {
+  test('embeds proxy URL credentials without duplicating derived proxy authorization', () => {
     const settings = resolveVsCodeUserProxySettings({
       HTTPS_PROXY: 'http://username:pwd@proxy.corp.local:8080',
       ALV_E2E_PROXY_STRICT_SSL: '0'
     });
 
     expect(settings).toEqual({
-      'http.proxy': 'http://proxy.corp.local:8080',
-      'http.proxyAuthorization': 'Basic dXNlcm5hbWU6cHdk',
+      'http.proxy': 'http://username:pwd@proxy.corp.local:8080',
       'http.proxyStrictSSL': false
+    });
+  });
+
+  test('preserves explicit proxy authorization for proxy URLs without embedded credentials', () => {
+    const settings = resolveVsCodeUserProxySettings({
+      HTTPS_PROXY: 'http://proxy.corp.local:8080',
+      ALV_E2E_PROXY_AUTHORIZATION: 'Basic ZXhwbGljaXQ6c2VjcmV0'
+    });
+
+    expect(settings).toEqual({
+      'http.proxy': 'http://proxy.corp.local:8080',
+      'http.proxyAuthorization': 'Basic ZXhwbGljaXQ6c2VjcmV0'
     });
   });
 });

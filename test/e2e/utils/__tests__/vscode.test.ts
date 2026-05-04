@@ -1,11 +1,15 @@
 import path from 'node:path';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import {
   createMissingSupportExtensionsError,
+  redactPreservedVsCodeUserData,
   resolveCachedSupportExtensionsDir,
   resolveCliSpawnInvocation,
   resolveExtensionDevelopmentPath,
   resolveSupportExtensionsLockPath,
   resolveVscodeCachePath,
+  resolveVscodeDownloadTimeoutMs,
   resolveWindowSizeArg,
   resolveSupportExtensionIds
 } from '../vscode';
@@ -24,6 +28,44 @@ describe('resolveSupportExtensionIds', () => {
         ['salesforce.salesforcedx-vscode-apex-replay-debugger', 'salesforce.salesforcedx-vscode-core']
       )
     ).toEqual(['salesforce.salesforcedx-vscode-apex-replay-debugger', 'salesforce.salesforcedx-vscode-core']);
+  });
+});
+
+describe('preserved VS Code user data', () => {
+  test('redacts proxy credentials before preserving user settings for diagnostics', async () => {
+    const userDataDir = await mkdtemp(path.join(tmpdir(), 'alv-vscode-redact-'));
+    const settingsPath = path.join(userDataDir, 'User', 'settings.json');
+
+    try {
+      await mkdir(path.dirname(settingsPath), { recursive: true });
+      await writeFile(
+        settingsPath,
+        JSON.stringify(
+          {
+            'http.proxy': 'http://username:pwd@proxy.corp.local:8080',
+            'http.proxyAuthorization': 'Basic dXNlcm5hbWU6cHdk',
+            'http.proxyStrictSSL': false
+          },
+          null,
+          2
+        ),
+        'utf8'
+      );
+
+      await redactPreservedVsCodeUserData(userDataDir);
+
+      const redacted = JSON.parse(await readFile(settingsPath, 'utf8'));
+      expect(redacted).toEqual({
+        'http.proxy': 'http://proxy.corp.local:8080',
+        'http.proxyAuthorization': '[redacted]',
+        'http.proxyStrictSSL': false
+      });
+      expect(JSON.stringify(redacted)).not.toContain('username');
+      expect(JSON.stringify(redacted)).not.toContain('pwd');
+      expect(JSON.stringify(redacted)).not.toContain('dXNlcm5hbWU6cHdk');
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -145,6 +187,22 @@ describe('VS Code cache paths', () => {
     ]);
 
     expect(resolveSupportExtensionsLockPath(extensionsDir)).toBe(path.join(extensionsDir, '.install.lock'));
+  });
+});
+
+describe('resolveVscodeDownloadTimeoutMs', () => {
+  test('defaults the VS Code download timeout to 120 seconds', () => {
+    expect(resolveVscodeDownloadTimeoutMs({})).toBe(120_000);
+  });
+
+  test('honors VSCODE_TEST_DOWNLOAD_TIMEOUT_MS when set to a positive integer', () => {
+    expect(resolveVscodeDownloadTimeoutMs({ VSCODE_TEST_DOWNLOAD_TIMEOUT_MS: '300000' })).toBe(300_000);
+  });
+
+  test('falls back to the default for invalid, empty, or non-positive values', () => {
+    for (const value of ['', 'abc', '0', '-1', '1.5', 'Infinity']) {
+      expect(resolveVscodeDownloadTimeoutMs({ VSCODE_TEST_DOWNLOAD_TIMEOUT_MS: value })).toBe(120_000);
+    }
   });
 });
 

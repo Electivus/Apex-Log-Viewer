@@ -1,12 +1,24 @@
 FROM debian:bookworm-slim
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates tinyproxy netcat-openbsd \
+ARG ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS=20
+ARG ALV_E2E_PROXY_LAB_APT_RETRIES=3
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN { \
+    echo "Acquire::Retries \"${ALV_E2E_PROXY_LAB_APT_RETRIES}\";"; \
+    echo "Acquire::http::Timeout \"${ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS}\";"; \
+    echo "Acquire::https::Timeout \"${ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS}\";"; \
+  } > /etc/apt/apt.conf.d/99alv-proxy-lab-timeouts \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    mitmproxy \
+    netcat-openbsd \
   && rm -rf /var/lib/apt/lists/*
 
-COPY test/e2e/proxy-lab/tinyproxy.conf /etc/tinyproxy/tinyproxy.conf
-RUN sed -i 's/\r$//' /etc/tinyproxy/tinyproxy.conf
+RUN mkdir -p /mitmproxy && chmod 0777 /mitmproxy
 
 EXPOSE 8888
 
-CMD ["tinyproxy", "-d", "-c", "/etc/tinyproxy/tinyproxy.conf"]
+CMD ["mitmdump", "--set", "confdir=/mitmproxy", "--listen-host", "0.0.0.0", "--listen-port", "8888", "--proxyauth", "alv-proxy-user:alv-proxy-pass"]

@@ -2,6 +2,9 @@ FROM rust:1.95.0-bookworm AS rust-toolchain
 
 FROM node:22.15.1-bookworm
 
+ARG ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS=20
+ARG ALV_E2E_PROXY_LAB_APT_RETRIES=3
+
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CARGO_HOME="/root/.cargo"
 ENV RUSTUP_HOME="/usr/local/rustup"
@@ -10,7 +13,12 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 COPY --from=rust-toolchain /usr/local/cargo /root/.cargo
 COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
 
-RUN apt-get update \
+RUN { \
+    echo "Acquire::Retries \"${ALV_E2E_PROXY_LAB_APT_RETRIES}\";"; \
+    echo "Acquire::http::Timeout \"${ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS}\";"; \
+    echo "Acquire::https::Timeout \"${ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS}\";"; \
+  } > /etc/apt/apt.conf.d/99alv-proxy-lab-timeouts \
+  && apt-get update \
   && apt-get install -y --no-install-recommends \
     bash \
     build-essential \
@@ -42,6 +50,7 @@ RUN apt-get update \
     pkg-config \
     python3 \
     sudo \
+    xauth \
     xvfb \
   && rm -rf /var/lib/apt/lists/*
 

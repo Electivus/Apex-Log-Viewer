@@ -1,6 +1,10 @@
 import type { Locator, Page } from '@playwright/test';
 import { timeE2eStep } from './timing';
 
+const COMMAND_PALETTE_SHORTCUT_TIMEOUT_MS = 3_000;
+const OPEN_QUICK_ACCESS_BUTTON_TIMEOUT_MS = 2_000;
+const QUICK_INPUT_TIMEOUT_MS = 15_000;
+
 function getModifierKey(): 'Control' | 'Meta' {
   return process.platform === 'darwin' ? 'Meta' : 'Control';
 }
@@ -11,12 +15,29 @@ function getQuickInput(page: Page): { widget: Locator; input: Locator } {
   return { widget, input };
 }
 
+async function waitForQuickInput(page: Page, timeout: number): Promise<void> {
+  const { input } = getQuickInput(page);
+  await input.waitFor({ state: 'visible', timeout });
+}
+
 async function openCommandPalette(page: Page): Promise<void> {
   const modifier = getModifierKey();
   await page.keyboard.press(`${modifier}+Shift+P`);
 
-  const { input } = getQuickInput(page);
-  await input.waitFor({ state: 'visible', timeout: 15_000 });
+  try {
+    await waitForQuickInput(page, COMMAND_PALETTE_SHORTCUT_TIMEOUT_MS);
+    return;
+  } catch {
+    try {
+      await page
+        .getByRole('button', { name: /Open Quick Access/i })
+        .click({ timeout: OPEN_QUICK_ACCESS_BUTTON_TIMEOUT_MS });
+    } catch {
+      // Older or renamed VS Code layouts may not expose this Chat-focus fallback.
+    }
+  }
+
+  await waitForQuickInput(page, QUICK_INPUT_TIMEOUT_MS);
 }
 
 function noMatchingResults(widget: ReturnType<Page['locator']>) {
@@ -89,7 +110,7 @@ export async function executeCommandId(page: Page, commandId: string): Promise<v
   await runCommand(page, 'Developer: Execute Command...');
 
   const { widget, input } = getQuickInput(page);
-  await input.waitFor({ state: 'visible', timeout: 15_000 });
+  await input.waitFor({ state: 'visible', timeout: QUICK_INPUT_TIMEOUT_MS });
   await input.fill(commandId);
   await page.waitForTimeout(50);
 
@@ -106,7 +127,7 @@ export async function openView(page: Page, viewName: string): Promise<void> {
   await runCommand(page, 'View: Open View...');
 
   const { widget, input } = getQuickInput(page);
-  await input.waitFor({ state: 'visible', timeout: 15_000 });
+  await input.waitFor({ state: 'visible', timeout: QUICK_INPUT_TIMEOUT_MS });
   await input.fill(viewName);
   await page.waitForTimeout(50);
 
