@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const CARGO_TARGETS = {
@@ -38,24 +39,51 @@ export function resolveArguments(argv) {
   return { target, profile };
 }
 
-export function resolveSourceCandidates(repoRoot, target, profile) {
+export function resolveCargoTargetDirectory(repoRoot, spawnSyncImpl = spawnSync) {
+  const result = spawnSyncImpl('cargo', ['metadata', '--format-version=1', '--no-deps'], {
+    cwd: repoRoot,
+    encoding: 'utf8'
+  });
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  if (result.status !== 0) {
+    throw new Error(
+      `Failed to resolve Cargo target directory: cargo metadata exited with status ${result.status}. ${result.stderr ?? ''}`.trim()
+    );
+  }
+
+  const metadata = JSON.parse(result.stdout);
+  if (!metadata.target_directory) {
+    throw new Error('Failed to resolve Cargo target directory: cargo metadata did not return target_directory.');
+  }
+
+  return metadata.target_directory;
+}
+
+export function resolveSourceCandidates(repoRoot, target, profile, cargoTargetDir = path.join(repoRoot, 'target')) {
   const binaryName = resolveBinaryName(target);
   const candidates = [];
   const cargoTarget = CARGO_TARGETS[target];
   if (cargoTarget) {
-    candidates.push(path.join(repoRoot, 'target', cargoTarget, profile, binaryName));
+    candidates.push(path.join(cargoTargetDir, cargoTarget, profile, binaryName));
   }
-  candidates.push(path.join(repoRoot, 'target', profile, binaryName));
+  candidates.push(path.join(cargoTargetDir, profile, binaryName));
   return candidates;
 }
 
 export function copyRuntimeBinary({
   repoRoot,
   target,
-  profile
+  profile,
+  cargoTargetDir,
+  spawnSyncImpl = spawnSync
 }) {
   const binaryName = resolveBinaryName(target);
-  const sourceCandidates = resolveSourceCandidates(repoRoot, target, profile);
+  const effectiveCargoTargetDir = cargoTargetDir ?? resolveCargoTargetDirectory(repoRoot, spawnSyncImpl);
+  const sourceCandidates = resolveSourceCandidates(repoRoot, target, profile, effectiveCargoTargetDir);
   const source = sourceCandidates.find(candidate => fs.existsSync(candidate));
   const destinationDir = path.join(repoRoot, 'apps', 'vscode-extension', 'bin', target);
   const destination = path.join(destinationDir, binaryName);
