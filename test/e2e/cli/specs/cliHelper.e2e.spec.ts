@@ -27,6 +27,15 @@ async function writeFakeStandaloneBinary(repoRoot: string, scriptBody: string): 
   return binaryPath;
 }
 
+async function writeFakeStandaloneBinaryAtPath(binaryPath: string, scriptBody: string): Promise<string> {
+  await mkdir(path.dirname(binaryPath), { recursive: true });
+  await writeFile(binaryPath, scriptBody, 'utf8');
+  if (process.platform !== 'win32') {
+    await chmod(binaryPath, 0o755);
+  }
+  return binaryPath;
+}
+
 async function writeFakeWindowsCommandShim(repoRoot: string, scriptBody: string): Promise<string> {
   const binaryDir = path.join(repoRoot, 'target', 'debug');
   const shimPath = path.join(binaryDir, 'apex-log-viewer.cmd');
@@ -76,6 +85,45 @@ test('resolveAlvCliBinaryPath rejects extension runtime fallback when standalone
     await writeFile(path.join(extensionRuntimeDir, binaryName), 'not-a-real-binary', 'utf8');
 
     expect(() => resolveAlvCliBinaryPath({ repoRoot })).toThrow(/Unable to locate apex-log-viewer standalone binary/);
+  });
+});
+
+test('resolveAlvCliBinaryPath prefers ALV_CLI_BINARY_PATH when it exists', async () => {
+  await withTempRepo(async repoRoot => {
+    const binaryName = process.platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
+    const configuredBinaryPath = await writeFakeStandaloneBinaryAtPath(
+      path.join(repoRoot, '.cargo-target', 'Apex-Log-Viewer', 'debug', binaryName),
+      '#!/bin/sh\nexit 0\n'
+    );
+
+    const env = { ALV_CLI_BINARY_PATH: configuredBinaryPath };
+
+    expect(resolveAlvCliBinaryPath({ repoRoot, env })).toBe(configuredBinaryPath);
+    expect(resolveAlvCliInvocation({ repoRoot, env })).toEqual({
+      command: configuredBinaryPath,
+      args: []
+    });
+  });
+});
+
+test('resolveAlvCliBinaryPath fails clearly when ALV_CLI_BINARY_PATH is missing', async () => {
+  await withTempRepo(async repoRoot => {
+    const binaryName = process.platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
+    const missingBinaryPath = path.join(repoRoot, '.cargo-target', 'Apex-Log-Viewer', 'debug', binaryName);
+    await writeFakeStandaloneBinary(repoRoot, '#!/bin/sh\nexit 0\n');
+
+    expect(() =>
+      resolveAlvCliBinaryPath({
+        repoRoot,
+        env: { ALV_CLI_BINARY_PATH: missingBinaryPath }
+      })
+    ).toThrow(/ALV_CLI_BINARY_PATH/);
+    expect(() =>
+      resolveAlvCliInvocation({
+        repoRoot,
+        env: { ALV_CLI_BINARY_PATH: missingBinaryPath }
+      })
+    ).toThrow(/ALV_CLI_BINARY_PATH/);
   });
 });
 
