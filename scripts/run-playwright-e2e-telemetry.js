@@ -103,6 +103,22 @@ async function queryTelemetryForRun(workspaceCustomerId, componentResourceId, ru
   return queryWorkspace(workspaceCustomerId, query);
 }
 
+async function prepareTelemetryValidationContext(
+  config,
+  component,
+  resolveWorkspaceInfoImpl = resolveWorkspaceInfo
+) {
+  const workspace = await resolveWorkspaceInfoImpl({
+    ...config,
+    workspaceResourceId: component.workspaceResourceId || config.workspaceResourceId
+  });
+
+  return {
+    componentResourceId: component.id,
+    workspaceCustomerId: workspace.workspaceCustomerId
+  };
+}
+
 function summarizeTelemetry(rows) {
   const totalEvents = rows.reduce((sum, row) => sum + Number(row.events || 0), 0);
   const distinctNames = rows.length;
@@ -167,17 +183,21 @@ function resolveConfig(env = process.env) {
   return config;
 }
 
-async function waitForTelemetry(config, component, runId) {
+async function waitForTelemetry(config, component, runId, options = {}) {
   const attempts = Math.max(1, Number(process.env.ALV_E2E_TELEMETRY_QUERY_ATTEMPTS || 18) || 18);
   const delayMs = Math.max(1000, Number(process.env.ALV_E2E_TELEMETRY_QUERY_DELAY_MS || 10000) || 10000);
   const lookback = String(process.env.ALV_E2E_TELEMETRY_LOOKBACK || '2h').trim() || '2h';
-  const workspace = await resolveWorkspaceInfo({
-    ...config,
-    workspaceResourceId: component.workspaceResourceId || config.workspaceResourceId
-  });
+  const validationContext =
+    options.validationContext ||
+    (await prepareTelemetryValidationContext(config, component, options.resolveWorkspaceInfoImpl));
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    const result = await queryTelemetryForRun(workspace.workspaceCustomerId, component.id, runId, lookback);
+    const result = await queryTelemetryForRun(
+      validationContext.workspaceCustomerId,
+      validationContext.componentResourceId,
+      runId,
+      lookback
+    );
     const rows = toRows(result);
     const summary = summarizeTelemetry(rows);
     if (summary.hasActivation && summary.totalEvents >= 5 && summary.distinctNames >= 3) {
@@ -191,7 +211,12 @@ async function waitForTelemetry(config, component, runId) {
     }
   }
 
-  const finalResult = await queryTelemetryForRun(workspace.workspaceCustomerId, component.id, runId, lookback);
+  const finalResult = await queryTelemetryForRun(
+    validationContext.workspaceCustomerId,
+    validationContext.componentResourceId,
+    runId,
+    lookback
+  );
   const finalRows = toRows(finalResult);
   const finalSummary = summarizeTelemetry(finalRows);
   throw new Error(
@@ -199,46 +224,69 @@ async function waitForTelemetry(config, component, runId) {
   );
 }
 
-async function main() {
-  const config = resolveConfig(process.env);
+async function runTelemetryE2e(options = {}) {
+  const env = options.env || process.env;
+  const extraArgs = options.extraArgs || process.argv.slice(2);
+  const repoRoot = options.repoRoot || REPO_ROOT;
+  const logger = options.logger || console;
+  const randomUUIDImpl = options.randomUUIDImpl || randomUUID;
+  const ensureTelemetryComponentImpl = options.ensureTelemetryComponentImpl || ensureTelemetryComponent;
+  const prepareTelemetryValidationContextImpl =
+    options.prepareTelemetryValidationContextImpl || prepareTelemetryValidationContext;
+  const resolvePlaywrightChildInvocationImpl =
+    options.resolvePlaywrightChildInvocationImpl || resolvePlaywrightChildInvocation;
+  const spawnAsyncImpl = options.spawnAsyncImpl || spawnAsync;
+  const waitForTelemetryImpl = options.waitForTelemetryImpl || waitForTelemetry;
 
-  const { component, created } = await ensureTelemetryComponent(config);
-  const runId = randomUUID();
+  const config = resolveConfig(env);
 
-  console.log(
+  const { component, created } = await ensureTelemetryComponentImpl(config);
+  const runId = randomUUIDImpl();
+
+  logger.log(
     `[e2e] ${created ? 'Created' : 'Using'} dedicated Application Insights resource: ${component.name} (${component.resourceGroup})`
   );
-  console.log(`[e2e] Test telemetry run id: ${runId}`);
+  logger.log(`[e2e] Test telemetry run id: ${runId}`);
+
+  const validationContext = await prepareTelemetryValidationContextImpl(config, component);
 
   const childEnv = {
-    ...process.env,
+    ...env,
     ALV_ENABLE_TEST_TELEMETRY: '1',
     ALV_TEST_TELEMETRY_CONNECTION_STRING: component.connectionString,
     ALV_TEST_TELEMETRY_RUN_ID: runId
   };
 
-  const childInvocation = resolvePlaywrightChildInvocation(process.argv.slice(2), childEnv, REPO_ROOT);
-  const child = await spawnAsync(childInvocation.command, childInvocation.args, {
-    cwd: REPO_ROOT,
+  const childInvocation = resolvePlaywrightChildInvocationImpl(extraArgs, childEnv, repoRoot);
+  const child = await spawnAsyncImpl(childInvocation.command, childInvocation.args, {
+    cwd: repoRoot,
     env: childEnv,
     stdio: 'inherit'
   });
 
   if (typeof child.code === 'number' && child.code !== 0) {
-    process.exit(child.code);
-    return;
+    return { exitCode: child.code };
   }
   if (child.signal) {
     throw new Error(`Playwright E2E process exited via signal ${child.signal}.`);
   }
 
-  console.log('[e2e] Playwright suite passed. Validating telemetry arrival in the linked Log Analytics workspace...');
-  const validation = await waitForTelemetry(config, component, runId);
-  console.log(
+  logger.log('[e2e] Playwright suite passed. Validating telemetry arrival in the linked Log Analytics workspace...');
+  const validation = await waitForTelemetryImpl(config, component, runId, { validationContext });
+  logger.log(
     `[e2e] Telemetry validated after ${validation.attempt} query attempt(s): ${validation.summary.totalEvents} events across ${validation.summary.distinctNames} event names.`
   );
   for (const row of validation.rows) {
-    console.log(`[e2e] ${row.name}: ${row.events}`);
+    logger.log(`[e2e] ${row.name}: ${row.events}`);
+  }
+
+  return { exitCode: 0, validation };
+}
+
+async function main() {
+  const result = await runTelemetryE2e();
+  if (typeof result.exitCode === 'number' && result.exitCode !== 0) {
+    process.exit(result.exitCode);
   }
 }
 
@@ -251,8 +299,10 @@ if (require.main === module) {
 
 module.exports = {
   buildRunValidationQuery,
+  prepareTelemetryValidationContext,
   resolveConfig,
   resolvePlaywrightChildInvocation,
+  runTelemetryE2e,
   spawnAsync,
   summarizeTelemetry
 };
