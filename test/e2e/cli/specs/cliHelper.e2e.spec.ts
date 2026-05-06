@@ -13,6 +13,10 @@ async function withTempRepo<T>(fn: (repoRoot: string) => Promise<T>): Promise<T>
   }
 }
 
+function withoutConfiguredCliBinaryEnv(): NodeJS.ProcessEnv {
+  return { ALV_CLI_BINARY_PATH: '' };
+}
+
 async function writeFakeStandaloneBinary(repoRoot: string, scriptBody: string): Promise<string> {
   const binaryName = process.platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
   const binaryDir = path.join(repoRoot, 'target', 'debug');
@@ -84,7 +88,7 @@ test('resolveAlvCliBinaryPath rejects extension runtime fallback when standalone
     await mkdir(extensionRuntimeDir, { recursive: true });
     await writeFile(path.join(extensionRuntimeDir, binaryName), 'not-a-real-binary', 'utf8');
 
-    expect(() => resolveAlvCliBinaryPath({ repoRoot, env: {} })).toThrow(
+    expect(() => resolveAlvCliBinaryPath({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toThrow(
       /Unable to locate apex-log-viewer standalone binary/
     );
   });
@@ -112,20 +116,25 @@ test('resolveAlvCliBinaryPath fails clearly when ALV_CLI_BINARY_PATH is missing'
   await withTempRepo(async repoRoot => {
     const binaryName = process.platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
     const missingBinaryPath = path.join(repoRoot, '.cargo-target', 'Apex-Log-Viewer', 'debug', binaryName);
+    const fallbackBinaryPath = path.join(repoRoot, 'target', 'debug', binaryName);
     await writeFakeStandaloneBinary(repoRoot, '#!/bin/sh\nexit 0\n');
 
-    expect(() =>
-      resolveAlvCliBinaryPath({
-        repoRoot,
-        env: { ALV_CLI_BINARY_PATH: missingBinaryPath }
-      })
-    ).toThrow(/ALV_CLI_BINARY_PATH/);
-    expect(() =>
-      resolveAlvCliInvocation({
-        repoRoot,
-        env: { ALV_CLI_BINARY_PATH: missingBinaryPath }
-      })
-    ).toThrow(/ALV_CLI_BINARY_PATH/);
+    for (const resolve of [
+      () =>
+        resolveAlvCliBinaryPath({
+          repoRoot,
+          env: { ALV_CLI_BINARY_PATH: missingBinaryPath }
+        }),
+      () =>
+        resolveAlvCliInvocation({
+          repoRoot,
+          env: { ALV_CLI_BINARY_PATH: missingBinaryPath }
+        })
+    ]) {
+      expect(resolve).toThrow(/ALV_CLI_BINARY_PATH/);
+      expect(resolve).toThrow(missingBinaryPath);
+      expect(resolve).toThrow(fallbackBinaryPath);
+    }
   });
 });
 
@@ -146,12 +155,43 @@ test('runAlvCli parses stdoutJson separately from stderrJson', async () => {
     const result = await runAlvCli([], {
       repoRoot,
       allowWindowsCommandShim: process.platform === 'win32',
-      env: {}
+      env: withoutConfiguredCliBinaryEnv()
     });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdoutJson).toEqual({ stream: 'stdout', status: 'success' });
     expect(result.stderrJson).toEqual({ stream: 'stderr', status: 'warning' });
+  });
+});
+
+test('runAlvCli resolves ALV_CLI_BINARY_PATH from process env when an env overlay is provided', async () => {
+  await withTempRepo(async repoRoot => {
+    const binaryName = process.platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
+    const configuredBinaryPath = await writeFakeStandaloneBinaryAtPath(
+      path.join(repoRoot, '.cargo-target', 'Apex-Log-Viewer', 'debug', binaryName),
+      '#!/bin/sh\nprintf \'{"source":"configured"}\\n\'\n'
+    );
+    await writeFakeStandaloneBinary(repoRoot, '#!/bin/sh\nprintf \'{"source":"fallback"}\\n\'\n');
+
+    const originalConfiguredBinaryPath = process.env.ALV_CLI_BINARY_PATH;
+    process.env.ALV_CLI_BINARY_PATH = configuredBinaryPath;
+
+    try {
+      const result = await runAlvCli([], {
+        repoRoot,
+        env: { ALV_TEST_MARKER: '1' }
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.command).toBe(configuredBinaryPath);
+      expect(result.stdoutJson).toEqual({ source: 'configured' });
+    } finally {
+      if (originalConfiguredBinaryPath === undefined) {
+        delete process.env.ALV_CLI_BINARY_PATH;
+      } else {
+        process.env.ALV_CLI_BINARY_PATH = originalConfiguredBinaryPath;
+      }
+    }
   });
 });
 
@@ -165,7 +205,12 @@ test('runAlvCli returns diagnostics on timeout instead of rejecting', async () =
 
     const result = await runAlvCli(
       [],
-      { repoRoot, timeoutMs: 50, allowWindowsCommandShim: process.platform === 'win32', env: {} }
+      {
+        repoRoot,
+        timeoutMs: 50,
+        allowWindowsCommandShim: process.platform === 'win32',
+        env: withoutConfiguredCliBinaryEnv()
+      }
     );
 
     expect(result.exitCode).toBe(-1);
@@ -177,9 +222,9 @@ test('resolveAlvCliBinaryPath stays strict when only a Windows command shim exis
   await withTempRepo(async repoRoot => {
     await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\nexit /b 0\r\n');
 
-    expect(() => resolveAlvCliBinaryPath({ repoRoot, platform: 'win32', env: {} })).toThrow(
-      /Unable to locate apex-log-viewer standalone binary/
-    );
+    expect(() =>
+      resolveAlvCliBinaryPath({ repoRoot, platform: 'win32', env: withoutConfiguredCliBinaryEnv() })
+    ).toThrow(/Unable to locate apex-log-viewer standalone binary/);
   });
 });
 
@@ -188,7 +233,14 @@ test('resolveAlvCliInvocation can use a Windows command shim for helper-only cov
     const shimPath = await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\nexit /b 0\r\n');
     const quotedShimPath = `"${shimPath.replace(/"/g, '""')}"`;
 
-    expect(resolveAlvCliInvocation({ repoRoot, platform: 'win32', allowWindowsCommandShim: true, env: {} })).toEqual({
+    expect(
+      resolveAlvCliInvocation({
+        repoRoot,
+        platform: 'win32',
+        allowWindowsCommandShim: true,
+        env: withoutConfiguredCliBinaryEnv()
+      })
+    ).toEqual({
       command: process.env.ComSpec || 'cmd.exe',
       args: ['/d', '/s', '/c', quotedShimPath]
     });
@@ -209,8 +261,10 @@ test('resolveAlvCliBinaryPath prefers the host debug binary when CARGO_BUILD_TAR
         '#!/bin/sh\nexit 0\n'
       );
 
-      expect(resolveAlvCliBinaryPath({ repoRoot, env: {} })).toBe(hostBinaryPath);
-      expect(resolveAlvCliInvocation({ repoRoot, env: {} })).toEqual({
+      expect(resolveAlvCliBinaryPath({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toBe(
+        hostBinaryPath
+      );
+      expect(resolveAlvCliInvocation({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toEqual({
         command: hostBinaryPath,
         args: []
       });
@@ -238,10 +292,10 @@ test('resolveAlvCliBinaryPath ignores cross-target debug binaries when the host 
         '#!/bin/sh\nexit 0\n'
       );
 
-      expect(() => resolveAlvCliBinaryPath({ repoRoot, env: {} })).toThrow(
+      expect(() => resolveAlvCliBinaryPath({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toThrow(
         /Unable to locate apex-log-viewer standalone binary/
       );
-      expect(() => resolveAlvCliInvocation({ repoRoot, env: {} })).toThrow(
+      expect(() => resolveAlvCliInvocation({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toThrow(
         /Unable to locate apex-log-viewer standalone binary/
       );
     } finally {

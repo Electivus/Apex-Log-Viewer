@@ -55,8 +55,15 @@ function resolveBinaryCandidates(options: ResolveAlvCliBinaryPathOptions = {}): 
   return resolveBinaryCandidatesForName(resolveBinaryName(options.platform), options);
 }
 
+function resolveCliEnvironment(options: ResolveAlvCliBinaryPathOptions = {}): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    ...options.env
+  };
+}
+
 function resolveConfiguredCliBinaryPath(options: ResolveAlvCliBinaryPathOptions = {}): string | undefined {
-  const rawPath = String((options.env ?? process.env).ALV_CLI_BINARY_PATH ?? '').trim();
+  const rawPath = String(resolveCliEnvironment(options).ALV_CLI_BINARY_PATH ?? '').trim();
   if (!rawPath) {
     return undefined;
   }
@@ -160,10 +167,11 @@ export function resolveAlvCliInvocation(options: ResolveAlvCliInvocationOptions 
 }
 
 export async function runAlvCli(args: string[], options: CliExecOptions = {}): Promise<CliRunResult> {
+  const env = resolveCliEnvironment({ env: options.env });
   const invocation = resolveAlvCliInvocation({
     repoRoot: options.repoRoot,
     allowWindowsCommandShim: options.allowWindowsCommandShim,
-    env: options.env
+    env
   });
   const finalArgs = [...invocation.args, ...args.map(value => String(value ?? ''))];
 
@@ -173,10 +181,7 @@ export async function runAlvCli(args: string[], options: CliExecOptions = {}): P
       finalArgs,
       {
         cwd: options.cwd,
-        env: {
-          ...process.env,
-          ...options.env
-        },
+        env,
         encoding: 'utf8',
         timeout: options.timeoutMs ?? 120_000,
         maxBuffer: 1024 * 1024 * 20
