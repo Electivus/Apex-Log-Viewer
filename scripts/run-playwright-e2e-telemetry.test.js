@@ -6,6 +6,7 @@ const {
   buildRunValidationQuery,
   resolveConfig,
   resolvePlaywrightChildInvocation,
+  runTelemetryE2e,
   spawnAsync,
   summarizeTelemetry
 } = require('./run-playwright-e2e-telemetry');
@@ -79,6 +80,71 @@ test('spawnAsync rejects when the child process cannot be started', async () => 
       })),
     /spawn ENOENT/
   );
+});
+
+test('runTelemetryE2e prepares Log Analytics context before spawning Playwright', async () => {
+  const calls = [];
+  const validationContext = {
+    componentResourceId: '/subscriptions/sub/resourceGroups/rg/providers/microsoft.insights/components/appi-e2e',
+    workspaceCustomerId: 'workspace-customer-id'
+  };
+
+  const result = await runTelemetryE2e({
+    env: {
+      ALV_E2E_TELEMETRY_APP: 'appi-e2e',
+      ALV_E2E_TELEMETRY_BASE_APP: 'appi-base',
+      ALV_E2E_TELEMETRY_RESOURCE_GROUP: 'rg-telemetry',
+      AZURE_SUBSCRIPTION_ID: 'sub-123'
+    },
+    extraArgs: ['--grep', 'logs'],
+    repoRoot: path.join('/repo', 'apex-log-viewer'),
+    logger: { log() {} },
+    randomUUIDImpl: () => 'run-123',
+    ensureTelemetryComponentImpl: async config => {
+      calls.push(['ensure', config.appName]);
+      return {
+        component: {
+          connectionString: 'InstrumentationKey=00000000-0000-0000-0000-000000000000',
+          id: validationContext.componentResourceId,
+          name: 'appi-e2e',
+          resourceGroup: 'rg-telemetry',
+          workspaceResourceId:
+            '/subscriptions/sub/resourceGroups/rg/providers/microsoft.operationalinsights/workspaces/law-e2e'
+        },
+        created: false
+      };
+    },
+    prepareTelemetryValidationContextImpl: async (config, component) => {
+      calls.push(['prepare', component.id]);
+      assert.equal(config.appName, 'appi-e2e');
+      return validationContext;
+    },
+    resolvePlaywrightChildInvocationImpl: extraArgs => {
+      calls.push(['resolve-child', extraArgs.join(' ')]);
+      return { command: 'node', args: ['child.js'] };
+    },
+    spawnAsyncImpl: async (command, args) => {
+      calls.push(['spawn', command, args.join(' ')]);
+      return { code: 0, signal: null };
+    },
+    waitForTelemetryImpl: async (_config, _component, runId, options) => {
+      calls.push(['wait', runId, options.validationContext.workspaceCustomerId]);
+      return {
+        attempt: 1,
+        rows: [{ name: 'electivus.apex-log-viewer/extension.activate', events: 5 }],
+        summary: { distinctNames: 3, hasActivation: true, totalEvents: 5 }
+      };
+    }
+  });
+
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(calls, [
+    ['ensure', 'appi-e2e'],
+    ['prepare', validationContext.componentResourceId],
+    ['resolve-child', '--grep logs'],
+    ['spawn', 'node', 'child.js'],
+    ['wait', 'run-123', 'workspace-customer-id']
+  ]);
 });
 
 test('resolvePlaywrightChildInvocation runs Playwright directly by default', () => {
