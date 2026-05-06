@@ -84,7 +84,9 @@ test('resolveAlvCliBinaryPath rejects extension runtime fallback when standalone
     await mkdir(extensionRuntimeDir, { recursive: true });
     await writeFile(path.join(extensionRuntimeDir, binaryName), 'not-a-real-binary', 'utf8');
 
-    expect(() => resolveAlvCliBinaryPath({ repoRoot })).toThrow(/Unable to locate apex-log-viewer standalone binary/);
+    expect(() => resolveAlvCliBinaryPath({ repoRoot, env: {} })).toThrow(
+      /Unable to locate apex-log-viewer standalone binary/
+    );
   });
 });
 
@@ -141,7 +143,11 @@ test('runAlvCli parses stdoutJson separately from stderrJson', async () => {
       );
     }
 
-    const result = await runAlvCli([], { repoRoot, allowWindowsCommandShim: process.platform === 'win32' });
+    const result = await runAlvCli([], {
+      repoRoot,
+      allowWindowsCommandShim: process.platform === 'win32',
+      env: {}
+    });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdoutJson).toEqual({ stream: 'stdout', status: 'success' });
@@ -159,7 +165,7 @@ test('runAlvCli returns diagnostics on timeout instead of rejecting', async () =
 
     const result = await runAlvCli(
       [],
-      { repoRoot, timeoutMs: 50, allowWindowsCommandShim: process.platform === 'win32' }
+      { repoRoot, timeoutMs: 50, allowWindowsCommandShim: process.platform === 'win32', env: {} }
     );
 
     expect(result.exitCode).toBe(-1);
@@ -171,7 +177,7 @@ test('resolveAlvCliBinaryPath stays strict when only a Windows command shim exis
   await withTempRepo(async repoRoot => {
     await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\nexit /b 0\r\n');
 
-    expect(() => resolveAlvCliBinaryPath({ repoRoot, platform: 'win32' })).toThrow(
+    expect(() => resolveAlvCliBinaryPath({ repoRoot, platform: 'win32', env: {} })).toThrow(
       /Unable to locate apex-log-viewer standalone binary/
     );
   });
@@ -182,7 +188,7 @@ test('resolveAlvCliInvocation can use a Windows command shim for helper-only cov
     const shimPath = await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\nexit /b 0\r\n');
     const quotedShimPath = `"${shimPath.replace(/"/g, '""')}"`;
 
-    expect(resolveAlvCliInvocation({ repoRoot, platform: 'win32', allowWindowsCommandShim: true })).toEqual({
+    expect(resolveAlvCliInvocation({ repoRoot, platform: 'win32', allowWindowsCommandShim: true, env: {} })).toEqual({
       command: process.env.ComSpec || 'cmd.exe',
       args: ['/d', '/s', '/c', quotedShimPath]
     });
@@ -203,8 +209,8 @@ test('resolveAlvCliBinaryPath prefers the host debug binary when CARGO_BUILD_TAR
         '#!/bin/sh\nexit 0\n'
       );
 
-      expect(resolveAlvCliBinaryPath({ repoRoot })).toBe(hostBinaryPath);
-      expect(resolveAlvCliInvocation({ repoRoot })).toEqual({
+      expect(resolveAlvCliBinaryPath({ repoRoot, env: {} })).toBe(hostBinaryPath);
+      expect(resolveAlvCliInvocation({ repoRoot, env: {} })).toEqual({
         command: hostBinaryPath,
         args: []
       });
@@ -232,8 +238,12 @@ test('resolveAlvCliBinaryPath ignores cross-target debug binaries when the host 
         '#!/bin/sh\nexit 0\n'
       );
 
-      expect(() => resolveAlvCliBinaryPath({ repoRoot })).toThrow(/Unable to locate apex-log-viewer standalone binary/);
-      expect(() => resolveAlvCliInvocation({ repoRoot })).toThrow(/Unable to locate apex-log-viewer standalone binary/);
+      expect(() => resolveAlvCliBinaryPath({ repoRoot, env: {} })).toThrow(
+        /Unable to locate apex-log-viewer standalone binary/
+      );
+      expect(() => resolveAlvCliInvocation({ repoRoot, env: {} })).toThrow(
+        /Unable to locate apex-log-viewer standalone binary/
+      );
     } finally {
       if (originalCargoBuildTarget === undefined) {
         delete process.env.CARGO_BUILD_TARGET;
