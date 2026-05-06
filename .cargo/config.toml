@@ -1,0 +1,4 @@
+[build]
+# In linked worktrees under .worktrees/<branch>, this resolves to
+# .worktrees/.cargo-target/Apex-Log-Viewer and is shared by those worktrees.
+target-dir = "../.cargo-target/Apex-Log-Viewer"

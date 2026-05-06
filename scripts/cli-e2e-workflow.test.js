@@ -142,13 +142,33 @@ test('real-org Playwright workflow disables Playwright retries for the expensive
   );
 });
 
-test('real-org Playwright workflow uses the org-allowlisted Azure login pin', () => {
+test('real-org Playwright workflow logs into Azure immediately before telemetry-capable extension E2E', () => {
   const workflow = readWorkflow();
-  const { step } = getWorkflowStep(workflow, 'Azure login for dedicated App Insights validation');
+  const azureLoginStep = getWorkflowStep(workflow, 'Azure login for dedicated App Insights validation');
+  const cliStep = getWorkflowStep(workflow, 'Run CLI real-org E2E');
+  const uploadArtifactsStep = getWorkflowStep(workflow, 'Upload CLI E2E artifacts');
+  const extensionStep = getWorkflowStep(workflow, 'Run Playwright E2E');
 
   assert.equal(
-    step.uses,
+    azureLoginStep.step.uses,
     'azure/login@93381592711f247e165c389ebb30b596c84cdc48',
     'expected azure/login to stay pinned to the SHA currently allowed by the Electivus org action policy'
+  );
+  assert.ok(
+    cliStep.index < azureLoginStep.index,
+    'expected Azure login to run after the CLI real-org step so the OIDC assertion is fresher for telemetry validation'
+  );
+  assert.ok(
+    uploadArtifactsStep.index < azureLoginStep.index,
+    'expected Azure login to run after CLI artifact upload and immediately before the extension Playwright step'
+  );
+  assert.ok(
+    azureLoginStep.index < extensionStep.index,
+    'expected Azure login to run before the telemetry-capable extension Playwright step'
+  );
+  assert.equal(
+    azureLoginStep.index + 1,
+    extensionStep.index,
+    'expected Azure login to run immediately before the telemetry-capable extension Playwright step'
   );
 });

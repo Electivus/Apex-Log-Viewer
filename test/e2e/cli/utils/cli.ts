@@ -34,6 +34,7 @@ type ResolveAlvCliBinaryPathOptions = {
   repoRoot?: string;
   cargoBuildTarget?: string;
   platform?: NodeJS.Platform;
+  env?: NodeJS.ProcessEnv;
 };
 
 type ResolveAlvCliInvocationOptions = ResolveAlvCliBinaryPathOptions & {
@@ -52,6 +53,37 @@ function resolveBinaryCandidatesForName(binaryName: string, options: ResolveAlvC
 
 function resolveBinaryCandidates(options: ResolveAlvCliBinaryPathOptions = {}): string[] {
   return resolveBinaryCandidatesForName(resolveBinaryName(options.platform), options);
+}
+
+function resolveCliEnvironment(options: ResolveAlvCliBinaryPathOptions = {}): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    ...options.env
+  };
+}
+
+function resolveConfiguredCliBinaryPath(options: ResolveAlvCliBinaryPathOptions = {}): string | undefined {
+  const rawPath = String(resolveCliEnvironment(options).ALV_CLI_BINARY_PATH ?? '').trim();
+  if (!rawPath) {
+    return undefined;
+  }
+
+  const repoRoot = options.repoRoot || resolveRepoRoot();
+  return path.isAbsolute(rawPath) ? rawPath : path.resolve(repoRoot, rawPath);
+}
+
+function formatMissingBinaryMessage(
+  configuredBinaryPath: string | undefined,
+  fallbackCandidates: string[]
+): string {
+  if (configuredBinaryPath) {
+    return `Unable to locate apex-log-viewer standalone binary from ALV_CLI_BINARY_PATH. Checked: ${[
+      configuredBinaryPath,
+      ...fallbackCandidates
+    ].join(', ')}`;
+  }
+
+  return `Unable to locate apex-log-viewer standalone binary. Checked: ${fallbackCandidates.join(', ')}`;
 }
 
 function tryParseCliJson(raw: string): any | undefined {
@@ -81,18 +113,38 @@ function tryParseCliJson(raw: string): any | undefined {
 }
 
 export function resolveAlvCliBinaryPath(options: ResolveAlvCliBinaryPathOptions = {}): string {
+  const configuredBinaryPath = resolveConfiguredCliBinaryPath(options);
   const candidates = resolveBinaryCandidates(options);
+
+  if (configuredBinaryPath) {
+    if (existsSync(configuredBinaryPath)) {
+      return configuredBinaryPath;
+    }
+    throw new Error(formatMissingBinaryMessage(configuredBinaryPath, candidates));
+  }
+
   const binaryPath = candidates.find(candidate => existsSync(candidate));
   if (!binaryPath) {
-    throw new Error(
-      `Unable to locate apex-log-viewer standalone binary. Checked: ${candidates.join(', ')}`
-    );
+    throw new Error(formatMissingBinaryMessage(undefined, candidates));
   }
   return binaryPath;
 }
 
 export function resolveAlvCliInvocation(options: ResolveAlvCliInvocationOptions = {}): CliInvocation {
-  const binaryPath = resolveBinaryCandidates(options).find(candidate => existsSync(candidate));
+  const configuredBinaryPath = resolveConfiguredCliBinaryPath(options);
+  const candidates = resolveBinaryCandidates(options);
+
+  if (configuredBinaryPath) {
+    if (existsSync(configuredBinaryPath)) {
+      return {
+        command: configuredBinaryPath,
+        args: []
+      };
+    }
+    throw new Error(formatMissingBinaryMessage(configuredBinaryPath, candidates));
+  }
+
+  const binaryPath = candidates.find(candidate => existsSync(candidate));
   if (binaryPath) {
     return {
       command: binaryPath,
@@ -111,15 +163,15 @@ export function resolveAlvCliInvocation(options: ResolveAlvCliInvocationOptions 
     }
   }
 
-  throw new Error(
-    `Unable to locate apex-log-viewer standalone binary. Checked: ${resolveBinaryCandidates(options).join(', ')}`
-  );
+  throw new Error(formatMissingBinaryMessage(undefined, resolveBinaryCandidates(options)));
 }
 
 export async function runAlvCli(args: string[], options: CliExecOptions = {}): Promise<CliRunResult> {
+  const env = resolveCliEnvironment({ env: options.env });
   const invocation = resolveAlvCliInvocation({
     repoRoot: options.repoRoot,
-    allowWindowsCommandShim: options.allowWindowsCommandShim
+    allowWindowsCommandShim: options.allowWindowsCommandShim,
+    env
   });
   const finalArgs = [...invocation.args, ...args.map(value => String(value ?? ''))];
 
@@ -129,10 +181,7 @@ export async function runAlvCli(args: string[], options: CliExecOptions = {}): P
       finalArgs,
       {
         cwd: options.cwd,
-        env: {
-          ...process.env,
-          ...options.env
-        },
+        env,
         encoding: 'utf8',
         timeout: options.timeoutMs ?? 120_000,
         maxBuffer: 1024 * 1024 * 20
