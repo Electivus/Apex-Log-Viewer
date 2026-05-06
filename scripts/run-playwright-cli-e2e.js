@@ -1,13 +1,73 @@
 #!/usr/bin/env node
 'use strict';
 
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const { existsSync } = require('fs');
 const path = require('path');
 
 function resolveCliBinaryRelativePath(targetPlatform = process.platform) {
-  const bin = targetPlatform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
+  const bin = resolveCliBinaryName(targetPlatform);
   return path.posix.join('target', 'debug', bin);
+}
+
+function resolveCliBinaryName(targetPlatform = process.platform) {
+  return targetPlatform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
+}
+
+function normalizeCargoTargetDirectory(repoRoot, cargoTargetDirectory) {
+  if (!cargoTargetDirectory) {
+    return undefined;
+  }
+  return path.isAbsolute(cargoTargetDirectory)
+    ? cargoTargetDirectory
+    : path.resolve(repoRoot, cargoTargetDirectory);
+}
+
+function resolveCargoTargetDirectory(repoRoot, options = {}) {
+  const spawnSyncImpl = options.spawnSyncImpl || spawnSync;
+  const result = spawnSyncImpl('cargo', ['metadata', '--format-version=1', '--no-deps'], {
+    cwd: repoRoot,
+    encoding: 'utf8'
+  });
+
+  if (result.error || result.status !== 0) {
+    return undefined;
+  }
+
+  try {
+    const metadata = JSON.parse(result.stdout || '{}');
+    return normalizeCargoTargetDirectory(repoRoot, metadata.target_directory);
+  } catch {
+    return undefined;
+  }
+}
+
+function displayCandidatePath(repoRoot, candidatePath) {
+  const relativePath = path.relative(repoRoot, candidatePath);
+  return relativePath && !relativePath.startsWith('..') && !path.isAbsolute(relativePath)
+    ? relativePath
+    : candidatePath;
+}
+
+function resolveCliBinaryCandidatePaths(repoRoot, options = {}) {
+  const targetPlatform = options.targetPlatform || process.platform;
+  const binaryName = resolveCliBinaryName(targetPlatform);
+  const cargoTargetDirectory =
+    options.cargoTargetDirectory === undefined
+      ? resolveCargoTargetDirectory(repoRoot, options)
+      : normalizeCargoTargetDirectory(repoRoot, options.cargoTargetDirectory);
+  const candidates = [];
+
+  if (cargoTargetDirectory) {
+    candidates.push(path.join(cargoTargetDirectory, 'debug', binaryName));
+  }
+
+  candidates.push(path.join(repoRoot, resolveCliBinaryRelativePath(targetPlatform)));
+  return [...new Set(candidates)];
+}
+
+function resolveBuiltCliBinaryPath(repoRoot, options = {}) {
+  return resolveCliBinaryCandidatePaths(repoRoot, options).find(candidate => existsSync(candidate));
 }
 
 const requiredBuildArtifacts = [resolveCliBinaryRelativePath()];
@@ -34,11 +94,16 @@ function resolveBuildInvocation(targetPlatform = process.platform) {
   };
 }
 
-function findMissingBuildArtifacts(repoRoot) {
-  const acceptedCliPaths = resolveAcceptedCliBinaryRelativePaths();
-  return acceptedCliPaths.some(relativePath => existsSync(path.join(repoRoot, relativePath)))
-    ? []
-    : [acceptedCliPaths.join(' or ')];
+function findMissingBuildArtifacts(repoRoot, options = {}) {
+  if (resolveBuiltCliBinaryPath(repoRoot, options)) {
+    return [];
+  }
+
+  return [
+    resolveCliBinaryCandidatePaths(repoRoot, options)
+      .map(candidate => displayCandidatePath(repoRoot, candidate))
+      .join(' or ')
+  ];
 }
 
 function spawnAsync(command, args, options = {}, spawnImpl = spawn) {
@@ -50,11 +115,12 @@ function spawnAsync(command, args, options = {}, spawnImpl = spawn) {
 }
 
 async function ensureBuildArtifacts(repoRoot, options = {}) {
-  const missingArtifacts = findMissingBuildArtifacts(repoRoot);
-  if (!missingArtifacts.length) {
-    return;
+  const existingCliBinaryPath = resolveBuiltCliBinaryPath(repoRoot, options);
+  if (existingCliBinaryPath) {
+    return existingCliBinaryPath;
   }
 
+  const missingArtifacts = findMissingBuildArtifacts(repoRoot, options);
   console.log(
     `[e2e:cli] Missing build artifacts (${missingArtifacts.join(', ')}). Running npm run build:runtime before Playwright...`
   );
@@ -74,12 +140,14 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
     throw new Error(`npm run build:runtime failed while preparing CLI Playwright E2E (${details}).`);
   }
 
-  const remainingMissingArtifacts = findMissingBuildArtifacts(repoRoot);
-  if (remainingMissingArtifacts.length) {
+  const builtCliBinaryPath = resolveBuiltCliBinaryPath(repoRoot, options);
+  if (!builtCliBinaryPath) {
+    const remainingMissingArtifacts = findMissingBuildArtifacts(repoRoot, options);
     throw new Error(
       `npm run build:runtime did not produce required CLI artifact(s): ${remainingMissingArtifacts.join(', ')}.`
     );
   }
+  return builtCliBinaryPath;
 }
 
 function resolvePlaywrightInvocation(extraArgs, options = {}) {
@@ -116,14 +184,21 @@ function exitWithChildResult(code, signal) {
   process.exit(1);
 }
 
+function resolvePlaywrightEnv(cliBinaryPath, env = process.env) {
+  return {
+    ...env,
+    ALV_CLI_BINARY_PATH: cliBinaryPath
+  };
+}
+
 async function main() {
   const repoRoot = path.join(__dirname, '..');
-  await ensureBuildArtifacts(repoRoot);
+  const cliBinaryPath = await ensureBuildArtifacts(repoRoot);
   const invocation = resolvePlaywrightInvocation(process.argv.slice(2));
   const child = spawn(invocation.command, invocation.args, {
     stdio: 'inherit',
     cwd: repoRoot,
-    env: process.env
+    env: resolvePlaywrightEnv(cliBinaryPath)
   });
   child.on('exit', exitWithChildResult);
 }
@@ -139,9 +214,13 @@ module.exports = {
   ensureBuildArtifacts,
   findMissingBuildArtifacts,
   requiredBuildArtifacts,
+  resolveBuiltCliBinaryPath,
   resolveBuildInvocation,
+  resolveCargoTargetDirectory,
+  resolveCliBinaryCandidatePaths,
   resolveCliBinaryRelativePath,
   resolveAcceptedCliBinaryRelativePaths,
   resolveCliSuiteRelativePath,
+  resolvePlaywrightEnv,
   resolvePlaywrightInvocation
 };

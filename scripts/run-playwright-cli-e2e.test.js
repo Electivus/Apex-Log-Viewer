@@ -26,6 +26,19 @@ function readPackageScripts() {
   return JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).scripts;
 }
 
+function cargoMetadataSpawnSync(cargoTargetDir) {
+  return function spawnSyncImpl(command, args, options) {
+    assert.equal(command, 'cargo');
+    assert.deepEqual(args, ['metadata', '--format-version=1', '--no-deps']);
+    assert.equal(options.encoding, 'utf8');
+
+    return {
+      status: 0,
+      stdout: JSON.stringify({ target_directory: cargoTargetDir })
+    };
+  };
+}
+
 test('resolveCliBinaryRelativePath targets the debug CLI binary on Linux', () => {
   const runner = loadRunner();
 
@@ -63,6 +76,34 @@ test('findMissingBuildArtifacts still requires the host debug binary when CARGO_
   }
 });
 
+test('findMissingBuildArtifacts accepts the debug CLI binary from Cargo target_directory', () => {
+  const repoRoot = createTempRepo();
+  const cargoTargetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cargo-target-'));
+  try {
+    const runner = loadRunner();
+    const cliBinaryName = path.basename(runner.resolveCliBinaryRelativePath(process.platform));
+    const cliBinaryPath = path.join(cargoTargetDir, 'debug', cliBinaryName);
+    fs.mkdirSync(path.dirname(cliBinaryPath), { recursive: true });
+    fs.writeFileSync(cliBinaryPath, '', 'utf8');
+
+    assert.deepEqual(
+      runner.findMissingBuildArtifacts(repoRoot, {
+        spawnSyncImpl: cargoMetadataSpawnSync(cargoTargetDir)
+      }),
+      []
+    );
+    assert.equal(
+      runner.resolveBuiltCliBinaryPath(repoRoot, {
+        spawnSyncImpl: cargoMetadataSpawnSync(cargoTargetDir)
+      }),
+      cliBinaryPath
+    );
+  } finally {
+    cleanupTempRepo(repoRoot);
+    fs.rmSync(cargoTargetDir, { recursive: true, force: true });
+  }
+});
+
 test('ensureBuildArtifacts runs npm run build:runtime when the CLI binary is missing', async () => {
   const repoRoot = createTempRepo();
   try {
@@ -97,6 +138,37 @@ test('ensureBuildArtifacts runs npm run build:runtime when the CLI binary is mis
     assert.equal(recordedCall.options.stdio, 'inherit');
   } finally {
     cleanupTempRepo(repoRoot);
+  }
+});
+
+test('ensureBuildArtifacts returns the configured Cargo target-dir CLI binary after building', async () => {
+  const repoRoot = createTempRepo();
+  const cargoTargetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cargo-target-'));
+  try {
+    const runner = loadRunner();
+    const cliBinaryName = path.basename(runner.resolveCliBinaryRelativePath(process.platform));
+    const cliBinaryPath = path.join(cargoTargetDir, 'debug', cliBinaryName);
+    let recordedCall;
+
+    const result = await runner.ensureBuildArtifacts(repoRoot, {
+      spawnSyncImpl: cargoMetadataSpawnSync(cargoTargetDir),
+      spawnImpl(command, args, options) {
+        recordedCall = { command, args, options };
+        const child = new EventEmitter();
+        process.nextTick(() => {
+          fs.mkdirSync(path.dirname(cliBinaryPath), { recursive: true });
+          fs.writeFileSync(cliBinaryPath, '', 'utf8');
+          child.emit('exit', 0, null);
+        });
+        return child;
+      }
+    });
+
+    assert.ok(recordedCall, 'expected ensureBuildArtifacts to invoke the build command');
+    assert.equal(result, cliBinaryPath);
+  } finally {
+    cleanupTempRepo(repoRoot);
+    fs.rmSync(cargoTargetDir, { recursive: true, force: true });
   }
 });
 
@@ -154,6 +226,14 @@ test('ensureBuildArtifacts clears CARGO_BUILD_TARGET and requires a host debug b
     }
     cleanupTempRepo(repoRoot);
   }
+});
+
+test('resolvePlaywrightEnv passes the selected CLI binary path to Playwright', () => {
+  const runner = loadRunner();
+  const env = runner.resolvePlaywrightEnv('/tmp/alv/bin/apex-log-viewer', { EXISTING: '1' });
+
+  assert.equal(env.EXISTING, '1');
+  assert.equal(env.ALV_CLI_BINARY_PATH, '/tmp/alv/bin/apex-log-viewer');
 });
 
 test('resolvePlaywrightInvocation throws when @playwright/test/cli cannot be resolved instead of falling back to npx', () => {
