@@ -30,7 +30,8 @@ test('copyRuntimeBinary falls back to the host cargo output when a target-specif
   const result = mod.copyRuntimeBinary({
     repoRoot,
     target: 'linux-arm64',
-    profile: 'release'
+    profile: 'release',
+    cargoTargetDir: path.join(repoRoot, 'target')
   });
 
   assert.equal(result.source, source);
@@ -41,6 +42,42 @@ test('copyRuntimeBinary falls back to the host cargo output when a target-specif
   assert.equal(fs.existsSync(result.destination), true);
 
   fs.rmSync(repoRoot, { recursive: true, force: true });
+});
+
+test('copyRuntimeBinary reads artifacts from the configured Cargo target directory', async () => {
+  const mod = await import(pathToFileURL(modulePath).href);
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-copy-runtime-'));
+  const cargoTargetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cargo-target-'));
+  const source = path.join(cargoTargetDir, 'debug', 'apex-log-viewer');
+  fs.mkdirSync(path.dirname(source), { recursive: true });
+  fs.writeFileSync(source, 'binary');
+
+  const result = mod.copyRuntimeBinary({
+    repoRoot,
+    target: 'linux-x64',
+    profile: 'debug',
+    spawnSyncImpl(command, args, options) {
+      assert.equal(command, 'cargo');
+      assert.deepEqual(args, ['metadata', '--format-version=1', '--no-deps']);
+      assert.equal(options.cwd, repoRoot);
+      assert.equal(options.encoding, 'utf8');
+
+      return {
+        status: 0,
+        stdout: JSON.stringify({ target_directory: cargoTargetDir })
+      };
+    }
+  });
+
+  assert.equal(result.source, source);
+  assert.equal(
+    result.destination,
+    path.join(repoRoot, 'apps', 'vscode-extension', 'bin', 'linux-x64', 'apex-log-viewer')
+  );
+  assert.equal(fs.existsSync(result.destination), true);
+
+  fs.rmSync(repoRoot, { recursive: true, force: true });
+  fs.rmSync(cargoTargetDir, { recursive: true, force: true });
 });
 
 test('resolveCargoBuildArgs includes the packaged runtime target triple', async () => {

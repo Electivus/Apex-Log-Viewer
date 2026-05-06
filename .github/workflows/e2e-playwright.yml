@@ -107,14 +107,6 @@ jobs:
       - name: Install Linux deps for Electron (best-effort)
         run: INSTALL_LINUX_DEPS=true bash scripts/install-linux-deps.sh
 
-      - name: Azure login for dedicated App Insights validation
-        if: ${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' && env.HAS_AZURE_E2E_TELEMETRY_CONFIG == '1' }}
-        uses: azure/login@93381592711f247e165c389ebb30b596c84cdc48
-        with:
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-
       - name: Run CLI real-org E2E
         shell: bash
         run: |
@@ -144,6 +136,14 @@ jobs:
           name: playwright-cli-e2e
           path: output/playwright-cli/
           if-no-files-found: ignore
+
+      - name: Azure login for dedicated App Insights validation
+        if: ${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' && env.HAS_AZURE_E2E_TELEMETRY_CONFIG == '1' }}
+        uses: azure/login@93381592711f247e165c389ebb30b596c84cdc48
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Run Playwright E2E
         shell: bash

@@ -1,7 +1,7 @@
 import { access } from 'node:fs/promises';
-import path from 'node:path';
 import { createDaemonProcess, type DaemonProcess } from '../../../../packages/app-server-client-ts/src/daemonProcess';
 import { expect, test } from '../fixtures/alvCliE2E';
+import { resolveAlvCliBinaryPath } from '../utils/cli';
 
 type JsonRpcResponse = {
   id?: string;
@@ -16,8 +16,7 @@ type JsonRpcResponse = {
 let nextRuntimeRequestId = 0;
 
 function resolveRuntimeExecutable(): string {
-  const binary = process.platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
-  return path.join(process.cwd(), 'target', 'debug', binary);
+  return resolveAlvCliBinaryPath();
 }
 
 function redactedProxySummary(): Record<string, boolean> {
