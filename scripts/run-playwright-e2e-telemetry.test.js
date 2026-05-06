@@ -82,7 +82,7 @@ test('spawnAsync rejects when the child process cannot be started', async () => 
   );
 });
 
-test('runTelemetryE2e prepares Log Analytics context before spawning Playwright', async () => {
+test('runTelemetryE2e preflights a Log Analytics query before spawning Playwright', async () => {
   const calls = [];
   const validationContext = {
     componentResourceId: '/subscriptions/sub/resourceGroups/rg/providers/microsoft.insights/components/appi-e2e',
@@ -119,6 +119,10 @@ test('runTelemetryE2e prepares Log Analytics context before spawning Playwright'
       assert.equal(config.appName, 'appi-e2e');
       return validationContext;
     },
+    queryTelemetryForRunImpl: async (workspaceCustomerId, componentResourceId, runId, lookback) => {
+      calls.push(['query-preflight', workspaceCustomerId, componentResourceId, runId, lookback]);
+      return [];
+    },
     resolvePlaywrightChildInvocationImpl: extraArgs => {
       calls.push(['resolve-child', extraArgs.join(' ')]);
       return { command: 'node', args: ['child.js'] };
@@ -141,6 +145,13 @@ test('runTelemetryE2e prepares Log Analytics context before spawning Playwright'
   assert.deepEqual(calls, [
     ['ensure', 'appi-e2e'],
     ['prepare', validationContext.componentResourceId],
+    [
+      'query-preflight',
+      validationContext.workspaceCustomerId,
+      validationContext.componentResourceId,
+      'run-123',
+      '5m'
+    ],
     ['resolve-child', '--grep logs'],
     ['spawn', 'node', 'child.js'],
     ['wait', 'run-123', 'workspace-customer-id']

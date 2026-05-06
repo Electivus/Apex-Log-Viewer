@@ -4,7 +4,7 @@
 
 **Goal:** Prevent the real-org Playwright telemetry validation job from failing when Azure's OIDC federated assertion expires before the Log Analytics query.
 
-**Architecture:** Move Azure login later in the GitHub Actions job and pre-resolve the Log Analytics workspace before the long Playwright child run starts. The telemetry runner will pass the prepared workspace context into the existing validation loop so query targeting remains unchanged while token acquisition happens while the assertion is fresh.
+**Architecture:** Move Azure login later in the GitHub Actions job, pre-resolve the Log Analytics workspace, and run a harmless Log Analytics query before the long Playwright child run starts. The telemetry runner will pass the prepared workspace context into the existing validation loop so query targeting remains unchanged while the same query-token path used by validation is acquired while the assertion is fresh.
 
 **Tech Stack:** GitHub Actions YAML, Node.js CommonJS scripts, `node:test`, Azure CLI helper functions.
 
@@ -19,9 +19,10 @@
   - Move the existing Azure login step without changing its `if`, `uses`, or `with` fields.
 - Modify `scripts/run-playwright-e2e-telemetry.test.js`
   - Owns unit tests for the telemetry wrapper.
-  - Add a regression test for pre-warming workspace metadata before spawning Playwright.
+  - Add a regression test for preflighting a real Log Analytics query before spawning Playwright.
 - Modify `scripts/run-playwright-e2e-telemetry.js`
   - Add `prepareTelemetryValidationContext`.
+  - Add `prewarmTelemetryQueryToken`.
   - Add an injectable `runTelemetryE2e` orchestration helper for order testing.
   - Update `waitForTelemetry` to accept a prepared validation context.
 
@@ -110,7 +111,7 @@ const {
 Add this test after `spawnAsync rejects when the child process cannot be started`:
 
 ```js
-test('runTelemetryE2e prepares Log Analytics context before spawning Playwright', async () => {
+test('runTelemetryE2e preflights a Log Analytics query before spawning Playwright', async () => {
   const calls = [];
   const validationContext = {
     componentResourceId: '/subscriptions/sub/resourceGroups/rg/providers/microsoft.insights/components/appi-e2e',
@@ -146,6 +147,10 @@ test('runTelemetryE2e prepares Log Analytics context before spawning Playwright'
       assert.equal(config.appName, 'appi-e2e');
       return validationContext;
     },
+    queryTelemetryForRunImpl: async (workspaceCustomerId, componentResourceId, runId, lookback) => {
+      calls.push(['query-preflight', workspaceCustomerId, componentResourceId, runId, lookback]);
+      return [];
+    },
     resolvePlaywrightChildInvocationImpl: extraArgs => {
       calls.push(['resolve-child', extraArgs.join(' ')]);
       return { command: 'node', args: ['child.js'] };
@@ -168,6 +173,13 @@ test('runTelemetryE2e prepares Log Analytics context before spawning Playwright'
   assert.deepEqual(calls, [
     ['ensure', 'appi-e2e'],
     ['prepare', validationContext.componentResourceId],
+    [
+      'query-preflight',
+      validationContext.workspaceCustomerId,
+      validationContext.componentResourceId,
+      'run-123',
+      '5m'
+    ],
     ['resolve-child', '--grep logs'],
     ['spawn', 'node', 'child.js'],
     ['wait', 'run-123', 'workspace-customer-id']
@@ -219,6 +231,23 @@ async function prepareTelemetryValidationContext(
     componentResourceId: component.id,
     workspaceCustomerId: workspace.workspaceCustomerId
   };
+}
+```
+
+- [ ] **Step 1.5: Add the Log Analytics query preflight helper**
+
+Add this helper after `prepareTelemetryValidationContext`:
+
+```js
+async function prewarmTelemetryQueryToken(validationContext, runId, options = {}) {
+  const queryTelemetryForRunImpl = options.queryTelemetryForRunImpl || queryTelemetryForRun;
+  const lookback = String(options.lookback || '5m').trim() || '5m';
+  await queryTelemetryForRunImpl(
+    validationContext.workspaceCustomerId,
+    validationContext.componentResourceId,
+    runId,
+    lookback
+  );
 }
 ```
 
@@ -283,6 +312,8 @@ async function runTelemetryE2e(options = {}) {
   const ensureTelemetryComponentImpl = options.ensureTelemetryComponentImpl || ensureTelemetryComponent;
   const prepareTelemetryValidationContextImpl =
     options.prepareTelemetryValidationContextImpl || prepareTelemetryValidationContext;
+  const prewarmTelemetryQueryTokenImpl = options.prewarmTelemetryQueryTokenImpl || prewarmTelemetryQueryToken;
+  const queryTelemetryForRunImpl = options.queryTelemetryForRunImpl || queryTelemetryForRun;
   const resolvePlaywrightChildInvocationImpl =
     options.resolvePlaywrightChildInvocationImpl || resolvePlaywrightChildInvocation;
   const spawnAsyncImpl = options.spawnAsyncImpl || spawnAsync;
@@ -299,6 +330,7 @@ async function runTelemetryE2e(options = {}) {
   logger.log(`[e2e] Test telemetry run id: ${runId}`);
 
   const validationContext = await prepareTelemetryValidationContextImpl(config, component);
+  await prewarmTelemetryQueryTokenImpl(validationContext, runId, { queryTelemetryForRunImpl });
 
   const childEnv = {
     ...env,
@@ -349,6 +381,7 @@ Replace the `module.exports` block with:
 module.exports = {
   buildRunValidationQuery,
   prepareTelemetryValidationContext,
+  prewarmTelemetryQueryToken,
   resolveConfig,
   resolvePlaywrightChildInvocation,
   runTelemetryE2e,
@@ -482,9 +515,9 @@ If the watcher exits with `diagnose_ci_failure`, inspect `ci_diagnostics` first 
 
 - Spec coverage:
   - Azure login moved later: Task 4.
-  - Telemetry context pre-warm before Playwright child process: Tasks 2 and 3.
+  - Telemetry validation context and Log Analytics query-token preflight before Playwright child process: Tasks 2 and 3.
   - Regression coverage: Tasks 1 and 2.
   - Verification and babysit loop: Task 5.
 - Placeholder scan: no placeholder steps remain; every code and command step includes exact content.
 - Type consistency:
-  - `runTelemetryE2e`, `prepareTelemetryValidationContext`, `validationContext`, and injected implementation names are used consistently between test and implementation steps.
+  - `runTelemetryE2e`, `prepareTelemetryValidationContext`, `prewarmTelemetryQueryToken`, `validationContext`, and injected implementation names are used consistently between test and implementation steps.

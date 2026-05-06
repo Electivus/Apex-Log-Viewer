@@ -166,4 +166,9 @@ test('real-org Playwright workflow logs into Azure immediately before telemetry-
     azureLoginStep.index < extensionStep.index,
     'expected Azure login to run before the telemetry-capable extension Playwright step'
   );
+  assert.equal(
+    azureLoginStep.index + 1,
+    extensionStep.index,
+    'expected Azure login to run immediately before the telemetry-capable extension Playwright step'
+  );
 });

@@ -39,7 +39,7 @@ The workflow authenticates with `azure/login` before the CLI E2E and extension E
 Use a two-part fix:
 
 1. Move the `Azure login for dedicated App Insights validation` step in `.github/workflows/e2e-playwright.yml` so it runs after the CLI E2E step and immediately before the extension Playwright/telemetry step.
-2. In `scripts/run-playwright-e2e-telemetry.js`, resolve the Log Analytics workspace before launching the long Playwright child process. This pre-warms the Azure CLI access token while the federated assertion is still fresh, then the final telemetry validation can reuse that cached access token.
+2. In `scripts/run-playwright-e2e-telemetry.js`, resolve the Log Analytics workspace and run a harmless Log Analytics query before launching the long Playwright child process. This pre-warms the same Azure CLI query-token path used by final telemetry validation while the federated assertion is still fresh, then the final telemetry validation can reuse the cached access token.
 
 This keeps the Playwright child run inside the existing telemetry wrapper and proxy-lab flow, while reducing the time between Azure login and the first Log Analytics token acquisition.
 
@@ -51,7 +51,7 @@ This might pass if timing is favorable, but it leaves a deterministic timing haz
 
 ### Only move the Azure login step
 
-Moving login later reduces the window, but the telemetry wrapper still may not ask Azure CLI for a Log Analytics token until after a long extension run. Pre-warming the workspace/token before Playwright is the safer small change.
+Moving login later reduces the window, but the telemetry wrapper still may not ask Azure CLI for a Log Analytics query token until after a long extension run. Running a harmless preflight query before Playwright is the safer small change.
 
 ### Re-authenticate after Playwright
 
@@ -60,9 +60,10 @@ Adding a second `azure/login` step after the Playwright child process would requ
 ## Implementation shape
 
 - Add a telemetry runner helper that prepares workspace validation metadata before spawning Playwright.
+- Add a telemetry runner helper that preflights a harmless Log Analytics query before spawning Playwright.
 - Reuse the prepared workspace metadata in `waitForTelemetry` instead of resolving the workspace again.
-- Add a focused unit test proving the pre-warm step occurs before child spawn.
-- Update the workflow guard test to assert Azure login occurs after `Run CLI real-org E2E` and before `Run Playwright E2E`.
+- Add a focused unit test proving the query preflight occurs before child spawn.
+- Update the workflow guard test to assert Azure login occurs after `Run CLI real-org E2E` and immediately before `Run Playwright E2E`.
 
 ## Verification plan
 
@@ -73,8 +74,8 @@ Adding a second `azure/login` step after the Playwright child process would requ
 ## Risks and mitigations
 
 - **Risk:** The final Log Analytics token could still expire during a very long ingestion wait.
-  - **Mitigation:** The observed failure was the federated assertion before first token acquisition. Pre-warming obtains the access token early. Existing validation attempts remain bounded by the runner's retry settings.
+  - **Mitigation:** The observed failure was the federated assertion before first Log Analytics query-token acquisition. The preflight query obtains that access token early through the same `az monitor log-analytics query` path used by validation. Existing validation attempts remain bounded by the runner's retry settings.
 - **Risk:** Workflow ordering regressions could reintroduce the issue.
   - **Mitigation:** Add a workflow guard test for the Azure login step position.
 - **Risk:** Refactoring telemetry workspace resolution could change query targeting.
-  - **Mitigation:** Keep the existing query construction and add only a small prepared-context path around `resolveWorkspaceInfo`.
+  - **Mitigation:** Keep the existing query construction and pass the prepared context into the same query helper used by validation.

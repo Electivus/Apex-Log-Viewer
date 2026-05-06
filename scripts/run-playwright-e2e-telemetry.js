@@ -119,6 +119,17 @@ async function prepareTelemetryValidationContext(
   };
 }
 
+async function prewarmTelemetryQueryToken(validationContext, runId, options = {}) {
+  const queryTelemetryForRunImpl = options.queryTelemetryForRunImpl || queryTelemetryForRun;
+  const lookback = String(options.lookback || '5m').trim() || '5m';
+  await queryTelemetryForRunImpl(
+    validationContext.workspaceCustomerId,
+    validationContext.componentResourceId,
+    runId,
+    lookback
+  );
+}
+
 function summarizeTelemetry(rows) {
   const totalEvents = rows.reduce((sum, row) => sum + Number(row.events || 0), 0);
   const distinctNames = rows.length;
@@ -233,6 +244,8 @@ async function runTelemetryE2e(options = {}) {
   const ensureTelemetryComponentImpl = options.ensureTelemetryComponentImpl || ensureTelemetryComponent;
   const prepareTelemetryValidationContextImpl =
     options.prepareTelemetryValidationContextImpl || prepareTelemetryValidationContext;
+  const prewarmTelemetryQueryTokenImpl = options.prewarmTelemetryQueryTokenImpl || prewarmTelemetryQueryToken;
+  const queryTelemetryForRunImpl = options.queryTelemetryForRunImpl || queryTelemetryForRun;
   const resolvePlaywrightChildInvocationImpl =
     options.resolvePlaywrightChildInvocationImpl || resolvePlaywrightChildInvocation;
   const spawnAsyncImpl = options.spawnAsyncImpl || spawnAsync;
@@ -249,6 +262,7 @@ async function runTelemetryE2e(options = {}) {
   logger.log(`[e2e] Test telemetry run id: ${runId}`);
 
   const validationContext = await prepareTelemetryValidationContextImpl(config, component);
+  await prewarmTelemetryQueryTokenImpl(validationContext, runId, { queryTelemetryForRunImpl });
 
   const childEnv = {
     ...env,
@@ -300,6 +314,7 @@ if (require.main === module) {
 module.exports = {
   buildRunValidationQuery,
   prepareTelemetryValidationContext,
+  prewarmTelemetryQueryToken,
   resolveConfig,
   resolvePlaywrightChildInvocation,
   runTelemetryE2e,
