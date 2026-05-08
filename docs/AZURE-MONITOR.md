@@ -112,6 +112,7 @@ AppEvents
 | where Name == "electivus.apex-log-viewer/daemon.request"
 | extend props = parse_json(Properties), measurements = parse_json(Measurements)
 | extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"]), attempts = todouble(measurements["attempts"])
+| extend method = case(method == "<REDACTED: user-file-path>", "legacy_redacted_path", method)
 | summarize total = count(), errors = countif(outcome == "error"), retries = countif(attempts > 1), p50 = percentile(durationMs, 50), p95 = percentile(durationMs, 95) by method
 | order by p95 desc
 ```
@@ -234,6 +235,7 @@ AppEvents
 | where Name == "electivus.apex-log-viewer/daemon.request"
 | extend props = parse_json(Properties), measurements = parse_json(Measurements)
 | extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"]), attempts = toint(measurements["attempts"])
+| where method in ("initialize", "org_list", "org_auth", "logs_list", "logs_sync", "search_query", "logs_triage", "logs_resolve_cached_path", "other")
 | summarize total = count(), errors = countif(outcome == "error"), retries = countif(attempts > 1), p95 = percentile(durationMs, 95) by method
 | extend errorRate = iff(total == 0, 0.0, 100.0 * todouble(errors) / todouble(total))
 | where total >= 10 and (errorRate >= 20 or retries >= 3 or p95 >= 15000)

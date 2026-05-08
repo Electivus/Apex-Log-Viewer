@@ -4,6 +4,7 @@ import * as path from 'node:path';
 
 interface TelemetryFieldSchema {
   required?: boolean;
+  values?: string[];
 }
 
 interface TelemetryEventSchema {
@@ -95,5 +96,16 @@ suite('telemetry contract', () => {
     const catalog = readTelemetryCatalog();
 
     assert.ok(catalog.commonProperties?.testRunId);
+  });
+
+  test('daemon request method values are path-safe', () => {
+    const catalog = readTelemetryCatalog();
+    const values = catalog.events['daemon.request']?.properties?.method?.values || [];
+
+    assert.notEqual(values.length, 0, 'daemon.request method values should be enumerated');
+    for (const value of values) {
+      assert.doesNotMatch(value, /[\\/]/, `Expected "${value}" not to look like a filesystem path.`);
+      assert.doesNotMatch(value, /<REDACTED/i, `Expected "${value}" not to use telemetry redaction markers.`);
+    }
   });
 });

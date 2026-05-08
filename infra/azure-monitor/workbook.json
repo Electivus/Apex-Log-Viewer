@@ -91,7 +91,7 @@
       "name": "daemonHealth",
       "content": {
         "version": "KqlItem/1.0",
-        "query": "AppEvents | where TimeGenerated > ago(30d) | where Name == \"electivus.apex-log-viewer/daemon.request\" | extend props = parse_json(Properties), measurements = parse_json(Measurements) | extend method = tostring(props[\"method\"]), outcome = tostring(props[\"outcome\"]), durationMs = todouble(measurements[\"durationMs\"]), attempts = todouble(measurements[\"attempts\"]) | summarize total = count(), errors = countif(outcome == \"error\"), retries = countif(attempts > 1), p50 = percentile(durationMs, 50), p95 = percentile(durationMs, 95) by method | order by p95 desc",
+        "query": "AppEvents | where TimeGenerated > ago(30d) | where Name == \"electivus.apex-log-viewer/daemon.request\" | extend props = parse_json(Properties), measurements = parse_json(Measurements) | extend method = tostring(props[\"method\"]), outcome = tostring(props[\"outcome\"]), durationMs = todouble(measurements[\"durationMs\"]), attempts = todouble(measurements[\"attempts\"]) | extend method = case(method == \"<REDACTED: user-file-path>\", \"legacy_redacted_path\", method) | summarize total = count(), errors = countif(outcome == \"error\"), retries = countif(attempts > 1), p50 = percentile(durationMs, 50), p95 = percentile(durationMs, 95) by method | order by p95 desc",
         "size": 0,
         "title": "Daemon Request Health",
         "queryType": 0,

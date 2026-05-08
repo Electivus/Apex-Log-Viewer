@@ -44,12 +44,80 @@ suite('runtime client telemetry', () => {
 
     assert.equal(events.length, 1);
     assert.deepEqual(events[0]?.properties, {
-      method: 'search/query',
+      method: 'search_query',
       outcome: 'ok'
     });
     assert.equal(events[0]?.name, 'daemon.request');
     assert.equal(events[0]?.measurements?.attempts, 1);
     assert.equal(Number.isFinite(events[0]?.measurements?.durationMs), true);
+  });
+
+  test('maps runtime request methods to path-safe telemetry method names', async () => {
+    const events: Array<{
+      name: string;
+      properties?: Record<string, string>;
+      measurements?: Record<string, number>;
+    }> = [];
+    const methods: string[] = [];
+
+    const { RuntimeClient } = proxyquireStrict('../../runtime/runtimeClient', {
+      '../shared/telemetry': {
+        safeSendEvent: (name: string, properties?: Record<string, string>, measurements?: Record<string, number>) => {
+          events.push({ name, properties, measurements });
+        },
+        '@noCallThru': true
+      },
+      '../../../../src/utils/logger': {
+        logTrace: () => undefined,
+        '@noCallThru': true
+      },
+      '../../../../src/salesforce/path': {
+        getLoginShellEnv: async () => undefined,
+        '@noCallThru': true
+      }
+    }) as typeof import('../../runtime/runtimeClient');
+
+    const client = new RuntimeClient({
+      requestHandler: async method => {
+        methods.push(method);
+        return {} as never;
+      }
+    });
+
+    await client.initialize();
+    await client.orgList();
+    await client.getOrgAuth();
+    await client.logsList();
+    await client.logsSync();
+    await client.searchQuery({ query: 'marker' });
+    await client.logsTriage({ logIds: ['07L000000000001AA'] });
+    await client.resolveCachedLogPath({ logId: '07L000000000001AA' });
+
+    assert.deepEqual(methods, [
+      'initialize',
+      'org/list',
+      'org/auth',
+      'logs/list',
+      'logs/sync',
+      'search/query',
+      'logs/triage',
+      'logs/resolveCachedPath'
+    ]);
+    assert.deepEqual(
+      events.map(event => event.properties?.method),
+      [
+        'initialize',
+        'org_list',
+        'org_auth',
+        'logs_list',
+        'logs_sync',
+        'search_query',
+        'logs_triage',
+        'logs_resolve_cached_path'
+      ]
+    );
+    assert.equal(events.every(event => event.name === 'daemon.request'), true);
+    assert.equal(events.every(event => event.properties?.outcome === 'ok'), true);
   });
 
   test('emits cancelled telemetry for pre-aborted runtime calls', async () => {
@@ -98,7 +166,7 @@ suite('runtime client telemetry', () => {
     assert.equal(called, false, 'should short-circuit before invoking the runtime request handler');
     assert.equal(events.length, 1);
     assert.deepEqual(events[0]?.properties, {
-      method: 'search/query',
+      method: 'search_query',
       outcome: 'cancelled'
     });
     assert.equal(events[0]?.name, 'daemon.request');
