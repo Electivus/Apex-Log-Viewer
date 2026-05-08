@@ -614,7 +614,17 @@
           "classification": "SystemMetaData",
           "purpose": "PerformanceAndHealth",
           "required": true,
-          "values": ["initialize", "org/list", "org/auth", "logs/list", "logs/sync", "search/query", "logs/triage", "other"]
+          "values": [
+            "initialize",
+            "org_list",
+            "org_auth",
+            "logs_list",
+            "logs_sync",
+            "search_query",
+            "logs_triage",
+            "logs_resolve_cached_path",
+            "other"
+          ]
         }
       },
       "measurements": {

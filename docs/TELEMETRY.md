@@ -8,7 +8,7 @@ What we collect
 - Coarse performance timings such as `durationMs`.
 - Small cardinality buckets such as `scope`, `view`, `sourceView`, `targetType`, and org-count buckets.
 - Coarse error codes such as `ENOENT`, `ETIMEDOUT`, `CLI_NOT_FOUND`, and `AUTH_FAILED`.
-- Coarse daemon method names such as `initialize`, `org/list`, `org/auth`, `logs/list`, `search/query`, and `logs/triage`.
+- Coarse daemon method names such as `initialize`, `org_list`, `org_auth`, `logs_list`, `search_query`, and `logs_triage`.
 - Search-specific finite counters such as `matchCount` and `pendingCount`, plus bucketed `queryLength`.
 
 What we do not collect
@@ -121,6 +121,7 @@ AppEvents
 | where Name == "electivus.apex-log-viewer/daemon.request"
 | extend props = parse_json(Properties), meas = parse_json(Measurements)
 | extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(meas["durationMs"]), attempts = todouble(meas["attempts"])
+| extend method = case(method == "<REDACTED: user-file-path>", "legacy_redacted_path", method)
 | summarize total = count(), errors = countif(outcome == "error"), retries = countif(attempts > 1), p95Ms = percentile(durationMs, 95) by method
 | order by p95Ms desc
 ```
