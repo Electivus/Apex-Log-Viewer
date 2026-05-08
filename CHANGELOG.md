@@ -2,12 +2,15 @@
 
 ## Unreleased
 
+## [0.48.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.46.0...v0.48.0) (2026-05-08)
+
 ### Features
 
 - Runtime/Logs: share the Rust `logs/sync` path between CLI and extension, index synced log bodies in `apexlogs/.alv/log-index.sqlite`, add `logs index rebuild`, and let Refresh Logs start sync in the background before rerunning triage/search.
 
 ### Bug Fixes
 
+- Telemetry/Azure Monitor: emit path-safe daemon request method names and ignore legacy redacted method aggregates in the daemon degradation alert so alerts identify actionable runtime methods. ([#785](https://github.com/Electivus/Apex-Log-Viewer/pull/785))
 - Logs/Tail: increase webview startup timing windows so slow corporate machines can finish VS Code webview/service-worker bootstrap before the extension retries the mount.
 - Logs/Tail: retain webview context while hidden, avoid placeholder remounts during hide/show, and add a diagnostics package command with lifecycle evidence for service-worker/bootstrap failures.
 
