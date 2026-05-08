@@ -3,6 +3,16 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 suite('package manifest', () => {
+  test('uses literal extension marketplace metadata for Open VSX compatibility', async () => {
+    const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
+    const raw = await readFile(path.join(repoRoot, 'apps', 'vscode-extension', 'package.json'), 'utf8');
+    const manifest = JSON.parse(raw) as { displayName?: string; description?: string };
+
+    assert.equal(manifest.displayName, 'Electivus Apex Log Viewer');
+    assert.equal(manifest.description?.startsWith('%'), false);
+    assert.equal(manifest.description?.endsWith('%'), false);
+  });
+
   test('does not require Apex Replay Debugger as an extension dependency', async () => {
     const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
     const raw = await readFile(path.join(repoRoot, 'package.json'), 'utf8');

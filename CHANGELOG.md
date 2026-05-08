@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.48.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.48.0...v0.48.1) (2026-05-08)
+
+### Bug Fixes
+
+- Packaging/Open VSX: keep the packaged extension display name and description literal in `package.json` so Open VSX accepts the generated VSIX metadata.
+
 ## [0.48.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.46.0...v0.48.0) (2026-05-08)
 
 ### Features

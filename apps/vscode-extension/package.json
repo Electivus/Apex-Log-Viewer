@@ -1,8 +1,8 @@
 {
   "name": "apex-log-viewer",
-  "displayName": "%extension.displayName%",
-  "description": "%extension.description%",
-  "version": "0.48.0",
+  "displayName": "Electivus Apex Log Viewer",
+  "description": "Fast, searchable Salesforce Apex logs in VS Code — browse, filter, tail, and debug with Apex Replay.",
+  "version": "0.48.1",
   "publisher": "electivus",
   "telemetryConnectionString": "InstrumentationKey=a8895b37-e877-4b0c-bed4-0d421e313bf5;IngestionEndpoint=https://eastus-8.in.applicationinsights.azure.com/;LiveEndpoint=https://eastus.livediagnostics.monitor.azure.com/;ApplicationId=91194049-f752-4b25-934c-0cdef9251e6f",
   "license": "MIT",
