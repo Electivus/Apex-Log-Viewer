@@ -68,7 +68,7 @@ jobs:
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         id: claude-review
         continue-on-error: true
-        uses: anthropics/claude-code-action@567fe954a4527e81f132d87d1bdbcc94f7737434 # v1
+        uses: anthropics/claude-code-action@476e359e6203e73dad705c8b322e333fabbd7416 # v1
         env:
           REAL_BUN_PATH: ${{ env.REAL_BUN_PATH }}
           CLAUDE_BUN_LOG_PATH: ${{ env.CLAUDE_BUN_LOG_PATH }}
