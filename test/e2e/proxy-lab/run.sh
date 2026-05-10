@@ -16,6 +16,16 @@ HOST_GENERATED_PATHS=(
   "output"
 )
 
+export SF_SKIP_NEW_VERSION_CHECK="${SF_SKIP_NEW_VERSION_CHECK:-true}"
+export SF_DISABLE_TELEMETRY="${SF_DISABLE_TELEMETRY:-true}"
+export SFDX_DISABLE_TELEMETRY="${SFDX_DISABLE_TELEMETRY:-true}"
+export SF_DISABLE_LOG_FILE="${SF_DISABLE_LOG_FILE:-true}"
+export SFDX_DISABLE_LOG_FILE="${SFDX_DISABLE_LOG_FILE:-true}"
+export SF_AUTOUPDATE_DISABLE="${SF_AUTOUPDATE_DISABLE:-true}"
+export SFDX_AUTOUPDATE_DISABLE="${SFDX_AUTOUPDATE_DISABLE:-true}"
+export SF_DISABLE_AUTOUPDATE="${SF_DISABLE_AUTOUPDATE:-true}"
+export SFDX_DISABLE_AUTOUPDATE="${SFDX_DISABLE_AUTOUPDATE:-true}"
+
 fail() {
   echo "[proxy-lab] $*" >&2
   exit 1
@@ -330,6 +340,33 @@ main().catch(error => {
 NODE
 }
 
+redact_salesforce_cli_output() {
+  sed -E \
+    -e 's#force://[^[:space:]]+#force://[redacted]#g' \
+    -e 's#"(accessToken|refreshToken|clientSecret)"[[:space:]]*:[[:space:]]*"[^"]+"#"\1":"[redacted]"#g'
+}
+
+run_sf_preflight_command() {
+  local description="$1"
+  shift
+  local output_file
+  output_file="$(mktemp)"
+  local status=0
+
+  "$@" >"${output_file}" 2>&1 || status=$?
+  if [[ "${status}" -eq 0 ]]; then
+    rm -f "${output_file}"
+    return 0
+  fi
+
+  echo "[proxy-lab] Salesforce CLI preflight failed while ${description} (exit ${status})." >&2
+  if [[ -s "${output_file}" ]]; then
+    redact_salesforce_cli_output <"${output_file}" >&2
+  fi
+  rm -f "${output_file}"
+  return "${status}"
+}
+
 preflight_salesforce_cli() {
   if [[ -z "${SF_DEVHUB_AUTH_URL:-}" ]]; then
     echo "[proxy-lab] Skipping Salesforce CLI network preflight because SF_DEVHUB_AUTH_URL is not set."
@@ -342,8 +379,12 @@ preflight_salesforce_cli() {
   trap 'rm -f "${auth_file}"' RETURN ERR
   chmod 0600 "${auth_file}"
   printf '%s' "${SF_DEVHUB_AUTH_URL}" >"${auth_file}"
-  sf org login sfdx-url --sfdx-url-file "${auth_file}" --set-default-dev-hub --alias "${DEVHUB_ALIAS}" --json >/dev/null
-  sf org display -o "${DEVHUB_ALIAS}" --json >/dev/null
+  run_sf_preflight_command \
+    "authenticating Dev Hub alias '${DEVHUB_ALIAS}'" \
+    sf org login sfdx-url --sfdx-url-file "${auth_file}" --set-default-dev-hub --alias "${DEVHUB_ALIAS}" --json
+  run_sf_preflight_command \
+    "displaying Dev Hub alias '${DEVHUB_ALIAS}'" \
+    sf org display -o "${DEVHUB_ALIAS}" --json
   rm -f "${auth_file}"
   trap - RETURN ERR
 }

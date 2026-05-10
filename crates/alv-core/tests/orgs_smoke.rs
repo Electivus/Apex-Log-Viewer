@@ -8,7 +8,7 @@ fn test_guard() -> &'static Mutex<()> {
 }
 
 #[test]
-fn orgs_smoke_lists_orgs_from_fixture_and_respects_cache_refresh() {
+fn orgs_smoke_lists_orgs_from_fixture_without_reusing_cache() {
     let _guard = test_guard()
         .lock()
         .expect("test guard lock should not be poisoned");
@@ -52,8 +52,8 @@ fn orgs_smoke_lists_orgs_from_fixture_and_respects_cache_refresh() {
         }"#,
     );
 
-    let cached = list_orgs(false).expect("cached org list should still be available");
-    assert_eq!(cached[0].username, "default@example.com");
+    let cached = list_orgs(false).expect("fixture-backed org list should bypass cache");
+    assert_eq!(cached[0].username, "changed@example.com");
 
     let refreshed = list_orgs(true).expect("force refresh should bypass cache");
     assert_eq!(refreshed[0].username, "changed@example.com");

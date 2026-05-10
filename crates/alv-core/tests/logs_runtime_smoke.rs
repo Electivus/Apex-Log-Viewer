@@ -238,6 +238,58 @@ fn logs_runtime_smoke_lists_logs_over_rest_with_auth_fixture() {
 }
 
 #[test]
+fn logs_runtime_smoke_refreshes_auth_after_unauthorized_list_response() {
+    let _guard = lock_test_guard();
+
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    let payload = serde_json::json!({
+        "result": {
+            "records": [{
+                "Id": "07L0000000REAUTH",
+                "StartTime": "2026-03-27T12:00:00.000Z",
+                "Operation": "ExecuteAnonymous",
+                "Application": "Developer Console",
+                "DurationMilliseconds": 125,
+                "Status": "Success",
+                "Request": "REQ-REAUTH",
+                "LogLength": 4096
+            }]
+        }
+    });
+    let (base_url, server_handle) = spawn_scripted_http_server(vec![
+        ScriptedHttpResponse {
+            status: 401,
+            content_type: "application/json",
+            body: br#"[{"message":"Session expired or invalid","errorCode":"INVALID_SESSION_ID"}]"#
+                .to_vec(),
+        },
+        ScriptedHttpResponse {
+            status: 200,
+            content_type: "application/json",
+            body: serde_json::to_vec(&payload).expect("payload should serialize"),
+        },
+    ]);
+    std::env::set_var(TEST_ORG_DISPLAY_JSON_ENV, org_display_fixture(&base_url));
+
+    let rows = list_logs_with_cancel(
+        &LogsListParams {
+            username: Some("demo@example.com".to_string()),
+            limit: Some(1),
+            cursor: None,
+            offset: Some(0),
+        },
+        &CancellationToken::new(),
+    )
+    .expect("logs/list should retry after refreshing org auth");
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, "07L0000000REAUTH");
+
+    std::env::remove_var(TEST_ORG_DISPLAY_JSON_ENV);
+    server_handle.join().expect("server thread should complete");
+}
+
+#[test]
 fn logs_runtime_smoke_includes_http_status_url_and_body_in_list_failures() {
     let _guard = lock_test_guard();
 

@@ -852,23 +852,56 @@ fn request_bytes_with_version_fallback_detailed(
     accept: &'static str,
     cancellation: &CancellationToken,
 ) -> Result<Vec<u8>, LogsRuntimeError> {
+    let mut active_auth = auth.clone();
     let mut attempted_fallback = false;
+    let mut attempted_auth_refresh = false;
 
     loop {
         cancellation
             .check_cancelled()
             .map_err(LogsRuntimeError::from_message)?;
-        let active_version = get_effective_api_version(auth);
-        let mut url = build_versioned_url(auth, &active_version, path)
+        let active_version = get_effective_api_version(&active_auth);
+        let mut url = build_versioned_url(&active_auth, &active_version, path)
             .map_err(LogsRuntimeError::from_message)?;
         for (key, value) in query_pairs {
             url.query_pairs_mut().append_pair(key, value);
         }
 
-        match run_http_request_with_cancel(auth, url, accept, cancellation) {
+        match run_http_request_with_cancel(&active_auth, url, accept, cancellation) {
             Ok(bytes) => return Ok(bytes),
             Err(HttpRequestError::Cancelled) => {
                 return Err(LogsRuntimeError::from_message(CANCELLED_MESSAGE));
+            }
+            Err(HttpRequestError::Failed {
+                status: Some(StatusCode::UNAUTHORIZED),
+                message,
+                data,
+            }) if !attempted_auth_refresh => {
+                let Some(username) = active_auth
+                    .username
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                else {
+                    return Err(LogsRuntimeError::with_data(message, data));
+                };
+                auth::clear_cached_org_auth_for_username(Some(&username));
+                match auth::resolve_org_auth(Some(&username)) {
+                    Ok(refreshed_auth) => {
+                        active_auth = refreshed_auth;
+                        attempted_auth_refresh = true;
+                        continue;
+                    }
+                    Err(refresh_error) => {
+                        return Err(LogsRuntimeError::with_data(
+                            format!(
+                                "{message}; failed to refresh org auth for {username}: {refresh_error}"
+                            ),
+                            data,
+                        ));
+                    }
+                }
             }
             Err(HttpRequestError::Failed {
                 status: Some(StatusCode::NOT_FOUND),
@@ -876,14 +909,15 @@ fn request_bytes_with_version_fallback_detailed(
                 data,
             }) if !attempted_fallback => {
                 let requested = parse_api_version(&active_version);
-                let Some(org_max_version) = discover_org_max_api_version(auth, cancellation)
-                    .map_err(LogsRuntimeError::from_message)?
+                let Some(org_max_version) =
+                    discover_org_max_api_version(&active_auth, cancellation)
+                        .map_err(LogsRuntimeError::from_message)?
                 else {
                     return Err(LogsRuntimeError::with_data(message, data));
                 };
                 let org_max = parse_api_version(&org_max_version);
                 if requested.is_some() && org_max.is_some() && requested > org_max {
-                    record_api_version_override(auth, &org_max_version);
+                    record_api_version_override(&active_auth, &org_max_version);
                     attempted_fallback = true;
                     continue;
                 }
