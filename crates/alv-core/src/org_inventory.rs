@@ -79,6 +79,9 @@ fn list_local_orgs_with_context(home: &Path, cwd: &Path) -> Result<Vec<OrgSummar
                 || extract_string(&parsed, &["devHubUsername"])
                     .map(|value| !value.trim().is_empty())
                     .unwrap_or(false);
+            if is_scratch_org && !is_active_scratch_org(&parsed) {
+                continue;
+            }
 
             orgs.entry(username_key).or_insert_with(|| OrgSummary {
                 username,
@@ -283,6 +286,32 @@ fn extract_bool(value: &Value, keys: &[&str]) -> Option<bool> {
         .find_map(|key| value.get(*key).and_then(Value::as_bool))
 }
 
+fn is_active_scratch_org(auth: &Value) -> bool {
+    if extract_bool(auth, &["isExpired"]).unwrap_or(false) {
+        return false;
+    }
+
+    if extract_string(auth, &["status"])
+        .is_some_and(|status| !status.eq_ignore_ascii_case("Active"))
+    {
+        return false;
+    }
+
+    if extract_string(auth, &["expirationDate"])
+        .and_then(|value| parse_scratch_expiration_date(&value))
+        .is_some_and(|expiration| expiration < chrono::Utc::now().date_naive())
+    {
+        return false;
+    }
+
+    true
+}
+
+fn parse_scratch_expiration_date(value: &str) -> Option<chrono::NaiveDate> {
+    let date = value.trim().get(..10)?;
+    chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()
+}
+
 fn normalize(value: &str) -> String {
     value.trim().to_ascii_lowercase()
 }
@@ -457,6 +486,64 @@ mod tests {
             .find(|org| org.username == "new@example.com")
             .expect(".sf-only org should load");
         assert_eq!(new.alias.as_deref(), Some("New"));
+
+        let _ = fs::remove_dir_all(home);
+        let _ = fs::remove_dir_all(cwd);
+    }
+
+    #[test]
+    fn list_local_orgs_filters_inactive_scratch_orgs() {
+        let _guard = env_test_guard()
+            .lock()
+            .expect("env test guard should not be poisoned");
+        let _env_restore = clear_default_env();
+        let home = temp_dir("home");
+        let cwd = temp_dir("cwd");
+        write(
+            &home.join(".sfdx/active@example.com.json"),
+            r#"{
+              "username": "active@example.com",
+              "instanceUrl": "https://active.example.com",
+              "isScratch": true,
+              "status": "Active",
+              "expirationDate": "2999-01-01"
+            }"#,
+        );
+        write(
+            &home.join(".sfdx/deleted@example.com.json"),
+            r#"{
+              "username": "deleted@example.com",
+              "instanceUrl": "https://deleted.example.com",
+              "isScratch": true,
+              "status": "Deleted",
+              "expirationDate": "2999-01-01"
+            }"#,
+        );
+        write(
+            &home.join(".sfdx/expired@example.com.json"),
+            r#"{
+              "username": "expired@example.com",
+              "instanceUrl": "https://expired.example.com",
+              "isScratch": true,
+              "status": "Active",
+              "expirationDate": "2000-01-01"
+            }"#,
+        );
+        write(
+            &home.join(".sfdx/flagged@example.com.json"),
+            r#"{
+              "username": "flagged@example.com",
+              "instanceUrl": "https://flagged.example.com",
+              "isScratch": true,
+              "isExpired": true,
+              "expirationDate": "2999-01-01"
+            }"#,
+        );
+
+        let orgs = list_local_orgs_with_context(&home, &cwd).expect("local orgs should load");
+
+        assert_eq!(orgs.len(), 1);
+        assert_eq!(orgs[0].username, "active@example.com");
 
         let _ = fs::remove_dir_all(home);
         let _ = fs::remove_dir_all(cwd);

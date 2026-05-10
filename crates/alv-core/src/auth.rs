@@ -1,16 +1,21 @@
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fs;
 use std::panic::{self, AssertUnwindSafe};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::cli::build_command_invocation;
 use crate::cli_json::extract_json_object;
 
 pub const TEST_ORG_LIST_JSON_ENV: &str = "ALV_TEST_SF_ORG_LIST_JSON";
 pub const TEST_ORG_DISPLAY_JSON_ENV: &str = "ALV_TEST_SF_ORG_DISPLAY_JSON";
-const ORG_AUTH_CACHE_TTL: Duration = Duration::from_secs(300);
+// Salesforce access tokens are typically valid for roughly two hours, but the
+// CLI does not expose a token expiry in org display or local auth JSON. Keep the
+// optimistic cache comfortably below that and force a fresh sf lookup on 401.
+const ORG_AUTH_CACHE_TTL: Duration = Duration::from_secs(90 * 60);
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +29,14 @@ pub struct OrgAuth {
 struct OrgAuthCacheEntry {
     auth: OrgAuth,
     expires_at: Instant,
+    fingerprint: Option<OrgAuthCacheFingerprint>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct OrgAuthCacheFingerprint {
+    path: PathBuf,
+    len: u64,
+    modified: Option<SystemTime>,
 }
 
 type OrgAuthResult = Result<OrgAuth, String>;
@@ -49,6 +62,15 @@ pub fn clear_org_auth_cache() {
     }
     if let Ok(mut inflight) = org_auth_inflight().lock() {
         inflight.clear();
+    }
+}
+
+pub fn clear_cached_org_auth_for_username(username: Option<&str>) {
+    let Some(key) = org_auth_cache_key(username) else {
+        return;
+    };
+    if let Ok(mut cache) = org_auth_cache().lock() {
+        cache.remove(&key);
     }
 }
 
@@ -124,7 +146,11 @@ fn org_auth_cache_key(target_username_or_alias: Option<&str>) -> Option<String> 
 fn get_cached_org_auth(key: &str) -> Option<OrgAuth> {
     let mut cache = org_auth_cache().lock().ok()?;
     match cache.get(key) {
-        Some(entry) if entry.expires_at > Instant::now() => Some(entry.auth.clone()),
+        Some(entry)
+            if entry.expires_at > Instant::now() && org_auth_fingerprint_matches(key, entry) =>
+        {
+            Some(entry.auth.clone())
+        }
         Some(_) => {
             cache.remove(key);
             None
@@ -134,15 +160,58 @@ fn get_cached_org_auth(key: &str) -> Option<OrgAuth> {
 }
 
 fn put_cached_org_auth(key: String, auth: OrgAuth) {
+    let fingerprint = org_auth_fingerprint_for_cache_key(&key);
     if let Ok(mut cache) = org_auth_cache().lock() {
         cache.insert(
             key,
             OrgAuthCacheEntry {
                 auth,
                 expires_at: Instant::now() + ORG_AUTH_CACHE_TTL,
+                fingerprint,
             },
         );
     }
+}
+
+fn org_auth_fingerprint_matches(key: &str, entry: &OrgAuthCacheEntry) -> bool {
+    match (
+        entry.fingerprint.as_ref(),
+        org_auth_fingerprint_for_cache_key(key).as_ref(),
+    ) {
+        (Some(cached), Some(current)) => cached == current,
+        (Some(_), None) | (None, Some(_)) => false,
+        (None, None) => true,
+    }
+}
+
+fn org_auth_fingerprint_for_cache_key(key: &str) -> Option<OrgAuthCacheFingerprint> {
+    let username = key.strip_prefix("username:")?;
+    let home = home_dir()?;
+    for dir in [".sf", ".sfdx"] {
+        let path = home.join(dir).join(format!("{username}.json"));
+        let Ok(metadata) = fs::metadata(&path) else {
+            continue;
+        };
+        if metadata.is_file() {
+            return Some(OrgAuthCacheFingerprint {
+                path,
+                len: metadata.len(),
+                modified: metadata.modified().ok(),
+            });
+        }
+    }
+    None
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        })
 }
 
 fn resolve_org_auth_cached_with_runner<'a, F>(
@@ -379,7 +448,11 @@ mod tests {
     use crate::cli::{
         build_windows_sf_invocation, parse_where_candidates, pick_windows_sf_candidate,
     };
-    use std::{ffi::OsStr, ffi::OsString};
+    use std::{
+        ffi::{OsStr, OsString},
+        path::Path,
+        time::UNIX_EPOCH,
+    };
 
     struct EnvVarRestore {
         key: &'static str,
@@ -414,6 +487,23 @@ mod tests {
             .get_envs()
             .find(|(name, _)| *name == OsStr::new(key))
             .map(|(_, value)| value.map(|value| value.to_string_lossy().to_string()))
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be valid")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("alv-auth-{name}-{nonce}"));
+        fs::create_dir_all(&dir).expect("temp dir should be created");
+        dir
+    }
+
+    fn write(path: &Path, raw: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("parent dir should be created");
+        }
+        fs::write(path, raw).expect("file should be written");
     }
 
     #[test]
@@ -590,6 +680,88 @@ mod tests {
         assert_eq!(second_alias.access_token, "second");
         assert_eq!(username_hit.access_token, "second");
         clear_org_auth_cache();
+    }
+
+    #[test]
+    fn clear_cached_org_auth_for_username_removes_username_entry() {
+        let _guard = auth_cache_test_guard()
+            .lock()
+            .expect("auth cache test guard should not be poisoned");
+        clear_org_auth_cache();
+
+        let mut calls = 0usize;
+        let first = resolve_org_auth_cached_with_runner(Some("demo@example.com"), |_, _| {
+            calls += 1;
+            Ok(
+                r#"{"result":{"accessToken":"first","instanceUrl":"https://first.example.com","username":"demo@example.com"}}"#
+                    .to_string(),
+            )
+        })
+        .expect("first auth should resolve");
+        clear_cached_org_auth_for_username(Some("demo@example.com"));
+        let second = resolve_org_auth_cached_with_runner(Some("demo@example.com"), |_, _| {
+            calls += 1;
+            Ok(
+                r#"{"result":{"accessToken":"second","instanceUrl":"https://second.example.com","username":"demo@example.com"}}"#
+                    .to_string(),
+            )
+        })
+        .expect("second auth should resolve after cache clear");
+
+        assert_eq!(calls, 2);
+        assert_eq!(first.access_token, "first");
+        assert_eq!(second.access_token, "second");
+        clear_org_auth_cache();
+    }
+
+    #[test]
+    fn resolve_org_auth_cached_with_runner_invalidates_changed_auth_file() {
+        let _guard = auth_cache_test_guard()
+            .lock()
+            .expect("auth cache test guard should not be poisoned");
+        clear_org_auth_cache();
+        let _home_restore = EnvVarRestore::capture("HOME");
+        let _userprofile_restore = EnvVarRestore::capture("USERPROFILE");
+        let home = temp_dir("home");
+        std::env::set_var("HOME", &home);
+        std::env::remove_var("USERPROFILE");
+        let auth_path = home.join(".sfdx/demo@example.com.json");
+        write(&auth_path, r#"{"username":"demo@example.com"}"#);
+
+        let mut calls = 0usize;
+        let first = resolve_org_auth_cached_with_runner(Some("demo@example.com"), |_, _| {
+            calls += 1;
+            Ok(
+                r#"{"result":{"accessToken":"first","instanceUrl":"https://first.example.com","username":"demo@example.com"}}"#
+                    .to_string(),
+            )
+        })
+        .expect("first auth should resolve");
+        let second = resolve_org_auth_cached_with_runner(Some("demo@example.com"), |_, _| {
+            calls += 1;
+            Err("unchanged auth file should use cache".to_string())
+        })
+        .expect("second auth should use cache while auth file is unchanged");
+
+        write(
+            &auth_path,
+            r#"{"username":"demo@example.com","refreshToken":"changed"}"#,
+        );
+        let third = resolve_org_auth_cached_with_runner(Some("demo@example.com"), |_, _| {
+            calls += 1;
+            Ok(
+                r#"{"result":{"accessToken":"refreshed","instanceUrl":"https://refreshed.example.com","username":"demo@example.com"}}"#
+                    .to_string(),
+            )
+        })
+        .expect("changed auth file should invalidate cache");
+
+        assert_eq!(calls, 2);
+        assert_eq!(first.access_token, "first");
+        assert_eq!(second.access_token, "first");
+        assert_eq!(third.access_token, "refreshed");
+        clear_org_auth_cache();
+        let _ = fs::remove_dir_all(home);
     }
 
     #[test]
