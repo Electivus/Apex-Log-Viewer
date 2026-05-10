@@ -147,6 +147,14 @@ fn resolve_org_auth_cached_with_runner<'a, F>(
 where
     F: FnMut(&str, &[&'a str]) -> Result<String, String>,
 {
+    if target_username_or_alias
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        return resolve_org_auth_with_runner(build_org_auth_attempts(None), runner);
+    }
+
     let key = org_auth_cache_key(target_username_or_alias);
     if let Some(auth) = get_cached_org_auth(&key) {
         return Ok(auth);
@@ -424,6 +432,37 @@ mod tests {
 
         assert_eq!(calls, 1);
         assert_eq!(first, second);
+        clear_org_auth_cache();
+    }
+
+    #[test]
+    fn resolve_org_auth_cached_with_runner_does_not_cache_implicit_default_org() {
+        let _guard = auth_cache_test_guard()
+            .lock()
+            .expect("auth cache test guard should not be poisoned");
+        clear_org_auth_cache();
+
+        let mut calls = 0usize;
+        let first = resolve_org_auth_cached_with_runner(None, |_, _| {
+            calls += 1;
+            Ok(
+                r#"{"result":{"accessToken":"first","instanceUrl":"https://first.example.com","username":"first@example.com"}}"#
+                    .to_string(),
+            )
+        })
+        .expect("first default auth should resolve");
+        let second = resolve_org_auth_cached_with_runner(None, |_, _| {
+            calls += 1;
+            Ok(
+                r#"{"result":{"accessToken":"second","instanceUrl":"https://second.example.com","username":"second@example.com"}}"#
+                    .to_string(),
+            )
+        })
+        .expect("second default auth should resolve");
+
+        assert_eq!(calls, 2);
+        assert_eq!(first.username.as_deref(), Some("first@example.com"));
+        assert_eq!(second.username.as_deref(), Some("second@example.com"));
         clear_org_auth_cache();
     }
 
