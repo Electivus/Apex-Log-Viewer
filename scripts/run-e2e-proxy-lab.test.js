@@ -144,6 +144,17 @@ test('proxy lab runner script validates MITM trust before running E2E commands',
   assert.match(script, /preflight_salesforce_cli/);
 });
 
+test('proxy lab sf preflight preserves failed command exit status', () => {
+  const script = readProxyLabScript();
+  const body = script.match(/run_sf_preflight_command\(\) \{(?<body>[\s\S]*?)\n\}/)?.groups.body;
+
+  assert.ok(body);
+  assert.match(body, /local status=0/);
+  assert.match(body, /"\$@" >"\$\{output_file\}" 2>&1 \|\| status=\$\?/);
+  assert.match(body, /if \[\[ "\$\{status\}" -eq 0 \]\]; then/);
+  assert.doesNotMatch(body, /local status=\$\?/);
+});
+
 test('proxy lab runner guards against proxy auth and Node dependency regressions', () => {
   const script = readProxyLabScript();
   const unauthenticatedProxyCheck = script.match(/verify_unauthenticated_proxy_blocked\(\) \{(?<body>[\s\S]*?)\n\}/)?.groups.body;

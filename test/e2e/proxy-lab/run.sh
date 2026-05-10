@@ -351,13 +351,14 @@ run_sf_preflight_command() {
   shift
   local output_file
   output_file="$(mktemp)"
+  local status=0
 
-  if "$@" >"${output_file}" 2>&1; then
+  "$@" >"${output_file}" 2>&1 || status=$?
+  if [[ "${status}" -eq 0 ]]; then
     rm -f "${output_file}"
     return 0
   fi
 
-  local status=$?
   echo "[proxy-lab] Salesforce CLI preflight failed while ${description} (exit ${status})." >&2
   if [[ -s "${output_file}" ]]; then
     redact_salesforce_cli_output <"${output_file}" >&2
