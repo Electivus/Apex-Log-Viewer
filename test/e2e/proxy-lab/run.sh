@@ -340,6 +340,32 @@ main().catch(error => {
 NODE
 }
 
+redact_salesforce_cli_output() {
+  sed -E \
+    -e 's#force://[^[:space:]]+#force://[redacted]#g' \
+    -e 's#"(accessToken|refreshToken|clientSecret)"[[:space:]]*:[[:space:]]*"[^"]+"#"\1":"[redacted]"#g'
+}
+
+run_sf_preflight_command() {
+  local description="$1"
+  shift
+  local output_file
+  output_file="$(mktemp)"
+
+  if "$@" >"${output_file}" 2>&1; then
+    rm -f "${output_file}"
+    return 0
+  fi
+
+  local status=$?
+  echo "[proxy-lab] Salesforce CLI preflight failed while ${description} (exit ${status})." >&2
+  if [[ -s "${output_file}" ]]; then
+    redact_salesforce_cli_output <"${output_file}" >&2
+  fi
+  rm -f "${output_file}"
+  return "${status}"
+}
+
 preflight_salesforce_cli() {
   if [[ -z "${SF_DEVHUB_AUTH_URL:-}" ]]; then
     echo "[proxy-lab] Skipping Salesforce CLI network preflight because SF_DEVHUB_AUTH_URL is not set."
@@ -352,8 +378,12 @@ preflight_salesforce_cli() {
   trap 'rm -f "${auth_file}"' RETURN ERR
   chmod 0600 "${auth_file}"
   printf '%s' "${SF_DEVHUB_AUTH_URL}" >"${auth_file}"
-  sf org login sfdx-url --sfdx-url-file "${auth_file}" --set-default-dev-hub --alias "${DEVHUB_ALIAS}" --json >/dev/null
-  sf org display -o "${DEVHUB_ALIAS}" --json >/dev/null
+  run_sf_preflight_command \
+    "authenticating Dev Hub alias '${DEVHUB_ALIAS}'" \
+    sf org login sfdx-url --sfdx-url-file "${auth_file}" --set-default-dev-hub --alias "${DEVHUB_ALIAS}" --json
+  run_sf_preflight_command \
+    "displaying Dev Hub alias '${DEVHUB_ALIAS}'" \
+    sf org display -o "${DEVHUB_ALIAS}" --json
   rm -f "${auth_file}"
   trap - RETURN ERR
 }

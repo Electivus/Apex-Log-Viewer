@@ -80,6 +80,57 @@ test('copyRuntimeBinary reads artifacts from the configured Cargo target directo
   fs.rmSync(cargoTargetDir, { recursive: true, force: true });
 });
 
+test('copyRuntimeBinary replaces a busy destination through a temporary file', async () => {
+  const mod = await import(pathToFileURL(modulePath).href);
+  const calls = [];
+  const existingPaths = new Set([
+    path.join('/repo', 'target', 'debug', 'apex-log-viewer')
+  ]);
+
+  const result = mod.copyRuntimeBinary({
+    repoRoot: '/repo',
+    target: 'linux-x64',
+    profile: 'debug',
+    cargoTargetDir: path.join('/repo', 'target'),
+    fsImpl: {
+      existsSync(candidate) {
+        return existingPaths.has(candidate);
+      },
+      mkdirSync(destinationDir, options) {
+        calls.push(['mkdirSync', destinationDir, options]);
+      },
+      copyFileSync(source, destination) {
+        calls.push(['copyFileSync', source, destination]);
+        if (destination.endsWith('/apex-log-viewer')) {
+          throw Object.assign(new Error('text file is busy'), { code: 'ETXTBSY' });
+        }
+      },
+      renameSync(source, destination) {
+        calls.push(['renameSync', source, destination]);
+      },
+      rmSync(pathValue, options) {
+        calls.push(['rmSync', pathValue, options]);
+      }
+    }
+  });
+
+  assert.equal(result.source, path.join('/repo', 'target', 'debug', 'apex-log-viewer'));
+  assert.equal(result.destination, path.join('/repo', 'apps', 'vscode-extension', 'bin', 'linux-x64', 'apex-log-viewer'));
+  assert.equal(calls[0][0], 'mkdirSync');
+  assert.deepEqual(calls[1], [
+    'copyFileSync',
+    path.join('/repo', 'target', 'debug', 'apex-log-viewer'),
+    path.join('/repo', 'apps', 'vscode-extension', 'bin', 'linux-x64', 'apex-log-viewer')
+  ]);
+  assert.equal(calls[2][0], 'copyFileSync');
+  assert.match(calls[2][2], /\/\.apex-log-viewer\.\d+\.\d+\.tmp$/);
+  assert.deepEqual(calls[3], [
+    'renameSync',
+    calls[2][2],
+    path.join('/repo', 'apps', 'vscode-extension', 'bin', 'linux-x64', 'apex-log-viewer')
+  ]);
+});
+
 test('resolveCargoBuildArgs includes the packaged runtime target triple', async () => {
   const mod = await import(pathToFileURL(buildModulePath).href);
 

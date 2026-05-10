@@ -3,6 +3,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+const BUSY_COPY_RETRY_CODES = new Set(['EBUSY', 'ETXTBSY']);
+
 const CARGO_TARGETS = {
   'linux-x64': 'x86_64-unknown-linux-musl',
   'linux-arm64': 'aarch64-unknown-linux-gnu',
@@ -74,17 +76,46 @@ export function resolveSourceCandidates(repoRoot, target, profile, cargoTargetDi
   return candidates;
 }
 
+export function copyFileReplacingBusyDestination(source, destination, fsImpl = fs) {
+  try {
+    fsImpl.copyFileSync(source, destination);
+    return;
+  } catch (error) {
+    if (!BUSY_COPY_RETRY_CODES.has(error?.code)) {
+      throw error;
+    }
+  }
+
+  const tempDestination = path.join(
+    path.dirname(destination),
+    `.${path.basename(destination)}.${process.pid}.${Date.now()}.tmp`
+  );
+
+  try {
+    fsImpl.copyFileSync(source, tempDestination);
+    fsImpl.renameSync(tempDestination, destination);
+  } catch (error) {
+    try {
+      fsImpl.rmSync(tempDestination, { force: true });
+    } catch {
+      // Best-effort cleanup only; preserve the original copy/rename failure.
+    }
+    throw error;
+  }
+}
+
 export function copyRuntimeBinary({
   repoRoot,
   target,
   profile,
   cargoTargetDir,
-  spawnSyncImpl = spawnSync
+  spawnSyncImpl = spawnSync,
+  fsImpl = fs
 }) {
   const binaryName = resolveBinaryName(target);
   const effectiveCargoTargetDir = cargoTargetDir ?? resolveCargoTargetDirectory(repoRoot, spawnSyncImpl);
   const sourceCandidates = resolveSourceCandidates(repoRoot, target, profile, effectiveCargoTargetDir);
-  const source = sourceCandidates.find(candidate => fs.existsSync(candidate));
+  const source = sourceCandidates.find(candidate => fsImpl.existsSync(candidate));
   const destinationDir = path.join(repoRoot, 'apps', 'vscode-extension', 'bin', target);
   const destination = path.join(destinationDir, binaryName);
 
@@ -94,8 +125,8 @@ export function copyRuntimeBinary({
     );
   }
 
-  fs.mkdirSync(destinationDir, { recursive: true });
-  fs.copyFileSync(source, destination);
+  fsImpl.mkdirSync(destinationDir, { recursive: true });
+  copyFileReplacingBusyDestination(source, destination, fsImpl);
   return { source, destination };
 }
 
