@@ -188,8 +188,8 @@ test('runtime bundle stays pinned to the current tested CLI release', () => {
   const runtimeBundle = JSON.parse(readFile('config/runtime-bundle.json'));
 
   assert.deepEqual(runtimeBundle, {
-    cliVersion: '0.1.11',
-    tag: 'rust-v0.1.11',
+    cliVersion: '0.1.12',
+    tag: 'rust-v0.1.12',
     channel: 'stable',
     protocolVersion: '1'
   });

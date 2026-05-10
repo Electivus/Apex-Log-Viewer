@@ -6,6 +6,10 @@
 
 - Runtime/Orgs: avoid slow `sf org list` startup/plugin work by reading local Salesforce org state first, and cache/coalesce shared runtime auth resolution to reduce repeated `sf org display` calls during refresh and sync.
 
+### Chores
+
+- CLI/Runtime: bump the standalone runtime train to `0.1.12` so the CLI release packages the sf CLI performance and auth-refresh fixes.
+
 ## [0.48.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.48.0...v0.48.1) (2026-05-08)
 
 ### Bug Fixes
