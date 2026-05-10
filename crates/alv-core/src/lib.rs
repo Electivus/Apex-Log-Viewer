@@ -7,6 +7,7 @@ pub mod log_index;
 pub mod log_store;
 pub mod logs;
 pub mod logs_sync;
+pub(crate) mod org_inventory;
 pub mod orgs;
 pub mod search;
 pub mod tail;

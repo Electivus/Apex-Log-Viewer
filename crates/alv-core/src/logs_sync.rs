@@ -11,7 +11,7 @@ use crate::{
         download_log_to_path_for_auth_with_cancel, list_logs_for_auth_detailed_with_cancel,
         CancellationToken, LogRow, LogsCursor, LogsListParams, LogsRuntimeError,
     },
-    orgs::list_orgs,
+    orgs::find_alias_for_username,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -81,14 +81,7 @@ pub fn sync_logs_detailed_with_cancel(
         .map(str::trim)
         .filter(|value| !value.is_empty() && *value != resolved_username && !value.contains('@'))
         .map(ToOwned::to_owned);
-    let alias = list_orgs(false)
-        .ok()
-        .and_then(|orgs| {
-            orgs.into_iter()
-                .find(|org| org.username == resolved_username)
-        })
-        .and_then(|org| org.alias)
-        .or(requested_alias);
+    let alias = find_alias_for_username(&resolved_username).or(requested_alias);
     let previous = read_sync_state(params.workspace_root.as_deref())
         .map_err(LogsRuntimeError::from_message)?
         .orgs

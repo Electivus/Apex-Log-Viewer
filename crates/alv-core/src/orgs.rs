@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, time::Duration};
 
-use crate::{auth, cache, cli_json::extract_json_object};
+use crate::{auth, cache, cli_json::extract_json_object, org_inventory};
 
 const ORG_LIST_CACHE_KEY: &str = "org/list";
 const ORG_LIST_CACHE_TTL: Duration = Duration::from_secs(300);
@@ -17,6 +17,36 @@ pub struct OrgSummary {
 }
 
 pub fn list_orgs(force_refresh: bool) -> Result<Vec<OrgSummary>, String> {
+    if std::env::var(auth::TEST_ORG_LIST_JSON_ENV).is_ok() {
+        return list_orgs_via_sf(force_refresh);
+    }
+
+    if !force_refresh {
+        if let Some(cached) = cache::get_string(ORG_LIST_CACHE_KEY) {
+            return list_orgs_from_json(&cached);
+        }
+    }
+
+    match org_inventory::list_local_orgs() {
+        Ok(orgs) if !orgs.is_empty() => {
+            cache::put_string(
+                ORG_LIST_CACHE_KEY,
+                orgs_cache_json(&orgs),
+                ORG_LIST_CACHE_TTL,
+            );
+            return Ok(orgs);
+        }
+        Ok(_) | Err(_) => {}
+    }
+
+    list_orgs_via_sf(true)
+}
+
+pub fn find_alias_for_username(username: &str) -> Option<String> {
+    org_inventory::find_alias_for_username(username)
+}
+
+fn list_orgs_via_sf(force_refresh: bool) -> Result<Vec<OrgSummary>, String> {
     if !force_refresh {
         if let Some(cached) = cache::get_string(ORG_LIST_CACHE_KEY) {
             return list_orgs_from_json(&cached);
@@ -27,6 +57,10 @@ pub fn list_orgs(force_refresh: bool) -> Result<Vec<OrgSummary>, String> {
     let orgs = list_orgs_from_json(&json)?;
     cache::put_string(ORG_LIST_CACHE_KEY, json, ORG_LIST_CACHE_TTL);
     Ok(orgs)
+}
+
+fn orgs_cache_json(orgs: &[OrgSummary]) -> String {
+    serde_json::json!({ "result": { "orgs": orgs } }).to_string()
 }
 
 pub fn list_orgs_from_json(json: &str) -> Result<Vec<OrgSummary>, String> {
