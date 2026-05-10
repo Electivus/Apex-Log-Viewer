@@ -1,5 +1,6 @@
 use serde_json::Value;
 use std::collections::HashMap;
+use std::panic::{self, AssertUnwindSafe};
 use std::process::Command;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -108,12 +109,16 @@ fn build_org_auth_attempts<'a>(
     attempts
 }
 
-fn org_auth_cache_key(target_username_or_alias: Option<&str>) -> String {
-    target_username_or_alias
+fn org_auth_cache_key(target_username_or_alias: Option<&str>) -> Option<String> {
+    let target = target_username_or_alias
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_lowercase())
-        .unwrap_or_else(|| "<default>".to_string())
+        .filter(|value| !value.is_empty())?;
+
+    if !target.contains('@') {
+        return None;
+    }
+
+    Some(format!("username:{}", target.to_ascii_lowercase()))
 }
 
 fn get_cached_org_auth(key: &str) -> Option<OrgAuth> {
@@ -147,15 +152,17 @@ fn resolve_org_auth_cached_with_runner<'a, F>(
 where
     F: FnMut(&str, &[&'a str]) -> Result<String, String>,
 {
-    if target_username_or_alias
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .is_none()
-    {
-        return resolve_org_auth_with_runner(build_org_auth_attempts(None), runner);
-    }
+    let Some(key) = org_auth_cache_key(target_username_or_alias) else {
+        let result =
+            resolve_org_auth_with_runner(build_org_auth_attempts(target_username_or_alias), runner);
+        if let Ok(auth) = result.as_ref() {
+            if let Some(key) = org_auth_cache_key(auth.username.as_deref()) {
+                put_cached_org_auth(key, auth.clone());
+            }
+        }
+        return result;
+    };
 
-    let key = org_auth_cache_key(target_username_or_alias);
     if let Some(auth) = get_cached_org_auth(&key) {
         return Ok(auth);
     }
@@ -205,25 +212,44 @@ where
         }
     }
 
-    let result = compute();
+    let result = match panic::catch_unwind(AssertUnwindSafe(compute)) {
+        Ok(result) => result,
+        Err(payload) => {
+            finish_org_auth_flight(
+                &key,
+                &flight,
+                Err("org auth resolution panicked".to_string()),
+            );
+            panic::resume_unwind(payload);
+        }
+    };
+
+    finish_org_auth_flight(&key, &flight, result.clone());
+    result
+}
+
+fn finish_org_auth_flight(key: &str, flight: &Arc<OrgAuthInflight>, result: OrgAuthResult) {
     if let Ok(auth) = result.clone() {
-        put_cached_org_auth(key.clone(), auth);
-    }
-
-    if let Ok(mut state) = flight.result.lock() {
-        *state = Some(result.clone());
-        flight.completed.notify_all();
-    }
-
-    if let Ok(mut inflight) = org_auth_inflight().lock() {
-        if let Some(current) = inflight.get(&key) {
-            if Arc::ptr_eq(current, &flight) {
-                inflight.remove(&key);
-            }
+        if let Some(cache_key) = org_auth_cache_key(auth.username.as_deref()) {
+            put_cached_org_auth(cache_key, auth);
         }
     }
 
-    result
+    let mut state = match flight.result.lock() {
+        Ok(state) => state,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    *state = Some(result);
+    flight.completed.notify_all();
+    drop(state);
+
+    if let Ok(mut inflight) = org_auth_inflight().lock() {
+        if let Some(current) = inflight.get(key) {
+            if Arc::ptr_eq(current, &flight) {
+                inflight.remove(key);
+            }
+        }
+    }
 }
 
 fn resolve_org_auth_with_runner<'a, F>(
@@ -294,7 +320,9 @@ fn configure_sf_command_env(command: &mut Command) {
         ("SF_DISABLE_AUTOUPDATE", "true"),
         ("SFDX_DISABLE_AUTOUPDATE", "true"),
     ] {
-        command.env(key, value);
+        if std::env::var_os(key).is_none() {
+            command.env(key, value);
+        }
     }
 }
 
@@ -351,10 +379,41 @@ mod tests {
     use crate::cli::{
         build_windows_sf_invocation, parse_where_candidates, pick_windows_sf_candidate,
     };
+    use std::{ffi::OsStr, ffi::OsString};
+
+    struct EnvVarRestore {
+        key: &'static str,
+        value: Option<OsString>,
+    }
+
+    impl EnvVarRestore {
+        fn capture(key: &'static str) -> Self {
+            Self {
+                key,
+                value: std::env::var_os(key),
+            }
+        }
+    }
+
+    impl Drop for EnvVarRestore {
+        fn drop(&mut self) {
+            match self.value.take() {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
 
     fn auth_cache_test_guard() -> &'static std::sync::Mutex<()> {
         static GUARD: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
         GUARD.get_or_init(|| std::sync::Mutex::new(()))
+    }
+
+    fn explicit_command_env(command: &Command, key: &str) -> Option<Option<String>> {
+        command
+            .get_envs()
+            .find(|(name, _)| *name == OsStr::new(key))
+            .map(|(_, value)| value.map(|value| value.to_string_lossy().to_string()))
     }
 
     #[test]
@@ -416,7 +475,7 @@ mod tests {
         clear_org_auth_cache();
 
         let mut calls = 0usize;
-        let first = resolve_org_auth_cached_with_runner(Some("Demo"), |_, _| {
+        let first = resolve_org_auth_cached_with_runner(Some("Demo@Example.com"), |_, _| {
             calls += 1;
             Ok(
                 r#"{"result":{"accessToken":"token","instanceUrl":"https://example.com","username":"demo@example.com"}}"#
@@ -424,7 +483,7 @@ mod tests {
             )
         })
         .expect("first auth should resolve");
-        let second = resolve_org_auth_cached_with_runner(Some("demo"), |_, _| {
+        let second = resolve_org_auth_cached_with_runner(Some("demo@example.com"), |_, _| {
             calls += 1;
             Err("should not be called".to_string())
         })
@@ -467,6 +526,73 @@ mod tests {
     }
 
     #[test]
+    fn resolve_org_auth_cached_with_runner_does_not_cache_alias_targets() {
+        let _guard = auth_cache_test_guard()
+            .lock()
+            .expect("auth cache test guard should not be poisoned");
+        clear_org_auth_cache();
+
+        let mut calls = 0usize;
+        let first = resolve_org_auth_cached_with_runner(Some("Demo"), |_, _| {
+            calls += 1;
+            Ok(
+                r#"{"result":{"accessToken":"first","instanceUrl":"https://first.example.com","username":"demo@example.com"}}"#
+                    .to_string(),
+            )
+        })
+        .expect("first alias auth should resolve");
+        let second = resolve_org_auth_cached_with_runner(Some("Demo"), |_, _| {
+            calls += 1;
+            Ok(
+                r#"{"result":{"accessToken":"second","instanceUrl":"https://second.example.com","username":"demo@example.com"}}"#
+                    .to_string(),
+            )
+        })
+        .expect("second alias auth should resolve");
+
+        assert_eq!(calls, 2);
+        assert_eq!(first.access_token, "first");
+        assert_eq!(second.access_token, "second");
+        clear_org_auth_cache();
+    }
+
+    #[test]
+    fn resolve_org_auth_cached_with_runner_uses_resolved_username_cache_key() {
+        let _guard = auth_cache_test_guard()
+            .lock()
+            .expect("auth cache test guard should not be poisoned");
+        clear_org_auth_cache();
+
+        let mut alias_calls = 0usize;
+        let first = resolve_org_auth_cached_with_runner(Some("alias@example.com"), |_, _| {
+            alias_calls += 1;
+            Ok(
+                r#"{"result":{"accessToken":"first","instanceUrl":"https://first.example.com","username":"real@example.com"}}"#
+                    .to_string(),
+            )
+        })
+        .expect("first auth should resolve");
+        let second_alias = resolve_org_auth_cached_with_runner(Some("alias@example.com"), |_, _| {
+            alias_calls += 1;
+            Ok(
+                r#"{"result":{"accessToken":"second","instanceUrl":"https://second.example.com","username":"real@example.com"}}"#
+                    .to_string(),
+            )
+        })
+        .expect("second alias-shaped auth should resolve fresh");
+        let username_hit = resolve_org_auth_cached_with_runner(Some("real@example.com"), |_, _| {
+            Err("username should hit resolved cache key".to_string())
+        })
+        .expect("resolved username should use cache");
+
+        assert_eq!(alias_calls, 2);
+        assert_eq!(first.access_token, "first");
+        assert_eq!(second_alias.access_token, "second");
+        assert_eq!(username_hit.access_token, "second");
+        clear_org_auth_cache();
+    }
+
+    #[test]
     fn resolve_org_auth_cached_with_runner_coalesces_concurrent_requests() {
         use std::{
             sync::{
@@ -491,7 +617,7 @@ mod tests {
             let barrier = Arc::clone(&barrier);
             handles.push(thread::spawn(move || {
                 barrier.wait();
-                resolve_org_auth_cached_with_runner(Some("Demo"), |_, _| {
+                resolve_org_auth_cached_with_runner(Some("demo@example.com"), |_, _| {
                     calls.fetch_add(1, Ordering::SeqCst);
                     thread::sleep(Duration::from_millis(100));
                     Ok(
@@ -511,6 +637,31 @@ mod tests {
         }
 
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+        clear_org_auth_cache();
+    }
+
+    #[test]
+    fn resolve_org_auth_singleflight_cleans_up_after_panic() {
+        let _guard = auth_cache_test_guard()
+            .lock()
+            .expect("auth cache test guard should not be poisoned");
+        clear_org_auth_cache();
+
+        let key = "username:panic@example.com".to_string();
+        let result = std::panic::catch_unwind({
+            let key = key.clone();
+            move || {
+                let _ = resolve_org_auth_singleflight(key, || -> Result<OrgAuth, String> {
+                    panic!("boom");
+                });
+            }
+        });
+
+        assert!(result.is_err());
+        assert!(!org_auth_inflight()
+            .lock()
+            .expect("inflight cache should not be poisoned")
+            .contains_key(&key));
         clear_org_auth_cache();
     }
 
@@ -565,6 +716,27 @@ mod tests {
             invocations,
             vec!["sf org list --json --skip-connection-status"]
         );
+    }
+
+    #[test]
+    fn configure_sf_command_env_respects_parent_overrides() {
+        let _guard = auth_cache_test_guard()
+            .lock()
+            .expect("auth cache test guard should not be poisoned");
+        let _skip_restore = EnvVarRestore::capture("SF_SKIP_NEW_VERSION_CHECK");
+        let _telemetry_restore = EnvVarRestore::capture("SF_DISABLE_TELEMETRY");
+
+        std::env::remove_var("SF_SKIP_NEW_VERSION_CHECK");
+        std::env::set_var("SF_DISABLE_TELEMETRY", "false");
+
+        let mut command = Command::new("sf");
+        configure_sf_command_env(&mut command);
+
+        assert_eq!(
+            explicit_command_env(&command, "SF_SKIP_NEW_VERSION_CHECK"),
+            Some(Some("true".to_string()))
+        );
+        assert_eq!(explicit_command_env(&command, "SF_DISABLE_TELEMETRY"), None);
     }
 
     #[test]

@@ -18,7 +18,7 @@ pub struct OrgSummary {
 
 pub fn list_orgs(force_refresh: bool) -> Result<Vec<OrgSummary>, String> {
     if std::env::var(auth::TEST_ORG_LIST_JSON_ENV).is_ok() {
-        return list_orgs_via_sf(force_refresh);
+        return list_orgs_via_sf(true);
     }
 
     if !force_refresh {

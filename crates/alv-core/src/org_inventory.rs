@@ -31,53 +31,56 @@ fn list_local_orgs_with_context(home: &Path, cwd: &Path) -> Result<Vec<OrgSummar
     let aliases = load_aliases(home);
     let username_aliases = alias_by_username(&aliases);
     let defaults = load_defaults(home, cwd);
-    let auth_dir = home.join(".sfdx");
-    let entries = fs::read_dir(&auth_dir).map_err(|error| {
-        format!(
-            "failed reading Salesforce auth directory '{}': {error}",
-            auth_dir.display()
-        )
-    })?;
 
     let mut orgs = BTreeMap::<String, OrgSummary>::new();
-    for entry in entries {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(_) => continue,
-        };
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let file_name = match path.file_name().and_then(|value| value.to_str()) {
-            Some(value) if is_auth_file_name(value) => value,
-            _ => continue,
-        };
-        let raw = match fs::read_to_string(&path) {
-            Ok(raw) => raw,
-            Err(_) => continue,
-        };
-        let parsed: Value = match serde_json::from_str(&raw) {
-            Ok(parsed) => parsed,
-            Err(_) => continue,
-        };
-        let username = extract_string(&parsed, &["username"])
-            .unwrap_or_else(|| file_name.trim_end_matches(".json").to_string());
-        let username = username.trim().to_string();
-        if username.is_empty() {
-            continue;
-        }
-        let username_key = normalize(&username);
-        let alias = username_aliases.get(&username_key).cloned();
-        let is_dev_hub = extract_bool(&parsed, &["isDevHub", "isDevHubUsername"]).unwrap_or(false);
-        let is_scratch_org = extract_bool(&parsed, &["isScratch", "isScratchOrg"]).unwrap_or(false)
-            || extract_string(&parsed, &["devHubUsername"])
-                .map(|value| !value.trim().is_empty())
-                .unwrap_or(false);
+    let mut saw_auth_dir = false;
+    let auth_dirs = [home.join(".sf"), home.join(".sfdx")];
 
-        orgs.insert(
-            username_key,
-            OrgSummary {
+    for auth_dir in &auth_dirs {
+        let entries = match fs::read_dir(auth_dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        saw_auth_dir = true;
+
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => continue,
+            };
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let file_name = match path.file_name().and_then(|value| value.to_str()) {
+                Some(value) if is_auth_file_name(value) => value,
+                _ => continue,
+            };
+            let raw = match fs::read_to_string(&path) {
+                Ok(raw) => raw,
+                Err(_) => continue,
+            };
+            let parsed: Value = match serde_json::from_str(&raw) {
+                Ok(parsed) => parsed,
+                Err(_) => continue,
+            };
+            let username = extract_string(&parsed, &["username"])
+                .unwrap_or_else(|| file_name.trim_end_matches(".json").to_string());
+            let username = username.trim().to_string();
+            if username.is_empty() {
+                continue;
+            }
+            let username_key = normalize(&username);
+            let alias = username_aliases.get(&username_key).cloned();
+            let is_dev_hub =
+                extract_bool(&parsed, &["isDevHub", "isDevHubUsername"]).unwrap_or(false);
+            let is_scratch_org = extract_bool(&parsed, &["isScratch", "isScratchOrg"])
+                .unwrap_or(false)
+                || extract_string(&parsed, &["devHubUsername"])
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false);
+
+            orgs.entry(username_key).or_insert_with(|| OrgSummary {
                 username,
                 alias: alias.clone(),
                 is_default_username: matches_default(
@@ -95,8 +98,16 @@ fn list_local_orgs_with_context(home: &Path, cwd: &Path) -> Result<Vec<OrgSummar
                     ),
                 is_scratch_org,
                 instance_url: extract_string(&parsed, &["instanceUrl", "instance_url", "loginUrl"]),
-            },
-        );
+            });
+        }
+    }
+
+    if !saw_auth_dir {
+        return Err(format!(
+            "failed reading Salesforce auth directories '{}' and '{}'",
+            auth_dirs[0].display(),
+            auth_dirs[1].display()
+        ));
     }
 
     let mut orgs = orgs.into_values().collect::<Vec<_>>();
@@ -389,6 +400,63 @@ mod tests {
 
         let serialized = serde_json::to_string(&orgs).expect("orgs should serialize");
         assert!(!serialized.contains("secret"));
+
+        let _ = fs::remove_dir_all(home);
+        let _ = fs::remove_dir_all(cwd);
+    }
+
+    #[test]
+    fn list_local_orgs_reads_sf_auth_dir_and_prefers_it_over_sfdx_duplicates() {
+        let _guard = env_test_guard()
+            .lock()
+            .expect("env test guard should not be poisoned");
+        let _env_restore = clear_default_env();
+        let home = temp_dir("home");
+        let cwd = temp_dir("cwd");
+        write(
+            &home.join(".sfdx/alias.json"),
+            r#"{"orgs":{"Shared":"shared@example.com","New":"new@example.com"}}"#,
+        );
+        write(
+            &home.join(".sfdx/shared@example.com.json"),
+            r#"{
+              "username": "shared@example.com",
+              "instanceUrl": "https://old.example.com"
+            }"#,
+        );
+        write(
+            &home.join(".sf/shared@example.com.json"),
+            r#"{
+              "username": "shared@example.com",
+              "instanceUrl": "https://new.example.com"
+            }"#,
+        );
+        write(
+            &home.join(".sf/new@example.com.json"),
+            r#"{
+              "username": "new@example.com",
+              "instanceUrl": "https://only-new.example.com"
+            }"#,
+        );
+
+        let orgs = list_local_orgs_with_context(&home, &cwd).expect("local orgs should load");
+        assert_eq!(orgs.len(), 2);
+
+        let shared = orgs
+            .iter()
+            .find(|org| org.username == "shared@example.com")
+            .expect("shared org should load once");
+        assert_eq!(shared.alias.as_deref(), Some("Shared"));
+        assert_eq!(
+            shared.instance_url.as_deref(),
+            Some("https://new.example.com")
+        );
+
+        let new = orgs
+            .iter()
+            .find(|org| org.username == "new@example.com")
+            .expect(".sf-only org should load");
+        assert_eq!(new.alias.as_deref(), Some("New"));
 
         let _ = fs::remove_dir_all(home);
         let _ = fs::remove_dir_all(cwd);
