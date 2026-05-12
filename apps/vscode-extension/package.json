@@ -11,8 +11,7 @@
     "url": "https://github.com/Electivus/Apex-Log-Viewer"
   },
   "engines": {
-    "vscode": "^1.90.0",
-    "node": ">=22.15.1"
+    "vscode": "^1.90.0"
   },
   "icon": "media/icon.png",
   "galleryBanner": {
