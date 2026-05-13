@@ -136,7 +136,7 @@
     "typescript": "^5.9.3",
     "undici": "^8.1.0",
     "vscode-nls-dev": "^4.0.4",
-    "yaml": "^2.8.3",
+    "yaml": "^2.9.0",
     "nx": "^22.7.1",
     "@nx/js": "^22.7.1",
     "@nx/workspace": "^22.0.0"
@@ -157,7 +157,10 @@
     "vscode-nls": "^5.2.0"
   },
   "overrides": {
-    "serialize-javascript": "^7.0.3"
+    "axios": "1.16.0",
+    "follow-redirects": "1.16.0",
+    "serialize-javascript": "^7.0.3",
+    "yaml": "$yaml"
   },
   "lint-staged": {
     "*.{js,ts,jsx,tsx,json,md,css,scss}": "prettier --write",
