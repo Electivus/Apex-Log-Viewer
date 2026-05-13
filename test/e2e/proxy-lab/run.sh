@@ -367,9 +367,27 @@ run_sf_preflight_command() {
   return "${status}"
 }
 
+requested_command_requires_devhub() {
+  if [[ "$#" -eq 0 && -z "${ALV_E2E_PROXY_LAB_COMMAND:-}" ]]; then
+    return 0
+  fi
+
+  local requested_command="$* ${ALV_E2E_PROXY_LAB_COMMAND:-}"
+  case "${requested_command}" in
+    *"test:e2e"*)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
 preflight_salesforce_cli() {
   if [[ -z "${SF_DEVHUB_AUTH_URL:-}" ]]; then
-    echo "[proxy-lab] Skipping Salesforce CLI network preflight because SF_DEVHUB_AUTH_URL is not set."
+    if requested_command_requires_devhub "$@"; then
+      fail "SF_DEVHUB_AUTH_URL is required for real-org proxy-lab commands because the clean runner container cannot use host Salesforce CLI aliases. Export a Dev Hub SFDX auth URL or pass an explicit non-real-org smoke command after '--'."
+    fi
+    echo "[proxy-lab] Skipping Salesforce CLI network preflight because SF_DEVHUB_AUTH_URL is not set and the requested command does not look like a real-org E2E run."
     return 0
   fi
 
@@ -414,5 +432,5 @@ install_mitm_ca
 verify_authenticated_mitm_proxy
 install_dependencies
 verify_node_https_proxy
-preflight_salesforce_cli
+preflight_salesforce_cli "$@"
 run_requested_command "$@"
