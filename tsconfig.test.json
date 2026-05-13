@@ -9,6 +9,7 @@
     "jsx": "react-jsx",
     "module": "CommonJS",
     "moduleResolution": "Node",
+    "types": ["node", "mocha"],
     "baseUrl": ".",
     "paths": {
       "react-window": [
