@@ -10,6 +10,7 @@
   ],
   "exclude": [
     "apps/vscode-extension/src/test/**",
+    "apps/vscode-extension/src/node-test/**",
     "src/test/**",
     "src/webview/**",
     "tailwind.config.js",
