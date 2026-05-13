@@ -9,6 +9,7 @@
 ### Chores
 
 - CLI/Runtime: bump the standalone runtime train to `0.1.12` so the CLI release packages the sf CLI performance and auth-refresh fixes.
+- Build: migrate the development, CI, and packaging Node.js baseline to Node.js 24 LTS.
 
 ## [0.48.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.48.0...v0.48.1) (2026-05-08)
 

@@ -1,6 +1,6 @@
 FROM rust:1.95.0-bookworm AS rust-toolchain
 
-FROM node:22.15.1-bookworm
+FROM node:24.15.0-bookworm
 
 ARG ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS=20
 ARG ALV_E2E_PROXY_LAB_APT_RETRIES=3

@@ -24,7 +24,7 @@
 - When a CLI flag overlaps with familiar Salesforce CLI behavior, prefer the `sf`-style spelling such as `--target-org`.
 
 ## Build and Development
-- Use Node `22` via `.nvmrc`.
+- Use Node `24` via `.nvmrc`.
 - Install deps with `npm ci`.
 - Clean generated outputs with `npm run clean`.
 - Build the Rust runtime only with `npm run build:runtime`.
