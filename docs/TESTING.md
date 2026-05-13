@@ -121,7 +121,7 @@ Useful env vars:
 - The proxy requires Basic authentication using test-only credentials in the proxy URL, matching the corporate shape `http://username:pwd@proxy.company.com:8080`.
 - The lab waits for mitmproxy to generate its CA, then proves that authenticated HTTPS through the proxy fails before that CA is trusted.
 - The runner installs the mitmproxy CA into the container trust store, exports `NODE_USE_SYSTEM_CA=1`, `ALV_E2E_USE_SYSTEM_CA=1`, `NODE_EXTRA_CA_CERTS`, and `SSL_CERT_FILE`, and keeps VS Code `http.proxyStrictSSL` enabled.
-- The lab verifies that `curl` and a dependency-free Node HTTPS check can reach the internet through the authenticated MITM proxy after CA trust is installed. When `SF_DEVHUB_AUTH_URL` is provided, it also verifies Salesforce CLI traffic can reach Salesforce through the proxy; otherwise `run.sh` skips that preflight.
+- The lab verifies that `curl` and a dependency-free Node HTTPS check can reach the internet through the authenticated MITM proxy after CA trust is installed. Real-org commands fail fast when `SF_DEVHUB_AUTH_URL` is missing; explicit non-real-org smoke commands skip the Salesforce CLI preflight.
 - Real-org proxy-lab runs require `SF_DEVHUB_AUTH_URL`; a host `SF_DEVHUB_ALIAS` is not sufficient inside the clean runner container.
 - After logging in from `SF_DEVHUB_AUTH_URL`, the lab uses `ConfiguredDevHub` as the container-local Dev Hub alias by default. `ALV_E2E_PROXY_LAB_DEVHUB_ALIAS` only changes that container-local alias.
 - The lab sets `SFDX_DISABLE_DNS_CHECK=true` because the runner has no direct DNS/egress path to Salesforce; Salesforce CLI traffic must be validated through the proxy instead.
@@ -131,6 +131,13 @@ By default the lab runs `npm run test:e2e`. To run another E2E command inside th
 
 ```bash
 npm run test:e2e:proxy-lab -- npm run test:e2e:cli
+```
+
+For local real-org proxy-lab runs, derive an auth URL from an already-authenticated Dev Hub on the host and pass it into the clean container:
+
+```bash
+ALV_LOCAL_DEVHUB_AUTH_URL="$(sf org display --verbose -o <dev-hub-alias> --json | jq -r '.result.sfdxAuthUrl')"
+SF_DEVHUB_AUTH_URL="${ALV_LOCAL_DEVHUB_AUTH_URL}" SF_TEST_KEEP_ORG=1 npm run test:e2e:proxy-lab
 ```
 
 To target the extension runtime/daemon path that powers `logs/list` without paying the full VS Code UI startup cost:

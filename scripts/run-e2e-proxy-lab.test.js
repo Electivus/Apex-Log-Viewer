@@ -144,6 +144,18 @@ test('proxy lab runner script validates MITM trust before running E2E commands',
   assert.match(script, /preflight_salesforce_cli/);
 });
 
+test('proxy lab runner requires Dev Hub auth for real-org commands only', () => {
+  const script = readProxyLabScript();
+
+  assert.match(script, /requested_command_requires_devhub\(\)/);
+  assert.match(script, /SF_DEVHUB_AUTH_URL is required for real-org proxy-lab commands/);
+  assert.match(script, /clean runner container cannot use host Salesforce CLI aliases/);
+  assert.match(script, /if \[\[ "\$#" -eq 0 && -z "\$\{ALV_E2E_PROXY_LAB_COMMAND:-\}" \]\]; then/);
+  assert.match(script, /\*"test:e2e"\*/);
+  assert.match(script, /requested command does not look like a real-org E2E run/);
+  assert.match(script, /preflight_salesforce_cli "\$@"/);
+});
+
 test('proxy lab sf preflight preserves failed command exit status', () => {
   const script = readProxyLabScript();
   const body = script.match(/run_sf_preflight_command\(\) \{(?<body>[\s\S]*?)\n\}/)?.groups.body;
