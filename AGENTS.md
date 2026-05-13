@@ -31,12 +31,17 @@
 - Fetch the pinned runtime bundle for packaging with `npm run package:runtime`.
 - Type-check only with `npm run check-types`.
 - Lint with `npm run lint`.
+- Format with `npm run format`.
 - Lint + extension TypeScript validation with `npm run compile`.
 - Build with `npm run build`.
+- Build standalone CLI npm packages with `npm run build:cli:npm`.
 - Prepare a publishable package with `npm run package`.
+- Build the local release runtime bundle with `npm run package:runtime:local`; on Linux `linux-x64` builds require a musl toolchain with `musl-gcc` on `PATH`.
 - Watch mode: `npm run watch`.
 - Extension-only watch: `npm run watch:extension`.
 - Webview-only watch: `npm run watch:webview`.
+- Compile extension tests with `npm run compile-tests`.
+- Watch extension tests with `npm run watch-tests`.
 - Default local test command: `npm test`.
 - Node-only extension suite: `npm run test:extension:node`.
 - E2E utility Jest suite: `npm run test:e2e:utils`.
@@ -55,6 +60,14 @@
 - Docs screenshot capture: `npm run docs:screenshots`.
 - VSIX smoke test: `npm run test:smoke:vsix`.
 - Test cache cleanup: `npm run test:clean` or `npm run test:clean:all`.
+- Webview Jest watch mode: `npm run test:webview:watch`.
+- Regenerate extension icon and banner assets with `npm run build:icon` and `npm run build:assets`.
+
+## Real Org E2E and Operations
+- Corporate proxy/MITM E2E lab: `npm run test:e2e:proxy-lab`; pass a child command after `--` such as `npm run test:e2e:proxy-lab -- npm run test:e2e:cli`. Real-org proxy-lab runs require `SF_DEVHUB_AUTH_URL`.
+- Scratch-org pool admin commands: `npm run scratch-pool:bootstrap`, `npm run scratch-pool:list`, `npm run scratch-pool:reconcile`, `npm run scratch-pool:prewarm`, `npm run scratch-pool:disable-slot`, and `npm run scratch-pool:reset-slot`. Pass script flags after `--` so npm does not consume them.
+- Telemetry usage reports: `npm run telemetry:report -- --subscription=<sub-id> --resource-group=<rg> --app=<app-name>`.
+- Azure Monitor infrastructure helpers: preview with `npm run azure:monitor:what-if`; deploy with `npm run azure:monitor:deploy`.
 
 ## VS Code Test Runtime Policy
 - Follow the official VS Code testing guidance literally: CLI-driven extension tests should default to VS Code `stable`.
