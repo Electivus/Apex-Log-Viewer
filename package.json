@@ -136,7 +136,7 @@
     "typescript": "^5.9.3",
     "undici": "^8.1.0",
     "vscode-nls-dev": "^4.0.4",
-    "yaml": "^2.8.3",
+    "yaml": "^2.9.0",
     "nx": "^22.0.0",
     "@nx/js": "^22.0.0",
     "@nx/workspace": "^22.0.0"
