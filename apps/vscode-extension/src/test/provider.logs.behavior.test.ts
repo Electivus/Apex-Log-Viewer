@@ -457,13 +457,24 @@ suite('SfLogsViewProvider behavior', () => {
       };
     };
     const triageCalls: any[] = [];
+    let releaseSecondTriage: (() => void) | undefined;
     cli.logsTriage = async (params: any) => {
       triageCalls.push(params);
+      if (triageCalls.length === 2) {
+        await new Promise<void>(resolve => {
+          releaseSecondTriage = resolve;
+        });
+      }
       return [];
     };
 
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
+    (provider as any).lastSearchQuery = 'error';
+    const searchCalls: string[] = [];
+    (provider as any).executeSearch = async (query: string) => {
+      searchCalls.push(query);
+    };
     (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
@@ -472,11 +483,21 @@ suite('SfLogsViewProvider behavior', () => {
     } as any;
 
     await provider.refresh();
-    await waitForCondition(() => syncCalls.length === 1 && triageCalls.length === 1);
+    await waitForCondition(() => syncCalls.length === 1 && triageCalls.length === 1 && searchCalls.length >= 2);
+    const searchCallsBeforeCooldown = searchCalls.length;
+
     await provider.refresh();
-    await waitForCondition(() => triageCalls.length >= 2);
+    await waitForCondition(() => triageCalls.length >= 2 && searchCalls.length === searchCallsBeforeCooldown + 1);
 
     assert.equal(syncCalls.length, 1, 'second refresh should reuse the recent background sync result');
+    assert.equal(
+      searchCalls.length,
+      searchCallsBeforeCooldown + 1,
+      'cooldown branch should not duplicate the caller search rerun'
+    );
+
+    releaseSecondTriage?.();
+    await waitForCondition(() => searchCalls.length === searchCallsBeforeCooldown + 2);
   });
 
   test('refresh scans visible logs for errors after background sync completes', async () => {

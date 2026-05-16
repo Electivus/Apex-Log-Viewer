@@ -502,8 +502,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       this.lastSuccessfulBackgroundSync?.key === syncKey &&
       Date.now() - this.lastSuccessfulBackgroundSync.finishedAt < BACKGROUND_SYNC_COOLDOWN_MS
     ) {
-      this.startErrorScanForCurrentLogs(refreshToken, parentSignal);
-      this.rerunActiveSearch();
+      this.startErrorScanForCurrentLogs(refreshToken, parentSignal, { rerunSearchOnComplete: true });
       return;
     }
     if (this.backgroundSyncAbortController) {
@@ -695,7 +694,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
   }
 
-  private startErrorScanForCurrentLogs(refreshToken: number, parentSignal?: AbortSignal): void {
+  private startErrorScanForCurrentLogs(
+    refreshToken: number,
+    parentSignal?: AbortSignal,
+    options?: { rerunSearchOnComplete?: boolean }
+  ): void {
     this.cancelErrorScan();
     const scanToken = this.errorScanToken;
     if (parentSignal?.aborted) {
@@ -824,6 +827,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           },
           { force: true }
         );
+        if (options?.rerunSearchOnComplete) {
+          this.rerunActiveSearch();
+        }
       } catch (e) {
         if (!controller.signal.aborted) {
           logWarn('Logs: org error scan failed ->', getErrorMessage(e));
