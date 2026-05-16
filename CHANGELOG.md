@@ -5,11 +5,13 @@
 ### Bug Fixes
 
 - Runtime/Orgs: avoid slow `sf org list` startup/plugin work by reading local Salesforce org state first, and cache/coalesce shared runtime auth resolution to reduce repeated `sf org display` calls during refresh and sync.
+- Logs/Telemetry: skip redundant background log syncs during rapid refreshes and emit coarse error-code buckets for refresh, org, debug level, and runtime failures.
 
 ### Chores
 
 - CLI/Runtime: bump the standalone runtime train to `0.1.12` so the CLI release packages the sf CLI performance and auth-refresh fixes.
 - Build: migrate the development, CI, and packaging Node.js baseline to Node.js 24 LTS.
+- Telemetry/Azure Monitor: fix usage-report KQL generation and docs for workspace-backed Application Insights queries.
 
 ## [0.48.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.48.0...v0.48.1) (2026-05-08)
 

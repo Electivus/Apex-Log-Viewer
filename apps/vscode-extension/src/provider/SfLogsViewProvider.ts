@@ -11,6 +11,7 @@ import {
 } from '../shared/messages';
 import { logInfo, logWarn, logError, logTrace } from '../../../../src/utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
+import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
 import { buildWebviewHtml } from '../../../../src/utils/webviewHtml';
 import { getErrorMessage } from '../../../../src/utils/error';
 import { LogService, type EnsureLogsSavedSummary } from '../../../../src/services/logService';
@@ -40,6 +41,7 @@ export const WEBVIEW_STABLE_VISIBILITY_DELAY_MS = 1000;
 export const WEBVIEW_READY_TIMEOUT_MS = 30000;
 const WEBVIEW_REPLAY_RETRY_DELAY_MS = 250;
 const WEBVIEW_REPLAY_MAX_RETRIES = 3;
+const BACKGROUND_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
 const LOGS_REPLAYABLE_VISIBLE_UPDATE_TYPES = new Set<ExtensionToWebviewMessage['type']>([
   'loading',
   'error',
@@ -137,6 +139,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private searchToken = 0;
   private searchAbortController: AbortController | undefined;
   private backgroundSyncAbortController: AbortController | undefined;
+  private lastSuccessfulBackgroundSync:
+    | {
+        finishedAt: number;
+        key: string;
+      }
+    | undefined;
   private purgePromise: Promise<void> | undefined;
   private readonly logCacheMaxAgeMs = 1000 * 60 * 60 * 24;
   private logsColumns: NormalizedLogsColumnsConfig = DEFAULT_LOGS_COLUMNS_CONFIG;
@@ -359,7 +367,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             this.post({ type: 'error', message: msg });
             try {
               const durationMs = Date.now() - t0;
-              safeSendEvent('logs.refresh', { outcome: 'error' }, { durationMs, pageSize: this.pageLimit });
+              safeSendEvent(
+                'logs.refresh',
+                { outcome: 'error', code: getTelemetryErrorCode(e) },
+                { durationMs, pageSize: this.pageLimit }
+              );
             } catch {}
           }
         } finally {
@@ -483,6 +495,17 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     if (this.bulkDownloadInProgress || parentSignal?.aborted) {
       return;
     }
+    const workspaceRoot = getWorkspaceRoot();
+    const syncKey = `${workspaceRoot || ''}\u0000${selectedOrg || ''}`;
+    if (
+      !forceFull &&
+      this.lastSuccessfulBackgroundSync?.key === syncKey &&
+      Date.now() - this.lastSuccessfulBackgroundSync.finishedAt < BACKGROUND_SYNC_COOLDOWN_MS
+    ) {
+      this.startErrorScanForCurrentLogs(refreshToken, parentSignal);
+      this.rerunActiveSearch();
+      return;
+    }
     if (this.backgroundSyncAbortController) {
       this.backgroundSyncAbortController.abort();
     }
@@ -502,7 +525,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       );
     }
 
-    const workspaceRoot = getWorkspaceRoot();
     void runtimeClient
       .logsSync(
         {
@@ -532,6 +554,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         if (result.index_error) {
           logWarn('Logs: background sync index warning ->', result.index_error);
         }
+        if (result.status === 'success') {
+          this.lastSuccessfulBackgroundSync = {
+            finishedAt: Date.now(),
+            key: syncKey
+          };
+        }
         this.startErrorScanForCurrentLogs(refreshToken, controller.signal);
         this.rerunActiveSearch();
       })
@@ -540,11 +568,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           return;
         }
         logWarn('Logs: background sync failed ->', getErrorMessage(error));
-        if (
-          refreshToken !== this.refreshToken ||
-          this.disposed ||
-          this.backgroundSyncAbortController !== controller
-        ) {
+        if (refreshToken !== this.refreshToken || this.disposed || this.backgroundSyncAbortController !== controller) {
           return;
         }
         this.startErrorScanForCurrentLogs(refreshToken, controller.signal);
@@ -1408,7 +1432,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             this.post({ type: 'orgs', data: [], selected: this.orgManager.getSelectedOrg() });
             try {
               const durationMs = Date.now() - t0;
-              safeSendEvent('orgs.list', { outcome: 'error', view: 'logs' }, { durationMs });
+              safeSendEvent(
+                'orgs.list',
+                { outcome: 'error', view: 'logs', code: getTelemetryErrorCode(e) },
+                { durationMs }
+              );
             } catch {}
           }
         }

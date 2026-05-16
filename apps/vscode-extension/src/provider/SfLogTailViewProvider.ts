@@ -9,6 +9,7 @@ import type { OrgAuth } from '../../../../src/salesforce/types';
 import { parseWebviewToExtensionMessage, type ExtensionToWebviewMessage } from '../shared/messages';
 import { logInfo, logWarn } from '../../../../src/utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
+import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
 import { ensureReplayDebuggerAvailable } from '../../../../src/utils/replayDebugger';
 import { buildWebviewHtml } from '../../../../src/utils/webviewHtml';
 import {
@@ -868,7 +869,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       this.post({ type: 'orgs', data: [], selected: this.selectedOrg });
       try {
         const durationMs = Date.now() - t0;
-        safeSendEvent('orgs.list', { outcome: 'error', view: 'tail' }, { durationMs });
+        safeSendEvent('orgs.list', { outcome: 'error', view: 'tail', code: getTelemetryErrorCode(e) }, { durationMs });
       } catch {}
     }
   }
@@ -931,7 +932,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
       this.post({ type: 'debugLevels', data: [] });
       try {
         const durationMs = Date.now() - t0;
-        safeSendEvent('debugLevels.load', { outcome: 'error' }, { durationMs });
+        safeSendEvent('debugLevels.load', { outcome: 'error', code: getTelemetryErrorCode(e) }, { durationMs });
       } catch {}
       return;
     }

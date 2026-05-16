@@ -22,6 +22,7 @@ import type { JsonRpcRequest, OrgListItem, OrgListParams } from '../../../../pac
 import { isTraceEnabled, logTrace, logWarn } from '../../../../src/utils/logger';
 import { getLoginShellEnv } from '../../../../src/salesforce/path';
 import { safeSendEvent } from '../shared/telemetry';
+import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
 import { resolveBundledBinary } from './bundledBinary';
 import { resolveRuntimeExecutable } from './runtimeExecutable';
 import {
@@ -138,12 +139,7 @@ function formatRuntimeErrorData(data: unknown): string | undefined {
     if (typeof data === 'string') {
       return data;
     }
-    if (
-      typeof data === 'number' ||
-      typeof data === 'boolean' ||
-      typeof data === 'bigint' ||
-      typeof data === 'symbol'
-    ) {
+    if (typeof data === 'number' || typeof data === 'boolean' || typeof data === 'bigint' || typeof data === 'symbol') {
       return String(data);
     }
     return Object.prototype.toString.call(data);
@@ -238,11 +234,10 @@ export class RuntimeClient extends EventEmitter {
       this.handleDaemonFailure(daemon, this.normalizeDaemonError(error), { code: null, signal: null });
     });
     daemon.onExit((code, signal) => {
-      this.handleDaemonFailure(
-        daemon,
-        new Error(`runtime exited (${code ?? 'null'}${signal ? `/${signal}` : ''})`),
-        { code, signal }
-      );
+      this.handleDaemonFailure(daemon, new Error(`runtime exited (${code ?? 'null'}${signal ? `/${signal}` : ''})`), {
+        code,
+        signal
+      });
     });
     return daemon;
   }
@@ -468,7 +463,7 @@ export class RuntimeClient extends EventEmitter {
       if (this.isAbortError(error)) {
         this.sendRuntimeRequestTelemetry(method, 'cancelled', t0, attempts);
       } else {
-        this.sendRuntimeRequestTelemetry(method, 'error', t0, attempts);
+        this.sendRuntimeRequestTelemetry(method, 'error', t0, attempts, getTelemetryErrorCode(error));
       }
       throw error;
     }
@@ -634,7 +629,10 @@ export class RuntimeClient extends EventEmitter {
     try {
       daemon.dispose();
     } catch (error) {
-      logTrace('Runtime: daemon dispose after trace mode change failed', error instanceof Error ? error.message : String(error));
+      logTrace(
+        'Runtime: daemon dispose after trace mode change failed',
+        error instanceof Error ? error.message : String(error)
+      );
     }
   }
 
@@ -675,20 +673,21 @@ export class RuntimeClient extends EventEmitter {
     method: string,
     outcome: 'ok' | 'error' | 'cancelled',
     startedAt: number,
-    attempts: number
+    attempts: number,
+    code?: string
   ): void {
     try {
-      safeSendEvent(
-        'daemon.request',
-        {
-          method: RUNTIME_TELEMETRY_METHOD_NAMES[method] || 'other',
-          outcome
-        },
-        {
-          durationMs: Date.now() - startedAt,
-          attempts
-        }
-      );
+      const properties: Record<string, string> = {
+        method: RUNTIME_TELEMETRY_METHOD_NAMES[method] || 'other',
+        outcome
+      };
+      if (code) {
+        properties.code = code;
+      }
+      safeSendEvent('daemon.request', properties, {
+        durationMs: Date.now() - startedAt,
+        attempts
+      });
     } catch {}
   }
 
