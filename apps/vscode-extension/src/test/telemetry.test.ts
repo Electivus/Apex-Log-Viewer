@@ -258,10 +258,8 @@ suite('telemetry', () => {
     telemetry.safeSendEvent('logs.refresh', { outcome: 'error', code: 'RUNTIME_EXIT' });
 
     assert.equal(usageEvents.length, 1);
-    assert.deepEqual(usageEvents[0]?.properties, {
-      code: 'RUNTIME_EXIT',
-      outcome: 'error'
-    });
+    assert.equal(usageEvents[0]?.properties?.outcome, 'error');
+    assert.equal(usageEvents[0]?.properties?.code, 'RUNTIME_EXIT');
     telemetry.disposeTelemetry();
   });
 

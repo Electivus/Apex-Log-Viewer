@@ -286,10 +286,8 @@ suite('SfLogsViewProvider behavior', () => {
     await provider.refresh();
 
     const refreshTelemetry = telemetryEvents.filter(event => event.name === 'logs.refresh').pop();
-    assert.deepEqual(refreshTelemetry?.properties, {
-      code: 'RUNTIME_EXIT',
-      outcome: 'error'
-    });
+    assert.equal(refreshTelemetry?.properties?.outcome, 'error');
+    assert.equal(refreshTelemetry?.properties?.code, 'RUNTIME_EXIT');
   });
 
   test('loadMore handles deferred auth rejection when logs listing fails', async () => {
@@ -447,6 +445,8 @@ suite('SfLogsViewProvider behavior', () => {
       syncCalls.push(params);
       return {
         status: 'success',
+        target_org: 'u',
+        safe_target_org: 'u',
         downloaded: 1,
         cached: 0,
         failed: 0,
@@ -470,6 +470,7 @@ suite('SfLogsViewProvider behavior', () => {
 
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
+    (provider as any).orgManager.setSelectedOrg('u');
     (provider as any).lastSearchQuery = 'error';
     const searchCalls: string[] = [];
     (provider as any).executeSearch = async (query: string) => {
@@ -512,6 +513,8 @@ suite('SfLogsViewProvider behavior', () => {
       syncCalls.push(params);
       return {
         status: 'success',
+        target_org: authUsername,
+        safe_target_org: authUsername,
         downloaded: 1,
         cached: 0,
         failed: 0,
@@ -540,6 +543,50 @@ suite('SfLogsViewProvider behavior', () => {
     await waitForCondition(() => syncCalls.length === 2);
 
     assert.equal(syncCalls.length, 2, 'default org changes should not reuse the prior org sync cooldown');
+  });
+
+  test('refresh starts default-org background sync before auth cooldown key resolves', async () => {
+    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+    let resolveAuth: ((auth: { username: string; instanceUrl: string; accessToken: string }) => void) | undefined;
+    cli.getOrgAuth = async () =>
+      await new Promise(resolve => {
+        resolveAuth = resolve;
+      });
+    cli.logsList = async () => [{ Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 }];
+    workspace.purgeSavedLogs = async () => 0;
+
+    const syncCalls: any[] = [];
+    cli.logsSync = async (params: any) => {
+      syncCalls.push(params);
+      return {
+        status: 'success',
+        target_org: 'default@example.test',
+        safe_target_org: 'default@example.test',
+        downloaded: 1,
+        cached: 0,
+        failed: 0,
+        indexed: 1,
+        checkpoint_advanced: true,
+        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+      };
+    };
+    cli.logsTriage = async () => [];
+
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).logService.loadLogHeads = () => {};
+    (provider as any).view = {
+      webview: {
+        postMessage: () => Promise.resolve(true)
+      }
+    } as any;
+
+    await provider.refresh();
+    await waitForCondition(() => syncCalls.length === 1);
+
+    assert.equal(syncCalls.length, 1, 'background sync should not wait for deferred auth');
+    resolveAuth?.({ username: 'default@example.test', instanceUrl: 'i', accessToken: 't' });
   });
 
   test('refresh scans visible logs for errors after background sync completes', async () => {

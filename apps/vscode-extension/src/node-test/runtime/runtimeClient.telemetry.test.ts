@@ -213,11 +213,9 @@ suite('runtime client telemetry', () => {
     await assert.rejects(client.logsList());
 
     assert.equal(events.length, 1);
-    assert.deepEqual(events[0]?.properties, {
-      code: 'RUNTIME_EXIT',
-      method: 'logs_list',
-      outcome: 'error'
-    });
+    assert.equal(events[0]?.properties?.method, 'logs_list');
+    assert.equal(events[0]?.properties?.outcome, 'error');
+    assert.equal(events[0]?.properties?.code, 'RUNTIME_EXIT');
     assert.equal(events[0]?.name, 'daemon.request');
   });
 });

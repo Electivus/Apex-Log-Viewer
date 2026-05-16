@@ -142,7 +142,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private lastSuccessfulBackgroundSync:
     | {
         finishedAt: number;
-        key: string;
+        keys: string[];
       }
     | undefined;
   private purgePromise: Promise<void> | undefined;
@@ -521,36 +521,50 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
 
     void (async () => {
       const workspaceRoot = getWorkspaceRoot();
-      let cooldownOrgKey = selectedOrg;
-      if (!cooldownOrgKey && !forceFull && options?.resolvedOrgForKey) {
-        try {
-          cooldownOrgKey = await options.resolvedOrgForKey;
-        } catch {
-          cooldownOrgKey = undefined;
-        }
-      }
-      if (
-        controller.signal.aborted ||
-        refreshToken !== this.refreshToken ||
-        this.disposed ||
-        this.backgroundSyncAbortController !== controller
-      ) {
-        return;
-      }
-
-      const hasCooldownKey = !forceFull && typeof cooldownOrgKey === 'string' && cooldownOrgKey.length > 0;
-      const syncKey = `${workspaceRoot || ''}\u0000${hasCooldownKey ? cooldownOrgKey : ''}`;
-      if (
-        hasCooldownKey &&
-        this.lastSuccessfulBackgroundSync?.key === syncKey &&
-        Date.now() - this.lastSuccessfulBackgroundSync.finishedAt < BACKGROUND_SYNC_COOLDOWN_MS
-      ) {
+      const makeCooldownKey = (org?: string) => {
+        const normalizedOrg = org?.trim();
+        return !forceFull && normalizedOrg ? `${workspaceRoot || ''}\u0000${normalizedOrg}` : undefined;
+      };
+      const isCurrentBackgroundSync = () =>
+        !controller.signal.aborted &&
+        refreshToken === this.refreshToken &&
+        !this.disposed &&
+        this.backgroundSyncAbortController === controller;
+      const isRecentCooldown = (key: string) =>
+        this.lastSuccessfulBackgroundSync?.keys.includes(key) === true &&
+        Date.now() - this.lastSuccessfulBackgroundSync.finishedAt < BACKGROUND_SYNC_COOLDOWN_MS;
+      const startCooldownScan = () => {
         this.startErrorScanForCurrentLogs(refreshToken, parentSignal, { rerunSearchOnComplete: true });
-        controller.abort();
-        return;
-      }
+      };
+      let syncCompleted = false;
 
       try {
+        const selectedCooldownKey = makeCooldownKey(selectedOrg);
+        if (!isCurrentBackgroundSync()) {
+          return;
+        }
+        if (selectedCooldownKey && isRecentCooldown(selectedCooldownKey)) {
+          startCooldownScan();
+          controller.abort();
+          return;
+        }
+
+        if (!selectedCooldownKey && options?.resolvedOrgForKey) {
+          void options.resolvedOrgForKey
+            .then(resolvedOrg => {
+              if (syncCompleted || !isCurrentBackgroundSync()) {
+                return;
+              }
+              const resolvedCooldownKey = makeCooldownKey(resolvedOrg);
+              if (!resolvedCooldownKey || !isRecentCooldown(resolvedCooldownKey)) {
+                return;
+              }
+              startCooldownScan();
+              controller.abort();
+            })
+            .catch(() => undefined);
+        }
+
         const result = await runtimeClient.logsSync(
           {
             targetOrg: selectedOrg,
@@ -560,12 +574,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           },
           controller.signal
         );
-        if (
-          controller.signal.aborted ||
-          refreshToken !== this.refreshToken ||
-          this.disposed ||
-          this.backgroundSyncAbortController !== controller
-        ) {
+        syncCompleted = true;
+        if (!isCurrentBackgroundSync()) {
           return;
         }
         logInfo('Logs: background sync finished', {
@@ -578,15 +588,24 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         if (result.index_error) {
           logWarn('Logs: background sync index warning ->', result.index_error);
         }
-        if (result.status === 'success' && hasCooldownKey) {
+        const cooldownKeys = new Set<string>();
+        if (selectedCooldownKey) {
+          cooldownKeys.add(selectedCooldownKey);
+        }
+        const resolvedCooldownKey = makeCooldownKey(result.target_org);
+        if (resolvedCooldownKey) {
+          cooldownKeys.add(resolvedCooldownKey);
+        }
+        if (result.status === 'success' && cooldownKeys.size > 0) {
           this.lastSuccessfulBackgroundSync = {
             finishedAt: Date.now(),
-            key: syncKey
+            keys: Array.from(cooldownKeys)
           };
         }
         this.startErrorScanForCurrentLogs(refreshToken, controller.signal);
         this.rerunActiveSearch();
       } catch (error) {
+        syncCompleted = true;
         if (controller.signal.aborted) {
           return;
         }
