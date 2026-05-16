@@ -500,6 +500,48 @@ suite('SfLogsViewProvider behavior', () => {
     await waitForCondition(() => searchCalls.length === searchCallsBeforeCooldown + 2);
   });
 
+  test('refresh does not reuse background sync cooldown after default org changes', async () => {
+    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+    let authUsername = 'first@example.test';
+    cli.getOrgAuth = async () => ({ username: authUsername, instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [{ Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 }];
+    workspace.purgeSavedLogs = async () => 0;
+
+    const syncCalls: any[] = [];
+    cli.logsSync = async (params: any) => {
+      syncCalls.push(params);
+      return {
+        status: 'success',
+        downloaded: 1,
+        cached: 0,
+        failed: 0,
+        indexed: 1,
+        checkpoint_advanced: true,
+        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+      };
+    };
+    cli.logsTriage = async () => [];
+
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).logService.loadLogHeads = () => {};
+    (provider as any).view = {
+      webview: {
+        postMessage: () => Promise.resolve(true)
+      }
+    } as any;
+
+    await provider.refresh();
+    await waitForCondition(() => syncCalls.length === 1);
+
+    authUsername = 'second@example.test';
+    await provider.refresh();
+    await waitForCondition(() => syncCalls.length === 2);
+
+    assert.equal(syncCalls.length, 2, 'default org changes should not reuse the prior org sync cooldown');
+  });
+
   test('refresh scans visible logs for errors after background sync completes', async () => {
     const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });

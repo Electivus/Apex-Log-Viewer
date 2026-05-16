@@ -350,7 +350,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           this.purgeLogCache(controller.signal);
           const authPromise = authHandle.handoff();
           this.startAuthHydration(logs, authPromise, token, selectedOrg, controller.signal);
-          this.startBackgroundSync(selectedOrg, false, token, controller.signal);
+          this.startBackgroundSync(selectedOrg, false, token, controller.signal, {
+            resolvedOrgForKey: authPromise.then(auth => auth.username || undefined)
+          });
           if (this.lastSearchQuery.trim()) {
             this.rerunActiveSearch();
           } else {
@@ -424,7 +426,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       this.purgeLogCache();
       const authPromise = authHandle.handoff();
       this.startAuthHydration(logs, authPromise, token, selectedOrg);
-      this.startBackgroundSync(selectedOrg, false, token);
+      this.startBackgroundSync(selectedOrg, false, token, undefined, {
+        resolvedOrgForKey: authPromise.then(auth => auth.username || undefined)
+      });
       this.rerunActiveSearch();
       try {
         const durationMs = Date.now() - t0;
@@ -490,19 +494,10 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     selectedOrg: string | undefined,
     forceFull: boolean,
     refreshToken: number,
-    parentSignal?: AbortSignal
+    parentSignal?: AbortSignal,
+    options?: { resolvedOrgForKey?: Promise<string | undefined> }
   ): void {
     if (this.bulkDownloadInProgress || parentSignal?.aborted) {
-      return;
-    }
-    const workspaceRoot = getWorkspaceRoot();
-    const syncKey = `${workspaceRoot || ''}\u0000${selectedOrg || ''}`;
-    if (
-      !forceFull &&
-      this.lastSuccessfulBackgroundSync?.key === syncKey &&
-      Date.now() - this.lastSuccessfulBackgroundSync.finishedAt < BACKGROUND_SYNC_COOLDOWN_MS
-    ) {
-      this.startErrorScanForCurrentLogs(refreshToken, parentSignal, { rerunSearchOnComplete: true });
       return;
     }
     if (this.backgroundSyncAbortController) {
@@ -524,17 +519,47 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       );
     }
 
-    void runtimeClient
-      .logsSync(
-        {
-          targetOrg: selectedOrg,
-          workspaceRoot,
-          forceFull,
-          concurrency: this.getBackgroundSyncConcurrency()
-        },
-        controller.signal
-      )
-      .then(result => {
+    void (async () => {
+      const workspaceRoot = getWorkspaceRoot();
+      let cooldownOrgKey = selectedOrg;
+      if (!cooldownOrgKey && !forceFull && options?.resolvedOrgForKey) {
+        try {
+          cooldownOrgKey = await options.resolvedOrgForKey;
+        } catch {
+          cooldownOrgKey = undefined;
+        }
+      }
+      if (
+        controller.signal.aborted ||
+        refreshToken !== this.refreshToken ||
+        this.disposed ||
+        this.backgroundSyncAbortController !== controller
+      ) {
+        return;
+      }
+
+      const hasCooldownKey = !forceFull && typeof cooldownOrgKey === 'string' && cooldownOrgKey.length > 0;
+      const syncKey = `${workspaceRoot || ''}\u0000${hasCooldownKey ? cooldownOrgKey : ''}`;
+      if (
+        hasCooldownKey &&
+        this.lastSuccessfulBackgroundSync?.key === syncKey &&
+        Date.now() - this.lastSuccessfulBackgroundSync.finishedAt < BACKGROUND_SYNC_COOLDOWN_MS
+      ) {
+        this.startErrorScanForCurrentLogs(refreshToken, parentSignal, { rerunSearchOnComplete: true });
+        controller.abort();
+        return;
+      }
+
+      try {
+        const result = await runtimeClient.logsSync(
+          {
+            targetOrg: selectedOrg,
+            workspaceRoot,
+            forceFull,
+            concurrency: this.getBackgroundSyncConcurrency()
+          },
+          controller.signal
+        );
         if (
           controller.signal.aborted ||
           refreshToken !== this.refreshToken ||
@@ -553,7 +578,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         if (result.index_error) {
           logWarn('Logs: background sync index warning ->', result.index_error);
         }
-        if (result.status === 'success') {
+        if (result.status === 'success' && hasCooldownKey) {
           this.lastSuccessfulBackgroundSync = {
             finishedAt: Date.now(),
             key: syncKey
@@ -561,8 +586,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         }
         this.startErrorScanForCurrentLogs(refreshToken, controller.signal);
         this.rerunActiveSearch();
-      })
-      .catch(error => {
+      } catch (error) {
         if (controller.signal.aborted) {
           return;
         }
@@ -571,12 +595,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           return;
         }
         this.startErrorScanForCurrentLogs(refreshToken, controller.signal);
-      })
-      .finally(() => {
+      } finally {
         if (this.backgroundSyncAbortController === controller) {
           this.backgroundSyncAbortController = undefined;
         }
-      });
+      }
+    })();
   }
 
   private observeDeferredAuth(params: { username?: string }): { handoff: () => Promise<OrgAuth> } {
