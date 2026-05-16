@@ -26,6 +26,21 @@ function normalizePrereleaseMinor(minor) {
   return minor % 2 === 0 ? minor + 1 : minor;
 }
 
+function isVscePrerelease(entry) {
+  return (
+    Array.isArray(entry?.properties) &&
+    entry.properties.some(
+      property =>
+        property?.key === 'Microsoft.VisualStudio.Code.PreRelease' &&
+        String(property?.value) === 'true'
+    )
+  );
+}
+
+function isOpenVsxPrerelease(entry) {
+  return entry?.preRelease === true;
+}
+
 function formatSpawnError(prefix, result) {
   const details = [result.stdout, result.stderr]
     .filter(value => typeof value === 'string' && value.trim().length > 0)
@@ -47,22 +62,17 @@ export function readExtensionManifest(manifestPath) {
   };
 }
 
-export function findLatestPublishedPrereleasePatch(marketplaceVersions, { major, minor }) {
+export function findLatestPublishedPrereleasePatch(publishedVersions, { major, minor }) {
   let latestPatch = -1;
 
-  for (const entry of marketplaceVersions) {
-    const isPrerelease = Array.isArray(entry?.properties)
-      && entry.properties.some(
-        property =>
-          property?.key === 'Microsoft.VisualStudio.Code.PreRelease'
-          && String(property?.value) === 'true'
-      );
-    if (!isPrerelease) {
+  for (const entry of publishedVersions) {
+    const parsed = parseSemver(entry?.version);
+    if (!parsed) {
       continue;
     }
 
-    const parsed = parseSemver(entry?.version);
-    if (!parsed) {
+    const isPrerelease = isVscePrerelease(entry) || isOpenVsxPrerelease(entry);
+    if (!isPrerelease) {
       continue;
     }
 
@@ -74,14 +84,14 @@ export function findLatestPublishedPrereleasePatch(marketplaceVersions, { major,
   return latestPatch;
 }
 
-export function computeNextPrereleaseVersion({ baseVersion, marketplaceVersions }) {
+export function computeNextPrereleaseVersion({ baseVersion, publishedVersions }) {
   const parsedBase = parseSemver(baseVersion);
   if (!parsedBase) {
     throw new Error(`expected a plain semver extension version, got ${JSON.stringify(baseVersion)}`);
   }
 
   const targetMinor = normalizePrereleaseMinor(parsedBase.minor);
-  const latestPublishedPatch = findLatestPublishedPrereleasePatch(marketplaceVersions, {
+  const latestPublishedPatch = findLatestPublishedPrereleasePatch(publishedVersions, {
     major: parsedBase.major,
     minor: targetMinor
   });
@@ -129,6 +139,61 @@ export function fetchMarketplaceVersions(
   return Array.isArray(payload.versions) ? payload.versions : [];
 }
 
+export function openVsxApiUrlForExtension(extensionId) {
+  const separatorIndex = String(extensionId).indexOf('.');
+  if (separatorIndex <= 0 || separatorIndex === String(extensionId).length - 1) {
+    throw new Error(`expected extension id in publisher.name form, got ${JSON.stringify(extensionId)}`);
+  }
+  const namespace = encodeURIComponent(String(extensionId).slice(0, separatorIndex));
+  const name = encodeURIComponent(String(extensionId).slice(separatorIndex + 1));
+  return `https://open-vsx.org/api/${namespace}/${name}`;
+}
+
+export function versionsFromOpenVsxPayload(payload) {
+  const versions = new Set();
+  if (payload?.allVersions && typeof payload.allVersions === 'object') {
+    for (const version of Object.keys(payload.allVersions)) {
+      versions.add(version);
+    }
+  }
+  if (typeof payload?.version === 'string' && payload.version.trim()) {
+    versions.add(payload.version.trim());
+  }
+
+  return Array.from(versions).map(version => {
+    const parsed = parseSemver(version);
+    return {
+      version,
+      preRelease: parsed ? parsed.minor % 2 === 1 : false,
+      source: 'open-vsx'
+    };
+  });
+}
+
+export async function fetchOpenVsxVersions(
+  extensionId,
+  {
+    fetchImpl = globalThis.fetch
+  } = {}
+) {
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('fetch is unavailable; cannot query Open VSX versions');
+  }
+
+  const url = openVsxApiUrlForExtension(extensionId);
+  const response = await fetchImpl(url, {
+    headers: {
+      accept: 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Open VSX version query failed for ${extensionId}: HTTP ${response.status}`);
+  }
+
+  return versionsFromOpenVsxPayload(await response.json());
+}
+
 function parseArgs(argv) {
   const options = {
     manifestPath: 'apps/vscode-extension/package.json'
@@ -154,14 +219,16 @@ function parseArgs(argv) {
   return options;
 }
 
-export function main(
+export async function main(
   argv = process.argv.slice(2),
   {
     cwd = process.cwd(),
     stdout = process.stdout,
+    stderr = process.stderr,
     spawnSyncImpl = spawnSync,
     vsceCliPath,
-    processExecPath = process.execPath
+    processExecPath = process.execPath,
+    fetchImpl = globalThis.fetch
   } = {}
 ) {
   const { manifestPath } = parseArgs(argv);
@@ -173,7 +240,17 @@ export function main(
     processExecPath,
     cwd
   });
-  const nextVersion = computeNextPrereleaseVersion({ baseVersion, marketplaceVersions });
+  let openVsxVersions = [];
+  try {
+    openVsxVersions = await fetchOpenVsxVersions(extensionId, { fetchImpl });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stderr.write(`Warning: ${message}; continuing with VS Code Marketplace versions only.\n`);
+  }
+  const nextVersion = computeNextPrereleaseVersion({
+    baseVersion,
+    publishedVersions: [...marketplaceVersions, ...openVsxVersions]
+  });
 
   stdout.write(nextVersion);
   return nextVersion;
@@ -185,7 +262,7 @@ export function isDirectExecution(argvEntry, moduleUrl = import.meta.url) {
 
 if (isDirectExecution(process.argv[1])) {
   try {
-    main();
+    await main();
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
