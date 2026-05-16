@@ -251,6 +251,18 @@ suite('telemetry', () => {
     telemetry.disposeTelemetry();
   });
 
+  test('keeps coarse error code on schema-declared usage error events', () => {
+    const { telemetry, usageEvents } = loadTelemetryModule();
+
+    telemetry.activateTelemetry(createContext(extensionMode.Production));
+    telemetry.safeSendEvent('logs.refresh', { outcome: 'error', code: 'RUNTIME_EXIT' });
+
+    assert.equal(usageEvents.length, 1);
+    assert.equal(usageEvents[0]?.properties?.outcome, 'error');
+    assert.equal(usageEvents[0]?.properties?.code, 'RUNTIME_EXIT');
+    telemetry.disposeTelemetry();
+  });
+
   test('drops usage events that miss required outcome', () => {
     const { telemetry, usageEvents, warnings } = loadTelemetryModule();
 

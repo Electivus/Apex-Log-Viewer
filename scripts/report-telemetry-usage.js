@@ -40,7 +40,8 @@ function buildOutcomeQuery({ componentResourceId, lookback }) {
   return [
     buildScopedBaseQuery({ componentResourceId, lookback }),
     '| extend props = parse_json(Properties)',
-    '| summarize events = sum(coalesce(tolong(ItemCount), 1)) by name = Name, outcome = tostring(props["outcome"])',
+    "| extend outcome = tostring(props['outcome'])",
+    '| summarize events = sum(coalesce(tolong(ItemCount), 1)) by name = Name, outcome',
     '| order by name asc, events desc'
   ].join(' ');
 }
@@ -49,7 +50,7 @@ function buildLatencyQuery({ componentResourceId, lookback }) {
   return [
     buildScopedBaseQuery({ componentResourceId, lookback }),
     '| extend measurements = parse_json(Measurements)',
-    '| extend durationMs = todouble(measurements["durationMs"])',
+    "| extend durationMs = todouble(measurements['durationMs'])",
     '| where isfinite(durationMs)',
     '| summarize avgMs = round(avg(durationMs), 1), p50Ms = percentile(durationMs, 50), p95Ms = percentile(durationMs, 95) by name = Name',
     '| order by p95Ms desc'
@@ -57,11 +58,13 @@ function buildLatencyQuery({ componentResourceId, lookback }) {
 }
 
 function buildCliErrorQuery({ componentResourceId, lookback }) {
+  const cliExec = kqlQuote('electivus.apex-log-viewer/cli.exec');
+  const cliGetOrgAuth = kqlQuote('electivus.apex-log-viewer/cli.getOrgAuth');
   return [
     buildScopedBaseQuery({ componentResourceId, lookback }),
-    '| where Name in ("electivus.apex-log-viewer/cli.exec", "electivus.apex-log-viewer/cli.getOrgAuth")',
+    `| where Name in (${cliExec}, ${cliGetOrgAuth})`,
     '| extend props = parse_json(Properties)',
-    '| summarize events = sum(coalesce(tolong(ItemCount), 1)) by name = Name, code = tostring(props["code"])',
+    "| summarize events = sum(coalesce(tolong(ItemCount), 1)) by name = Name, code = tostring(props['code'])",
     '| order by name asc, events desc'
   ].join(' ');
 }
@@ -78,7 +81,7 @@ function buildExceptionsQuery({ componentResourceId, lookback }) {
 function buildSearchCoverageQuery({ componentResourceId, lookback }) {
   return [
     buildScopedBaseQuery({ componentResourceId, lookback }),
-    '| where Name contains "search" or Name contains "filter"',
+    `| where Name contains ${kqlQuote('search')} or Name contains ${kqlQuote('filter')}`,
     '| summarize events = sum(coalesce(tolong(ItemCount), 1))'
   ].join(' ');
 }
@@ -138,40 +141,58 @@ async function main() {
   const workspace = await resolveWorkspaceInfo(config);
 
   const topEvents = toRows(
-    await queryWorkspace(workspace.workspaceCustomerId, buildTopEventsQuery({
-      componentResourceId: component.id,
-      lookback: config.lookback
-    }))
+    await queryWorkspace(
+      workspace.workspaceCustomerId,
+      buildTopEventsQuery({
+        componentResourceId: component.id,
+        lookback: config.lookback
+      })
+    )
   );
   const outcomes = toRows(
-    await queryWorkspace(workspace.workspaceCustomerId, buildOutcomeQuery({
-      componentResourceId: component.id,
-      lookback: config.lookback
-    }))
+    await queryWorkspace(
+      workspace.workspaceCustomerId,
+      buildOutcomeQuery({
+        componentResourceId: component.id,
+        lookback: config.lookback
+      })
+    )
   );
   const latencies = toRows(
-    await queryWorkspace(workspace.workspaceCustomerId, buildLatencyQuery({
-      componentResourceId: component.id,
-      lookback: config.lookback
-    }))
+    await queryWorkspace(
+      workspace.workspaceCustomerId,
+      buildLatencyQuery({
+        componentResourceId: component.id,
+        lookback: config.lookback
+      })
+    )
   );
   const cliErrors = toRows(
-    await queryWorkspace(workspace.workspaceCustomerId, buildCliErrorQuery({
-      componentResourceId: component.id,
-      lookback: config.lookback
-    }))
+    await queryWorkspace(
+      workspace.workspaceCustomerId,
+      buildCliErrorQuery({
+        componentResourceId: component.id,
+        lookback: config.lookback
+      })
+    )
   );
   const exceptions = toRows(
-    await queryWorkspace(workspace.workspaceCustomerId, buildExceptionsQuery({
-      componentResourceId: component.id,
-      lookback: config.lookback
-    }))
+    await queryWorkspace(
+      workspace.workspaceCustomerId,
+      buildExceptionsQuery({
+        componentResourceId: component.id,
+        lookback: config.lookback
+      })
+    )
   );
   const searchCoverage = toRows(
-    await queryWorkspace(workspace.workspaceCustomerId, buildSearchCoverageQuery({
-      componentResourceId: component.id,
-      lookback: config.lookback
-    }))
+    await queryWorkspace(
+      workspace.workspaceCustomerId,
+      buildSearchCoverageQuery({
+        componentResourceId: component.id,
+        lookback: config.lookback
+      })
+    )
   );
 
   const latencyByName = rowsByName(latencies);
@@ -212,15 +233,36 @@ async function main() {
   console.log(`- AppExceptions rows: ${exceptionCount}`);
 
   console.log('\nSuggested documentation focus');
-  console.log('- Salesforce CLI install, PATH validation, org auth, and troubleshooting should stay first if CLI/auth buckets dominate.');
-  console.log('- The core workflow should stay explicit: select org, refresh logs, open viewer, tail logs, then cleanup/download as secondary paths.');
-  console.log('- Debug Levels and Debug Flags deserve a troubleshooting section if debugLevels.load keeps a high error rate or slow p95 latency.');
+  console.log(
+    '- Salesforce CLI install, PATH validation, org auth, and troubleshooting should stay first if CLI/auth buckets dominate.'
+  );
+  console.log(
+    '- The core workflow should stay explicit: select org, refresh logs, open viewer, tail logs, then cleanup/download as secondary paths.'
+  );
+  console.log(
+    '- Debug Levels and Debug Flags deserve a troubleshooting section if debugLevels.load keeps a high error rate or slow p95 latency.'
+  );
   if (searchEvents === 0) {
-    console.log('- Search/filter still has no dedicated telemetry signal in this component; add instrumentation before treating it as a measured adoption area.');
+    console.log(
+      '- Search/filter still has no dedicated telemetry signal in this component; add instrumentation before treating it as a measured adoption area.'
+    );
   }
 }
 
-main().catch(error => {
-  console.error('[telemetry-report] Failed:', error && error.message ? error.message : error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(error => {
+    console.error('[telemetry-report] Failed:', error && error.message ? error.message : error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  buildCliErrorQuery,
+  buildExceptionsQuery,
+  buildLatencyQuery,
+  buildOutcomeQuery,
+  buildScopedBaseQuery,
+  buildSearchCoverageQuery,
+  buildTopEventsQuery,
+  main
+};

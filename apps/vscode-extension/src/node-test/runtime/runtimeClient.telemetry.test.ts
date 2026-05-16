@@ -116,8 +116,14 @@ suite('runtime client telemetry', () => {
         'logs_resolve_cached_path'
       ]
     );
-    assert.equal(events.every(event => event.name === 'daemon.request'), true);
-    assert.equal(events.every(event => event.properties?.outcome === 'ok'), true);
+    assert.equal(
+      events.every(event => event.name === 'daemon.request'),
+      true
+    );
+    assert.equal(
+      events.every(event => event.properties?.outcome === 'ok'),
+      true
+    );
   });
 
   test('emits cancelled telemetry for pre-aborted runtime calls', async () => {
@@ -172,5 +178,44 @@ suite('runtime client telemetry', () => {
     assert.equal(events[0]?.name, 'daemon.request');
     assert.equal(events[0]?.measurements?.attempts, 1);
     assert.equal(Number.isFinite(events[0]?.measurements?.durationMs), true);
+  });
+
+  test('emits coarse error code for failed runtime calls', async () => {
+    const events: Array<{
+      name: string;
+      properties?: Record<string, string>;
+      measurements?: Record<string, number>;
+    }> = [];
+
+    const { RuntimeClient } = proxyquireStrict('../../runtime/runtimeClient', {
+      '../shared/telemetry': {
+        safeSendEvent: (name: string, properties?: Record<string, string>, measurements?: Record<string, number>) => {
+          events.push({ name, properties, measurements });
+        },
+        '@noCallThru': true
+      },
+      '../../../../src/utils/logger': {
+        logTrace: () => undefined,
+        '@noCallThru': true
+      },
+      '../../../../src/salesforce/path': {
+        getLoginShellEnv: async () => undefined,
+        '@noCallThru': true
+      }
+    }) as typeof import('../../runtime/runtimeClient');
+
+    const client = new RuntimeClient({
+      requestHandler: async () => {
+        throw new Error('runtime exited (code 1)');
+      }
+    });
+
+    await assert.rejects(client.logsList());
+
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.properties?.method, 'logs_list');
+    assert.equal(events[0]?.properties?.outcome, 'error');
+    assert.equal(events[0]?.properties?.code, 'RUNTIME_EXIT');
+    assert.equal(events[0]?.name, 'daemon.request');
   });
 });

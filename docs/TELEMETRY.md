@@ -69,7 +69,7 @@ Volume by event in the last 30 days:
 ```kusto
 AppEvents
 | where TimeGenerated > ago(30d)
-| where _ResourceId =~ "<prod-component-resource-id>"
+| where _ResourceId =~ '<prod-component-resource-id>'
 | summarize count() by Name
 | order by count_ desc
 ```
@@ -79,9 +79,10 @@ Breakdown by outcome:
 ```kusto
 AppEvents
 | where TimeGenerated > ago(30d)
-| where _ResourceId =~ "<prod-component-resource-id>"
+| where _ResourceId =~ '<prod-component-resource-id>'
 | extend props = parse_json(Properties)
-| summarize count() by Name, outcome = tostring(props["outcome"])
+| extend outcome = tostring(props['outcome'])
+| summarize count() by Name, outcome
 | order by Name asc, count_ desc
 ```
 
@@ -90,9 +91,9 @@ Performance by event:
 ```kusto
 AppEvents
 | where TimeGenerated > ago(30d)
-| where _ResourceId =~ "<prod-component-resource-id>"
+| where _ResourceId =~ '<prod-component-resource-id>'
 | extend meas = parse_json(Measurements)
-| extend durationMs = todouble(meas["durationMs"])
+| extend durationMs = todouble(meas['durationMs'])
 | where isfinite(durationMs)
 | summarize avgMs = avg(durationMs), p50Ms = percentile(durationMs, 50), p95Ms = percentile(durationMs, 95) by Name
 | order by p95Ms desc
@@ -103,12 +104,12 @@ Search latency by query bucket:
 ```kusto
 AppEvents
 | where TimeGenerated > ago(30d)
-| where _ResourceId =~ "<prod-component-resource-id>"
-| where Name == "electivus.apex-log-viewer/logs.search"
+| where _ResourceId =~ '<prod-component-resource-id>'
+| where Name == 'electivus.apex-log-viewer/logs.search'
 | extend props = parse_json(Properties), meas = parse_json(Measurements)
-| extend queryLength = tostring(props["queryLength"]), outcome = tostring(props["outcome"]), durationMs = todouble(meas["durationMs"])
-| where outcome in ("searched", "error")
-| summarize total = count(), errors = countif(outcome == "error"), p95Ms = percentile(durationMs, 95) by queryLength
+| extend queryLength = tostring(props['queryLength']), outcome = tostring(props['outcome']), durationMs = todouble(meas['durationMs'])
+| where outcome in ('searched', 'error')
+| summarize total = count(), errors = countif(outcome == 'error'), p95Ms = percentile(durationMs, 95) by queryLength
 | order by queryLength asc
 ```
 
@@ -117,12 +118,12 @@ Daemon request latency by method:
 ```kusto
 AppEvents
 | where TimeGenerated > ago(30d)
-| where _ResourceId =~ "<prod-component-resource-id>"
-| where Name == "electivus.apex-log-viewer/daemon.request"
+| where _ResourceId =~ '<prod-component-resource-id>'
+| where Name == 'electivus.apex-log-viewer/daemon.request'
 | extend props = parse_json(Properties), meas = parse_json(Measurements)
-| extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(meas["durationMs"]), attempts = todouble(meas["attempts"])
-| extend method = case(method == "<REDACTED: user-file-path>", "legacy_redacted_path", method)
-| summarize total = count(), errors = countif(outcome == "error"), retries = countif(attempts > 1), p95Ms = percentile(durationMs, 95) by method
+| extend method = tostring(props['method']), outcome = tostring(props['outcome']), durationMs = todouble(meas['durationMs']), attempts = todouble(meas['attempts'])
+| extend method = case(method == '<REDACTED: user-file-path>', 'legacy_redacted_path', method)
+| summarize total = count(), errors = countif(outcome == 'error'), retries = countif(attempts > 1), p95Ms = percentile(durationMs, 95) by method
 | order by p95Ms desc
 ```
 
@@ -131,10 +132,10 @@ Version and platform split for activations:
 ```kusto
 AppEvents
 | where TimeGenerated > ago(30d)
-| where _ResourceId =~ "<prod-component-resource-id>"
-| where Name endswith "extension.activate"
+| where _ResourceId =~ '<prod-component-resource-id>'
+| where Name endswith 'extension.activate'
 | extend props = parse_json(Properties)
-| summarize count() by tostring(props["common.extversion"]), tostring(props["common.os"])
+| summarize count() by tostring(props['common.extversion']), tostring(props['common.os'])
 | order by count_ desc
 ```
 
@@ -143,9 +144,9 @@ Schema hygiene checks:
 ```kusto
 AppEvents
 | where TimeGenerated > ago(30d)
-| where _ResourceId =~ "<prod-component-resource-id>"
+| where _ResourceId =~ '<prod-component-resource-id>'
 | extend props = parse_json(Properties)
-| summarize missingOutcome = countif(isempty(tostring(props["outcome"]))) by Name
+| summarize missingOutcome = countif(isempty(tostring(props['outcome']))) by Name
 | where missingOutcome > 0
 ```
 
@@ -154,9 +155,9 @@ Dedicated E2E run validation:
 ```kusto
 AppEvents
 | where TimeGenerated > ago(2h)
-| where _ResourceId =~ "<e2e-component-resource-id>"
+| where _ResourceId =~ '<e2e-component-resource-id>'
 | extend props = parse_json(Properties)
-| where tostring(props["testRunId"]) == "<run-id>"
+| where tostring(props['testRunId']) == '<run-id>'
 | summarize count() by Name
 | order by count_ desc
 ```

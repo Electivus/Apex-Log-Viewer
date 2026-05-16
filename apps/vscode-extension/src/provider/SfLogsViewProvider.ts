@@ -11,6 +11,7 @@ import {
 } from '../shared/messages';
 import { logInfo, logWarn, logError, logTrace } from '../../../../src/utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
+import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
 import { buildWebviewHtml } from '../../../../src/utils/webviewHtml';
 import { getErrorMessage } from '../../../../src/utils/error';
 import { LogService, type EnsureLogsSavedSummary } from '../../../../src/services/logService';
@@ -40,6 +41,7 @@ export const WEBVIEW_STABLE_VISIBILITY_DELAY_MS = 1000;
 export const WEBVIEW_READY_TIMEOUT_MS = 30000;
 const WEBVIEW_REPLAY_RETRY_DELAY_MS = 250;
 const WEBVIEW_REPLAY_MAX_RETRIES = 3;
+const BACKGROUND_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
 const LOGS_REPLAYABLE_VISIBLE_UPDATE_TYPES = new Set<ExtensionToWebviewMessage['type']>([
   'loading',
   'error',
@@ -137,6 +139,12 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   private searchToken = 0;
   private searchAbortController: AbortController | undefined;
   private backgroundSyncAbortController: AbortController | undefined;
+  private lastSuccessfulBackgroundSync:
+    | {
+        finishedAt: number;
+        keys: string[];
+      }
+    | undefined;
   private purgePromise: Promise<void> | undefined;
   private readonly logCacheMaxAgeMs = 1000 * 60 * 60 * 24;
   private logsColumns: NormalizedLogsColumnsConfig = DEFAULT_LOGS_COLUMNS_CONFIG;
@@ -342,7 +350,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           this.purgeLogCache(controller.signal);
           const authPromise = authHandle.handoff();
           this.startAuthHydration(logs, authPromise, token, selectedOrg, controller.signal);
-          this.startBackgroundSync(selectedOrg, false, token, controller.signal);
+          this.startBackgroundSync(selectedOrg, false, token, controller.signal, {
+            resolvedOrgForKey: authPromise.then(auth => auth.username || undefined)
+          });
           if (this.lastSearchQuery.trim()) {
             this.rerunActiveSearch();
           } else {
@@ -359,7 +369,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             this.post({ type: 'error', message: msg });
             try {
               const durationMs = Date.now() - t0;
-              safeSendEvent('logs.refresh', { outcome: 'error' }, { durationMs, pageSize: this.pageLimit });
+              safeSendEvent(
+                'logs.refresh',
+                { outcome: 'error', code: getTelemetryErrorCode(e) },
+                { durationMs, pageSize: this.pageLimit }
+              );
             } catch {}
           }
         } finally {
@@ -412,7 +426,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       this.purgeLogCache();
       const authPromise = authHandle.handoff();
       this.startAuthHydration(logs, authPromise, token, selectedOrg);
-      this.startBackgroundSync(selectedOrg, false, token);
+      this.startBackgroundSync(selectedOrg, false, token, undefined, {
+        resolvedOrgForKey: authPromise.then(auth => auth.username || undefined)
+      });
       this.rerunActiveSearch();
       try {
         const durationMs = Date.now() - t0;
@@ -478,7 +494,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     selectedOrg: string | undefined,
     forceFull: boolean,
     refreshToken: number,
-    parentSignal?: AbortSignal
+    parentSignal?: AbortSignal,
+    options?: { resolvedOrgForKey?: Promise<string | undefined> }
   ): void {
     if (this.bulkDownloadInProgress || parentSignal?.aborted) {
       return;
@@ -502,24 +519,63 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       );
     }
 
-    const workspaceRoot = getWorkspaceRoot();
-    void runtimeClient
-      .logsSync(
-        {
-          targetOrg: selectedOrg,
-          workspaceRoot,
-          forceFull,
-          concurrency: this.getBackgroundSyncConcurrency()
-        },
-        controller.signal
-      )
-      .then(result => {
-        if (
-          controller.signal.aborted ||
-          refreshToken !== this.refreshToken ||
-          this.disposed ||
-          this.backgroundSyncAbortController !== controller
-        ) {
+    void (async () => {
+      const workspaceRoot = getWorkspaceRoot();
+      const makeCooldownKey = (org?: string) => {
+        const normalizedOrg = org?.trim();
+        return !forceFull && normalizedOrg ? `${workspaceRoot || ''}\u0000${normalizedOrg}` : undefined;
+      };
+      const isCurrentBackgroundSync = () =>
+        !controller.signal.aborted &&
+        refreshToken === this.refreshToken &&
+        !this.disposed &&
+        this.backgroundSyncAbortController === controller;
+      const isRecentCooldown = (key: string) =>
+        this.lastSuccessfulBackgroundSync?.keys.includes(key) === true &&
+        Date.now() - this.lastSuccessfulBackgroundSync.finishedAt < BACKGROUND_SYNC_COOLDOWN_MS;
+      const startCooldownScan = () => {
+        this.startErrorScanForCurrentLogs(refreshToken, parentSignal, { rerunSearchOnComplete: true });
+      };
+      let syncCompleted = false;
+
+      try {
+        const selectedCooldownKey = makeCooldownKey(selectedOrg);
+        if (!isCurrentBackgroundSync()) {
+          return;
+        }
+        if (selectedCooldownKey && isRecentCooldown(selectedCooldownKey)) {
+          startCooldownScan();
+          controller.abort();
+          return;
+        }
+
+        if (!selectedCooldownKey && options?.resolvedOrgForKey) {
+          void options.resolvedOrgForKey
+            .then(resolvedOrg => {
+              if (syncCompleted || !isCurrentBackgroundSync()) {
+                return;
+              }
+              const resolvedCooldownKey = makeCooldownKey(resolvedOrg);
+              if (!resolvedCooldownKey || !isRecentCooldown(resolvedCooldownKey)) {
+                return;
+              }
+              startCooldownScan();
+              controller.abort();
+            })
+            .catch(() => undefined);
+        }
+
+        const result = await runtimeClient.logsSync(
+          {
+            targetOrg: selectedOrg,
+            workspaceRoot,
+            forceFull,
+            concurrency: this.getBackgroundSyncConcurrency()
+          },
+          controller.signal
+        );
+        syncCompleted = true;
+        if (!isCurrentBackgroundSync()) {
           return;
         }
         logInfo('Logs: background sync finished', {
@@ -532,28 +588,38 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         if (result.index_error) {
           logWarn('Logs: background sync index warning ->', result.index_error);
         }
+        const cooldownKeys = new Set<string>();
+        if (selectedCooldownKey) {
+          cooldownKeys.add(selectedCooldownKey);
+        }
+        const resolvedCooldownKey = makeCooldownKey(result.target_org);
+        if (resolvedCooldownKey) {
+          cooldownKeys.add(resolvedCooldownKey);
+        }
+        if (result.status === 'success' && cooldownKeys.size > 0) {
+          this.lastSuccessfulBackgroundSync = {
+            finishedAt: Date.now(),
+            keys: Array.from(cooldownKeys)
+          };
+        }
         this.startErrorScanForCurrentLogs(refreshToken, controller.signal);
         this.rerunActiveSearch();
-      })
-      .catch(error => {
+      } catch (error) {
+        syncCompleted = true;
         if (controller.signal.aborted) {
           return;
         }
         logWarn('Logs: background sync failed ->', getErrorMessage(error));
-        if (
-          refreshToken !== this.refreshToken ||
-          this.disposed ||
-          this.backgroundSyncAbortController !== controller
-        ) {
+        if (refreshToken !== this.refreshToken || this.disposed || this.backgroundSyncAbortController !== controller) {
           return;
         }
         this.startErrorScanForCurrentLogs(refreshToken, controller.signal);
-      })
-      .finally(() => {
+      } finally {
         if (this.backgroundSyncAbortController === controller) {
           this.backgroundSyncAbortController = undefined;
         }
-      });
+      }
+    })();
   }
 
   private observeDeferredAuth(params: { username?: string }): { handoff: () => Promise<OrgAuth> } {
@@ -671,7 +737,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
   }
 
-  private startErrorScanForCurrentLogs(refreshToken: number, parentSignal?: AbortSignal): void {
+  private startErrorScanForCurrentLogs(
+    refreshToken: number,
+    parentSignal?: AbortSignal,
+    options?: { rerunSearchOnComplete?: boolean }
+  ): void {
     this.cancelErrorScan();
     const scanToken = this.errorScanToken;
     if (parentSignal?.aborted) {
@@ -800,6 +870,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           },
           { force: true }
         );
+        if (options?.rerunSearchOnComplete) {
+          this.rerunActiveSearch();
+        }
       } catch (e) {
         if (!controller.signal.aborted) {
           logWarn('Logs: org error scan failed ->', getErrorMessage(e));
@@ -1408,7 +1481,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             this.post({ type: 'orgs', data: [], selected: this.orgManager.getSelectedOrg() });
             try {
               const durationMs = Date.now() - t0;
-              safeSendEvent('orgs.list', { outcome: 'error', view: 'logs' }, { durationMs });
+              safeSendEvent(
+                'orgs.list',
+                { outcome: 'error', view: 'logs', code: getTelemetryErrorCode(e) },
+                { durationMs }
+              );
             } catch {}
           }
         }

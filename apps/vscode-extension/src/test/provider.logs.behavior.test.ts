@@ -55,21 +55,21 @@ function createProviderHarness() {
   };
   const runtimeClientStub: any = {
     orgList: async () => [],
-	    getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' }),
-	    logsList: async () => [],
-	    searchQuery: async () => ({ logIds: [], snippets: {}, pendingLogIds: [] }),
-	    logsTriage: async () => [],
-	    logsSync: async () => ({
-	      status: 'success',
-	      downloaded: 0,
-	      cached: 0,
-	      failed: 0,
-	      indexed: 0,
-	      checkpoint_advanced: false,
-	      state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-	      index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
-	    })
-	  };
+    getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' }),
+    logsList: async () => [],
+    searchQuery: async () => ({ logIds: [], snippets: {}, pendingLogIds: [] }),
+    logsTriage: async () => [],
+    logsSync: async () => ({
+      status: 'success',
+      downloaded: 0,
+      cached: 0,
+      failed: 0,
+      indexed: 0,
+      checkpoint_advanced: false,
+      state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+      index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+    })
+  };
   const cliStub: any = runtimeClientStub;
   const vscodeMock: any = {
     Uri: {
@@ -195,17 +195,17 @@ function createProviderHarness() {
       '@noCallThru': true
     },
     '../../../../src/utils/workspace': workspaceStub,
+    '../../../../src/services/apexLogCleanup': {
+      clearApexLogs: async () => ({ deleted: 0, failed: 0, total: 0 }),
+      '@noCallThru': true
+    },
     '../runtime/runtimeClient': { runtimeClient: runtimeClientStub },
     '../utils/orgManager': { OrgManager: OrgManagerStub },
     '../../../../src/utils/configManager': { ConfigManager: ConfigManagerStub },
     '../../../../src/services/logService': { LogService: LogServiceStub },
     '../panel/DebugFlagsPanel': { DebugFlagsPanel: debugFlagsPanelStub },
     '../shared/telemetry': {
-      safeSendEvent: (
-        name: string,
-        properties?: Record<string, string>,
-        measurements?: Record<string, number>
-      ) => {
+      safeSendEvent: (name: string, properties?: Record<string, string>, measurements?: Record<string, number>) => {
         telemetryEvents.push({ name, properties, measurements });
       },
       '@noCallThru': true
@@ -257,10 +257,37 @@ suite('SfLogsViewProvider behavior', () => {
       rejectAuth?.(new Error('auth failed after refresh error'));
       await new Promise(resolve => setTimeout(resolve, 0));
       assert.equal(unhandled, undefined);
-      assert.equal(posted.some(message => message?.type === 'error'), true);
+      assert.equal(
+        posted.some(message => message?.type === 'error'),
+        true
+      );
     } finally {
       process.removeListener('unhandledRejection', onUnhandled);
     }
+  });
+
+  test('refresh emits coarse error code when logs listing fails', async () => {
+    const { SfLogsViewProvider, cli, telemetryEvents } = createProviderHarness();
+    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => {
+      const error = new Error('runtime exited (code 1)') as Error & { code?: string };
+      error.code = 'EPIPE';
+      throw error;
+    };
+
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).view = {
+      webview: {
+        postMessage: () => Promise.resolve(true)
+      }
+    } as any;
+
+    await provider.refresh();
+
+    const refreshTelemetry = telemetryEvents.filter(event => event.name === 'logs.refresh').pop();
+    assert.equal(refreshTelemetry?.properties?.outcome, 'error');
+    assert.equal(refreshTelemetry?.properties?.code, 'RUNTIME_EXIT');
   });
 
   test('loadMore handles deferred auth rejection when logs listing fails', async () => {
@@ -296,7 +323,10 @@ suite('SfLogsViewProvider behavior', () => {
       rejectAuth?.(new Error('auth failed after loadMore error'));
       await new Promise(resolve => setTimeout(resolve, 0));
       assert.equal(unhandled, undefined);
-      assert.equal(posted.some(message => message?.type === 'error'), true);
+      assert.equal(
+        posted.some(message => message?.type === 'error'),
+        true
+      );
     } finally {
       process.removeListener('unhandledRejection', onUnhandled);
     }
@@ -354,13 +384,10 @@ suite('SfLogsViewProvider behavior', () => {
     }
   });
 
-	  test('refresh starts shared background sync after listing logs', async () => {
-	    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
-	    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-	    cli.logsList = async () => [
-	      { Id: '07L000000000001AA' },
-      { Id: '07L000000000002AA' }
-    ];
+  test('refresh starts shared background sync after listing logs', async () => {
+    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [{ Id: '07L000000000001AA' }, { Id: '07L000000000002AA' }];
 
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
@@ -369,57 +396,212 @@ suite('SfLogsViewProvider behavior', () => {
       webview: {
         postMessage: () => Promise.resolve(true)
       }
-	    } as any;
-	    (provider as any).logService.loadLogHeads = () => {};
+    } as any;
+    (provider as any).logService.loadLogHeads = () => {};
 
-	    const syncCalls: Array<{ params: any; signal?: AbortSignal }> = [];
-	    cli.logsSync = async (params: any, signal?: AbortSignal) => {
-	      syncCalls.push({ params, signal });
-	      return {
-	        status: 'success',
-	        downloaded: 2,
-	        cached: 0,
-	        failed: 0,
-	        indexed: 2,
-	        checkpoint_advanced: true,
-	        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-	        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
-	      };
-	    };
-	    const purged: Array<{ keepIds?: Set<string>; maxAgeMs?: number; signal?: AbortSignal }> = [];
-	    workspace.purgeSavedLogs = async (opts: any) => {
-	      purged.push(opts);
-	      return 3;
-	    };
+    const syncCalls: Array<{ params: any; signal?: AbortSignal }> = [];
+    cli.logsSync = async (params: any, signal?: AbortSignal) => {
+      syncCalls.push({ params, signal });
+      return {
+        status: 'success',
+        downloaded: 2,
+        cached: 0,
+        failed: 0,
+        indexed: 2,
+        checkpoint_advanced: true,
+        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+      };
+    };
+    const purged: Array<{ keepIds?: Set<string>; maxAgeMs?: number; signal?: AbortSignal }> = [];
+    workspace.purgeSavedLogs = async (opts: any) => {
+      purged.push(opts);
+      return 3;
+    };
 
-	    await provider.refresh();
-	    await waitForCondition(() => syncCalls.length === 1);
+    await provider.refresh();
+    await waitForCondition(() => syncCalls.length === 1);
 
-	    assert.deepEqual(syncCalls[0]?.params, {
-	      targetOrg: undefined,
-	      workspaceRoot: '/tmp/alv-workspace',
-	      forceFull: false,
-	      concurrency: 3
-	    });
-	    assert.equal(typeof syncCalls[0]?.signal?.aborted, 'boolean', 'should pass abort signal to runtime sync');
-	    assert.equal(purged.length, 1, 'should purge cached logs after refresh');
-	    const keepIds = Array.from(purged[0]?.keepIds ?? []);
-    assert.deepEqual(
-      keepIds.sort(),
-      ['07L000000000001AA', '07L000000000002AA'],
-      'purge should keep current log ids'
-    );
+    assert.deepEqual(syncCalls[0]?.params, {
+      targetOrg: undefined,
+      workspaceRoot: '/tmp/alv-workspace',
+      forceFull: false,
+      concurrency: 3
+    });
+    assert.equal(typeof syncCalls[0]?.signal?.aborted, 'boolean', 'should pass abort signal to runtime sync');
+    assert.equal(purged.length, 1, 'should purge cached logs after refresh');
+    const keepIds = Array.from(purged[0]?.keepIds ?? []);
+    assert.deepEqual(keepIds.sort(), ['07L000000000001AA', '07L000000000002AA'], 'purge should keep current log ids');
   });
 
-	  test('refresh scans visible logs for errors after background sync completes', async () => {
-	    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
-	    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-	    cli.logsList = async () => [
+  test('refresh skips redundant background sync after a recent successful sync', async () => {
+    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [{ Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 }];
+    workspace.purgeSavedLogs = async () => 0;
+
+    const syncCalls: any[] = [];
+    cli.logsSync = async (params: any) => {
+      syncCalls.push(params);
+      return {
+        status: 'success',
+        target_org: 'u',
+        safe_target_org: 'u',
+        downloaded: 1,
+        cached: 0,
+        failed: 0,
+        indexed: 1,
+        checkpoint_advanced: true,
+        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+      };
+    };
+    const triageCalls: any[] = [];
+    let releaseSecondTriage: (() => void) | undefined;
+    cli.logsTriage = async (params: any) => {
+      triageCalls.push(params);
+      if (triageCalls.length === 2) {
+        await new Promise<void>(resolve => {
+          releaseSecondTriage = resolve;
+        });
+      }
+      return [];
+    };
+
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).orgManager.setSelectedOrg('u');
+    (provider as any).lastSearchQuery = 'error';
+    const searchCalls: string[] = [];
+    (provider as any).executeSearch = async (query: string) => {
+      searchCalls.push(query);
+    };
+    (provider as any).logService.loadLogHeads = () => {};
+    (provider as any).view = {
+      webview: {
+        postMessage: () => Promise.resolve(true)
+      }
+    } as any;
+
+    await provider.refresh();
+    await waitForCondition(() => syncCalls.length === 1 && triageCalls.length === 1 && searchCalls.length >= 2);
+    const searchCallsBeforeCooldown = searchCalls.length;
+
+    await provider.refresh();
+    await waitForCondition(() => triageCalls.length >= 2 && searchCalls.length === searchCallsBeforeCooldown + 1);
+
+    assert.equal(syncCalls.length, 1, 'second refresh should reuse the recent background sync result');
+    assert.equal(
+      searchCalls.length,
+      searchCallsBeforeCooldown + 1,
+      'cooldown branch should not duplicate the caller search rerun'
+    );
+
+    releaseSecondTriage?.();
+    await waitForCondition(() => searchCalls.length === searchCallsBeforeCooldown + 2);
+  });
+
+  test('refresh does not reuse background sync cooldown after default org changes', async () => {
+    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+    let authUsername = 'first@example.test';
+    cli.getOrgAuth = async () => ({ username: authUsername, instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [{ Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 }];
+    workspace.purgeSavedLogs = async () => 0;
+
+    const syncCalls: any[] = [];
+    cli.logsSync = async (params: any) => {
+      syncCalls.push(params);
+      return {
+        status: 'success',
+        target_org: authUsername,
+        safe_target_org: authUsername,
+        downloaded: 1,
+        cached: 0,
+        failed: 0,
+        indexed: 1,
+        checkpoint_advanced: true,
+        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+      };
+    };
+    cli.logsTriage = async () => [];
+
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).logService.loadLogHeads = () => {};
+    (provider as any).view = {
+      webview: {
+        postMessage: () => Promise.resolve(true)
+      }
+    } as any;
+
+    await provider.refresh();
+    await waitForCondition(() => syncCalls.length === 1);
+
+    authUsername = 'second@example.test';
+    await provider.refresh();
+    await waitForCondition(() => syncCalls.length === 2);
+
+    assert.equal(syncCalls.length, 2, 'default org changes should not reuse the prior org sync cooldown');
+  });
+
+  test('refresh starts default-org background sync before auth cooldown key resolves', async () => {
+    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+    let resolveAuth: ((auth: { username: string; instanceUrl: string; accessToken: string }) => void) | undefined;
+    cli.getOrgAuth = async () =>
+      await new Promise(resolve => {
+        resolveAuth = resolve;
+      });
+    cli.logsList = async () => [{ Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 }];
+    workspace.purgeSavedLogs = async () => 0;
+
+    const syncCalls: any[] = [];
+    cli.logsSync = async (params: any) => {
+      syncCalls.push(params);
+      return {
+        status: 'success',
+        target_org: 'default@example.test',
+        safe_target_org: 'default@example.test',
+        downloaded: 1,
+        cached: 0,
+        failed: 0,
+        indexed: 1,
+        checkpoint_advanced: true,
+        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+      };
+    };
+    cli.logsTriage = async () => [];
+
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).logService.loadLogHeads = () => {};
+    (provider as any).view = {
+      webview: {
+        postMessage: () => Promise.resolve(true)
+      }
+    } as any;
+
+    await provider.refresh();
+    await waitForCondition(() => syncCalls.length === 1);
+
+    assert.equal(syncCalls.length, 1, 'background sync should not wait for deferred auth');
+    resolveAuth?.({ username: 'default@example.test', instanceUrl: 'i', accessToken: 't' });
+  });
+
+  test('refresh scans visible logs for errors after background sync completes', async () => {
+    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [
       { Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 },
       { Id: '07L000000000002AA', StartTime: '2026-03-30T18:40:58.000Z', LogLength: 20 }
     ];
     const triageCalls: Array<{ logIds: string[]; logStartTimes?: Record<string, string>; workspaceRoot?: string }> = [];
-    cli.logsTriage = async (params: { logIds: string[]; logStartTimes?: Record<string, string>; workspaceRoot?: string }) => {
+    cli.logsTriage = async (params: {
+      logIds: string[];
+      logStartTimes?: Record<string, string>;
+      workspaceRoot?: string;
+    }) => {
       triageCalls.push(params);
       return [
         {
@@ -444,24 +626,24 @@ suite('SfLogsViewProvider behavior', () => {
             hasErrors: false,
             reasons: []
           }
-	        }
-	      ];
-	    };
-	    const syncCalls: any[] = [];
-	    cli.logsSync = async (params: any) => {
-	      syncCalls.push(params);
-	      return {
-	        status: 'success',
-	        downloaded: 2,
-	        cached: 0,
-	        failed: 0,
-	        indexed: 2,
-	        checkpoint_advanced: true,
-	        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-	        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
-	      };
-	    };
-	    workspace.purgeSavedLogs = async () => 0;
+        }
+      ];
+    };
+    const syncCalls: any[] = [];
+    cli.logsSync = async (params: any) => {
+      syncCalls.push(params);
+      return {
+        status: 'success',
+        downloaded: 2,
+        cached: 0,
+        failed: 0,
+        indexed: 2,
+        checkpoint_advanced: true,
+        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+      };
+    };
+    workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
     const posted: any[] = [];
@@ -477,77 +659,77 @@ suite('SfLogsViewProvider behavior', () => {
       }
     } as any;
 
-	    await provider.refresh();
-	    await waitForCondition(() => triageCalls.length === 1);
+    await provider.refresh();
+    await waitForCondition(() => triageCalls.length === 1);
 
-	    const scanRunning = posted.find(m => m?.type === 'errorScanStatus' && m?.state === 'running');
+    const scanRunning = posted.find(m => m?.type === 'errorScanStatus' && m?.state === 'running');
     const scanIdle = posted.find(m => m?.type === 'errorScanStatus' && m?.state === 'idle' && m?.total === 2);
-    const errorHead = posted.find(m => m?.type === 'logHead' && m?.logId === '07L000000000001AA' && m?.hasErrors === true);
+    const errorHead = posted.find(
+      m => m?.type === 'logHead' && m?.logId === '07L000000000001AA' && m?.hasErrors === true
+    );
 
-	    assert.ok(scanRunning, 'should post running scan status');
-	    assert.ok(scanIdle, 'should post idle scan status after completion');
-	    assert.ok(errorHead, 'should mark visible error log in logHead stream');
-	    assert.equal(syncCalls.length, 1, 'should complete shared sync before triage');
-	    assert.equal(errorHead?.primaryReason, 'Fatal exception');
+    assert.ok(scanRunning, 'should post running scan status');
+    assert.ok(scanIdle, 'should post idle scan status after completion');
+    assert.ok(errorHead, 'should mark visible error log in logHead stream');
+    assert.equal(syncCalls.length, 1, 'should complete shared sync before triage');
+    assert.equal(errorHead?.primaryReason, 'Fatal exception');
     assert.equal(errorHead?.reasons?.[0]?.code, 'fatal_exception');
     assert.equal(triageCalls[0]?.workspaceRoot, '/tmp/alv-workspace');
     assert.deepEqual(triageCalls[0]?.logStartTimes, {
       '07L000000000001AA': '2026-03-30T18:39:58.000Z',
       '07L000000000002AA': '2026-03-30T18:40:58.000Z'
     });
-	  });
+  });
 
-	  test('refresh scans visible logs for errors when background sync fails', async () => {
-	    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
-	    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-	    cli.logsList = async () => [
-	      { Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 }
-	    ];
-	    cli.logsSync = async () => {
-	      throw new Error('sync failed');
-	    };
-	    const triageCalls: any[] = [];
-	    cli.logsTriage = async (params: any) => {
-	      triageCalls.push(params);
-	      return [
-	        {
-	          logId: params.logIds[0],
-	          summary: {
-	            hasErrors: true,
-	            primaryReason: 'Fatal exception',
-	            reasons: [{ code: 'fatal_exception', severity: 'error', summary: 'Fatal exception' }]
-	          }
-	        }
-	      ];
-	    };
-	    workspace.purgeSavedLogs = async () => 0;
+  test('refresh scans visible logs for errors when background sync fails', async () => {
+    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [{ Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 }];
+    cli.logsSync = async () => {
+      throw new Error('sync failed');
+    };
+    const triageCalls: any[] = [];
+    cli.logsTriage = async (params: any) => {
+      triageCalls.push(params);
+      return [
+        {
+          logId: params.logIds[0],
+          summary: {
+            hasErrors: true,
+            primaryReason: 'Fatal exception',
+            reasons: [{ code: 'fatal_exception', severity: 'error', summary: 'Fatal exception' }]
+          }
+        }
+      ];
+    };
+    workspace.purgeSavedLogs = async () => 0;
 
-	    const context = makeContext();
-	    const posted: any[] = [];
-	    const provider = new SfLogsViewProvider(context);
-	    (provider as any).logService.loadLogHeads = () => {};
-	    (provider as any).view = {
-	      webview: {
-	        postMessage: (m: any) => {
-	          posted.push(m);
-	          return Promise.resolve(true);
-	        }
-	      }
-	    } as any;
+    const context = makeContext();
+    const posted: any[] = [];
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).logService.loadLogHeads = () => {};
+    (provider as any).view = {
+      webview: {
+        postMessage: (m: any) => {
+          posted.push(m);
+          return Promise.resolve(true);
+        }
+      }
+    } as any;
 
-	    await provider.refresh();
-	    await waitForCondition(() => triageCalls.length === 1);
+    await provider.refresh();
+    await waitForCondition(() => triageCalls.length === 1);
 
-	    assert.ok(
-	      posted.some(m => m?.type === 'logHead' && m?.logId === '07L000000000001AA' && m?.hasErrors === true),
-	      'should still mark visible logs after sync failure'
-	    );
-	  });
+    assert.ok(
+      posted.some(m => m?.type === 'logHead' && m?.logId === '07L000000000001AA' && m?.hasErrors === true),
+      'should still mark visible logs after sync failure'
+    );
+  });
 
-	  test('refresh cancellation aborts background sync', async () => {
-	    const { SfLogsViewProvider, cli, workspace, vscode: vscodeMock } = createProviderHarness();
-	    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-	    cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
+  test('refresh cancellation aborts background sync', async () => {
+    const { SfLogsViewProvider, cli, workspace, vscode: vscodeMock } = createProviderHarness();
+    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
     workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
@@ -563,30 +745,30 @@ suite('SfLogsViewProvider behavior', () => {
           return Promise.resolve(true);
         }
       }
-	    } as any;
+    } as any;
 
-	    let syncSignal: AbortSignal | undefined;
-	    let syncStarted!: () => void;
-	    const started = new Promise<void>(resolve => {
-	      syncStarted = resolve;
-	    });
-	    cli.logsSync = async (_params: any, signal?: AbortSignal) => {
-	      if (signal) {
-	        syncSignal = signal;
-	      }
-	      syncStarted();
-	      await new Promise(resolve => setTimeout(resolve, 30));
-	      return {
-	        status: signal?.aborted ? 'cancelled' : 'success',
-	        downloaded: 0,
-	        cached: 0,
-	        failed: 0,
-	        indexed: 0,
-	        checkpoint_advanced: false,
-	        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-	        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
-	      };
-	    };
+    let syncSignal: AbortSignal | undefined;
+    let syncStarted!: () => void;
+    const started = new Promise<void>(resolve => {
+      syncStarted = resolve;
+    });
+    cli.logsSync = async (_params: any, signal?: AbortSignal) => {
+      if (signal) {
+        syncSignal = signal;
+      }
+      syncStarted();
+      await new Promise(resolve => setTimeout(resolve, 30));
+      return {
+        status: signal?.aborted ? 'cancelled' : 'success',
+        downloaded: 0,
+        cached: 0,
+        failed: 0,
+        indexed: 0,
+        checkpoint_advanced: false,
+        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+      };
+    };
 
     vscodeMock.window.withProgress = async (_opts: any, task: any) => {
       let cancel: (() => void) | undefined;
@@ -603,17 +785,17 @@ suite('SfLogsViewProvider behavior', () => {
       return resultPromise;
     };
 
-	    await provider.refresh();
-	    await new Promise(resolve => setTimeout(resolve, 60));
+    await provider.refresh();
+    await new Promise(resolve => setTimeout(resolve, 60));
 
-	    assert.ok(syncSignal, 'should start shared runtime sync');
-	    assert.equal(syncSignal?.aborted, true, 'sync signal should be aborted when refresh is cancelled');
-	    assert.equal(
-	      posted.some(m => m?.type === 'errorScanStatus' && m?.state === 'running'),
-	      false,
-	      'should not scan when refresh cancellation aborts sync first'
-	    );
-	  });
+    assert.ok(syncSignal, 'should start shared runtime sync');
+    assert.equal(syncSignal?.aborted, true, 'sync signal should be aborted when refresh is cancelled');
+    assert.equal(
+      posted.some(m => m?.type === 'errorScanStatus' && m?.state === 'running'),
+      false,
+      'should not scan when refresh cancellation aborts sync first'
+    );
+  });
 
   test('refresh posts logs before org auth completes', async () => {
     const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
@@ -678,8 +860,7 @@ suite('SfLogsViewProvider behavior', () => {
     const { SfLogsViewProvider, cli, http, workspace } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
-    http.getApiVersionFallbackWarning = () =>
-      'sourceApiVersion 66.0 > org max 64.0; falling back to 64.0';
+    http.getApiVersionFallbackWarning = () => 'sourceApiVersion 66.0 > org max 64.0; falling back to 64.0';
     workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
@@ -700,7 +881,10 @@ suite('SfLogsViewProvider behavior', () => {
     await new Promise(resolve => setTimeout(resolve, 20));
 
     const warnings = posted.filter(m => m?.type === 'warning');
-    assert.ok(warnings.some(m => m.message === undefined), 'should clear warning before refresh');
+    assert.ok(
+      warnings.some(m => m.message === undefined),
+      'should clear warning before refresh'
+    );
     assert.ok(
       warnings.some(m => m.message === 'sourceApiVersion 66.0 > org max 64.0; falling back to 64.0'),
       'should post fallback warning when available'
@@ -826,9 +1010,7 @@ suite('SfLogsViewProvider behavior', () => {
       await (provider as any).setSearchQuery('anything');
       await new Promise(r => setTimeout(r, 20));
 
-      const matches = posted
-        .filter(m => m?.type === 'searchMatches')
-        .pop();
+      const matches = posted.filter(m => m?.type === 'searchMatches').pop();
       assert.ok(matches, 'should post searchMatches even when missing');
       assert.ok(Array.isArray(matches?.pendingLogIds), 'pendingLogIds should be an array');
       assert.deepEqual(matches?.pendingLogIds, ['07L000000000001AA']);
@@ -952,20 +1134,35 @@ suite('SfLogsViewProvider behavior', () => {
       options: vscode.WebviewOptions = {};
       cspSource = 'vscode-resource://test';
       private handler: ((e: any) => any) | undefined;
-      asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
-      postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
-      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
-        this.handler = listener; return { dispose() {} } as any;
+      asWebviewUri(uri: vscode.Uri): vscode.Uri {
+        return uri;
       }
-      emit(message: any) { return this.handler?.(message); }
+      postMessage(_message: any): Thenable<boolean> {
+        return Promise.resolve(true);
+      }
+      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
+        this.handler = listener;
+        return { dispose() {} } as any;
+      }
+      emit(message: any) {
+        return this.handler?.(message);
+      }
     }
     class MockWebviewView implements vscode.WebviewView {
-      visible = true; title = 'Test'; viewType = 'sfLogViewer';
-      description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
-      webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
-      show(): void { /* noop */ }
-      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
-      onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
+      visible = true;
+      title = 'Test';
+      viewType = 'sfLogViewer';
+      description?: string | undefined;
+      badge?: { value: number; tooltip: string } | undefined;
+      webview: vscode.Webview;
+      constructor(webview: vscode.Webview) {
+        this.webview = webview;
+      }
+      show(): void {
+        /* noop */
+      }
+      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} }) as any;
+      onDidDispose: vscode.Event<void> = () => ({ dispose() {} }) as any;
     }
     const webview = new MockWebview();
     const view = new MockWebviewView(webview);
@@ -987,20 +1184,35 @@ suite('SfLogsViewProvider behavior', () => {
       options: vscode.WebviewOptions = {};
       cspSource = 'vscode-resource://test';
       private handler: ((e: any) => any) | undefined;
-      asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
-      postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
-      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
-        this.handler = listener; return { dispose() {} } as any;
+      asWebviewUri(uri: vscode.Uri): vscode.Uri {
+        return uri;
       }
-      emit(message: any) { return this.handler?.(message); }
+      postMessage(_message: any): Thenable<boolean> {
+        return Promise.resolve(true);
+      }
+      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
+        this.handler = listener;
+        return { dispose() {} } as any;
+      }
+      emit(message: any) {
+        return this.handler?.(message);
+      }
     }
     class MockWebviewView implements vscode.WebviewView {
-      visible = true; title = 'Test'; viewType = 'sfLogViewer';
-      description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
-      webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
-      show(): void { /* noop */ }
-      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
-      onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
+      visible = true;
+      title = 'Test';
+      viewType = 'sfLogViewer';
+      description?: string | undefined;
+      badge?: { value: number; tooltip: string } | undefined;
+      webview: vscode.Webview;
+      constructor(webview: vscode.Webview) {
+        this.webview = webview;
+      }
+      show(): void {
+        /* noop */
+      }
+      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} }) as any;
+      onDidDispose: vscode.Event<void> = () => ({ dispose() {} }) as any;
     }
     const webview = new MockWebview();
     const view = new MockWebviewView(webview);
@@ -1009,39 +1221,39 @@ suite('SfLogsViewProvider behavior', () => {
     assert.equal(executed[0], 'abc');
   });
 
-	  test('downloadAllLogs message performs explicit bulk download flow', async () => {
-	    const { SfLogsViewProvider, cli, vscode: vscodeMock } = createProviderHarness();
-	    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-	    const context = makeContext();
+  test('downloadAllLogs message performs explicit bulk download flow', async () => {
+    const { SfLogsViewProvider, cli, vscode: vscodeMock } = createProviderHarness();
+    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    const context = makeContext();
     const provider = new SfLogsViewProvider(context);
     (provider as any).lastSearchQuery = 'error';
-	    (provider as any).configManager.getPageLimit = () => 2;
+    (provider as any).configManager.getPageLimit = () => 2;
 
-	    const callOrder: string[] = [];
-	    const syncCalls: Array<{ params: any; signal?: AbortSignal }> = [];
-	    cli.logsSync = async (params: any, signal?: AbortSignal) => {
-	      callOrder.push('sync');
-	      syncCalls.push({ params, signal });
-	      if (signal) {
-	        assert.equal(typeof signal.aborted, 'boolean');
-	      }
-	      return {
-	        status: 'success',
-	        downloaded: 2,
-	        cached: 1,
-	        failed: 0,
-	        indexed: 3,
-	        checkpoint_advanced: true,
-	        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-	        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
-	      };
-	    };
-	    const searchCalls: string[] = [];
-	    (provider as any).executeSearch = async (query: string) => {
-	      searchCalls.push(query);
-	    };
+    const callOrder: string[] = [];
+    const syncCalls: Array<{ params: any; signal?: AbortSignal }> = [];
+    cli.logsSync = async (params: any, signal?: AbortSignal) => {
+      callOrder.push('sync');
+      syncCalls.push({ params, signal });
+      if (signal) {
+        assert.equal(typeof signal.aborted, 'boolean');
+      }
+      return {
+        status: 'success',
+        downloaded: 2,
+        cached: 1,
+        failed: 0,
+        indexed: 3,
+        checkpoint_advanced: true,
+        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+      };
+    };
+    const searchCalls: string[] = [];
+    (provider as any).executeSearch = async (query: string) => {
+      searchCalls.push(query);
+    };
 
-	    const warningCalls: any[] = [];
+    const warningCalls: any[] = [];
     vscodeMock.window.showWarningMessage = async (...args: any[]) => {
       callOrder.push('confirm');
       warningCalls.push(args);
@@ -1067,76 +1279,91 @@ suite('SfLogsViewProvider behavior', () => {
       options: vscode.WebviewOptions = {};
       cspSource = 'vscode-resource://test';
       private handler: ((e: any) => any) | undefined;
-      asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
-      postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
-      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
-        this.handler = listener; return { dispose() {} } as any;
+      asWebviewUri(uri: vscode.Uri): vscode.Uri {
+        return uri;
       }
-      emit(message: any) { return this.handler?.(message); }
+      postMessage(_message: any): Thenable<boolean> {
+        return Promise.resolve(true);
+      }
+      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
+        this.handler = listener;
+        return { dispose() {} } as any;
+      }
+      emit(message: any) {
+        return this.handler?.(message);
+      }
     }
     class MockWebviewView implements vscode.WebviewView {
-      visible = true; title = 'Test'; viewType = 'sfLogViewer';
-      description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
-      webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
-      show(): void { /* noop */ }
-      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
-      onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
+      visible = true;
+      title = 'Test';
+      viewType = 'sfLogViewer';
+      description?: string | undefined;
+      badge?: { value: number; tooltip: string } | undefined;
+      webview: vscode.Webview;
+      constructor(webview: vscode.Webview) {
+        this.webview = webview;
+      }
+      show(): void {
+        /* noop */
+      }
+      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} }) as any;
+      onDidDispose: vscode.Event<void> = () => ({ dispose() {} }) as any;
     }
     const webview = new MockWebview();
     const view = new MockWebviewView(webview);
-	    await provider.resolveWebviewView(view);
-	    await (webview as any).emit({ type: 'downloadAllLogs' });
-	    await new Promise(resolve => setTimeout(resolve, 20));
+    await provider.resolveWebviewView(view);
+    await (webview as any).emit({ type: 'downloadAllLogs' });
+    await new Promise(resolve => setTimeout(resolve, 20));
 
-	    assert.equal(syncCalls.length, 1, 'should perform one shared runtime sync');
-	    assert.deepEqual(syncCalls[0]?.params, {
-	      targetOrg: undefined,
-	      workspaceRoot: '/tmp/alv-workspace',
-	      forceFull: true,
-	      concurrency: 3
-	    });
-	    assert.ok(warningCalls.length >= 1, 'should request user confirmation');
-	    assert.ok(infoCalls.length >= 1, 'should show completion summary');
-	    assert.deepEqual(callOrder, ['confirm', 'sync'], 'should confirm before starting shared sync');
-	    assert.equal(typeof syncCalls[0]?.signal?.aborted, 'boolean', 'should pass cancellation signal to shared sync');
-	    assert.ok(searchCalls.includes('error'), 'should re-run active search query after bulk download');
-	  });
+    assert.equal(syncCalls.length, 1, 'should perform one shared runtime sync');
+    assert.deepEqual(syncCalls[0]?.params, {
+      targetOrg: undefined,
+      workspaceRoot: '/tmp/alv-workspace',
+      forceFull: true,
+      concurrency: 3
+    });
+    assert.ok(warningCalls.length >= 1, 'should request user confirmation');
+    assert.ok(infoCalls.length >= 1, 'should show completion summary');
+    assert.deepEqual(callOrder, ['confirm', 'sync'], 'should confirm before starting shared sync');
+    assert.equal(typeof syncCalls[0]?.signal?.aborted, 'boolean', 'should pass cancellation signal to shared sync');
+    assert.ok(searchCalls.includes('error'), 'should re-run active search query after bulk download');
+  });
 
-	  test('downloadAllLogs supports cancellation while shared sync is running', async () => {
-	    const { SfLogsViewProvider, cli, vscode: vscodeMock } = createProviderHarness();
-	    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
-	    const context = makeContext();
-	    const provider = new SfLogsViewProvider(context);
+  test('downloadAllLogs supports cancellation while shared sync is running', async () => {
+    const { SfLogsViewProvider, cli, vscode: vscodeMock } = createProviderHarness();
+    cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
+    const context = makeContext();
+    const provider = new SfLogsViewProvider(context);
 
-	    const syncSignals: AbortSignal[] = [];
-	    cli.logsSync = async (_params: any, signal?: AbortSignal) => {
-	      if (signal) {
-	        syncSignals.push(signal);
-	      }
-	      await new Promise(resolve => setTimeout(resolve, 30));
-	      if (signal?.aborted) {
-	        return {
-	          status: 'cancelled',
-	          downloaded: 0,
-	          failed: 0,
-	          cached: 0,
-	          indexed: 0,
-	          checkpoint_advanced: false,
-	          state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-	          index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
-	        };
-	      }
-	      return {
-	        status: 'success',
-	        downloaded: 0,
-	        failed: 0,
-	        cached: 0,
-	        indexed: 0,
-	        checkpoint_advanced: false,
-	        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-	        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
-	      };
-	    };
+    const syncSignals: AbortSignal[] = [];
+    cli.logsSync = async (_params: any, signal?: AbortSignal) => {
+      if (signal) {
+        syncSignals.push(signal);
+      }
+      await new Promise(resolve => setTimeout(resolve, 30));
+      if (signal?.aborted) {
+        return {
+          status: 'cancelled',
+          downloaded: 0,
+          failed: 0,
+          cached: 0,
+          indexed: 0,
+          checkpoint_advanced: false,
+          state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+          index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+        };
+      }
+      return {
+        status: 'success',
+        downloaded: 0,
+        failed: 0,
+        cached: 0,
+        indexed: 0,
+        checkpoint_advanced: false,
+        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
+      };
+    };
 
     const warningCalls: string[] = [];
     const errorCalls: string[] = [];
@@ -1172,35 +1399,50 @@ suite('SfLogsViewProvider behavior', () => {
       options: vscode.WebviewOptions = {};
       cspSource = 'vscode-resource://test';
       private handler: ((e: any) => any) | undefined;
-      asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
-      postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
-      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
-        this.handler = listener; return { dispose() {} } as any;
+      asWebviewUri(uri: vscode.Uri): vscode.Uri {
+        return uri;
       }
-      emit(message: any) { return this.handler?.(message); }
+      postMessage(_message: any): Thenable<boolean> {
+        return Promise.resolve(true);
+      }
+      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
+        this.handler = listener;
+        return { dispose() {} } as any;
+      }
+      emit(message: any) {
+        return this.handler?.(message);
+      }
     }
     class MockWebviewView implements vscode.WebviewView {
-      visible = true; title = 'Test'; viewType = 'sfLogViewer';
-      description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
-      webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
-      show(): void { /* noop */ }
-      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
-      onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
+      visible = true;
+      title = 'Test';
+      viewType = 'sfLogViewer';
+      description?: string | undefined;
+      badge?: { value: number; tooltip: string } | undefined;
+      webview: vscode.Webview;
+      constructor(webview: vscode.Webview) {
+        this.webview = webview;
+      }
+      show(): void {
+        /* noop */
+      }
+      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} }) as any;
+      onDidDispose: vscode.Event<void> = () => ({ dispose() {} }) as any;
     }
     const webview = new MockWebview();
     const view = new MockWebviewView(webview);
     await provider.resolveWebviewView(view);
-	    await (webview as any).emit({ type: 'downloadAllLogs' });
-	    await new Promise(resolve => setTimeout(resolve, 50));
+    await (webview as any).emit({ type: 'downloadAllLogs' });
+    await new Promise(resolve => setTimeout(resolve, 50));
 
-	    assert.equal(syncSignals.length >= 1, true, 'should pass signal to shared sync');
-	    assert.equal(syncSignals[0]?.aborted, true, 'sync signal should be aborted after cancellation');
-	    assert.ok(
-	      warningCalls.some(msg => msg.includes('cancelled while syncing logs')),
-	      'should show cancellation summary for sync setup stage'
-	    );
-	    assert.equal(errorCalls.length, 0, 'should not show hard error toast for listing abort');
-	  });
+    assert.equal(syncSignals.length >= 1, true, 'should pass signal to shared sync');
+    assert.equal(syncSignals[0]?.aborted, true, 'sync signal should be aborted after cancellation');
+    assert.ok(
+      warningCalls.some(msg => msg.includes('cancelled while syncing logs')),
+      'should show cancellation summary for sync setup stage'
+    );
+    assert.equal(errorCalls.length, 0, 'should not show hard error toast for listing abort');
+  });
 
   test('openDebugFlags opens debug flags panel', async () => {
     const { SfLogsViewProvider, DebugFlagsPanel } = createProviderHarness();
@@ -1217,20 +1459,35 @@ suite('SfLogsViewProvider behavior', () => {
       options: vscode.WebviewOptions = {};
       cspSource = 'vscode-resource://test';
       private handler: ((e: any) => any) | undefined;
-      asWebviewUri(uri: vscode.Uri): vscode.Uri { return uri; }
-      postMessage(_message: any): Thenable<boolean> { return Promise.resolve(true); }
-      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
-        this.handler = listener; return { dispose() {} } as any;
+      asWebviewUri(uri: vscode.Uri): vscode.Uri {
+        return uri;
       }
-      emit(message: any) { return this.handler?.(message); }
+      postMessage(_message: any): Thenable<boolean> {
+        return Promise.resolve(true);
+      }
+      onDidReceiveMessage(listener: (e: any) => any): vscode.Disposable {
+        this.handler = listener;
+        return { dispose() {} } as any;
+      }
+      emit(message: any) {
+        return this.handler?.(message);
+      }
     }
     class MockWebviewView implements vscode.WebviewView {
-      visible = true; title = 'Test'; viewType = 'sfLogViewer';
-      description?: string | undefined; badge?: { value: number; tooltip: string } | undefined;
-      webview: vscode.Webview; constructor(webview: vscode.Webview) { this.webview = webview; }
-      show(): void { /* noop */ }
-      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} } as any);
-      onDidDispose: vscode.Event<void> = () => ({ dispose() {} } as any);
+      visible = true;
+      title = 'Test';
+      viewType = 'sfLogViewer';
+      description?: string | undefined;
+      badge?: { value: number; tooltip: string } | undefined;
+      webview: vscode.Webview;
+      constructor(webview: vscode.Webview) {
+        this.webview = webview;
+      }
+      show(): void {
+        /* noop */
+      }
+      onDidChangeVisibility: vscode.Event<void> = () => ({ dispose() {} }) as any;
+      onDidDispose: vscode.Event<void> = () => ({ dispose() {} }) as any;
     }
     const webview = new MockWebview();
     const view = new MockWebviewView(webview);
