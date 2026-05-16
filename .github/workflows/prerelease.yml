@@ -402,7 +402,18 @@ jobs:
           fi
           for FILE in "${FILES[@]}"; do
             echo "Publishing ${FILE} to Open VSX"
-            npx --yes ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}" --pre-release
+            set +e
+            OUTPUT=$(npx --yes ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}" --pre-release 2>&1)
+            STATUS=$?
+            set -e
+            echo "$OUTPUT"
+            if [ "$STATUS" -ne 0 ]; then
+              if echo "$OUTPUT" | grep -F "is already published." >/dev/null 2>&1; then
+                echo "Skipping ${FILE}; Open VSX already has this version and target."
+                continue
+              fi
+              exit "$STATUS"
+            fi
           done
 
   rollback_prerelease:

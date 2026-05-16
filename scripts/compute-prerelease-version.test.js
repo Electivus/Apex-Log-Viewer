@@ -28,6 +28,21 @@ test('computeNextPrereleaseVersion increments from the latest published prerelea
   assert.equal(nextVersion, '0.43.2');
 });
 
+test('computeNextPrereleaseVersion advances beyond Open VSX prerelease patches', async () => {
+  const mod = await import(pathToFileURL(modulePath).href);
+
+  const nextVersion = mod.computeNextPrereleaseVersion({
+    baseVersion: '0.48.1',
+    marketplaceVersions: [
+      { version: '0.49.2', properties: prereleaseProperties() },
+      { version: '0.49.3', preRelease: true, source: 'open-vsx' },
+      { version: '0.48.2', preRelease: false, source: 'open-vsx' }
+    ]
+  });
+
+  assert.equal(nextVersion, '0.49.4');
+});
+
 test('computeNextPrereleaseVersion advances from the manifest patch when it is already ahead of the marketplace', async () => {
   const mod = await import(pathToFileURL(modulePath).href);
 
@@ -72,6 +87,45 @@ test('fetchMarketplaceVersions invokes vsce show via node with a larger max buff
   });
 });
 
+test('fetchOpenVsxVersions reads all Open VSX versions and marks odd minors as prereleases', async () => {
+  const mod = await import(pathToFileURL(modulePath).href);
+  let requestedUrl;
+
+  const versions = await mod.fetchOpenVsxVersions('electivus.apex-log-viewer', {
+    async fetchImpl(url, options) {
+      requestedUrl = { url, options };
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            version: '0.49.3',
+            allVersions: {
+              '0.48.1': 'https://open-vsx.org/api/electivus/apex-log-viewer/0.48.1',
+              '0.49.2': 'https://open-vsx.org/api/electivus/apex-log-viewer/0.49.2',
+              '0.49.3': 'https://open-vsx.org/api/electivus/apex-log-viewer/0.49.3'
+            }
+          };
+        }
+      };
+    }
+  });
+
+  assert.deepEqual(requestedUrl, {
+    url: 'https://open-vsx.org/api/electivus/apex-log-viewer',
+    options: {
+      headers: {
+        accept: 'application/json'
+      }
+    }
+  });
+  assert.deepEqual(versions, [
+    { version: '0.48.1', preRelease: false, source: 'open-vsx' },
+    { version: '0.49.2', preRelease: true, source: 'open-vsx' },
+    { version: '0.49.3', preRelease: true, source: 'open-vsx' }
+  ]);
+});
+
 test('main reads the extension manifest and writes the computed version', async () => {
   const mod = await import(pathToFileURL(modulePath).href);
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-prerelease-version-'));
@@ -88,7 +142,7 @@ test('main reads the extension manifest and writes the computed version', async 
       }, null, 2)
     );
 
-    const nextVersion = mod.main(
+    const nextVersion = await mod.main(
       ['--manifest', 'apps/vscode-extension/package.json'],
       {
         cwd: repoRoot,
@@ -99,6 +153,19 @@ test('main reads the extension manifest and writes the computed version', async 
         },
         processExecPath: '/usr/bin/node',
         vsceCliPath: '/repo/node_modules/@vscode/vsce/vsce',
+        async fetchImpl() {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                allVersions: {
+                  '0.43.2': 'https://open-vsx.org/api/electivus/apex-log-viewer/0.43.2'
+                }
+              };
+            }
+          };
+        },
         spawnSyncImpl() {
           return {
             status: 0,
@@ -111,8 +178,8 @@ test('main reads the extension manifest and writes the computed version', async 
       }
     );
 
-    assert.equal(nextVersion, '0.43.2');
-    assert.equal(stdout, '0.43.2');
+    assert.equal(nextVersion, '0.43.3');
+    assert.equal(stdout, '0.43.3');
   } finally {
     fs.rmSync(repoRoot, { recursive: true, force: true });
   }
