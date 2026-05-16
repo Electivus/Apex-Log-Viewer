@@ -62,10 +62,10 @@ export function readExtensionManifest(manifestPath) {
   };
 }
 
-export function findLatestPublishedPrereleasePatch(marketplaceVersions, { major, minor }) {
+export function findLatestPublishedPrereleasePatch(publishedVersions, { major, minor }) {
   let latestPatch = -1;
 
-  for (const entry of marketplaceVersions) {
+  for (const entry of publishedVersions) {
     const parsed = parseSemver(entry?.version);
     if (!parsed) {
       continue;
@@ -84,14 +84,14 @@ export function findLatestPublishedPrereleasePatch(marketplaceVersions, { major,
   return latestPatch;
 }
 
-export function computeNextPrereleaseVersion({ baseVersion, marketplaceVersions }) {
+export function computeNextPrereleaseVersion({ baseVersion, publishedVersions }) {
   const parsedBase = parseSemver(baseVersion);
   if (!parsedBase) {
     throw new Error(`expected a plain semver extension version, got ${JSON.stringify(baseVersion)}`);
   }
 
   const targetMinor = normalizePrereleaseMinor(parsedBase.minor);
-  const latestPublishedPatch = findLatestPublishedPrereleasePatch(marketplaceVersions, {
+  const latestPublishedPatch = findLatestPublishedPrereleasePatch(publishedVersions, {
     major: parsedBase.major,
     minor: targetMinor
   });
@@ -224,6 +224,7 @@ export async function main(
   {
     cwd = process.cwd(),
     stdout = process.stdout,
+    stderr = process.stderr,
     spawnSyncImpl = spawnSync,
     vsceCliPath,
     processExecPath = process.execPath,
@@ -239,10 +240,16 @@ export async function main(
     processExecPath,
     cwd
   });
-  const openVsxVersions = await fetchOpenVsxVersions(extensionId, { fetchImpl });
+  let openVsxVersions = [];
+  try {
+    openVsxVersions = await fetchOpenVsxVersions(extensionId, { fetchImpl });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    stderr.write(`Warning: ${message}; continuing with VS Code Marketplace versions only.\n`);
+  }
   const nextVersion = computeNextPrereleaseVersion({
     baseVersion,
-    marketplaceVersions: [...marketplaceVersions, ...openVsxVersions]
+    publishedVersions: [...marketplaceVersions, ...openVsxVersions]
   });
 
   stdout.write(nextVersion);

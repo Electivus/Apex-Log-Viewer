@@ -16,7 +16,7 @@ test('computeNextPrereleaseVersion increments from the latest published prerelea
 
   const nextVersion = mod.computeNextPrereleaseVersion({
     baseVersion: '0.42.0',
-    marketplaceVersions: [
+    publishedVersions: [
       { version: '0.43.1', targetPlatform: 'linux-x64', properties: prereleaseProperties() },
       { version: '0.43.1', targetPlatform: 'linux-arm64', properties: prereleaseProperties() },
       { version: '0.43.1', targetPlatform: 'win32-x64', properties: prereleaseProperties() },
@@ -33,7 +33,7 @@ test('computeNextPrereleaseVersion advances beyond Open VSX prerelease patches',
 
   const nextVersion = mod.computeNextPrereleaseVersion({
     baseVersion: '0.48.1',
-    marketplaceVersions: [
+    publishedVersions: [
       { version: '0.49.2', properties: prereleaseProperties() },
       { version: '0.49.3', preRelease: true, source: 'open-vsx' },
       { version: '0.48.2', preRelease: false, source: 'open-vsx' }
@@ -48,7 +48,7 @@ test('computeNextPrereleaseVersion advances from the manifest patch when it is a
 
   const nextVersion = mod.computeNextPrereleaseVersion({
     baseVersion: '0.43.5',
-    marketplaceVersions: [
+    publishedVersions: [
       { version: '0.43.4', targetPlatform: 'linux-x64', properties: prereleaseProperties() }
     ]
   });
@@ -180,6 +180,69 @@ test('main reads the extension manifest and writes the computed version', async 
 
     assert.equal(nextVersion, '0.43.3');
     assert.equal(stdout, '0.43.3');
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('main warns and continues with Marketplace versions when Open VSX lookup fails', async () => {
+  const mod = await import(pathToFileURL(modulePath).href);
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-prerelease-version-'));
+  let stdout = '';
+  let stderr = '';
+
+  try {
+    fs.mkdirSync(path.join(repoRoot, 'apps', 'vscode-extension'), { recursive: true });
+    fs.writeFileSync(
+      path.join(repoRoot, 'apps', 'vscode-extension', 'package.json'),
+      JSON.stringify({
+        name: 'apex-log-viewer',
+        publisher: 'electivus',
+        version: '0.42.0'
+      }, null, 2)
+    );
+
+    const nextVersion = await mod.main(
+      ['--manifest', 'apps/vscode-extension/package.json'],
+      {
+        cwd: repoRoot,
+        stdout: {
+          write(chunk) {
+            stdout += chunk;
+          }
+        },
+        stderr: {
+          write(chunk) {
+            stderr += chunk;
+          }
+        },
+        processExecPath: '/usr/bin/node',
+        vsceCliPath: '/repo/node_modules/@vscode/vsce/vsce',
+        async fetchImpl() {
+          return {
+            ok: false,
+            status: 503,
+            async json() {
+              return {};
+            }
+          };
+        },
+        spawnSyncImpl() {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              versions: [{ version: '0.43.1', properties: prereleaseProperties() }]
+            }),
+            stderr: ''
+          };
+        }
+      }
+    );
+
+    assert.equal(nextVersion, '0.43.2');
+    assert.equal(stdout, '0.43.2');
+    assert.match(stderr, /Warning: Open VSX version query failed for electivus\.apex-log-viewer: HTTP 503/);
+    assert.match(stderr, /continuing with VS Code Marketplace versions only/);
   } finally {
     fs.rmSync(repoRoot, { recursive: true, force: true });
   }
