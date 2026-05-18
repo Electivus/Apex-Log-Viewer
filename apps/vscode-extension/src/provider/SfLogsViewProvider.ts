@@ -582,12 +582,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           status: result.status,
           downloaded: result.downloaded,
           cached: result.cached,
-          indexed: result.indexed,
           failed: result.failed
         });
-        if (result.index_error) {
-          logWarn('Logs: background sync index warning ->', result.index_error);
-        }
         const cooldownKeys = new Set<string>();
         if (selectedCooldownKey) {
           cooldownKeys.add(selectedCooldownKey);
@@ -1319,9 +1315,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             increment: 100,
             message: localize('downloadAllLogsProgressMessage', 'Processed {0}/{1} logs…', processed, processed)
           });
-          if (result.index_error) {
-            logWarn('Logs: downloadAllLogs index warning ->', result.index_error);
-          }
           if (result.status === 'cancelled') {
             return { kind: 'cancelled', processed };
           }

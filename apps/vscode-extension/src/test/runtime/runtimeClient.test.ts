@@ -760,13 +760,14 @@ suite('runtime client', () => {
           });
           return {
             status: 'success',
+            target_org: 'demo@example.com',
+            safe_target_org: 'demo@example.com',
             downloaded: 12,
             cached: 5,
             failed: 0,
-            indexed: 17,
             checkpoint_advanced: true,
             state_file: '/workspace/project/apexlogs/.alv/sync-state.json',
-            index_file: '/workspace/project/apexlogs/.alv/log-index.sqlite'
+            last_synced_log_id: '07L000000000001AA'
           } as never;
         }
         if (method === 'search/query') {
@@ -840,7 +841,7 @@ suite('runtime client', () => {
 
     assert.deepEqual(methods, ['logs/list', 'logs/sync', 'search/query', 'logs/triage']);
     assert.equal(logs[0]?.Id, '07L000000000001AA');
-    assert.equal(syncResult.indexed, 17);
+    assert.equal(syncResult.downloaded + syncResult.cached, 17);
     assert.equal(searchResult.logIds[0], '07L000000000001AA');
     assert.equal(searchResult.snippets?.['07L000000000001AA']?.ranges[0]?.[0], 7);
     assert.equal(triageEntries[0]?.summary.primaryReason, 'Fatal exception');
