@@ -531,7 +531,7 @@ fn logs_runtime_smoke_search_reads_local_files_without_sqlite_index() {
 }
 ```
 
-- [ ] **Step 2: Run the rewritten search test and verify it fails to compile**
+- [ ] **Step 2: Run the rewritten search test as a file-scan regression guard**
 
 Run:
 
@@ -539,9 +539,22 @@ Run:
 cargo test -p alv-core --test logs_runtime_smoke logs_runtime_smoke_search_reads_local_files_without_sqlite_index -- --exact
 ```
 
-Expected: FAIL to compile while `search.rs` still imports and calls `log_index`, or FAIL because the old test name no longer exists if only the test rename was applied.
+Expected: PASS. This confirms the file-scan behavior works before deleting the SQLite fast path.
 
-- [ ] **Step 3: Remove the SQLite fast path from search**
+- [ ] **Step 3: Run the source-removal RED check**
+
+Run:
+
+```bash
+if rg -n "log_index|pub mod log_index" crates/alv-core/src crates/alv-core/tests/logs_runtime_smoke.rs; then
+  echo "SQLite index references remain"
+  exit 1
+fi
+```
+
+Expected: FAIL with matches in `crates/alv-core/src/search.rs`, `crates/alv-core/src/lib.rs`, `crates/alv-core/src/log_index.rs`, or `crates/alv-core/tests/logs_runtime_smoke.rs`.
+
+- [ ] **Step 4: Remove the SQLite fast path from search**
 
 In `crates/alv-core/src/search.rs`, replace:
 
@@ -608,7 +621,7 @@ with:
 for log_id in log_ids {
 ```
 
-- [ ] **Step 4: Remove the public module export**
+- [ ] **Step 5: Remove the public module export**
 
 In `crates/alv-core/src/lib.rs`, delete:
 
@@ -616,7 +629,7 @@ In `crates/alv-core/src/lib.rs`, delete:
 pub mod log_index;
 ```
 
-- [ ] **Step 5: Delete the SQLite implementation file**
+- [ ] **Step 6: Delete the SQLite implementation file**
 
 Delete:
 
@@ -624,18 +637,22 @@ Delete:
 crates/alv-core/src/log_index.rs
 ```
 
-- [ ] **Step 6: Run focused search tests**
+- [ ] **Step 7: Run focused search tests and the source-removal check**
 
 Run:
 
 ```bash
 cargo test -p alv-core --test logs_runtime_smoke logs_runtime_smoke_search_reads_local_files_without_sqlite_index -- --exact
 cargo test -p alv-core --test logs_runtime_smoke logs_runtime_smoke_search_checks_duplicate_log_ids_across_org_trees -- --exact
+if rg -n "log_index|pub mod log_index" crates/alv-core/src crates/alv-core/tests/logs_runtime_smoke.rs; then
+  echo "SQLite index references remain"
+  exit 1
+fi
 ```
 
-Expected: both PASS.
+Expected: both tests PASS and the source-removal check prints no matches.
 
-- [ ] **Step 7: Commit file-only search removal**
+- [ ] **Step 8: Commit file-only search removal**
 
 ```bash
 git add crates/alv-core/src/search.rs crates/alv-core/src/lib.rs crates/alv-core/tests/logs_runtime_smoke.rs
@@ -754,8 +771,8 @@ fn cli_smoke_logs_index_subcommand_is_removed() {
 Run:
 
 ```bash
-cargo test -p alv-cli --test cli_smoke cli_smoke_logs_sync_json_omits_index_fields -- --exact
-cargo test -p alv-cli --test cli_smoke cli_smoke_logs_index_subcommand_is_removed -- --exact
+cargo test -p apex-log-viewer-cli --test cli_smoke cli_smoke_logs_sync_json_omits_index_fields -- --exact
+cargo test -p apex-log-viewer-cli --test cli_smoke cli_smoke_logs_index_subcommand_is_removed -- --exact
 ```
 
 Expected: first FAIL because sync JSON still has index fields, second FAIL because `logs index rebuild` still succeeds.
@@ -888,8 +905,8 @@ println!("Indexed logs: {}", result.indexed_count);
 Run:
 
 ```bash
-cargo test -p alv-cli --test cli_smoke cli_smoke_logs_sync_json_omits_index_fields -- --exact
-cargo test -p alv-cli --test cli_smoke cli_smoke_logs_index_subcommand_is_removed -- --exact
+cargo test -p apex-log-viewer-cli --test cli_smoke cli_smoke_logs_sync_json_omits_index_fields -- --exact
+cargo test -p apex-log-viewer-cli --test cli_smoke cli_smoke_logs_index_subcommand_is_removed -- --exact
 ```
 
 Expected: both PASS.
@@ -1092,7 +1109,7 @@ package ID specification `rusqlite` did not match any packages
 Run:
 
 ```bash
-rg -n "rusqlite|libsqlite3|sqlite-wasm-rs|log_index|log-index.sqlite|indexed_count|index_file|index_error|\\bindexed\\b" crates packages/app-server-client-ts/src apps/vscode-extension/src --glob '!**/media/**'
+rg -n "rusqlite|libsqlite3|sqlite-wasm-rs|pub mod log_index|crate::log_index|log_index::|indexed_count|index_file|index_error|\\bindexed\\b" crates packages/app-server-client-ts/src apps/vscode-extension/src --glob '!**/media/**'
 ```
 
 Expected: no matches except test names or changelog/spec text outside the searched source paths.
@@ -1194,7 +1211,7 @@ Run:
 ```bash
 cargo test -p alv-core --test logs_sync_smoke
 cargo test -p alv-core --test logs_runtime_smoke
-cargo test -p alv-cli --test cli_smoke
+cargo test -p apex-log-viewer-cli --test cli_smoke
 ```
 
 Expected: all PASS.
