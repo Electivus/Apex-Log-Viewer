@@ -13,12 +13,10 @@ use std::{
 
 use alv_core::{
     auth::TEST_ORG_DISPLAY_JSON_ENV,
-    log_index::{self, LogIndexRecord},
-    log_store,
     logs::{
         ensure_log_file_cached, extract_code_unit_started, find_cached_log_path,
-        list_logs_detailed_with_cancel, list_logs_with_cancel, CancellationToken, LogRow,
-        LogsListParams, TEST_APEX_LOG_FIXTURE_DIR_ENV, TEST_SF_LOG_LIST_JSON_ENV,
+        list_logs_detailed_with_cancel, list_logs_with_cancel, CancellationToken, LogsListParams,
+        TEST_APEX_LOG_FIXTURE_DIR_ENV, TEST_SF_LOG_LIST_JSON_ENV,
     },
     search::{search_query, search_query_with_cancel, SearchQueryParams},
     triage::{triage_logs, triage_logs_with_cancel, LogsTriageParams},
@@ -600,10 +598,10 @@ fn logs_runtime_smoke_search_with_blank_log_ids_short_circuits_before_cache_inde
 }
 
 #[test]
-fn logs_runtime_smoke_search_falls_back_to_files_for_unindexed_local_logs() {
+fn logs_runtime_smoke_search_reads_local_files_without_sqlite_index() {
     let _guard = lock_test_guard();
 
-    let workspace_root = make_temp_workspace("search-partial-index");
+    let workspace_root = make_temp_workspace("search-file-only");
     let target_org = "selected@example.com";
     let log_dir = workspace_root
         .join("apexlogs")
@@ -612,48 +610,19 @@ fn logs_runtime_smoke_search_falls_back_to_files_for_unindexed_local_logs() {
         .join("logs")
         .join("2026-03-30");
     fs::create_dir_all(&log_dir).expect("selected org log dir should exist");
-    let indexed_path = log_dir.join("07L000000000001AA.log");
-    let unindexed_path = log_dir.join("07L000000000002AA.log");
     fs::write(
-        &indexed_path,
-        "09:00:00.0|USER_INFO|indexed body without the searched token\n",
+        log_dir.join("07L000000000001AA.log"),
+        "09:00:00.0|USER_INFO|body without the searched token\n",
     )
-    .expect("indexed log should be writable");
+    .expect("first log should be writable");
     fs::write(
-        &unindexed_path,
-        "09:00:00.0|FATAL_ERROR|PartialIndexNeedle\n",
+        log_dir.join("07L000000000002AA.log"),
+        "09:00:00.0|FATAL_ERROR|FileOnlyNeedle\n",
     )
-    .expect("unindexed log should be writable");
-
-    let row = LogRow {
-        id: "07L000000000001AA".to_string(),
-        start_time: "2026-03-30T18:39:58.000Z".to_string(),
-        operation: "ExecuteAnonymous".to_string(),
-        application: "Developer Console".to_string(),
-        duration_milliseconds: 0,
-        status: "Success".to_string(),
-        request: "REQ-1".to_string(),
-        log_length: 64,
-        log_user: None,
-    };
-    log_index::index_synced_logs(
-        Some(
-            workspace_root
-                .to_str()
-                .expect("workspace path should be utf8"),
-        ),
-        target_org,
-        &log_store::safe_target_org(target_org),
-        &[LogIndexRecord {
-            row,
-            path: indexed_path,
-        }],
-        &CancellationToken::new(),
-    )
-    .expect("partial index should be writable");
+    .expect("second log should be writable");
 
     let result = search_query(&SearchQueryParams {
-        query: "PartialIndexNeedle".to_string(),
+        query: "FileOnlyNeedle".to_string(),
         log_ids: vec![
             "07L000000000001AA".to_string(),
             "07L000000000002AA".to_string(),
@@ -662,7 +631,7 @@ fn logs_runtime_smoke_search_falls_back_to_files_for_unindexed_local_logs() {
         raw_username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
-    .expect("search/query should fall back to file scan for unindexed logs");
+    .expect("search/query should read local log files");
 
     assert_eq!(result.log_ids, vec!["07L000000000002AA".to_string()]);
     assert!(result.pending_log_ids.is_empty());

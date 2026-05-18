@@ -61,12 +61,9 @@ export type LogsSyncResult = {
   safe_target_org: string;
   downloaded: number;
   cached: number;
-  indexed: number;
   failed: number;
   checkpoint_advanced: boolean;
   state_file: string;
-  index_file: string;
-  index_error?: string;
   last_synced_log_id?: string;
 };
 
