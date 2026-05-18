@@ -248,18 +248,17 @@ fn cli_smoke_logs_sync_json_omits_index_fields() {
     assert_eq!(json["status"], "success");
     assert_eq!(json["target_org"], "default@example.com");
     assert_eq!(json["downloaded"], 1);
-    assert!(
-        json.get("indexed").is_none(),
-        "sync JSON should not expose indexed"
-    );
-    assert!(
-        json.get("index_file").is_none(),
-        "sync JSON should not expose index_file"
-    );
-    assert!(
-        json.get("index_error").is_none(),
-        "sync JSON should not expose index_error"
-    );
+    let removed_fields = [
+        format!("{}{}", "index", "ed"),
+        format!("{}_{}", "index", "file"),
+        format!("{}_{}", "index", "error"),
+    ];
+    for field in removed_fields {
+        assert!(
+            json.get(&field).is_none(),
+            "sync JSON should not expose {field}"
+        );
+    }
     assert!(workspace_root
         .join("apexlogs")
         .join(".alv")

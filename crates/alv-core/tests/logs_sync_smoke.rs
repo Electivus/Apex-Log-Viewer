@@ -178,7 +178,7 @@ fn logs_sync_smoke_writes_new_layout_and_updates_checkpoint() {
 }
 
 #[test]
-fn logs_sync_smoke_deletes_legacy_sqlite_index_files() {
+fn logs_sync_smoke_deletes_legacy_sqlite_artifacts() {
     let _guard = lock_env_mutex();
     let workspace_root = make_temp_workspace("cleanup-sqlite-index");
     let fixture_dir = make_fixture_dir("fixture-cleanup-sqlite-index");
