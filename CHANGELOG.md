@@ -10,7 +10,7 @@
 
 ### Chores
 
-- CLI/Runtime: bump the standalone runtime train to `0.1.12` so the CLI release packages the sf CLI performance and auth-refresh fixes.
+- CLI/Runtime: bump the standalone runtime train to `0.1.13` so the CLI release packages the SQLite index removal and shared runtime fixes.
 - Build: migrate the development, CI, and packaging Node.js baseline to Node.js 24 LTS.
 - Telemetry/Azure Monitor: fix usage-report KQL generation and docs for workspace-backed Application Insights queries.
 
