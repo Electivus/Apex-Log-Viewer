@@ -51,6 +51,34 @@ function formatSfErrorDetails(stdout: string, stderr: string): string | undefine
   return undefined;
 }
 
+function formatProcessFailureDetails(file: string, error: unknown): string | undefined {
+  const err = error as NodeJS.ErrnoException | undefined;
+  const code = err?.code;
+  const signal = err?.signal;
+
+  if (code === 'ENOENT') {
+    const executable = path.basename(file) || file;
+    if (executable === 'sf' || executable === 'sf.cmd' || executable === 'sf.exe') {
+      return `Salesforce CLI executable '${file}' was not found. Check PATH or install Salesforce CLI for the Node/test environment.`;
+    }
+    return `Executable '${file}' was not found. Check PATH for the test environment.`;
+  }
+
+  if (typeof code === 'number') {
+    return `Process failed with exit code ${code}.`;
+  }
+
+  if (typeof signal === 'string' && signal.trim()) {
+    return `Process failed with signal ${signal}.`;
+  }
+
+  if (typeof code === 'string' && code.trim()) {
+    return `Process failed with error code ${code}.`;
+  }
+
+  return undefined;
+}
+
 function sfBin(): string {
   return process.platform === 'win32' ? 'sf.cmd' : 'sf';
 }
@@ -104,7 +132,9 @@ function execProcessFileAsync(file: string, args: string[], options: ExecOptions
   return new Promise((resolve, reject) => {
     const callback = (error: unknown, stdout: string, stderr: string) => {
       if (error) {
-        const details = formatSfErrorDetails(String(stdout || ''), String(stderr || ''));
+        const details = [formatSfErrorDetails(String(stdout || ''), String(stderr || '')), formatProcessFailureDetails(file, error)]
+          .filter(Boolean)
+          .join('\n');
         // Avoid echoing stdout/stderr directly to prevent leaking auth tokens.
         const msg = details
           ? `Command failed: ${file} ${args.join(' ')}\n${details}`.trim()

@@ -4,12 +4,13 @@
 
 ### Bug Fixes
 
+- Runtime/Logs: remove the SQLite/FTS log index and `logs index rebuild`; local search now scans synced log files directly, and `logs sync` removes legacy `log-index.sqlite` files from older runtime versions.
 - Runtime/Orgs: avoid slow `sf org list` startup/plugin work by reading local Salesforce org state first, and cache/coalesce shared runtime auth resolution to reduce repeated `sf org display` calls during refresh and sync.
 - Logs/Telemetry: skip redundant background log syncs during rapid refreshes and emit coarse error-code buckets for refresh, org, debug level, and runtime failures.
 
 ### Chores
 
-- CLI/Runtime: bump the standalone runtime train to `0.1.12` so the CLI release packages the sf CLI performance and auth-refresh fixes.
+- CLI/Runtime: bump the standalone runtime train to `0.1.13` so the CLI release packages the SQLite index removal and shared runtime fixes.
 - Build: migrate the development, CI, and packaging Node.js baseline to Node.js 24 LTS.
 - Telemetry/Azure Monitor: fix usage-report KQL generation and docs for workspace-backed Application Insights queries.
 

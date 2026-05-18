@@ -17,12 +17,14 @@ test('configures and removes debug flags from logs and tail entrypoints', async 
 
     const userRow = debugFlagsFrame.locator(`[data-testid="debug-flags-user-row-${userId}"]`);
     await userRow.waitFor({ state: 'visible', timeout: 60_000 });
-    await userRow.click();
+    await userRow.click({ timeout: 30_000 });
 
     const ttlInput = debugFlagsFrame.locator('[data-testid="debug-flags-ttl"]');
     await ttlInput.fill('45');
 
-    await debugFlagsFrame.locator('[data-testid="debug-flags-apply"]').click();
+    const applyButton = debugFlagsFrame.locator('[data-testid="debug-flags-apply"]');
+    await expect(applyButton).toBeEnabled({ timeout: 120_000 });
+    await applyButton.click({ timeout: 30_000 });
     await expect(debugFlagsFrame.locator('[data-testid="debug-flags-notice"]')).toBeVisible({ timeout: 60_000 });
 
     await expect
@@ -35,7 +37,9 @@ test('configures and removes debug flags from logs and tail entrypoints', async 
       )
       .not.toBe('');
 
-    await debugFlagsFrame.locator('[data-testid="debug-flags-remove"]').click();
+    const removeButton = debugFlagsFrame.locator('[data-testid="debug-flags-remove"]');
+    await expect(removeButton).toBeEnabled({ timeout: 120_000 });
+    await removeButton.click({ timeout: 30_000 });
     await expect(debugFlagsFrame.locator('[data-testid="debug-flags-notice"]')).toBeVisible({ timeout: 60_000 });
 
     await expect
@@ -49,7 +53,7 @@ test('configures and removes debug flags from logs and tail entrypoints', async 
       .toBe('');
 
     const debugFlagsFrameFromTail = await openDebugFlagsFromTail(vscodePage);
-    await expect(debugFlagsFrameFromTail.locator('text=Apex Debug Flags').first()).toBeVisible();
+    await expect(debugFlagsFrameFromTail.locator('text=Apex Debug Flags').first()).toBeVisible({ timeout: 60_000 });
   } finally {
     await removeUserDebugTraceFlags(auth, userId).catch(() => {});
   }
