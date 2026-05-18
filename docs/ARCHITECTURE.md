@@ -47,11 +47,10 @@ The standalone CLI and the VS Code extension are separate surfaces over the same
 
 - `apexlogs/.alv/version.json` stores the local layout version.
 - `apexlogs/.alv/sync-state.json` stores incremental sync checkpoints by org.
-- `apexlogs/.alv/log-index.sqlite` stores a local SQLite/FTS index for synced log body search.
 - `apexlogs/orgs/<safe-target-org>/org.json` stores resolved org metadata.
 - `apexlogs/orgs/<safe-target-org>/logs/<YYYY-MM-DD>/<logId>.log` stores full log bodies.
 
-The Rust CLI exposes that shared storage through `apex-log-viewer logs sync`, `logs status`, `logs search`, and `logs index rebuild`. The VS Code Logs panel uses the same app-server contract for `logs/list`, starts `logs/sync` in the background after refresh/load-more, and reruns triage/search after synced bodies have been indexed. For `logs sync`, the runtime still reuses `sf org display` for org auth, but the actual list/body fetches go straight to the Salesforce Tooling REST API and can download bodies concurrently per page.
+The Rust CLI exposes that shared storage through `apex-log-viewer logs sync`, `logs status`, and `logs search`. The VS Code Logs panel uses the same app-server contract for `logs/list`, starts `logs/sync` in the background after refresh/load-more, and reruns triage/search after synced bodies are available locally. For `logs sync`, the runtime still reuses `sf org display` for org auth, but the actual list/body fetches go straight to the Salesforce Tooling REST API and can download bodies concurrently per page.
 
 ## Testing and build tooling
 
@@ -62,6 +61,6 @@ The Rust CLI exposes that shared storage through `apex-log-viewer logs sync`, `l
 
 1. The user triggers a command (e.g., refresh).
 2. The extension asks the shared runtime for the visible log rows and posts them to the webview as soon as they arrive.
-3. The runtime syncs full log bodies and updates the local index in the background.
+3. The runtime syncs full log bodies in the background.
 4. The React UI updates the table and exposes actions like open or tail.
-5. Search and error triage reuse synced bodies through the shared runtime/index instead of re-downloading rows already present locally.
+5. Search and error triage reuse synced bodies through the shared runtime instead of re-downloading rows already present locally.
