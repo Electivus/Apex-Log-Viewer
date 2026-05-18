@@ -8,6 +8,7 @@ The PR that removes the SQLite log index is blocked by the Playwright scratch-or
 
 - Make Salesforce CLI setup failures in E2E actionable without exposing auth tokens.
 - Make `debugFlagsPanel.e2e.spec.ts` fail near the operation that is not ready instead of consuming the global 15 minute test timeout.
+- Prevent VS Code teardown from hiding the original Playwright failure for another full test timeout.
 - Keep the change scoped to E2E test helpers/specs and avoid runtime behavior changes.
 
 ## Non-Goals
@@ -30,9 +31,14 @@ This keeps the common authenticated-org errors readable while avoiding raw outpu
 
 If the panel never selects a debug level, never finishes org loading, or cannot make a target actionable, the failure should point at the specific disabled control rather than timing out at the test-level deadline.
 
+### VS Code teardown timeout
+
+`test/e2e/utils/vscode.ts` should not await `ElectronApplication.close()` indefinitely. Cleanup should race VS Code close against a short E2E-specific timeout, then send a kill signal to the Electron process if the graceful close does not complete. The cleanup path should log a concise warning and continue preserving or deleting the user-data directory as configured.
+
 ## Testing Strategy
 
 - Add focused tests for the safe `sf` failure formatting so `ENOENT`, exit code, and signal metadata are covered without invoking real Salesforce CLI.
+- Add a focused test that a hung VS Code close times out and kills the child process.
 - Run the targeted helper test to observe red/green behavior.
 - Run the relevant E2E command locally with Node 24 and a corrected Salesforce CLI `PATH`; if local Dev Hub configuration still blocks the run, report the exact blocker separately from the remote timeout.
 - Fetch the remote job log or artifacts when available to compare the new failure location with the previous 15 minute timeout.

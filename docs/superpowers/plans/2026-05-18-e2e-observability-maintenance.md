@@ -328,8 +328,153 @@ Report:
 - Any remaining blocker, with the exact safe error location.
 ```
 
+### Task 3b: Bound VS Code Teardown Waits
+
+**Files:**
+- Modify: `test/e2e/utils/__tests__/vscode.test.ts`
+- Modify: `test/e2e/utils/vscode.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+Add this import to `test/e2e/utils/__tests__/vscode.test.ts`:
+
+```ts
+  closeVsCodeApp,
+```
+
+Add this test block:
+
+```ts
+describe('VS Code cleanup', () => {
+  test('times out a hung close and kills the Electron process', async () => {
+    jest.useFakeTimers();
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const kill = jest.fn();
+    const app = {
+      close: jest.fn(() => new Promise<void>(() => {})),
+      process: () => ({ pid: 1234, kill })
+    };
+
+    try {
+      const closePromise = closeVsCodeApp(app, { timeoutMs: 25 });
+      await Promise.resolve();
+      jest.advanceTimersByTime(25);
+
+      await expect(closePromise).resolves.toBe('timeout');
+      expect(app.close).toHaveBeenCalledTimes(1);
+      expect(kill).toHaveBeenCalledTimes(1);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        '[e2e] VS Code close did not finish within 25ms; sent kill to process 1234.'
+      );
+    } finally {
+      consoleWarnSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+});
+```
+
+- [ ] **Step 2: Run the targeted test to verify it fails**
+
+Run:
+
+```bash
+source ~/.nvm/nvm.sh && nvm use 24.15.0 >/dev/null && npm run test:e2e:utils -- --runTestsByPath test/e2e/utils/__tests__/vscode.test.ts
+```
+
+Expected: FAIL because `closeVsCodeApp` is not exported yet.
+
+- [ ] **Step 3: Implement bounded VS Code close**
+
+In `test/e2e/utils/vscode.ts`, add:
+
+```ts
+const DEFAULT_VSCODE_CLOSE_TIMEOUT_MS = 30_000;
+
+export type VscodeCloseResult = 'closed' | 'failed' | 'timeout';
+
+export async function closeVsCodeApp(
+  app: Pick<ElectronApplication, 'close' | 'process'>,
+  options: { timeoutMs?: number } = {}
+): Promise<VscodeCloseResult> {
+  const timeoutMs = Number.isFinite(options.timeoutMs) && Number(options.timeoutMs) > 0
+    ? Math.floor(Number(options.timeoutMs))
+    : DEFAULT_VSCODE_CLOSE_TIMEOUT_MS;
+  let timedOut = false;
+  let timeout: NodeJS.Timeout | undefined;
+
+  const closePromise = app
+    .close()
+    .then((): VscodeCloseResult => 'closed')
+    .catch(error => {
+      if (!timedOut) {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.warn(`[e2e] VS Code close failed: ${detail}`);
+      }
+      return 'failed' as const;
+    });
+
+  const timeoutPromise = new Promise<VscodeCloseResult>(resolve => {
+    timeout = setTimeout(() => {
+      timedOut = true;
+      resolve('timeout');
+    }, timeoutMs);
+    timeout.unref?.();
+  });
+
+  const result = await Promise.race([closePromise, timeoutPromise]);
+  if (timeout) {
+    clearTimeout(timeout);
+  }
+
+  if (result === 'timeout') {
+    const child = app.process();
+    const pid = typeof child.pid === 'number' ? ` ${child.pid}` : '';
+    try {
+      child.kill();
+    } catch {}
+    console.warn(`[e2e] VS Code close did not finish within ${timeoutMs}ms; sent kill to process${pid}.`);
+  }
+
+  return result;
+}
+```
+
+Replace `await app.close();` in the `cleanup` function with:
+
+```ts
+      await closeVsCodeApp(app);
+```
+
+- [ ] **Step 4: Run the targeted test to verify it passes**
+
+Run:
+
+```bash
+source ~/.nvm/nvm.sh && nvm use 24.15.0 >/dev/null && npm run test:e2e:utils -- --runTestsByPath test/e2e/utils/__tests__/vscode.test.ts
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Run the full E2E utility suite**
+
+Run:
+
+```bash
+source ~/.nvm/nvm.sh && nvm use 24.15.0 >/dev/null && npm run test:e2e:utils
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit the teardown change**
+
+```bash
+git add docs/superpowers/specs/2026-05-18-e2e-observability-maintenance-design.md docs/superpowers/plans/2026-05-18-e2e-observability-maintenance.md test/e2e/utils/__tests__/vscode.test.ts test/e2e/utils/vscode.ts
+git commit -m "test(e2e): bound vscode teardown wait"
+```
+
 ## Self-Review
 
-- Spec coverage: Task 1 and Task 2 cover safe Salesforce CLI diagnostics; Task 3 covers bounded debug flags waits; Task 4 covers local and remote verification.
+- Spec coverage: Task 1 and Task 2 cover safe Salesforce CLI diagnostics; Task 3 covers bounded debug flags waits; Task 3b covers VS Code teardown timeout; Task 4 covers local and remote verification.
 - Placeholder scan: no placeholders are intentionally left in the plan.
 - Type consistency: all planned paths and function names match the current repository structure.
