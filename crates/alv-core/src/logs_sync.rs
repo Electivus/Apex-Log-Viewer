@@ -65,7 +65,7 @@ pub fn sync_logs_detailed_with_cancel(
     cancellation
         .check_cancelled()
         .map_err(LogsRuntimeError::from_message)?;
-    cleanup_legacy_log_index_files(params.workspace_root.as_deref());
+    cleanup_legacy_sqlite_index_files(params.workspace_root.as_deref());
     write_version_file(params.workspace_root.as_deref(), LOG_STORE_LAYOUT_VERSION)
         .map_err(LogsRuntimeError::from_message)?;
     let started_at = timestamp_now();
@@ -244,7 +244,7 @@ pub fn sync_logs_detailed_with_cancel(
     })
 }
 
-fn cleanup_legacy_log_index_files(workspace_root: Option<&str>) {
+fn cleanup_legacy_sqlite_index_files(workspace_root: Option<&str>) {
     let alv_dir = crate::log_store::resolve_apexlogs_root(workspace_root).join(".alv");
     for file_name in LEGACY_LOG_INDEX_FILES {
         let path = alv_dir.join(file_name);
