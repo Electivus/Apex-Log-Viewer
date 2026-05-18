@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
     thread,
     time::{Instant, SystemTime, UNIX_EPOCH},
@@ -37,6 +37,15 @@ fn make_fixture_dir(label: &str) -> PathBuf {
     let root = make_temp_workspace(label);
     fs::create_dir_all(&root).expect("fixture dir should be creatable");
     root
+}
+
+fn legacy_index_paths(workspace_root: &Path) -> Vec<PathBuf> {
+    let alv_dir = workspace_root.join("apexlogs").join(".alv");
+    vec![
+        alv_dir.join("log-index.sqlite"),
+        alv_dir.join("log-index.sqlite-wal"),
+        alv_dir.join("log-index.sqlite-shm"),
+    ]
 }
 
 fn org_display_fixture(instance_url: &str) -> String {
@@ -119,11 +128,13 @@ fn logs_sync_smoke_writes_new_layout_and_updates_checkpoint() {
 
     assert_eq!(result.status, "success");
     assert_eq!(result.downloaded, 1);
-    assert_eq!(result.indexed, 1);
-    assert!(
-        PathBuf::from(&result.index_file).is_file(),
-        "sync should create the shared SQLite search index"
-    );
+    for path in legacy_index_paths(&workspace_root) {
+        assert!(
+            !path.exists(),
+            "sync should not create legacy SQLite index file {}",
+            path.display()
+        );
+    }
     assert!(resolve_apexlogs_root(Some(
         workspace_root
             .to_str()
@@ -155,9 +166,71 @@ fn logs_sync_smoke_writes_new_layout_and_updates_checkpoint() {
         raw_username: None,
         workspace_root: Some(workspace_root.display().to_string()),
     })
-    .expect("search should read synced bodies through the shared index");
+    .expect("search should read synced bodies from local log files");
     assert_eq!(search_result.log_ids, vec!["07L000000000003AA".to_string()]);
     assert!(search_result.pending_log_ids.is_empty());
+
+    std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
+    std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);
+    std::env::remove_var("ALV_TEST_SF_ORG_DISPLAY_JSON");
+    fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
+    fs::remove_dir_all(fixture_dir).expect("fixture dir should be removable");
+}
+
+#[test]
+fn logs_sync_smoke_deletes_legacy_sqlite_artifacts() {
+    let _guard = lock_env_mutex();
+    let workspace_root = make_temp_workspace("cleanup-sqlite-index");
+    let fixture_dir = make_fixture_dir("fixture-cleanup-sqlite-index");
+    fs::write(
+        fixture_dir.join("07L000000000004AA.log"),
+        "09:00:00.0|USER_INFO|cleanup body\n",
+    )
+    .expect("fixture log should be writable");
+
+    let legacy_paths = legacy_index_paths(&workspace_root);
+    fs::create_dir_all(
+        legacy_paths[0]
+            .parent()
+            .expect("legacy index path should have a parent"),
+    )
+    .expect("legacy index dir should be writable");
+    for path in &legacy_paths {
+        fs::write(path, "legacy sqlite bytes").expect("legacy index file should be writable");
+    }
+
+    std::env::set_var(
+        TEST_SF_LOG_LIST_JSON_ENV,
+        r#"{"result":{"records":[{"Id":"07L000000000004AA","StartTime":"2026-03-30T18:40:58.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-2","LogLength":4096}]}}"#,
+    );
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_DISPLAY_JSON",
+        r#"{"result":{"username":"default@example.com","accessToken":"token","instanceUrl":"https://default.example.com"}}"#,
+    );
+    std::env::set_var(
+        TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        fixture_dir.display().to_string(),
+    );
+
+    let result = sync_logs_with_cancel(
+        &LogsSyncParams {
+            target_org: None,
+            workspace_root: Some(workspace_root.display().to_string()),
+            force_full: false,
+            concurrency: None,
+        },
+        &alv_core::logs::CancellationToken::new(),
+    )
+    .expect("sync should succeed while deleting legacy SQLite index files");
+
+    assert_eq!(result.status, "success");
+    for path in &legacy_paths {
+        assert!(
+            !path.exists(),
+            "sync should delete legacy SQLite index file {}",
+            path.display()
+        );
+    }
 
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);

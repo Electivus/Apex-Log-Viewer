@@ -2,6 +2,7 @@ import path from 'node:path';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
+  closeVsCodeApp,
   createMissingSupportExtensionsError,
   redactPreservedVsCodeUserData,
   resolveCachedSupportExtensionsDir,
@@ -65,6 +66,34 @@ describe('preserved VS Code user data', () => {
       expect(JSON.stringify(redacted)).not.toContain('dXNlcm5hbWU6cHdk');
     } finally {
       await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('VS Code cleanup', () => {
+  test('times out a hung close and kills the Electron process', async () => {
+    jest.useFakeTimers();
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const kill = jest.fn();
+    const app = {
+      close: jest.fn(() => new Promise<void>(() => {})),
+      process: () => ({ pid: 1234, kill })
+    };
+
+    try {
+      const closePromise = closeVsCodeApp(app as any, { timeoutMs: 25 });
+      await Promise.resolve();
+      jest.advanceTimersByTime(25);
+
+      await expect(closePromise).resolves.toBe('timeout');
+      expect(app.close).toHaveBeenCalledTimes(1);
+      expect(kill).toHaveBeenCalledTimes(1);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        '[e2e] VS Code close did not finish within 25ms; sent kill to process 1234.'
+      );
+    } finally {
+      consoleWarnSpy.mockRestore();
+      jest.useRealTimers();
     }
   });
 });

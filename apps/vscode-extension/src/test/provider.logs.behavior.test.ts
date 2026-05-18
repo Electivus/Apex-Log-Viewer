@@ -64,10 +64,8 @@ function createProviderHarness() {
       downloaded: 0,
       cached: 0,
       failed: 0,
-      indexed: 0,
       checkpoint_advanced: false,
       state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-      index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
     })
   };
   const cliStub: any = runtimeClientStub;
@@ -407,10 +405,8 @@ suite('SfLogsViewProvider behavior', () => {
         downloaded: 2,
         cached: 0,
         failed: 0,
-        indexed: 2,
         checkpoint_advanced: true,
         state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
       };
     };
     const purged: Array<{ keepIds?: Set<string>; maxAgeMs?: number; signal?: AbortSignal }> = [];
@@ -450,10 +446,8 @@ suite('SfLogsViewProvider behavior', () => {
         downloaded: 1,
         cached: 0,
         failed: 0,
-        indexed: 1,
         checkpoint_advanced: true,
         state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
       };
     };
     const triageCalls: any[] = [];
@@ -518,10 +512,8 @@ suite('SfLogsViewProvider behavior', () => {
         downloaded: 1,
         cached: 0,
         failed: 0,
-        indexed: 1,
         checkpoint_advanced: true,
         state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
       };
     };
     cli.logsTriage = async () => [];
@@ -565,10 +557,8 @@ suite('SfLogsViewProvider behavior', () => {
         downloaded: 1,
         cached: 0,
         failed: 0,
-        indexed: 1,
         checkpoint_advanced: true,
         state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
       };
     };
     cli.logsTriage = async () => [];
@@ -637,10 +627,8 @@ suite('SfLogsViewProvider behavior', () => {
         downloaded: 2,
         cached: 0,
         failed: 0,
-        indexed: 2,
         checkpoint_advanced: true,
         state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
       };
     };
     workspace.purgeSavedLogs = async () => 0;
@@ -763,10 +751,8 @@ suite('SfLogsViewProvider behavior', () => {
         downloaded: 0,
         cached: 0,
         failed: 0,
-        indexed: 0,
         checkpoint_advanced: false,
         state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
       };
     };
 
@@ -1242,10 +1228,8 @@ suite('SfLogsViewProvider behavior', () => {
         downloaded: 2,
         cached: 1,
         failed: 0,
-        indexed: 3,
         checkpoint_advanced: true,
         state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
       };
     };
     const searchCalls: string[] = [];
@@ -1347,10 +1331,8 @@ suite('SfLogsViewProvider behavior', () => {
           downloaded: 0,
           failed: 0,
           cached: 0,
-          indexed: 0,
           checkpoint_advanced: false,
           state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-          index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
         };
       }
       return {
@@ -1358,10 +1340,8 @@ suite('SfLogsViewProvider behavior', () => {
         downloaded: 0,
         failed: 0,
         cached: 0,
-        indexed: 0,
         checkpoint_advanced: false,
         state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
-        index_file: '/tmp/alv-workspace/apexlogs/.alv/log-index.sqlite'
       };
     };
 

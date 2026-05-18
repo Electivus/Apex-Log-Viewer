@@ -32,6 +32,7 @@ const VSCODE_DOWNLOAD_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
 const VSCODE_DOWNLOAD_LOCK_POLL_MS = 250;
 const VSCODE_DOWNLOAD_LOCK_REFRESH_MS = 30 * 1000;
 const DEFAULT_VSCODE_DOWNLOAD_TIMEOUT_MS = 120_000;
+const DEFAULT_VSCODE_CLOSE_TIMEOUT_MS = 30_000;
 const REDACTED_SETTING_VALUE = '[redacted]';
 
 function getModifierKey(): 'Control' | 'Meta' {
@@ -70,6 +71,58 @@ export function resolveVscodeDownloadTimeoutMs(env: NodeJS.ProcessEnv = process.
   return Number.isFinite(timeoutMs) && Number.isInteger(timeoutMs) && timeoutMs > 0
     ? timeoutMs
     : DEFAULT_VSCODE_DOWNLOAD_TIMEOUT_MS;
+}
+
+export type VscodeCloseResult = 'closed' | 'failed' | 'timeout';
+
+export async function closeVsCodeApp(
+  app: Pick<ElectronApplication, 'close' | 'process'>,
+  options: { timeoutMs?: number } = {}
+): Promise<VscodeCloseResult> {
+  const timeoutMs =
+    Number.isFinite(options.timeoutMs) && Number(options.timeoutMs) > 0
+      ? Math.floor(Number(options.timeoutMs))
+      : DEFAULT_VSCODE_CLOSE_TIMEOUT_MS;
+  let timedOut = false;
+  let timeout: NodeJS.Timeout | undefined;
+
+  const closePromise = app
+    .close()
+    .then((): VscodeCloseResult => 'closed')
+    .catch(error => {
+      if (!timedOut) {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.warn(`[e2e] VS Code close failed: ${detail}`);
+      }
+      return 'failed' as const;
+    });
+
+  const timeoutPromise = new Promise<VscodeCloseResult>(resolve => {
+    timeout = setTimeout(() => {
+      timedOut = true;
+      resolve('timeout');
+    }, timeoutMs);
+    timeout.unref?.();
+  });
+
+  const result = await Promise.race([closePromise, timeoutPromise]);
+  if (timeout) {
+    clearTimeout(timeout);
+  }
+
+  if (result === 'timeout') {
+    let pid = '';
+    try {
+      const child = app.process();
+      pid = typeof child.pid === 'number' ? ` ${child.pid}` : '';
+      try {
+        child.kill();
+      } catch {}
+    } catch {}
+    console.warn(`[e2e] VS Code close did not finish within ${timeoutMs}ms; sent kill to process${pid}.`);
+  }
+
+  return result;
 }
 
 function getSupportExtensionsCacheKey(vscodeVersion: string, extensionIds: string[]): string {
@@ -568,7 +621,7 @@ export async function launchVsCode(options: {
 
   const cleanup = async (cleanupOptions?: { keep?: boolean }) => {
     try {
-      await app.close();
+      await closeVsCodeApp(app);
     } catch {}
     if (cleanupOptions?.keep || shouldKeepUserDataDir()) {
       await redactPreservedVsCodeUserData(userDataDir);
