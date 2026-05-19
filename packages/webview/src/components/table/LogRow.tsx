@@ -188,7 +188,9 @@ export function LogRow({
             case 'status':
               return (
                 <div key={key} className={cn(cellClass, 'flex flex-wrap items-center content-start gap-2 gap-y-1')}>
-                  <span className="shrink-0">{r.Status}</span>
+                  <span data-testid="logs-status-text" className="min-w-0 max-w-full whitespace-normal break-words">
+                    {r.Status}
+                  </span>
                   {hasErrors && (
                     <Badge
                       data-testid="logs-error-badge"
