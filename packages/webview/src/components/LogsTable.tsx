@@ -8,7 +8,6 @@ import { LogsHeader } from './table/LogsHeader';
 import { LogRow } from './table/LogRow';
 
 export type LogHeadEntry = {
-  codeUnitStarted?: string;
   hasErrors?: boolean;
   primaryReason?: string;
   reasons?: LogDiagnostic[];
@@ -108,7 +107,6 @@ export function LogsTable({
       'match',
       'application',
       'user',
-      'codeUnit',
       'time',
       'status',
       'duration',

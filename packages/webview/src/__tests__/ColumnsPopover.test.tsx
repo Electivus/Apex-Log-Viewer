@@ -4,17 +4,7 @@ import { ColumnsPopover } from '../components/ColumnsPopover';
 import { getMessages } from '../i18n';
 
 const initialColumnsConfig = {
-  order: [
-    'user',
-    'application',
-    'operation',
-    'time',
-    'duration',
-    'status',
-    'codeUnit',
-    'size',
-    'match'
-  ],
+  order: ['user', 'application', 'operation', 'time', 'duration', 'status', 'size', 'match'],
   visibility: {
     user: true,
     application: true,
@@ -22,7 +12,6 @@ const initialColumnsConfig = {
     time: true,
     duration: true,
     status: true,
-    codeUnit: true,
     size: true,
     match: true
   },
@@ -51,6 +40,7 @@ describe('ColumnsPopover', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
     screen.getByText('Show/hide and reorder columns');
+    expect(screen.queryByText('Code Unit')).toBeNull();
 
     const userSwitch = screen.getByRole('switch', { name: 'User' });
     fireEvent.click(userSwitch);
@@ -82,4 +72,3 @@ describe('ColumnsPopover', () => {
     expect(matchSwitch).toBeDisabled();
   });
 });
-

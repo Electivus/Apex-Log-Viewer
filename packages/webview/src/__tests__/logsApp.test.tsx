@@ -402,6 +402,25 @@ describe('Logs webview App', () => {
     expect(screen.getByText('Validation failure')).toBeInTheDocument();
   });
 
+  it('ignores deprecated code unit state and does not expose the code unit filter', async () => {
+    const { vscode, getSavedState } = createVsCodeMock({
+      query: '',
+      filterCodeUnit: 'LegacyUnit',
+      sortBy: 'codeUnit',
+      sortDir: 'asc'
+    });
+    const bus = new EventTarget();
+    render(<LogsApp vscode={vscode} messageBus={bus} />);
+
+    expect(screen.queryByLabelText('Code Unit')).toBeNull();
+
+    await waitFor(() => {
+      expect((getSavedState() as any)?.filterCodeUnit).toBeUndefined();
+      expect((getSavedState() as any)?.sortBy).toBe('time');
+      expect((getSavedState() as any)?.sortDir).toBe('asc');
+    });
+  });
+
   it('restores and persists logs UI state through the VS Code webview api', async () => {
     const { vscode, getSavedState } = createVsCodeMock({
       query: 'persisted query',

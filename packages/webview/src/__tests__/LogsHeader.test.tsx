@@ -13,7 +13,6 @@ describe('LogsHeader', () => {
         time: 'Time',
         duration: 'Duration',
         status: 'Status',
-        codeUnitStarted: 'Code Unit',
         size: 'Size',
         match: 'Match'
       }

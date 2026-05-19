@@ -21,7 +21,7 @@ describe('LogRow', () => {
     const { getByRole, getByText } = render(
       <LogRow
         r={row}
-        logHead={{ '1': { codeUnitStarted: 'CU' } }}
+        logHead={{}}
         locale="en-US"
         t={{ open: 'Open', replay: 'Replay' }}
         columns={['user']}
