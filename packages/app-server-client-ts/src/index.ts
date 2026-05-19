@@ -108,6 +108,9 @@ export type LogsTriageParams = {
 
 export type LogsTriageEntry = {
   logId: string;
+  /**
+   * @deprecated Code Unit hydration was removed from clients. The runtime no longer populates this.
+   */
   codeUnitStarted?: string;
   summary: RuntimeLogTriageSummary;
 };

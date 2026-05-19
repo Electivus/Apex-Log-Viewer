@@ -59,12 +59,6 @@ describe('Logs webview App', () => {
       selected: 'user@example.com'
     });
 
-    sendMessage(bus, {
-      type: 'logHead',
-      logId: '07L000000000001AA',
-      codeUnitStarted: 'AccountService.handle'
-    });
-
     sendMessage(bus, { type: 'error', message: 'Falhou ao carregar' });
     await screen.findByText('Falhou ao carregar');
 

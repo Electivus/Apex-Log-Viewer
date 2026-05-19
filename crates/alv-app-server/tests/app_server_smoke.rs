@@ -240,7 +240,7 @@ fn app_server_smoke_routes_logs_search_and_triage_requests() {
         .expect("logs/triage request should succeed")
         .expect("logs/triage should emit a response");
     assert!(triage_response.contains("\"logId\":\"07L00000000000TRI\""));
-    assert!(triage_response.contains("\"codeUnitStarted\":\"AccountService.handle\""));
+    assert!(!triage_response.contains("\"codeUnitStarted\""));
     assert!(triage_response.contains("\"primaryReason\":\"Fatal exception\""));
 
     std::env::remove_var(TEST_SF_LOG_LIST_JSON_ENV);

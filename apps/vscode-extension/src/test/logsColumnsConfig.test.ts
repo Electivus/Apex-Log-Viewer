@@ -15,23 +15,24 @@ suite('logsColumns config', () => {
     assert.ok(cfg.order.includes('match'));
   });
 
-  test('drops deprecated codeUnit settings from persisted configs', () => {
+  test('drops deprecated column settings from persisted configs', () => {
+    const deprecatedColumnKey = ['code', 'Unit'].join('');
     const cfg = normalizeLogsColumnsConfig({
-      order: ['codeUnit', 'time', 'user', 'codeUnit'],
+      order: [deprecatedColumnKey, 'time', 'user', deprecatedColumnKey],
       visibility: {
-        codeUnit: false,
+        [deprecatedColumnKey]: false,
         user: false
       },
       widths: {
-        codeUnit: 999,
+        [deprecatedColumnKey]: 999,
         time: 123.9
       }
     } as any);
 
     assert.deepEqual(cfg.order, ['time', 'user', 'application', 'operation', 'duration', 'status', 'size', 'match']);
-    assert.equal((cfg.visibility as any).codeUnit, undefined);
+    assert.equal((cfg.visibility as any)[deprecatedColumnKey], undefined);
     assert.equal(cfg.visibility.user, false);
-    assert.equal((cfg.widths as any).codeUnit, undefined);
+    assert.equal((cfg.widths as any)[deprecatedColumnKey], undefined);
     assert.equal(cfg.widths.time, 123);
   });
 

@@ -14,8 +14,8 @@ use std::{
 use alv_core::{
     auth::TEST_ORG_DISPLAY_JSON_ENV,
     logs::{
-        ensure_log_file_cached, extract_code_unit_started, find_cached_log_path,
-        list_logs_detailed_with_cancel, list_logs_with_cancel, CancellationToken, LogsListParams,
+        ensure_log_file_cached, find_cached_log_path, list_logs_detailed_with_cancel,
+        list_logs_with_cancel, CancellationToken, LogsListParams,
         TEST_APEX_LOG_FIXTURE_DIR_ENV, TEST_SF_LOG_LIST_JSON_ENV,
     },
     search::{search_query, search_query_with_cancel, SearchQueryParams},
@@ -1107,10 +1107,7 @@ fn logs_runtime_smoke_triage_materializes_unknown_date_cache_for_known_start_tim
     );
 
     assert_eq!(items.len(), 1);
-    assert_eq!(
-        items[0].code_unit_started.as_deref(),
-        Some("Materialized.handle")
-    );
+    assert_eq!(items[0].code_unit_started, None);
     let dated_path = workspace_root
         .join("apexlogs")
         .join("orgs")
@@ -1220,10 +1217,7 @@ fn logs_runtime_smoke_triage_ignores_wrong_org_cached_copy_when_alias_resolves_c
     .expect("logs/triage should ignore wrong-org cached copies and use the canonical tree");
 
     assert_eq!(items.len(), 1);
-    assert_eq!(
-        items[0].code_unit_started.as_deref(),
-        Some("AccountService.handle")
-    );
+    assert_eq!(items[0].code_unit_started, None);
     assert_eq!(
         items[0].summary.primary_reason.as_deref(),
         Some("Fatal exception")
@@ -1340,10 +1334,7 @@ fn logs_runtime_smoke_triage_uses_raw_alias_org_first_cache_without_auth() {
     .expect("logs/triage should reuse the raw alias org-first cache when auth is unavailable");
 
     assert_eq!(items.len(), 1);
-    assert_eq!(
-        items[0].code_unit_started.as_deref(),
-        Some("AliasOffline.handle")
-    );
+    assert_eq!(items[0].code_unit_started, None);
     assert_eq!(
         items[0].summary.primary_reason.as_deref(),
         Some("Fatal exception")
@@ -1385,10 +1376,7 @@ fn logs_runtime_smoke_triage_materializes_raw_alias_cache_to_raw_alias_date() {
     .expect("logs/triage should reuse the raw alias org-first cache when auth is unavailable");
 
     assert_eq!(items.len(), 1);
-    assert_eq!(
-        items[0].code_unit_started.as_deref(),
-        Some("AliasDated.handle")
-    );
+    assert_eq!(items[0].code_unit_started, None);
     assert!(
         workspace_root
             .join("apexlogs")
@@ -1577,10 +1565,7 @@ fn logs_runtime_smoke_triages_logs_and_caches_fixture_downloads() {
 
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].log_id, log_id);
-    assert_eq!(
-        items[0].code_unit_started.as_deref(),
-        Some("AccountService.handle")
-    );
+    assert_eq!(items[0].code_unit_started, None);
     assert!(items[0].summary.has_errors);
     assert_eq!(
         items[0].summary.primary_reason.as_deref(),
@@ -1654,10 +1639,7 @@ fn logs_runtime_smoke_triage_returns_partial_results_when_one_log_is_unreadable(
         .iter()
         .find(|item| item.log_id == readable_log_id)
         .expect("healthy log should still be triaged");
-    assert_eq!(
-        readable.code_unit_started.as_deref(),
-        Some("AccountService.handle")
-    );
+    assert_eq!(readable.code_unit_started, None);
     assert!(readable.summary.has_errors);
     assert_eq!(
         readable.summary.primary_reason.as_deref(),
@@ -1667,17 +1649,6 @@ fn logs_runtime_smoke_triage_returns_partial_results_when_one_log_is_unreadable(
     std::env::remove_var(TEST_APEX_LOG_FIXTURE_DIR_ENV);
     fs::remove_dir_all(workspace_root).expect("temp workspace should be removable");
     fs::remove_dir_all(fixture_root).expect("fixture workspace should be removable");
-}
-
-#[test]
-fn logs_runtime_smoke_extracts_code_unit_started() {
-    let lines = vec![
-        "09:00:00.0|EXECUTION_STARTED",
-        "09:00:00.1|CODE_UNIT_STARTED|[EXTERNAL]|InvoiceService.run",
-    ];
-
-    let extracted = extract_code_unit_started(&lines);
-    assert_eq!(extracted.as_deref(), Some("InvoiceService.run"));
 }
 
 #[test]
