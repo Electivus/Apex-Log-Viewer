@@ -57,7 +57,6 @@ const LOGS_REPLAYABLE_VISIBLE_UPDATE_TYPES = new Set<ExtensionToWebviewMessage['
 ]);
 
 interface LogHeadSnapshot {
-  codeUnitStarted?: string;
   hasErrors?: boolean;
   primaryReason?: string;
   reasons?: LogDiagnostic[];
@@ -349,7 +348,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           this.postKnownErrorStateForLogs(logs);
           this.purgeLogCache(controller.signal);
           const authPromise = authHandle.handoff();
-          this.startAuthHydration(logs, authPromise, token, selectedOrg, controller.signal);
+          this.startAuthWarningHydration(authPromise, token, controller.signal);
           this.startBackgroundSync(selectedOrg, false, token, controller.signal, {
             resolvedOrgForKey: authPromise.then(auth => auth.username || undefined)
           });
@@ -425,7 +424,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       this.postKnownErrorStateForLogs(logs);
       this.purgeLogCache();
       const authPromise = authHandle.handoff();
-      this.startAuthHydration(logs, authPromise, token, selectedOrg);
+      this.startAuthWarningHydration(authPromise, token);
       this.startBackgroundSync(selectedOrg, false, token, undefined, {
         resolvedOrgForKey: authPromise.then(auth => auth.username || undefined)
       });
@@ -447,11 +446,9 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
   }
 
-  private startAuthHydration(
-    logs: ApexLogRow[],
+  private startAuthWarningHydration(
     authPromise: Promise<OrgAuth>,
     refreshToken: number,
-    selectedOrg?: string,
     signal?: AbortSignal
   ): void {
     void authPromise
@@ -463,21 +460,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         if (warning) {
           this.post({ type: 'warning', message: warning });
         }
-        this.logService.loadLogHeads(
-          logs,
-          auth,
-          refreshToken,
-          (logId, codeUnit) => {
-            if (refreshToken === this.refreshToken && !this.disposed) {
-              this.post({ type: 'logHead', logId, codeUnitStarted: codeUnit });
-            }
-          },
-          signal,
-          {
-            preferLocalBodies: this.configManager.shouldLoadFullLogBodies(),
-            selectedOrg
-          }
-        );
       })
       .catch(e => {
         if (!signal?.aborted && refreshToken === this.refreshToken && !this.disposed) {
@@ -833,7 +815,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
             this.post({
               type: 'logHead',
               logId: entry.logId,
-              codeUnitStarted: entry.codeUnitStarted,
               hasErrors: summary.hasErrors,
               primaryReason: summary.primaryReason,
               reasons: summary.reasons
@@ -1863,7 +1844,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           {
             type: 'logHead',
             logId,
-            ...(snapshot.codeUnitStarted !== undefined ? { codeUnitStarted: snapshot.codeUnitStarted } : {}),
             ...(snapshot.hasErrors !== undefined ? { hasErrors: snapshot.hasErrors } : {}),
             ...(snapshot.primaryReason !== undefined ? { primaryReason: snapshot.primaryReason } : {}),
             ...(snapshot.reasons !== undefined ? { reasons: snapshot.reasons } : {})
@@ -2048,7 +2028,6 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         const previous = this.logHeadByLogId.get(msg.logId) ?? {};
         this.logHeadByLogId.set(msg.logId, {
           ...previous,
-          ...(msg.codeUnitStarted !== undefined ? { codeUnitStarted: msg.codeUnitStarted } : {}),
           ...(msg.hasErrors !== undefined ? { hasErrors: msg.hasErrors } : {}),
           ...(msg.primaryReason !== undefined ? { primaryReason: msg.primaryReason } : {}),
           ...(msg.reasons !== undefined ? { reasons: msg.reasons } : {})

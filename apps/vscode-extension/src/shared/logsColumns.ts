@@ -5,7 +5,6 @@ export type LogsColumnKey =
   | 'time'
   | 'duration'
   | 'status'
-  | 'codeUnit'
   | 'size'
   | 'match';
 
@@ -28,7 +27,6 @@ export const DEFAULT_LOGS_COLUMN_ORDER: LogsColumnKey[] = [
   'time',
   'duration',
   'status',
-  'codeUnit',
   'size',
   'match'
 ];

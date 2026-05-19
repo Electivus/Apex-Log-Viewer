@@ -237,23 +237,4 @@ export async function fetchApexLogBody(
   );
 }
 
-export function extractCodeUnitStartedFromLines(lines: string[]): string | undefined {
-  const re = /\|CODE_UNIT_STARTED\|\s*(.+)$/;
-  for (const line of lines) {
-    const m = line.match(re);
-    if (m && m[1]) {
-      const captured = m[1];
-      const parts = captured
-        .split('|')
-        .map(s => s.trim())
-        .filter(Boolean);
-      if (parts.length > 0) {
-        return parts[parts.length - 1];
-      }
-      return captured.trim();
-    }
-  }
-  return undefined;
-}
-
 export { __resetHttpsRequestImplForTests, __setHttpsRequestImplForTests };

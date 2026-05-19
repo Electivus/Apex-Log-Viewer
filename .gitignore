@@ -24,6 +24,7 @@ __pycache__/
 *.log
 *.txt
 dist
+.worktrees
 .worktrees/
 .nx/
 .vscode-test/

@@ -159,7 +159,6 @@
               "time",
               "duration",
               "status",
-              "codeUnit",
               "size",
               "match"
             ],
@@ -170,7 +169,6 @@
               "time": true,
               "duration": true,
               "status": true,
-              "codeUnit": true,
               "size": true,
               "match": true
             },
@@ -189,7 +187,6 @@
                   "time",
                   "duration",
                   "status",
-                  "codeUnit",
                   "size",
                   "match"
                 ]
@@ -214,9 +211,6 @@
                   "type": "boolean"
                 },
                 "status": {
-                  "type": "boolean"
-                },
-                "codeUnit": {
                   "type": "boolean"
                 },
                 "size": {
@@ -251,10 +245,6 @@
                   "minimum": 1
                 },
                 "status": {
-                  "type": "number",
-                  "minimum": 1
-                },
-                "codeUnit": {
                   "type": "number",
                   "minimum": 1
                 },

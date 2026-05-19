@@ -59,12 +59,6 @@ describe('Logs webview App', () => {
       selected: 'user@example.com'
     });
 
-    sendMessage(bus, {
-      type: 'logHead',
-      logId: '07L000000000001AA',
-      codeUnitStarted: 'AccountService.handle'
-    });
-
     sendMessage(bus, { type: 'error', message: 'Falhou ao carregar' });
     await screen.findByText('Falhou ao carregar');
 
@@ -400,6 +394,28 @@ describe('Logs webview App', () => {
     expect(screen.queryByText('NormalCandidate')).toBeNull();
     expect(screen.getByText('Error')).toBeInTheDocument();
     expect(screen.getByText('Validation failure')).toBeInTheDocument();
+  });
+
+  it('ignores deprecated code unit state and does not expose the code unit filter', async () => {
+    const deprecatedFilterKey = ['filter', 'Code', 'Unit'].join('');
+    const deprecatedSortKey = ['code', 'Unit'].join('');
+    const deprecatedFilterLabel = ['Code', 'Unit'].join(' ');
+    const { vscode, getSavedState } = createVsCodeMock({
+      query: '',
+      [deprecatedFilterKey]: 'LegacyUnit',
+      sortBy: deprecatedSortKey,
+      sortDir: 'asc'
+    });
+    const bus = new EventTarget();
+    render(<LogsApp vscode={vscode} messageBus={bus} />);
+
+    expect(screen.queryByLabelText(deprecatedFilterLabel)).toBeNull();
+
+    await waitFor(() => {
+      expect((getSavedState() as any)?.[deprecatedFilterKey]).toBeUndefined();
+      expect((getSavedState() as any)?.sortBy).toBe('time');
+      expect((getSavedState() as any)?.sortDir).toBe('asc');
+    });
   });
 
   it('restores and persists logs UI state through the VS Code webview api', async () => {

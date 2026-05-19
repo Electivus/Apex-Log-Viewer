@@ -34,24 +34,15 @@ const t = {
     time: 'Time',
     duration: 'Duration',
     status: 'Status',
-    codeUnitStarted: 'Code Unit',
     size: 'Size',
     match: 'Match'
   }
 };
 
+const deprecatedColumnLabel = ['Code', 'Unit'].join(' ');
+
 const defaultColumnsConfig = {
-  order: [
-    'user',
-    'application',
-    'operation',
-    'time',
-    'duration',
-    'status',
-    'codeUnit',
-    'size',
-    'match'
-  ],
+  order: ['user', 'application', 'operation', 'time', 'duration', 'status', 'size', 'match'],
   visibility: {
     user: true,
     application: true,
@@ -59,7 +50,6 @@ const defaultColumnsConfig = {
     time: true,
     duration: true,
     status: true,
-    codeUnit: true,
     size: true,
     match: true
   },
@@ -201,17 +191,17 @@ describe('LogsTable', () => {
     (performance as any).now = originalNow;
   });
 
-  it('shows match column while keeping code unit when full log search is enabled', () => {
+  it('shows match column when full log search is enabled without showing code unit', () => {
     const captured: CapturedList = {};
     renderTable({ captured, fullLogSearchEnabled: true });
-    expect(screen.getByText('Code Unit')).toBeInTheDocument();
+    expect(screen.queryByText(deprecatedColumnLabel)).toBeNull();
     expect(screen.getByText('Match')).toBeInTheDocument();
   });
 
-  it('shows code unit column and hides match when full log search is disabled', () => {
+  it('hides both deprecated code unit and match when full log search is disabled', () => {
     const captured: CapturedList = {};
     renderTable({ captured, fullLogSearchEnabled: false });
-    expect(screen.getByText('Code Unit')).toBeInTheDocument();
+    expect(screen.queryByText(deprecatedColumnLabel)).toBeNull();
     expect(screen.queryByText('Match')).toBeNull();
   });
 });
