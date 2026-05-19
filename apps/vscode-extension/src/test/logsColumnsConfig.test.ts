@@ -15,6 +15,26 @@ suite('logsColumns config', () => {
     assert.ok(cfg.order.includes('match'));
   });
 
+  test('drops deprecated codeUnit settings from persisted configs', () => {
+    const cfg = normalizeLogsColumnsConfig({
+      order: ['codeUnit', 'time', 'user', 'codeUnit'],
+      visibility: {
+        codeUnit: false,
+        user: false
+      },
+      widths: {
+        codeUnit: 999,
+        time: 123.9
+      }
+    } as any);
+
+    assert.deepEqual(cfg.order, ['time', 'user', 'application', 'operation', 'duration', 'status', 'size', 'match']);
+    assert.equal((cfg.visibility as any).codeUnit, undefined);
+    assert.equal(cfg.visibility.user, false);
+    assert.equal((cfg.widths as any).codeUnit, undefined);
+    assert.equal(cfg.widths.time, 123);
+  });
+
   test('caps inspected order entries for oversized payloads', () => {
     const cfg = normalizeLogsColumnsConfig({
       order: [...Array.from({ length: 1000 }, () => 'nope'), 'time']

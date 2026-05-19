@@ -22,6 +22,10 @@ export type WebviewToExtensionMessage =
       hasUser: boolean;
       hasOperation: boolean;
       hasStatus: boolean;
+      /**
+       * @deprecated Code Unit filtering was removed. Kept temporarily so older webview messages
+       * and telemetry parsers remain compatible during deprecation.
+       */
       hasCodeUnit: boolean;
       errorsOnly: boolean;
       activeCount: number;
@@ -44,6 +48,10 @@ export type ExtensionToWebviewMessage =
   | {
       type: 'logHead';
       logId: string;
+      /**
+       * @deprecated Code Unit table hydration was removed. Kept for compatibility with older
+       * runtime/app-server producers during deprecation.
+       */
       codeUnitStarted?: string;
       hasErrors?: boolean;
       primaryReason?: string;
