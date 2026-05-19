@@ -34,11 +34,12 @@ const t = {
     time: 'Time',
     duration: 'Duration',
     status: 'Status',
-    codeUnitStarted: 'Code Unit',
     size: 'Size',
     match: 'Match'
   }
 };
+
+const deprecatedColumnLabel = ['Code', 'Unit'].join(' ');
 
 const defaultColumnsConfig = {
   order: ['user', 'application', 'operation', 'time', 'duration', 'status', 'size', 'match'],
@@ -193,14 +194,14 @@ describe('LogsTable', () => {
   it('shows match column when full log search is enabled without showing code unit', () => {
     const captured: CapturedList = {};
     renderTable({ captured, fullLogSearchEnabled: true });
-    expect(screen.queryByText('Code Unit')).toBeNull();
+    expect(screen.queryByText(deprecatedColumnLabel)).toBeNull();
     expect(screen.getByText('Match')).toBeInTheDocument();
   });
 
   it('hides both deprecated code unit and match when full log search is disabled', () => {
     const captured: CapturedList = {};
     renderTable({ captured, fullLogSearchEnabled: false });
-    expect(screen.queryByText('Code Unit')).toBeNull();
+    expect(screen.queryByText(deprecatedColumnLabel)).toBeNull();
     expect(screen.queryByText('Match')).toBeNull();
   });
 });

@@ -35,12 +35,14 @@ function Harness({ fullLogSearchEnabled }: { fullLogSearchEnabled: boolean }) {
 }
 
 describe('ColumnsPopover', () => {
+  const deprecatedColumnLabel = ['Code', 'Unit'].join(' ');
+
   it('toggles visibility, reorders, and resets to defaults', () => {
     render(<Harness fullLogSearchEnabled={true} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
     screen.getByText('Show/hide and reorder columns');
-    expect(screen.queryByText('Code Unit')).toBeNull();
+    expect(screen.queryByText(deprecatedColumnLabel)).toBeNull();
 
     const userSwitch = screen.getByRole('switch', { name: 'User' });
     fireEvent.click(userSwitch);

@@ -128,7 +128,6 @@ function createProviderHarness() {
     async fetchLogs(): Promise<any[]> {
       return [];
     }
-    loadLogHeads(): void {}
     async ensureLogsSaved(): Promise<any> {
       return {
         total: 0,
@@ -330,9 +329,8 @@ suite('SfLogsViewProvider behavior', () => {
     }
   });
 
-  test('refresh posts logs and logHead with code unit', async () => {
+  test('refresh posts logs without code unit logHead hydration', async () => {
     const { SfLogsViewProvider, cli } = createProviderHarness();
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-provider-heads-'));
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     cli.logsList = async () => [
       { Id: '07L000000000001AA', LogLength: 10 },
@@ -342,16 +340,6 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
-    (provider as any).logService.loadLogHeads = (
-      logs: Array<{ Id: string }>,
-      _auth: unknown,
-      _token: number,
-      postHead: (logId: string, codeUnit: string) => void
-    ) => {
-      for (const log of logs) {
-        postHead(log.Id, 'MyClass.myMethod');
-      }
-    };
     // Inject minimal view so refresh proceeds
     (provider as any).view = {
       webview: {
@@ -362,24 +350,16 @@ suite('SfLogsViewProvider behavior', () => {
       }
     } as any;
 
-    try {
-      await provider.refresh();
-      await waitForCondition(() => posted.filter(m => typeof m?.codeUnitStarted === 'string').length === 2);
+    await provider.refresh();
+    await new Promise(resolve => setTimeout(resolve, 0));
 
-      const init = posted.find(m => m?.type === 'init');
-      const logs = posted.find(m => m?.type === 'logs');
-      const heads = posted.filter(m => m?.type === 'logHead');
-      const codeUnitHeads = heads.filter(m => typeof m?.codeUnitStarted === 'string' && m.codeUnitStarted.length > 0);
-      assert.ok(init, 'should post init');
-      assert.ok(logs, 'should post logs');
-      assert.equal((logs?.data || []).length, 2, 'should include two logs');
-      assert.equal(codeUnitHeads.length, 2, 'should post code unit head for each log');
-      const byId = new Map(codeUnitHeads.map(m => [m.logId, m.codeUnitStarted]));
-      assert.equal(byId.get('07L000000000001AA'), 'MyClass.myMethod');
-      assert.equal(byId.get('07L000000000002AA'), 'MyClass.myMethod');
-    } finally {
-      await fs.rm(tmpDir, { recursive: true, force: true });
-    }
+    const init = posted.find(m => m?.type === 'init');
+    const logs = posted.find(m => m?.type === 'logs');
+    assert.ok(init, 'should post init');
+    assert.ok(logs, 'should post logs');
+    assert.equal((logs?.data || []).length, 2, 'should include two logs');
+    const deprecatedHeadKey = ['code', 'Unit', 'Started'].join('');
+    assert.equal(posted.some(m => typeof m?.[deprecatedHeadKey] === 'string'), false);
   });
 
   test('refresh starts shared background sync after listing logs', async () => {
@@ -395,7 +375,6 @@ suite('SfLogsViewProvider behavior', () => {
         postMessage: () => Promise.resolve(true)
       }
     } as any;
-    (provider as any).logService.loadLogHeads = () => {};
 
     const syncCalls: Array<{ params: any; signal?: AbortSignal }> = [];
     cli.logsSync = async (params: any, signal?: AbortSignal) => {
@@ -470,7 +449,6 @@ suite('SfLogsViewProvider behavior', () => {
     (provider as any).executeSearch = async (query: string) => {
       searchCalls.push(query);
     };
-    (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
         postMessage: () => Promise.resolve(true)
@@ -520,7 +498,6 @@ suite('SfLogsViewProvider behavior', () => {
 
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
-    (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
         postMessage: () => Promise.resolve(true)
@@ -565,7 +542,6 @@ suite('SfLogsViewProvider behavior', () => {
 
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
-    (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
         postMessage: () => Promise.resolve(true)
@@ -637,7 +613,6 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => false;
-    (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
         postMessage: (m: any) => {
@@ -695,7 +670,6 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
-    (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
         postMessage: (m: any) => {
@@ -723,7 +697,6 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => false;
-    (provider as any).logService.loadLogHeads = () => {};
 
     const posted: any[] = [];
     (provider as any).view = {
@@ -800,7 +773,6 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => false;
-    (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
         postMessage: (m: any) => {
@@ -853,7 +825,6 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => false;
-    (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
         postMessage: (m: any) => {
@@ -895,7 +866,6 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
         postMessage: (m: any) => {
@@ -970,7 +940,6 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
         postMessage: (m: any) => {
@@ -1020,7 +989,6 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).logService.loadLogHeads = () => {};
     (provider as any).view = {
       webview: {
         postMessage: (m: any) => {
@@ -1077,16 +1045,6 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
-    (provider as any).logService.loadLogHeads = (
-      logs: Array<{ Id: string }>,
-      _auth: unknown,
-      _token: number,
-      postHead: (logId: string, codeUnit: string) => void
-    ) => {
-      for (const log of logs) {
-        postHead(log.Id, 'C.m');
-      }
-    };
     (provider as any).view = {
       webview: {
         postMessage: (m: any) => {

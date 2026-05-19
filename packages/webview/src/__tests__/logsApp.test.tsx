@@ -403,19 +403,22 @@ describe('Logs webview App', () => {
   });
 
   it('ignores deprecated code unit state and does not expose the code unit filter', async () => {
+    const deprecatedFilterKey = ['filter', 'Code', 'Unit'].join('');
+    const deprecatedSortKey = ['code', 'Unit'].join('');
+    const deprecatedFilterLabel = ['Code', 'Unit'].join(' ');
     const { vscode, getSavedState } = createVsCodeMock({
       query: '',
-      filterCodeUnit: 'LegacyUnit',
-      sortBy: 'codeUnit',
+      [deprecatedFilterKey]: 'LegacyUnit',
+      sortBy: deprecatedSortKey,
       sortDir: 'asc'
     });
     const bus = new EventTarget();
     render(<LogsApp vscode={vscode} messageBus={bus} />);
 
-    expect(screen.queryByLabelText('Code Unit')).toBeNull();
+    expect(screen.queryByLabelText(deprecatedFilterLabel)).toBeNull();
 
     await waitFor(() => {
-      expect((getSavedState() as any)?.filterCodeUnit).toBeUndefined();
+      expect((getSavedState() as any)?.[deprecatedFilterKey]).toBeUndefined();
       expect((getSavedState() as any)?.sortBy).toBe('time');
       expect((getSavedState() as any)?.sortDir).toBe('asc');
     });

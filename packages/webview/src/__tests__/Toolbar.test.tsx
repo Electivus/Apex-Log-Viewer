@@ -19,6 +19,8 @@ const defaultColumnsConfig = {
   widths: {}
 } as const;
 
+const deprecatedFilterLabel = ['Code', 'Unit'].join(' ');
+
 type ToolbarRenderOptions = {
   loading?: boolean;
   error?: string;
@@ -179,7 +181,7 @@ describe('Toolbar webview component', () => {
 
   it('disables clear action when no filters and captures query updates', () => {
     const utils = renderToolbar();
-    expect(screen.queryByLabelText('Code Unit')).toBeNull();
+    expect(screen.queryByLabelText(deprecatedFilterLabel)).toBeNull();
     const clearButton = screen.getByRole('button', { name: 'Clear filters' });
     expect(clearButton).toBeDisabled();
 

@@ -78,7 +78,6 @@ suite('LogService', () => {
           return [{ Id: '1' } as ApexLogRow];
         },
         fetchApexLogBody: async () => '',
-        extractCodeUnitStartedFromLines: () => undefined
       },
       '../utils/workspace': {
         getLogFilePathWithUsername: async () => ({ dir: '', filePath: '' }),
@@ -105,7 +104,6 @@ suite('LogService', () => {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogHead: async () => [],
-        extractCodeUnitStartedFromLines: () => undefined,
         fetchApexLogBody: async () => ''
       },
       '../salesforce/cli': {
@@ -148,135 +146,6 @@ suite('LogService', () => {
     assert.equal(calls[0]?.filePath, '/tmp/runtime.log');
   });
 
-  test('loadLogHeads skips uncached logs instead of downloading full bodies', async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-heads-'));
-    const fetchBodyCalls: string[] = [];
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
-      '../salesforce/http': {
-        fetchApexLogs: async () => [],
-        fetchApexLogBody: async () => {
-          fetchBodyCalls.push('called');
-          return '\n|CODE_UNIT_STARTED|Foo|Unit\n';
-        },
-        extractCodeUnitStartedFromLines: () => 'Unit'
-      },
-      '../salesforce/cli': {
-        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
-      },
-      '../utils/workspace': {
-        getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath: path.join(tmpDir, 'default_1.log') }),
-        findExistingLogFile: async () => undefined
-      }
-    });
-    try {
-      const svc = new LogService(1);
-      const logs: ApexLogRow[] = [{ Id: '1', LogLength: 10 } as any];
-      const seen: any[] = [];
-      svc.loadLogHeads(logs, {} as OrgAuth, 0, (id: string, code: string) => {
-        seen.push({ id, code });
-      }, undefined, { selectedOrg: 'default' });
-      await new Promise(resolve => setTimeout(resolve, 20));
-      assert.deepEqual(seen, [], 'should wait for the async full-body preload to populate code units');
-      assert.equal(fetchBodyCalls.length, 0, 'should not trigger a full-body download from loadLogHeads');
-    } finally {
-      await fs.rm(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  test('loadLogHeads reads code units from existing log files', async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-'));
-    const filePath = path.join(tmpDir, 'default_1.log');
-    await fs.writeFile(filePath, '\n|CODE_UNIT_STARTED|Foo|Class.method\n', 'utf8');
-
-    const fetchBodyCalls: string[] = [];
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
-      '../salesforce/http': {
-        extractCodeUnitStartedFromLines: (lines: string[]) => {
-          const target = lines.find(l => l.includes('|CODE_UNIT_STARTED|'));
-          return target ? 'Class.method' : undefined;
-        },
-        fetchApexLogs: async () => [],
-        fetchApexLogBody: async () => {
-          fetchBodyCalls.push('called');
-          return '';
-        }
-      },
-      '../salesforce/cli': {
-        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
-      },
-      '../utils/workspace': {
-        getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath }),
-        findExistingLogFile: async () => filePath
-      }
-    });
-
-    try {
-      const svc = new LogService(1);
-      const seen: any[] = [];
-      svc.loadLogHeads(
-        [{ Id: '1' } as ApexLogRow],
-        { accessToken: 't', instanceUrl: 'url', username: 'u' },
-        0,
-        (id: string, code: string) => {
-          seen.push({ id, code });
-        },
-        undefined,
-        { preferLocalBodies: true, selectedOrg: 'default' }
-      );
-      await waitForCondition(() => seen.length === 1, { timeoutMs: 500, intervalMs: 10 });
-      assert.deepEqual(seen, [{ id: '1', code: 'Class.method' }]);
-      assert.equal(fetchBodyCalls.length, 0, 'should not re-download body when file exists');
-    } finally {
-      await fs.rm(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  test('loadLogHeads scopes saved-log lookup by auth username', async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-user-'));
-    const matchingPath = path.join(tmpDir, 'user@example.com_1.log');
-    await fs.writeFile(matchingPath, '\n|CODE_UNIT_STARTED|Foo|Scoped.method\n', 'utf8');
-
-    const lookupCalls: Array<{ logId: string; username?: string }> = [];
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
-      '../salesforce/http': {
-        extractCodeUnitStartedFromLines: (lines: string[]) => {
-          const target = lines.find(line => line.includes('|CODE_UNIT_STARTED|'));
-          return target ? 'Scoped.method' : undefined;
-        },
-        fetchApexLogs: async () => [],
-        fetchApexLogBody: async () => ''
-      },
-      '../salesforce/cli': {
-        getOrgAuth: async () => ({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' })
-      },
-      '../utils/workspace': {
-        getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath: matchingPath }),
-        findExistingLogFile: async (logId: string, username?: string) => {
-          lookupCalls.push({ logId, username });
-          return username === 'user@example.com' ? matchingPath : undefined;
-        }
-      }
-    });
-
-    try {
-      const svc = new LogService(1);
-      const seen: Array<{ id: string; code: string }> = [];
-      svc.loadLogHeads(
-        [{ Id: '1' } as ApexLogRow],
-        { accessToken: 't', instanceUrl: 'url', username: 'user@example.com' },
-        0,
-        (id: string, code: string) => {
-          seen.push({ id, code });
-        }
-      );
-      await waitForCondition(() => seen.length === 1, { timeoutMs: 500, intervalMs: 10 });
-      assert.deepEqual(lookupCalls, [{ logId: '1', username: 'user@example.com' }]);
-      assert.deepEqual(seen, [{ id: '1', code: 'Scoped.method' }]);
-    } finally {
-      await fs.rm(tmpDir, { recursive: true, force: true });
-    }
-  });
-
   test('openLog delegates to LogViewerPanel', async () => {
     const calls: any[] = [];
     const origWithProgress = vscode.window.withProgress;
@@ -291,7 +160,6 @@ suite('LogService', () => {
         '../salesforce/http': {
           fetchApexLogs: async () => [],
           fetchApexLogHead: async () => [],
-          extractCodeUnitStartedFromLines: () => undefined,
           fetchApexLogBody: async () => ''
         },
       '../salesforce/cli': {
@@ -329,7 +197,6 @@ suite('LogService', () => {
         '../salesforce/http': {
           fetchApexLogs: async () => [],
           fetchApexLogHead: async () => [],
-          extractCodeUnitStartedFromLines: () => undefined,
           fetchApexLogBody: async () => ''
         },
         '../utils/workspace': {
@@ -363,7 +230,6 @@ suite('LogService', () => {
         '../salesforce/http': {
           fetchApexLogs: async () => [],
           fetchApexLogHead: async () => [],
-          extractCodeUnitStartedFromLines: () => undefined,
           fetchApexLogBody: async (_auth: OrgAuth, logId: string) => {
             fetchCalls.push(logId);
             await new Promise(resolve => setTimeout(resolve, 5));
@@ -404,7 +270,6 @@ suite('LogService', () => {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogHead: async () => [],
-        extractCodeUnitStartedFromLines: () => undefined,
         fetchApexLogBody: async (_auth: OrgAuth, logId: string) => {
           if (logId === '3') {
             throw new Error('failed download');
@@ -463,7 +328,6 @@ suite('LogService', () => {
     const { LogService } = proxyquireStrict('../../../../src/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
-        extractCodeUnitStartedFromLines: () => undefined,
         fetchApexLogBody: async () => 'body'
       },
       '../salesforce/cli': {
@@ -521,7 +385,6 @@ suite('LogService', () => {
     const { LogService } = proxyquireStrict('../../../../src/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
-        extractCodeUnitStartedFromLines: () => undefined,
         fetchApexLogBody: async () => {
           fetchCalls++;
           return 'body';
@@ -592,7 +455,6 @@ suite('LogService', () => {
     const { LogService } = proxyquireStrict('../../../../src/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
-        extractCodeUnitStartedFromLines: () => undefined,
         fetchApexLogBody: async () => {
           throw new Error('should not download when a cache hit exists');
         }
@@ -651,7 +513,6 @@ suite('LogService', () => {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogHead: async () => [],
-        extractCodeUnitStartedFromLines: () => undefined,
         fetchApexLogBody: async () => 'body'
       },
       '../salesforce/cli': {
@@ -696,7 +557,6 @@ suite('LogService', () => {
     const { LogService } = proxyquireStrict('../../../../src/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
-        extractCodeUnitStartedFromLines: () => undefined,
         fetchApexLogBody: async () => {
           fetchCalls++;
           return 'body';
@@ -752,7 +612,6 @@ suite('LogService', () => {
     const { LogService } = proxyquireStrict('../../../../src/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
-        extractCodeUnitStartedFromLines: () => undefined,
         fetchApexLogBody: async () => 'body'
       },
       '../salesforce/cli': {
@@ -820,7 +679,6 @@ suite('LogService', () => {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogHead: async () => [],
-        extractCodeUnitStartedFromLines: () => undefined,
         fetchApexLogBody: async () => ''
       },
       './logTriage': {
@@ -910,7 +768,6 @@ suite('LogService', () => {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogHead: async () => [],
-        extractCodeUnitStartedFromLines: () => undefined,
         fetchApexLogBody: async () => ''
       },
       './logTriage': {
@@ -964,7 +821,6 @@ suite('LogService', () => {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogHead: async () => [],
-        extractCodeUnitStartedFromLines: () => undefined,
         fetchApexLogBody: async (_auth: OrgAuth, logId: string) => {
           if (logId === 'missing') {
             throw new Error('log disappeared');
