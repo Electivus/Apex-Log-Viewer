@@ -5,17 +5,7 @@ import { getMessages } from '../i18n';
 import type { OrgItem } from '../../../../apps/vscode-extension/src/shared/types';
 
 const defaultColumnsConfig = {
-  order: [
-    'user',
-    'application',
-    'operation',
-    'time',
-    'duration',
-    'status',
-    'codeUnit',
-    'size',
-    'match'
-  ],
+  order: ['user', 'application', 'operation', 'time', 'duration', 'status', 'size', 'match'],
   visibility: {
     user: true,
     application: true,
@@ -23,12 +13,13 @@ const defaultColumnsConfig = {
     time: true,
     duration: true,
     status: true,
-    codeUnit: true,
     size: true,
     match: true
   },
   widths: {}
 } as const;
+
+const deprecatedFilterLabel = ['Code', 'Unit'].join(' ');
 
 type ToolbarRenderOptions = {
   loading?: boolean;
@@ -37,7 +28,6 @@ type ToolbarRenderOptions = {
   filterUser?: string;
   filterOperation?: string;
   filterStatus?: string;
-  filterCodeUnit?: string;
   errorsOnly?: boolean;
   searchLoading?: boolean;
   searchMessage?: string;
@@ -51,7 +41,6 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
     filterUser = '',
     filterOperation = '',
     filterStatus = '',
-    filterCodeUnit = '',
     errorsOnly = false,
     searchLoading = false,
     searchMessage
@@ -65,7 +54,6 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
   const users = ['User A', 'User B'];
   const operations = ['EXEC', 'QUERY'];
   const statuses = ['Success', 'Failed'];
-  const codeUnits = ['UnitA', 'UnitB'];
   let refreshCount = 0;
   let downloadAllCount = 0;
   let openDebugFlagsCount = 0;
@@ -111,11 +99,9 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
         users={users}
         operations={operations}
         statuses={statuses}
-        codeUnits={codeUnits}
         filterUser={filterUser}
         filterOperation={filterOperation}
         filterStatus={filterStatus}
-        filterCodeUnit={filterCodeUnit}
         errorsOnly={errorsOnly}
         onFilterUserChange={value => {
           userChanges.push(`user:${value}`);
@@ -125,9 +111,6 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
         }}
         onFilterStatusChange={value => {
           userChanges.push(`status:${value}`);
-        }}
-        onFilterCodeUnitChange={value => {
-          userChanges.push(`code:${value}`);
         }}
         onErrorsOnlyChange={value => {
           errorsOnlyChanges.push(value);
@@ -198,6 +181,7 @@ describe('Toolbar webview component', () => {
 
   it('disables clear action when no filters and captures query updates', () => {
     const utils = renderToolbar();
+    expect(screen.queryByLabelText(deprecatedFilterLabel)).toBeNull();
     const clearButton = screen.getByRole('button', { name: 'Clear filters' });
     expect(clearButton).toBeDisabled();
 

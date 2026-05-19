@@ -7,7 +7,6 @@ export const LOGS_COLUMN_MIN_WIDTH_PX: Record<LogsColumnKey, number> = {
   time: 200,
   duration: 110,
   status: 220,
-  codeUnit: 260,
   size: 90,
   match: 320
 };
@@ -19,7 +18,6 @@ export const LOGS_COLUMN_DEFAULT_TRACK: Record<LogsColumnKey, string> = {
   time: 'minmax(200px,1fr)',
   duration: 'minmax(110px,0.6fr)',
   status: 'minmax(220px,1fr)',
-  codeUnit: 'minmax(260px,1.4fr)',
   size: 'minmax(90px,0.6fr)',
   match: 'minmax(320px,1.6fr)'
 };
@@ -38,8 +36,6 @@ export function getLogsColumnLabel(key: LogsColumnKey, t: any): string {
       return t?.columns?.duration ?? 'Duration';
     case 'status':
       return t?.columns?.status ?? 'Status';
-    case 'codeUnit':
-      return t?.columns?.codeUnitStarted ?? 'Code Unit';
     case 'size':
       return t?.columns?.size ?? 'Size';
     case 'match':

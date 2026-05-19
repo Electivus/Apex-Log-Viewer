@@ -36,16 +36,13 @@ type ToolbarProps = {
   users: string[];
   operations: string[];
   statuses: string[];
-  codeUnits: string[];
   filterUser: string;
   filterOperation: string;
   filterStatus: string;
-  filterCodeUnit: string;
   errorsOnly: boolean;
   onFilterUserChange: (v: string) => void;
   onFilterOperationChange: (v: string) => void;
   onFilterStatusChange: (v: string) => void;
-  onFilterCodeUnitChange: (v: string) => void;
   onErrorsOnlyChange: (v: boolean) => void;
   onClearFilters: () => void;
   columnsConfig: NormalizedLogsColumnsConfig;
@@ -75,16 +72,13 @@ export function Toolbar({
   users,
   operations,
   statuses,
-  codeUnits,
   filterUser,
   filterOperation,
   filterStatus,
-  filterCodeUnit,
   errorsOnly,
   onFilterUserChange,
   onFilterOperationChange,
   onFilterStatusChange,
-  onFilterCodeUnitChange,
   onErrorsOnlyChange,
   onClearFilters,
   columnsConfig,
@@ -93,7 +87,7 @@ export function Toolbar({
 }: ToolbarProps) {
   const searchInputId = useStableId('logs-search');
   const errorsOnlyId = useStableId('logs-errors-only');
-  const hasFilters = Boolean(filterUser || filterOperation || filterStatus || filterCodeUnit || errorsOnly);
+  const hasFilters = Boolean(filterUser || filterOperation || filterStatus || errorsOnly);
   const errorLabel = t?.tail?.errorLabel ?? t?.errors?.generic ?? 'Error';
   const warningLabel = t?.warningLabel ?? 'Warning';
   const clearLogsLabel = t?.logsCleanup?.open ?? 'Clear logs';
@@ -254,14 +248,6 @@ export function Toolbar({
           value={filterStatus}
           onChange={onFilterStatusChange}
           options={statuses}
-          allLabel={t.filters?.all ?? 'All'}
-          disabled={loading}
-        />
-        <FilterSelect
-          label={t.columns?.codeUnitStarted ?? 'Code Unit'}
-          value={filterCodeUnit}
-          onChange={onFilterCodeUnitChange}
-          options={codeUnits}
           allLabel={t.filters?.all ?? 'All'}
           disabled={loading}
         />

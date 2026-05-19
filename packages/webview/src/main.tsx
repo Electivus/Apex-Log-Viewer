@@ -25,7 +25,6 @@ interface LogsUiState {
   filterUser: string;
   filterOperation: string;
   filterStatus: string;
-  filterCodeUnit: string;
   errorsOnly: boolean;
   sortBy: SortKey;
   sortDir: 'asc' | 'desc';
@@ -45,7 +44,6 @@ function readInitialUiState(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>)
     filterUser: typeof raw.filterUser === 'string' ? raw.filterUser : '',
     filterOperation: typeof raw.filterOperation === 'string' ? raw.filterOperation : '',
     filterStatus: typeof raw.filterStatus === 'string' ? raw.filterStatus : '',
-    filterCodeUnit: typeof raw.filterCodeUnit === 'string' ? raw.filterCodeUnit : '',
     errorsOnly: raw.errorsOnly === true,
     sortBy:
       sortBy === 'user' ||
@@ -54,8 +52,7 @@ function readInitialUiState(vscode: VsCodeWebviewApi<WebviewToExtensionMessage>)
       sortBy === 'time' ||
       sortBy === 'duration' ||
       sortBy === 'status' ||
-      sortBy === 'size' ||
-      sortBy === 'codeUnit'
+      sortBy === 'size'
         ? sortBy
         : 'time',
     sortDir: raw.sortDir === 'asc' ? 'asc' : 'desc'
@@ -110,7 +107,6 @@ export function LogsApp({
   const [filterUser, setFilterUser] = useState(initialUiStateRef.current.filterUser);
   const [filterOperation, setFilterOperation] = useState(initialUiStateRef.current.filterOperation);
   const [filterStatus, setFilterStatus] = useState(initialUiStateRef.current.filterStatus);
-  const [filterCodeUnit, setFilterCodeUnit] = useState(initialUiStateRef.current.filterCodeUnit);
   const [errorsOnly, setErrorsOnly] = useState(initialUiStateRef.current.errorsOnly);
 
   // Sorting
@@ -181,7 +177,6 @@ export function LogsApp({
             ...prev,
             [msg.logId]: {
               ...prev[msg.logId],
-              ...(msg.codeUnitStarted !== undefined ? { codeUnitStarted: msg.codeUnitStarted } : {}),
               ...(msg.hasErrors !== undefined ? { hasErrors: msg.hasErrors } : {}),
               ...(msg.primaryReason !== undefined ? { primaryReason: msg.primaryReason } : {}),
               ...(msg.reasons !== undefined ? { reasons: msg.reasons } : {})
@@ -258,12 +253,11 @@ export function LogsApp({
       filterUser,
       filterOperation,
       filterStatus,
-      filterCodeUnit,
       errorsOnly,
       sortBy,
       sortDir
     } satisfies LogsUiState);
-  }, [errorsOnly, filterCodeUnit, filterOperation, filterStatus, filterUser, query, sortBy, sortDir, vscode]);
+  }, [errorsOnly, filterOperation, filterStatus, filterUser, query, sortBy, sortDir, vscode]);
 
   useEffect(() => {
     if (!messageBus) {
@@ -310,7 +304,6 @@ export function LogsApp({
       filterUser,
       filterOperation,
       filterStatus,
-      filterCodeUnit,
       errorsOnly
     });
     const previousTracked = lastTrackedFilterStateRef.current;
@@ -325,8 +318,7 @@ export function LogsApp({
     const hasUser = Boolean(filterUser);
     const hasOperation = Boolean(filterOperation);
     const hasStatus = Boolean(filterStatus);
-    const hasCodeUnit = Boolean(filterCodeUnit);
-    const activeCount = [hasUser, hasOperation, hasStatus, hasCodeUnit, errorsOnly].filter(Boolean).length;
+    const activeCount = [hasUser, hasOperation, hasStatus, errorsOnly].filter(Boolean).length;
 
     vscode.postMessage({
       type: 'trackLogsFilter',
@@ -334,12 +326,12 @@ export function LogsApp({
       hasUser,
       hasOperation,
       hasStatus,
-      hasCodeUnit,
+      hasCodeUnit: false,
       errorsOnly,
       activeCount
     });
     lastTrackedFilterStateRef.current = rawState;
-  }, [errorsOnly, filterCodeUnit, filterOperation, filterStatus, filterUser, messageBus, vscode]);
+  }, [errorsOnly, filterOperation, filterStatus, filterUser, messageBus, vscode]);
 
   const onRefresh = () => {
     vscode.postMessage({ type: 'refresh' });
@@ -374,7 +366,6 @@ export function LogsApp({
     setFilterUser('');
     setFilterOperation('');
     setFilterStatus('');
-    setFilterCodeUnit('');
     setErrorsOnly(false);
   };
 
@@ -382,10 +373,6 @@ export function LogsApp({
   const users = useMemo(() => Array.from(new Set(rows.map(r => r.LogUser?.Name || ''))).filter(Boolean), [rows]);
   const operations = useMemo(() => Array.from(new Set(rows.map(r => r.Operation || ''))).filter(Boolean), [rows]);
   const statuses = useMemo(() => Array.from(new Set(rows.map(r => r.Status || ''))).filter(Boolean), [rows]);
-  const codeUnits = useMemo(
-    () => Array.from(new Set(Object.values(logHead).map(h => h.codeUnitStarted || ''))).filter(Boolean),
-    [logHead]
-  );
 
   // Apply search + filters + sorting
   const filteredRows = useMemo(() => {
@@ -400,9 +387,6 @@ export function LogsApp({
       if (filterStatus && r.Status !== filterStatus) {
         return false;
       }
-      if (filterCodeUnit && (logHead[r.Id]?.codeUnitStarted || '') !== filterCodeUnit) {
-        return false;
-      }
       if (errorsOnly && logHead[r.Id]?.hasErrors !== true) {
         return false;
       }
@@ -414,8 +398,7 @@ export function LogsApp({
         r.Application || '',
         r.Operation || '',
         r.Status || '',
-        String(r.LogLength || ''),
-        logHead[r.Id]?.codeUnitStarted || ''
+        String(r.LogLength || '')
       ]
         .join(' ')
         .toLowerCase();
@@ -452,15 +435,12 @@ export function LogsApp({
         case 'size':
           cmp = (a.LogLength || 0) - (b.LogLength || 0);
           break;
-        case 'codeUnit':
-          cmp = (logHead[a.Id]?.codeUnitStarted || '').localeCompare(logHead[b.Id]?.codeUnitStarted || '');
-          break;
       }
       return sortDir === 'asc' ? cmp : -cmp;
     };
 
     return items.slice().sort(compare);
-  }, [rows, query, filterUser, filterOperation, filterStatus, filterCodeUnit, errorsOnly, sortBy, sortDir, logHead, matchingIds]);
+  }, [rows, query, filterUser, filterOperation, filterStatus, errorsOnly, sortBy, sortDir, logHead, matchingIds]);
 
   const searchLoading = searchStatus === 'loading';
   const searchMessage = useMemo(() => {
@@ -482,7 +462,6 @@ export function LogsApp({
       filterUser ||
       filterOperation ||
       filterStatus ||
-      filterCodeUnit ||
       errorsOnly
   );
   const errorScanMessage = useMemo(() => {
@@ -552,16 +531,13 @@ export function LogsApp({
         users={users}
         operations={operations}
         statuses={statuses}
-        codeUnits={codeUnits}
         filterUser={filterUser}
         filterOperation={filterOperation}
         filterStatus={filterStatus}
-        filterCodeUnit={filterCodeUnit}
         errorsOnly={errorsOnly}
         onFilterUserChange={setFilterUser}
         onFilterOperationChange={setFilterOperation}
         onFilterStatusChange={setFilterStatus}
-        onFilterCodeUnitChange={setFilterCodeUnit}
         onErrorsOnlyChange={setErrorsOnly}
         onClearFilters={clearFilters}
         columnsConfig={logsColumns}

@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { constants as fsConstants, promises as fs } from 'fs';
 import * as path from 'path';
 import { createLimiter, type Limiter } from '../utils/limiter';
-import { fetchApexLogBody, extractCodeUnitStartedFromLines } from '../salesforce/http';
+import { fetchApexLogBody } from '../salesforce/http';
 import type { ApexLogCursor } from '../salesforce/http';
 import type { OrgAuth } from '../salesforce/types';
 import type { ApexLogRow } from '../../apps/vscode-extension/src/shared/types';
@@ -63,7 +63,6 @@ export type ClassifyLogsForErrorsOptions = {
 };
 
 export class LogService {
-  private headLimiter: Limiter;
   private headConcurrency: number;
   private saveLimiter: Limiter;
   private saveConcurrency: number;
@@ -73,7 +72,6 @@ export class LogService {
 
   constructor(headConcurrency = 5) {
     this.headConcurrency = headConcurrency;
-    this.headLimiter = createLimiter(this.headConcurrency);
     this.saveConcurrency = Math.max(1, Math.min(3, Math.ceil(this.headConcurrency / 2)));
     this.saveLimiter = createLimiter(this.saveConcurrency);
     // Keep error scans from starving interactive save/download work.
@@ -84,7 +82,6 @@ export class LogService {
   setHeadConcurrency(conc: number): void {
     if (conc !== this.headConcurrency) {
       this.headConcurrency = conc;
-      this.headLimiter = createLimiter(this.headConcurrency);
     }
     const nextSaveConcurrency = Math.max(1, Math.min(3, Math.ceil(this.headConcurrency / 2)));
     if (nextSaveConcurrency !== this.saveConcurrency) {
@@ -108,31 +105,6 @@ export class LogService {
     const safeLimit = Math.max(1, Math.floor(limit));
     const safeOffset = Math.max(0, Math.floor(offset));
     return fetchApexLogs(auth, safeLimit, safeOffset, undefined, undefined, signal, _cursor);
-  }
-
-  loadLogHeads(
-    logs: ApexLogRow[],
-    auth: OrgAuth,
-    _token: number,
-    post: (logId: string, codeUnit: string) => void,
-    signal?: AbortSignal,
-    _options?: { preferLocalBodies?: boolean; selectedOrg?: string }
-  ): void {
-    for (const log of logs) {
-      void this.headLimiter(async () => {
-        if (signal?.aborted) {
-          return;
-        }
-        try {
-          const codeUnit = await this.loadCodeUnitFromSavedLog(log.Id, auth.username, signal);
-          if (codeUnit) {
-            post(log.Id, codeUnit);
-          }
-        } catch (e) {
-          logWarn('LogService: loadLogHead failed for', log.Id, '->', e);
-        }
-      });
-    }
   }
 
   private async ensureLogFile(
@@ -291,42 +263,6 @@ export class LogService {
     const error = new Error('Request aborted');
     error.name = 'AbortError';
     throw error;
-  }
-
-  private async loadCodeUnitFromSavedLog(
-    logId: string | undefined,
-    username?: string,
-    signal?: AbortSignal
-  ): Promise<string | undefined> {
-    if (!logId) {
-      return undefined;
-    }
-    if (signal?.aborted) {
-      return undefined;
-    }
-    try {
-      const existingPath = await findExistingLogFile(logId, username);
-      if (existingPath) {
-        const handle = await fs.open(existingPath, 'r');
-        try {
-          const buffer = Buffer.alloc(8192);
-          const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-          if (bytesRead <= 0) {
-            return undefined;
-          }
-          const text = buffer.slice(0, bytesRead).toString('utf8');
-          const lines = text.split(/\r?\n/).slice(0, 10);
-          return extractCodeUnitStartedFromLines(lines);
-        } finally {
-          await handle.close();
-        }
-      }
-    } catch (e) {
-      if (!signal?.aborted) {
-        logWarn('LogService: loadCodeUnit from local file failed ->', getErrorMessage(e));
-      }
-    }
-    return undefined;
   }
 
   private async resolveSelectedUsername(

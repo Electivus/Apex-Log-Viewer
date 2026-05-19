@@ -1,6 +1,6 @@
 use crate::{
     auth, log_store,
-    logs::{download_log_to_path_with_cancel, extract_code_unit_started, CancellationToken},
+    logs::{download_log_to_path_with_cancel, CancellationToken},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -115,10 +115,10 @@ fn triage_log_item(
     });
 
     if let Some(path) = preferred_path.as_ref().filter(|path| path.is_file()) {
-        let (code_unit_started, summary) = summarize_file(path, cancellation)?;
+        let summary = summarize_file(path, cancellation)?;
         return Ok(LogTriageItem {
             log_id: log_id.to_string(),
-            code_unit_started,
+            code_unit_started: None,
             summary,
         });
     }
@@ -172,11 +172,11 @@ fn triage_log_item(
         }
     };
 
-    let (code_unit_started, summary) = summarize_file(&path, cancellation)?;
+    let summary = summarize_file(&path, cancellation)?;
 
     Ok(LogTriageItem {
         log_id: log_id.to_string(),
-        code_unit_started,
+        code_unit_started: None,
         summary,
     })
 }
@@ -239,11 +239,10 @@ fn materialize_existing_at_preferred_path(
 fn summarize_file(
     path: &Path,
     cancellation: &CancellationToken,
-) -> Result<(Option<String>, LogTriageSummary), String> {
+) -> Result<LogTriageSummary, String> {
     let file = File::open(path)
         .map_err(|error| format!("failed to read cached log {}: {error}", path.display()))?;
     let reader = BufReader::new(file);
-    let mut code_unit_started = None::<String>;
     let mut first_diagnostic = None::<LogDiagnostic>;
 
     for (index, line) in reader.lines().enumerate() {
@@ -251,10 +250,6 @@ fn summarize_file(
         maybe_test_delay(cancellation)?;
         let line =
             line.map_err(|error| format!("failed to read cached log {}: {error}", path.display()))?;
-
-        if index < 10 && code_unit_started.is_none() {
-            code_unit_started = extract_code_unit_started(&[line.as_str()]);
-        }
 
         if first_diagnostic.is_none() {
             first_diagnostic = classify_line(&line, index + 1);
@@ -279,7 +274,7 @@ fn summarize_file(
         },
     };
 
-    Ok((code_unit_started, summary))
+    Ok(summary)
 }
 
 fn resolve_canonical_username(username: Option<&str>) -> Result<Option<String>, String> {
@@ -541,8 +536,7 @@ mod tests {
         content.push_str("09:00:10.0|EXCEPTION_THROWN|System.NullPointerException: boom\n");
         fs::write(&path, content).expect("fixture log should be writable");
 
-        let (_, summary) =
-            summarize_file(&path, &CancellationToken::new()).expect("triage should succeed");
+        let summary = summarize_file(&path, &CancellationToken::new()).expect("triage should succeed");
 
         let _ = fs::remove_file(&path);
 

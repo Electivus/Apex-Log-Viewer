@@ -87,7 +87,7 @@ The extension activates automatically when the workspace contains `sfdx-project.
 - Match snippets appear in the `Match` column when the hit comes from the saved log file.
 - Scroll to load more rows from the current list when you want to keep widening the search incrementally.
 - Use **Download all logs** when the refreshed and scrolled set still is not enough, or when you want to pull all logs from the selected org into local search in one action.
-- Combine search with filters by user, operation, status, code unit, and **Errors only**.
+- Combine search with filters by user, operation, status, and **Errors only**.
 
 ### Review Triage Faster
 

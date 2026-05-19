@@ -381,29 +381,6 @@ pub fn download_log_to_path_with_cancel(
     download_log_to_path_for_auth_with_cancel(&auth, log_id, target_path, cancellation)
 }
 
-pub fn extract_code_unit_started(lines: &[&str]) -> Option<String> {
-    for line in lines {
-        let marker = "|CODE_UNIT_STARTED|";
-        let Some(index) = line.find(marker) else {
-            continue;
-        };
-        let captured = line[index + marker.len()..].trim();
-        if captured.is_empty() {
-            continue;
-        }
-        let parts = captured
-            .split('|')
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>();
-        if let Some(last) = parts.last() {
-            return Some((*last).to_string());
-        }
-        return Some(captured.to_string());
-    }
-    None
-}
-
 fn build_logs_query(page_size: usize, offset: usize, params: &LogsListParams) -> String {
     let base_select = "SELECT Id, StartTime, Operation, Application, DurationMilliseconds, Status, Request, LogLength, LogUser.Name FROM ApexLog";
     let safe_before_start_time = params

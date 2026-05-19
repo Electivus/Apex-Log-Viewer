@@ -65,7 +65,6 @@ export function LogRow({
   }, [
     index,
     setRowHeight,
-    logHead[r.Id]?.codeUnitStarted,
     matchSnippet?.text,
     r,
     columns
@@ -211,12 +210,6 @@ export function LogRow({
                       {primaryReason}
                     </Badge>
                   )}
-                </div>
-              );
-            case 'codeUnit':
-              return (
-                <div key={key} className={cellClass} title={logHead[r.Id]?.codeUnitStarted ?? ''}>
-                  {logHead[r.Id]?.codeUnitStarted ?? ''}
                 </div>
               );
             case 'size':

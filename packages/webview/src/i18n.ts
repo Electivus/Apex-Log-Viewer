@@ -60,7 +60,6 @@ export type Messages = {
     duration: string;
     status: string;
     size: string;
-    codeUnitStarted: string;
     match?: string;
   };
   columnsConfig?: {
@@ -193,7 +192,6 @@ const en: Messages = {
     duration: 'Duration',
     status: 'Status',
     size: 'Size',
-    codeUnitStarted: 'Code Unit',
     match: 'Match'
   },
   columnsConfig: {
@@ -326,7 +324,6 @@ const ptBR: Messages = {
     duration: 'Duração',
     status: 'Status',
     size: 'Tamanho',
-    codeUnitStarted: 'Code Unit',
     match: 'Trecho'
   },
   columnsConfig: {
