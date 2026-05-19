@@ -87,6 +87,48 @@ describe('LogRow', () => {
     expect(screen.getByText('Error')).toBeInTheDocument();
   });
 
+  it('lets long Salesforce status text wrap inside the status column', () => {
+    const row: ApexLogRow = {
+      Id: 'long-status-1',
+      StartTime: new Date().toISOString(),
+      Operation: 'Op',
+      Application: 'App',
+      DurationMilliseconds: 1,
+      Status:
+        "Insert failed. First exception on row 0; first error: INVALID_INPUT, The selected language isn't currently supported. Apex error: List has no rows for assignment to SObject",
+      Request: '',
+      LogLength: 2048,
+      LogUser: { Name: 'User' }
+    };
+
+    render(
+      <LogRow
+        r={row}
+        logHead={{ 'long-status-1': { hasErrors: true, primaryReason: 'Validation failure' } as any }}
+        locale="en-US"
+        t={{ open: 'Open', replay: 'Replay', filters: { errorDetectedBadge: 'Error' } }}
+        columns={['status']}
+        loading={false}
+        onOpen={() => {}}
+        onReplay={() => {}}
+        gridTemplate="220px 96px"
+        style={{}}
+        index={0}
+        setRowHeight={() => {}}
+      />
+    );
+
+    const statusText = screen.getByTestId('logs-status-text');
+    expect(statusText).toHaveTextContent('List has no rows for assignment to SObject');
+    expect(statusText.className).toContain('min-w-0');
+    expect(statusText.className).toContain('max-w-full');
+    expect(statusText.className).toContain('whitespace-normal');
+    expect(statusText.className).toContain('break-words');
+    expect(statusText.className).not.toContain('shrink-0');
+    expect(screen.getByText('Error')).toBeInTheDocument();
+    expect(screen.getByText('Validation failure')).toBeInTheDocument();
+  });
+
   it('shows a compact reason label next to the error badge', () => {
     const row: ApexLogRow = {
       Id: 'err-2',
