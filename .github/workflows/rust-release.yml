@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate_tag:
@@ -249,8 +249,10 @@ jobs:
     needs: [package_release, validate_tag]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
     env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       NPM_DIST_TAG: ${{ needs.validate_tag.outputs.npm_dist_tag }}
     steps:
       - name: Checkout
@@ -261,6 +263,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
 
       - name: Download staged npm packages
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -286,8 +289,10 @@ jobs:
     needs: [publish_npm_native, validate_tag]
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
     env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       NPM_DIST_TAG: ${{ needs.validate_tag.outputs.npm_dist_tag }}
     steps:
       - name: Checkout
@@ -298,6 +303,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
 
       - name: Download staged npm packages
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -313,6 +319,8 @@ jobs:
     needs: [validate_tag, package_release, publish_npm_meta]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: write
     env:
       GH_TOKEN: ${{ github.token }}
       PRE_RELEASE: ${{ needs.validate_tag.outputs.pre_release }}
