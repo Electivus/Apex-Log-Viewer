@@ -5,6 +5,7 @@
 ### Bug Fixes
 
 - Runtime/Logs: remove the SQLite/FTS log index and `logs index rebuild`; local search now scans synced log files directly, and `logs sync` removes legacy `log-index.sqlite` files from older runtime versions.
+- Runtime/Auth: prepare for Salesforce CLI credential redaction by resolving tokens and SFDX auth URLs through explicit `sf org auth show-*` commands, with fallback for older CLI versions.
 - Runtime/Orgs: avoid slow `sf org list` startup/plugin work by reading local Salesforce org state first, and cache/coalesce shared runtime auth resolution to reduce repeated `sf org display` calls during refresh and sync.
 - Logs/Telemetry: skip redundant background log syncs during rapid refreshes and emit coarse error-code buckets for refresh, org, debug level, and runtime failures.
 - Logs: deprecate the Code Unit table column and filter, relying on local full-log search instead and avoiding the extra cached-log scan used to populate that column.

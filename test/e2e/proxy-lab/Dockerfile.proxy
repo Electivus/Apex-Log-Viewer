@@ -21,4 +21,4 @@ RUN mkdir -p /mitmproxy && chmod 0777 /mitmproxy
 
 EXPOSE 8888
 
-CMD ["mitmdump", "--set", "confdir=/mitmproxy", "--listen-host", "0.0.0.0", "--listen-port", "8888", "--proxyauth", "alv-proxy-user:alv-proxy-pass"]
+CMD ["mitmdump", "--set", "confdir=/mitmproxy", "--set", "stream_large_bodies=1m", "--listen-host", "0.0.0.0", "--listen-port", "8888", "--proxyauth", "alv-proxy-user:alv-proxy-pass"]

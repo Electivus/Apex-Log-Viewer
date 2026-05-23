@@ -34,7 +34,7 @@ const en = {
   cliNotFound: 'Salesforce CLI not found. Install Salesforce CLI (sf).',
   cliTimeout: 'Salesforce CLI command timed out after {0} seconds.',
   cliAuthFailed:
-    'Could not obtain credentials via Salesforce CLI. Verify authentication and try: sf org display --json --verbose',
+    'Could not obtain credentials via Salesforce CLI. Verify authentication and try: sf org auth show-access-token --json --no-prompt',
   selectOrgPlaceholder: 'Select an authenticated org',
   selectOrgDefault: 'Default',
   selectOrgError: 'Electivus Apex Logs: Failed to list orgs',
@@ -60,7 +60,7 @@ const ptBr = {
   cliNotFound: 'Salesforce CLI não encontrada. Instale o Salesforce CLI (sf).',
   cliTimeout: 'Comando do Salesforce CLI expirou após {0} segundos.',
   cliAuthFailed:
-    'Não foi possível obter credenciais via Salesforce CLI. Verifique a autenticação e tente: sf org display --json --verbose',
+    'Não foi possível obter credenciais via Salesforce CLI. Verifique a autenticação e tente: sf org auth show-access-token --json --no-prompt',
   selectOrgPlaceholder: 'Selecione uma org autenticada',
   selectOrgDefault: 'Padrão',
   selectOrgError: 'Electivus Apex Logs: falha ao listar orgs',

@@ -129,6 +129,17 @@ install_dependencies() {
   fi
 }
 
+install_salesforce_cli_override() {
+  local package_name="${ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE:-}"
+  if [[ -z "${package_name}" ]]; then
+    return 0
+  fi
+
+  echo "[proxy-lab] Installing Salesforce CLI override: ${package_name}"
+  npm install --global "${package_name}"
+  sf --version
+}
+
 verify_node_https_proxy() {
   echo "[proxy-lab] Verifying Node HTTPS through the configured MITM proxy..."
   node - <<'NODE'
@@ -432,5 +443,6 @@ install_mitm_ca
 verify_authenticated_mitm_proxy
 install_dependencies
 verify_node_https_proxy
+install_salesforce_cli_override
 preflight_salesforce_cli "$@"
 run_requested_command "$@"

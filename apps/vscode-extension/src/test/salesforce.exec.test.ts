@@ -10,20 +10,20 @@ suite('salesforce exec safety', () => {
 
   test('passes alias with spaces/special chars as single argv', async () => {
     const alias = "My Alias; echo 'oops' | cat";
-    let capturedProgram: string | undefined;
-    let capturedArgs: readonly string[] | undefined;
+    const calls: Array<{ program: string; args: string[] }> = [];
 
     __setExecFileImplForTests(((program: string, args: readonly string[] | undefined, _opts: any, cb: any) => {
-      capturedProgram = program;
-      capturedArgs = args;
-      // Return a minimal successful JSON payload similar to sf
-      const stdout = JSON.stringify({
-        result: {
-          accessToken: 'token',
-          instanceUrl: 'https://example.my.salesforce.com',
-          username: 'user@example.com'
-        }
-      });
+      const argList = Array.isArray(args) ? [...args] : [];
+      calls.push({ program, args: argList });
+      const stdout =
+        argList[0] === 'org' && argList[1] === 'auth'
+          ? JSON.stringify({ result: { accessToken: 'token' } })
+          : JSON.stringify({
+              result: {
+                instanceUrl: 'https://example.my.salesforce.com',
+                username: 'user@example.com'
+              }
+            });
       cb(null, stdout, '');
       return undefined as any;
     }) as any);
@@ -32,13 +32,13 @@ suite('salesforce exec safety', () => {
     assert.equal(auth.instanceUrl, 'https://example.my.salesforce.com');
     assert.equal(auth.accessToken, 'token');
 
-    assert.equal(capturedProgram, 'sf');
-    assert.ok(Array.isArray(capturedArgs));
-    const args = capturedArgs as string[];
-    // Ensure -o and the exact alias value are consecutive args
-    const idx = args.indexOf('-o');
-    assert.ok(idx >= 0, 'expected -o flag to be present');
-    assert.equal(args[idx + 1], alias, 'alias should be single argv item, unchanged');
+    assert.equal(calls[0]?.program, 'sf');
+    assert.equal(calls[1]?.program, 'sf');
+    for (const call of calls) {
+      const idx = call.args.indexOf('--target-org');
+      assert.ok(idx >= 0, 'expected --target-org flag to be present');
+      assert.equal(call.args[idx + 1], alias, 'alias should be single argv item, unchanged');
+    }
   });
 
   test('reports missing CLI when ENOENT is raised', async () => {
@@ -54,6 +54,81 @@ suite('salesforce exec safety', () => {
       assert.match(String(e?.message || ''), /CLI não encontrada|CLI not found|Salesforce CLI/);
       return true;
     });
+  });
+
+  test('uses explicit access-token command when org display redacts secrets', async () => {
+    const calls: string[] = [];
+    __setExecFileImplForTests(((program: string, args: readonly string[] | undefined, _opts: any, cb: any) => {
+      const argList = Array.isArray(args) ? [...args] : [];
+      calls.push(`${program} ${argList.join(' ')}`);
+      if (argList.join(' ') === 'org display --json --target-org ALV') {
+        cb(
+          null,
+          JSON.stringify({
+            result: {
+              accessToken: "[REDACTED] Use 'sf org auth show-access-token' to view",
+              instanceUrl: 'https://example.my.salesforce.com',
+              username: 'user@example.com'
+            }
+          }),
+          ''
+        );
+        return undefined as any;
+      }
+      if (argList.join(' ') === 'org auth show-access-token --json --no-prompt --target-org ALV') {
+        cb(null, JSON.stringify({ result: { accessToken: 'fresh-token' } }), '');
+        return undefined as any;
+      }
+      cb(new Error('unexpected command'), '', '');
+      return undefined as any;
+    }) as any);
+
+    const auth = await getOrgAuth('ALV');
+    assert.equal(auth.accessToken, 'fresh-token');
+    assert.equal(auth.instanceUrl, 'https://example.my.salesforce.com');
+    assert.deepEqual(calls, [
+      'sf org display --json --target-org ALV',
+      'sf org auth show-access-token --json --no-prompt --target-org ALV'
+    ]);
+  });
+
+  test('falls back to legacy display when explicit access-token command is unavailable', async () => {
+    const calls: string[] = [];
+    __setExecFileImplForTests(((program: string, args: readonly string[] | undefined, _opts: any, cb: any) => {
+      const argList = Array.isArray(args) ? [...args] : [];
+      calls.push(`${program} ${argList.join(' ')}`);
+      if (argList.join(' ') === 'org display --json --target-org ALV') {
+        cb(null, JSON.stringify({ result: { instanceUrl: 'https://example.my.salesforce.com' } }), '');
+        return undefined as any;
+      }
+      if (argList.join(' ') === 'org auth show-access-token --json --no-prompt --target-org ALV') {
+        const err: any = new Error('not a sf command');
+        err.code = 1;
+        cb(err, '', 'not a sf command');
+        return undefined as any;
+      }
+      if (argList.join(' ') === 'org display --json --verbose --target-org ALV') {
+        cb(
+          null,
+          JSON.stringify({
+            result: {
+              accessToken: 'legacy-token',
+              instanceUrl: 'https://legacy.example.com',
+              username: 'legacy@example.com'
+            }
+          }),
+          ''
+        );
+        return undefined as any;
+      }
+      cb(new Error('unexpected command'), '', '');
+      return undefined as any;
+    }) as any);
+
+    const auth = await getOrgAuth('ALV');
+    assert.equal(auth.accessToken, 'legacy-token');
+    assert.equal(auth.instanceUrl, 'https://legacy.example.com');
+    assert.equal(calls[2], 'sf org display --json --verbose --target-org ALV');
   });
 
   test('spawns CLI children with stdin ignored', done => {

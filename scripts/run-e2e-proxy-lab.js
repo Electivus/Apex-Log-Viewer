@@ -19,6 +19,39 @@ function resolveComposeArgs(commandArgs = [], options = {}) {
   return args;
 }
 
+function parseProxyLabArgs(argv = []) {
+  const commandArgs = [];
+  let sfCliPackage;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--') {
+      commandArgs.push(...argv.slice(index + 1));
+      break;
+    }
+    if (arg === '--sf-cli-package') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error('--sf-cli-package requires a package specifier, for example @salesforce/cli@nightly.');
+      }
+      sfCliPackage = value;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--sf-cli-package=')) {
+      const value = arg.slice('--sf-cli-package='.length);
+      if (!value) {
+        throw new Error('--sf-cli-package requires a package specifier, for example @salesforce/cli@nightly.');
+      }
+      sfCliPackage = value;
+      continue;
+    }
+    commandArgs.push(arg);
+  }
+
+  return { commandArgs, sfCliPackage };
+}
+
 function exitWithChildResult(code, signal) {
   if (typeof code === 'number') {
     process.exit(code);
@@ -38,8 +71,11 @@ function ensureHostVolumeMountpoints(repoRoot, fsImpl = fs) {
   }
 }
 
-function resolveProxyLabEnv(env = process.env, processImpl = process) {
+function resolveProxyLabEnv(env = process.env, processImpl = process, options = {}) {
   const resolved = { ...env };
+  if (options.sfCliPackage) {
+    resolved.ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE = options.sfCliPackage;
+  }
   if (!resolved.ALV_E2E_PROXY_LAB_HOST_UID && typeof processImpl.getuid === 'function') {
     resolved.ALV_E2E_PROXY_LAB_HOST_UID = String(processImpl.getuid());
   }
@@ -52,10 +88,17 @@ function resolveProxyLabEnv(env = process.env, processImpl = process) {
 function main() {
   const repoRoot = path.join(__dirname, '..');
   const docker = process.env.DOCKER || 'docker';
+  let parsedArgs;
+  try {
+    parsedArgs = parseProxyLabArgs(process.argv.slice(2));
+  } catch (error) {
+    console.error(`[proxy-lab] ${error && error.message ? error.message : error}`);
+    process.exit(1);
+  }
   ensureHostVolumeMountpoints(repoRoot);
-  const child = spawn(docker, resolveComposeArgs(process.argv.slice(2), { repoRoot }), {
+  const child = spawn(docker, resolveComposeArgs(parsedArgs.commandArgs, { repoRoot }), {
     cwd: repoRoot,
-    env: resolveProxyLabEnv(),
+    env: resolveProxyLabEnv(process.env, process, { sfCliPackage: parsedArgs.sfCliPackage }),
     stdio: 'inherit'
   });
   child.on('exit', exitWithChildResult);
@@ -71,6 +114,7 @@ if (require.main === module) {
 
 module.exports = {
   ensureHostVolumeMountpoints,
+  parseProxyLabArgs,
   resolveProxyLabEnv,
   resolveComposeArgs
 };

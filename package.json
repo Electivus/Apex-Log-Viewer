@@ -67,6 +67,7 @@
     "test:e2e": "node scripts/run-playwright-e2e.js",
     "test:e2e:cli": "node scripts/run-playwright-cli-e2e.js",
     "test:e2e:proxy-lab": "node scripts/run-e2e-proxy-lab.js",
+    "test:e2e:proxy-lab:sf-nightly": "node scripts/run-e2e-proxy-lab.js --sf-cli-package @salesforce/cli@nightly",
     "predocs:screenshots": "npm run build",
     "docs:screenshots": "node scripts/run-playwright-e2e.js --config=playwright.docs.config.ts",
     "pretest:e2e:telemetry": "npm run build",

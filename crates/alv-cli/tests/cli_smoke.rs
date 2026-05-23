@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsString,
     fs,
     io::{BufRead, BufReader, ErrorKind, Read, Write},
     net::TcpListener,
@@ -31,6 +32,42 @@ fn lock_test_guard() -> std::sync::MutexGuard<'static, ()> {
     test_guard()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+struct EnvVarRestore {
+    key: &'static str,
+    value: Option<OsString>,
+}
+
+impl EnvVarRestore {
+    fn capture(key: &'static str) -> Self {
+        Self {
+            key,
+            value: std::env::var_os(key),
+        }
+    }
+}
+
+impl Drop for EnvVarRestore {
+    fn drop(&mut self) {
+        match self.value.as_ref() {
+            Some(value) => std::env::set_var(self.key, value),
+            None => std::env::remove_var(self.key),
+        }
+    }
+}
+
+fn isolate_salesforce_home(root: &std::path::Path) -> Vec<EnvVarRestore> {
+    let home = root.join("home");
+    fs::create_dir_all(home.join(".sf")).expect("isolated .sf dir should be created");
+    fs::create_dir_all(home.join(".sfdx")).expect("isolated .sfdx dir should be created");
+    let guards = vec![
+        EnvVarRestore::capture("HOME"),
+        EnvVarRestore::capture("USERPROFILE"),
+    ];
+    std::env::set_var("HOME", &home);
+    std::env::set_var("USERPROFILE", &home);
+    guards
 }
 
 fn org_display_fixture(instance_url: &str) -> String {
@@ -909,6 +946,7 @@ fn cli_smoke_uses_explicit_sf_cmd_shim_for_org_endpoints() {
     let temp_dir =
         std::env::temp_dir().join(format!("alv-cli-smoke-{}-{}", std::process::id(), unique));
     fs::create_dir_all(&temp_dir).expect("temp dir should be created");
+    let _home_env = isolate_salesforce_home(&temp_dir);
     let sf_cmd = temp_dir.join("sf.cmd");
     fs::write(
         &sf_cmd,
@@ -917,8 +955,12 @@ if /I "%*"=="org list --json --skip-connection-status" (
   echo {"result":{"nonScratchOrgs":[{"username":"shim@example.com","alias":"Shim","isDefaultUsername":true,"instanceUrl":"https://shim.example.com"}]}}
   exit /b 0
 )
-if /I "%*"=="org display --json --verbose -o shim@example.com" (
-  echo {"status":0,"result":{"username":"shim@example.com","accessToken":"shim-token","instanceUrl":"https://shim.example.com"}}
+if /I "%*"=="org display --json --target-org shim@example.com" (
+  echo {"status":0,"result":{"username":"shim@example.com","instanceUrl":"https://shim.example.com"}}
+  exit /b 0
+)
+if /I "%*"=="org auth show-access-token --json --no-prompt --target-org shim@example.com" (
+  echo {"status":0,"result":{"accessToken":"shim-token"}}
   exit /b 0
 )
 echo Unexpected sf args: %* 1>&2
@@ -927,6 +969,7 @@ exit /b 1
     )
     .expect("sf shim should be written");
 
+    let _sf_bin_env = EnvVarRestore::capture("ALV_SF_BIN_PATH");
     std::env::set_var("ALV_SF_BIN_PATH", &sf_cmd);
 
     let mut harness = AppServerHarness::spawn();
@@ -969,7 +1012,6 @@ exit /b 1
     );
 
     drop(harness);
-    std::env::remove_var("ALV_SF_BIN_PATH");
     fs::remove_dir_all(&temp_dir).expect("temp dir should be removable");
 }
 
@@ -990,16 +1032,32 @@ fn cli_smoke_logs_list_does_not_keep_sf_cmd_stdin_open() {
         unique
     ));
     fs::create_dir_all(&temp_dir).expect("temp dir should be created");
+    let _home_env = isolate_salesforce_home(&temp_dir);
+    let log_response = br#"{"result":{"records":[{"Id":"07L000000000001AA","StartTime":"2026-03-27T12:00:00.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-1","LogLength":4096}]}}"#;
+    let (instance_url, server_handle) =
+        spawn_single_http_response("200 OK", "application/json", log_response);
     let sf_cmd = temp_dir.join("sf.cmd");
+    let sf_cmd_source = r#"@echo off
+more >nul
+if /I "%*"=="org display --json --target-org shim@example.com" (
+  echo {"status":0,"result":{"username":"shim@example.com","instanceUrl":"__INSTANCE_URL__"}}
+  exit /b 0
+)
+if /I "%*"=="org auth show-access-token --json --no-prompt --target-org shim@example.com" (
+  echo {"status":0,"result":{"accessToken":"shim-token"}}
+  exit /b 0
+)
+echo Unexpected sf args: %* 1>&2
+exit /b 1
+"#
+    .replace("__INSTANCE_URL__", &instance_url);
     fs::write(
         &sf_cmd,
-        r#"@echo off
-more >nul
-echo {"result":{"records":[{"Id":"07L000000000001AA","StartTime":"2026-03-27T12:00:00.000Z","Operation":"ExecuteAnonymous","Application":"Developer Console","DurationMilliseconds":125,"Status":"Success","Request":"REQ-1","LogLength":4096}]}}
-"#,
+        sf_cmd_source,
     )
     .expect("sf shim should be written");
 
+    let _sf_bin_env = EnvVarRestore::capture("ALV_SF_BIN_PATH");
     std::env::set_var("ALV_SF_BIN_PATH", &sf_cmd);
 
     let mut harness = AppServerHarness::spawn();
@@ -1018,7 +1076,9 @@ echo {"result":{"records":[{"Id":"07L000000000001AA","StartTime":"2026-03-27T12:
     );
 
     drop(harness);
-    std::env::remove_var("ALV_SF_BIN_PATH");
+    server_handle
+        .join()
+        .expect("log response server should finish");
     fs::remove_dir_all(&temp_dir).expect("temp dir should be removable");
 }
 

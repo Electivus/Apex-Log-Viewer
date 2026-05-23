@@ -17,7 +17,7 @@ The activation entry point is `src/extension.ts`. It registers commands such as 
 
 Key responsibilities:
 
-- Use Salesforce CLI (`sf` or legacy `sfdx`) to discover authenticated orgs and reuse existing auth.
+- Use Salesforce CLI (`sf` or legacy `sfdx`) to discover authenticated orgs and reuse existing auth; when access tokens are needed, prefer explicit `sf org auth show-access-token` retrieval over parsing standard org-display output.
 - Use the shared Rust runtime for log list, sync, search, triage, and cached-path lookup, while jsforce-backed flows continue to handle tailing and debug-flag management.
 - Maintain per-org state such as selected org and log cache.
 - Forward trace output to the "Electivus Apex Log Viewer" output channel when `electivus.apexLogs.trace` is enabled.
@@ -50,7 +50,7 @@ The standalone CLI and the VS Code extension are separate surfaces over the same
 - `apexlogs/orgs/<safe-target-org>/org.json` stores resolved org metadata.
 - `apexlogs/orgs/<safe-target-org>/logs/<YYYY-MM-DD>/<logId>.log` stores full log bodies.
 
-The Rust CLI exposes that shared storage through `apex-log-viewer logs sync`, `logs status`, and `logs search`. The VS Code Logs panel uses the same app-server contract for `logs/list`, starts `logs/sync` in the background after refresh/load-more, and reruns triage/search after synced bodies are available locally. For `logs sync`, the runtime still reuses `sf org display` for org auth, but the actual list/body fetches go straight to the Salesforce Tooling REST API and can download bodies concurrently per page.
+The Rust CLI exposes that shared storage through `apex-log-viewer logs sync`, `logs status`, and `logs search`. The VS Code Logs panel uses the same app-server contract for `logs/list`, starts `logs/sync` in the background after refresh/load-more, and reruns triage/search after synced bodies are available locally. For `logs sync`, the runtime resolves org metadata with Salesforce CLI, retrieves the bearer token through the explicit org-auth command when available, and performs the actual list/body fetches directly against the Salesforce Tooling REST API with concurrent body downloads per page.
 
 ## Testing and build tooling
 

@@ -4,7 +4,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { ensureHostVolumeMountpoints, resolveComposeArgs, resolveProxyLabEnv } = require('./run-e2e-proxy-lab');
+const {
+  ensureHostVolumeMountpoints,
+  parseProxyLabArgs,
+  resolveComposeArgs,
+  resolveProxyLabEnv
+} = require('./run-e2e-proxy-lab');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
@@ -57,6 +62,24 @@ test('resolveComposeArgs forwards an explicit E2E command through the lab script
   ]);
 });
 
+test('parseProxyLabArgs captures Salesforce CLI package override before the child command', () => {
+  assert.deepEqual(parseProxyLabArgs(['--sf-cli-package', '@salesforce/cli@nightly', 'npm', 'run', 'test:e2e:cli']), {
+    commandArgs: ['npm', 'run', 'test:e2e:cli'],
+    sfCliPackage: '@salesforce/cli@nightly'
+  });
+});
+
+test('parseProxyLabArgs supports equals syntax and command delimiter', () => {
+  assert.deepEqual(parseProxyLabArgs(['--sf-cli-package=@salesforce/cli@nightly', '--', 'npm', 'run', 'test:e2e']), {
+    commandArgs: ['npm', 'run', 'test:e2e'],
+    sfCliPackage: '@salesforce/cli@nightly'
+  });
+});
+
+test('parseProxyLabArgs requires a Salesforce CLI package value', () => {
+  assert.throws(() => parseProxyLabArgs(['--sf-cli-package']), /--sf-cli-package requires a package specifier/);
+});
+
 test('ensureHostVolumeMountpoints creates Docker volume mountpoints before compose runs', () => {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-proxy-lab-'));
 
@@ -78,7 +101,7 @@ test('proxy lab runner prepares host volume mountpoints before spawning compose'
 
   assert.ok(mainBody, 'expected run-e2e-proxy-lab.js to define main()');
   assert.match(mainBody, /ensureHostVolumeMountpoints\(repoRoot\)/);
-  assert.match(mainBody, /resolveProxyLabEnv\(\)/);
+  assert.match(mainBody, /resolveProxyLabEnv\(process\.env, process,/);
   assert.match(mainBody, /spawn\(docker,/);
 });
 
@@ -96,11 +119,42 @@ test('resolveProxyLabEnv forwards the host uid and gid for bind-mounted cleanup'
   assert.equal(env.ALV_E2E_PROXY_LAB_HOST_GID, '1002');
 });
 
+test('resolveProxyLabEnv forwards a Salesforce CLI package override', () => {
+  const env = resolveProxyLabEnv({ EXISTING_ENV: '1' }, {}, { sfCliPackage: '@salesforce/cli@nightly' });
+
+  assert.equal(env.EXISTING_ENV, '1');
+  assert.equal(env.ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE, '@salesforce/cli@nightly');
+});
+
 test('proxy lab compose forwards host ownership ids into the runner', () => {
   const compose = readComposeFile();
 
   assert.match(compose, /^\s+ALV_E2E_PROXY_LAB_HOST_UID: \$\{ALV_E2E_PROXY_LAB_HOST_UID:-\}$/m);
   assert.match(compose, /^\s+ALV_E2E_PROXY_LAB_HOST_GID: \$\{ALV_E2E_PROXY_LAB_HOST_GID:-\}$/m);
+});
+
+test('proxy lab compose forwards the Salesforce CLI package override into the runner', () => {
+  const compose = readComposeFile();
+
+  assert.match(compose, /^\s+ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: \$\{ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE:-\}$/m);
+});
+
+test('proxy lab compose persists runner caches and Salesforce CLI auth state', () => {
+  const compose = readComposeFile();
+
+  for (const [volume, mountPath] of [
+    ['e2e_proxy_node_modules', '/workspace/node_modules'],
+    ['e2e_proxy_cargo_registry', '/root/.cargo/registry'],
+    ['e2e_proxy_cargo_git', '/root/.cargo/git'],
+    ['e2e_proxy_target', '/workspace/target'],
+    ['e2e_proxy_vscode_test', '/workspace/.vscode-test'],
+    ['e2e_proxy_npm_cache', '/root/.npm'],
+    ['e2e_proxy_sf', '/root/.sf'],
+    ['e2e_proxy_sfdx', '/root/.sfdx']
+  ]) {
+    assert.match(compose, new RegExp(`^\\s+- ${volume}:${mountPath.replace(/[/.]/g, '\\$&')}$`, 'm'));
+    assert.match(compose, new RegExp(`^\\s{2}${volume}: \\{\\}$`, 'm'));
+  }
 });
 
 test('proxy lab runner restores ownership of bind-mounted generated outputs on exit', () => {
@@ -118,6 +172,7 @@ test('proxy lab runner restores ownership of bind-mounted generated outputs on e
 
 test('proxy lab compose uses mitmproxy with a shared CA volume instead of Tinyproxy', () => {
   const compose = readComposeFile();
+  const dockerfile = readProxyDockerfile();
 
   assert.match(compose, /dockerfile:\s+test\/e2e\/proxy-lab\/Dockerfile\.proxy/);
   assert.match(compose, /^\s+- e2e_proxy_mitmproxy_ca:\/mitmproxy$/m);
@@ -127,6 +182,7 @@ test('proxy lab compose uses mitmproxy with a shared CA volume instead of Tinypr
   assert.match(compose, /ALV_TEST_TELEMETRY_RUN_ID:/);
   assert.match(compose, /^\s+VSCODE_TEST_DOWNLOAD_TIMEOUT_MS: \$\{VSCODE_TEST_DOWNLOAD_TIMEOUT_MS:-\}$/m);
   assert.doesNotMatch(compose, /tinyproxy/i);
+  assert.match(dockerfile, /"stream_large_bodies=1m"/);
 });
 
 test('proxy lab runner script validates MITM trust before running E2E commands', () => {
@@ -142,6 +198,20 @@ test('proxy lab runner script validates MITM trust before running E2E commands',
   assert.match(script, /Node HTTPS through the configured MITM proxy/);
   assert.doesNotMatch(script, /Node fetch/);
   assert.match(script, /preflight_salesforce_cli/);
+});
+
+test('proxy lab runner can install an explicit Salesforce CLI package before preflight', () => {
+  const script = readProxyLabScript();
+
+  assert.match(script, /install_salesforce_cli_override\(\)/);
+  assert.match(script, /ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE/);
+  assert.match(script, /npm install --global "\$\{package_name\}"/);
+  assert.match(script, /sf --version/);
+  assert.match(
+    script,
+    /verify_node_https_proxy\s*\ninstall_salesforce_cli_override\s*\npreflight_salesforce_cli/,
+    'expected the Salesforce CLI override install to run after proxy validation and before Salesforce preflight'
+  );
 });
 
 test('proxy lab runner requires Dev Hub auth for real-org commands only', () => {
@@ -196,7 +266,7 @@ test('proxy lab runner guards against proxy auth and Node dependency regressions
 test('proxy lab runner image installs xauth for xvfb-run', () => {
   const dockerfile = readRunnerDockerfile();
   const aptInstallBlock = dockerfile.match(
-    /apt-get install -y --no-install-recommends \\\n(?<packages>[\s\S]*?)\n\s*&& rm -rf \/var\/lib\/apt\/lists\/\*/
+    /apt-get install -y --no-install-recommends \\\r?\n(?<packages>[\s\S]*?)\r?\n\s*&& rm -rf \/var\/lib\/apt\/lists\/\*/
   )?.groups.packages;
 
   assert.ok(aptInstallBlock, 'expected runner Dockerfile to contain an apt package list');
