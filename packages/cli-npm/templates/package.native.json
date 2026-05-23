@@ -1,6 +1,10 @@
 {
   "name": "__PACKAGE_NAME__",
   "version": "__VERSION__",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Electivus/Apex-Log-Viewer"
+  },
   "os": ["__OS__"],
   "cpu": ["__CPU__"],
   "bin": {

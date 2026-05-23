@@ -2,6 +2,10 @@
   "name": "@electivus/apex-log-viewer",
   "version": "__VERSION__",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Electivus/Apex-Log-Viewer"
+  },
   "bin": {
     "alv": "bin/apex-log-viewer.js",
     "apex-log-viewer": "bin/apex-log-viewer.js"
