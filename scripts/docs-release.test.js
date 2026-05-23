@@ -13,10 +13,13 @@ test('release docs mention the dedicated CLI workflow and pinned runtime metadat
   const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
 
   assert.match(ci, /rust-release\.yml/);
-  assert.match(ci, /NPM_TOKEN/);
+  assert.match(ci, /Trusted Publisher/i);
   assert.match(ci, /verify-runtime-compatibility\.mjs/);
+  assert.doesNotMatch(ci, /NPM_TOKEN/);
   assert.doesNotMatch(ci, /CARGO_REGISTRY_TOKEN/);
   assert.match(publishing, /rust-vX\.Y\.Z/);
+  assert.match(publishing, /rust-release\.yml/);
+  assert.match(publishing, /Trusted Publisher/i);
   assert.match(publishing, /npm native\/meta packages/i);
   assert.match(publishing, /crates\.io.*deferred/i);
   assert.match(architecture, /config\/runtime-bundle\.json/);

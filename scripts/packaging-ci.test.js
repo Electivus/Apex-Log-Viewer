@@ -250,19 +250,48 @@ test('rust-release workflow verifies the packaged linux-x64 release artifact bef
   );
 });
 
-test('rust-release workflow configures the npm registry before publishing packages', () => {
+test('rust-release workflow publishes npm packages through trusted publishers', () => {
+  const workflowSource = readFile('.github/workflows/rust-release.yml');
   const nativePublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_native');
   const metaPublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_meta');
 
   assert.match(
+    workflowSource,
+    /^permissions:\n  contents: read$/m,
+    'expected the workflow default token permissions to stay read-only'
+  );
+
+  assert.match(
     nativePublishJob,
-    /uses:\s+actions\/setup-node@[0-9a-f]{40}[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'/,
-    'expected native npm publish job to configure the npm registry before publishing'
+    /^    permissions:\n      contents: read\n      id-token: write$/m,
+    'expected native npm publish job to request OIDC id-token permission'
   );
   assert.match(
     metaPublishJob,
-    /uses:\s+actions\/setup-node@[0-9a-f]{40}[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'/,
-    'expected meta npm publish job to configure the npm registry before publishing'
+    /^    permissions:\n      contents: read\n      id-token: write$/m,
+    'expected meta npm publish job to request OIDC id-token permission'
+  );
+  for (const publishJob of [nativePublishJob, metaPublishJob]) {
+    assert.match(
+      publishJob,
+      /uses:\s+actions\/setup-node@[0-9a-f]{40}[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'[\s\S]*?package-manager-cache:\s+false/,
+      'expected npm publish jobs to configure the npm registry without package-manager cache'
+    );
+    assert.doesNotMatch(
+      publishJob,
+      /NODE_AUTH_TOKEN|NPM_TOKEN/,
+      'expected npm publish jobs to avoid long-lived npm token authentication'
+    );
+  }
+});
+
+test('rust-release release job keeps write permission only for GitHub release creation', () => {
+  const releaseJob = readWorkflowJob('.github/workflows/rust-release.yml', 'release');
+
+  assert.match(
+    releaseJob,
+    /^    permissions:\n      contents: write$/m,
+    'expected only the GitHub release job to request contents write permission'
   );
 });
 
