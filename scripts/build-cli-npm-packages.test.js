@@ -37,6 +37,10 @@ test('buildCliNpmPackages generates the meta package with all native optionalDep
 
   assert.equal(metaPackage.name, '@electivus/apex-log-viewer');
   assert.equal(metaPackage.version, '1.2.3');
+  assert.deepEqual(metaPackage.repository, {
+    type: 'git',
+    url: 'https://github.com/Electivus/Apex-Log-Viewer'
+  });
   assert.deepEqual(metaPackage.bin, {
     alv: 'bin/apex-log-viewer.js',
     'apex-log-viewer': 'bin/apex-log-viewer.js'
@@ -49,6 +53,10 @@ test('buildCliNpmPackages generates the meta package with all native optionalDep
     'expected meta package launcher to be copied'
   );
   assert.equal(linuxNativePackage.name, '@electivus/apex-log-viewer-linux-x64');
+  assert.deepEqual(linuxNativePackage.repository, {
+    type: 'git',
+    url: 'https://github.com/Electivus/Apex-Log-Viewer'
+  });
   assert.deepEqual(linuxNativePackage.os, ['linux']);
   assert.deepEqual(linuxNativePackage.cpu, ['x64']);
   assert.equal(
