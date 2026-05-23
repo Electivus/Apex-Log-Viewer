@@ -54,6 +54,14 @@ function enforceAuthCacheLimit(): void {
   }
 }
 
+export function __resetOrgAuthCacheForTests(): void {
+  authCacheByUser.clear();
+  if (authCacheCleanupTimer) {
+    clearInterval(authCacheCleanupTimer);
+    authCacheCleanupTimer = undefined;
+  }
+}
+
 function getCliCacheConfig() {
   try {
     const enabled = getBooleanConfig('sfLogs.cliCache.enabled', true);

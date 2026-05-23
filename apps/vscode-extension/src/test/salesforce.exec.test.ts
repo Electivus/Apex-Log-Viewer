@@ -1,11 +1,17 @@
 import assert from 'assert/strict';
-import { getOrgAuth } from '../../../../src/salesforce/cli';
-import { __setExecFileImplForTests, __resetExecFileImplForTests } from '../../../../src/salesforce/exec';
+import { getOrgAuth, __resetOrgAuthCacheForTests } from '../../../../src/salesforce/cli';
+import {
+  __setExecFileImplForTests,
+  __resetExecFileImplForTests,
+  __resetExecDedupeCacheForTests
+} from '../../../../src/salesforce/exec';
 const proxyquire: any = require('proxyquire').noCallThru().noPreserveCache();
 
 suite('salesforce exec safety', () => {
   teardown(() => {
     __resetExecFileImplForTests();
+    __resetExecDedupeCacheForTests();
+    __resetOrgAuthCacheForTests();
   });
 
   test('passes alias with spaces/special chars as single argv', async () => {
