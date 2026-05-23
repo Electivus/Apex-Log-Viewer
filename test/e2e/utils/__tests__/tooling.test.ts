@@ -197,36 +197,56 @@ describe('ensureDebugFlagsTestUser', () => {
   });
 
   test('caches org auth lookups per target org', async () => {
-    runSfJsonMock.mockResolvedValue({
-      result: {
-        accessToken: 'token',
-        instanceUrl: 'https://example.my.salesforce.com',
-        username: 'auth.user@example.com'
+    runSfJsonMock.mockImplementation(async args => {
+      if (args[0] === 'org' && args[1] === 'auth') {
+        return { result: { accessToken: 'token' } };
       }
+      return {
+        result: {
+          instanceUrl: 'https://example.my.salesforce.com',
+          username: 'auth.user@example.com'
+        }
+      };
     });
 
     const first = await getOrgAuth('ALV_E2E_Scratch');
     const second = await getOrgAuth('ALV_E2E_Scratch');
 
     expect(first).toEqual(second);
-    expect(runSfJsonMock).toHaveBeenCalledTimes(1);
-    expect(runSfJsonMock).toHaveBeenCalledWith(['org', 'display', '-o', 'ALV_E2E_Scratch']);
+    expect(runSfJsonMock).toHaveBeenCalledTimes(2);
+    expect(runSfJsonMock).toHaveBeenCalledWith(['org', 'display', '--target-org', 'ALV_E2E_Scratch']);
+    expect(runSfJsonMock).toHaveBeenCalledWith([
+      'org',
+      'auth',
+      'show-access-token',
+      '--target-org',
+      'ALV_E2E_Scratch',
+      '--no-prompt'
+    ]);
   });
 
   test('refreshes cached org auth after an auth failure in REST tooling requests', async () => {
     runSfJsonMock
       .mockResolvedValueOnce({
         result: {
-          accessToken: 'stale-token',
           instanceUrl: 'https://example.my.salesforce.com',
           username: 'auth.user@example.com'
         }
       })
       .mockResolvedValueOnce({
         result: {
-          accessToken: 'fresh-token',
+          accessToken: 'stale-token'
+        }
+      })
+      .mockResolvedValueOnce({
+        result: {
           instanceUrl: 'https://example.my.salesforce.com',
           username: 'auth.user@example.com'
+        }
+      })
+      .mockResolvedValueOnce({
+        result: {
+          accessToken: 'fresh-token'
         }
       });
 
@@ -250,7 +270,7 @@ describe('ensureDebugFlagsTestUser', () => {
     await expect(getCurrentUserId(auth)).resolves.toBe('005000000000999AAA');
     expect(auth.accessToken).toBe('fresh-token');
     expect(seenAuthHeaders).toEqual(['Bearer stale-token', 'Bearer fresh-token']);
-    expect(runSfJsonMock).toHaveBeenCalledTimes(2);
+    expect(runSfJsonMock).toHaveBeenCalledTimes(4);
   });
 
   test('caches current user id lookups per authenticated user', async () => {
@@ -506,16 +526,24 @@ describe('ensureDebugFlagsTestUser', () => {
     runSfJsonMock
       .mockResolvedValueOnce({
         result: {
-          accessToken: 'stale-token',
           instanceUrl: 'https://example.my.salesforce.com',
           username: 'auth.user@example.com'
         }
       })
       .mockResolvedValueOnce({
         result: {
-          accessToken: 'fresh-token',
+          accessToken: 'stale-token'
+        }
+      })
+      .mockResolvedValueOnce({
+        result: {
           instanceUrl: 'https://example.my.salesforce.com',
           username: 'auth.user@example.com'
+        }
+      })
+      .mockResolvedValueOnce({
+        result: {
+          accessToken: 'fresh-token'
         }
       });
 
@@ -541,7 +569,7 @@ describe('ensureDebugFlagsTestUser', () => {
     await executeAnonymousApex(auth, "System.debug('ALV');");
 
     expect(auth.accessToken).toBe('fresh-token');
-    expect(runSfJsonMock).toHaveBeenCalledTimes(2);
+    expect(runSfJsonMock).toHaveBeenCalledTimes(4);
   });
 
   test('bounds auth-based tooling readiness probes with a timeout', async () => {

@@ -22,6 +22,11 @@ const AUTH_CACHE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 let authCacheCleanupTimer: NodeJS.Timeout | undefined;
 const EMPTY_ORG_LIST_PERSIST_TTL_MS = 30 * 1000;
 
+type OrgAuthMetadata = {
+  instanceUrl: string;
+  username?: string;
+};
+
 function purgeExpiredAuthCache(now: number = Date.now()): void {
   for (const [key, { expiresAt }] of authCacheByUser) {
     if (expiresAt <= now) {
@@ -46,6 +51,14 @@ function enforceAuthCacheLimit(): void {
   while (authCacheByUser.size > MAX_AUTH_CACHE_ITEMS && entries.length) {
     const [key] = entries.shift()!;
     authCacheByUser.delete(key);
+  }
+}
+
+export function __resetOrgAuthCacheForTests(): void {
+  authCacheByUser.clear();
+  if (authCacheCleanupTimer) {
+    clearInterval(authCacheCleanupTimer);
+    authCacheCleanupTimer = undefined;
   }
 }
 
@@ -90,13 +103,45 @@ function parseCliJson(stdout: string): any {
   }
 }
 
+function isUsableSecret(value: string | undefined): value is string {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (/^\[?redacted\]?/i.test(trimmed)) {
+    return false;
+  }
+  return !/use ['"]?sf org auth/i.test(trimmed);
+}
+
+function readOrgMetadataFromCliOutput(stdout: string): OrgAuthMetadata {
+  const parsed = parseCliJson(stdout);
+  const result = parsed.result || parsed;
+  const instanceUrl: string | undefined = result.instanceUrl || result.instance_url || result.loginUrl;
+  const username: string | undefined = result.username;
+  if (instanceUrl) {
+    return { instanceUrl, username };
+  }
+  throw createCliTelemetryError('MISSING_AUTH_FIELDS', 'CLI JSON missing instance URL');
+}
+
+function readAccessTokenFromCliOutput(stdout: string): string {
+  const parsed = parseCliJson(stdout);
+  const result = parsed.result || parsed;
+  const accessToken: string | undefined = result.accessToken || result.access_token;
+  if (isUsableSecret(accessToken)) {
+    return accessToken;
+  }
+  throw createCliTelemetryError('MISSING_AUTH_FIELDS', 'CLI JSON missing auth fields');
+}
+
 function readOrgAuthFromCliOutput(stdout: string): OrgAuth {
   const parsed = parseCliJson(stdout);
   const result = parsed.result || parsed;
   const accessToken: string | undefined = result.accessToken || result.access_token;
   const instanceUrl: string | undefined = result.instanceUrl || result.instance_url || result.loginUrl;
   const username: string | undefined = result.username;
-  if (accessToken && instanceUrl) {
+  if (isUsableSecret(accessToken) && instanceUrl) {
     try {
       logTrace('getOrgAuth: success for user', username || '(unknown)', 'at', instanceUrl);
     } catch {}
@@ -126,20 +171,30 @@ function getSfCliProgramCandidates(): string[] {
 
 type CliCandidateFamily = {
   program: string;
-  attempts: string[][];
+  legacyAttempts: string[][];
 };
 
 function buildOrgAuthCandidateFamilies(targetUsernameOrAlias?: string): CliCandidateFamily[] {
-  const targetArgs = targetUsernameOrAlias ? ['-o', targetUsernameOrAlias] : [];
+  const targetArgs = targetUsernameOrAlias ? ['--target-org', targetUsernameOrAlias] : [];
   return getSfCliProgramCandidates().map(program => ({
     program,
-    attempts: [
+    legacyAttempts: [
       ['org', 'display', '--json', '--verbose', ...targetArgs],
       ['org', 'user', 'display', '--json', '--verbose', ...targetArgs],
       ['org', 'user', 'display', '--json', ...targetArgs],
       ['org', 'display', '--json', ...targetArgs]
     ]
   }));
+}
+
+function buildOrgDisplayArgs(targetUsernameOrAlias?: string): string[] {
+  const targetArgs = targetUsernameOrAlias ? ['--target-org', targetUsernameOrAlias] : [];
+  return ['org', 'display', '--json', ...targetArgs];
+}
+
+function buildShowAccessTokenArgs(targetUsernameOrAlias?: string): string[] {
+  const targetArgs = targetUsernameOrAlias ? ['--target-org', targetUsernameOrAlias] : [];
+  return ['org', 'auth', 'show-access-token', '--json', '--no-prompt', ...targetArgs];
 }
 
 function getCliAuthTerminalCode(code: string, targetUsernameOrAlias?: string): string | undefined {
@@ -199,7 +254,7 @@ export async function getOrgAuth(
   }
   if (!forceRefresh && enabled && authPersistTtl > 0 && !execOverriddenForTests) {
     const persisted = CacheManager.get<OrgAuth>('cli', `orgAuth:${cacheKey}`);
-    if (persisted && persisted.accessToken && persisted.instanceUrl) {
+    if (persisted && isUsableSecret(persisted.accessToken) && persisted.instanceUrl) {
       try {
         logTrace('getOrgAuth: hit persistent cache for', cacheKey);
       } catch {}
@@ -215,7 +270,57 @@ export async function getOrgAuth(
   let sawEnoent = false;
   let terminalAuthCode: string | undefined;
   for (const family of candidateFamilies) {
-    for (const args of family.attempts) {
+    try {
+      const metadataArgs = buildOrgDisplayArgs(t);
+      try {
+        logTrace('getOrgAuth: trying', family.program, metadataArgs.join(' '));
+      } catch {}
+      const metadataOutput = await execCommand(family.program, metadataArgs, undefined, CLI_TIMEOUT_MS, signal);
+      const metadata = readOrgMetadataFromCliOutput(metadataOutput.stdout);
+
+      const tokenArgs = buildShowAccessTokenArgs(t);
+      try {
+        logTrace('getOrgAuth: trying', family.program, tokenArgs.join(' '));
+      } catch {}
+      const tokenOutput = await execCommand(family.program, tokenArgs, undefined, CLI_TIMEOUT_MS, signal);
+      const accessToken = readAccessTokenFromCliOutput(tokenOutput.stdout);
+      const auth = { accessToken, instanceUrl: metadata.instanceUrl, username: metadata.username } as OrgAuth;
+      if (execOverriddenForTests && authTtl > 0) {
+        authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
+        enforceAuthCacheLimit();
+      }
+      if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
+        try {
+          await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
+        } catch {}
+      }
+      return auth;
+    } catch (_e) {
+      const e: any = _e;
+      if (signal?.aborted) {
+        throw new Error('aborted');
+      }
+      if (e && e.code === 'ENOENT') {
+        sawEnoent = true;
+        safeSendException('cli.getOrgAuth', { code: 'ENOENT', command: family.program });
+      } else if (e && e.code === 'ETIMEDOUT') {
+        safeSendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: family.program });
+        throw e;
+      } else {
+        const telemetryCode = getCliTelemetryCode(e);
+        safeSendException('cli.getOrgAuth', { code: telemetryCode, command: family.program });
+        const nextTerminalAuthCode = getCliAuthTerminalCode(telemetryCode, t);
+        if (nextTerminalAuthCode) {
+          terminalAuthCode = nextTerminalAuthCode;
+          continue;
+        }
+      }
+      try {
+        logTrace('getOrgAuth: explicit auth attempt failed for', family.program);
+      } catch {}
+    }
+
+    for (const args of family.legacyAttempts) {
       try {
         try {
           logTrace('getOrgAuth: trying', family.program, args.join(' '));
@@ -274,7 +379,56 @@ export async function getOrgAuth(
     if (loginPath) {
       const env2: NodeJS.ProcessEnv = { ...process.env, PATH: loginPath, Path: loginPath };
       for (const family of candidateFamilies) {
-        for (const args of family.attempts) {
+        try {
+          const metadataArgs = buildOrgDisplayArgs(t);
+          try {
+            logTrace('getOrgAuth(login PATH): trying', family.program, metadataArgs.join(' '));
+          } catch {}
+          const metadataOutput = await execCommand(family.program, metadataArgs, env2, CLI_TIMEOUT_MS, signal);
+          const metadata = readOrgMetadataFromCliOutput(metadataOutput.stdout);
+
+          const tokenArgs = buildShowAccessTokenArgs(t);
+          try {
+            logTrace('getOrgAuth(login PATH): trying', family.program, tokenArgs.join(' '));
+          } catch {}
+          const tokenOutput = await execCommand(family.program, tokenArgs, env2, CLI_TIMEOUT_MS, signal);
+          const accessToken = readAccessTokenFromCliOutput(tokenOutput.stdout);
+          const auth = { accessToken, instanceUrl: metadata.instanceUrl, username: metadata.username } as OrgAuth;
+          if (execOverriddenForTests && authTtl > 0) {
+            authCacheByUser.set(cacheKey, { value: auth, expiresAt: now + authTtl });
+            enforceAuthCacheLimit();
+          }
+          if (enabled && authPersistTtl > 0 && !execOverriddenForTests) {
+            try {
+              await CacheManager.set('cli', `orgAuth:${cacheKey}`, auth, authPersistTtl);
+            } catch {}
+          }
+          return auth;
+        } catch (_e) {
+          const e: any = _e;
+          if (signal?.aborted) {
+            throw new Error('aborted');
+          }
+          if (e && e.code === 'ENOENT') {
+            safeSendException('cli.getOrgAuth', { code: 'ENOENT', command: family.program });
+          } else if (e && e.code === 'ETIMEDOUT') {
+            safeSendException('cli.getOrgAuth', { code: 'ETIMEDOUT', command: family.program });
+            throw e;
+          } else {
+            const telemetryCode = getCliTelemetryCode(e);
+            safeSendException('cli.getOrgAuth', { code: telemetryCode, command: family.program });
+            const nextTerminalAuthCode = getCliAuthTerminalCode(telemetryCode, t);
+            if (nextTerminalAuthCode) {
+              terminalAuthCode = nextTerminalAuthCode;
+              continue;
+            }
+          }
+          try {
+            logTrace('getOrgAuth(login PATH): explicit auth attempt failed for', family.program);
+          } catch {}
+        }
+
+        for (const args of family.legacyAttempts) {
           try {
             try {
               logTrace('getOrgAuth(login PATH): trying', family.program, args.join(' '));

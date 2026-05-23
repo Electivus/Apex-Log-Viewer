@@ -126,6 +126,7 @@ Useful env vars:
 - After logging in from `SF_DEVHUB_AUTH_URL`, the lab uses `ConfiguredDevHub` as the container-local Dev Hub alias by default. `ALV_E2E_PROXY_LAB_DEVHUB_ALIAS` only changes that container-local alias.
 - The lab sets `SFDX_DISABLE_DNS_CHECK=true` because the runner has no direct DNS/egress path to Salesforce; Salesforce CLI traffic must be validated through the proxy instead.
 - `ALV_E2E_PROXY_LAB_PROXY_URL` can override the runner proxy URL for negative tests; by default it is `http://alv-proxy-user:alv-proxy-pass@proxy:8888`.
+- Docker named volumes persist `node_modules`, Cargo registry/git caches, `target`, `.vscode-test`, npm cache, and Salesforce CLI auth state under `/root/.sf` and `/root/.sfdx` between proxy-lab runs. These volumes may contain org credentials; reset them with `docker compose -f docker-compose.e2e-proxy.yml down --volumes` only when you intentionally want a clean lab.
 
 By default the lab runs `npm run test:e2e`. To run another E2E command inside the same proxy-only network:
 
@@ -136,7 +137,7 @@ npm run test:e2e:proxy-lab -- npm run test:e2e:cli
 For local real-org proxy-lab runs, derive an auth URL from an already-authenticated Dev Hub on the host and pass it into the clean container:
 
 ```bash
-ALV_LOCAL_DEVHUB_AUTH_URL="$(sf org display --verbose -o <dev-hub-alias> --json | jq -r '.result.sfdxAuthUrl')"
+ALV_LOCAL_DEVHUB_AUTH_URL="$(sf org auth show-sfdx-auth-url --target-org <dev-hub-alias> --json --no-prompt | jq -r '.result.sfdxAuthUrl')"
 SF_DEVHUB_AUTH_URL="${ALV_LOCAL_DEVHUB_AUTH_URL}" SF_TEST_KEEP_ORG=1 npm run test:e2e:proxy-lab
 ```
 
@@ -150,6 +151,12 @@ For faster iteration after the named Docker volumes already contain dependencies
 
 ```bash
 ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1 npm run test:e2e:proxy-lab -- npm run test:e2e:cli
+```
+
+To validate against a Salesforce CLI package override, such as the nightly build that carries upcoming credential-redaction behavior:
+
+```bash
+npm run test:e2e:proxy-lab:sf-nightly -- npm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts
 ```
 
 The standard GitHub Playwright E2E workflow runs both real-org surfaces through this MITM proxy lab. The CLI step populates the proxy-lab dependency volume, and the extension step reuses that volume with `ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1`. When telemetry validation is configured, Azure resource resolution and Log Analytics queries stay on the GitHub runner host while the Playwright child run executes inside the MITM proxy lab.

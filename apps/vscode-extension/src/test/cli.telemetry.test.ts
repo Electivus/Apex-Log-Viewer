@@ -367,8 +367,8 @@ suite('cli telemetry', () => {
     assert.equal(auth.username, 'user@example.com');
     assert.deepEqual(
       attempts.filter(attempt => attempt.program === 'sf').map(attempt => attempt.args.join(' ')).slice(0, 2),
-      ['org display --json --verbose', 'org user display --json --verbose'],
-      'expected the plain sf family to continue after a non-terminal error'
+      ['org display --json', 'org auth show-access-token --json --no-prompt'],
+      'expected the plain sf family to use explicit credential retrieval'
     );
   });
 
@@ -557,8 +557,8 @@ suite('cli telemetry', () => {
         .filter(attempt => attempt.program === 'sf' && attempt.path === 'C:\\login-shell\\bin')
         .map(attempt => attempt.args.join(' '))
         .slice(0, 2),
-      ['org display --json --verbose', 'org user display --json --verbose'],
-      'expected the plain sf family to continue after a non-terminal login-shell failure'
+      ['org display --json', 'org auth show-access-token --json --no-prompt'],
+      'expected the plain sf family to use explicit credential retrieval on login-shell PATH'
     );
   });
 

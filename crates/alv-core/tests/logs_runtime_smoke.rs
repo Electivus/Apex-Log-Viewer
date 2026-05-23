@@ -15,8 +15,8 @@ use alv_core::{
     auth::TEST_ORG_DISPLAY_JSON_ENV,
     logs::{
         ensure_log_file_cached, find_cached_log_path, list_logs_detailed_with_cancel,
-        list_logs_with_cancel, CancellationToken, LogsListParams,
-        TEST_APEX_LOG_FIXTURE_DIR_ENV, TEST_SF_LOG_LIST_JSON_ENV,
+        list_logs_with_cancel, CancellationToken, LogsListParams, TEST_APEX_LOG_FIXTURE_DIR_ENV,
+        TEST_SF_LOG_LIST_JSON_ENV,
     },
     search::{search_query, search_query_with_cancel, SearchQueryParams},
     triage::{triage_logs, triage_logs_with_cancel, LogsTriageParams},
@@ -1756,8 +1756,12 @@ fn logs_runtime_smoke_uses_explicit_sf_cmd_shim_for_logs_list() {
 
     let fake_bin_root = make_temp_workspace("sf-cmd-logs-list");
     let script_body = r#"@echo off
-if /I "%*"=="org display --json --verbose -o demo@example.com" (
+if /I "%*"=="org display --json --target-org demo@example.com" (
   echo __ORG_DISPLAY_JSON__
+  exit /b 0
+)
+if /I "%*"=="org auth show-access-token --json --no-prompt --target-org demo@example.com" (
+  echo {"status":0,"result":{"accessToken":"00D-token"}}
   exit /b 0
 )
 echo Unexpected sf args: %* 1>&2

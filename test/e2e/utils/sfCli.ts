@@ -51,12 +51,27 @@ function formatSfErrorDetails(stdout: string, stderr: string): string | undefine
   return undefined;
 }
 
-function formatProcessFailureDetails(file: string, error: unknown): string | undefined {
+function getWrappedSfExecutable(file: string, args: string[]): string | undefined {
+  if (path.basename(file).toLowerCase() !== 'cmd.exe') {
+    return undefined;
+  }
+  const sfArg = args.find(arg => {
+    const basename = path.basename(String(arg || '')).toLowerCase();
+    return basename === 'sf' || basename === 'sf.cmd' || basename === 'sf.exe';
+  });
+  return sfArg ? 'sf' : undefined;
+}
+
+function formatProcessFailureDetails(file: string, args: string[], error: unknown): string | undefined {
   const err = error as NodeJS.ErrnoException | undefined;
   const code = err?.code;
   const signal = err?.signal;
 
   if (code === 'ENOENT') {
+    const wrappedSfExecutable = getWrappedSfExecutable(file, args);
+    if (wrappedSfExecutable) {
+      return `Salesforce CLI executable '${wrappedSfExecutable}' was not found. Check PATH or install Salesforce CLI for the Node/test environment.`;
+    }
     const executable = path.basename(file) || file;
     if (executable === 'sf' || executable === 'sf.cmd' || executable === 'sf.exe') {
       return `Salesforce CLI executable '${file}' was not found. Check PATH or install Salesforce CLI for the Node/test environment.`;
@@ -132,7 +147,7 @@ function execProcessFileAsync(file: string, args: string[], options: ExecOptions
   return new Promise((resolve, reject) => {
     const callback = (error: unknown, stdout: string, stderr: string) => {
       if (error) {
-        const details = [formatSfErrorDetails(String(stdout || ''), String(stderr || '')), formatProcessFailureDetails(file, error)]
+        const details = [formatSfErrorDetails(String(stdout || ''), String(stderr || '')), formatProcessFailureDetails(file, args, error)]
           .filter(Boolean)
           .join('\n');
         // Avoid echoing stdout/stderr directly to prevent leaking auth tokens.

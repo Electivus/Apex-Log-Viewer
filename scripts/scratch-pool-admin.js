@@ -241,6 +241,73 @@ async function runSfJson(args, options = {}) {
   return parsed;
 }
 
+function isUsableSecret(value) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return false;
+  }
+  if (/^\[?redacted\]?/i.test(text)) {
+    return false;
+  }
+  return !/use ['"]?sf org auth/i.test(text);
+}
+
+function readSfResult(payload) {
+  const result = payload?.result || payload || {};
+  return result && typeof result === 'object' ? result : {};
+}
+
+async function getAuthenticatedOrgDisplay(targetOrg, options = {}) {
+  const args = ['org', 'display', '--target-org', targetOrg];
+  if (options.verbose) {
+    args.push('--verbose');
+  }
+  const response = await runSfJson(args);
+  return readSfResult(response);
+}
+
+async function getAccessToken(targetOrg, fallbackDisplay) {
+  try {
+    const response = await runSfJson([
+      'org',
+      'auth',
+      'show-access-token',
+      '--target-org',
+      targetOrg,
+      '--no-prompt'
+    ]);
+    const result = readSfResult(response);
+    if (isUsableSecret(result.accessToken || result.access_token)) {
+      return String(result.accessToken || result.access_token).trim();
+    }
+  } catch {
+    // Older Salesforce CLI versions do not have explicit org auth show-* commands.
+  }
+  const fallbackToken = fallbackDisplay?.accessToken || fallbackDisplay?.access_token;
+  return isUsableSecret(fallbackToken) ? String(fallbackToken).trim() : undefined;
+}
+
+async function getSfdxAuthUrl(targetOrg) {
+  try {
+    const response = await runSfJson([
+      'org',
+      'auth',
+      'show-sfdx-auth-url',
+      '--target-org',
+      targetOrg,
+      '--no-prompt'
+    ]);
+    const result = readSfResult(response);
+    if (isUsableSecret(result.sfdxAuthUrl)) {
+      return String(result.sfdxAuthUrl).trim();
+    }
+  } catch {
+    // Older Salesforce CLI versions expose this only on org display --verbose.
+  }
+  const display = await getAuthenticatedOrgDisplay(targetOrg, { verbose: true });
+  return isUsableSecret(display.sfdxAuthUrl) ? String(display.sfdxAuthUrl).trim() : undefined;
+}
+
 async function queryRecords(targetOrg, soql) {
   const response = await runSfJson(['data', 'query', '--target-org', targetOrg, '--query', soql]);
   return Array.isArray(response?.result?.records) ? response.result.records : [];
@@ -251,14 +318,14 @@ async function getOrgDisplay(targetOrg) {
     return orgDisplayCache.get(targetOrg);
   }
 
-  const response = await runSfJson(['org', 'display', '--target-org', targetOrg]);
-  const result = response?.result || {};
-  if (!result.instanceUrl || !result.accessToken) {
+  const result = await getAuthenticatedOrgDisplay(targetOrg);
+  const accessToken = await getAccessToken(targetOrg, result);
+  if (!result.instanceUrl || !accessToken) {
     throw new Error(`Could not resolve authenticated org details for '${targetOrg}'.`);
   }
 
   const connection = {
-    accessToken: result.accessToken,
+    accessToken,
     apiVersion: result.apiVersion || DEFAULT_API_VERSION,
     instanceUrl: String(result.instanceUrl).replace(/\/+$/, '')
   };
@@ -406,18 +473,8 @@ async function createScratchProjectContext(definition) {
   };
 }
 
-async function getAuthenticatedOrgDisplay(targetOrg, options = {}) {
-  const args = ['org', 'display', '--target-org', targetOrg];
-  if (options.verbose) {
-    args.push('--verbose');
-  }
-  const response = await runSfJson(args);
-  return response?.result || {};
-}
-
 async function getScratchAuthUrlOrThrow(scratchAlias) {
-  const display = await getAuthenticatedOrgDisplay(scratchAlias, { verbose: true });
-  const scratchAuthUrl = String(display.sfdxAuthUrl || '').trim();
+  const scratchAuthUrl = await getSfdxAuthUrl(scratchAlias);
   if (!scratchAuthUrl) {
     throw new Error(`Scratch org '${scratchAlias}' did not return an sfdxAuthUrl.`);
   }

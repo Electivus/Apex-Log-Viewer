@@ -36,6 +36,8 @@ services:
       - e2e_proxy_target:/workspace/target
       - e2e_proxy_vscode_test:/workspace/.vscode-test
       - e2e_proxy_npm_cache:/root/.npm
+      - e2e_proxy_sf:/root/.sf
+      - e2e_proxy_sfdx:/root/.sfdx
       - e2e_proxy_mitmproxy_ca:/mitmproxy:ro
     environment:
       HTTP_PROXY: ${ALV_E2E_PROXY_LAB_PROXY_URL:-http://alv-proxy-user:alv-proxy-pass@proxy:8888}
@@ -77,6 +79,7 @@ services:
       SF_SCRATCH_DURATION: ${SF_SCRATCH_DURATION:-1}
       SF_TEST_KEEP_ORG: ${SF_TEST_KEEP_ORG:-1}
       ALV_E2E_PROXY_LAB_SKIP_NPM_CI: ${ALV_E2E_PROXY_LAB_SKIP_NPM_CI:-}
+      ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: ${ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE:-}
       ALV_E2E_PROXY_LAB_COMMAND: ${ALV_E2E_PROXY_LAB_COMMAND:-}
       ALV_E2E_PROXY_LAB_HOST_UID: ${ALV_E2E_PROXY_LAB_HOST_UID:-}
       ALV_E2E_PROXY_LAB_HOST_GID: ${ALV_E2E_PROXY_LAB_HOST_GID:-}
@@ -94,4 +97,6 @@ volumes:
   e2e_proxy_target: {}
   e2e_proxy_vscode_test: {}
   e2e_proxy_npm_cache: {}
+  e2e_proxy_sf: {}
+  e2e_proxy_sfdx: {}
   e2e_proxy_mitmproxy_ca: {}

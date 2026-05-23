@@ -131,12 +131,28 @@ function readEnvValue(name: string): string | undefined {
   return value || undefined;
 }
 
+function isUsableSecret(value: unknown): value is string {
+  const text = String(value || '').trim();
+  if (!text) {
+    return false;
+  }
+  if (/^\[?redacted\]?/i.test(text)) {
+    return false;
+  }
+  return !/use ['"]?sf org auth/i.test(text);
+}
+
+function readSfResult(payload: unknown): Record<string, unknown> {
+  const result = (payload as { result?: unknown } | undefined)?.result ?? payload;
+  return result && typeof result === 'object' ? (result as Record<string, unknown>) : {};
+}
+
 function mapOrgDisplay(result: any): OrgDisplaySummary {
   const org = result?.result ?? {};
   return {
     status: typeof org.status === 'string' ? org.status.trim() : undefined,
     expirationDate: typeof org.expirationDate === 'string' ? org.expirationDate.trim() : undefined,
-    accessToken: typeof org.accessToken === 'string' ? org.accessToken : undefined,
+    accessToken: isUsableSecret(org.accessToken) ? org.accessToken : undefined,
     instanceUrl:
       typeof org.instanceUrl === 'string'
         ? org.instanceUrl
@@ -146,19 +162,7 @@ function mapOrgDisplay(result: any): OrgDisplaySummary {
             ? org.loginUrl
             : undefined,
     username: typeof org.username === 'string' ? org.username : undefined,
-    sfdxAuthUrl: typeof org.sfdxAuthUrl === 'string' ? org.sfdxAuthUrl : undefined
-  };
-}
-
-function toOrgAuth(display: OrgDisplaySummary | undefined): OrgAuth | undefined {
-  if (!display?.accessToken || !display.instanceUrl) {
-    return undefined;
-  }
-  return {
-    accessToken: display.accessToken,
-    instanceUrl: display.instanceUrl,
-    username: display.username,
-    apiVersion: String(process.env.SF_TEST_API_VERSION || process.env.SF_API_VERSION || '60.0')
+    sfdxAuthUrl: isUsableSecret(org.sfdxAuthUrl) ? org.sfdxAuthUrl : undefined
   };
 }
 
@@ -215,7 +219,7 @@ function resolveRequiredDevHubConfig(): DevHubConfig {
 }
 
 async function getOrgDisplayOrThrow(alias: string, options?: { verbose?: boolean }): Promise<OrgDisplaySummary> {
-  const args = ['org', 'display', '-o', alias];
+  const args = ['org', 'display', '--target-org', alias];
   if (options?.verbose) {
     args.push('--verbose');
   }
@@ -228,6 +232,19 @@ async function getOrgDisplay(alias: string, options?: { verbose?: boolean }): Pr
   } catch (error) {
     console.warn(
       `[e2e] sf org display failed for alias '${alias}': ${error instanceof Error ? error.message : String(error)}`
+    );
+    return undefined;
+  }
+}
+
+async function resolveOrgAuthForReady(alias: string, options?: { forceRefresh?: boolean }): Promise<OrgAuth | undefined> {
+  try {
+    const auth = await getOrgAuth(alias, options);
+    primeOrgAuthCache(alias, auth);
+    return auth;
+  } catch (error) {
+    console.warn(
+      `[e2e] sf org auth failed for alias '${alias}': ${error instanceof Error ? error.message : String(error)}`
     );
     return undefined;
   }
@@ -772,8 +789,22 @@ async function loginScratchOrgWithSfdxUrl(scratchAlias: string, scratchAuthUrl: 
 }
 
 async function getScratchAuthUrlOrThrow(scratchAlias: string): Promise<string> {
-  const display = await getOrgDisplayOrThrow(scratchAlias, { verbose: true });
-  const scratchAuthUrl = String(display.sfdxAuthUrl || '').trim();
+  let scratchAuthUrl = '';
+  try {
+    const response = await runSfJson([
+      'org',
+      'auth',
+      'show-sfdx-auth-url',
+      '--target-org',
+      scratchAlias,
+      '--no-prompt'
+    ]);
+    const result = readSfResult(response);
+    scratchAuthUrl = isUsableSecret(result.sfdxAuthUrl) ? String(result.sfdxAuthUrl).trim() : '';
+  } catch {
+    const display = await getOrgDisplayOrThrow(scratchAlias, { verbose: true });
+    scratchAuthUrl = String(display.sfdxAuthUrl || '').trim();
+  }
   if (!scratchAuthUrl) {
     throw new Error(`Scratch org '${scratchAlias}' did not return an sfdxAuthUrl.`);
   }
@@ -856,10 +887,7 @@ async function ensureSingleScratchOrg(): Promise<ScratchOrgResult> {
 
   const existingScratch = await getOrgDisplay(scratchAlias);
   if (isReusableScratchOrg(existingScratch)) {
-    const auth = toOrgAuth(existingScratch);
-    if (auth) {
-      primeOrgAuthCache(scratchAlias, auth);
-    }
+    const auth = await resolveOrgAuthForReady(scratchAlias);
     await waitForScratchOrgReady(scratchAlias, auth);
     console.info(`[e2e] scratch org reused for alias '${scratchAlias}'.`);
     return {
@@ -913,18 +941,11 @@ async function ensureSingleScratchOrg(): Promise<ScratchOrgResult> {
     throw new Error(`Failed to create scratch org '${scratchAlias}': ${msg}`);
   }
 
-  const auth = toOrgAuth(await getOrgDisplay(scratchAlias));
-  if (auth) {
-    primeOrgAuthCache(scratchAlias, auth);
-  }
+  const auth = await resolveOrgAuthForReady(scratchAlias, { forceRefresh: true });
   await waitForScratchOrgReady(scratchAlias, auth);
 
   if (!auth) {
-    const refreshedScratch = await getOrgDisplay(scratchAlias);
-    const refreshedAuth = toOrgAuth(refreshedScratch);
-    if (refreshedAuth) {
-      primeOrgAuthCache(scratchAlias, refreshedAuth);
-    }
+    await resolveOrgAuthForReady(scratchAlias, { forceRefresh: true });
   }
 
   console.info(`[e2e] scratch org created for alias '${scratchAlias}'.`);
@@ -1030,11 +1051,8 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
     if (!shouldCreate && lease.scratchAuthUrl) {
       try {
         await loginScratchOrgWithSfdxUrl(scratchAlias, lease.scratchAuthUrl);
-        const display = await getOrgDisplayOrThrow(scratchAlias);
-        readyAuth = toOrgAuth(display);
-        if (readyAuth) {
-          primeOrgAuthCache(scratchAlias, readyAuth);
-        }
+        await getOrgDisplayOrThrow(scratchAlias);
+        readyAuth = await resolveOrgAuthForReady(scratchAlias, { forceRefresh: true });
         await waitForScratchOrgReady(scratchAlias, readyAuth);
         scratchAuthUrl = (await tryGetScratchAuthUrl(scratchAlias)) || lease.scratchAuthUrl;
         await finalizePoolLease(devHubAuth, {
@@ -1109,11 +1127,8 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
         await context.cleanup(false, scratchAlias);
       }
 
-      const display = await getOrgDisplayOrThrow(scratchAlias);
-      readyAuth = toOrgAuth(display);
-      if (readyAuth) {
-        primeOrgAuthCache(scratchAlias, readyAuth);
-      }
+      await getOrgDisplayOrThrow(scratchAlias);
+      readyAuth = await resolveOrgAuthForReady(scratchAlias, { forceRefresh: true });
       await waitForScratchOrgReady(scratchAlias, readyAuth);
       scratchAuthUrl = await getScratchAuthUrlOrThrow(scratchAlias);
       await finalizePoolLease(devHubAuth, {

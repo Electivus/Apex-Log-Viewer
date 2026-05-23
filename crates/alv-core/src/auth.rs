@@ -25,6 +25,12 @@ pub struct OrgAuth {
     pub username: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OrgAuthMetadata {
+    instance_url: String,
+    username: Option<String>,
+}
+
 #[derive(Clone)]
 struct OrgAuthCacheEntry {
     auth: OrgAuth,
@@ -122,13 +128,29 @@ fn build_org_auth_attempts<'a>(
     ];
 
     if let Some(value) = target_username_or_alias {
-        attempts[0].1.extend(["-o", value]);
-        attempts[1].1.extend(["-o", value]);
-        attempts[2].1.extend(["-o", value]);
-        attempts[3].1.extend(["-o", value]);
+        attempts[0].1.extend(["--target-org", value]);
+        attempts[1].1.extend(["--target-org", value]);
+        attempts[2].1.extend(["--target-org", value]);
+        attempts[3].1.extend(["--target-org", value]);
     }
 
     attempts
+}
+
+fn build_org_display_args(target_username_or_alias: Option<&str>) -> Vec<&str> {
+    let mut args = vec!["org", "display", "--json"];
+    if let Some(value) = target_username_or_alias {
+        args.extend(["--target-org", value]);
+    }
+    args
+}
+
+fn build_show_access_token_args(target_username_or_alias: Option<&str>) -> Vec<&str> {
+    let mut args = vec!["org", "auth", "show-access-token", "--json", "--no-prompt"];
+    if let Some(value) = target_username_or_alias {
+        args.extend(["--target-org", value]);
+    }
+    args
 }
 
 fn org_auth_cache_key(target_username_or_alias: Option<&str>) -> Option<String> {
@@ -222,8 +244,7 @@ where
     F: FnMut(&str, &[&'a str]) -> Result<String, String>,
 {
     let Some(key) = org_auth_cache_key(target_username_or_alias) else {
-        let result =
-            resolve_org_auth_with_runner(build_org_auth_attempts(target_username_or_alias), runner);
+        let result = resolve_org_auth_with_runner(target_username_or_alias, runner);
         if let Ok(auth) = result.as_ref() {
             if let Some(key) = org_auth_cache_key(auth.username.as_deref()) {
                 put_cached_org_auth(key, auth.clone());
@@ -237,7 +258,7 @@ where
     }
 
     resolve_org_auth_singleflight(key, || {
-        resolve_org_auth_with_runner(build_org_auth_attempts(target_username_or_alias), runner)
+        resolve_org_auth_with_runner(target_username_or_alias, runner)
     })
 }
 
@@ -322,15 +343,37 @@ fn finish_org_auth_flight(key: &str, flight: &Arc<OrgAuthInflight>, result: OrgA
 }
 
 fn resolve_org_auth_with_runner<'a, F>(
-    attempts: Vec<(&'static str, Vec<&'a str>)>,
+    target_username_or_alias: Option<&'a str>,
     mut runner: F,
 ) -> Result<OrgAuth, String>
 where
     F: FnMut(&str, &[&'a str]) -> Result<String, String>,
 {
-    let mut last_error = String::from("Salesforce CLI not found");
+    let display_args = build_org_display_args(target_username_or_alias);
+    let mut last_error = match runner("sf", &display_args) {
+        Ok(stdout) => match resolve_org_metadata_from_json(&stdout) {
+            Ok(metadata) => {
+                let token_args = build_show_access_token_args(target_username_or_alias);
+                match runner("sf", &token_args) {
+                    Ok(stdout) => match resolve_access_token_from_json(&stdout) {
+                        Ok(access_token) => {
+                            return Ok(OrgAuth {
+                                access_token,
+                                instance_url: metadata.instance_url,
+                                username: metadata.username,
+                            });
+                        }
+                        Err(error) => error,
+                    },
+                    Err(error) => error,
+                }
+            }
+            Err(error) => error,
+        },
+        Err(error) => error,
+    };
 
-    for (program, args) in attempts {
+    for (program, args) in build_org_auth_attempts(target_username_or_alias) {
         match runner(program, &args) {
             Ok(stdout) => match resolve_org_auth_from_json(&stdout) {
                 Ok(auth) => return Ok(auth),
@@ -412,7 +455,7 @@ pub fn resolve_org_auth_from_json(json: &str) -> Result<OrgAuth, String> {
         sources.insert(0, result);
     }
 
-    let access_token = extract_value_string(&sources, &["accessToken", "access_token"])
+    let access_token = extract_secret_string(&sources, &["accessToken", "access_token"])
         .ok_or_else(|| "CLI JSON missing access token".to_string())?;
     let instance_url = extract_value_string(&sources, &["instanceUrl", "instance_url", "loginUrl"])
         .ok_or_else(|| "CLI JSON missing instance URL".to_string())?;
@@ -423,6 +466,40 @@ pub fn resolve_org_auth_from_json(json: &str) -> Result<OrgAuth, String> {
         instance_url,
         username,
     })
+}
+
+fn resolve_org_metadata_from_json(json: &str) -> Result<OrgAuthMetadata, String> {
+    let normalized = extract_json_object(json);
+    let parsed: Value = serde_json::from_str(&normalized)
+        .map_err(|error| format!("invalid org display JSON: {error}"))?;
+
+    let mut sources = vec![&parsed];
+    if let Some(result) = parsed.get("result") {
+        sources.insert(0, result);
+    }
+
+    let instance_url = extract_value_string(&sources, &["instanceUrl", "instance_url", "loginUrl"])
+        .ok_or_else(|| "CLI JSON missing instance URL".to_string())?;
+    let username = extract_value_string(&sources, &["username"]);
+
+    Ok(OrgAuthMetadata {
+        instance_url,
+        username,
+    })
+}
+
+fn resolve_access_token_from_json(json: &str) -> Result<String, String> {
+    let normalized = extract_json_object(json);
+    let parsed: Value = serde_json::from_str(&normalized)
+        .map_err(|error| format!("invalid access token JSON: {error}"))?;
+
+    let mut sources = vec![&parsed];
+    if let Some(result) = parsed.get("result") {
+        sources.insert(0, result);
+    }
+
+    extract_secret_string(&sources, &["accessToken", "access_token"])
+        .ok_or_else(|| "CLI JSON missing access token".to_string())
 }
 
 fn extract_value_string(sources: &[&Value], keys: &[&str]) -> Option<String> {
@@ -440,6 +517,22 @@ fn extract_value_string(sources: &[&Value], keys: &[&str]) -> Option<String> {
         }
     }
     None
+}
+
+fn extract_secret_string(sources: &[&Value], keys: &[&str]) -> Option<String> {
+    extract_value_string(sources, keys).filter(|value| is_usable_secret(value))
+}
+
+fn is_usable_secret(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("[redacted]") || lower.starts_with("redacted") {
+        return false;
+    }
+    !lower.contains("use 'sf org auth") && !lower.contains("use \"sf org auth")
 }
 
 #[cfg(test)]
@@ -517,19 +610,18 @@ mod tests {
         assert_eq!(
             commands,
             vec![
-                "sf org display --json --verbose -o demo@example.com",
-                "sf org user display --json --verbose -o demo@example.com",
-                "sf org user display --json -o demo@example.com",
-                "sf org display --json -o demo@example.com",
+                "sf org display --json --verbose --target-org demo@example.com",
+                "sf org user display --json --verbose --target-org demo@example.com",
+                "sf org user display --json --target-org demo@example.com",
+                "sf org display --json --target-org demo@example.com",
             ]
         );
     }
 
     #[test]
-    fn resolve_org_auth_with_runner_falls_back_when_first_payload_lacks_token() {
+    fn resolve_org_auth_with_runner_uses_explicit_access_token_command() {
         let mut invocations = Vec::new();
-        let attempts = build_org_auth_attempts(Some("ALV_E2E_Scratch"));
-        let auth = resolve_org_auth_with_runner(attempts, |program, args| {
+        let auth = resolve_org_auth_with_runner(Some("ALV_E2E_Scratch"), |program, args| {
             invocations.push(format!("{program} {}", args.join(" ")));
             match invocations.len() {
                 1 => Ok(
@@ -537,13 +629,13 @@ mod tests {
                         .to_string(),
                 ),
                 2 => Ok(
-                    r#"{"status":0,"result":{"accessToken":"00D-token","instanceUrl":"https://example.my.salesforce.com","username":"ALV_E2E_Scratch"}}"#
+                    r#"{"status":0,"result":{"accessToken":"00D-token"}}"#
                         .to_string(),
                 ),
                 _ => Err("unexpected extra attempt".to_string()),
             }
         })
-        .expect("expected auth fallback to succeed");
+        .expect("expected explicit auth resolution to succeed");
 
         assert_eq!(auth.access_token, "00D-token");
         assert_eq!(auth.instance_url, "https://example.my.salesforce.com");
@@ -551,8 +643,40 @@ mod tests {
         assert_eq!(
             invocations,
             vec![
-                "sf org display --json --verbose -o ALV_E2E_Scratch",
-                "sf org user display --json --verbose -o ALV_E2E_Scratch",
+                "sf org display --json --target-org ALV_E2E_Scratch",
+                "sf org auth show-access-token --json --no-prompt --target-org ALV_E2E_Scratch",
+            ]
+        );
+    }
+
+    #[test]
+    fn resolve_org_auth_with_runner_falls_back_to_legacy_when_explicit_token_command_fails() {
+        let mut invocations = Vec::new();
+        let auth = resolve_org_auth_with_runner(Some("ALV_E2E_Scratch"), |program, args| {
+            invocations.push(format!("{program} {}", args.join(" ")));
+            match invocations.len() {
+                1 => Ok(
+                    r#"{"status":0,"result":{"username":"ALV_E2E_Scratch","instanceUrl":"https://example.my.salesforce.com"}}"#
+                        .to_string(),
+                ),
+                2 => Err("Warning: org auth show-access-token is not a sf command".to_string()),
+                3 => Ok(
+                    r#"{"status":0,"result":{"accessToken":"00D-legacy","instanceUrl":"https://legacy.example.com","username":"ALV_E2E_Scratch"}}"#
+                        .to_string(),
+                ),
+                _ => Err("unexpected extra attempt".to_string()),
+            }
+        })
+        .expect("expected legacy auth fallback to succeed");
+
+        assert_eq!(auth.access_token, "00D-legacy");
+        assert_eq!(auth.instance_url, "https://legacy.example.com");
+        assert_eq!(
+            invocations,
+            vec![
+                "sf org display --json --target-org ALV_E2E_Scratch",
+                "sf org auth show-access-token --json --no-prompt --target-org ALV_E2E_Scratch",
+                "sf org display --json --verbose --target-org ALV_E2E_Scratch",
             ]
         );
     }
@@ -579,7 +703,7 @@ mod tests {
         })
         .expect("second auth should use cache");
 
-        assert_eq!(calls, 1);
+        assert_eq!(calls, 2);
         assert_eq!(first, second);
         clear_org_auth_cache();
     }
@@ -609,7 +733,7 @@ mod tests {
         })
         .expect("second default auth should resolve");
 
-        assert_eq!(calls, 2);
+        assert_eq!(calls, 4);
         assert_eq!(first.username.as_deref(), Some("first@example.com"));
         assert_eq!(second.username.as_deref(), Some("second@example.com"));
         clear_org_auth_cache();
@@ -640,7 +764,7 @@ mod tests {
         })
         .expect("second alias auth should resolve");
 
-        assert_eq!(calls, 2);
+        assert_eq!(calls, 4);
         assert_eq!(first.access_token, "first");
         assert_eq!(second.access_token, "second");
         clear_org_auth_cache();
@@ -675,7 +799,7 @@ mod tests {
         })
         .expect("resolved username should use cache");
 
-        assert_eq!(alias_calls, 2);
+        assert_eq!(alias_calls, 4);
         assert_eq!(first.access_token, "first");
         assert_eq!(second_alias.access_token, "second");
         assert_eq!(username_hit.access_token, "second");
@@ -708,7 +832,7 @@ mod tests {
         })
         .expect("second auth should resolve after cache clear");
 
-        assert_eq!(calls, 2);
+        assert_eq!(calls, 4);
         assert_eq!(first.access_token, "first");
         assert_eq!(second.access_token, "second");
         clear_org_auth_cache();
@@ -756,7 +880,7 @@ mod tests {
         })
         .expect("changed auth file should invalidate cache");
 
-        assert_eq!(calls, 2);
+        assert_eq!(calls, 4);
         assert_eq!(first.access_token, "first");
         assert_eq!(second.access_token, "first");
         assert_eq!(third.access_token, "refreshed");
@@ -808,7 +932,7 @@ mod tests {
             assert_eq!(auth.username.as_deref(), Some("demo@example.com"));
         }
 
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
         clear_org_auth_cache();
     }
 

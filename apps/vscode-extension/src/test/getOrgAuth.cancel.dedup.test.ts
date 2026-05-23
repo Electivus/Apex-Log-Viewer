@@ -17,15 +17,17 @@ suite('getOrgAuth cancellation + dedupe', () => {
 
   test('cancelling one caller does not abort shared exec', async () => {
     let spawnCount = 0;
-    let capturedCb: ((err: any, stdout: string, stderr: string) => void) | undefined;
+    const capturedCbs: Array<(err: any, stdout: string, stderr: string) => void> = [];
     let readyResolve: (() => void) | undefined;
     const ready = new Promise<void>(res => (readyResolve = res));
 
     __setExecFileImplForTests(((program: string, args: readonly string[] | undefined, _opts: any, cb: any) => {
       spawnCount++;
-      capturedCb = cb as any;
+      capturedCbs.push(cb as any);
       // Let the test know the fake exec has been spawned
-      readyResolve?.();
+      if (spawnCount === 1) {
+        readyResolve?.();
+      }
       // Do not invoke the callback yet; the test will resolve it later
       return undefined as any;
     }) as any);
@@ -43,15 +45,18 @@ suite('getOrgAuth cancellation + dedupe', () => {
     // Cancel only the first caller
     c1.abort();
 
-    // Complete the fake CLI call with valid org display JSON
-    const stdout = JSON.stringify({
+    // Complete the shared org display call, then the shared explicit token call.
+    const displayStdout = JSON.stringify({
       result: {
-        accessToken: 'token',
         instanceUrl: 'https://example.my.salesforce.com',
         username: 'user@example.com'
       }
     });
-    capturedCb?.(null, stdout, '');
+    capturedCbs[0]?.(null, displayStdout, '');
+    while (capturedCbs.length < 2) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    capturedCbs[1]?.(null, JSON.stringify({ result: { accessToken: 'token' } }), '');
 
     // First caller should reject due to cancellation
     await assert.rejects(p1, (e: any) => /aborted/i.test(String(e?.message || e)));
@@ -62,7 +67,7 @@ suite('getOrgAuth cancellation + dedupe', () => {
     assert.equal(auth.accessToken, 'token');
     assert.equal(auth.username, 'user@example.com');
 
-    // Only one spawn should have occurred (deduped)
-    assert.equal(spawnCount, 1);
+    // One shared spawn per CLI command should have occurred.
+    assert.equal(spawnCount, 2);
   });
 });

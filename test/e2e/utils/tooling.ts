@@ -122,6 +122,37 @@ function rememberOrgAuthTarget(targetOrg: string, auth: OrgAuth): void {
   orgAuthTargetOrgByIdentity.set(getAuthIdentityKey(auth), getOrgAuthCacheKey(targetOrg));
 }
 
+function isUsableSecret(value: unknown): value is string {
+  const text = String(value || '').trim();
+  if (!text) {
+    return false;
+  }
+  if (/^\[?redacted\]?/i.test(text)) {
+    return false;
+  }
+  return !/use ['"]?sf org auth/i.test(text);
+}
+
+function readSfResult(payload: unknown): Record<string, unknown> {
+  const result = (payload as { result?: unknown } | undefined)?.result ?? payload;
+  return result && typeof result === 'object' ? (result as Record<string, unknown>) : {};
+}
+
+function readInstanceUrl(result: Record<string, unknown>): string | undefined {
+  const value = result.instanceUrl || result.instance_url || result.loginUrl;
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readUsername(result: Record<string, unknown>): string | undefined {
+  const value = result.username;
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readAccessToken(result: Record<string, unknown>): string | undefined {
+  const value = result.accessToken || result.access_token;
+  return isUsableSecret(value) ? String(value).trim() : undefined;
+}
+
 function replaceOrgAuth(target: OrgAuth, next: OrgAuth): void {
   target.accessToken = next.accessToken;
   target.instanceUrl = next.instanceUrl;
@@ -839,11 +870,24 @@ export async function getOrgAuth(targetOrg: string, options?: { forceRefresh?: b
       }
 
       const apiVersion = getApiVersion();
-      const display = await runSfJson(['org', 'display', '-o', targetOrg]);
-      const result = display?.result || display;
-      const accessToken: string | undefined = result?.accessToken || result?.access_token;
-      const instanceUrl: string | undefined = result?.instanceUrl || result?.instance_url || result?.loginUrl;
-      const username: string | undefined = result?.username;
+      const display = await runSfJson(['org', 'display', '--target-org', targetOrg]);
+      const result = readSfResult(display);
+      let accessToken: string | undefined;
+      try {
+        const tokenResponse = await runSfJson([
+          'org',
+          'auth',
+          'show-access-token',
+          '--target-org',
+          targetOrg,
+          '--no-prompt'
+        ]);
+        accessToken = readAccessToken(readSfResult(tokenResponse));
+      } catch {
+        accessToken = readAccessToken(result);
+      }
+      const instanceUrl = readInstanceUrl(result);
+      const username = readUsername(result);
       if (!accessToken || !instanceUrl) {
         throw new Error(`Failed to resolve org auth for '${targetOrg}' (missing accessToken/instanceUrl).`);
       }
