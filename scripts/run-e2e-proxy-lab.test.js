@@ -31,6 +31,10 @@ function readProxyDockerfile() {
   return read('test/e2e/proxy-lab/Dockerfile.proxy');
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+}
+
 test('resolveComposeArgs runs the proxy lab runner with the compose file', () => {
   const repoRoot = path.join('/workspace', 'apex-log-viewer');
   assert.deepEqual(resolveComposeArgs([], { repoRoot }), [
@@ -152,8 +156,8 @@ test('proxy lab compose persists runner caches and Salesforce CLI auth state', (
     ['e2e_proxy_sf', '/root/.sf'],
     ['e2e_proxy_sfdx', '/root/.sfdx']
   ]) {
-    assert.match(compose, new RegExp(`^\\s+- ${volume}:${mountPath.replace(/[/.]/g, '\\$&')}$`, 'm'));
-    assert.match(compose, new RegExp(`^\\s{2}${volume}: \\{\\}$`, 'm'));
+    assert.match(compose, new RegExp(`^\\s+- ${escapeRegExp(volume)}:${escapeRegExp(mountPath)}$`, 'm'));
+    assert.match(compose, new RegExp(`^\\s{2}${escapeRegExp(volume)}: \\{\\}$`, 'm'));
   }
 });
 
