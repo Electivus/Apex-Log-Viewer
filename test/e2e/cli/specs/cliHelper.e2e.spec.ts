@@ -54,16 +54,8 @@ async function writeFakeCrossTargetBinary(
   scriptBody: string,
   platform: NodeJS.Platform = process.platform
 ): Promise<string> {
-  const binaryDir = path.join(
-    repoRoot,
-    'target',
-    cargoBuildTarget,
-    'debug'
-  );
-  const binaryPath = path.join(
-    binaryDir,
-    platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer'
-  );
+  const binaryDir = path.join(repoRoot, 'target', cargoBuildTarget, 'debug');
+  const binaryPath = path.join(binaryDir, platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer');
 
   await mkdir(binaryDir, { recursive: true });
   await writeFile(binaryPath, scriptBody, 'utf8');
@@ -166,12 +158,19 @@ test('runAlvCli parses stdoutJson separately from stderrJson', async () => {
 
 test('runAlvCli resolves ALV_CLI_BINARY_PATH from process env when an env overlay is provided', async () => {
   await withTempRepo(async repoRoot => {
-    const binaryName = process.platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
-    const configuredBinaryPath = await writeFakeStandaloneBinaryAtPath(
-      path.join(repoRoot, '.cargo-target', 'Apex-Log-Viewer', 'debug', binaryName),
-      '#!/bin/sh\nprintf \'{"source":"configured"}\\n\'\n'
+    const configuredBinaryPath =
+      process.platform === 'win32'
+        ? await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\necho {"source":"configured"}\r\n')
+        : await writeFakeStandaloneBinaryAtPath(
+            path.join(repoRoot, '.cargo-target', 'Apex-Log-Viewer', 'debug', 'apex-log-viewer'),
+            '#!/bin/sh\nprintf \'{"source":"configured"}\\n\'\n'
+          );
+    await writeFakeStandaloneBinary(
+      repoRoot,
+      process.platform === 'win32'
+        ? 'not-a-real-windows-executable'
+        : '#!/bin/sh\nprintf \'{"source":"fallback"}\\n\'\n'
     );
-    await writeFakeStandaloneBinary(repoRoot, '#!/bin/sh\nprintf \'{"source":"fallback"}\\n\'\n');
 
     const originalConfiguredBinaryPath = process.env.ALV_CLI_BINARY_PATH;
     process.env.ALV_CLI_BINARY_PATH = configuredBinaryPath;
@@ -183,7 +182,12 @@ test('runAlvCli resolves ALV_CLI_BINARY_PATH from process env when an env overla
       });
 
       expect(result.exitCode).toBe(0);
-      expect(result.command).toBe(configuredBinaryPath);
+      if (process.platform === 'win32') {
+        expect(result.command).toBe(process.env.ComSpec || 'cmd.exe');
+        expect(result.args).toContain(`"${configuredBinaryPath}"`);
+      } else {
+        expect(result.command).toBe(configuredBinaryPath);
+      }
       expect(result.stdoutJson).toEqual({ source: 'configured' });
     } finally {
       if (originalConfiguredBinaryPath === undefined) {
@@ -203,15 +207,12 @@ test('runAlvCli returns diagnostics on timeout instead of rejecting', async () =
       await writeFakeStandaloneBinary(repoRoot, '#!/bin/sh\nsleep 5\n');
     }
 
-    const result = await runAlvCli(
-      [],
-      {
-        repoRoot,
-        timeoutMs: 50,
-        allowWindowsCommandShim: process.platform === 'win32',
-        env: withoutConfiguredCliBinaryEnv()
-      }
-    );
+    const result = await runAlvCli([], {
+      repoRoot,
+      timeoutMs: 50,
+      allowWindowsCommandShim: process.platform === 'win32',
+      env: withoutConfiguredCliBinaryEnv()
+    });
 
     expect(result.exitCode).toBe(-1);
     expect(result.errorMessage).toBeTruthy();
@@ -231,7 +232,6 @@ test('resolveAlvCliBinaryPath stays strict when only a Windows command shim exis
 test('resolveAlvCliInvocation can use a Windows command shim for helper-only coverage', async () => {
   await withTempRepo(async repoRoot => {
     const shimPath = await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\nexit /b 0\r\n');
-    const quotedShimPath = `"${shimPath.replace(/"/g, '""')}"`;
 
     expect(
       resolveAlvCliInvocation({
@@ -242,9 +242,32 @@ test('resolveAlvCliInvocation can use a Windows command shim for helper-only cov
       })
     ).toEqual({
       command: process.env.ComSpec || 'cmd.exe',
-      args: ['/d', '/s', '/c', quotedShimPath]
+      args: ['/d', '/c', 'call', `"${shimPath}"`],
+      windowsVerbatimArguments: true
     });
   });
+});
+
+test('runAlvCli executes a Windows command shim from a metacharacter path', async () => {
+  test.skip(process.platform !== 'win32', 'Windows command shims are only used on Windows');
+
+  const parentDir = await mkdtemp(path.join(tmpdir(), 'alv-cli-helper-'));
+  try {
+    const repoRoot = path.join(parentDir, 'repo & cli');
+    await mkdir(repoRoot, { recursive: true });
+    await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\necho {"status":"quoted"}\r\n');
+
+    const result = await runAlvCli(['--target-org', 'alias with spaces'], {
+      repoRoot,
+      allowWindowsCommandShim: true,
+      env: withoutConfiguredCliBinaryEnv()
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdoutJson).toEqual({ status: 'quoted' });
+  } finally {
+    await rm(parentDir, { recursive: true, force: true });
+  }
 });
 
 test('resolveAlvCliBinaryPath prefers the host debug binary when CARGO_BUILD_TARGET is set', async () => {
@@ -255,15 +278,9 @@ test('resolveAlvCliBinaryPath prefers the host debug binary when CARGO_BUILD_TAR
 
     try {
       const hostBinaryPath = await writeFakeStandaloneBinary(repoRoot, '#!/bin/sh\nexit 0\n');
-      const crossTargetBinaryPath = await writeFakeCrossTargetBinary(
-        repoRoot,
-        cargoBuildTarget,
-        '#!/bin/sh\nexit 0\n'
-      );
+      const crossTargetBinaryPath = await writeFakeCrossTargetBinary(repoRoot, cargoBuildTarget, '#!/bin/sh\nexit 0\n');
 
-      expect(resolveAlvCliBinaryPath({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toBe(
-        hostBinaryPath
-      );
+      expect(resolveAlvCliBinaryPath({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toBe(hostBinaryPath);
       expect(resolveAlvCliInvocation({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toEqual({
         command: hostBinaryPath,
         args: []
@@ -286,11 +303,7 @@ test('resolveAlvCliBinaryPath ignores cross-target debug binaries when the host 
     process.env.CARGO_BUILD_TARGET = cargoBuildTarget;
 
     try {
-      await writeFakeCrossTargetBinary(
-        repoRoot,
-        cargoBuildTarget,
-        '#!/bin/sh\nexit 0\n'
-      );
+      await writeFakeCrossTargetBinary(repoRoot, cargoBuildTarget, '#!/bin/sh\nexit 0\n');
 
       expect(() => resolveAlvCliBinaryPath({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toThrow(
         /Unable to locate apex-log-viewer standalone binary/

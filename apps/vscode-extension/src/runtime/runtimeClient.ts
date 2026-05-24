@@ -6,16 +6,43 @@ import type {
   JsonRpcErrorResponse,
   JsonRpcSuccessResponse,
   InitializeResult,
+  DoctorParams,
+  DoctorResult,
+  OrgResolveParams,
+  OrgResolveResult,
   LogsListParams,
   LogsSyncParams,
   LogsSyncResult,
+  LogsReadParams,
+  LogsReadResult,
+  LogsResolveParams,
+  LogsResolveResult,
+  LogsDeleteParams,
+  LogsDeleteResult,
   ResolveCachedLogPathParams,
   ResolveCachedLogPathResult,
   LogsTriageEntry,
   LogsTriageParams,
   RuntimeLogRow,
   SearchQueryParams,
-  SearchQueryResult
+  SearchQueryResult,
+  UserSearchParams,
+  UserSearchResult,
+  TraceFlagStatusParams,
+  TraceFlagTargetStatus,
+  TraceFlagApplyParams,
+  TraceFlagApplyResult,
+  TraceFlagRemoveParams,
+  TraceFlagRemoveResult,
+  DebugLevelListParams,
+  RuntimeDebugLevelRecord,
+  DebugLevelGetParams,
+  DebugLevelWriteParams,
+  DebugLevelWriteResult,
+  DebugLevelDeleteParams,
+  ToolingQueryParams,
+  ToolingQueryResult,
+  ToolingRequestGetParams
 } from '../../../../packages/app-server-client-ts/src/index';
 import { createDaemonProcess } from '../../../../packages/app-server-client-ts/src/index';
 import type { JsonRpcRequest, OrgListItem, OrgListParams } from '../../../../packages/app-server-client-ts/src/index';
@@ -38,13 +65,29 @@ type TimerHandle = ReturnType<typeof setTimeout>;
 const RUNTIME_EXIT_MESSAGE_PREFIX = 'runtime exited (';
 const RUNTIME_TELEMETRY_METHOD_NAMES: Record<string, string> = {
   initialize: 'initialize',
+  'doctor/run': 'doctor_run',
   'org/list': 'org_list',
   'org/auth': 'org_auth',
+  'org/resolve': 'org_resolve',
   'logs/list': 'logs_list',
   'logs/sync': 'logs_sync',
+  'logs/read': 'logs_read',
+  'logs/delete': 'logs_delete',
   'search/query': 'search_query',
   'logs/triage': 'logs_triage',
-  'logs/resolveCachedPath': 'logs_resolve_cached_path'
+  'logs/resolveCachedPath': 'logs_resolve_cached_path',
+  'logs/resolve': 'logs_resolve',
+  'users/search': 'users_search',
+  'traceFlags/status': 'trace_flags_status',
+  'traceFlags/apply': 'trace_flags_apply',
+  'traceFlags/remove': 'trace_flags_remove',
+  'debugLevels/list': 'debug_levels_list',
+  'debugLevels/get': 'debug_levels_get',
+  'debugLevels/create': 'debug_levels_create',
+  'debugLevels/update': 'debug_levels_update',
+  'debugLevels/delete': 'debug_levels_delete',
+  'tooling/query': 'tooling_query',
+  'tooling/request/get': 'tooling_request_get'
 };
 const RUNTIME_TRACE_REDACTED = '[redacted]';
 const RUNTIME_TRACE_MAX_STRING_LENGTH = 8192;
@@ -276,6 +319,20 @@ export class RuntimeClient extends EventEmitter {
     return this.observeInFlightRequest(tracked, signal);
   }
 
+  async doctor(params: DoctorParams = {}, signal?: AbortSignal): Promise<DoctorResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<DoctorResult>('doctor/run', params, signal);
+  }
+
+  async orgResolve(params: OrgResolveParams = {}, signal?: AbortSignal): Promise<OrgResolveResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<OrgResolveResult>('org/resolve', params, signal);
+  }
+
   async getOrgAuth(params: OrgAuthParams = {}, signal?: AbortSignal): Promise<OrgAuth> {
     if (!this.requestHandler) {
       await this.initialize();
@@ -308,6 +365,27 @@ export class RuntimeClient extends EventEmitter {
     return this.request<LogsSyncResult>('logs/sync', params, signal);
   }
 
+  async logsRead(params: LogsReadParams, signal?: AbortSignal): Promise<LogsReadResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<LogsReadResult>('logs/read', params, signal);
+  }
+
+  async logsResolve(params: LogsResolveParams, signal?: AbortSignal): Promise<LogsResolveResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<LogsResolveResult>('logs/resolve', params, signal);
+  }
+
+  async logsDelete(params: LogsDeleteParams, signal?: AbortSignal): Promise<LogsDeleteResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<LogsDeleteResult>('logs/delete', params, signal);
+  }
+
   async searchQuery(params: SearchQueryParams, signal?: AbortSignal): Promise<SearchQueryResult> {
     if (!this.requestHandler) {
       await this.initialize();
@@ -330,6 +408,107 @@ export class RuntimeClient extends EventEmitter {
       await this.initialize();
     }
     return this.request<ResolveCachedLogPathResult>('logs/resolveCachedPath', params, signal);
+  }
+
+  async usersSearch(params: UserSearchParams = {}, signal?: AbortSignal): Promise<UserSearchResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<UserSearchResult>('users/search', params, signal);
+  }
+
+  async traceFlagStatus(
+    params: TraceFlagStatusParams,
+    signal?: AbortSignal
+  ): Promise<TraceFlagTargetStatus> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<TraceFlagTargetStatus>('traceFlags/status', params, signal);
+  }
+
+  async traceFlagApply(
+    params: TraceFlagApplyParams,
+    signal?: AbortSignal
+  ): Promise<TraceFlagApplyResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<TraceFlagApplyResult>('traceFlags/apply', params, signal);
+  }
+
+  async traceFlagRemove(
+    params: TraceFlagRemoveParams,
+    signal?: AbortSignal
+  ): Promise<TraceFlagRemoveResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<TraceFlagRemoveResult>('traceFlags/remove', params, signal);
+  }
+
+  async debugLevelsList(
+    params: DebugLevelListParams = {},
+    signal?: AbortSignal
+  ): Promise<RuntimeDebugLevelRecord[]> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<RuntimeDebugLevelRecord[]>('debugLevels/list', params, signal);
+  }
+
+  async debugLevelGet(
+    params: DebugLevelGetParams,
+    signal?: AbortSignal
+  ): Promise<RuntimeDebugLevelRecord | undefined> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<RuntimeDebugLevelRecord | undefined>('debugLevels/get', params, signal);
+  }
+
+  async debugLevelCreate(
+    params: DebugLevelWriteParams,
+    signal?: AbortSignal
+  ): Promise<DebugLevelWriteResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<DebugLevelWriteResult>('debugLevels/create', params, signal);
+  }
+
+  async debugLevelUpdate(
+    params: DebugLevelWriteParams,
+    signal?: AbortSignal
+  ): Promise<DebugLevelWriteResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<DebugLevelWriteResult>('debugLevels/update', params, signal);
+  }
+
+  async debugLevelDelete(
+    params: DebugLevelDeleteParams,
+    signal?: AbortSignal
+  ): Promise<DebugLevelWriteResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<DebugLevelWriteResult>('debugLevels/delete', params, signal);
+  }
+
+  async toolingQuery(params: ToolingQueryParams, signal?: AbortSignal): Promise<ToolingQueryResult> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<ToolingQueryResult>('tooling/query', params, signal);
+  }
+
+  async toolingRequestGet(params: ToolingRequestGetParams, signal?: AbortSignal): Promise<unknown> {
+    if (!this.requestHandler) {
+      await this.initialize();
+    }
+    return this.request<unknown>('tooling/request/get', params, signal);
   }
 
   scheduleRestart(): void {

@@ -44,6 +44,7 @@ type ResolveAlvCliInvocationOptions = ResolveAlvCliBinaryPathOptions & {
 type CliInvocation = {
   command: string;
   args: string[];
+  windowsVerbatimArguments?: boolean;
 };
 
 function resolveBinaryCandidatesForName(binaryName: string, options: ResolveAlvCliBinaryPathOptions = {}): string[] {
@@ -62,6 +63,22 @@ function resolveCliEnvironment(options: ResolveAlvCliBinaryPathOptions = {}): No
   };
 }
 
+function isWindowsCommandShim(value: string, platform = process.platform): boolean {
+  return platform === 'win32' && value.toLowerCase().endsWith('.cmd');
+}
+
+function quoteWindowsCommandArgument(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function windowsCommandShimInvocation(shimPath: string): CliInvocation {
+  return {
+    command: process.env.ComSpec || 'cmd.exe',
+    args: ['/d', '/c', 'call', quoteWindowsCommandArgument(shimPath)],
+    windowsVerbatimArguments: true
+  };
+}
+
 function resolveConfiguredCliBinaryPath(options: ResolveAlvCliBinaryPathOptions = {}): string | undefined {
   const rawPath = String(resolveCliEnvironment(options).ALV_CLI_BINARY_PATH ?? '').trim();
   if (!rawPath) {
@@ -72,10 +89,7 @@ function resolveConfiguredCliBinaryPath(options: ResolveAlvCliBinaryPathOptions 
   return path.isAbsolute(rawPath) ? rawPath : path.resolve(repoRoot, rawPath);
 }
 
-function formatMissingBinaryMessage(
-  configuredBinaryPath: string | undefined,
-  fallbackCandidates: string[]
-): string {
+function formatMissingBinaryMessage(configuredBinaryPath: string | undefined, fallbackCandidates: string[]): string {
   if (configuredBinaryPath) {
     return `Unable to locate apex-log-viewer standalone binary from ALV_CLI_BINARY_PATH. Checked: ${[
       configuredBinaryPath,
@@ -136,10 +150,12 @@ export function resolveAlvCliInvocation(options: ResolveAlvCliInvocationOptions 
 
   if (configuredBinaryPath) {
     if (existsSync(configuredBinaryPath)) {
-      return {
-        command: configuredBinaryPath,
-        args: []
-      };
+      return isWindowsCommandShim(configuredBinaryPath, options.platform)
+        ? windowsCommandShimInvocation(configuredBinaryPath)
+        : {
+            command: configuredBinaryPath,
+            args: []
+          };
     }
     throw new Error(formatMissingBinaryMessage(configuredBinaryPath, candidates));
   }
@@ -153,13 +169,11 @@ export function resolveAlvCliInvocation(options: ResolveAlvCliInvocationOptions 
   }
 
   if (options.allowWindowsCommandShim && (options.platform ?? process.platform) === 'win32') {
-    const shimPath = resolveBinaryCandidatesForName('apex-log-viewer.cmd', options).find(candidate => existsSync(candidate));
+    const shimPath = resolveBinaryCandidatesForName('apex-log-viewer.cmd', options).find(candidate =>
+      existsSync(candidate)
+    );
     if (shimPath) {
-      const quotedShimPath = `"${shimPath.replace(/"/g, '""')}"`;
-      return {
-        command: process.env.ComSpec || 'cmd.exe',
-        args: ['/d', '/s', '/c', quotedShimPath]
-      };
+      return windowsCommandShimInvocation(shimPath);
     }
   }
 
@@ -173,7 +187,10 @@ export async function runAlvCli(args: string[], options: CliExecOptions = {}): P
     allowWindowsCommandShim: options.allowWindowsCommandShim,
     env
   });
-  const finalArgs = [...invocation.args, ...args.map(value => String(value ?? ''))];
+  const commandArgs = args.map(value => String(value ?? ''));
+  const finalArgs = invocation.windowsVerbatimArguments
+    ? [...invocation.args, ...commandArgs.map(quoteWindowsCommandArgument)]
+    : [...invocation.args, ...commandArgs];
 
   return await new Promise(resolve => {
     execFile(
@@ -184,7 +201,8 @@ export async function runAlvCli(args: string[], options: CliExecOptions = {}): P
         env,
         encoding: 'utf8',
         timeout: options.timeoutMs ?? 120_000,
-        maxBuffer: 1024 * 1024 * 20
+        maxBuffer: 1024 * 1024 * 20,
+        windowsVerbatimArguments: invocation.windowsVerbatimArguments
       },
       (error, stdout, stderr) => {
         const stdoutText = String(stdout || '');
