@@ -907,6 +907,44 @@ test('all workflow uses refs are pinned to full commit SHAs', () => {
   }
 });
 
+test('release workflows default to read-only token permissions', () => {
+  const release = yaml.parse(read('.github/workflows/release.yml'));
+  assert.deepEqual(release.permissions, { contents: 'read' });
+  assert.deepEqual(release.jobs.package.permissions, { contents: 'read' });
+  assert.equal(release.jobs.package.permissions.actions, undefined);
+  assert.deepEqual(release.jobs.prepare_publish.permissions, { contents: 'write' });
+  assert.equal(release.jobs.publish_marketplace.permissions, undefined);
+  assert.equal(release.jobs.publish_open_vsx.permissions, undefined);
+
+  const prerelease = yaml.parse(read('.github/workflows/prerelease.yml'));
+  assert.deepEqual(prerelease.permissions, { contents: 'read' });
+  assert.equal(prerelease.jobs.package_vsix.permissions, undefined);
+  assert.deepEqual(prerelease.jobs.assemble_release.permissions, { contents: 'write' });
+  assert.deepEqual(prerelease.jobs.rollback_prerelease.permissions, { contents: 'write' });
+  assert.equal(prerelease.jobs.publish_marketplace.permissions, undefined);
+  assert.equal(prerelease.jobs.publish_open_vsx.permissions, undefined);
+});
+
+test('OpenSSF Scorecard workflow uploads SARIF with pinned actions', () => {
+  const workflowText = read('.github/workflows/scorecard.yml');
+  const workflow = yaml.parse(workflowText);
+
+  assert.equal(workflow.name, 'OpenSSF Scorecard');
+  assert.deepEqual(workflow.permissions, {
+    contents: 'read',
+    'security-events': 'write'
+  });
+  assert.deepEqual(workflow.on.push.branches, ['main']);
+  assert.ok(workflow.on.schedule);
+  assert.ok(Object.hasOwn(workflow.on, 'workflow_dispatch'));
+
+  const refs = usesRefs('.github/workflows/scorecard.yml');
+  assert.ok(refs.includes('ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a'));
+  assert.ok(refs.includes('github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225'));
+  assert.match(workflowText, /results_format:\s+sarif/);
+  assert.match(workflowText, /publish_results:\s+false/);
+});
+
 test('dependency review workflow exists and is wired to pull_request', () => {
   const workflow = read('.github/workflows/dependency-review.yml');
   assert.match(workflow, /^name:\s+Dependency Review$/m);

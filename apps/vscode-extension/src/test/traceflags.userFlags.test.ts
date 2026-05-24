@@ -150,6 +150,29 @@ suite('traceflags user management', () => {
     assert.doesNotMatch(soql, /\bESCAPE\b/i);
   });
 
+  test('listActiveUsers escapes SOQL LIKE metacharacters in user input', async () => {
+    const calls = installHttpsStub(req => {
+      if (req.method === 'GET' && req.path.includes('/services/data/v')) {
+        return {
+          statusCode: 200,
+          body: {
+            records: [{ Id: '005000000000001AAA', Name: 'Ada_%', Username: "ada'admin@example.com", IsActive: true }]
+          }
+        };
+      }
+      throw new Error(`Unexpected request: ${req.method} ${req.path}`);
+    });
+
+    await listActiveUsers(auth, "ada\\_%' OR Name LIKE '%", 25);
+
+    const soql = decodeSoql(calls[0]?.path || '');
+    const escapedLike = "ada\\\\\\_\\%\\' OR Name LIKE \\'\\%";
+    assert.ok(soql.includes(`Name LIKE '%${escapedLike}%'`), soql);
+    assert.ok(soql.includes(`Username LIKE '%${escapedLike}%'`), soql);
+    assert.doesNotMatch(soql, / OR Name LIKE '%[^)]/);
+    assert.doesNotMatch(soql, /\bESCAPE\b/i);
+  });
+
   test('listActiveUsers applies local filtering when API returns broader result set', async () => {
     installHttpsStub(req => {
       if (req.method === 'GET' && req.path.includes('/services/data/v')) {
