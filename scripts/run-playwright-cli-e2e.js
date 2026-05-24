@@ -44,9 +44,9 @@ function resolveCargoTargetDirectory(repoRoot, options = {}) {
 
 function displayCandidatePath(repoRoot, candidatePath) {
   const relativePath = path.relative(repoRoot, candidatePath);
-  return relativePath && !relativePath.startsWith('..') && !path.isAbsolute(relativePath)
-    ? relativePath
-    : candidatePath;
+  const displayPath =
+    relativePath && !relativePath.startsWith('..') && !path.isAbsolute(relativePath) ? relativePath : candidatePath;
+  return displayPath.replace(/\\/g, '/');
 }
 
 function resolveCliBinaryCandidatePaths(repoRoot, options = {}) {
