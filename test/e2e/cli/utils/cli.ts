@@ -62,6 +62,17 @@ function resolveCliEnvironment(options: ResolveAlvCliBinaryPathOptions = {}): No
   };
 }
 
+function isWindowsCommandShim(value: string, platform = process.platform): boolean {
+  return platform === 'win32' && value.toLowerCase().endsWith('.cmd');
+}
+
+function windowsCommandShimInvocation(shimPath: string): CliInvocation {
+  return {
+    command: process.env.ComSpec || 'cmd.exe',
+    args: ['/d', '/c', 'call', shimPath]
+  };
+}
+
 function resolveConfiguredCliBinaryPath(options: ResolveAlvCliBinaryPathOptions = {}): string | undefined {
   const rawPath = String(resolveCliEnvironment(options).ALV_CLI_BINARY_PATH ?? '').trim();
   if (!rawPath) {
@@ -136,10 +147,12 @@ export function resolveAlvCliInvocation(options: ResolveAlvCliInvocationOptions 
 
   if (configuredBinaryPath) {
     if (existsSync(configuredBinaryPath)) {
-      return {
-        command: configuredBinaryPath,
-        args: []
-      };
+      return isWindowsCommandShim(configuredBinaryPath, options.platform)
+        ? windowsCommandShimInvocation(configuredBinaryPath)
+        : {
+            command: configuredBinaryPath,
+            args: []
+          };
     }
     throw new Error(formatMissingBinaryMessage(configuredBinaryPath, candidates));
   }
@@ -155,11 +168,7 @@ export function resolveAlvCliInvocation(options: ResolveAlvCliInvocationOptions 
   if (options.allowWindowsCommandShim && (options.platform ?? process.platform) === 'win32') {
     const shimPath = resolveBinaryCandidatesForName('apex-log-viewer.cmd', options).find(candidate => existsSync(candidate));
     if (shimPath) {
-      const quotedShimPath = `"${shimPath.replace(/"/g, '""')}"`;
-      return {
-        command: process.env.ComSpec || 'cmd.exe',
-        args: ['/d', '/s', '/c', quotedShimPath]
-      };
+      return windowsCommandShimInvocation(shimPath);
     }
   }
 

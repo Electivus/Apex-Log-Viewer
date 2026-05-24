@@ -1119,6 +1119,8 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           try {
             cleanup = await clearApexLogs(auth, scope, {
               signal: controller.signal,
+              targetOrg: selectedOrg,
+              preferRuntime: true,
               concurrency: 3,
               onProgress: p => {
                 if (p.stage !== 'deleting' || p.total <= 0) {

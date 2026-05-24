@@ -1,10 +1,19 @@
 use alv_core::{
+    debug_levels::{
+        DebugLevelDeleteParams, DebugLevelGetParams, DebugLevelListParams, DebugLevelWriteParams,
+    },
+    log_ops::{DeleteLogsParams, ReadLogParams, ResolveLogPathParams},
     logs::{CancellationToken, LogsCursor, LogsListParams, LogsRuntimeError},
     logs_sync::LogsSyncParams,
+    orgs,
     search::SearchQueryParams,
+    tooling,
+    trace_flags::{TraceFlagApplyParams, TraceFlagRemoveParams, TraceFlagStatusParams},
     triage::LogsTriageParams,
+    users::UserSearchParams,
 };
 use alv_protocol::messages::{InitializeParams, InitializeResult, RuntimeCapabilities};
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -80,13 +89,43 @@ struct ServerCall {
 
 enum ServerOperation {
     Initialize(InitializeParams),
-    OrgList { force_refresh: bool },
-    OrgAuth { username: Option<String> },
+    Doctor {
+        target_org: Option<String>,
+    },
+    OrgList {
+        force_refresh: bool,
+    },
+    OrgAuth {
+        username: Option<String>,
+    },
+    OrgResolve {
+        target_org: Option<String>,
+    },
     LogsList(LogsListParams),
     LogsSync(LogsSyncParams),
+    LogsRead(ReadLogParams),
+    LogsDelete(DeleteLogsParams),
     SearchQuery(SearchQueryParams),
     LogsTriage(LogsTriageParams),
     ResolveCachedPath(logs_handler::ResolveCachedLogPathParams),
+    ResolveLogPath(ResolveLogPathParams),
+    UsersSearch(UserSearchParams),
+    TraceFlagStatus(TraceFlagStatusParams),
+    TraceFlagApply(TraceFlagApplyParams),
+    TraceFlagRemove(TraceFlagRemoveParams),
+    DebugLevelList(DebugLevelListParams),
+    DebugLevelGet(DebugLevelGetParams),
+    DebugLevelCreate(DebugLevelWriteParams),
+    DebugLevelUpdate(DebugLevelWriteParams),
+    DebugLevelDelete(DebugLevelDeleteParams),
+    ToolingQuery {
+        target_org: Option<String>,
+        soql: String,
+    },
+    ToolingRequestGet {
+        target_org: Option<String>,
+        path: String,
+    },
     Unknown(String),
 }
 
@@ -290,6 +329,17 @@ fn execute_call(call: ServerCall, cancellation: &CancellationToken) -> Result<St
                 &serialize_initialize_result(&result),
             ))
         }
+        ServerOperation::Doctor { target_org } => {
+            let version = std::env::var(CLI_VERSION_ENV)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+            let payload = serialize_result(&alv_core::doctor::run_doctor(
+                target_org.as_deref(),
+                &version,
+            ))?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
         ServerOperation::OrgList { force_refresh } => {
             let payload = orgs_handler::handle_org_list(force_refresh)?;
             Ok(jsonrpc_result(&call.id, &payload))
@@ -298,12 +348,30 @@ fn execute_call(call: ServerCall, cancellation: &CancellationToken) -> Result<St
             let payload = orgs_handler::handle_org_auth(username.as_deref())?;
             Ok(jsonrpc_result(&call.id, &payload))
         }
+        ServerOperation::OrgResolve { target_org } => {
+            let payload = serialize_result(&orgs::resolve_org(target_org.as_deref())?)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
         ServerOperation::LogsList(params) => {
             let payload = logs_handler::handle_logs_list_with_cancel(params, cancellation)?;
             Ok(jsonrpc_result(&call.id, &payload))
         }
         ServerOperation::LogsSync(params) => {
             let payload = logs_handler::handle_logs_sync_with_cancel(params, cancellation)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::LogsRead(params) => {
+            let payload = serialize_result(&alv_core::log_ops::read_log_with_cancel(
+                &params,
+                cancellation,
+            )?)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::LogsDelete(params) => {
+            let payload = serialize_result(&alv_core::log_ops::delete_logs_with_cancel(
+                &params,
+                cancellation,
+            )?)?;
             Ok(jsonrpc_result(&call.id, &payload))
         }
         ServerOperation::SearchQuery(params) => {
@@ -316,6 +384,80 @@ fn execute_call(call: ServerCall, cancellation: &CancellationToken) -> Result<St
         }
         ServerOperation::ResolveCachedPath(params) => {
             let payload = logs_handler::handle_resolve_cached_path(params)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::ResolveLogPath(params) => {
+            let payload = serialize_result(&alv_core::log_ops::resolve_log_path(&params))?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::UsersSearch(params) => {
+            let payload = serialize_result(&alv_core::users::search_users_with_cancel(
+                &params,
+                cancellation,
+            )?)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::TraceFlagStatus(params) => {
+            let payload = serialize_result(&alv_core::trace_flags::status(&params, cancellation)?)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::TraceFlagApply(params) => {
+            let payload = serialize_result(&alv_core::trace_flags::apply(&params, cancellation)?)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::TraceFlagRemove(params) => {
+            let payload = serialize_result(&alv_core::trace_flags::remove(&params, cancellation)?)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::DebugLevelList(params) => {
+            let payload = serialize_result(&alv_core::debug_levels::list_debug_levels(
+                &params,
+                cancellation,
+            )?)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::DebugLevelGet(params) => {
+            let payload = serialize_result(&alv_core::debug_levels::get_debug_level(
+                &params,
+                cancellation,
+            )?)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::DebugLevelCreate(params) => {
+            let payload = serialize_result(&alv_core::debug_levels::create_debug_level(
+                &params,
+                cancellation,
+            )?)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::DebugLevelUpdate(params) => {
+            let payload = serialize_result(&alv_core::debug_levels::update_debug_level(
+                &params,
+                cancellation,
+            )?)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::DebugLevelDelete(params) => {
+            let payload = serialize_result(&alv_core::debug_levels::delete_debug_level(
+                &params,
+                cancellation,
+            )?)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::ToolingQuery { target_org, soql } => {
+            let payload = serialize_result(&tooling::query_tooling(
+                target_org.as_deref(),
+                &soql,
+                cancellation,
+            )?)?;
+            Ok(jsonrpc_result(&call.id, &payload))
+        }
+        ServerOperation::ToolingRequestGet { target_org, path } => {
+            let payload = serialize_result(&tooling::request_get(
+                target_org.as_deref(),
+                &path,
+                cancellation,
+            )?)?;
             Ok(jsonrpc_result(&call.id, &payload))
         }
         ServerOperation::Unknown(method) => Ok(jsonrpc_error(
@@ -367,6 +509,13 @@ fn parse_request_line(request: &str) -> Result<ParsedRequest, String> {
                 .unwrap_or_default()
                 .to_string(),
         }),
+        "doctor/run" => ServerOperation::Doctor {
+            target_org: params
+                .get("targetOrg")
+                .and_then(Value::as_str)
+                .or_else(|| params.get("target_org").and_then(Value::as_str))
+                .map(str::to_string),
+        },
         "org/list" => {
             let force_refresh = params
                 .get("forceRefresh")
@@ -382,6 +531,14 @@ fn parse_request_line(request: &str) -> Result<ParsedRequest, String> {
             username: params
                 .get("username")
                 .and_then(Value::as_str)
+                .map(str::to_string),
+        },
+        "org/resolve" => ServerOperation::OrgResolve {
+            target_org: params
+                .get("targetOrg")
+                .and_then(Value::as_str)
+                .or_else(|| params.get("target_org").and_then(Value::as_str))
+                .or_else(|| params.get("username").and_then(Value::as_str))
                 .map(str::to_string),
         },
         "logs/list" => {
@@ -441,6 +598,8 @@ fn parse_request_line(request: &str) -> Result<ParsedRequest, String> {
                 .and_then(Value::as_u64)
                 .map(|value| value as usize),
         }),
+        "logs/read" => ServerOperation::LogsRead(parse_params(params)?),
+        "logs/delete" => ServerOperation::LogsDelete(parse_params(params)?),
         "search/query" => ServerOperation::SearchQuery(SearchQueryParams {
             query: params
                 .get("query")
@@ -500,6 +659,59 @@ fn parse_request_line(request: &str) -> Result<ParsedRequest, String> {
                     .map(str::to_string),
             })
         }
+        "logs/resolve" => ServerOperation::ResolveLogPath(parse_params(params)?),
+        "users/search" => ServerOperation::UsersSearch(parse_params(params)?),
+        "traceFlags/status" | "trace-flags/status" => {
+            ServerOperation::TraceFlagStatus(parse_params(params)?)
+        }
+        "traceFlags/apply" | "trace-flags/apply" => {
+            ServerOperation::TraceFlagApply(parse_params(params)?)
+        }
+        "traceFlags/remove" | "trace-flags/remove" => {
+            ServerOperation::TraceFlagRemove(parse_params(params)?)
+        }
+        "debugLevels/list" | "debug-levels/list" => {
+            ServerOperation::DebugLevelList(parse_params(params)?)
+        }
+        "debugLevels/get" | "debug-levels/get" => {
+            ServerOperation::DebugLevelGet(parse_params(params)?)
+        }
+        "debugLevels/create" | "debug-levels/create" => {
+            ServerOperation::DebugLevelCreate(parse_params(params)?)
+        }
+        "debugLevels/update" | "debug-levels/update" => {
+            ServerOperation::DebugLevelUpdate(parse_params(params)?)
+        }
+        "debugLevels/delete" | "debug-levels/delete" => {
+            ServerOperation::DebugLevelDelete(parse_params(params)?)
+        }
+        "tooling/query" => ServerOperation::ToolingQuery {
+            target_org: params
+                .get("targetOrg")
+                .and_then(Value::as_str)
+                .or_else(|| params.get("target_org").and_then(Value::as_str))
+                .map(str::to_string),
+            soql: params
+                .get("soql")
+                .and_then(Value::as_str)
+                .or_else(|| params.get("query").and_then(Value::as_str))
+                .unwrap_or_default()
+                .to_string(),
+        },
+        "tooling/request/get" => ServerOperation::ToolingRequestGet {
+            target_org: params
+                .get("targetOrg")
+                .and_then(Value::as_str)
+                .or_else(|| params.get("target_org").and_then(Value::as_str))
+                .map(str::to_string),
+            path: params
+                .get("path")
+                .and_then(Value::as_str)
+                .or_else(|| params.get("pathOrUrl").and_then(Value::as_str))
+                .or_else(|| params.get("path_or_url").and_then(Value::as_str))
+                .unwrap_or_default()
+                .to_string(),
+        },
         _ => ServerOperation::Unknown(method.to_string()),
     };
 
@@ -508,6 +720,16 @@ fn parse_request_line(request: &str) -> Result<ParsedRequest, String> {
 
 fn is_cancelled_error(error: &str) -> bool {
     error.contains("request cancelled")
+}
+
+fn serialize_result<T: serde::Serialize>(value: &T) -> Result<String, ServerError> {
+    serde_json::to_string(value).map_err(|error| {
+        ServerError::from(format!("failed to serialize runtime response: {error}"))
+    })
+}
+
+fn parse_params<T: DeserializeOwned>(params: Value) -> Result<T, String> {
+    serde_json::from_value(params).map_err(|error| format!("invalid params: {error}"))
 }
 
 fn jsonrpc_result(id: &str, result_json: &str) -> String {

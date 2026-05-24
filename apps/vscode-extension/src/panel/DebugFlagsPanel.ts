@@ -14,7 +14,15 @@ import { DEBUG_LEVEL_PRESETS } from '../shared/debugLevelPresets';
 import { bucketQueryLength } from '../shared/telemetryBuckets';
 import { clearApexLogs } from '../../../../src/services/apexLogCleanup';
 import { parseDebugFlagsFromWebviewMessage, type DebugFlagsToWebviewMessage } from '../shared/debugFlagsMessages';
-import type { DebugLevelRecord, TraceFlagTarget, TraceFlagTargetStatus } from '../shared/debugFlagsTypes';
+import type {
+  ApplyTraceFlagTargetInput,
+  ApplyTraceFlagTargetResult,
+  DebugFlagUser,
+  DebugLevelRecord,
+  RemoveTraceFlagsResult,
+  TraceFlagTarget,
+  TraceFlagTargetStatus
+} from '../shared/debugFlagsTypes';
 import { safeSendEvent } from '../shared/telemetry';
 import { pickSelectedOrg } from '../../../../src/utils/orgs';
 import { localize } from '../../../../src/utils/localize';
@@ -204,11 +212,11 @@ export class DebugFlagsPanel {
     bootstrapToken?: number
   ): Promise<void> {
     const [details, active] = await Promise.all([
-      listDebugLevelDetails(auth).catch(err => {
+      this.listDebugLevelDetailsWithRuntimeFallback(auth).catch(err => {
         logWarn('DebugFlagsPanel: failed to load debug level details ->', getErrorMessage(err));
         return [] as DebugLevelRecord[];
       }),
-      getActiveUserDebugLevel(auth).catch(() => undefined as string | undefined)
+      this.getActiveUserDebugLevelWithRuntimeFallback(auth).catch(() => undefined as string | undefined)
     ]);
 
     if (this.disposed || (typeof bootstrapToken === 'number' && bootstrapToken !== this.orgBootstrapToken)) {
@@ -241,7 +249,7 @@ export class DebugFlagsPanel {
     this.post({ type: 'debugFlagsLoading', scope: 'users', value: true });
     try {
       const auth = await this.getSelectedAuth();
-      const users = await listActiveUsers(auth, this.usersQuery, 50);
+      const users = await this.searchUsersWithRuntimeFallback(auth, this.usersQuery, 50);
       if (token !== this.usersToken || this.disposed) {
         return;
       }
@@ -300,7 +308,7 @@ export class DebugFlagsPanel {
     this.post({ type: 'debugFlagsLoading', scope: 'status', value: true });
     try {
       const auth = await this.getSelectedAuth();
-      const status = await getTraceFlagTargetStatus(auth, target);
+      const status = await this.getTraceFlagTargetStatusWithRuntimeFallback(auth, target);
       if (token !== this.statusToken || this.disposed) {
         return;
       }
@@ -344,7 +352,7 @@ export class DebugFlagsPanel {
     this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
     try {
       const auth = await this.getSelectedAuth();
-      const result = await upsertTraceFlag(auth, {
+      const result = await this.applyTraceFlagWithRuntimeFallback(auth, {
         target,
         debugLevelName,
         ttlMinutes
@@ -451,9 +459,7 @@ export class DebugFlagsPanel {
     this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
     try {
       const auth = await this.getSelectedAuth();
-      const savedId = normalized.id
-        ? (await updateDebugLevel(auth, normalized.id, normalized), normalized.id)
-        : (await createDebugLevel(auth, normalized)).id;
+      const savedId = await this.saveDebugLevelWithRuntimeFallback(auth, normalized);
 
       await this.sendDebugLevelData(auth, savedId);
       this.post({
@@ -482,7 +488,7 @@ export class DebugFlagsPanel {
     this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
     try {
       const auth = await this.getSelectedAuth();
-      await deleteDebugLevel(auth, debugLevelId);
+      await this.deleteDebugLevelWithRuntimeFallback(auth, debugLevelId);
       await this.sendDebugLevelData(auth);
       this.post({
         type: 'debugFlagsNotice',
@@ -509,7 +515,7 @@ export class DebugFlagsPanel {
     this.post({ type: 'debugFlagsLoading', scope: 'action', value: true });
     try {
       const auth = await this.getSelectedAuth();
-      const result = await removeTraceFlags(auth, target);
+      const result = await this.removeTraceFlagsWithRuntimeFallback(auth, target);
       await this.loadSelectedTargetStatus(target);
       const isAggregatedTarget = target.type !== 'user' && result.resolvedTargetCount > 1;
       this.post({
@@ -574,6 +580,197 @@ export class DebugFlagsPanel {
       );
     } finally {
       this.post({ type: 'debugFlagsLoading', scope: 'action', value: false });
+    }
+  }
+
+  private getRuntimeTargetOrg(): string | undefined {
+    return (this.selectedOrg || '').trim() || undefined;
+  }
+
+  private isRuntimeCapabilityUnavailable(error: unknown): boolean {
+    const maybeCode = (error as { code?: unknown } | undefined)?.code;
+    if (maybeCode === -32601) {
+      return true;
+    }
+    return getErrorMessage(error).toLowerCase().includes('method not found');
+  }
+
+  private logRuntimeFallback(feature: string, error: unknown): void {
+    logWarn(`DebugFlagsPanel: runtime ${feature} unavailable; falling back to TypeScript path ->`, getErrorMessage(error));
+  }
+
+  private async listDebugLevelDetailsWithRuntimeFallback(
+    auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>
+  ): Promise<DebugLevelRecord[]> {
+    try {
+      return await runtimeClient.debugLevelsList({ targetOrg: this.getRuntimeTargetOrg() });
+    } catch (error) {
+      if (!this.isRuntimeCapabilityUnavailable(error)) {
+        throw error;
+      }
+      this.logRuntimeFallback('debugLevels/list', error);
+      return listDebugLevelDetails(auth);
+    }
+  }
+
+  private async getActiveUserDebugLevelWithRuntimeFallback(
+    auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>
+  ): Promise<string | undefined> {
+    try {
+      const status = await runtimeClient.traceFlagStatus({
+        targetOrg: this.getRuntimeTargetOrg(),
+        target: { type: 'user', userId: '' }
+      });
+      return status.debugLevelName;
+    } catch (error) {
+      if (!this.isRuntimeCapabilityUnavailable(error)) {
+        throw error;
+      }
+      this.logRuntimeFallback('traceFlags/status', error);
+      return getActiveUserDebugLevel(auth);
+    }
+  }
+
+  private async searchUsersWithRuntimeFallback(
+    auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>,
+    query: string,
+    limit: number
+  ): Promise<DebugFlagUser[]> {
+    try {
+      const result = await runtimeClient.usersSearch({
+        targetOrg: this.getRuntimeTargetOrg(),
+        query,
+        limit
+      });
+      return result.users;
+    } catch (error) {
+      if (!this.isRuntimeCapabilityUnavailable(error)) {
+        throw error;
+      }
+      this.logRuntimeFallback('users/search', error);
+      return listActiveUsers(auth, query, limit);
+    }
+  }
+
+  private async getTraceFlagTargetStatusWithRuntimeFallback(
+    auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>,
+    target: TraceFlagTarget
+  ): Promise<TraceFlagTargetStatus> {
+    try {
+      return await runtimeClient.traceFlagStatus({
+        targetOrg: this.getRuntimeTargetOrg(),
+        target
+      });
+    } catch (error) {
+      if (!this.isRuntimeCapabilityUnavailable(error)) {
+        throw error;
+      }
+      this.logRuntimeFallback('traceFlags/status', error);
+      return getTraceFlagTargetStatus(auth, target);
+    }
+  }
+
+  private async applyTraceFlagWithRuntimeFallback(
+    auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>,
+    input: ApplyTraceFlagTargetInput
+  ): Promise<ApplyTraceFlagTargetResult> {
+    try {
+      const result = await runtimeClient.traceFlagApply({
+        targetOrg: this.getRuntimeTargetOrg(),
+        target: input.target,
+        debugLevelName: input.debugLevelName,
+        ttlMinutes: input.ttlMinutes,
+        dryRun: false,
+        confirmed: true
+      });
+      return {
+        created: result.created,
+        traceFlagIds: result.traceFlagIds ?? [],
+        createdCount: result.createdCount,
+        updatedCount: result.updatedCount,
+        resolvedTargetCount: result.resolvedTargetCount
+      };
+    } catch (error) {
+      if (!this.isRuntimeCapabilityUnavailable(error)) {
+        throw error;
+      }
+      this.logRuntimeFallback('traceFlags/apply', error);
+      return upsertTraceFlag(auth, input);
+    }
+  }
+
+  private async removeTraceFlagsWithRuntimeFallback(
+    auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>,
+    target: TraceFlagTarget
+  ): Promise<RemoveTraceFlagsResult> {
+    try {
+      const result = await runtimeClient.traceFlagRemove({
+        targetOrg: this.getRuntimeTargetOrg(),
+        target,
+        dryRun: false,
+        confirmed: true
+      });
+      return {
+        removedCount: result.removedCount,
+        resolvedTargetCount: result.resolvedTargetCount
+      };
+    } catch (error) {
+      if (!this.isRuntimeCapabilityUnavailable(error)) {
+        throw error;
+      }
+      this.logRuntimeFallback('traceFlags/remove', error);
+      return removeTraceFlags(auth, target);
+    }
+  }
+
+  private async saveDebugLevelWithRuntimeFallback(
+    auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>,
+    record: DebugLevelRecord
+  ): Promise<string | undefined> {
+    try {
+      if (record.id) {
+        const result = await runtimeClient.debugLevelUpdate({
+          targetOrg: this.getRuntimeTargetOrg(),
+          id: record.id,
+          record,
+          dryRun: false,
+          confirmed: true
+        });
+        return result.id ?? record.id;
+      }
+      const result = await runtimeClient.debugLevelCreate({
+        targetOrg: this.getRuntimeTargetOrg(),
+        record,
+        dryRun: false,
+        confirmed: true
+      });
+      return result.id;
+    } catch (error) {
+      if (!this.isRuntimeCapabilityUnavailable(error)) {
+        throw error;
+      }
+      this.logRuntimeFallback(record.id ? 'debugLevels/update' : 'debugLevels/create', error);
+      return record.id ? (await updateDebugLevel(auth, record.id, record), record.id) : (await createDebugLevel(auth, record)).id;
+    }
+  }
+
+  private async deleteDebugLevelWithRuntimeFallback(
+    auth: Awaited<ReturnType<DebugFlagsPanel['getSelectedAuth']>>,
+    debugLevelId: string
+  ): Promise<void> {
+    try {
+      await runtimeClient.debugLevelDelete({
+        targetOrg: this.getRuntimeTargetOrg(),
+        id: debugLevelId,
+        dryRun: false,
+        confirmed: true
+      });
+    } catch (error) {
+      if (!this.isRuntimeCapabilityUnavailable(error)) {
+        throw error;
+      }
+      this.logRuntimeFallback('debugLevels/delete', error);
+      await deleteDebugLevel(auth, debugLevelId);
     }
   }
 
@@ -698,6 +895,8 @@ export class DebugFlagsPanel {
           try {
             cleanup = await clearApexLogs(auth, scope, {
               signal: controller.signal,
+              targetOrg: this.selectedOrg,
+              preferRuntime: true,
               concurrency: 3,
               onProgress: p => {
                 if (p.stage !== 'deleting' || p.total <= 0) {

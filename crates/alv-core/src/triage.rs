@@ -536,7 +536,8 @@ mod tests {
         content.push_str("09:00:10.0|EXCEPTION_THROWN|System.NullPointerException: boom\n");
         fs::write(&path, content).expect("fixture log should be writable");
 
-        let summary = summarize_file(&path, &CancellationToken::new()).expect("triage should succeed");
+        let summary =
+            summarize_file(&path, &CancellationToken::new()).expect("triage should succeed");
 
         let _ = fs::remove_file(&path);
 

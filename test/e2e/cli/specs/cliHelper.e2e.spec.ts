@@ -166,12 +166,17 @@ test('runAlvCli parses stdoutJson separately from stderrJson', async () => {
 
 test('runAlvCli resolves ALV_CLI_BINARY_PATH from process env when an env overlay is provided', async () => {
   await withTempRepo(async repoRoot => {
-    const binaryName = process.platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
-    const configuredBinaryPath = await writeFakeStandaloneBinaryAtPath(
-      path.join(repoRoot, '.cargo-target', 'Apex-Log-Viewer', 'debug', binaryName),
-      '#!/bin/sh\nprintf \'{"source":"configured"}\\n\'\n'
+    const configuredBinaryPath =
+      process.platform === 'win32'
+        ? await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\necho {"source":"configured"}\r\n')
+        : await writeFakeStandaloneBinaryAtPath(
+            path.join(repoRoot, '.cargo-target', 'Apex-Log-Viewer', 'debug', 'apex-log-viewer'),
+            '#!/bin/sh\nprintf \'{"source":"configured"}\\n\'\n'
+          );
+    await writeFakeStandaloneBinary(
+      repoRoot,
+      process.platform === 'win32' ? 'not-a-real-windows-executable' : '#!/bin/sh\nprintf \'{"source":"fallback"}\\n\'\n'
     );
-    await writeFakeStandaloneBinary(repoRoot, '#!/bin/sh\nprintf \'{"source":"fallback"}\\n\'\n');
 
     const originalConfiguredBinaryPath = process.env.ALV_CLI_BINARY_PATH;
     process.env.ALV_CLI_BINARY_PATH = configuredBinaryPath;
@@ -183,7 +188,12 @@ test('runAlvCli resolves ALV_CLI_BINARY_PATH from process env when an env overla
       });
 
       expect(result.exitCode).toBe(0);
-      expect(result.command).toBe(configuredBinaryPath);
+      if (process.platform === 'win32') {
+        expect(result.command).toBe(process.env.ComSpec || 'cmd.exe');
+        expect(result.args).toContain(configuredBinaryPath);
+      } else {
+        expect(result.command).toBe(configuredBinaryPath);
+      }
       expect(result.stdoutJson).toEqual({ source: 'configured' });
     } finally {
       if (originalConfiguredBinaryPath === undefined) {
@@ -231,7 +241,6 @@ test('resolveAlvCliBinaryPath stays strict when only a Windows command shim exis
 test('resolveAlvCliInvocation can use a Windows command shim for helper-only coverage', async () => {
   await withTempRepo(async repoRoot => {
     const shimPath = await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\nexit /b 0\r\n');
-    const quotedShimPath = `"${shimPath.replace(/"/g, '""')}"`;
 
     expect(
       resolveAlvCliInvocation({
@@ -242,7 +251,7 @@ test('resolveAlvCliInvocation can use a Windows command shim for helper-only cov
       })
     ).toEqual({
       command: process.env.ComSpec || 'cmd.exe',
-      args: ['/d', '/s', '/c', quotedShimPath]
+      args: ['/d', '/c', 'call', shimPath]
     });
   });
 });
