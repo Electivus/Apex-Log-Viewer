@@ -201,6 +201,10 @@ function isPathInsideRepo(candidatePath) {
   return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
 }
 
+function formatRelativePathForReport(candidatePath) {
+  return path.relative(repoRoot, candidatePath).replace(/\\/g, '/');
+}
+
 function declaredWorkspacePackages() {
   const packages = new Map();
 
@@ -309,7 +313,7 @@ for (const manifestPath of manifests()) {
       }
 
       if (hasBlockedManifestSource(normalizedVersion) && !isAllowedManifestSource(name, normalizedVersion)) {
-        failures.push(`${path.relative(repoRoot, manifestPath)} -> ${name}@${normalizedVersion}`);
+        failures.push(`${formatRelativePathForReport(manifestPath)} -> ${name}@${normalizedVersion}`);
       }
     }
   }
@@ -335,7 +339,7 @@ for (const lockfilePath of lockfiles()) {
         isRegistryTarball(source);
 
       if (!allowed) {
-        failures.push(`${path.relative(repoRoot, lockfilePath)} -> ${packagePath || '(root)'} -> ${source}`);
+        failures.push(`${formatRelativePathForReport(lockfilePath)} -> ${packagePath || '(root)'} -> ${source}`);
       }
     }
   }
@@ -352,7 +356,7 @@ for (const lockfilePath of lockfiles()) {
       isRegistryTarball(source);
 
     if (!allowed) {
-      failures.push(`${path.relative(repoRoot, lockfilePath)} -> ${dependencyPath} -> ${source}`);
+      failures.push(`${formatRelativePathForReport(lockfilePath)} -> ${dependencyPath} -> ${source}`);
     }
   }
 }

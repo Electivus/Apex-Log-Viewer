@@ -16,6 +16,16 @@ pub struct OrgSummary {
     pub instance_url: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveOrgResult {
+    pub requested: String,
+    pub username: String,
+    pub alias: Option<String>,
+    pub instance_url: Option<String>,
+    pub source: String,
+}
+
 pub fn list_orgs(force_refresh: bool) -> Result<Vec<OrgSummary>, String> {
     if std::env::var(auth::TEST_ORG_LIST_JSON_ENV).is_ok() {
         return list_orgs_via_sf(true);
@@ -44,6 +54,43 @@ pub fn list_orgs(force_refresh: bool) -> Result<Vec<OrgSummary>, String> {
 
 pub fn find_alias_for_username(username: &str) -> Option<String> {
     org_inventory::find_alias_for_username(username)
+}
+
+pub fn resolve_org(target_org: Option<&str>) -> Result<ResolveOrgResult, String> {
+    let requested = target_org
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("default");
+
+    if requested != "default" {
+        if let Ok(orgs) = list_orgs(false) {
+            if let Some(org) = orgs.iter().find(|org| {
+                org.username.eq_ignore_ascii_case(requested)
+                    || org
+                        .alias
+                        .as_deref()
+                        .is_some_and(|alias| alias.eq_ignore_ascii_case(requested))
+            }) {
+                return Ok(ResolveOrgResult {
+                    requested: requested.to_string(),
+                    username: org.username.clone(),
+                    alias: org.alias.clone(),
+                    instance_url: org.instance_url.clone(),
+                    source: "org-list".to_string(),
+                });
+            }
+        }
+    }
+
+    let auth = auth::resolve_org_auth(target_org)?;
+    let username = auth.username.unwrap_or_else(|| requested.to_string());
+    Ok(ResolveOrgResult {
+        requested: requested.to_string(),
+        alias: find_alias_for_username(&username),
+        instance_url: Some(auth.instance_url),
+        username,
+        source: "auth".to_string(),
+    })
 }
 
 fn list_orgs_via_sf(force_refresh: bool) -> Result<Vec<OrgSummary>, String> {

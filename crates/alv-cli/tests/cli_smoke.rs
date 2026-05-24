@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 const PROXY_ENV_VARS: &[&str] = &[
     "ALL_PROXY",
@@ -91,45 +91,55 @@ fn spawn_single_http_response(
     content_type: &str,
     body: &'static [u8],
 ) -> (String, thread::JoinHandle<()>) {
+    spawn_http_responses(vec![(
+        status.to_string(),
+        content_type.to_string(),
+        body.to_vec(),
+    )])
+}
+
+fn spawn_http_responses(
+    responses: Vec<(String, String, Vec<u8>)>,
+) -> (String, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("test server should bind");
     let address = listener
         .local_addr()
         .expect("test server address should be available");
-    let status = status.to_string();
-    let content_type = content_type.to_string();
     let handle = thread::spawn(move || {
         listener
             .set_nonblocking(true)
             .expect("test server should become nonblocking");
-        let deadline = Instant::now() + Duration::from_secs(30);
-        let (mut stream, _) = loop {
-            match listener.accept() {
-                Ok(connection) => break connection,
-                Err(error) if error.kind() == ErrorKind::WouldBlock => {
-                    assert!(
-                        Instant::now() < deadline,
-                        "test server timed out waiting for request"
-                    );
-                    thread::sleep(Duration::from_millis(10));
+        for (status, content_type, body) in responses {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                        assert!(
+                            Instant::now() < deadline,
+                            "test server timed out waiting for request"
+                        );
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("test server accept failed: {error}"),
                 }
-                Err(error) => panic!("test server accept failed: {error}"),
-            }
-        };
-        stream
-            .set_read_timeout(Some(Duration::from_secs(1)))
-            .expect("test server should set read timeout");
-        let mut buffer = [0_u8; 4096];
-        let _ = stream.read(&mut buffer);
-        let headers = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            body.len()
-        );
-        stream
-            .write_all(headers.as_bytes())
-            .expect("test server should write headers");
-        stream
-            .write_all(body)
-            .expect("test server should write body");
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .expect("test server should set read timeout");
+            let mut buffer = [0_u8; 4096];
+            let _ = stream.read(&mut buffer);
+            let headers = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream
+                .write_all(headers.as_bytes())
+                .expect("test server should write headers");
+            stream
+                .write_all(&body)
+                .expect("test server should write body");
+        }
     });
     (format!("http://{address}"), handle)
 }
@@ -219,6 +229,23 @@ fn cli_smoke_prints_help_for_standalone_invocation() {
 }
 
 #[test]
+fn cli_smoke_shows_agent_friendly_root_commands_in_help() {
+    let output = apex_log_viewer_command()
+        .args(["--help"])
+        .output()
+        .expect("help should execute");
+
+    assert!(output.status.success(), "help should exit successfully");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(stdout.contains("doctor"));
+    assert!(stdout.contains("orgs"));
+    assert!(stdout.contains("users"));
+    assert!(stdout.contains("trace-flags"));
+    assert!(stdout.contains("debug-levels"));
+    assert!(stdout.contains("tooling"));
+}
+
+#[test]
 fn cli_smoke_shows_logs_subcommands_in_help() {
     let output = apex_log_viewer_command()
         .args(["logs", "--help"])
@@ -230,7 +257,76 @@ fn cli_smoke_shows_logs_subcommands_in_help() {
     assert!(stdout.contains("sync"));
     assert!(stdout.contains("status"));
     assert!(stdout.contains("search"));
+    assert!(stdout.contains("read"));
+    assert!(stdout.contains("resolve"));
+    assert!(stdout.contains("triage"));
+    assert!(stdout.contains("delete"));
     assert!(!stdout.contains("index"));
+}
+
+#[test]
+fn cli_smoke_accepts_global_json_before_logs_status() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-global-json-status-{unique}"));
+    fs::create_dir_all(&workspace_root).expect("workspace should exist");
+
+    let output = apex_log_viewer_command()
+        .current_dir(&workspace_root)
+        .args(["--json", "logs", "status"])
+        .output()
+        .expect("status should execute");
+
+    assert!(output.status.success(), "status should exit successfully");
+    let stdout_json: Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(stdout_json["has_state"], false);
+    assert_eq!(stdout_json["target_org"], "default");
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
+#[test]
+fn cli_smoke_logs_delete_json_requires_confirmation() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root = std::env::temp_dir().join(format!("alv-cli-delete-confirmation-{unique}"));
+    fs::create_dir_all(&workspace_root).expect("workspace should exist");
+
+    let output = apex_log_viewer_command()
+        .current_dir(&workspace_root)
+        .args([
+            "--json",
+            "logs",
+            "delete",
+            "--target-org",
+            "example@example.com",
+            "--ids",
+            "07L000000000001AAA",
+        ])
+        .output()
+        .expect("delete should execute");
+
+    assert!(
+        !output.status.success(),
+        "delete should fail without --yes or --dry-run"
+    );
+    let stderr_json: Value =
+        serde_json::from_slice(&output.stderr).expect("stderr should be valid json");
+    assert_eq!(stderr_json["status"], "error");
+    assert_eq!(stderr_json["code"], "command_failed");
+    assert!(
+        stderr_json["message"]
+            .as_str()
+            .is_some_and(|value| value.contains("--yes")),
+        "expected confirmation guidance, got: {stderr_json}"
+    );
+
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
 }
 
 #[test]
@@ -931,6 +1027,317 @@ fn cli_smoke_routes_org_endpoints_over_stdio_with_fast_fixture_round_trips() {
     drop(harness);
 }
 
+#[test]
+fn cli_smoke_routes_agent_friendly_app_server_methods_over_stdio() {
+    let _guard = lock_test_guard();
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let workspace_root =
+        std::env::temp_dir().join(format!("alv-app-server-agent-methods-{unique}"));
+    let cached_log = workspace_root
+        .join("apexlogs")
+        .join("orgs")
+        .join("default@example.com")
+        .join("logs")
+        .join("unknown-date")
+        .join("07L000000000001AAA.log");
+    fs::create_dir_all(
+        cached_log
+            .parent()
+            .expect("cached log should have a parent"),
+    )
+    .expect("cache dir should exist");
+    fs::write(&cached_log, "09:00:00.0|USER_DEBUG|hello from cache\n")
+        .expect("cached log should be writable");
+
+    let (instance_url, server_handle) = spawn_http_responses(vec![
+        (
+            "200 OK".to_string(),
+            "application/json".to_string(),
+            br#"{"records":[{"Id":"005000000000001AAA","Name":"Ada Lovelace","Username":"ada@example.com","IsActive":true}],"done":true,"totalSize":1}"#.to_vec(),
+        ),
+        (
+            "200 OK".to_string(),
+            "application/json".to_string(),
+            br#"{"records":[{"Id":"7dl000000000001AAA","DeveloperName":"ALV_DEBUG","MasterLabel":"ALV_DEBUG","Language":"None","Workflow":"INFO","Validation":"INFO","Callout":"INFO","ApexCode":"DEBUG","ApexProfiling":"INFO","Visualforce":"INFO","System":"DEBUG","Database":"INFO","Wave":"INFO","Nba":"INFO","DataAccess":"INFO"}],"done":true,"totalSize":1}"#.to_vec(),
+        ),
+        (
+            "200 OK".to_string(),
+            "application/json".to_string(),
+            br#"{"records":[{"Id":"7dl000000000001AAA","DeveloperName":"ALV_DEBUG","MasterLabel":"ALV_DEBUG","Language":"None","Workflow":"INFO","Validation":"INFO","Callout":"INFO","ApexCode":"DEBUG","ApexProfiling":"INFO","Visualforce":"INFO","System":"DEBUG","Database":"INFO","Wave":"INFO","Nba":"INFO","DataAccess":"INFO"}],"done":true,"totalSize":1}"#.to_vec(),
+        ),
+        (
+            "200 OK".to_string(),
+            "application/json".to_string(),
+            br#"{"records":[{"Id":"01p000000000001AAA"}],"done":true,"totalSize":1}"#.to_vec(),
+        ),
+        (
+            "200 OK".to_string(),
+            "application/json".to_string(),
+            br#"{"ok":true}"#.to_vec(),
+        ),
+        (
+            "200 OK".to_string(),
+            "application/json".to_string(),
+            br#"{"records":[{"Id":"005000000000001AAA"}],"done":true,"totalSize":1}"#.to_vec(),
+        ),
+        (
+            "200 OK".to_string(),
+            "application/json".to_string(),
+            br#"{"records":[],"done":true,"totalSize":0}"#.to_vec(),
+        ),
+    ]);
+
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_LIST_JSON",
+        r#"{
+          "result": {
+            "nonScratchOrgs": [
+              {
+                "username": "default@example.com",
+                "alias": "Default",
+                "isDefaultUsername": true,
+                "instanceUrl": "https://default.example.com"
+              }
+            ]
+          }
+        }"#,
+    );
+    std::env::set_var(
+        "ALV_TEST_SF_ORG_DISPLAY_JSON",
+        org_display_fixture(&instance_url),
+    );
+
+    let workspace_root_string = workspace_root.display().to_string();
+    let mut harness = AppServerHarness::spawn();
+
+    let (doctor, _) = harness
+        .request_json(r#"{"jsonrpc":"2.0","id":"doctor:1","method":"doctor/run","params":{}}"#);
+    assert_eq!(doctor["id"], "doctor:1");
+    assert!(doctor["result"]["runtimeVersion"].is_string());
+
+    let org_resolve = json!({
+        "jsonrpc": "2.0",
+        "id": "org:resolve",
+        "method": "org/resolve",
+        "params": { "targetOrg": "Default" }
+    })
+    .to_string();
+    let (resolved, _) = harness.request_json(&org_resolve);
+    assert_eq!(resolved["result"]["username"], "default@example.com");
+    assert_eq!(resolved["result"]["alias"], "Default");
+
+    let logs_resolve = json!({
+        "jsonrpc": "2.0",
+        "id": "logs:resolve",
+        "method": "logs/resolve",
+        "params": {
+            "logId": "07L000000000001AAA",
+            "targetOrg": "default@example.com",
+            "workspaceRoot": workspace_root_string
+        }
+    })
+    .to_string();
+    let (resolved_log, _) = harness.request_json(&logs_resolve);
+    assert_eq!(resolved_log["result"]["cached"], true);
+
+    let logs_read = json!({
+        "jsonrpc": "2.0",
+        "id": "logs:read",
+        "method": "logs/read",
+        "params": {
+            "logId": "07L000000000001AAA",
+            "targetOrg": "default@example.com",
+            "workspaceRoot": workspace_root.display().to_string()
+        }
+    })
+    .to_string();
+    let (read_log, _) = harness.request_json(&logs_read);
+    assert_eq!(
+        read_log["result"]["body"],
+        "09:00:00.0|USER_DEBUG|hello from cache\n"
+    );
+
+    let logs_delete = json!({
+        "jsonrpc": "2.0",
+        "id": "logs:delete",
+        "method": "logs/delete",
+        "params": {
+            "targetOrg": "default@example.com",
+            "ids": ["07L000000000001AAA"],
+            "dryRun": true
+        }
+    })
+    .to_string();
+    let (delete_preview, _) = harness.request_json(&logs_delete);
+    assert_eq!(delete_preview["result"]["dryRun"], true);
+    assert_eq!(delete_preview["result"]["total"], 1);
+
+    let users_search = json!({
+        "jsonrpc": "2.0",
+        "id": "users:search",
+        "method": "users/search",
+        "params": { "targetOrg": "default@example.com", "query": "Ada", "limit": 10 }
+    })
+    .to_string();
+    let (users, _) = harness.request_json(&users_search);
+    assert_eq!(
+        users["result"]["users"][0]["username"], "ada@example.com",
+        "expected users/search result, got: {users}"
+    );
+
+    let debug_levels_list = json!({
+        "jsonrpc": "2.0",
+        "id": "debug:list",
+        "method": "debugLevels/list",
+        "params": { "targetOrg": "default@example.com" }
+    })
+    .to_string();
+    let (debug_levels, _) = harness.request_json(&debug_levels_list);
+    assert_eq!(debug_levels["result"][0]["developerName"], "ALV_DEBUG");
+
+    let debug_levels_get = json!({
+        "jsonrpc": "2.0",
+        "id": "debug:get",
+        "method": "debugLevels/get",
+        "params": { "targetOrg": "default@example.com", "developerName": "ALV_DEBUG" }
+    })
+    .to_string();
+    let (debug_level, _) = harness.request_json(&debug_levels_get);
+    assert_eq!(debug_level["result"]["id"], "7dl000000000001AAA");
+
+    let debug_levels_create = json!({
+        "jsonrpc": "2.0",
+        "id": "debug:create",
+        "method": "debugLevels/create",
+        "params": {
+            "targetOrg": "default@example.com",
+            "record": { "developerName": "ALV_DRY_RUN", "masterLabel": "ALV_DRY_RUN" },
+            "dryRun": true
+        }
+    })
+    .to_string();
+    let (debug_create, _) = harness.request_json(&debug_levels_create);
+    assert_eq!(debug_create["result"]["dryRun"], true);
+
+    let debug_levels_update = json!({
+        "jsonrpc": "2.0",
+        "id": "debug:update",
+        "method": "debugLevels/update",
+        "params": {
+            "targetOrg": "default@example.com",
+            "id": "7dl000000000001AAA",
+            "record": { "developerName": "ALV_DRY_RUN", "masterLabel": "ALV_DRY_RUN" },
+            "dryRun": true
+        }
+    })
+    .to_string();
+    let (debug_update, _) = harness.request_json(&debug_levels_update);
+    assert_eq!(debug_update["result"]["id"], "7dl000000000001AAA");
+
+    let debug_levels_delete = json!({
+        "jsonrpc": "2.0",
+        "id": "debug:delete",
+        "method": "debugLevels/delete",
+        "params": {
+            "targetOrg": "default@example.com",
+            "id": "7dl000000000001AAA",
+            "dryRun": true
+        }
+    })
+    .to_string();
+    let (debug_delete, _) = harness.request_json(&debug_levels_delete);
+    assert_eq!(debug_delete["result"]["dryRun"], true);
+
+    let tooling_query = json!({
+        "jsonrpc": "2.0",
+        "id": "tooling:query",
+        "method": "tooling/query",
+        "params": {
+            "targetOrg": "default@example.com",
+            "soql": "SELECT Id FROM ApexClass LIMIT 1"
+        }
+    })
+    .to_string();
+    let (tooling, _) = harness.request_json(&tooling_query);
+    assert_eq!(tooling["result"]["records"][0]["Id"], "01p000000000001AAA");
+
+    let tooling_get = json!({
+        "jsonrpc": "2.0",
+        "id": "tooling:get",
+        "method": "tooling/request/get",
+        "params": {
+            "targetOrg": "default@example.com",
+            "path": "/services/data/v61.0/limits"
+        }
+    })
+    .to_string();
+    let (raw_get, _) = harness.request_json(&tooling_get);
+    assert_eq!(raw_get["result"]["ok"], true);
+
+    let trace_status = json!({
+        "jsonrpc": "2.0",
+        "id": "trace:status",
+        "method": "traceFlags/status",
+        "params": {
+            "targetOrg": "default@example.com",
+            "target": { "type": "user", "userId": "" }
+        }
+    })
+    .to_string();
+    let (trace_status_result, _) = harness.request_json(&trace_status);
+    assert_eq!(trace_status_result["result"]["targetAvailable"], true);
+    assert_eq!(trace_status_result["result"]["isActive"], false);
+
+    let trace_apply = json!({
+        "jsonrpc": "2.0",
+        "id": "trace:apply",
+        "method": "traceFlags/apply",
+        "params": {
+            "targetOrg": "default@example.com",
+            "target": { "type": "user", "userId": "" },
+            "debugLevelName": "ALV_DEBUG"
+        }
+    })
+    .to_string();
+    let (trace_apply_error, _) = harness.request_json(&trace_apply);
+    assert!(
+        trace_apply_error["error"]["message"]
+            .as_str()
+            .is_some_and(|value| value.contains("confirmed=true")),
+        "expected trace apply confirmation error, got: {trace_apply_error}"
+    );
+
+    let trace_remove = json!({
+        "jsonrpc": "2.0",
+        "id": "trace:remove",
+        "method": "traceFlags/remove",
+        "params": {
+            "targetOrg": "default@example.com",
+            "target": { "type": "user", "userId": "" }
+        }
+    })
+    .to_string();
+    let (trace_remove_error, _) = harness.request_json(&trace_remove);
+    assert!(
+        trace_remove_error["error"]["message"]
+            .as_str()
+            .is_some_and(|value| value.contains("confirmed=true")),
+        "expected trace remove confirmation error, got: {trace_remove_error}"
+    );
+
+    std::env::remove_var("ALV_TEST_SF_ORG_LIST_JSON");
+    std::env::remove_var("ALV_TEST_SF_ORG_DISPLAY_JSON");
+    drop(harness);
+    server_handle
+        .join()
+        .expect("agent method response server should finish");
+    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
+}
+
 #[cfg(windows)]
 #[test]
 fn cli_smoke_uses_explicit_sf_cmd_shim_for_org_endpoints() {
@@ -1051,11 +1458,7 @@ echo Unexpected sf args: %* 1>&2
 exit /b 1
 "#
     .replace("__INSTANCE_URL__", &instance_url);
-    fs::write(
-        &sf_cmd,
-        sf_cmd_source,
-    )
-    .expect("sf shim should be written");
+    fs::write(&sf_cmd, sf_cmd_source).expect("sf shim should be written");
 
     let _sf_bin_env = EnvVarRestore::capture("ALV_SF_BIN_PATH");
     std::env::set_var("ALV_SF_BIN_PATH", &sf_cmd);

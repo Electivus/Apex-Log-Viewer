@@ -123,7 +123,7 @@ test('copyRuntimeBinary replaces a busy destination through a temporary file', a
     path.join('/repo', 'apps', 'vscode-extension', 'bin', 'linux-x64', 'apex-log-viewer')
   ]);
   assert.equal(calls[2][0], 'copyFileSync');
-  assert.match(calls[2][2].replace(/\\/g, '/'), /\/\.apex-log-viewer\.\d+\.\d+\.tmp$/);
+  assert.match(calls[2][2], /[\\/]\.apex-log-viewer\.\d+\.\d+\.tmp$/);
   assert.deepEqual(calls[3], [
     'renameSync',
     calls[2][2],
