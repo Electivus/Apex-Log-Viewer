@@ -78,17 +78,46 @@ pub struct DeleteLogsResult {
 }
 
 pub fn resolve_log_path(params: &ResolveLogPathParams) -> ResolveLogPathResult {
-    let path = log_store::find_cached_log_path(
-        params.workspace_root.as_deref(),
-        params.log_id.trim(),
-        params.target_org.as_deref(),
-    )
+    let log_id = params.log_id.trim();
+    let target_orgs = cache_target_org_candidates(params.target_org.as_deref());
+    let path = if target_orgs.is_empty() {
+        log_store::find_cached_log_path(params.workspace_root.as_deref(), log_id, None)
+    } else {
+        target_orgs.iter().find_map(|target_org| {
+            log_store::find_cached_log_path(
+                params.workspace_root.as_deref(),
+                log_id,
+                Some(target_org),
+            )
+        })
+    }
     .map(|path| path.display().to_string());
     ResolveLogPathResult {
-        log_id: params.log_id.trim().to_string(),
+        log_id: log_id.to_string(),
         cached: path.is_some(),
         path,
     }
+}
+
+fn cache_target_org_candidates(target_org: Option<&str>) -> Vec<String> {
+    let Some(raw) = target_org.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Vec::new();
+    };
+
+    let mut values = Vec::new();
+    if let Ok(resolved) = crate::orgs::resolve_org(Some(raw)) {
+        push_unique(&mut values, resolved.username);
+    }
+    push_unique(&mut values, raw.to_string());
+    values
+}
+
+fn push_unique(values: &mut Vec<String>, value: String) {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || values.iter().any(|item| item.eq_ignore_ascii_case(trimmed)) {
+        return;
+    }
+    values.push(trimmed.to_string());
 }
 
 pub fn read_log_with_cancel(
@@ -268,7 +297,14 @@ fn dedup_ids(values: &[String]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::dedup_ids;
+    use super::{cache_target_org_candidates, dedup_ids, resolve_log_path, ResolveLogPathParams};
+    use crate::{auth, log_store};
+    use std::{
+        fs,
+        path::PathBuf,
+        sync::{Mutex, OnceLock},
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn dedup_ids_keeps_first_non_empty_values() {
@@ -284,5 +320,81 @@ mod tests {
                 "07L000000000002AA".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn resolve_log_path_checks_resolved_org_alias_before_raw_target_org() {
+        let _guard = env_test_guard().lock().expect("env test guard");
+        let _env = ScopedEnv::set(
+            auth::TEST_ORG_LIST_JSON_ENV,
+            r#"{"result":{"orgs":[{"username":"real@example.com","alias":"Demo"}]}}"#,
+        );
+        let workspace = temp_workspace("resolve-alias");
+        let workspace_root = workspace.to_string_lossy().to_string();
+        let log_id = "07L000000000001AA";
+        let expected_path =
+            log_store::unknown_date_log_path(Some(&workspace_root), "real@example.com", log_id);
+        fs::create_dir_all(expected_path.parent().expect("log parent")).expect("create log parent");
+        fs::write(&expected_path, b"USER_DEBUG").expect("write log");
+
+        let result = resolve_log_path(&ResolveLogPathParams {
+            log_id: log_id.to_string(),
+            target_org: Some("Demo".to_string()),
+            workspace_root: Some(workspace_root),
+        });
+
+        assert!(result.cached);
+        assert_eq!(
+            result.path.as_deref(),
+            Some(expected_path.to_str().unwrap())
+        );
+        let _ = fs::remove_dir_all(workspace);
+    }
+
+    #[test]
+    fn cache_target_org_candidates_keeps_raw_target_when_org_resolution_fails() {
+        let _guard = env_test_guard().lock().expect("env test guard");
+        let _list_env = ScopedEnv::set(auth::TEST_ORG_LIST_JSON_ENV, r#"{"result":{"orgs":[]}}"#);
+        let _display_env = ScopedEnv::set(auth::TEST_ORG_DISPLAY_JSON_ENV, r#"{"status":1}"#);
+
+        assert_eq!(
+            cache_target_org_candidates(Some("  raw@example.com ")),
+            vec!["raw@example.com".to_string()]
+        );
+    }
+
+    fn env_test_guard() -> &'static Mutex<()> {
+        static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+        GUARD.get_or_init(|| Mutex::new(()))
+    }
+
+    fn temp_workspace(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("alv-log-ops-{name}-{nonce}"))
+    }
+
+    struct ScopedEnv {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl ScopedEnv {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for ScopedEnv {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
     }
 }
