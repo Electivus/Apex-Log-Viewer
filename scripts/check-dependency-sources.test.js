@@ -338,7 +338,10 @@ test('rejects manifest dependency sources in workspaces outside apps and package
 
     const result = runCheck(tempDir);
     assert.notEqual(result.status, 0, 'expected out-of-tree workspace manifest source to fail provenance checks');
-    assert.match(result.stderr, /tools\/cli\/package\.json -> leftpad@git\+https:\/\/evil\.example\/leftpad\.git#deadbeef/);
+    assert.match(
+      result.stderr,
+      /tools[\\/]cli[\\/]package\.json -> leftpad@git\+https:\/\/evil\.example\/leftpad\.git#deadbeef/
+    );
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -416,7 +419,10 @@ test('rejects shrinkwrap sources in workspaces outside apps and packages', () =>
 
     const result = runCheck(tempDir);
     assert.notEqual(result.status, 0, 'expected out-of-tree workspace shrinkwrap to fail provenance checks');
-    assert.match(result.stderr, /tools\/cli\/npm-shrinkwrap\.json -> node_modules\/leftpad -> https:\/\/evil\.example\/leftpad-1\.0\.0\.tgz/);
+    assert.match(
+      result.stderr,
+      /tools[\\/]cli[\\/]npm-shrinkwrap\.json -> node_modules\/leftpad -> https:\/\/evil\.example\/leftpad-1\.0\.0\.tgz/
+    );
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

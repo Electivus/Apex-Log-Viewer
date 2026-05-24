@@ -158,9 +158,12 @@
     "vscode-nls": "^5.2.0"
   },
   "overrides": {
+    "@nevware21/ts-utils": "0.14.0",
     "axios": "1.16.0",
     "follow-redirects": "1.16.0",
-    "serialize-javascript": "^7.0.3",
+    "qs": "6.15.2",
+    "serialize-javascript": "7.0.5",
+    "uuid": "11.1.1",
     "yaml": "$yaml"
   },
   "lint-staged": {

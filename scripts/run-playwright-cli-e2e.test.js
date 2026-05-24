@@ -65,7 +65,10 @@ test('findMissingBuildArtifacts still requires the host debug binary when CARGO_
     fs.mkdirSync(path.dirname(cliBinaryPath), { recursive: true });
     fs.writeFileSync(cliBinaryPath, '', 'utf8');
 
-    assert.deepEqual(runner.findMissingBuildArtifacts(repoRoot), [runner.resolveCliBinaryRelativePath()]);
+    assert.deepEqual(
+      runner.findMissingBuildArtifacts(repoRoot).map(value => value.replace(/\\/g, '/')),
+      [runner.resolveCliBinaryRelativePath().replace(/\\/g, '/')]
+    );
   } finally {
     if (originalCargoBuildTarget === undefined) {
       delete process.env.CARGO_BUILD_TARGET;

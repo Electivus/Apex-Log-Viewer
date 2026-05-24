@@ -155,13 +155,25 @@ export function resolveSupportExtensionsLockPath(extensionsDir: string): string 
   return path.join(extensionsDir, '.install.lock');
 }
 
+const MARKETPLACE_EXTENSION_ID_REGEX = /^[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*$/i;
+
+function normalizeMarketplaceExtensionId(value: unknown): string | undefined {
+  const id = String(value).trim();
+  if (!id) {
+    return undefined;
+  }
+  if (!MARKETPLACE_EXTENSION_ID_REGEX.test(id)) {
+    throw new Error(`[e2e] Invalid VS Code Marketplace extension id: ${JSON.stringify(id)}`);
+  }
+  return id;
+}
+
 export function resolveSupportExtensionIds(extensionIds: unknown[] = [], extraExtensionIds: string[] = []): string[] {
   return Array.from(
     new Set(
       [...extensionIds, ...extraExtensionIds]
-        .map(String)
-        .map(value => value.trim())
-        .filter(Boolean)
+        .map(normalizeMarketplaceExtensionId)
+        .filter((value): value is string => Boolean(value))
     )
   ).sort((a, b) => a.localeCompare(b));
 }
@@ -405,11 +417,15 @@ function installExtensions(args: {
   extensionIds: string[];
 }): void {
   for (const id of args.extensionIds) {
-    console.log(`[e2e] Installing VS Code support extension: ${id}`);
+    const extensionId = normalizeMarketplaceExtensionId(id);
+    if (!extensionId) {
+      continue;
+    }
+    console.log(`[e2e] Installing VS Code support extension: ${extensionId}`);
     const invocation = resolveCliSpawnInvocation(args.cliPath, [
       ...args.cliArgs,
       '--install-extension',
-      id,
+      extensionId,
       '--force',
       '--user-data-dir',
       args.userDataDir,
@@ -430,7 +446,7 @@ function installExtensions(args: {
         .filter(Boolean)
         .join('; ');
       console.warn(
-        `[e2e] Failed to install VS Code support extension: ${id}${details ? ` (${details})` : ''}`
+        `[e2e] Failed to install VS Code support extension: ${extensionId}${details ? ` (${details})` : ''}`
       );
     }
   }

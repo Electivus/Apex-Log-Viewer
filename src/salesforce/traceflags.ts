@@ -70,6 +70,12 @@ const DEBUG_LEVEL_EXTENDED_FIELDS_MIN_API_VERSION = '63.0';
 const DEFAULT_TAIL_DEBUG_LEVEL = { ...DEBUG_LEVEL_PRESETS[0]!.record };
 const debugLevelApiVersionByOrg = new Map<string, string>();
 const activeUserDebugLevelCache = new Map<string, { value: string | undefined; expiresAt: number }>();
+const SOQL_ESCAPE_REPLACEMENTS: Readonly<Record<string, string>> = {
+  '\\': '\\\\',
+  "'": "\\'",
+  '%': '\\%',
+  _: '\\_'
+};
 
 function getDebugLevelsCacheConfig() {
   try {
@@ -83,13 +89,11 @@ function getDebugLevelsCacheConfig() {
 }
 
 function escapeSoqlLiteral(value: string): string {
-  return String(value || '')
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'");
+  return String(value || '').replace(/[\\']/g, char => SOQL_ESCAPE_REPLACEMENTS[char] || char);
 }
 
 function escapeSoqlLikeLiteral(value: string): string {
-  return escapeSoqlLiteral(value).replace(/%/g, '\\%').replace(/_/g, '\\_');
+  return String(value || '').replace(/[\\'%_]/g, char => SOQL_ESCAPE_REPLACEMENTS[char] || char);
 }
 
 function isSalesforceId(value: string | undefined): value is string {

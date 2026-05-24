@@ -30,6 +30,18 @@ describe('resolveSupportExtensionIds', () => {
       )
     ).toEqual(['salesforce.salesforcedx-vscode-apex-replay-debugger', 'salesforce.salesforcedx-vscode-core']);
   });
+
+  test('rejects extension ids that are not Marketplace identifiers', () => {
+    for (const id of [
+      'salesforce.salesforcedx-vscode-core;echo injected',
+      'salesforce/salesforcedx-vscode-core',
+      'salesforce.salesforcedx-vscode-core --user-data-dir=/tmp/unsafe',
+      '../salesforce.salesforcedx-vscode-core',
+      'salesforce.'
+    ]) {
+      expect(() => resolveSupportExtensionIds([id])).toThrow(/Invalid VS Code Marketplace extension id/);
+    }
+  });
 });
 
 describe('preserved VS Code user data', () => {

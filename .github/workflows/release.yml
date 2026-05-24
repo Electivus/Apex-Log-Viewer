@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build_and_test:
@@ -72,8 +72,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     permissions:
-      contents: write
-      actions: write
+      contents: read
     env:
       TAG_NAME: ${{ github.ref_name }}
       GH_TOKEN: ${{ github.token }}
