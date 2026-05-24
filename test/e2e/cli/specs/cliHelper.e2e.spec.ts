@@ -54,16 +54,8 @@ async function writeFakeCrossTargetBinary(
   scriptBody: string,
   platform: NodeJS.Platform = process.platform
 ): Promise<string> {
-  const binaryDir = path.join(
-    repoRoot,
-    'target',
-    cargoBuildTarget,
-    'debug'
-  );
-  const binaryPath = path.join(
-    binaryDir,
-    platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer'
-  );
+  const binaryDir = path.join(repoRoot, 'target', cargoBuildTarget, 'debug');
+  const binaryPath = path.join(binaryDir, platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer');
 
   await mkdir(binaryDir, { recursive: true });
   await writeFile(binaryPath, scriptBody, 'utf8');
@@ -175,7 +167,9 @@ test('runAlvCli resolves ALV_CLI_BINARY_PATH from process env when an env overla
           );
     await writeFakeStandaloneBinary(
       repoRoot,
-      process.platform === 'win32' ? 'not-a-real-windows-executable' : '#!/bin/sh\nprintf \'{"source":"fallback"}\\n\'\n'
+      process.platform === 'win32'
+        ? 'not-a-real-windows-executable'
+        : '#!/bin/sh\nprintf \'{"source":"fallback"}\\n\'\n'
     );
 
     const originalConfiguredBinaryPath = process.env.ALV_CLI_BINARY_PATH;
@@ -190,7 +184,7 @@ test('runAlvCli resolves ALV_CLI_BINARY_PATH from process env when an env overla
       expect(result.exitCode).toBe(0);
       if (process.platform === 'win32') {
         expect(result.command).toBe(process.env.ComSpec || 'cmd.exe');
-        expect(result.args).toContain(configuredBinaryPath);
+        expect(result.args).toContain(`"${configuredBinaryPath}"`);
       } else {
         expect(result.command).toBe(configuredBinaryPath);
       }
@@ -213,15 +207,12 @@ test('runAlvCli returns diagnostics on timeout instead of rejecting', async () =
       await writeFakeStandaloneBinary(repoRoot, '#!/bin/sh\nsleep 5\n');
     }
 
-    const result = await runAlvCli(
-      [],
-      {
-        repoRoot,
-        timeoutMs: 50,
-        allowWindowsCommandShim: process.platform === 'win32',
-        env: withoutConfiguredCliBinaryEnv()
-      }
-    );
+    const result = await runAlvCli([], {
+      repoRoot,
+      timeoutMs: 50,
+      allowWindowsCommandShim: process.platform === 'win32',
+      env: withoutConfiguredCliBinaryEnv()
+    });
 
     expect(result.exitCode).toBe(-1);
     expect(result.errorMessage).toBeTruthy();
@@ -251,9 +242,32 @@ test('resolveAlvCliInvocation can use a Windows command shim for helper-only cov
       })
     ).toEqual({
       command: process.env.ComSpec || 'cmd.exe',
-      args: ['/d', '/c', 'call', shimPath]
+      args: ['/d', '/c', 'call', `"${shimPath}"`],
+      windowsVerbatimArguments: true
     });
   });
+});
+
+test('runAlvCli executes a Windows command shim from a metacharacter path', async () => {
+  test.skip(process.platform !== 'win32', 'Windows command shims are only used on Windows');
+
+  const parentDir = await mkdtemp(path.join(tmpdir(), 'alv-cli-helper-'));
+  try {
+    const repoRoot = path.join(parentDir, 'repo & cli');
+    await mkdir(repoRoot, { recursive: true });
+    await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\necho {"status":"quoted"}\r\n');
+
+    const result = await runAlvCli(['--target-org', 'alias with spaces'], {
+      repoRoot,
+      allowWindowsCommandShim: true,
+      env: withoutConfiguredCliBinaryEnv()
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdoutJson).toEqual({ status: 'quoted' });
+  } finally {
+    await rm(parentDir, { recursive: true, force: true });
+  }
 });
 
 test('resolveAlvCliBinaryPath prefers the host debug binary when CARGO_BUILD_TARGET is set', async () => {
@@ -264,15 +278,9 @@ test('resolveAlvCliBinaryPath prefers the host debug binary when CARGO_BUILD_TAR
 
     try {
       const hostBinaryPath = await writeFakeStandaloneBinary(repoRoot, '#!/bin/sh\nexit 0\n');
-      const crossTargetBinaryPath = await writeFakeCrossTargetBinary(
-        repoRoot,
-        cargoBuildTarget,
-        '#!/bin/sh\nexit 0\n'
-      );
+      const crossTargetBinaryPath = await writeFakeCrossTargetBinary(repoRoot, cargoBuildTarget, '#!/bin/sh\nexit 0\n');
 
-      expect(resolveAlvCliBinaryPath({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toBe(
-        hostBinaryPath
-      );
+      expect(resolveAlvCliBinaryPath({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toBe(hostBinaryPath);
       expect(resolveAlvCliInvocation({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toEqual({
         command: hostBinaryPath,
         args: []
@@ -295,11 +303,7 @@ test('resolveAlvCliBinaryPath ignores cross-target debug binaries when the host 
     process.env.CARGO_BUILD_TARGET = cargoBuildTarget;
 
     try {
-      await writeFakeCrossTargetBinary(
-        repoRoot,
-        cargoBuildTarget,
-        '#!/bin/sh\nexit 0\n'
-      );
+      await writeFakeCrossTargetBinary(repoRoot, cargoBuildTarget, '#!/bin/sh\nexit 0\n');
 
       expect(() => resolveAlvCliBinaryPath({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toThrow(
         /Unable to locate apex-log-viewer standalone binary/

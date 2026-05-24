@@ -441,7 +441,18 @@ where
 fn build_api_url(auth: &OrgAuth, path_or_url: &str) -> Result<Url, String> {
     let value = path_or_url.trim();
     if value.starts_with("http://") || value.starts_with("https://") {
-        return Url::parse(value).map_err(|error| format!("invalid URL: {error}"));
+        let url = Url::parse(value).map_err(|error| format!("invalid URL: {error}"))?;
+        let base = Url::parse(strip_trailing_slashes(auth.instance_url.trim()))
+            .map_err(|error| format!("invalid authenticated org URL: {error}"))?;
+        if url.username().is_empty()
+            && url.password().is_none()
+            && url.scheme() == base.scheme()
+            && url.host_str() == base.host_str()
+            && url.port_or_known_default() == base.port_or_known_default()
+        {
+            return Ok(url);
+        }
+        return Err("absolute Salesforce URL must match authenticated org host".to_string());
     }
     let base = strip_trailing_slashes(auth.instance_url.trim());
     if value.starts_with("/services/data/") {
@@ -512,11 +523,56 @@ pub fn redact_secrets(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{escape_soql_literal, redact_secrets};
+    use super::{build_api_url, escape_soql_literal, redact_secrets};
+    use crate::auth::OrgAuth;
+
+    fn test_auth() -> OrgAuth {
+        OrgAuth {
+            access_token: "secret-token".to_string(),
+            instance_url: "https://example.my.salesforce.com".to_string(),
+            username: Some("user@example.com".to_string()),
+        }
+    }
 
     #[test]
     fn escape_soql_literal_escapes_quotes_and_backslashes() {
         assert_eq!(escape_soql_literal("O'Brien\\QA"), "O\\'Brien\\\\QA");
+    }
+
+    #[test]
+    fn build_api_url_allows_absolute_url_for_authenticated_org_host() {
+        let url = build_api_url(
+            &test_auth(),
+            "https://example.my.salesforce.com/services/data/v64.0/tooling/query?q=SELECT+Id+FROM+ApexLog",
+        )
+        .expect("same-host URL should be accepted");
+
+        assert_eq!(
+            url.as_str(),
+            "https://example.my.salesforce.com/services/data/v64.0/tooling/query?q=SELECT+Id+FROM+ApexLog"
+        );
+    }
+
+    #[test]
+    fn build_api_url_rejects_absolute_url_for_external_host() {
+        let err = build_api_url(
+            &test_auth(),
+            "https://attacker.example/services/data/v64.0/tooling/query",
+        )
+        .expect_err("external absolute URL should be rejected");
+
+        assert!(err.contains("authenticated org host"));
+    }
+
+    #[test]
+    fn build_api_url_rejects_absolute_url_with_userinfo() {
+        let err = build_api_url(
+            &test_auth(),
+            "https://token@example.my.salesforce.com/services/data/v64.0/tooling/query",
+        )
+        .expect_err("userinfo should be rejected");
+
+        assert!(err.contains("authenticated org host"));
     }
 
     #[test]

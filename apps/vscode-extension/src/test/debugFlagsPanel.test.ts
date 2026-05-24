@@ -40,6 +40,14 @@ suite('DebugFlagsPanel', () => {
     const panelLike = {
       disposed: false,
       orgBootstrapToken: 2,
+      listDebugLevelDetailsWithRuntimeFallback: async () =>
+        await new Promise(resolve => {
+          resolveDetails = resolve;
+        }),
+      getActiveUserDebugLevelWithRuntimeFallback: async () =>
+        await new Promise(resolve => {
+          resolveActive = resolve;
+        }),
       post: (message: any) => {
         posted.push(message);
       }
@@ -77,6 +85,12 @@ suite('DebugFlagsPanel', () => {
       disposed: false,
       statusToken: 0,
       getSelectedAuth: async () => ({ username: 'user@example.com' }),
+      getTraceFlagTargetStatusWithRuntimeFallback: async () => ({
+        target: { type: 'automatedProcess' },
+        targetLabel: 'Automated Process',
+        targetAvailable: false,
+        isActive: false
+      }),
       post: (message: any) => {
         posted.push(message);
       },
@@ -166,31 +180,34 @@ suite('DebugFlagsPanel', () => {
 
     await (DebugFlagsPanel as any).prototype.bootstrapData.call(panelLike);
 
-    assert.deepEqual(posted.find(message => message.type === 'debugFlagsOrgs'), {
-      type: 'debugFlagsOrgs',
-      data: [
-        {
-          username: 'runtime@example.com',
-          alias: 'Runtime',
-          isDefaultUsername: true
-        }
-      ],
-      selected: 'runtime@example.com'
-    });
+    assert.deepEqual(
+      posted.find(message => message.type === 'debugFlagsOrgs'),
+      {
+        type: 'debugFlagsOrgs',
+        data: [
+          {
+            username: 'runtime@example.com',
+            alias: 'Runtime',
+            isDefaultUsername: true
+          }
+        ],
+        selected: 'runtime@example.com'
+      }
+    );
     assert.deepEqual(debugLevelCalls, [{ auth: runtimeAuth, token: 1 }]);
     assert.equal(searchUsersCalls, 1);
-    assert.equal(posted.some(message => message.type === 'debugFlagsError'), false);
+    assert.equal(
+      posted.some(message => message.type === 'debugFlagsError'),
+      false
+    );
   });
 
   test('searchUsers emits sanitized telemetry on success', async () => {
-    const events: Array<{ name: string; properties?: Record<string, string>; measurements?: Record<string, number> }> = [];
+    const events: Array<{ name: string; properties?: Record<string, string>; measurements?: Record<string, number> }> =
+      [];
     const { DebugFlagsPanel } = loadDebugFlagsPanel({
       telemetry: {
-        safeSendEvent: (
-          name: string,
-          properties?: Record<string, string>,
-          measurements?: Record<string, number>
-        ) => {
+        safeSendEvent: (name: string, properties?: Record<string, string>, measurements?: Record<string, number>) => {
           events.push({ name, properties, measurements });
         }
       },
@@ -209,6 +226,10 @@ suite('DebugFlagsPanel', () => {
       lastSourceView: 'logs',
       selectedTarget: undefined,
       getSelectedAuth: async () => ({ username: 'user@example.com' }),
+      searchUsersWithRuntimeFallback: async () => [
+        { id: '005000000000001AAA', name: 'Alice', username: 'alice@example.com' },
+        { id: '005000000000002AAA', name: 'Bob', username: 'bob@example.com' }
+      ],
       post: () => undefined
     };
 
@@ -226,14 +247,11 @@ suite('DebugFlagsPanel', () => {
   });
 
   test('searchUsers emits sanitized telemetry on error', async () => {
-    const events: Array<{ name: string; properties?: Record<string, string>; measurements?: Record<string, number> }> = [];
+    const events: Array<{ name: string; properties?: Record<string, string>; measurements?: Record<string, number> }> =
+      [];
     const { DebugFlagsPanel } = loadDebugFlagsPanel({
       telemetry: {
-        safeSendEvent: (
-          name: string,
-          properties?: Record<string, string>,
-          measurements?: Record<string, number>
-        ) => {
+        safeSendEvent: (name: string, properties?: Record<string, string>, measurements?: Record<string, number>) => {
           events.push({ name, properties, measurements });
         }
       },
@@ -251,6 +269,9 @@ suite('DebugFlagsPanel', () => {
       lastSourceView: 'tail',
       selectedTarget: undefined,
       getSelectedAuth: async () => ({ username: 'user@example.com' }),
+      searchUsersWithRuntimeFallback: async () => {
+        throw new Error('boom');
+      },
       post: () => undefined
     };
 
