@@ -596,7 +596,10 @@ export class DebugFlagsPanel {
   }
 
   private logRuntimeFallback(feature: string, error: unknown): void {
-    logWarn(`DebugFlagsPanel: runtime ${feature} unavailable; falling back to TypeScript path ->`, getErrorMessage(error));
+    logWarn(
+      `DebugFlagsPanel: runtime ${feature} unavailable; falling back to TypeScript path ->`,
+      getErrorMessage(error)
+    );
   }
 
   private async listDebugLevelDetailsWithRuntimeFallback(
@@ -736,6 +739,7 @@ export class DebugFlagsPanel {
           dryRun: false,
           confirmed: true
         });
+        this.ensureRuntimeDebugLevelWriteSucceeded(result, 'update');
         return result.id ?? record.id;
       }
       const result = await runtimeClient.debugLevelCreate({
@@ -744,13 +748,16 @@ export class DebugFlagsPanel {
         dryRun: false,
         confirmed: true
       });
+      this.ensureRuntimeDebugLevelWriteSucceeded(result, 'create');
       return result.id;
     } catch (error) {
       if (!this.isRuntimeCapabilityUnavailable(error)) {
         throw error;
       }
       this.logRuntimeFallback(record.id ? 'debugLevels/update' : 'debugLevels/create', error);
-      return record.id ? (await updateDebugLevel(auth, record.id, record), record.id) : (await createDebugLevel(auth, record)).id;
+      return record.id
+        ? (await updateDebugLevel(auth, record.id, record), record.id)
+        : (await createDebugLevel(auth, record)).id;
     }
   }
 
@@ -759,12 +766,13 @@ export class DebugFlagsPanel {
     debugLevelId: string
   ): Promise<void> {
     try {
-      await runtimeClient.debugLevelDelete({
+      const result = await runtimeClient.debugLevelDelete({
         targetOrg: this.getRuntimeTargetOrg(),
         id: debugLevelId,
         dryRun: false,
         confirmed: true
       });
+      this.ensureRuntimeDebugLevelWriteSucceeded(result, 'delete');
     } catch (error) {
       if (!this.isRuntimeCapabilityUnavailable(error)) {
         throw error;
@@ -772,6 +780,13 @@ export class DebugFlagsPanel {
       this.logRuntimeFallback('debugLevels/delete', error);
       await deleteDebugLevel(auth, debugLevelId);
     }
+  }
+
+  private ensureRuntimeDebugLevelWriteSucceeded(result: { status?: string }, action: string): void {
+    if (String(result.status || '').toLowerCase() !== 'error') {
+      return;
+    }
+    throw new Error(localize('debugFlags.runtimeDebugLevelWriteFailed', 'Runtime failed to {0} debug level.', action));
   }
 
   private getTargetUnavailableReason(targetLabel: string): string {

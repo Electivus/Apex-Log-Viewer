@@ -78,7 +78,7 @@ fn run_create(args: DebugLevelWriteArgs, output: OutputMode) -> Result<i32, Stri
         },
         &CancellationToken::new(),
     )?;
-    print_write_result(&result, output, "Created")
+    print_write_result(&result, output, "Created", "create")
 }
 
 fn run_update(args: DebugLevelWriteArgs, output: OutputMode) -> Result<i32, String> {
@@ -92,7 +92,7 @@ fn run_update(args: DebugLevelWriteArgs, output: OutputMode) -> Result<i32, Stri
         },
         &CancellationToken::new(),
     )?;
-    print_write_result(&result, output, "Updated")
+    print_write_result(&result, output, "Updated", "update")
 }
 
 fn run_delete(args: DebugLevelDeleteArgs, output: OutputMode) -> Result<i32, String> {
@@ -105,22 +105,46 @@ fn run_delete(args: DebugLevelDeleteArgs, output: OutputMode) -> Result<i32, Str
         },
         &CancellationToken::new(),
     )?;
-    print_write_result(&result, output, "Deleted")
+    print_write_result(&result, output, "Deleted", "delete")
 }
 
 fn print_write_result(
     result: &alv_core::debug_levels::DebugLevelWriteResult,
     output: OutputMode,
-    verb: &str,
+    success_verb: &str,
+    action: &str,
 ) -> Result<i32, String> {
     if output.json {
         print_json(result)?;
-    } else if result.dry_run {
-        println!("Would change debug level");
     } else {
-        println!("{verb} debug level {}", result.id.as_deref().unwrap_or(""));
+        let message = write_result_text(result, success_verb, action);
+        if result.status == "error" {
+            eprintln!("{message}");
+        } else {
+            println!("{message}");
+        }
     }
     Ok(if result.status == "error" { 1 } else { 0 })
+}
+
+fn write_result_text(
+    result: &alv_core::debug_levels::DebugLevelWriteResult,
+    success_verb: &str,
+    action: &str,
+) -> String {
+    if result.dry_run {
+        "Would change debug level".to_string()
+    } else if result.status == "error" {
+        format!(
+            "Failed to {action} debug level {}",
+            result.id.as_deref().unwrap_or("")
+        )
+    } else {
+        format!(
+            "{success_verb} debug level {}",
+            result.id.as_deref().unwrap_or("")
+        )
+    }
 }
 
 fn record_from_args(args: &DebugLevelWriteArgs) -> DebugLevelRecord {
@@ -143,5 +167,26 @@ fn record_from_args(args: &DebugLevelWriteArgs) -> DebugLevelRecord {
         wave: args.wave.clone(),
         nba: args.nba.clone(),
         data_access: args.data_access.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_result_text;
+    use alv_core::debug_levels::DebugLevelWriteResult;
+
+    #[test]
+    fn write_result_text_uses_failure_wording_for_error_status() {
+        let result = DebugLevelWriteResult {
+            status: "error".to_string(),
+            dry_run: false,
+            id: Some("7dl000000000001AAA".to_string()),
+            record: None,
+        };
+
+        let message = write_result_text(&result, "Created", "create");
+
+        assert_eq!(message, "Failed to create debug level 7dl000000000001AAA");
+        assert!(!message.contains("Created"));
     }
 }

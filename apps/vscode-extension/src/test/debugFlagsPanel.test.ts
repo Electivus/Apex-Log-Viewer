@@ -306,4 +306,66 @@ suite('DebugFlagsPanel', () => {
 
     assert.equal(applyCalls, 0);
   });
+
+  test('debug level runtime writes throw when runtime reports error status', async () => {
+    const calls: string[] = [];
+    const { DebugFlagsPanel } = loadDebugFlagsPanel({
+      runtime: {
+        runtimeClient: {
+          debugLevelCreate: async () => {
+            calls.push('create');
+            return { status: 'error', dryRun: false };
+          },
+          debugLevelUpdate: async () => {
+            calls.push('update');
+            return { status: 'error', dryRun: false, id: '7dl000000000001AAA' };
+          },
+          debugLevelDelete: async () => {
+            calls.push('delete');
+            return { status: 'error', dryRun: false, id: '7dl000000000001AAA' };
+          }
+        }
+      }
+    });
+
+    const panelLike = {
+      getRuntimeTargetOrg: () => 'user@example.com',
+      isRuntimeCapabilityUnavailable: () => false,
+      logRuntimeFallback: () => undefined,
+      ensureRuntimeDebugLevelWriteSucceeded: (DebugFlagsPanel as any).prototype.ensureRuntimeDebugLevelWriteSucceeded
+    };
+    const record = {
+      ...createEmptyDebugLevelRecord(),
+      developerName: 'ALV_TEST',
+      masterLabel: 'ALV Test'
+    };
+
+    await assert.rejects(
+      () => (DebugFlagsPanel as any).prototype.saveDebugLevelWithRuntimeFallback.call(panelLike, {}, record),
+      /create debug level/
+    );
+    await assert.rejects(
+      () =>
+        (DebugFlagsPanel as any).prototype.saveDebugLevelWithRuntimeFallback.call(
+          panelLike,
+          {},
+          {
+            ...record,
+            id: '7dl000000000001AAA'
+          }
+        ),
+      /update debug level/
+    );
+    await assert.rejects(
+      () =>
+        (DebugFlagsPanel as any).prototype.deleteDebugLevelWithRuntimeFallback.call(
+          panelLike,
+          {},
+          '7dl000000000001AAA'
+        ),
+      /delete debug level/
+    );
+
+    assert.deepEqual(calls, ['create', 'update', 'delete']);
+  });
 });
