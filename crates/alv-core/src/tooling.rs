@@ -506,19 +506,79 @@ fn format_request_error(error: &reqwest::Error, url: &str) -> String {
 
 pub fn redact_secrets(value: &str) -> String {
     let mut output = value.to_string();
-    for marker in ["Bearer ", "access_token=", "accessToken", "refreshToken"] {
-        if let Some(index) = output.find(marker) {
-            let start = index + marker.len();
-            let end = output[start..]
-                .find(|ch: char| ch.is_whitespace() || ch == '"' || ch == '&' || ch == ',')
-                .map(|offset| start + offset)
-                .unwrap_or(output.len());
-            if end > start {
-                output.replace_range(start..end, "[redacted]");
-            }
+    redact_after_prefix(&mut output, "Bearer ");
+    redact_after_prefix(&mut output, "access_token=");
+    redact_keyed_secret(&mut output, "accessToken");
+    redact_keyed_secret(&mut output, "refreshToken");
+    output
+}
+
+fn redact_after_prefix(output: &mut String, marker: &str) {
+    let mut search_start = 0;
+    while let Some(relative_index) = output[search_start..].find(marker) {
+        let start = search_start + relative_index + marker.len();
+        let end = secret_value_end(output, start);
+        if end > start {
+            output.replace_range(start..end, "[redacted]");
+            search_start = start + "[redacted]".len();
+        } else {
+            search_start = start;
         }
     }
-    output
+}
+
+fn redact_keyed_secret(output: &mut String, key: &str) {
+    let mut search_start = 0;
+    while let Some(relative_index) = output[search_start..].find(key) {
+        let mut cursor = search_start + relative_index + key.len();
+        cursor = skip_ascii_whitespace(output, cursor);
+        if output[cursor..].starts_with('"') || output[cursor..].starts_with('\'') {
+            cursor += 1;
+            cursor = skip_ascii_whitespace(output, cursor);
+        }
+        if !(output[cursor..].starts_with(':') || output[cursor..].starts_with('=')) {
+            search_start = cursor;
+            continue;
+        }
+        cursor += 1;
+        cursor = skip_ascii_whitespace(output, cursor);
+
+        let quote = output[cursor..]
+            .chars()
+            .next()
+            .filter(|ch| *ch == '"' || *ch == '\'');
+        let start = if quote.is_some() { cursor + 1 } else { cursor };
+        let end = quote
+            .and_then(|quote_char| {
+                output[start..]
+                    .find(quote_char)
+                    .map(|relative_end| start + relative_end)
+            })
+            .unwrap_or_else(|| secret_value_end(output, start));
+
+        if end > start {
+            output.replace_range(start..end, "[redacted]");
+            search_start = start + "[redacted]".len();
+        } else {
+            search_start = start;
+        }
+    }
+}
+
+fn skip_ascii_whitespace(value: &str, mut cursor: usize) -> usize {
+    while cursor < value.len() && value.as_bytes()[cursor].is_ascii_whitespace() {
+        cursor += 1;
+    }
+    cursor
+}
+
+fn secret_value_end(value: &str, start: usize) -> usize {
+    value[start..]
+        .find(|ch: char| {
+            ch.is_whitespace() || ch == '"' || ch == '&' || ch == ',' || ch == '}' || ch == ']'
+        })
+        .map(|offset| start + offset)
+        .unwrap_or(value.len())
 }
 
 #[cfg(test)]
@@ -580,5 +640,28 @@ mod tests {
         let redacted = redact_secrets("Authorization: Bearer 00D-secret-token failed");
         assert!(redacted.contains("Bearer [redacted]"));
         assert!(!redacted.contains("00D-secret-token"));
+    }
+
+    #[test]
+    fn redact_secrets_hides_json_token_fields() {
+        let redacted = redact_secrets(
+            r#"{"accessToken":"00D-access-token","refreshToken":"00D-refresh-token"}"#,
+        );
+
+        assert!(redacted.contains(r#""accessToken":"[redacted]""#));
+        assert!(redacted.contains(r#""refreshToken":"[redacted]""#));
+        assert!(!redacted.contains("00D-access-token"));
+        assert!(!redacted.contains("00D-refresh-token"));
+    }
+
+    #[test]
+    fn redact_secrets_hides_key_value_token_fields() {
+        let redacted =
+            redact_secrets("accessToken=00D-access-token refreshToken: 00D-refresh-token");
+
+        assert!(redacted.contains("accessToken=[redacted]"));
+        assert!(redacted.contains("refreshToken: [redacted]"));
+        assert!(!redacted.contains("00D-access-token"));
+        assert!(!redacted.contains("00D-refresh-token"));
     }
 }
