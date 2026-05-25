@@ -28,17 +28,27 @@ function readWorkflow() {
   return YAML.parse(read('.github/workflows/e2e-playwright.yml'));
 }
 
-function getWorkflowStep(workflow, stepName) {
-  const steps = workflow?.jobs?.playwright_e2e?.steps;
-  assert.ok(Array.isArray(steps), 'expected workflow to define jobs.playwright_e2e.steps');
+function getWorkflowJob(workflow, jobName) {
+  const job = workflow?.jobs?.[jobName];
+  assert.ok(job, `expected workflow to define jobs.${jobName}`);
+  return job;
+}
+
+function getWorkflowStep(workflow, stepName, jobName = 'playwright_e2e') {
+  const steps = getWorkflowJob(workflow, jobName)?.steps;
+  assert.ok(Array.isArray(steps), `expected workflow to define jobs.${jobName}.steps`);
 
   const step = steps.find(candidate => candidate?.name === stepName);
-  assert.ok(step, `expected workflow step '${stepName}' to exist`);
+  assert.ok(step, `expected workflow step '${stepName}' to exist in job '${jobName}'`);
 
   return {
     step,
     index: steps.indexOf(step)
   };
+}
+
+function getDirectWorkflowStep(workflow, stepName) {
+  return getWorkflowStep(workflow, stepName, 'playwright_e2e_os_matrix');
 }
 
 test('package.json test:scripts includes the CLI real-org workflow guard', () => {
@@ -140,6 +150,80 @@ test('real-org Playwright workflow disables Playwright retries for the expensive
     '0',
     'expected the real-org Playwright workflow to disable retries via PLAYWRIGHT_RETRIES=0'
   );
+});
+
+test('direct real-org Playwright OS matrix runs Windows and macOS without the proxy lab', () => {
+  const workflow = readWorkflow();
+  const matrix = getWorkflowJob(workflow, 'playwright_e2e_os_matrix')?.strategy?.matrix?.include;
+  const cliStep = getDirectWorkflowStep(workflow, 'Run CLI real-org E2E');
+  const extensionStep = getDirectWorkflowStep(workflow, 'Run Playwright E2E');
+
+  assert.deepEqual(
+    matrix?.map(entry => ({
+      artifact_suffix: entry.artifact_suffix,
+      os: entry.os,
+      vscode_platform: entry.vscode_platform
+    })),
+    [
+      {
+        os: 'windows-latest',
+        vscode_platform: 'win32-x64-archive',
+        artifact_suffix: 'windows'
+      },
+      {
+        os: 'macos-latest',
+        vscode_platform: 'darwin-arm64',
+        artifact_suffix: 'macos'
+      }
+    ]
+  );
+
+  assert.match(String(cliStep.step.run || ''), /^\s*npm run test:e2e:cli\s*$/m);
+  assert.doesNotMatch(String(cliStep.step.run || ''), /proxy-lab/);
+  assert.match(String(extensionStep.step.run || ''), /^\s*npm run test:e2e\s*$/m);
+  assert.doesNotMatch(String(extensionStep.step.run || ''), /proxy-lab/);
+  assert.ok(cliStep.index < extensionStep.index, 'expected direct CLI E2E to run before direct extension E2E');
+});
+
+test('direct real-org Playwright workflow keeps the CLI scratch-env contract aligned with the extension step', () => {
+  const workflow = readWorkflow();
+  const { step: cliStep } = getDirectWorkflowStep(workflow, 'Run CLI real-org E2E');
+  const { step: extensionStep } = getDirectWorkflowStep(workflow, 'Run Playwright E2E');
+
+  for (const key of SHARED_SCRATCH_ENV_KEYS) {
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(cliStep.env || {}, key),
+      `expected direct CLI real-org step env to include '${key}'`
+    );
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(extensionStep.env || {}, key),
+      `expected direct extension Playwright step env to include '${key}'`
+    );
+    assert.equal(
+      cliStep.env[key],
+      extensionStep.env[key],
+      `expected direct CLI real-org step env '${key}' to stay aligned with the direct extension step`
+    );
+  }
+
+  assert.equal(
+    cliStep.env.SF_SCRATCH_POOL_OWNER,
+    'github:${{ github.run_id }}/${{ github.run_attempt }}/${{ matrix.artifact_suffix }}',
+    'expected direct E2E pool owners to include the OS artifact suffix'
+  );
+});
+
+test('direct real-org Playwright workflow uploads OS-specific artifacts and disables retries', () => {
+  const workflow = readWorkflow();
+  const job = getWorkflowJob(workflow, 'playwright_e2e_os_matrix');
+  const uploadCliStep = getDirectWorkflowStep(workflow, 'Upload CLI E2E artifacts');
+  const uploadExtensionStep = getDirectWorkflowStep(workflow, 'Upload Playwright artifacts');
+
+  assert.equal(job.env?.PLAYWRIGHT_RETRIES, '0');
+  assert.equal(uploadCliStep.step.with?.name, 'playwright-cli-e2e-${{ matrix.artifact_suffix }}');
+  assert.equal(uploadCliStep.step.with?.path, 'output/playwright-cli/');
+  assert.equal(uploadExtensionStep.step.with?.name, 'playwright-e2e-${{ matrix.artifact_suffix }}');
+  assert.equal(uploadExtensionStep.step.with?.path, 'output/playwright/');
 });
 
 test('real-org Playwright workflow logs into Azure immediately before telemetry-capable extension E2E', () => {
