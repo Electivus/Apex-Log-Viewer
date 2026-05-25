@@ -28,12 +28,22 @@ jobs:
   build_and_test:
     name: Build and Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            vscode_platform: linux-x64
+          - os: windows-latest
+            vscode_platform: win32-x64-archive
+          - os: macos-latest
+            vscode_platform: darwin-arm64
     steps:
+      - name: Disable Windows autocrlf
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
@@ -48,7 +58,7 @@ jobs:
         id: vscode-cache
         env:
           VSCODE_TARGET: stable
-          VSCODE_PLATFORM: linux-x64
+          VSCODE_PLATFORM: ${{ matrix.vscode_platform }}
         run: node scripts/resolve-vscode-cache-metadata.js
 
       - name: Restore VS Code test cache
@@ -75,6 +85,7 @@ jobs:
         run: npm run build
 
       - name: Run tests
+        shell: bash
         run: |
           case "${{ github.event.inputs.scope || 'unit' }}" in
             unit) npm run test:unit:ci ;;

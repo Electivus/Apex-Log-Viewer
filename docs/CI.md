@@ -2,9 +2,9 @@
 
 This repository uses GitHub Actions to build, test, package, and publish the extension.
 
-- Workflow CI (`.github/workflows/ci.yml`): build/test only on `push` and `pull_request`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`). This workflow enforces dependency provenance with `node scripts/check-dependency-sources.mjs` before every `npm ci`, then runs npm registry signature verification (`npm run security:npm-signatures`) before compile/test.
+- Workflow CI (`.github/workflows/ci.yml`): build/test on `push` and `pull_request` across `ubuntu-latest`, `windows-latest`, and `macos-latest`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`). This workflow enforces dependency provenance with `node scripts/check-dependency-sources.mjs` before every `npm ci`, then runs npm registry signature verification (`npm run security:npm-signatures`) before compile/test. The VSIX smoke test remains Ubuntu-only after the OS matrix succeeds.
 - Workflow Dependency Review (`.github/workflows/dependency-review.yml`): blocks pull requests that introduce new moderate-or-higher dependency risk in runtime or development scopes.
-- Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. This workflow is now pool-only in CI: it requires `SF_SCRATCH_POOL_NAME` plus `SF_DEVHUB_AUTH_URL`, reuses pooled scratch orgs through each slot's stored `sfdxAuthUrl`, and defaults to `1` Playwright worker on PR runs unless `playwright_workers` is set for a manual dispatch. It runs both real-org surfaces in order: `npm run test:e2e:cli` for the standalone CLI, then `npm run test:e2e:telemetry` when Azure OIDC secrets and the E2E telemetry target variables are configured, otherwise `npm run test:e2e`, for the VS Code extension flow. CLI artifacts upload from `output/playwright-cli/`; extension artifacts upload from `output/playwright/`.
+- Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. This workflow is pool-only in CI: it requires `SF_SCRATCH_POOL_NAME` plus `SF_DEVHUB_AUTH_URL`, reuses pooled scratch orgs through each slot's stored `sfdxAuthUrl`, and defaults to `1` Playwright worker on PR runs unless `playwright_workers` is set for a manual dispatch. Ubuntu keeps the full MITM proxy-lab path and runs both real-org surfaces in order: `npm run test:e2e:cli` for the standalone CLI, then `npm run test:e2e:telemetry` when Azure OIDC secrets and the E2E telemetry target variables are configured, otherwise `npm run test:e2e`, for the VS Code extension flow. Windows and macOS run the same CLI and VS Code E2E suites directly against the scratch-org pool, without Docker/proxy-lab. CLI artifacts upload from `output/playwright-cli/`; extension artifacts upload from `output/playwright/`, with OS-specific artifact names for direct Windows/macOS runs.
 - Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace (if `VSCE_PAT` is configured) and Open VSX (if `OVSX_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
 - Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes automatically to the Marketplace and Open VSX pre‑release channels (when `VSCE_PAT`/`OVSX_PAT` are set).
 - Workflow Rust CLI Release (`.github/workflows/rust-release.yml`): runs on `rust-v*` tags, publishes the npm meta/native packages and GitHub release assets built from the tested CLI release bundle, and intentionally keeps `crates.io` out of the bootstrap path for now. npm publishing uses npm Trusted Publisher/OIDC auth from GitHub Actions; no long-lived npm publish token is required once each CLI package trusts `Electivus/Apex-Log-Viewer` with workflow filename `rust-release.yml`.
@@ -15,7 +15,7 @@ This repository uses GitHub Actions to build, test, package, and publish the ext
 
 Build & Test basics:
 
-- Node from `.nvmrc` on `ubuntu-latest` with npm cache.
+- Node from `.nvmrc` on `ubuntu-latest`, `windows-latest`, and `macos-latest` with npm cache.
 - `npm ci` → `npm run build` → tests. CI defaults to unit tests on manual runs; Release runs all tests.
 - `npm run test:scripts` includes the repository security regression suite plus `node scripts/check-dependency-sources.mjs`, so local script verification catches dependency source drift without waiting for CI.
 - Local Rust fast path: `npm run test:rust:smoke` exercises the CLI/app-server smoke layer first (`alv-cli` `cli_smoke` plus `alv-core` `orgs_smoke`) before involving the VS Code host or Playwright.
@@ -43,7 +43,8 @@ The Playwright workflow in `.github/workflows/e2e-playwright.yml` is pool-only i
 - It uses the Dev Hub scratch-org pool.
 - It leases a dedicated org per Playwright worker.
 - It defaults to `1` worker on PR runs unless `playwright_workers` is provided for a manual dispatch.
-- It runs the standalone CLI real-org suite before the VS Code extension suite.
+- It runs the standalone CLI real-org suite before the VS Code extension suite on every E2E lane.
+- Ubuntu runs those suites through the MITM proxy lab; Windows and macOS run them directly on the hosted runner.
 - It fails fast when the pool configuration is incomplete instead of falling back to the legacy single-scratch CI path.
 
 ### Pool mode
@@ -69,8 +70,9 @@ Key behavior in pool mode:
 
 - `SF_SCRATCH_STRATEGY=pool` and `PLAYWRIGHT_WORKERS` are injected automatically.
 - The workflow defaults to `PLAYWRIGHT_WORKERS=1` in pool mode on `pull_request`; manual dispatch can override that value with the `playwright_workers` input.
-- The CLI real-org step runs `npm run test:e2e:cli` with the same scratch-org env contract as the extension step, then uploads `output/playwright-cli/` as a dedicated artifact.
-- The extension step then runs `npm run test:e2e:telemetry` or `npm run test:e2e` and uploads `output/playwright/`.
+- The Ubuntu CLI real-org step runs `npm run test:e2e:cli` through the proxy lab with the same scratch-org env contract as the extension step, then uploads `output/playwright-cli/` as a dedicated artifact.
+- The Ubuntu extension step then runs `npm run test:e2e:telemetry` or `npm run test:e2e` through the proxy lab and uploads `output/playwright/`.
+- The Windows/macOS direct matrix runs `npm run test:e2e:cli` and `npm run test:e2e` without proxy-lab, then uploads artifacts with OS suffixes such as `playwright-cli-e2e-windows` and `playwright-e2e-macos`.
 - The workflow-level concurrency lock uses a per-ref group whenever `SF_SCRATCH_POOL_NAME` is configured, so concurrent runs can rely on the Dev Hub lease API instead of serializing the whole repository.
 - The helper still keeps `fullyParallel: false`, but multiple Playwright workers can now run in parallel because each worker acquires its own scratch org slot.
 - Manual `workflow_dispatch` runs use the same pool-only path as `pull_request`, so dispatch validation exercises the same concurrency and lease behavior as CI.

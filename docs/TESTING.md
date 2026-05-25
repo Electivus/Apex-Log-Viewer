@@ -159,7 +159,7 @@ To validate against a Salesforce CLI package override, such as the nightly build
 npm run test:e2e:proxy-lab:sf-nightly -- npm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts
 ```
 
-The standard GitHub Playwright E2E workflow runs both real-org surfaces through this MITM proxy lab. The CLI step populates the proxy-lab dependency volume, and the extension step reuses that volume with `ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1`. When telemetry validation is configured, Azure resource resolution and Log Analytics queries stay on the GitHub runner host while the Playwright child run executes inside the MITM proxy lab.
+The standard GitHub Playwright E2E workflow keeps the Ubuntu lane on this MITM proxy lab. The Ubuntu CLI step populates the proxy-lab dependency volume, and the Ubuntu extension step reuses that volume with `ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1`. Windows and macOS lanes run the same real-org CLI and VS Code E2E commands directly on their hosted runners against the scratch-org pool. When telemetry validation is configured, Azure resource resolution and Log Analytics queries stay on the GitHub runner host while the Ubuntu Playwright child run executes inside the MITM proxy lab.
 
 Pool-specific env vars:
 
@@ -198,7 +198,7 @@ Troubleshooting:
 4. Runs the full Playwright suite
 5. Queries `AppEvents` in the linked Log Analytics workspace and fails if the current run's telemetry does not arrive
 
-The GitHub Actions workflow `.github/workflows/e2e-playwright.yml` prefers this path automatically when Azure OIDC secrets and the E2E telemetry target variables are configured. If that Azure configuration is incomplete, the workflow still runs `npm run test:e2e`, but skips the telemetry-validation layer.
+The Ubuntu lane of `.github/workflows/e2e-playwright.yml` prefers this path automatically when Azure OIDC secrets and the E2E telemetry target variables are configured. If that Azure configuration is incomplete, the workflow still runs `npm run test:e2e`, but skips the telemetry-validation layer. Windows and macOS E2E lanes run direct non-telemetry Playwright validation.
 
 Required Azure targets for the telemetry path:
 
