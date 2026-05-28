@@ -138,9 +138,9 @@
     "undici": "^8.1.0",
     "vscode-nls-dev": "^4.0.4",
     "yaml": "^2.9.0",
-    "nx": "^22.7.1",
-    "@nx/js": "^22.7.1",
-    "@nx/workspace": "^22.0.0"
+    "nx": "^22.7.5",
+    "@nx/js": "^22.7.5",
+    "@nx/workspace": "^22.7.5"
   },
   "dependencies": {
     "@jsforce/jsforce-node": "^3.10.14",
