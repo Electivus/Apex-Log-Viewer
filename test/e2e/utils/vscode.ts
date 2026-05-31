@@ -2,7 +2,6 @@ import { mkdtemp, readFile, access, readdir, mkdir, open, stat, unlink, utimes, 
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from '@vscode/test-electron';
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright';
 import { envFlag } from './envFlag';
@@ -10,6 +9,8 @@ import { removePathBestEffort } from './fsCleanup';
 import { dismissAllNotifications } from './notifications';
 import { applyE2eNetworkEnvironment, resolveVsCodeProxyLaunchArgs, resolveVsCodeUserProxySettings } from './proxy';
 import { timeE2eStep } from './timing';
+
+const crossSpawn = require('cross-spawn');
 
 export type VscodeLaunch = {
   app: ElectronApplication;
@@ -189,15 +190,7 @@ export function resolveCliSpawnInvocation(
   cliArgs: string[] = [],
   targetPlatform: NodeJS.Platform = process.platform
 ): { command: string; args: string[] } {
-  if (targetPlatform === 'win32' && /\.cmd$/i.test(cliPath)) {
-    // `spawnSync(code.cmd, ...)` can fail with EINVAL on Windows, so route the
-    // VS Code CLI through `cmd.exe` when the resolved launcher is a batch file.
-    return {
-      command: process.env.ComSpec || 'cmd.exe',
-      args: ['/d', '/s', '/c', 'call', cliPath, ...cliArgs]
-    };
-  }
-
+  void targetPlatform;
   return { command: cliPath, args: cliArgs };
 }
 
@@ -432,7 +425,7 @@ function installExtensions(args: {
       '--extensions-dir',
       args.extensionsDir
     ]);
-    const res = spawnSync(invocation.command, invocation.args, {
+    const res = crossSpawn.sync(invocation.command, invocation.args, {
       stdio: ['pipe', 'inherit', 'inherit'],
       encoding: 'utf8',
       input: 'y\n',

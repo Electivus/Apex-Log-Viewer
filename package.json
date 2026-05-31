@@ -121,7 +121,7 @@
     "jest-environment-jsdom": "^30.4.1",
     "jsdom": "^29.1.1",
     "lint-staged": "^17.0.7",
-    "mocha": "^11.7.6",
+    "mocha": "11.3.0",
     "npm-run-all": "^4.1.5",
     "postcss": "^8.5.15",
     "prettier": "^3.8.3",
@@ -160,10 +160,15 @@
   "overrides": {
     "@nevware21/ts-utils": "0.14.0",
     "axios": "1.16.0",
+    "brace-expansion@<=1.1.12": "1.1.15",
+    "brace-expansion@>=2.0.0 <2.0.3": "2.0.3",
+    "brace-expansion@>=4.0.0 <5.0.6": "5.0.6",
     "follow-redirects": "1.16.0",
     "qs": "6.15.2",
     "serialize-javascript": "7.0.5",
+    "underscore": "1.13.8",
     "uuid": "11.1.1",
+    "ws": "8.21.0",
     "yaml": "$yaml"
   },
   "lint-staged": {

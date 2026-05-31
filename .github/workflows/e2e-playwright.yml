@@ -77,7 +77,7 @@ jobs:
           key: vscode-test-${{ runner.os }}-${{ steps.vscode-cache.outputs.version }}-${{ steps.vscode-cache.outputs.build }}
 
       - name: Install Salesforce CLI
-        run: npm install -g @salesforce/cli
+        run: npm install -g @salesforce/cli@2.136.8 --no-audit --no-fund
 
       - name: Require scratch-org pool configuration
         shell: bash
@@ -233,7 +233,7 @@ jobs:
           key: vscode-test-${{ runner.os }}-${{ steps.vscode-cache.outputs.version }}-${{ steps.vscode-cache.outputs.build }}
 
       - name: Install Salesforce CLI
-        run: npm install -g @salesforce/cli
+        run: npm install -g @salesforce/cli@2.136.8 --no-audit --no-fund
 
       - name: Require scratch-org pool configuration
         shell: bash

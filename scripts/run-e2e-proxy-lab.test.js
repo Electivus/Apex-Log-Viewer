@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const {
   ensureHostVolumeMountpoints,
+  normalizeSalesforceCliPackage,
   parseProxyLabArgs,
   resolveComposeArgs,
   resolveProxyLabEnv
@@ -82,6 +83,19 @@ test('parseProxyLabArgs supports equals syntax and command delimiter', () => {
 
 test('parseProxyLabArgs requires a Salesforce CLI package value', () => {
   assert.throws(() => parseProxyLabArgs(['--sf-cli-package']), /--sf-cli-package requires a package specifier/);
+});
+
+test('Salesforce CLI package overrides are constrained to the official CLI package', () => {
+  assert.equal(normalizeSalesforceCliPackage(' @salesforce/cli@2.136.8 '), '@salesforce/cli@2.136.8');
+  assert.equal(normalizeSalesforceCliPackage('@salesforce/cli@nightly'), '@salesforce/cli@nightly');
+  assert.throws(
+    () => normalizeSalesforceCliPackage('evil-package@1.0.0'),
+    /must be @salesforce\/cli pinned to an exact version/
+  );
+  assert.throws(
+    () => normalizeSalesforceCliPackage('@salesforce/cli'),
+    /must be @salesforce\/cli pinned to an exact version/
+  );
 });
 
 test('ensureHostVolumeMountpoints creates Docker volume mountpoints before compose runs', () => {
@@ -209,6 +223,7 @@ test('proxy lab runner can install an explicit Salesforce CLI package before pre
 
   assert.match(script, /install_salesforce_cli_override\(\)/);
   assert.match(script, /ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE/);
+  assert.match(script, /validate_salesforce_cli_package/);
   assert.match(script, /npm install --global "\$\{package_name\}"/);
   assert.match(script, /sf --version/);
   assert.match(
@@ -276,6 +291,15 @@ test('proxy lab runner image installs xauth for xvfb-run', () => {
   assert.ok(aptInstallBlock, 'expected runner Dockerfile to contain an apt package list');
   assert.match(aptInstallBlock, /^\s+xvfb\s+\\$/m);
   assert.match(aptInstallBlock, /^\s+xauth\s+\\$/m);
+});
+
+test('proxy lab Docker images are pinned by digest', () => {
+  const runnerDockerfile = readRunnerDockerfile();
+  const proxyDockerfile = readProxyDockerfile();
+
+  assert.match(runnerDockerfile, /^FROM rust:1\.95\.0-bookworm@sha256:[0-9a-f]{64} AS rust-toolchain$/m);
+  assert.match(runnerDockerfile, /^FROM node:24\.15\.0-bookworm@sha256:[0-9a-f]{64}$/m);
+  assert.match(proxyDockerfile, /^FROM debian:bookworm-slim@sha256:[0-9a-f]{64}$/m);
 });
 
 test('proxy lab Dockerfiles bound apt network waits during image builds', () => {
