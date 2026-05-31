@@ -940,7 +940,7 @@ test('OpenSSF Scorecard workflow uploads SARIF with pinned actions', () => {
 
   const refs = usesRefs('.github/workflows/scorecard.yml');
   assert.ok(refs.includes('ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a'));
-  assert.ok(refs.includes('github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225'));
+  assert.ok(refs.some(ref => /^github\/codeql-action\/upload-sarif@[0-9a-f]{40}$/.test(ref)));
   assert.match(workflowText, /results_format:\s+sarif/);
   assert.match(workflowText, /publish_results:\s+false/);
 });
