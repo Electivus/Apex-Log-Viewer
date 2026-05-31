@@ -930,7 +930,8 @@ test('OpenSSF Scorecard workflow uploads SARIF with pinned actions', () => {
   const workflow = yaml.parse(workflowText);
 
   assert.equal(workflow.name, 'OpenSSF Scorecard');
-  assert.deepEqual(workflow.permissions, {
+  assert.deepEqual(workflow.permissions, { contents: 'read' });
+  assert.deepEqual(workflow.jobs.scorecard.permissions, {
     contents: 'read',
     'security-events': 'write'
   });
@@ -943,6 +944,24 @@ test('OpenSSF Scorecard workflow uploads SARIF with pinned actions', () => {
   assert.ok(refs.some(ref => /^github\/codeql-action\/upload-sarif@[0-9a-f]{40}$/.test(ref)));
   assert.match(workflowText, /results_format:\s+sarif/);
   assert.match(workflowText, /publish_results:\s+false/);
+});
+
+test('devcontainer base image and Salesforce CLI install are pinned', () => {
+  const dockerfile = read('.devcontainer/Dockerfile');
+
+  assert.match(
+    dockerfile,
+    /^FROM mcr\.microsoft\.com\/vscode\/devcontainers\/typescript-node:24@sha256:[0-9a-f]{64}$/m
+  );
+  assert.match(dockerfile, /npm install -g @salesforce\/cli@\d+\.\d+\.\d+ --no-audit --no-fund/);
+});
+
+test('Playwright E2E workflow pins Salesforce CLI global installs', () => {
+  const workflow = read('.github/workflows/e2e-playwright.yml');
+  const installs = workflow.match(/npm install -g @salesforce\/cli@\d+\.\d+\.\d+ --no-audit --no-fund/g) || [];
+
+  assert.equal(installs.length, 2);
+  assert.doesNotMatch(workflow, /npm install -g @salesforce\/cli(?:\s|$)/);
 });
 
 test('dependency review workflow exists and is wired to pull_request', () => {

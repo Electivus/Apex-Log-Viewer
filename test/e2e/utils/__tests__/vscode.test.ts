@@ -134,23 +134,23 @@ describe('resolveCliSpawnInvocation', () => {
     );
   });
 
-  test('wraps Windows .cmd CLIs through cmd.exe with separate arguments', () => {
+  test('keeps Windows .cmd CLIs as direct cross-spawn invocations', () => {
     expect(
       resolveCliSpawnInvocation(
         'C:\\VS Code\\bin\\code.cmd',
-        ['--extensions-dir', 'C:\\Temp\\support extensions', '--install-extension', 'publisher.extension'],
+        [
+          '--extensions-dir',
+          'C:\\Temp\\support extensions & cache',
+          '--install-extension',
+          'publisher.extension'
+        ],
         'win32'
       )
     ).toEqual({
-      command: process.env.ComSpec || 'cmd.exe',
+      command: 'C:\\VS Code\\bin\\code.cmd',
       args: [
-        '/d',
-        '/s',
-        '/c',
-        'call',
-        'C:\\VS Code\\bin\\code.cmd',
         '--extensions-dir',
-        'C:\\Temp\\support extensions',
+        'C:\\Temp\\support extensions & cache',
         '--install-extension',
         'publisher.extension'
       ]

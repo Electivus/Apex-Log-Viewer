@@ -6,6 +6,18 @@ const fs = require('fs');
 const path = require('path');
 
 const HOST_VOLUME_MOUNTPOINTS = ['node_modules', 'target', '.vscode-test'];
+const SALESFORCE_CLI_PACKAGE_PATTERN =
+  /^@salesforce\/cli@(?:\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?|nightly)$/;
+
+function normalizeSalesforceCliPackage(value) {
+  const packageName = String(value || '').trim();
+  if (!SALESFORCE_CLI_PACKAGE_PATTERN.test(packageName)) {
+    throw new Error(
+      '--sf-cli-package must be @salesforce/cli pinned to an exact version, for example @salesforce/cli@2.136.8.'
+    );
+  }
+  return packageName;
+}
 
 function resolveComposeArgs(commandArgs = [], options = {}) {
   const repoRoot = options.repoRoot || path.join(__dirname, '..');
@@ -34,7 +46,7 @@ function parseProxyLabArgs(argv = []) {
       if (!value) {
         throw new Error('--sf-cli-package requires a package specifier, for example @salesforce/cli@nightly.');
       }
-      sfCliPackage = value;
+      sfCliPackage = normalizeSalesforceCliPackage(value);
       index += 1;
       continue;
     }
@@ -43,7 +55,7 @@ function parseProxyLabArgs(argv = []) {
       if (!value) {
         throw new Error('--sf-cli-package requires a package specifier, for example @salesforce/cli@nightly.');
       }
-      sfCliPackage = value;
+      sfCliPackage = normalizeSalesforceCliPackage(value);
       continue;
     }
     commandArgs.push(arg);
@@ -114,6 +126,7 @@ if (require.main === module) {
 
 module.exports = {
   ensureHostVolumeMountpoints,
+  normalizeSalesforceCliPackage,
   parseProxyLabArgs,
   resolveProxyLabEnv,
   resolveComposeArgs

@@ -8,6 +8,12 @@ latest released version of the VS Code extension published to the Marketplace.
 - Latest release (Marketplace): Supported
 - Older releases: Not supported — please upgrade to the latest
 
+Links
+- Marketplace listing:
+  https://marketplace.visualstudio.com/items?itemName=electivus.apex-log-viewer
+- GitHub releases:
+  https://github.com/Electivus/Apex-Log-Viewer/releases
+
 Notes
 - Trunk-based: usamos `main` como tronco. Trabalhamos em branches curtas de
   feature/fix que fazem PR para `main`. Correções de segurança são aplicadas em
@@ -22,6 +28,8 @@ Preferred channel
 - Use GitHub Private Vulnerability Reporting for this repository:
   Security tab → “Report a vulnerability” (creates a private GitHub Security
   Advisory draft with the maintainers).
+- Direct private report link:
+  https://github.com/Electivus/Apex-Log-Viewer/security/advisories/new
 
 If you cannot use the private reporting feature
 - Do not disclose details publicly. Open a minimal issue asking for a secure

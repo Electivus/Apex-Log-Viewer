@@ -31,6 +31,13 @@ fail() {
   exit 1
 }
 
+validate_salesforce_cli_package() {
+  local package_name="$1"
+  if [[ ! "${package_name}" =~ ^@salesforce/cli@([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|nightly)$ ]]; then
+    fail "ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE must be @salesforce/cli pinned to an exact version, for example @salesforce/cli@2.136.8."
+  fi
+}
+
 restore_host_ownership() {
   local host_uid="${ALV_E2E_PROXY_LAB_HOST_UID:-}"
   local host_gid="${ALV_E2E_PROXY_LAB_HOST_GID:-}"
@@ -136,6 +143,7 @@ install_salesforce_cli_override() {
   fi
 
   echo "[proxy-lab] Installing Salesforce CLI override: ${package_name}"
+  validate_salesforce_cli_package "${package_name}"
   npm install --global "${package_name}"
   sf --version
 }
