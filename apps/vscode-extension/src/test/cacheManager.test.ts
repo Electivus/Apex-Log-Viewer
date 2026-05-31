@@ -63,9 +63,11 @@ suite('CacheManager', () => {
 
   test('clearExpired removes expired entries', async () => {
     const memento = init();
-    await CacheManager.set('orgs', 'k1', 'v1', 10);
-    await CacheManager.set('orgs', 'k2', 'v2', 100);
-    await new Promise(r => setTimeout(r, 20));
+    const now = Date.now();
+    await memento.update('orgs:k1', { value: 'v1', expiresAt: now - 1 });
+    await memento.update('orgs:k2', { value: 'v2', expiresAt: now + 60_000 });
+    await memento.update('__cacheKeys', ['orgs:k1', 'orgs:k2']);
+
     await CacheManager.clearExpired();
     assert.deepEqual(memento.get<string[]>('__cacheKeys'), ['orgs:k2']);
     assert.equal(CacheManager.get('orgs', 'k1'), undefined);
