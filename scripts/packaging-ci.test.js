@@ -149,6 +149,26 @@ test('prerelease Open VSX publish skips already published target artifacts', () 
   );
 });
 
+for (const [workflowPath, jobName] of [
+  ['.github/workflows/prerelease.yml', 'publish_marketplace'],
+  ['.github/workflows/release.yml', 'publish_marketplace']
+]) {
+  test(`${workflowPath} Marketplace publish skips already published target artifacts`, () => {
+    const publishJob = readWorkflowJob(workflowPath, jobName);
+
+    assert.match(
+      publishJob,
+      /OUTPUT=\$\(npx --yes @vscode\/vsce publish --packagePath "\$\{FILE\}"(?: --pre-release)? 2>&1\)/,
+      'expected Marketplace publish output to be captured for duplicate-version handling'
+    );
+    assert.match(
+      publishJob,
+      /grep -F "already exists\."[\s\S]*?Skipping \$\{FILE\}; VS Code Marketplace already has this version and target\./,
+      'expected duplicate Marketplace target publishes to be skipped instead of failing the workflow'
+    );
+  });
+}
+
 test('rust-release workflow bootstrap skips crates.io publishing', () => {
   const workflowSource = readFile('.github/workflows/rust-release.yml');
 

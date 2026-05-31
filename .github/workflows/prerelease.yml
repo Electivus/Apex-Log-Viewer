@@ -350,6 +350,7 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         shell: bash
         run: |
+          set -euo pipefail
           if [ -z "${VSCE_PAT}" ]; then
             echo "VSCE_PAT not set; skipping publish." && exit 0
           fi
@@ -361,7 +362,18 @@ jobs:
           fi
           for FILE in "${FILES[@]}"; do
             echo "Publishing ${FILE}"
-            npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release
+            set +e
+            OUTPUT=$(npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release 2>&1)
+            STATUS=$?
+            set -e
+            echo "$OUTPUT"
+            if [ "$STATUS" -ne 0 ]; then
+              if echo "$OUTPUT" | grep -F "already exists." >/dev/null 2>&1; then
+                echo "Skipping ${FILE}; VS Code Marketplace already has this version and target."
+                continue
+              fi
+              exit "$STATUS"
+            fi
           done
 
   publish_open_vsx:

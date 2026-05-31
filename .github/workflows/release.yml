@@ -381,10 +381,24 @@ jobs:
           for FILE in "${FILES[@]}"; do
             if [ "${PRE_RELEASE}" = "true" ]; then
               echo "Publishing pre-release ${VERSION} from ${FILE}"
-              npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release
+              set +e
+              OUTPUT=$(npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release 2>&1)
+              STATUS=$?
+              set -e
             else
               echo "Publishing stable ${VERSION} from ${FILE}"
-              npx --yes @vscode/vsce publish --packagePath "${FILE}"
+              set +e
+              OUTPUT=$(npx --yes @vscode/vsce publish --packagePath "${FILE}" 2>&1)
+              STATUS=$?
+              set -e
+            fi
+            echo "$OUTPUT"
+            if [ "$STATUS" -ne 0 ]; then
+              if echo "$OUTPUT" | grep -F "already exists." >/dev/null 2>&1; then
+                echo "Skipping ${FILE}; VS Code Marketplace already has this version and target."
+                continue
+              fi
+              exit "$STATUS"
             fi
           done
 
