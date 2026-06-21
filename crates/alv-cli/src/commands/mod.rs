@@ -4,6 +4,7 @@ pub mod debug_levels;
 pub mod doctor;
 pub mod logs;
 pub mod orgs;
+pub mod skills;
 pub mod tooling;
 pub mod trace_flags;
 pub mod users;
@@ -25,6 +26,7 @@ pub fn run(cli: Cli) -> Result<i32, String> {
         Some(Command::TraceFlags(args)) => trace_flags::run(args, output),
         Some(Command::DebugLevels(args)) => debug_levels::run(args, output),
         Some(Command::Tooling(args)) => tooling::run(args, output),
+        Some(Command::Skills(args)) => skills::run(args, output),
     }
 }
 

@@ -243,6 +243,108 @@ fn cli_smoke_shows_agent_friendly_root_commands_in_help() {
     assert!(stdout.contains("trace-flags"));
     assert!(stdout.contains("debug-levels"));
     assert!(stdout.contains("tooling"));
+    assert!(stdout.contains("skills"));
+}
+
+#[test]
+fn cli_smoke_shows_skills_install_help() {
+    let output = apex_log_viewer_command()
+        .args(["skills", "install", "--help"])
+        .output()
+        .expect("help should execute");
+
+    assert!(output.status.success(), "help should exit successfully");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(stdout.contains("--codex-home"));
+    assert!(stdout.contains("--force"));
+    assert!(stdout.contains("--dry-run"));
+}
+
+#[test]
+fn cli_smoke_skills_install_json_writes_bundled_skill() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("alv-cli-skill-install-{unique}"));
+    let codex_home = root.join("codex-home");
+    fs::create_dir_all(&root).expect("temp root should exist");
+    let codex_home_arg = codex_home.display().to_string();
+
+    let output = apex_log_viewer_command()
+        .args([
+            "--json",
+            "skills",
+            "install",
+            "--codex-home",
+            &codex_home_arg,
+        ])
+        .output()
+        .expect("skill install should execute");
+
+    assert!(
+        output.status.success(),
+        "skill install should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["status"], "installed");
+    assert_eq!(json["skill_name"], "apex-log-viewer-cli");
+    let skill_dir = codex_home.join("skills").join("apex-log-viewer-cli");
+    let skill_md =
+        fs::read_to_string(skill_dir.join("SKILL.md")).expect("skill should be installed");
+    assert!(skill_md.contains("name: apex-log-viewer-cli"));
+    let openai_yaml = fs::read_to_string(skill_dir.join("agents").join("openai.yaml"))
+        .expect("openai metadata should be installed");
+    assert!(openai_yaml.contains("Use $apex-log-viewer-cli"));
+
+    fs::remove_dir_all(root).expect("temp root should be removable");
+}
+
+#[test]
+fn cli_smoke_skills_install_refuses_to_replace_without_force() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("alv-cli-skill-replace-{unique}"));
+    let codex_home = root.join("codex-home");
+    let skill_dir = codex_home.join("skills").join("apex-log-viewer-cli");
+    fs::create_dir_all(&skill_dir).expect("existing skill dir should exist");
+    fs::write(skill_dir.join("SKILL.md"), "custom skill").expect("custom skill should be writable");
+    let codex_home_arg = codex_home.display().to_string();
+
+    let output = apex_log_viewer_command()
+        .args([
+            "--json",
+            "skills",
+            "install",
+            "--codex-home",
+            &codex_home_arg,
+        ])
+        .output()
+        .expect("skill install should execute");
+
+    assert!(
+        !output.status.success(),
+        "skill install should fail without --force"
+    );
+    let stderr_json: Value =
+        serde_json::from_slice(&output.stderr).expect("stderr should be valid json");
+    assert_eq!(stderr_json["status"], "error");
+    assert_eq!(stderr_json["code"], "command_failed");
+    assert!(
+        stderr_json["message"]
+            .as_str()
+            .is_some_and(|value| value.contains("--force")),
+        "expected force guidance, got: {stderr_json}"
+    );
+    assert_eq!(
+        fs::read_to_string(skill_dir.join("SKILL.md")).expect("custom skill should remain"),
+        "custom skill"
+    );
+
+    fs::remove_dir_all(root).expect("temp root should be removable");
 }
 
 #[test]

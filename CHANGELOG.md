@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+- CLI/Skills: bundle the Apex Log Viewer Codex skill in the repo and add `apex-log-viewer skills install` to install it into the user's Codex skills directory.
+
 ### Bug Fixes
 
 - Runtime/Logs: remove the SQLite/FTS log index and `logs index rebuild`; local search now scans synced log files directly, and `logs sync` removes legacy `log-index.sqlite` files from older runtime versions.
