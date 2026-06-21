@@ -26,6 +26,7 @@ pub enum Command {
     #[command(name = "debug-levels")]
     DebugLevels(DebugLevelsArgs),
     Tooling(ToolingArgs),
+    Skills(SkillsArgs),
 }
 
 #[derive(Debug, Args)]
@@ -355,4 +356,25 @@ pub struct ToolingRequestGetArgs {
     pub path_or_url: String,
     #[arg(long = "target-org")]
     pub target_org: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct SkillsArgs {
+    #[command(subcommand)]
+    pub command: SkillsCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SkillsCommand {
+    Install(SkillInstallArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct SkillInstallArgs {
+    #[arg(long = "codex-home")]
+    pub codex_home: Option<String>,
+    #[arg(long)]
+    pub force: bool,
+    #[arg(long)]
+    pub dry_run: bool,
 }
