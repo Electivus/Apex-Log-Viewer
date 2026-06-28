@@ -348,6 +348,52 @@ fn cli_smoke_skills_install_refuses_to_replace_without_force() {
 }
 
 #[test]
+fn cli_smoke_skills_install_dry_run_does_not_replace_existing_skill() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("alv-cli-skill-dry-run-{unique}"));
+    let codex_home = root.join("codex-home");
+    let skill_dir = codex_home.join("skills").join("apex-log-viewer-cli");
+    fs::create_dir_all(&skill_dir).expect("existing skill dir should exist");
+    fs::write(skill_dir.join("SKILL.md"), "custom skill").expect("custom skill should be writable");
+    let codex_home_arg = codex_home.display().to_string();
+
+    let output = apex_log_viewer_command()
+        .args([
+            "--json",
+            "skills",
+            "install",
+            "--codex-home",
+            &codex_home_arg,
+            "--dry-run",
+        ])
+        .output()
+        .expect("skill install dry-run should execute");
+
+    assert!(
+        output.status.success(),
+        "skill install dry-run should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["status"], "would_replace");
+    assert_eq!(json["dry_run"], true);
+    assert_eq!(json["replaced"], false);
+    assert_eq!(
+        fs::read_to_string(skill_dir.join("SKILL.md")).expect("custom skill should remain"),
+        "custom skill"
+    );
+    assert!(
+        !skill_dir.join("agents").join("openai.yaml").exists(),
+        "dry-run should not create bundled skill files"
+    );
+
+    fs::remove_dir_all(root).expect("temp root should be removable");
+}
+
+#[test]
 fn cli_smoke_shows_logs_subcommands_in_help() {
     let output = apex_log_viewer_command()
         .args(["logs", "--help"])
