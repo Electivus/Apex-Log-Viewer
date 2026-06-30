@@ -308,11 +308,13 @@ fn cli_smoke_skills_install_uses_codex_home_env_when_no_flag_is_passed() {
         .expect("clock should be after unix epoch")
         .as_nanos();
     let root = std::env::temp_dir().join(format!("alv-cli-skill-env-home-{unique}"));
+    let fallback_home = root.join("home");
     let codex_home = root.join("codex-home");
-    fs::create_dir_all(&root).expect("temp root should exist");
+    fs::create_dir_all(&fallback_home).expect("fallback home should exist");
 
     let output = apex_log_viewer_command()
         .env("CODEX_HOME", &codex_home)
+        .env("HOME", &fallback_home)
         .env_remove("USERPROFILE")
         .args(["--json", "skills", "install"])
         .output()
