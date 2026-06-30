@@ -348,6 +348,57 @@ fn cli_smoke_skills_install_refuses_to_replace_without_force() {
 }
 
 #[test]
+fn cli_smoke_skills_install_force_replaces_existing_skill() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("alv-cli-skill-force-{unique}"));
+    let codex_home = root.join("codex-home");
+    let skill_dir = codex_home.join("skills").join("apex-log-viewer-cli");
+    let stale_agents_dir = skill_dir.join("agents");
+    fs::create_dir_all(&stale_agents_dir).expect("existing skill dir should exist");
+    fs::write(skill_dir.join("SKILL.md"), "custom skill").expect("custom skill should be writable");
+    fs::write(stale_agents_dir.join("stale.yaml"), "stale metadata")
+        .expect("stale metadata should be writable");
+    let codex_home_arg = codex_home.display().to_string();
+
+    let output = apex_log_viewer_command()
+        .args([
+            "--json",
+            "skills",
+            "install",
+            "--codex-home",
+            &codex_home_arg,
+            "--force",
+        ])
+        .output()
+        .expect("forced skill install should execute");
+
+    assert!(
+        output.status.success(),
+        "forced skill install should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["status"], "replaced");
+    assert_eq!(json["dry_run"], false);
+    assert_eq!(json["replaced"], true);
+    let skill_md =
+        fs::read_to_string(skill_dir.join("SKILL.md")).expect("bundled skill should be installed");
+    assert!(skill_md.contains("name: apex-log-viewer-cli"));
+    let openai_yaml = fs::read_to_string(skill_dir.join("agents").join("openai.yaml"))
+        .expect("bundled metadata should be installed");
+    assert!(openai_yaml.contains("Use $apex-log-viewer-cli"));
+    assert!(
+        !skill_dir.join("agents").join("stale.yaml").exists(),
+        "forced install should remove stale files from the previous skill"
+    );
+
+    fs::remove_dir_all(root).expect("temp root should be removable");
+}
+
+#[test]
 fn cli_smoke_skills_install_dry_run_does_not_replace_existing_skill() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
