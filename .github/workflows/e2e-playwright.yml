@@ -235,6 +235,25 @@ jobs:
       - name: Install Salesforce CLI
         run: npm install -g @salesforce/cli@2.136.8 --no-audit --no-fund
 
+      - name: Setup Salesforce CLI Node.js
+        if: runner.os == 'macOS'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: '22'
+
+      - name: Export Salesforce CLI Node.js runtime
+        if: runner.os == 'macOS'
+        shell: bash
+        run: echo "SF_CLI_NODE_PATH=$(command -v node)" >> "$GITHUB_ENV"
+
+      - name: Restore Node.js from .nvmrc
+        if: runner.os == 'macOS'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
       - name: Require scratch-org pool configuration
         shell: bash
         run: |

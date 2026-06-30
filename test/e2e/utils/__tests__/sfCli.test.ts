@@ -32,6 +32,11 @@ async function importSfCli(): Promise<typeof import('../sfCli')> {
 describe('runSfJson failure diagnostics', () => {
   beforeEach(() => {
     execFileMock.mockReset();
+    delete process.env.SF_CLI_NODE_PATH;
+  });
+
+  afterEach(() => {
+    delete process.env.SF_CLI_NODE_PATH;
   });
 
   test('reports missing Salesforce CLI executable with PATH guidance', async () => {
@@ -96,5 +101,19 @@ describe('runSfJson failure diagnostics', () => {
     failCommand(exitError, '{"name":"NamedOrgNotFoundError","message":"No authorization information found."}\n');
 
     await expect(promise).rejects.toThrow(/NamedOrgNotFoundError: No authorization information found\./);
+  });
+
+  test('uses explicit Salesforce CLI Node runtime when configured', async () => {
+    process.env.SF_CLI_NODE_PATH = '/opt/hostedtoolcache/node/22/bin/node';
+    const { resolveSfCliInvocation } = await importSfCli();
+    const promise = resolveSfCliInvocation();
+
+    await waitForExecCallCount(1);
+    passCommand('/usr/local/bin/sf\n');
+
+    await expect(promise).resolves.toEqual({
+      sfBinPath: '/usr/local/bin/sf',
+      nodeBinPath: '/opt/hostedtoolcache/node/22/bin/node'
+    });
   });
 });
