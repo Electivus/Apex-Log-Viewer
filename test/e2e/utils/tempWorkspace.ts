@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { envFlag } from './envFlag';
@@ -64,19 +64,13 @@ export async function createTempWorkspace(options: {
       if (process.platform !== 'win32' && options.sfCli.nodeBinPath) {
         const wrapperPath = path.join(vscodeDir, 'sf-cli.sh');
         const nodeDir = path.dirname(options.sfCli.nodeBinPath);
-        const resolvedSfBinPath = await realpath(options.sfCli.sfBinPath).catch(() => options.sfCli!.sfBinPath);
-        const isNpmSalesforceCliRunner = /\/@salesforce\/cli\/bin\/run\.js$/.test(
-          resolvedSfBinPath.replace(/\\/g, '/')
-        );
         const script = [
           '#!/bin/bash',
           'set -euo pipefail',
           'unset ELECTRON_RUN_AS_NODE',
           'unset NODE_OPTIONS',
           `export PATH="${nodeDir}:$PATH"`,
-          isNpmSalesforceCliRunner
-            ? `exec "${options.sfCli.nodeBinPath}" --no-deprecation "${resolvedSfBinPath}" "$@"`
-            : `exec "${options.sfCli.sfBinPath}" "$@"`,
+          `exec "${options.sfCli.sfBinPath}" "$@"`,
           ''
         ].join('\n');
         await writeFile(wrapperPath, script, 'utf8');

@@ -37,7 +37,8 @@ describe('createTempWorkspace', () => {
         expect(wrapper).toContain('unset ELECTRON_RUN_AS_NODE');
         expect(wrapper).toContain('unset NODE_OPTIONS');
         expect(wrapper).toContain(`export PATH="${path.dirname(nodeBinPath)}:$PATH"`);
-        expect(wrapper).toContain(`exec "${nodeBinPath}" --no-deprecation "${sfRunnerPath}" "$@"`);
+        expect(wrapper).toContain(`exec "${sfBinPath}" "$@"`);
+        expect(wrapper).not.toContain(sfRunnerPath);
       } finally {
         await workspace.cleanup();
       }
