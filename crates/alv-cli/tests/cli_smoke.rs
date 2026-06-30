@@ -302,6 +302,44 @@ fn cli_smoke_skills_install_json_writes_bundled_skill() {
 }
 
 #[test]
+fn cli_smoke_skills_install_uses_codex_home_env_when_no_flag_is_passed() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be after unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("alv-cli-skill-env-home-{unique}"));
+    let codex_home = root.join("codex-home");
+    fs::create_dir_all(&root).expect("temp root should exist");
+
+    let output = apex_log_viewer_command()
+        .env("CODEX_HOME", &codex_home)
+        .env_remove("USERPROFILE")
+        .args(["--json", "skills", "install"])
+        .output()
+        .expect("skill install should execute");
+
+    assert!(
+        output.status.success(),
+        "skill install should succeed using CODEX_HOME: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["status"], "installed");
+    assert_eq!(json["codex_home"], codex_home.display().to_string());
+    let skill_dir = codex_home.join("skills").join("apex-log-viewer-cli");
+    assert!(
+        skill_dir.join("SKILL.md").is_file(),
+        "skill should be installed under CODEX_HOME"
+    );
+    assert!(
+        skill_dir.join("agents").join("openai.yaml").is_file(),
+        "agent metadata should be installed under CODEX_HOME"
+    );
+
+    fs::remove_dir_all(root).expect("temp root should be removable");
+}
+
+#[test]
 fn cli_smoke_skills_install_refuses_to_replace_without_force() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
