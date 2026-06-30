@@ -112,6 +112,10 @@ export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
   if (!resolvedSfBinAbsolutePathPromise) {
     resolvedSfBinAbsolutePathPromise = (async () => {
       try {
+        const configuredSfPath = String(process.env.SF_CLI_BIN_PATH || '').trim();
+        if (configuredSfPath) {
+          return configuredSfPath;
+        }
         if (process.platform === 'win32') {
           const { stdout } = await execProcessFileAsync('cmd.exe', ['/d', '/s', '/c', 'where sf'], {
             timeoutMs: 10_000

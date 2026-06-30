@@ -32,10 +32,12 @@ async function importSfCli(): Promise<typeof import('../sfCli')> {
 describe('runSfJson failure diagnostics', () => {
   beforeEach(() => {
     execFileMock.mockReset();
+    delete process.env.SF_CLI_BIN_PATH;
     delete process.env.SF_CLI_NODE_PATH;
   });
 
   afterEach(() => {
+    delete process.env.SF_CLI_BIN_PATH;
     delete process.env.SF_CLI_NODE_PATH;
   });
 
@@ -115,5 +117,17 @@ describe('runSfJson failure diagnostics', () => {
       sfBinPath: '/usr/local/bin/sf',
       nodeBinPath: '/opt/hostedtoolcache/node/22/bin/node'
     });
+  });
+
+  test('uses explicit Salesforce CLI binary path when configured', async () => {
+    process.env.SF_CLI_BIN_PATH = '/opt/hostedtoolcache/node/22/bin/sf';
+    process.env.SF_CLI_NODE_PATH = '/opt/hostedtoolcache/node/22/bin/node';
+    const { resolveSfCliInvocation } = await importSfCli();
+
+    await expect(resolveSfCliInvocation()).resolves.toEqual({
+      sfBinPath: '/opt/hostedtoolcache/node/22/bin/sf',
+      nodeBinPath: '/opt/hostedtoolcache/node/22/bin/node'
+    });
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 });

@@ -235,22 +235,32 @@ test('direct macOS Playwright workflow runs Salesforce CLI with an LTS Node runt
   const installDepsStep = getDirectWorkflowStep(workflow, 'Install extension dependencies');
 
   assert.ok(
-    installSfStep.index < setupSfNodeStep.index,
-    'expected Salesforce CLI to install before selecting its runtime'
+    setupSfNodeStep.index < installSfStep.index,
+    'expected macOS to select the Salesforce CLI Node runtime before installing the CLI'
   );
   assert.equal(setupSfNodeStep.step.if, "runner.os == 'macOS'");
   assert.equal(setupSfNodeStep.step.uses, 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e');
   assert.equal(setupSfNodeStep.step.with?.['node-version'], '22');
 
   assert.ok(
-    setupSfNodeStep.index < exportSfNodeStep.index,
-    'expected Node 22 to be active before exporting SF_CLI_NODE_PATH'
+    installSfStep.index < exportSfNodeStep.index,
+    'expected Node 22 Salesforce CLI to install before exporting its runtime and binary path'
+  );
+  assert.match(
+    String(installSfStep.step.run || ''),
+    /npm install -g @salesforce\/cli@2\.136\.8 --no-audit --no-fund/,
+    'expected the workflow to keep installing the pinned Salesforce CLI'
   );
   assert.equal(exportSfNodeStep.step.if, "runner.os == 'macOS'");
   assert.match(
     String(exportSfNodeStep.step.run || ''),
     /SF_CLI_NODE_PATH=\$\(command -v node\).*>> "\$GITHUB_ENV"/,
     'expected the macOS direct E2E job to export the Salesforce CLI Node runtime for the VS Code wrapper'
+  );
+  assert.match(
+    String(exportSfNodeStep.step.run || ''),
+    /SF_CLI_BIN_PATH=\$\(command -v sf\).*>> "\$GITHUB_ENV"/,
+    'expected the macOS direct E2E job to export the Node 22 Salesforce CLI binary for host-side pool commands'
   );
 
   assert.ok(
