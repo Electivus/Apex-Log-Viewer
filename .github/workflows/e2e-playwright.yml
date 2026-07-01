@@ -26,6 +26,7 @@ on:
 
 concurrency:
   group: ${{ vars.SF_SCRATCH_POOL_NAME != '' && format('e2e-playwright-pool-{0}', vars.SF_SCRATCH_POOL_NAME) || 'sf-e2e-scratch-global' }}
+  queue: max
   cancel-in-progress: false
 
 permissions:

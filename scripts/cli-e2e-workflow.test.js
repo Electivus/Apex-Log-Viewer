@@ -166,6 +166,11 @@ test('real-org Playwright workflow serializes CI runs by scratch-org pool', () =
     false,
     'expected queued E2E runs to wait for the shared pool instead of canceling each other'
   );
+  assert.equal(
+    concurrency.queue,
+    'max',
+    'expected Dependabot bursts to keep all shared-pool E2E runs pending instead of replacing older pending runs'
+  );
   assert.doesNotMatch(
     String(concurrency.group || ''),
     /github\.ref/,
