@@ -67,6 +67,8 @@ export async function createTempWorkspace(options: {
         const script = [
           '#!/bin/bash',
           'set -euo pipefail',
+          'unset ELECTRON_RUN_AS_NODE',
+          'unset NODE_OPTIONS',
           `export PATH="${nodeDir}:$PATH"`,
           `exec "${options.sfCli.sfBinPath}" "$@"`,
           ''

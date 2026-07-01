@@ -108,12 +108,19 @@ export function __resetResolvedSfBinAbsolutePathCacheForTests(): void {
   resolvedSfBinAbsolutePathPromise = undefined;
 }
 
+function configuredSfBinPath(): string | undefined {
+  const configuredSfPath = String(process.env.SF_CLI_BIN_PATH || '').trim();
+  return configuredSfPath || undefined;
+}
+
 export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
   if (!resolvedSfBinAbsolutePathPromise) {
     resolvedSfBinAbsolutePathPromise = (async () => {
       try {
         if (process.platform === 'win32') {
-          const { stdout } = await execProcessFileAsync('cmd.exe', ['/d', '/s', '/c', 'where sf'], { timeoutMs: 10_000 });
+          const { stdout } = await execProcessFileAsync('cmd.exe', ['/d', '/s', '/c', 'where sf'], {
+            timeoutMs: 10_000
+          });
           const candidates = String(stdout || '')
             .split(/\r?\n/)
             .map(l => l.trim())
@@ -133,13 +140,15 @@ export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
 }
 
 export async function resolveSfCliInvocation(): Promise<{ sfBinPath: string; nodeBinPath: string } | undefined> {
-  const sfBinPath = await resolveSfBinAbsolutePath();
+  const sfBinPath = configuredSfBinPath() || (await resolveSfBinAbsolutePath());
   if (!sfBinPath) {
     return undefined;
   }
-  // Prefer the Node binary used to run the E2E tests. This is usually more reliable
-  // than assuming `node` is available on PATH inside the VS Code extension host.
-  const nodeBinPath = process.execPath;
+  // Prefer an explicit Salesforce CLI runtime when CI provides one. The VS Code
+  // extension host can inherit a different PATH from the test runner, and recent
+  // Node majors may not be safe for the pinned Salesforce CLI inside that host.
+  const configuredNodePath = String(process.env.SF_CLI_NODE_PATH || '').trim();
+  const nodeBinPath = configuredNodePath || process.execPath;
   return { sfBinPath, nodeBinPath };
 }
 
@@ -147,7 +156,10 @@ function execProcessFileAsync(file: string, args: string[], options: ExecOptions
   return new Promise((resolve, reject) => {
     const callback = (error: unknown, stdout: string, stderr: string) => {
       if (error) {
-        const details = [formatSfErrorDetails(String(stdout || ''), String(stderr || '')), formatProcessFailureDetails(file, args, error)]
+        const details = [
+          formatSfErrorDetails(String(stdout || ''), String(stderr || '')),
+          formatProcessFailureDetails(file, args, error)
+        ]
           .filter(Boolean)
           .join('\n');
         // Avoid echoing stdout/stderr directly to prevent leaking auth tokens.
@@ -204,7 +216,11 @@ async function execSfCliAsync(file: string, args: string[], options: ExecOptions
   const finalArgs = normalizeExecArgs(args);
 
   if (process.platform === 'win32' && /\.cmd$/i.test(executable)) {
-    return await execProcessFileAsync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', executable, ...finalArgs], options);
+    return await execProcessFileAsync(
+      process.env.ComSpec || 'cmd.exe',
+      ['/d', '/s', '/c', executable, ...finalArgs],
+      options
+    );
   }
 
   return await execProcessFileAsync(executable, finalArgs, options);
@@ -212,7 +228,7 @@ async function execSfCliAsync(file: string, args: string[], options: ExecOptions
 
 export async function runSfJson(args: string[], options: ExecOptions = {}): Promise<any> {
   const withJson = args.includes('--json') ? args : [...args, '--json'];
-  const sfPath = (await resolveSfBinAbsolutePath()) || getSfBinPath();
+  const sfPath = configuredSfBinPath() || (await resolveSfBinAbsolutePath()) || getSfBinPath();
   const { stdout } = await execSfCliAsync(sfPath, withJson, options);
   const raw = String(stdout || '').trim();
   if (!raw) {

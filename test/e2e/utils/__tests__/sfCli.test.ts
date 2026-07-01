@@ -32,6 +32,13 @@ async function importSfCli(): Promise<typeof import('../sfCli')> {
 describe('runSfJson failure diagnostics', () => {
   beforeEach(() => {
     execFileMock.mockReset();
+    delete process.env.SF_CLI_BIN_PATH;
+    delete process.env.SF_CLI_NODE_PATH;
+  });
+
+  afterEach(() => {
+    delete process.env.SF_CLI_BIN_PATH;
+    delete process.env.SF_CLI_NODE_PATH;
   });
 
   test('reports missing Salesforce CLI executable with PATH guidance', async () => {
@@ -96,5 +103,59 @@ describe('runSfJson failure diagnostics', () => {
     failCommand(exitError, '{"name":"NamedOrgNotFoundError","message":"No authorization information found."}\n');
 
     await expect(promise).rejects.toThrow(/NamedOrgNotFoundError: No authorization information found\./);
+  });
+
+  test('uses explicit Salesforce CLI Node runtime when configured', async () => {
+    process.env.SF_CLI_NODE_PATH = '/opt/hostedtoolcache/node/22/bin/node';
+    const { resolveSfCliInvocation } = await importSfCli();
+    const promise = resolveSfCliInvocation();
+
+    await waitForExecCallCount(1);
+    passCommand('/usr/local/bin/sf\n');
+
+    await expect(promise).resolves.toEqual({
+      sfBinPath: '/usr/local/bin/sf',
+      nodeBinPath: '/opt/hostedtoolcache/node/22/bin/node'
+    });
+  });
+
+  test('uses explicit Salesforce CLI binary path when configured', async () => {
+    process.env.SF_CLI_BIN_PATH = '/opt/hostedtoolcache/node/22/bin/sf';
+    process.env.SF_CLI_NODE_PATH = '/opt/hostedtoolcache/node/22/bin/node';
+    const { resolveSfCliInvocation } = await importSfCli();
+
+    await expect(resolveSfCliInvocation()).resolves.toEqual({
+      sfBinPath: '/opt/hostedtoolcache/node/22/bin/sf',
+      nodeBinPath: '/opt/hostedtoolcache/node/22/bin/node'
+    });
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  test('uses configured Salesforce CLI binary path for setup commands', async () => {
+    const configuredSfPath = process.platform === 'win32' ? 'C:\\Tools\\sf.cmd' : '/opt/hostedtoolcache/node/20/bin/sf';
+    process.env.SF_CLI_BIN_PATH = configuredSfPath;
+    process.env.SF_CLI_NODE_PATH =
+      process.platform === 'win32' ? 'C:\\Tools\\node.exe' : '/opt/hostedtoolcache/node/20/bin/node';
+    const { runSfJson } = await importSfCli();
+    const promise = runSfJson(['org', 'display', '-o', 'ConfiguredDevHub']);
+
+    await waitForExecCallCount(1);
+    if (process.platform === 'win32') {
+      expect(String(execFileMock.mock.calls[0]?.[0]).toLowerCase()).toContain('cmd');
+      expect((execFileMock.mock.calls[0]?.[1] as string[]).slice(0, 4)).toEqual([
+        '/d',
+        '/s',
+        '/c',
+        configuredSfPath
+      ]);
+    } else {
+      expect(execFileMock.mock.calls[0]?.[0]).toBe(configuredSfPath);
+    }
+    passCommand('{"status":0,"result":{"username":"devhub@example.com"}}\n');
+
+    await expect(promise).resolves.toEqual({
+      status: 0,
+      result: { username: 'devhub@example.com' }
+    });
   });
 });
