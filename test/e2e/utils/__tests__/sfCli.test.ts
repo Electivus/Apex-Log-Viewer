@@ -138,11 +138,23 @@ describe('runSfJson failure diagnostics', () => {
     const promise = runSfJson(['org', 'display', '-o', 'ConfiguredDevHub']);
 
     await waitForExecCallCount(1);
-    expect(execFileMock.mock.calls[0]?.[0]).toBe('bash');
-    passCommand('/usr/local/bin/sf\n');
+    const resolvedSfPath = process.platform === 'win32' ? 'C:\\Tools\\sf.cmd' : '/usr/local/bin/sf';
+    if (process.platform === 'win32') {
+      expect(String(execFileMock.mock.calls[0]?.[0]).toLowerCase()).toContain('cmd');
+      expect(execFileMock.mock.calls[0]?.[1]).toEqual(['/d', '/s', '/c', 'where sf']);
+      passCommand(`${resolvedSfPath}\r\n`);
+    } else {
+      expect(execFileMock.mock.calls[0]?.[0]).toBe('bash');
+      passCommand(`${resolvedSfPath}\n`);
+    }
 
     await waitForExecCallCount(2);
-    expect(execFileMock.mock.calls[1]?.[0]).toBe('/usr/local/bin/sf');
+    if (process.platform === 'win32') {
+      expect(String(execFileMock.mock.calls[1]?.[0]).toLowerCase()).toContain('cmd');
+      expect((execFileMock.mock.calls[1]?.[1] as string[]).slice(0, 4)).toEqual(['/d', '/s', '/c', resolvedSfPath]);
+    } else {
+      expect(execFileMock.mock.calls[1]?.[0]).toBe(resolvedSfPath);
+    }
     passCommand('{"status":0,"result":{"username":"devhub@example.com"}}\n');
 
     await expect(promise).resolves.toEqual({
