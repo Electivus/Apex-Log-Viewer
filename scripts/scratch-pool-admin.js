@@ -136,7 +136,7 @@ function normalizePoolConfig(argv = process.argv.slice(2)) {
   return {
     poolKey: getArgValue('pool-key', argv) || getArgValue('pool', argv),
     enabled: !hasFlag('disabled', argv),
-    targetSize: Math.max(1, parseInteger(getArgValue('target-size', argv) || '21', 21)),
+    targetSize: Math.max(1, parseInteger(getArgValue('target-size', argv) || '30', 30)),
     scratchDurationDays: Math.max(1, parseInteger(getArgValue('scratch-duration-days', argv) || '30', 30)),
     leaseTtlSeconds: Math.max(60, parseInteger(getArgValue('lease-ttl-seconds', argv) || '5400', 5400)),
     acquireTimeoutSeconds: Math.max(30, parseInteger(getArgValue('acquire-timeout-seconds', argv) || '600', 600)),
@@ -1158,7 +1158,7 @@ function printHelp() {
   node scripts/scratch-pool-admin.js reset-slot --pool-key <pool> --slot-key <slot> [--reason <text>] [--target-org <alias>] [--json]
 
 Bootstrap options:
-  --target-size <n>                Number of logical slots to maintain. Default: 21
+  --target-size <n>                Number of logical slots to maintain. Default: 30
   --scratch-duration-days <n>      Scratch org lifetime in days. Default: 30
   --lease-ttl-seconds <n>          Lease TTL in seconds. Default: 5400
   --acquire-timeout-seconds <n>    Acquire timeout in seconds. Default: 600

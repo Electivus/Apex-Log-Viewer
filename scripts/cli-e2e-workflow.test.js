@@ -152,6 +152,27 @@ test('real-org Playwright workflow disables Playwright retries for the expensive
   );
 });
 
+test('real-org Playwright workflow serializes CI runs by scratch-org pool', () => {
+  const workflow = readWorkflow();
+  const concurrency = workflow?.concurrency || {};
+
+  assert.equal(
+    concurrency.group,
+    "${{ vars.SF_SCRATCH_POOL_NAME != '' && format('e2e-playwright-pool-{0}', vars.SF_SCRATCH_POOL_NAME) || 'sf-e2e-scratch-global' }}",
+    'expected E2E workflow concurrency to be keyed by shared scratch-org pool name'
+  );
+  assert.equal(
+    concurrency['cancel-in-progress'],
+    false,
+    'expected queued E2E runs to wait for the shared pool instead of canceling each other'
+  );
+  assert.doesNotMatch(
+    String(concurrency.group || ''),
+    /github\.ref/,
+    'expected dependency PR bursts to share the same pool concurrency group instead of one group per ref'
+  );
+});
+
 test('direct real-org Playwright OS matrix runs Windows and macOS without the proxy lab', () => {
   const workflow = readWorkflow();
   const matrix = getWorkflowJob(workflow, 'playwright_e2e_os_matrix')?.strategy?.matrix?.include;
