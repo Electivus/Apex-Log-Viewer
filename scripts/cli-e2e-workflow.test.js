@@ -240,7 +240,7 @@ test('direct macOS Playwright workflow runs Salesforce CLI with an LTS Node runt
   );
   assert.equal(setupSfNodeStep.step.if, "runner.os == 'macOS'");
   assert.equal(setupSfNodeStep.step.uses, 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e');
-  assert.equal(setupSfNodeStep.step.with?.['node-version'], '22');
+  assert.equal(setupSfNodeStep.step.with?.['node-version'], '20');
 
   assert.ok(
     installSfStep.index < exportSfNodeStep.index,
@@ -259,7 +259,7 @@ test('direct macOS Playwright workflow runs Salesforce CLI with an LTS Node runt
   );
   assert.match(
     String(exportSfNodeStep.step.run || ''),
-    /wrapper_path="\$\{wrapper_dir\}\/sf"/,
+    /wrapper_dir="\$\{RUNNER_TEMP\}\/alv-sf-node20"/,
     'expected the macOS direct E2E job to create a sanitized Salesforce CLI wrapper'
   );
   assert.match(
