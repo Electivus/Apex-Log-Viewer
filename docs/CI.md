@@ -23,7 +23,7 @@ Build & Test basics:
 - Extension packaging consumes `config/runtime-bundle.json` so the bundled runtime stays pinned to a tested CLI release instead of building workspace HEAD during extension packaging.
 - The Rust workspace supply-chain policy is committed in `deny.toml` and evaluated against the checked-in root `Cargo.lock`.
 
-Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref, except the real-org Playwright workflow when `SF_SCRATCH_POOL_NAME` is configured. That workflow queues by scratch-org pool name with `queue: max` and `cancel-in-progress: false` so dependency bursts do not over-lease the shared Dev Hub pool or replace older pending E2E runs.
+Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref, except the real-org Playwright workflow when `SF_SCRATCH_POOL_NAME` is configured. That workflow keys concurrency by scratch-org pool name with `cancel-in-progress: false` so active E2E runs are not canceled by dependency bursts or allowed to over-lease the shared Dev Hub pool.
 
 ## Workflow Supply Chain Controls
 
@@ -73,7 +73,7 @@ Key behavior in pool mode:
 - The Ubuntu CLI real-org step runs `npm run test:e2e:cli` through the proxy lab with the same scratch-org env contract as the extension step, then uploads `output/playwright-cli/` as a dedicated artifact.
 - The Ubuntu extension step then runs `npm run test:e2e:telemetry` or `npm run test:e2e` through the proxy lab and uploads `output/playwright/`.
 - The Windows/macOS direct matrix runs `npm run test:e2e:cli` and `npm run test:e2e` without proxy-lab, then uploads artifacts with OS suffixes such as `playwright-cli-e2e-windows` and `playwright-e2e-macos`.
-- The workflow-level concurrency lock uses the configured `SF_SCRATCH_POOL_NAME` when pool mode is active, with `queue: max` and `cancel-in-progress: false`, so all PRs sharing the same Dev Hub pool queue behind one another instead of exhausting pool leases or replacing earlier pending runs during dependency bursts.
+- The workflow-level concurrency lock uses the configured `SF_SCRATCH_POOL_NAME` when pool mode is active, with `cancel-in-progress: false`, so active runs sharing the same Dev Hub pool are not canceled or allowed to over-lease the pool during dependency bursts.
 - The helper still keeps `fullyParallel: false`, but multiple Playwright workers can now run in parallel because each worker acquires its own scratch org slot.
 - Manual `workflow_dispatch` runs use the same pool-only path as `pull_request`, so dispatch validation exercises the same concurrency and lease behavior as CI.
 
