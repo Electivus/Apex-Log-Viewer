@@ -73,20 +73,32 @@ pub(crate) fn pick_windows_sf_candidate(candidates: &[String]) -> Option<String>
         .or_else(|| candidates.first().cloned())
 }
 
+#[cfg(test)]
 pub(crate) fn build_windows_sf_invocation<S>(sf_path: &str, args: &[S]) -> CommandInvocation
 where
     S: AsRef<str>,
 {
-    build_sf_invocation(sf_path, args)
+    build_sf_invocation_with_cmd_wrap(sf_path, args, true)
 }
 
 fn build_sf_invocation<S>(sf_path: &str, args: &[S]) -> CommandInvocation
 where
     S: AsRef<str>,
 {
+    build_sf_invocation_with_cmd_wrap(sf_path, args, cfg!(windows))
+}
+
+fn build_sf_invocation_with_cmd_wrap<S>(
+    sf_path: &str,
+    args: &[S],
+    wrap_cmd_shim: bool,
+) -> CommandInvocation
+where
+    S: AsRef<str>,
+{
     let normalized_path = sf_path.trim().to_string();
     let lowercase = normalized_path.to_ascii_lowercase();
-    if cfg!(windows) && lowercase.ends_with(".cmd") {
+    if wrap_cmd_shim && lowercase.ends_with(".cmd") {
         let mut argv = vec![
             "/d".to_string(),
             "/s".to_string(),

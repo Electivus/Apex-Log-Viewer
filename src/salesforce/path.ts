@@ -43,9 +43,12 @@ export async function getLoginShellEnv(): Promise<NodeJS.ProcessEnv | undefined>
     env2.ALV_SF_BIN_PATH = explicitSfCliPath;
   }
   const explicitSfNodePath = firstNonEmptyEnv(env2.SF_CLI_NODE_PATH);
-  if (explicitSfNodePath) {
-    prependToPathEnv(env2, path.dirname(explicitSfNodePath));
-  }
+  const prependExplicitSfNodePath = () => {
+    if (explicitSfNodePath) {
+      prependToPathEnv(env2, path.dirname(explicitSfNodePath));
+    }
+  };
+  prependExplicitSfNodePath();
   if (explicitSfCliPath) {
     return env2;
   }
@@ -62,6 +65,7 @@ export async function getLoginShellEnv(): Promise<NodeJS.ProcessEnv | undefined>
     env2.PATH = effectivePath;
     env2.Path = effectivePath;
   }
+  prependExplicitSfNodePath();
   const sfCliPath = await resolveSfCliPath(env2);
   if (sfCliPath) {
     env2.ALV_SF_BIN_PATH = sfCliPath;

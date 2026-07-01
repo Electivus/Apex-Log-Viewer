@@ -228,7 +228,7 @@ async function execSfCliAsync(file: string, args: string[], options: ExecOptions
 
 export async function runSfJson(args: string[], options: ExecOptions = {}): Promise<any> {
   const withJson = args.includes('--json') ? args : [...args, '--json'];
-  const sfPath = (await resolveSfBinAbsolutePath()) || getSfBinPath();
+  const sfPath = configuredSfBinPath() || (await resolveSfBinAbsolutePath()) || getSfBinPath();
   const { stdout } = await execSfCliAsync(sfPath, withJson, options);
   const raw = String(stdout || '').trim();
   if (!raw) {

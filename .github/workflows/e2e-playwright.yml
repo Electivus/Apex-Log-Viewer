@@ -272,6 +272,7 @@ jobs:
           chmod +x "$wrapper_path"
           echo "SF_CLI_NODE_PATH=${node_path}" >> "$GITHUB_ENV"
           echo "SF_CLI_BIN_PATH=${wrapper_path}" >> "$GITHUB_ENV"
+          echo "ALV_SF_BIN_PATH=${wrapper_path}" >> "$GITHUB_ENV"
 
       - name: Restore Node.js from .nvmrc
         if: runner.os == 'macOS'

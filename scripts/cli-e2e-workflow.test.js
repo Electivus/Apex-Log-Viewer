@@ -244,7 +244,7 @@ test('direct macOS Playwright workflow runs Salesforce CLI with an LTS Node runt
 
   assert.ok(
     installSfStep.index < exportSfNodeStep.index,
-    'expected Node 22 Salesforce CLI to install before exporting its runtime and binary path'
+    'expected LTS Node Salesforce CLI to install before exporting its runtime and binary path'
   );
   assert.match(
     String(installSfStep.step.run || ''),
@@ -266,6 +266,11 @@ test('direct macOS Playwright workflow runs Salesforce CLI with an LTS Node runt
     String(exportSfNodeStep.step.run || ''),
     /SF_CLI_BIN_PATH=\$\{wrapper_path\}.*>> "\$GITHUB_ENV"/,
     'expected the macOS direct E2E job to export the sanitized Salesforce CLI wrapper for runtime calls'
+  );
+  assert.match(
+    String(exportSfNodeStep.step.run || ''),
+    /ALV_SF_BIN_PATH=\$\{wrapper_path\}.*>> "\$GITHUB_ENV"/,
+    'expected the macOS direct E2E job to export the sanitized Salesforce CLI wrapper for Rust runtime calls'
   );
 
   assert.ok(
