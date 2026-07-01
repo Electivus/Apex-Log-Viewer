@@ -143,10 +143,13 @@ suite('resolvePATHFromLoginShell', () => {
     const originalSfCliNodePath = process.env.SF_CLI_NODE_PATH;
     const originalAlvSfBinPath = process.env.ALV_SF_BIN_PATH;
 
-    process.env.PATH = '/usr/bin:/bin';
-    delete process.env.Path;
-    process.env.SF_CLI_BIN_PATH = '/tmp/alv-sf-node22-wrapper';
-    process.env.SF_CLI_NODE_PATH = '/opt/hostedtoolcache/node/22.23.0/arm64/bin/node';
+    const basePath = '/usr/bin:/bin';
+    const nodePath = '/opt/hostedtoolcache/node/20.20.0/arm64/bin/node';
+    const nodeDir = '/opt/hostedtoolcache/node/20.20.0/arm64/bin';
+    process.env.PATH = basePath;
+    process.env.Path = basePath;
+    process.env.SF_CLI_BIN_PATH = '/tmp/alv-sf-node20-wrapper';
+    process.env.SF_CLI_NODE_PATH = nodePath;
     delete process.env.ALV_SF_BIN_PATH;
 
     let calls = 0;
@@ -160,8 +163,8 @@ suite('resolvePATHFromLoginShell', () => {
       const envValue = await getLoginShellEnv();
 
       assert.equal(calls, 0);
-      assert.equal(envValue?.ALV_SF_BIN_PATH, '/tmp/alv-sf-node22-wrapper');
-      assert.equal(envValue?.PATH, '/opt/hostedtoolcache/node/22.23.0/arm64/bin:/usr/bin:/bin');
+      assert.equal(envValue?.ALV_SF_BIN_PATH, '/tmp/alv-sf-node20-wrapper');
+      assert.equal(envValue?.PATH, `${nodeDir}:${basePath}`);
       assert.equal(envValue?.Path, envValue?.PATH);
     } finally {
       if (originalPath === undefined) {
