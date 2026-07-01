@@ -14,6 +14,7 @@
 - `config/` holds runtime bundle and scratch-org configuration.
 - `docs/` holds architecture/testing/publishing notes and plan docs.
 - `scripts/` contains build/test helper scripts.
+- `.codex/skills/` contains bundled Codex skill packages, including the `apex-log-viewer-cli` skill installed by the standalone CLI.
 
 ## Shared Runtime Strategy
 - Treat the VS Code extension and the standalone CLI as separate surfaces built on a shared architecture, not as copies of each other.
@@ -34,7 +35,10 @@
 - Format with `npm run format`.
 - Lint + extension TypeScript validation with `npm run compile`.
 - Build with `npm run build`.
+- Build only the extension host bundle with `npm run build:extension`.
+- Build only the webview bundle and CSS with `npm run build:webview`.
 - Build standalone CLI npm packages with `npm run build:cli:npm`.
+- Install or refresh the bundled Codex skill with `apex-log-viewer skills install --force`; use `--dry-run` to preview and `--codex-home <path>` when targeting a non-default Codex home.
 - Prepare a publishable package with `npm run package`.
 - Build the local release runtime bundle with `npm run package:runtime:local`; on Linux `linux-x64` builds require a musl toolchain with `musl-gcc` on `PATH`.
 - Watch mode: `npm run watch`.
@@ -65,6 +69,9 @@
 
 ## Real Org E2E and Operations
 - Corporate proxy/MITM E2E lab: `npm run test:e2e:proxy-lab`; pass a child command after `--` such as `npm run test:e2e:proxy-lab -- npm run test:e2e:cli`. Real-org proxy-lab runs require `SF_DEVHUB_AUTH_URL`.
+- Faster proxy-lab reruns can reuse Docker dependency volumes with `ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1 npm run test:e2e:proxy-lab -- <child-command>` after dependencies are already installed.
+- Salesforce CLI nightly proxy-lab validation uses `npm run test:e2e:proxy-lab:sf-nightly -- <child-command>`, for example `npm run test:e2e:proxy-lab:sf-nightly -- npm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts`.
+- Reset proxy-lab Docker volumes only intentionally with `docker compose -f docker-compose.e2e-proxy.yml down --volumes`; the volumes may contain Salesforce CLI auth state from real-org runs.
 - Scratch-org pool admin commands: `npm run scratch-pool:bootstrap`, `npm run scratch-pool:list`, `npm run scratch-pool:reconcile`, `npm run scratch-pool:prewarm`, `npm run scratch-pool:disable-slot`, and `npm run scratch-pool:reset-slot`. Pass script flags after `--` so npm does not consume them.
 - Telemetry usage reports: `npm run telemetry:report -- --subscription=<sub-id> --resource-group=<rg> --app=<app-name>`.
 - Azure Monitor infrastructure helpers: preview with `npm run azure:monitor:what-if`; deploy with `npm run azure:monitor:deploy`.
