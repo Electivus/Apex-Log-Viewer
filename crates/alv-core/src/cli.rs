@@ -13,16 +13,18 @@ pub(crate) fn build_command_invocation<S>(
 where
     S: AsRef<str>,
 {
-    if cfg!(windows) && program.eq_ignore_ascii_case("sf") {
+    if program.eq_ignore_ascii_case("sf") {
         if let Ok(explicit_path) = std::env::var("ALV_SF_BIN_PATH") {
             let trimmed = explicit_path.trim();
             if !trimmed.is_empty() {
-                return Ok(build_windows_sf_invocation(trimmed, args));
+                return Ok(build_sf_invocation(trimmed, args));
             }
         }
+    }
 
+    if cfg!(windows) && program.eq_ignore_ascii_case("sf") {
         if let Some(resolved_path) = resolve_windows_sf_path(program)? {
-            return Ok(build_windows_sf_invocation(&resolved_path, args));
+            return Ok(build_sf_invocation(&resolved_path, args));
         }
     }
 
@@ -71,13 +73,32 @@ pub(crate) fn pick_windows_sf_candidate(candidates: &[String]) -> Option<String>
         .or_else(|| candidates.first().cloned())
 }
 
+#[cfg(test)]
 pub(crate) fn build_windows_sf_invocation<S>(sf_path: &str, args: &[S]) -> CommandInvocation
+where
+    S: AsRef<str>,
+{
+    build_sf_invocation_with_cmd_wrap(sf_path, args, true)
+}
+
+fn build_sf_invocation<S>(sf_path: &str, args: &[S]) -> CommandInvocation
+where
+    S: AsRef<str>,
+{
+    build_sf_invocation_with_cmd_wrap(sf_path, args, cfg!(windows))
+}
+
+fn build_sf_invocation_with_cmd_wrap<S>(
+    sf_path: &str,
+    args: &[S],
+    wrap_cmd_shim: bool,
+) -> CommandInvocation
 where
     S: AsRef<str>,
 {
     let normalized_path = sf_path.trim().to_string();
     let lowercase = normalized_path.to_ascii_lowercase();
-    if lowercase.ends_with(".cmd") {
+    if wrap_cmd_shim && lowercase.ends_with(".cmd") {
         let mut argv = vec![
             "/d".to_string(),
             "/s".to_string(),

@@ -128,6 +128,142 @@ suite('resolvePATHFromLoginShell', () => {
     }
   });
 
+  test('getLoginShellEnv forwards CI-provided Salesforce CLI paths on darwin without probing the login shell', async () => {
+    const execModule = loadExecModule();
+    const { __setExecFileImplForTests, __resetExecFileImplForTests } = execModule;
+    const { getLoginShellEnv, __resetLoginShellPATHForTests } = loadPathModule({
+      platform: 'darwin',
+      execModule
+    });
+    __resetLoginShellPATHForTests();
+
+    const originalPath = process.env.PATH;
+    const originalPathCase = process.env.Path;
+    const originalSfCliBinPath = process.env.SF_CLI_BIN_PATH;
+    const originalSfCliNodePath = process.env.SF_CLI_NODE_PATH;
+    const originalAlvSfBinPath = process.env.ALV_SF_BIN_PATH;
+
+    const basePath = '/usr/bin:/bin';
+    const nodePath = '/opt/hostedtoolcache/node/20.20.0/arm64/bin/node';
+    const nodeDir = '/opt/hostedtoolcache/node/20.20.0/arm64/bin';
+    process.env.PATH = basePath;
+    process.env.Path = basePath;
+    process.env.SF_CLI_BIN_PATH = '/tmp/alv-sf-node20-wrapper';
+    process.env.SF_CLI_NODE_PATH = nodePath;
+    delete process.env.ALV_SF_BIN_PATH;
+
+    let calls = 0;
+    __setExecFileImplForTests(((_program: string, _args: readonly string[] | undefined, _opts: any, cb: any) => {
+      calls++;
+      cb(new Error('login shell should not be probed'), '', '');
+      return undefined as any;
+    }) as any);
+
+    try {
+      const envValue = await getLoginShellEnv();
+
+      assert.equal(calls, 0);
+      assert.equal(envValue?.ALV_SF_BIN_PATH, '/tmp/alv-sf-node20-wrapper');
+      assert.equal(envValue?.PATH, `${nodeDir}:${basePath}`);
+      assert.equal(envValue?.Path, envValue?.PATH);
+    } finally {
+      if (originalPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = originalPath;
+      }
+      if (originalPathCase === undefined) {
+        delete process.env.Path;
+      } else {
+        process.env.Path = originalPathCase;
+      }
+      if (originalSfCliBinPath === undefined) {
+        delete process.env.SF_CLI_BIN_PATH;
+      } else {
+        process.env.SF_CLI_BIN_PATH = originalSfCliBinPath;
+      }
+      if (originalSfCliNodePath === undefined) {
+        delete process.env.SF_CLI_NODE_PATH;
+      } else {
+        process.env.SF_CLI_NODE_PATH = originalSfCliNodePath;
+      }
+      if (originalAlvSfBinPath === undefined) {
+        delete process.env.ALV_SF_BIN_PATH;
+      } else {
+        process.env.ALV_SF_BIN_PATH = originalAlvSfBinPath;
+      }
+      __resetExecFileImplForTests();
+    }
+  });
+
+  test('getLoginShellEnv preserves explicit Salesforce CLI Node runtime after login-shell PATH on darwin', async () => {
+    const execModule = loadExecModule();
+    const { __setExecFileImplForTests, __resetExecFileImplForTests } = execModule;
+    const { getLoginShellEnv, __resetLoginShellPATHForTests } = loadPathModule({
+      platform: 'darwin',
+      execModule
+    });
+    __resetLoginShellPATHForTests();
+
+    const originalPath = process.env.PATH;
+    const originalPathCase = process.env.Path;
+    const originalSfCliBinPath = process.env.SF_CLI_BIN_PATH;
+    const originalSfCliNodePath = process.env.SF_CLI_NODE_PATH;
+    const originalAlvSfBinPath = process.env.ALV_SF_BIN_PATH;
+
+    const basePath = '/usr/bin:/bin';
+    const loginPath = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin';
+    const nodePath = '/opt/hostedtoolcache/node/20.20.0/arm64/bin/node';
+    const nodeDir = '/opt/hostedtoolcache/node/20.20.0/arm64/bin';
+    process.env.PATH = basePath;
+    process.env.Path = basePath;
+    process.env.SF_CLI_NODE_PATH = nodePath;
+    delete process.env.SF_CLI_BIN_PATH;
+    delete process.env.ALV_SF_BIN_PATH;
+
+    let calls = 0;
+    __setExecFileImplForTests(((_program: string, _args: readonly string[] | undefined, _opts: any, cb: any) => {
+      calls++;
+      cb(null, `${loginPath}\n`, '');
+      return undefined as any;
+    }) as any);
+
+    try {
+      const envValue = await getLoginShellEnv();
+
+      assert.equal(calls, 1);
+      assert.equal(envValue?.PATH, `${nodeDir}:${loginPath}`);
+      assert.equal(envValue?.Path, envValue?.PATH);
+    } finally {
+      if (originalPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = originalPath;
+      }
+      if (originalPathCase === undefined) {
+        delete process.env.Path;
+      } else {
+        process.env.Path = originalPathCase;
+      }
+      if (originalSfCliBinPath === undefined) {
+        delete process.env.SF_CLI_BIN_PATH;
+      } else {
+        process.env.SF_CLI_BIN_PATH = originalSfCliBinPath;
+      }
+      if (originalSfCliNodePath === undefined) {
+        delete process.env.SF_CLI_NODE_PATH;
+      } else {
+        process.env.SF_CLI_NODE_PATH = originalSfCliNodePath;
+      }
+      if (originalAlvSfBinPath === undefined) {
+        delete process.env.ALV_SF_BIN_PATH;
+      } else {
+        process.env.ALV_SF_BIN_PATH = originalAlvSfBinPath;
+      }
+      __resetExecFileImplForTests();
+    }
+  });
+
   test('getLoginShellEnv skips login-shell probing when current PATH already resolves sf.cmd on win32', async () => {
     const execModule = loadExecModule();
     const { __setExecFileImplForTests, __resetExecFileImplForTests } = execModule;
