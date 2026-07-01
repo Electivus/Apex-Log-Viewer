@@ -254,13 +254,18 @@ test('direct macOS Playwright workflow runs Salesforce CLI with an LTS Node runt
   assert.equal(exportSfNodeStep.step.if, "runner.os == 'macOS'");
   assert.match(
     String(exportSfNodeStep.step.run || ''),
-    /SF_CLI_NODE_PATH=\$\(command -v node\).*>> "\$GITHUB_ENV"/,
+    /node_path="\$\(command -v node\)"/,
     'expected the macOS direct E2E job to export the Salesforce CLI Node runtime for the VS Code wrapper'
   );
   assert.match(
     String(exportSfNodeStep.step.run || ''),
-    /SF_CLI_BIN_PATH=\$\(command -v sf\).*>> "\$GITHUB_ENV"/,
-    'expected the macOS direct E2E job to export the Node 22 Salesforce CLI binary for host-side pool commands'
+    /wrapper_path="\$\{RUNNER_TEMP\}\/alv-sf-node22-wrapper\.sh"/,
+    'expected the macOS direct E2E job to create a sanitized Salesforce CLI wrapper'
+  );
+  assert.match(
+    String(exportSfNodeStep.step.run || ''),
+    /SF_CLI_BIN_PATH=\$\{wrapper_path\}.*>> "\$GITHUB_ENV"/,
+    'expected the macOS direct E2E job to export the sanitized Salesforce CLI wrapper for runtime calls'
   );
 
   assert.ok(

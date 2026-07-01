@@ -245,8 +245,29 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          echo "SF_CLI_NODE_PATH=$(command -v node)" >> "$GITHUB_ENV"
-          echo "SF_CLI_BIN_PATH=$(command -v sf)" >> "$GITHUB_ENV"
+          node_path="$(command -v node)"
+          sf_bin_path="$(command -v sf)"
+          wrapper_path="${RUNNER_TEMP}/alv-sf-node22-wrapper.sh"
+          {
+            echo '#!/usr/bin/env bash'
+            echo 'set -euo pipefail'
+            echo 'unset ELECTRON_RUN_AS_NODE || true'
+            echo 'unset NODE_OPTIONS || true'
+            echo 'unset VSCODE_AMD_ENTRYPOINT || true'
+            echo 'unset VSCODE_CODE_CACHE_PATH || true'
+            echo 'unset VSCODE_CWD || true'
+            echo 'unset VSCODE_ESM_ENTRYPOINT || true'
+            echo 'unset VSCODE_HANDLES_UNCAUGHT_ERRORS || true'
+            echo 'unset VSCODE_IPC_HOOK || true'
+            echo 'unset VSCODE_IPC_HOOK_CLI || true'
+            echo 'unset VSCODE_NLS_CONFIG || true'
+            echo 'unset VSCODE_PID || true'
+            echo "export PATH=\"$(dirname "$node_path"):\${PATH:-}\""
+            printf 'exec %q "$@"\n' "$sf_bin_path"
+          } > "$wrapper_path"
+          chmod +x "$wrapper_path"
+          echo "SF_CLI_NODE_PATH=${node_path}" >> "$GITHUB_ENV"
+          echo "SF_CLI_BIN_PATH=${wrapper_path}" >> "$GITHUB_ENV"
 
       - name: Restore Node.js from .nvmrc
         if: runner.os == 'macOS'

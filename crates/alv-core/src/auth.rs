@@ -421,6 +421,22 @@ fn run_command(program: &str, args: &[&str]) -> Result<String, String> {
 }
 
 fn configure_sf_command_env(command: &mut Command) {
+    for key in [
+        "ELECTRON_RUN_AS_NODE",
+        "NODE_OPTIONS",
+        "VSCODE_AMD_ENTRYPOINT",
+        "VSCODE_CODE_CACHE_PATH",
+        "VSCODE_CWD",
+        "VSCODE_ESM_ENTRYPOINT",
+        "VSCODE_HANDLES_UNCAUGHT_ERRORS",
+        "VSCODE_IPC_HOOK",
+        "VSCODE_IPC_HOOK_CLI",
+        "VSCODE_NLS_CONFIG",
+        "VSCODE_PID",
+    ] {
+        command.env_remove(key);
+    }
+
     for (key, value) in [
         ("SF_SKIP_NEW_VERSION_CHECK", "true"),
         ("SF_DISABLE_TELEMETRY", "true"),
@@ -539,7 +555,8 @@ fn is_usable_secret(value: &str) -> bool {
 mod tests {
     use super::*;
     use crate::cli::{
-        build_windows_sf_invocation, parse_where_candidates, pick_windows_sf_candidate,
+        build_command_invocation, build_windows_sf_invocation, parse_where_candidates,
+        pick_windows_sf_candidate,
     };
     use std::{
         ffi::{OsStr, OsString},
@@ -1033,6 +1050,53 @@ mod tests {
             Some(Some("true".to_string()))
         );
         assert_eq!(explicit_command_env(&command, "SF_DISABLE_TELEMETRY"), None);
+    }
+
+    #[test]
+    fn configure_sf_command_env_removes_vscode_and_electron_node_env() {
+        let _guard = auth_cache_test_guard()
+            .lock()
+            .expect("auth cache test guard should not be poisoned");
+        let _electron_restore = EnvVarRestore::capture("ELECTRON_RUN_AS_NODE");
+        let _node_options_restore = EnvVarRestore::capture("NODE_OPTIONS");
+        let _vscode_ipc_restore = EnvVarRestore::capture("VSCODE_IPC_HOOK_CLI");
+
+        std::env::set_var("ELECTRON_RUN_AS_NODE", "1");
+        std::env::set_var("NODE_OPTIONS", "--require /tmp/vscode-bootstrap.js");
+        std::env::set_var("VSCODE_IPC_HOOK_CLI", "/tmp/vscode-ipc.sock");
+
+        let mut command = Command::new("sf");
+        configure_sf_command_env(&mut command);
+
+        assert_eq!(
+            explicit_command_env(&command, "ELECTRON_RUN_AS_NODE"),
+            Some(None)
+        );
+        assert_eq!(explicit_command_env(&command, "NODE_OPTIONS"), Some(None));
+        assert_eq!(
+            explicit_command_env(&command, "VSCODE_IPC_HOOK_CLI"),
+            Some(None)
+        );
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn build_command_invocation_uses_explicit_sf_bin_path_on_unix() {
+        let _guard = auth_cache_test_guard()
+            .lock()
+            .expect("auth cache test guard should not be poisoned");
+        let _sf_bin_restore = EnvVarRestore::capture("ALV_SF_BIN_PATH");
+
+        std::env::set_var("ALV_SF_BIN_PATH", "/tmp/alv-sf-wrapper");
+
+        let invocation = build_command_invocation("sf", &["org", "list", "--json"])
+            .expect("explicit sf invocation should resolve");
+
+        assert_eq!(invocation.program, "/tmp/alv-sf-wrapper");
+        assert_eq!(
+            invocation.args,
+            vec!["org".to_string(), "list".to_string(), "--json".to_string(),]
+        );
     }
 
     #[test]
