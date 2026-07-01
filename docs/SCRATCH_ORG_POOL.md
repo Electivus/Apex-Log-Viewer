@@ -23,13 +23,13 @@ sf org assign permset --target-org DevHubElectivus --name ALV_ScratchOrgPoolServ
 Create or update the pool records:
 
 ```bash
-npm run scratch-pool:bootstrap -- --target-org DevHubElectivus --pool-key alv-e2e --target-size 21
+npm run scratch-pool:bootstrap -- --target-org DevHubElectivus --pool-key alv-e2e --target-size 30
 ```
 
 Notes:
 
 - When invoking these scripts through `npm run`, keep the extra `--` before the script arguments. Without it, `npm` consumes flags like `--pool-key`, and the script fails with errors such as `Missing required --pool-key for bootstrap.`
-- If your shell already exports `SF_DEVHUB_ALIAS`, you can omit `--target-org` and run `npm run scratch-pool:bootstrap -- --pool-key alv-e2e --target-size 21`.
+- If your shell already exports `SF_DEVHUB_ALIAS`, you can omit `--target-org` and run `npm run scratch-pool:bootstrap -- --pool-key alv-e2e --target-size 30`.
 
 Useful bootstrap overrides:
 
@@ -99,10 +99,7 @@ If `SF_SCRATCH_STRATEGY` is unset, the helper automatically switches to pool mod
 
 ## GitHub Actions
 
-The Playwright workflow supports two modes:
-
-- Pool mode when `SF_SCRATCH_POOL_NAME` and `SF_DEVHUB_AUTH_URL` are configured
-- Legacy single-scratch fallback when pool configuration is missing
+The Playwright workflow is pool-only in CI. It requires `SF_SCRATCH_POOL_NAME` and `SF_DEVHUB_AUTH_URL`, and it fails fast when either value is missing instead of falling back to the legacy single-scratch path.
 
 Repository secrets for pool mode:
 
@@ -118,7 +115,9 @@ Repository variables for pool mode:
 - `SF_SCRATCH_POOL_SEED_VERSION` (optional)
 - `SF_SCRATCH_POOL_SNAPSHOT_NAME` (optional)
 
-When pool mode is active, the workflow lets each Playwright worker acquire its own scratch org slot and reuse the stored `sfdxAuthUrl` for future runs. The repository workflow defaults to `7` Playwright workers so the current seven E2E specs can run in parallel on CI.
+When pool mode is active, the workflow lets each Playwright worker acquire its own scratch org slot and reuse the stored `sfdxAuthUrl` for future runs. The repository workflow defaults to `1` Playwright worker for CI PR runs; manual `workflow_dispatch` runs can override that with the `playwright_workers` input.
+
+The workflow-level concurrency group is keyed by `SF_SCRATCH_POOL_NAME` with `queue: max` and `cancel-in-progress: false`. Multiple PRs that share the same Dev Hub pool are queued instead of running every PR ref at once, and older pending E2E runs are not replaced by newer dependency PRs. This prevents Dependabot bursts from producing spurious lease-exhaustion failures or canceled intermediate validations.
 
 ## Codex Cloud
 

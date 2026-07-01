@@ -54,6 +54,12 @@ test('normalizePoolConfig applies defaults and respects explicit overrides', () 
   assert.equal(config.seedVersionSpecified, false);
 });
 
+test('normalizePoolConfig defaults the pool to thirty logical slots', () => {
+  const config = normalizePoolConfig(['bootstrap', '--pool-key', 'alv-e2e']);
+
+  assert.equal(config.targetSize, 30);
+});
+
 test('normalizePrewarmOptions keeps limit optional and validates explicit limits', () => {
   assert.deepEqual(normalizePrewarmOptions(['prewarm', '--pool-key', 'alv-e2e']), {
     limit: undefined
