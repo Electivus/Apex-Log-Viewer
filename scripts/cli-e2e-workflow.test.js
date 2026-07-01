@@ -166,6 +166,11 @@ test('real-org Playwright workflow serializes CI runs by scratch-org pool', () =
     false,
     'expected an active E2E run to finish instead of being canceled by another shared-pool run'
   );
+  assert.equal(
+    Object.hasOwn(concurrency, 'queue'),
+    false,
+    'expected workflow concurrency to avoid the unsupported queue key'
+  );
   assert.doesNotMatch(
     String(concurrency.group || ''),
     /github\.ref/,
