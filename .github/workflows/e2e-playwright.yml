@@ -54,7 +54,7 @@ jobs:
       PLAYWRIGHT_RETRIES: '0'
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
@@ -210,7 +210,7 @@ jobs:
         run: git config --global core.autocrlf false
 
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
@@ -232,8 +232,55 @@ jobs:
           path: .vscode-test/vscode-*
           key: vscode-test-${{ runner.os }}-${{ steps.vscode-cache.outputs.version }}-${{ steps.vscode-cache.outputs.build }}
 
+      - name: Setup Salesforce CLI Node.js
+        if: runner.os == 'macOS'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          # Node 22.23 can exit with "Detected unsettled top-level await" for
+          # @salesforce/cli inside the VS Code macOS test host.
+          node-version: '20'
+
       - name: Install Salesforce CLI
         run: npm install -g @salesforce/cli@2.136.8 --no-audit --no-fund
+
+      - name: Export Salesforce CLI Node.js runtime
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          node_path="$(command -v node)"
+          sf_bin_path="$(command -v sf)"
+          wrapper_dir="${RUNNER_TEMP}/alv-sf-node20"
+          wrapper_path="${wrapper_dir}/sf"
+          mkdir -p "$wrapper_dir"
+          {
+            echo '#!/usr/bin/env bash'
+            echo 'set -euo pipefail'
+            echo 'unset ELECTRON_RUN_AS_NODE || true'
+            echo 'unset NODE_OPTIONS || true'
+            echo 'unset VSCODE_AMD_ENTRYPOINT || true'
+            echo 'unset VSCODE_CODE_CACHE_PATH || true'
+            echo 'unset VSCODE_CWD || true'
+            echo 'unset VSCODE_ESM_ENTRYPOINT || true'
+            echo 'unset VSCODE_HANDLES_UNCAUGHT_ERRORS || true'
+            echo 'unset VSCODE_IPC_HOOK || true'
+            echo 'unset VSCODE_IPC_HOOK_CLI || true'
+            echo 'unset VSCODE_NLS_CONFIG || true'
+            echo 'unset VSCODE_PID || true'
+            echo "export PATH=\"$(dirname "$node_path"):\${PATH:-}\""
+            printf 'exec %q "$@"\n' "$sf_bin_path"
+          } > "$wrapper_path"
+          chmod +x "$wrapper_path"
+          echo "SF_CLI_NODE_PATH=${node_path}" >> "$GITHUB_ENV"
+          echo "SF_CLI_BIN_PATH=${wrapper_path}" >> "$GITHUB_ENV"
+          echo "ALV_SF_BIN_PATH=${wrapper_path}" >> "$GITHUB_ENV"
+
+      - name: Restore Node.js from .nvmrc
+        if: runner.os == 'macOS'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Require scratch-org pool configuration
         shell: bash

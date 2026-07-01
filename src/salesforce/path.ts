@@ -38,6 +38,20 @@ export async function getLoginShellEnv(): Promise<NodeJS.ProcessEnv | undefined>
     env2.PATH = currentPath;
     env2.Path = currentPath;
   }
+  const explicitSfCliPath = firstNonEmptyEnv(env2.ALV_SF_BIN_PATH, env2.SF_CLI_BIN_PATH);
+  if (explicitSfCliPath) {
+    env2.ALV_SF_BIN_PATH = explicitSfCliPath;
+  }
+  const explicitSfNodePath = firstNonEmptyEnv(env2.SF_CLI_NODE_PATH);
+  const prependExplicitSfNodePath = () => {
+    if (explicitSfNodePath) {
+      prependToPathEnv(env2, path.dirname(explicitSfNodePath));
+    }
+  };
+  prependExplicitSfNodePath();
+  if (explicitSfCliPath) {
+    return env2;
+  }
   if (os.platform() === 'win32') {
     const currentSfCliPath = await resolveSfCliPath(env2);
     if (currentSfCliPath) {
@@ -51,11 +65,39 @@ export async function getLoginShellEnv(): Promise<NodeJS.ProcessEnv | undefined>
     env2.PATH = effectivePath;
     env2.Path = effectivePath;
   }
+  prependExplicitSfNodePath();
   const sfCliPath = await resolveSfCliPath(env2);
   if (sfCliPath) {
     env2.ALV_SF_BIN_PATH = sfCliPath;
   }
-  return loginPath || sfCliPath ? env2 : undefined;
+  return loginPath || sfCliPath || explicitSfNodePath ? env2 : undefined;
+}
+
+function firstNonEmptyEnv(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = String(value || '').trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
+function prependToPathEnv(env: NodeJS.ProcessEnv, entry: string): void {
+  const trimmed = entry.trim();
+  if (!trimmed) {
+    return;
+  }
+  const delimiter = os.platform() === 'win32' ? ';' : ':';
+  const currentPath = env.PATH || env.Path || '';
+  const parts = currentPath.split(delimiter).filter(Boolean);
+  if (parts.includes(trimmed)) {
+    env.PATH = currentPath || trimmed;
+    env.Path = env.PATH;
+    return;
+  }
+  env.PATH = currentPath ? `${trimmed}${delimiter}${currentPath}` : trimmed;
+  env.Path = env.PATH;
 }
 
 async function resolvePATHFromLoginShellInner(): Promise<string | undefined> {
