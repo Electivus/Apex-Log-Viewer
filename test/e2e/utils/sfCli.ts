@@ -108,14 +108,15 @@ export function __resetResolvedSfBinAbsolutePathCacheForTests(): void {
   resolvedSfBinAbsolutePathPromise = undefined;
 }
 
+function configuredSfBinPath(): string | undefined {
+  const configuredSfPath = String(process.env.SF_CLI_BIN_PATH || '').trim();
+  return configuredSfPath || undefined;
+}
+
 export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
   if (!resolvedSfBinAbsolutePathPromise) {
     resolvedSfBinAbsolutePathPromise = (async () => {
       try {
-        const configuredSfPath = String(process.env.SF_CLI_BIN_PATH || '').trim();
-        if (configuredSfPath) {
-          return configuredSfPath;
-        }
         if (process.platform === 'win32') {
           const { stdout } = await execProcessFileAsync('cmd.exe', ['/d', '/s', '/c', 'where sf'], {
             timeoutMs: 10_000
@@ -139,7 +140,7 @@ export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
 }
 
 export async function resolveSfCliInvocation(): Promise<{ sfBinPath: string; nodeBinPath: string } | undefined> {
-  const sfBinPath = await resolveSfBinAbsolutePath();
+  const sfBinPath = configuredSfBinPath() || (await resolveSfBinAbsolutePath());
   if (!sfBinPath) {
     return undefined;
   }

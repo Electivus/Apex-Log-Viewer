@@ -130,4 +130,24 @@ describe('runSfJson failure diagnostics', () => {
     });
     expect(execFileMock).not.toHaveBeenCalled();
   });
+
+  test('resolves setup commands from PATH when extension CLI binary path is configured', async () => {
+    process.env.SF_CLI_BIN_PATH = '/opt/hostedtoolcache/node/22/bin/sf';
+    process.env.SF_CLI_NODE_PATH = '/opt/hostedtoolcache/node/22/bin/node';
+    const { runSfJson } = await importSfCli();
+    const promise = runSfJson(['org', 'display', '-o', 'ConfiguredDevHub']);
+
+    await waitForExecCallCount(1);
+    expect(execFileMock.mock.calls[0]?.[0]).toBe('bash');
+    passCommand('/usr/local/bin/sf\n');
+
+    await waitForExecCallCount(2);
+    expect(execFileMock.mock.calls[1]?.[0]).toBe('/usr/local/bin/sf');
+    passCommand('{"status":0,"result":{"username":"devhub@example.com"}}\n');
+
+    await expect(promise).resolves.toEqual({
+      status: 0,
+      result: { username: 'devhub@example.com' }
+    });
+  });
 });
