@@ -259,7 +259,7 @@ test('direct macOS Playwright workflow runs Salesforce CLI with an LTS Node runt
   );
   assert.match(
     String(exportSfNodeStep.step.run || ''),
-    /wrapper_path="\$\{RUNNER_TEMP\}\/alv-sf-node22-wrapper\.sh"/,
+    /wrapper_path="\$\{wrapper_dir\}\/sf"/,
     'expected the macOS direct E2E job to create a sanitized Salesforce CLI wrapper'
   );
   assert.match(

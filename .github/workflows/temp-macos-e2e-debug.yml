@@ -75,7 +75,9 @@ jobs:
         run: |
           node_path="$(command -v node)"
           sf_bin_path="$(command -v sf)"
-          wrapper_path="${RUNNER_TEMP}/alv-sf-node22-wrapper.sh"
+          wrapper_dir="${RUNNER_TEMP}/alv-sf-node22"
+          wrapper_path="${wrapper_dir}/sf"
+          mkdir -p "$wrapper_dir"
           {
             echo '#!/usr/bin/env bash'
             echo 'set -euo pipefail'
