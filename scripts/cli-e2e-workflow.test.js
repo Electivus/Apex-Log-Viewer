@@ -226,6 +226,66 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and disa
   assert.equal(uploadExtensionStep.step.with?.path, 'output/playwright/');
 });
 
+test('direct macOS Playwright workflow runs Salesforce CLI with an LTS Node runtime', () => {
+  const workflow = readWorkflow();
+  const installSfStep = getDirectWorkflowStep(workflow, 'Install Salesforce CLI');
+  const setupSfNodeStep = getDirectWorkflowStep(workflow, 'Setup Salesforce CLI Node.js');
+  const exportSfNodeStep = getDirectWorkflowStep(workflow, 'Export Salesforce CLI Node.js runtime');
+  const restoreProjectNodeStep = getDirectWorkflowStep(workflow, 'Restore Node.js from .nvmrc');
+  const installDepsStep = getDirectWorkflowStep(workflow, 'Install extension dependencies');
+
+  assert.ok(
+    setupSfNodeStep.index < installSfStep.index,
+    'expected macOS to select the Salesforce CLI Node runtime before installing the CLI'
+  );
+  assert.equal(setupSfNodeStep.step.if, "runner.os == 'macOS'");
+  assert.equal(setupSfNodeStep.step.uses, 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e');
+  assert.equal(setupSfNodeStep.step.with?.['node-version'], '20');
+
+  assert.ok(
+    installSfStep.index < exportSfNodeStep.index,
+    'expected LTS Node Salesforce CLI to install before exporting its runtime and binary path'
+  );
+  assert.match(
+    String(installSfStep.step.run || ''),
+    /npm install -g @salesforce\/cli@2\.136\.8 --no-audit --no-fund/,
+    'expected the workflow to keep installing the pinned Salesforce CLI'
+  );
+  assert.equal(exportSfNodeStep.step.if, "runner.os == 'macOS'");
+  assert.match(
+    String(exportSfNodeStep.step.run || ''),
+    /node_path="\$\(command -v node\)"/,
+    'expected the macOS direct E2E job to export the Salesforce CLI Node runtime for the VS Code wrapper'
+  );
+  assert.match(
+    String(exportSfNodeStep.step.run || ''),
+    /wrapper_dir="\$\{RUNNER_TEMP\}\/alv-sf-node20"/,
+    'expected the macOS direct E2E job to create a sanitized Salesforce CLI wrapper'
+  );
+  assert.match(
+    String(exportSfNodeStep.step.run || ''),
+    /SF_CLI_BIN_PATH=\$\{wrapper_path\}.*>> "\$GITHUB_ENV"/,
+    'expected the macOS direct E2E job to export the sanitized Salesforce CLI wrapper for runtime calls'
+  );
+  assert.match(
+    String(exportSfNodeStep.step.run || ''),
+    /ALV_SF_BIN_PATH=\$\{wrapper_path\}.*>> "\$GITHUB_ENV"/,
+    'expected the macOS direct E2E job to export the sanitized Salesforce CLI wrapper for Rust runtime calls'
+  );
+
+  assert.ok(
+    exportSfNodeStep.index < restoreProjectNodeStep.index,
+    'expected the project Node runtime to be restored after capturing the Salesforce CLI runtime'
+  );
+  assert.equal(restoreProjectNodeStep.step.if, "runner.os == 'macOS'");
+  assert.equal(restoreProjectNodeStep.step.uses, 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e');
+  assert.equal(restoreProjectNodeStep.step.with?.['node-version-file'], '.nvmrc');
+  assert.ok(
+    restoreProjectNodeStep.index < installDepsStep.index,
+    'expected npm ci to run under the project Node version'
+  );
+});
+
 test('real-org Playwright workflow logs into Azure immediately before telemetry-capable extension E2E', () => {
   const workflow = readWorkflow();
   const azureLoginStep = getWorkflowStep(workflow, 'Azure login for dedicated App Insights validation');
