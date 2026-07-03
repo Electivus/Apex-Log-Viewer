@@ -69,6 +69,8 @@
 
 ## Real Org E2E and Operations
 - Corporate proxy/MITM E2E lab: `npm run test:e2e:proxy-lab`; pass a child command after `--` such as `npm run test:e2e:proxy-lab -- npm run test:e2e:cli`. Real-org proxy-lab runs require `SF_DEVHUB_AUTH_URL`.
+- GitHub real-org E2E is pool-only in `.github/workflows/e2e-playwright.yml`: configure repository variable `SF_SCRATCH_POOL_NAME` plus secret `SF_DEVHUB_AUTH_URL`; workflow concurrency is keyed by the pool name with `cancel-in-progress: false`.
+- Direct macOS real-org E2E installs Salesforce CLI under Node 20 and exports the wrapper through `ALV_SF_BIN_PATH`; preserve that isolation when changing Salesforce CLI/runtime setup.
 - Faster proxy-lab reruns can reuse Docker dependency volumes with `ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1 npm run test:e2e:proxy-lab -- <child-command>` after dependencies are already installed.
 - Salesforce CLI nightly proxy-lab validation uses `npm run test:e2e:proxy-lab:sf-nightly -- <child-command>`, for example `npm run test:e2e:proxy-lab:sf-nightly -- npm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts`.
 - Reset proxy-lab Docker volumes only intentionally with `docker compose -f docker-compose.e2e-proxy.yml down --volumes`; the volumes may contain Salesforce CLI auth state from real-org runs.
@@ -102,8 +104,8 @@ This repo follows the VS Code Marketplace pre-release convention:
 2. **Update `CHANGELOG.md`**
    - Move items from `Unreleased` into a new version section `## [X.Y.Z]`.
 3. **Bump versions**
-   - Update `package.json#version` and `package-lock.json` to `X.Y.Z`.
-   - The release workflow validates `git tag vX.Y.Z` matches `package.json#version`.
+   - Update `apps/vscode-extension/package.json#version` and `package-lock.json` to `X.Y.Z`.
+   - The release workflow validates `git tag vX.Y.Z` matches `apps/vscode-extension/package.json#version`.
 4. **Open a release PR**
    - Conventional commit message usually `chore(release): prepare X.Y.Z`.
    - Include verification (recommended): `npm run build` + `npm run test:ci`.
@@ -119,6 +121,8 @@ This repo follows the VS Code Marketplace pre-release convention:
    - Publish to Open VSX locally with `npx --yes ovsx publish --pat <token>` or add `--pre-release` for the odd-minor channel.
 
 Nightly pre-releases are managed by `.github/workflows/prerelease.yml`, which packages and publishes the odd-minor pre-release channel when publishing secrets are configured.
+
+Standalone Rust CLI releases are separate from extension releases: update `crates/alv-cli/Cargo.toml`, refresh `config/runtime-bundle.json` when the extension should consume the tested runtime, then tag `rust-vX.Y.Z` or `rust-vX.Y.Z-alpha.N`; `.github/workflows/rust-release.yml` builds release assets and publishes the npm native/meta packages through Trusted Publisher/OIDC.
 
 See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 
