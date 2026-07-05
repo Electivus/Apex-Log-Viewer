@@ -78,6 +78,12 @@ function copyDirectory(source, destination) {
   }
 }
 
+function copyPluginManifest(source, destination, version) {
+  const manifest = JSON.parse(readText(source));
+  manifest.version = version;
+  writeJson(destination, manifest);
+}
+
 export function discoverBinaries(rootDir = repoRoot) {
   const binaries = {};
   const baseDir = path.join(rootDir, 'apps', 'vscode-extension', 'bin');
@@ -141,11 +147,14 @@ function buildPluginPackage({ version, outDir, pluginRoot = sfPluginRoot }) {
   copyDirectory(pluginLibDir, path.join(pluginDir, 'lib'));
   copyDirectory(path.join(pluginRoot, 'messages'), path.join(pluginDir, 'messages'));
 
-  for (const fileName of ['oclif.manifest.json', 'oclif.lock']) {
-    const source = path.join(pluginRoot, fileName);
-    if (fs.existsSync(source)) {
-      copyFile(source, path.join(pluginDir, fileName));
-    }
+  const manifestSource = path.join(pluginRoot, 'oclif.manifest.json');
+  if (fs.existsSync(manifestSource)) {
+    copyPluginManifest(manifestSource, path.join(pluginDir, 'oclif.manifest.json'), version);
+  }
+
+  const lockSource = path.join(pluginRoot, 'oclif.lock');
+  if (fs.existsSync(lockSource)) {
+    copyFile(lockSource, path.join(pluginDir, 'oclif.lock'));
   }
 
   return pluginDir;
