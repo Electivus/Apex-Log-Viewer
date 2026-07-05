@@ -60,7 +60,10 @@ function makePluginRoot(rootDir) {
   fs.writeFileSync(path.join(pluginRoot, 'lib', 'index.js'), 'export {};\n');
   fs.writeFileSync(path.join(pluginRoot, 'lib', 'commands', 'electivus.js'), 'export default class {}\n');
   fs.writeFileSync(path.join(pluginRoot, 'messages', 'electivus.md'), '# summary\n');
-  fs.writeFileSync(path.join(pluginRoot, 'oclif.manifest.json'), '{}\n');
+  fs.writeFileSync(
+    path.join(pluginRoot, 'oclif.manifest.json'),
+    JSON.stringify({ commands: { electivus: { id: 'electivus' } }, version: '0.0.0' }, null, 2)
+  );
   return pluginRoot;
 }
 
@@ -82,6 +85,7 @@ test('buildCliNpmPackages stages the sf plugin with all native optionalDependenc
   });
 
   const pluginPackage = JSON.parse(fs.readFileSync(path.join(result.pluginDir, 'package.json'), 'utf8'));
+  const pluginManifest = JSON.parse(fs.readFileSync(path.join(result.pluginDir, 'oclif.manifest.json'), 'utf8'));
   const linuxNativePackage = JSON.parse(
     fs.readFileSync(path.join(result.nativeDirs['linux-x64'], 'package.json'), 'utf8')
   );
@@ -99,6 +103,8 @@ test('buildCliNpmPackages stages the sf plugin with all native optionalDependenc
   assert.equal(pluginPackage.oclif.bin, 'sf');
   assert.equal(pluginPackage.oclif.topicSeparator, ' ');
   assert.equal(pluginPackage.oclif.flexibleTaxonomy, true);
+  assert.equal(pluginManifest.version, '1.2.3');
+  assert.deepEqual(pluginManifest.commands.electivus, { id: 'electivus' });
   assert.equal(pluginPackage.optionalDependencies['@electivus/apex-log-viewer-linux-x64'], '1.2.3');
   assert.equal(pluginPackage.optionalDependencies['@electivus/apex-log-viewer-darwin-arm64'], '1.2.3');
   assert.equal(
