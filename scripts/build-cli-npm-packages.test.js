@@ -95,9 +95,7 @@ test('buildCliNpmPackages stages the sf plugin with all native optionalDependenc
     type: 'git',
     url: 'https://github.com/Electivus/Apex-Log-Viewer'
   });
-  assert.deepEqual(pluginPackage.bin, {
-    sf: 'bin/run.js'
-  });
+  assert.equal(pluginPackage.bin, undefined);
   assert.equal(pluginPackage.oclif.bin, 'sf');
   assert.equal(pluginPackage.oclif.topicSeparator, ' ');
   assert.equal(pluginPackage.oclif.flexibleTaxonomy, true);

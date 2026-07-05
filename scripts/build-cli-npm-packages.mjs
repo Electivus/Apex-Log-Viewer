@@ -117,9 +117,7 @@ function buildPluginPackage({ version, outDir, pluginRoot = sfPluginRoot }) {
   const pluginPackage = JSON.parse(readText(pluginPackagePath));
   pluginPackage.name = PLUGIN_PACKAGE_NAME;
   pluginPackage.version = version;
-  pluginPackage.bin = {
-    sf: 'bin/run.js'
-  };
+  delete pluginPackage.bin;
   pluginPackage.optionalDependencies = {
     ...(pluginPackage.optionalDependencies ?? {}),
     ...nativeOptionalDependencies(version)
