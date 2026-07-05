@@ -335,6 +335,33 @@ test('resolveSalesforceCliPath skips the workspace plugin sf shim', () => {
   }
 });
 
+test('resolveSalesforceCliPath prefers sf.cmd over the bare Windows shim', () => {
+  const repoRoot = createTempRepo();
+  try {
+    const runner = loadRunner();
+    const bareSfPath = String.raw`C:\Tools\sf`;
+    const cmdSfPath = String.raw`C:\Tools\sf.cmd`;
+
+    assert.equal(
+      runner.resolveSalesforceCliPath(repoRoot, {
+        env: {},
+        targetPlatform: 'win32',
+        spawnSyncImpl(command, args) {
+          assert.equal(path.basename(command).toLowerCase(), path.basename(process.env.ComSpec || 'cmd.exe').toLowerCase());
+          assert.deepEqual(args, ['/d', '/s', '/c', 'where sf']);
+          return {
+            status: 0,
+            stdout: `${bareSfPath}\r\n${cmdSfPath}\r\n`
+          };
+        }
+      }),
+      cmdSfPath
+    );
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
+});
+
 test('resolvePlaywrightInvocation throws when @playwright/test/cli cannot be resolved instead of falling back to npx', () => {
   const runner = loadRunner();
   const originalResolveFilename = Module._resolveFilename;

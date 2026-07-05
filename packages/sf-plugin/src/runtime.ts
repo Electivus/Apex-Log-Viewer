@@ -189,6 +189,15 @@ export async function runRuntimeProcess(
     const child = spawnImpl(binaryPath, [...args], spawnOptions);
     let stdout = '';
     let stderr = '';
+    let settled = false;
+
+    const rejectOnce = (error: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(error);
+    };
 
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -199,8 +208,12 @@ export async function runRuntimeProcess(
     child.stderr.on('data', chunk => {
       stderr += String(chunk);
     });
-    child.on('error', reject);
-    child.on('exit', (exitCode, signal) => {
+    child.on('error', rejectOnce);
+    child.on('close', (exitCode, signal) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
       resolve({
         exitCode,
         signal,

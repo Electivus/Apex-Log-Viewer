@@ -47,8 +47,37 @@ function isElectivusPluginSfCandidate(candidatePath, repoRoot) {
   return false;
 }
 
+function rankSalesforceCliCandidate(candidatePath, targetPlatform = process.platform) {
+  if (targetPlatform !== 'win32') {
+    return 0;
+  }
+
+  const basename = String(candidatePath || '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .pop()
+    .toLowerCase();
+  if (basename === 'sf.cmd') {
+    return 0;
+  }
+  if (basename === 'sf.exe') {
+    return 1;
+  }
+  return 2;
+}
+
+function chooseSalesforceCliCandidate(candidates, repoRoot, targetPlatform = process.platform) {
+  return candidates
+    .filter(candidate => !isElectivusPluginSfCandidate(candidate, repoRoot))
+    .sort(
+      (left, right) =>
+        rankSalesforceCliCandidate(left, targetPlatform) - rankSalesforceCliCandidate(right, targetPlatform)
+    )[0];
+}
+
 function resolveSalesforceCliPath(repoRoot, options = {}) {
   const env = options.env || process.env;
+  const targetPlatform = options.targetPlatform || process.platform;
   const explicitPath = String(env.ALV_SF_BIN_PATH || env.SF_CLI_BIN_PATH || '').trim();
   if (explicitPath) {
     return explicitPath;
@@ -56,7 +85,7 @@ function resolveSalesforceCliPath(repoRoot, options = {}) {
 
   const spawnSyncImpl = options.spawnSyncImpl || spawnSync;
   const command =
-    process.platform === 'win32'
+    targetPlatform === 'win32'
       ? { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', 'where sf'] }
       : { file: 'bash', args: ['-lc', 'type -ap sf'] };
   const result = spawnSyncImpl(command.file, command.args, {
@@ -70,7 +99,7 @@ function resolveSalesforceCliPath(repoRoot, options = {}) {
   }
 
   const candidates = listSfPathCandidates(result.stdout);
-  return candidates.find(candidate => !isElectivusPluginSfCandidate(candidate, repoRoot));
+  return chooseSalesforceCliCandidate(candidates, repoRoot, targetPlatform);
 }
 
 function normalizeCargoTargetDirectory(repoRoot, cargoTargetDirectory) {

@@ -146,8 +146,25 @@ function isElectivusPluginSfCandidate(candidatePath: string): boolean {
   return false;
 }
 
+function rankSalesforceCliCandidate(candidate: string): number {
+  if (process.platform !== 'win32') {
+    return 0;
+  }
+
+  const basename = candidate.replace(/\\/g, '/').split('/').pop()?.toLowerCase();
+  if (basename === 'sf.cmd') {
+    return 0;
+  }
+  if (basename === 'sf.exe') {
+    return 1;
+  }
+  return 2;
+}
+
 function chooseSalesforceCliCandidate(candidates: string[]): string | undefined {
-  return candidates.find(candidate => !isElectivusPluginSfCandidate(candidate));
+  return candidates
+    .filter(candidate => !isElectivusPluginSfCandidate(candidate))
+    .sort((left, right) => rankSalesforceCliCandidate(left) - rankSalesforceCliCandidate(right))[0];
 }
 
 export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
@@ -159,8 +176,7 @@ export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
             timeoutMs: 10_000
           });
           const candidates = listSfPathCandidates(stdout);
-          const preferred = candidates.find(value => /\.cmd$/i.test(value));
-          return chooseSalesforceCliCandidate([preferred, ...candidates].filter(Boolean) as string[]);
+          return chooseSalesforceCliCandidate(candidates);
         }
         const { stdout } = await execProcessFileAsync('bash', ['-lc', 'type -ap sf'], { timeoutMs: 10_000 });
         return chooseSalesforceCliCandidate(listSfPathCandidates(stdout));

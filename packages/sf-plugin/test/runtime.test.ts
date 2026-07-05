@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,6 +13,7 @@ import {
   parseRuntimeJson,
   resolvePackageForTarget,
   resolveRuntimeBinaryPath,
+  runRuntimeProcess,
   type RuntimeExecutionResult,
   type RunRuntimeProcessOptions
 } from '../src/runtime.ts';
@@ -114,6 +116,42 @@ test('parseRuntimeJson accepts clean JSON and JSON with warning preambles', () =
   assert.deepEqual(parseRuntimeJson('{"status":"success"}'), { status: 'success' });
   assert.deepEqual(parseRuntimeJson('\u001b[33mwarning\u001b[0m\n{"status":"success"}'), {
     status: 'success'
+  });
+});
+
+test('runRuntimeProcess waits for child stdio close before resolving output', async () => {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter & { setEncoding(encoding: BufferEncoding): void };
+    stderr: EventEmitter & { setEncoding(encoding: BufferEncoding): void };
+  };
+  child.stdout = Object.assign(new EventEmitter(), { setEncoding() {} });
+  child.stderr = Object.assign(new EventEmitter(), { setEncoding() {} });
+  let settled = false;
+
+  const resultPromise = runRuntimeProcess('/runtime/apex-log-viewer', ['logs', 'status'], {
+    spawnImpl(binaryPath: string, args: readonly string[]) {
+      assert.equal(binaryPath, '/runtime/apex-log-viewer');
+      assert.deepEqual(args, ['logs', 'status']);
+      return child as any;
+    }
+  });
+  void resultPromise.then(() => {
+    settled = true;
+  });
+
+  child.emit('exit', 0, null);
+  child.stdout.emit('data', '{"status":"success"}');
+  child.stderr.emit('data', 'warning\n');
+  await Promise.resolve();
+  assert.equal(settled, false);
+
+  child.emit('close', 0, null);
+
+  assert.deepEqual(await resultPromise, {
+    exitCode: 0,
+    signal: null,
+    stdout: '{"status":"success"}',
+    stderr: 'warning\n'
   });
 });
 
