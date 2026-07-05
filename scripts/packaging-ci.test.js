@@ -270,6 +270,21 @@ test('rust-release workflow verifies the packaged linux-x64 release artifact bef
   );
 });
 
+test('rust-release package job installs sf plugin workspace dependencies before building the plugin', () => {
+  const packageReleaseJob = readWorkflowJob('.github/workflows/rust-release.yml', 'package_release');
+
+  assert.match(
+    packageReleaseJob,
+    /- name:\s+Install dependencies\s+run:\s+npm ci\s+- name:\s+Download runtime binaries/,
+    'expected release packaging to install workspace dependencies before building @electivus/plugin-electivus'
+  );
+  assert.doesNotMatch(
+    packageReleaseJob,
+    /- name:\s+Install dependencies\s+run:\s+npm ci --workspaces=false\s+- name:\s+Download runtime binaries/,
+    'expected release packaging not to omit workspace dependencies needed by @electivus/plugin-electivus'
+  );
+});
+
 test('rust-release workflow publishes npm packages through trusted publishers', () => {
   const workflowSource = readFile('.github/workflows/rust-release.yml');
   const nativePublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_native');
