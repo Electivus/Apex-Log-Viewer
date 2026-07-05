@@ -31,5 +31,6 @@ test("lint script covers the migrated monorepo source roots", () => {
 
   assert.match(lintScript, /\bsrc\b/);
   assert.match(lintScript, /apps\/vscode-extension\/src/);
+  assert.match(lintScript, /packages\/sf-plugin\/src/);
   assert.match(lintScript, /packages\/webview\/src/);
 });

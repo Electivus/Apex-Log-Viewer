@@ -2,7 +2,12 @@ import { chmod, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { resolveAlvCliBinaryPath, resolveAlvCliInvocation, runAlvCli } from '../utils/cli';
+import {
+  resolveAlvCliBinaryPath,
+  resolveAlvCliInvocation,
+  resolveElectivusPluginInvocation,
+  runAlvCli
+} from '../utils/cli';
 
 async function withTempRepo<T>(fn: (repoRoot: string) => Promise<T>): Promise<T> {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'alv-cli-helper-'));
@@ -14,7 +19,7 @@ async function withTempRepo<T>(fn: (repoRoot: string) => Promise<T>): Promise<T>
 }
 
 function withoutConfiguredCliBinaryEnv(): NodeJS.ProcessEnv {
-  return { ALV_CLI_BINARY_PATH: '' };
+  return { ALV_CLI_BINARY_PATH: '', ALV_ELECTIVUS_PLUGIN_BIN_PATH: '' };
 }
 
 async function writeFakeStandaloneBinary(repoRoot: string, scriptBody: string): Promise<string> {
@@ -46,6 +51,13 @@ async function writeFakeWindowsCommandShim(repoRoot: string, scriptBody: string)
   await mkdir(binaryDir, { recursive: true });
   await writeFile(shimPath, scriptBody, 'utf8');
   return shimPath;
+}
+
+async function writeFakePluginBin(repoRoot: string, scriptBody: string): Promise<string> {
+  const pluginBinPath = path.join(repoRoot, 'packages', 'sf-plugin', 'bin', 'run.js');
+  await mkdir(path.dirname(pluginBinPath), { recursive: true });
+  await writeFile(pluginBinPath, scriptBody, 'utf8');
+  return pluginBinPath;
 }
 
 async function writeFakeCrossTargetBinary(
@@ -130,23 +142,26 @@ test('resolveAlvCliBinaryPath fails clearly when ALV_CLI_BINARY_PATH is missing'
   });
 });
 
+test('resolveElectivusPluginInvocation uses the local sf plugin bin', async () => {
+  await withTempRepo(async repoRoot => {
+    const pluginBinPath = await writeFakePluginBin(repoRoot, 'process.exit(0);\n');
+
+    expect(resolveElectivusPluginInvocation({ repoRoot, env: withoutConfiguredCliBinaryEnv() })).toEqual({
+      command: process.execPath,
+      args: [pluginBinPath, 'electivus']
+    });
+  });
+});
+
 test('runAlvCli parses stdoutJson separately from stderrJson', async () => {
   await withTempRepo(async repoRoot => {
-    if (process.platform === 'win32') {
-      await writeFakeWindowsCommandShim(
-        repoRoot,
-        '@echo off\r\necho {\"stream\":\"stdout\",\"status\":\"success\"}\r\necho {\"stream\":\"stderr\",\"status\":\"warning\"} 1>&2\r\n'
-      );
-    } else {
-      await writeFakeStandaloneBinary(
-        repoRoot,
-        '#!/bin/sh\nprintf \'{"stream":"stdout","status":"success"}\\n\'\nprintf \'{"stream":"stderr","status":"warning"}\\n\' >&2\n'
-      );
-    }
+    await writeFakePluginBin(
+      repoRoot,
+      'process.stdout.write(\'{"stream":"stdout","status":"success"}\\n\');\nprocess.stderr.write(\'{"stream":"stderr","status":"warning"}\\n\');\n'
+    );
 
     const result = await runAlvCli([], {
       repoRoot,
-      allowWindowsCommandShim: process.platform === 'win32',
       env: withoutConfiguredCliBinaryEnv()
     });
 
@@ -159,12 +174,14 @@ test('runAlvCli parses stdoutJson separately from stderrJson', async () => {
 test('runAlvCli resolves ALV_CLI_BINARY_PATH from process env when an env overlay is provided', async () => {
   await withTempRepo(async repoRoot => {
     const configuredBinaryPath =
-      process.platform === 'win32'
-        ? await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\necho {"source":"configured"}\r\n')
-        : await writeFakeStandaloneBinaryAtPath(
-            path.join(repoRoot, '.cargo-target', 'Apex-Log-Viewer', 'debug', 'apex-log-viewer'),
-            '#!/bin/sh\nprintf \'{"source":"configured"}\\n\'\n'
-          );
+      await writeFakeStandaloneBinaryAtPath(
+        path.join(repoRoot, '.cargo-target', 'Apex-Log-Viewer', 'debug', 'apex-log-viewer'),
+        '#!/bin/sh\nexit 0\n'
+      );
+    const pluginBinPath = await writeFakePluginBin(
+      repoRoot,
+      'process.stdout.write(JSON.stringify({source:"plugin", runtime:process.env.ALV_CLI_BINARY_PATH, args:process.argv.slice(2)}) + "\\n");\n'
+    );
     await writeFakeStandaloneBinary(
       repoRoot,
       process.platform === 'win32'
@@ -178,17 +195,17 @@ test('runAlvCli resolves ALV_CLI_BINARY_PATH from process env when an env overla
     try {
       const result = await runAlvCli([], {
         repoRoot,
-        env: { ALV_TEST_MARKER: '1' }
+        env: { ALV_TEST_MARKER: '1', ALV_ELECTIVUS_PLUGIN_BIN_PATH: '' }
       });
 
       expect(result.exitCode).toBe(0);
-      if (process.platform === 'win32') {
-        expect(result.command).toBe(process.env.ComSpec || 'cmd.exe');
-        expect(result.args).toContain(`"${configuredBinaryPath}"`);
-      } else {
-        expect(result.command).toBe(configuredBinaryPath);
-      }
-      expect(result.stdoutJson).toEqual({ source: 'configured' });
+      expect(result.command).toBe(process.execPath);
+      expect(result.args).toEqual([pluginBinPath, 'electivus']);
+      expect(result.stdoutJson).toEqual({
+        source: 'plugin',
+        runtime: configuredBinaryPath,
+        args: ['electivus']
+      });
     } finally {
       if (originalConfiguredBinaryPath === undefined) {
         delete process.env.ALV_CLI_BINARY_PATH;
@@ -201,16 +218,11 @@ test('runAlvCli resolves ALV_CLI_BINARY_PATH from process env when an env overla
 
 test('runAlvCli returns diagnostics on timeout instead of rejecting', async () => {
   await withTempRepo(async repoRoot => {
-    if (process.platform === 'win32') {
-      await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\nping -n 6 127.0.0.1 >nul\r\n');
-    } else {
-      await writeFakeStandaloneBinary(repoRoot, '#!/bin/sh\nsleep 5\n');
-    }
+    await writeFakePluginBin(repoRoot, 'setTimeout(() => {}, 5_000);\n');
 
     const result = await runAlvCli([], {
       repoRoot,
       timeoutMs: 50,
-      allowWindowsCommandShim: process.platform === 'win32',
       env: withoutConfiguredCliBinaryEnv()
     });
 
@@ -248,23 +260,26 @@ test('resolveAlvCliInvocation can use a Windows command shim for helper-only cov
   });
 });
 
-test('runAlvCli executes a Windows command shim from a metacharacter path', async () => {
-  test.skip(process.platform !== 'win32', 'Windows command shims are only used on Windows');
-
+test('runAlvCli executes the local sf plugin bin from a metacharacter path', async () => {
   const parentDir = await mkdtemp(path.join(tmpdir(), 'alv-cli-helper-'));
   try {
-    const repoRoot = path.join(parentDir, 'repo & cli');
+    const repoRoot = path.join(parentDir, 'repo & plugin');
     await mkdir(repoRoot, { recursive: true });
-    await writeFakeWindowsCommandShim(repoRoot, '@echo off\r\necho {"status":"quoted"}\r\n');
+    await writeFakePluginBin(
+      repoRoot,
+      'process.stdout.write(JSON.stringify({status:"quoted", args:process.argv.slice(2)}) + "\\n");\n'
+    );
 
     const result = await runAlvCli(['--target-org', 'alias with spaces'], {
       repoRoot,
-      allowWindowsCommandShim: true,
       env: withoutConfiguredCliBinaryEnv()
     });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdoutJson).toEqual({ status: 'quoted' });
+    expect(result.stdoutJson).toEqual({
+      status: 'quoted',
+      args: ['electivus', '--target-org', 'alias with spaces']
+    });
   } finally {
     await rm(parentDir, { recursive: true, force: true });
   }

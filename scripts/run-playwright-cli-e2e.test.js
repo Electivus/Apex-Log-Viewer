@@ -231,12 +231,135 @@ test('ensureBuildArtifacts clears CARGO_BUILD_TARGET and requires a host debug b
   }
 });
 
-test('resolvePlaywrightEnv passes the selected CLI binary path to Playwright', () => {
+test('ensureSfPluginBuildArtifacts runs npm run build:sf-plugin when the plugin command is missing', async () => {
+  const repoRoot = createTempRepo();
+  try {
+    const runner = loadRunner();
+    let recordedCall;
+
+    await runner.ensureSfPluginBuildArtifacts(repoRoot, {
+      spawnImpl(command, args, options) {
+        recordedCall = { command, args, options };
+        const child = new EventEmitter();
+        process.nextTick(() => {
+          const pluginCommandPath = path.join(repoRoot, runner.resolveSfPluginCommandRelativePath());
+          fs.mkdirSync(path.dirname(pluginCommandPath), { recursive: true });
+          fs.writeFileSync(pluginCommandPath, '', 'utf8');
+          child.emit('exit', 0, null);
+        });
+        return child;
+      }
+    });
+
+    assert.ok(recordedCall, 'expected ensureSfPluginBuildArtifacts to invoke the plugin build command');
+    if (process.platform === 'win32') {
+      assert.equal(recordedCall.command, process.env.ComSpec || 'cmd.exe');
+      assert.deepEqual(recordedCall.args, ['/d', '/s', '/c', 'npm.cmd', 'run', 'build:sf-plugin']);
+    } else {
+      assert.equal(recordedCall.command, 'npm');
+      assert.deepEqual(recordedCall.args, ['run', 'build:sf-plugin']);
+    }
+    assert.equal(recordedCall.options.cwd, repoRoot);
+    assert.equal(recordedCall.options.stdio, 'inherit');
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
+});
+
+test('ensureSfPluginBuildArtifacts skips npm run build:sf-plugin when the plugin command exists', async () => {
+  const repoRoot = createTempRepo();
+  try {
+    const runner = loadRunner();
+    const pluginCommandPath = path.join(repoRoot, runner.resolveSfPluginCommandRelativePath());
+    fs.mkdirSync(path.dirname(pluginCommandPath), { recursive: true });
+    fs.writeFileSync(pluginCommandPath, '', 'utf8');
+
+    await runner.ensureSfPluginBuildArtifacts(repoRoot, {
+      spawnImpl() {
+        throw new Error('unexpected plugin build');
+      }
+    });
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
+});
+
+test('resolvePlaywrightEnv passes the selected CLI binary path and local sf plugin bin to Playwright', () => {
   const runner = loadRunner();
-  const env = runner.resolvePlaywrightEnv('/tmp/alv/bin/apex-log-viewer', { EXISTING: '1' });
+  const repoRoot = createTempRepo();
+  const env = runner.resolvePlaywrightEnv(
+    '/tmp/alv/bin/apex-log-viewer',
+    { EXISTING: '1', ALV_SF_BIN_PATH: '/opt/salesforce/bin/sf' },
+    repoRoot
+  );
 
   assert.equal(env.EXISTING, '1');
   assert.equal(env.ALV_CLI_BINARY_PATH, '/tmp/alv/bin/apex-log-viewer');
+  assert.equal(env.ALV_SF_BIN_PATH, '/opt/salesforce/bin/sf');
+  assert.equal(
+    env.ALV_ELECTIVUS_PLUGIN_BIN_PATH,
+    path.join(repoRoot, 'packages', 'sf-plugin', 'bin', 'run.js')
+  );
+  cleanupTempRepo(repoRoot);
+});
+
+test('resolveSalesforceCliPath skips the workspace plugin sf shim', () => {
+  const repoRoot = createTempRepo();
+  try {
+    const runner = loadRunner();
+    const pluginShimPath = path.join(repoRoot, 'node_modules', '.bin', 'sf');
+    const pluginPackageJson = path.join(repoRoot, 'node_modules', '@electivus', 'plugin-electivus', 'package.json');
+    const salesforceCliPath = path.join(repoRoot, 'tools', 'sf');
+
+    fs.mkdirSync(path.dirname(pluginShimPath), { recursive: true });
+    fs.mkdirSync(path.dirname(pluginPackageJson), { recursive: true });
+    fs.mkdirSync(path.dirname(salesforceCliPath), { recursive: true });
+    fs.writeFileSync(pluginShimPath, '');
+    fs.writeFileSync(pluginPackageJson, '{}');
+    fs.writeFileSync(salesforceCliPath, '');
+
+    assert.equal(
+      runner.resolveSalesforceCliPath(repoRoot, {
+        env: {},
+        spawnSyncImpl() {
+          return {
+            status: 0,
+            stdout: `${pluginShimPath}\n${salesforceCliPath}\n`
+          };
+        }
+      }),
+      salesforceCliPath
+    );
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
+});
+
+test('resolveSalesforceCliPath prefers sf.cmd over the bare Windows shim', () => {
+  const repoRoot = createTempRepo();
+  try {
+    const runner = loadRunner();
+    const bareSfPath = String.raw`C:\Tools\sf`;
+    const cmdSfPath = String.raw`C:\Tools\sf.cmd`;
+
+    assert.equal(
+      runner.resolveSalesforceCliPath(repoRoot, {
+        env: {},
+        targetPlatform: 'win32',
+        spawnSyncImpl(command, args) {
+          assert.equal(path.basename(command).toLowerCase(), path.basename(process.env.ComSpec || 'cmd.exe').toLowerCase());
+          assert.deepEqual(args, ['/d', '/s', '/c', 'where sf']);
+          return {
+            status: 0,
+            stdout: `${bareSfPath}\r\n${cmdSfPath}\r\n`
+          };
+        }
+      }),
+      cmdSfPath
+    );
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
 });
 
 test('resolvePlaywrightInvocation throws when @playwright/test/cli cannot be resolved instead of falling back to npx', () => {

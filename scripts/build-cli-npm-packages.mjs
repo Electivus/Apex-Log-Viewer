@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
 const cliNpmRoot = path.join(repoRoot, 'packages', 'cli-npm');
+const sfPluginRoot = path.join(repoRoot, 'packages', 'sf-plugin');
+const PLUGIN_PACKAGE_NAME = '@electivus/plugin-electivus';
 
 export const PACKAGE_BY_TARGET = {
   'linux-x64': '@electivus/apex-log-viewer-linux-x64',
@@ -57,6 +59,25 @@ function copyFile(source, destination, mode) {
   }
 }
 
+function copyDirectory(source, destination) {
+  if (!fs.existsSync(source)) {
+    return;
+  }
+
+  fs.mkdirSync(destination, { recursive: true });
+  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+    const sourcePath = path.join(source, entry.name);
+    const destinationPath = path.join(destination, entry.name);
+    if (entry.isDirectory()) {
+      copyDirectory(sourcePath, destinationPath);
+      continue;
+    }
+    if (entry.isFile()) {
+      copyFile(sourcePath, destinationPath);
+    }
+  }
+}
+
 export function discoverBinaries(rootDir = repoRoot) {
   const binaries = {};
   const baseDir = path.join(rootDir, 'apps', 'vscode-extension', 'bin');
@@ -71,7 +92,66 @@ export function discoverBinaries(rootDir = repoRoot) {
   return binaries;
 }
 
-export function buildCliNpmPackages({ version, outDir, binaries }) {
+function nativeOptionalDependencies(version) {
+  return Object.fromEntries(Object.values(PACKAGE_BY_TARGET).map(packageName => [packageName, version]));
+}
+
+function buildPluginPackage({ version, outDir, pluginRoot = sfPluginRoot }) {
+  const pluginDir = path.join(outDir, 'plugin');
+  const pluginPackagePath = path.join(pluginRoot, 'package.json');
+  const pluginLibDir = path.join(pluginRoot, 'lib');
+  const pluginRunBin = path.join(pluginRoot, 'bin', 'run.js');
+
+  if (!fs.existsSync(pluginPackagePath)) {
+    throw new Error(`Salesforce CLI plugin package.json does not exist: ${pluginPackagePath}`);
+  }
+  if (!fs.existsSync(pluginLibDir)) {
+    throw new Error(`Salesforce CLI plugin build output does not exist: ${pluginLibDir}`);
+  }
+  if (!fs.existsSync(pluginRunBin)) {
+    throw new Error(`Salesforce CLI plugin run bin does not exist: ${pluginRunBin}`);
+  }
+
+  fs.rmSync(pluginDir, { recursive: true, force: true });
+
+  const pluginPackage = JSON.parse(readText(pluginPackagePath));
+  pluginPackage.name = PLUGIN_PACKAGE_NAME;
+  pluginPackage.version = version;
+  delete pluginPackage.bin;
+  pluginPackage.optionalDependencies = {
+    ...(pluginPackage.optionalDependencies ?? {}),
+    ...nativeOptionalDependencies(version)
+  };
+  pluginPackage.repository = {
+    type: 'git',
+    url: 'https://github.com/Electivus/Apex-Log-Viewer'
+  };
+  delete pluginPackage.private;
+  delete pluginPackage.devDependencies;
+  delete pluginPackage.scripts;
+
+  writeJson(path.join(pluginDir, 'package.json'), pluginPackage);
+  copyFile(pluginRunBin, path.join(pluginDir, 'bin', 'run.js'), 0o755);
+
+  const pluginRunCmd = path.join(pluginRoot, 'bin', 'run.cmd');
+  if (fs.existsSync(pluginRunCmd)) {
+    copyFile(pluginRunCmd, path.join(pluginDir, 'bin', 'run.cmd'));
+  }
+
+  copyDirectory(pluginLibDir, path.join(pluginDir, 'lib'));
+  copyDirectory(path.join(pluginRoot, 'messages'), path.join(pluginDir, 'messages'));
+
+  for (const fileName of ['oclif.manifest.json', 'oclif.lock']) {
+    const source = path.join(pluginRoot, fileName);
+    if (fs.existsSync(source)) {
+      copyFile(source, path.join(pluginDir, fileName));
+    }
+  }
+
+  return pluginDir;
+}
+
+export function buildCliNpmPackages({ version, outDir, binaries, pluginRoot = sfPluginRoot }) {
   if (!version || typeof version !== 'string') {
     throw new Error('buildCliNpmPackages requires a version string');
   }
@@ -82,15 +162,11 @@ export function buildCliNpmPackages({ version, outDir, binaries }) {
     throw new Error('buildCliNpmPackages requires at least one built binary');
   }
 
-  const metaTemplate = readText(path.join(cliNpmRoot, 'templates', 'package.meta.json'));
   const nativeTemplate = readText(path.join(cliNpmRoot, 'templates', 'package.native.json'));
-  const launcherSource = path.join(cliNpmRoot, 'bin', 'apex-log-viewer.js');
   const validatedNativePackages = [];
 
-  const metaDir = path.join(outDir, 'meta');
-  const metaPackage = JSON.parse(renderTemplate(metaTemplate, { __VERSION__: version }));
-  writeJson(path.join(metaDir, 'package.json'), metaPackage);
-  copyFile(launcherSource, path.join(metaDir, 'bin', 'apex-log-viewer.js'), 0o755);
+  fs.rmSync(path.join(outDir, 'meta'), { recursive: true, force: true });
+  const pluginDir = buildPluginPackage({ version, outDir, pluginRoot });
 
   for (const [target, binaryPath] of Object.entries(binaries)) {
     const targetMetadata = TARGET_METADATA[target];
@@ -127,7 +203,7 @@ export function buildCliNpmPackages({ version, outDir, binaries }) {
     nativeDirs[target] = nativeDir;
   }
 
-  return { outDir, metaDir, nativeDirs };
+  return { outDir, pluginDir, nativeDirs };
 }
 
 function parseCliArgs(argv) {

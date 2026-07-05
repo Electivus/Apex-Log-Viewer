@@ -20,7 +20,7 @@ test('release docs mention the dedicated CLI workflow and pinned runtime metadat
   assert.match(publishing, /rust-vX\.Y\.Z/);
   assert.match(publishing, /rust-release\.yml/);
   assert.match(publishing, /Trusted Publisher/i);
-  assert.match(publishing, /npm native\/meta packages/i);
+  assert.match(publishing, /npm native\/plugin packages/i);
   assert.match(publishing, /crates\.io.*deferred/i);
   assert.match(architecture, /config\/runtime-bundle\.json/);
   assert.match(changelog, /independent Rust CLI release train/i);

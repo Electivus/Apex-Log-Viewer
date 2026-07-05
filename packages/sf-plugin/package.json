@@ -1,0 +1,58 @@
+{
+  "name": "@electivus/plugin-electivus",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Salesforce CLI plugin wrapper for the Electivus Apex Log Viewer Rust runtime.",
+  "type": "module",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "files": [
+    "/bin",
+    "/lib",
+    "/messages",
+    "/oclif.manifest.json",
+    "/oclif.lock"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && oclif manifest",
+    "check-types": "tsc --noEmit -p tsconfig.json",
+    "clean": "node -e \"require('fs').rmSync('lib',{recursive:true,force:true});for(const f of ['oclif.manifest.json','oclif.lock']){try{require('fs').unlinkSync(f)}catch{}}\"",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@oclif/core": "^4.8.0",
+    "@salesforce/core": "^8.29.0",
+    "@salesforce/sf-plugins-core": "^11.3.12"
+  },
+  "devDependencies": {
+    "oclif": "^4.23.14",
+    "tsx": "^4.22.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "salesforce",
+    "sf",
+    "sf-plugin",
+    "apex",
+    "logs",
+    "electivus"
+  ],
+  "oclif": {
+    "commands": "./lib/commands",
+    "bin": "sf",
+    "topicSeparator": " ",
+    "topics": {
+      "electivus": {
+        "description": "Electivus Salesforce tools."
+      }
+    },
+    "flexibleTaxonomy": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Electivus/Apex-Log-Viewer"
+  }
+}

@@ -35,22 +35,22 @@ Messages from the extension arrive via `onDidReceiveMessage` and are dispatched 
 
 ## Runtime bundle and release trains
 
-The VS Code extension and the standalone Rust CLI now follow separate release trains.
+The VS Code extension and the Salesforce CLI plugin now follow separate release trains over the same Rust runtime.
 
 - The extension packaging flow consumes `config/runtime-bundle.json` as pinned runtime metadata, so the bundled executable comes from a tested CLI release instead of an arbitrary workspace build.
-- The runtime bundle lets maintainers keep the VS Code extension channel and the CLI release channel independent while still shipping a predictable executable with the extension.
+- The runtime bundle lets maintainers keep the VS Code extension channel and the `sf electivus` plugin release channel independent while still shipping a predictable executable with the extension.
 - Local developer overrides can still point the extension at a manually supplied executable, but release packaging uses the pinned bundle metadata by default.
 
 ## Shared local log storage
 
-The standalone CLI and the VS Code extension are separate surfaces over the same shared runtime architecture. Local Apex log storage is now evolving toward an org-first `apexlogs/` layout:
+The Salesforce CLI plugin and the VS Code extension are separate surfaces over the same shared runtime architecture. Local Apex log storage is now evolving toward an org-first `apexlogs/` layout:
 
 - `apexlogs/.alv/version.json` stores the local layout version.
 - `apexlogs/.alv/sync-state.json` stores incremental sync checkpoints by org.
 - `apexlogs/orgs/<safe-target-org>/org.json` stores resolved org metadata.
 - `apexlogs/orgs/<safe-target-org>/logs/<YYYY-MM-DD>/<logId>.log` stores full log bodies.
 
-The Rust CLI exposes that shared storage through `apex-log-viewer logs sync`, `logs status`, and `logs search`. The VS Code Logs panel uses the same app-server contract for `logs/list`, starts `logs/sync` in the background after refresh/load-more, and reruns triage/search after synced bodies are available locally. For `logs sync`, the runtime resolves org metadata with Salesforce CLI, retrieves the bearer token through the explicit org-auth command when available, and performs the actual list/body fetches directly against the Salesforce Tooling REST API with concurrent body downloads per page.
+The `sf electivus` plugin exposes that shared storage through `sf electivus logs sync`, `logs status`, and `logs search` while spawning the platform-native Rust executable as its engine. The VS Code Logs panel keeps using the direct runtime `app-server --stdio` path for clean JSONL daemon communication, starts `logs/sync` in the background after refresh/load-more, and reruns triage/search after synced bodies are available locally. For `logs sync`, the runtime resolves org metadata with Salesforce CLI, retrieves the bearer token through the explicit org-auth command when available, and performs the actual list/body fetches directly against the Salesforce Tooling REST API with concurrent body downloads per page.
 
 ## Testing and build tooling
 

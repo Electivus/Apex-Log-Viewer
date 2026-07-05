@@ -1,4 +1,5 @@
 const execFileMock = jest.fn();
+const path = require('node:path');
 
 jest.mock('node:child_process', () => ({
   execFile: (...args: unknown[]) => execFileMock(...args)
@@ -116,6 +117,19 @@ describe('runSfJson failure diagnostics', () => {
     await expect(promise).resolves.toEqual({
       sfBinPath: '/usr/local/bin/sf',
       nodeBinPath: '/opt/hostedtoolcache/node/22/bin/node'
+    });
+  });
+
+  test('skips the workspace Electivus plugin sf shim when resolving Salesforce CLI', async () => {
+    const { resolveSfCliInvocation } = await importSfCli();
+    const promise = resolveSfCliInvocation();
+
+    await waitForExecCallCount(1);
+    passCommand(`${path.join(process.cwd(), 'node_modules', '.bin', 'sf')}\n/usr/local/bin/sf\n`);
+
+    await expect(promise).resolves.toEqual({
+      sfBinPath: '/usr/local/bin/sf',
+      nodeBinPath: process.execPath
     });
   });
 

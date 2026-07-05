@@ -265,7 +265,7 @@ test('rust-release workflow verifies the packaged linux-x64 release artifact bef
 
   assert.match(
     packageReleaseJob,
-    /- name:\s+Package CLI release assets[\s\S]*?- name:\s+Verify packaged linux-x64 runtime compatibility[\s\S]*?node scripts\/verify-runtime-compatibility\.mjs --target linux-x64 --archive "dist\/release\/apex-log-viewer-\$\{VERSION\}-linux-x64\.tar\.gz"[\s\S]*?- name:\s+Stage CLI npm packages/,
+    /- name:\s+Package CLI release assets[\s\S]*?- name:\s+Verify packaged linux-x64 runtime compatibility[\s\S]*?node scripts\/verify-runtime-compatibility\.mjs --target linux-x64 --archive "dist\/release\/apex-log-viewer-\$\{VERSION\}-linux-x64\.tar\.gz"[\s\S]*?- name:\s+Stage sf plugin npm packages/,
     'expected the release packaging job to verify the final linux-x64 archive before upload and npm publication'
   );
 });
@@ -273,7 +273,7 @@ test('rust-release workflow verifies the packaged linux-x64 release artifact bef
 test('rust-release workflow publishes npm packages through trusted publishers', () => {
   const workflowSource = readFile('.github/workflows/rust-release.yml');
   const nativePublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_native');
-  const metaPublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_meta');
+  const pluginPublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_plugin');
 
   assert.match(
     workflowSource,
@@ -287,11 +287,11 @@ test('rust-release workflow publishes npm packages through trusted publishers', 
     'expected native npm publish job to request OIDC id-token permission'
   );
   assert.match(
-    metaPublishJob,
+    pluginPublishJob,
     /^    permissions:\n      contents: read\n      id-token: write$/m,
-    'expected meta npm publish job to request OIDC id-token permission'
+    'expected plugin npm publish job to request OIDC id-token permission'
   );
-  for (const publishJob of [nativePublishJob, metaPublishJob]) {
+  for (const publishJob of [nativePublishJob, pluginPublishJob]) {
     assert.match(
       publishJob,
       /uses:\s+actions\/setup-node@[0-9a-f]{40}[\s\S]*?registry-url:\s+'https:\/\/registry\.npmjs\.org'[\s\S]*?package-manager-cache:\s+false/,
@@ -317,7 +317,7 @@ test('rust-release release job keeps write permission only for GitHub release cr
 
 test('rust-release workflow uses an idempotent npm publish helper for reruns of the same tag', () => {
   const nativePublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_native');
-  const metaPublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_meta');
+  const pluginPublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_plugin');
 
   assert.match(
     nativePublishJob,
@@ -325,15 +325,15 @@ test('rust-release workflow uses an idempotent npm publish helper for reruns of 
     'expected native npm publish job to skip versions that were already published during an earlier partial run'
   );
   assert.match(
-    metaPublishJob,
-    /node scripts\/publish-npm-package-if-needed\.mjs dist\/npm\/meta --tag "\$\{NPM_DIST_TAG\}" --access public/,
-    'expected meta npm publish job to skip versions that were already published during an earlier partial run'
+    pluginPublishJob,
+    /node scripts\/publish-npm-package-if-needed\.mjs dist\/npm\/plugin --tag "\$\{NPM_DIST_TAG\}" --access public/,
+    'expected plugin npm publish job to skip versions that were already published during an earlier partial run'
   );
 });
 
 test('rust-release publish jobs check out the repo before reading .nvmrc', () => {
   const nativePublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_native');
-  const metaPublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_meta');
+  const pluginPublishJob = readWorkflowJob('.github/workflows/rust-release.yml', 'publish_npm_plugin');
 
   assert.match(
     nativePublishJob,
@@ -341,9 +341,9 @@ test('rust-release publish jobs check out the repo before reading .nvmrc', () =>
     'expected native npm publish job to check out the repo before setup-node reads .nvmrc'
   );
   assert.match(
-    metaPublishJob,
+    pluginPublishJob,
     /- name:\s+Checkout[\s\S]*?uses:\s+actions\/checkout@[0-9a-f]{40}[\s\S]*?- name:\s+Setup Node\.js from \.nvmrc/,
-    'expected meta npm publish job to check out the repo before setup-node reads .nvmrc'
+    'expected plugin npm publish job to check out the repo before setup-node reads .nvmrc'
   );
 });
 

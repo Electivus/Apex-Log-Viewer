@@ -4,7 +4,8 @@
 
 ### Features
 
-- CLI/Skills: bundle the Apex Log Viewer Codex skill in the repo and add `apex-log-viewer skills install` to install it into the user's Codex skills directory.
+- CLI/Plugin: add the Salesforce CLI plugin package `@electivus/plugin-electivus`, exposing the Rust runtime under `sf electivus ...` with standard `sf --json` envelopes.
+- CLI/Skills: bundle the Apex Log Viewer Codex skill in the repo and add `sf electivus skills install` to install it into the user's Codex skills directory.
 
 ### Bug Fixes
 

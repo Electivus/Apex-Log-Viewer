@@ -9,7 +9,8 @@ const tsconfigRootDir = path.dirname(fileURLToPath(import.meta.url));
 const typeAwareProjects = [
   './tsconfig.extension.json',
   './tsconfig.test.json',
-  './tsconfig.webview-tests.json'
+  './tsconfig.webview-tests.json',
+  './packages/sf-plugin/tsconfig.json'
 ];
 
 export default [
