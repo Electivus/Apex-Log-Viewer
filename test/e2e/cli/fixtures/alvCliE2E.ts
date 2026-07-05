@@ -39,6 +39,10 @@ async function attachTextArtifact(name: string, body: string, attach: (name: str
   });
 }
 
+export function sfJsonResult(result: CliRunResult): any {
+  return result.stdoutJson?.result ?? result.stdoutJson;
+}
+
 export const test = base.extend<Fixtures>({
   scratchLeaseState: [
     async ({}, use) => {
@@ -143,7 +147,7 @@ export const test = base.extend<Fixtures>({
   syncLogs: async ({ runCli, scratchAlias }, use) => {
     await use(async () => {
       const result = await runCli(['logs', 'sync', '--json', '--target-org', scratchAlias]);
-      const json = result.stdoutJson;
+      const json = sfJsonResult(result);
 
       expect(result.exitCode).toBe(0);
       expect(json).toBeTruthy();

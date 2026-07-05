@@ -4,7 +4,7 @@ This project uses three test layers:
 
 - Node-only extension tests for modules that can run without a real `vscode` host.
 - VS Code integration tests (Mocha running inside the Extension Development Host) for activation, commands, providers, and other `vscode`-bound behavior.
-- Playwright E2E tests against a real org across two surfaces: the standalone CLI and the VS Code extension.
+- Playwright E2E tests against a real org across two surfaces: the `sf electivus` plugin and the VS Code extension.
 
 ## Commands
 
@@ -13,11 +13,11 @@ This project uses three test layers:
 - `npm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
 - `npm run test:integration`: installs dependency extensions if needed and runs integration tests.
 - `npm run test:all`: runs the Jest webview suites, the Node-only extension lane, and then both VS Code-hosted scopes.
-- `npm run test:e2e:cli`: runs the standalone CLI real-org Playwright suite. If the CLI binary is missing, it builds the Rust CLI runtime before validating `logs sync`, `logs status`, and `logs search` against a seeded scratch org.
+- `npm run test:e2e:cli`: runs the `sf electivus` plugin real-org Playwright suite. If the Rust binary or plugin build output is missing, it builds the Rust runtime and Salesforce CLI plugin before validating `sf electivus logs sync`, `logs status`, and `logs search` against a seeded scratch org.
 - `npm run test:e2e`: runs Playwright E2E tests against a real scratch org. The runner uses either the legacy single-scratch flow or the Dev Hub scratch-org pool, depending on the configured strategy.
 - `npm run test:e2e:telemetry`: runs the same Playwright E2E suite, but first resolves a dedicated App Insights component for E2E and then validates that telemetry from the current run arrived there.
 
-The Node-only Mocha runner lives in `scripts/run-node-tests.js`. The standalone CLI real-org runner lives in `scripts/run-playwright-cli-e2e.js` and uses `playwright.cli.config.ts`. The VS Code-hosted test orchestrator lives in `scripts/run-tests.js` and the Mocha programmatic host runner in `apps/vscode-extension/src/test/runner.ts`.
+The Node-only Mocha runner lives in `scripts/run-node-tests.js`. The `sf electivus` real-org runner lives in `scripts/run-playwright-cli-e2e.js` and uses `playwright.cli.config.ts`. The VS Code-hosted test orchestrator lives in `scripts/run-tests.js` and the Mocha programmatic host runner in `apps/vscode-extension/src/test/runner.ts`.
 
 ## Test placement guidance
 
@@ -34,7 +34,7 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 
 - VS Code is downloaded via `@vscode/test-electron` and launched with `--extensionDevelopmentPath` and `--extensionTestsPath` (the compiled runner).
 - A temporary workspace is created with a minimal `sfdx-project.json` (including `sourceApiVersion`) and opened during tests.
-- The CLI real-org suite uses the same scratch-org helper layer as the extension suite, but it stays entirely outside the VS Code host and validates the standalone CLI workflows directly.
+- The CLI real-org suite uses the same scratch-org helper layer as the extension suite, but it stays entirely outside the VS Code host and validates the `sf electivus` workflows directly.
 - Playwright E2E runs keep the isolated VS Code profile intentionally minimal. Support extensions are installed per scenario instead of pulling the full Salesforce Extension Pack by default. Replay-specific specs opt into `salesforce.salesforcedx-vscode-apex-replay-debugger`, and the harness dismisses visible VS Code notifications during startup to reduce click interception flakiness.
 - Playwright E2E keeps `--extensions-dir` isolated. If a required support extension is missing from that isolated profile, the harness now fails explicitly instead of reusing your machine-wide VS Code extensions.
 - On headless Linux, the script re‑executes under `xvfb-run` if available and sets Electron flags to reduce GPU/DBus issues.
@@ -70,17 +70,17 @@ Tests do not require an authenticated org by default. If you want the runner to 
 
 ## Playwright E2E (real org)
 
-The standalone CLI and VS Code extension suites share the same real-org setup contract:
+The `sf electivus` plugin and VS Code extension suites share the same real-org setup contract:
 
 1. Validating/authenticating the explicitly configured Dev Hub
 2. Creating/reusing a scratch org or acquiring one from the scratch-org pool
 3. Seeding an Apex log (anonymous Apex with a unique marker)
 
-The CLI suite then validates the standalone binary directly:
+The CLI suite then validates the plugin surface while `ALV_CLI_BINARY_PATH` points it at the locally built Rust binary:
 
-1. `logs sync --json` downloads the seeded log into the workspace cache
-2. `logs status --json` reports the synced scratch-org metadata
-3. `logs search --json` finds the seeded marker locally
+1. `sf electivus logs sync --json` downloads the seeded log into the workspace cache
+2. `sf electivus logs status --json` reports the synced scratch-org metadata
+3. `sf electivus logs search --json` finds the seeded marker locally
 
 The VS Code suite launches the extension host and validates the Logs panel + Log Viewer webview UX against the same seeded org.
 

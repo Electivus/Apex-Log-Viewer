@@ -58,22 +58,23 @@ sf org login web
 - From the Marketplace: use the install link above.
 - From the CLI: `code --install-extension electivus.apex-log-viewer`
 
-## Rust CLI
+## Salesforce CLI Plugin
 
-The standalone Rust CLI now exposes a local-first `logs` surface for humans and coding agents:
+Install the Salesforce CLI plugin to use the local-first Rust runtime from the `sf electivus` namespace:
 
 ```bash
-apex-log-viewer logs sync --target-org my-org --concurrency 6
-apex-log-viewer logs status --target-org my-org
-apex-log-viewer logs search "NullPointerException" --target-org my-org
+sf plugins install @electivus/plugin-electivus
+sf electivus logs sync --target-org my-org --concurrency 6
+sf electivus logs status --target-org my-org
+sf electivus logs search "NullPointerException" --target-org my-org
 ```
 
-`logs sync` reuses `sf org display` for auth, then lists `ApexLog` rows and downloads raw log bodies over the Salesforce Tooling REST API. It materializes those bodies under `apexlogs/`, keeps incremental state in `apexlogs/.alv/sync-state.json`, writes the canonical org-first layout at `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log`, and removes the legacy SQLite search index files from older runtime versions. Use `--concurrency` when you want to tune how many log bodies are downloaded in parallel; the default is `6` and `1` keeps the old serial-style troubleshooting mode. The VS Code extension and the CLI remain separate surfaces over the same shared Rust runtime architecture, and both can reuse the same local bodies and sync checkpoints.
+`logs sync` reuses `sf org display` for auth, then lists `ApexLog` rows and downloads raw log bodies over the Salesforce Tooling REST API. It materializes those bodies under `apexlogs/`, keeps incremental state in `apexlogs/.alv/sync-state.json`, writes the canonical org-first layout at `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log`, and removes the legacy SQLite search index files from older runtime versions. Use `--concurrency` when you want to tune how many log bodies are downloaded in parallel; the default is `6` and `1` keeps the old serial-style troubleshooting mode. The VS Code extension and the `sf electivus` plugin remain separate surfaces over the same shared Rust runtime architecture, and both can reuse the same local bodies and sync checkpoints.
 
 Install the companion Codex skill for agent workflows with:
 
 ```bash
-apex-log-viewer skills install
+sf electivus skills install
 ```
 
 ## Usage

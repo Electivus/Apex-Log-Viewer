@@ -16,41 +16,107 @@ function makeBinary(rootDir, target) {
   return binaryPath;
 }
 
-test('buildCliNpmPackages generates the meta package with all native optionalDependencies', async () => {
+function makePluginRoot(rootDir) {
+  const pluginRoot = path.join(rootDir, 'sf-plugin');
+  fs.mkdirSync(path.join(pluginRoot, 'bin'), { recursive: true });
+  fs.mkdirSync(path.join(pluginRoot, 'lib', 'commands'), { recursive: true });
+  fs.mkdirSync(path.join(pluginRoot, 'messages'), { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginRoot, 'package.json'),
+    JSON.stringify(
+      {
+        name: '@electivus/plugin-electivus',
+        version: '0.0.0',
+        private: true,
+        type: 'module',
+        bin: {
+          sf: 'bin/run.js'
+        },
+        files: ['/bin', '/lib', '/messages', '/oclif.manifest.json', '/oclif.lock'],
+        scripts: {
+          build: 'tsc -p tsconfig.json'
+        },
+        dependencies: {
+          '@oclif/core': '^4.8.0',
+          '@salesforce/core': '^8.29.0',
+          '@salesforce/sf-plugins-core': '^11.3.12'
+        },
+        devDependencies: {
+          oclif: '^4.23.14'
+        },
+        oclif: {
+          commands: './lib/commands',
+          bin: 'sf',
+          topicSeparator: ' ',
+          flexibleTaxonomy: true
+        }
+      },
+      null,
+      2
+    )
+  );
+  fs.writeFileSync(path.join(pluginRoot, 'bin', 'run.js'), '#!/usr/bin/env node\n');
+  fs.writeFileSync(path.join(pluginRoot, 'bin', 'run.cmd'), '@echo off\n');
+  fs.writeFileSync(path.join(pluginRoot, 'lib', 'index.js'), 'export {};\n');
+  fs.writeFileSync(path.join(pluginRoot, 'lib', 'commands', 'electivus.js'), 'export default class {}\n');
+  fs.writeFileSync(path.join(pluginRoot, 'messages', 'electivus.md'), '# summary\n');
+  fs.writeFileSync(path.join(pluginRoot, 'oclif.manifest.json'), '{}\n');
+  return pluginRoot;
+}
+
+test('buildCliNpmPackages stages the sf plugin with all native optionalDependencies', async () => {
   const mod = await import(pathToFileURL(modulePath).href);
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cli-npm-'));
   const binariesRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cli-binaries-'));
+  const pluginRoot = makePluginRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'electivus-plugin-')));
+  fs.mkdirSync(path.join(outDir, 'meta'), { recursive: true });
 
   const result = mod.buildCliNpmPackages({
     version: '1.2.3',
     outDir,
+    pluginRoot,
     binaries: {
       'linux-x64': makeBinary(binariesRoot, 'linux-x64'),
       'darwin-arm64': makeBinary(binariesRoot, 'darwin-arm64')
     }
   });
 
-  const metaPackage = JSON.parse(fs.readFileSync(path.join(result.metaDir, 'package.json'), 'utf8'));
+  const pluginPackage = JSON.parse(fs.readFileSync(path.join(result.pluginDir, 'package.json'), 'utf8'));
   const linuxNativePackage = JSON.parse(
     fs.readFileSync(path.join(result.nativeDirs['linux-x64'], 'package.json'), 'utf8')
   );
 
-  assert.equal(metaPackage.name, '@electivus/apex-log-viewer');
-  assert.equal(metaPackage.version, '1.2.3');
-  assert.deepEqual(metaPackage.repository, {
+  assert.equal(pluginPackage.name, '@electivus/plugin-electivus');
+  assert.equal(pluginPackage.version, '1.2.3');
+  assert.equal(pluginPackage.private, undefined);
+  assert.equal(pluginPackage.devDependencies, undefined);
+  assert.equal(pluginPackage.scripts, undefined);
+  assert.deepEqual(pluginPackage.repository, {
     type: 'git',
     url: 'https://github.com/Electivus/Apex-Log-Viewer'
   });
-  assert.deepEqual(metaPackage.bin, {
-    alv: 'bin/apex-log-viewer.js',
-    'apex-log-viewer': 'bin/apex-log-viewer.js'
+  assert.deepEqual(pluginPackage.bin, {
+    sf: 'bin/run.js'
   });
-  assert.equal(metaPackage.optionalDependencies['@electivus/apex-log-viewer-linux-x64'], '1.2.3');
-  assert.equal(metaPackage.optionalDependencies['@electivus/apex-log-viewer-darwin-arm64'], '1.2.3');
+  assert.equal(pluginPackage.oclif.bin, 'sf');
+  assert.equal(pluginPackage.oclif.topicSeparator, ' ');
+  assert.equal(pluginPackage.oclif.flexibleTaxonomy, true);
+  assert.equal(pluginPackage.optionalDependencies['@electivus/apex-log-viewer-linux-x64'], '1.2.3');
+  assert.equal(pluginPackage.optionalDependencies['@electivus/apex-log-viewer-darwin-arm64'], '1.2.3');
   assert.equal(
-    fs.existsSync(path.join(result.metaDir, 'bin', 'apex-log-viewer.js')),
+    fs.existsSync(path.join(result.pluginDir, 'bin', 'run.js')),
     true,
-    'expected meta package launcher to be copied'
+    'expected plugin run bin to be copied'
+  );
+  assert.equal(
+    fs.existsSync(path.join(result.pluginDir, 'lib', 'commands', 'electivus.js')),
+    true,
+    'expected compiled plugin command to be copied'
+  );
+  assert.equal(
+    fs.existsSync(path.join(outDir, 'meta')),
+    false,
+    'expected stale legacy meta package directory to be removed'
   );
   assert.equal(linuxNativePackage.name, '@electivus/apex-log-viewer-linux-x64');
   assert.deepEqual(linuxNativePackage.repository, {
@@ -67,16 +133,19 @@ test('buildCliNpmPackages generates the meta package with all native optionalDep
 
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.rmSync(binariesRoot, { recursive: true, force: true });
+  fs.rmSync(pluginRoot, { recursive: true, force: true });
 });
 
 test('buildCliNpmPackages removes stale native package directories when rerun with fewer binaries', async () => {
   const mod = await import(pathToFileURL(modulePath).href);
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cli-npm-'));
   const binariesRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-cli-binaries-'));
+  const pluginRoot = makePluginRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'electivus-plugin-')));
 
   const firstResult = mod.buildCliNpmPackages({
     version: '1.2.3',
     outDir,
+    pluginRoot,
     binaries: {
       'linux-x64': makeBinary(binariesRoot, 'linux-x64'),
       'darwin-arm64': makeBinary(binariesRoot, 'darwin-arm64')
@@ -89,6 +158,7 @@ test('buildCliNpmPackages removes stale native package directories when rerun wi
   const secondResult = mod.buildCliNpmPackages({
     version: '1.2.3',
     outDir,
+    pluginRoot,
     binaries: {
       'linux-x64': makeBinary(binariesRoot, 'linux-x64')
     }
@@ -103,6 +173,7 @@ test('buildCliNpmPackages removes stale native package directories when rerun wi
 
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.rmSync(binariesRoot, { recursive: true, force: true });
+  fs.rmSync(pluginRoot, { recursive: true, force: true });
 });
 
 test('resolvePackageForTarget maps supported platform and arch pairs to native package names', async () => {

@@ -67,7 +67,7 @@ jobs:
         run: node scripts/check-dependency-sources.mjs
 
       - name: Install dependencies
-        run: npm ci --workspaces=false
+        run: npm ci
 
       - name: Run Rust CLI tests
         shell: bash
@@ -220,8 +220,9 @@ jobs:
       - name: Verify packaged linux-x64 runtime compatibility
         run: node scripts/verify-runtime-compatibility.mjs --target linux-x64 --archive "dist/release/apex-log-viewer-${VERSION}-linux-x64.tar.gz"
 
-      - name: Stage CLI npm packages
+      - name: Stage sf plugin npm packages
         run: |
+          npm run build:sf-plugin
           node scripts/build-cli-npm-packages.mjs --version "${VERSION}" --out-dir dist/npm \
             --binary linux-x64=apps/vscode-extension/bin/linux-x64/apex-log-viewer \
             --binary linux-arm64=apps/vscode-extension/bin/linux-arm64/apex-log-viewer \
@@ -279,13 +280,13 @@ jobs:
           for dir in dist/npm/*; do
             [ -d "${dir}" ] || continue
             case "$(basename "${dir}")" in
-              meta) continue ;;
+              meta|plugin) continue ;;
               *) node scripts/publish-npm-package-if-needed.mjs "${dir}" --tag "${NPM_DIST_TAG}" --access public ;;
             esac
           done
 
-  publish_npm_meta:
-    name: Publish npm meta package
+  publish_npm_plugin:
+    name: Publish npm sf plugin package
     needs: [publish_npm_native, validate_tag]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -311,12 +312,12 @@ jobs:
           name: rust-npm-packages
           path: dist/npm
 
-      - name: Publish meta package
-        run: node scripts/publish-npm-package-if-needed.mjs dist/npm/meta --tag "${NPM_DIST_TAG}" --access public
+      - name: Publish sf plugin package
+        run: node scripts/publish-npm-package-if-needed.mjs dist/npm/plugin --tag "${NPM_DIST_TAG}" --access public
 
   release:
     name: Create GitHub release
-    needs: [validate_tag, package_release, publish_npm_meta]
+    needs: [validate_tag, package_release, publish_npm_plugin]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

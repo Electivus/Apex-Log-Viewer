@@ -41,6 +41,11 @@ type ResolveAlvCliInvocationOptions = ResolveAlvCliBinaryPathOptions & {
   allowWindowsCommandShim?: boolean;
 };
 
+type ResolveElectivusPluginInvocationOptions = {
+  repoRoot?: string;
+  env?: NodeJS.ProcessEnv;
+};
+
 type CliInvocation = {
   command: string;
   args: string[];
@@ -98,6 +103,21 @@ function formatMissingBinaryMessage(configuredBinaryPath: string | undefined, fa
   }
 
   return `Unable to locate apex-log-viewer standalone binary. Checked: ${fallbackCandidates.join(', ')}`;
+}
+
+function resolveDefaultPluginBinPath(repoRoot: string): string {
+  return path.join(repoRoot, 'packages', 'sf-plugin', 'bin', 'run.js');
+}
+
+function resolveConfiguredPluginBinPath(options: ResolveElectivusPluginInvocationOptions = {}): string {
+  const env = resolveCliEnvironment({ env: options.env });
+  const repoRoot = options.repoRoot || resolveRepoRoot();
+  const rawPath = String(env.ALV_ELECTIVUS_PLUGIN_BIN_PATH ?? '').trim();
+  return rawPath ? (path.isAbsolute(rawPath) ? rawPath : path.resolve(repoRoot, rawPath)) : resolveDefaultPluginBinPath(repoRoot);
+}
+
+function formatMissingPluginMessage(pluginBinPath: string): string {
+  return `Unable to locate local sf electivus plugin bin. Checked: ${pluginBinPath}. Run npm run build:sf-plugin before CLI E2E, or set ALV_ELECTIVUS_PLUGIN_BIN_PATH.`;
 }
 
 function tryParseCliJson(raw: string): any | undefined {
@@ -180,11 +200,22 @@ export function resolveAlvCliInvocation(options: ResolveAlvCliInvocationOptions 
   throw new Error(formatMissingBinaryMessage(undefined, resolveBinaryCandidates(options)));
 }
 
+export function resolveElectivusPluginInvocation(options: ResolveElectivusPluginInvocationOptions = {}): CliInvocation {
+  const pluginBinPath = resolveConfiguredPluginBinPath(options);
+  if (!existsSync(pluginBinPath)) {
+    throw new Error(formatMissingPluginMessage(pluginBinPath));
+  }
+
+  return {
+    command: process.execPath,
+    args: [pluginBinPath, 'electivus']
+  };
+}
+
 export async function runAlvCli(args: string[], options: CliExecOptions = {}): Promise<CliRunResult> {
   const env = resolveCliEnvironment({ env: options.env });
-  const invocation = resolveAlvCliInvocation({
+  const invocation = resolveElectivusPluginInvocation({
     repoRoot: options.repoRoot,
-    allowWindowsCommandShim: options.allowWindowsCommandShim,
     env
   });
   const commandArgs = args.map(value => String(value ?? ''));

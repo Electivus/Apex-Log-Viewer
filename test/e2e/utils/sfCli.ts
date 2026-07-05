@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 
 export type ExecOptions = {
   cwd?: string;
@@ -113,6 +114,42 @@ function configuredSfBinPath(): string | undefined {
   return configuredSfPath || undefined;
 }
 
+function listSfPathCandidates(stdout: string): string[] {
+  return String(stdout || '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+}
+
+function isElectivusPluginSfCandidate(candidatePath: string): boolean {
+  const normalized = candidatePath.replace(/\\/g, '/');
+  try {
+    const realPath = fs.realpathSync.native(candidatePath).replace(/\\/g, '/');
+    if (realPath.endsWith('/packages/sf-plugin/bin/run.js')) {
+      return true;
+    }
+  } catch {
+    // Nonexistent candidates are handled by the eventual process execution.
+  }
+
+  if (/\/node_modules\/\.bin\/sf(?:\.cmd|\.ps1|\.exe)?$/i.test(normalized)) {
+    const pluginPackageJson = path.resolve(
+      path.dirname(candidatePath),
+      '..',
+      '@electivus',
+      'plugin-electivus',
+      'package.json'
+    );
+    return fs.existsSync(pluginPackageJson);
+  }
+
+  return false;
+}
+
+function chooseSalesforceCliCandidate(candidates: string[]): string | undefined {
+  return candidates.find(candidate => !isElectivusPluginSfCandidate(candidate));
+}
+
 export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
   if (!resolvedSfBinAbsolutePathPromise) {
     resolvedSfBinAbsolutePathPromise = (async () => {
@@ -121,16 +158,12 @@ export async function resolveSfBinAbsolutePath(): Promise<string | undefined> {
           const { stdout } = await execProcessFileAsync('cmd.exe', ['/d', '/s', '/c', 'where sf'], {
             timeoutMs: 10_000
           });
-          const candidates = String(stdout || '')
-            .split(/\r?\n/)
-            .map(l => l.trim())
-            .filter(Boolean);
+          const candidates = listSfPathCandidates(stdout);
           const preferred = candidates.find(value => /\.cmd$/i.test(value));
-          return preferred || candidates[0] || undefined;
+          return chooseSalesforceCliCandidate([preferred, ...candidates].filter(Boolean) as string[]);
         }
-        const { stdout } = await execProcessFileAsync('bash', ['-lc', 'command -v sf'], { timeoutMs: 10_000 });
-        const resolved = String(stdout || '').trim();
-        return resolved || undefined;
+        const { stdout } = await execProcessFileAsync('bash', ['-lc', 'type -ap sf'], { timeoutMs: 10_000 });
+        return chooseSalesforceCliCandidate(listSfPathCandidates(stdout));
       } catch {
         return undefined;
       }

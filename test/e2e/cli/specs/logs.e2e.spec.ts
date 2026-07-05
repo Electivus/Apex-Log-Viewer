@@ -1,6 +1,6 @@
 import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { expect, test } from '../fixtures/alvCliE2E';
+import { expect, sfJsonResult, test } from '../fixtures/alvCliE2E';
 import { getOrgAuth } from '../../utils/tooling';
 
 async function findFileNamed(rootDir: string, fileName: string): Promise<string | undefined> {
@@ -56,7 +56,7 @@ test('logs sync --json downloads the seeded Apex log into the workspace cache', 
 test('logs status --json reports sync metadata for the seeded scratch org', async ({ runCli, seededLog, syncLogs, scratchAlias }) => {
   const { json: syncJson } = await syncLogs();
   const result = await runCli(['logs', 'status', '--json', '--target-org', scratchAlias]);
-  const json = result.stdoutJson;
+  const json = sfJsonResult(result);
 
   expect(result.exitCode).toBe(0);
   expect(json).toBeTruthy();
@@ -71,7 +71,7 @@ test('logs status --json reports sync metadata for the seeded scratch org', asyn
 test('logs search --json finds the seeded marker locally after sync', async ({ runCli, seededLog, syncLogs, scratchAlias }) => {
   const { json: syncJson } = await syncLogs();
   const result = await runCli(['logs', 'search', seededLog.marker, '--json', '--target-org', scratchAlias]);
-  const json = result.stdoutJson;
+  const json = sfJsonResult(result);
   const matches = Array.isArray(json?.matches) ? json.matches : [];
 
   expect(result.exitCode).toBe(0);
