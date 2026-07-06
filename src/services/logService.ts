@@ -34,6 +34,7 @@ export type EnsureLogsSavedSummary = {
   failed: number;
   cancelled: number;
   failedLogIds: string[];
+  localLogPaths?: Record<string, string>;
 };
 
 export type EnsureLogsSavedOptions = {
@@ -422,7 +423,8 @@ export class LogService {
       missing: 0,
       failed: 0,
       cancelled: 0,
-      failedLogIds: []
+      failedLogIds: [],
+      localLogPaths: {}
     };
     const tasks: Promise<void>[] = [];
     for (const log of validLogs) {
@@ -445,6 +447,7 @@ export class LogService {
               }
               summary.success++;
               summary[result.source]++;
+              summary.localLogPaths![log.Id] = result.filePath;
               options?.onItemComplete?.({ logId: log.Id, status: result.source });
             } else {
               const existing = await findExistingLogFile(log.Id, selectedUsername);
@@ -455,6 +458,7 @@ export class LogService {
               } else {
                 summary.success++;
                 summary.existing++;
+                summary.localLogPaths![log.Id] = existing;
                 options?.onItemComplete?.({ logId: log.Id, status: 'existing' });
               }
             }

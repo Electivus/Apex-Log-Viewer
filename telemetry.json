@@ -635,7 +635,6 @@
             "org_auth",
             "logs_list",
             "logs_sync",
-            "search_query",
             "logs_triage",
             "logs_resolve_cached_path",
             "other"

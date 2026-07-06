@@ -152,24 +152,6 @@ export type LogsDeleteResult = {
   failedLogIds?: string[];
 };
 
-export type SearchSnippet = {
-  text: string;
-  ranges: [number, number][];
-};
-
-export type SearchQueryParams = {
-  username?: string;
-  query: string;
-  logIds?: string[];
-  workspaceRoot?: string;
-};
-
-export type SearchQueryResult = {
-  logIds: string[];
-  snippets?: Record<string, SearchSnippet>;
-  pendingLogIds?: string[];
-};
-
 export type RuntimeLogDiagnostic = {
   code: string;
   severity: string;
