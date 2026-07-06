@@ -1,5 +1,4 @@
 use std::{
-    ffi::OsString,
     fs,
     io::{BufRead, BufReader, ErrorKind, Read, Write},
     net::TcpListener,
@@ -11,6 +10,8 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+#[cfg(windows)]
+use std::ffi::OsString;
 
 use serde_json::{json, Value};
 
@@ -34,11 +35,13 @@ fn lock_test_guard() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+#[cfg(windows)]
 struct EnvVarRestore {
     key: &'static str,
     value: Option<OsString>,
 }
 
+#[cfg(windows)]
 impl EnvVarRestore {
     fn capture(key: &'static str) -> Self {
         Self {
@@ -48,6 +51,7 @@ impl EnvVarRestore {
     }
 }
 
+#[cfg(windows)]
 impl Drop for EnvVarRestore {
     fn drop(&mut self) {
         match self.value.as_ref() {
@@ -57,6 +61,7 @@ impl Drop for EnvVarRestore {
     }
 }
 
+#[cfg(windows)]
 fn isolate_salesforce_home(root: &std::path::Path) -> Vec<EnvVarRestore> {
     let home = root.join("home");
     fs::create_dir_all(home.join(".sf")).expect("isolated .sf dir should be created");
@@ -495,12 +500,30 @@ fn cli_smoke_shows_logs_subcommands_in_help() {
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
     assert!(stdout.contains("sync"));
     assert!(stdout.contains("status"));
-    assert!(stdout.contains("search"));
+    assert!(!stdout.contains("search"));
     assert!(stdout.contains("read"));
     assert!(stdout.contains("resolve"));
     assert!(stdout.contains("triage"));
     assert!(stdout.contains("delete"));
     assert!(!stdout.contains("index"));
+}
+
+#[test]
+fn cli_smoke_logs_search_is_not_a_subcommand() {
+    let output = apex_log_viewer_command()
+        .args(["logs", "search", "needle"])
+        .output()
+        .expect("logs search should execute");
+
+    assert!(
+        !output.status.success(),
+        "removed logs search command should fail"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unrecognized subcommand") && stderr.contains("search"),
+        "stderr should identify search as an unknown subcommand: {stderr}"
+    );
 }
 
 #[test]
@@ -917,216 +940,6 @@ fn cli_smoke_logs_status_json_prefers_synced_metadata_when_alias_matches_multipl
     assert_eq!(json["target_org"], "zzz@example.com");
     assert_eq!(json["last_synced_log_id"], "07L000000000009AA");
     assert_eq!(json["log_count"], 1);
-
-    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
-}
-
-#[test]
-fn cli_smoke_logs_search_json_stays_local_first() {
-    let _guard = lock_test_guard();
-
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock should be after unix epoch")
-        .as_nanos();
-    let workspace_root = std::env::temp_dir().join(format!("alv-cli-search-{unique}"));
-    let log_dir = workspace_root
-        .join("apexlogs")
-        .join("orgs")
-        .join("default@example.com")
-        .join("logs")
-        .join("2026-03-30");
-    fs::create_dir_all(&log_dir).expect("log dir should exist");
-    fs::write(
-        log_dir.join("07L000000000003AA.log"),
-        "09:00:00.0|FATAL_ERROR|System.NullPointerException\n",
-    )
-    .expect("cached log should be writable");
-
-    let output = apex_log_viewer_command()
-        .current_dir(&workspace_root)
-        .args([
-            "logs",
-            "search",
-            "NullPointerException",
-            "--json",
-            "--target-org",
-            "default@example.com",
-        ])
-        .output()
-        .expect("search should execute");
-
-    assert!(output.status.success(), "search should exit successfully");
-    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
-    assert_eq!(json["target_org"], "default@example.com");
-    assert_eq!(json["matches"][0]["log_id"], "07L000000000003AA");
-
-    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
-}
-
-#[test]
-fn cli_smoke_logs_search_json_resolves_alias_without_local_metadata() {
-    let _guard = lock_test_guard();
-
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock should be after unix epoch")
-        .as_nanos();
-    let workspace_root = std::env::temp_dir().join(format!("alv-cli-search-alias-{unique}"));
-    let log_dir = workspace_root
-        .join("apexlogs")
-        .join("orgs")
-        .join("default@example.com")
-        .join("logs")
-        .join("2026-03-30");
-    fs::create_dir_all(&log_dir).expect("log dir should exist");
-    fs::write(
-        log_dir.join("07L000000000004AA.log"),
-        "09:00:00.0|FATAL_ERROR|System.NullPointerException\n",
-    )
-    .expect("cached log should be writable");
-
-    let output = apex_log_viewer_command()
-        .current_dir(&workspace_root)
-        .env(
-            "ALV_TEST_SF_ORG_DISPLAY_JSON",
-            r#"{"result":{"username":"default@example.com","accessToken":"token","instanceUrl":"https://default.example.com"}}"#,
-        )
-        .args([
-            "logs",
-            "search",
-            "NullPointerException",
-            "--json",
-            "--target-org",
-            "ALV_ALIAS",
-        ])
-        .output()
-        .expect("search should execute");
-
-    assert!(output.status.success(), "search should exit successfully");
-    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
-    assert_eq!(json["target_org"], "default@example.com");
-    assert_eq!(json["matches"][0]["log_id"], "07L000000000004AA");
-
-    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
-}
-
-#[test]
-fn cli_smoke_logs_search_json_uses_local_alias_resolution_without_auth() {
-    let _guard = lock_test_guard();
-
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock should be after unix epoch")
-        .as_nanos();
-    let workspace_root = std::env::temp_dir().join(format!("alv-cli-search-local-alias-{unique}"));
-    let org_root = workspace_root
-        .join("apexlogs")
-        .join("orgs")
-        .join("default@example.com");
-    let log_dir = org_root.join("logs").join("2026-03-30");
-    fs::create_dir_all(&log_dir).expect("log dir should exist");
-    fs::write(
-        log_dir.join("07L000000000006AA.log"),
-        "09:00:00.0|FATAL_ERROR|System.NullPointerException\n",
-    )
-    .expect("cached log should be writable");
-    fs::write(
-        org_root.join("org.json"),
-        r#"{"targetOrg":"ALV_ALIAS","safeTargetOrg":"ALV_ALIAS","resolvedUsername":"default@example.com","alias":"ALV_ALIAS","instanceUrl":"https://default.example.com","updatedAt":"2026-03-31T12:00:00.000Z"}"#,
-    )
-    .expect("org metadata should be writable");
-
-    let output = apex_log_viewer_command()
-        .current_dir(&workspace_root)
-        .args([
-            "logs",
-            "search",
-            "NullPointerException",
-            "--json",
-            "--target-org",
-            "ALV_ALIAS",
-        ])
-        .output()
-        .expect("search should execute");
-
-    assert!(output.status.success(), "search should exit successfully");
-    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
-    assert_eq!(json["target_org"], "default@example.com");
-    assert_eq!(json["matches"][0]["log_id"], "07L000000000006AA");
-
-    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
-}
-
-#[test]
-fn cli_smoke_logs_search_json_uses_alias_org_first_cache_without_auth_or_metadata() {
-    let _guard = lock_test_guard();
-
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock should be after unix epoch")
-        .as_nanos();
-    let workspace_root =
-        std::env::temp_dir().join(format!("alv-cli-search-alias-offline-{unique}"));
-    let log_dir = workspace_root
-        .join("apexlogs")
-        .join("orgs")
-        .join("ALV_ALIAS")
-        .join("logs")
-        .join("2026-03-30");
-    fs::create_dir_all(&log_dir).expect("log dir should exist");
-    fs::write(
-        log_dir.join("07L000000000007AA.log"),
-        "09:00:00.0|FATAL_ERROR|AliasOfflineNeedle\n",
-    )
-    .expect("alias-scoped log should be writable");
-
-    let output = apex_log_viewer_command()
-        .current_dir(&workspace_root)
-        .args([
-            "logs",
-            "search",
-            "AliasOfflineNeedle",
-            "--json",
-            "--target-org",
-            "ALV_ALIAS",
-        ])
-        .output()
-        .expect("search should execute");
-
-    assert!(output.status.success(), "search should exit successfully");
-    let json: Value = serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
-    assert_eq!(json["target_org"], "ALV_ALIAS");
-    assert_eq!(json["matches"][0]["log_id"], "07L000000000007AA");
-
-    fs::remove_dir_all(workspace_root).expect("workspace should be removable");
-}
-
-#[test]
-fn cli_smoke_logs_search_rejects_empty_query() {
-    let _guard = lock_test_guard();
-
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock should be after unix epoch")
-        .as_nanos();
-    let workspace_root = std::env::temp_dir().join(format!("alv-cli-search-empty-{unique}"));
-    fs::create_dir_all(&workspace_root).expect("workspace should exist");
-
-    let output = apex_log_viewer_command()
-        .current_dir(&workspace_root)
-        .args(["logs", "search", "   "])
-        .output()
-        .expect("search should execute");
-
-    assert!(
-        !output.status.success(),
-        "search should fail for an empty query"
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("search query must not be empty"),
-        "stderr should explain the validation failure"
-    );
 
     fs::remove_dir_all(workspace_root).expect("workspace should be removable");
 }

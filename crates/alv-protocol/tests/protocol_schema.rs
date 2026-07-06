@@ -19,7 +19,7 @@ fn protocol_schema_serializes_initialize_contract() {
         capabilities: RuntimeCapabilities {
             orgs: true,
             logs: true,
-            search: true,
+            search: false,
             tail: true,
             debug_flags: true,
             doctor: true,
@@ -47,7 +47,7 @@ fn protocol_schema_serializes_initialize_contract() {
             "capabilities": {
                 "orgs": true,
                 "logs": true,
-                "search": true,
+                "search": false,
                 "tail": true,
                 "debug_flags": true,
                 "doctor": true
