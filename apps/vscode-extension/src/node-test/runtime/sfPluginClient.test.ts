@@ -1,4 +1,5 @@
 import assert from 'assert/strict';
+import os from 'node:os';
 import proxyquire from 'proxyquire';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
@@ -134,7 +135,7 @@ suite('sf plugin client', () => {
 
     await client.logsStatus({});
 
-    assert.deepEqual(calls[0]?.args, ['logs', 'status']);
+    assert.deepEqual(calls[0]?.args, ['logs', 'status', '--workspace-root', os.tmpdir()]);
     assert.equal(calls[0]?.options.cwd, undefined);
   });
 

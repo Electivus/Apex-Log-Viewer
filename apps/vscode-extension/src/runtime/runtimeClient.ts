@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 
@@ -621,7 +622,7 @@ export class SfPluginClient extends EventEmitter {
   }
 
   private withWorkspaceRoot<T extends { workspaceRoot?: string }>(params: T): T {
-    return params.workspaceRoot ? params : { ...params, workspaceRoot: this.workspaceRoot() };
+    return params.workspaceRoot ? params : { ...params, workspaceRoot: this.workspaceRoot() ?? os.tmpdir() };
   }
 
   private createInFlightRequest<TResult>(

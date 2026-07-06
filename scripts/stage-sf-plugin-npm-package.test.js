@@ -68,6 +68,6 @@ test('stageSfPluginPackage fails when build artifacts are missing', async () => 
 
   await assert.rejects(
     mod.stageSfPluginPackage({ repoRoot }),
-    /missing plugin package artifact .*packages\/sf-plugin\/lib/
+    /missing plugin package artifact .*packages[\\/]sf-plugin[\\/]lib/
   );
 });

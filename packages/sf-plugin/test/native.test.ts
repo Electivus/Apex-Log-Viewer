@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  alignConnectionApiVersion,
   buildApexLogListSoql,
   executeElectivus,
   formatJsonResult,
@@ -13,6 +14,7 @@ import {
   normalizeSoqlDateTimeLiteral,
   removeLegacyLogIndexFiles,
   resolveOrgRequestPath,
+  shouldUseOrgMaxApiVersion,
   summarizeTraceFlagRecords,
   toolingQuery,
   writeLogBody
@@ -87,12 +89,12 @@ test('executeElectivus returns local org-first logs status', async () => {
   });
 });
 
-test('executeElectivus logs status without a workspace uses the temp apexlogs cache', async () => {
+test('executeElectivus logs status without a workspace flag uses the current directory cache', async () => {
   const result = (await executeElectivus(['logs', 'status'])) as any;
 
-  assert.equal(result.workspace_root, os.tmpdir());
-  assert.equal(result.apexlogs_root, path.join(os.tmpdir(), 'apexlogs'));
-  assert.equal(result.state_file, path.join(os.tmpdir(), 'apexlogs', '.alv', 'sync-state.json'));
+  assert.equal(result.workspace_root, process.cwd());
+  assert.equal(result.apexlogs_root, path.join(process.cwd(), 'apexlogs'));
+  assert.equal(result.state_file, path.join(process.cwd(), 'apexlogs', '.alv', 'sync-state.json'));
 });
 
 test('executeElectivus triages exception events as fatal exceptions', async () => {
@@ -163,6 +165,22 @@ test('toolingQuery follows all Tooling API result pages', async () => {
     result.records?.map(record => record.Id),
     ['01p000000000001AAA', '01p000000000002AAA', '01p000000000003AAA']
   );
+});
+
+test('alignConnectionApiVersion falls back when configured API version is above the org max', async () => {
+  let apiVersion = '65.0';
+  const result = await alignConnectionApiVersion({
+    getApiVersion: () => apiVersion,
+    setApiVersion: value => {
+      apiVersion = value;
+    },
+    retrieveMaxApiVersion: async () => '61.0'
+  } as any);
+
+  assert.equal(result, '61.0');
+  assert.equal(apiVersion, '61.0');
+  assert.equal(shouldUseOrgMaxApiVersion('65.0', '61.0'), true);
+  assert.equal(shouldUseOrgMaxApiVersion('60.0', '61.0'), false);
 });
 
 test('buildApexLogListSoql normalizes Salesforce cursor timestamps', () => {

@@ -282,6 +282,7 @@ async function getConnectionContext(targetOrg?: string): Promise<ConnectionConte
   const resolved = await resolveUsername(targetOrg);
   const authInfo = await AuthInfo.create({ username: resolved.username });
   const connection = await Connection.create({ authInfo });
+  await alignConnectionApiVersion(connection);
   const org = await Org.create({ connection });
   const fields = authInfo.getFields(true);
   const username = asString(connection.getUsername()) ?? asString(fields.username) ?? resolved.username;
@@ -389,6 +390,34 @@ async function standardQuery<TRecord = JsonObject>(
 
 function apiVersion(connection: Connection): string {
   return connection.getApiVersion?.() || DEFAULT_API_VERSION;
+}
+
+function numericApiVersion(value: string | undefined): number | undefined {
+  const match = String(value || '').match(/^\d+(?:\.\d+)?/);
+  if (!match) return undefined;
+  const numeric = Number(match[0]);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+export function shouldUseOrgMaxApiVersion(
+  configuredVersion: string | undefined,
+  orgMaxVersion: string | undefined
+): boolean {
+  const configured = numericApiVersion(configuredVersion);
+  const orgMax = numericApiVersion(orgMaxVersion);
+  return configured !== undefined && orgMax !== undefined && configured > orgMax;
+}
+
+export async function alignConnectionApiVersion(
+  connection: Pick<Connection, 'getApiVersion' | 'setApiVersion' | 'retrieveMaxApiVersion'>
+): Promise<string> {
+  const configuredVersion = connection.getApiVersion?.() || DEFAULT_API_VERSION;
+  const orgMaxVersion = await connection.retrieveMaxApiVersion();
+  if (shouldUseOrgMaxApiVersion(configuredVersion, orgMaxVersion)) {
+    connection.setApiVersion(orgMaxVersion);
+    return orgMaxVersion;
+  }
+  return configuredVersion;
 }
 
 async function connectionRequest<T = unknown>(
@@ -1664,42 +1693,45 @@ export async function executeElectivus(argv: readonly string[]): Promise<unknown
   if (topic === 'logs' && command === 'sync')
     return logsSyncNative({
       targetOrg: targetOrg(args),
-      workspaceRoot: flag(args, 'workspace-root'),
+      workspaceRoot: flag(args, 'workspace-root') || process.cwd(),
       forceFull: boolFlag(args, 'force-full'),
       concurrency: asNumber(flag(args, 'concurrency'))
     });
   if (topic === 'logs' && command === 'status')
-    return logsStatusNative({ targetOrg: targetOrg(args), workspaceRoot: flag(args, 'workspace-root') });
+    return logsStatusNative({
+      targetOrg: targetOrg(args),
+      workspaceRoot: flag(args, 'workspace-root') || process.cwd()
+    });
   if (topic === 'logs' && command === 'read')
     return logsReadNative({
       logId: args.positionals[2] || '',
       targetOrg: targetOrg(args),
-      workspaceRoot: flag(args, 'workspace-root'),
+      workspaceRoot: flag(args, 'workspace-root') || process.cwd(),
       maxBytes: asNumber(flag(args, 'max-bytes'))
     });
   if (topic === 'logs' && command === 'resolve')
     return logsResolveNative({
       logId: args.positionals[2] || '',
       targetOrg: targetOrg(args),
-      workspaceRoot: flag(args, 'workspace-root')
+      workspaceRoot: flag(args, 'workspace-root') || process.cwd()
     });
   if (topic === 'logs' && command === 'resolve-cached-path')
     return resolveCachedLogPathNative({
       logId: args.positionals[2] || '',
       username: flag(args, 'username'),
-      workspaceRoot: flag(args, 'workspace-root')
+      workspaceRoot: flag(args, 'workspace-root') || process.cwd()
     });
   if (topic === 'logs' && command === 'triage')
     return logsTriageNative({
       username: targetOrg(args),
       logIds: args.positionals.slice(2),
       logStartTimes: jsonStringRecordFlag(args, 'log-start-times'),
-      workspaceRoot: flag(args, 'workspace-root')
+      workspaceRoot: flag(args, 'workspace-root') || process.cwd()
     });
   if (topic === 'logs' && command === 'delete')
     return logsDeleteNative({
       targetOrg: targetOrg(args),
-      workspaceRoot: flag(args, 'workspace-root'),
+      workspaceRoot: flag(args, 'workspace-root') || process.cwd(),
       scope: flag(args, 'scope') === 'all' ? 'all' : 'mine',
       ids: flag(args, 'ids')?.split(',').filter(Boolean),
       limit: asNumber(flag(args, 'limit')),
