@@ -4,12 +4,13 @@
 
 ### Features
 
-- CLI/Plugin: add the Salesforce CLI plugin package `@electivus/plugin-electivus`, exposing the Rust runtime under `sf electivus ...` with standard `sf --json` envelopes.
+- CLI/Plugin: migrate `sf electivus ...` to native TypeScript plugin commands and bundle the embedded sf electivus plugin runner inside the VS Code extension.
 - CLI/Skills: bundle the Apex Log Viewer Codex skill in the repo and add `sf electivus skills install` to install it into the user's Codex skills directory.
 
 ### Bug Fixes
 
 - Logs/Search: remove runtime `logs search`/`search/query`, restore VS Code panel search through packaged ripgrep over local log files, and keep `logs sync` removing legacy `log-index.sqlite` files from older runtime versions.
+- Runtime: remove the Rust app-server/daemon path, native runtime bundles, and `electivus.apexLogs.runtimePath` setting in favor of the embedded plugin process.
 - Runtime/Auth: prepare for Salesforce CLI credential redaction by resolving tokens and SFDX auth URLs through explicit `sf org auth show-*` commands, with fallback for older CLI versions.
 - Runtime/Orgs: avoid slow `sf org list` startup/plugin work by reading local Salesforce org state first, and cache/coalesce shared runtime auth resolution to reduce repeated `sf org display` calls during refresh and sync.
 - Logs/Telemetry: skip redundant background log syncs during rapid refreshes and emit coarse error-code buckets for refresh, org, debug level, and runtime failures.

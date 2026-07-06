@@ -616,8 +616,8 @@
         }
       }
     },
-    "daemon.request": {
-      "description": "Daemon request outcome and latency at the extension/runtime boundary.",
+    "sfPlugin.request": {
+      "description": "Embedded sf electivus plugin request outcome and latency at the extension/plugin boundary.",
       "properties": {
         "outcome": {
           "classification": "SystemMetaData",
@@ -630,13 +630,28 @@
           "purpose": "PerformanceAndHealth",
           "required": true,
           "values": [
-            "initialize",
+            "doctor_run",
             "org_list",
             "org_auth",
+            "org_resolve",
             "logs_list",
             "logs_sync",
+            "logs_read",
+            "logs_delete",
             "logs_triage",
             "logs_resolve_cached_path",
+            "logs_resolve",
+            "users_search",
+            "trace_flags_status",
+            "trace_flags_apply",
+            "trace_flags_remove",
+            "debug_levels_list",
+            "debug_levels_get",
+            "debug_levels_create",
+            "debug_levels_update",
+            "debug_levels_delete",
+            "tooling_query",
+            "tooling_request_get",
             "other"
           ]
         },
@@ -648,10 +663,6 @@
       },
       "measurements": {
         "durationMs": {
-          "classification": "SystemMetaData",
-          "purpose": "PerformanceAndHealth"
-        },
-        "attempts": {
           "classification": "SystemMetaData",
           "purpose": "PerformanceAndHealth"
         }

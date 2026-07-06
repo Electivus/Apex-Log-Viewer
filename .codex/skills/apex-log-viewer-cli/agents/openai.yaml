@@ -1,4 +1,4 @@
 interface:
-  display_name: "Apex Log Viewer CLI"
-  short_description: "Use ALV CLI safely for Apex log triage"
-  default_prompt: "Use $apex-log-viewer-cli to inspect Apex logs for my Salesforce org with the Apex Log Viewer CLI."
+  display_name: "Apex Log Viewer Sf Plugin"
+  short_description: "Use sf electivus safely for Apex log triage"
+  default_prompt: "Use $apex-log-viewer-cli to inspect Apex logs for my Salesforce org with sf electivus."

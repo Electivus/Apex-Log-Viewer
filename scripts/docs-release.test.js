@@ -6,24 +6,19 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-test('release docs mention the dedicated CLI workflow and pinned runtime metadata', () => {
+test('release docs mention the embedded sf plugin packaging model', () => {
   const ci = fs.readFileSync('docs/CI.md', 'utf8');
   const publishing = fs.readFileSync('docs/PUBLISHING.md', 'utf8');
   const architecture = fs.readFileSync('docs/ARCHITECTURE.md', 'utf8');
   const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
 
-  assert.match(ci, /rust-release\.yml/);
-  assert.match(ci, /Trusted Publisher/i);
-  assert.match(ci, /verify-runtime-compatibility\.mjs/);
+  assert.match(ci, /build:embedded-sf-plugin/);
+  assert.match(ci, /test:sf-plugin/);
   assert.doesNotMatch(ci, /NPM_TOKEN/);
-  assert.doesNotMatch(ci, /CARGO_REGISTRY_TOKEN/);
-  assert.match(publishing, /rust-vX\.Y\.Z/);
-  assert.match(publishing, /rust-release\.yml/);
-  assert.match(publishing, /Trusted Publisher/i);
-  assert.match(publishing, /npm native\/plugin packages/i);
-  assert.match(publishing, /crates\.io.*deferred/i);
-  assert.match(architecture, /config\/runtime-bundle\.json/);
-  assert.match(changelog, /independent Rust CLI release train/i);
+  assert.match(publishing, /plugin npm release/i);
+  assert.doesNotMatch(publishing, /rust-release\.yml/);
+  assert.match(architecture, /electivus-runner\.cjs/);
+  assert.match(changelog, /embedded sf electivus plugin/i);
 });
 
 test('README screenshot assets point at the published extension media paths', () => {

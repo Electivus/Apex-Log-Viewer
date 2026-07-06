@@ -112,6 +112,8 @@ jobs:
         run: |
           set -euo pipefail
           npm run clean
+          npm run build:sf-plugin
+          npm run build:embedded-sf-plugin
           npm run build:tree-sitter-runtime
           npm run build:ripgrep-runtime -- "${MATRIX_TARGET}"
           npm run build:package-metadata
@@ -119,16 +121,6 @@ jobs:
           (npm run -s nls:extract || true)
           npm run nls:write
           npm run build:webview
-
-      - name: Fetch packaged runtime for target
-        shell: bash
-        env:
-          MATRIX_TARGET: ${{ matrix.target }}
-        run: node scripts/fetch-runtime-release.mjs "${MATRIX_TARGET}"
-
-      - name: Verify fetched linux-x64 runtime compatibility
-        if: matrix.target == 'linux-x64'
-        run: node scripts/verify-runtime-compatibility.mjs --target linux-x64 --binary "apps/vscode-extension/bin/linux-x64/apex-log-viewer"
 
       - name: Determine channel (stable vs pre-release)
         id: determine_channel

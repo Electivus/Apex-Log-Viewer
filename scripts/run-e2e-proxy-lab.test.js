@@ -162,9 +162,6 @@ test('proxy lab compose persists runner caches and Salesforce CLI auth state', (
 
   for (const [volume, mountPath] of [
     ['e2e_proxy_node_modules', '/workspace/node_modules'],
-    ['e2e_proxy_cargo_registry', '/root/.cargo/registry'],
-    ['e2e_proxy_cargo_git', '/root/.cargo/git'],
-    ['e2e_proxy_target', '/workspace/target'],
     ['e2e_proxy_vscode_test', '/workspace/.vscode-test'],
     ['e2e_proxy_npm_cache', '/root/.npm'],
     ['e2e_proxy_sf', '/root/.sf'],
@@ -182,6 +179,9 @@ test('proxy lab runner restores ownership of bind-mounted generated outputs on e
   assert.match(script, /trap restore_host_ownership EXIT/);
   assert.match(script, /ALV_E2E_PROXY_LAB_HOST_UID/);
   assert.match(script, /apps\/vscode-extension\/bin/);
+  assert.match(script, /packages\/sf-plugin\/lib/);
+  assert.match(script, /packages\/sf-plugin\/skills/);
+  assert.match(script, /packages\/sf-plugin\/oclif\.manifest\.json/);
   assert.match(script, /output/);
   assert.doesNotMatch(script, /exec "\$@"/);
   assert.doesNotMatch(script, /exec bash -lc/);

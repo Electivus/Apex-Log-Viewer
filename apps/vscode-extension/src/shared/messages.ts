@@ -50,7 +50,7 @@ export type ExtensionToWebviewMessage =
       logId: string;
       /**
        * @deprecated Code Unit table hydration was removed. Kept for compatibility with older
-       * runtime/app-server producers during deprecation.
+       * extension/plugin producers during deprecation.
        */
       codeUnitStarted?: string;
       hasErrors?: boolean;

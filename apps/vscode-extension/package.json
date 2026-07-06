@@ -53,7 +53,6 @@
   ],
   "main": "./dist/extension.js",
   "files": [
-    "bin/**",
     "dist/**",
     "media/icon.png",
     "media/banner.png",
@@ -63,6 +62,7 @@
     "media/tail.js",
     "media/logViewer.js",
     "media/debugFlags.js",
+    "sf-plugin/**",
     "node_modules/@vscode/ripgrep*/**",
     "node_modules/tree-sitter-sfapex/README.md",
     "node_modules/tree-sitter-sfapex/LICENSE",
@@ -107,12 +107,6 @@
           "type": "string",
           "default": "",
           "markdownDescription": "%configuration.electivus.apexLogs.cliPath.description%"
-        },
-        "electivus.apexLogs.runtimePath": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "markdownDescription": "%configuration.electivus.apexLogs.runtimePath.description%"
         },
         "electivus.apexLogs.tailBufferSize": {
           "type": "number",

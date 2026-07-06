@@ -77,11 +77,6 @@ updates:
       - dependency-name: '@salesforce/sf-plugins-core'
         update-types:
           - 'version-update:semver-major'
-  - package-ecosystem: 'cargo'
-    directory: '/'
-    schedule:
-      interval: 'weekly'
-    open-pull-requests-limit: 20
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:

@@ -6,20 +6,18 @@
 ## Project Structure
 - `apps/vscode-extension/` contains the VS Code extension host, extension-specific tests, packaging scripts, and bundled media.
 - `packages/webview/` contains the webview React UI.
-- `packages/app-server-client-ts/` contains the TypeScript client for shared app-server/runtime contracts.
-- `packages/cli-npm/` contains the npm packaging for the standalone CLI.
-- `crates/` contains the shared Rust runtime crates (`alv-core`, CLI, app server, MCP, and protocol).
+- `packages/sf-plugin/` contains the Salesforce CLI plugin and embedded TypeScript command core used by the extension runner.
 - Root `src/` contains shared TypeScript Salesforce helpers, services, shims, and utilities used across surfaces.
 - `test/e2e/` contains Playwright scratch-org E2E specs, fixtures, and utilities.
-- `config/` holds runtime bundle and scratch-org configuration.
+- `config/` holds scratch-org configuration.
 - `docs/` holds architecture/testing/publishing notes and plan docs.
 - `scripts/` contains build/test helper scripts.
-- `.codex/skills/` contains bundled Codex skill packages, including the `apex-log-viewer-cli` skill installed by the standalone CLI.
+- `.codex/skills/` contains bundled Codex skill packages.
 
 ## Shared Runtime Strategy
-- Treat the VS Code extension and the standalone CLI as separate surfaces built on a shared architecture, not as copies of each other.
-- When a new capability is valuable to both the CLI and the extension, prefer implementing the core behavior in shared Rust/runtime layers first (`alv-core` plus app-server/runtime contracts), then expose it through the appropriate surface.
-- It is fine for the CLI to be the first consumer of a new shared capability, especially for human/operator and AI-agent workflows, but do not force the extension UX to depend on shelling out to user-facing CLI commands.
+- Treat the VS Code extension and the Salesforce CLI plugin as separate surfaces over the TypeScript plugin core, not as copies of each other.
+- When a new capability is valuable to both surfaces, implement the core behavior in `packages/sf-plugin` without depending on VS Code, then expose it through `sf electivus ...` and the extension's embedded plugin client.
+- The extension bundles the plugin runner and spawns it in a separate Node process with `--json`; it should not require a globally installed plugin.
 - For log-local workflows, treat the org-first `apexlogs/orgs/<safe-org>/logs/...` layout as the canonical structure while preserving the existing `<safeUser>_<logId>.log` files for backward compatibility; during the transition both layouts may coexist, but avoid introducing additional cache layouts.
 - If incremental log sync state is introduced, treat it as a shared runtime contract that the extension may adopt later; keep extension compatibility by avoiding changes that would break existing `apexlogs/` consumers in either the org-first or legacy flat layouts.
 - When a CLI flag overlaps with familiar Salesforce CLI behavior, prefer the `sf`-style spelling such as `--target-org`.
@@ -28,19 +26,16 @@
 - Use Node `24` via `.nvmrc`.
 - Install deps with `npm ci`.
 - Clean generated outputs with `npm run clean`.
-- Build the Rust runtime only with `npm run build:runtime`.
-- Fetch the pinned runtime bundle for packaging with `npm run package:runtime`.
 - Type-check only with `npm run check-types`.
 - Lint with `npm run lint`.
 - Format with `npm run format`.
 - Lint + extension TypeScript validation with `npm run compile`.
 - Build with `npm run build`.
+- Build the Salesforce CLI plugin with `npm run build:sf-plugin`.
+- Build the embedded extension plugin runner with `npm run build:embedded-sf-plugin`.
 - Build only the extension host bundle with `npm run build:extension`.
 - Build only the webview bundle and CSS with `npm run build:webview`.
-- Build standalone CLI npm packages with `npm run build:cli:npm`.
-- Install or refresh the bundled Codex skill with `apex-log-viewer skills install --force`; use `--dry-run` to preview and `--codex-home <path>` when targeting a non-default Codex home.
 - Prepare a publishable package with `npm run package`.
-- Build the local release runtime bundle with `npm run package:runtime:local`; on Linux `linux-x64` builds require a musl toolchain with `musl-gcc` on `PATH`.
 - Watch mode: `npm run watch`.
 - Extension-only watch: `npm run watch:extension`.
 - Webview-only watch: `npm run watch:webview`.
@@ -54,9 +49,6 @@
 - Integration suite: `npm run test:integration`.
 - Combined local test sweep: `npm run test:all`.
 - Full CI-equivalent suite: `npm run test:ci`.
-- Rust workspace suite: `npm run test:rust`.
-- Fast Rust smoke suite: `npm run test:rust:smoke`.
-- Optional `cargo-nextest` variants: `npm run test:rust:nextest` and `npm run test:rust:smoke:nextest`.
 - Webview-only Jest suite: `npm run test:webview`.
 - Playwright scratch-org E2E: `npm run test:e2e`.
 - Standalone CLI Playwright E2E: `npm run test:e2e:cli`.
@@ -121,8 +113,6 @@ This repo follows the VS Code Marketplace pre-release convention:
    - Publish to Open VSX locally with `npx --yes ovsx publish --pat <token>` or add `--pre-release` for the odd-minor channel.
 
 Nightly pre-releases are managed by `.github/workflows/prerelease.yml`, which packages and publishes the odd-minor pre-release channel when publishing secrets are configured.
-
-Standalone Rust CLI releases are separate from extension releases: update `crates/alv-cli/Cargo.toml`, refresh `config/runtime-bundle.json` when the extension should consume the tested runtime, then tag `rust-vX.Y.Z` or `rust-vX.Y.Z-alpha.N`; `.github/workflows/rust-release.yml` builds release assets and publishes the npm native/meta packages through Trusted Publisher/OIDC.
 
 See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 

@@ -9,7 +9,7 @@ const {
   ensureBuildArtifacts,
   findMissingBuildArtifacts,
   requiredBuildArtifacts,
-  resolveRuntimeBinaryRelativePath,
+  resolveEmbeddedRunnerRelativePath,
   resolveBuildInvocation,
   resolvePlaywrightInvocation
 } = require('./run-playwright-e2e');
@@ -34,7 +34,7 @@ test('findMissingBuildArtifacts reports the missing build outputs', () => {
   const repoRoot = createTempRepo();
   try {
     writeArtifacts(repoRoot, [
-      resolveRuntimeBinaryRelativePath(),
+      resolveEmbeddedRunnerRelativePath(),
       'apps/vscode-extension/dist/extension.js',
       'apps/vscode-extension/media/main.js'
     ]);
@@ -50,24 +50,20 @@ test('findMissingBuildArtifacts reports the missing build outputs', () => {
   }
 });
 
-test('resolveRuntimeBinaryRelativePath targets the embedded platform binary inside the extension app', () => {
-  assert.equal(resolveRuntimeBinaryRelativePath('linux', 'x64'), 'apps/vscode-extension/bin/linux-x64/apex-log-viewer');
-});
-
-test('resolveRuntimeBinaryRelativePath uses target-style separators for Windows binaries too', () => {
+test('resolveEmbeddedRunnerRelativePath targets the embedded sf plugin runner inside the extension app', () => {
   assert.equal(
-    resolveRuntimeBinaryRelativePath('win32', 'x64'),
-    'apps/vscode-extension/bin/win32-x64/apex-log-viewer.exe'
+    resolveEmbeddedRunnerRelativePath(),
+    'apps/vscode-extension/sf-plugin/electivus-runner.cjs'
   );
 });
 
-test('findMissingBuildArtifacts reports the runtime binary when it has not been copied yet', () => {
+test('findMissingBuildArtifacts reports the embedded plugin runner when it has not been built yet', () => {
   const repoRoot = createTempRepo();
   try {
     writeArtifacts(repoRoot, ['apps/vscode-extension/dist/extension.js', 'apps/vscode-extension/media/main.js']);
 
     assert.deepEqual(findMissingBuildArtifacts(repoRoot), [
-      resolveRuntimeBinaryRelativePath(),
+      resolveEmbeddedRunnerRelativePath(),
       'apps/vscode-extension/media/webview.css',
       'apps/vscode-extension/media/tail.js',
       'apps/vscode-extension/media/logViewer.js',

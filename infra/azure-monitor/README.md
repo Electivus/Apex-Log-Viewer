@@ -9,7 +9,7 @@ This folder is the versioned Azure Monitor home for the extension. It is meant t
 - Dedicated E2E Application Insights component
 - Optional workbook
 - Optional dedicated action group
-- Optional scheduled query alerts for the production component, including CLI/auth, search, and daemon regressions
+- Optional scheduled query alerts for the production component, including CLI/auth, search, and plugin request regressions
 
 ## Files
 

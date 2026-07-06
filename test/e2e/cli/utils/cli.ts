@@ -7,7 +7,6 @@ export type CliExecOptions = {
   env?: NodeJS.ProcessEnv;
   repoRoot?: string;
   timeoutMs?: number;
-  allowWindowsCommandShim?: boolean;
 };
 
 export type CliRunResult = {
@@ -22,25 +21,6 @@ export type CliRunResult = {
   signal?: NodeJS.Signals | string;
 };
 
-function resolveBinaryName(platform = process.platform): string {
-  return platform === 'win32' ? 'apex-log-viewer.exe' : 'apex-log-viewer';
-}
-
-function resolveRepoRoot(): string {
-  return path.resolve(__dirname, '..', '..', '..', '..');
-}
-
-type ResolveAlvCliBinaryPathOptions = {
-  repoRoot?: string;
-  cargoBuildTarget?: string;
-  platform?: NodeJS.Platform;
-  env?: NodeJS.ProcessEnv;
-};
-
-type ResolveAlvCliInvocationOptions = ResolveAlvCliBinaryPathOptions & {
-  allowWindowsCommandShim?: boolean;
-};
-
 type ResolveElectivusPluginInvocationOptions = {
   repoRoot?: string;
   env?: NodeJS.ProcessEnv;
@@ -49,60 +29,17 @@ type ResolveElectivusPluginInvocationOptions = {
 type CliInvocation = {
   command: string;
   args: string[];
-  windowsVerbatimArguments?: boolean;
 };
 
-function resolveBinaryCandidatesForName(binaryName: string, options: ResolveAlvCliBinaryPathOptions = {}): string[] {
-  const repoRoot = options.repoRoot || resolveRepoRoot();
-  return [path.join(repoRoot, 'target', 'debug', binaryName)];
+function resolveRepoRoot(): string {
+  return path.resolve(__dirname, '..', '..', '..', '..');
 }
 
-function resolveBinaryCandidates(options: ResolveAlvCliBinaryPathOptions = {}): string[] {
-  return resolveBinaryCandidatesForName(resolveBinaryName(options.platform), options);
-}
-
-function resolveCliEnvironment(options: ResolveAlvCliBinaryPathOptions = {}): NodeJS.ProcessEnv {
+function resolveCliEnvironment(options: { env?: NodeJS.ProcessEnv } = {}): NodeJS.ProcessEnv {
   return {
     ...process.env,
     ...options.env
   };
-}
-
-function isWindowsCommandShim(value: string, platform = process.platform): boolean {
-  return platform === 'win32' && value.toLowerCase().endsWith('.cmd');
-}
-
-function quoteWindowsCommandArgument(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
-function windowsCommandShimInvocation(shimPath: string): CliInvocation {
-  return {
-    command: process.env.ComSpec || 'cmd.exe',
-    args: ['/d', '/c', 'call', quoteWindowsCommandArgument(shimPath)],
-    windowsVerbatimArguments: true
-  };
-}
-
-function resolveConfiguredCliBinaryPath(options: ResolveAlvCliBinaryPathOptions = {}): string | undefined {
-  const rawPath = String(resolveCliEnvironment(options).ALV_CLI_BINARY_PATH ?? '').trim();
-  if (!rawPath) {
-    return undefined;
-  }
-
-  const repoRoot = options.repoRoot || resolveRepoRoot();
-  return path.isAbsolute(rawPath) ? rawPath : path.resolve(repoRoot, rawPath);
-}
-
-function formatMissingBinaryMessage(configuredBinaryPath: string | undefined, fallbackCandidates: string[]): string {
-  if (configuredBinaryPath) {
-    return `Unable to locate apex-log-viewer standalone binary from ALV_CLI_BINARY_PATH. Checked: ${[
-      configuredBinaryPath,
-      ...fallbackCandidates
-    ].join(', ')}`;
-  }
-
-  return `Unable to locate apex-log-viewer standalone binary. Checked: ${fallbackCandidates.join(', ')}`;
 }
 
 function resolveDefaultPluginBinPath(repoRoot: string): string {
@@ -113,7 +50,11 @@ function resolveConfiguredPluginBinPath(options: ResolveElectivusPluginInvocatio
   const env = resolveCliEnvironment({ env: options.env });
   const repoRoot = options.repoRoot || resolveRepoRoot();
   const rawPath = String(env.ALV_ELECTIVUS_PLUGIN_BIN_PATH ?? '').trim();
-  return rawPath ? (path.isAbsolute(rawPath) ? rawPath : path.resolve(repoRoot, rawPath)) : resolveDefaultPluginBinPath(repoRoot);
+  return rawPath
+    ? path.isAbsolute(rawPath)
+      ? rawPath
+      : path.resolve(repoRoot, rawPath)
+    : resolveDefaultPluginBinPath(repoRoot);
 }
 
 function formatMissingPluginMessage(pluginBinPath: string): string {
@@ -133,8 +74,11 @@ function tryParseCliJson(raw: string): any | undefined {
   }
 
   const cleaned = trimmed.replace(/\u001b\[[0-9;]*m/g, '');
-  const start = cleaned.indexOf('{');
-  const end = cleaned.lastIndexOf('}');
+  const firstObject = cleaned.indexOf('{');
+  const firstArray = cleaned.indexOf('[');
+  const start =
+    firstObject === -1 ? firstArray : firstArray === -1 ? firstObject : Math.min(firstObject, firstArray);
+  const end = Math.max(cleaned.lastIndexOf('}'), cleaned.lastIndexOf(']'));
   if (start >= 0 && end > start) {
     try {
       return JSON.parse(cleaned.slice(start, end + 1));
@@ -146,61 +90,9 @@ function tryParseCliJson(raw: string): any | undefined {
   return undefined;
 }
 
-export function resolveAlvCliBinaryPath(options: ResolveAlvCliBinaryPathOptions = {}): string {
-  const configuredBinaryPath = resolveConfiguredCliBinaryPath(options);
-  const candidates = resolveBinaryCandidates(options);
-
-  if (configuredBinaryPath) {
-    if (existsSync(configuredBinaryPath)) {
-      return configuredBinaryPath;
-    }
-    throw new Error(formatMissingBinaryMessage(configuredBinaryPath, candidates));
-  }
-
-  const binaryPath = candidates.find(candidate => existsSync(candidate));
-  if (!binaryPath) {
-    throw new Error(formatMissingBinaryMessage(undefined, candidates));
-  }
-  return binaryPath;
-}
-
-export function resolveAlvCliInvocation(options: ResolveAlvCliInvocationOptions = {}): CliInvocation {
-  const configuredBinaryPath = resolveConfiguredCliBinaryPath(options);
-  const candidates = resolveBinaryCandidates(options);
-
-  if (configuredBinaryPath) {
-    if (existsSync(configuredBinaryPath)) {
-      return isWindowsCommandShim(configuredBinaryPath, options.platform)
-        ? windowsCommandShimInvocation(configuredBinaryPath)
-        : {
-            command: configuredBinaryPath,
-            args: []
-          };
-    }
-    throw new Error(formatMissingBinaryMessage(configuredBinaryPath, candidates));
-  }
-
-  const binaryPath = candidates.find(candidate => existsSync(candidate));
-  if (binaryPath) {
-    return {
-      command: binaryPath,
-      args: []
-    };
-  }
-
-  if (options.allowWindowsCommandShim && (options.platform ?? process.platform) === 'win32') {
-    const shimPath = resolveBinaryCandidatesForName('apex-log-viewer.cmd', options).find(candidate =>
-      existsSync(candidate)
-    );
-    if (shimPath) {
-      return windowsCommandShimInvocation(shimPath);
-    }
-  }
-
-  throw new Error(formatMissingBinaryMessage(undefined, resolveBinaryCandidates(options)));
-}
-
-export function resolveElectivusPluginInvocation(options: ResolveElectivusPluginInvocationOptions = {}): CliInvocation {
+export function resolveElectivusPluginInvocation(
+  options: ResolveElectivusPluginInvocationOptions = {}
+): CliInvocation {
   const pluginBinPath = resolveConfiguredPluginBinPath(options);
   if (!existsSync(pluginBinPath)) {
     throw new Error(formatMissingPluginMessage(pluginBinPath));
@@ -218,10 +110,7 @@ export async function runAlvCli(args: string[], options: CliExecOptions = {}): P
     repoRoot: options.repoRoot,
     env
   });
-  const commandArgs = args.map(value => String(value ?? ''));
-  const finalArgs = invocation.windowsVerbatimArguments
-    ? [...invocation.args, ...commandArgs.map(quoteWindowsCommandArgument)]
-    : [...invocation.args, ...commandArgs];
+  const finalArgs = [...invocation.args, ...args.map(value => String(value ?? ''))];
 
   return await new Promise(resolve => {
     execFile(
@@ -232,8 +121,7 @@ export async function runAlvCli(args: string[], options: CliExecOptions = {}): P
         env,
         encoding: 'utf8',
         timeout: options.timeoutMs ?? 120_000,
-        maxBuffer: 1024 * 1024 * 20,
-        windowsVerbatimArguments: invocation.windowsVerbatimArguments
+        maxBuffer: 1024 * 1024 * 20
       },
       (error, stdout, stderr) => {
         const stdoutText = String(stdout || '');

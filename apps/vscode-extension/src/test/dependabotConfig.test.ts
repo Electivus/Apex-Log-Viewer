@@ -259,20 +259,21 @@ updates:
     );
   });
 
-  test('defines a cargo updater at the workspace root for the Rust CLI stack', async () => {
+  test('does not define a cargo updater after removing the native runtime stack', async () => {
     const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
     const raw = await readFile(path.join(repoRoot, '.github', 'dependabot.yml'), 'utf8');
-    const cargoUpdate = getUpdateConfig(raw, 'cargo', '/');
+    const config = parse(raw) as ParsedDependabotConfig;
+    assert.ok(Array.isArray(config.updates), 'dependabot.yml should parse into an updates array');
 
     assert.deepEqual(
-      cargoUpdate.schedule,
-      { interval: 'weekly' },
-      'cargo updater should check the workspace root weekly like the other ecosystems'
-    );
-    assert.equal(
-      cargoUpdate['open-pull-requests-limit'],
-      20,
-      'cargo updater should use the same pull request limit as the other repository-level updaters'
+      config.updates.filter(entry => {
+        if (!entry || typeof entry !== 'object') {
+          return false;
+        }
+        return (entry as ParsedDependabotUpdate)['package-ecosystem'] === 'cargo';
+      }),
+      [],
+      'cargo updater should not be configured when no Cargo workspace remains'
     );
   });
 });

@@ -7,6 +7,7 @@ suite('telemetry error codes', () => {
     error.code = 'EPIPE';
 
     assert.equal(getTelemetryErrorCode(error), 'RUNTIME_EXIT');
+    assert.equal(getTelemetryErrorCode(new Error('sf electivus exited with code 1')), 'RUNTIME_EXIT');
   });
 
   test('normalizes known timeout and auth failures', () => {
