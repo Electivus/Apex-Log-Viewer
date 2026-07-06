@@ -1,19 +1,18 @@
 use crate::{
     cli::{
-        LogDeleteArgs, LogListArgs, LogReadArgs, LogResolveArgs, LogSearchArgs, LogStatusArgs,
-        LogSyncArgs, LogTriageArgs, LogsArgs, LogsCommand,
+        LogDeleteArgs, LogListArgs, LogReadArgs, LogResolveArgs, LogStatusArgs, LogSyncArgs,
+        LogTriageArgs, LogsArgs, LogsCommand,
     },
     commands::OutputMode,
 };
 use alv_core::{
-    auth, log_ops,
+    log_ops,
     log_store::{self, OrgMetadata, SyncState},
     logs::{
         list_logs_detailed_with_cancel, CancellationToken, LogsListParams, LogsRuntimeError,
         RuntimeErrorData,
     },
     logs_sync::{sync_logs_detailed_with_cancel, LogsSyncParams, LogsSyncResult},
-    search::{search_query, SearchQueryParams, SearchQueryResult, SearchSnippet},
     triage::{triage_logs_with_cancel, LogsTriageParams},
 };
 use serde::Serialize;
@@ -37,23 +36,6 @@ struct StatusResult {
     last_error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct SearchMatch {
-    log_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    snippet: Option<SearchSnippet>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct SearchResult {
-    target_org: String,
-    safe_target_org: String,
-    query: String,
-    searched_log_count: usize,
-    matches: Vec<SearchMatch>,
-    pending_log_ids: Vec<String>,
-}
-
 #[derive(Debug, Serialize)]
 struct CommandErrorResult<'a> {
     status: &'static str,
@@ -68,7 +50,6 @@ pub fn run(args: LogsArgs, output: OutputMode) -> Result<i32, String> {
         LogsCommand::List(list) => run_list(list, output),
         LogsCommand::Sync(sync) => run_sync(sync, output),
         LogsCommand::Status(status) => run_status(status, output),
-        LogsCommand::Search(search) => run_search(search, output),
         LogsCommand::Read(read) => run_read(read, output),
         LogsCommand::Resolve(resolve) => run_resolve(resolve, output),
         LogsCommand::Triage(triage) => run_triage(triage, output),
@@ -162,45 +143,6 @@ fn run_status(args: LogStatusArgs, output: OutputMode) -> Result<i32, String> {
         print_json(&result)?;
     } else {
         print_status_summary(&result);
-    }
-
-    Ok(0)
-}
-
-fn run_search(args: LogSearchArgs, output: OutputMode) -> Result<i32, String> {
-    let workspace_root = workspace_root_string()?;
-    let query = args.query.trim().to_string();
-    if query.is_empty() {
-        return Err("search query must not be empty".to_string());
-    }
-
-    let sync_state = log_store::read_sync_state(Some(&workspace_root))?;
-    let resolved_username = resolve_search_target_org(
-        args.target_org.as_deref(),
-        Some(&workspace_root),
-        &sync_state,
-    )?;
-    let log_ids = discover_local_log_ids(Some(&workspace_root), resolved_username.as_deref())?;
-    let result = search_query(&SearchQueryParams {
-        query: query.clone(),
-        log_ids: log_ids.clone(),
-        username: resolved_username.clone(),
-        raw_username: args
-            .target_org
-            .clone()
-            .filter(|raw| resolved_username.as_deref() != Some(raw.as_str())),
-        workspace_root: Some(workspace_root),
-    })?;
-    let target_org = resolved_username.unwrap_or_else(|| "default".to_string());
-    let safe_target_org = log_store::safe_target_org(&target_org);
-
-    let search_output =
-        build_search_result(target_org, safe_target_org, query, log_ids.len(), result);
-
-    if output.json {
-        print_json(&search_output)?;
-    } else {
-        print_search_summary(&search_output);
     }
 
     Ok(0)
@@ -307,37 +249,6 @@ fn run_delete(args: LogDeleteArgs, output: OutputMode) -> Result<i32, String> {
     Ok(if result.failed > 0 { 2 } else { 0 })
 }
 
-fn build_search_result(
-    target_org: String,
-    safe_target_org: String,
-    query: String,
-    searched_log_count: usize,
-    result: SearchQueryResult,
-) -> SearchResult {
-    let SearchQueryResult {
-        log_ids,
-        snippets,
-        pending_log_ids,
-    } = result;
-
-    let matches = log_ids
-        .into_iter()
-        .map(|log_id| SearchMatch {
-            snippet: snippets.get(&log_id).cloned(),
-            log_id,
-        })
-        .collect();
-
-    SearchResult {
-        target_org,
-        safe_target_org,
-        query,
-        searched_log_count,
-        matches,
-        pending_log_ids,
-    }
-}
-
 fn workspace_root_string() -> Result<String, String> {
     env::current_dir()
         .map(|path| path.display().to_string())
@@ -411,20 +322,6 @@ fn print_status_summary(result: &StatusResult) {
     }
 }
 
-fn print_search_summary(result: &SearchResult) {
-    println!(
-        "Found {} matching logs for '{}'",
-        result.matches.len(),
-        result.query
-    );
-    for entry in &result.matches {
-        println!("- {}", entry.log_id);
-        if let Some(snippet) = &entry.snippet {
-            println!("  {}", snippet.text);
-        }
-    }
-}
-
 fn resolve_local_target_org(
     target_org: Option<&str>,
     workspace_root: Option<&str>,
@@ -440,29 +337,6 @@ fn resolve_local_target_org(
 
     find_org_metadata_by_alias(workspace_root, requested, sync_state)
         .map(|metadata| metadata.resolved_username)
-}
-
-fn resolve_search_target_org(
-    target_org: Option<&str>,
-    workspace_root: Option<&str>,
-    sync_state: &SyncState,
-) -> Result<Option<String>, String> {
-    if let Some(resolved) = resolve_local_target_org(target_org, workspace_root, sync_state) {
-        return Ok(Some(resolved));
-    }
-
-    let Some(requested) = target_org.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-
-    if requested.contains('@') {
-        return Ok(Some(requested.to_string()));
-    }
-
-    match auth::resolve_org_auth(Some(requested)) {
-        Ok(auth) => Ok(Some(auth.username.unwrap_or_else(|| requested.to_string()))),
-        Err(_) => Ok(Some(requested.to_string())),
-    }
 }
 
 fn find_org_metadata_by_alias(

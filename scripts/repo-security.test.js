@@ -1488,6 +1488,7 @@ test('CODEOWNERS covers workflows, manifests, lockfiles, and release metadata', 
     '/deny.toml @Electivus/maintainers',
     '/config/runtime-bundle.json @Electivus/maintainers',
     '/apps/vscode-extension/scripts/copy-tree-sitter-runtime.mjs @Electivus/maintainers',
+    '/apps/vscode-extension/scripts/copy-ripgrep-runtime.mjs @Electivus/maintainers',
     '/scripts/fetch-runtime-release.mjs @Electivus/maintainers'
   ]) {
     assert.match(owners, new RegExp(`^${expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
