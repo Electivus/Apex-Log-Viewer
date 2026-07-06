@@ -61,6 +61,15 @@ function trySpawn(binary: string, args: string[], cwd?: string): Promise<boolean
 }
 
 export async function ripgrepSearch(pattern: string, cwd: string, signal?: AbortSignal): Promise<RipgrepMatch[]> {
+  try {
+    const stat = await fs.stat(cwd);
+    if (!stat.isDirectory()) {
+      return [];
+    }
+  } catch {
+    return [];
+  }
+
   let binary: string;
   try {
     binary = await resolveRipgrepBinary();

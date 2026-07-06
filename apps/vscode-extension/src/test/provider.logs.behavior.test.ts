@@ -880,6 +880,7 @@ suite('SfLogsViewProvider behavior', () => {
     } as any;
 
     const ensureCalls: any[] = [];
+    const localLogPath = path.join(tmpDir, '07L000000000001AA.log');
     (provider as any).logService.ensureLogsSaved = async (
       logs: any[],
       org: string | undefined,
@@ -895,7 +896,10 @@ suite('SfLogsViewProvider behavior', () => {
         missing: 0,
         failed: 0,
         cancelled: 0,
-        failedLogIds: []
+        failedLogIds: [],
+        localLogPaths: {
+          '07L000000000001AA': localLogPath
+        }
       };
     };
     const searchCalls: Array<{ query: string; cwd: string; signal?: AbortSignal }> = [];
@@ -944,6 +948,87 @@ suite('SfLogsViewProvider behavior', () => {
     }
   });
 
+  test('setSearchQuery ignores same-id matches from another org cache path', async () => {
+    const { SfLogsViewProvider, cli, workspace, ripgrep } = createProviderHarness();
+    cli.getOrgAuth = async () => ({ username: 'selected@example.com', instanceUrl: 'i', accessToken: 't' });
+    cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
+
+    const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests-org-collision');
+    await fs.mkdir(tmpDir, { recursive: true });
+    workspace.ensureApexLogsDir = async () => tmpDir;
+    workspace.purgeSavedLogs = async () => 0;
+    workspace.getLogIdFromLogFilePath = (filePath: string) => {
+      const match = /07L[0-9A-Za-z]+/.exec(filePath);
+      return match?.[0];
+    };
+
+    const selectedPath = path.join(
+      tmpDir,
+      'orgs',
+      'selected@example.com',
+      'logs',
+      '2026-03-30',
+      '07L000000000001AA.log'
+    );
+    const otherOrgPath = path.join(
+      tmpDir,
+      'orgs',
+      'other@example.com',
+      'logs',
+      '2026-03-30',
+      '07L000000000001AA.log'
+    );
+
+    const context = makeContext();
+    const posted: any[] = [];
+    const provider = new SfLogsViewProvider(context);
+    (provider as any).configManager.shouldLoadFullLogBodies = () => true;
+    (provider as any).view = {
+      webview: {
+        postMessage: (m: any) => {
+          posted.push(m);
+          return Promise.resolve(true);
+        }
+      }
+    } as any;
+
+    (provider as any).logService.ensureLogsSaved = async () => ({
+      total: 1,
+      success: 1,
+      downloaded: 0,
+      existing: 1,
+      missing: 0,
+      failed: 0,
+      cancelled: 0,
+      failedLogIds: [],
+      localLogPaths: {
+        '07L000000000001AA': selectedPath
+      }
+    });
+    ripgrep.ripgrepSearch = async () => [
+      {
+        filePath: otherOrgPath,
+        lineText: 'error from another org\n',
+        submatches: [{ start: 0, end: 5 }]
+      }
+    ];
+
+    try {
+      await provider.refresh();
+      await new Promise(r => setTimeout(r, 20));
+      await (provider as any).setSearchQuery('error');
+      await new Promise(r => setTimeout(r, 20));
+
+      const matches = posted.filter(m => m?.type === 'searchMatches').pop();
+      assert.ok(matches, 'should post searchMatches');
+      assert.deepEqual(matches?.logIds, []);
+      assert.deepEqual(matches?.snippets, {});
+      assert.deepEqual(matches?.pendingLogIds, []);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   test('setSearchQuery posts pendingLogIds for visible logs without local files', async () => {
     const { SfLogsViewProvider, cli, workspace, ripgrep } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
@@ -982,7 +1067,8 @@ suite('SfLogsViewProvider behavior', () => {
         missing: logs.length,
         failed: 0,
         cancelled: 0,
-        failedLogIds: []
+        failedLogIds: [],
+        localLogPaths: {}
       };
     };
     let searchCalls = 0;
@@ -1034,6 +1120,7 @@ suite('SfLogsViewProvider behavior', () => {
     await new Promise(r => setTimeout(r, 20));
 
     const searchSignals: AbortSignal[] = [];
+    const localLogPath = path.join(tmpDir, '07L000000000001AA.log');
     (provider as any).logService.ensureLogsSaved = async () => ({
       total: 1,
       success: 1,
@@ -1042,7 +1129,10 @@ suite('SfLogsViewProvider behavior', () => {
       missing: 0,
       failed: 0,
       cancelled: 0,
-      failedLogIds: []
+      failedLogIds: [],
+      localLogPaths: {
+        '07L000000000001AA': localLogPath
+      }
     });
     ripgrep.ripgrepSearch = async (_query: string, _cwd: string, signal?: AbortSignal) => {
       if (signal) {

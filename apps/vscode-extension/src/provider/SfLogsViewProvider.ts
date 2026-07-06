@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { localize } from '../../../../src/utils/localize';
 import { clearListCache, getApiVersionFallbackWarning } from '../../../../src/salesforce/http';
 import { pickSelectedOrg } from '../../../../src/utils/orgs';
@@ -985,7 +986,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
     const missingLogIds = new Set<string>();
     try {
-      await this.logService.ensureLogsSaved(logsSnapshot, this.orgManager.getSelectedOrg(), signal, {
+      const saveSummary = await this.logService.ensureLogsSaved(logsSnapshot, this.orgManager.getSelectedOrg(), signal, {
         downloadMissing: false,
         onMissing: id => {
           if (typeof id === 'string' && id.length > 0) {
@@ -1011,11 +1012,18 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           .map(log => log?.Id)
           .filter((logId): logId is string => typeof logId === 'string' && logId.length > 0)
       );
+      const localLogPaths = new Map(
+        Object.entries(saveSummary.localLogPaths ?? {}).map(([logId, filePath]) => [
+          logId,
+          this.normalizeSearchPath(filePath)
+        ])
+      );
       const matches = new Set<string>();
       const snippets: Record<string, { text: string; ranges: [number, number][] }> = {};
       for (const info of matchesInfo) {
         const logId = getLogIdFromLogFilePath(info.filePath);
-        if (logId && known.has(logId)) {
+        const expectedPath = logId ? localLogPaths.get(logId) : undefined;
+        if (logId && expectedPath && known.has(logId) && this.normalizeSearchPath(info.filePath) === expectedPath) {
           matches.add(logId);
           const snippet = this.buildSnippet(info);
           if (snippet) {
@@ -1059,6 +1067,11 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         this.postSearchStatus('idle');
       }
     }
+  }
+
+  private normalizeSearchPath(filePath: string): string {
+    const normalized = path.resolve(filePath);
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
   }
 
   private buildSnippet(match: RipgrepMatch): { text: string; ranges: [number, number][] } | undefined {
