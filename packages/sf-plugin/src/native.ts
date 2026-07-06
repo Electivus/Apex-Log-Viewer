@@ -239,7 +239,14 @@ async function getDefaultTargetOrg(): Promise<string | undefined> {
 
 async function stateAggregator(forceRefresh?: boolean): Promise<StateAggregator> {
   if (forceRefresh) {
-    await StateAggregator.clearInstanceAsync();
+    const aggregatorType = StateAggregator as typeof StateAggregator & {
+      clearInstanceAsync?: () => Promise<void>;
+    };
+    if (aggregatorType.clearInstanceAsync) {
+      await aggregatorType.clearInstanceAsync();
+    } else {
+      aggregatorType.clearInstance();
+    }
   }
   return StateAggregator.getInstance();
 }
@@ -902,7 +909,7 @@ async function deleteApexLogIds(ctx: ConnectionContext, ids: string[], concurren
 
 async function logsDeleteNative(params: LogsDeleteParams = {}): Promise<LogsDeleteResult> {
   const ctx = await getConnectionContext(params.targetOrg);
-  const scope = params.scope === 'mine' ? 'mine' : 'all';
+  const scope = params.scope === 'all' ? 'all' : 'mine';
   const ids = params.ids && params.ids.length > 0 ? params.ids.filter(isSalesforceId) : await listApexLogIds(ctx, scope, params.limit);
   if (params.dryRun || !params.confirmed) {
     return {
@@ -1349,7 +1356,7 @@ export async function executeElectivus(argv: readonly string[]): Promise<unknown
   if (topic === 'logs' && command === 'resolve') return logsResolveNative({ logId: args.positionals[2] || '', targetOrg: targetOrg(args), workspaceRoot: flag(args, 'workspace-root') || process.cwd() });
   if (topic === 'logs' && command === 'resolve-cached-path') return resolveCachedLogPathNative({ logId: args.positionals[2] || '', username: flag(args, 'username'), workspaceRoot: flag(args, 'workspace-root') || process.cwd() });
   if (topic === 'logs' && command === 'triage') return logsTriageNative({ username: targetOrg(args), logIds: args.positionals.slice(2), workspaceRoot: flag(args, 'workspace-root') || process.cwd() });
-  if (topic === 'logs' && command === 'delete') return logsDeleteNative({ targetOrg: targetOrg(args), workspaceRoot: flag(args, 'workspace-root') || process.cwd(), scope: flag(args, 'scope') === 'mine' ? 'mine' : 'all', ids: flag(args, 'ids')?.split(',').filter(Boolean), limit: asNumber(flag(args, 'limit')), dryRun: boolFlag(args, 'dry-run'), confirmed: boolFlag(args, 'yes') });
+  if (topic === 'logs' && command === 'delete') return logsDeleteNative({ targetOrg: targetOrg(args), workspaceRoot: flag(args, 'workspace-root') || process.cwd(), scope: flag(args, 'scope') === 'all' ? 'all' : 'mine', ids: flag(args, 'ids')?.split(',').filter(Boolean), limit: asNumber(flag(args, 'limit')), dryRun: boolFlag(args, 'dry-run'), confirmed: boolFlag(args, 'yes') });
   if (topic === 'users' && command === 'search') return usersSearchNative({ targetOrg: targetOrg(args), query: args.positionals[2], limit: asNumber(flag(args, 'limit')) });
   if (topic === 'trace-flags' && command === 'status') return traceFlagStatusNative({ targetOrg: targetOrg(args), target: await normalizeCurrentUserTarget(traceTarget(args), targetOrg(args)) });
   if (topic === 'trace-flags' && command === 'apply') return traceFlagApplyNative({ targetOrg: targetOrg(args), target: await normalizeCurrentUserTarget(traceTarget(args), targetOrg(args)), debugLevelName: flag(args, 'debug-level') || '', ttlMinutes: asNumber(flag(args, 'ttl-minutes')), dryRun: boolFlag(args, 'dry-run'), confirmed: boolFlag(args, 'yes') });

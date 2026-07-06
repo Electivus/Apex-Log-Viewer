@@ -1,8 +1,9 @@
 import { build } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(new URL('..', import.meta.url).pathname);
+const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const outdir = path.join(repoRoot, 'apps', 'vscode-extension', 'sf-plugin');
 
 fs.rmSync(outdir, { recursive: true, force: true });
@@ -14,6 +15,6 @@ await build({
   bundle: true,
   platform: 'node',
   format: 'cjs',
-  target: 'node18',
+  target: 'node20',
   sourcemap: true
 });

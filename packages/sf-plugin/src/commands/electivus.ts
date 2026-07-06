@@ -1,6 +1,6 @@
 import { SfCommand } from '@salesforce/sf-plugins-core';
 
-import { executeElectivus } from '../native.js';
+import { executeElectivus, formatTextResult } from '../native.js';
 
 export default class Electivus extends SfCommand<unknown> {
   public static override readonly strict = false;
@@ -19,6 +19,10 @@ export default class Electivus extends SfCommand<unknown> {
   ];
 
   public override async run(): Promise<unknown> {
-    return executeElectivus(this.argv);
+    const result = await executeElectivus(this.argv);
+    if (!this.argv.includes('--json')) {
+      this.log(formatTextResult(result));
+    }
+    return result;
   }
 }
