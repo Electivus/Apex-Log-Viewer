@@ -1,4 +1,4 @@
-import { executeElectivus, formatTextResult } from './native.js';
+import { executeElectivus, formatJsonResult, formatTextResult } from './native.js';
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -6,7 +6,7 @@ async function main(): Promise<void> {
   try {
     const result = await executeElectivus(argv);
     if (json) {
-      process.stdout.write(`${JSON.stringify(result)}\n`);
+      process.stdout.write(formatJsonResult(result));
     } else {
       process.stdout.write(formatTextResult(result));
     }

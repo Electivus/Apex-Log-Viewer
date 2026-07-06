@@ -479,6 +479,19 @@ export async function writeLogBody(
   return { path: filePath, downloaded: true };
 }
 
+export async function removeLegacyLogIndexFiles(workspaceRoot: string | undefined): Promise<string[]> {
+  const removed: string[] = [];
+  const alvRoot = path.join(resolveApexlogsRoot(workspaceRoot), '.alv');
+  for (const fileName of ['log-index.sqlite', 'log-index.sqlite-wal', 'log-index.sqlite-shm']) {
+    const filePath = path.join(alvRoot, fileName);
+    try {
+      await fs.rm(filePath, { force: true });
+      removed.push(filePath);
+    } catch {}
+  }
+  return removed;
+}
+
 async function fileExists(filePath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(filePath);
@@ -619,6 +632,7 @@ async function logsSyncNative(params: LogsSyncParams = {}): Promise<LogsSyncResu
   const ctx = await getConnectionContext(params.targetOrg);
   const workspaceRoot = params.workspaceRoot;
   await writeVersionFile(workspaceRoot);
+  await removeLegacyLogIndexFiles(workspaceRoot);
   const startedAt = nowIso();
   const safeOrg = safeTargetOrg(ctx.username);
   const state = await readSyncState(workspaceRoot);
@@ -1638,4 +1652,8 @@ export function formatTextResult(value: unknown): string {
   if (typeof value === 'string') return value;
   if (isLogsReadResult(value)) return value.body;
   return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+export function formatJsonResult(value: unknown): string {
+  return `${JSON.stringify(value === undefined ? null : value)}\n`;
 }

@@ -7,9 +7,11 @@ import test from 'node:test';
 import {
   buildApexLogListSoql,
   executeElectivus,
+  formatJsonResult,
   formatTextResult,
   materializeCachedLogAtDatedPath,
   normalizeSoqlDateTimeLiteral,
+  removeLegacyLogIndexFiles,
   resolveOrgRequestPath,
   summarizeTraceFlagRecords,
   toolingQuery,
@@ -201,6 +203,21 @@ test('writeLogBody saves fetched bodies without leaving temp files', async () =>
   );
 });
 
+test('removeLegacyLogIndexFiles deletes SQLite search index leftovers', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-legacy-index-'));
+  const alvRoot = path.join(workspaceRoot, 'apexlogs', '.alv');
+  await fs.mkdir(alvRoot, { recursive: true });
+  for (const fileName of ['log-index.sqlite', 'log-index.sqlite-wal', 'log-index.sqlite-shm']) {
+    await fs.writeFile(path.join(alvRoot, fileName), 'legacy');
+  }
+
+  await removeLegacyLogIndexFiles(workspaceRoot);
+
+  for (const fileName of ['log-index.sqlite', 'log-index.sqlite-wal', 'log-index.sqlite-shm']) {
+    await assert.rejects(fs.access(path.join(alvRoot, fileName)));
+  }
+});
+
 test('materializeCachedLogAtDatedPath copies unknown-date cache to dated sync path', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-materialize-log-'));
   const logId = '07L000000000006AAA';
@@ -255,6 +272,10 @@ test('formatTextResult prints logs read bodies without JSON wrapping', () => {
     }),
     'line one\nline two'
   );
+});
+
+test('formatJsonResult serializes undefined as JSON null', () => {
+  assert.equal(formatJsonResult(undefined), 'null\n');
 });
 
 test('executeElectivus installs the bundled Codex skill', async () => {
