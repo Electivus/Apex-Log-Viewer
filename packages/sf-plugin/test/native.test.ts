@@ -4,7 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { executeElectivus, resolveOrgRequestPath, summarizeTraceFlagRecords, toolingQuery, writeLogBody } from '../src/native.ts';
+import {
+  executeElectivus,
+  formatTextResult,
+  materializeCachedLogAtDatedPath,
+  resolveOrgRequestPath,
+  summarizeTraceFlagRecords,
+  toolingQuery,
+  writeLogBody
+} from '../src/native.ts';
 
 test('executeElectivus rejects unknown commands clearly', async () => {
   await assert.rejects(
@@ -159,6 +167,86 @@ test('writeLogBody saves fetched bodies without leaving temp files', async () =>
     dirFiles.filter(fileName => fileName.includes('.tmp')),
     []
   );
+});
+
+test('materializeCachedLogAtDatedPath copies unknown-date cache to dated sync path', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-materialize-log-'));
+  const logId = '07L000000000006AAA';
+  const unknownDir = path.join(workspaceRoot, 'apexlogs', 'orgs', 'demo@example.com', 'logs', 'unknown-date');
+  await fs.mkdir(unknownDir, { recursive: true });
+  await fs.writeFile(path.join(unknownDir, `${logId}.log`), 'cached body');
+
+  const datedPath = await materializeCachedLogAtDatedPath(
+    workspaceRoot,
+    'demo@example.com',
+    { Id: logId, StartTime: '2026-07-06T10:00:00.000+0000' }
+  );
+
+  assert.equal(path.basename(datedPath || ''), `${logId}.log`);
+  assert.equal(path.basename(path.dirname(datedPath || '')), '2026-07-06');
+  assert.equal(await fs.readFile(datedPath || '', 'utf8'), 'cached body');
+});
+
+test('executeElectivus reads cached logs before requiring target org auth', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-read-cache-fallback-'));
+  const logId = '07L000000000007AAA';
+  await fs.mkdir(path.join(workspaceRoot, 'apexlogs', 'orgs', 'cached@example.com', 'logs', '2026-07-06'), {
+    recursive: true
+  });
+  await fs.writeFile(
+    path.join(workspaceRoot, 'apexlogs', 'orgs', 'cached@example.com', 'logs', '2026-07-06', `${logId}.log`),
+    'raw cached body'
+  );
+
+  const result = (await executeElectivus([
+    'logs',
+    'read',
+    logId,
+    '--target-org',
+    'definitely-not-a-local-org@example.com',
+    '--workspace-root',
+    workspaceRoot
+  ])) as any;
+
+  assert.equal(result.body, 'raw cached body');
+  assert.equal(result.sizeBytes, 'raw cached body'.length);
+});
+
+test('formatTextResult prints logs read bodies without JSON wrapping', () => {
+  assert.equal(
+    formatTextResult({
+      logId: '07L000000000008AAA',
+      path: '/tmp/07L000000000008AAA.log',
+      body: 'line one\nline two',
+      sizeBytes: 17,
+      truncated: false
+    }),
+    'line one\nline two'
+  );
+});
+
+test('executeElectivus installs the bundled Codex skill', async () => {
+  const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-codex-home-'));
+  const previousCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = codexHome;
+  try {
+    const result = (await executeElectivus(['skills', 'install'])) as any;
+
+    assert.equal(result.status, 'installed');
+    assert.equal(result.skillName, 'apex-log-viewer-cli');
+    assert.equal(result.destination, path.join(codexHome, 'skills', 'apex-log-viewer-cli'));
+    assert.equal(result.files >= 2, true);
+    assert.match(
+      await fs.readFile(path.join(codexHome, 'skills', 'apex-log-viewer-cli', 'SKILL.md'), 'utf8'),
+      /Apex Log Viewer CLI/
+    );
+  } finally {
+    if (previousCodexHome === undefined) {
+      delete process.env.CODEX_HOME;
+    } else {
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+  }
 });
 
 test('executeElectivus triage reports unavailable local bodies as warnings, not log errors', async () => {

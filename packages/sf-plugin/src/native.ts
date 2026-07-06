@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { AuthInfo, ConfigAggregator, Connection, Org, OrgConfigProperties, StateAggregator } from '@salesforce/core';
 
@@ -36,6 +37,7 @@ import type {
   RuntimeDebugLevelRecord,
   RuntimeLogRow,
   RuntimeLogTriageSummary,
+  SkillsInstallResult,
   ToolingQueryParams,
   ToolingQueryResult,
   ToolingRequestGetParams,
@@ -465,6 +467,15 @@ export async function writeLogBody(
   return { path: filePath, downloaded: true };
 }
 
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
 async function findCachedLogPath(
   workspaceRoot: string | undefined,
   logId: string,
@@ -507,6 +518,32 @@ async function findCachedLogPath(
   return undefined;
 }
 
+async function readCachedLog(logId: string, filePath: string, maxBytes?: number): Promise<LogsReadResult> {
+  const bytes = await fs.readFile(filePath);
+  const byteLimit = maxBytes ? Math.max(1, Math.floor(maxBytes)) : undefined;
+  const bodyBytes = byteLimit ? bytes.subarray(0, byteLimit) : bytes;
+  return {
+    logId,
+    path: filePath,
+    body: bodyBytes.toString('utf8'),
+    sizeBytes: bytes.length,
+    truncated: Boolean(byteLimit && bytes.length > byteLimit)
+  };
+}
+
+export async function materializeCachedLogAtDatedPath(
+  workspaceRoot: string | undefined,
+  username: string,
+  row: Pick<RuntimeLogRow, 'Id' | 'StartTime'>
+): Promise<string | undefined> {
+  const datedPath = logFilePath(workspaceRoot, username, row.Id, row.StartTime);
+  if (await fileExists(datedPath)) return datedPath;
+  const existing = await findCachedLogPath(workspaceRoot, row.Id, username);
+  if (!existing) return undefined;
+  const body = await fs.readFile(existing, 'utf8');
+  return (await writeLogBody(workspaceRoot, username, row, body)).path;
+}
+
 async function logsResolveNative(params: LogsResolveParams): Promise<LogsResolveResult> {
   const target = asString(params.targetOrg);
   let username = target;
@@ -522,20 +559,14 @@ async function resolveCachedLogPathNative(params: ResolveCachedLogPathParams): P
 }
 
 async function logsReadNative(params: LogsReadParams): Promise<LogsReadResult> {
+  const target = asString(params.targetOrg);
+  const localCached = (await findCachedLogPath(params.workspaceRoot, params.logId, target)) || (await findCachedLogPath(params.workspaceRoot, params.logId));
+  if (localCached) return readCachedLog(params.logId, localCached, params.maxBytes);
+
   const ctx = await getConnectionContext(params.targetOrg);
   const cached = await findCachedLogPath(params.workspaceRoot, params.logId, ctx.username);
-  if (cached) {
-    const bytes = await fs.readFile(cached);
-    const maxBytes = params.maxBytes ? Math.max(1, Math.floor(params.maxBytes)) : undefined;
-    const bodyBytes = maxBytes ? bytes.subarray(0, maxBytes) : bytes;
-    return {
-      logId: params.logId,
-      path: cached,
-      body: bodyBytes.toString('utf8'),
-      sizeBytes: bytes.length,
-      truncated: Boolean(maxBytes && bytes.length > maxBytes)
-    };
-  }
+  if (cached) return readCachedLog(params.logId, cached, params.maxBytes);
+
   const body = await fetchLogBody(ctx, params.logId);
   const row = { Id: params.logId };
   const saved = await writeLogBody(params.workspaceRoot, ctx.username, row, body);
@@ -604,7 +635,7 @@ async function logsSyncNative(params: LogsSyncParams = {}): Promise<LogsSyncResu
     const completedIds = new Set<string>();
     await runLimited(pageRows, concurrency, async row => {
       try {
-        const existing = await findCachedLogPath(workspaceRoot, row.Id, ctx.username);
+        const existing = await materializeCachedLogAtDatedPath(workspaceRoot, ctx.username, row);
         if (existing) {
           cached += 1;
           completedIds.add(row.Id);
@@ -1443,10 +1474,69 @@ async function normalizeCurrentUserTarget(target: TraceFlagTarget, targetOrgValu
   return { type: 'user', userId };
 }
 
+async function directoryExists(dirPath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(dirPath);
+    return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function countFiles(dirPath: string): Promise<number> {
+  let count = 0;
+  const entries = await fs.readdir(dirPath, { withFileTypes: true });
+  for (const entry of entries) {
+    const childPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      count += await countFiles(childPath);
+    } else if (entry.isFile()) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function currentModuleDir(): string {
+  if (typeof __dirname === 'string') return __dirname;
+  return path.dirname(fileURLToPath(import.meta.url));
+}
+
+async function resolveBundledSkillDir(): Promise<string> {
+  const moduleDir = currentModuleDir();
+  const candidates = [
+    path.resolve(moduleDir, 'skills', 'apex-log-viewer-cli'),
+    path.resolve(moduleDir, '..', 'skills', 'apex-log-viewer-cli'),
+    path.resolve(moduleDir, '..', '..', '..', '.codex', 'skills', 'apex-log-viewer-cli'),
+    path.resolve(process.cwd(), '.codex', 'skills', 'apex-log-viewer-cli')
+  ];
+  for (const candidate of candidates) {
+    if (await directoryExists(candidate)) return candidate;
+  }
+  throw new Error('Bundled apex-log-viewer-cli Codex skill was not found.');
+}
+
+async function skillsInstallNative(): Promise<SkillsInstallResult> {
+  const source = await resolveBundledSkillDir();
+  const codexHome = process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(os.homedir(), '.codex');
+  const destination = path.join(codexHome, 'skills', 'apex-log-viewer-cli');
+  await fs.rm(destination, { recursive: true, force: true });
+  await fs.mkdir(path.dirname(destination), { recursive: true });
+  await fs.cp(source, destination, { recursive: true, force: true });
+  return {
+    status: 'installed',
+    skillName: 'apex-log-viewer-cli',
+    source,
+    destination,
+    files: await countFiles(destination)
+  };
+}
+
 export async function executeElectivus(argv: readonly string[]): Promise<unknown> {
   const args = parseArgv(argv);
   const [topic, command, subcommand] = args.positionals;
   if (!topic || topic === 'doctor') return doctorNative({ targetOrg: targetOrg(args) });
+  if (topic === 'skills' && command === 'install') return skillsInstallNative();
   if (topic === 'orgs' && command === 'list') return listOrgsNative({ forceRefresh: boolFlag(args, 'force-refresh') });
   if (topic === 'orgs' && command === 'auth') return getOrgAuthFromCore({ username: targetOrg(args) || flag(args, 'username') });
   if (topic === 'orgs' && command === 'resolve') return resolveOrgNative({ targetOrg: targetOrg(args) });
@@ -1508,7 +1598,21 @@ function debugLevelParams(args: ParsedArgs): DebugLevelWriteParams {
   };
 }
 
+function isLogsReadResult(value: unknown): value is LogsReadResult {
+  const result = value as LogsReadResult | undefined;
+  return (
+    Boolean(result) &&
+    typeof result === 'object' &&
+    typeof result.logId === 'string' &&
+    typeof result.path === 'string' &&
+    typeof result.body === 'string' &&
+    typeof result.sizeBytes === 'number' &&
+    typeof result.truncated === 'boolean'
+  );
+}
+
 export function formatTextResult(value: unknown): string {
   if (typeof value === 'string') return value;
+  if (isLogsReadResult(value)) return value.body;
   return `${JSON.stringify(value, null, 2)}\n`;
 }

@@ -147,6 +147,14 @@ export type LogsResolveResult = {
   cached: boolean;
 };
 
+export type SkillsInstallResult = {
+  status: string;
+  skillName: string;
+  source: string;
+  destination: string;
+  files: number;
+};
+
 export type LogsDeleteParams = {
   targetOrg?: string;
   workspaceRoot?: string;

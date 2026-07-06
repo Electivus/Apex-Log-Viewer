@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const outdir = path.join(repoRoot, 'apps', 'vscode-extension', 'sf-plugin');
+const skillSource = path.join(repoRoot, '.codex', 'skills', 'apex-log-viewer-cli');
+const skillDestination = path.join(outdir, 'skills', 'apex-log-viewer-cli');
 
 fs.rmSync(outdir, { recursive: true, force: true });
 fs.mkdirSync(outdir, { recursive: true });
@@ -16,5 +18,8 @@ await build({
   platform: 'node',
   format: 'cjs',
   target: 'node20',
+  define: { 'import.meta.url': 'undefined' },
   sourcemap: true
 });
+
+fs.cpSync(skillSource, skillDestination, { recursive: true });
