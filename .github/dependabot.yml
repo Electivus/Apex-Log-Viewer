@@ -74,6 +74,9 @@ updates:
           - 'version-update:semver-major'
           - 'version-update:semver-minor'
           - 'version-update:semver-patch'
+      - dependency-name: '@salesforce/sf-plugins-core'
+        update-types:
+          - 'version-update:semver-major'
   - package-ecosystem: 'cargo'
     directory: '/'
     schedule:
