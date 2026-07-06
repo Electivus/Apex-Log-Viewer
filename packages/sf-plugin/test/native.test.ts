@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { executeElectivus, resolveOrgRequestPath, toolingQuery, writeLogBody } from '../src/native.ts';
+import { executeElectivus, resolveOrgRequestPath, summarizeTraceFlagRecords, toolingQuery, writeLogBody } from '../src/native.ts';
 
 test('executeElectivus rejects unknown commands clearly', async () => {
   await assert.rejects(
@@ -152,7 +152,8 @@ test('writeLogBody saves fetched bodies without leaving temp files', async () =>
   );
 
   assert.equal(await fs.readFile(saved.path, 'utf8'), 'complete body');
-  assert.match(saved.path, /logs\/2026-07-06\/07L000000000003AAA\.log$/);
+  assert.equal(path.basename(saved.path), '07L000000000003AAA.log');
+  assert.equal(path.basename(path.dirname(saved.path)), '2026-07-06');
   const dirFiles = await fs.readdir(path.dirname(saved.path));
   assert.deepEqual(
     dirFiles.filter(fileName => fileName.includes('.tmp')),
@@ -172,4 +173,89 @@ test('executeElectivus triage reports unavailable local bodies as warnings, not 
 
   assert.equal(result[0]?.summary?.hasErrors, false);
   assert.equal(result[0]?.summary?.reasons?.[0]?.severity, 'warning');
+});
+
+test('executeElectivus triages cached local bodies when target org auth cannot resolve', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-triage-cache-fallback-'));
+  const logId = '07L000000000005AAA';
+  await fs.mkdir(path.join(workspaceRoot, 'apexlogs', 'orgs', 'cached@example.com', 'logs', '2026-07-06'), {
+    recursive: true
+  });
+  await fs.writeFile(
+    path.join(workspaceRoot, 'apexlogs', 'orgs', 'cached@example.com', 'logs', '2026-07-06', `${logId}.log`),
+    '45.0 APEX_CODE,FINEST\n10:00:00.0 (1)|EXCEPTION_THROWN|[1]|System.Exception: local cache\n'
+  );
+
+  const result = (await executeElectivus([
+    'logs',
+    'triage',
+    logId,
+    '--target-org',
+    'definitely-not-a-local-org@example.com',
+    '--workspace-root',
+    workspaceRoot
+  ])) as any[];
+
+  assert.equal(result[0]?.summary?.hasErrors, true);
+  assert.equal(result[0]?.summary?.primaryReason, 'Fatal exception');
+});
+
+test('summarizeTraceFlagRecords collapses active flags by resolved target', () => {
+  const status = summarizeTraceFlagRecords({
+    target: { type: 'automatedProcess' },
+    targetLabel: 'Automated Process',
+    resolvedIds: ['005000000000001AAA', '005000000000002AAA'],
+    records: [
+      {
+        Id: '0Tf000000000001AAA',
+        TracedEntityId: '005000000000001AAA',
+        StartDate: '2026-01-01T00:00:00.000+0000',
+        ExpirationDate: '2999-01-01T00:00:00.000+0000',
+        DebugLevel: { DeveloperName: 'ALV_Debug' }
+      },
+      {
+        Id: '0Tf000000000002AAA',
+        TracedEntityId: '005000000000001AAA',
+        StartDate: '2026-01-01T00:00:00.000+0000',
+        ExpirationDate: '2999-01-01T00:00:00.000+0000',
+        DebugLevel: { DeveloperName: 'ALV_Debug' }
+      }
+    ]
+  });
+
+  assert.equal(status.isActive, true);
+  assert.equal(status.resolvedTargetCount, 2);
+  assert.equal(status.activeTargetCount, 1);
+  assert.equal(status.traceFlagId, undefined);
+  assert.deepEqual(status.traceFlagIds, ['0Tf000000000001AAA']);
+  assert.equal(status.debugLevelName, undefined);
+  assert.equal(status.debugLevelMixed, true);
+});
+
+test('summarizeTraceFlagRecords reports one debug level only when all targets match', () => {
+  const status = summarizeTraceFlagRecords({
+    target: { type: 'platformIntegration' },
+    targetLabel: 'Platform Integration',
+    resolvedIds: ['005000000000001AAA', '005000000000002AAA'],
+    records: [
+      {
+        Id: '0Tf000000000001AAA',
+        TracedEntityId: '005000000000001AAA',
+        StartDate: '2026-01-01T00:00:00.000+0000',
+        ExpirationDate: '2999-01-01T00:00:00.000+0000',
+        DebugLevel: { DeveloperName: 'ALV_Debug' }
+      },
+      {
+        Id: '0Tf000000000002AAA',
+        TracedEntityId: '005000000000002AAA',
+        StartDate: '2026-01-01T00:00:00.000+0000',
+        ExpirationDate: '2999-01-01T00:00:00.000+0000',
+        DebugLevel: { DeveloperName: 'ALV_Debug' }
+      }
+    ]
+  });
+
+  assert.equal(status.activeTargetCount, 2);
+  assert.equal(status.debugLevelName, 'ALV_Debug');
+  assert.equal(status.debugLevelMixed, false);
 });

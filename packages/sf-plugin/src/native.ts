@@ -867,15 +867,32 @@ function unreadableLogSummary(message: string): RuntimeLogTriageSummary {
 
 async function logsTriageNative(params: LogsTriageParams): Promise<LogsTriageEntry[]> {
   const target = asString(params.username);
-  const ctx = target ? await getConnectionContext(target) : undefined;
-  const username = ctx?.username;
+  let ctx: ConnectionContext | undefined;
+  let triedConnectionContext = false;
+  const resolveContext = async (): Promise<ConnectionContext | undefined> => {
+    if (!target || triedConnectionContext) return ctx;
+    triedConnectionContext = true;
+    try {
+      ctx = await getConnectionContext(target);
+    } catch {
+      ctx = undefined;
+    }
+    return ctx;
+  };
   const entries: LogsTriageEntry[] = [];
   for (const logId of params.logIds || []) {
-    let filePath = await findCachedLogPath(params.workspaceRoot, logId, username);
-    if (!filePath && ctx) {
+    let filePath = await findCachedLogPath(params.workspaceRoot, logId, target);
+    let resolvedContext = ctx;
+    if (!filePath && target) {
+      resolvedContext = await resolveContext();
+      filePath = resolvedContext
+        ? await findCachedLogPath(params.workspaceRoot, logId, resolvedContext.username)
+        : await findCachedLogPath(params.workspaceRoot, logId);
+    }
+    if (!filePath && resolvedContext) {
       try {
-        const body = await fetchLogBody(ctx, logId);
-        await writeLogBody(params.workspaceRoot, ctx.username, { Id: logId, StartTime: params.logStartTimes?.[logId] }, body);
+        const body = await fetchLogBody(resolvedContext, logId);
+        await writeLogBody(params.workspaceRoot, resolvedContext.username, { Id: logId, StartTime: params.logStartTimes?.[logId] }, body);
         entries.push({ logId, summary: summarizeLogText(body) });
         continue;
       } catch (error) {
@@ -1143,6 +1160,43 @@ function isTraceActive(record: JsonObject): boolean {
   return (!Number.isFinite(start) || start <= now) && Number.isFinite(expiration) && now <= expiration;
 }
 
+export function summarizeTraceFlagRecords(params: {
+  target: TraceFlagTarget;
+  targetLabel: string;
+  resolvedIds: string[];
+  records: JsonObject[];
+}): TraceFlagTargetStatus {
+  const activeByTarget = new Map<string, JsonObject>();
+  for (const record of params.records) {
+    if (!isTraceActive(record)) continue;
+    const tracedEntityId = asString(record.TracedEntityId);
+    if (!tracedEntityId || activeByTarget.has(tracedEntityId)) continue;
+    activeByTarget.set(tracedEntityId, record);
+  }
+
+  const activeRecords = params.resolvedIds.map(id => activeByTarget.get(id)).filter((record): record is JsonObject => Boolean(record));
+  const debugLevels = new Set(
+    activeRecords.map(record => asString((record.DebugLevel as JsonObject | undefined)?.DeveloperName)).filter(Boolean)
+  );
+  const hasFullCoverage = activeRecords.length === params.resolvedIds.length;
+  const singleActiveRecord = activeRecords.length === 1 && params.resolvedIds.length === 1 ? activeRecords[0] : undefined;
+
+  return {
+    target: params.target,
+    targetLabel: params.targetLabel,
+    targetAvailable: true,
+    isActive: activeRecords.length > 0,
+    traceFlagId: singleActiveRecord ? asString(singleActiveRecord.Id) : undefined,
+    traceFlagIds: activeRecords.map(record => asString(record.Id)).filter((id): id is string => Boolean(id)),
+    debugLevelName: hasFullCoverage && debugLevels.size === 1 ? Array.from(debugLevels)[0] : undefined,
+    debugLevelMixed: activeRecords.length > 0 && params.resolvedIds.length > 1 && (!hasFullCoverage || debugLevels.size > 1),
+    resolvedTargetCount: params.resolvedIds.length,
+    activeTargetCount: activeRecords.length,
+    startDate: singleActiveRecord ? asString(singleActiveRecord.StartDate) : undefined,
+    expirationDate: singleActiveRecord ? asString(singleActiveRecord.ExpirationDate) : undefined
+  };
+}
+
 async function traceFlagStatusNative(params: { targetOrg?: string; target: TraceFlagTarget }): Promise<TraceFlagTargetStatus> {
   const ctx = await getConnectionContext(params.targetOrg);
   const ids = await resolveTraceTargets(ctx, params.target);
@@ -1155,22 +1209,12 @@ async function traceFlagStatusNative(params: { targetOrg?: string; target: Trace
     ctx.connection,
     `SELECT Id, TracedEntityId, StartDate, ExpirationDate, DebugLevel.DeveloperName FROM TraceFlag WHERE TracedEntityId IN (${idList}) AND LogType = 'USER_DEBUG' ORDER BY CreatedDate DESC`
   );
-  const active = (result.records || []).filter(isTraceActive);
-  const debugLevels = new Set(active.map(record => asString((record.DebugLevel as JsonObject | undefined)?.DeveloperName)).filter(Boolean));
-  return {
+  return summarizeTraceFlagRecords({
     target: params.target,
     targetLabel: label,
-    targetAvailable: true,
-    isActive: active.length > 0,
-    traceFlagId: active.length === 1 ? asString(active[0]?.Id) : undefined,
-    traceFlagIds: active.map(record => asString(record.Id)).filter((id): id is string => Boolean(id)),
-    debugLevelName: debugLevels.size === 1 ? Array.from(debugLevels)[0] : undefined,
-    debugLevelMixed: active.length > 1 && debugLevels.size !== 1,
-    resolvedTargetCount: ids.length,
-    activeTargetCount: active.length,
-    startDate: active.length === 1 ? asString(active[0]?.StartDate) : undefined,
-    expirationDate: active.length === 1 ? asString(active[0]?.ExpirationDate) : undefined
-  };
+    resolvedIds: ids,
+    records: result.records || []
+  });
 }
 
 async function getDebugLevelIdByName(ctx: ConnectionContext, debugLevelName: string): Promise<string> {
