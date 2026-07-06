@@ -24,8 +24,6 @@ import type {
   LogsTriageEntry,
   LogsTriageParams,
   RuntimeLogRow,
-  SearchQueryParams,
-  SearchQueryResult,
   UserSearchParams,
   UserSearchResult,
   TraceFlagStatusParams,
@@ -73,7 +71,6 @@ const RUNTIME_TELEMETRY_METHOD_NAMES: Record<string, string> = {
   'logs/sync': 'logs_sync',
   'logs/read': 'logs_read',
   'logs/delete': 'logs_delete',
-  'search/query': 'search_query',
   'logs/triage': 'logs_triage',
   'logs/resolveCachedPath': 'logs_resolve_cached_path',
   'logs/resolve': 'logs_resolve',
@@ -384,13 +381,6 @@ export class RuntimeClient extends EventEmitter {
       await this.initialize();
     }
     return this.request<LogsDeleteResult>('logs/delete', params, signal);
-  }
-
-  async searchQuery(params: SearchQueryParams, signal?: AbortSignal): Promise<SearchQueryResult> {
-    if (!this.requestHandler) {
-      await this.initialize();
-    }
-    return this.request<SearchQueryResult>('search/query', params, signal);
   }
 
   async logsTriage(params: LogsTriageParams, signal?: AbortSignal): Promise<LogsTriageEntry[]> {

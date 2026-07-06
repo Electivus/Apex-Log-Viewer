@@ -52,8 +52,21 @@ test('package script rebuilds the extension packaging assets that vsce includes'
 
   assert.match(packageScript, /\bpackage:runtime\b/);
   assert.match(packageScript, /\bbuild:tree-sitter-runtime\b/);
+  assert.match(packageScript, /\bbuild:ripgrep-runtime\b/);
   assert.match(packageScript, /\bbuild:package-metadata\b/);
 });
+
+for (const workflowPath of ['.github/workflows/release.yml', '.github/workflows/prerelease.yml']) {
+  test(`${workflowPath} builds target-specific ripgrep runtime packages`, () => {
+    const workflow = readFile(workflowPath);
+
+    assert.match(
+      workflow,
+      /MATRIX_TARGET:\s*\$\{\{\s*matrix\.target\s*\}\}[\s\S]*?npm run build:ripgrep-runtime -- "\$\{MATRIX_TARGET\}"/,
+      'expected workflow packaging jobs to copy the ripgrep package for the VSIX target'
+    );
+  });
+}
 
 test('package:runtime fetches the pinned CLI release asset and package:runtime:local builds the canonical host target locally', () => {
   const rootPackageJson = JSON.parse(readFile('package.json'));

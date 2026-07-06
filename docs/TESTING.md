@@ -13,7 +13,7 @@ This project uses three test layers:
 - `npm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
 - `npm run test:integration`: installs dependency extensions if needed and runs integration tests.
 - `npm run test:all`: runs the Jest webview suites, the Node-only extension lane, and then both VS Code-hosted scopes.
-- `npm run test:e2e:cli`: runs the `sf electivus` plugin real-org Playwright suite. If the Rust binary or plugin build output is missing, it builds the Rust runtime and Salesforce CLI plugin before validating `sf electivus logs sync`, `logs status`, and `logs search` against a seeded scratch org.
+- `npm run test:e2e:cli`: runs the `sf electivus` plugin real-org Playwright suite. If the Rust binary or plugin build output is missing, it builds the Rust runtime and Salesforce CLI plugin before validating `sf electivus logs sync` and `logs status` against a seeded scratch org.
 - `npm run test:e2e`: runs Playwright E2E tests against a real scratch org. The runner uses either the legacy single-scratch flow or the Dev Hub scratch-org pool, depending on the configured strategy.
 - `npm run test:e2e:telemetry`: runs the same Playwright E2E suite, but first resolves a dedicated App Insights component for E2E and then validates that telemetry from the current run arrived there.
 
@@ -80,9 +80,8 @@ The CLI suite then validates the plugin surface while `ALV_CLI_BINARY_PATH` poin
 
 1. `sf electivus logs sync --json` downloads the seeded log into the workspace cache
 2. `sf electivus logs status --json` reports the synced scratch-org metadata
-3. `sf electivus logs search --json` finds the seeded marker locally
 
-The VS Code suite launches the extension host and validates the Logs panel + Log Viewer webview UX against the same seeded org.
+The VS Code suite launches the extension host and validates the Logs panel + Log Viewer webview UX against the same seeded org, including panel search through local saved log files.
 
 ### Run locally
 

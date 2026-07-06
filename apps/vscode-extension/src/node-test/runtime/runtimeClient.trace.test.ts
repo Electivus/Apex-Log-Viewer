@@ -83,7 +83,7 @@ suite('runtime client trace logging', () => {
               capabilities: {
                 orgs: true,
                 logs: true,
-                search: true,
+                search: false,
                 tail: true,
                 debug_flags: true,
                 doctor: true
@@ -164,7 +164,7 @@ suite('runtime client trace logging', () => {
               capabilities: {
                 orgs: true,
                 logs: true,
-                search: true,
+                search: false,
                 tail: true,
                 debug_flags: true,
                 doctor: true
@@ -270,7 +270,7 @@ suite('runtime client trace logging', () => {
               capabilities: {
                 orgs: true,
                 logs: true,
-                search: true,
+                search: false,
                 tail: true,
                 debug_flags: true,
                 doctor: true

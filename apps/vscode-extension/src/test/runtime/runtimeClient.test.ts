@@ -173,7 +173,7 @@ suite('runtime client', () => {
           capabilities: {
             orgs: true,
             logs: true,
-            search: true,
+            search: false,
             tail: true,
             debug_flags: true,
             doctor: true
@@ -341,7 +341,7 @@ suite('runtime client', () => {
                 capabilities: {
                   orgs: true,
                   logs: true,
-                  search: true,
+                  search: false,
                   tail: true,
                   debug_flags: true,
                   doctor: true
@@ -566,7 +566,7 @@ suite('runtime client', () => {
                 capabilities: {
                   orgs: true,
                   logs: true,
-                  search: true,
+                  search: false,
                   tail: true,
                   debug_flags: true,
                   doctor: true
@@ -683,7 +683,7 @@ suite('runtime client', () => {
               capabilities: {
                 orgs: true,
                 logs: true,
-                search: true,
+                search: false,
                 tail: true,
                 debug_flags: true,
                 doctor: true
@@ -724,7 +724,7 @@ suite('runtime client', () => {
     assert.equal(seenEnv?.Path, 'C:\\custom\\sf\\bin');
   });
 
-  test('logsList, logsSync, searchQuery, and logsTriage use runtime request methods', async () => {
+  test('logsList, logsSync, and logsTriage use runtime request methods', async () => {
     const methods: string[] = [];
     const client = new RuntimeClient({
       requestHandler: async (method, params) => {
@@ -770,23 +770,6 @@ suite('runtime client', () => {
             last_synced_log_id: '07L000000000001AA'
           } as never;
         }
-        if (method === 'search/query') {
-          assert.deepEqual(params, {
-            username: 'demo@example.com',
-            query: 'NullPointerException',
-            logIds: ['07L000000000001AA']
-          });
-          return {
-            logIds: ['07L000000000001AA'],
-            snippets: {
-              '07L000000000001AA': {
-                text: 'System.NullPointerException: Attempt to de-reference a null object',
-                ranges: [[7, 27]]
-              }
-            },
-            pendingLogIds: []
-          } as never;
-        }
         if (method === 'logs/triage') {
           assert.deepEqual(params, {
             username: 'demo@example.com',
@@ -829,25 +812,18 @@ suite('runtime client', () => {
       forceFull: true,
       concurrency: 3
     });
-    const searchResult = await client.searchQuery({
-      username: 'demo@example.com',
-      query: 'NullPointerException',
-      logIds: ['07L000000000001AA']
-    });
     const triageEntries = await client.logsTriage({
       username: 'demo@example.com',
       logIds: ['07L000000000001AA']
     });
 
-    assert.deepEqual(methods, ['logs/list', 'logs/sync', 'search/query', 'logs/triage']);
+    assert.deepEqual(methods, ['logs/list', 'logs/sync', 'logs/triage']);
     assert.equal(logs[0]?.Id, '07L000000000001AA');
     assert.equal(syncResult.downloaded + syncResult.cached, 17);
-    assert.equal(searchResult.logIds[0], '07L000000000001AA');
-    assert.equal(searchResult.snippets?.['07L000000000001AA']?.ranges[0]?.[0], 7);
     assert.equal(triageEntries[0]?.summary.primaryReason, 'Fatal exception');
   });
 
-  test('restarts and retries a request when the runtime exits mid-search', async () => {
+  test('restarts and retries a request when the runtime exits mid-request', async () => {
     const methods: string[] = [];
     let createCount = 0;
     const client = new RuntimeClient({
@@ -872,7 +848,7 @@ suite('runtime client', () => {
                     capabilities: {
                       orgs: true,
                       logs: true,
-                      search: true,
+                      search: false,
                       tail: true,
                       debug_flags: true,
                       doctor: true
@@ -905,7 +881,7 @@ suite('runtime client', () => {
                   capabilities: {
                     orgs: true,
                     logs: true,
-                    search: true,
+                    search: false,
                     tail: true,
                     debug_flags: true,
                     doctor: true
@@ -919,31 +895,28 @@ suite('runtime client', () => {
             helpers.emitMessage({
               jsonrpc: '2.0',
               id: message.id,
-              result: {
-                logIds: ['07L000000000001AA'],
-                snippets: {
-                  '07L000000000001AA': {
-                    text: 'matched',
-                    ranges: [[0, 7]]
+              result: [
+                {
+                  logId: '07L000000000001AA',
+                  summary: {
+                    hasErrors: false,
+                    reasons: []
                   }
-                },
-                pendingLogIds: []
-              }
+                }
+              ]
             });
           }
         });
       }
     });
 
-    const result = await client.searchQuery({
-      query: 'marker',
+    const result = await client.logsTriage({
       logIds: ['07L000000000001AA']
     });
 
     assert.equal(createCount, 2);
-    assert.deepEqual(methods, ['daemon1:initialize', 'daemon1:search/query', 'daemon2:initialize', 'daemon2:search/query']);
-    assert.deepEqual(result.logIds, ['07L000000000001AA']);
-    assert.equal(result.snippets?.['07L000000000001AA']?.text, 'matched');
+    assert.deepEqual(methods, ['daemon1:initialize', 'daemon1:logs/triage', 'daemon2:initialize', 'daemon2:logs/triage']);
+    assert.equal(result[0]?.logId, '07L000000000001AA');
   });
 
   test('retries a request when the daemon emits a process error before responding', async () => {
@@ -971,7 +944,7 @@ suite('runtime client', () => {
                     capabilities: {
                       orgs: true,
                       logs: true,
-                      search: true,
+                      search: false,
                       tail: true,
                       debug_flags: true,
                       doctor: true
@@ -1004,7 +977,7 @@ suite('runtime client', () => {
                   capabilities: {
                     orgs: true,
                     logs: true,
-                    search: true,
+                    search: false,
                     tail: true,
                     debug_flags: true,
                     doctor: true
@@ -1018,30 +991,28 @@ suite('runtime client', () => {
             helpers.emitMessage({
               jsonrpc: '2.0',
               id: message.id,
-              result: {
-                logIds: ['07L000000000001AA'],
-                snippets: {
-                  '07L000000000001AA': {
-                    text: 'matched',
-                    ranges: [[0, 7]]
+              result: [
+                {
+                  logId: '07L000000000001AA',
+                  summary: {
+                    hasErrors: false,
+                    reasons: []
                   }
-                },
-                pendingLogIds: []
-              }
+                }
+              ]
             });
           }
         });
       }
     });
 
-    const result = await client.searchQuery({
-      query: 'marker',
+    const result = await client.logsTriage({
       logIds: ['07L000000000001AA']
     });
 
     assert.equal(createCount, 2);
-    assert.deepEqual(methods, ['daemon1:initialize', 'daemon1:search/query', 'daemon2:initialize', 'daemon2:search/query']);
-    assert.equal(result.snippets?.['07L000000000001AA']?.text, 'matched');
+    assert.deepEqual(methods, ['daemon1:initialize', 'daemon1:logs/triage', 'daemon2:initialize', 'daemon2:logs/triage']);
+    assert.equal(result[0]?.logId, '07L000000000001AA');
   });
 
   test('retries a request when daemon write throws after initialize', async () => {
@@ -1069,7 +1040,7 @@ suite('runtime client', () => {
                     capabilities: {
                       orgs: true,
                       logs: true,
-                      search: true,
+                      search: false,
                       tail: true,
                       debug_flags: true,
                       doctor: true
@@ -1105,7 +1076,7 @@ suite('runtime client', () => {
                   capabilities: {
                     orgs: true,
                     logs: true,
-                    search: true,
+                    search: false,
                     tail: true,
                     debug_flags: true,
                     doctor: true
@@ -1120,16 +1091,15 @@ suite('runtime client', () => {
             helpers.emitMessage({
               jsonrpc: '2.0',
               id: message.id,
-              result: {
-                logIds: ['07L000000000001AA'],
-                snippets: {
-                  '07L000000000001AA': {
-                    text: 'matched',
-                    ranges: [[0, 7]]
+              result: [
+                {
+                  logId: '07L000000000001AA',
+                  summary: {
+                    hasErrors: false,
+                    reasons: []
                   }
-                },
-                pendingLogIds: []
-              }
+                }
+              ]
             });
           }
         });
@@ -1137,14 +1107,13 @@ suite('runtime client', () => {
     });
 
     await client.initialize();
-    const result = await client.searchQuery({
-      query: 'marker',
+    const result = await client.logsTriage({
       logIds: ['07L000000000001AA']
     });
 
     assert.equal(createCount, 2);
-    assert.deepEqual(methods, ['daemon1:initialize', 'daemon1:search/query', 'daemon2:initialize', 'daemon2:search/query']);
-    assert.equal(result.snippets?.['07L000000000001AA']?.text, 'matched');
+    assert.deepEqual(methods, ['daemon1:initialize', 'daemon1:logs/triage', 'daemon2:initialize', 'daemon2:logs/triage']);
+    assert.equal(result[0]?.logId, '07L000000000001AA');
   });
 
   test('does not throw when cancel write fails after the daemon exits', async () => {
@@ -1169,7 +1138,7 @@ suite('runtime client', () => {
                   capabilities: {
                     orgs: true,
                     logs: true,
-                    search: true,
+                    search: false,
                     tail: true,
                     debug_flags: true,
                     doctor: true
@@ -1192,7 +1161,7 @@ suite('runtime client', () => {
     await client.initialize();
 
     assert.doesNotThrow(() => {
-      client.cancel('search/query:1');
+      client.cancel('logs/triage:1');
     });
     assert.deepEqual(methods, ['initialize', 'cancel']);
   });
@@ -1223,7 +1192,7 @@ suite('runtime client', () => {
                     capabilities: {
                       orgs: true,
                       logs: true,
-                      search: true,
+                      search: false,
                       tail: true,
                       debug_flags: true,
                       doctor: true
@@ -1259,7 +1228,7 @@ suite('runtime client', () => {
                   capabilities: {
                     orgs: true,
                     logs: true,
-                    search: true,
+                    search: false,
                     tail: true,
                     debug_flags: true,
                     doctor: true
@@ -1270,20 +1239,16 @@ suite('runtime client', () => {
               });
               return;
             }
-            if (message.method === 'search/query') {
+            if (message.method === 'logs/list') {
               helpers.emitMessage({
                 jsonrpc: '2.0',
                 id: message.id,
-                result: {
-                  logIds: ['07L000000000001AA'],
-                  snippets: {
-                    '07L000000000001AA': {
-                      text: 'matched',
-                      ranges: [[0, 7]]
-                    }
-                  },
-                  pendingLogIds: []
-                }
+                result: [
+                  {
+                    Id: '07L000000000001AA',
+                    LogLength: 123
+                  }
+                ]
               });
               return;
             }
@@ -1306,11 +1271,8 @@ suite('runtime client', () => {
     });
 
     await client.initialize();
-    const [searchResult, triageEntries] = await Promise.all([
-      client.searchQuery({
-        query: 'marker',
-        logIds: ['07L000000000001AA']
-      }),
+    const [logs, triageEntries] = await Promise.all([
+      client.logsList({ limit: 1 }),
       client.logsTriage({
         logIds: ['07L000000000001AA']
       })
@@ -1321,7 +1283,7 @@ suite('runtime client', () => {
       methods.filter(method => method === 'daemon2:initialize').length,
       1
     );
-    assert.deepEqual(searchResult.logIds, ['07L000000000001AA']);
+    assert.equal(logs[0]?.Id, '07L000000000001AA');
     assert.equal(triageEntries[0]?.logId, '07L000000000001AA');
   });
 });
