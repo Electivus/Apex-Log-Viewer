@@ -236,6 +236,53 @@ function isSalesforceId(value: unknown): value is string {
   return typeof value === 'string' && SALESFORCE_ID_REGEX.test(value);
 }
 
+export function parseApexLogIds(value: string | null | undefined): string[] {
+  const ids = new Set<string>();
+  for (const token of (value ?? '').split(/[\s,]+/)) {
+    const id = token.trim();
+    if (isSalesforceId(id)) {
+      ids.add(id);
+    }
+  }
+  return Array.from(ids);
+}
+
+export async function readApexLogIdsFile(filePath: string, cwd = process.cwd()): Promise<string[]> {
+  const requested = asString(filePath);
+  if (!requested) return [];
+  const resolvedPath = path.isAbsolute(requested) ? requested : path.resolve(cwd, requested);
+  return parseApexLogIds(await fs.readFile(resolvedPath, 'utf8'));
+}
+
+export async function resolveLogDeleteIds(params: {
+  ids?: string;
+  idsProvided?: boolean;
+  idsFile?: string;
+  idsFileProvided?: boolean;
+  cwd?: string;
+}): Promise<string[] | undefined> {
+  const inlineProvided = Boolean(params.idsProvided);
+  const idsFileProvided = Boolean(params.idsFileProvided);
+  const inlineIds = parseApexLogIds(params.ids);
+  if (inlineProvided && !params.ids) {
+    throw new Error('The --ids flag requires a comma-separated ApexLog id list.');
+  }
+  if (inlineProvided && inlineIds.length === 0) {
+    throw new Error('No valid ApexLog ids were found in --ids.');
+  }
+  if (!idsFileProvided) {
+    return inlineIds.length > 0 ? inlineIds : undefined;
+  }
+  if (!params.idsFile) {
+    throw new Error('The --ids-file flag requires a file path.');
+  }
+  const fileIds = await readApexLogIdsFile(params.idsFile, params.cwd ?? process.cwd());
+  if (fileIds.length === 0) {
+    throw new Error(`No valid ApexLog ids were found in --ids-file: ${params.idsFile}`);
+  }
+  return Array.from(new Set([...inlineIds, ...fileIds]));
+}
+
 async function getDefaultTargetOrg(): Promise<string | undefined> {
   const aggregator = await ConfigAggregator.create();
   return asString(aggregator.getPropertyValue<string>(OrgConfigProperties.TARGET_ORG));
@@ -1111,7 +1158,7 @@ async function logsDeleteNative(params: LogsDeleteParams = {}): Promise<LogsDele
   const ctx = await getConnectionContext(params.targetOrg);
   const scope = params.scope === 'all' ? 'all' : 'mine';
   const ids =
-    params.ids && params.ids.length > 0
+    Array.isArray(params.ids)
       ? params.ids.filter(isSalesforceId)
       : await listApexLogIds(ctx, scope, params.limit);
   if (params.dryRun || !params.confirmed) {
@@ -1733,7 +1780,13 @@ export async function executeElectivus(argv: readonly string[]): Promise<unknown
       targetOrg: targetOrg(args),
       workspaceRoot: flag(args, 'workspace-root') || process.cwd(),
       scope: flag(args, 'scope') === 'all' ? 'all' : 'mine',
-      ids: flag(args, 'ids')?.split(',').filter(Boolean),
+      ids: await resolveLogDeleteIds({
+        ids: flag(args, 'ids'),
+        idsProvided: args.flags.has('ids'),
+        idsFile: flag(args, 'ids-file'),
+        idsFileProvided: args.flags.has('ids-file'),
+        cwd: process.cwd()
+      }),
       limit: asNumber(flag(args, 'limit')),
       dryRun: boolFlag(args, 'dry-run'),
       confirmed: boolFlag(args, 'yes')

@@ -12,7 +12,9 @@ import {
   formatTextResult,
   materializeCachedLogAtDatedPath,
   normalizeSoqlDateTimeLiteral,
+  parseApexLogIds,
   removeLegacyLogIndexFiles,
+  resolveLogDeleteIds,
   resolveOrgRequestPath,
   shouldUseOrgMaxApiVersion,
   summarizeTraceFlagRecords,
@@ -211,6 +213,49 @@ test('buildApexLogListSoql ignores invalid cursor values', () => {
 
   assert.match(soql, /ORDER BY StartTime DESC, Id DESC LIMIT 25 OFFSET 10$/);
   assert.doesNotMatch(soql, /Name !=/);
+});
+
+test('parseApexLogIds normalizes comma and whitespace separated ApexLog ids', () => {
+  assert.deepEqual(
+    parseApexLogIds('07L000000000010AAA, invalid\n07L000000000011AAA 07L000000000010AAA'),
+    ['07L000000000010AAA', '07L000000000011AAA']
+  );
+});
+
+test('resolveLogDeleteIds reads --ids-file before scoped delete fallback', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-delete-ids-'));
+  await fs.writeFile(
+    path.join(workspaceRoot, 'ids.txt'),
+    '07L000000000012AAA\nnot-an-id\n07L000000000013AAA\n'
+  );
+
+  const ids = await resolveLogDeleteIds({
+    ids: '07L000000000012AAA,07L000000000014AAA',
+    idsProvided: true,
+    idsFile: 'ids.txt',
+    idsFileProvided: true,
+    cwd: workspaceRoot
+  });
+
+  assert.deepEqual(ids, ['07L000000000012AAA', '07L000000000014AAA', '07L000000000013AAA']);
+});
+
+test('resolveLogDeleteIds rejects empty explicit id sources', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-delete-empty-'));
+  await fs.writeFile(path.join(workspaceRoot, 'ids.txt'), 'not-an-id\n');
+
+  await assert.rejects(
+    resolveLogDeleteIds({
+      idsFile: 'ids.txt',
+      idsFileProvided: true,
+      cwd: workspaceRoot
+    }),
+    /No valid ApexLog ids were found in --ids-file/
+  );
+  await assert.rejects(
+    resolveLogDeleteIds({ ids: 'not-an-id', idsProvided: true }),
+    /No valid ApexLog ids were found in --ids/
+  );
 });
 
 test('writeLogBody saves fetched bodies without leaving temp files', async () => {
