@@ -204,7 +204,9 @@ async function readOrgMetadata(filePath: string): Promise<OrgMetadata | undefine
 }
 
 function escapeSoqlLiteral(value: string): string {
-  return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'");
 }
 
 function escapeSoqlLikeLiteral(value: string): string {
@@ -258,7 +260,9 @@ async function findAliasForUsername(username: string): Promise<string | undefine
   return asString(state.aliases.get(username));
 }
 
-async function resolveUsername(usernameOrAlias?: string): Promise<{ requested: string; username: string; alias?: string; source: string }> {
+async function resolveUsername(
+  usernameOrAlias?: string
+): Promise<{ requested: string; username: string; alias?: string; source: string }> {
   const requested = asString(usernameOrAlias) ?? (await getDefaultTargetOrg()) ?? '';
   if (!requested) {
     throw new Error('No default Salesforce org is configured. Select an org or run "sf org login web".');
@@ -281,7 +285,8 @@ async function getConnectionContext(targetOrg?: string): Promise<ConnectionConte
   const org = await Org.create({ connection });
   const fields = authInfo.getFields(true);
   const username = asString(connection.getUsername()) ?? asString(fields.username) ?? resolved.username;
-  const instanceUrl = asString(fields.instanceUrl) ?? asString((connection as unknown as { instanceUrl?: string }).instanceUrl);
+  const instanceUrl =
+    asString(fields.instanceUrl) ?? asString((connection as unknown as { instanceUrl?: string }).instanceUrl);
   return {
     org,
     connection,
@@ -295,8 +300,7 @@ async function getOrgAuthFromCore(params: OrgAuthParams = {}): Promise<OrgAuth> 
   const ctx = await getConnectionContext(params.username);
   const fields = ctx.connection.getAuthInfo().getFields(true);
   const accessToken =
-    asString((ctx.connection as unknown as { accessToken?: string }).accessToken) ??
-    asString(fields.accessToken);
+    asString((ctx.connection as unknown as { accessToken?: string }).accessToken) ?? asString(fields.accessToken);
   const instanceUrl =
     asString(fields.instanceUrl) ??
     asString((ctx.connection as unknown as { instanceUrl?: string }).instanceUrl) ??
@@ -315,7 +319,9 @@ async function listOrgsNative(params: OrgListParams = {}): Promise<OrgListItem[]
   const state = await stateAggregator(params.forceRefresh);
   const orgs = await state.orgs.readAll(false);
   const defaultOrg = await getDefaultTargetOrg();
-  const defaultDevHub = asString((await ConfigAggregator.create()).getPropertyValue<string>(OrgConfigProperties.TARGET_DEV_HUB));
+  const defaultDevHub = asString(
+    (await ConfigAggregator.create()).getPropertyValue<string>(OrgConfigProperties.TARGET_DEV_HUB)
+  );
   const mapped = orgs
     .map(fields => {
       const username = asString(fields.username);
@@ -355,7 +361,10 @@ async function resolveOrgNative(params: OrgResolveParams = {}): Promise<OrgResol
   };
 }
 
-export async function toolingQuery<TRecord = JsonObject>(connection: Connection, soql: string): Promise<QueryResult<TRecord>> {
+export async function toolingQuery<TRecord = JsonObject>(
+  connection: Connection,
+  soql: string
+): Promise<QueryResult<TRecord>> {
   const firstPage = (await connection.tooling.query(soql)) as QueryResult<TRecord>;
   const records = [...(firstPage.records || [])];
   let page = firstPage;
@@ -371,7 +380,10 @@ export async function toolingQuery<TRecord = JsonObject>(connection: Connection,
   };
 }
 
-async function standardQuery<TRecord = JsonObject>(connection: Connection, soql: string): Promise<QueryResult<TRecord>> {
+async function standardQuery<TRecord = JsonObject>(
+  connection: Connection,
+  soql: string
+): Promise<QueryResult<TRecord>> {
   return (await connection.query(soql)) as QueryResult<TRecord>;
 }
 
@@ -432,7 +444,11 @@ export function normalizeSoqlDateTimeLiteral(value: unknown): string | undefined
   return new Date(parsed).toISOString();
 }
 
-export function buildApexLogListSoql(params: { limit: number; offset: number; cursor?: LogsListParams['cursor'] }): string {
+export function buildApexLogListSoql(params: {
+  limit: number;
+  offset: number;
+  cursor?: LogsListParams['cursor'];
+}): string {
   const baseSelect =
     'SELECT Id, StartTime, Operation, Application, DurationMilliseconds, Status, Request, LogLength, LogUser.Name FROM ApexLog';
   const cursor = params.cursor;
@@ -822,7 +838,8 @@ async function resolveLocalStatusOrg(
 }
 
 async function logsStatusNative(params: LogsStatusParams = {}): Promise<LogsStatusResult> {
-  const workspaceRoot = params.workspaceRoot || process.cwd();
+  const workspaceRoot = asString(params.workspaceRoot) || undefined;
+  const effectiveWorkspaceRoot = workspaceRoot ?? path.dirname(resolveApexlogsRoot(undefined));
   const syncState = await readSyncState(workspaceRoot);
   const targetOrg = await resolveLocalStatusOrg(workspaceRoot, params.targetOrg, syncState);
   const safeOrg = safeTargetOrg(targetOrg);
@@ -830,7 +847,7 @@ async function logsStatusNative(params: LogsStatusParams = {}): Promise<LogsStat
   return {
     target_org: targetOrg,
     safe_target_org: safeOrg,
-    workspace_root: workspaceRoot,
+    workspace_root: effectiveWorkspaceRoot,
     apexlogs_root: resolveApexlogsRoot(workspaceRoot),
     state_file: syncStatePath(workspaceRoot),
     log_count: await countLocalLogs(workspaceRoot, targetOrg === 'default' && !entry ? undefined : targetOrg),
@@ -960,7 +977,12 @@ async function logsTriageNative(params: LogsTriageParams): Promise<LogsTriageEnt
     if (!filePath && resolvedContext) {
       try {
         const body = await fetchLogBody(resolvedContext, logId);
-        await writeLogBody(params.workspaceRoot, resolvedContext.username, { Id: logId, StartTime: params.logStartTimes?.[logId] }, body);
+        await writeLogBody(
+          params.workspaceRoot,
+          resolvedContext.username,
+          { Id: logId, StartTime: params.logStartTimes?.[logId] },
+          body
+        );
         entries.push({ logId, summary: summarizeLogText(body) });
         continue;
       } catch (error) {
@@ -994,7 +1016,10 @@ async function logsTriageNative(params: LogsTriageParams): Promise<LogsTriageEnt
 
 async function getCurrentUserId(ctx: ConnectionContext): Promise<string | undefined> {
   const username = escapeSoqlLiteral(ctx.username);
-  const result = await standardQuery<{ Id?: string }>(ctx.connection, `SELECT Id FROM User WHERE Username = '${username}' LIMIT 1`);
+  const result = await standardQuery<{ Id?: string }>(
+    ctx.connection,
+    `SELECT Id FROM User WHERE Username = '${username}' LIMIT 1`
+  );
   return asString(result.records?.[0]?.Id);
 }
 
@@ -1014,7 +1039,11 @@ async function listApexLogIds(ctx: ConnectionContext, scope: 'mine' | 'all', lim
   return (result.records || []).map(record => record.Id).filter((id): id is string => isSalesforceId(id));
 }
 
-async function deleteApexLogIds(ctx: ConnectionContext, ids: string[], concurrency = 3): Promise<{ deleted: number; failed: number; failedLogIds: string[] }> {
+async function deleteApexLogIds(
+  ctx: ConnectionContext,
+  ids: string[],
+  concurrency = 3
+): Promise<{ deleted: number; failed: number; failedLogIds: string[] }> {
   let deleted = 0;
   let failed = 0;
   const failedLogIds: string[] = [];
@@ -1052,7 +1081,10 @@ async function deleteApexLogIds(ctx: ConnectionContext, ids: string[], concurren
 async function logsDeleteNative(params: LogsDeleteParams = {}): Promise<LogsDeleteResult> {
   const ctx = await getConnectionContext(params.targetOrg);
   const scope = params.scope === 'all' ? 'all' : 'mine';
-  const ids = params.ids && params.ids.length > 0 ? params.ids.filter(isSalesforceId) : await listApexLogIds(ctx, scope, params.limit);
+  const ids =
+    params.ids && params.ids.length > 0
+      ? params.ids.filter(isSalesforceId)
+      : await listApexLogIds(ctx, scope, params.limit);
   if (params.dryRun || !params.confirmed) {
     return {
       status: 'success',
@@ -1123,7 +1155,10 @@ function debugLevelPayload(input: Partial<RuntimeDebugLevelRecord>): JsonObject 
 
 async function debugLevelsListNative(params: DebugLevelListParams = {}): Promise<RuntimeDebugLevelRecord[]> {
   const ctx = await getConnectionContext(params.targetOrg);
-  const result = await toolingQuery<JsonObject>(ctx.connection, `SELECT ${DEBUG_LEVEL_FIELDS} FROM DebugLevel ORDER BY DeveloperName`);
+  const result = await toolingQuery<JsonObject>(
+    ctx.connection,
+    `SELECT ${DEBUG_LEVEL_FIELDS} FROM DebugLevel ORDER BY DeveloperName`
+  );
   return (result.records || []).map(mapDebugLevel);
 }
 
@@ -1133,7 +1168,10 @@ async function debugLevelGetNative(params: DebugLevelGetParams = {}): Promise<Ru
   if (params.id) where = `Id = '${escapeSoqlLiteral(params.id)}'`;
   else if (params.developerName) where = `DeveloperName = '${escapeSoqlLiteral(params.developerName)}'`;
   else throw new Error('debugLevels/get requires id or developerName.');
-  const result = await toolingQuery<JsonObject>(ctx.connection, `SELECT ${DEBUG_LEVEL_FIELDS} FROM DebugLevel WHERE ${where} LIMIT 1`);
+  const result = await toolingQuery<JsonObject>(
+    ctx.connection,
+    `SELECT ${DEBUG_LEVEL_FIELDS} FROM DebugLevel WHERE ${where} LIMIT 1`
+  );
   return result.records?.[0] ? mapDebugLevel(result.records[0]) : undefined;
 }
 
@@ -1147,13 +1185,21 @@ async function debugLevelCreateNative(params: DebugLevelWriteParams): Promise<De
     `/services/data/v${apiVersion(ctx.connection)}/tooling/sobjects/DebugLevel`,
     debugLevelPayload(record)
   );
-  return { status: 'success', id: asString(result.id), dryRun: false, record: { ...record, id: asString(result.id) ?? record.id } };
+  return {
+    status: 'success',
+    id: asString(result.id),
+    dryRun: false,
+    record: { ...record, id: asString(result.id) ?? record.id }
+  };
 }
 
 async function debugLevelUpdateNative(params: DebugLevelWriteParams): Promise<DebugLevelWriteResult> {
   const ctx = await getConnectionContext(params.targetOrg);
   const record = params.record;
-  const id = params.id || record.id || (await debugLevelGetNative({ targetOrg: params.targetOrg, developerName: record.developerName }))?.id;
+  const id =
+    params.id ||
+    record.id ||
+    (await debugLevelGetNative({ targetOrg: params.targetOrg, developerName: record.developerName }))?.id;
   if (!id) throw new Error('Debug level was not found.');
   if (params.dryRun || !params.confirmed) return { status: 'success', id, dryRun: true, record: { ...record, id } };
   await connectionRequest(
@@ -1168,7 +1214,11 @@ async function debugLevelUpdateNative(params: DebugLevelWriteParams): Promise<De
 async function debugLevelDeleteNative(params: DebugLevelDeleteParams): Promise<DebugLevelWriteResult> {
   const ctx = await getConnectionContext(params.targetOrg);
   if (params.dryRun || !params.confirmed) return { status: 'success', id: params.id, dryRun: true };
-  await connectionRequest(ctx.connection, 'DELETE', `/services/data/v${apiVersion(ctx.connection)}/tooling/sobjects/DebugLevel/${params.id}`);
+  await connectionRequest(
+    ctx.connection,
+    'DELETE',
+    `/services/data/v${apiVersion(ctx.connection)}/tooling/sobjects/DebugLevel/${params.id}`
+  );
   return { status: 'success', id: params.id, dryRun: false };
 }
 
@@ -1242,12 +1292,15 @@ export function summarizeTraceFlagRecords(params: {
     activeByTarget.set(tracedEntityId, record);
   }
 
-  const activeRecords = params.resolvedIds.map(id => activeByTarget.get(id)).filter((record): record is JsonObject => Boolean(record));
+  const activeRecords = params.resolvedIds
+    .map(id => activeByTarget.get(id))
+    .filter((record): record is JsonObject => Boolean(record));
   const debugLevels = new Set(
     activeRecords.map(record => asString((record.DebugLevel as JsonObject | undefined)?.DeveloperName)).filter(Boolean)
   );
   const hasFullCoverage = activeRecords.length === params.resolvedIds.length;
-  const singleActiveRecord = activeRecords.length === 1 && params.resolvedIds.length === 1 ? activeRecords[0] : undefined;
+  const singleActiveRecord =
+    activeRecords.length === 1 && params.resolvedIds.length === 1 ? activeRecords[0] : undefined;
 
   return {
     target: params.target,
@@ -1257,7 +1310,8 @@ export function summarizeTraceFlagRecords(params: {
     traceFlagId: singleActiveRecord ? asString(singleActiveRecord.Id) : undefined,
     traceFlagIds: activeRecords.map(record => asString(record.Id)).filter((id): id is string => Boolean(id)),
     debugLevelName: hasFullCoverage && debugLevels.size === 1 ? Array.from(debugLevels)[0] : undefined,
-    debugLevelMixed: activeRecords.length > 0 && params.resolvedIds.length > 1 && (!hasFullCoverage || debugLevels.size > 1),
+    debugLevelMixed:
+      activeRecords.length > 0 && params.resolvedIds.length > 1 && (!hasFullCoverage || debugLevels.size > 1),
     resolvedTargetCount: params.resolvedIds.length,
     activeTargetCount: activeRecords.length,
     startDate: singleActiveRecord ? asString(singleActiveRecord.StartDate) : undefined,
@@ -1265,7 +1319,10 @@ export function summarizeTraceFlagRecords(params: {
   };
 }
 
-async function traceFlagStatusNative(params: { targetOrg?: string; target: TraceFlagTarget }): Promise<TraceFlagTargetStatus> {
+async function traceFlagStatusNative(params: {
+  targetOrg?: string;
+  target: TraceFlagTarget;
+}): Promise<TraceFlagTargetStatus> {
   const ctx = await getConnectionContext(params.targetOrg);
   const ids = await resolveTraceTargets(ctx, params.target);
   const label = targetLabel(params.target);
@@ -1387,14 +1444,30 @@ async function traceFlagRemoveNative(params: TraceFlagRemoveParams): Promise<Tra
   }
   const ids = (await Promise.all(targetIds.map(tracedEntityId => traceFlagIdsForTarget(ctx, tracedEntityId)))).flat();
   if (params.dryRun || !params.confirmed) {
-    return { status: 'dry-run', removedCount: 0, resolvedTargetCount: targetIds.length, traceFlagIds: ids, dryRun: true };
+    return {
+      status: 'dry-run',
+      removedCount: 0,
+      resolvedTargetCount: targetIds.length,
+      traceFlagIds: ids,
+      dryRun: true
+    };
   }
   let removed = 0;
   for (const id of ids) {
-    await connectionRequest(ctx.connection, 'DELETE', `/services/data/v${apiVersion(ctx.connection)}/tooling/sobjects/TraceFlag/${id}`);
+    await connectionRequest(
+      ctx.connection,
+      'DELETE',
+      `/services/data/v${apiVersion(ctx.connection)}/tooling/sobjects/TraceFlag/${id}`
+    );
     removed += 1;
   }
-  return { status: 'success', removedCount: removed, resolvedTargetCount: targetIds.length, traceFlagIds: ids, dryRun: false };
+  return {
+    status: 'success',
+    removedCount: removed,
+    resolvedTargetCount: targetIds.length,
+    traceFlagIds: ids,
+    dryRun: false
+  };
 }
 
 async function toolingQueryNative(params: ToolingQueryParams): Promise<ToolingQueryResult> {
@@ -1575,7 +1648,8 @@ export async function executeElectivus(argv: readonly string[]): Promise<unknown
   if (!topic || topic === 'doctor') return doctorNative({ targetOrg: targetOrg(args) });
   if (topic === 'skills' && command === 'install') return skillsInstallNative();
   if (topic === 'orgs' && command === 'list') return listOrgsNative({ forceRefresh: boolFlag(args, 'force-refresh') });
-  if (topic === 'orgs' && command === 'auth') return getOrgAuthFromCore({ username: targetOrg(args) || flag(args, 'username') });
+  if (topic === 'orgs' && command === 'auth')
+    return getOrgAuthFromCore({ username: targetOrg(args) || flag(args, 'username') });
   if (topic === 'orgs' && command === 'resolve') return resolveOrgNative({ targetOrg: targetOrg(args) });
   if (topic === 'logs' && command === 'list') {
     const beforeStartTime = flag(args, 'before-start-time');
@@ -1587,24 +1661,98 @@ export async function executeElectivus(argv: readonly string[]): Promise<unknown
       cursor: beforeStartTime && beforeId ? { beforeStartTime, beforeId } : undefined
     });
   }
-  if (topic === 'logs' && command === 'sync') return logsSyncNative({ targetOrg: targetOrg(args), workspaceRoot: flag(args, 'workspace-root') || process.cwd(), forceFull: boolFlag(args, 'force-full'), concurrency: asNumber(flag(args, 'concurrency')) });
-  if (topic === 'logs' && command === 'status') return logsStatusNative({ targetOrg: targetOrg(args), workspaceRoot: flag(args, 'workspace-root') || process.cwd() });
-  if (topic === 'logs' && command === 'read') return logsReadNative({ logId: args.positionals[2] || '', targetOrg: targetOrg(args), workspaceRoot: flag(args, 'workspace-root') || process.cwd(), maxBytes: asNumber(flag(args, 'max-bytes')) });
-  if (topic === 'logs' && command === 'resolve') return logsResolveNative({ logId: args.positionals[2] || '', targetOrg: targetOrg(args), workspaceRoot: flag(args, 'workspace-root') || process.cwd() });
-  if (topic === 'logs' && command === 'resolve-cached-path') return resolveCachedLogPathNative({ logId: args.positionals[2] || '', username: flag(args, 'username'), workspaceRoot: flag(args, 'workspace-root') || process.cwd() });
-  if (topic === 'logs' && command === 'triage') return logsTriageNative({ username: targetOrg(args), logIds: args.positionals.slice(2), logStartTimes: jsonStringRecordFlag(args, 'log-start-times'), workspaceRoot: flag(args, 'workspace-root') || process.cwd() });
-  if (topic === 'logs' && command === 'delete') return logsDeleteNative({ targetOrg: targetOrg(args), workspaceRoot: flag(args, 'workspace-root') || process.cwd(), scope: flag(args, 'scope') === 'all' ? 'all' : 'mine', ids: flag(args, 'ids')?.split(',').filter(Boolean), limit: asNumber(flag(args, 'limit')), dryRun: boolFlag(args, 'dry-run'), confirmed: boolFlag(args, 'yes') });
-  if (topic === 'users' && command === 'search') return usersSearchNative({ targetOrg: targetOrg(args), query: args.positionals[2], limit: asNumber(flag(args, 'limit')) });
-  if (topic === 'trace-flags' && command === 'status') return traceFlagStatusNative({ targetOrg: targetOrg(args), target: await normalizeCurrentUserTarget(traceTarget(args), targetOrg(args)) });
-  if (topic === 'trace-flags' && command === 'apply') return traceFlagApplyNative({ targetOrg: targetOrg(args), target: await normalizeCurrentUserTarget(traceTarget(args), targetOrg(args)), debugLevelName: flag(args, 'debug-level') || '', ttlMinutes: asNumber(flag(args, 'ttl-minutes')), dryRun: boolFlag(args, 'dry-run'), confirmed: boolFlag(args, 'yes') });
-  if (topic === 'trace-flags' && command === 'remove') return traceFlagRemoveNative({ targetOrg: targetOrg(args), target: await normalizeCurrentUserTarget(traceTarget(args), targetOrg(args)), dryRun: boolFlag(args, 'dry-run'), confirmed: boolFlag(args, 'yes') });
+  if (topic === 'logs' && command === 'sync')
+    return logsSyncNative({
+      targetOrg: targetOrg(args),
+      workspaceRoot: flag(args, 'workspace-root'),
+      forceFull: boolFlag(args, 'force-full'),
+      concurrency: asNumber(flag(args, 'concurrency'))
+    });
+  if (topic === 'logs' && command === 'status')
+    return logsStatusNative({ targetOrg: targetOrg(args), workspaceRoot: flag(args, 'workspace-root') });
+  if (topic === 'logs' && command === 'read')
+    return logsReadNative({
+      logId: args.positionals[2] || '',
+      targetOrg: targetOrg(args),
+      workspaceRoot: flag(args, 'workspace-root'),
+      maxBytes: asNumber(flag(args, 'max-bytes'))
+    });
+  if (topic === 'logs' && command === 'resolve')
+    return logsResolveNative({
+      logId: args.positionals[2] || '',
+      targetOrg: targetOrg(args),
+      workspaceRoot: flag(args, 'workspace-root')
+    });
+  if (topic === 'logs' && command === 'resolve-cached-path')
+    return resolveCachedLogPathNative({
+      logId: args.positionals[2] || '',
+      username: flag(args, 'username'),
+      workspaceRoot: flag(args, 'workspace-root')
+    });
+  if (topic === 'logs' && command === 'triage')
+    return logsTriageNative({
+      username: targetOrg(args),
+      logIds: args.positionals.slice(2),
+      logStartTimes: jsonStringRecordFlag(args, 'log-start-times'),
+      workspaceRoot: flag(args, 'workspace-root')
+    });
+  if (topic === 'logs' && command === 'delete')
+    return logsDeleteNative({
+      targetOrg: targetOrg(args),
+      workspaceRoot: flag(args, 'workspace-root'),
+      scope: flag(args, 'scope') === 'all' ? 'all' : 'mine',
+      ids: flag(args, 'ids')?.split(',').filter(Boolean),
+      limit: asNumber(flag(args, 'limit')),
+      dryRun: boolFlag(args, 'dry-run'),
+      confirmed: boolFlag(args, 'yes')
+    });
+  if (topic === 'users' && command === 'search')
+    return usersSearchNative({
+      targetOrg: targetOrg(args),
+      query: args.positionals[2],
+      limit: asNumber(flag(args, 'limit'))
+    });
+  if (topic === 'trace-flags' && command === 'status')
+    return traceFlagStatusNative({
+      targetOrg: targetOrg(args),
+      target: await normalizeCurrentUserTarget(traceTarget(args), targetOrg(args))
+    });
+  if (topic === 'trace-flags' && command === 'apply')
+    return traceFlagApplyNative({
+      targetOrg: targetOrg(args),
+      target: await normalizeCurrentUserTarget(traceTarget(args), targetOrg(args)),
+      debugLevelName: flag(args, 'debug-level') || '',
+      ttlMinutes: asNumber(flag(args, 'ttl-minutes')),
+      dryRun: boolFlag(args, 'dry-run'),
+      confirmed: boolFlag(args, 'yes')
+    });
+  if (topic === 'trace-flags' && command === 'remove')
+    return traceFlagRemoveNative({
+      targetOrg: targetOrg(args),
+      target: await normalizeCurrentUserTarget(traceTarget(args), targetOrg(args)),
+      dryRun: boolFlag(args, 'dry-run'),
+      confirmed: boolFlag(args, 'yes')
+    });
   if (topic === 'debug-levels' && command === 'list') return debugLevelsListNative({ targetOrg: targetOrg(args) });
-  if (topic === 'debug-levels' && command === 'get') return debugLevelGetNative({ targetOrg: targetOrg(args), id: flag(args, 'id'), developerName: flag(args, 'developer-name') });
+  if (topic === 'debug-levels' && command === 'get')
+    return debugLevelGetNative({
+      targetOrg: targetOrg(args),
+      id: flag(args, 'id'),
+      developerName: flag(args, 'developer-name')
+    });
   if (topic === 'debug-levels' && command === 'create') return debugLevelCreateNative(debugLevelParams(args));
   if (topic === 'debug-levels' && command === 'update') return debugLevelUpdateNative(debugLevelParams(args));
-  if (topic === 'debug-levels' && command === 'delete') return debugLevelDeleteNative({ targetOrg: targetOrg(args), id: flag(args, 'id') || '', dryRun: boolFlag(args, 'dry-run'), confirmed: boolFlag(args, 'yes') });
-  if (topic === 'tooling' && command === 'query') return toolingQueryNative({ targetOrg: targetOrg(args), soql: args.positionals.slice(2).join(' ') });
-  if (topic === 'tooling' && command === 'request' && subcommand === 'get') return toolingRequestGetNative({ targetOrg: targetOrg(args), path: args.positionals[3] || '' });
+  if (topic === 'debug-levels' && command === 'delete')
+    return debugLevelDeleteNative({
+      targetOrg: targetOrg(args),
+      id: flag(args, 'id') || '',
+      dryRun: boolFlag(args, 'dry-run'),
+      confirmed: boolFlag(args, 'yes')
+    });
+  if (topic === 'tooling' && command === 'query')
+    return toolingQueryNative({ targetOrg: targetOrg(args), soql: args.positionals.slice(2).join(' ') });
+  if (topic === 'tooling' && command === 'request' && subcommand === 'get')
+    return toolingRequestGetNative({ targetOrg: targetOrg(args), path: args.positionals[3] || '' });
   throw new Error(`Unknown sf electivus command: ${args.positionals.join(' ')}`);
 }
 

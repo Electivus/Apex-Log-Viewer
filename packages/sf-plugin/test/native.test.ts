@@ -87,6 +87,14 @@ test('executeElectivus returns local org-first logs status', async () => {
   });
 });
 
+test('executeElectivus logs status without a workspace uses the temp apexlogs cache', async () => {
+  const result = (await executeElectivus(['logs', 'status'])) as any;
+
+  assert.equal(result.workspace_root, os.tmpdir());
+  assert.equal(result.apexlogs_root, path.join(os.tmpdir(), 'apexlogs'));
+  assert.equal(result.state_file, path.join(os.tmpdir(), 'apexlogs', '.alv', 'sync-state.json'));
+});
+
 test('executeElectivus triages exception events as fatal exceptions', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-triage-'));
   const logId = '07L000000000002AAA';
@@ -145,7 +153,10 @@ test('toolingQuery follows all Tooling API result pages', async () => {
 
   const result = await toolingQuery<{ Id: string }>(connection as any, 'SELECT Id FROM ApexClass');
 
-  assert.deepEqual(calls, ['query:SELECT Id FROM ApexClass', 'queryMore:/services/data/v63.0/tooling/query/01g-page-2']);
+  assert.deepEqual(calls, [
+    'query:SELECT Id FROM ApexClass',
+    'queryMore:/services/data/v63.0/tooling/query/01g-page-2'
+  ]);
   assert.equal(result.done, true);
   assert.equal(result.totalSize, 3);
   assert.deepEqual(
@@ -225,11 +236,10 @@ test('materializeCachedLogAtDatedPath copies unknown-date cache to dated sync pa
   await fs.mkdir(unknownDir, { recursive: true });
   await fs.writeFile(path.join(unknownDir, `${logId}.log`), 'cached body');
 
-  const datedPath = await materializeCachedLogAtDatedPath(
-    workspaceRoot,
-    'demo@example.com',
-    { Id: logId, StartTime: '2026-07-06T10:00:00.000+0000' }
-  );
+  const datedPath = await materializeCachedLogAtDatedPath(workspaceRoot, 'demo@example.com', {
+    Id: logId,
+    StartTime: '2026-07-06T10:00:00.000+0000'
+  });
 
   assert.equal(path.basename(datedPath || ''), `${logId}.log`);
   assert.equal(path.basename(path.dirname(datedPath || '')), '2026-07-06');

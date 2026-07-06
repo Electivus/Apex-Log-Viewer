@@ -149,8 +149,7 @@ function parseJsonOutput(raw: string): unknown {
   const cleaned = stripAnsi(trimmed);
   const firstObject = cleaned.indexOf('{');
   const firstArray = cleaned.indexOf('[');
-  const start =
-    firstObject === -1 ? firstArray : firstArray === -1 ? firstObject : Math.min(firstObject, firstArray);
+  const start = firstObject === -1 ? firstArray : firstArray === -1 ? firstObject : Math.min(firstObject, firstArray);
   const endObject = cleaned.lastIndexOf('}');
   const endArray = cleaned.lastIndexOf(']');
   const end = Math.max(endObject, endArray);
@@ -174,7 +173,12 @@ function appendFlag(args: string[], name: string, value: unknown): void {
 }
 
 function formatFlagValue(value: unknown): string {
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
     return String(value);
   }
   if (value instanceof Date) {
@@ -211,7 +215,14 @@ function commandArgsForMethod(method: string, params: unknown): string[] {
     case 'org/resolve':
       return ['orgs', 'resolve', ...flagList([['--target-org', p.targetOrg ?? p.username]])];
     case 'logs/list': {
-      const args = ['logs', 'list', ...flagList([['--target-org', p.username], ['--limit', p.limit]])];
+      const args = [
+        'logs',
+        'list',
+        ...flagList([
+          ['--target-org', p.username],
+          ['--limit', p.limit]
+        ])
+      ];
       if (p.cursor) {
         appendFlag(args, '--before-start-time', p.cursor.beforeStartTime);
         appendFlag(args, '--before-id', p.cursor.beforeId);
@@ -297,7 +308,15 @@ function commandArgsForMethod(method: string, params: unknown): string[] {
         ])
       ];
     case 'users/search':
-      return ['users', 'search', ...(p.query ? [String(p.query)] : []), ...flagList([['--target-org', p.targetOrg], ['--limit', p.limit]])];
+      return [
+        'users',
+        'search',
+        ...(p.query ? [String(p.query)] : []),
+        ...flagList([
+          ['--target-org', p.targetOrg],
+          ['--limit', p.limit]
+        ])
+      ];
     case 'traceFlags/status': {
       const args = ['trace-flags', 'status', ...flagList([['--target-org', p.targetOrg]])];
       appendTraceTarget(args, p.target);
@@ -336,7 +355,15 @@ function commandArgsForMethod(method: string, params: unknown): string[] {
     case 'debugLevels/list':
       return ['debug-levels', 'list', ...flagList([['--target-org', p.targetOrg]])];
     case 'debugLevels/get':
-      return ['debug-levels', 'get', ...flagList([['--target-org', p.targetOrg], ['--id', p.id], ['--developer-name', p.developerName]])];
+      return [
+        'debug-levels',
+        'get',
+        ...flagList([
+          ['--target-org', p.targetOrg],
+          ['--id', p.id],
+          ['--developer-name', p.developerName]
+        ])
+      ];
     case 'debugLevels/create':
       return debugLevelCommandArgs('create', p);
     case 'debugLevels/update':
@@ -345,7 +372,10 @@ function commandArgsForMethod(method: string, params: unknown): string[] {
       return [
         'debug-levels',
         'delete',
-        ...flagList([['--target-org', p.targetOrg], ['--id', p.id]]),
+        ...flagList([
+          ['--target-org', p.targetOrg],
+          ['--id', p.id]
+        ]),
         ...boolList([
           ['--dry-run', p.dryRun === true],
           ['--yes', p.confirmed === true]
@@ -480,7 +510,7 @@ export class SfPluginClient extends EventEmitter {
     this.runner = options.runner ?? runEmbeddedSfPlugin;
     this.prepareProcessEnv = options.prepareProcessEnv ?? getLoginShellEnv;
     this.schedule = options.schedule ?? ((callback, delayMs) => setTimeout(callback, delayMs));
-    this.workspaceRoot = options.workspaceRoot ?? (() => process.cwd());
+    this.workspaceRoot = options.workspaceRoot ?? (() => undefined);
   }
 
   async doctor(params: DoctorParams = {}, signal?: AbortSignal): Promise<DoctorResult> {
@@ -566,10 +596,7 @@ export class SfPluginClient extends EventEmitter {
     return this.request('debugLevels/list', params, signal);
   }
 
-  async debugLevelGet(
-    params: DebugLevelGetParams,
-    signal?: AbortSignal
-  ): Promise<RuntimeDebugLevelRecord | undefined> {
+  async debugLevelGet(params: DebugLevelGetParams, signal?: AbortSignal): Promise<RuntimeDebugLevelRecord | undefined> {
     return this.request('debugLevels/get', params, signal);
   }
 
@@ -685,7 +712,12 @@ export class SfPluginClient extends EventEmitter {
     return { ...process.env, ...shellEnv };
   }
 
-  private sendTelemetry(method: string, outcome: 'ok' | 'error' | 'cancelled', startedAt: number, error?: unknown): void {
+  private sendTelemetry(
+    method: string,
+    outcome: 'ok' | 'error' | 'cancelled',
+    startedAt: number,
+    error?: unknown
+  ): void {
     try {
       const durationMs = Date.now() - startedAt;
       const methodName = METHOD_TELEMETRY_NAMES[method] ?? method.replace(/[^a-z0-9_]+/gi, '_');

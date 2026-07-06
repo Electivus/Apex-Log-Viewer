@@ -6,7 +6,7 @@ Maintainer quick start
 2. Create an Open VSX namespace + PAT, add secret `OVSX_PAT` in GitHub.
 3. For standard extension releases, update `CHANGELOG.md` manually, bump `package.json`, and push a tag `vX.Y.Z`.
 4. The Release workflow on the tag builds, attaches the `.vsix`, and, if `VSCE_PAT`/`OVSX_PAT` exist, publishes automatically.
-5. For plugin-only npm releases, build `packages/sf-plugin` and publish `@electivus/plugin-electivus` through the npm workflow or a maintainer machine.
+5. For plugin-only npm releases, build and stage the plugin with `npm run publish:sf-plugin:npm -- --tag <tag>` or publish the staged `dist/sf-plugin-npm` directory from a maintainer machine.
 6. Alternatively, publish the extension locally with `npm run vsce:publish` (or `:pre`) and `npx --yes ovsx publish`.
 
 This repository includes automated publish flows for the Visual Studio Code Marketplace and Open VSX with first-class support for pre-releases. It uses GitHub Actions, `vsce`, `ovsx`, and npm tooling and follows a simple semver convention:
@@ -33,7 +33,6 @@ How it works
 - If `OVSX_PAT` is present, it publishes the same VSIX artifacts to Open VSX.
 - The extension build runs `build:sf-plugin` and `build:embedded-sf-plugin` before packaging, so the VSIX contains the same TypeScript plugin command implementation that can be published separately as `@electivus/plugin-electivus`.
 
-
 Quick recipes
 
 - Prepare a stable release (automated):
@@ -46,8 +45,9 @@ Quick recipes
 
 - Prepare a plugin npm release:
   - Bump `packages/sf-plugin/package.json` when the plugin package is published independently.
-  - Run `npm run build:sf-plugin` and `npm run test:sf-plugin`.
-  - Publish `@electivus/plugin-electivus`; there are no native runtime companion packages.
+  - Run `npm run test:sf-plugin`, `npm run build:sf-plugin`, and `npm run stage:sf-plugin-npm`.
+  - Publish `dist/sf-plugin-npm` with `node scripts/publish-npm-package-if-needed.mjs dist/sf-plugin-npm --tag <tag>` or by running `npm publish dist/sf-plugin-npm --access public`.
+  - The staging step removes the workspace-only `private` marker and copies the built `bin`, `lib`, `messages`, `skills`, and `oclif.manifest.json` files; there are no native runtime companion packages.
   - After the cutover release is published, deprecate any old standalone binary package with:
 
 ```bash

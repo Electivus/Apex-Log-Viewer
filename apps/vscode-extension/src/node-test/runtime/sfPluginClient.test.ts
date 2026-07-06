@@ -107,6 +107,37 @@ suite('sf plugin client', () => {
     ]);
   });
 
+  test('does not synthesize a workspace root when none is available', async () => {
+    const calls: Array<{ args: readonly string[]; options: { cwd?: string; env?: NodeJS.ProcessEnv } }> = [];
+    const { RuntimeClient } = loadRuntimeClient({});
+    const client = new RuntimeClient({
+      runner: async (args, options) => {
+        calls.push({ args, options });
+        return {
+          exitCode: 0,
+          signal: null,
+          stdout: JSON.stringify({
+            target_org: 'default',
+            safe_target_org: 'default',
+            workspace_root: '/tmp',
+            apexlogs_root: '/tmp/apexlogs',
+            state_file: '/tmp/apexlogs/.alv/sync-state.json',
+            log_count: 0,
+            has_state: false,
+            downloaded_count: 0,
+            cached_count: 0
+          }),
+          stderr: ''
+        };
+      }
+    });
+
+    await client.logsStatus({});
+
+    assert.deepEqual(calls[0]?.args, ['logs', 'status']);
+    assert.equal(calls[0]?.options.cwd, undefined);
+  });
+
   test('passes log start times to triage commands', async () => {
     const calls: Array<{ args: readonly string[]; options: { cwd?: string; env?: NodeJS.ProcessEnv } }> = [];
     const { RuntimeClient } = loadRuntimeClient({});

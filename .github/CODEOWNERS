@@ -10,3 +10,4 @@
 /scripts/build-embedded-sf-plugin.mjs @Electivus/maintainers
 /packages/sf-plugin/ @Electivus/maintainers
 /scripts/publish-npm-package-if-needed.mjs @Electivus/maintainers
+/scripts/stage-sf-plugin-npm-package.mjs @Electivus/maintainers

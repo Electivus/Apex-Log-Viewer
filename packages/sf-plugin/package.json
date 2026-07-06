@@ -12,8 +12,7 @@
     "/lib",
     "/messages",
     "/skills",
-    "/oclif.manifest.json",
-    "/oclif.lock"
+    "/oclif.manifest.json"
   ],
   "scripts": {
     "build": "node ../../scripts/copy-sf-plugin-skill.mjs && tsc -p tsconfig.json && oclif manifest",
