@@ -1483,29 +1483,12 @@ test('CODEOWNERS covers workflows, manifests, lockfiles, and release metadata', 
     '/.github/dependency-review-config.yml @Electivus/maintainers',
     '/package.json @Electivus/maintainers',
     '/package-lock.json @Electivus/maintainers',
-    '/Cargo.toml @Electivus/maintainers',
-    '/Cargo.lock @Electivus/maintainers',
-    '/deny.toml @Electivus/maintainers',
-    '/config/runtime-bundle.json @Electivus/maintainers',
     '/apps/vscode-extension/scripts/copy-tree-sitter-runtime.mjs @Electivus/maintainers',
     '/apps/vscode-extension/scripts/copy-ripgrep-runtime.mjs @Electivus/maintainers',
-    '/scripts/fetch-runtime-release.mjs @Electivus/maintainers'
+    '/apps/vscode-extension/scripts/copy-package-metadata.mjs @Electivus/maintainers',
+    '/scripts/build-embedded-sf-plugin.mjs @Electivus/maintainers',
+    '/packages/sf-plugin/ @Electivus/maintainers'
   ]) {
     assert.match(owners, new RegExp(`^${expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
   }
-});
-
-test('Rust workspace keeps a checked-in Cargo.lock and cargo-deny config', () => {
-  assert.equal(fs.existsSync(path.join(repoRoot, 'Cargo.lock')), true, 'Cargo.lock should be checked in');
-  const denyToml = read('deny.toml');
-  assert.match(denyToml, /^\[sources\]$/m);
-  assert.match(denyToml, /^unknown-registry = "deny"$/m);
-  assert.match(denyToml, /^unknown-git = "deny"$/m);
-});
-
-test('Rust supply-chain workflow runs cargo-deny on PRs and main pushes', () => {
-  const workflow = read('.github/workflows/rust-supply-chain.yml');
-  assert.match(workflow, /^name:\s+Rust Supply Chain$/m);
-  assert.match(workflow, /^on:\s*[\r\n]+  pull_request:\s*[\r\n]+  push:\s*[\r\n]+    branches:\s*[\r\n]+      - main/m);
-  assert.match(workflow, /\bcargo deny check advisories bans licenses sources\b/);
 });

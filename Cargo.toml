@@ -1,9 +1,0 @@
-[workspace]
-resolver = "2"
-members = [
-  "crates/alv-core",
-  "crates/alv-protocol",
-  "crates/alv-app-server",
-  "crates/alv-cli",
-  "crates/alv-mcp",
-]

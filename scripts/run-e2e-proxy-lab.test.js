@@ -162,9 +162,6 @@ test('proxy lab compose persists runner caches and Salesforce CLI auth state', (
 
   for (const [volume, mountPath] of [
     ['e2e_proxy_node_modules', '/workspace/node_modules'],
-    ['e2e_proxy_cargo_registry', '/root/.cargo/registry'],
-    ['e2e_proxy_cargo_git', '/root/.cargo/git'],
-    ['e2e_proxy_target', '/workspace/target'],
     ['e2e_proxy_vscode_test', '/workspace/.vscode-test'],
     ['e2e_proxy_npm_cache', '/root/.npm'],
     ['e2e_proxy_sf', '/root/.sf'],

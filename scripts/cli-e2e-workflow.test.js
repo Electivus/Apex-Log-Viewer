@@ -291,7 +291,7 @@ test('direct macOS Playwright workflow runs Salesforce CLI with an LTS Node runt
   assert.match(
     String(exportSfNodeStep.step.run || ''),
     /ALV_SF_BIN_PATH=\$\{wrapper_path\}.*>> "\$GITHUB_ENV"/,
-    'expected the macOS direct E2E job to export the sanitized Salesforce CLI wrapper for Rust runtime calls'
+    'expected the macOS direct E2E job to export the sanitized Salesforce CLI wrapper for plugin calls'
   );
 
   assert.ok(

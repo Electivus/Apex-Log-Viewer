@@ -35,7 +35,7 @@ function ownCodeOf(error: unknown): string | undefined {
 export function getTelemetryErrorCode(error: unknown, fallback = 'UNKNOWN'): string {
   const message = messageOf(error).toLowerCase();
 
-  if (message.includes('runtime exited')) {
+  if (message.includes('runtime exited') || message.includes('sf electivus exited')) {
     return 'RUNTIME_EXIT';
   }
   if (message.includes('request aborted')) {

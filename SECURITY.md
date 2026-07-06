@@ -86,10 +86,7 @@ security controls detect risk.
   `package-lock.json`, including arbitrary git, tarball, file, or URL sources.
 - CI also runs `npm audit signatures` so npm registry signature/attestation
   coverage is validated as part of the gated path.
-- The Rust workspace keeps a checked-in `Cargo.lock` and uses `cargo-deny`
-  with the committed `deny.toml` allowlist for advisory, license, and source
-  checks.
-- Workflow files, package manifests, lockfiles, runtime bundle metadata, and
+- Workflow files, package manifests, lockfiles, plugin packaging scripts, and
   release/publish scripts are protected by `CODEOWNERS`.
 
 Exceptions

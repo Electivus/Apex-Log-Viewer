@@ -98,11 +98,11 @@ suite('telemetry contract', () => {
     assert.ok(catalog.commonProperties?.testRunId);
   });
 
-  test('daemon request method values are path-safe', () => {
+  test('sf plugin request method values are path-safe', () => {
     const catalog = readTelemetryCatalog();
-    const values = catalog.events['daemon.request']?.properties?.method?.values || [];
+    const values = catalog.events['sfPlugin.request']?.properties?.method?.values || [];
 
-    assert.notEqual(values.length, 0, 'daemon.request method values should be enumerated');
+    assert.notEqual(values.length, 0, 'sfPlugin.request method values should be enumerated');
     for (const value of values) {
       assert.doesNotMatch(value, /[\\/]/, `Expected "${value}" not to look like a filesystem path.`);
       assert.doesNotMatch(value, /<REDACTED/i, `Expected "${value}" not to use telemetry redaction markers.`);

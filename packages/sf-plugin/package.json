@@ -2,7 +2,7 @@
   "name": "@electivus/plugin-electivus",
   "version": "0.0.0",
   "private": true,
-  "description": "Salesforce CLI plugin wrapper for the Electivus Apex Log Viewer Rust runtime.",
+  "description": "Salesforce CLI plugin for Electivus Apex Log Viewer workflows.",
   "type": "module",
   "license": "MIT",
   "main": "lib/index.js",

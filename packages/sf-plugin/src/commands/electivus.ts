@@ -1,10 +1,14 @@
-import { RustBackedCommand } from '../rustBackedCommand.js';
+import { SfCommand } from '@salesforce/sf-plugins-core';
 
-export default class Electivus extends RustBackedCommand<unknown> {
+import { executeElectivus } from '../native.js';
+
+export default class Electivus extends SfCommand<unknown> {
+  public static override readonly strict = false;
+
   public static override readonly summary = 'Run Electivus Salesforce tools';
 
   public static override readonly description =
-    'Runs Electivus Apex Log Viewer commands through the platform-native Rust runtime.';
+    'Runs Electivus Apex Log Viewer commands through the embedded TypeScript Salesforce runtime.';
 
   public static override readonly examples = [
     '<%= config.bin %> <%= command.id %> doctor',
@@ -13,4 +17,8 @@ export default class Electivus extends RustBackedCommand<unknown> {
     '<%= config.bin %> <%= command.id %> trace-flags apply --target-org my-org --current-user --debug-level ALV_DEBUG',
     '<%= config.bin %> <%= command.id %> tooling query "SELECT Id FROM ApexLog" --target-org my-org'
   ];
+
+  public override async run(): Promise<unknown> {
+    return executeElectivus(this.argv);
+  }
 }

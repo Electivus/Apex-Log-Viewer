@@ -1,7 +1,3 @@
-export * from './daemonProcess';
-export * from './generated/index';
-export * from './jsonlRpc';
-
 export type OrgListParams = {
   forceRefresh?: boolean;
 };
@@ -80,6 +76,7 @@ export type LogsListParams = {
   username?: string;
   limit?: number;
   cursor?: LogsListCursor;
+  offset?: number;
 };
 
 export type LogsSyncParams = {
@@ -99,6 +96,28 @@ export type LogsSyncResult = {
   checkpoint_advanced: boolean;
   state_file: string;
   last_synced_log_id?: string;
+};
+
+export type LogsStatusParams = {
+  targetOrg?: string;
+  workspaceRoot?: string;
+};
+
+export type LogsStatusResult = {
+  target_org: string;
+  safe_target_org: string;
+  workspace_root: string;
+  apexlogs_root: string;
+  state_file: string;
+  log_count: number;
+  has_state: boolean;
+  last_sync_started_at?: string;
+  last_sync_completed_at?: string;
+  last_synced_log_id?: string;
+  last_synced_start_time?: string;
+  downloaded_count: number;
+  cached_count: number;
+  last_error?: string;
 };
 
 export type LogsReadParams = {
@@ -175,9 +194,6 @@ export type LogsTriageParams = {
 
 export type LogsTriageEntry = {
   logId: string;
-  /**
-   * @deprecated Code Unit hydration was removed from clients. The runtime no longer populates this.
-   */
   codeUnitStarted?: string;
   summary: RuntimeLogTriageSummary;
 };
@@ -237,12 +253,13 @@ export type TraceFlagTargetStatus = {
   targetAvailable: boolean;
   isActive: boolean;
   traceFlagId?: string;
+  traceFlagIds?: string[];
   debugLevelName?: string;
+  debugLevelMixed?: boolean;
+  resolvedTargetCount?: number;
+  activeTargetCount?: number;
   startDate?: string;
   expirationDate?: string;
-  resolvedTargetCount: number;
-  activeTargetCount: number;
-  debugLevelMixed?: boolean;
 };
 
 export type TraceFlagApplyResult = {
@@ -319,39 +336,13 @@ export type ToolingQueryParams = {
 };
 
 export type ToolingQueryResult = {
-  records: unknown[];
-  done: boolean;
+  records?: unknown[];
   totalSize?: number;
+  done?: boolean;
   nextRecordsUrl?: string;
-  raw?: unknown;
 };
 
 export type ToolingRequestGetParams = {
   targetOrg?: string;
   path: string;
-};
-
-export type JsonRpcRequest = {
-  jsonrpc: '2.0';
-  id: string;
-  method: string;
-  params?: unknown;
-};
-
-export type JsonRpcSuccessResponse<TResult> = {
-  jsonrpc: '2.0';
-  id: string;
-  result: TResult;
-};
-
-export type JsonRpcErrorObject = {
-  code: number;
-  message: string;
-  data?: unknown;
-};
-
-export type JsonRpcErrorResponse = {
-  jsonrpc: '2.0';
-  id?: string;
-  error: JsonRpcErrorObject;
 };

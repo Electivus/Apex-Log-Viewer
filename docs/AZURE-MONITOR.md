@@ -104,16 +104,15 @@ AppEvents
 | order by queryLength asc, outcome asc
 ```
 
-### Daemon request health
+### Sf plugin request health
 
 ```kusto
 AppEvents
 | where TimeGenerated > ago(30d)
-| where Name == "electivus.apex-log-viewer/daemon.request"
+| where Name == "electivus.apex-log-viewer/sfPlugin.request"
 | extend props = parse_json(Properties), measurements = parse_json(Measurements)
-| extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"]), attempts = todouble(measurements["attempts"])
-| extend method = case(method == "<REDACTED: user-file-path>", "legacy_redacted_path", method)
-| summarize total = count(), errors = countif(outcome == "error"), retries = countif(attempts > 1), p50 = percentile(durationMs, 50), p95 = percentile(durationMs, 95) by method
+| extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"])
+| summarize total = count(), errors = countif(outcome == "error"), p50 = percentile(durationMs, 50), p95 = percentile(durationMs, 95) by method
 | order by p95 desc
 ```
 
@@ -149,7 +148,7 @@ Recommended first alerts:
 - `cli-timeout-spike`: detect `ETIMEDOUT` spikes from CLI execution or auth calls.
 - `refresh-failure-rate-spike`: detect high `logs.refresh` error rate on the main workflow.
 - `logs-search-degraded`: detect slow or failing search execution before it becomes user-visible.
-- `daemon-request-degraded`: detect runtime retries, failures, or high latency in the bundled daemon.
+- `sf-plugin-request-degraded`: detect plugin request failures or high latency in the bundled plugin runner.
 - `debug-levels-degraded`: detect sustained `debugLevels.load` failures or severe latency.
 
 Alert queries:
@@ -227,23 +226,23 @@ AppEvents
 | where total >= 10 and (errorRate >= 20 or p95 >= 5000)
 ```
 
-### daemon-request-degraded
+### sf-plugin-request-degraded
 
 ```kusto
 AppEvents
 | where TimeGenerated > ago(2h)
-| where Name == "electivus.apex-log-viewer/daemon.request"
+| where Name == "electivus.apex-log-viewer/sfPlugin.request"
 | extend props = parse_json(Properties), measurements = parse_json(Measurements)
-| extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"]), attempts = toint(measurements["attempts"])
-| where method in ("initialize", "org_list", "org_auth", "logs_list", "logs_sync", "logs_triage", "logs_resolve_cached_path", "other")
-| summarize total = count(), errors = countif(outcome == "error"), retries = countif(attempts > 1), p95 = percentile(durationMs, 95) by method
+| extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"])
+| where method in ("org_list", "org_auth", "logs_list", "logs_sync", "logs_triage", "logs_resolve_cached_path", "other")
+| summarize total = count(), errors = countif(outcome == "error"), p95 = percentile(durationMs, 95) by method
 | extend errorRate = iff(total == 0, 0.0, 100.0 * todouble(errors) / todouble(total))
-| where total >= 10 and (errorRate >= 20 or retries >= 3 or p95 >= 15000)
+| where total >= 10 and (errorRate >= 20 or p95 >= 15000)
 ```
 
 Operational notes:
 
 - Create a dedicated action group for these alerts instead of relying on `Application Insights Smart Detection`.
 - Align the shared workspace to `retentionInDays = 90` if you want enough history for regression comparisons across releases and seasonal traffic.
-- In the monorepo, keep shared operational visibility in the same workspace and split user-facing environments with `_ResourceId` instead of creating separate Application Insights components for the JS CLI or the bundled daemon.
+- In the monorepo, keep shared operational visibility in the same workspace and split user-facing environments with `_ResourceId` instead of creating separate Application Insights components for implementation details.
 - Use `_ResourceId` or `ResourceGUID` when you need to split production and E2E telemetry inside the shared workspace.

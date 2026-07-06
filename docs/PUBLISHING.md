@@ -6,12 +6,10 @@ Maintainer quick start
 2. Create an Open VSX namespace + PAT, add secret `OVSX_PAT` in GitHub.
 3. For standard extension releases, update `CHANGELOG.md` manually, bump `package.json`, and push a tag `vX.Y.Z`.
 4. The Release workflow on the tag builds, attaches the `.vsix`, and, if `VSCE_PAT`/`OVSX_PAT` exist, publishes automatically.
-5. For CLI/plugin releases, update `crates/alv-cli/Cargo.toml`, refresh `config/runtime-bundle.json` so extension packaging keeps using the pinned tested runtime, and push a tag `rust-vX.Y.Z` or `rust-vX.Y.Z-alpha.N`.
-6. Before npm publishing, configure npm Trusted Publisher entries for the Salesforce CLI plugin and native runtime packages with GitHub Actions, organization `Electivus`, repository `Apex-Log-Viewer`, workflow filename `rust-release.yml`, and allowed action `npm publish`.
-7. The Rust CLI release workflow publishes GitHub assets plus the npm native/plugin packages for that tested CLI build. `crates.io` stays out of the first-phase bootstrap path for now.
-8. Alternatively, publish the extension locally with `npm run vsce:publish` (or `:pre`) and `npx --yes ovsx publish`.
+5. For plugin-only npm releases, build `packages/sf-plugin` and publish `@electivus/plugin-electivus` through the npm workflow or a maintainer machine.
+6. Alternatively, publish the extension locally with `npm run vsce:publish` (or `:pre`) and `npx --yes ovsx publish`.
 
-This repository includes automated publish flows for the Visual Studio Code Marketplace, Open VSX, and the standalone Rust CLI release train with first-class support for pre-releases. It uses GitHub Actions, `vsce`, `ovsx`, Cargo, and npm packaging helpers and follows a simple semver convention:
+This repository includes automated publish flows for the Visual Studio Code Marketplace and Open VSX with first-class support for pre-releases. It uses GitHub Actions, `vsce`, `ovsx`, and npm tooling and follows a simple semver convention:
 
 - Stable: even minor versions (e.g., 0.6.0, 0.6.1).
 - Pre‑release: odd minor versions (e.g., 0.7.0, 0.7.1).
@@ -33,11 +31,7 @@ How it works
   - Even minor → stable → `vsce publish`.
 - If `VSCE_PAT` is present, it publishes to Marketplace; otherwise it only attaches the `.vsix` artifact to the workflow run.
 - If `OVSX_PAT` is present, it publishes the same VSIX artifacts to Open VSX.
-- Tags matching `rust-v*` trigger the CLI/plugin packaging workflow (`.github/workflows/rust-release.yml`).
-- The CLI workflow uploads GitHub release assets, publishes the generated npm native packages first, and then publishes `@electivus/plugin-electivus` through npm Trusted Publisher/OIDC authentication, not `NPM_TOKEN`.
-- The canonical `linux-x64` CLI/runtime artifact is built from `x86_64-unknown-linux-musl` so the extension sidecar remains compatible with older-glibc Linux environments.
-- `crates.io` publication is intentionally deferred until the internal crate surface is ready to be maintained as a public registry contract.
-- The extension build consumes the pinned runtime metadata in `config/runtime-bundle.json`, so the extension release channel can stay separate from the CLI release train.
+- The extension build runs `build:sf-plugin` and `build:embedded-sf-plugin` before packaging, so the VSIX contains the same TypeScript plugin command implementation that can be published separately as `@electivus/plugin-electivus`.
 
 
 Quick recipes
@@ -50,11 +44,11 @@ Quick recipes
   - Bump `package.json` to the next odd minor/patch, commit, and tag (e.g., `v0.7.0`); CI will package/publish using the pre‑release channel.
   - Optional: append a suffix to the tag (e.g., `v0.7.0-pre`) to force the pre‑release path regardless of minor parity.
 
-- Prepare a CLI/plugin release:
-  - Bump `crates/alv-cli/Cargo.toml`, update `config/runtime-bundle.json` if the extension should follow the new tested CLI artifact, and tag `rust-vX.Y.Z` or `rust-vX.Y.Z-alpha.N`.
-  - The CLI workflow publishes the native runtime packages, the `@electivus/plugin-electivus` package, and release assets without changing the VS Code extension release train.
-  - Ensure npmjs.com package settings list `rust-release.yml` as the Trusted Publisher workflow for `@electivus/plugin-electivus`, `@electivus/apex-log-viewer-linux-x64`, `@electivus/apex-log-viewer-linux-arm64`, `@electivus/apex-log-viewer-darwin-x64`, `@electivus/apex-log-viewer-darwin-arm64`, `@electivus/apex-log-viewer-win32-x64`, and `@electivus/apex-log-viewer-win32-arm64`.
-  - After the cutover release is published, deprecate the old meta binary package with:
+- Prepare a plugin npm release:
+  - Bump `packages/sf-plugin/package.json` when the plugin package is published independently.
+  - Run `npm run build:sf-plugin` and `npm run test:sf-plugin`.
+  - Publish `@electivus/plugin-electivus`; there are no native runtime companion packages.
+  - After the cutover release is published, deprecate any old standalone binary package with:
 
 ```bash
 npm deprecate @electivus/apex-log-viewer@"*" "Deprecated: install the Salesforce CLI plugin instead: sf plugins install @electivus/plugin-electivus"
@@ -74,4 +68,3 @@ Notes
 - `CHANGELOG.md` is manual. Keep entries concise; document breaking changes clearly.
 - Versions must be unique between stable and pre‑releases; do not re‑use the same `major.minor.patch` for both channels.
 - The Marketplace listing for this extension will show a “Pre‑Release” tab for users who opt in to pre‑releases.
-- When rebuilding the bundled `linux-x64` runtime on Linux with `npm run package:runtime:local`, the workflow expects a musl toolchain with `musl-gcc` on `PATH`; on Ubuntu it installs `musl-tools`, while Arch users typically need the `musl` package.

@@ -20,9 +20,6 @@
       "@alv/webview/*": [
         "packages/webview/src/*"
       ],
-      "@alv/app-server-client-ts/*": [
-        "packages/app-server-client-ts/src/*"
-      ],
       "@alv/vscode-extension/*": [
         "apps/vscode-extension/src/*"
       ]

@@ -76,7 +76,7 @@ suite('findExistingLogFile runtime lookup', () => {
         '../../apps/vscode-extension/src/runtime/runtimeClient': {
           runtimeClient: {
             resolveCachedLogPath: async () => {
-              throw new Error('daemon unavailable');
+              throw new Error('plugin unavailable');
             }
           }
         },
@@ -126,7 +126,7 @@ suite('findExistingLogFile runtime lookup', () => {
         '../../apps/vscode-extension/src/runtime/runtimeClient': {
           runtimeClient: {
             resolveCachedLogPath: async () => {
-              throw new Error('daemon unavailable');
+              throw new Error('plugin unavailable');
             }
           }
         },
@@ -169,7 +169,7 @@ suite('findExistingLogFile runtime lookup', () => {
         '../../apps/vscode-extension/src/runtime/runtimeClient': {
           runtimeClient: {
             resolveCachedLogPath: async () => {
-              throw new Error('daemon unavailable');
+              throw new Error('plugin unavailable');
             }
           }
         },
