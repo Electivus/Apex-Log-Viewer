@@ -419,18 +419,30 @@ async function listLogsNative(params: LogsListParams = {}): Promise<RuntimeLogRo
   const ctx = await getConnectionContext(params.username);
   const limit = clampInt(params.limit, 50, 1, 200);
   const offset = clampInt(params.offset, 0, 0, 2000);
-  const baseSelect =
-    'SELECT Id, StartTime, Operation, Application, DurationMilliseconds, Status, Request, LogLength, LogUser.Name FROM ApexLog';
-  let soql: string;
-  const cursor = params.cursor;
-  if (cursor?.beforeStartTime && cursor.beforeId) {
-    const id = escapeSoqlLiteral(cursor.beforeId);
-    soql = `${baseSelect} WHERE StartTime < ${cursor.beforeStartTime} OR (StartTime = ${cursor.beforeStartTime} AND Id < '${id}') ORDER BY StartTime DESC, Id DESC LIMIT ${limit}`;
-  } else {
-    soql = `${baseSelect} ORDER BY StartTime DESC, Id DESC LIMIT ${limit} OFFSET ${offset}`;
-  }
+  const soql = buildApexLogListSoql({ limit, offset, cursor: params.cursor });
   const result = await toolingQuery<RuntimeLogRow>(ctx.connection, soql);
   return Array.isArray(result.records) ? result.records : [];
+}
+
+export function normalizeSoqlDateTimeLiteral(value: unknown): string | undefined {
+  const raw = asString(value);
+  if (!raw) return undefined;
+  const parsed = Date.parse(raw);
+  if (!Number.isFinite(parsed)) return undefined;
+  return new Date(parsed).toISOString();
+}
+
+export function buildApexLogListSoql(params: { limit: number; offset: number; cursor?: LogsListParams['cursor'] }): string {
+  const baseSelect =
+    'SELECT Id, StartTime, Operation, Application, DurationMilliseconds, Status, Request, LogLength, LogUser.Name FROM ApexLog';
+  const cursor = params.cursor;
+  const beforeStartTime = normalizeSoqlDateTimeLiteral(cursor?.beforeStartTime);
+  const beforeId = cursor?.beforeId;
+  if (beforeStartTime && isSalesforceId(beforeId)) {
+    const id = escapeSoqlLiteral(beforeId);
+    return `${baseSelect} WHERE StartTime < ${beforeStartTime} OR (StartTime = ${beforeStartTime} AND Id < '${id}') ORDER BY StartTime DESC, Id DESC LIMIT ${params.limit}`;
+  }
+  return `${baseSelect} ORDER BY StartTime DESC, Id DESC LIMIT ${params.limit} OFFSET ${params.offset}`;
 }
 
 async function fetchLogBody(ctx: ConnectionContext, logId: string): Promise<string> {
@@ -912,7 +924,7 @@ async function logsTriageNative(params: LogsTriageParams): Promise<LogsTriageEnt
   let ctx: ConnectionContext | undefined;
   let triedConnectionContext = false;
   const resolveContext = async (): Promise<ConnectionContext | undefined> => {
-    if (!target || triedConnectionContext) return ctx;
+    if (triedConnectionContext) return ctx;
     triedConnectionContext = true;
     try {
       ctx = await getConnectionContext(target);
@@ -925,7 +937,7 @@ async function logsTriageNative(params: LogsTriageParams): Promise<LogsTriageEnt
   for (const logId of params.logIds || []) {
     let filePath = await findCachedLogPath(params.workspaceRoot, logId, target);
     let resolvedContext = ctx;
-    if (!filePath && target) {
+    if (!filePath) {
       resolvedContext = await resolveContext();
       filePath = resolvedContext
         ? await findCachedLogPath(params.workspaceRoot, logId, resolvedContext.username)

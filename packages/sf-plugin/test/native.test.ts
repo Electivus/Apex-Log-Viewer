@@ -5,9 +5,11 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  buildApexLogListSoql,
   executeElectivus,
   formatTextResult,
   materializeCachedLogAtDatedPath,
+  normalizeSoqlDateTimeLiteral,
   resolveOrgRequestPath,
   summarizeTraceFlagRecords,
   toolingQuery,
@@ -150,6 +152,36 @@ test('toolingQuery follows all Tooling API result pages', async () => {
   );
 });
 
+test('buildApexLogListSoql normalizes Salesforce cursor timestamps', () => {
+  const soql = buildApexLogListSoql({
+    limit: 50,
+    offset: 0,
+    cursor: {
+      beforeStartTime: '2026-03-30T18:39:58.000+0000',
+      beforeId: '07L000000000009AAA'
+    }
+  });
+
+  assert.match(soql, /StartTime < 2026-03-30T18:39:58\.000Z/);
+  assert.match(soql, /Id < '07L000000000009AAA'/);
+  assert.doesNotMatch(soql, /OFFSET/);
+  assert.equal(normalizeSoqlDateTimeLiteral('not-a-date'), undefined);
+});
+
+test('buildApexLogListSoql ignores invalid cursor values', () => {
+  const soql = buildApexLogListSoql({
+    limit: 25,
+    offset: 10,
+    cursor: {
+      beforeStartTime: "2026-03-30T18:39:58.000Z) OR Name != ''",
+      beforeId: 'not-an-id'
+    }
+  });
+
+  assert.match(soql, /ORDER BY StartTime DESC, Id DESC LIMIT 25 OFFSET 10$/);
+  assert.doesNotMatch(soql, /Name !=/);
+});
+
 test('writeLogBody saves fetched bodies without leaving temp files', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-write-log-'));
   const saved = await writeLogBody(
@@ -255,6 +287,8 @@ test('executeElectivus triage reports unavailable local bodies as warnings, not 
     'logs',
     'triage',
     '07L000000000004AAA',
+    '--target-org',
+    'definitely-not-a-local-org@example.com',
     '--workspace-root',
     workspaceRoot
   ])) as any[];
