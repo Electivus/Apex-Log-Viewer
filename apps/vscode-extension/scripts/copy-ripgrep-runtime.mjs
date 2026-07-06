@@ -3,25 +3,32 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export function copyRipgrepRuntime({ repoRoot }) {
-  const sourceRoot = path.join(repoRoot, 'node_modules', '@vscode', 'ripgrep');
-  const destinationRoot = path.join(
-    repoRoot,
-    'apps',
-    'vscode-extension',
-    'node_modules',
-    '@vscode',
-    'ripgrep'
-  );
+  const sourceNamespaceRoot = path.join(repoRoot, 'node_modules', '@vscode');
+  const destinationNamespaceRoot = path.join(repoRoot, 'apps', 'vscode-extension', 'node_modules', '@vscode');
 
-  if (!fs.existsSync(sourceRoot)) {
-    throw new Error(`ripgrep runtime package not found at ${sourceRoot}`);
+  if (!fs.existsSync(sourceNamespaceRoot)) {
+    throw new Error(`@vscode package namespace not found at ${sourceNamespaceRoot}`);
   }
 
-  fs.rmSync(destinationRoot, { recursive: true, force: true });
-  fs.mkdirSync(path.dirname(destinationRoot), { recursive: true });
-  fs.cpSync(sourceRoot, destinationRoot, { recursive: true });
+  const packages = fs
+    .readdirSync(sourceNamespaceRoot, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && /^ripgrep(?:-|$)/.test(entry.name))
+    .map(entry => entry.name)
+    .sort();
 
-  return { destinationRoot };
+  if (!packages.includes('ripgrep')) {
+    throw new Error(`ripgrep runtime package not found under ${sourceNamespaceRoot}`);
+  }
+
+  fs.mkdirSync(destinationNamespaceRoot, { recursive: true });
+  for (const packageName of packages) {
+    const sourceRoot = path.join(sourceNamespaceRoot, packageName);
+    const destinationRoot = path.join(destinationNamespaceRoot, packageName);
+    fs.rmSync(destinationRoot, { recursive: true, force: true });
+    fs.cpSync(sourceRoot, destinationRoot, { recursive: true });
+  }
+
+  return { destinationNamespaceRoot, packages };
 }
 
 const __filename = fileURLToPath(import.meta.url);
