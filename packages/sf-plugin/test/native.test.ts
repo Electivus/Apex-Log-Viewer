@@ -375,26 +375,65 @@ test('formatJsonResult serializes undefined as JSON null', () => {
 
 test('executeElectivus installs the bundled Codex skill', async () => {
   const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-codex-home-'));
-  const previousCodexHome = process.env.CODEX_HOME;
-  process.env.CODEX_HOME = codexHome;
-  try {
-    const result = (await executeElectivus(['skills', 'install'])) as any;
+  const result = (await executeElectivus(['skills', 'install', '--codex-home', codexHome])) as any;
 
-    assert.equal(result.status, 'installed');
-    assert.equal(result.skillName, 'apex-log-viewer-cli');
-    assert.equal(result.destination, path.join(codexHome, 'skills', 'apex-log-viewer-cli'));
-    assert.equal(result.files >= 2, true);
-    assert.match(
-      await fs.readFile(path.join(codexHome, 'skills', 'apex-log-viewer-cli', 'SKILL.md'), 'utf8'),
-      /sf electivus skills install/
-    );
-  } finally {
-    if (previousCodexHome === undefined) {
-      delete process.env.CODEX_HOME;
-    } else {
-      process.env.CODEX_HOME = previousCodexHome;
-    }
-  }
+  assert.equal(result.status, 'installed');
+  assert.equal(result.skill_name, 'apex-log-viewer-cli');
+  assert.equal(result.skillName, 'apex-log-viewer-cli');
+  assert.equal(result.codex_home, codexHome);
+  assert.equal(result.destination_dir, path.join(codexHome, 'skills', 'apex-log-viewer-cli'));
+  assert.deepEqual(result.files, ['SKILL.md', 'agents/openai.yaml']);
+  assert.equal(result.fileCount, 2);
+  assert.equal(result.dry_run, false);
+  assert.equal(result.replaced, false);
+  assert.match(
+    await fs.readFile(path.join(codexHome, 'skills', 'apex-log-viewer-cli', 'SKILL.md'), 'utf8'),
+    /sf electivus skills install/
+  );
+});
+
+test('executeElectivus refuses to replace an installed Codex skill without force', async () => {
+  const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-codex-existing-'));
+  const skillDir = path.join(codexHome, 'skills', 'apex-log-viewer-cli');
+  await fs.mkdir(skillDir, { recursive: true });
+  await fs.writeFile(path.join(skillDir, 'SKILL.md'), 'custom skill', 'utf8');
+
+  await assert.rejects(
+    executeElectivus(['skills', 'install', '--codex-home', codexHome]),
+    /rerun with --force/
+  );
+  assert.equal(await fs.readFile(path.join(skillDir, 'SKILL.md'), 'utf8'), 'custom skill');
+});
+
+test('executeElectivus force replaces an installed Codex skill', async () => {
+  const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-codex-force-'));
+  const skillDir = path.join(codexHome, 'skills', 'apex-log-viewer-cli');
+  await fs.mkdir(path.join(skillDir, 'agents'), { recursive: true });
+  await fs.writeFile(path.join(skillDir, 'SKILL.md'), 'custom skill', 'utf8');
+  await fs.writeFile(path.join(skillDir, 'agents', 'stale.yaml'), 'stale', 'utf8');
+
+  const result = (await executeElectivus(['skills', 'install', '--codex-home', codexHome, '--force'])) as any;
+
+  assert.equal(result.status, 'replaced');
+  assert.equal(result.replaced, true);
+  assert.equal(result.dry_run, false);
+  assert.match(await fs.readFile(path.join(skillDir, 'SKILL.md'), 'utf8'), /sf electivus skills install/);
+  await assert.rejects(fs.access(path.join(skillDir, 'agents', 'stale.yaml')));
+});
+
+test('executeElectivus skills install dry-run does not replace files', async () => {
+  const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-codex-dry-run-'));
+  const skillDir = path.join(codexHome, 'skills', 'apex-log-viewer-cli');
+  await fs.mkdir(skillDir, { recursive: true });
+  await fs.writeFile(path.join(skillDir, 'SKILL.md'), 'custom skill', 'utf8');
+
+  const result = (await executeElectivus(['skills', 'install', '--codex-home', codexHome, '--dry-run'])) as any;
+
+  assert.equal(result.status, 'would_replace');
+  assert.equal(result.replaced, false);
+  assert.equal(result.dry_run, true);
+  assert.equal(await fs.readFile(path.join(skillDir, 'SKILL.md'), 'utf8'), 'custom skill');
+  await assert.rejects(fs.access(path.join(skillDir, 'agents', 'openai.yaml')));
 });
 
 test('executeElectivus triage reports unavailable local bodies as warnings, not log errors', async () => {

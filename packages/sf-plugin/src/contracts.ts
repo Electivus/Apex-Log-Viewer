@@ -149,10 +149,18 @@ export type LogsResolveResult = {
 
 export type SkillsInstallResult = {
   status: string;
+  skill_name: string;
   skillName: string;
+  codex_home: string;
+  codexHome: string;
   source: string;
+  destination_dir: string;
   destination: string;
-  files: number;
+  files: string[];
+  fileCount: number;
+  replaced: boolean;
+  dry_run: boolean;
+  dryRun: boolean;
 };
 
 export type LogsDeleteParams = {

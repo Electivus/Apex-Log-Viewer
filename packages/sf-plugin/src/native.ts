@@ -1627,6 +1627,14 @@ function flag(args: ParsedArgs, name: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function optionalFlagValue(args: ParsedArgs, name: string): string | undefined {
+  const value = flag(args, name);
+  if (args.flags.has(name) && !value) {
+    throw new Error(`The --${name} flag requires a value.`);
+  }
+  return value;
+}
+
 function jsonStringRecordFlag(args: ParsedArgs, name: string): Record<string, string> | undefined {
   const value = flag(args, name);
   if (!value) return undefined;
@@ -1680,6 +1688,15 @@ async function normalizeCurrentUserTarget(target: TraceFlagTarget, targetOrgValu
   return { type: 'user', userId };
 }
 
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function directoryExists(dirPath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(dirPath);
@@ -1689,18 +1706,18 @@ async function directoryExists(dirPath: string): Promise<boolean> {
   }
 }
 
-async function countFiles(dirPath: string): Promise<number> {
-  let count = 0;
+async function listFiles(dirPath: string, root = dirPath): Promise<string[]> {
+  const files: string[] = [];
   const entries = await fs.readdir(dirPath, { withFileTypes: true });
   for (const entry of entries) {
     const childPath = path.join(dirPath, entry.name);
     if (entry.isDirectory()) {
-      count += await countFiles(childPath);
+      files.push(...(await listFiles(childPath, root)));
     } else if (entry.isFile()) {
-      count += 1;
+      files.push(path.relative(root, childPath).split(path.sep).join('/'));
     }
   }
-  return count;
+  return files.sort();
 }
 
 function currentModuleDir(): string {
@@ -1722,19 +1739,52 @@ async function resolveBundledSkillDir(): Promise<string> {
   throw new Error('Bundled apex-log-viewer-cli Codex skill was not found.');
 }
 
-async function skillsInstallNative(): Promise<SkillsInstallResult> {
+function resolveCodexHome(cliValue?: string): string {
+  const fromCli = asString(cliValue);
+  if (fromCli) return path.resolve(fromCli);
+  const fromEnv = asString(process.env.CODEX_HOME);
+  if (fromEnv) return path.resolve(fromEnv);
+  const fromHome = asString(process.env.HOME) ?? asString(process.env.USERPROFILE) ?? asString(os.homedir());
+  if (fromHome) return path.join(fromHome, '.codex');
+  throw new Error('Unable to resolve Codex home; set CODEX_HOME or pass --codex-home.');
+}
+
+async function skillsInstallNative(params: {
+  codexHome?: string;
+  force?: boolean;
+  dryRun?: boolean;
+} = {}): Promise<SkillsInstallResult> {
   const source = await resolveBundledSkillDir();
-  const codexHome = process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(os.homedir(), '.codex');
+  const codexHome = resolveCodexHome(params.codexHome);
   const destination = path.join(codexHome, 'skills', 'apex-log-viewer-cli');
-  await fs.rm(destination, { recursive: true, force: true });
-  await fs.mkdir(path.dirname(destination), { recursive: true });
-  await fs.cp(source, destination, { recursive: true, force: true });
+  const existed = await pathExists(destination);
+  const dryRun = Boolean(params.dryRun);
+  const files = await listFiles(source);
+  if (existed && !params.force && !dryRun) {
+    throw new Error(`skill apex-log-viewer-cli already exists at ${destination}; rerun with --force to replace it`);
+  }
+  if (!dryRun) {
+    if (existed) {
+      await fs.rm(destination, { recursive: true, force: true });
+    }
+    await fs.mkdir(path.dirname(destination), { recursive: true });
+    await fs.cp(source, destination, { recursive: true, force: true });
+  }
+  const status = dryRun ? (existed ? 'would_replace' : 'would_install') : existed ? 'replaced' : 'installed';
   return {
-    status: 'installed',
+    status,
+    skill_name: 'apex-log-viewer-cli',
     skillName: 'apex-log-viewer-cli',
+    codex_home: codexHome,
+    codexHome,
     source,
+    destination_dir: destination,
     destination,
-    files: await countFiles(destination)
+    files,
+    fileCount: files.length,
+    replaced: existed && !dryRun,
+    dry_run: dryRun,
+    dryRun
   };
 }
 
@@ -1742,7 +1792,12 @@ export async function executeElectivus(argv: readonly string[]): Promise<unknown
   const args = parseArgv(argv);
   const [topic, command, subcommand] = args.positionals;
   if (!topic || topic === 'doctor') return doctorNative({ targetOrg: targetOrg(args) });
-  if (topic === 'skills' && command === 'install') return skillsInstallNative();
+  if (topic === 'skills' && command === 'install')
+    return skillsInstallNative({
+      codexHome: optionalFlagValue(args, 'codex-home'),
+      force: boolFlag(args, 'force'),
+      dryRun: boolFlag(args, 'dry-run')
+    });
   if (topic === 'orgs' && command === 'list') return listOrgsNative({ forceRefresh: boolFlag(args, 'force-refresh') });
   if (topic === 'orgs' && command === 'auth')
     return getOrgAuthFromCore({ username: targetOrg(args) || flag(args, 'username') });
