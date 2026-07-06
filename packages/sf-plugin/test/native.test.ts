@@ -158,3 +158,17 @@ test('writeLogBody saves fetched bodies without leaving temp files', async () =>
     []
   );
 });
+
+test('executeElectivus triage reports unavailable local bodies as warnings, not log errors', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-triage-missing-'));
+  const result = (await executeElectivus([
+    'logs',
+    'triage',
+    '07L000000000004AAA',
+    '--workspace-root',
+    workspaceRoot
+  ])) as any[];
+
+  assert.equal(result[0]?.summary?.hasErrors, false);
+  assert.equal(result[0]?.summary?.reasons?.[0]?.severity, 'warning');
+});

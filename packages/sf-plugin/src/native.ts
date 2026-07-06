@@ -851,6 +851,20 @@ function summarizeLogText(logText: string): RuntimeLogTriageSummary {
   return { hasErrors: false, reasons: [] };
 }
 
+function unreadableLogSummary(message: string): RuntimeLogTriageSummary {
+  return {
+    hasErrors: false,
+    primaryReason: message,
+    reasons: [
+      {
+        code: 'log_unreadable',
+        severity: 'warning',
+        summary: message
+      }
+    ]
+  };
+}
+
 async function logsTriageNative(params: LogsTriageParams): Promise<LogsTriageEntry[]> {
   const target = asString(params.username);
   const ctx = target ? await getConnectionContext(target) : undefined;
@@ -861,24 +875,21 @@ async function logsTriageNative(params: LogsTriageParams): Promise<LogsTriageEnt
     if (!filePath && ctx) {
       try {
         const body = await fetchLogBody(ctx, logId);
-        const saved = await writeLogBody(params.workspaceRoot, ctx.username, { Id: logId }, body);
-        filePath = saved.path;
-      } catch {}
+        await writeLogBody(params.workspaceRoot, ctx.username, { Id: logId }, body);
+        entries.push({ logId, summary: summarizeLogText(body) });
+        continue;
+      } catch (error) {
+        entries.push({
+          logId,
+          summary: unreadableLogSummary(error instanceof Error ? error.message : 'Log body could not be downloaded')
+        });
+        continue;
+      }
     }
     if (!filePath) {
       entries.push({
         logId,
-        summary: {
-          hasErrors: true,
-          primaryReason: 'Log body is not available locally yet',
-          reasons: [
-            {
-              code: 'log_unreadable',
-              severity: 'warning',
-              summary: 'Log body is not available locally yet'
-            }
-          ]
-        }
+        summary: unreadableLogSummary('Log body is not available locally yet')
       });
       continue;
     }
@@ -886,19 +897,10 @@ async function logsTriageNative(params: LogsTriageParams): Promise<LogsTriageEnt
       const body = await fs.readFile(filePath, 'utf8');
       entries.push({ logId, summary: summarizeLogText(body) });
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Log body could not be read';
       entries.push({
         logId,
-        summary: {
-          hasErrors: true,
-          primaryReason: error instanceof Error ? error.message : 'Log body could not be read',
-          reasons: [
-            {
-              code: 'log_unreadable',
-              severity: 'warning',
-              summary: error instanceof Error ? error.message : 'Log body could not be read'
-            }
-          ]
-        }
+        summary: unreadableLogSummary(message)
       });
     }
   }
