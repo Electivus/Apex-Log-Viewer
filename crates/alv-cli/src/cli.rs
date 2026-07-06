@@ -76,7 +76,6 @@ pub enum LogsCommand {
     List(LogListArgs),
     Sync(LogSyncArgs),
     Status(LogStatusArgs),
-    Search(LogSearchArgs),
     Read(LogReadArgs),
     Resolve(LogResolveArgs),
     Triage(LogTriageArgs),
@@ -105,13 +104,6 @@ pub struct LogSyncArgs {
 
 #[derive(Debug, Args)]
 pub struct LogStatusArgs {
-    #[arg(long = "target-org")]
-    pub target_org: Option<String>,
-}
-
-#[derive(Debug, Args)]
-pub struct LogSearchArgs {
-    pub query: String,
     #[arg(long = "target-org")]
     pub target_org: Option<String>,
 }

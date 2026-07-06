@@ -52,6 +52,7 @@ test('package script rebuilds the extension packaging assets that vsce includes'
 
   assert.match(packageScript, /\bpackage:runtime\b/);
   assert.match(packageScript, /\bbuild:tree-sitter-runtime\b/);
+  assert.match(packageScript, /\bbuild:ripgrep-runtime\b/);
   assert.match(packageScript, /\bbuild:package-metadata\b/);
 });
 

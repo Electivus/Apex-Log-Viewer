@@ -22,7 +22,13 @@ import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../../../../src/utils/configManager';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { affectsConfiguration, getConfig } from '../../../../src/utils/config';
-import { getWorkspaceRoot, purgeSavedLogs } from '../../../../src/utils/workspace';
+import {
+  ensureApexLogsDir,
+  getLogIdFromLogFilePath,
+  getWorkspaceRoot,
+  purgeSavedLogs
+} from '../../../../src/utils/workspace';
+import { ripgrepSearch, type RipgrepMatch } from '../../../../src/utils/ripgrep';
 import {
   DEFAULT_LOGS_COLUMNS_CONFIG,
   normalizeLogsColumnsConfig,
@@ -977,37 +983,65 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     if (isActive()) {
       this.postSearchStatus('loading');
     }
+    const missingLogIds = new Set<string>();
     try {
-      const result = await runtimeClient.searchQuery(
-        {
-          username: this.orgManager.getSelectedOrg(),
-          query: trimmed,
-          logIds: logsSnapshot
-            .map(log => log?.Id)
-            .filter((logId): logId is string => typeof logId === 'string' && logId.length > 0),
-          workspaceRoot: getWorkspaceRoot()
-        },
-        signal
-      );
+      await this.logService.ensureLogsSaved(logsSnapshot, this.orgManager.getSelectedOrg(), signal, {
+        downloadMissing: false,
+        onMissing: id => {
+          if (typeof id === 'string' && id.length > 0) {
+            missingLogIds.add(id);
+          }
+        }
+      });
       if (!isActive() || signal?.aborted) {
         return;
       }
+
+      const dir = await ensureApexLogsDir();
+      if (signal?.aborted) {
+        return;
+      }
+      const matchesInfo = await ripgrepSearch(trimmed, dir, signal);
+      if (!isActive() || signal?.aborted) {
+        return;
+      }
+
+      const known = new Set(
+        logsSnapshot
+          .map(log => log?.Id)
+          .filter((logId): logId is string => typeof logId === 'string' && logId.length > 0)
+      );
+      const matches = new Set<string>();
+      const snippets: Record<string, { text: string; ranges: [number, number][] }> = {};
+      for (const info of matchesInfo) {
+        const logId = getLogIdFromLogFilePath(info.filePath);
+        if (logId && known.has(logId)) {
+          matches.add(logId);
+          const snippet = this.buildSnippet(info);
+          if (snippet) {
+            snippets[logId] = snippet;
+          }
+        }
+      }
+
+      const logIds = Array.from(matches);
+      const pendingLogIds = Array.from(missingLogIds);
       this.post({
         type: 'searchMatches',
         query: trimmed,
-        logIds: Array.isArray(result.logIds) ? result.logIds : [],
-        snippets: result.snippets ?? {},
-        pendingLogIds: Array.isArray(result.pendingLogIds) ? result.pendingLogIds : []
+        logIds,
+        snippets,
+        pendingLogIds
       });
       this.sendSearchTelemetry('searched', queryLength, {
         durationMs: Date.now() - t0,
-        matchCount: Array.isArray(result.logIds) ? result.logIds.length : 0,
-        pendingCount: Array.isArray(result.pendingLogIds) ? result.pendingLogIds.length : 0
+        matchCount: logIds.length,
+        pendingCount: pendingLogIds.length
       });
       logTrace('Logs: executeSearch result', {
         queryLength: trimmed.length,
-        matches: Array.isArray(result.logIds) ? result.logIds.length : 0,
-        pending: Array.isArray(result.pendingLogIds) ? result.pendingLogIds.length : 0,
+        matches: logIds.length,
+        pending: pendingLogIds.length,
         token
       });
     } catch (e) {
@@ -1025,6 +1059,82 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         this.postSearchStatus('idle');
       }
     }
+  }
+
+  private buildSnippet(match: RipgrepMatch): { text: string; ranges: [number, number][] } | undefined {
+    const rawLine = typeof match.lineText === 'string' ? match.lineText : '';
+    const line = rawLine.replace(/\r?\n$/, '');
+    if (!line) {
+      return undefined;
+    }
+    const rawRanges = Array.isArray(match.submatches) ? match.submatches : [];
+    const charRanges = rawRanges
+      .map(({ start, end }) => {
+        const charStart = this.byteOffsetToStringIndex(line, start ?? 0);
+        const charEnd = this.byteOffsetToStringIndex(line, end ?? 0);
+        return [charStart, Math.max(charStart, charEnd)] as [number, number];
+      })
+      .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > start);
+
+    const context = 60;
+    const earliest = charRanges.length > 0 ? Math.min(...charRanges.map(r => r[0])) : 0;
+    const latest =
+      charRanges.length > 0 ? Math.max(...charRanges.map(r => r[1])) : Math.min(line.length, earliest + context);
+    const sliceStart = Math.max(0, earliest - context);
+    const sliceEnd = Math.min(line.length, latest + context);
+    const core = line.slice(sliceStart, sliceEnd);
+    const prefix = sliceStart > 0 ? '...' : '';
+    const suffix = sliceEnd < line.length ? '...' : '';
+    const prefixLength = prefix.length;
+    const snippetLength = core.length + prefixLength + suffix.length;
+    const adjustedRanges = charRanges
+      .map(([start, end]) => {
+        const adjustedStart = Math.max(0, start - sliceStart) + prefixLength;
+        const adjustedEnd = Math.max(adjustedStart, Math.min(core.length, end - sliceStart) + prefixLength);
+        return [adjustedStart, Math.max(adjustedStart, adjustedEnd)] as [number, number];
+      })
+      .filter(([start, end]) => end > start);
+
+    const finalSnippet = `${prefix}${core}${suffix}`;
+    const boundedRanges = adjustedRanges.map(([start, end]) => {
+      const boundedStart = Math.max(0, Math.min(start, snippetLength));
+      const boundedEnd = Math.max(0, Math.min(end, snippetLength));
+      return [boundedStart, Math.max(boundedStart, boundedEnd)] as [number, number];
+    });
+
+    return {
+      text: finalSnippet,
+      ranges: boundedRanges
+    };
+  }
+
+  private byteOffsetToStringIndex(text: string, byteOffset: number): number {
+    if (!text || !Number.isFinite(byteOffset) || byteOffset <= 0) {
+      return 0;
+    }
+    let byteTally = 0;
+    let index = 0;
+    while (index < text.length) {
+      const codePoint = text.codePointAt(index);
+      if (codePoint === undefined) {
+        break;
+      }
+      const codeUnitLength = codePoint > 0xffff ? 2 : 1;
+      const utf8Length = this.utf8ByteLength(codePoint);
+      if (byteTally + utf8Length > byteOffset) {
+        break;
+      }
+      byteTally += utf8Length;
+      index += codeUnitLength;
+    }
+    return index;
+  }
+
+  private utf8ByteLength(codePoint: number): number {
+    if (codePoint <= 0x7f) return 1;
+    if (codePoint <= 0x7ff) return 2;
+    if (codePoint <= 0xffff) return 3;
+    return 4;
   }
 
   private sendSearchTelemetry(

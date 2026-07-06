@@ -111,6 +111,7 @@ jobs:
           set -euo pipefail
           npm run clean
           npm run build:tree-sitter-runtime
+          npm run build:ripgrep-runtime
           npm run build:package-metadata
           node apps/vscode-extension/esbuild.extension.mjs
           (npm run -s nls:extract || true)

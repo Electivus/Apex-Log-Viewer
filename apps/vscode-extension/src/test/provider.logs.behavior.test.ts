@@ -57,7 +57,6 @@ function createProviderHarness() {
     orgList: async () => [],
     getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' }),
     logsList: async () => [],
-    searchQuery: async () => ({ logIds: [], snippets: {}, pendingLogIds: [] }),
     logsTriage: async () => [],
     logsSync: async () => ({
       status: 'success',
@@ -69,6 +68,9 @@ function createProviderHarness() {
     })
   };
   const cliStub: any = runtimeClientStub;
+  const ripgrepStub: any = {
+    ripgrepSearch: async () => []
+  };
   const vscodeMock: any = {
     Uri: {
       file: (filePath: string) => makeUri(filePath),
@@ -191,6 +193,7 @@ function createProviderHarness() {
       buildWebviewHtml: () => '<html></html>',
       '@noCallThru': true
     },
+    '../../../../src/utils/ripgrep': ripgrepStub,
     '../../../../src/utils/workspace': workspaceStub,
     '../../../../src/services/apexLogCleanup': {
       clearApexLogs: async () => ({ deleted: 0, failed: 0, total: 0 }),
@@ -214,6 +217,7 @@ function createProviderHarness() {
     cli: cliStub,
     http: httpStub,
     workspace: workspaceStub,
+    ripgrep: ripgrepStub,
     DebugFlagsPanel: debugFlagsPanelStub,
     telemetryEvents,
     vscode: vscodeMock
@@ -848,8 +852,8 @@ suite('SfLogsViewProvider behavior', () => {
     );
   });
 
-  test('searchQuery posts searchMatches from runtime search results', async () => {
-    const { SfLogsViewProvider, cli, telemetryEvents, workspace } = createProviderHarness();
+  test('setSearchQuery posts local ripgrep matches with snippets', async () => {
+    const { SfLogsViewProvider, cli, telemetryEvents, workspace, ripgrep } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
 
@@ -875,20 +879,36 @@ suite('SfLogsViewProvider behavior', () => {
       }
     } as any;
 
-    const searchCalls: any[] = [];
-    const needle = '323301606';
-    cli.searchQuery = async (params: any) => {
-      searchCalls.push(params);
+    const ensureCalls: any[] = [];
+    (provider as any).logService.ensureLogsSaved = async (
+      logs: any[],
+      org: string | undefined,
+      _signal: AbortSignal | undefined,
+      options: any
+    ) => {
+      ensureCalls.push({ logs, org, downloadMissing: options?.downloadMissing });
       return {
-        logIds: ['07L000000000001AA'],
-        snippets: {
-          '07L000000000001AA': {
-            text: `Usuário João gerou erro crítico ${needle}`,
-            ranges: [[33, 42]]
-          }
-        },
-        pendingLogIds: []
+        total: logs.length,
+        success: logs.length,
+        downloaded: 0,
+        existing: logs.length,
+        missing: 0,
+        failed: 0,
+        cancelled: 0,
+        failedLogIds: []
       };
+    };
+    const searchCalls: Array<{ query: string; cwd: string; signal?: AbortSignal }> = [];
+    const needle = '323301606';
+    ripgrep.ripgrepSearch = async (query: string, cwd: string, signal?: AbortSignal) => {
+      searchCalls.push({ query, cwd, signal });
+      return [
+        {
+          filePath: path.join(tmpDir, '07L000000000001AA.log'),
+          lineText: `critical error ${needle}\n`,
+          submatches: [{ start: 9, end: 14 }]
+        }
+      ];
     };
 
     try {
@@ -897,13 +917,11 @@ suite('SfLogsViewProvider behavior', () => {
       await (provider as any).setSearchQuery('error');
       await new Promise(r => setTimeout(r, 20));
 
-      assert.equal(searchCalls.length, 1, 'should call runtime search once');
-      assert.deepEqual(searchCalls[0], {
-        username: undefined,
-        query: 'error',
-        logIds: ['07L000000000001AA'],
-        workspaceRoot: '/tmp/alv-workspace'
-      });
+      assert.equal(ensureCalls.length, 1, 'should check local saved logs once');
+      assert.equal(ensureCalls[0]?.downloadMissing, false);
+      assert.equal(searchCalls.length, 1, 'should call local ripgrep once');
+      assert.equal(searchCalls[0]?.query, 'error');
+      assert.equal(searchCalls[0]?.cwd, tmpDir);
       const matches = posted
         .filter(m => m?.type === 'searchMatches' && Array.isArray(m.logIds) && m.logIds.includes('07L000000000001AA'))
         .pop();
@@ -926,8 +944,8 @@ suite('SfLogsViewProvider behavior', () => {
     }
   });
 
-  test('searchQuery posts pendingLogIds from runtime search results', async () => {
-    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+  test('setSearchQuery posts pendingLogIds for visible logs without local files', async () => {
+    const { SfLogsViewProvider, cli, workspace, ripgrep } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
 
@@ -949,14 +967,28 @@ suite('SfLogsViewProvider behavior', () => {
       }
     } as any;
 
-    let searchCalls = 0;
-    cli.searchQuery = async () => {
-      searchCalls++;
+    (provider as any).logService.ensureLogsSaved = async (
+      logs: any[],
+      _org: string | undefined,
+      _signal: AbortSignal | undefined,
+      options: any
+    ) => {
+      options?.onMissing?.('07L000000000001AA');
       return {
-        logIds: [],
-        snippets: {},
-        pendingLogIds: ['07L000000000001AA']
+        total: logs.length,
+        success: 0,
+        downloaded: 0,
+        existing: 0,
+        missing: logs.length,
+        failed: 0,
+        cancelled: 0,
+        failedLogIds: []
       };
+    };
+    let searchCalls = 0;
+    ripgrep.ripgrepSearch = async () => {
+      searchCalls++;
+      return [];
     };
 
     try {
@@ -969,14 +1001,14 @@ suite('SfLogsViewProvider behavior', () => {
       assert.ok(matches, 'should post searchMatches even when missing');
       assert.ok(Array.isArray(matches?.pendingLogIds), 'pendingLogIds should be an array');
       assert.deepEqual(matches?.pendingLogIds, ['07L000000000001AA']);
-      assert.equal(searchCalls, 1, 'should delegate missing-log state to runtime search');
+      assert.equal(searchCalls, 1, 'should still run local ripgrep for cached visible logs');
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   });
 
   test('setSearchQuery aborts previous search before running a new one', async () => {
-    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+    const { SfLogsViewProvider, cli, workspace, ripgrep } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
 
@@ -1002,18 +1034,32 @@ suite('SfLogsViewProvider behavior', () => {
     await new Promise(r => setTimeout(r, 20));
 
     const searchSignals: AbortSignal[] = [];
-    cli.searchQuery = async (_params: any, signal?: AbortSignal) => {
+    (provider as any).logService.ensureLogsSaved = async () => ({
+      total: 1,
+      success: 1,
+      downloaded: 0,
+      existing: 1,
+      missing: 0,
+      failed: 0,
+      cancelled: 0,
+      failedLogIds: []
+    });
+    ripgrep.ripgrepSearch = async (_query: string, _cwd: string, signal?: AbortSignal) => {
       if (signal) {
         searchSignals.push(signal);
       }
       if (searchSignals.length === 1 && signal) {
         await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
       }
-      return {
-        logIds: signal?.aborted ? [] : ['07L000000000001AA'],
-        snippets: {},
-        pendingLogIds: []
-      };
+      return signal?.aborted
+        ? []
+        : [
+            {
+              filePath: path.join(tmpDir, '07L000000000001AA.log'),
+              lineText: 'second match\n',
+              submatches: [{ start: 0, end: 6 }]
+            }
+          ];
     };
 
     try {
@@ -1024,7 +1070,7 @@ suite('SfLogsViewProvider behavior', () => {
       await new Promise(r => setTimeout(r, 10));
 
       assert.ok(searchSignals[0]?.aborted, 'first search should be aborted');
-      assert.equal(searchSignals.length, 2, 'should issue runtime search twice');
+      assert.equal(searchSignals.length, 2, 'should issue local search twice');
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }

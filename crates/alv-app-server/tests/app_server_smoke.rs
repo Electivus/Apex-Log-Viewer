@@ -120,7 +120,7 @@ fn app_server_smoke_reports_initialize_handshake() {
     assert_eq!(result.arch, std::env::consts::ARCH);
     assert!(result.capabilities.orgs);
     assert!(result.capabilities.logs);
-    assert!(result.capabilities.search);
+    assert!(!result.capabilities.search);
     assert!(result.capabilities.tail);
     assert!(result.capabilities.debug_flags);
     assert!(result.capabilities.doctor);
@@ -207,23 +207,6 @@ fn app_server_smoke_routes_logs_search_and_triage_requests() {
     .expect("logs/list should emit a response");
     assert!(list_response.contains("\"Id\":\"07L000000000001AA\""));
     assert!(list_response.contains("\"Operation\":\"ExecuteAnonymous\""));
-
-    let search_request = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "search:1",
-        "method": "search/query",
-        "params": {
-            "query": "nullpointerexception",
-            "logIds": ["07L000000000001AA", "07L000000000002AA"],
-            "workspaceRoot": workspace_root.display().to_string()
-        }
-    })
-    .to_string();
-    let search_response = handle_request_line(&search_request)
-        .expect("search/query request should succeed")
-        .expect("search/query should emit a response");
-    assert!(search_response.contains("\"logIds\":[\"07L000000000001AA\"]"));
-    assert!(search_response.contains("\"pendingLogIds\":[\"07L000000000002AA\"]"));
 
     let triage_request = serde_json::json!({
         "jsonrpc": "2.0",

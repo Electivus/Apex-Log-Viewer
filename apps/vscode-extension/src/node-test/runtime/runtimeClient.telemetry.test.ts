@@ -30,21 +30,25 @@ suite('runtime client telemetry', () => {
 
     const client = new RuntimeClient({
       requestHandler: async (method, params) => {
-        assert.equal(method, 'search/query');
-        assert.deepEqual(params, { query: 'marker', logIds: ['07L000000000001AA'] });
-        return {
-          logIds: ['07L000000000001AA'],
-          snippets: {},
-          pendingLogIds: []
-        } as never;
+        assert.equal(method, 'logs/triage');
+        assert.deepEqual(params, { logIds: ['07L000000000001AA'] });
+        return [
+          {
+            logId: '07L000000000001AA',
+            summary: {
+              hasErrors: false,
+              reasons: []
+            }
+          }
+        ] as never;
       }
     });
 
-    await client.searchQuery({ query: 'marker', logIds: ['07L000000000001AA'] });
+    await client.logsTriage({ logIds: ['07L000000000001AA'] });
 
     assert.equal(events.length, 1);
     assert.deepEqual(events[0]?.properties, {
-      method: 'search_query',
+      method: 'logs_triage',
       outcome: 'ok'
     });
     assert.equal(events[0]?.name, 'daemon.request');
@@ -89,7 +93,6 @@ suite('runtime client telemetry', () => {
     await client.getOrgAuth();
     await client.logsList();
     await client.logsSync();
-    await client.searchQuery({ query: 'marker' });
     await client.logsTriage({ logIds: ['07L000000000001AA'] });
     await client.resolveCachedLogPath({ logId: '07L000000000001AA' });
 
@@ -99,7 +102,6 @@ suite('runtime client telemetry', () => {
       'org/auth',
       'logs/list',
       'logs/sync',
-      'search/query',
       'logs/triage',
       'logs/resolveCachedPath'
     ]);
@@ -111,7 +113,6 @@ suite('runtime client telemetry', () => {
         'org_auth',
         'logs_list',
         'logs_sync',
-        'search_query',
         'logs_triage',
         'logs_resolve_cached_path'
       ]
@@ -161,7 +162,7 @@ suite('runtime client telemetry', () => {
     abortController.abort();
 
     await assert.rejects(
-      client.searchQuery({ query: 'marker', logIds: ['07L000000000001AA'] }, abortController.signal),
+      client.logsTriage({ logIds: ['07L000000000001AA'] }, abortController.signal),
       error => {
         assert.equal(error instanceof Error, true);
         assert.equal((error as Error).name, 'AbortError');
@@ -172,7 +173,7 @@ suite('runtime client telemetry', () => {
     assert.equal(called, false, 'should short-circuit before invoking the runtime request handler');
     assert.equal(events.length, 1);
     assert.deepEqual(events[0]?.properties, {
-      method: 'search_query',
+      method: 'logs_triage',
       outcome: 'cancelled'
     });
     assert.equal(events[0]?.name, 'daemon.request');
