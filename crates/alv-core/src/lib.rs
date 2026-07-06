@@ -11,7 +11,6 @@ pub mod logs;
 pub mod logs_sync;
 pub(crate) mod org_inventory;
 pub mod orgs;
-pub mod search;
 pub mod tail;
 pub mod tooling;
 pub mod trace_flags;

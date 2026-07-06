@@ -8,7 +8,7 @@ What we collect
 - Coarse performance timings such as `durationMs`.
 - Small cardinality buckets such as `scope`, `view`, `sourceView`, `targetType`, and org-count buckets.
 - Coarse error codes such as `ENOENT`, `ETIMEDOUT`, `CLI_NOT_FOUND`, and `AUTH_FAILED`.
-- Coarse daemon method names such as `initialize`, `org_list`, `org_auth`, `logs_list`, `search_query`, and `logs_triage`.
+- Coarse daemon method names such as `initialize`, `org_list`, `org_auth`, `logs_list`, `logs_sync`, and `logs_triage`.
 - Search-specific finite counters such as `matchCount` and `pendingCount`, plus bucketed `queryLength`.
 
 What we do not collect

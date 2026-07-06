@@ -55,12 +55,6 @@ apex-log-viewer --json logs status --target-org my-org
 apex-log-viewer --json logs list --target-org my-org --limit 20
 ```
 
-Search local cached logs before widening the scope:
-
-```bash
-apex-log-viewer --json logs search "FATAL_ERROR|EXCEPTION_THROWN" --target-org my-org
-```
-
 Sync only when the cache is missing what the task needs. `logs sync` performs authenticated Salesforce Tooling API reads and writes local files under `apexlogs/`:
 
 ```bash
@@ -145,7 +139,7 @@ apex-log-viewer --json doctor --target-org my-org
 
 ```bash
 apex-log-viewer --json logs sync --target-org my-org --concurrency 6
-apex-log-viewer --json logs search "NullPointerException|FATAL_ERROR" --target-org my-org
+apex-log-viewer --json logs status --target-org my-org
 ```
 
 ```bash
