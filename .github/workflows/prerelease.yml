@@ -196,10 +196,13 @@ jobs:
 
       - name: Build extension packaging assets
         shell: bash
+        env:
+          MATRIX_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           npm run clean
           npm run build:tree-sitter-runtime
+          npm run build:ripgrep-runtime -- "${MATRIX_TARGET}"
           npm run build:package-metadata
           node apps/vscode-extension/esbuild.extension.mjs
           (npm run -s nls:extract || true)

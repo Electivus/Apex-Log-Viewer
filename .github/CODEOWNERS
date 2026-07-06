@@ -9,6 +9,7 @@
 /deny.toml @Electivus/maintainers
 /config/runtime-bundle.json @Electivus/maintainers
 /apps/vscode-extension/scripts/copy-tree-sitter-runtime.mjs @Electivus/maintainers
+/apps/vscode-extension/scripts/copy-ripgrep-runtime.mjs @Electivus/maintainers
 /apps/vscode-extension/scripts/copy-package-metadata.mjs @Electivus/maintainers
 /scripts/fetch-runtime-release.mjs @Electivus/maintainers
 /scripts/build-cli-npm-packages.mjs @Electivus/maintainers

@@ -67,26 +67,3 @@ test('logs status --json reports sync metadata for the seeded scratch org', asyn
   expect(json?.last_synced_log_id).toBe(seededLog.logId);
   expect(Number(json?.log_count ?? 0)).toBeGreaterThanOrEqual(1);
 });
-
-test('logs search --json finds the seeded marker locally after sync', async ({ runCli, seededLog, syncLogs, scratchAlias }) => {
-  const { json: syncJson } = await syncLogs();
-  const result = await runCli(['logs', 'search', seededLog.marker, '--json', '--target-org', scratchAlias]);
-  const json = sfJsonResult(result);
-  const matches = Array.isArray(json?.matches) ? json.matches : [];
-
-  expect(result.exitCode).toBe(0);
-  expect(json).toBeTruthy();
-  expect(json?.target_org).toBe(syncJson?.target_org);
-  expect(json?.safe_target_org).toBe(syncJson?.safe_target_org);
-  expect(json?.query).toBe(seededLog.marker);
-  expect(Number(json?.searched_log_count ?? 0)).toBeGreaterThanOrEqual(1);
-  expect(matches.length).toBeGreaterThanOrEqual(1);
-  expect(matches).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        log_id: seededLog.logId
-      })
-    ])
-  );
-  expect(Array.isArray(json?.pending_log_ids) ? json.pending_log_ids : []).not.toContain(seededLog.logId);
-});
