@@ -152,6 +152,7 @@ test('writeLogBody saves fetched bodies without leaving temp files', async () =>
   );
 
   assert.equal(await fs.readFile(saved.path, 'utf8'), 'complete body');
+  assert.match(saved.path, /logs\/2026-07-06\/07L000000000003AAA\.log$/);
   const dirFiles = await fs.readdir(path.dirname(saved.path));
   assert.deepEqual(
     dirFiles.filter(fileName => fileName.includes('.tmp')),

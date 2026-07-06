@@ -276,7 +276,8 @@ function commandArgsForMethod(method: string, params: unknown): string[] {
         ...(Array.isArray(p.logIds) ? p.logIds.map(String) : []),
         ...flagList([
           ['--target-org', p.username],
-          ['--workspace-root', p.workspaceRoot]
+          ['--workspace-root', p.workspaceRoot],
+          ['--log-start-times', p.logStartTimes]
         ])
       ];
     case 'logs/delete':

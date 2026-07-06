@@ -107,6 +107,41 @@ suite('sf plugin client', () => {
     ]);
   });
 
+  test('passes log start times to triage commands', async () => {
+    const calls: Array<{ args: readonly string[]; options: { cwd?: string; env?: NodeJS.ProcessEnv } }> = [];
+    const { RuntimeClient } = loadRuntimeClient({});
+    const client = new RuntimeClient({
+      workspaceRoot: () => '/workspace',
+      runner: async (args, options) => {
+        calls.push({ args, options });
+        return {
+          exitCode: 0,
+          signal: null,
+          stdout: JSON.stringify([]),
+          stderr: ''
+        };
+      }
+    });
+
+    await client.logsTriage({
+      username: 'demo@example.com',
+      logIds: ['07L000000000001AAA'],
+      logStartTimes: { '07L000000000001AAA': '2026-07-06T10:00:00.000+0000' }
+    });
+
+    assert.deepEqual(calls[0]?.args, [
+      'logs',
+      'triage',
+      '07L000000000001AAA',
+      '--target-org',
+      'demo@example.com',
+      '--workspace-root',
+      '/workspace',
+      '--log-start-times',
+      '{"07L000000000001AAA":"2026-07-06T10:00:00.000+0000"}'
+    ]);
+  });
+
   test('dedupes concurrent org auth requests for the same username', async () => {
     const calls: string[][] = [];
     const { RuntimeClient } = loadRuntimeClient({});

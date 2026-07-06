@@ -875,7 +875,7 @@ async function logsTriageNative(params: LogsTriageParams): Promise<LogsTriageEnt
     if (!filePath && ctx) {
       try {
         const body = await fetchLogBody(ctx, logId);
-        await writeLogBody(params.workspaceRoot, ctx.username, { Id: logId }, body);
+        await writeLogBody(params.workspaceRoot, ctx.username, { Id: logId, StartTime: params.logStartTimes?.[logId] }, body);
         entries.push({ logId, summary: summarizeLogText(body) });
         continue;
       } catch (error) {
@@ -1366,6 +1366,15 @@ function flag(args: ParsedArgs, name: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function jsonStringRecordFlag(args: ParsedArgs, name: string): Record<string, string> | undefined {
+  const value = flag(args, name);
+  if (!value) return undefined;
+  const parsed = JSON.parse(value) as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  );
+}
+
 function boolFlag(args: ParsedArgs, name: string): boolean {
   return args.flags.get(name) === true || args.flags.get(name) === 'true';
 }
@@ -1412,7 +1421,7 @@ export async function executeElectivus(argv: readonly string[]): Promise<unknown
   if (topic === 'logs' && command === 'read') return logsReadNative({ logId: args.positionals[2] || '', targetOrg: targetOrg(args), workspaceRoot: flag(args, 'workspace-root') || process.cwd(), maxBytes: asNumber(flag(args, 'max-bytes')) });
   if (topic === 'logs' && command === 'resolve') return logsResolveNative({ logId: args.positionals[2] || '', targetOrg: targetOrg(args), workspaceRoot: flag(args, 'workspace-root') || process.cwd() });
   if (topic === 'logs' && command === 'resolve-cached-path') return resolveCachedLogPathNative({ logId: args.positionals[2] || '', username: flag(args, 'username'), workspaceRoot: flag(args, 'workspace-root') || process.cwd() });
-  if (topic === 'logs' && command === 'triage') return logsTriageNative({ username: targetOrg(args), logIds: args.positionals.slice(2), workspaceRoot: flag(args, 'workspace-root') || process.cwd() });
+  if (topic === 'logs' && command === 'triage') return logsTriageNative({ username: targetOrg(args), logIds: args.positionals.slice(2), logStartTimes: jsonStringRecordFlag(args, 'log-start-times'), workspaceRoot: flag(args, 'workspace-root') || process.cwd() });
   if (topic === 'logs' && command === 'delete') return logsDeleteNative({ targetOrg: targetOrg(args), workspaceRoot: flag(args, 'workspace-root') || process.cwd(), scope: flag(args, 'scope') === 'all' ? 'all' : 'mine', ids: flag(args, 'ids')?.split(',').filter(Boolean), limit: asNumber(flag(args, 'limit')), dryRun: boolFlag(args, 'dry-run'), confirmed: boolFlag(args, 'yes') });
   if (topic === 'users' && command === 'search') return usersSearchNative({ targetOrg: targetOrg(args), query: args.positionals[2], limit: asNumber(flag(args, 'limit')) });
   if (topic === 'trace-flags' && command === 'status') return traceFlagStatusNative({ targetOrg: targetOrg(args), target: await normalizeCurrentUserTarget(traceTarget(args), targetOrg(args)) });
