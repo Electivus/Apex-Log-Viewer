@@ -258,6 +258,28 @@ test('resolveLogDeleteIds rejects empty explicit id sources', async () => {
   );
 });
 
+test('executeElectivus rejects invalid log delete scopes before live deletes', async () => {
+  await assert.rejects(
+    executeElectivus(['logs', 'delete', '--scope', 'alll', '--yes']),
+    /Invalid --scope value/
+  );
+});
+
+test('executeElectivus rejects conflicting trace flag targets', async () => {
+  await assert.rejects(
+    executeElectivus([
+      'trace-flags',
+      'apply',
+      '--current-user',
+      '--automated-process',
+      '--debug-level',
+      'ALV_DEBUG',
+      '--yes'
+    ]),
+    /Trace flag target flags are mutually exclusive/
+  );
+});
+
 test('writeLogBody saves fetched bodies without leaving temp files', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-write-log-'));
   const saved = await writeLogBody(

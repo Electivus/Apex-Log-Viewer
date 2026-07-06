@@ -1644,8 +1644,28 @@ function targetOrg(args: ParsedArgs): string | undefined {
   return flag(args, 'target-org');
 }
 
+function logDeleteScope(args: ParsedArgs): 'mine' | 'all' {
+  if (!args.flags.has('scope')) return 'mine';
+  const value = flag(args, 'scope');
+  if (value === 'mine' || value === 'all') return value;
+  throw new Error('Invalid --scope value. Expected one of: mine, all.');
+}
+
 function traceTarget(args: ParsedArgs): TraceFlagTarget {
+  const selectedTargets: string[] = [];
   const userId = flag(args, 'user-id');
+  if (args.flags.has('user-id')) {
+    if (!userId) {
+      throw new Error('The --user-id flag requires a Salesforce User id.');
+    }
+    selectedTargets.push('--user-id');
+  }
+  if (boolFlag(args, 'current-user')) selectedTargets.push('--current-user');
+  if (boolFlag(args, 'automated-process')) selectedTargets.push('--automated-process');
+  if (boolFlag(args, 'platform-integration')) selectedTargets.push('--platform-integration');
+  if (selectedTargets.length > 1) {
+    throw new Error(`Trace flag target flags are mutually exclusive: ${selectedTargets.join(', ')}.`);
+  }
   if (userId) return { type: 'user', userId };
   if (boolFlag(args, 'automated-process')) return { type: 'automatedProcess' };
   if (boolFlag(args, 'platform-integration')) return { type: 'platformIntegration' };
@@ -1779,7 +1799,7 @@ export async function executeElectivus(argv: readonly string[]): Promise<unknown
     return logsDeleteNative({
       targetOrg: targetOrg(args),
       workspaceRoot: flag(args, 'workspace-root') || process.cwd(),
-      scope: flag(args, 'scope') === 'all' ? 'all' : 'mine',
+      scope: logDeleteScope(args),
       ids: await resolveLogDeleteIds({
         ids: flag(args, 'ids'),
         idsProvided: args.flags.has('ids'),
