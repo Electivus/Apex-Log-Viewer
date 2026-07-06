@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { executeElectivus } from '../src/native.ts';
+import { executeElectivus, resolveOrgRequestPath, toolingQuery } from '../src/native.ts';
 
 test('executeElectivus rejects unknown commands clearly', async () => {
   await assert.rejects(
@@ -91,4 +91,53 @@ test('executeElectivus triages exception events as fatal exceptions', async () =
   assert.equal(Array.isArray(result), true);
   assert.equal((result as any[])[0]?.summary?.primaryReason, 'Fatal exception');
   assert.equal((result as any[])[0]?.summary?.reasons?.[0]?.code, 'fatal_exception');
+});
+
+test('resolveOrgRequestPath rejects absolute URLs outside the authenticated org', () => {
+  const ctx = { instanceUrl: 'https://example.my.salesforce.com' };
+
+  assert.equal(resolveOrgRequestPath(ctx, '/services/data/v63.0/tooling/query'), '/services/data/v63.0/tooling/query');
+  assert.equal(
+    resolveOrgRequestPath(ctx, 'https://example.my.salesforce.com/services/data/v63.0/tooling/query?q=SELECT+Id'),
+    '/services/data/v63.0/tooling/query?q=SELECT+Id'
+  );
+  assert.throws(
+    () => resolveOrgRequestPath(ctx, 'https://attacker.example/services/data/v63.0/tooling/query'),
+    /must target the authenticated org instance/
+  );
+});
+
+test('toolingQuery follows all Tooling API result pages', async () => {
+  const calls: string[] = [];
+  const connection = {
+    tooling: {
+      async query(soql: string) {
+        calls.push(`query:${soql}`);
+        return {
+          done: false,
+          totalSize: 3,
+          records: [{ Id: '01p000000000001AAA' }],
+          nextRecordsUrl: '/services/data/v63.0/tooling/query/01g-page-2'
+        };
+      },
+      async queryMore(locator: string) {
+        calls.push(`queryMore:${locator}`);
+        return {
+          done: true,
+          totalSize: 3,
+          records: [{ Id: '01p000000000002AAA' }, { Id: '01p000000000003AAA' }]
+        };
+      }
+    }
+  };
+
+  const result = await toolingQuery<{ Id: string }>(connection as any, 'SELECT Id FROM ApexClass');
+
+  assert.deepEqual(calls, ['query:SELECT Id FROM ApexClass', 'queryMore:/services/data/v63.0/tooling/query/01g-page-2']);
+  assert.equal(result.done, true);
+  assert.equal(result.totalSize, 3);
+  assert.deepEqual(
+    result.records?.map(record => record.Id),
+    ['01p000000000001AAA', '01p000000000002AAA', '01p000000000003AAA']
+  );
 });

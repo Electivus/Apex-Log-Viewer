@@ -14,6 +14,9 @@ HOST_GENERATED_PATHS=(
   "dist"
   "out"
   "output"
+  "packages/sf-plugin/lib"
+  "packages/sf-plugin/oclif.manifest.json"
+  "packages/sf-plugin/oclif.lock"
 )
 
 export SF_SKIP_NEW_VERSION_CHECK="${SF_SKIP_NEW_VERSION_CHECK:-true}"

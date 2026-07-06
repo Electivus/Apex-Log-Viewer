@@ -353,8 +353,20 @@ async function resolveOrgNative(params: OrgResolveParams = {}): Promise<OrgResol
   };
 }
 
-async function toolingQuery<TRecord = JsonObject>(connection: Connection, soql: string): Promise<QueryResult<TRecord>> {
-  return (await connection.tooling.query(soql)) as QueryResult<TRecord>;
+export async function toolingQuery<TRecord = JsonObject>(connection: Connection, soql: string): Promise<QueryResult<TRecord>> {
+  const firstPage = (await connection.tooling.query(soql)) as QueryResult<TRecord>;
+  const records = [...(firstPage.records || [])];
+  let page = firstPage;
+  while (!page.done && page.nextRecordsUrl) {
+    page = (await connection.tooling.queryMore(page.nextRecordsUrl)) as QueryResult<TRecord>;
+    records.push(...(page.records || []));
+  }
+  return {
+    ...firstPage,
+    records,
+    done: page.done,
+    nextRecordsUrl: page.nextRecordsUrl
+  };
 }
 
 async function standardQuery<TRecord = JsonObject>(connection: Connection, soql: string): Promise<QueryResult<TRecord>> {
@@ -380,6 +392,25 @@ async function connectionRequest<T = unknown>(
     request.headers = { 'Content-Type': 'application/json' };
   }
   return (await connection.request(request as never)) as T;
+}
+
+export function resolveOrgRequestPath(ctx: Pick<ConnectionContext, 'instanceUrl'>, pathOrUrl: string): string {
+  const trimmed = pathOrUrl.trim();
+  if (!trimmed) {
+    throw new Error('Tooling request path is required.');
+  }
+  if (!URL.canParse(trimmed)) {
+    return trimmed;
+  }
+  if (!ctx.instanceUrl || !URL.canParse(ctx.instanceUrl)) {
+    throw new Error('Cannot validate absolute tooling request URL because the org instance URL is unavailable.');
+  }
+  const requested = new URL(trimmed);
+  const instance = new URL(ctx.instanceUrl);
+  if (requested.origin !== instance.origin) {
+    throw new Error('Absolute tooling request URLs must target the authenticated org instance.');
+  }
+  return `${requested.pathname}${requested.search}${requested.hash}`;
 }
 
 async function listLogsNative(params: LogsListParams = {}): Promise<RuntimeLogRow[]> {
@@ -1235,7 +1266,7 @@ async function toolingQueryNative(params: ToolingQueryParams): Promise<ToolingQu
 
 async function toolingRequestGetNative(params: ToolingRequestGetParams): Promise<unknown> {
   const ctx = await getConnectionContext(params.targetOrg);
-  return connectionRequest(ctx.connection, 'GET', params.path);
+  return connectionRequest(ctx.connection, 'GET', resolveOrgRequestPath(ctx, params.path));
 }
 
 async function doctorNative(params: DoctorParams = {}): Promise<DoctorResult> {
