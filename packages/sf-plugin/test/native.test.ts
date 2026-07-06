@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { executeElectivus, resolveOrgRequestPath, toolingQuery } from '../src/native.ts';
+import { executeElectivus, resolveOrgRequestPath, toolingQuery, writeLogBody } from '../src/native.ts';
 
 test('executeElectivus rejects unknown commands clearly', async () => {
   await assert.rejects(
@@ -139,5 +139,22 @@ test('toolingQuery follows all Tooling API result pages', async () => {
   assert.deepEqual(
     result.records?.map(record => record.Id),
     ['01p000000000001AAA', '01p000000000002AAA', '01p000000000003AAA']
+  );
+});
+
+test('writeLogBody saves fetched bodies without leaving temp files', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'electivus-write-log-'));
+  const saved = await writeLogBody(
+    workspaceRoot,
+    'demo@example.com',
+    { Id: '07L000000000003AAA', StartTime: '2026-07-06T10:00:00.000+0000' },
+    'complete body'
+  );
+
+  assert.equal(await fs.readFile(saved.path, 'utf8'), 'complete body');
+  const dirFiles = await fs.readdir(path.dirname(saved.path));
+  assert.deepEqual(
+    dirFiles.filter(fileName => fileName.includes('.tmp')),
+    []
   );
 });

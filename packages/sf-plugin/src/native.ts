@@ -440,7 +440,7 @@ async function fetchLogBody(ctx: ConnectionContext, logId: string): Promise<stri
   return typeof value === 'string' ? value : value === undefined || value === null ? '' : JSON.stringify(value);
 }
 
-async function writeLogBody(
+export async function writeLogBody(
   workspaceRoot: string | undefined,
   username: string,
   row: Pick<RuntimeLogRow, 'Id' | 'StartTime'>,
@@ -452,7 +452,16 @@ async function writeLogBody(
     return { path: filePath, downloaded: false };
   } catch {}
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, body, 'utf8');
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await fs.writeFile(tempPath, body, 'utf8');
+    await fs.rename(tempPath, filePath);
+  } catch (error) {
+    try {
+      await fs.unlink(tempPath);
+    } catch {}
+    throw error;
+  }
   return { path: filePath, downloaded: true };
 }
 
@@ -592,23 +601,30 @@ async function logsSyncNative(params: LogsSyncParams = {}): Promise<LogsSyncResu
       }
       pageRows.push(row);
     }
+    const completedIds = new Set<string>();
     await runLimited(pageRows, concurrency, async row => {
       try {
         const existing = await findCachedLogPath(workspaceRoot, row.Id, ctx.username);
         if (existing) {
           cached += 1;
-          if (!newest) newest = { id: row.Id, startTime: row.StartTime };
+          completedIds.add(row.Id);
           return;
         }
         const body = await fetchLogBody(ctx, row.Id);
         const saved = await writeLogBody(workspaceRoot, ctx.username, row, body);
         if (saved.downloaded) downloaded += 1;
         else cached += 1;
-        if (!newest) newest = { id: row.Id, startTime: row.StartTime };
+        completedIds.add(row.Id);
       } catch {
         failed += 1;
       }
     });
+    if (!newest) {
+      const checkpointRow = pageRows.find(row => row.Id && completedIds.has(row.Id));
+      if (checkpointRow?.Id) {
+        newest = { id: checkpointRow.Id, startTime: checkpointRow.StartTime };
+      }
+    }
     const last = rows.at(-1);
     if (reachedCheckpoint || rows.length < SYNC_PAGE_SIZE || !last?.StartTime || !last?.Id) break;
     cursor = { beforeStartTime: last.StartTime, beforeId: last.Id };
@@ -837,10 +853,18 @@ function summarizeLogText(logText: string): RuntimeLogTriageSummary {
 
 async function logsTriageNative(params: LogsTriageParams): Promise<LogsTriageEntry[]> {
   const target = asString(params.username);
-  const username = target ? (await resolveUsername(target)).username : undefined;
+  const ctx = target ? await getConnectionContext(target) : undefined;
+  const username = ctx?.username;
   const entries: LogsTriageEntry[] = [];
   for (const logId of params.logIds || []) {
-    const filePath = await findCachedLogPath(params.workspaceRoot, logId, username);
+    let filePath = await findCachedLogPath(params.workspaceRoot, logId, username);
+    if (!filePath && ctx) {
+      try {
+        const body = await fetchLogBody(ctx, logId);
+        const saved = await writeLogBody(params.workspaceRoot, ctx.username, { Id: logId }, body);
+        filePath = saved.path;
+      } catch {}
+    }
     if (!filePath) {
       entries.push({
         logId,
