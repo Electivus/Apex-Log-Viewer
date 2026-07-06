@@ -21,6 +21,7 @@
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
+    "@jsforce/jsforce-node": "3.9.0",
     "@oclif/core": "^4.8.0",
     "@salesforce/core": "^7.5.0",
     "@salesforce/sf-plugins-core": "^10.0.1"
