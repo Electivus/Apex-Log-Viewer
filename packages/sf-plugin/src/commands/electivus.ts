@@ -20,7 +20,7 @@ export default class Electivus extends SfCommand<unknown> {
 
   public override async run(): Promise<unknown> {
     const result = await executeElectivus(this.argv);
-    if (!this.argv.includes('--json')) {
+    if (!this.jsonEnabled()) {
       process.stdout.write(formatTextResult(result));
     }
     return result;

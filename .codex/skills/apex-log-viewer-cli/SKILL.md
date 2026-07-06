@@ -1,35 +1,35 @@
 ---
 name: apex-log-viewer-cli
-description: Use the Apex Log Viewer standalone CLI for Salesforce Apex log investigation, local log sync/search/read/triage, org resolution, debug level and trace flag operations, and read-only Tooling API checks. Trigger when Codex needs to inspect Apex logs with `apex-log-viewer` or `alv`, operate on local `apexlogs/` caches, diagnose Salesforce log failures, manage trace flags/debug levels through the ALV CLI, or safely run Apex Log Viewer agent workflows.
+description: Use the Apex Log Viewer Salesforce CLI plugin for Apex log investigation, local log sync/search/read/triage, org resolution, debug level and trace flag operations, and read-only Tooling API checks. Trigger when Codex needs to inspect Apex logs with `sf electivus`, operate on local `apexlogs/` caches, diagnose Salesforce log failures, manage trace flags/debug levels through the ALV plugin, or safely run Apex Log Viewer agent workflows.
 ---
 
-# Apex Log Viewer CLI
+# Apex Log Viewer Sf Plugin
 
-Use the canonical `apex-log-viewer` command for agent-friendly Apex log work. The npm package also exposes `alv`, but prefer `apex-log-viewer` in examples and handoffs.
+Use the canonical `sf electivus` command namespace for agent-friendly Apex log work. The VS Code extension embeds the same plugin runner, and the published plugin exposes the same JSON command surface for terminal workflows.
 
 ## Start
 
 Run from the Salesforce workspace whose `apexlogs/` cache should be read or updated. The CLI stores local state under the current directory:
 
 ```bash
-ALV_CLI="$(command -v apex-log-viewer || command -v alv || true)"
-test -n "$ALV_CLI"
-"$ALV_CLI" --json doctor
+SF_CLI="$(command -v sf || true)"
+test -n "$SF_CLI"
+"$SF_CLI" electivus doctor --json
 ```
 
 If the user names an org, alias, username, scratch org, project, ticket, or reproduction context, pass it explicitly on every org-backed command:
 
 ```bash
-apex-log-viewer --json doctor --target-org my-org
-apex-log-viewer --json orgs resolve --target-org my-org
+sf electivus doctor --target-org my-org --json
+sf electivus orgs resolve --target-org my-org --json
 ```
 
 Auth is inherited from the Salesforce CLI, not from an Apex Log Viewer token. Expect `sf org display` and `sf org auth show-access-token` to be the underlying auth path. If `sf` is installed somewhere unusual, check whether the repo or user has set `ALV_SF_BIN_PATH`.
 
-Install or refresh this skill from the bundled CLI with:
+Install or refresh this skill from the Salesforce CLI plugin with:
 
 ```bash
-apex-log-viewer skills install --force
+sf electivus skills install
 ```
 
 ## JSON Rules
@@ -51,22 +51,22 @@ Read `status`, `code`, `message`, and any `data` before retrying. Do not paste a
 Use the narrowest read path first:
 
 ```bash
-apex-log-viewer --json logs status --target-org my-org
-apex-log-viewer --json logs list --target-org my-org --limit 20
+sf electivus logs status --target-org my-org --json
+sf electivus logs list --target-org my-org --limit 20 --json
 ```
 
 Sync only when the cache is missing what the task needs. `logs sync` performs authenticated Salesforce Tooling API reads and writes local files under `apexlogs/`:
 
 ```bash
-apex-log-viewer --json logs sync --target-org my-org --concurrency 6
+sf electivus logs sync --target-org my-org --concurrency 6 --json
 ```
 
 Read and triage exact IDs once identified:
 
 ```bash
-apex-log-viewer --json logs resolve 07L000000000001AAA --target-org my-org
-apex-log-viewer --json logs read 07L000000000001AAA --target-org my-org --max-bytes 200000
-apex-log-viewer --json logs triage 07L000000000001AAA --target-org my-org
+sf electivus logs resolve 07L000000000001AAA --target-org my-org --json
+sf electivus logs read 07L000000000001AAA --target-org my-org --max-bytes 200000 --json
+sf electivus logs triage 07L000000000001AAA --target-org my-org --json
 ```
 
 The canonical local layout is `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log` with sync state in `apexlogs/.alv/sync-state.json`. Do not use removed `logs index` commands.
@@ -76,15 +76,15 @@ The canonical local layout is `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<
 Find users before applying user-specific trace flags:
 
 ```bash
-apex-log-viewer --json users search "Ada Lovelace" --target-org my-org --limit 10
+sf electivus users search "Ada Lovelace" --target-org my-org --limit 10 --json
 ```
 
 Inspect before changing debug configuration:
 
 ```bash
-apex-log-viewer --json debug-levels list --target-org my-org
-apex-log-viewer --json debug-levels get --target-org my-org --developer-name ALV_DEBUG
-apex-log-viewer --json trace-flags status --target-org my-org --current-user
+sf electivus debug-levels list --target-org my-org --json
+sf electivus debug-levels get --target-org my-org --developer-name ALV_DEBUG --json
+sf electivus trace-flags status --target-org my-org --current-user --json
 ```
 
 Valid trace flag targets are `--current-user`, `--user-id <005...>`, `--automated-process`, and `--platform-integration`.
@@ -103,15 +103,15 @@ Treat these as operational writes and require explicit user intent before live e
 Always run the preview first:
 
 ```bash
-apex-log-viewer --json logs delete --target-org my-org --ids 07L000000000001AAA --dry-run
-apex-log-viewer --json trace-flags apply --target-org my-org --current-user --debug-level ALV_DEBUG --ttl-minutes 30 --dry-run
-apex-log-viewer --json debug-levels create --target-org my-org --developer-name ALV_DEBUG --master-label ALV_DEBUG --dry-run
+sf electivus logs delete --target-org my-org --ids 07L000000000001AAA --dry-run --json
+sf electivus trace-flags apply --target-org my-org --current-user --debug-level ALV_DEBUG --ttl-minutes 30 --dry-run --json
+sf electivus debug-levels create --target-org my-org --developer-name ALV_DEBUG --master-label ALV_DEBUG --dry-run --json
 ```
 
 Run live writes only after the user approves that specific operation, and include `--yes`:
 
 ```bash
-apex-log-viewer --json trace-flags apply --target-org my-org --current-user --debug-level ALV_DEBUG --ttl-minutes 30 --yes
+sf electivus trace-flags apply --target-org my-org --current-user --debug-level ALV_DEBUG --ttl-minutes 30 --yes --json
 ```
 
 Do not run live `logs delete --scope all` unless the user specifically asks to delete all org logs.
@@ -121,27 +121,27 @@ Do not run live `logs delete --scope all` unless the user specifically asks to d
 Use typed commands first. Use raw Tooling only for read-only gaps:
 
 ```bash
-apex-log-viewer --json tooling query "SELECT Id, StartTime, Operation, Status FROM ApexLog ORDER BY StartTime DESC LIMIT 5" --target-org my-org
-apex-log-viewer --json tooling request get "/services/data/v61.0/tooling/query/?q=SELECT+Id+FROM+ApexLog+LIMIT+1" --target-org my-org
+sf electivus tooling query "SELECT Id, StartTime, Operation, Status FROM ApexLog ORDER BY StartTime DESC LIMIT 5" --target-org my-org --json
+sf electivus tooling request get "/services/data/v61.0/tooling/query/?q=SELECT+Id+FROM+ApexLog+LIMIT+1" --target-org my-org --json
 ```
 
 Do not attempt raw POST, PATCH, or DELETE through this skill. Use typed commands for writes.
 
-## App Server
+## Removed Runtime
 
-`apex-log-viewer app-server --stdio` is for JSON-RPC integrations with the VS Code/runtime protocol. Do not use it for ordinary CLI investigation unless the task is specifically to test or integrate the app-server transport.
+The Rust app-server and daemon transports have been removed. Use `sf electivus ... --json` for all agent workflows.
 
 ## Copy-Paste Examples
 
 ```bash
-apex-log-viewer --json doctor --target-org my-org
+sf electivus doctor --target-org my-org --json
 ```
 
 ```bash
-apex-log-viewer --json logs sync --target-org my-org --concurrency 6
-apex-log-viewer --json logs status --target-org my-org
+sf electivus logs sync --target-org my-org --concurrency 6 --json
+sf electivus logs status --target-org my-org --json
 ```
 
 ```bash
-apex-log-viewer --json trace-flags apply --target-org my-org --current-user --debug-level ALV_DEBUG --ttl-minutes 30 --dry-run
+sf electivus trace-flags apply --target-org my-org --current-user --debug-level ALV_DEBUG --ttl-minutes 30 --dry-run --json
 ```

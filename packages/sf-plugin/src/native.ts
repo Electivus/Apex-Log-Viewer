@@ -560,10 +560,21 @@ async function resolveCachedLogPathNative(params: ResolveCachedLogPathParams): P
 
 async function logsReadNative(params: LogsReadParams): Promise<LogsReadResult> {
   const target = asString(params.targetOrg);
-  const localCached = (await findCachedLogPath(params.workspaceRoot, params.logId, target)) || (await findCachedLogPath(params.workspaceRoot, params.logId));
+  const localCached = target
+    ? await findCachedLogPath(params.workspaceRoot, params.logId, target)
+    : await findCachedLogPath(params.workspaceRoot, params.logId);
   if (localCached) return readCachedLog(params.logId, localCached, params.maxBytes);
 
-  const ctx = await getConnectionContext(params.targetOrg);
+  let ctx: ConnectionContext;
+  try {
+    ctx = await getConnectionContext(params.targetOrg);
+  } catch (error) {
+    if (target) {
+      const offlineCached = await findCachedLogPath(params.workspaceRoot, params.logId);
+      if (offlineCached) return readCachedLog(params.logId, offlineCached, params.maxBytes);
+    }
+    throw error;
+  }
   const cached = await findCachedLogPath(params.workspaceRoot, params.logId, ctx.username);
   if (cached) return readCachedLog(params.logId, cached, params.maxBytes);
 
@@ -1505,9 +1516,9 @@ function currentModuleDir(): string {
 async function resolveBundledSkillDir(): Promise<string> {
   const moduleDir = currentModuleDir();
   const candidates = [
+    path.resolve(moduleDir, '..', '..', '..', '.codex', 'skills', 'apex-log-viewer-cli'),
     path.resolve(moduleDir, 'skills', 'apex-log-viewer-cli'),
     path.resolve(moduleDir, '..', 'skills', 'apex-log-viewer-cli'),
-    path.resolve(moduleDir, '..', '..', '..', '.codex', 'skills', 'apex-log-viewer-cli'),
     path.resolve(process.cwd(), '.codex', 'skills', 'apex-log-viewer-cli')
   ];
   for (const candidate of candidates) {

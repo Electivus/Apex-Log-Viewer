@@ -238,7 +238,7 @@ test('executeElectivus installs the bundled Codex skill', async () => {
     assert.equal(result.files >= 2, true);
     assert.match(
       await fs.readFile(path.join(codexHome, 'skills', 'apex-log-viewer-cli', 'SKILL.md'), 'utf8'),
-      /Apex Log Viewer CLI/
+      /sf electivus skills install/
     );
   } finally {
     if (previousCodexHome === undefined) {

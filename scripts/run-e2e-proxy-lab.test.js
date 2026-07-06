@@ -180,6 +180,7 @@ test('proxy lab runner restores ownership of bind-mounted generated outputs on e
   assert.match(script, /ALV_E2E_PROXY_LAB_HOST_UID/);
   assert.match(script, /apps\/vscode-extension\/bin/);
   assert.match(script, /packages\/sf-plugin\/lib/);
+  assert.match(script, /packages\/sf-plugin\/skills/);
   assert.match(script, /packages\/sf-plugin\/oclif\.manifest\.json/);
   assert.match(script, /output/);
   assert.doesNotMatch(script, /exec "\$@"/);
