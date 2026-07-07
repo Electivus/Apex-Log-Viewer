@@ -923,6 +923,16 @@ test('release workflows default to read-only token permissions', () => {
   assert.deepEqual(prerelease.jobs.rollback_prerelease.permissions, { contents: 'write' });
   assert.equal(prerelease.jobs.publish_marketplace.permissions, undefined);
   assert.equal(prerelease.jobs.publish_open_vsx.permissions, undefined);
+
+  const sfPluginRelease = yaml.parse(read('.github/workflows/sf-plugin-release.yml'));
+  assert.deepEqual(sfPluginRelease.permissions, { contents: 'read' });
+  assert.equal(sfPluginRelease.jobs.validate_tag.permissions, undefined);
+  assert.equal(sfPluginRelease.jobs.package_plugin.permissions, undefined);
+  assert.deepEqual(sfPluginRelease.jobs.publish_npm.permissions, {
+    contents: 'read',
+    'id-token': 'write'
+  });
+  assert.deepEqual(sfPluginRelease.jobs.github_release.permissions, { contents: 'write' });
 });
 
 test('OpenSSF Scorecard workflow uploads SARIF with pinned actions', () => {

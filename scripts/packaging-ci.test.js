@@ -82,6 +82,43 @@ test('prerelease workflow computes the next publish version via the dedicated he
   );
 });
 
+test('sf plugin release workflow publishes matching sf-plugin-v tags through npm', () => {
+  const workflowSource = readFile('.github/workflows/sf-plugin-release.yml');
+  const validateJob = readWorkflowJob('.github/workflows/sf-plugin-release.yml', 'validate_tag');
+  const packageJob = readWorkflowJob('.github/workflows/sf-plugin-release.yml', 'package_plugin');
+  const publishJob = readWorkflowJob('.github/workflows/sf-plugin-release.yml', 'publish_npm');
+
+  assert.match(workflowSource, /tags:\s*\n\s+- 'sf-plugin-v\*'/);
+  assert.match(
+    validateJob,
+    /TAG_VERSION="\$\{TAG_NAME#sf-plugin-v\}"[\s\S]*?packages\/sf-plugin\/package\.json version \$\{PKG_VERSION\}/,
+    'expected the workflow to reject tags that do not match the sf plugin package version'
+  );
+  assert.match(
+    validateJob,
+    /ref:\s+\$\{\{\s*inputs\.tag_name && format\('refs\/tags\/\{0\}', inputs\.tag_name\) \|\| github\.ref\s*\}\}/,
+    'expected manual dispatch to checkout the fully qualified tag ref before validation'
+  );
+  assert.match(
+    validateJob,
+    /COMMIT_SHA=\$\(git rev-parse HEAD\)[\s\S]*?echo "commit_sha=\$\{COMMIT_SHA\}"/,
+    'expected the workflow to persist the validated commit SHA'
+  );
+  assert.match(
+    packageJob,
+    /ref:\s+\$\{\{\s*needs\.validate_tag\.outputs\.commit_sha\s*\}\}/,
+    'expected package jobs to use the validated commit SHA instead of an unqualified tag name'
+  );
+  assert.match(packageJob, /\bnpm run test:sf-plugin\b/);
+  assert.match(packageJob, /\bnpm run build:sf-plugin\b/);
+  assert.match(packageJob, /\bnpm run stage:sf-plugin-npm\b/);
+  assert.match(
+    publishJob,
+    /id-token:\s+write[\s\S]*?node scripts\/publish-npm-package-if-needed\.mjs dist\/sf-plugin-npm --tag "\$\{NPM_DIST_TAG\}" --access public/,
+    'expected npm publish to use the skip-if-present script from the staged plugin package'
+  );
+});
+
 test('prerelease Open VSX publish skips already published target artifacts', () => {
   const publishJob = readWorkflowJob('.github/workflows/prerelease.yml', 'publish_open_vsx');
 

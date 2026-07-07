@@ -6,7 +6,7 @@ Maintainer quick start
 2. Create an Open VSX namespace + PAT, add secret `OVSX_PAT` in GitHub.
 3. For standard extension releases, update `CHANGELOG.md` manually, bump `package.json`, and push a tag `vX.Y.Z`.
 4. The Release workflow on the tag builds, attaches the `.vsix`, and, if `VSCE_PAT`/`OVSX_PAT` exist, publishes automatically.
-5. For plugin-only npm releases, build and stage the plugin with `npm run publish:sf-plugin:npm -- --tag <tag>` or publish the staged `dist/sf-plugin-npm` directory from a maintainer machine.
+5. For plugin-only npm releases, bump `packages/sf-plugin/package.json`, merge the release PR, and push a tag `sf-plugin-vX.Y.Z`; the SF Plugin Release workflow validates, stages, publishes to npm, and creates the GitHub release.
 6. Alternatively, publish the extension locally with `npm run vsce:publish` (or `:pre`) and `npx --yes ovsx publish`.
 
 This repository includes automated publish flows for the Visual Studio Code Marketplace and Open VSX with first-class support for pre-releases. It uses GitHub Actions, `vsce`, `ovsx`, and npm tooling and follows a simple semver convention:
@@ -45,8 +45,9 @@ Quick recipes
 
 - Prepare a plugin npm release:
   - Bump `packages/sf-plugin/package.json` when the plugin package is published independently.
-  - Run `npm run test:sf-plugin`, `npm run build:sf-plugin`, and `npm run stage:sf-plugin-npm`.
-  - Publish `dist/sf-plugin-npm` with `node scripts/publish-npm-package-if-needed.mjs dist/sf-plugin-npm --tag <tag>` or by running `npm publish dist/sf-plugin-npm --access public`.
+  - Open and merge a release PR, then push a matching tag such as `sf-plugin-v0.1.18`.
+  - The `.github/workflows/sf-plugin-release.yml` workflow validates that the tag version matches the package manifest, runs `npm run test:sf-plugin`, `npm run build:sf-plugin`, and `npm run stage:sf-plugin-npm`, then publishes the staged package to npm through Trusted Publishing/OIDC.
+  - For an existing tag that predates the workflow, rerun the SF Plugin Release workflow manually with the `tag_name` input.
   - The staging step removes the workspace-only `private` marker and copies the built `bin`, `lib`, `messages`, `skills`, and `oclif.manifest.json` files; there are no native runtime companion packages.
   - After the cutover release is published, deprecate any old standalone binary package with:
 

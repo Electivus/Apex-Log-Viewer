@@ -16,6 +16,9 @@ test('release docs mention the embedded sf plugin packaging model', () => {
   assert.match(ci, /test:sf-plugin/);
   assert.doesNotMatch(ci, /NPM_TOKEN/);
   assert.match(publishing, /plugin npm release/i);
+  assert.match(publishing, /sf-plugin-vX\.Y\.Z/);
+  assert.match(publishing, /sf-plugin-release\.yml/);
+  assert.match(publishing, /Trusted Publishing\/OIDC/);
   assert.doesNotMatch(publishing, /rust-release\.yml/);
   assert.match(architecture, /electivus-runner\.cjs/);
   assert.match(changelog, /embedded sf electivus plugin/i);
