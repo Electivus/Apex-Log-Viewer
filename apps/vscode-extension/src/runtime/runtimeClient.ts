@@ -107,32 +107,39 @@ const METHOD_TELEMETRY_NAMES: Record<string, string> = {
   'tooling/request/get': 'tooling_request_get'
 };
 
-function repoRootFromRuntimeDir(): string {
-  const extensionRoot = extensionRootFromRuntimeDir();
+function repoRootFromRuntimeDir(runtimeDir = __dirname): string {
+  const extensionRoot = extensionRootFromRuntimeDir(runtimeDir);
   return path.basename(extensionRoot) === 'vscode-extension'
     ? path.resolve(extensionRoot, '..', '..')
-    : path.resolve(__dirname, '..', '..', '..', '..');
+    : path.resolve(runtimeDir, '..', '..', '..', '..');
 }
 
-function extensionRootFromRuntimeDir(): string {
-  const distRoot = path.resolve(__dirname, '..');
-  if (path.basename(distRoot) === 'vscode-extension') {
-    return distRoot;
+export function extensionRootFromRuntimeDir(runtimeDir = __dirname): string {
+  const currentDir = path.resolve(runtimeDir);
+  if (path.basename(currentDir) === 'dist') {
+    return path.resolve(currentDir, '..');
   }
-  return path.resolve(__dirname, '..', '..');
+  return path.resolve(currentDir, '..', '..');
 }
 
-function resolveEmbeddedRunner(): string | undefined {
-  const packaged = path.join(extensionRootFromRuntimeDir(), 'sf-plugin', 'electivus-runner.cjs');
-  if (existsSync(packaged)) {
+export function resolveEmbeddedRunnerFromRuntimeDir(
+  runtimeDir = __dirname,
+  fileExists: (filePath: string) => boolean = existsSync
+): string | undefined {
+  const packaged = path.join(extensionRootFromRuntimeDir(runtimeDir), 'sf-plugin', 'electivus-runner.cjs');
+  if (fileExists(packaged)) {
     return packaged;
   }
-  const repoRoot = repoRootFromRuntimeDir();
+  const repoRoot = repoRootFromRuntimeDir(runtimeDir);
   const built = path.join(repoRoot, 'packages', 'sf-plugin', 'lib', 'embedded.js');
-  if (existsSync(built)) {
+  if (fileExists(built)) {
     return built;
   }
   return undefined;
+}
+
+function resolveEmbeddedRunner(): string | undefined {
+  return resolveEmbeddedRunnerFromRuntimeDir();
 }
 
 function stripAnsi(value: string): string {

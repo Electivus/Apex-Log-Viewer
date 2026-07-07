@@ -1,5 +1,6 @@
 import assert from 'assert/strict';
 import os from 'node:os';
+import path from 'node:path';
 import proxyquire from 'proxyquire';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
@@ -273,5 +274,16 @@ suite('sf plugin client', () => {
     const { runEmbeddedSfPlugin } = loadRuntimeClient({ existsSync: () => false });
 
     await assert.rejects(runEmbeddedSfPlugin(['doctor']), /Unable to locate embedded sf electivus runner/);
+  });
+
+  test('resolves packaged runner from installed extension dist directory', async () => {
+    const extensionRoot = path.join(os.tmpdir(), 'extensions', 'electivus.apex-log-viewer-0.49.12');
+    const runtimeDir = path.join(extensionRoot, 'dist');
+    const expectedRunner = path.join(extensionRoot, 'sf-plugin', 'electivus-runner.cjs');
+    const { resolveEmbeddedRunnerFromRuntimeDir } = loadRuntimeClient({
+      existsSync: filePath => filePath === expectedRunner
+    });
+
+    assert.equal(resolveEmbeddedRunnerFromRuntimeDir(runtimeDir), expectedRunner);
   });
 });
