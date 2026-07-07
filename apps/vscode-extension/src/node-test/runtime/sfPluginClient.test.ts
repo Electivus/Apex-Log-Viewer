@@ -286,4 +286,19 @@ suite('sf plugin client', () => {
 
     assert.equal(resolveEmbeddedRunnerFromRuntimeDir(runtimeDir), expectedRunner);
   });
+
+  test('forces embedded runner subprocesses to run Electron as Node without Salesforce log files', () => {
+    const { embeddedRunnerEnv } = loadRuntimeClient({});
+    const env = embeddedRunnerEnv({ ELECTRON_RUN_AS_NODE: '', SF_DISABLE_LOG_FILE: '' });
+
+    assert.deepEqual({
+      ELECTRON_RUN_AS_NODE: env.ELECTRON_RUN_AS_NODE,
+      SF_DISABLE_LOG_FILE: env.SF_DISABLE_LOG_FILE,
+      SFDX_DISABLE_LOG_FILE: env.SFDX_DISABLE_LOG_FILE
+    }, {
+      ELECTRON_RUN_AS_NODE: '1',
+      SF_DISABLE_LOG_FILE: 'true',
+      SFDX_DISABLE_LOG_FILE: 'true'
+    });
+  });
 });
