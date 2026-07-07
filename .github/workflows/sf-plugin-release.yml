@@ -1,0 +1,185 @@
+name: SF Plugin Release
+
+on:
+  push:
+    tags:
+      - 'sf-plugin-v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Existing sf-plugin-vX.Y.Z tag to publish'
+        required: false
+        type: string
+
+concurrency:
+  group: sf-plugin-release-${{ inputs.tag_name || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate_tag:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.release_meta.outputs.version }}
+      tag_name: ${{ steps.release_meta.outputs.tag_name }}
+      pre_release: ${{ steps.release_meta.outputs.pre_release }}
+      npm_dist_tag: ${{ steps.release_meta.outputs.npm_dist_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ inputs.tag_name || github.ref }}
+
+      - name: Validate sf plugin release tag
+        id: release_meta
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+          TAG_NAME="${REQUESTED_TAG}"
+          if [[ ! "${TAG_NAME}" =~ ^sf-plugin-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Expected sf plugin release tag sf-plugin-vX.Y.Z, got ${TAG_NAME}" >&2
+            exit 1
+          fi
+
+          PKG_VERSION=$(node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('packages/sf-plugin/package.json','utf8'));process.stdout.write(p.version)")
+          TAG_VERSION="${TAG_NAME#sf-plugin-v}"
+          if [ "${PKG_VERSION}" != "${TAG_VERSION}" ]; then
+            echo "Tag ${TAG_NAME} != packages/sf-plugin/package.json version ${PKG_VERSION}" >&2
+            exit 1
+          fi
+
+          PRE_RELEASE=false
+          NPM_DIST_TAG=latest
+          if [[ "${PKG_VERSION}" == *-* ]]; then
+            PRE_RELEASE=true
+            NPM_DIST_TAG=next
+          fi
+
+          {
+            echo "version=${PKG_VERSION}"
+            echo "tag_name=${TAG_NAME}"
+            echo "pre_release=${PRE_RELEASE}"
+            echo "npm_dist_tag=${NPM_DIST_TAG}"
+          } >> "${GITHUB_OUTPUT}"
+
+  package_plugin:
+    name: Test and stage npm package
+    needs: validate_tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.validate_tag.outputs.tag_name }}
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test sf plugin
+        run: npm run test:sf-plugin
+
+      - name: Build sf plugin
+        run: npm run build:sf-plugin
+
+      - name: Stage sf plugin npm package
+        run: npm run stage:sf-plugin-npm
+
+      - name: Verify staged package version
+        env:
+          VERSION: ${{ needs.validate_tag.outputs.version }}
+        run: |
+          node -e "const p=require('./dist/sf-plugin-npm/package.json'); if (p.version !== process.env.VERSION) { throw new Error('staged package version ' + p.version + ' != ' + process.env.VERSION); } if (p.private !== undefined) { throw new Error('staged package must not be private'); }"
+
+      - name: Upload staged npm package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sf-plugin-npm-package
+          path: dist/sf-plugin-npm/**
+          if-no-files-found: error
+
+  publish_npm:
+    name: Publish npm package
+    needs: [validate_tag, package_plugin]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      NPM_DIST_TAG: ${{ needs.validate_tag.outputs.npm_dist_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.validate_tag.outputs.tag_name }}
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version-file: .nvmrc
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Download staged npm package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: sf-plugin-npm-package
+          path: dist/sf-plugin-npm
+
+      - name: Publish sf plugin package
+        run: node scripts/publish-npm-package-if-needed.mjs dist/sf-plugin-npm --tag "${NPM_DIST_TAG}" --access public
+
+  github_release:
+    name: Create GitHub release
+    needs: [validate_tag, publish_npm]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PRE_RELEASE: ${{ needs.validate_tag.outputs.pre_release }}
+      TAG_NAME: ${{ needs.validate_tag.outputs.tag_name }}
+      VERSION: ${{ needs.validate_tag.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.validate_tag.outputs.tag_name }}
+
+      - name: Create or update GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          TITLE="${TAG_NAME}"
+          NOTES="Automated Salesforce CLI plugin release for @electivus/plugin-electivus@${VERSION}."
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            if [ "${PRE_RELEASE}" = "true" ]; then
+              gh release edit "${TAG_NAME}" --title "${TITLE}" --notes "${NOTES}" --prerelease
+            else
+              gh release edit "${TAG_NAME}" --title "${TITLE}" --notes "${NOTES}"
+            fi
+          else
+            if [ "${PRE_RELEASE}" = "true" ]; then
+              gh release create "${TAG_NAME}" --title "${TITLE}" --notes "${NOTES}" --prerelease
+            else
+              gh release create "${TAG_NAME}" --title "${TITLE}" --notes "${NOTES}"
+            fi
+          fi
