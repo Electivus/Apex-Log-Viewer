@@ -23,7 +23,7 @@
   "dependencies": {
     "@jsforce/jsforce-node": "3.10.19",
     "@oclif/core": "^4.8.0",
-    "@salesforce/core": "^7.5.0",
+    "@salesforce/core": "^8.32.2",
     "@salesforce/sf-plugins-core": "^10.0.1"
   },
   "devDependencies": {
