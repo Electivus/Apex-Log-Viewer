@@ -18,6 +18,7 @@
 
 ### Chores
 
+- Release/SF Plugin: bump `@electivus/plugin-electivus` to `0.1.18` for the next independent Salesforce CLI plugin npm release.
 - CLI/Runtime: bump the standalone runtime train to `0.1.16` so the CLI release packages the Codex skill installer, local org-state startup path, and shared runtime fixes.
 - Release/CLI: publish npm CLI packages through npm Trusted Publishers/OIDC instead of long-lived `NPM_TOKEN` credentials.
 - Build: migrate the development, CI, and packaging Node.js baseline to Node.js 24 LTS.
