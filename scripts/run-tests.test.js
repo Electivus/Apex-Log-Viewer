@@ -15,7 +15,7 @@ test("xvfb re-exec preserves original CLI flags", () => {
   );
 });
 
-test("VS Code host runner targets the Nx app output paths", () => {
+test("VS Code host runner targets the extension app output paths", () => {
   const script = fs.readFileSync(path.join(__dirname, "run-tests.js"), "utf8");
 
   assert.match(script, /extensionDevelopmentPath\s*=\s*resolve\(__dirname,\s*'\.\.',\s*'apps',\s*'vscode-extension'\)/);

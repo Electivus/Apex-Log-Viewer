@@ -64,67 +64,46 @@
       "problemMatcher": []
     },
     {
-      "label": "nx: build vscode-extension",
-      "type": "process",
-      "command": "npx",
-      "args": ["nx", "run", "vscode-extension:build"],
+      "label": "build:extension",
+      "type": "npm",
+      "script": "build:extension",
       "group": "build",
       "problemMatcher": []
     },
     {
-      "label": "nx: build webview",
-      "type": "process",
-      "command": "npx",
-      "args": ["nx", "run", "webview:build"],
+      "label": "build:webview",
+      "type": "npm",
+      "script": "build:webview",
       "group": "build",
       "problemMatcher": []
     },
     {
-      "label": "nx: build app-server-client-ts",
-      "type": "process",
-      "command": "npx",
-      "args": ["nx", "run", "app-server-client-ts:build"],
+      "label": "package",
+      "type": "npm",
+      "script": "package",
       "group": "build",
       "problemMatcher": []
     },
     {
-      "label": "nx: package vscode-extension",
-      "type": "process",
-      "command": "npx",
-      "args": ["nx", "run", "vscode-extension:package"],
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "nx: test vscode-extension:unit",
-      "type": "process",
-      "command": "npx",
-      "args": ["nx", "run", "vscode-extension:test-unit"],
+      "label": "test:unit",
+      "type": "npm",
+      "script": "test:unit",
       "group": "test",
       "problemMatcher": []
     },
     {
-      "label": "nx: test vscode-extension:integration",
-      "type": "process",
-      "command": "npx",
-      "args": ["nx", "run", "vscode-extension:test-integration"],
+      "label": "test:integration",
+      "type": "npm",
+      "script": "test:integration",
       "group": "test",
       "problemMatcher": []
     },
     {
-      "label": "nx: test vscode-extension:smoke-vsix",
-      "type": "process",
-      "command": "npx",
-      "args": ["nx", "run", "vscode-extension:test-smoke-vsix"],
+      "label": "test:smoke:vsix",
+      "type": "npm",
+      "script": "test:smoke:vsix",
       "group": "test",
       "problemMatcher": []
-    },
-    {
-      "label": "nx: codegen app-server-client-ts",
-      "type": "process",
-      "command": "npx",
-      "args": ["nx", "run", "app-server-client-ts:codegen"],
-      "problemMatcher": ["$rustc"]
     },
     {
       "label": "cargo: fmt --all",

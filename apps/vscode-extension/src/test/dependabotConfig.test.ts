@@ -241,20 +241,6 @@ updates:
     );
   });
 
-  test('keeps Nx majors grouped for the coupled workspace plugins', async () => {
-    const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
-    const raw = await readFile(path.join(repoRoot, '.github', 'dependabot.yml'), 'utf8');
-    const nxGroup = getNpmGroupConfig(raw, 'nx');
-
-    assert.ok(nxGroup.patterns?.includes('nx'), 'nx group should include nx');
-    assert.ok(nxGroup.patterns?.includes('@nx/*'), 'nx group should include the @nx/* plugin family');
-    assert.equal(
-      nxGroup['update-types'],
-      undefined,
-      'nx group should not exclude major updates because nx and its plugins move together'
-    );
-  });
-
   test('does not define a cargo updater after removing the native runtime stack', async () => {
     const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
     const raw = await readFile(path.join(repoRoot, '.github', 'dependabot.yml'), 'utf8');

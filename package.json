@@ -130,10 +130,7 @@
     "ts-jest": "^29.4.11",
     "typescript": "^6.0.3",
     "undici": "^8.7.0",
-    "yaml": "^2.9.0",
-    "nx": "^23.0.1",
-    "@nx/js": "^23.0.1",
-    "@nx/workspace": "^23.0.0"
+    "yaml": "^2.9.0"
   },
   "dependencies": {
     "@jsforce/jsforce-node": "3.10.19",
