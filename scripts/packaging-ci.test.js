@@ -94,6 +94,21 @@ test('sf plugin release workflow publishes matching sf-plugin-v tags through npm
     /TAG_VERSION="\$\{TAG_NAME#sf-plugin-v\}"[\s\S]*?packages\/sf-plugin\/package\.json version \$\{PKG_VERSION\}/,
     'expected the workflow to reject tags that do not match the sf plugin package version'
   );
+  assert.match(
+    validateJob,
+    /ref:\s+\$\{\{\s*inputs\.tag_name && format\('refs\/tags\/\{0\}', inputs\.tag_name\) \|\| github\.ref\s*\}\}/,
+    'expected manual dispatch to checkout the fully qualified tag ref before validation'
+  );
+  assert.match(
+    validateJob,
+    /COMMIT_SHA=\$\(git rev-parse HEAD\)[\s\S]*?echo "commit_sha=\$\{COMMIT_SHA\}"/,
+    'expected the workflow to persist the validated commit SHA'
+  );
+  assert.match(
+    packageJob,
+    /ref:\s+\$\{\{\s*needs\.validate_tag\.outputs\.commit_sha\s*\}\}/,
+    'expected package jobs to use the validated commit SHA instead of an unqualified tag name'
+  );
   assert.match(packageJob, /\bnpm run test:sf-plugin\b/);
   assert.match(packageJob, /\bnpm run build:sf-plugin\b/);
   assert.match(packageJob, /\bnpm run stage:sf-plugin-npm\b/);
