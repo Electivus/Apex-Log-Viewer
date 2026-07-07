@@ -114,7 +114,7 @@ test('sf plugin release workflow publishes matching sf-plugin-v tags through npm
   assert.match(packageJob, /\bnpm run stage:sf-plugin-npm\b/);
   assert.match(
     publishJob,
-    /id-token:\s+write[\s\S]*?node scripts\/publish-npm-package-if-needed\.mjs dist\/sf-plugin-npm --tag "\$\{NPM_DIST_TAG\}" --access public/,
+    /id-token:\s+write[\s\S]*?node scripts\/publish-npm-package-if-needed\.mjs \.\/dist\/sf-plugin-npm --tag "\$\{NPM_DIST_TAG\}" --access public/,
     'expected npm publish to use the skip-if-present script from the staged plugin package'
   );
 });
