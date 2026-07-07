@@ -44,6 +44,7 @@ Search in the logs panel is optimized for locally saved log bodies, so the most 
 
 - Salesforce CLI installed and authenticated. `sf` is recommended, but legacy `sfdx` also works.
 - VS Code 1.105+.
+- Standalone Salesforce CLI plugin: Node.js 22.19+.
 - Recommended for Replay Debugger: Salesforce Extension Pack (`salesforce.salesforcedx-vscode`).
 
 Login example:
@@ -71,6 +72,7 @@ sf electivus logs status --target-org my-org
 `logs sync` resolves org auth through Salesforce CLI/Core, lists `ApexLog` rows, and downloads raw log bodies over the Salesforce Tooling REST API. It materializes those bodies under `apexlogs/`, keeps incremental state in `apexlogs/.alv/sync-state.json`, writes the canonical org-first layout at `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log`, and removes the legacy SQLite search index files from older runtime versions. Use `--concurrency` when you want to tune how many log bodies are downloaded in parallel; the default is `6` and `1` keeps the serial-style troubleshooting mode.
 
 The VS Code extension bundles this plugin and invokes its embedded runner directly, so extension users do not need to install the plugin globally. The published plugin remains useful for terminal and agent workflows that want the same JSON command surface outside VS Code.
+The standalone plugin runs on Node.js 22.19+; extension users get the compatible runtime through VS Code 1.105+.
 
 Install the companion Codex skill for agent workflows with:
 

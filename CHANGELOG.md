@@ -5,6 +5,7 @@
 ### Chores
 
 - Extension: require VS Code 1.105+ so the extension host provides Node.js 22.19+, and update packaged requirements text.
+- CLI/Plugin: require Node.js 22.19+ for the standalone Salesforce CLI plugin to match the dependency runtime baseline.
 
 ## [0.50.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.48.1...v0.50.0) (2026-07-07)
 
