@@ -1,6 +1,6 @@
 {
   "name": "@electivus/plugin-electivus",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "private": true,
   "description": "Salesforce CLI plugin for Electivus Apex Log Viewer workflows.",
   "type": "module",
