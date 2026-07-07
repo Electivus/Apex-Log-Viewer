@@ -1,4 +1,5 @@
 import assert from 'assert/strict';
+import { EventEmitter } from 'node:events';
 import os from 'node:os';
 import path from 'node:path';
 import proxyquire from 'proxyquire';
@@ -11,13 +12,48 @@ type EventRecord = {
   measurements?: Record<string, number>;
 };
 
+type MockReadable = EventEmitter & { setEncoding: (encoding: BufferEncoding) => void };
+type MockChild = EventEmitter & {
+  kill: () => boolean;
+  stderr: MockReadable;
+  stdout: MockReadable;
+};
+
+function createMockChild(): MockChild {
+  const stdout = new EventEmitter() as MockReadable;
+  stdout.setEncoding = () => undefined;
+  const stderr = new EventEmitter() as MockReadable;
+  stderr.setEncoding = () => undefined;
+  const child = new EventEmitter() as MockChild;
+  child.stdout = stdout;
+  child.stderr = stderr;
+  child.kill = () => true;
+  return child;
+}
+
+async function withElectronVersion<T>(callback: () => Promise<T> | T): Promise<T> {
+  const hadElectron = Object.prototype.hasOwnProperty.call(process.versions, 'electron');
+  const originalElectron = process.versions.electron;
+  Object.defineProperty(process.versions, 'electron', { configurable: true, value: '42.0.0' });
+  try {
+    return await callback();
+  } finally {
+    if (hadElectron) {
+      Object.defineProperty(process.versions, 'electron', { configurable: true, value: originalElectron });
+    } else {
+      delete (process.versions as Record<string, unknown>).electron;
+    }
+  }
+}
+
 function loadRuntimeClient(args: {
   existsSync?: (filePath: string) => boolean;
   events?: EventRecord[];
+  spawn?: (command: string, args: readonly string[], options: Record<string, unknown>) => MockChild;
   traceEntries?: unknown[][];
   traceEnabled?: boolean;
 }) {
-  return proxyquireStrict('../../runtime/runtimeClient', {
+  const stubs: Record<string, unknown> = {
     'node:fs': {
       existsSync: args.existsSync,
       '@noCallThru': false
@@ -37,7 +73,14 @@ function loadRuntimeClient(args: {
       getLoginShellEnv: async () => undefined,
       '@noCallThru': true
     }
-  }) as typeof import('../../runtime/runtimeClient');
+  };
+  if (args.spawn) {
+    stubs['node:child_process'] = {
+      spawn: args.spawn,
+      '@noCallThru': true
+    };
+  }
+  return proxyquireStrict('../../runtime/runtimeClient', stubs) as typeof import('../../runtime/runtimeClient');
 }
 
 suite('sf plugin client', () => {
@@ -287,18 +330,76 @@ suite('sf plugin client', () => {
     assert.equal(resolveEmbeddedRunnerFromRuntimeDir(runtimeDir), expectedRunner);
   });
 
-  test('forces embedded runner subprocesses to run Electron as Node without Salesforce log files', () => {
+  test('prefers a real Node executable for embedded runner subprocesses under Electron', () => {
+    const { resolveEmbeddedRunnerExecutable, resolveEmbeddedRunnerExecutables } = loadRuntimeClient({});
+    const defaultNodeExecutable = process.platform === 'win32' ? 'node.exe' : 'node';
+
+    assert.equal(
+      resolveEmbeddedRunnerExecutable({}, { electron: '42.0.0' } as unknown as NodeJS.ProcessVersions),
+      defaultNodeExecutable
+    );
+    assert.deepEqual(
+      resolveEmbeddedRunnerExecutables({}, { electron: '42.0.0' } as unknown as NodeJS.ProcessVersions),
+      [defaultNodeExecutable, process.execPath]
+    );
+    assert.equal(
+      resolveEmbeddedRunnerExecutable(
+        { SF_CLI_NODE_PATH: '/opt/sf/node', ALV_NODE_BIN_PATH: '/opt/alv/node' },
+        { electron: '42.0.0' } as unknown as NodeJS.ProcessVersions
+      ),
+      '/opt/alv/node'
+    );
+    assert.equal(resolveEmbeddedRunnerExecutable({}, {} as NodeJS.ProcessVersions), process.execPath);
+  });
+
+  test('disables Salesforce log files and uses Electron-as-Node only as a fallback', () => {
     const { embeddedRunnerEnv } = loadRuntimeClient({});
-    const env = embeddedRunnerEnv({ ELECTRON_RUN_AS_NODE: '', SF_DISABLE_LOG_FILE: '' });
+    const realNodeEnv = embeddedRunnerEnv({ ELECTRON_RUN_AS_NODE: '1', SF_DISABLE_LOG_FILE: '' });
+    const electronFallbackEnv = embeddedRunnerEnv({}, { useElectronNode: true });
 
     assert.deepEqual({
-      ELECTRON_RUN_AS_NODE: env.ELECTRON_RUN_AS_NODE,
-      SF_DISABLE_LOG_FILE: env.SF_DISABLE_LOG_FILE,
-      SFDX_DISABLE_LOG_FILE: env.SFDX_DISABLE_LOG_FILE
+      ELECTRON_RUN_AS_NODE: realNodeEnv.ELECTRON_RUN_AS_NODE,
+      SF_DISABLE_LOG_FILE: realNodeEnv.SF_DISABLE_LOG_FILE,
+      SFDX_DISABLE_LOG_FILE: realNodeEnv.SFDX_DISABLE_LOG_FILE
     }, {
-      ELECTRON_RUN_AS_NODE: '1',
+      ELECTRON_RUN_AS_NODE: undefined,
       SF_DISABLE_LOG_FILE: 'true',
       SFDX_DISABLE_LOG_FILE: 'true'
     });
+    assert.equal(electronFallbackEnv.ELECTRON_RUN_AS_NODE, '1');
+  });
+
+  test('falls back to Electron-as-Node when the preferred real Node executable cannot start', async () => {
+    const calls: Array<{
+      args: readonly string[];
+      command: string;
+      options: { env?: NodeJS.ProcessEnv };
+    }> = [];
+    const defaultNodeExecutable = process.platform === 'win32' ? 'node.exe' : 'node';
+    const { runEmbeddedSfPlugin } = loadRuntimeClient({
+      existsSync: filePath => filePath.endsWith(path.join('packages', 'sf-plugin', 'lib', 'embedded.js')),
+      spawn: (command, childArgs, options) => {
+        const child = createMockChild();
+        calls.push({ args: childArgs, command, options: options as { env?: NodeJS.ProcessEnv } });
+        queueMicrotask(() => {
+          if (calls.length === 1) {
+            child.emit('error', Object.assign(new Error(`spawn ${command} ENOENT`), { code: 'ENOENT' }));
+            return;
+          }
+          child.stdout.emit('data', '{"ok":true}');
+          child.emit('close', 0, null);
+        });
+        return child;
+      }
+    });
+
+    const result = await withElectronVersion(() => runEmbeddedSfPlugin(['doctor'], { env: { PATH: '/bin' } }));
+
+    assert.equal(result.stdout, '{"ok":true}');
+    assert.deepEqual(calls.map(call => call.command), [defaultNodeExecutable, process.execPath]);
+    assert.deepEqual(calls[0]?.args.slice(-2), ['doctor', '--json']);
+    assert.equal(calls[0]?.options.env?.ELECTRON_RUN_AS_NODE, undefined);
+    assert.equal(calls[1]?.options.env?.ELECTRON_RUN_AS_NODE, '1');
+    assert.equal(calls[1]?.options.env?.SF_DISABLE_LOG_FILE, 'true');
   });
 });

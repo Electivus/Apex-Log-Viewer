@@ -142,13 +142,55 @@ function resolveEmbeddedRunner(): string | undefined {
   return resolveEmbeddedRunnerFromRuntimeDir();
 }
 
-export function embeddedRunnerEnv(baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  return {
+function firstNonEmptyEnv(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = String(value || '').trim();
+    if (trimmed) return trimmed;
+  }
+  return undefined;
+}
+
+export function resolveEmbeddedRunnerExecutable(
+  baseEnv: NodeJS.ProcessEnv = process.env,
+  runtimeVersions: NodeJS.ProcessVersions = process.versions
+): string {
+  const explicitNode = firstNonEmptyEnv(baseEnv.ALV_NODE_BIN_PATH, baseEnv.SF_CLI_NODE_PATH);
+  if (explicitNode) {
+    return explicitNode;
+  }
+  if (runtimeVersions.electron) {
+    return process.platform === 'win32' ? 'node.exe' : 'node';
+  }
+  return process.execPath;
+}
+
+export function resolveEmbeddedRunnerExecutables(
+  baseEnv: NodeJS.ProcessEnv = process.env,
+  runtimeVersions: NodeJS.ProcessVersions = process.versions
+): string[] {
+  const primary = resolveEmbeddedRunnerExecutable(baseEnv, runtimeVersions);
+  const candidates = [primary];
+  if (runtimeVersions.electron && primary !== process.execPath) {
+    candidates.push(process.execPath);
+  }
+  return candidates;
+}
+
+export function embeddedRunnerEnv(
+  baseEnv: NodeJS.ProcessEnv = process.env,
+  options: { useElectronNode?: boolean } = {}
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
     ...baseEnv,
-    ELECTRON_RUN_AS_NODE: '1',
     SF_DISABLE_LOG_FILE: 'true',
     SFDX_DISABLE_LOG_FILE: 'true'
   };
+  if (options.useElectronNode) {
+    env.ELECTRON_RUN_AS_NODE = '1';
+  } else {
+    delete env.ELECTRON_RUN_AS_NODE;
+  }
+  return env;
 }
 
 function stripAnsi(value: string): string {
@@ -180,6 +222,24 @@ function createAbortError(): Error {
   const error = new Error('aborted');
   error.name = 'AbortError';
   return error;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
+function isExecutableStartupError(error: unknown): boolean {
+  const code = typeof (error as NodeJS.ErrnoException | undefined)?.code === 'string'
+    ? (error as NodeJS.ErrnoException).code
+    : undefined;
+  return code === 'ENOENT' || code === 'EACCES' || code === 'ENOTDIR';
+}
+
+function isLikelyNodeRuntimeFailure(result: SfPluginRunnerResult): boolean {
+  if (result.exitCode === 0 || result.stdout.trim()) return false;
+  return /(?:SyntaxError|ERR_REQUIRE_ESM|ERR_UNKNOWN_FILE_EXTENSION|Unexpected token|requires Node\.?js|unsupported node)/i.test(
+    result.stderr
+  );
 }
 
 function appendFlag(args: string[], name: string, value: unknown): void {
@@ -453,23 +513,17 @@ function debugLevelCommandArgs(command: 'create' | 'update', p: Record<string, a
   ];
 }
 
-export function runEmbeddedSfPlugin(
-  args: readonly string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv; signal?: AbortSignal } = {}
+function runEmbeddedSfPluginOnce(
+  executable: string,
+  childArgs: string[],
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; signal?: AbortSignal },
+  baseEnv: NodeJS.ProcessEnv
 ): Promise<SfPluginRunnerResult> {
-  const runnerPath = resolveEmbeddedRunner();
-  if (!runnerPath) {
-    return Promise.reject(
-      new Error(
-        'Unable to locate embedded sf electivus runner. Run npm run build:sf-plugin or package the extension first.'
-      )
-    );
-  }
-  const childArgs = [runnerPath, ...args, '--json'];
-  const env = embeddedRunnerEnv(options.env ?? process.env);
+  const useElectronNode = executable === process.execPath && Boolean(process.versions.electron);
+  const env = embeddedRunnerEnv(baseEnv, { useElectronNode });
   const cwd = options.cwd ?? process.cwd();
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, childArgs, { cwd, env, windowsHide: true });
+    const child = spawn(executable, childArgs, { cwd, env, windowsHide: true });
     let stdout = '';
     let stderr = '';
     let settled = false;
@@ -511,6 +565,46 @@ export function runEmbeddedSfPlugin(
       )
     );
   });
+}
+
+export async function runEmbeddedSfPlugin(
+  args: readonly string[],
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; signal?: AbortSignal } = {}
+): Promise<SfPluginRunnerResult> {
+  const runnerPath = resolveEmbeddedRunner();
+  if (!runnerPath) {
+    return Promise.reject(
+      new Error(
+        'Unable to locate embedded sf electivus runner. Run npm run build:sf-plugin or package the extension first.'
+      )
+    );
+  }
+  const childArgs = [runnerPath, ...args, '--json'];
+  const baseEnv = options.env ?? process.env;
+  const executables = resolveEmbeddedRunnerExecutables(baseEnv);
+  let lastError: unknown;
+  for (const [index, executable] of executables.entries()) {
+    const hasFallback = index < executables.length - 1;
+    try {
+      const result = await runEmbeddedSfPluginOnce(executable, childArgs, options, baseEnv);
+      if (hasFallback && isLikelyNodeRuntimeFailure(result)) {
+        if (isTraceEnabled()) {
+          logTrace('sf-plugin: retry embedded runner with Electron-as-Node after Node runtime failure');
+        }
+        continue;
+      }
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (!hasFallback || isAbortError(error) || !isExecutableStartupError(error)) {
+        throw error;
+      }
+      if (isTraceEnabled()) {
+        logTrace('sf-plugin: retry embedded runner with Electron-as-Node after Node spawn failure');
+      }
+    }
+  }
+  throw lastError;
 }
 
 export class SfPluginClient extends EventEmitter {
