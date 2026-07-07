@@ -13,6 +13,7 @@
   "engines": {
     "vscode": "^1.105.0"
   },
+  "l10n": "./l10n",
   "icon": "media/icon.png",
   "galleryBanner": {
     "color": "#2563eb",
@@ -54,6 +55,7 @@
   "main": "./dist/extension.js",
   "files": [
     "dist/**",
+    "l10n/**",
     "media/icon.png",
     "media/banner.png",
     "media/docs/**",

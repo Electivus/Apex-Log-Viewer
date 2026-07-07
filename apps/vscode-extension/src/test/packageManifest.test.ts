@@ -40,15 +40,15 @@ suite('package manifest', () => {
     );
   });
 
-  test('extracts NLS metadata from the packaged extension bundle output', async () => {
+  test('generates VS Code l10n runtime bundles for packaged extension output', async () => {
     const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
     const raw = await readFile(path.join(repoRoot, 'package.json'), 'utf8');
     const manifest = JSON.parse(raw) as { scripts?: Record<string, string> };
 
     assert.equal(
-      manifest.scripts?.['nls:extract'],
-      'vscl "apps/vscode-extension/dist/**/*.js"',
-      'package.json should point nls:extract at the bundled extension output under apps/vscode-extension/dist'
+      manifest.scripts?.['l10n:write'],
+      'node scripts/gen-l10n.cjs',
+      'package.json should generate VS Code l10n bundles through the repository script'
     );
   });
 

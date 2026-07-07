@@ -31,7 +31,8 @@ export async function ensureReplayDebuggerAvailable(): Promise<boolean> {
 
     const msg = localize(
       'replayCommandsUnavailableMessage',
-      `Apex Replay Debugger is installed (${APEX_REPLAY_DEBUGGER_EXTENSION_ID}), but its commands are unavailable. Ensure it is enabled in this VS Code environment (Local/WSL/SSH/Dev Containers), then reload the window and try again.`
+      'Apex Replay Debugger is installed ({0}), but its commands are unavailable. Ensure it is enabled in this VS Code environment (Local/WSL/SSH/Dev Containers), then reload the window and try again.',
+      APEX_REPLAY_DEBUGGER_EXTENSION_ID
     );
     void vscode.window.showErrorMessage(msg);
     return false;
@@ -40,7 +41,8 @@ export async function ensureReplayDebuggerAvailable(): Promise<boolean> {
   // If users explicitly disabled/uninstalled the dependency extension, fail gracefully with guidance.
   const msg = localize(
     'replayMissingExtMessage',
-    `Apex Replay Debugger is unavailable. Install the Salesforce Extension Pack (salesforce.salesforcedx-vscode) or the standalone Apex Replay Debugger extension (${APEX_REPLAY_DEBUGGER_EXTENSION_ID}) and ensure it is enabled in this VS Code environment (Local/WSL/SSH/Dev Containers).`
+    'Apex Replay Debugger is unavailable. Install the Salesforce Extension Pack (salesforce.salesforcedx-vscode) or the standalone Apex Replay Debugger extension ({0}) and ensure it is enabled in this VS Code environment (Local/WSL/SSH/Dev Containers).',
+    APEX_REPLAY_DEBUGGER_EXTENSION_ID
   );
   void vscode.window.showErrorMessage(msg);
   return false;

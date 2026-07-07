@@ -794,9 +794,9 @@ async function run() {
     console.log('[smoke] Packaging VSIX...');
     // Build artifacts (avoid full 'package' to reduce flakiness on CI)
     await execFileAsync('npm', ['run', '-s', 'build']);
-    // Ensure NLS files exist (best-effort)
+    // Ensure l10n bundles exist (best-effort)
     try {
-      await execFileAsync('npm', ['run', '-s', 'nls:write']);
+      await execFileAsync('npm', ['run', '-s', 'l10n:write']);
     } catch {}
     const smokeVsixPath = join(repoRoot, 'apex-log-viewer-smoke.vsix');
     await execStreaming(process.execPath, [

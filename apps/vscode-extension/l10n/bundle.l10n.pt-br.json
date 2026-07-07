@@ -1,0 +1,16 @@
+{
+  "Apex Replay Debugger is installed ({0}), but its commands are unavailable. Ensure it is enabled in this VS Code environment (Local/WSL/SSH/Dev Containers), then reload the window and try again.": "Apex Replay Debugger está instalado ({0}), mas seus comandos não estão disponíveis. Garanta que esteja habilitado neste ambiente do VS Code (Local/WSL/SSH/Dev Containers), recarregue a janela e tente novamente.",
+  "Apex Replay Debugger is unavailable. Install the Salesforce Extension Pack (salesforce.salesforcedx-vscode) or the standalone Apex Replay Debugger extension ({0}) and ensure it is enabled in this VS Code environment (Local/WSL/SSH/Dev Containers).": "Apex Replay Debugger não está disponível. Instale o Salesforce Extension Pack (salesforce.salesforcedx-vscode) ou a extensão avulsa Apex Replay Debugger ({0}) e garanta que esteja habilitado neste ambiente do VS Code (Local/WSL/SSH/Dev Containers).",
+  "Electivus Apex Logs: Failed to list orgs": "Electivus Apex Logs: falha ao listar orgs",
+  "Failed to retrieve Salesforce org authentication. Run \"sf org login web\" to authenticate.": "Não foi possível obter credenciais via Salesforce CLI. Verifique a autenticação e tente: sf org auth show-access-token --json --no-prompt",
+  "Listing Salesforce orgs…": "Listando orgs Salesforce...",
+  "Refreshing logs…": "Atualizando logs...",
+  "Salesforce CLI command timed out after {0} seconds: {1}": "Comando do Salesforce CLI expirou após {0} segundos: {1}",
+  "Salesforce CLI not found. Install Salesforce CLI (sf).": "Salesforce CLI não encontrada. Instale o Salesforce CLI (sf).",
+  "Saved to {0}": "Salvo em {0}",
+  "Select a debug level": "Selecione um nível de depuração",
+  "Select an authenticated org": "Selecione uma org autenticada",
+  "Starting Apex Replay Debugger…": "Iniciando o Apex Replay Debugger...",
+  "Tail stopped after 30 minutes.": "Tail parado após 30 minutos.",
+  "Tail: failed to save log to workspace (best-effort).": "Tail: falha ao salvar log no workspace (melhor esforço)."
+}
