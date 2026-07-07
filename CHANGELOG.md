@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Chores
+
+- Extension: require VS Code 1.101+ so the extension host runs on Node.js 22, and update packaged requirements text.
+
 ## [0.50.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.48.1...v0.50.0) (2026-07-07)
 
 ### Features
