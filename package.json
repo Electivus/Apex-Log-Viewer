@@ -88,8 +88,7 @@
     "azure:monitor:what-if": "node scripts/deploy-azure-monitor.js --what-if"
   },
   "devDependencies": {
-    "@commitlint/cli": "^21.2.0",
-    "@commitlint/config-conventional": "^21.0.2",
+    "@commitlint/config-conventional": "^21.2.0",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/cli": "^4.3.2",
     "@testing-library/jest-dom": "^6.9.1",
@@ -161,8 +160,10 @@
     "brace-expansion@<=1.1.12": "1.1.15",
     "brace-expansion@>=2.0.0 <2.0.3": "2.0.3",
     "brace-expansion@>=4.0.0 <5.0.6": "5.0.6",
+    "babel-plugin-istanbul": "8.0.2",
     "diff": "8.0.3",
     "follow-redirects": "1.16.0",
+    "glob": "13.0.6",
     "qs": "6.15.2",
     "serialize-javascript": "7.0.5",
     "underscore": "1.13.8",
