@@ -147,7 +147,7 @@ jobs:
           path: dist/sf-plugin-npm
 
       - name: Publish sf plugin package
-        run: node scripts/publish-npm-package-if-needed.mjs dist/sf-plugin-npm --tag "${NPM_DIST_TAG}" --access public
+        run: node scripts/publish-npm-package-if-needed.mjs ./dist/sf-plugin-npm --tag "${NPM_DIST_TAG}" --access public
 
   github_release:
     name: Create GitHub release

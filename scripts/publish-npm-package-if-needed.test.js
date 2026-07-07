@@ -85,7 +85,7 @@ test('publishPackageIfNeeded publishes when npm view reports the version is miss
 
     assert.deepEqual(calls, [
       ['view', '@electivus/apex-log-viewer-linux-x64@0.1.1', 'version', '--json'],
-      ['publish', packageDir, '--tag', 'next', '--access', 'public']
+      ['publish', path.resolve(packageDir), '--tag', 'next', '--access', 'public']
     ]);
     assert.equal(result.published, true);
     assert.equal(result.name, '@electivus/apex-log-viewer-linux-x64');

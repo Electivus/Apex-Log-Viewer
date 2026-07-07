@@ -64,7 +64,8 @@ export function publishPackageIfNeeded(packageDir, {
   runCommand = defaultRunCommand,
   logger = console
 } = {}) {
-  const { name, version } = readPackageManifest(packageDir);
+  const resolvedPackageDir = path.resolve(packageDir);
+  const { name, version } = readPackageManifest(resolvedPackageDir);
 
   if (packageVersionExists(name, version, { runCommand })) {
     logger.log(`Skipping npm publish for ${name}@${version}; version already exists.`);
@@ -72,7 +73,7 @@ export function publishPackageIfNeeded(packageDir, {
   }
 
   const result = runCommand(
-    ['publish', packageDir, '--tag', tag, '--access', access],
+    ['publish', resolvedPackageDir, '--tag', tag, '--access', access],
     { stdio: 'inherit' }
   );
 
