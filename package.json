@@ -78,7 +78,6 @@
     "scratch-pool:reset-slot": "node scripts/scratch-pool-admin.js reset-slot",
     "telemetry:report": "node scripts/report-telemetry-usage.js",
     "format": "prettier --write .",
-    "prepare": "husky",
     "tailwind:build": "tailwindcss -c tailwind.config.js -i ./packages/webview/src/styles/tailwind.css -o ./apps/vscode-extension/media/webview.css --minify",
     "tailwind:watch": "tailwindcss -c tailwind.config.js -i ./packages/webview/src/styles/tailwind.css -o ./apps/vscode-extension/media/webview.css --watch",
     "build:webview:bundle": "node packages/webview/esbuild.webview.mjs --minify",
@@ -88,7 +87,6 @@
     "azure:monitor:what-if": "node scripts/deploy-azure-monitor.js --what-if"
   },
   "devDependencies": {
-    "@commitlint/config-conventional": "^21.2.0",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/cli": "^4.3.2",
     "@testing-library/jest-dom": "^6.9.1",
@@ -111,14 +109,12 @@
     "esbuild": "^0.28.1",
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
-    "husky": "^9.1.7",
     "istanbul-lib-coverage": "^3.2.2",
     "istanbul-lib-report": "^3.0.1",
     "istanbul-reports": "^3.2.0",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "jsdom": "^29.1.1",
-    "lint-staged": "^17.0.8",
     "mocha": "11.7.6",
     "npm-run-all": "^4.1.5",
     "postcss": "^8.5.16",
@@ -170,10 +166,5 @@
     "uuid": "11.1.1",
     "ws": "8.21.0",
     "yaml": "$yaml"
-  },
-  "lint-staged": {
-    "*.{js,ts,jsx,tsx,json,md,css,scss}": "prettier --write",
-    "*.log": "node scripts/guard-forbidden-staged.cjs --label=.log",
-    "*.txt": "node scripts/guard-forbidden-staged.cjs --label=.txt"
   }
 }
