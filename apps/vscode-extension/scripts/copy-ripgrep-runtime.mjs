@@ -18,8 +18,18 @@ const RIPGREP_PACKAGE_BY_TARGET = {
   'win32-x64': 'ripgrep-win32-x64'
 };
 
-function npmCommand() {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+function npmInstallInvocation({ platform, args }) {
+  if (platform === 'win32') {
+    return {
+      command: 'cmd.exe',
+      args: ['/d', '/s', '/c', 'npm.cmd', ...args]
+    };
+  }
+
+  return {
+    command: 'npm',
+    args
+  };
 }
 
 function targetPackageName(target) {
@@ -42,32 +52,31 @@ function readRipgrepMetaPackage(sourceNamespaceRoot) {
   return JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 }
 
-function ensureRipgrepPackage({ repoRoot, sourceNamespaceRoot, packageName, version, execFileSyncFn }) {
+function ensureRipgrepPackage({ repoRoot, sourceNamespaceRoot, packageName, version, execFileSyncFn, platform }) {
   const packageRoot = path.join(sourceNamespaceRoot, packageName);
   if (fs.existsSync(packageRoot)) {
     return;
   }
 
-  execFileSyncFn(
-    npmCommand(),
-    [
-      'install',
-      '--no-save',
-      '--package-lock=false',
-      '--ignore-scripts',
-      '--force',
-      '--workspaces=false',
-      `@vscode/${packageName}@${version}`
-    ],
-    { cwd: repoRoot, stdio: 'inherit' }
-  );
+  const installArgs = [
+    'install',
+    '--no-save',
+    '--package-lock=false',
+    '--ignore-scripts',
+    '--force',
+    '--workspaces=false',
+    `@vscode/${packageName}@${version}`
+  ];
+  const invocation = npmInstallInvocation({ platform, args: installArgs });
+
+  execFileSyncFn(invocation.command, invocation.args, { cwd: repoRoot, stdio: 'inherit' });
 
   if (!fs.existsSync(packageRoot)) {
     throw new Error(`failed to install @vscode/${packageName}@${version}`);
   }
 }
 
-export function copyRipgrepRuntime({ repoRoot, target, execFileSyncFn = execFileSync }) {
+export function copyRipgrepRuntime({ repoRoot, target, execFileSyncFn = execFileSync, platform = process.platform }) {
   const sourceNamespaceRoot = path.join(repoRoot, 'node_modules', '@vscode');
   const destinationNamespaceRoot = path.join(repoRoot, 'apps', 'vscode-extension', 'node_modules', '@vscode');
 
@@ -91,7 +100,14 @@ export function copyRipgrepRuntime({ repoRoot, target, execFileSyncFn = execFile
 
   if (requestedPackage) {
     const version = metaPackage.optionalDependencies?.[`@vscode/${requestedPackage}`] ?? metaPackage.version;
-    ensureRipgrepPackage({ repoRoot, sourceNamespaceRoot, packageName: requestedPackage, version, execFileSyncFn });
+    ensureRipgrepPackage({
+      repoRoot,
+      sourceNamespaceRoot,
+      packageName: requestedPackage,
+      version,
+      execFileSyncFn,
+      platform
+    });
   }
 
   fs.mkdirSync(destinationNamespaceRoot, { recursive: true });

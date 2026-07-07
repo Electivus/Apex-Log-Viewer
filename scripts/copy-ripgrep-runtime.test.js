@@ -119,3 +119,48 @@ test('copyRipgrepRuntime installs the requested VSIX target package when npm omi
     fs.rmSync(repoRoot, { recursive: true, force: true });
   }
 });
+
+test('copyRipgrepRuntime installs missing target packages through cmd.exe on Windows', async () => {
+  const mod = await import(pathToFileURL(modulePath).href);
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-copy-ripgrep-install-win-'));
+  const vscodeRoot = path.join(repoRoot, 'node_modules', '@vscode');
+  const sourceRoot = path.join(vscodeRoot, 'ripgrep');
+  const armRoot = path.join(vscodeRoot, 'ripgrep-win32-arm64');
+  const installCalls = [];
+
+  try {
+    fs.mkdirSync(sourceRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(sourceRoot, 'package.json'),
+      JSON.stringify({
+        version: '1.18.0',
+        optionalDependencies: {
+          '@vscode/ripgrep-win32-arm64': '1.18.0'
+        }
+      })
+    );
+
+    const execFileSyncFn = (cmd, args, options) => {
+      installCalls.push({ cmd, args, options });
+      fs.mkdirSync(path.join(armRoot, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(armRoot, 'package.json'), '{}\n');
+      fs.writeFileSync(path.join(armRoot, 'bin', 'rg.exe'), 'arm');
+    };
+
+    const result = mod.copyRipgrepRuntime({
+      repoRoot,
+      target: 'win32-arm64',
+      execFileSyncFn,
+      platform: 'win32'
+    });
+
+    assert.equal(installCalls.length, 1);
+    assert.equal(installCalls[0].cmd, 'cmd.exe');
+    assert.deepEqual(installCalls[0].args.slice(0, 4), ['/d', '/s', '/c', 'npm.cmd']);
+    assert.ok(installCalls[0].args.includes('@vscode/ripgrep-win32-arm64@1.18.0'));
+    assert.equal(installCalls[0].options.cwd, repoRoot);
+    assert.deepEqual(result.packages, ['ripgrep', 'ripgrep-win32-arm64']);
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
