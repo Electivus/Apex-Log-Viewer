@@ -142,6 +142,15 @@ function resolveEmbeddedRunner(): string | undefined {
   return resolveEmbeddedRunnerFromRuntimeDir();
 }
 
+export function embeddedRunnerEnv(baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return {
+    ...baseEnv,
+    ELECTRON_RUN_AS_NODE: '1',
+    SF_DISABLE_LOG_FILE: 'true',
+    SFDX_DISABLE_LOG_FILE: 'true'
+  };
+}
+
 function stripAnsi(value: string): string {
   return value.replace(/\u001b\[[0-9;]*m/g, '');
 }
@@ -457,7 +466,7 @@ export function runEmbeddedSfPlugin(
     );
   }
   const childArgs = [runnerPath, ...args, '--json'];
-  const env = options.env ?? process.env;
+  const env = embeddedRunnerEnv(options.env ?? process.env);
   const cwd = options.cwd ?? process.cwd();
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, childArgs, { cwd, env, windowsHide: true });

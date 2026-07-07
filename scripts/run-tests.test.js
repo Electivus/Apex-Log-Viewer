@@ -43,6 +43,15 @@ test("VSIX smoke validation keeps existsSync available for the packaged VSIX che
   assert.match(script, /if \(!existsSync\(smokeVsixPath\)\) throw new Error\('\[smoke\] VSIX not found'\);/);
 });
 
+test("VSIX smoke validation exercises the packaged embedded sf runner", () => {
+  const script = fs.readFileSync(path.join(__dirname, "run-tests.js"), "utf8");
+
+  assert.match(script, /'sf-plugin','electivus-runner\.cjs'/);
+  assert.match(script, /ELECTRON_RUN_AS_NODE:'1'/);
+  assert.match(script, /\[runnerPath,'orgs','list','--json'\]/);
+  assert.match(script, /embedded runner did not produce JSON output/);
+});
+
 test("resolveMissingExtensionIds reports missing dependencies instead of relying on local user extensions", () => {
   const output = [
     "salesforce.salesforcedx-vscode@58.5.0",
