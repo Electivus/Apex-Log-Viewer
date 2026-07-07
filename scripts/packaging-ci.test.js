@@ -55,6 +55,17 @@ for (const workflowPath of ['.github/workflows/release.yml', '.github/workflows/
     );
     assert.doesNotMatch(workflow, /fetch-runtime-release\.mjs|verify-runtime-compatibility\.mjs/);
   });
+
+  test(`${workflowPath} installs workspace dependencies before building extension release artifacts`, () => {
+    const workflow = readFile(workflowPath);
+
+    assert.doesNotMatch(
+      workflow,
+      /npm ci --workspaces=false/,
+      'expected extension release workflows to install package workspace dependencies for the sf plugin build'
+    );
+    assert.match(workflow, /\brun:\s+npm ci\b/);
+  });
 }
 
 test('test:scripts covers the prerelease version computation regression suite', () => {
