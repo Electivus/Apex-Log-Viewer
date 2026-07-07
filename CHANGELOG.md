@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.50.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.48.1...v0.50.0) (2026-07-07)
+
 ### Features
 
 - CLI/Plugin: migrate `sf electivus ...` to native TypeScript plugin commands and bundle the embedded sf electivus plugin runner inside the VS Code extension.
@@ -11,6 +13,8 @@
 
 - Logs/Search: remove runtime `logs search`/`search/query`, restore VS Code panel search through packaged ripgrep over local log files, and keep `logs sync` removing legacy `log-index.sqlite` files from older runtime versions.
 - Runtime: remove the Rust app-server/daemon path, native runtime bundles, and `electivus.apexLogs.runtimePath` setting in favor of the embedded plugin process.
+- Extension/Packaging: resolve the embedded sf runner from installed VSIX layouts, run the packaged runner through a real Node executable when available, and fall back to Electron-as-Node if Node cannot start.
+- Release/Packaging: fix pre-release dependency installation and Windows npm invocation so all VSIX target jobs can package consistently.
 - Runtime/Auth: prepare for Salesforce CLI credential redaction by resolving tokens and SFDX auth URLs through explicit `sf org auth show-*` commands, with fallback for older CLI versions.
 - Runtime/Orgs: avoid slow `sf org list` startup/plugin work by reading local Salesforce org state first, and cache/coalesce shared runtime auth resolution to reduce repeated `sf org display` calls during refresh and sync.
 - Logs/Telemetry: skip redundant background log syncs during rapid refreshes and emit coarse error-code buckets for refresh, org, debug level, and runtime failures.
@@ -22,6 +26,7 @@
 - CLI/Runtime: bump the standalone runtime train to `0.1.16` so the CLI release packages the Codex skill installer, local org-state startup path, and shared runtime fixes.
 - Release/CLI: publish npm CLI packages through npm Trusted Publishers/OIDC instead of long-lived `NPM_TOKEN` credentials.
 - Build: migrate the development, CI, and packaging Node.js baseline to Node.js 24 LTS.
+- Dependencies: resolve npm audit findings in the workspace lockfile.
 - Telemetry/Azure Monitor: fix usage-report KQL generation and docs for workspace-backed Application Insights queries.
 
 ## [0.48.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.48.0...v0.48.1) (2026-05-08)
