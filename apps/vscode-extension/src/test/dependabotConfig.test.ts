@@ -212,12 +212,8 @@ updates:
       'vscode-extension-tooling group should include @vscode/vsce'
     );
     assert.ok(
-      vscodeToolingGroup.patterns?.includes('vscode-nls'),
-      'vscode-extension-tooling group should include vscode-nls'
-    );
-    assert.ok(
-      vscodeToolingGroup.patterns?.includes('vscode-nls-dev'),
-      'vscode-extension-tooling group should include vscode-nls-dev'
+      vscodeToolingGroup.patterns?.includes('@vscode/l10n-dev'),
+      'vscode-extension-tooling group should include @vscode/l10n-dev'
     );
     assert.equal(
       vscodeToolingGroup['update-types'],

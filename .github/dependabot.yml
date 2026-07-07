@@ -57,9 +57,8 @@ updates:
         applies-to: version-updates
         patterns:
           - '@vscode/test-electron'
+          - '@vscode/l10n-dev'
           - '@vscode/vsce'
-          - 'vscode-nls'
-          - 'vscode-nls-dev'
       nx:
         applies-to: version-updates
         patterns:

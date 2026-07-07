@@ -1,6 +1,12 @@
-import * as nls from 'vscode-nls';
+import * as vscode from 'vscode';
 
-// Configure vscode-nls to read from generated .nls.json files next to the bundle
-nls.config({ messageFormat: nls.MessageFormat.file })();
+export function localize(_legacyKey: string, message: string, ...args: Array<string | number | boolean>): string {
+  if (typeof vscode.l10n?.t === 'function') {
+    return vscode.l10n.t(message, ...args);
+  }
 
-export const localize = nls.loadMessageBundle();
+  return message.replace(/\{(\d+)\}/g, (match, index) => {
+    const value = args[Number(index)];
+    return value === undefined ? match : String(value);
+  });
+}

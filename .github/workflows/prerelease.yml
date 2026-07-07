@@ -207,8 +207,7 @@ jobs:
           npm run build:ripgrep-runtime -- "${MATRIX_TARGET}"
           npm run build:package-metadata
           node apps/vscode-extension/esbuild.extension.mjs
-          (npm run -s nls:extract || true)
-          npm run nls:write
+          npm run l10n:write
           npm run build:webview
 
       - name: Clean previous VSIX artifacts

@@ -27,7 +27,7 @@
       "command": "npm run watch"
     },
     "package": {
-      "command": "node apps/vscode-extension/esbuild.extension.mjs && (npm run -s nls:extract || true) && npm run nls:write && npm run build:webview"
+      "command": "node apps/vscode-extension/esbuild.extension.mjs && npm run l10n:write && npm run build:webview"
     },
     "test": {
       "command": "npx nx run vscode-extension:test-unit"
