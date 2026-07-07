@@ -863,9 +863,27 @@ function isNpmCiSegment(segment) {
 }
 
 test('usesRefs matches dash-prefixed workflow steps', () => {
-  assert.deepEqual(usesRefs('.github/workflows/semantic-pr.yml'), [
-    'amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50'
-  ]);
+  const tempDir = fs.mkdtempSync(path.join(repoRoot, '.tmp-repo-security-'));
+  const fixturePath = path.join(tempDir, 'dash-prefixed.yml');
+  const relativeFixturePath = path.relative(repoRoot, fixturePath);
+
+  try {
+    fs.writeFileSync(
+      fixturePath,
+      [
+        'jobs:',
+        '  test:',
+        '    steps:',
+        '      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0'
+      ].join('\n')
+    );
+
+    assert.deepEqual(usesRefs(relativeFixturePath), [
+      'actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0'
+    ]);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('usesRefs keeps pinned refs when the line has an inline comment', () => {

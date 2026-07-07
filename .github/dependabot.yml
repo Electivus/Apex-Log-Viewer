@@ -7,16 +7,7 @@ updates:
     open-pull-requests-limit: 20
     groups:
       # Group tightly coupled dependency families for lower review overhead.
-      # Only standalone groups like commitlint still leave semver-major bumps
-      # dedicated; coupled stacks stay grouped across majors to avoid peer
-      # mismatch PRs.
-      commitlint:
-        applies-to: version-updates
-        update-types:
-          - 'minor'
-          - 'patch'
-        patterns:
-          - '@commitlint/*'
+      # Coupled stacks stay grouped across majors to avoid peer mismatch PRs.
       react:
         applies-to: version-updates
         patterns:

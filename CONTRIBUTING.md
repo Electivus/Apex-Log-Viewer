@@ -76,7 +76,6 @@ Manual packaging (rare):
 
 - Forbidden in commits: `*.log` and `*.txt`.
 - Local logs: keep under `apexlogs/` (already in `.gitignore`).
-- Pre-commit: Husky roda um scanner heurístico (sem extensão) e bloqueia conteúdo com cara de log; além disso, lint-staged bloqueia `.log/.txt` explicitamente.
 - CI: `.github/workflows/forbid-sensitive-files.yml` fails if any tracked `.log/.txt` exist in PRs.
 - Packaging: controlado via `files` no `package.json` (somente `dist/**`, bundles em `media/*.js` e metadados são empacotados; logs e fontes não entram).
 
