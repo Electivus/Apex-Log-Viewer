@@ -1,6 +1,6 @@
 import path from 'path';
 import { defineConfig } from '@playwright/test';
-import { resolvePlaywrightParallelism } from './test/e2e/utils/playwrightParallelism';
+import { resolvePlaywrightParallelism, resolvePlaywrightTimeouts } from './test/e2e/utils/playwrightParallelism';
 import { applyE2eNetworkEnvironment } from './test/e2e/utils/proxy';
 
 applyE2eNetworkEnvironment();
@@ -9,13 +9,14 @@ const repoRoot = __dirname;
 const artifactsRoot = path.join(repoRoot, 'output', 'playwright');
 const resultsRoot = path.join(artifactsRoot, 'test-results');
 const parallelism = resolvePlaywrightParallelism();
+const timeouts = resolvePlaywrightTimeouts();
 
 export default defineConfig({
   testDir: path.join(__dirname, 'test', 'e2e', 'specs'),
   fullyParallel: parallelism.fullyParallel,
   workers: parallelism.workers,
-  timeout: 15 * 60 * 1000,
-  expect: { timeout: 60 * 1000 },
+  timeout: timeouts.testTimeoutMs,
+  expect: { timeout: timeouts.expectTimeoutMs },
   retries: process.env.CI ? 1 : 0,
   outputDir: resultsRoot,
   reporter: process.env.CI

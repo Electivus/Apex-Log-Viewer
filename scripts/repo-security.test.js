@@ -984,11 +984,20 @@ test('devcontainer base image and Salesforce CLI install are pinned', () => {
   assert.match(dockerfile, /npm install -g @salesforce\/cli@\d+\.\d+\.\d+ --no-audit --no-fund/);
 });
 
-test('Playwright E2E workflow pins Salesforce CLI global installs', () => {
+test('Playwright E2E workflow uses a configurable Salesforce CLI package with a pinned default', () => {
   const workflow = read('.github/workflows/e2e-playwright.yml');
-  const installs = workflow.match(/npm install -g @salesforce\/cli@\d+\.\d+\.\d+ --no-audit --no-fund/g) || [];
+  const parsed = yaml.parse(workflow);
+  const installs = workflow.match(/npm install -g "\$\{\{ env\.SALESFORCE_CLI_PACKAGE \}\}" --no-audit --no-fund/g) || [];
 
   assert.equal(installs.length, 2);
+  assert.equal(
+    parsed.jobs.playwright_e2e.env.SALESFORCE_CLI_PACKAGE,
+    "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}"
+  );
+  assert.equal(
+    parsed.jobs.playwright_e2e_os_matrix.env.SALESFORCE_CLI_PACKAGE,
+    "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}"
+  );
   assert.doesNotMatch(workflow, /npm install -g @salesforce\/cli(?:\s|$)/);
 });
 

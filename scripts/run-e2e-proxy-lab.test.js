@@ -154,7 +154,18 @@ test('proxy lab compose forwards host ownership ids into the runner', () => {
 test('proxy lab compose forwards the Salesforce CLI package override into the runner', () => {
   const compose = readComposeFile();
 
+  assert.match(
+    compose,
+    /^\s+ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: \$\{SALESFORCE_CLI_PACKAGE:-@salesforce\/cli@2\.136\.8\}$/m
+  );
   assert.match(compose, /^\s+ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: \$\{ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE:-\}$/m);
+});
+
+test('proxy lab compose forwards Playwright timeout overrides into the runner', () => {
+  const compose = readComposeFile();
+
+  assert.match(compose, /^\s+PLAYWRIGHT_TIMEOUT_MS: \$\{PLAYWRIGHT_TIMEOUT_MS:-\}$/m);
+  assert.match(compose, /^\s+PLAYWRIGHT_EXPECT_TIMEOUT_MS: \$\{PLAYWRIGHT_EXPECT_TIMEOUT_MS:-\}$/m);
 });
 
 test('proxy lab compose persists runner caches and Salesforce CLI auth state', () => {
@@ -304,6 +315,16 @@ test('proxy lab Docker images are pinned by digest without a Rust toolchain stag
   assert.doesNotMatch(runnerDockerfile, /\blibssl-dev\b/);
   assert.doesNotMatch(runnerDockerfile, /\bpkg-config\b/);
   assert.match(proxyDockerfile, /^FROM debian:bookworm-slim@sha256:[0-9a-f]{64}$/m);
+});
+
+test('proxy lab runner image installs the configured Salesforce CLI package', () => {
+  const runnerDockerfile = readRunnerDockerfile();
+
+  assert.match(
+    runnerDockerfile,
+    /^ARG ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE=@salesforce\/cli@2\.136\.8$/m
+  );
+  assert.match(runnerDockerfile, /npm install -g "\$\{ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE\}" --no-audit --no-fund/);
 });
 
 test('proxy lab Dockerfiles bound apt network waits during image builds', () => {

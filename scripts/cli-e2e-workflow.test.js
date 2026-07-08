@@ -4,7 +4,6 @@ const fs = require('node:fs');
 const YAML = require('yaml');
 
 const SHARED_SCRATCH_ENV_KEYS = [
-  'PLAYWRIGHT_WORKERS',
   'SF_SCRATCH_STRATEGY',
   'SF_SCRATCH_POOL_NAME',
   'SF_SCRATCH_POOL_OWNER',
@@ -76,6 +75,10 @@ test('real-org Playwright workflow runs the CLI suite before the extension suite
     !Object.prototype.hasOwnProperty.call(cliStep.step.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'),
     'expected CLI real-org E2E to populate the proxy-lab dependency volume'
   );
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(workflow?.jobs?.playwright_e2e?.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'),
+    'expected proxy-lab dependency reuse to stay scoped to the later extension step'
+  );
   assert.equal(
     uploadArtifactsStep.step?.with?.path,
     'output/playwright-cli/',
@@ -112,6 +115,7 @@ test('real-org Playwright workflow keeps the CLI scratch-env contract aligned wi
 
 test('real-org Playwright workflow runs the extension suite through the MITM proxy lab', () => {
   const workflow = readWorkflow();
+  const { step: cliStep } = getWorkflowStep(workflow, 'Run CLI real-org E2E');
   const { step: extensionStep } = getWorkflowStep(workflow, 'Run Playwright E2E');
   const runBlock = String(extensionStep.run || '');
 
@@ -136,20 +140,59 @@ test('real-org Playwright workflow runs the extension suite through the MITM pro
     'expected telemetry wrapper to launch its Playwright child through the MITM proxy lab'
   );
   assert.equal(
+    cliStep.env?.PLAYWRIGHT_WORKERS,
+    '${{ env.PLAYWRIGHT_WORKERS }}',
+    'expected Ubuntu CLI E2E to use the general Playwright worker setting'
+  );
+  assert.equal(
+    extensionStep.env?.PLAYWRIGHT_WORKERS,
+    '${{ env.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS }}',
+    'expected Ubuntu extension proxy-lab E2E to use its dedicated worker setting'
+  );
+  assert.equal(
+    cliStep.env?.ALV_E2E_PROXY_LAB_DEVHUB_ALIAS,
+    '${{ env.SF_DEVHUB_ALIAS }}',
+    'expected CLI E2E proxy-lab alias to follow the configured Dev Hub alias'
+  );
+  assert.equal(
     extensionStep.env?.ALV_E2E_PROXY_LAB_SKIP_NPM_CI,
-    '1',
-    'expected extension E2E to reuse the dependency volume populated by the CLI proxy-lab step'
+    "${{ vars.ALV_E2E_PROXY_LAB_SKIP_NPM_CI || '1' }}",
+    'expected extension E2E to use the configured proxy-lab dependency reuse setting'
+  );
+  assert.equal(
+    extensionStep.env?.ALV_E2E_PROXY_LAB_DEVHUB_ALIAS,
+    '${{ env.SF_DEVHUB_ALIAS }}',
+    'expected extension E2E proxy-lab alias to follow the configured Dev Hub alias'
   );
 });
 
-test('real-org Playwright workflow disables Playwright retries for the expensive CI run', () => {
+test('real-org Playwright workflow keeps E2E tunables configurable with safe defaults', () => {
   const workflow = readWorkflow();
+  const job = workflow?.jobs?.playwright_e2e;
+  const inputs = workflow?.on?.workflow_dispatch?.inputs || {};
 
+  assert.ok(!Object.prototype.hasOwnProperty.call(inputs.scratch_duration_days || {}, 'default'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(inputs.playwright_workers || {}, 'default'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(inputs.playwright_extension_proxy_lab_workers || {}, 'default'));
+
+  assert.equal(job?.env?.VSCODE_TEST_VERSION, "${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}");
+  assert.equal(job?.env?.SALESFORCE_CLI_PACKAGE, "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}");
   assert.equal(
-    workflow?.jobs?.playwright_e2e?.env?.PLAYWRIGHT_RETRIES,
-    '0',
-    'expected the real-org Playwright workflow to disable retries via PLAYWRIGHT_RETRIES=0'
+    job?.env?.PLAYWRIGHT_WORKERS,
+    "${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}"
   );
+  assert.equal(
+    job?.env?.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS,
+    "${{ github.event.inputs.playwright_extension_proxy_lab_workers || vars.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS || '1' }}"
+  );
+  assert.equal(job?.env?.PLAYWRIGHT_RETRIES, "${{ vars.PLAYWRIGHT_RETRIES || '0' }}");
+  assert.equal(job?.env?.PLAYWRIGHT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}");
+  assert.equal(job?.env?.PLAYWRIGHT_EXPECT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}");
+  assert.equal(job?.env?.SF_DEVHUB_ALIAS, "${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}");
+  assert.equal(job?.env?.SF_SCRATCH_DURATION, "${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}");
+  assert.equal(job?.env?.SF_TEST_KEEP_ORG, "${{ vars.SF_TEST_KEEP_ORG || '1' }}");
+  assert.equal(job?.env?.INSTALL_LINUX_DEPS, "${{ vars.INSTALL_LINUX_DEPS || 'true' }}");
+  assert.ok(!Object.prototype.hasOwnProperty.call(job?.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'));
 });
 
 test('real-org Playwright workflow serializes CI runs by scratch-org pool', () => {
@@ -227,6 +270,8 @@ test('direct real-org Playwright workflow keeps the CLI scratch-env contract ali
     );
   }
 
+  assert.equal(cliStep.env.PLAYWRIGHT_WORKERS, '${{ env.PLAYWRIGHT_WORKERS }}');
+  assert.equal(extensionStep.env.PLAYWRIGHT_WORKERS, '${{ env.PLAYWRIGHT_WORKERS }}');
   assert.equal(
     cliStep.env.SF_SCRATCH_POOL_OWNER,
     'github:${{ github.run_id }}/${{ github.run_attempt }}/${{ matrix.artifact_suffix }}',
@@ -234,13 +279,25 @@ test('direct real-org Playwright workflow keeps the CLI scratch-env contract ali
   );
 });
 
-test('direct real-org Playwright workflow uploads OS-specific artifacts and disables retries', () => {
+test('direct real-org Playwright workflow uploads OS-specific artifacts and keeps tunables configurable', () => {
   const workflow = readWorkflow();
   const job = getWorkflowJob(workflow, 'playwright_e2e_os_matrix');
   const uploadCliStep = getDirectWorkflowStep(workflow, 'Upload CLI E2E artifacts');
   const uploadExtensionStep = getDirectWorkflowStep(workflow, 'Upload Playwright artifacts');
 
-  assert.equal(job.env?.PLAYWRIGHT_RETRIES, '0');
+  assert.equal(job.env?.VSCODE_TEST_VERSION, "${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}");
+  assert.equal(job.env?.SALESFORCE_CLI_PACKAGE, "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}");
+  assert.equal(job.env?.SALESFORCE_CLI_NODE_VERSION, "${{ vars.SALESFORCE_CLI_NODE_VERSION || '20' }}");
+  assert.equal(
+    job.env?.PLAYWRIGHT_WORKERS,
+    "${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}"
+  );
+  assert.equal(job.env?.PLAYWRIGHT_RETRIES, "${{ vars.PLAYWRIGHT_RETRIES || '0' }}");
+  assert.equal(job.env?.PLAYWRIGHT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}");
+  assert.equal(job.env?.PLAYWRIGHT_EXPECT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}");
+  assert.equal(job.env?.SF_DEVHUB_ALIAS, "${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}");
+  assert.equal(job.env?.SF_SCRATCH_DURATION, "${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}");
+  assert.equal(job.env?.SF_TEST_KEEP_ORG, "${{ vars.SF_TEST_KEEP_ORG || '1' }}");
   assert.equal(uploadCliStep.step.with?.name, 'playwright-cli-e2e-${{ matrix.artifact_suffix }}');
   assert.equal(uploadCliStep.step.with?.path, 'output/playwright-cli/');
   assert.equal(uploadExtensionStep.step.with?.name, 'playwright-e2e-${{ matrix.artifact_suffix }}');
@@ -261,7 +318,7 @@ test('direct macOS Playwright workflow runs Salesforce CLI with an LTS Node runt
   );
   assert.equal(setupSfNodeStep.step.if, "runner.os == 'macOS'");
   assert.equal(setupSfNodeStep.step.uses, 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e');
-  assert.equal(setupSfNodeStep.step.with?.['node-version'], '20');
+  assert.equal(setupSfNodeStep.step.with?.['node-version'], '${{ env.SALESFORCE_CLI_NODE_VERSION }}');
 
   assert.ok(
     installSfStep.index < exportSfNodeStep.index,
@@ -269,8 +326,8 @@ test('direct macOS Playwright workflow runs Salesforce CLI with an LTS Node runt
   );
   assert.match(
     String(installSfStep.step.run || ''),
-    /npm install -g @salesforce\/cli@2\.136\.8 --no-audit --no-fund/,
-    'expected the workflow to keep installing the pinned Salesforce CLI'
+    /npm install -g "\$\{\{ env\.SALESFORCE_CLI_PACKAGE \}\}" --no-audit --no-fund/,
+    'expected the workflow to install the configured Salesforce CLI package'
   );
   assert.equal(exportSfNodeStep.step.if, "runner.os == 'macOS'");
   assert.match(

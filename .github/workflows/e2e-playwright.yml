@@ -14,14 +14,16 @@ on:
         options:
           - stable
       scratch_duration_days:
-        description: Scratch org duration in days
+        description: Optional scratch org duration override in days
         required: false
-        default: '1'
         type: string
       playwright_workers:
-        description: Playwright workers when the scratch-org pool is enabled
+        description: Optional Playwright worker override for CLI and direct OS E2E lanes
         required: false
-        default: '1'
+        type: string
+      playwright_extension_proxy_lab_workers:
+        description: Optional Playwright worker override for the Ubuntu extension proxy-lab lane
+        required: false
         type: string
 
 concurrency:
@@ -50,8 +52,17 @@ jobs:
       SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
       HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
       SCRATCH_STRATEGY: pool
-      PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || '1' }}
-      PLAYWRIGHT_RETRIES: '0'
+      VSCODE_TEST_VERSION: ${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}
+      SALESFORCE_CLI_PACKAGE: ${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}
+      PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}
+      PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS: ${{ github.event.inputs.playwright_extension_proxy_lab_workers || vars.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS || '1' }}
+      PLAYWRIGHT_RETRIES: ${{ vars.PLAYWRIGHT_RETRIES || '0' }}
+      PLAYWRIGHT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}
+      PLAYWRIGHT_EXPECT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}
+      SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}
+      SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}
+      SF_TEST_KEEP_ORG: ${{ vars.SF_TEST_KEEP_ORG || '1' }}
+      INSTALL_LINUX_DEPS: ${{ vars.INSTALL_LINUX_DEPS || 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -66,7 +77,7 @@ jobs:
       - name: Resolve VS Code cache metadata
         id: vscode-cache
         env:
-          VSCODE_TARGET: ${{ github.event.inputs.vscode_version || 'stable' }}
+          VSCODE_TARGET: ${{ env.VSCODE_TEST_VERSION }}
           VSCODE_PLATFORM: linux-x64
         run: node scripts/resolve-vscode-cache-metadata.js
 
@@ -77,7 +88,7 @@ jobs:
           key: vscode-test-${{ runner.os }}-${{ steps.vscode-cache.outputs.version }}-${{ steps.vscode-cache.outputs.build }}
 
       - name: Install Salesforce CLI
-        run: npm install -g @salesforce/cli@2.136.8 --no-audit --no-fund
+        run: npm install -g "${{ env.SALESFORCE_CLI_PACKAGE }}" --no-audit --no-fund
 
       - name: Require scratch-org pool configuration
         shell: bash
@@ -105,7 +116,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Install Linux deps for Electron (best-effort)
-        run: INSTALL_LINUX_DEPS=true bash scripts/install-linux-deps.sh
+        run: bash scripts/install-linux-deps.sh
 
       - name: Run CLI real-org E2E
         shell: bash
@@ -125,9 +136,10 @@ jobs:
           SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
           SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
           SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
-          SF_DEVHUB_ALIAS: DevHubElectivus
-          SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || '1' }}
-          SF_TEST_KEEP_ORG: '1'
+          SF_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
+          SF_SCRATCH_DURATION: ${{ env.SF_SCRATCH_DURATION }}
+          SF_TEST_KEEP_ORG: ${{ env.SF_TEST_KEEP_ORG }}
+          ALV_E2E_PROXY_LAB_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
 
       - name: Upload CLI E2E artifacts
         if: ${{ !cancelled() }}
@@ -158,10 +170,10 @@ jobs:
             npm run test:e2e:proxy-lab -- npm run test:e2e
           fi
         env:
-          VSCODE_TEST_VERSION: ${{ github.event.inputs.vscode_version || 'stable' }}
+          VSCODE_TEST_VERSION: ${{ env.VSCODE_TEST_VERSION }}
           ALV_E2E_TELEMETRY_PROXY_LAB: '1'
-          ALV_E2E_PROXY_LAB_SKIP_NPM_CI: '1'
-          PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
+          ALV_E2E_PROXY_LAB_SKIP_NPM_CI: ${{ vars.ALV_E2E_PROXY_LAB_SKIP_NPM_CI || '1' }}
+          PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
           SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
           SF_SCRATCH_POOL_OWNER: github:${{ github.run_id }}/${{ github.run_attempt }}
@@ -172,9 +184,10 @@ jobs:
           SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
           SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
           SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
-          SF_DEVHUB_ALIAS: DevHubElectivus
-          SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || '1' }}
-          SF_TEST_KEEP_ORG: '1'
+          SF_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
+          SF_SCRATCH_DURATION: ${{ env.SF_SCRATCH_DURATION }}
+          SF_TEST_KEEP_ORG: ${{ env.SF_TEST_KEEP_ORG }}
+          ALV_E2E_PROXY_LAB_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
 
       - name: Upload Playwright artifacts
         if: ${{ !cancelled() }}
@@ -202,8 +215,16 @@ jobs:
       SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
       HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
       SCRATCH_STRATEGY: pool
-      PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || '1' }}
-      PLAYWRIGHT_RETRIES: '0'
+      VSCODE_TEST_VERSION: ${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}
+      SALESFORCE_CLI_PACKAGE: ${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}
+      SALESFORCE_CLI_NODE_VERSION: ${{ vars.SALESFORCE_CLI_NODE_VERSION || '20' }}
+      PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}
+      PLAYWRIGHT_RETRIES: ${{ vars.PLAYWRIGHT_RETRIES || '0' }}
+      PLAYWRIGHT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}
+      PLAYWRIGHT_EXPECT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}
+      SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}
+      SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}
+      SF_TEST_KEEP_ORG: ${{ vars.SF_TEST_KEEP_ORG || '1' }}
     steps:
       - name: Disable Windows autocrlf
         if: runner.os == 'Windows'
@@ -222,7 +243,7 @@ jobs:
       - name: Resolve VS Code cache metadata
         id: vscode-cache
         env:
-          VSCODE_TARGET: ${{ github.event.inputs.vscode_version || 'stable' }}
+          VSCODE_TARGET: ${{ env.VSCODE_TEST_VERSION }}
           VSCODE_PLATFORM: ${{ matrix.vscode_platform }}
         run: node scripts/resolve-vscode-cache-metadata.js
 
@@ -238,10 +259,10 @@ jobs:
         with:
           # Node 22.23 can exit with "Detected unsettled top-level await" for
           # @salesforce/cli inside the VS Code macOS test host.
-          node-version: '20'
+          node-version: ${{ env.SALESFORCE_CLI_NODE_VERSION }}
 
       - name: Install Salesforce CLI
-        run: npm install -g @salesforce/cli@2.136.8 --no-audit --no-fund
+        run: npm install -g "${{ env.SALESFORCE_CLI_PACKAGE }}" --no-audit --no-fund
 
       - name: Export Salesforce CLI Node.js runtime
         if: runner.os == 'macOS'
@@ -326,9 +347,9 @@ jobs:
           SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
           SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
           SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
-          SF_DEVHUB_ALIAS: DevHubElectivus
-          SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || '1' }}
-          SF_TEST_KEEP_ORG: '1'
+          SF_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
+          SF_SCRATCH_DURATION: ${{ env.SF_SCRATCH_DURATION }}
+          SF_TEST_KEEP_ORG: ${{ env.SF_TEST_KEEP_ORG }}
 
       - name: Upload CLI E2E artifacts
         if: ${{ !cancelled() }}
@@ -346,7 +367,7 @@ jobs:
           echo "Direct E2E OS: ${{ matrix.artifact_suffix }}"
           npm run test:e2e
         env:
-          VSCODE_TEST_VERSION: ${{ github.event.inputs.vscode_version || 'stable' }}
+          VSCODE_TEST_VERSION: ${{ env.VSCODE_TEST_VERSION }}
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
           SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
@@ -358,9 +379,9 @@ jobs:
           SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
           SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
           SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
-          SF_DEVHUB_ALIAS: DevHubElectivus
-          SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || '1' }}
-          SF_TEST_KEEP_ORG: '1'
+          SF_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
+          SF_SCRATCH_DURATION: ${{ env.SF_SCRATCH_DURATION }}
+          SF_TEST_KEEP_ORG: ${{ env.SF_TEST_KEEP_ORG }}
 
       - name: Upload Playwright artifacts
         if: ${{ !cancelled() }}
