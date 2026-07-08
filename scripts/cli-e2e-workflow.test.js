@@ -169,6 +169,11 @@ test('real-org Playwright workflow runs the extension suite through the MITM pro
 test('real-org Playwright workflow keeps E2E tunables configurable with safe defaults', () => {
   const workflow = readWorkflow();
   const job = workflow?.jobs?.playwright_e2e;
+  const inputs = workflow?.on?.workflow_dispatch?.inputs || {};
+
+  assert.ok(!Object.prototype.hasOwnProperty.call(inputs.scratch_duration_days || {}, 'default'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(inputs.playwright_workers || {}, 'default'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(inputs.playwright_extension_proxy_lab_workers || {}, 'default'));
 
   assert.equal(job?.env?.VSCODE_TEST_VERSION, "${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}");
   assert.equal(job?.env?.SALESFORCE_CLI_PACKAGE, "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}");

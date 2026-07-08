@@ -14,19 +14,16 @@ on:
         options:
           - stable
       scratch_duration_days:
-        description: Scratch org duration in days
+        description: Optional scratch org duration override in days
         required: false
-        default: '1'
         type: string
       playwright_workers:
-        description: Playwright workers for CLI and direct OS E2E lanes
+        description: Optional Playwright worker override for CLI and direct OS E2E lanes
         required: false
-        default: '1'
         type: string
       playwright_extension_proxy_lab_workers:
-        description: Playwright workers for the Ubuntu extension proxy-lab lane
+        description: Optional Playwright worker override for the Ubuntu extension proxy-lab lane
         required: false
-        default: '1'
         type: string
 
 concurrency:
