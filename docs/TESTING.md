@@ -97,7 +97,11 @@ Useful env vars:
 - `SF_DEVHUB_AUTH_URL`: Explicit Dev Hub auth for the run. Required for real-org `test:e2e:proxy-lab` runs because the clean runner container cannot use a host `SF_DEVHUB_ALIAS`.
 - `SF_DEVHUB_ALIAS`: Explicit Dev Hub alias to use for non-proxy-lab runs. Set this or `SF_DEVHUB_AUTH_URL`.
 - `SF_SCRATCH_STRATEGY`: `single` or `pool`. If unset, the helper auto-enables pool mode when `SF_SCRATCH_POOL_NAME` is present. Local runs can use either mode; CI forces `pool`.
-- `PLAYWRIGHT_WORKERS`: Number of Playwright workers. In pool mode this controls how many isolated tests can run at once, with one scratch-org lease per test. Default `1` locally; the GitHub Actions pool workflow also defaults to `1` unless overridden by workflow-dispatch input. In single-scratch mode, the Playwright configs force serial execution.
+- `PLAYWRIGHT_WORKERS`: Number of Playwright workers. In pool mode this controls how many isolated tests can run at once, with one scratch-org lease per test. Default `1` locally; the GitHub Actions pool workflow also defaults to `1` unless overridden by the `PLAYWRIGHT_WORKERS` repository variable or the `playwright_workers` dispatch input. In single-scratch mode, the Playwright configs force serial execution.
+- `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS`: GitHub Actions-only worker override for the Ubuntu VS Code extension proxy-lab lane. This is mapped into `PLAYWRIGHT_WORKERS` for that step.
+- `PLAYWRIGHT_RETRIES`: Number of Playwright retries passed by the E2E wrapper.
+- `PLAYWRIGHT_TIMEOUT_MS`: Per-test Playwright timeout. Defaults to 15 minutes locally and 6 minutes in the GitHub Actions E2E workflow.
+- `PLAYWRIGHT_EXPECT_TIMEOUT_MS`: Playwright expect assertion timeout. Defaults to 60 seconds.
 - `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_E2E_Scratch`).
 - `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
 - `SF_TEST_KEEP_ORG=1`: Keep the scratch org after the run (recommended while iterating).

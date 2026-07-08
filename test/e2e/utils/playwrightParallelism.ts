@@ -3,19 +3,31 @@ export type PlaywrightParallelism = {
   workers: number;
 };
 
+export type PlaywrightTimeouts = {
+  testTimeoutMs: number;
+  expectTimeoutMs: number;
+};
+
+const DEFAULT_TEST_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_EXPECT_TIMEOUT_MS = 60 * 1000;
+
 function readEnvValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const value = String(env[name] || '').trim();
   return value || undefined;
 }
 
-function resolveConfiguredWorkers(env: NodeJS.ProcessEnv): number {
-  const rawWorkers = readEnvValue(env, 'PLAYWRIGHT_WORKERS');
-  if (!rawWorkers || !/^\d+$/.test(rawWorkers)) {
-    return 1;
+function resolvePositiveIntegerEnv(env: NodeJS.ProcessEnv, name: string, defaultValue: number): number {
+  const rawValue = readEnvValue(env, name);
+  if (!rawValue || !/^\d+$/.test(rawValue)) {
+    return defaultValue;
   }
 
-  const workers = Number(rawWorkers);
-  return Number.isFinite(workers) && workers > 0 ? workers : 1;
+  const value = Number(rawValue);
+  return Number.isSafeInteger(value) && value > 0 ? value : defaultValue;
+}
+
+function resolveConfiguredWorkers(env: NodeJS.ProcessEnv): number {
+  return resolvePositiveIntegerEnv(env, 'PLAYWRIGHT_WORKERS', 1);
 }
 
 function resolvePoolMode(env: NodeJS.ProcessEnv): boolean {
@@ -39,5 +51,12 @@ export function resolvePlaywrightParallelism(env: NodeJS.ProcessEnv = process.en
   return {
     fullyParallel: poolMode,
     workers: poolMode ? resolveConfiguredWorkers(env) : 1
+  };
+}
+
+export function resolvePlaywrightTimeouts(env: NodeJS.ProcessEnv = process.env): PlaywrightTimeouts {
+  return {
+    testTimeoutMs: resolvePositiveIntegerEnv(env, 'PLAYWRIGHT_TIMEOUT_MS', DEFAULT_TEST_TIMEOUT_MS),
+    expectTimeoutMs: resolvePositiveIntegerEnv(env, 'PLAYWRIGHT_EXPECT_TIMEOUT_MS', DEFAULT_EXPECT_TIMEOUT_MS)
   };
 }

@@ -19,7 +19,12 @@ on:
         default: '1'
         type: string
       playwright_workers:
-        description: Playwright workers when the scratch-org pool is enabled
+        description: Playwright workers for CLI and direct OS E2E lanes
+        required: false
+        default: '1'
+        type: string
+      playwright_extension_proxy_lab_workers:
+        description: Playwright workers for the Ubuntu extension proxy-lab lane
         required: false
         default: '1'
         type: string
@@ -50,10 +55,13 @@ jobs:
       SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
       HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
       SCRATCH_STRATEGY: pool
-      VSCODE_TEST_VERSION: ${{ github.event.inputs.vscode_version || vars.VSCODE_TEST_VERSION || 'stable' }}
+      VSCODE_TEST_VERSION: ${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}
       SALESFORCE_CLI_PACKAGE: ${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}
       PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}
+      PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS: ${{ github.event.inputs.playwright_extension_proxy_lab_workers || vars.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS || '1' }}
       PLAYWRIGHT_RETRIES: ${{ vars.PLAYWRIGHT_RETRIES || '0' }}
+      PLAYWRIGHT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}
+      PLAYWRIGHT_EXPECT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}
       SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}
       SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}
       SF_TEST_KEEP_ORG: ${{ vars.SF_TEST_KEEP_ORG || '1' }}
@@ -168,7 +176,7 @@ jobs:
           VSCODE_TEST_VERSION: ${{ env.VSCODE_TEST_VERSION }}
           ALV_E2E_TELEMETRY_PROXY_LAB: '1'
           ALV_E2E_PROXY_LAB_SKIP_NPM_CI: ${{ vars.ALV_E2E_PROXY_LAB_SKIP_NPM_CI || '1' }}
-          PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
+          PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
           SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
           SF_SCRATCH_POOL_OWNER: github:${{ github.run_id }}/${{ github.run_attempt }}
@@ -210,11 +218,13 @@ jobs:
       SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
       HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
       SCRATCH_STRATEGY: pool
-      VSCODE_TEST_VERSION: ${{ github.event.inputs.vscode_version || vars.VSCODE_TEST_VERSION || 'stable' }}
+      VSCODE_TEST_VERSION: ${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}
       SALESFORCE_CLI_PACKAGE: ${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}
       SALESFORCE_CLI_NODE_VERSION: ${{ vars.SALESFORCE_CLI_NODE_VERSION || '20' }}
       PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}
       PLAYWRIGHT_RETRIES: ${{ vars.PLAYWRIGHT_RETRIES || '0' }}
+      PLAYWRIGHT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}
+      PLAYWRIGHT_EXPECT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}
       SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}
       SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}
       SF_TEST_KEEP_ORG: ${{ vars.SF_TEST_KEEP_ORG || '1' }}

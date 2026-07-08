@@ -116,8 +116,13 @@ Repository variables for pool mode:
 - `SF_SCRATCH_POOL_MIN_REMAINING_MINUTES` (optional)
 - `SF_SCRATCH_POOL_SEED_VERSION` (optional)
 - `SF_SCRATCH_POOL_SNAPSHOT_NAME` (optional)
+- `PLAYWRIGHT_WORKERS` (optional)
+- `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS` (optional; Ubuntu VS Code extension proxy-lab lane)
+- `PLAYWRIGHT_RETRIES` (optional)
+- `PLAYWRIGHT_TIMEOUT_MS` (optional)
+- `PLAYWRIGHT_EXPECT_TIMEOUT_MS` (optional)
 
-When pool mode is active, each Playwright test acquires its own scratch org slot and reuses the stored `sfdxAuthUrl` for that slot. The repository workflow defaults to `1` Playwright worker for CI PR runs; manual `workflow_dispatch` runs can override that with the `playwright_workers` input to run multiple isolated tests concurrently.
+When pool mode is active, each Playwright test acquires its own scratch org slot and reuses the stored `sfdxAuthUrl` for that slot. The repository workflow defaults to `1` Playwright worker; set `PLAYWRIGHT_WORKERS` as an Actions repository variable, or use the `playwright_workers` dispatch input, to run multiple isolated tests concurrently. The Ubuntu VS Code extension proxy-lab lane can be tuned independently with `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS` because it runs VS Code/Electron inside Docker.
 
 The workflow-level concurrency group is keyed by `SF_SCRATCH_POOL_NAME` with `cancel-in-progress: false`. Active runs that share the same Dev Hub pool are not canceled or allowed to run every PR ref at once. This prevents Dependabot bursts from producing spurious lease-exhaustion failures.
 

@@ -4,7 +4,6 @@ const fs = require('node:fs');
 const YAML = require('yaml');
 
 const SHARED_SCRATCH_ENV_KEYS = [
-  'PLAYWRIGHT_WORKERS',
   'SF_SCRATCH_STRATEGY',
   'SF_SCRATCH_POOL_NAME',
   'SF_SCRATCH_POOL_OWNER',
@@ -141,6 +140,16 @@ test('real-org Playwright workflow runs the extension suite through the MITM pro
     'expected telemetry wrapper to launch its Playwright child through the MITM proxy lab'
   );
   assert.equal(
+    cliStep.env?.PLAYWRIGHT_WORKERS,
+    '${{ env.PLAYWRIGHT_WORKERS }}',
+    'expected Ubuntu CLI E2E to use the general Playwright worker setting'
+  );
+  assert.equal(
+    extensionStep.env?.PLAYWRIGHT_WORKERS,
+    '${{ env.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS }}',
+    'expected Ubuntu extension proxy-lab E2E to use its dedicated worker setting'
+  );
+  assert.equal(
     cliStep.env?.ALV_E2E_PROXY_LAB_DEVHUB_ALIAS,
     '${{ env.SF_DEVHUB_ALIAS }}',
     'expected CLI E2E proxy-lab alias to follow the configured Dev Hub alias'
@@ -161,13 +170,19 @@ test('real-org Playwright workflow keeps E2E tunables configurable with safe def
   const workflow = readWorkflow();
   const job = workflow?.jobs?.playwright_e2e;
 
-  assert.equal(job?.env?.VSCODE_TEST_VERSION, "${{ github.event.inputs.vscode_version || vars.VSCODE_TEST_VERSION || 'stable' }}");
+  assert.equal(job?.env?.VSCODE_TEST_VERSION, "${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}");
   assert.equal(job?.env?.SALESFORCE_CLI_PACKAGE, "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}");
   assert.equal(
     job?.env?.PLAYWRIGHT_WORKERS,
     "${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}"
   );
+  assert.equal(
+    job?.env?.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS,
+    "${{ github.event.inputs.playwright_extension_proxy_lab_workers || vars.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS || '1' }}"
+  );
   assert.equal(job?.env?.PLAYWRIGHT_RETRIES, "${{ vars.PLAYWRIGHT_RETRIES || '0' }}");
+  assert.equal(job?.env?.PLAYWRIGHT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}");
+  assert.equal(job?.env?.PLAYWRIGHT_EXPECT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}");
   assert.equal(job?.env?.SF_DEVHUB_ALIAS, "${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}");
   assert.equal(job?.env?.SF_SCRATCH_DURATION, "${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}");
   assert.equal(job?.env?.SF_TEST_KEEP_ORG, "${{ vars.SF_TEST_KEEP_ORG || '1' }}");
@@ -250,6 +265,8 @@ test('direct real-org Playwright workflow keeps the CLI scratch-env contract ali
     );
   }
 
+  assert.equal(cliStep.env.PLAYWRIGHT_WORKERS, '${{ env.PLAYWRIGHT_WORKERS }}');
+  assert.equal(extensionStep.env.PLAYWRIGHT_WORKERS, '${{ env.PLAYWRIGHT_WORKERS }}');
   assert.equal(
     cliStep.env.SF_SCRATCH_POOL_OWNER,
     'github:${{ github.run_id }}/${{ github.run_attempt }}/${{ matrix.artifact_suffix }}',
@@ -263,7 +280,7 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
   const uploadCliStep = getDirectWorkflowStep(workflow, 'Upload CLI E2E artifacts');
   const uploadExtensionStep = getDirectWorkflowStep(workflow, 'Upload Playwright artifacts');
 
-  assert.equal(job.env?.VSCODE_TEST_VERSION, "${{ github.event.inputs.vscode_version || vars.VSCODE_TEST_VERSION || 'stable' }}");
+  assert.equal(job.env?.VSCODE_TEST_VERSION, "${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}");
   assert.equal(job.env?.SALESFORCE_CLI_PACKAGE, "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}");
   assert.equal(job.env?.SALESFORCE_CLI_NODE_VERSION, "${{ vars.SALESFORCE_CLI_NODE_VERSION || '20' }}");
   assert.equal(
@@ -271,6 +288,8 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
     "${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}"
   );
   assert.equal(job.env?.PLAYWRIGHT_RETRIES, "${{ vars.PLAYWRIGHT_RETRIES || '0' }}");
+  assert.equal(job.env?.PLAYWRIGHT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}");
+  assert.equal(job.env?.PLAYWRIGHT_EXPECT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}");
   assert.equal(job.env?.SF_DEVHUB_ALIAS, "${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}");
   assert.equal(job.env?.SF_SCRATCH_DURATION, "${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}");
   assert.equal(job.env?.SF_TEST_KEEP_ORG, "${{ vars.SF_TEST_KEEP_ORG || '1' }}");

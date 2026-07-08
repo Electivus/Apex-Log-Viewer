@@ -4,7 +4,7 @@ This repository uses GitHub Actions to build, test, package, and publish the ext
 
 - Workflow CI (`.github/workflows/ci.yml`): build/test on `push` and `pull_request` across `ubuntu-latest`, `windows-latest`, and `macos-latest`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`). This workflow enforces dependency provenance with `node scripts/check-dependency-sources.mjs` before every `npm ci`, then runs npm registry signature verification (`npm run security:npm-signatures`) before compile/test. The VSIX smoke test remains Ubuntu-only after the OS matrix succeeds.
 - Workflow Dependency Review (`.github/workflows/dependency-review.yml`): blocks pull requests that introduce new moderate-or-higher dependency risk in runtime or development scopes.
-- Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. This workflow is pool-only in CI: it requires `SF_SCRATCH_POOL_NAME` plus `SF_DEVHUB_AUTH_URL`, leases one pooled scratch org per Playwright test through each slot's stored `sfdxAuthUrl`, and defaults to `1` Playwright worker on PR runs unless `playwright_workers` is set for a manual dispatch. Ubuntu keeps the full MITM proxy-lab path and runs both real-org surfaces in order: `npm run test:e2e:cli` for the `sf electivus` plugin, then `npm run test:e2e:telemetry` when Azure OIDC secrets and the E2E telemetry target variables are configured, otherwise `npm run test:e2e`, for the VS Code extension flow. Windows and macOS run the same CLI and VS Code E2E suites directly against the scratch-org pool, without Docker/proxy-lab. CLI artifacts upload from `output/playwright-cli/`; extension artifacts upload from `output/playwright/`, with OS-specific artifact names for direct Windows/macOS runs.
+- Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. This workflow is pool-only in CI: it requires `SF_SCRATCH_POOL_NAME` plus `SF_DEVHUB_AUTH_URL`, leases one pooled scratch org per Playwright test through each slot's stored `sfdxAuthUrl`, and defaults to `1` Playwright worker unless `PLAYWRIGHT_WORKERS` is set as a repository variable or `playwright_workers` is set for a manual dispatch. Ubuntu keeps the full MITM proxy-lab path and runs both real-org surfaces in order: `npm run test:e2e:cli` for the `sf electivus` plugin, then `npm run test:e2e:telemetry` when Azure OIDC secrets and the E2E telemetry target variables are configured, otherwise `npm run test:e2e`, for the VS Code extension flow. The Ubuntu extension proxy-lab lane has a dedicated `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS` override because that path exercises VS Code/Electron inside Docker. Windows and macOS run the same CLI and VS Code E2E suites directly against the scratch-org pool, without Docker/proxy-lab. CLI artifacts upload from `output/playwright-cli/`; extension artifacts upload from `output/playwright/`, with OS-specific artifact names for direct Windows/macOS runs.
 - Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace (if `VSCE_PAT` is configured) and Open VSX (if `OVSX_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
 - Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes automatically to the Marketplace and Open VSX pre‑release channels (when `VSCE_PAT`/`OVSX_PAT` are set).
 
@@ -59,11 +59,19 @@ Optional repository variables:
 - `SF_SCRATCH_POOL_MIN_REMAINING_MINUTES`
 - `SF_SCRATCH_POOL_SEED_VERSION`
 - `SF_SCRATCH_POOL_SNAPSHOT_NAME`
+- `PLAYWRIGHT_WORKERS`
+- `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS`
+- `PLAYWRIGHT_RETRIES`
+- `PLAYWRIGHT_TIMEOUT_MS`
+- `PLAYWRIGHT_EXPECT_TIMEOUT_MS`
+- `VSCODE_TEST_VERSION`
 
 Key behavior in pool mode:
 
 - `SF_SCRATCH_STRATEGY=pool` and `PLAYWRIGHT_WORKERS` are injected automatically.
-- The workflow defaults to `PLAYWRIGHT_WORKERS=1` in pool mode on `pull_request`; manual dispatch can override that value with the `playwright_workers` input to run multiple isolated tests concurrently.
+- The workflow defaults to `PLAYWRIGHT_WORKERS=1` in pool mode; repository variables can override it for pull requests, and manual dispatch can override it with the `playwright_workers` input.
+- The Ubuntu extension proxy-lab step defaults to `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS=1` and can be raised independently of the CLI and direct Windows/macOS lanes.
+- `PLAYWRIGHT_TIMEOUT_MS` and `PLAYWRIGHT_EXPECT_TIMEOUT_MS` default to `360000` and `60000` in GitHub Actions so stuck tests fail faster than the historical local 15-minute test timeout.
 - The Ubuntu CLI real-org step runs `npm run test:e2e:cli` through the proxy lab with the same scratch-org env contract as the extension step, then uploads `output/playwright-cli/` as a dedicated artifact.
 - The Ubuntu extension step then runs `npm run test:e2e:telemetry` or `npm run test:e2e` through the proxy lab and uploads `output/playwright/`.
 - The Windows/macOS direct matrix runs `npm run test:e2e:cli` and `npm run test:e2e` without proxy-lab, then uploads artifacts with OS suffixes such as `playwright-cli-e2e-windows` and `playwright-e2e-macos`.

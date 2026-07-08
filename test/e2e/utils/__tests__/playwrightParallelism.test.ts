@@ -1,4 +1,4 @@
-import { resolvePlaywrightParallelism } from '../playwrightParallelism';
+import { resolvePlaywrightParallelism, resolvePlaywrightTimeouts } from '../playwrightParallelism';
 
 describe('resolvePlaywrightParallelism', () => {
   test('enables full parallelism and respects workers for explicit pool mode', () => {
@@ -56,5 +56,38 @@ describe('resolvePlaywrightParallelism', () => {
         SF_SCRATCH_STRATEGY: 'parallel'
       })
     ).toThrow("Invalid SF_SCRATCH_STRATEGY value 'parallel'. Expected 'single' or 'pool'.");
+  });
+});
+
+describe('resolvePlaywrightTimeouts', () => {
+  test('uses the historical local Playwright timeouts by default', () => {
+    expect(resolvePlaywrightTimeouts({})).toEqual({
+      testTimeoutMs: 15 * 60 * 1000,
+      expectTimeoutMs: 60 * 1000
+    });
+  });
+
+  test('respects configured test and expect timeouts', () => {
+    expect(
+      resolvePlaywrightTimeouts({
+        PLAYWRIGHT_TIMEOUT_MS: '360000',
+        PLAYWRIGHT_EXPECT_TIMEOUT_MS: '45000'
+      })
+    ).toEqual({
+      testTimeoutMs: 360000,
+      expectTimeoutMs: 45000
+    });
+  });
+
+  test.each(['', '0', '-1', 'abc', '2.5'])('falls back for invalid timeout value %p', timeout => {
+    expect(
+      resolvePlaywrightTimeouts({
+        PLAYWRIGHT_TIMEOUT_MS: timeout,
+        PLAYWRIGHT_EXPECT_TIMEOUT_MS: timeout
+      })
+    ).toEqual({
+      testTimeoutMs: 15 * 60 * 1000,
+      expectTimeoutMs: 60 * 1000
+    });
   });
 });
