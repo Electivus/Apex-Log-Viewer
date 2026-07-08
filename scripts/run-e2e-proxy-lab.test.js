@@ -161,9 +161,12 @@ test('proxy lab compose forwards the Salesforce CLI package override into the ru
   assert.match(compose, /^\s+ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: \$\{ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE:-\}$/m);
 });
 
-test('proxy lab compose forwards Playwright timeout overrides into the runner', () => {
+test('proxy lab compose forwards Playwright controls into the runner', () => {
   const compose = readComposeFile();
 
+  assert.match(compose, /^\s+PLAYWRIGHT_WORKERS: \$\{PLAYWRIGHT_WORKERS:-1\}$/m);
+  assert.match(compose, /^\s+PLAYWRIGHT_SHARD: \$\{PLAYWRIGHT_SHARD:-\}$/m);
+  assert.match(compose, /^\s+PLAYWRIGHT_RETRIES: \$\{PLAYWRIGHT_RETRIES:-0\}$/m);
   assert.match(compose, /^\s+PLAYWRIGHT_TIMEOUT_MS: \$\{PLAYWRIGHT_TIMEOUT_MS:-\}$/m);
   assert.match(compose, /^\s+PLAYWRIGHT_EXPECT_TIMEOUT_MS: \$\{PLAYWRIGHT_EXPECT_TIMEOUT_MS:-\}$/m);
 });
