@@ -97,6 +97,8 @@ SF_SCRATCH_STRATEGY=pool SF_SCRATCH_POOL_NAME=alv-e2e PLAYWRIGHT_WORKERS=7 npm r
 
 If `SF_SCRATCH_STRATEGY` is unset, the helper automatically switches to pool mode when `SF_SCRATCH_POOL_NAME` is present. The legacy single-scratch flow still works and remains the fallback when the pool is not configured.
 
+In pool mode, each Playwright test acquires its own scratch-org pool slot. `PLAYWRIGHT_WORKERS` controls how many isolated tests may run at the same time. In legacy single-scratch mode, the Playwright configs force serial execution so parallel tests do not share the same scratch alias.
+
 ## GitHub Actions
 
 The Playwright workflow is pool-only in CI. It requires `SF_SCRATCH_POOL_NAME` and `SF_DEVHUB_AUTH_URL`, and it fails fast when either value is missing instead of falling back to the legacy single-scratch path.
@@ -115,7 +117,7 @@ Repository variables for pool mode:
 - `SF_SCRATCH_POOL_SEED_VERSION` (optional)
 - `SF_SCRATCH_POOL_SNAPSHOT_NAME` (optional)
 
-When pool mode is active, the workflow lets each Playwright worker acquire its own scratch org slot and reuse the stored `sfdxAuthUrl` for future runs. The repository workflow defaults to `1` Playwright worker for CI PR runs; manual `workflow_dispatch` runs can override that with the `playwright_workers` input.
+When pool mode is active, each Playwright test acquires its own scratch org slot and reuses the stored `sfdxAuthUrl` for that slot. The repository workflow defaults to `1` Playwright worker for CI PR runs; manual `workflow_dispatch` runs can override that with the `playwright_workers` input to run multiple isolated tests concurrently.
 
 The workflow-level concurrency group is keyed by `SF_SCRATCH_POOL_NAME` with `cancel-in-progress: false`. Active runs that share the same Dev Hub pool are not canceled or allowed to run every PR ref at once. This prevents Dependabot bursts from producing spurious lease-exhaustion failures.
 

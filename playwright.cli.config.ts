@@ -1,5 +1,6 @@
 import path from 'path';
 import { defineConfig } from '@playwright/test';
+import { resolvePlaywrightParallelism } from './test/e2e/utils/playwrightParallelism';
 import { applyE2eNetworkEnvironment } from './test/e2e/utils/proxy';
 
 applyE2eNetworkEnvironment();
@@ -7,21 +8,18 @@ applyE2eNetworkEnvironment();
 const repoRoot = __dirname;
 const artifactsRoot = path.join(repoRoot, 'output', 'playwright-cli');
 const resultsRoot = path.join(artifactsRoot, 'test-results');
-const configuredWorkers = Math.max(1, Number(process.env.PLAYWRIGHT_WORKERS || 1) || 1);
+const parallelism = resolvePlaywrightParallelism();
 
 export default defineConfig({
   testDir: path.join(__dirname, 'test', 'e2e', 'cli'),
-  fullyParallel: false,
-  workers: configuredWorkers,
+  fullyParallel: parallelism.fullyParallel,
+  workers: parallelism.workers,
   timeout: 15 * 60 * 1000,
   expect: { timeout: 60 * 1000 },
   retries: process.env.CI ? 1 : 0,
   outputDir: resultsRoot,
   reporter: process.env.CI
-    ? [
-        ['list'],
-        ['html', { open: 'never', outputFolder: path.join(artifactsRoot, 'report') }]
-      ]
+    ? [['list'], ['html', { open: 'never', outputFolder: path.join(artifactsRoot, 'report') }]]
     : [['list']],
   use: {
     trace: 'retain-on-failure',
