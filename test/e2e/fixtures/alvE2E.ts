@@ -34,26 +34,23 @@ type Options = {
 export const test = base.extend<Fixtures & Options>({
   supportExtensionIds: [[], { option: true }],
 
-  scratchLeaseState: [
-    async ({}, use) => {
-      const scratch = await ensureScratchOrg();
-      const state: ScratchLeaseState = {
-        scratch,
-        hadFailure: false
-      };
-      try {
-        await use(state);
-      } finally {
-        await scratch.cleanup({
-          success: !state.hadFailure,
-          needsRecreate: state.hadFailure,
-          errorMessage: state.failureMessage,
-          lastRunResult: state.hadFailure ? 'failed' : 'completed'
-        });
-      }
-    },
-    { scope: 'worker' }
-  ],
+  scratchLeaseState: async ({}, use) => {
+    const scratch = await ensureScratchOrg();
+    const state: ScratchLeaseState = {
+      scratch,
+      hadFailure: false
+    };
+    try {
+      await use(state);
+    } finally {
+      await scratch.cleanup({
+        success: !state.hadFailure,
+        needsRecreate: state.hadFailure,
+        errorMessage: state.failureMessage,
+        lastRunResult: state.hadFailure ? 'failed' : 'completed'
+      });
+    }
+  },
 
   _scratchLeaseGuard: [
     async ({ scratchLeaseState }, use, testInfo) => {
@@ -61,36 +58,30 @@ export const test = base.extend<Fixtures & Options>({
         scratchLeaseState.scratch.assertLeaseHealthy?.();
       } catch (error) {
         scratchLeaseState.hadFailure = true;
-        scratchLeaseState.failureMessage ??=
-          error instanceof Error ? error.message : String(error);
+        scratchLeaseState.failureMessage ??= error instanceof Error ? error.message : String(error);
         throw error;
       }
       await use();
 
       if (testInfo.status !== testInfo.expectedStatus) {
         scratchLeaseState.hadFailure = true;
-        scratchLeaseState.failureMessage ??=
-          `Test '${testInfo.title}' ended with status '${testInfo.status}' (expected '${testInfo.expectedStatus}').`;
+        scratchLeaseState.failureMessage ??= `Test '${testInfo.title}' ended with status '${testInfo.status}' (expected '${testInfo.expectedStatus}').`;
       }
 
       try {
         scratchLeaseState.scratch.assertLeaseHealthy?.();
       } catch (error) {
         scratchLeaseState.hadFailure = true;
-        scratchLeaseState.failureMessage ??=
-          error instanceof Error ? error.message : String(error);
+        scratchLeaseState.failureMessage ??= error instanceof Error ? error.message : String(error);
         throw error;
       }
     },
     { auto: true }
   ],
 
-  scratchAlias: [
-    async ({ scratchLeaseState }, use) => {
-      await use(scratchLeaseState.scratch.scratchAlias);
-    },
-    { scope: 'worker' }
-  ],
+  scratchAlias: async ({ scratchLeaseState }, use) => {
+    await use(scratchLeaseState.scratch.scratchAlias);
+  },
 
   seededLog: async ({ scratchAlias }, use) => {
     const seeded = await seedApexLog(scratchAlias);

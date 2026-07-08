@@ -29,10 +29,17 @@ type Fixtures = {
   scratchLeaseState: ScratchLeaseState;
 };
 
-async function attachTextArtifact(name: string, body: string, attach: (name: string, options: {
-  body: Buffer;
-  contentType: string;
-}) => Promise<void>): Promise<void> {
+async function attachTextArtifact(
+  name: string,
+  body: string,
+  attach: (
+    name: string,
+    options: {
+      body: Buffer;
+      contentType: string;
+    }
+  ) => Promise<void>
+): Promise<void> {
   await attach(name, {
     body: Buffer.from(body, 'utf8'),
     contentType: 'text/plain'
@@ -44,26 +51,23 @@ export function sfJsonResult(result: CliRunResult): any {
 }
 
 export const test = base.extend<Fixtures>({
-  scratchLeaseState: [
-    async ({}, use) => {
-      const scratch = await ensureScratchOrg();
-      const state: ScratchLeaseState = {
-        scratch,
-        hadFailure: false
-      };
-      try {
-        await use(state);
-      } finally {
-        await scratch.cleanup({
-          success: !state.hadFailure,
-          needsRecreate: state.hadFailure,
-          errorMessage: state.failureMessage,
-          lastRunResult: state.hadFailure ? 'failed' : 'completed'
-        });
-      }
-    },
-    { scope: 'worker' }
-  ],
+  scratchLeaseState: async ({}, use) => {
+    const scratch = await ensureScratchOrg();
+    const state: ScratchLeaseState = {
+      scratch,
+      hadFailure: false
+    };
+    try {
+      await use(state);
+    } finally {
+      await scratch.cleanup({
+        success: !state.hadFailure,
+        needsRecreate: state.hadFailure,
+        errorMessage: state.failureMessage,
+        lastRunResult: state.hadFailure ? 'failed' : 'completed'
+      });
+    }
+  },
 
   _scratchLeaseGuard: [
     async ({ scratchLeaseState }, use, testInfo) => {
@@ -71,8 +75,7 @@ export const test = base.extend<Fixtures>({
         scratchLeaseState.scratch.assertLeaseHealthy?.();
       } catch (error) {
         scratchLeaseState.hadFailure = true;
-        scratchLeaseState.failureMessage ??=
-          error instanceof Error ? error.message : String(error);
+        scratchLeaseState.failureMessage ??= error instanceof Error ? error.message : String(error);
         throw error;
       }
 
@@ -80,28 +83,23 @@ export const test = base.extend<Fixtures>({
 
       if (testInfo.status !== testInfo.expectedStatus) {
         scratchLeaseState.hadFailure = true;
-        scratchLeaseState.failureMessage ??=
-          `Test '${testInfo.title}' ended with status '${testInfo.status}' (expected '${testInfo.expectedStatus}').`;
+        scratchLeaseState.failureMessage ??= `Test '${testInfo.title}' ended with status '${testInfo.status}' (expected '${testInfo.expectedStatus}').`;
       }
 
       try {
         scratchLeaseState.scratch.assertLeaseHealthy?.();
       } catch (error) {
         scratchLeaseState.hadFailure = true;
-        scratchLeaseState.failureMessage ??=
-          error instanceof Error ? error.message : String(error);
+        scratchLeaseState.failureMessage ??= error instanceof Error ? error.message : String(error);
         throw error;
       }
     },
     { auto: true }
   ],
 
-  scratchAlias: [
-    async ({ scratchLeaseState }, use) => {
-      await use(scratchLeaseState.scratch.scratchAlias);
-    },
-    { scope: 'worker' }
-  ],
+  scratchAlias: async ({ scratchLeaseState }, use) => {
+    await use(scratchLeaseState.scratch.scratchAlias);
+  },
 
   seededLog: async ({ scratchAlias }, use) => {
     await clearOrgApexLogs(scratchAlias, 'all');

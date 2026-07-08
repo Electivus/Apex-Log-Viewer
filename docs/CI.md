@@ -4,7 +4,7 @@ This repository uses GitHub Actions to build, test, package, and publish the ext
 
 - Workflow CI (`.github/workflows/ci.yml`): build/test on `push` and `pull_request` across `ubuntu-latest`, `windows-latest`, and `macos-latest`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`). This workflow enforces dependency provenance with `node scripts/check-dependency-sources.mjs` before every `npm ci`, then runs npm registry signature verification (`npm run security:npm-signatures`) before compile/test. The VSIX smoke test remains Ubuntu-only after the OS matrix succeeds.
 - Workflow Dependency Review (`.github/workflows/dependency-review.yml`): blocks pull requests that introduce new moderate-or-higher dependency risk in runtime or development scopes.
-- Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. This workflow is pool-only in CI: it requires `SF_SCRATCH_POOL_NAME` plus `SF_DEVHUB_AUTH_URL`, reuses pooled scratch orgs through each slot's stored `sfdxAuthUrl`, and defaults to `1` Playwright worker on PR runs unless `playwright_workers` is set for a manual dispatch. Ubuntu keeps the full MITM proxy-lab path and runs both real-org surfaces in order: `npm run test:e2e:cli` for the `sf electivus` plugin, then `npm run test:e2e:telemetry` when Azure OIDC secrets and the E2E telemetry target variables are configured, otherwise `npm run test:e2e`, for the VS Code extension flow. Windows and macOS run the same CLI and VS Code E2E suites directly against the scratch-org pool, without Docker/proxy-lab. CLI artifacts upload from `output/playwright-cli/`; extension artifacts upload from `output/playwright/`, with OS-specific artifact names for direct Windows/macOS runs.
+- Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. This workflow is pool-only in CI: it requires `SF_SCRATCH_POOL_NAME` plus `SF_DEVHUB_AUTH_URL`, leases one pooled scratch org per Playwright test through each slot's stored `sfdxAuthUrl`, and defaults to `1` Playwright worker on PR runs unless `playwright_workers` is set for a manual dispatch. Ubuntu keeps the full MITM proxy-lab path and runs both real-org surfaces in order: `npm run test:e2e:cli` for the `sf electivus` plugin, then `npm run test:e2e:telemetry` when Azure OIDC secrets and the E2E telemetry target variables are configured, otherwise `npm run test:e2e`, for the VS Code extension flow. Windows and macOS run the same CLI and VS Code E2E suites directly against the scratch-org pool, without Docker/proxy-lab. CLI artifacts upload from `output/playwright-cli/`; extension artifacts upload from `output/playwright/`, with OS-specific artifact names for direct Windows/macOS runs.
 - Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace (if `VSCE_PAT` is configured) and Open VSX (if `OVSX_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
 - Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes automatically to the Marketplace and Open VSX pre‑release channels (when `VSCE_PAT`/`OVSX_PAT` are set).
 
@@ -35,7 +35,7 @@ Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref, e
 The Playwright workflow in `.github/workflows/e2e-playwright.yml` is pool-only in CI:
 
 - It uses the Dev Hub scratch-org pool.
-- It leases a dedicated org per Playwright worker.
+- It leases a dedicated org per Playwright test.
 - It defaults to `1` worker on PR runs unless `playwright_workers` is provided for a manual dispatch.
 - It runs the `sf electivus` real-org suite before the VS Code extension suite on every E2E lane.
 - Ubuntu runs those suites through the MITM proxy lab; Windows and macOS run them directly on the hosted runner.
@@ -63,19 +63,19 @@ Optional repository variables:
 Key behavior in pool mode:
 
 - `SF_SCRATCH_STRATEGY=pool` and `PLAYWRIGHT_WORKERS` are injected automatically.
-- The workflow defaults to `PLAYWRIGHT_WORKERS=1` in pool mode on `pull_request`; manual dispatch can override that value with the `playwright_workers` input.
+- The workflow defaults to `PLAYWRIGHT_WORKERS=1` in pool mode on `pull_request`; manual dispatch can override that value with the `playwright_workers` input to run multiple isolated tests concurrently.
 - The Ubuntu CLI real-org step runs `npm run test:e2e:cli` through the proxy lab with the same scratch-org env contract as the extension step, then uploads `output/playwright-cli/` as a dedicated artifact.
 - The Ubuntu extension step then runs `npm run test:e2e:telemetry` or `npm run test:e2e` through the proxy lab and uploads `output/playwright/`.
 - The Windows/macOS direct matrix runs `npm run test:e2e:cli` and `npm run test:e2e` without proxy-lab, then uploads artifacts with OS suffixes such as `playwright-cli-e2e-windows` and `playwright-e2e-macos`.
 - The workflow-level concurrency lock uses the configured `SF_SCRATCH_POOL_NAME` when pool mode is active, with `cancel-in-progress: false`, so active runs sharing the same Dev Hub pool are not canceled or allowed to over-lease the pool during dependency bursts.
-- The helper still keeps `fullyParallel: false`, but multiple Playwright workers can now run in parallel because each worker acquires its own scratch org slot.
+- The Playwright configs enable `fullyParallel` in pool mode because each test acquires its own scratch org slot; legacy single-scratch mode stays serial.
 - Manual `workflow_dispatch` runs use the same pool-only path as `pull_request`, so dispatch validation exercises the same concurrency and lease behavior as CI.
 
 In pool mode, the Dev Hub uses `SF_DEVHUB_AUTH_URL` for create/delete/recreate operations, and each slot reuses its own stored `sfdxAuthUrl` to log back into the scratch org. No custom Connected App or External Client App is required for the pool.
 
 Operational note:
 
-- The scratch org is expected to be cleaned and reseeded by the E2E suite itself before each run. Pooling reduces daily org creation and unlocks worker-level parallelism, but it does not replace test-level cleanup.
+- Each scratch org is expected to be cleaned and reseeded by the E2E test that uses it. Pooling reduces daily org creation and unlocks test-level parallelism, but it does not replace test-level cleanup.
 
 See also: `docs/SCRATCH_ORG_POOL.md`.
 
