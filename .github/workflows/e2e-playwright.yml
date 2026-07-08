@@ -61,7 +61,7 @@ jobs:
       ALV_E2E_TELEMETRY_BASE_APP: ${{ vars.ALV_E2E_TELEMETRY_BASE_APP }}
       ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID: ${{ vars.ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID }}
       HAS_AZURE_E2E_TELEMETRY_CONFIG: ${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}
-      ALV_E2E_TELEMETRY_RUN_ID_SEED: github:${{ github.run_id }}/${{ github.run_attempt }}/ubuntu-shards
+      ALV_E2E_TELEMETRY_RUN_ID_SEED: github:${{ github.run_id }}/ubuntu-shards
       SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
       HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
       SCRATCH_STRATEGY: pool
@@ -439,7 +439,7 @@ jobs:
       ALV_E2E_TELEMETRY_BASE_APP: ${{ vars.ALV_E2E_TELEMETRY_BASE_APP }}
       ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID: ${{ vars.ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID }}
       HAS_AZURE_E2E_TELEMETRY_CONFIG: ${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}
-      ALV_E2E_TELEMETRY_RUN_ID_SEED: github:${{ github.run_id }}/${{ github.run_attempt }}/ubuntu-shards
+      ALV_E2E_TELEMETRY_RUN_ID_SEED: github:${{ github.run_id }}/ubuntu-shards
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0

@@ -202,7 +202,7 @@ test('real-org Playwright workflow keeps E2E tunables configurable with safe def
     job?.env?.HAS_AZURE_E2E_TELEMETRY_CONFIG,
     "${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}"
   );
-  assert.equal(job?.env?.ALV_E2E_TELEMETRY_RUN_ID_SEED, 'github:${{ github.run_id }}/${{ github.run_attempt }}/ubuntu-shards');
+  assert.equal(job?.env?.ALV_E2E_TELEMETRY_RUN_ID_SEED, 'github:${{ github.run_id }}/ubuntu-shards');
   assert.ok(!Object.prototype.hasOwnProperty.call(job?.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'));
 });
 
@@ -443,7 +443,7 @@ test('real-org Playwright workflow runs telemetry validation after sharded E2E j
     job.env?.HAS_AZURE_E2E_TELEMETRY_CONFIG,
     "${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}"
   );
-  assert.equal(job.env?.ALV_E2E_TELEMETRY_RUN_ID_SEED, 'github:${{ github.run_id }}/${{ github.run_attempt }}/ubuntu-shards');
+  assert.equal(job.env?.ALV_E2E_TELEMETRY_RUN_ID_SEED, 'github:${{ github.run_id }}/ubuntu-shards');
   assert.match(
     runBlock,
     /skipping dedicated telemetry validation after the sharded E2E jobs/,
