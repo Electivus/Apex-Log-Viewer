@@ -195,8 +195,14 @@ test('real-org Playwright workflow keeps E2E tunables configurable with safe def
   assert.equal(job?.env?.SF_SCRATCH_DURATION, "${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}");
   assert.equal(job?.env?.SF_TEST_KEEP_ORG, "${{ vars.SF_TEST_KEEP_ORG || '1' }}");
   assert.equal(job?.env?.INSTALL_LINUX_DEPS, "${{ vars.INSTALL_LINUX_DEPS || 'true' }}");
-  assert.ok(!Object.prototype.hasOwnProperty.call(job?.env || {}, 'AZURE_CLIENT_ID'));
-  assert.ok(!Object.prototype.hasOwnProperty.call(job?.env || {}, 'HAS_AZURE_E2E_TELEMETRY_CONFIG'));
+  assert.equal(job?.env?.AZURE_CLIENT_ID, '${{ secrets.AZURE_CLIENT_ID }}');
+  assert.equal(job?.env?.AZURE_TENANT_ID, '${{ secrets.AZURE_TENANT_ID }}');
+  assert.equal(job?.env?.AZURE_SUBSCRIPTION_ID, '${{ secrets.AZURE_SUBSCRIPTION_ID }}');
+  assert.equal(
+    job?.env?.HAS_AZURE_E2E_TELEMETRY_CONFIG,
+    "${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}"
+  );
+  assert.equal(job?.env?.ALV_E2E_TELEMETRY_RUN_ID_SEED, 'github:${{ github.run_id }}/ubuntu-shards');
   assert.ok(!Object.prototype.hasOwnProperty.call(job?.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'));
 });
 
@@ -215,6 +221,27 @@ test('real-org Playwright workflow shards the Ubuntu proxy-lab run while keeping
   assert.equal(extensionStep.env?.PLAYWRIGHT_WORKERS, '${{ env.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS }}');
   assert.equal(cliStep.env?.PLAYWRIGHT_SHARD, '${{ env.PLAYWRIGHT_SHARD }}');
   assert.equal(extensionStep.env?.PLAYWRIGHT_SHARD, '${{ env.PLAYWRIGHT_SHARD }}');
+});
+
+test('real-org Playwright workflow enables test telemetry on the existing Ubuntu shards', () => {
+  const workflow = readWorkflow();
+  const azureLoginStep = getWorkflowStep(workflow, 'Azure login for sharded App Insights telemetry');
+  const prepareTelemetryStep = getWorkflowStep(workflow, 'Prepare sharded App Insights telemetry');
+  const uploadCliStep = getWorkflowStep(workflow, 'Upload CLI E2E artifacts');
+  const extensionStep = getWorkflowStep(workflow, 'Run Playwright E2E');
+
+  assert.ok(uploadCliStep.index < azureLoginStep.index, 'expected sharded telemetry login after CLI artifacts');
+  assert.ok(azureLoginStep.index < prepareTelemetryStep.index, 'expected Azure login before exporting telemetry env');
+  assert.ok(prepareTelemetryStep.index < extensionStep.index, 'expected test telemetry env before sharded extension E2E');
+  assert.equal(
+    azureLoginStep.step.if,
+    "${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' && env.HAS_AZURE_E2E_TELEMETRY_CONFIG == '1' }}"
+  );
+  assert.equal(
+    prepareTelemetryStep.step.if,
+    "${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' && env.HAS_AZURE_E2E_TELEMETRY_CONFIG == '1' }}"
+  );
+  assert.equal(prepareTelemetryStep.step.run, 'node scripts/run-playwright-e2e-telemetry.js --export-env');
 });
 
 test('real-org Playwright workflow serializes CI runs by scratch-org pool', () => {
@@ -394,7 +421,6 @@ test('real-org Playwright workflow runs telemetry validation after sharded E2E j
   const workflow = readWorkflow();
   const job = getWorkflowJob(workflow, 'playwright_e2e_telemetry');
   const telemetryStep = getTelemetryWorkflowStep(workflow, 'Run Playwright E2E telemetry validation');
-  const uploadStep = getTelemetryWorkflowStep(workflow, 'Upload Playwright telemetry artifacts');
   const runBlock = String(telemetryStep.step.run || '');
 
   assert.deepEqual(
@@ -409,16 +435,15 @@ test('real-org Playwright workflow runs telemetry validation after sharded E2E j
   );
   assert.ok(!Object.prototype.hasOwnProperty.call(job, 'strategy'));
   assert.ok(!Object.prototype.hasOwnProperty.call(job.env || {}, 'PLAYWRIGHT_SHARD'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(job.env || {}, 'PLAYWRIGHT_WORKERS'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(job.env || {}, 'SCRATCH_POOL_NAME'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(job.env || {}, 'SALESFORCE_CLI_PACKAGE'));
   assert.ok(!Object.prototype.hasOwnProperty.call(job.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'));
-  assert.equal(
-    job.env?.PLAYWRIGHT_WORKERS,
-    "${{ github.event.inputs.playwright_extension_proxy_lab_workers || vars.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS || '1' }}",
-    'expected final telemetry validation to use the Ubuntu extension proxy-lab worker setting'
-  );
   assert.equal(
     job.env?.HAS_AZURE_E2E_TELEMETRY_CONFIG,
     "${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}"
   );
+  assert.equal(job.env?.ALV_E2E_TELEMETRY_RUN_ID_SEED, 'github:${{ github.run_id }}/ubuntu-shards');
   assert.match(
     runBlock,
     /skipping dedicated telemetry validation after the sharded E2E jobs/,
@@ -426,41 +451,26 @@ test('real-org Playwright workflow runs telemetry validation after sharded E2E j
   );
   assert.match(
     runBlock,
-    /^\s*npm run test:e2e:telemetry\s*$/m,
-    'expected the final telemetry job to run the host-side telemetry wrapper'
+    /^\s*node scripts\/run-playwright-e2e-telemetry\.js --validate-only\s*$/m,
+    'expected the final telemetry job to query telemetry without running Playwright'
   );
+  assert.doesNotMatch(runBlock, /\btest:e2e\b/, 'expected final telemetry validation not to run E2E tests');
   assert.doesNotMatch(
     runBlock,
     /PLAYWRIGHT_SHARD/,
     'expected final telemetry validation to run unsharded'
   );
   assert.equal(
-    telemetryStep.step.env?.ALV_E2E_TELEMETRY_PROXY_LAB,
-    '1',
-    'expected telemetry wrapper to launch its Playwright child through the MITM proxy lab'
+    job.steps.some(step => step?.name === 'Upload Playwright telemetry artifacts'),
+    false,
+    'expected final telemetry validation not to upload Playwright artifacts'
   );
-  assert.ok(
-    !Object.prototype.hasOwnProperty.call(telemetryStep.step.env || {}, 'PLAYWRIGHT_SHARD'),
-    'expected final telemetry validation not to pass a shard to Playwright'
-  );
-  assert.ok(
-    !Object.prototype.hasOwnProperty.call(telemetryStep.step.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'),
-    'expected final telemetry validation to prepare its own proxy-lab dependency volume'
-  );
-  assert.equal(
-    telemetryStep.step.env?.SF_SCRATCH_POOL_OWNER,
-    'github:${{ github.run_id }}/${{ github.run_attempt }}/telemetry',
-    'expected telemetry validation to use a dedicated scratch-pool owner suffix'
-  );
-  assert.equal(uploadStep.step.with?.name, 'playwright-e2e-telemetry');
-  assert.equal(uploadStep.step.with?.path, 'output/playwright/');
 });
 
 test('real-org Playwright workflow logs into Azure immediately before final telemetry validation', () => {
   const workflow = readWorkflow();
   const azureLoginStep = getTelemetryWorkflowStep(workflow, 'Azure login for dedicated App Insights validation');
-  const installDepsStep = getTelemetryWorkflowStep(workflow, 'Install extension dependencies');
-  const installLinuxDepsStep = getTelemetryWorkflowStep(workflow, 'Install Linux deps for Electron (best-effort)');
+  const setupNodeStep = getTelemetryWorkflowStep(workflow, 'Setup Node.js from .nvmrc');
   const telemetryStep = getTelemetryWorkflowStep(workflow, 'Run Playwright E2E telemetry validation');
 
   assert.equal(
@@ -469,12 +479,8 @@ test('real-org Playwright workflow logs into Azure immediately before final tele
     'expected azure/login to stay pinned to the SHA currently allowed by the Electivus org action policy'
   );
   assert.ok(
-    installDepsStep.index < azureLoginStep.index,
-    'expected Azure login to run after dependency install so the OIDC assertion is fresher for telemetry validation'
-  );
-  assert.ok(
-    installLinuxDepsStep.index < azureLoginStep.index,
-    'expected Azure login to run after Linux dependency setup and immediately before telemetry validation'
+    setupNodeStep.index < azureLoginStep.index,
+    'expected Azure login to run after checkout/setup so the OIDC assertion is fresher for telemetry validation'
   );
   assert.ok(
     azureLoginStep.index < telemetryStep.index,

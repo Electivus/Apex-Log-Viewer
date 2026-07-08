@@ -52,6 +52,16 @@ jobs:
           - playwright_shard: 4/4
             artifact_suffix: shard-4
     env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ALV_E2E_TELEMETRY_RESOURCE_GROUP: ${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP }}
+      ALV_E2E_TELEMETRY_LOCATION: ${{ vars.ALV_E2E_TELEMETRY_LOCATION }}
+      ALV_E2E_TELEMETRY_APP: ${{ vars.ALV_E2E_TELEMETRY_APP }}
+      ALV_E2E_TELEMETRY_BASE_APP: ${{ vars.ALV_E2E_TELEMETRY_BASE_APP }}
+      ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID: ${{ vars.ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID }}
+      HAS_AZURE_E2E_TELEMETRY_CONFIG: ${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}
+      ALV_E2E_TELEMETRY_RUN_ID_SEED: github:${{ github.run_id }}/ubuntu-shards
       SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
       HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
       SCRATCH_STRATEGY: pool
@@ -154,6 +164,18 @@ jobs:
           name: playwright-cli-e2e-${{ matrix.shard.artifact_suffix }}
           path: output/playwright-cli/
           if-no-files-found: ignore
+
+      - name: Azure login for sharded App Insights telemetry
+        if: ${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' && env.HAS_AZURE_E2E_TELEMETRY_CONFIG == '1' }}
+        uses: azure/login@93381592711f247e165c389ebb30b596c84cdc48
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Prepare sharded App Insights telemetry
+        if: ${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' && env.HAS_AZURE_E2E_TELEMETRY_CONFIG == '1' }}
+        run: node scripts/run-playwright-e2e-telemetry.js --export-env
 
       - name: Run Playwright E2E
         shell: bash
@@ -406,7 +428,7 @@ jobs:
       - playwright_e2e_os_matrix
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
     env:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -417,19 +439,7 @@ jobs:
       ALV_E2E_TELEMETRY_BASE_APP: ${{ vars.ALV_E2E_TELEMETRY_BASE_APP }}
       ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID: ${{ vars.ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID }}
       HAS_AZURE_E2E_TELEMETRY_CONFIG: ${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}
-      SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
-      HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
-      SCRATCH_STRATEGY: pool
-      VSCODE_TEST_VERSION: ${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}
-      SALESFORCE_CLI_PACKAGE: ${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}
-      PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_extension_proxy_lab_workers || vars.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS || '1' }}
-      PLAYWRIGHT_RETRIES: ${{ vars.PLAYWRIGHT_RETRIES || '0' }}
-      PLAYWRIGHT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}
-      PLAYWRIGHT_EXPECT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}
-      SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}
-      SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}
-      SF_TEST_KEEP_ORG: ${{ vars.SF_TEST_KEEP_ORG || '1' }}
-      INSTALL_LINUX_DEPS: ${{ vars.INSTALL_LINUX_DEPS || 'true' }}
+      ALV_E2E_TELEMETRY_RUN_ID_SEED: github:${{ github.run_id }}/ubuntu-shards
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -440,50 +450,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
-
-      - name: Resolve VS Code cache metadata
-        id: vscode-cache
-        env:
-          VSCODE_TARGET: ${{ env.VSCODE_TEST_VERSION }}
-          VSCODE_PLATFORM: linux-x64
-        run: node scripts/resolve-vscode-cache-metadata.js
-
-      - name: Restore VS Code test cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: .vscode-test/vscode-*
-          key: vscode-test-${{ runner.os }}-${{ steps.vscode-cache.outputs.version }}-${{ steps.vscode-cache.outputs.build }}
-
-      - name: Install Salesforce CLI
-        run: npm install -g "${{ env.SALESFORCE_CLI_PACKAGE }}" --no-audit --no-fund
-
-      - name: Require scratch-org pool configuration
-        shell: bash
-        run: |
-          set -euo pipefail
-          missing=0
-          if [[ -z "${SCRATCH_POOL_NAME}" ]]; then
-            echo "::error::SF_SCRATCH_POOL_NAME must be configured for the Playwright E2E workflow."
-            missing=1
-          fi
-          if [[ "${HAS_POOL_DEVHUB_AUTH}" != "1" ]]; then
-            echo "::error::SF_DEVHUB_AUTH_URL must be configured for the Playwright E2E workflow."
-            missing=1
-          fi
-          if [[ "${missing}" != "0" ]]; then
-            exit 1
-          fi
-
-      - name: Enforce dependency source policy
-        run: node scripts/check-dependency-sources.mjs
-
-      - name: Install extension dependencies
-        run: npm ci
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Install Linux deps for Electron (best-effort)
-        run: bash scripts/install-linux-deps.sh
 
       - name: Azure login for dedicated App Insights validation
         if: ${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' && env.HAS_AZURE_E2E_TELEMETRY_CONFIG == '1' }}
@@ -496,37 +462,9 @@ jobs:
       - name: Run Playwright E2E telemetry validation
         shell: bash
         run: |
-          echo "Scratch strategy: ${SCRATCH_STRATEGY}"
-          echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
           if [[ -z "${AZURE_CLIENT_ID}" || -z "${AZURE_TENANT_ID}" || -z "${AZURE_SUBSCRIPTION_ID}" || "${HAS_AZURE_E2E_TELEMETRY_CONFIG}" != "1" ]]; then
             echo "Azure OIDC secrets or E2E telemetry target variables are not fully configured; skipping dedicated telemetry validation after the sharded E2E jobs."
             exit 0
           fi
-          echo "Running final Playwright E2E telemetry validation through the MITM proxy lab."
-          npm run test:e2e:telemetry
-        env:
-          VSCODE_TEST_VERSION: ${{ env.VSCODE_TEST_VERSION }}
-          ALV_E2E_TELEMETRY_PROXY_LAB: '1'
-          PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
-          SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
-          SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
-          SF_SCRATCH_POOL_OWNER: github:${{ github.run_id }}/${{ github.run_attempt }}/telemetry
-          SF_SCRATCH_POOL_LEASE_TTL_SECONDS: ${{ vars.SF_SCRATCH_POOL_LEASE_TTL_SECONDS }}
-          SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS: ${{ vars.SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS }}
-          SF_SCRATCH_POOL_HEARTBEAT_SECONDS: ${{ vars.SF_SCRATCH_POOL_HEARTBEAT_SECONDS }}
-          SF_SCRATCH_POOL_MIN_REMAINING_MINUTES: ${{ vars.SF_SCRATCH_POOL_MIN_REMAINING_MINUTES }}
-          SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
-          SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
-          SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
-          SF_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
-          SF_SCRATCH_DURATION: ${{ env.SF_SCRATCH_DURATION }}
-          SF_TEST_KEEP_ORG: ${{ env.SF_TEST_KEEP_ORG }}
-          ALV_E2E_PROXY_LAB_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
-
-      - name: Upload Playwright telemetry artifacts
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: playwright-e2e-telemetry
-          path: output/playwright/
-          if-no-files-found: ignore
+          echo "Validating telemetry emitted by the sharded Ubuntu Playwright E2E jobs."
+          node scripts/run-playwright-e2e-telemetry.js --validate-only

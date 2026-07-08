@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-const { randomUUID } = require('crypto');
+const { createHash, randomUUID } = require('crypto');
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 const {
@@ -20,6 +21,7 @@ function sleep(ms) {
 }
 
 const REPO_ROOT = path.join(__dirname, '..');
+const TEST_RUN_ID_PATTERN = /^[a-f0-9-]{36}$/i;
 
 function spawnAsync(command, args, options = {}, spawnImpl = spawn) {
   return new Promise((resolve, reject) => {
@@ -32,6 +34,11 @@ function spawnAsync(command, args, options = {}, spawnImpl = spawn) {
 function isResourceNotFound(error) {
   const text = [error && error.message, error && error.stderr, error && error.stdout].filter(Boolean).join('\n');
   return /ResourceNotFound|was not found|ARMResourceNotFoundFix/i.test(text);
+}
+
+function isResourceConflict(error) {
+  const text = [error && error.message, error && error.stderr, error && error.stdout].filter(Boolean).join('\n');
+  return /Conflict|ResourceAlreadyExists|already exists/i.test(text);
 }
 
 async function showComponentForConfig(config, appName) {
@@ -57,33 +64,41 @@ async function ensureTelemetryComponent(config) {
   }
 
   const workspaceResourceId = await resolveWorkspaceId(config);
-  const created = await azJson([
-    'monitor',
-    'app-insights',
-    'component',
-    'create',
-    '-a',
-    config.appName,
-    '-g',
-    config.resourceGroup,
-    '-l',
-    config.location,
-    '--kind',
-    'web',
-    '--application-type',
-    'web',
-    '--workspace',
-    workspaceResourceId,
-    '--subscription',
-    config.subscription,
-    '--tags',
-    'app=apex-log-viewer',
-    'component=telemetry',
-    'env=e2e',
-    'managed-by=az-cli',
-    'repo=Apex-Log-Viewer'
-  ]);
-  return { component: created, created: true };
+  try {
+    const created = await azJson([
+      'monitor',
+      'app-insights',
+      'component',
+      'create',
+      '-a',
+      config.appName,
+      '-g',
+      config.resourceGroup,
+      '-l',
+      config.location,
+      '--kind',
+      'web',
+      '--application-type',
+      'web',
+      '--workspace',
+      workspaceResourceId,
+      '--subscription',
+      config.subscription,
+      '--tags',
+      'app=apex-log-viewer',
+      'component=telemetry',
+      'env=e2e',
+      'managed-by=az-cli',
+      'repo=Apex-Log-Viewer'
+    ]);
+    return { component: created, created: true };
+  } catch (error) {
+    if (!isResourceConflict(error)) {
+      throw error;
+    }
+    const existing = await showComponentForConfig(config, config.appName);
+    return { component: existing, created: false };
+  }
 }
 
 function buildRunValidationQuery({ componentResourceId, lookback, runId }) {
@@ -144,6 +159,43 @@ function readEnv(env, name) {
 function envFlag(env, name) {
   const normalized = String(env[name] || '').trim().toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function formatUuidFromBytes(bytes) {
+  const copy = Buffer.from(bytes.subarray(0, 16));
+  copy[6] = (copy[6] & 0x0f) | 0x40;
+  copy[8] = (copy[8] & 0x3f) | 0x80;
+  const hex = copy.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+function runIdFromSeed(seed) {
+  return formatUuidFromBytes(createHash('sha256').update(String(seed)).digest());
+}
+
+function validateTelemetryRunId(runId) {
+  if (!TEST_RUN_ID_PATTERN.test(runId)) {
+    throw new Error(`Telemetry test run id must be a UUID, got '${runId}'.`);
+  }
+  return runId.toLowerCase();
+}
+
+function resolveTelemetryRunId(env = process.env, randomUUIDImpl = randomUUID, options = {}) {
+  const explicitRunId = readEnv(env, 'ALV_TEST_TELEMETRY_RUN_ID');
+  if (explicitRunId) {
+    return validateTelemetryRunId(explicitRunId);
+  }
+
+  const seed = readEnv(env, 'ALV_E2E_TELEMETRY_RUN_ID_SEED');
+  if (seed) {
+    return runIdFromSeed(seed);
+  }
+
+  if (options.requireConfigured) {
+    throw new Error('Missing ALV_TEST_TELEMETRY_RUN_ID or ALV_E2E_TELEMETRY_RUN_ID_SEED for telemetry validation.');
+  }
+
+  return validateTelemetryRunId(randomUUIDImpl());
 }
 
 function resolvePlaywrightChildInvocation(extraArgs, env = process.env, repoRoot = REPO_ROOT) {
@@ -254,7 +306,7 @@ async function runTelemetryE2e(options = {}) {
   const config = resolveConfig(env);
 
   const { component, created } = await ensureTelemetryComponentImpl(config);
-  const runId = randomUUIDImpl();
+  const runId = resolveTelemetryRunId(env, randomUUIDImpl);
 
   logger.log(
     `[e2e] ${created ? 'Created' : 'Using'} dedicated Application Insights resource: ${component.name} (${component.resourceGroup})`
@@ -297,8 +349,110 @@ async function runTelemetryE2e(options = {}) {
   return { exitCode: 0, validation };
 }
 
+async function exportTelemetryEnv(options = {}) {
+  const env = options.env || process.env;
+  const logger = options.logger || console;
+  const randomUUIDImpl = options.randomUUIDImpl || randomUUID;
+  const ensureTelemetryComponentImpl = options.ensureTelemetryComponentImpl || ensureTelemetryComponent;
+  const writeEnvImpl = options.writeEnvImpl || appendGitHubEnv;
+  const maskSecretImpl = options.maskSecretImpl || maskSecret;
+
+  const config = resolveConfig(env);
+  const { component, created } = await ensureTelemetryComponentImpl(config);
+  const runId = resolveTelemetryRunId(env, randomUUIDImpl);
+
+  logger.log(
+    `[e2e] ${created ? 'Created' : 'Using'} dedicated Application Insights resource: ${component.name} (${component.resourceGroup})`
+  );
+  logger.log(`[e2e] Exporting test telemetry run id: ${runId}`);
+
+  maskSecretImpl(component.connectionString);
+  writeEnvImpl({
+    ALV_ENABLE_TEST_TELEMETRY: '1',
+    ALV_TEST_TELEMETRY_CONNECTION_STRING: component.connectionString,
+    ALV_TEST_TELEMETRY_RUN_ID: runId
+  });
+
+  return { exitCode: 0, runId };
+}
+
+async function validateTelemetryOnly(options = {}) {
+  const env = options.env || process.env;
+  const logger = options.logger || console;
+  const randomUUIDImpl = options.randomUUIDImpl || randomUUID;
+  const ensureTelemetryComponentImpl = options.ensureTelemetryComponentImpl || ensureTelemetryComponent;
+  const prepareTelemetryValidationContextImpl =
+    options.prepareTelemetryValidationContextImpl || prepareTelemetryValidationContext;
+  const waitForTelemetryImpl = options.waitForTelemetryImpl || waitForTelemetry;
+
+  const config = resolveConfig(env);
+  const { component, created } = await ensureTelemetryComponentImpl(config);
+  const runId = resolveTelemetryRunId(env, randomUUIDImpl, { requireConfigured: true });
+
+  logger.log(
+    `[e2e] ${created ? 'Created' : 'Using'} dedicated Application Insights resource: ${component.name} (${component.resourceGroup})`
+  );
+  logger.log(`[e2e] Validating telemetry run id: ${runId}`);
+
+  const validationContext = await prepareTelemetryValidationContextImpl(config, component);
+  const validation = await waitForTelemetryImpl(config, component, runId, { validationContext });
+  logger.log(
+    `[e2e] Telemetry validated after ${validation.attempt} query attempt(s): ${validation.summary.totalEvents} events across ${validation.summary.distinctNames} event names.`
+  );
+  for (const row of validation.rows) {
+    logger.log(`[e2e] ${row.name}: ${row.events}`);
+  }
+
+  return { exitCode: 0, validation };
+}
+
+function maskSecret(value) {
+  const text = String(value || '');
+  if (text) {
+    console.log(`::add-mask::${text}`);
+  }
+}
+
+function appendGitHubEnv(values, env = process.env) {
+  const githubEnv = readEnv(env, 'GITHUB_ENV');
+  if (!githubEnv) {
+    throw new Error('GITHUB_ENV is not set; cannot export telemetry environment for later workflow steps.');
+  }
+  const lines = [];
+  for (const [key, value] of Object.entries(values)) {
+    const text = String(value || '');
+    if (text.includes('\n') || text.includes('\r')) {
+      throw new Error(`Refusing to write multiline value for ${key} to GITHUB_ENV.`);
+    }
+    lines.push(`${key}=${text}`);
+  }
+  fs.appendFileSync(githubEnv, `${lines.join('\n')}\n`, 'utf8');
+}
+
+function parseCliArgs(argv = []) {
+  const modes = new Set(argv.filter(arg => arg === '--export-env' || arg === '--validate-only'));
+  if (modes.size > 1) {
+    throw new Error('Use only one telemetry mode flag: --export-env or --validate-only.');
+  }
+  if (modes.has('--export-env')) {
+    return { mode: 'export-env', extraArgs: argv.filter(arg => arg !== '--export-env') };
+  }
+  if (modes.has('--validate-only')) {
+    return { mode: 'validate-only', extraArgs: argv.filter(arg => arg !== '--validate-only') };
+  }
+  return { mode: 'run-tests', extraArgs: argv };
+}
+
 async function main() {
-  const result = await runTelemetryE2e();
+  const cli = parseCliArgs(process.argv.slice(2));
+  let result;
+  if (cli.mode === 'export-env') {
+    result = await exportTelemetryEnv();
+  } else if (cli.mode === 'validate-only') {
+    result = await validateTelemetryOnly();
+  } else {
+    result = await runTelemetryE2e({ extraArgs: cli.extraArgs });
+  }
   if (typeof result.exitCode === 'number' && result.exitCode !== 0) {
     process.exit(result.exitCode);
   }
@@ -312,12 +466,17 @@ if (require.main === module) {
 }
 
 module.exports = {
+  appendGitHubEnv,
   buildRunValidationQuery,
+  exportTelemetryEnv,
   prepareTelemetryValidationContext,
   prewarmTelemetryQueryToken,
+  parseCliArgs,
   resolveConfig,
   resolvePlaywrightChildInvocation,
+  resolveTelemetryRunId,
   runTelemetryE2e,
   spawnAsync,
-  summarizeTelemetry
+  summarizeTelemetry,
+  validateTelemetryOnly
 };
