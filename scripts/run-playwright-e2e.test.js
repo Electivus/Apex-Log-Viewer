@@ -11,6 +11,7 @@ const {
   requiredBuildArtifacts,
   resolveEmbeddedRunnerRelativePath,
   resolveBuildInvocation,
+  resolvePlaywrightEnv,
   resolvePlaywrightInvocation
 } = require('./run-playwright-e2e');
 
@@ -186,4 +187,25 @@ test('resolvePlaywrightInvocation rejects invalid PLAYWRIGHT_RETRIES values', ()
       process.env.PLAYWRIGHT_RETRIES = originalRetries;
     }
   }
+});
+
+test('resolvePlaywrightEnv exports the current Node runtime for the extension runner', () => {
+  const env = resolvePlaywrightEnv(
+    { EXISTING: '1', SF_CLI_NODE_PATH: '/opt/salesforce-node/bin/node' },
+    '/opt/project-node/bin/node'
+  );
+
+  assert.equal(env.EXISTING, '1');
+  assert.equal(env.SF_CLI_NODE_PATH, '/opt/salesforce-node/bin/node');
+  assert.equal(env.ALV_NODE_BIN_PATH, '/opt/project-node/bin/node');
+});
+
+test('resolvePlaywrightEnv preserves an explicit extension runner Node runtime', () => {
+  const env = resolvePlaywrightEnv(
+    { ALV_NODE_BIN_PATH: '/custom/node', SF_CLI_NODE_PATH: '/opt/salesforce-node/bin/node' },
+    '/opt/project-node/bin/node'
+  );
+
+  assert.equal(env.ALV_NODE_BIN_PATH, '/custom/node');
+  assert.equal(env.SF_CLI_NODE_PATH, '/opt/salesforce-node/bin/node');
 });

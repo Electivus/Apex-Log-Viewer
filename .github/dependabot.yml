@@ -50,11 +50,6 @@ updates:
           - '@vscode/test-electron'
           - '@vscode/l10n-dev'
           - '@vscode/vsce'
-      nx:
-        applies-to: version-updates
-        patterns:
-          - 'nx'
-          - '@nx/*'
     ignore:
       - dependency-name: '@types/node'
         update-types:

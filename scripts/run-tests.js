@@ -865,7 +865,7 @@ async function run() {
       "const runnerPath=path.join(ext.extensionPath,'sf-plugin','electivus-runner.cjs');",
       "assert.ok(fs.existsSync(runnerPath),'embedded runner missing: '+runnerPath);",
       "const workspace=vscode.workspace.workspaceFolders&&vscode.workspace.workspaceFolders[0]&&vscode.workspace.workspaceFolders[0].uri.fsPath;",
-      "const nodePath=process.env.ALV_NODE_BIN_PATH||process.env.SF_CLI_NODE_PATH||(process.platform==='win32'?'node.exe':'node');",
+      "const nodePath=process.env.ALV_NODE_BIN_PATH||(process.platform==='win32'?'node.exe':'node');",
       "const childEnv={...process.env,SF_DISABLE_LOG_FILE:'true',SFDX_DISABLE_LOG_FILE:'true'};",
       "delete childEnv.ELECTRON_RUN_AS_NODE;",
       "const result=await run(nodePath,[runnerPath,'orgs','list','--json'],{cwd:workspace||ext.extensionPath,env:childEnv,windowsHide:true});",

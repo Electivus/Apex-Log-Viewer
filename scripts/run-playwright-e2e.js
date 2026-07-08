@@ -121,6 +121,14 @@ function resolvePlaywrightInvocation(extraArgs) {
   };
 }
 
+function resolvePlaywrightEnv(env = process.env, nodePath = process.execPath) {
+  const resolvedEnv = { ...env };
+  if (!String(resolvedEnv.ALV_NODE_BIN_PATH || '').trim() && nodePath) {
+    resolvedEnv.ALV_NODE_BIN_PATH = nodePath;
+  }
+  return resolvedEnv;
+}
+
 async function main() {
   // Some environments leak ELECTRON_RUN_AS_NODE=1; VS Code won't boot properly.
   try {
@@ -152,7 +160,7 @@ async function main() {
   const child = spawn(invocation.command, invocation.args, {
     stdio: 'inherit',
     cwd: repoRoot,
-    env: process.env
+    env: resolvePlaywrightEnv(process.env)
   });
   child.on('exit', exitWithChildResult);
 }
@@ -170,5 +178,6 @@ module.exports = {
   requiredBuildArtifacts,
   resolveEmbeddedRunnerRelativePath,
   resolveBuildInvocation,
+  resolvePlaywrightEnv,
   resolvePlaywrightInvocation
 };

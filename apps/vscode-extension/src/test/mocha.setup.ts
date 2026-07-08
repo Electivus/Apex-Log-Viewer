@@ -48,8 +48,8 @@ function shouldFallbackToMinimalDom(error: unknown): boolean {
 
 function installDomEnvironment(): void {
   try {
-    // VS Code 1.90 ships an extension host Node runtime that cannot require the
-    // ESM-only transitive dependency pulled by newer jsdom releases.
+    // Keep old local extension hosts from failing before tests reach the code
+    // under inspection when jsdom's transitive ESM dependencies cannot load.
     const { JSDOM } = require('jsdom') as typeof import('jsdom');
     const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' });
     (globalThis as any).window = dom.window;
