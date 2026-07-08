@@ -58,6 +58,10 @@ function getDirectWorkflowStep(workflow, stepName) {
   return getWorkflowStep(workflow, stepName, 'playwright_e2e_os_matrix');
 }
 
+function getDirectPrepareWorkflowStep(workflow, stepName) {
+  return getWorkflowStep(workflow, stepName, 'playwright_e2e_os_prepare');
+}
+
 function getTelemetryWorkflowStep(workflow, stepName) {
   return getWorkflowStep(workflow, stepName, 'playwright_e2e_telemetry');
 }
@@ -244,6 +248,24 @@ test('real-org Playwright workflow enables test telemetry on the existing Ubuntu
   assert.equal(prepareTelemetryStep.step.run, 'node scripts/run-playwright-e2e-telemetry.js --export-env');
 });
 
+test('Ubuntu proxy-lab E2E jobs avoid redundant host dependency setup', () => {
+  const workflow = readWorkflow();
+  const job = getWorkflowJob(workflow, 'playwright_e2e');
+  const stepNames = job.steps.map(step => step.name);
+  const setupNodeStep = getWorkflowStep(workflow, 'Setup Node.js from .nvmrc').step;
+
+  assert.ok(!stepNames.includes('Resolve VS Code cache metadata'));
+  assert.ok(!stepNames.includes('Restore VS Code test cache'));
+  assert.ok(!stepNames.includes('Install Salesforce CLI'));
+  assert.ok(!stepNames.includes('Install extension dependencies'));
+  assert.ok(!stepNames.includes('Install Linux deps for Electron (best-effort)'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(setupNodeStep.with || {}, 'cache'));
+  assert.ok(
+    Object.prototype.hasOwnProperty.call(job.env || {}, 'SALESFORCE_CLI_PACKAGE'),
+    'expected the proxy-lab Docker build to keep receiving the configured Salesforce CLI package'
+  );
+});
+
 test('real-org Playwright workflow serializes CI runs by scratch-org pool', () => {
   const workflow = readWorkflow();
   const concurrency = workflow?.concurrency || {};
@@ -337,6 +359,7 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
   const uploadCliStep = getDirectWorkflowStep(workflow, 'Upload CLI E2E artifacts');
   const uploadExtensionStep = getDirectWorkflowStep(workflow, 'Upload Playwright artifacts');
 
+  assert.equal(job.needs, 'playwright_e2e_os_prepare');
   assert.equal(job.env?.VSCODE_TEST_VERSION, "${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}");
   assert.equal(job.env?.SALESFORCE_CLI_PACKAGE, "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}");
   assert.equal(job.env?.SALESFORCE_CLI_NODE_VERSION, "${{ vars.SALESFORCE_CLI_NODE_VERSION || '20' }}");
@@ -357,55 +380,90 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
   assert.equal(uploadExtensionStep.step.with?.path, 'output/playwright/');
 });
 
-test('direct macOS Playwright workflow runs Salesforce CLI with an LTS Node runtime', () => {
+test('direct E2E prepare job warms dependencies and uploads OS-specific build artifacts once', () => {
   const workflow = readWorkflow();
-  const installSfStep = getDirectWorkflowStep(workflow, 'Install Salesforce CLI');
+  const job = getWorkflowJob(workflow, 'playwright_e2e_os_prepare');
+  const cacheStep = getDirectPrepareWorkflowStep(workflow, 'Restore direct E2E dependency cache');
+  const installDepsStep = getDirectPrepareWorkflowStep(workflow, 'Install extension dependencies');
+  const buildStep = getDirectPrepareWorkflowStep(workflow, 'Build direct E2E artifacts');
+  const uploadStep = getDirectPrepareWorkflowStep(workflow, 'Upload direct E2E build artifacts');
+
+  assert.deepEqual(
+    job.strategy?.matrix?.os?.map(entry => ({
+      artifact_suffix: entry.artifact_suffix,
+      runner: entry.runner,
+      vscode_platform: entry.vscode_platform
+    })),
+    [
+      {
+        runner: 'windows-latest',
+        vscode_platform: 'win32-x64-archive',
+        artifact_suffix: 'windows'
+      },
+      {
+        runner: 'macos-latest',
+        vscode_platform: 'darwin-arm64',
+        artifact_suffix: 'macos'
+      }
+    ]
+  );
+  assert.equal(cacheStep.step.uses, 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9');
+  assert.match(String(cacheStep.step.with?.key || ''), /^direct-e2e-node-modules-/);
+  assert.match(String(cacheStep.step.with?.path || ''), /node_modules/);
+  assert.equal(installDepsStep.step.if, "steps.direct-e2e-deps.outputs.cache-hit != 'true'");
+  assert.equal(buildStep.step.run, 'npm run build');
+  assert.equal(uploadStep.step.uses, 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a');
+  assert.equal(uploadStep.step.with?.name, 'direct-e2e-build-${{ matrix.os.artifact_suffix }}');
+  assert.match(String(uploadStep.step.with?.path || ''), /apps\/vscode-extension\/sf-plugin\//);
+  assert.match(String(uploadStep.step.with?.path || ''), /packages\/sf-plugin\/lib\//);
+});
+
+test('direct E2E shards restore cached dependencies and downloaded build artifacts', () => {
+  const workflow = readWorkflow();
+  const cacheStep = getDirectWorkflowStep(workflow, 'Restore direct E2E dependency cache');
+  const installDepsStep = getDirectWorkflowStep(workflow, 'Install extension dependencies');
+  const downloadStep = getDirectWorkflowStep(workflow, 'Download direct E2E build artifacts');
+  const requireConfigStep = getDirectWorkflowStep(workflow, 'Require scratch-org pool configuration');
+
+  assert.ok(
+    cacheStep.index < installDepsStep.index && installDepsStep.index < downloadStep.index,
+    'expected dependency fallback to run before build artifacts are downloaded'
+  );
+  assert.ok(
+    downloadStep.index < requireConfigStep.index,
+    'expected build artifacts to be present before E2E commands can run'
+  );
+  assert.equal(cacheStep.step.uses, 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9');
+  assert.equal(installDepsStep.step.if, "steps.direct-e2e-deps.outputs.cache-hit != 'true'");
+  assert.equal(downloadStep.step.uses, 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c');
+  assert.equal(downloadStep.step.with?.name, 'direct-e2e-build-${{ matrix.os.artifact_suffix }}');
+  assert.equal(downloadStep.step.with?.path, '.');
+});
+
+test('direct macOS Playwright workflow runs Salesforce CLI through the cached setup helper with an LTS Node runtime', () => {
+  const workflow = readWorkflow();
   const setupSfNodeStep = getDirectWorkflowStep(workflow, 'Setup Salesforce CLI Node.js');
-  const exportSfNodeStep = getDirectWorkflowStep(workflow, 'Export Salesforce CLI Node.js runtime');
+  const resolveCacheStep = getDirectWorkflowStep(workflow, 'Resolve Salesforce CLI cache metadata');
+  const restoreCacheStep = getDirectWorkflowStep(workflow, 'Restore Salesforce CLI cache');
+  const setupSfStep = getDirectWorkflowStep(workflow, 'Setup Salesforce CLI');
   const restoreProjectNodeStep = getDirectWorkflowStep(workflow, 'Restore Node.js from .nvmrc');
   const installDepsStep = getDirectWorkflowStep(workflow, 'Install extension dependencies');
 
   assert.ok(
-    setupSfNodeStep.index < installSfStep.index,
-    'expected macOS to select the Salesforce CLI Node runtime before installing the CLI'
+    setupSfNodeStep.index < resolveCacheStep.index && resolveCacheStep.index < restoreCacheStep.index,
+    'expected macOS to select the Salesforce CLI Node runtime before resolving the CLI cache'
   );
   assert.equal(setupSfNodeStep.step.if, "runner.os == 'macOS'");
   assert.equal(setupSfNodeStep.step.uses, 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e');
   assert.equal(setupSfNodeStep.step.with?.['node-version'], '${{ env.SALESFORCE_CLI_NODE_VERSION }}');
-
+  assert.equal(resolveCacheStep.step.run, 'node scripts/setup-salesforce-cli.mjs --print-cache-key');
+  assert.equal(restoreCacheStep.step.with?.path, '${{ steps.sf-cli-cache.outputs.cache-dir }}');
+  assert.equal(restoreCacheStep.step.with?.key, '${{ steps.sf-cli-cache.outputs.cache-key }}');
+  assert.equal(setupSfStep.step.run, 'node scripts/setup-salesforce-cli.mjs');
+  assert.equal(setupSfStep.step.env?.SALESFORCE_CLI_CACHE_ROOT, '${{ runner.tool_cache }}');
+  assert.equal(setupSfStep.step.env?.SALESFORCE_CLI_WRAP_NODE, "${{ runner.os == 'macOS' && '1' || '' }}");
   assert.ok(
-    installSfStep.index < exportSfNodeStep.index,
-    'expected LTS Node Salesforce CLI to install before exporting its runtime and binary path'
-  );
-  assert.match(
-    String(installSfStep.step.run || ''),
-    /npm install -g "\$\{\{ env\.SALESFORCE_CLI_PACKAGE \}\}" --no-audit --no-fund/,
-    'expected the workflow to install the configured Salesforce CLI package'
-  );
-  assert.equal(exportSfNodeStep.step.if, "runner.os == 'macOS'");
-  assert.match(
-    String(exportSfNodeStep.step.run || ''),
-    /node_path="\$\(command -v node\)"/,
-    'expected the macOS direct E2E job to export the Salesforce CLI Node runtime for the VS Code wrapper'
-  );
-  assert.match(
-    String(exportSfNodeStep.step.run || ''),
-    /wrapper_dir="\$\{RUNNER_TEMP\}\/alv-sf-node20"/,
-    'expected the macOS direct E2E job to create a sanitized Salesforce CLI wrapper'
-  );
-  assert.match(
-    String(exportSfNodeStep.step.run || ''),
-    /SF_CLI_BIN_PATH=\$\{wrapper_path\}.*>> "\$GITHUB_ENV"/,
-    'expected the macOS direct E2E job to export the sanitized Salesforce CLI wrapper for runtime calls'
-  );
-  assert.match(
-    String(exportSfNodeStep.step.run || ''),
-    /ALV_SF_BIN_PATH=\$\{wrapper_path\}.*>> "\$GITHUB_ENV"/,
-    'expected the macOS direct E2E job to export the sanitized Salesforce CLI wrapper for plugin calls'
-  );
-
-  assert.ok(
-    exportSfNodeStep.index < restoreProjectNodeStep.index,
+    setupSfStep.index < restoreProjectNodeStep.index,
     'expected the project Node runtime to be restored after capturing the Salesforce CLI runtime'
   );
   assert.equal(restoreProjectNodeStep.step.if, "runner.os == 'macOS'");
@@ -469,15 +527,22 @@ test('real-org Playwright workflow runs telemetry validation after sharded E2E j
 
 test('real-org Playwright workflow logs into Azure immediately before final telemetry validation', () => {
   const workflow = readWorkflow();
+  const job = getWorkflowJob(workflow, 'playwright_e2e_telemetry');
   const azureLoginStep = getTelemetryWorkflowStep(workflow, 'Azure login for dedicated App Insights validation');
   const setupNodeStep = getTelemetryWorkflowStep(workflow, 'Setup Node.js from .nvmrc');
   const telemetryStep = getTelemetryWorkflowStep(workflow, 'Run Playwright E2E telemetry validation');
+  const stepNames = job.steps.map(step => step.name);
 
   assert.equal(
     azureLoginStep.step.uses,
     'azure/login@93381592711f247e165c389ebb30b596c84cdc48',
     'expected azure/login to stay pinned to the SHA currently allowed by the Electivus org action policy'
   );
+  assert.ok(!stepNames.includes('Resolve VS Code cache metadata'));
+  assert.ok(!stepNames.includes('Restore VS Code test cache'));
+  assert.ok(!stepNames.includes('Install Salesforce CLI'));
+  assert.ok(!stepNames.includes('Install extension dependencies'));
+  assert.ok(!stepNames.includes('Install Linux deps for Electron (best-effort)'));
   assert.ok(
     setupNodeStep.index < azureLoginStep.index,
     'expected Azure login to run after checkout/setup so the OIDC assertion is fresher for telemetry validation'
