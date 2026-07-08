@@ -293,12 +293,16 @@ test('proxy lab runner image installs xauth for xvfb-run', () => {
   assert.match(aptInstallBlock, /^\s+xauth\s+\\$/m);
 });
 
-test('proxy lab Docker images are pinned by digest', () => {
+test('proxy lab Docker images are pinned by digest without a Rust toolchain stage', () => {
   const runnerDockerfile = readRunnerDockerfile();
   const proxyDockerfile = readProxyDockerfile();
 
-  assert.match(runnerDockerfile, /^FROM rust:1\.95\.0-bookworm@sha256:[0-9a-f]{64} AS rust-toolchain$/m);
   assert.match(runnerDockerfile, /^FROM node:24\.15\.0-bookworm@sha256:[0-9a-f]{64}$/m);
+  assert.doesNotMatch(runnerDockerfile, /\brust\b/i);
+  assert.doesNotMatch(runnerDockerfile, /\bcargo\b/i);
+  assert.doesNotMatch(runnerDockerfile, /\brustup\b/i);
+  assert.doesNotMatch(runnerDockerfile, /\blibssl-dev\b/);
+  assert.doesNotMatch(runnerDockerfile, /\bpkg-config\b/);
   assert.match(proxyDockerfile, /^FROM debian:bookworm-slim@sha256:[0-9a-f]{64}$/m);
 });
 
