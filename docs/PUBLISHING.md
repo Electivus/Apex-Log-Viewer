@@ -49,11 +49,6 @@ Quick recipes
   - The `.github/workflows/sf-plugin-release.yml` workflow validates that the tag version matches the package manifest, runs `npm run test:sf-plugin`, `npm run build:sf-plugin`, and `npm run stage:sf-plugin-npm`, then publishes the staged package to npm through Trusted Publishing/OIDC.
   - For an existing tag that predates the workflow, rerun the SF Plugin Release workflow manually with the `tag_name` input.
   - The staging step removes the workspace-only `private` marker and copies the built `bin`, `lib`, `messages`, `skills`, and `oclif.manifest.json` files; there are no native runtime companion packages.
-  - After the cutover release is published, deprecate any old standalone binary package with:
-
-```bash
-npm deprecate @electivus/apex-log-viewer@"*" "Deprecated: install the Salesforce CLI plugin instead: sf plugins install @electivus/plugin-electivus"
-```
 
 Local packaging/publish
 
