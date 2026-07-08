@@ -314,9 +314,9 @@ test('direct real-org Playwright OS matrix runs Windows and macOS without the pr
   );
   assert.deepEqual(matrix?.shard, EXPECTED_SHARD_MATRIX);
 
-  assert.match(String(cliStep.step.run || ''), /^\s*npm run test:e2e:cli\s*$/m);
+  assert.match(String(cliStep.step.run || ''), /^\s*node scripts\/run-playwright-cli-e2e\.js\s*$/m);
   assert.doesNotMatch(String(cliStep.step.run || ''), /proxy-lab/);
-  assert.match(String(extensionStep.step.run || ''), /^\s*npm run test:e2e\s*$/m);
+  assert.match(String(extensionStep.step.run || ''), /^\s*node scripts\/run-playwright-e2e\.js\s*$/m);
   assert.doesNotMatch(String(extensionStep.step.run || ''), /proxy-lab/);
   assert.ok(cliStep.index < extensionStep.index, 'expected direct CLI E2E to run before direct extension E2E');
 });

@@ -438,7 +438,7 @@ jobs:
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
           echo "Playwright shard: ${PLAYWRIGHT_SHARD}"
           echo "Direct E2E OS: ${{ matrix.os.artifact_suffix }}"
-          npm run test:e2e:cli
+          node scripts/run-playwright-cli-e2e.js
         env:
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
           PLAYWRIGHT_SHARD: ${{ env.PLAYWRIGHT_SHARD }}
@@ -471,7 +471,7 @@ jobs:
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
           echo "Playwright shard: ${PLAYWRIGHT_SHARD}"
           echo "Direct E2E OS: ${{ matrix.os.artifact_suffix }}"
-          npm run test:e2e
+          node scripts/run-playwright-e2e.js
         env:
           VSCODE_TEST_VERSION: ${{ env.VSCODE_TEST_VERSION }}
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
