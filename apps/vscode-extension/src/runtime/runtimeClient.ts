@@ -142,26 +142,22 @@ function resolveEmbeddedRunner(): string | undefined {
   return resolveEmbeddedRunnerFromRuntimeDir();
 }
 
-function firstNonEmptyEnv(...values: Array<string | undefined>): string | undefined {
-  for (const value of values) {
-    const trimmed = String(value || '').trim();
-    if (trimmed) return trimmed;
-  }
-  return undefined;
-}
-
 export function resolveEmbeddedRunnerExecutable(
   baseEnv: NodeJS.ProcessEnv = process.env,
   runtimeVersions: NodeJS.ProcessVersions = process.versions
 ): string {
-  const explicitNode = firstNonEmptyEnv(baseEnv.ALV_NODE_BIN_PATH, baseEnv.SF_CLI_NODE_PATH);
+  const explicitNode = String(baseEnv.ALV_NODE_BIN_PATH || '').trim();
   if (explicitNode) {
     return explicitNode;
   }
   if (runtimeVersions.electron) {
-    return process.platform === 'win32' ? 'node.exe' : 'node';
+    return process.execPath;
   }
   return process.execPath;
+}
+
+function resolvePathNodeExecutable(): string {
+  return process.platform === 'win32' ? 'node.exe' : 'node';
 }
 
 export function resolveEmbeddedRunnerExecutables(
@@ -172,6 +168,10 @@ export function resolveEmbeddedRunnerExecutables(
   const candidates = [primary];
   if (runtimeVersions.electron && primary !== process.execPath) {
     candidates.push(process.execPath);
+  }
+  const pathNode = resolvePathNodeExecutable();
+  if (runtimeVersions.electron && !candidates.includes(pathNode)) {
+    candidates.push(pathNode);
   }
   return candidates;
 }

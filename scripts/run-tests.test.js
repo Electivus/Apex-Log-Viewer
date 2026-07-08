@@ -47,7 +47,7 @@ test("VSIX smoke validation exercises the packaged embedded sf runner", () => {
   const script = fs.readFileSync(path.join(__dirname, "run-tests.js"), "utf8");
 
   assert.match(script, /'sf-plugin','electivus-runner\.cjs'/);
-  assert.match(script, /const nodePath=process\.env\.ALV_NODE_BIN_PATH\|\|process\.env\.SF_CLI_NODE_PATH/);
+  assert.match(script, /const nodePath=process\.env\.ALV_NODE_BIN_PATH\|\|\(process\.platform==='win32'\?'node\.exe':'node'\)/);
   assert.match(script, /delete childEnv\.ELECTRON_RUN_AS_NODE/);
   assert.match(script, /\[runnerPath,'orgs','list','--json'\]/);
   assert.match(script, /embedded runner did not produce JSON output/);

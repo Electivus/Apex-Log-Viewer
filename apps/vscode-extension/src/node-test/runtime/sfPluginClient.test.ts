@@ -330,17 +330,17 @@ suite('sf plugin client', () => {
     assert.equal(resolveEmbeddedRunnerFromRuntimeDir(runtimeDir), expectedRunner);
   });
 
-  test('prefers a real Node executable for embedded runner subprocesses under Electron', () => {
+  test('prefers the extension host runtime for embedded runner subprocesses under Electron', () => {
     const { resolveEmbeddedRunnerExecutable, resolveEmbeddedRunnerExecutables } = loadRuntimeClient({});
     const defaultNodeExecutable = process.platform === 'win32' ? 'node.exe' : 'node';
 
     assert.equal(
       resolveEmbeddedRunnerExecutable({}, { electron: '42.0.0' } as unknown as NodeJS.ProcessVersions),
-      defaultNodeExecutable
+      process.execPath
     );
     assert.deepEqual(
       resolveEmbeddedRunnerExecutables({}, { electron: '42.0.0' } as unknown as NodeJS.ProcessVersions),
-      [defaultNodeExecutable, process.execPath]
+      [process.execPath, defaultNodeExecutable]
     );
     assert.equal(
       resolveEmbeddedRunnerExecutable(
@@ -348,6 +348,13 @@ suite('sf plugin client', () => {
         { electron: '42.0.0' } as unknown as NodeJS.ProcessVersions
       ),
       '/opt/alv/node'
+    );
+    assert.equal(
+      resolveEmbeddedRunnerExecutable(
+        { SF_CLI_NODE_PATH: '/opt/sf/node' },
+        { electron: '42.0.0' } as unknown as NodeJS.ProcessVersions
+      ),
+      process.execPath
     );
     assert.equal(resolveEmbeddedRunnerExecutable({}, {} as NodeJS.ProcessVersions), process.execPath);
   });
@@ -369,7 +376,7 @@ suite('sf plugin client', () => {
     assert.equal(electronFallbackEnv.ELECTRON_RUN_AS_NODE, '1');
   });
 
-  test('falls back to Electron-as-Node when the preferred real Node executable cannot start', async () => {
+  test('falls back to a PATH Node when Electron-as-Node cannot start', async () => {
     const calls: Array<{
       args: readonly string[];
       command: string;
@@ -396,10 +403,10 @@ suite('sf plugin client', () => {
     const result = await withElectronVersion(() => runEmbeddedSfPlugin(['doctor'], { env: { PATH: '/bin' } }));
 
     assert.equal(result.stdout, '{"ok":true}');
-    assert.deepEqual(calls.map(call => call.command), [defaultNodeExecutable, process.execPath]);
+    assert.deepEqual(calls.map(call => call.command), [process.execPath, defaultNodeExecutable]);
     assert.deepEqual(calls[0]?.args.slice(-2), ['doctor', '--json']);
-    assert.equal(calls[0]?.options.env?.ELECTRON_RUN_AS_NODE, undefined);
-    assert.equal(calls[1]?.options.env?.ELECTRON_RUN_AS_NODE, '1');
+    assert.equal(calls[0]?.options.env?.ELECTRON_RUN_AS_NODE, '1');
+    assert.equal(calls[1]?.options.env?.ELECTRON_RUN_AS_NODE, undefined);
     assert.equal(calls[1]?.options.env?.SF_DISABLE_LOG_FILE, 'true');
   });
 });
