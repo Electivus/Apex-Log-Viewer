@@ -85,24 +85,6 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Resolve VS Code cache metadata
-        id: vscode-cache
-        env:
-          VSCODE_TARGET: ${{ env.VSCODE_TEST_VERSION }}
-          VSCODE_PLATFORM: linux-x64
-        run: node scripts/resolve-vscode-cache-metadata.js
-
-      - name: Restore VS Code test cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: .vscode-test/vscode-*
-          key: vscode-test-${{ runner.os }}-${{ steps.vscode-cache.outputs.version }}-${{ steps.vscode-cache.outputs.build }}
-
-      - name: Install Salesforce CLI
-        run: npm install -g "${{ env.SALESFORCE_CLI_PACKAGE }}" --no-audit --no-fund
 
       - name: Require scratch-org pool configuration
         shell: bash
@@ -123,14 +105,6 @@ jobs:
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
-
-      - name: Install extension dependencies
-        run: npm ci
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Install Linux deps for Electron (best-effort)
-        run: bash scripts/install-linux-deps.sh
 
       - name: Run CLI real-org E2E
         shell: bash
@@ -213,8 +187,97 @@ jobs:
           path: output/playwright/
           if-no-files-found: ignore
 
+  playwright_e2e_os_prepare:
+    name: Prepare Direct E2E (${{ matrix.os.artifact_suffix }})
+    runs-on: ${{ matrix.os.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - runner: windows-latest
+            vscode_platform: win32-x64-archive
+            artifact_suffix: windows
+          - runner: macos-latest
+            vscode_platform: darwin-arm64
+            artifact_suffix: macos
+    env:
+      VSCODE_TEST_VERSION: ${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}
+    steps:
+      - name: Disable Windows autocrlf
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Resolve VS Code cache metadata
+        id: vscode-cache
+        env:
+          VSCODE_TARGET: ${{ env.VSCODE_TEST_VERSION }}
+          VSCODE_PLATFORM: ${{ matrix.os.vscode_platform }}
+        run: node scripts/resolve-vscode-cache-metadata.js
+
+      - name: Restore VS Code test cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .vscode-test/vscode-*
+          key: vscode-test-${{ runner.os }}-${{ steps.vscode-cache.outputs.version }}-${{ steps.vscode-cache.outputs.build }}
+
+      - name: Restore direct E2E dependency cache
+        id: direct-e2e-deps
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            node_modules
+            apps/vscode-extension/node_modules
+            packages/sf-plugin/node_modules
+          key: direct-e2e-node-modules-${{ runner.os }}-${{ hashFiles('.nvmrc', 'package-lock.json') }}
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
+      - name: Install extension dependencies
+        if: steps.direct-e2e-deps.outputs.cache-hit != 'true'
+        run: npm ci
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Build direct E2E artifacts
+        run: npm run build
+
+      - name: Upload direct E2E build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: direct-e2e-build-${{ matrix.os.artifact_suffix }}
+          path: |
+            apps/vscode-extension/CHANGELOG.md
+            apps/vscode-extension/LICENSE
+            apps/vscode-extension/README.md
+            apps/vscode-extension/dist/
+            apps/vscode-extension/media/*.js
+            apps/vscode-extension/media/*.js.map
+            apps/vscode-extension/media/webview.css
+            apps/vscode-extension/node_modules/@vscode/
+            apps/vscode-extension/node_modules/tree-sitter-sfapex/
+            apps/vscode-extension/sf-plugin/
+            apps/vscode-extension/telemetry.json
+            packages/sf-plugin/lib/
+            packages/sf-plugin/oclif.lock
+            packages/sf-plugin/oclif.manifest.json
+            packages/sf-plugin/skills/
+          if-no-files-found: error
+
   playwright_e2e_os_matrix:
     name: Playwright E2E Direct (${{ matrix.os.artifact_suffix }}, ${{ matrix.shard.artifact_suffix }})
+    needs: playwright_e2e_os_prepare
     runs-on: ${{ matrix.os.runner }}
     timeout-minutes: 60
     strategy:
@@ -287,39 +350,27 @@ jobs:
           # @salesforce/cli inside the VS Code macOS test host.
           node-version: ${{ env.SALESFORCE_CLI_NODE_VERSION }}
 
-      - name: Install Salesforce CLI
-        run: npm install -g "${{ env.SALESFORCE_CLI_PACKAGE }}" --no-audit --no-fund
-
-      - name: Export Salesforce CLI Node.js runtime
-        if: runner.os == 'macOS'
+      - name: Resolve Salesforce CLI cache metadata
+        id: sf-cli-cache
         shell: bash
-        run: |
-          node_path="$(command -v node)"
-          sf_bin_path="$(command -v sf)"
-          wrapper_dir="${RUNNER_TEMP}/alv-sf-node20"
-          wrapper_path="${wrapper_dir}/sf"
-          mkdir -p "$wrapper_dir"
-          {
-            echo '#!/usr/bin/env bash'
-            echo 'set -euo pipefail'
-            echo 'unset ELECTRON_RUN_AS_NODE || true'
-            echo 'unset NODE_OPTIONS || true'
-            echo 'unset VSCODE_AMD_ENTRYPOINT || true'
-            echo 'unset VSCODE_CODE_CACHE_PATH || true'
-            echo 'unset VSCODE_CWD || true'
-            echo 'unset VSCODE_ESM_ENTRYPOINT || true'
-            echo 'unset VSCODE_HANDLES_UNCAUGHT_ERRORS || true'
-            echo 'unset VSCODE_IPC_HOOK || true'
-            echo 'unset VSCODE_IPC_HOOK_CLI || true'
-            echo 'unset VSCODE_NLS_CONFIG || true'
-            echo 'unset VSCODE_PID || true'
-            echo "export PATH=\"$(dirname "$node_path"):\${PATH:-}\""
-            printf 'exec %q "$@"\n' "$sf_bin_path"
-          } > "$wrapper_path"
-          chmod +x "$wrapper_path"
-          echo "SF_CLI_NODE_PATH=${node_path}" >> "$GITHUB_ENV"
-          echo "SF_CLI_BIN_PATH=${wrapper_path}" >> "$GITHUB_ENV"
-          echo "ALV_SF_BIN_PATH=${wrapper_path}" >> "$GITHUB_ENV"
+        run: node scripts/setup-salesforce-cli.mjs --print-cache-key
+        env:
+          SALESFORCE_CLI_CACHE_KEY_OS: ${{ runner.os }}
+          SALESFORCE_CLI_CACHE_ROOT: ${{ runner.tool_cache }}
+
+      - name: Restore Salesforce CLI cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ steps.sf-cli-cache.outputs.cache-dir }}
+          key: ${{ steps.sf-cli-cache.outputs.cache-key }}
+
+      - name: Setup Salesforce CLI
+        shell: bash
+        run: node scripts/setup-salesforce-cli.mjs
+        env:
+          SALESFORCE_CLI_CACHE_KEY_OS: ${{ runner.os }}
+          SALESFORCE_CLI_CACHE_ROOT: ${{ runner.tool_cache }}
+          SALESFORCE_CLI_WRAP_NODE: ${{ runner.os == 'macOS' && '1' || '' }}
 
       - name: Restore Node.js from .nvmrc
         if: runner.os == 'macOS'
@@ -328,6 +379,40 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
+
+      - name: Restore direct E2E dependency cache
+        id: direct-e2e-deps
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            node_modules
+            apps/vscode-extension/node_modules
+            packages/sf-plugin/node_modules
+          key: direct-e2e-node-modules-${{ runner.os }}-${{ hashFiles('.nvmrc', 'package-lock.json') }}
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
+      - name: Install extension dependencies
+        if: steps.direct-e2e-deps.outputs.cache-hit != 'true'
+        run: npm ci
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Download direct E2E build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: direct-e2e-build-${{ matrix.os.artifact_suffix }}
+          path: .
+
+      - name: Restore direct E2E runtime executable bits
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d apps/vscode-extension/node_modules/@vscode ]]; then
+            find apps/vscode-extension/node_modules/@vscode -type f -path '*/bin/*' -exec chmod 755 {} +
+          fi
 
       - name: Require scratch-org pool configuration
         shell: bash
@@ -346,14 +431,6 @@ jobs:
             exit 1
           fi
 
-      - name: Enforce dependency source policy
-        run: node scripts/check-dependency-sources.mjs
-
-      - name: Install extension dependencies
-        run: npm ci
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
       - name: Run CLI real-org E2E
         shell: bash
         run: |
@@ -361,7 +438,7 @@ jobs:
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
           echo "Playwright shard: ${PLAYWRIGHT_SHARD}"
           echo "Direct E2E OS: ${{ matrix.os.artifact_suffix }}"
-          npm run test:e2e:cli
+          node scripts/run-playwright-cli-e2e.js
         env:
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
           PLAYWRIGHT_SHARD: ${{ env.PLAYWRIGHT_SHARD }}
@@ -394,7 +471,7 @@ jobs:
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
           echo "Playwright shard: ${PLAYWRIGHT_SHARD}"
           echo "Direct E2E OS: ${{ matrix.os.artifact_suffix }}"
-          npm run test:e2e
+          node scripts/run-playwright-e2e.js
         env:
           VSCODE_TEST_VERSION: ${{ env.VSCODE_TEST_VERSION }}
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
@@ -448,8 +525,6 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
 
       - name: Azure login for dedicated App Insights validation
         if: ${{ env.AZURE_CLIENT_ID != '' && env.AZURE_TENANT_ID != '' && env.AZURE_SUBSCRIPTION_ID != '' && env.HAS_AZURE_E2E_TELEMETRY_CONFIG == '1' }}

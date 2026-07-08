@@ -129,10 +129,12 @@ test('direct E2E lanes run without proxy-lab and publish OS-specific artifacts',
   const uploadCliStep = getStep(directJob, 'Upload CLI E2E artifacts').step;
   const uploadExtensionStep = getStep(directJob, 'Upload Playwright artifacts').step;
 
-  assert.match(String(cliStep.run || ''), /^\s*npm run test:e2e:cli\s*$/m);
+  assert.match(String(cliStep.run || ''), /^\s*node scripts\/run-playwright-cli-e2e\.js\s*$/m);
   assert.doesNotMatch(String(cliStep.run || ''), /proxy-lab/);
-  assert.match(String(extensionStep.run || ''), /^\s*npm run test:e2e\s*$/m);
+  assert.doesNotMatch(String(cliStep.run || ''), /npm run test:e2e/);
+  assert.match(String(extensionStep.run || ''), /^\s*node scripts\/run-playwright-e2e\.js\s*$/m);
   assert.doesNotMatch(String(extensionStep.run || ''), /proxy-lab/);
+  assert.doesNotMatch(String(extensionStep.run || ''), /npm run test:e2e/);
   assert.equal(uploadCliStep.with?.name, 'playwright-cli-e2e-${{ matrix.os.artifact_suffix }}-${{ matrix.shard.artifact_suffix }}');
   assert.equal(uploadCliStep.with?.path, 'output/playwright-cli/');
   assert.equal(uploadExtensionStep.with?.name, 'playwright-e2e-${{ matrix.os.artifact_suffix }}-${{ matrix.shard.artifact_suffix }}');
