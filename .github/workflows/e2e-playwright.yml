@@ -405,6 +405,15 @@ jobs:
           name: direct-e2e-build-${{ matrix.os.artifact_suffix }}
           path: .
 
+      - name: Restore direct E2E runtime executable bits
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d apps/vscode-extension/node_modules/@vscode ]]; then
+            find apps/vscode-extension/node_modules/@vscode -type f -path '*/bin/*' -exec chmod 755 {} +
+          fi
+
       - name: Require scratch-org pool configuration
         shell: bash
         run: |

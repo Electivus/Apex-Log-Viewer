@@ -423,6 +423,7 @@ test('direct E2E shards restore cached dependencies and downloaded build artifac
   const cacheStep = getDirectWorkflowStep(workflow, 'Restore direct E2E dependency cache');
   const installDepsStep = getDirectWorkflowStep(workflow, 'Install extension dependencies');
   const downloadStep = getDirectWorkflowStep(workflow, 'Download direct E2E build artifacts');
+  const restoreExecutableBitsStep = getDirectWorkflowStep(workflow, 'Restore direct E2E runtime executable bits');
   const requireConfigStep = getDirectWorkflowStep(workflow, 'Require scratch-org pool configuration');
 
   assert.ok(
@@ -430,14 +431,17 @@ test('direct E2E shards restore cached dependencies and downloaded build artifac
     'expected dependency fallback to run before build artifacts are downloaded'
   );
   assert.ok(
-    downloadStep.index < requireConfigStep.index,
-    'expected build artifacts to be present before E2E commands can run'
+    downloadStep.index < restoreExecutableBitsStep.index && restoreExecutableBitsStep.index < requireConfigStep.index,
+    'expected build artifacts to have runtime executable bits before E2E commands can run'
   );
   assert.equal(cacheStep.step.uses, 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9');
   assert.equal(installDepsStep.step.if, "steps.direct-e2e-deps.outputs.cache-hit != 'true'");
   assert.equal(downloadStep.step.uses, 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c');
   assert.equal(downloadStep.step.with?.name, 'direct-e2e-build-${{ matrix.os.artifact_suffix }}');
   assert.equal(downloadStep.step.with?.path, '.');
+  assert.equal(restoreExecutableBitsStep.step.if, "runner.os != 'Windows'");
+  assert.match(String(restoreExecutableBitsStep.step.run || ''), /apps\/vscode-extension\/node_modules\/@vscode/);
+  assert.match(String(restoreExecutableBitsStep.step.run || ''), /chmod 755/);
 });
 
 test('direct macOS Playwright workflow runs Salesforce CLI through the cached setup helper with an LTS Node runtime', () => {
