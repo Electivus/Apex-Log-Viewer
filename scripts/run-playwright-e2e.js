@@ -21,6 +21,34 @@ const requiredBuildArtifacts = [
 ];
 const DEFAULT_PLAYWRIGHT_RETRIES = '2';
 
+function hasExplicitShardArg(args = []) {
+  return args.some(arg => arg === '--shard' || String(arg).startsWith('--shard='));
+}
+
+function resolvePlaywrightShardArgs(extraArgs = [], env = process.env) {
+  if (hasExplicitShardArg(extraArgs)) {
+    return [];
+  }
+
+  const configuredShard = String(env.PLAYWRIGHT_SHARD ?? '').trim();
+  if (!configuredShard) {
+    return [];
+  }
+
+  const match = configuredShard.match(/^(\d+)\/(\d+)$/);
+  if (!match) {
+    throw new Error(`PLAYWRIGHT_SHARD must use the format current/total, got '${configuredShard}'.`);
+  }
+
+  const current = Number(match[1]);
+  const total = Number(match[2]);
+  if (current < 1 || total < 1 || current > total) {
+    throw new Error(`PLAYWRIGHT_SHARD must satisfy 1 <= current <= total, got '${configuredShard}'.`);
+  }
+
+  return [`--shard=${current}/${total}`];
+}
+
 function execFileAsync(file, args, options = {}) {
   return new Promise((resolve, reject) => {
     execFile(file, args, options, (error, stdout, stderr) => {
@@ -104,6 +132,7 @@ function resolvePlaywrightInvocation(extraArgs) {
     throw new Error(`PLAYWRIGHT_RETRIES must be a non-negative integer, got '${configuredRetries}'.`);
   }
   const retryArgs = [`--retries=${configuredRetries}`];
+  const shardArgs = resolvePlaywrightShardArgs(extraArgs);
 
   try {
     // Prefer the local Playwright CLI directly. On Windows under Git Bash,
@@ -111,13 +140,13 @@ function resolvePlaywrightInvocation(extraArgs) {
     const cliPath = require.resolve('@playwright/test/cli');
     return {
       command: process.execPath,
-      args: [cliPath, 'test', ...retryArgs, ...extraArgs]
+      args: [cliPath, 'test', ...retryArgs, ...shardArgs, ...extraArgs]
     };
   } catch {}
 
   return {
     command: process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    args: ['playwright', 'test', ...retryArgs, ...extraArgs]
+    args: ['playwright', 'test', ...retryArgs, ...shardArgs, ...extraArgs]
   };
 }
 
@@ -179,5 +208,6 @@ module.exports = {
   resolveEmbeddedRunnerRelativePath,
   resolveBuildInvocation,
   resolvePlaywrightEnv,
+  resolvePlaywrightShardArgs,
   resolvePlaywrightInvocation
 };

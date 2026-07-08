@@ -125,6 +125,34 @@ function findMissingSfPluginBuildArtifacts(repoRoot) {
   return requiredSfPluginArtifacts.filter(relativePath => !existsSync(path.join(repoRoot, relativePath)));
 }
 
+function hasExplicitShardArg(args = []) {
+  return args.some(arg => arg === '--shard' || String(arg).startsWith('--shard='));
+}
+
+function resolvePlaywrightShardArgs(extraArgs = [], env = process.env) {
+  if (hasExplicitShardArg(extraArgs)) {
+    return [];
+  }
+
+  const configuredShard = String(env.PLAYWRIGHT_SHARD ?? '').trim();
+  if (!configuredShard) {
+    return [];
+  }
+
+  const match = configuredShard.match(/^(\d+)\/(\d+)$/);
+  if (!match) {
+    throw new Error(`PLAYWRIGHT_SHARD must use the format current/total, got '${configuredShard}'.`);
+  }
+
+  const current = Number(match[1]);
+  const total = Number(match[2]);
+  if (current < 1 || total < 1 || current > total) {
+    throw new Error(`PLAYWRIGHT_SHARD must satisfy 1 <= current <= total, got '${configuredShard}'.`);
+  }
+
+  return [`--shard=${current}/${total}`];
+}
+
 function spawnAsync(command, args, options = {}, spawnImpl = spawn) {
   return new Promise((resolve, reject) => {
     const child = spawnImpl(command, args, options);
@@ -169,8 +197,10 @@ function resolvePlaywrightInvocation(extraArgs, options = {}) {
   const cliPath = require.resolve('@playwright/test/cli');
   const repoRoot = options.repoRoot || path.join(__dirname, '..');
   const cliSuiteRoot = path.join(repoRoot, resolveCliSuiteRelativePath());
-  const maybePassWithNoTests = existsSync(cliSuiteRoot) ? [] : ['--pass-with-no-tests'];
   const configuredRetries = String((options.env || process.env).PLAYWRIGHT_RETRIES || '').trim();
+  const shardArgs = resolvePlaywrightShardArgs(extraArgs, options.env || process.env);
+  const isShardedInvocation = shardArgs.length > 0 || hasExplicitShardArg(extraArgs);
+  const maybePassWithNoTests = existsSync(cliSuiteRoot) && !isShardedInvocation ? [] : ['--pass-with-no-tests'];
 
   if (configuredRetries !== '' && !/^\d+$/.test(configuredRetries)) {
     throw new Error(`PLAYWRIGHT_RETRIES must be a non-negative integer, got '${configuredRetries}'.`);
@@ -180,7 +210,7 @@ function resolvePlaywrightInvocation(extraArgs, options = {}) {
 
   return {
     command: process.execPath,
-    args: [cliPath, 'test', configArg, ...maybePassWithNoTests, ...retryArgs, ...extraArgs]
+    args: [cliPath, 'test', configArg, ...maybePassWithNoTests, ...retryArgs, ...shardArgs, ...extraArgs]
   };
 }
 
@@ -237,6 +267,7 @@ module.exports = {
   resolveSfPluginBuildInvocation,
   resolveSfPluginCommandRelativePath,
   resolveSfPluginRunRelativePath,
+  resolvePlaywrightShardArgs,
   resolvePlaywrightEnv,
   resolvePlaywrightInvocation,
   resolveSalesforceCliPath

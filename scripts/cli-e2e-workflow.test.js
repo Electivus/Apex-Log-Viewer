@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const YAML = require('yaml');
 
 const SHARED_SCRATCH_ENV_KEYS = [
+  'PLAYWRIGHT_SHARD',
   'SF_SCRATCH_STRATEGY',
   'SF_SCRATCH_POOL_NAME',
   'SF_SCRATCH_POOL_OWNER',
@@ -17,6 +18,13 @@ const SHARED_SCRATCH_ENV_KEYS = [
   'SF_DEVHUB_ALIAS',
   'SF_SCRATCH_DURATION',
   'SF_TEST_KEEP_ORG'
+];
+
+const EXPECTED_SHARD_MATRIX = [
+  { playwright_shard: '1/4', artifact_suffix: 'shard-1' },
+  { playwright_shard: '2/4', artifact_suffix: 'shard-2' },
+  { playwright_shard: '3/4', artifact_suffix: 'shard-3' },
+  { playwright_shard: '4/4', artifact_suffix: 'shard-4' }
 ];
 
 function read(relativePath) {
@@ -48,6 +56,10 @@ function getWorkflowStep(workflow, stepName, jobName = 'playwright_e2e') {
 
 function getDirectWorkflowStep(workflow, stepName) {
   return getWorkflowStep(workflow, stepName, 'playwright_e2e_os_matrix');
+}
+
+function getTelemetryWorkflowStep(workflow, stepName) {
+  return getWorkflowStep(workflow, stepName, 'playwright_e2e_telemetry');
 }
 
 test('package.json test:scripts includes the CLI real-org workflow guard', () => {
@@ -119,25 +131,15 @@ test('real-org Playwright workflow runs the extension suite through the MITM pro
   const { step: extensionStep } = getWorkflowStep(workflow, 'Run Playwright E2E');
   const runBlock = String(extensionStep.run || '');
 
-  assert.match(
-    runBlock,
-    /^\s*npm run test:e2e:telemetry\s*$/m,
-    'expected telemetry validation to remain a host-side workflow command'
-  );
   assert.doesNotMatch(
     runBlock,
-    /\btest:e2e:proxy-lab -- npm run test:e2e:telemetry\b/,
-    'expected telemetry wrapper not to be launched directly through the MITM proxy lab'
+    /\btest:e2e:telemetry\b/,
+    'expected sharded Ubuntu extension E2E to leave telemetry validation to the final telemetry job'
   );
   assert.match(
     runBlock,
     /^\s*npm run test:e2e:proxy-lab -- npm run test:e2e\s*$/m,
-    'expected the non-telemetry extension suite to run through the MITM proxy lab'
-  );
-  assert.equal(
-    extensionStep.env?.ALV_E2E_TELEMETRY_PROXY_LAB,
-    '1',
-    'expected telemetry wrapper to launch its Playwright child through the MITM proxy lab'
+    'expected each sharded extension suite to run through the MITM proxy lab'
   );
   assert.equal(
     cliStep.env?.PLAYWRIGHT_WORKERS,
@@ -186,13 +188,33 @@ test('real-org Playwright workflow keeps E2E tunables configurable with safe def
     "${{ github.event.inputs.playwright_extension_proxy_lab_workers || vars.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS || '1' }}"
   );
   assert.equal(job?.env?.PLAYWRIGHT_RETRIES, "${{ vars.PLAYWRIGHT_RETRIES || '0' }}");
+  assert.equal(job?.env?.PLAYWRIGHT_SHARD, '${{ matrix.shard.playwright_shard }}');
   assert.equal(job?.env?.PLAYWRIGHT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}");
   assert.equal(job?.env?.PLAYWRIGHT_EXPECT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}");
   assert.equal(job?.env?.SF_DEVHUB_ALIAS, "${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}");
   assert.equal(job?.env?.SF_SCRATCH_DURATION, "${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}");
   assert.equal(job?.env?.SF_TEST_KEEP_ORG, "${{ vars.SF_TEST_KEEP_ORG || '1' }}");
   assert.equal(job?.env?.INSTALL_LINUX_DEPS, "${{ vars.INSTALL_LINUX_DEPS || 'true' }}");
+  assert.ok(!Object.prototype.hasOwnProperty.call(job?.env || {}, 'AZURE_CLIENT_ID'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(job?.env || {}, 'HAS_AZURE_E2E_TELEMETRY_CONFIG'));
   assert.ok(!Object.prototype.hasOwnProperty.call(job?.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'));
+});
+
+test('real-org Playwright workflow shards the Ubuntu proxy-lab run while keeping worker tunables', () => {
+  const workflow = readWorkflow();
+  const job = getWorkflowJob(workflow, 'playwright_e2e');
+  const { step: cliStep } = getWorkflowStep(workflow, 'Run CLI real-org E2E');
+  const { step: extensionStep } = getWorkflowStep(workflow, 'Run Playwright E2E');
+
+  assert.equal(job.strategy?.['fail-fast'], false);
+  assert.deepEqual(job.strategy?.matrix?.shard, EXPECTED_SHARD_MATRIX);
+  assert.equal(job.env?.PLAYWRIGHT_SHARD, '${{ matrix.shard.playwright_shard }}');
+  assert.match(String(cliStep.run || ''), /Playwright shard: \$\{PLAYWRIGHT_SHARD\}/);
+  assert.match(String(extensionStep.run || ''), /Playwright shard: \$\{PLAYWRIGHT_SHARD\}/);
+  assert.equal(cliStep.env?.PLAYWRIGHT_WORKERS, '${{ env.PLAYWRIGHT_WORKERS }}');
+  assert.equal(extensionStep.env?.PLAYWRIGHT_WORKERS, '${{ env.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS }}');
+  assert.equal(cliStep.env?.PLAYWRIGHT_SHARD, '${{ env.PLAYWRIGHT_SHARD }}');
+  assert.equal(extensionStep.env?.PLAYWRIGHT_SHARD, '${{ env.PLAYWRIGHT_SHARD }}');
 });
 
 test('real-org Playwright workflow serializes CI runs by scratch-org pool', () => {
@@ -218,29 +240,30 @@ test('real-org Playwright workflow serializes CI runs by scratch-org pool', () =
 
 test('direct real-org Playwright OS matrix runs Windows and macOS without the proxy lab', () => {
   const workflow = readWorkflow();
-  const matrix = getWorkflowJob(workflow, 'playwright_e2e_os_matrix')?.strategy?.matrix?.include;
+  const matrix = getWorkflowJob(workflow, 'playwright_e2e_os_matrix')?.strategy?.matrix;
   const cliStep = getDirectWorkflowStep(workflow, 'Run CLI real-org E2E');
   const extensionStep = getDirectWorkflowStep(workflow, 'Run Playwright E2E');
 
   assert.deepEqual(
-    matrix?.map(entry => ({
+    matrix?.os?.map(entry => ({
       artifact_suffix: entry.artifact_suffix,
-      os: entry.os,
+      runner: entry.runner,
       vscode_platform: entry.vscode_platform
     })),
     [
       {
-        os: 'windows-latest',
+        runner: 'windows-latest',
         vscode_platform: 'win32-x64-archive',
         artifact_suffix: 'windows'
       },
       {
-        os: 'macos-latest',
+        runner: 'macos-latest',
         vscode_platform: 'darwin-arm64',
         artifact_suffix: 'macos'
       }
     ]
   );
+  assert.deepEqual(matrix?.shard, EXPECTED_SHARD_MATRIX);
 
   assert.match(String(cliStep.step.run || ''), /^\s*npm run test:e2e:cli\s*$/m);
   assert.doesNotMatch(String(cliStep.step.run || ''), /proxy-lab/);
@@ -272,10 +295,12 @@ test('direct real-org Playwright workflow keeps the CLI scratch-env contract ali
 
   assert.equal(cliStep.env.PLAYWRIGHT_WORKERS, '${{ env.PLAYWRIGHT_WORKERS }}');
   assert.equal(extensionStep.env.PLAYWRIGHT_WORKERS, '${{ env.PLAYWRIGHT_WORKERS }}');
+  assert.equal(cliStep.env.PLAYWRIGHT_SHARD, '${{ env.PLAYWRIGHT_SHARD }}');
+  assert.equal(extensionStep.env.PLAYWRIGHT_SHARD, '${{ env.PLAYWRIGHT_SHARD }}');
   assert.equal(
     cliStep.env.SF_SCRATCH_POOL_OWNER,
-    'github:${{ github.run_id }}/${{ github.run_attempt }}/${{ matrix.artifact_suffix }}',
-    'expected direct E2E pool owners to include the OS artifact suffix'
+    'github:${{ github.run_id }}/${{ github.run_attempt }}/${{ matrix.os.artifact_suffix }}/${{ matrix.shard.artifact_suffix }}',
+    'expected direct E2E pool owners to include the OS and shard artifact suffixes'
   );
 });
 
@@ -292,15 +317,16 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
     job.env?.PLAYWRIGHT_WORKERS,
     "${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}"
   );
+  assert.equal(job.env?.PLAYWRIGHT_SHARD, '${{ matrix.shard.playwright_shard }}');
   assert.equal(job.env?.PLAYWRIGHT_RETRIES, "${{ vars.PLAYWRIGHT_RETRIES || '0' }}");
   assert.equal(job.env?.PLAYWRIGHT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}");
   assert.equal(job.env?.PLAYWRIGHT_EXPECT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}");
   assert.equal(job.env?.SF_DEVHUB_ALIAS, "${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}");
   assert.equal(job.env?.SF_SCRATCH_DURATION, "${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}");
   assert.equal(job.env?.SF_TEST_KEEP_ORG, "${{ vars.SF_TEST_KEEP_ORG || '1' }}");
-  assert.equal(uploadCliStep.step.with?.name, 'playwright-cli-e2e-${{ matrix.artifact_suffix }}');
+  assert.equal(uploadCliStep.step.with?.name, 'playwright-cli-e2e-${{ matrix.os.artifact_suffix }}-${{ matrix.shard.artifact_suffix }}');
   assert.equal(uploadCliStep.step.with?.path, 'output/playwright-cli/');
-  assert.equal(uploadExtensionStep.step.with?.name, 'playwright-e2e-${{ matrix.artifact_suffix }}');
+  assert.equal(uploadExtensionStep.step.with?.name, 'playwright-e2e-${{ matrix.os.artifact_suffix }}-${{ matrix.shard.artifact_suffix }}');
   assert.equal(uploadExtensionStep.step.with?.path, 'output/playwright/');
 });
 
@@ -364,12 +390,78 @@ test('direct macOS Playwright workflow runs Salesforce CLI with an LTS Node runt
   );
 });
 
-test('real-org Playwright workflow logs into Azure immediately before telemetry-capable extension E2E', () => {
+test('real-org Playwright workflow runs telemetry validation after sharded E2E jobs', () => {
   const workflow = readWorkflow();
-  const azureLoginStep = getWorkflowStep(workflow, 'Azure login for dedicated App Insights validation');
-  const cliStep = getWorkflowStep(workflow, 'Run CLI real-org E2E');
-  const uploadArtifactsStep = getWorkflowStep(workflow, 'Upload CLI E2E artifacts');
-  const extensionStep = getWorkflowStep(workflow, 'Run Playwright E2E');
+  const job = getWorkflowJob(workflow, 'playwright_e2e_telemetry');
+  const telemetryStep = getTelemetryWorkflowStep(workflow, 'Run Playwright E2E telemetry validation');
+  const uploadStep = getTelemetryWorkflowStep(workflow, 'Upload Playwright telemetry artifacts');
+  const runBlock = String(telemetryStep.step.run || '');
+
+  assert.deepEqual(
+    job.needs,
+    ['playwright_e2e', 'playwright_e2e_os_matrix'],
+    'expected telemetry validation to wait for both sharded E2E jobs'
+  );
+  assert.equal(
+    job.if,
+    "${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}",
+    'expected telemetry validation not to expose Azure secrets to fork pull requests'
+  );
+  assert.ok(!Object.prototype.hasOwnProperty.call(job, 'strategy'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(job.env || {}, 'PLAYWRIGHT_SHARD'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(job.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'));
+  assert.equal(
+    job.env?.PLAYWRIGHT_WORKERS,
+    "${{ github.event.inputs.playwright_extension_proxy_lab_workers || vars.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS || '1' }}",
+    'expected final telemetry validation to use the Ubuntu extension proxy-lab worker setting'
+  );
+  assert.equal(
+    job.env?.HAS_AZURE_E2E_TELEMETRY_CONFIG,
+    "${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}"
+  );
+  assert.match(
+    runBlock,
+    /skipping dedicated telemetry validation after the sharded E2E jobs/,
+    'expected the final telemetry job to pass cleanly when telemetry config is incomplete'
+  );
+  assert.match(
+    runBlock,
+    /^\s*npm run test:e2e:telemetry\s*$/m,
+    'expected the final telemetry job to run the host-side telemetry wrapper'
+  );
+  assert.doesNotMatch(
+    runBlock,
+    /PLAYWRIGHT_SHARD/,
+    'expected final telemetry validation to run unsharded'
+  );
+  assert.equal(
+    telemetryStep.step.env?.ALV_E2E_TELEMETRY_PROXY_LAB,
+    '1',
+    'expected telemetry wrapper to launch its Playwright child through the MITM proxy lab'
+  );
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(telemetryStep.step.env || {}, 'PLAYWRIGHT_SHARD'),
+    'expected final telemetry validation not to pass a shard to Playwright'
+  );
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(telemetryStep.step.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'),
+    'expected final telemetry validation to prepare its own proxy-lab dependency volume'
+  );
+  assert.equal(
+    telemetryStep.step.env?.SF_SCRATCH_POOL_OWNER,
+    'github:${{ github.run_id }}/${{ github.run_attempt }}/telemetry',
+    'expected telemetry validation to use a dedicated scratch-pool owner suffix'
+  );
+  assert.equal(uploadStep.step.with?.name, 'playwright-e2e-telemetry');
+  assert.equal(uploadStep.step.with?.path, 'output/playwright/');
+});
+
+test('real-org Playwright workflow logs into Azure immediately before final telemetry validation', () => {
+  const workflow = readWorkflow();
+  const azureLoginStep = getTelemetryWorkflowStep(workflow, 'Azure login for dedicated App Insights validation');
+  const installDepsStep = getTelemetryWorkflowStep(workflow, 'Install extension dependencies');
+  const installLinuxDepsStep = getTelemetryWorkflowStep(workflow, 'Install Linux deps for Electron (best-effort)');
+  const telemetryStep = getTelemetryWorkflowStep(workflow, 'Run Playwright E2E telemetry validation');
 
   assert.equal(
     azureLoginStep.step.uses,
@@ -377,20 +469,20 @@ test('real-org Playwright workflow logs into Azure immediately before telemetry-
     'expected azure/login to stay pinned to the SHA currently allowed by the Electivus org action policy'
   );
   assert.ok(
-    cliStep.index < azureLoginStep.index,
-    'expected Azure login to run after the CLI real-org step so the OIDC assertion is fresher for telemetry validation'
+    installDepsStep.index < azureLoginStep.index,
+    'expected Azure login to run after dependency install so the OIDC assertion is fresher for telemetry validation'
   );
   assert.ok(
-    uploadArtifactsStep.index < azureLoginStep.index,
-    'expected Azure login to run after CLI artifact upload and immediately before the extension Playwright step'
+    installLinuxDepsStep.index < azureLoginStep.index,
+    'expected Azure login to run after Linux dependency setup and immediately before telemetry validation'
   );
   assert.ok(
-    azureLoginStep.index < extensionStep.index,
-    'expected Azure login to run before the telemetry-capable extension Playwright step'
+    azureLoginStep.index < telemetryStep.index,
+    'expected Azure login to run before telemetry validation'
   );
   assert.equal(
     azureLoginStep.index + 1,
-    extensionStep.index,
-    'expected Azure login to run immediately before the telemetry-capable extension Playwright step'
+    telemetryStep.index,
+    'expected Azure login to run immediately before final telemetry validation'
   );
 });
