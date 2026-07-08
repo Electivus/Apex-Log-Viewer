@@ -84,8 +84,8 @@ test('setupSalesforceCli installs into the managed prefix and exports bin paths 
     assert.equal(calls[0].command, 'npm');
     assert.deepEqual(calls[0].args.slice(0, 5), ['install', '-g', '--prefix', result.cacheDir, '@salesforce/cli@2.136.8']);
     assert.equal(result.sfBinPath, path.join(result.cacheDir, 'bin', 'sf'));
-    assert.match(fs.readFileSync(githubEnv, 'utf8'), /SF_CLI_BIN_PATH=.*\/bin\/sf/);
-    assert.match(fs.readFileSync(githubEnv, 'utf8'), /ALV_SF_BIN_PATH=.*\/bin\/sf/);
+    assert.match(fs.readFileSync(githubEnv, 'utf8'), /SF_CLI_BIN_PATH=.*[\\/]bin[\\/]sf/);
+    assert.match(fs.readFileSync(githubEnv, 'utf8'), /ALV_SF_BIN_PATH=.*[\\/]bin[\\/]sf/);
     assert.equal(fs.readFileSync(githubPath, 'utf8').trim(), path.join(result.cacheDir, 'bin'));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -101,11 +101,14 @@ test('setupSalesforceCli reuses an exact cached package when sf --version matche
     nodeVersion: process.versions.node
   });
   const sfBinPath = mod.resolveSalesforceCliBinPath(config.cacheDir, 'linux');
+  const entryPoint = mod.resolveSalesforceCliEntryPoint(config.cacheDir, 'linux');
   const installCalls = [];
 
   try {
     fs.mkdirSync(path.dirname(sfBinPath), { recursive: true });
     fs.writeFileSync(sfBinPath, '#!/usr/bin/env node\n');
+    fs.mkdirSync(path.dirname(entryPoint), { recursive: true });
+    fs.writeFileSync(entryPoint, '#!/usr/bin/env node\n');
 
     mod.setupSalesforceCli({
       env: {
@@ -199,7 +202,7 @@ test('setupSalesforceCli writes a sanitized Node wrapper when SALESFORCE_CLI_WRA
     const wrapper = fs.readFileSync(result.exportedSfBinPath, 'utf8');
     assert.match(wrapper, /unset ELECTRON_RUN_AS_NODE/);
     assert.match(wrapper, /export PATH='\/opt\/hostedtoolcache\/node\/20\/bin':"\$\{PATH:-\}"/);
-    assert.match(wrapper, /exec '.*\/bin\/sf' "\$@"/);
+    assert.match(wrapper, /exec '.*[\\/]bin[\\/]sf' "\$@"/);
 
     const envFile = fs.readFileSync(githubEnv, 'utf8');
     assert.match(envFile, /SF_CLI_BIN_PATH=.*alv-sf-node20\/sf/);

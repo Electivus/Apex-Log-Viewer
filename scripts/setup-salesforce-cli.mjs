@@ -90,7 +90,32 @@ export function resolveSalesforceCliBinPath(prefix, platform = process.platform)
   return path.join(prefix, 'bin', 'sf');
 }
 
-function runCommand(command, args, options = {}, spawnSyncFn = spawnSync) {
+export function resolveSalesforceCliEntryPoint(prefix, platform = process.platform) {
+  if (platform === 'win32') {
+    return path.join(prefix, 'node_modules', '@salesforce', 'cli', 'bin', 'run.js');
+  }
+  return path.join(prefix, 'lib', 'node_modules', '@salesforce', 'cli', 'bin', 'run.js');
+}
+
+function assertPathInside(parent, child) {
+  const relative = path.relative(parent, child);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`Expected ${child} to resolve inside ${parent}.`);
+  }
+}
+
+function resolveManagedCommand(commandKey) {
+  if (commandKey === 'npm') {
+    return 'npm';
+  }
+  if (commandKey === 'cmd') {
+    return 'cmd.exe';
+  }
+  throw new Error(`Unsupported managed command: ${commandKey}`);
+}
+
+function runCommand(commandKey, args, options = {}, spawnSyncFn = spawnSync) {
+  const command = resolveManagedCommand(commandKey);
   const result = spawnSyncFn(command, args, {
     stdio: options.stdio || 'inherit',
     env: options.env,
@@ -111,28 +136,24 @@ function npmInstallInvocation({ prefix, packageName, platform = process.platform
   const args = ['install', '-g', '--prefix', prefix, packageName, '--no-audit', '--no-fund'];
   if (platform === 'win32') {
     return {
-      command: process.env.ComSpec || 'cmd.exe',
+      commandKey: 'cmd',
       args: ['/d', '/s', '/c', 'npm.cmd', ...args]
     };
   }
-  return { command: 'npm', args };
+  return { commandKey: 'npm', args };
 }
 
-function sfVersionInvocation(sfBinPath, platform = process.platform) {
-  if (platform === 'win32' && /\.cmd$/i.test(sfBinPath)) {
-    return {
-      command: process.env.ComSpec || 'cmd.exe',
-      args: ['/d', '/s', '/c', sfBinPath, '--version']
-    };
-  }
+function sfVersionInvocation(prefix, platform = process.platform) {
+  const entryPoint = resolveSalesforceCliEntryPoint(prefix, platform);
+  assertPathInside(prefix, entryPoint);
   return {
-    command: sfBinPath,
-    args: ['--version']
+    command: process.execPath,
+    args: [entryPoint, '--version']
   };
 }
 
-function readSfVersion(sfBinPath, { platform = process.platform, execFileSyncFn = execFileSync } = {}) {
-  const invocation = sfVersionInvocation(sfBinPath, platform);
+function readSfVersion(prefix, { platform = process.platform, execFileSyncFn = execFileSync } = {}) {
+  const invocation = sfVersionInvocation(prefix, platform);
   return String(execFileSyncFn(invocation.command, invocation.args, { encoding: 'utf8' }) || '').trim();
 }
 
@@ -141,13 +162,19 @@ export function isSalesforceCliVersionUsable(versionOutput, packageName) {
   if (!expectedVersion) {
     return false;
   }
-  return new RegExp(`@salesforce/cli/${expectedVersion.replace(/\./g, '\\.')}(?:\\s|$)`).test(
-    String(versionOutput || '')
-  );
+  return String(versionOutput || '')
+    .split(/\s+/)
+    .some(token => token === `@salesforce/cli/${expectedVersion}`);
 }
 
-export function shouldInstallSalesforceCli({ sfBinPath, packageName, platform, execFileSyncFn = execFileSync }) {
-  if (!fs.existsSync(sfBinPath)) {
+export function shouldInstallSalesforceCli({
+  cacheDir,
+  sfBinPath,
+  packageName,
+  platform = process.platform,
+  execFileSyncFn = execFileSync
+}) {
+  if (!fs.existsSync(sfBinPath) || !fs.existsSync(resolveSalesforceCliEntryPoint(cacheDir, platform))) {
     return true;
   }
 
@@ -157,7 +184,7 @@ export function shouldInstallSalesforceCli({ sfBinPath, packageName, platform, e
   }
 
   try {
-    return !isSalesforceCliVersionUsable(readSfVersion(sfBinPath, { platform, execFileSyncFn }), packageName);
+    return !isSalesforceCliVersionUsable(readSfVersion(cacheDir, { platform, execFileSyncFn }), packageName);
   } catch {
     return true;
   }
@@ -236,19 +263,27 @@ export function setupSalesforceCli({
   const sfBinPath = resolveSalesforceCliBinPath(config.cacheDir, platform);
   fsImpl.mkdirSync(config.cacheDir, { recursive: true });
 
-  if (shouldInstallSalesforceCli({ sfBinPath, packageName: config.packageName, platform, execFileSyncFn })) {
+  if (
+    shouldInstallSalesforceCli({
+      cacheDir: config.cacheDir,
+      sfBinPath,
+      packageName: config.packageName,
+      platform,
+      execFileSyncFn
+    })
+  ) {
     const invocation = npmInstallInvocation({
       prefix: config.cacheDir,
       packageName: config.packageName,
       platform
     });
     stdout.write(`[sf-cli] Installing ${config.packageName} into ${config.cacheDir}\n`);
-    runCommand(invocation.command, invocation.args, { env }, spawnSyncFn);
+    runCommand(invocation.commandKey, invocation.args, { env }, spawnSyncFn);
   } else {
     stdout.write(`[sf-cli] Reusing cached ${config.packageName} from ${config.cacheDir}\n`);
   }
 
-  const versionOutput = readSfVersion(sfBinPath, { platform, execFileSyncFn });
+  const versionOutput = readSfVersion(config.cacheDir, { platform, execFileSyncFn });
   if (!versionOutput.includes('@salesforce/cli/')) {
     throw new Error(`Unexpected Salesforce CLI version output: ${versionOutput}`);
   }
