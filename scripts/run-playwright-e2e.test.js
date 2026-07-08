@@ -171,6 +171,75 @@ test('resolvePlaywrightInvocation includes a retries override when PLAYWRIGHT_RE
   }
 });
 
+test('resolvePlaywrightInvocation includes a shard override when PLAYWRIGHT_SHARD is set', () => {
+  const originalRetries = process.env.PLAYWRIGHT_RETRIES;
+  const originalShard = process.env.PLAYWRIGHT_SHARD;
+  process.env.PLAYWRIGHT_RETRIES = '0';
+  process.env.PLAYWRIGHT_SHARD = '2/3';
+
+  try {
+    const invocation = resolvePlaywrightInvocation(['--grep', 'smoke']);
+
+    assert.deepEqual(invocation.args.slice(0, 6), [
+      require.resolve('@playwright/test/cli'),
+      'test',
+      '--retries=0',
+      '--shard=2/3',
+      '--grep',
+      'smoke'
+    ]);
+  } finally {
+    if (originalRetries === undefined) {
+      delete process.env.PLAYWRIGHT_RETRIES;
+    } else {
+      process.env.PLAYWRIGHT_RETRIES = originalRetries;
+    }
+    if (originalShard === undefined) {
+      delete process.env.PLAYWRIGHT_SHARD;
+    } else {
+      process.env.PLAYWRIGHT_SHARD = originalShard;
+    }
+  }
+});
+
+test('resolvePlaywrightInvocation rejects invalid PLAYWRIGHT_SHARD values', () => {
+  const originalShard = process.env.PLAYWRIGHT_SHARD;
+  process.env.PLAYWRIGHT_SHARD = '0/2';
+
+  try {
+    assert.throws(
+      () => resolvePlaywrightInvocation([]),
+      /PLAYWRIGHT_SHARD must satisfy 1 <= current <= total, got '0\/2'/
+    );
+  } finally {
+    if (originalShard === undefined) {
+      delete process.env.PLAYWRIGHT_SHARD;
+    } else {
+      process.env.PLAYWRIGHT_SHARD = originalShard;
+    }
+  }
+});
+
+test('resolvePlaywrightInvocation lets an explicit shard arg override PLAYWRIGHT_SHARD', () => {
+  const originalShard = process.env.PLAYWRIGHT_SHARD;
+  process.env.PLAYWRIGHT_SHARD = '1/2';
+
+  try {
+    const invocation = resolvePlaywrightInvocation(['--shard=2/2']);
+
+    assert.deepEqual(
+      invocation.args.filter(arg => String(arg).startsWith('--shard')),
+      ['--shard=2/2']
+    );
+  } finally {
+    if (originalShard === undefined) {
+      delete process.env.PLAYWRIGHT_SHARD;
+    } else {
+      process.env.PLAYWRIGHT_SHARD = originalShard;
+    }
+  }
+});
+
 test('resolvePlaywrightInvocation rejects invalid PLAYWRIGHT_RETRIES values', () => {
   const originalRetries = process.env.PLAYWRIGHT_RETRIES;
   process.env.PLAYWRIGHT_RETRIES = 'abc';

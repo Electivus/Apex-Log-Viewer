@@ -81,6 +81,7 @@ Set these env vars before running Playwright:
 Optional tuning:
 
 - `PLAYWRIGHT_WORKERS=7`
+- `PLAYWRIGHT_SHARD=1/4`
 - `SF_SCRATCH_POOL_OWNER=<owner-label>`
 - `SF_SCRATCH_POOL_LEASE_TTL_SECONDS=5400`
 - `SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS=600`
@@ -92,7 +93,7 @@ Optional tuning:
 Example:
 
 ```bash
-SF_SCRATCH_STRATEGY=pool SF_SCRATCH_POOL_NAME=alv-e2e PLAYWRIGHT_WORKERS=7 npm run test:e2e
+SF_SCRATCH_STRATEGY=pool SF_SCRATCH_POOL_NAME=alv-e2e PLAYWRIGHT_WORKERS=1 PLAYWRIGHT_SHARD=1/4 npm run test:e2e
 ```
 
 If `SF_SCRATCH_STRATEGY` is unset, the helper automatically switches to pool mode when `SF_SCRATCH_POOL_NAME` is present. The legacy single-scratch flow still works and remains the fallback when the pool is not configured.

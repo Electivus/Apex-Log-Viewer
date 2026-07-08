@@ -99,6 +99,7 @@ Useful env vars:
 - `SF_SCRATCH_STRATEGY`: `single` or `pool`. If unset, the helper auto-enables pool mode when `SF_SCRATCH_POOL_NAME` is present. Local runs can use either mode; CI forces `pool`.
 - `PLAYWRIGHT_WORKERS`: Number of Playwright workers. In pool mode this controls how many isolated tests can run at once, with one scratch-org lease per test. Default `1` locally; the GitHub Actions pool workflow also defaults to `1` unless overridden by the `PLAYWRIGHT_WORKERS` repository variable or the `playwright_workers` dispatch input. In single-scratch mode, the Playwright configs force serial execution.
 - `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS`: GitHub Actions-only worker override for the Ubuntu VS Code extension proxy-lab lane. This is mapped into `PLAYWRIGHT_WORKERS` for that step.
+- `PLAYWRIGHT_SHARD`: Optional Playwright shard in `current/total` form, for example `1/4`. The GitHub Actions E2E workflow sets this from its shard matrix for each OS lane.
 - `PLAYWRIGHT_RETRIES`: Number of Playwright retries passed by the E2E wrapper.
 - `PLAYWRIGHT_TIMEOUT_MS`: Per-test Playwright timeout. Defaults to 15 minutes locally and 6 minutes in the GitHub Actions E2E workflow.
 - `PLAYWRIGHT_EXPECT_TIMEOUT_MS`: Playwright expect assertion timeout. Defaults to 60 seconds.
@@ -162,7 +163,7 @@ To validate against a Salesforce CLI package override, such as the nightly build
 npm run test:e2e:proxy-lab:sf-nightly -- npm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts
 ```
 
-The standard GitHub Playwright E2E workflow keeps the Ubuntu lane on this MITM proxy lab. The Ubuntu CLI step populates the proxy-lab dependency volume, and the Ubuntu extension step reuses that volume with `ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1`. Windows and macOS lanes run the same real-org CLI and VS Code E2E commands directly on their hosted runners against the scratch-org pool. When telemetry validation is configured, Azure resource resolution and Log Analytics queries stay on the GitHub runner host while the Ubuntu Playwright child run executes inside the MITM proxy lab.
+The standard GitHub Playwright E2E workflow keeps the Ubuntu lane on this MITM proxy lab and fans each OS lane out across four Playwright shards. Each shard keeps `PLAYWRIGHT_WORKERS=1` by default unless the workflow tunables raise it, and the runner scripts translate `PLAYWRIGHT_SHARD` into Playwright's `--shard` flag. The Ubuntu CLI step populates the proxy-lab dependency volume, and the Ubuntu extension step reuses that volume with `ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1`. Windows and macOS lanes run the same real-org CLI and VS Code E2E commands directly on their hosted runners against the scratch-org pool. When telemetry validation is configured, Azure resource resolution and Log Analytics queries stay on the GitHub runner host while the Ubuntu Playwright child run executes inside the MITM proxy lab.
 
 Pool-specific env vars:
 

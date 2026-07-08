@@ -245,3 +245,57 @@ test('resolvePlaywrightInvocation validates PLAYWRIGHT_RETRIES when provided', (
     ['--retries=2']
   );
 });
+
+test('resolvePlaywrightInvocation includes PLAYWRIGHT_SHARD and allows empty sharded CLI slices', () => {
+  const repoRoot = createTempRepo();
+  try {
+    const runner = loadRunner();
+    fs.mkdirSync(path.join(repoRoot, 'test', 'e2e', 'cli'), { recursive: true });
+    const invocation = runner.resolvePlaywrightInvocation(['--grep', 'logs'], {
+      env: { PLAYWRIGHT_RETRIES: '0', PLAYWRIGHT_SHARD: '3/4' },
+      repoRoot
+    });
+
+    assert.deepEqual(invocation.args.slice(0, 7), [
+      require.resolve('@playwright/test/cli'),
+      'test',
+      '--config=playwright.cli.config.ts',
+      '--pass-with-no-tests',
+      '--retries=0',
+      '--shard=3/4',
+      '--grep'
+    ]);
+    assert.equal(invocation.args[7], 'logs');
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
+});
+
+test('resolvePlaywrightInvocation rejects invalid PLAYWRIGHT_SHARD values', () => {
+  const runner = loadRunner();
+
+  assert.throws(
+    () => runner.resolvePlaywrightInvocation([], { env: { PLAYWRIGHT_SHARD: '5/4' } }),
+    /PLAYWRIGHT_SHARD must satisfy 1 <= current <= total, got '5\/4'/
+  );
+});
+
+test('resolvePlaywrightInvocation lets an explicit shard arg override PLAYWRIGHT_SHARD', () => {
+  const repoRoot = createTempRepo();
+  try {
+    const runner = loadRunner();
+    fs.mkdirSync(path.join(repoRoot, 'test', 'e2e', 'cli'), { recursive: true });
+    const invocation = runner.resolvePlaywrightInvocation(['--shard=2/2'], {
+      env: { PLAYWRIGHT_SHARD: '1/2' },
+      repoRoot
+    });
+
+    assert.deepEqual(
+      invocation.args.filter(arg => String(arg).startsWith('--shard')),
+      ['--shard=2/2']
+    );
+    assert.ok(invocation.args.includes('--pass-with-no-tests'));
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
+});
