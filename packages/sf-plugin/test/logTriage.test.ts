@@ -80,6 +80,20 @@ const positiveCases: PositiveCase[] = [
     codes: ['suspicious_error_payload']
   },
   {
+    name: 'reports Database SaveResult lock failures with non-keyword status codes',
+    logText:
+      '17:11:52.319 (372616766)|VARIABLE_ASSIGNMENT|[131]|result|"Database.SaveResult[getErrors=(Database.Error[getFields=();getMessage=unable to obtain exclusive access to this record;getStatusCode=UNABLE_TO_LOCK_ROW;]);getId=null;isSuccess=false;]"|0x3722c840',
+    primaryReason: 'DML failure',
+    codes: ['dml_failure']
+  },
+  {
+    name: 'reports Database Error mixed-DML failures with non-keyword status codes',
+    logText:
+      '17:11:52.319 (372616766)|VARIABLE_ASSIGNMENT|[131]|error|"Database.Error [statusCode=MIXED_DML_OPERATION, message=DML operation on setup object is not permitted]"|0x3722c840',
+    primaryReason: 'DML failure',
+    codes: ['dml_failure']
+  },
+  {
     name: 'classifies exception payloads stored in variables as fatal diagnostics',
     logText:
       '17:11:52.319 (372616766)|VARIABLE_ASSIGNMENT|[131]|err|"System.NullPointerException: Attempt to de-reference a null object"|0x3722c840',

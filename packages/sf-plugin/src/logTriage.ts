@@ -35,7 +35,7 @@ function normalizeVariableValue(text: string | undefined): string {
 }
 
 function extractSerializedStatusCode(text: string): string | undefined {
-  return text.match(/\bstatusCode=([A-Z][A-Z0-9_]+)\b/)?.[1];
+  return text.match(/\b(?:get)?statusCode=([A-Z][A-Z0-9_]+)\b/i)?.[1]?.toUpperCase();
 }
 
 function extractSerializedMessage(text: string): string | undefined {
@@ -43,15 +43,7 @@ function extractSerializedMessage(text: string): string | undefined {
 }
 
 function looksLikeSerializedErrorStatusCode(statusCode: string | undefined): boolean {
-  return Boolean(
-    statusCode &&
-    !BENIGN_SERIALIZED_STATUS_CODE_PATTERN.test(statusCode) &&
-    (DML_STATUS_CODE_PATTERN.test(statusCode) ||
-      VALIDATION_STATUS_CODE_PATTERN.test(statusCode) ||
-      /(EXCEPTION|ERROR|FAILED|INVALID|REQUIRED|DUPLICATE|DELETE|CANNOT|ENTITY_IS_DELETED|STRING_TOO_LONG)/.test(
-        statusCode
-      ))
-  );
+  return Boolean(statusCode && !BENIGN_SERIALIZED_STATUS_CODE_PATTERN.test(statusCode));
 }
 
 function looksLikeSerializedErrorMessage(message: string | undefined): boolean {
@@ -81,6 +73,16 @@ function looksLikeExceptionPayload(text: string | undefined): boolean {
 
 function looksLikeErrorBearingVariableValue(text: string | undefined): boolean {
   return looksLikeSerializedErrorPayload(text) || looksLikeExceptionPayload(text);
+}
+
+function looksLikeSerializedDmlErrorPayload(text: string | undefined): boolean {
+  const normalized = normalizeVariableValue(text);
+  const statusCode = extractSerializedStatusCode(normalized);
+  return Boolean(
+    /\bDatabase\.(?:Error|SaveResult)\b/.test(normalized) &&
+    looksLikeSerializedErrorStatusCode(statusCode) &&
+    !VALIDATION_STATUS_CODE_PATTERN.test(statusCode ?? '')
+  );
 }
 
 function looksLikePlainValidationMessage(text: string | undefined): boolean {
@@ -201,7 +203,8 @@ const DIAGNOSTICS: DiagnosticRule[] = [
       }
       return (
         /DmlException|Insert failed|Update failed|Upsert failed|Delete failed|Merge failed/i.test(candidate) ||
-        DML_STATUS_CODE_PATTERN.test(candidate)
+        DML_STATUS_CODE_PATTERN.test(candidate) ||
+        looksLikeSerializedDmlErrorPayload(candidate)
       );
     }
   },
@@ -241,8 +244,13 @@ const DIAGNOSTICS: DiagnosticRule[] = [
 ];
 
 function extractEventType(line: string): string | undefined {
-  const match = line.match(/^[^|]*\|\s*([^|]*?)(?:\s*\||$)/);
-  const eventType = match?.[1]?.trim();
+  const firstDelimiter = line.indexOf('|');
+  if (firstDelimiter < 0) {
+    return undefined;
+  }
+  const eventStart = firstDelimiter + 1;
+  const nextDelimiter = line.indexOf('|', eventStart);
+  const eventType = line.slice(eventStart, nextDelimiter < 0 ? undefined : nextDelimiter).trim();
   return eventType || undefined;
 }
 
