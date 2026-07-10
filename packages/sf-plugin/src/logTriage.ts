@@ -378,7 +378,7 @@ export function summarizeLogText(logText: string): RuntimeLogTriageSummary {
   );
 
   return {
-    hasErrors: reasons.length > 0,
+    hasErrors: reasons.some(reason => reason.severity === 'error'),
     primaryReason: reasons[0]?.summary,
     reasons
   };

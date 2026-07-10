@@ -5,6 +5,7 @@ import { summarizeLogText } from '../src/logTriage.ts';
 
 type PositiveCase = {
   codes: string[];
+  hasErrors?: boolean;
   logText: string;
   name: string;
   primaryReason: string;
@@ -76,6 +77,7 @@ const positiveCases: PositiveCase[] = [
     name: 'reports suspicious serialized error payloads',
     logText:
       '17:11:52.319 (372616766)|VARIABLE_ASSIGNMENT|[131]|error|"Error [statusCode=UNKNOWN_EXCEPTION, code=null, message=Queueable job failed unexpectedly, fields=[]]"|0x3722c840',
+    hasErrors: false,
     primaryReason: 'Suspicious error payload',
     codes: ['suspicious_error_payload']
   },
@@ -200,8 +202,9 @@ const positiveCases: PositiveCase[] = [
     codes: ['assertion_failure']
   },
   {
-    name: 'treats rollback-only logs as triage hits',
+    name: 'preserves rollback-only warnings without marking the log as erroneous',
     logText: '17:11:52.525 (530873859)|ROLLBACK|[111]|Savepoint restored',
+    hasErrors: false,
     primaryReason: 'Rollback detected',
     codes: ['rollback_detected']
   },
@@ -210,6 +213,7 @@ const positiveCases: PositiveCase[] = [
     logText:
       '17:11:52.319 (372616766)|VARIABLE_ASSIGNMENT|[131]|error|payloadStart\n' +
       'Error [statusCode=UNKNOWN_EXCEPTION, code=null, message=Queueable job failed unexpectedly, fields=[]]',
+    hasErrors: false,
     primaryReason: 'Suspicious error payload',
     codes: ['suspicious_error_payload']
   }
@@ -218,7 +222,7 @@ const positiveCases: PositiveCase[] = [
 for (const fixture of positiveCases) {
   test(fixture.name, () => {
     const summary = summarizeLogText(fixture.logText);
-    assert.equal(summary.hasErrors, true);
+    assert.equal(summary.hasErrors, fixture.hasErrors ?? true);
     assert.equal(summary.primaryReason, fixture.primaryReason);
     assert.deepEqual(
       summary.reasons.map(reason => reason.code),
