@@ -9,7 +9,6 @@ HOST_GENERATED_PATHS=(
   "apps/vscode-extension/bin"
   "apps/vscode-extension/dist"
   "apps/vscode-extension/media"
-  "apps/vscode-extension/node_modules/tree-sitter-sfapex"
   "apexlogs"
   "dist"
   "out"

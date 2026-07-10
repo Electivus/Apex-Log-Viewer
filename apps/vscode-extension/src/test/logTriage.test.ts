@@ -1,83 +1,50 @@
 import assert from 'assert/strict';
-import proxyquire from 'proxyquire';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { summarizeLogFile } from '../../../../src/services/logTriage';
 
 suite('logTriage', () => {
-  test('summarizeLogFile keeps parser triage enabled after a file read failure', async () => {
-    const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
-    const parserCalls: string[] = [];
-    const warnings: string[] = [];
-    let readFileCalls = 0;
-    const fallbackChunks = ['12:00:00.000 | USER_DEBUG | [6] | all good\n'];
+  test('summarizeLogFile uses the shared structured analyzer', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-log-triage-'));
+    const filePath = path.join(tempDir, 'validation.log');
 
-    function createFallbackHandle(text: string) {
-      const pending = [Buffer.from(text, 'utf8')];
-      return {
-        async read(buffer: Buffer) {
-          const chunk = pending.shift();
-          if (!chunk) {
-            return { bytesRead: 0, buffer };
-          }
-          chunk.copy(buffer, 0);
-          return { bytesRead: chunk.length, buffer };
-        },
-        async close() {}
-      };
+    try {
+      await fs.writeFile(
+        filePath,
+        '17:11:52.319|VARIABLE_ASSIGNMENT|[131]|error|"Error [statusCode=FIELD_CUSTOM_VALIDATION_EXCEPTION, message=Could not save]"|0x1\n' +
+          '17:11:52.525|ROLLBACK|[111]|Savepoint restored\n',
+        'utf8'
+      );
+
+      const summary = await summarizeLogFile(filePath);
+
+      assert.equal(summary.hasErrors, true);
+      assert.equal(summary.primaryReason, 'Validation failure');
+      assert.deepEqual(
+        summary.reasons.map(reason => reason.code),
+        ['validation_failure', 'rollback_detected']
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
+  });
 
-    const logTriageModule: typeof import('../../../../src/services/logTriage') = proxyquireStrict('../../../../src/services/logTriage', {
-      'node:module': {
-        createRequire: () => () => ({
-          summarizeLog(logText: string) {
-            parserCalls.push(logText);
-            return {
-              hasErrors: true,
-              primaryReason: 'Fatal exception',
-              reasons: [
-                {
-                  code: 'fatal_exception',
-                  severity: 'error',
-                  summary: 'Fatal exception',
-                  line: 1,
-                  eventType: 'EXCEPTION_THROWN'
-                }
-              ]
-            };
-          }
-        }),
-        '@noCallThru': true
-      },
-      'node:fs': {
-        promises: {
-          async readFile() {
-            readFileCalls += 1;
-            if (readFileCalls === 1) {
-              const error = new Error('file disappeared');
-              (error as NodeJS.ErrnoException).code = 'ENOENT';
-              throw error;
-            }
-            return 'plain text without heuristic markers';
-          },
-          async open() {
-            return createFallbackHandle(fallbackChunks.shift() ?? '');
-          }
-        },
-        '@noCallThru': true
-      },
-      '../../../../src/utils/logger': {
-        logWarn: (...args: unknown[]) => {
-          warnings.push(args.map(String).join(' '));
-        },
-        '@noCallThru': true
-      }
-    });
+  test('a file read failure does not affect later triage requests', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-log-triage-read-'));
+    const healthyPath = path.join(tempDir, 'healthy.log');
 
-    const firstSummary = await logTriageModule.summarizeLogFile('missing.log');
-    const secondSummary = await logTriageModule.summarizeLogFile('healthy.log');
+    try {
+      await assert.rejects(summarizeLogFile(path.join(tempDir, 'missing.log')), { code: 'ENOENT' });
+      await fs.writeFile(healthyPath, '17:11:53.0|EXCEPTION_THROWN|[6]|System.NullPointerException: boom\n', 'utf8');
 
-    assert.equal(firstSummary.hasErrors, false);
-    assert.equal(secondSummary.hasErrors, true);
-    assert.equal(secondSummary.primaryReason, 'Fatal exception');
-    assert.equal(parserCalls.length, 1, 'parser-backed triage should still be used after a read failure');
-    assert.equal(warnings.length, 0, 'file read failures should not disable the parser helper');
+      const summary = await summarizeLogFile(healthyPath);
+
+      assert.equal(summary.hasErrors, true);
+      assert.equal(summary.primaryReason, 'Fatal exception');
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
   });
 });

@@ -3,21 +3,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolveRepoRoot(process.argv.slice(2));
-const treeSitterSfapexCommit = '685c57c5461eb247d019b244f2130e198c7cc706';
-const allowedGitDependencies = new Map([
-  [
-    'tree-sitter-sfapex',
-    {
-      manifest: new Set([
-        `git+https://github.com/manoelcalixto/tree-sitter-sfapex.git#${treeSitterSfapexCommit}`
-      ]),
-      lock: new Set([
-        `git+https://github.com/manoelcalixto/tree-sitter-sfapex.git#${treeSitterSfapexCommit}`,
-        `git+ssh://git@github.com/manoelcalixto/tree-sitter-sfapex.git#${treeSitterSfapexCommit}`
-      ])
-    }
-  ]
-]);
 const disallowedSchemes = new Set([
   'git:',
   'ssh:',
@@ -115,14 +100,6 @@ function lockfiles() {
 
 function hasBlockedManifestSource(version) {
   return isRemoteDependencySpec(version);
-}
-
-function isAllowedManifestSource(name, version) {
-  return allowedGitDependencies.get(name)?.manifest.has(version) === true;
-}
-
-function isAllowedLockSource(name, version) {
-  return allowedGitDependencies.get(name)?.lock.has(version) === true;
 }
 
 function looksLikeUrl(value) {
@@ -312,7 +289,7 @@ for (const manifestPath of manifests()) {
         continue;
       }
 
-      if (hasBlockedManifestSource(normalizedVersion) && !isAllowedManifestSource(name, normalizedVersion)) {
+      if (hasBlockedManifestSource(normalizedVersion)) {
         failures.push(`${formatRelativePathForReport(manifestPath)} -> ${name}@${normalizedVersion}`);
       }
     }
@@ -334,9 +311,7 @@ for (const lockfilePath of lockfiles()) {
 
       const packageName = lockEntryName(packagePath, packageMeta);
       const allowed =
-        isAllowedLockSource(packageName, source) ||
-        (packageMeta.link === true && isWorkspaceLink(packageName, source)) ||
-        isRegistryTarball(source);
+        (packageMeta.link === true && isWorkspaceLink(packageName, source)) || isRegistryTarball(source);
 
       if (!allowed) {
         failures.push(`${formatRelativePathForReport(lockfilePath)} -> ${packagePath || '(root)'} -> ${source}`);
@@ -350,10 +325,7 @@ for (const lockfilePath of lockfiles()) {
       continue;
     }
 
-    const allowed =
-      isAllowedLockSource(name, source) ||
-      (packageMeta.link === true && isWorkspaceLink(name, source)) ||
-      isRegistryTarball(source);
+    const allowed = (packageMeta.link === true && isWorkspaceLink(name, source)) || isRegistryTarball(source);
 
     if (!allowed) {
       failures.push(`${formatRelativePathForReport(lockfilePath)} -> ${dependencyPath} -> ${source}`);

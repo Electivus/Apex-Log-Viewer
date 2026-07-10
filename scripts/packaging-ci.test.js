@@ -25,7 +25,6 @@ test('package script rebuilds the extension packaging assets that vsce includes'
 
   assert.match(packageScript, /\bbuild:sf-plugin\b/);
   assert.match(packageScript, /\bbuild:embedded-sf-plugin\b/);
-  assert.match(packageScript, /\bbuild:tree-sitter-runtime\b/);
   assert.match(packageScript, /\bbuild:ripgrep-runtime\b/);
   assert.match(packageScript, /\bbuild:package-metadata\b/);
   assert.doesNotMatch(packageScript, /\bpackage:runtime\b/);
@@ -45,7 +44,7 @@ for (const workflowPath of ['.github/workflows/release.yml', '.github/workflows/
 
     assert.match(
       workflow,
-      /npm run build:sf-plugin[\s\S]*?npm run build:embedded-sf-plugin[\s\S]*?npm run build:tree-sitter-runtime/,
+      /npm run build:sf-plugin[\s\S]*?npm run build:embedded-sf-plugin[\s\S]*?npm run build:ripgrep-runtime/,
       'expected workflow packaging jobs to build the plugin runner before VSIX packaging'
     );
     assert.match(

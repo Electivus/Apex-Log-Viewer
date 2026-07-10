@@ -10,6 +10,7 @@ apps/vscode-extension/sf-plugin/
 apps/vscode-extension/README.md
 apps/vscode-extension/CHANGELOG.md
 apps/vscode-extension/LICENSE
+apps/vscode-extension/THIRD_PARTY_NOTICES.md
 apps/vscode-extension/telemetry.json
 apps/vscode-extension/media/*.js
 apps/vscode-extension/media/*.js.map

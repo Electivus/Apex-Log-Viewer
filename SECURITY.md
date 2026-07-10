@@ -94,9 +94,8 @@ Exceptions
 - Any exception to these controls should be rare, reviewed by maintainers, and
   documented in the relevant pull request with the specific reason and planned
   follow-up.
-- The only currently approved non-registry JavaScript dependency source is the
-  pinned `tree-sitter-sfapex` git dependency. Changes to that exception should
-  be treated as a security-sensitive review item.
+- There are currently no approved non-registry JavaScript dependency-source
+  exceptions.
 
 ## Hardening Feedback
 

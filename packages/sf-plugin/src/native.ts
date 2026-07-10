@@ -51,6 +51,7 @@ import type {
   UserSearchParams,
   UserSearchResult
 } from './contracts.js';
+import { summarizeLogText } from './logTriage.js';
 
 const LOG_STORE_LAYOUT_VERSION = 1;
 const SYNC_PAGE_SIZE = 200;
@@ -936,80 +937,6 @@ async function logsStatusNative(params: LogsStatusParams = {}): Promise<LogsStat
     cached_count: entry?.cachedCount ?? 0,
     last_error: entry?.lastError
   };
-}
-
-function extractLogEventType(line: string): string | undefined {
-  const parts = String(line || '').split('|');
-  return asString(parts.length > 1 ? parts[1] : undefined);
-}
-
-function tokenizeEventType(eventType: string): string[] {
-  return eventType
-    .split(/[^a-zA-Z]+/)
-    .filter(Boolean)
-    .map(token => token.toUpperCase());
-}
-
-function isErrorToken(token: string): boolean {
-  return [
-    'EXCEPTION',
-    'ERROR',
-    'FATAL',
-    'FAIL',
-    'FAILED',
-    'FAILURE',
-    'FAULT',
-    'ASSERT',
-    'ASSERTION',
-    'VALIDATION',
-    'ROLLBACK'
-  ].includes(token);
-}
-
-function classifyLogLine(line: string, lineNumber: number): RuntimeLogTriageSummary['reasons'][number] | undefined {
-  const eventType = extractLogEventType(line);
-  if (!eventType) return undefined;
-  const tokens = tokenizeEventType(eventType);
-  if (!tokens.some(isErrorToken)) return undefined;
-  let code = 'suspicious_error_payload';
-  let severity = 'warning';
-  let summary = `Potential error event (${eventType})`;
-  if (tokens.some(token => token === 'ASSERT' || token === 'ASSERTION')) {
-    code = 'assertion_failure';
-    severity = 'error';
-    summary = 'Assertion failure';
-  } else if (tokens.includes('VALIDATION')) {
-    code = 'validation_failure';
-    severity = 'error';
-    summary = 'Validation failure';
-  } else if (tokens.includes('DML')) {
-    code = 'dml_failure';
-    severity = 'error';
-    summary = 'DML failure';
-  } else if (tokens.includes('ROLLBACK')) {
-    code = 'rollback_detected';
-    summary = 'Rollback detected';
-  } else if (tokens.some(token => token === 'EXCEPTION' || token === 'FATAL')) {
-    code = 'fatal_exception';
-    severity = 'error';
-    summary = 'Fatal exception';
-  }
-  return { code, severity, summary, line: lineNumber, eventType };
-}
-
-function summarizeLogText(logText: string): RuntimeLogTriageSummary {
-  const lines = String(logText || '').split(/\r?\n/);
-  for (let index = 0; index < lines.length; index += 1) {
-    const diagnostic = classifyLogLine(lines[index] || '', index + 1);
-    if (diagnostic) {
-      return {
-        hasErrors: diagnostic.severity === 'error',
-        primaryReason: diagnostic.summary,
-        reasons: [diagnostic]
-      };
-    }
-  }
-  return { hasErrors: false, reasons: [] };
 }
 
 function unreadableLogSummary(message: string): RuntimeLogTriageSummary {

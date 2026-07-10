@@ -657,14 +657,14 @@ suite('LogService', () => {
     assert.equal(summary.downloaded, 1);
   });
 
-  test('summarizeLogTextWithHeuristics returns a summary for error event lines', async () => {
-    const { summarizeLogTextWithHeuristics } = proxyquireStrict('../../../../src/services/logTriage', {});
+  test('summarizeLogText returns a structured summary for error event lines', async () => {
+    const { summarizeLogText } = proxyquireStrict('../../../../src/services/logTriage', {});
 
-    const summary = summarizeLogTextWithHeuristics('12:00:00.000 | EXCEPTION_THROWN | [6] | boom\n');
+    const summary = await summarizeLogText('12:00:00.000 | EXCEPTION_THROWN | [6] | boom\n');
 
     assert.equal(summary.hasErrors, true);
-    assert.equal(summary.primaryReason, 'Potential error event (EXCEPTION_THROWN)');
-    assert.equal(summary.reasons[0]?.code, 'suspicious_error_payload');
+    assert.equal(summary.primaryReason, 'Fatal exception');
+    assert.equal(summary.reasons[0]?.code, 'fatal_exception');
     assert.equal(summary.reasons[0]?.eventType, 'EXCEPTION_THROWN');
   });
 

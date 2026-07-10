@@ -12,7 +12,7 @@ const buildOptions = {
   format: 'cjs',
   sourcemap: true,
   minify,
-  external: ['vscode', '@vscode/ripgrep', 'tree-sitter-sfapex'],
+  external: ['vscode', '@vscode/ripgrep'],
   plugins: watchMode
     ? [
         {
