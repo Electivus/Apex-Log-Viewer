@@ -2,7 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const PACKAGE_METADATA_FILES = ['README.md', 'CHANGELOG.md', 'LICENSE', 'telemetry.json'];
+export const PACKAGE_METADATA_FILES = [
+  'README.md',
+  'CHANGELOG.md',
+  'LICENSE',
+  'THIRD_PARTY_NOTICES.md',
+  'telemetry.json'
+];
 
 export function copyPackageMetadata({ repoRoot }) {
   const appRoot = path.join(repoRoot, 'apps', 'vscode-extension');

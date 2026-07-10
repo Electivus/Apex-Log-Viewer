@@ -28,7 +28,7 @@ function runCheckWithScript(scriptFilePath, baseDir) {
   });
 }
 
-test('allows registry tarballs, workspace links, and the approved pinned git lock entry', () => {
+test('allows registry tarballs and workspace links', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-deps-'));
 
   try {
@@ -37,9 +37,7 @@ test('allows registry tarballs, workspace links, and the approved pinned git loc
       private: true,
       workspaces: ['packages/*'],
       dependencies: {
-        leftpad: '^1.0.0',
-        'tree-sitter-sfapex':
-          'git+https://github.com/manoelcalixto/tree-sitter-sfapex.git#685c57c5461eb247d019b244f2130e198c7cc706'
+        leftpad: '^1.0.0'
       }
     });
     writeJson(tempDir, 'packages/example/package.json', {
@@ -55,9 +53,7 @@ test('allows registry tarballs, workspace links, and the approved pinned git loc
           name: 'fixture',
           workspaces: ['packages/*'],
           dependencies: {
-            leftpad: '^1.0.0',
-            'tree-sitter-sfapex':
-              'git+https://github.com/manoelcalixto/tree-sitter-sfapex.git#685c57c5461eb247d019b244f2130e198c7cc706'
+            leftpad: '^1.0.0'
           }
         },
         'node_modules/leftpad': {
@@ -68,12 +64,6 @@ test('allows registry tarballs, workspace links, and the approved pinned git loc
         'node_modules/@alv/example': {
           resolved: 'packages/example',
           link: true
-        },
-        'node_modules/tree-sitter-sfapex': {
-          version: '2.4.1',
-          resolved:
-            'git+ssh://git@github.com/manoelcalixto/tree-sitter-sfapex.git#685c57c5461eb247d019b244f2130e198c7cc706',
-          integrity: 'sha512-pinned-git'
         }
       }
     });

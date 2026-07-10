@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Bug Fixes
+
+- Logs/Triage: replace the external parser fork with the shared TypeScript analyzer used by the CLI and extension, preserving structured validation, DML, assertion, rollback, fatal exception, and serialized-payload diagnostics without a native tree-sitter install.
+
 ### Chores
 
 - Extension: require VS Code 1.105+ so the extension host provides Node.js 22.19+, and update packaged requirements text.

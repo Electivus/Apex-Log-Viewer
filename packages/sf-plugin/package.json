@@ -12,6 +12,8 @@
     "/lib",
     "/messages",
     "/skills",
+    "/LICENSE",
+    "/THIRD_PARTY_NOTICES.md",
     "/oclif.manifest.json"
   ],
   "scripts": {

@@ -4,7 +4,6 @@
 /.github/dependency-review-config.yml @Electivus/maintainers
 /package.json @Electivus/maintainers
 /package-lock.json @Electivus/maintainers
-/apps/vscode-extension/scripts/copy-tree-sitter-runtime.mjs @Electivus/maintainers
 /apps/vscode-extension/scripts/copy-ripgrep-runtime.mjs @Electivus/maintainers
 /apps/vscode-extension/scripts/copy-package-metadata.mjs @Electivus/maintainers
 /scripts/build-embedded-sf-plugin.mjs @Electivus/maintainers

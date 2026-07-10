@@ -12,7 +12,7 @@ Build & Test basics:
 
 - Node from `.nvmrc` on `ubuntu-latest`, `windows-latest`, and `macos-latest` with npm cache.
 - `npm ci` → `npm run build` → tests. CI defaults to unit tests on manual runs; Release runs all tests.
-- `npm run build` runs `npm run build:sf-plugin`, `npm run build:embedded-sf-plugin`, copies tree-sitter/ripgrep/package metadata, bundles the extension host, and builds the webview.
+- `npm run build` runs `npm run build:sf-plugin`, `npm run build:embedded-sf-plugin`, copies the ripgrep runtime and package metadata, bundles the extension host, and builds the webview.
 - `npm run test:scripts` includes the repository security regression suite plus `node scripts/check-dependency-sources.mjs`, so local script verification catches dependency source drift without waiting for CI.
 - `npm run test:sf-plugin` runs the plugin's Node test lane; `npm run test:extension:node` covers the extension-side plugin client without launching VS Code.
 - Extension packaging always includes `apps/vscode-extension/sf-plugin/electivus-runner.cjs`; release/pre-release workflows build it before target VSIX packaging.
@@ -23,9 +23,9 @@ Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref, e
 
 - Third-party and GitHub-owned Actions are pinned to full commit SHAs rather
   than mutable tags.
-- Dependency-source policy allows only registry packages, in-repo workspace
-  links, plus the explicit pinned `tree-sitter-sfapex` git exception, and it
-  validates both manifests and `package-lock.json` before dependency install.
+- Dependency-source policy allows only registry packages and in-repo workspace
+  links, and it validates both manifests and `package-lock.json` before
+  dependency install.
 - If `npm audit signatures` fails in CI, treat it as a provenance problem:
   investigate the package metadata or lockfile change instead of removing the
   gate.

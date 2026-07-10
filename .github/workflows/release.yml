@@ -114,7 +114,6 @@ jobs:
           npm run clean
           npm run build:sf-plugin
           npm run build:embedded-sf-plugin
-          npm run build:tree-sitter-runtime
           npm run build:ripgrep-runtime -- "${MATRIX_TARGET}"
           npm run build:package-metadata
           node apps/vscode-extension/esbuild.extension.mjs
