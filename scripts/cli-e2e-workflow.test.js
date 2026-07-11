@@ -93,8 +93,8 @@ test('real-org Playwright workflow runs the CLI suite before the extension suite
 
   assert.match(
     String(cliStep.step.run || ''),
-    /\bpnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli\b/,
-    'expected the workflow to run CLI real-org E2E through the MITM proxy lab'
+    /^\s*node scripts\/run-e2e-proxy-lab\.js pnpm run test:e2e:cli\s*$/m,
+    'expected the workflow to run CLI real-org E2E directly through the MITM proxy-lab orchestrator'
   );
   assert.ok(
     !Object.prototype.hasOwnProperty.call(cliStep.step.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL'),
@@ -154,8 +154,13 @@ test('real-org Playwright workflow runs the extension suite through the MITM pro
   );
   assert.match(
     runBlock,
-    /^\s*pnpm run test:e2e:proxy-lab -- pnpm run test:e2e\s*$/m,
-    'expected the extension suite to run through the MITM proxy lab'
+    /^\s*node scripts\/run-e2e-proxy-lab\.js pnpm run test:e2e\s*$/m,
+    'expected the extension suite to run directly through the MITM proxy-lab orchestrator'
+  );
+  assert.doesNotMatch(
+    `${cliStep.run || ''}\n${runBlock}`,
+    /pnpm run test:e2e:proxy-lab/,
+    'expected the dependency-free host orchestrator to run before the proxy-lab container installs dependencies'
   );
   assert.equal(
     cliStep.env?.PLAYWRIGHT_WORKERS,

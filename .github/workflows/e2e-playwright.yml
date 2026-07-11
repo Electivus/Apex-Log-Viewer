@@ -101,7 +101,7 @@ jobs:
         run: |
           echo "Scratch strategy: ${SCRATCH_STRATEGY}"
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
-          pnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli
+          node scripts/run-e2e-proxy-lab.js pnpm run test:e2e:cli
         env:
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
@@ -145,7 +145,7 @@ jobs:
           echo "Scratch strategy: ${SCRATCH_STRATEGY}"
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
           echo "Running Playwright E2E through the MITM proxy lab."
-          pnpm run test:e2e:proxy-lab -- pnpm run test:e2e
+          node scripts/run-e2e-proxy-lab.js pnpm run test:e2e
         env:
           VSCODE_TEST_VERSION: ${{ env.VSCODE_TEST_VERSION }}
           ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL: ${{ vars.ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL || '1' }}

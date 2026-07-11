@@ -102,8 +102,8 @@ test('real-org E2E keeps Ubuntu on the proxy lab and adds direct Windows/macOS l
 
   assert.equal(proxyJob['runs-on'], 'ubuntu-latest');
   assert.ok(!Object.prototype.hasOwnProperty.call(proxyJob, 'strategy'));
-  assert.match(String(proxyCliStep.run || ''), /\bpnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli\b/);
-  assert.match(String(proxyExtensionStep.run || ''), /\bpnpm run test:e2e:proxy-lab -- pnpm run test:e2e\b/);
+  assert.match(String(proxyCliStep.run || ''), /\bnode scripts\/run-e2e-proxy-lab\.js pnpm run test:e2e:cli\b/);
+  assert.match(String(proxyExtensionStep.run || ''), /\bnode scripts\/run-e2e-proxy-lab\.js pnpm run test:e2e\b/);
 
   assert.equal(directJob.strategy?.['fail-fast'], false);
   assert.ok(!Object.prototype.hasOwnProperty.call(directJob.strategy?.matrix || {}, 'shard'));
