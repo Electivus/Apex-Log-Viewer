@@ -1075,6 +1075,16 @@ test('CI workflow enforces dependency provenance and pnpm signature verification
   assert.match(workflow, /\bpnpm run security:pnpm-signatures\b/);
 });
 
+test('pnpm workspace owns the dependency security overrides', () => {
+  const rootManifest = JSON.parse(read('package.json'));
+  const workspace = read('pnpm-workspace.yaml');
+  const lockfile = read('pnpm-lock.yaml');
+
+  assert.equal(rootManifest.overrides, undefined);
+  assert.match(workspace, /^overrides:\n(?:  .+\n)*  serialize-javascript: '7\.0\.5'$/m);
+  assert.doesNotMatch(lockfile, /serialize-javascript@6\.0\.2/);
+});
+
 test('pnpm install provenance detection handles the frozen workspace install', () => {
   const workflow = [
     'jobs:',

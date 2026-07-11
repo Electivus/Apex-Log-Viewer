@@ -38,14 +38,21 @@ test('root scripts no longer expose native runtime packaging lanes', () => {
   }
 });
 
+test('extension type-check scripts bootstrap generated shared package declarations', () => {
+  const scripts = JSON.parse(readFile('package.json')).scripts || {};
+
+  assert.match(String(scripts['check-types'] || ''), /^pnpm run build:shared && /);
+  assert.match(String(scripts.compile || ''), /^pnpm run build:shared && /);
+});
+
 for (const workflowPath of ['.github/workflows/release.yml', '.github/workflows/prerelease.yml']) {
   test(`${workflowPath} builds the direct-core extension and target-specific ripgrep runtime packages`, () => {
     const workflow = readFile(workflowPath);
 
     assert.match(
       workflow,
-      /pnpm run clean[\s\S]*?pnpm run build:ripgrep-runtime/,
-      'expected workflow packaging jobs to build extension assets without an embedded plugin'
+      /pnpm run clean[\s\S]*?pnpm run build:shared[\s\S]*?pnpm run build:ripgrep-runtime/,
+      'expected workflow packaging jobs to rebuild the shared packages before extension assets'
     );
     assert.match(
       workflow,
