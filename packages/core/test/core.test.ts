@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { AlvError, createApexLogViewerCore, parseApexLogIds } from '../src/index.ts';
-import { awaitWithAbort, runLimited } from '../src/runtime.ts';
+import { awaitWithAbort, deleteApexLogIds, runLimited } from '../src/runtime.ts';
 
 test('core resolves legacy cached log paths without Salesforce auth', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-legacy-'));
@@ -112,4 +112,44 @@ test('core stops scheduling bounded work after cancellation', async () => {
 
   await assert.rejects(work, error => error instanceof AlvError && error.code === 'ABORTED');
   assert.deepEqual(processed, [1]);
+});
+
+test('core stops scheduling ApexLog deletion chunks after cancellation', async () => {
+  const controller = new AbortController();
+  const logIds = Array.from({ length: 401 }, (_, index) => `07L${String(index).padStart(15, '0')}`);
+  let requestCount = 0;
+  let destroyed = 0;
+  let notifyStarted!: () => void;
+  let releaseRequest!: (value: unknown[]) => void;
+  const started = new Promise<void>(resolve => {
+    notifyStarted = resolve;
+  });
+  const connection = {
+    getApiVersion: () => '63.0',
+    request: () => {
+      requestCount += 1;
+      notifyStarted();
+      return Object.assign(
+        new Promise<unknown[]>(resolve => {
+          releaseRequest = resolve;
+        }),
+        {
+          stream: () => ({
+            destroy: () => {
+              destroyed += 1;
+            }
+          })
+        }
+      );
+    }
+  };
+
+  const deletion = deleteApexLogIds({ connection } as never, logIds, 1, controller.signal);
+  await started;
+  controller.abort();
+
+  await assert.rejects(deletion, error => error instanceof AlvError && error.code === 'ABORTED');
+  assert.equal(requestCount, 1, 'must not start later deletion chunks after cancellation');
+  assert.equal(destroyed, 1, 'must abort the in-flight Salesforce request');
+  releaseRequest([]);
 });

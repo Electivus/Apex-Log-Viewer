@@ -464,9 +464,10 @@ export async function toolingQuery<TRecord = JsonObject>(
 
 async function standardQuery<TRecord = JsonObject>(
   connection: Connection,
-  soql: string
+  soql: string,
+  signal?: AbortSignal
 ): Promise<QueryResult<TRecord>> {
-  return (await connection.query(soql)) as QueryResult<TRecord>;
+  return (await awaitWithAbort(connection.query(soql), signal)) as QueryResult<TRecord>;
 }
 
 function apiVersion(connection: Connection): string {
@@ -1134,19 +1135,28 @@ async function logsTriageNative(params: LogsTriageParams, signal?: AbortSignal):
   return entries;
 }
 
-async function getCurrentUserId(ctx: ConnectionContext): Promise<string | undefined> {
+async function getCurrentUserId(ctx: ConnectionContext, signal?: AbortSignal): Promise<string | undefined> {
+  throwIfAborted(signal);
   const username = escapeSoqlLiteral(ctx.username);
   const result = await standardQuery<{ Id?: string }>(
     ctx.connection,
-    `SELECT Id FROM User WHERE Username = '${username}' LIMIT 1`
+    `SELECT Id FROM User WHERE Username = '${username}' LIMIT 1`,
+    signal
   );
+  throwIfAborted(signal);
   return asString(result.records?.[0]?.Id);
 }
 
-async function listApexLogIds(ctx: ConnectionContext, scope: 'mine' | 'all', limit?: number): Promise<string[]> {
+async function listApexLogIds(
+  ctx: ConnectionContext,
+  scope: 'mine' | 'all',
+  limit?: number,
+  signal?: AbortSignal
+): Promise<string[]> {
+  throwIfAborted(signal);
   const clauses: string[] = [];
   if (scope === 'mine') {
-    const userId = await getCurrentUserId(ctx);
+    const userId = await getCurrentUserId(ctx, signal);
     if (!userId) return [];
     clauses.push(`LogUserId = '${escapeSoqlLiteral(userId)}'`);
   }
@@ -1154,16 +1164,20 @@ async function listApexLogIds(ctx: ConnectionContext, scope: 'mine' | 'all', lim
   const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
   const result = await toolingQuery<{ Id?: string }>(
     ctx.connection,
-    `SELECT Id FROM ApexLog${where} ORDER BY StartTime DESC, Id DESC${limitClause}`
+    `SELECT Id FROM ApexLog${where} ORDER BY StartTime DESC, Id DESC${limitClause}`,
+    signal
   );
+  throwIfAborted(signal);
   return (result.records || []).map(record => record.Id).filter((id): id is string => isSalesforceId(id));
 }
 
-async function deleteApexLogIds(
+export async function deleteApexLogIds(
   ctx: ConnectionContext,
   ids: string[],
-  concurrency = 3
+  concurrency = 3,
+  signal?: AbortSignal
 ): Promise<{ deleted: number; failed: number; failedLogIds: string[] }> {
+  throwIfAborted(signal);
   let deleted = 0;
   let failed = 0;
   const failedLogIds: string[] = [];
@@ -1171,39 +1185,51 @@ async function deleteApexLogIds(
   for (let index = 0; index < ids.length; index += 200) {
     chunks.push(ids.slice(index, index + 200));
   }
-  await runLimited(chunks, concurrency, async chunk => {
-    try {
-      const query = chunk.join(',');
-      const result = await connectionRequest<unknown>(
-        ctx.connection,
-        'DELETE',
-        `/services/data/v${apiVersion(ctx.connection)}/composite/sobjects?ids=${query}&allOrNone=false`
-      );
-      if (Array.isArray(result)) {
-        for (const item of result as Array<{ id?: string; success?: boolean }>) {
-          if (item.success) deleted += 1;
-          else {
-            failed += 1;
-            if (item.id) failedLogIds.push(item.id);
+  await runLimited(
+    chunks,
+    concurrency,
+    async chunk => {
+      try {
+        const query = chunk.join(',');
+        const result = await connectionRequest<unknown>(
+          ctx.connection,
+          'DELETE',
+          `/services/data/v${apiVersion(ctx.connection)}/composite/sobjects?ids=${query}&allOrNone=false`,
+          undefined,
+          signal
+        );
+        throwIfAborted(signal);
+        if (Array.isArray(result)) {
+          for (const item of result as Array<{ id?: string; success?: boolean }>) {
+            if (item.success) deleted += 1;
+            else {
+              failed += 1;
+              if (item.id) failedLogIds.push(item.id);
+            }
           }
+        } else {
+          deleted += chunk.length;
         }
-      } else {
-        deleted += chunk.length;
+      } catch (error) {
+        if (signal?.aborted || (error instanceof AlvError && error.code === 'ABORTED')) throw abortError();
+        failed += chunk.length;
+        failedLogIds.push(...chunk);
       }
-    } catch {
-      failed += chunk.length;
-      failedLogIds.push(...chunk);
-    }
-  });
+    },
+    signal
+  );
+  throwIfAborted(signal);
   return { deleted, failed, failedLogIds };
 }
 
-async function logsDeleteNative(params: LogsDeleteParams = {}): Promise<LogsDeleteResult> {
-  const ctx = await getConnectionContext(params.targetOrg);
+async function logsDeleteNative(params: LogsDeleteParams = {}, signal?: AbortSignal): Promise<LogsDeleteResult> {
+  throwIfAborted(signal);
+  const ctx = await getConnectionContext(params.targetOrg, signal);
   const scope = params.scope === 'all' ? 'all' : 'mine';
   const ids = Array.isArray(params.ids)
     ? params.ids.filter(isSalesforceId)
-    : await listApexLogIds(ctx, scope, params.limit);
+    : await listApexLogIds(ctx, scope, params.limit, signal);
+  throwIfAborted(signal);
   if (params.dryRun || !params.confirmed) {
     return {
       status: 'success',
@@ -1218,7 +1244,7 @@ async function logsDeleteNative(params: LogsDeleteParams = {}): Promise<LogsDele
       logIds: ids
     };
   }
-  const summary = await deleteApexLogIds(ctx, ids);
+  const summary = await deleteApexLogIds(ctx, ids, 3, signal);
   return {
     status: summary.failed > 0 ? 'partial' : 'success',
     targetOrg: ctx.username,
@@ -1741,7 +1767,7 @@ export function createApexLogViewerCore(options: { instrumentation?: CoreInstrum
       triage: (params: LogsTriageParams, callOptions?: CoreCallOptions) =>
         call('log.triage', callOptions, signal => logsTriageNative(params, signal)),
       delete: (params: LogsDeleteParams = {}, callOptions?: CoreCallOptions) =>
-        call('log.delete', callOptions, () => logsDeleteNative(params))
+        call('log.delete', callOptions, signal => logsDeleteNative(params, signal))
     },
     user: {
       search: (params: UserSearchParams = {}, callOptions?: CoreCallOptions) =>
