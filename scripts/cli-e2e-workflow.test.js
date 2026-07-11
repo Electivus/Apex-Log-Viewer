@@ -287,24 +287,12 @@ test('Ubuntu proxy-lab E2E jobs avoid redundant host dependency setup', () => {
   );
 });
 
-test('real-org Playwright workflow serializes CI runs by scratch-org pool', () => {
+test('real-org Playwright workflow lets scratch-org leases bound concurrent CI runs', () => {
   const workflow = readWorkflow();
-  const concurrency = workflow?.concurrency || {};
-
   assert.equal(
-    concurrency.group,
-    "${{ vars.SF_SCRATCH_POOL_NAME != '' && format('e2e-playwright-pool-{0}', vars.SF_SCRATCH_POOL_NAME) || 'sf-e2e-scratch-global' }}",
-    'expected E2E workflow concurrency to be keyed by shared scratch-org pool name'
-  );
-  assert.equal(
-    concurrency['cancel-in-progress'],
-    false,
-    'expected an active E2E run to finish instead of being canceled by another shared-pool run'
-  );
-  assert.doesNotMatch(
-    String(concurrency.group || ''),
-    /github\.ref/,
-    'expected dependency PR bursts to share the same pool concurrency group instead of one group per ref'
+    workflow?.concurrency,
+    undefined,
+    'expected the atomic scratch-org lease service to enforce pool capacity without serializing whole workflow runs'
   );
 });
 

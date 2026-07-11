@@ -125,7 +125,7 @@ Repository variables for pool mode:
 
 When pool mode is active, each Playwright test acquires its own scratch org slot and reuses the stored `sfdxAuthUrl` for that slot. The repository workflow defaults to `1` Playwright worker; set `PLAYWRIGHT_WORKERS` as an Actions repository variable, or use the `playwright_workers` dispatch input, to run multiple isolated tests concurrently. The Ubuntu VS Code extension proxy-lab lane can be tuned independently with `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS` because it runs VS Code/Electron inside Docker.
 
-The workflow-level concurrency group is keyed by `SF_SCRATCH_POOL_NAME` with `cancel-in-progress: false`. Active runs that share the same Dev Hub pool are not canceled or allowed to run every PR ref at once. This prevents Dependabot bursts from producing spurious lease-exhaustion failures.
+The workflow intentionally has no workflow-level concurrency group. The Apex pool service locks the pool record while it atomically assigns a free slot, so parallel PR and manual runs can use the configured capacity without sharing an org. When every slot is leased, clients retry until `SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS` instead of over-leasing the pool.
 
 ## Codex Cloud
 
