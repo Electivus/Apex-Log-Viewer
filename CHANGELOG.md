@@ -2,22 +2,31 @@
 
 ## Unreleased
 
+## [0.52.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.50.0...v0.52.0) (2026-07-11)
+
 ### Features
 
-- Architecture: introduce private `@alv/core` and `@alv/protocol` workspace packages so the VS Code extension and Salesforce CLI plugin share runtime behavior and contracts without coupling their delivery artifacts.
-- Extension: execute the shared TypeScript core in-process, remove the embedded Salesforce plugin runner from the VSIX, and move commands, views, and settings to the `electivus.apexLogViewer.*` namespace.
-- CLI/Plugin: expose each `sf electivus` operation as an independent `SfCommand` with singular topic names, declarative flags, and camel-case JSON results.
+- Architecture: introduce private `@alv/core` and `@alv/protocol` workspace packages so the VS Code extension and Salesforce CLI plugin share runtime behavior and contracts without coupling their delivery artifacts. ([#964](https://github.com/Electivus/Apex-Log-Viewer/pull/964))
+- Extension: execute the shared TypeScript core in-process, remove the embedded Salesforce plugin runner from the VSIX, and move commands, views, and settings to the `electivus.apexLogViewer.*` namespace. ([#964](https://github.com/Electivus/Apex-Log-Viewer/pull/964))
+- CLI/Plugin: expose each `sf electivus` operation as an independent `SfCommand` with singular topic names, declarative flags, and camel-case JSON results. ([#964](https://github.com/Electivus/Apex-Log-Viewer/pull/964))
 
 ### Bug Fixes
 
-- Logs/Triage: replace the external parser fork with the shared TypeScript analyzer used by the CLI and extension, preserving structured validation, DML, assertion, rollback, fatal exception, and serialized-payload diagnostics without a native tree-sitter install.
+- Logs/Triage: replace the external parser fork with the shared TypeScript analyzer used by the CLI and extension, preserving structured validation, DML, assertion, rollback, fatal exception, and serialized-payload diagnostics without a native tree-sitter install. ([#962](https://github.com/Electivus/Apex-Log-Viewer/pull/962))
 
 ### Chores
 
-- Build: migrate the JavaScript repository to a pnpm workspace with a single `pnpm-lock.yaml` and package-scoped manifests.
-- Extension: require VS Code 1.105+ so the extension host provides Node.js 22.19+, and update packaged requirements text.
-- CLI/Plugin: require Node.js 22.19+ for the standalone Salesforce CLI plugin to match the dependency runtime baseline.
-- Release/SF Plugin: bump `@electivus/plugin-electivus` to `0.2.0` for the next independent Salesforce CLI plugin npm release.
+- Build: migrate the JavaScript repository to a pnpm workspace with a single `pnpm-lock.yaml` and package-scoped manifests. ([#964](https://github.com/Electivus/Apex-Log-Viewer/pull/964))
+- Build/Tooling: remove unused Nx and stale Rust-era configuration, resolve npm deprecation warnings, and refresh the supported TypeScript, Salesforce, UI, and HTTP dependency set. ([#930](https://github.com/Electivus/Apex-Log-Viewer/pull/930)) ([#932](https://github.com/Electivus/Apex-Log-Viewer/pull/932)) ([#933](https://github.com/Electivus/Apex-Log-Viewer/pull/933)) ([#943](https://github.com/Electivus/Apex-Log-Viewer/pull/943)) ([#944](https://github.com/Electivus/Apex-Log-Viewer/pull/944)) ([#952](https://github.com/Electivus/Apex-Log-Viewer/pull/952)) ([#954](https://github.com/Electivus/Apex-Log-Viewer/pull/954)) ([#957](https://github.com/Electivus/Apex-Log-Viewer/pull/957))
+- Localization: migrate extension strings and generated language bundles to the VS Code localization APIs. ([#951](https://github.com/Electivus/Apex-Log-Viewer/pull/951))
+- CI: remove redundant commit-policy workflows and require the real-org Playwright aggregate gate on pull requests. ([#953](https://github.com/Electivus/Apex-Log-Viewer/pull/953)) ([#964](https://github.com/Electivus/Apex-Log-Viewer/pull/964))
+- Extension: require VS Code 1.105+ so the extension host provides Node.js 22.19+, and update packaged requirements text. ([#946](https://github.com/Electivus/Apex-Log-Viewer/pull/946)) ([#947](https://github.com/Electivus/Apex-Log-Viewer/pull/947))
+- CLI/Plugin: require Node.js 22.19+ for the standalone Salesforce CLI plugin to match the dependency runtime baseline. ([#948](https://github.com/Electivus/Apex-Log-Viewer/pull/948))
+- Release/SF Plugin: publish `@electivus/plugin-electivus` `0.2.0` as the first independently delivered plugin backed by the shared TypeScript core. ([#950](https://github.com/Electivus/Apex-Log-Viewer/pull/950)) ([#964](https://github.com/Electivus/Apex-Log-Viewer/pull/964))
+
+### Tests
+
+- E2E/CI: isolate pooled scratch orgs per test, cache reusable setup, validate telemetry, and let atomic pool leases bound parallel real-org workflows without GitHub-level serialization. ([#955](https://github.com/Electivus/Apex-Log-Viewer/pull/955)) ([#958](https://github.com/Electivus/Apex-Log-Viewer/pull/958)) ([#959](https://github.com/Electivus/Apex-Log-Viewer/pull/959)) ([#960](https://github.com/Electivus/Apex-Log-Viewer/pull/960)) ([#961](https://github.com/Electivus/Apex-Log-Viewer/pull/961)) ([#963](https://github.com/Electivus/Apex-Log-Viewer/pull/963)) ([#964](https://github.com/Electivus/Apex-Log-Viewer/pull/964))
 
 ## [0.50.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.48.1...v0.50.0) (2026-07-07)
 
