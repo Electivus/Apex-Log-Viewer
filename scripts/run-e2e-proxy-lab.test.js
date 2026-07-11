@@ -194,6 +194,8 @@ test('proxy lab runner restores ownership of bind-mounted generated outputs on e
   assert.match(script, /trap restore_host_ownership EXIT/);
   assert.match(script, /ALV_E2E_PROXY_LAB_HOST_UID/);
   assert.match(script, /apps\/vscode-extension\/bin/);
+  assert.match(script, /packages\/core\/lib/);
+  assert.match(script, /packages\/protocol\/lib/);
   assert.match(script, /packages\/sf-plugin\/lib/);
   assert.match(script, /packages\/sf-plugin\/skills/);
   assert.match(script, /packages\/sf-plugin\/oclif\.manifest\.json/);
@@ -250,10 +252,16 @@ test('proxy lab runner can install an explicit Salesforce CLI package before pre
 
 test('proxy lab runner installs the pnpm workspace from the frozen lockfile', () => {
   const script = readProxyLabScript();
+  const gitignore = read('.gitignore');
 
-  assert.match(script, /pnpm install --frozen-lockfile/);
+  assert.match(
+    script,
+    /PNPM_STORE_PATH="\$\{ALV_E2E_PROXY_LAB_PNPM_STORE_PATH:-\/root\/\.local\/share\/pnpm\/store\}"/
+  );
+  assert.match(script, /pnpm install --frozen-lockfile --store-dir "\$\{PNPM_STORE_PATH\}"/);
   assert.match(script, /ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL/);
   assert.doesNotMatch(script, /\bnpm ci\b/);
+  assert.match(gitignore, /^\.pnpm-store\/$/m);
 });
 
 test('proxy lab runner requires Dev Hub auth for real-org commands only', () => {
