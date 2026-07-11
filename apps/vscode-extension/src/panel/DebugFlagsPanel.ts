@@ -211,13 +211,13 @@ export class DebugFlagsPanel {
     selectedId?: string,
     bootstrapToken?: number
   ): Promise<void> {
-    const [details, active] = await Promise.all([
-      this.listDebugLevelDetailsWithRuntimeFallback(auth).catch(err => {
-        logWarn('DebugFlagsPanel: failed to load debug level details ->', getErrorMessage(err));
-        return [] as DebugLevelRecord[];
-      }),
-      this.getActiveUserDebugLevelWithRuntimeFallback(auth).catch(() => undefined as string | undefined)
-    ]);
+    const details = await this.listDebugLevelDetailsWithRuntimeFallback(auth).catch(err => {
+      logWarn('DebugFlagsPanel: failed to load debug level details ->', getErrorMessage(err));
+      return [] as DebugLevelRecord[];
+    });
+    const active = await this.getActiveUserDebugLevelWithRuntimeFallback(auth).catch(
+      () => undefined as string | undefined
+    );
 
     if (this.disposed || (typeof bootstrapToken === 'number' && bootstrapToken !== this.orgBootstrapToken)) {
       return;
