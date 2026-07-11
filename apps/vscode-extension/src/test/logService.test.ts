@@ -501,6 +501,7 @@ suite('LogService', () => {
   test('ensureLogsSaved reports missing logs when downloadMissing is disabled', async () => {
     const missing: string[] = [];
     const statuses: string[] = [];
+    const authRequests: Array<{ username?: string }> = [];
     const { LogService } = proxyquireStrict('../host/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
@@ -508,7 +509,17 @@ suite('LogService', () => {
         fetchApexLogBody: async () => 'body'
       },
       '../salesforce/cli': {
-        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
+        getOrgAuth: async () => {
+          throw new Error('should use runtime auth');
+        }
+      },
+      '../../runtime/runtimeClient': {
+        runtimeClient: {
+          getOrgAuth: async ({ username }: { username?: string } = {}) => {
+            authRequests.push({ username });
+            return { username: 'u', accessToken: 't', instanceUrl: 'url' };
+          }
+        }
       },
       '../utils/workspace': {
         getLogFilePathWithUsername: async () => ({ dir: '/tmp', filePath: '/tmp/x.log' }),
@@ -536,6 +547,7 @@ suite('LogService', () => {
     assert.deepEqual(missing, ['1']);
     assert.ok(statuses.includes('missing'));
     assert.ok(statuses.includes('existing'));
+    assert.deepEqual(authRequests, [{ username: 'default' }]);
   });
 
   test('ensureLogsSaved reuses existing local cache when auth is unavailable', async () => {
@@ -698,8 +710,11 @@ suite('LogService', () => {
         })
       },
       '../salesforce/cli': {
-        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
+        getOrgAuth: async () => {
+          throw new Error('should use runtime auth');
+        }
       },
+      ...createRuntimeClientStub({ username: 'u' }),
       '../utils/workspace': {
         getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath: path.join(tmpDir, 'unused.log') }),
         findExistingLogFile: async (logId: string) => {
@@ -784,8 +799,11 @@ suite('LogService', () => {
         })
       },
       '../salesforce/cli': {
-        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
+        getOrgAuth: async () => {
+          throw new Error('should use runtime auth');
+        }
       },
+      ...createRuntimeClientStub({ username: 'u' }),
       '../utils/workspace': {
         getLogFilePathWithUsername: async () => ({ dir: tmpDir, filePath: path.join(tmpDir, 'unused.log') }),
         findExistingLogFile: async (logId: string) => (logId === 'err' ? errPath : undefined)
@@ -830,8 +848,11 @@ suite('LogService', () => {
         })
       },
       '../salesforce/cli': {
-        getOrgAuth: async () => ({ username: 'u', accessToken: 't', instanceUrl: 'url' })
+        getOrgAuth: async () => {
+          throw new Error('should use runtime auth');
+        }
       },
+      ...createRuntimeClientStub({ username: 'u' }),
       '../utils/workspace': {
         getLogFilePathWithUsername: async (_username: string | undefined, logId: string) => ({
           dir: tmpDir,
