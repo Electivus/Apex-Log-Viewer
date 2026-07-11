@@ -35,13 +35,6 @@ function matrixByOs(job) {
   return new Map(entries.map(entry => [entry.os || entry.runner, entry]));
 }
 
-const EXPECTED_SHARD_MATRIX = [
-  { playwright_shard: '1/4', artifact_suffix: 'shard-1' },
-  { playwright_shard: '2/4', artifact_suffix: 'shard-2' },
-  { playwright_shard: '3/4', artifact_suffix: 'shard-3' },
-  { playwright_shard: '4/4', artifact_suffix: 'shard-4' }
-];
-
 test('package.json test:scripts includes the PR matrix workflow guard', () => {
   const packageJson = JSON.parse(read('package.json'));
 
@@ -108,12 +101,12 @@ test('real-org E2E keeps Ubuntu on the proxy lab and adds direct Windows/macOS l
   const proxyExtensionStep = getStep(proxyJob, 'Run Playwright E2E').step;
 
   assert.equal(proxyJob['runs-on'], 'ubuntu-latest');
-  assert.deepEqual(proxyJob.strategy?.matrix?.shard, EXPECTED_SHARD_MATRIX);
+  assert.ok(!Object.prototype.hasOwnProperty.call(proxyJob, 'strategy'));
   assert.match(String(proxyCliStep.run || ''), /\bnpm run test:e2e:proxy-lab -- npm run test:e2e:cli\b/);
   assert.match(String(proxyExtensionStep.run || ''), /\bnpm run test:e2e:proxy-lab -- npm run test:e2e\b/);
 
   assert.equal(directJob.strategy?.['fail-fast'], false);
-  assert.deepEqual(directJob.strategy?.matrix?.shard, EXPECTED_SHARD_MATRIX);
+  assert.ok(!Object.prototype.hasOwnProperty.call(directJob.strategy?.matrix || {}, 'shard'));
   assert.deepEqual(Array.from(matrix.keys()).sort(), ['macos-latest', 'windows-latest']);
   assert.equal(matrix.get('windows-latest')?.vscode_platform, 'win32-x64-archive');
   assert.equal(matrix.get('windows-latest')?.artifact_suffix, 'windows');
@@ -135,8 +128,8 @@ test('direct E2E lanes run without proxy-lab and publish OS-specific artifacts',
   assert.match(String(extensionStep.run || ''), /^\s*node scripts\/run-playwright-e2e\.js\s*$/m);
   assert.doesNotMatch(String(extensionStep.run || ''), /proxy-lab/);
   assert.doesNotMatch(String(extensionStep.run || ''), /npm run test:e2e/);
-  assert.equal(uploadCliStep.with?.name, 'playwright-cli-e2e-${{ matrix.os.artifact_suffix }}-${{ matrix.shard.artifact_suffix }}');
+  assert.equal(uploadCliStep.with?.name, 'playwright-cli-e2e-${{ matrix.os.artifact_suffix }}');
   assert.equal(uploadCliStep.with?.path, 'output/playwright-cli/');
-  assert.equal(uploadExtensionStep.with?.name, 'playwright-e2e-${{ matrix.os.artifact_suffix }}-${{ matrix.shard.artifact_suffix }}');
+  assert.equal(uploadExtensionStep.with?.name, 'playwright-e2e-${{ matrix.os.artifact_suffix }}');
   assert.equal(uploadExtensionStep.with?.path, 'output/playwright/');
 });

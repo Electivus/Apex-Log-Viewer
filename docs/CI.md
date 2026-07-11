@@ -4,7 +4,7 @@ This repository uses GitHub Actions to build, test, package, and publish the ext
 
 - Workflow CI (`.github/workflows/ci.yml`): build/test on `push` and `pull_request` across `ubuntu-latest`, `windows-latest`, and `macos-latest`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`). This workflow enforces dependency provenance with `node scripts/check-dependency-sources.mjs` before every `npm ci`, then runs npm registry signature verification (`npm run security:npm-signatures`) before compile/test. The VSIX smoke test remains Ubuntu-only after the OS matrix succeeds.
 - Workflow Dependency Review (`.github/workflows/dependency-review.yml`): blocks pull requests that introduce new moderate-or-higher dependency risk in runtime or development scopes.
-- Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. This workflow is pool-only in CI: it requires `SF_SCRATCH_POOL_NAME` plus `SF_DEVHUB_AUTH_URL`, leases one pooled scratch org per Playwright test through each slot's stored `sfdxAuthUrl`, and defaults to `1` Playwright worker unless `PLAYWRIGHT_WORKERS` is set as a repository variable or `playwright_workers` is set for a manual dispatch. Ubuntu keeps the full MITM proxy-lab path and runs both real-org surfaces in order across four Playwright shards: `npm run test:e2e:cli` for the `sf electivus` plugin, then `npm run test:e2e` for the VS Code extension flow. The Ubuntu extension proxy-lab lane has a dedicated `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS` override because that path exercises VS Code/Electron inside Docker. Windows and macOS run the same CLI and VS Code E2E suites directly against the scratch-org pool, without Docker/proxy-lab, also across four shards. After those sharded jobs pass, a final non-sharded Ubuntu telemetry job runs `npm run test:e2e:telemetry` through the proxy lab when Azure OIDC secrets and the E2E telemetry target variables are configured. CLI artifacts upload from `output/playwright-cli/`; extension artifacts upload from `output/playwright/`, with OS and shard suffixes for direct Windows/macOS runs.
+- Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. This workflow is pool-only in CI: it requires `SF_SCRATCH_POOL_NAME` plus `SF_DEVHUB_AUTH_URL`, leases one pooled scratch org per Playwright test through each slot's stored `sfdxAuthUrl`, and defaults to `1` Playwright worker unless `PLAYWRIGHT_WORKERS` is set as a repository variable or `playwright_workers` is set for a manual dispatch. Ubuntu runs one full CLI and extension pass through the MITM proxy lab, while Windows and macOS each run one full direct pass. The direct jobs reuse the dependency, VS Code, and Salesforce CLI caches and build their artifacts in the same job. The Ubuntu extension proxy-lab lane has a dedicated `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS` override. When Azure telemetry configuration is present, the Ubuntu extension run emits telemetry and a final lightweight job validates it. CLI artifacts upload from `output/playwright-cli/`; extension artifacts upload from `output/playwright/`, with OS suffixes for direct Windows/macOS runs.
 - Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace (if `VSCE_PAT` is configured) and Open VSX (if `OVSX_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
 - Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes automatically to the Marketplace and Open VSX pre‑release channels (when `VSCE_PAT`/`OVSX_PAT` are set).
 
@@ -35,11 +35,11 @@ Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref, e
 The Playwright workflow in `.github/workflows/e2e-playwright.yml` is pool-only in CI:
 
 - It uses the Dev Hub scratch-org pool.
-- It leases a dedicated org per Playwright test within each sharded Playwright job.
-- It defaults to four shards with `1` worker per shard on PR runs unless `PLAYWRIGHT_WORKERS` or `playwright_workers` raises per-shard workers.
+- It leases a dedicated org per Playwright test within each Playwright job.
+- It runs one full test pass per operating system and defaults to `1` worker unless `PLAYWRIGHT_WORKERS` or `playwright_workers` raises it.
 - It runs the `sf electivus` real-org suite before the VS Code extension suite on every E2E lane.
 - Ubuntu runs those suites through the MITM proxy lab; Windows and macOS run them directly on the hosted runner.
-- A final non-sharded Ubuntu telemetry job runs after the sharded jobs and performs the dedicated App Insights validation when telemetry config is present.
+- A final Ubuntu telemetry job runs after the E2E jobs and validates the App Insights events emitted by the Ubuntu extension run when telemetry config is present.
 - It fails fast when the pool configuration is incomplete instead of falling back to the legacy single-scratch CI path.
 
 ### Pool mode
@@ -72,12 +72,11 @@ Key behavior in pool mode:
 - `SF_SCRATCH_STRATEGY=pool` and `PLAYWRIGHT_WORKERS` are injected automatically.
 - The workflow defaults to `PLAYWRIGHT_WORKERS=1` in pool mode; repository variables can override it for pull requests, and manual dispatch can override it with the `playwright_workers` input.
 - The Ubuntu extension proxy-lab step defaults to `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS=1` and can be raised independently of the CLI and direct Windows/macOS lanes.
-- `PLAYWRIGHT_SHARD` is injected from the GitHub Actions matrix as `1/4`, `2/4`, `3/4`, or `4/4`; the local runner scripts translate it to Playwright's `--shard` flag.
 - `PLAYWRIGHT_TIMEOUT_MS` and `PLAYWRIGHT_EXPECT_TIMEOUT_MS` default to `360000` and `60000` in GitHub Actions so stuck tests fail faster than the historical local 15-minute test timeout.
-- The Ubuntu CLI real-org step runs `npm run test:e2e:cli` through the proxy lab with the same scratch-org env contract as the extension step, then uploads `output/playwright-cli/` as a dedicated shard artifact.
-- The Ubuntu extension step then runs `npm run test:e2e` through the proxy lab and uploads `output/playwright/` as a dedicated shard artifact.
-- The final Ubuntu telemetry job waits for both sharded E2E jobs, runs without `PLAYWRIGHT_SHARD`, and uses `npm run test:e2e:telemetry` to generate and validate a dedicated `testRunId` after the faster shard coverage has completed.
-- The Windows/macOS direct matrix runs `npm run test:e2e:cli` and `npm run test:e2e` without proxy-lab, then uploads artifacts with OS and shard suffixes such as `playwright-cli-e2e-windows-shard-1` and `playwright-e2e-macos-shard-4`.
+- The Ubuntu CLI real-org step runs `npm run test:e2e:cli` through the proxy lab with the same scratch-org env contract as the extension step, then uploads `output/playwright-cli/` as a dedicated artifact.
+- The Ubuntu extension step then runs `npm run test:e2e` through the proxy lab and uploads `output/playwright/` as a dedicated artifact.
+- The final Ubuntu telemetry job waits for both E2E jobs and validates the shared `testRunId` emitted by the Ubuntu extension run without rerunning Playwright.
+- The Windows/macOS direct matrix runs one full `npm run test:e2e:cli` and `npm run test:e2e` pass per OS without proxy-lab, reusing the configured caches and uploading artifacts with OS suffixes such as `playwright-cli-e2e-windows` and `playwright-e2e-macos`.
 - The workflow-level concurrency lock uses the configured `SF_SCRATCH_POOL_NAME` when pool mode is active, with `cancel-in-progress: false`, so active runs sharing the same Dev Hub pool are not canceled or allowed to over-lease the pool during dependency bursts.
 - The Playwright configs enable `fullyParallel` in pool mode because each test acquires its own scratch org slot; legacy single-scratch mode stays serial.
 - Manual `workflow_dispatch` runs use the same pool-only path as `pull_request`, so dispatch validation exercises the same concurrency and lease behavior as CI.
@@ -106,7 +105,7 @@ Configure these repository variables:
 - `ALV_E2E_TELEMETRY_BASE_APP`
 - `ALV_E2E_TELEMETRY_WORKSPACE_RESOURCE_ID` (optional)
 
-When the three Azure OIDC secrets and the required telemetry target variables are present, the workflow authenticates to Azure in the final telemetry job, runs `npm run test:e2e:telemetry` without a shard, and validates that the current E2E run reached the shared Log Analytics workspace rows for the configured E2E Application Insights component. If any required setting is missing, the workflow still runs the sharded Playwright suites and only skips the telemetry-validation layer.
+When the three Azure OIDC secrets and the required telemetry target variables are present, the Ubuntu extension job exports a dedicated `testRunId`, runs the full Playwright suite, and emits test telemetry. The final telemetry job authenticates to Azure and validates that the current E2E run reached the shared Log Analytics workspace rows for the configured E2E Application Insights component. If any required setting is missing, the workflow still runs all Playwright suites and only skips the telemetry-validation layer.
 
 ## Release Flow
 
