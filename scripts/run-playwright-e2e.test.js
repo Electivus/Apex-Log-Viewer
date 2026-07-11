@@ -30,6 +30,16 @@ function writeArtifacts(repoRoot, artifactPaths) {
   }
 }
 
+test('root manifest declares the Playwright runtime imported by the E2E helpers', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+
+  assert.equal(
+    manifest.devDependencies?.playwright,
+    manifest.devDependencies?.['@playwright/test'],
+    'playwright must be a direct dependency at the same version range as @playwright/test'
+  );
+});
+
 test('findMissingBuildArtifacts reports the missing build outputs', () => {
   const repoRoot = createTempRepo();
   try {
