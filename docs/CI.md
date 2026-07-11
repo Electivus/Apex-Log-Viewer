@@ -4,7 +4,7 @@ This repository uses GitHub Actions to build, test, package, and publish the ext
 
 - Workflow CI (`.github/workflows/ci.yml`): build/test on `push` and `pull_request` across `ubuntu-latest`, `windows-latest`, and `macos-latest`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`). This workflow enforces dependency provenance with `node scripts/check-dependency-sources.mjs` before every `pnpm install --frozen-lockfile`, then runs npm registry signature verification (`pnpm run security:npm-signatures`) before compile/test. The VSIX smoke test remains Ubuntu-only after the OS matrix succeeds.
 - Workflow Dependency Review (`.github/workflows/dependency-review.yml`): blocks pull requests that introduce new moderate-or-higher dependency risk in runtime or development scopes.
-- Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. This workflow is pool-only in CI: it requires `SF_SCRATCH_POOL_NAME` plus `SF_DEVHUB_AUTH_URL`, leases one pooled scratch org per Playwright test through each slot's stored `sfdxAuthUrl`, and defaults to `1` Playwright worker unless `PLAYWRIGHT_WORKERS` is set as a repository variable or `playwright_workers` is set for a manual dispatch. Ubuntu runs one full CLI and extension pass through the MITM proxy lab, while Windows and macOS each run one full direct pass. The direct jobs reuse the dependency, VS Code, and Salesforce CLI caches and build their artifacts in the same job. The Ubuntu extension proxy-lab lane has a dedicated `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS` override. When Azure telemetry configuration is present, the Ubuntu extension run emits telemetry and a final lightweight job validates it. CLI artifacts upload from `output/playwright-cli/`; extension artifacts upload from `output/playwright/`, with OS suffixes for direct Windows/macOS runs.
+- Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. This workflow is pool-only in CI: it requires `SF_SCRATCH_POOL_NAME` plus `SF_DEVHUB_AUTH_URL`, leases one pooled scratch org per Playwright test through each slot's stored `sfdxAuthUrl`, and defaults to `1` Playwright worker unless `PLAYWRIGHT_WORKERS` is set as a repository variable or `playwright_workers` is set for a manual dispatch. Ubuntu runs one full CLI and extension pass through the MITM proxy lab, while Windows and macOS each run one full direct pass. The direct jobs reuse the dependency, VS Code, and Salesforce CLI caches and build their artifacts in the same job. The Ubuntu extension proxy-lab lane has a dedicated `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS` override. When Azure telemetry configuration is present, the Ubuntu extension run emits telemetry and a final lightweight job validates it. The stable `Real Org E2E required` gate summarizes all lanes and is a required status check in the active `main` ruleset, so a missing workflow check or startup failure blocks merging. CLI artifacts upload from `output/playwright-cli/`; extension artifacts upload from `output/playwright/`, with OS suffixes for direct Windows/macOS runs.
 - Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace (if `VSCE_PAT` is configured) and Open VSX (if `OVSX_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
 - Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes automatically to the Marketplace and Open VSX pre‑release channels (when `VSCE_PAT`/`OVSX_PAT` are set).
 
@@ -23,6 +23,9 @@ Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref, e
 
 - Third-party and GitHub-owned Actions are pinned to full commit SHAs rather
   than mutable tags.
+- The repository Actions allowlist must include every pinned third-party action.
+  In particular, keep the current `pnpm/action-setup` SHA synchronized with the
+  selected-actions policy or workflows will fail before creating jobs.
 - Dependency-source policy allows only registry packages and in-repo workspace
   links, and it validates workspace manifests and `pnpm-lock.yaml` before
   dependency install.
@@ -40,6 +43,7 @@ The Playwright workflow in `.github/workflows/e2e-playwright.yml` is pool-only i
 - It runs the `sf electivus` real-org suite before the VS Code extension suite on every E2E lane.
 - Ubuntu runs those suites through the MITM proxy lab; Windows and macOS run them directly on the hosted runner.
 - A final Ubuntu telemetry job runs after the E2E jobs and validates the App Insights events emitted by the Ubuntu extension run when telemetry config is present.
+- The final `Real Org E2E required` gate runs with `if: always()` and fails unless the Ubuntu proxy-lab and Windows/macOS direct jobs succeed. Telemetry may either succeed or be safely skipped for a fork. Do not rename this job without updating the required status check in the `main` ruleset.
 - It fails fast when the pool configuration is incomplete instead of falling back to the legacy single-scratch CI path.
 
 ### Pool mode

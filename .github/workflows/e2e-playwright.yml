@@ -409,3 +409,44 @@ jobs:
           fi
           echo "Validating telemetry emitted by the Ubuntu Playwright E2E job."
           node scripts/run-playwright-e2e-telemetry.js --validate-only
+
+  playwright_e2e_required:
+    name: Real Org E2E required
+    needs:
+      - playwright_e2e
+      - playwright_e2e_os_matrix
+      - playwright_e2e_telemetry
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful Real Org E2E lanes
+        shell: bash
+        env:
+          UBUNTU_RESULT: ${{ needs.playwright_e2e.result }}
+          DIRECT_RESULT: ${{ needs.playwright_e2e_os_matrix.result }}
+          TELEMETRY_RESULT: ${{ needs.playwright_e2e_telemetry.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+
+          echo "Ubuntu proxy-lab result: ${UBUNTU_RESULT}"
+          echo "Windows/macOS direct result: ${DIRECT_RESULT}"
+          echo "Telemetry result: ${TELEMETRY_RESULT}"
+
+          if [[ "${UBUNTU_RESULT}" != "success" ]]; then
+            echo "::error::Ubuntu proxy-lab Real Org E2E did not succeed (${UBUNTU_RESULT})."
+            failed=1
+          fi
+          if [[ "${DIRECT_RESULT}" != "success" ]]; then
+            echo "::error::Windows/macOS direct Real Org E2E did not succeed (${DIRECT_RESULT})."
+            failed=1
+          fi
+          if [[ "${TELEMETRY_RESULT}" != "success" && "${TELEMETRY_RESULT}" != "skipped" ]]; then
+            echo "::error::Real Org E2E telemetry validation did not succeed or skip safely (${TELEMETRY_RESULT})."
+            failed=1
+          fi
+
+          if [[ "${failed}" != "0" ]]; then
+            exit 1
+          fi
