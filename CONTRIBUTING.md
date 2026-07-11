@@ -5,24 +5,24 @@ Thanks for taking the time to contribute! This guide covers local setup, coding 
 ## Quick Start
 
 - Requirements: Node.js 24.15.0+ (use `nvm use` to respect `.nvmrc`), VS Code 1.90+, Salesforce CLI (`sf` recommended or legacy `sfdx`).
-- Clone and install: `npm install`
-- Build once: `npm run build`
-- Dev mode: `npm run watch` then press `F5` in VS Code to launch the Extension Development Host.
-- Tests: `npm test` (runs type-check, lint, and VS Code tests).
-- Lint/format: `npm run lint` and `npm run format`.
+- Clone and install: `pnpm install --frozen-lockfile`
+- Build once: `pnpm run build`
+- Dev mode: `pnpm run watch` then press `F5` in VS Code to launch the Extension Development Host.
+- Tests: `pnpm test` (runs type-check, lint, and VS Code tests).
+- Lint/format: `pnpm run lint` and `pnpm run format`.
 
 Helpful scripts:
 
-- `npm run watch` – parallel watch for extension, types, and webview; use VS Code `F5`.
-- `npm run build` – compile the extension and bundle the webview.
-- `npm test` – compiles tests and runs VS Code tests.
+- `pnpm run watch` – parallel watch for extension, types, and webview; use VS Code `F5`.
+- `pnpm run build` – compile the extension and bundle the webview.
+- `pnpm test` – compiles tests and runs VS Code tests.
 
 ## Coding Style
 
 - TypeScript strict mode; 2-space indent; include semicolons.
 - ESLint enforced: `curly`, `eqeqeq`, `no-throw-literal`; fix warnings before PRs.
 - Names: PascalCase for React components/classes; camelCase for functions/vars.
-- Files: components as `src/webview/components/Name.tsx`; utilities as `src/utils/name.ts`.
+- Files: webview components under `packages/webview/src/components/`; extension-only utilities under `apps/vscode-extension/src/host/`; shared business behavior under `packages/core/src/`.
 
 ## Conventional Commits
 
@@ -46,21 +46,21 @@ docs: improve README with Marketplace badges and usage
 
 - Merge PRs to `main` using Conventional Commits.
 - Update `CHANGELOG.md` manually for the new version (follow SemVer; include notable changes and any BREAKING CHANGES).
-- Bump `package.json` to the release version and push a tag `vX.Y.Z` pointing to that commit.
+- Bump `apps/vscode-extension/package.json` to the release version and push a tag `vX.Y.Z` pointing to that commit.
 - The Release workflow (on tag push) builds, packages, and publishes automatically to the Marketplace (`VSCE_PAT`) and Open VSX (`OVSX_PAT`) when configured.
 
 Manual packaging (rare):
 
-- Stable: `npm run vsce:package` then `npm run vsce:publish`.
-- Pre‑release: `npm run vsce:package:pre` then `npm run vsce:publish:pre`.
-- Open VSX (stable): `npx --yes ovsx publish --pat <token>`.
-- Open VSX (pre‑release): `npx --yes ovsx publish --pat <token> --pre-release`.
+- Stable: `pnpm run vsce:package` then `pnpm run vsce:publish`.
+- Pre‑release: `pnpm run vsce:package:pre` then `pnpm run vsce:publish:pre`.
+- Open VSX (stable): `pnpm dlx ovsx publish --pat <token>`.
+- Open VSX (pre‑release): `pnpm dlx ovsx publish --pat <token> --pre-release`.
 
 ## Pull Request Checklist
 
 - [ ] Uses Conventional Commits in title and commits.
-- [ ] `npm run build` passes locally.
-- [ ] `npm test` passes locally.
+- [ ] `pnpm run build` passes locally.
+- [ ] `pnpm test` passes locally.
 - [ ] `CHANGELOG.md` updated when the change is user‑facing.
 - [ ] Screenshots/GIFs for UI changes.
 - [ ] Notes on verification steps and risk/rollback if needed.
@@ -69,7 +69,7 @@ Manual packaging (rare):
 
 - Requires Salesforce CLI with an authenticated org (`sf org login web`).
 - Never log or commit tokens or org-sensitive data.
-- When `electivus.apexLogs.trace` is enabled, review output before sharing externally.
+- When `electivus.apexLogViewer.logging.trace` is enabled, review output before sharing externally.
  - Telemetry: respect the user's VS Code `telemetry.telemetryLevel`. Never include source code, Apex log content, access tokens, usernames, org IDs, or instance URLs in telemetry. Keep events minimal (counts/flags), prefer bounded enums over free-form strings, and consider sampling to avoid high-frequency spam.
 
 ## Sensitive Files Guardrails

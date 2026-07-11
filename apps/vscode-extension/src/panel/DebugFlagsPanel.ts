@@ -9,10 +9,10 @@ import {
   removeTraceFlags,
   updateDebugLevel,
   upsertTraceFlag
-} from '../../../../src/salesforce/traceflags';
+} from '../host/salesforce/traceflags';
 import { DEBUG_LEVEL_PRESETS } from '../shared/debugLevelPresets';
 import { bucketQueryLength } from '../shared/telemetryBuckets';
-import { clearApexLogs } from '../../../../src/services/apexLogCleanup';
+import { clearApexLogs } from '../host/services/apexLogCleanup';
 import { parseDebugFlagsFromWebviewMessage, type DebugFlagsToWebviewMessage } from '../shared/debugFlagsMessages';
 import type {
   ApplyTraceFlagTargetInput,
@@ -24,11 +24,11 @@ import type {
   TraceFlagTargetStatus
 } from '../shared/debugFlagsTypes';
 import { safeSendEvent } from '../shared/telemetry';
-import { pickSelectedOrg } from '../../../../src/utils/orgs';
-import { localize } from '../../../../src/utils/localize';
-import { getErrorMessage } from '../../../../src/utils/error';
-import { logInfo, logWarn } from '../../../../src/utils/logger';
-import { buildWebviewHtml } from '../../../../src/utils/webviewHtml';
+import { pickSelectedOrg } from '../host/utils/orgs';
+import { localize } from '../host/utils/localize';
+import { getErrorMessage } from '../host/utils/error';
+import { logInfo, logWarn } from '../host/utils/logger';
+import { buildWebviewHtml } from '../host/utils/webviewHtml';
 import { runtimeClient } from '../runtime/runtimeClient';
 
 interface ShowOptions {
@@ -39,7 +39,7 @@ interface ShowOptions {
 export class DebugFlagsPanel {
   private static context: vscode.ExtensionContext | undefined;
   private static instance: DebugFlagsPanel | undefined;
-  private static readonly viewType = 'sfLogViewer.debugFlagsPanel';
+  private static readonly viewType = 'electivus.apexLogViewer.logsView.debugFlagsPanel';
 
   static initialize(context: vscode.ExtensionContext): void {
     this.context = context;
@@ -211,13 +211,13 @@ export class DebugFlagsPanel {
     selectedId?: string,
     bootstrapToken?: number
   ): Promise<void> {
-    const [details, active] = await Promise.all([
-      this.listDebugLevelDetailsWithRuntimeFallback(auth).catch(err => {
-        logWarn('DebugFlagsPanel: failed to load debug level details ->', getErrorMessage(err));
-        return [] as DebugLevelRecord[];
-      }),
-      this.getActiveUserDebugLevelWithRuntimeFallback(auth).catch(() => undefined as string | undefined)
-    ]);
+    const details = await this.listDebugLevelDetailsWithRuntimeFallback(auth).catch(err => {
+      logWarn('DebugFlagsPanel: failed to load debug level details ->', getErrorMessage(err));
+      return [] as DebugLevelRecord[];
+    });
+    const active = await this.getActiveUserDebugLevelWithRuntimeFallback(auth).catch(
+      () => undefined as string | undefined
+    );
 
     if (this.disposed || (typeof bootstrapToken === 'number' && bootstrapToken !== this.orgBootstrapToken)) {
       return;
@@ -622,7 +622,7 @@ export class DebugFlagsPanel {
     try {
       const status = await runtimeClient.traceFlagStatus({
         targetOrg: this.getRuntimeTargetOrg(),
-        target: { type: 'user', userId: '' }
+        target: { type: 'user', userId: 'current' }
       });
       return status.debugLevelName;
     } catch (error) {

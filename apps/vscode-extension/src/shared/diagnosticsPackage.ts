@@ -1,4 +1,4 @@
-import type { LogEntry } from '../../../../src/utils/logger';
+import type { LogEntry } from '../host/utils/logger';
 import type { WebviewLifecycleEvent, WebviewProviderDiagnosticState } from './webviewDiagnostics';
 
 export interface DiagnosticsPackage {

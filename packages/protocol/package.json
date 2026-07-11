@@ -1,0 +1,36 @@
+{
+  "name": "@alv/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js",
+      "require": "./lib/index.js"
+    },
+    "./*": {
+      "types": "./lib/*.d.ts",
+      "import": "./lib/*.js",
+      "require": "./lib/*.js"
+    }
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check-types": "tsc --noEmit -p tsconfig.json",
+    "clean": "node -e \"require('fs').rmSync('lib',{recursive:true,force:true})\"",
+    "test": "node --import tsx --test test/*.test.ts",
+    "watch": "tsc -p tsconfig.json --watch"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

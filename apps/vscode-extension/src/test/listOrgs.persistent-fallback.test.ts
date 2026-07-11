@@ -24,7 +24,7 @@ function loadCliWithStubs(params: {
     markExecOverriddenForTests: () => {}
   };
 
-  const cli = proxyquire('../../../../src/salesforce/cli', {
+  const cli = proxyquire('../host/salesforce/cli', {
     '../utils/cacheManager': { CacheManager, '@noCallThru': true },
     '../utils/config': {
       getConfig: (_key: string, def: unknown) => def,
@@ -34,7 +34,7 @@ function loadCliWithStubs(params: {
     },
     './exec': { ...execModule, '@noCallThru': true },
     './path': { resolvePATHFromLoginShell: async () => undefined, '@noCallThru': true },
-    '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: () => {}, '@noCallThru': true },
+    '../../shared/telemetry': { safeSendException: () => {}, '@noCallThru': true },
     '../utils/logger': { logTrace: () => {}, '@noCallThru': true },
     '../utils/localize': {
       localize: (_key: string, fallback: string) => fallback,

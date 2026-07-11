@@ -82,27 +82,30 @@ jobs:
         with:
           ref: ${{ needs.validate_tag.outputs.commit_sha }}
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Test sf plugin
-        run: npm run test:sf-plugin
+        run: pnpm run test:sf-plugin
 
       - name: Build sf plugin
-        run: npm run build:sf-plugin
+        run: pnpm run build:sf-plugin
 
       - name: Stage sf plugin npm package
-        run: npm run stage:sf-plugin-npm
+        run: pnpm run stage:sf-plugin-npm
 
       - name: Verify staged package version
         env:
@@ -132,6 +135,9 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: ${{ needs.validate_tag.outputs.commit_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
 
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e

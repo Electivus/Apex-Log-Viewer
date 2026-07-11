@@ -58,7 +58,7 @@ function resolveConfiguredPluginBinPath(options: ResolveElectivusPluginInvocatio
 }
 
 function formatMissingPluginMessage(pluginBinPath: string): string {
-  return `Unable to locate local sf electivus plugin bin. Checked: ${pluginBinPath}. Run npm run build:sf-plugin before CLI E2E, or set ALV_ELECTIVUS_PLUGIN_BIN_PATH.`;
+  return `Unable to locate local sf electivus plugin bin. Checked: ${pluginBinPath}. Run pnpm run build:sf-plugin before CLI E2E, or set ALV_ELECTIVUS_PLUGIN_BIN_PATH.`;
 }
 
 function tryParseCliJson(raw: string): any | undefined {

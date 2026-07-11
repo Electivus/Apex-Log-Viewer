@@ -1,6 +1,6 @@
 import assert from 'assert/strict';
-import { listOrgs, __resetListOrgsCacheForTests } from '../../../../src/salesforce/cli';
-import { __setExecFileImplForTests, __resetExecFileImplForTests } from '../../../../src/salesforce/exec';
+import { listOrgs, __resetListOrgsCacheForTests } from '../host/salesforce/cli';
+import { __setExecFileImplForTests, __resetExecFileImplForTests } from '../host/salesforce/exec';
 
 suite('listOrgs cancellation + dedupe', () => {
   teardown(() => {

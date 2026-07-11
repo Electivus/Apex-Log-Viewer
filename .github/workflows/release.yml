@@ -25,24 +25,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build (type-check + lint + bundle)
-        run: npm run build
+        run: pnpm run build
 
       - name: Run tests (unit + integration)
-        run: npm run test:ci
+        run: pnpm run test:ci
 
   package:
     name: Package VSIX
@@ -81,18 +84,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Verify tag matches extension package version
         shell: bash
@@ -111,14 +117,13 @@ jobs:
           MATRIX_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          npm run clean
-          npm run build:sf-plugin
-          npm run build:embedded-sf-plugin
-          npm run build:ripgrep-runtime -- "${MATRIX_TARGET}"
-          npm run build:package-metadata
+          pnpm run clean
+          pnpm run build:shared
+          pnpm run build:ripgrep-runtime "${MATRIX_TARGET}"
+          pnpm run build:package-metadata
           node apps/vscode-extension/esbuild.extension.mjs
-          npm run l10n:write
-          npm run build:webview
+          pnpm run l10n:write
+          pnpm run build:webview
 
       - name: Determine channel (stable vs pre-release)
         id: determine_channel
@@ -158,7 +163,7 @@ jobs:
           if [ "${PRE_RELEASE}" = "true" ]; then
             PRE_ARGS+=(--pre-release)
           fi
-          node scripts/run-vsce.js package --skip-prepublish --no-yarn --target "${MATRIX_TARGET}" --out "apex-log-viewer-${VERSION}-${CHANNEL_SUFFIX}-${MATRIX_TARGET}.vsix" "${PRE_ARGS[@]}"
+          node scripts/run-vsce.js package --no-dependencies --skip-prepublish --no-yarn --target "${MATRIX_TARGET}" --out "apex-log-viewer-${VERSION}-${CHANNEL_SUFFIX}-${MATRIX_TARGET}.vsix" "${PRE_ARGS[@]}"
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -184,6 +189,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
 
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
@@ -342,10 +350,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
+      - name: Install publishing dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Download VSIX artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -375,13 +392,13 @@ jobs:
             if [ "${PRE_RELEASE}" = "true" ]; then
               echo "Publishing pre-release ${VERSION} from ${FILE}"
               set +e
-              OUTPUT=$(npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release 2>&1)
+              OUTPUT=$(pnpm exec vsce publish --packagePath "${FILE}" --pre-release 2>&1)
               STATUS=$?
               set -e
             else
               echo "Publishing stable ${VERSION} from ${FILE}"
               set +e
-              OUTPUT=$(npx --yes @vscode/vsce publish --packagePath "${FILE}" 2>&1)
+              OUTPUT=$(pnpm exec vsce publish --packagePath "${FILE}" 2>&1)
               STATUS=$?
               set -e
             fi
@@ -406,10 +423,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
+      - name: Install publishing dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Download VSIX artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -438,9 +464,9 @@ jobs:
           for FILE in "${FILES[@]}"; do
             if [ "${PRE_RELEASE}" = "true" ]; then
               echo "Publishing pre-release ${VERSION} to Open VSX from ${FILE}"
-              npx --yes ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}" --pre-release
+              pnpm dlx ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}" --pre-release
             else
               echo "Publishing stable ${VERSION} to Open VSX from ${FILE}"
-              npx --yes ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}"
+              pnpm dlx ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}"
             fi
           done

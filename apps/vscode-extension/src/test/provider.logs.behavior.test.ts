@@ -63,8 +63,8 @@ function createProviderHarness() {
       downloaded: 0,
       cached: 0,
       failed: 0,
-      checkpoint_advanced: false,
-      state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+      checkpointAdvanced: false,
+      stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
     })
   };
   const cliStub: any = runtimeClientStub;
@@ -181,28 +181,28 @@ function createProviderHarness() {
 
   const module = proxyquireStrict('../provider/SfLogsViewProvider', {
     vscode: vscodeMock,
-    '../../../../src/salesforce/http': httpStub,
-    '../../../../src/utils/logger': {
+    '../host/salesforce/http': httpStub,
+    '../host/utils/logger': {
       logInfo: () => undefined,
       logWarn: () => undefined,
       logError: () => undefined,
       logTrace: () => undefined,
       '@noCallThru': true
     },
-    '../../../../src/utils/webviewHtml': {
+    '../host/utils/webviewHtml': {
       buildWebviewHtml: () => '<html></html>',
       '@noCallThru': true
     },
-    '../../../../src/utils/ripgrep': ripgrepStub,
-    '../../../../src/utils/workspace': workspaceStub,
-    '../../../../src/services/apexLogCleanup': {
+    '../host/utils/ripgrep': ripgrepStub,
+    '../host/utils/workspace': workspaceStub,
+    '../host/services/apexLogCleanup': {
       clearApexLogs: async () => ({ deleted: 0, failed: 0, total: 0 }),
       '@noCallThru': true
     },
     '../runtime/runtimeClient': { runtimeClient: runtimeClientStub },
     '../utils/orgManager': { OrgManager: OrgManagerStub },
-    '../../../../src/utils/configManager': { ConfigManager: ConfigManagerStub },
-    '../../../../src/services/logService': { LogService: LogServiceStub },
+    '../host/utils/configManager': { ConfigManager: ConfigManagerStub },
+    '../host/services/logService': { LogService: LogServiceStub },
     '../panel/DebugFlagsPanel': { DebugFlagsPanel: debugFlagsPanelStub },
     '../shared/telemetry': {
       safeSendEvent: (name: string, properties?: Record<string, string>, measurements?: Record<string, number>) => {
@@ -388,8 +388,8 @@ suite('SfLogsViewProvider behavior', () => {
         downloaded: 2,
         cached: 0,
         failed: 0,
-        checkpoint_advanced: true,
-        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        checkpointAdvanced: true,
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
       };
     };
     const purged: Array<{ keepIds?: Set<string>; maxAgeMs?: number; signal?: AbortSignal }> = [];
@@ -424,13 +424,13 @@ suite('SfLogsViewProvider behavior', () => {
       syncCalls.push(params);
       return {
         status: 'success',
-        target_org: 'u',
-        safe_target_org: 'u',
+        targetOrg: 'u',
+        safeTargetOrg: 'u',
         downloaded: 1,
         cached: 0,
         failed: 0,
-        checkpoint_advanced: true,
-        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        checkpointAdvanced: true,
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
       };
     };
     const triageCalls: any[] = [];
@@ -489,13 +489,13 @@ suite('SfLogsViewProvider behavior', () => {
       syncCalls.push(params);
       return {
         status: 'success',
-        target_org: authUsername,
-        safe_target_org: authUsername,
+        targetOrg: authUsername,
+        safeTargetOrg: authUsername,
         downloaded: 1,
         cached: 0,
         failed: 0,
-        checkpoint_advanced: true,
-        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        checkpointAdvanced: true,
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
       };
     };
     cli.logsTriage = async () => [];
@@ -533,13 +533,13 @@ suite('SfLogsViewProvider behavior', () => {
       syncCalls.push(params);
       return {
         status: 'success',
-        target_org: 'default@example.test',
-        safe_target_org: 'default@example.test',
+        targetOrg: 'default@example.test',
+        safeTargetOrg: 'default@example.test',
         downloaded: 1,
         cached: 0,
         failed: 0,
-        checkpoint_advanced: true,
-        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        checkpointAdvanced: true,
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
       };
     };
     cli.logsTriage = async () => [];
@@ -607,8 +607,8 @@ suite('SfLogsViewProvider behavior', () => {
         downloaded: 2,
         cached: 0,
         failed: 0,
-        checkpoint_advanced: true,
-        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        checkpointAdvanced: true,
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
       };
     };
     workspace.purgeSavedLogs = async () => 0;
@@ -728,8 +728,8 @@ suite('SfLogsViewProvider behavior', () => {
         downloaded: 0,
         cached: 0,
         failed: 0,
-        checkpoint_advanced: false,
-        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        checkpointAdvanced: false,
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
       };
     };
 
@@ -1231,7 +1231,7 @@ suite('SfLogsViewProvider behavior', () => {
     class MockWebviewView implements vscode.WebviewView {
       visible = true;
       title = 'Test';
-      viewType = 'sfLogViewer';
+      viewType = 'electivus.apexLogViewer.logsView';
       description?: string | undefined;
       badge?: { value: number; tooltip: string } | undefined;
       webview: vscode.Webview;
@@ -1281,7 +1281,7 @@ suite('SfLogsViewProvider behavior', () => {
     class MockWebviewView implements vscode.WebviewView {
       visible = true;
       title = 'Test';
-      viewType = 'sfLogViewer';
+      viewType = 'electivus.apexLogViewer.logsView';
       description?: string | undefined;
       badge?: { value: number; tooltip: string } | undefined;
       webview: vscode.Webview;
@@ -1322,8 +1322,8 @@ suite('SfLogsViewProvider behavior', () => {
         downloaded: 2,
         cached: 1,
         failed: 0,
-        checkpoint_advanced: true,
-        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        checkpointAdvanced: true,
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
       };
     };
     const searchCalls: string[] = [];
@@ -1374,7 +1374,7 @@ suite('SfLogsViewProvider behavior', () => {
     class MockWebviewView implements vscode.WebviewView {
       visible = true;
       title = 'Test';
-      viewType = 'sfLogViewer';
+      viewType = 'electivus.apexLogViewer.logsView';
       description?: string | undefined;
       badge?: { value: number; tooltip: string } | undefined;
       webview: vscode.Webview;
@@ -1425,8 +1425,8 @@ suite('SfLogsViewProvider behavior', () => {
           downloaded: 0,
           failed: 0,
           cached: 0,
-          checkpoint_advanced: false,
-          state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+          checkpointAdvanced: false,
+          stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
         };
       }
       return {
@@ -1434,8 +1434,8 @@ suite('SfLogsViewProvider behavior', () => {
         downloaded: 0,
         failed: 0,
         cached: 0,
-        checkpoint_advanced: false,
-        state_file: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        checkpointAdvanced: false,
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
       };
     };
 
@@ -1490,7 +1490,7 @@ suite('SfLogsViewProvider behavior', () => {
     class MockWebviewView implements vscode.WebviewView {
       visible = true;
       title = 'Test';
-      viewType = 'sfLogViewer';
+      viewType = 'electivus.apexLogViewer.logsView';
       description?: string | undefined;
       badge?: { value: number; tooltip: string } | undefined;
       webview: vscode.Webview;
@@ -1550,7 +1550,7 @@ suite('SfLogsViewProvider behavior', () => {
     class MockWebviewView implements vscode.WebviewView {
       visible = true;
       title = 'Test';
-      viewType = 'sfLogViewer';
+      viewType = 'electivus.apexLogViewer.logsView';
       description?: string | undefined;
       badge?: { value: number; tooltip: string } | undefined;
       webview: vscode.Webview;
@@ -1589,7 +1589,7 @@ suite('SfLogsViewProvider behavior', () => {
     await provider.tailLogs();
 
     assert.deepEqual(executed, [
-      'workbench.view.extension.salesforceTailPanel',
+      'workbench.view.extension.electivus-apex-log-viewer-tail',
       'workbench.viewsService.openView',
       'workbench.action.openView'
     ]);

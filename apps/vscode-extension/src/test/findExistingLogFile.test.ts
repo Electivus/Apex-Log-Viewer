@@ -1,7 +1,7 @@
 import assert from 'assert/strict';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { getApexLogsDir, findExistingLogFile } from '../../../../src/utils/workspace';
+import { getApexLogsDir, findExistingLogFile } from '../host/utils/workspace';
 
 suite('integration: findExistingLogFile', () => {
   test('does not create apexlogs directory when missing', async () => {
@@ -75,7 +75,7 @@ suite('integration: findExistingLogFile', () => {
     }
   });
 
-  test('findExistingLogFile ignores flat files when username is provided', async () => {
+  test('findExistingLogFile resolves the legacy username-prefixed flat cache', async () => {
     const dir = getApexLogsDir();
     const logId = '07L000000000004AA';
     const flatFile = path.join(dir, `target@example.com_${logId}.log`);
@@ -84,7 +84,7 @@ suite('integration: findExistingLogFile', () => {
 
     try {
       const result = await findExistingLogFile(logId, 'target@example.com');
-      assert.equal(result, undefined);
+      assert.equal(result, flatFile);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

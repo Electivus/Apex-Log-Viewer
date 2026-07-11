@@ -7,7 +7,7 @@ import {
 import { SfLogTailViewProvider } from './provider/SfLogTailViewProvider';
 import type { OrgItem } from './shared/types';
 import * as path from 'path';
-import { setApiVersion, getApiVersion, clearListCache } from '../../../src/salesforce/http';
+import { setApiVersion, getApiVersion, clearListCache } from './host/salesforce/http';
 import {
   logInfo,
   logWarn,
@@ -16,18 +16,18 @@ import {
   setTraceEnabled,
   disposeLogger,
   getRecentLogEntries
-} from '../../../src/utils/logger';
-import { localize } from '../../../src/utils/localize';
+} from './host/utils/logger';
+import { localize } from './host/utils/localize';
 import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry } from './shared/telemetry';
-import { CacheManager } from '../../../src/utils/cacheManager';
+import { CacheManager } from './host/utils/cacheManager';
 import { LogViewerPanel } from './panel/LogViewerPanel';
 import { DebugFlagsPanel } from './panel/DebugFlagsPanel';
 import { LogsEditorPanel } from './panel/LogsEditorPanel';
 import { TailEditorPanel } from './panel/TailEditorPanel';
 import { runtimeClient } from './runtime/runtimeClient';
-import { getBooleanConfig, affectsConfiguration } from '../../../src/utils/config';
-import { getErrorMessage } from '../../../src/utils/error';
-import { findSalesforceProjectInfo, isApexLogDocument, getLogIdFromLogFilePath } from '../../../src/utils/workspace';
+import { getBooleanConfig, affectsConfiguration } from './host/utils/config';
+import { getErrorMessage } from './host/utils/error';
+import { findSalesforceProjectInfo, isApexLogDocument, getLogIdFromLogFilePath } from './host/utils/workspace';
 import { ApexLogCodeLensProvider } from './provider/ApexLogCodeLensProvider';
 import { getWebviewDiagnosticEvents } from './shared/webviewDiagnostics';
 import { formatDiagnosticsPackageMarkdown, type DiagnosticsPackage } from './shared/diagnosticsPackage';
@@ -140,12 +140,12 @@ export async function activate(context: vscode.ExtensionContext) {
   logInfo('Activating Electivus Apex Log Viewer extension…');
   // Configure trace logging from settings
   try {
-    const trace = getBooleanConfig('sfLogs.trace', false);
+    const trace = getBooleanConfig('electivus.apexLogViewer.logging.trace', false);
     setTraceEnabled(trace);
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
-        if (affectsConfiguration(e, 'sfLogs.trace')) {
-          const next = getBooleanConfig('sfLogs.trace', false);
+        if (affectsConfiguration(e, 'electivus.apexLogViewer.logging.trace')) {
+          const next = getBooleanConfig('electivus.apexLogViewer.logging.trace', false);
           setTraceEnabled(next);
         }
       })
@@ -178,18 +178,18 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.refresh', async () => {
+    vscode.commands.registerCommand('electivus.apexLogViewer.logs.refresh', async () => {
       const t0 = Date.now();
       const viewAlreadyResolved = provider.hasResolvedView();
       try {
-        await vscode.commands.executeCommand('workbench.view.extension.salesforceLogsPanel');
+        await vscode.commands.executeCommand('workbench.view.extension.electivus-apex-log-viewer-logs');
         try {
-          await vscode.commands.executeCommand('workbench.viewsService.openView', 'sfLogViewer');
+          await vscode.commands.executeCommand('workbench.viewsService.openView', 'electivus.apexLogViewer.logsView');
         } catch {
-          await vscode.commands.executeCommand('workbench.action.openView', 'sfLogViewer');
+          await vscode.commands.executeCommand('workbench.action.openView', 'electivus.apexLogViewer.logsView');
         }
       } catch (e) {
-        logWarn('Command sfLogs.refresh: failed to open logs view ->', getErrorMessage(e));
+        logWarn('Command electivus.apexLogViewer.logs.refresh: failed to open logs view ->', getErrorMessage(e));
       }
       // The logs webview runs an initial refresh when it posts the "ready" message.
       // Avoid triggering a second refresh (and duplicate notifications) on the first open.
@@ -206,8 +206,8 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.selectOrg', async () => {
-      logInfo('Command sfLogs.selectOrg invoked. Listing orgs…');
+    vscode.commands.registerCommand('electivus.apexLogViewer.org.select', async () => {
+      logInfo('Command electivus.apexLogViewer.org.select invoked. Listing orgs…');
       try {
         const orgs: OrgItem[] = await runtimeClient.orgList({ forceRefresh: true });
         const items: OrgQuickPick[] = orgs.map(o => ({
@@ -243,38 +243,38 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.tail', async () => {
-      logInfo('Command sfLogs.tail invoked. Opening Tail view and starting…');
+    vscode.commands.registerCommand('electivus.apexLogViewer.tail.start', async () => {
+      logInfo('Command electivus.apexLogViewer.tail.start invoked. Opening Tail view and starting…');
       safeSendEvent('command.tail', { outcome: 'invoked' });
       try {
         await tailProvider.syncSelectedOrg(provider.getSelectedOrg());
         await provider.tailLogs();
         await tailProvider.refreshViewState();
       } catch (e) {
-        logWarn('Command sfLogs.tail: failed to open tail view ->', getErrorMessage(e));
+        logWarn('Command electivus.apexLogViewer.tail.start: failed to open tail view ->', getErrorMessage(e));
       }
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.openLogsEditor', async () => {
+    vscode.commands.registerCommand('electivus.apexLogViewer.logs.openEditor', async () => {
       safeSendEvent('command.openLogsEditor', { outcome: 'invoked' });
       try {
         await LogsEditorPanel.show({ selectedOrg: provider.getSelectedOrg() });
       } catch (e) {
-        logWarn('Command sfLogs.openLogsEditor failed ->', getErrorMessage(e));
+        logWarn('Command electivus.apexLogViewer.logs.openEditor failed ->', getErrorMessage(e));
         safeSendEvent('command.openLogsEditor', { outcome: 'error' });
       }
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.openTailEditor', async () => {
+    vscode.commands.registerCommand('electivus.apexLogViewer.tail.openEditor', async () => {
       safeSendEvent('command.openTailEditor', { outcome: 'invoked' });
       try {
         await TailEditorPanel.show({ selectedOrg: tailProvider.getSelectedOrg() ?? provider.getSelectedOrg() });
       } catch (e) {
-        logWarn('Command sfLogs.openTailEditor failed ->', getErrorMessage(e));
+        logWarn('Command electivus.apexLogViewer.tail.openEditor failed ->', getErrorMessage(e));
         safeSendEvent('command.openTailEditor', { outcome: 'error' });
       }
     })
@@ -287,7 +287,7 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.openLogInViewer', async (uri?: vscode.Uri) => {
+    vscode.commands.registerCommand('electivus.apexLogViewer.log.openViewer', async (uri?: vscode.Uri) => {
       safeSendEvent('command.openLogInViewer', { outcome: 'invoked' });
       try {
         const doc = uri ? await vscode.workspace.openTextDocument(uri) : vscode.window.activeTextEditor?.document;
@@ -318,10 +318,10 @@ export async function activate(context: vscode.ExtensionContext) {
         const filePath = doc.uri.fsPath;
         const logId = getLogIdFromLogFilePath(filePath) ?? path.parse(filePath).name;
         await LogViewerPanel.show({ logId, filePath });
-        logInfo('Command sfLogs.openLogInViewer opened log viewer for', logId);
+        logInfo('Command electivus.apexLogViewer.log.openViewer opened log viewer for', logId);
       } catch (e) {
         const msg = getErrorMessage(e);
-        logWarn('Command sfLogs.openLogInViewer failed ->', msg);
+        logWarn('Command electivus.apexLogViewer.log.openViewer failed ->', msg);
         void vscode.window.showErrorMessage(localize('openLogInViewer.failed', 'Failed to open Apex log: {0}', msg));
       }
     })
@@ -331,14 +331,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Convenience: command to show the output channel
   context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.showOutput', () => {
+    vscode.commands.registerCommand('electivus.apexLogViewer.output.show', () => {
       safeSendEvent('command.showOutput', { outcome: 'invoked' });
       showOutput(true);
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.copyDiagnostics', async () => {
+    vscode.commands.registerCommand('electivus.apexLogViewer.diagnostics.copy', async () => {
       try {
         const diagnostics = buildDiagnosticsPackage(context, provider, tailProvider, salesforceProject);
         const markdown = formatDiagnosticsPackageMarkdown(diagnostics);
@@ -356,7 +356,7 @@ export async function activate(context: vscode.ExtensionContext) {
         safeSendEvent('command.copyDiagnostics', { outcome: 'ok' });
       } catch (e) {
         const msg = getErrorMessage(e);
-        logWarn('Command sfLogs.copyDiagnostics failed ->', msg);
+        logWarn('Command electivus.apexLogViewer.diagnostics.copy failed ->', msg);
         vscode.window.showErrorMessage(
           localize('diagnostics.copyFailed', 'Electivus Apex Logs: failed to copy diagnostics: {0}', msg)
         );
@@ -365,49 +365,6 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Reset CLI cache command
-  context.subscriptions.push(
-    vscode.commands.registerCommand('sfLogs.resetCliCache', async () => {
-      try {
-        await CacheManager.delete('cli');
-        logInfo('CLI cache cleared.');
-        vscode.window.showInformationMessage('Electivus Apex Logs: CLI cache cleared');
-        safeSendEvent('command.resetCliCache', { outcome: 'ok' });
-      } catch (e) {
-        const msg = getErrorMessage(e);
-        logWarn('Failed clearing CLI cache ->', msg);
-        vscode.window.showErrorMessage('Electivus Apex Logs: Failed to clear CLI cache');
-        safeSendEvent('command.resetCliCache', { outcome: 'error' });
-      }
-    })
-  );
-
-  // Removed legacy openTailPanel command to avoid focus changes
-
-  // Preload runtime org list cache in background
-  try {
-    const enabled = getBooleanConfig('sfLogs.cliCache.enabled', true);
-    // Heuristic: skip when running inside VS Code test harness to avoid interfering with unit tests
-    const isVsCodeTestHost = /\.vscode-test\b/i.test(String((vscode.env as any)?.appRoot || ''));
-    if (enabled && hasSalesforceProject && !isVsCodeTestHost) {
-      setTimeout(() => {
-        void (async () => {
-          try {
-            logInfo('Preloading runtime org cache…');
-            await runtimeClient.orgList();
-            logInfo('Preloading runtime org cache done.');
-          } catch (e) {
-            // Best-effort; ignore errors
-            logWarn('Preloading runtime org cache failed ->', getErrorMessage(e));
-          }
-        })();
-      }, 0);
-    } else if (enabled && !hasSalesforceProject) {
-      logInfo('Skipping CLI cache preload because no sfdx-project.json was found in the workspace.');
-    }
-  } catch (e) {
-    logWarn('Failed to schedule CLI cache preload ->', getErrorMessage(e));
-  }
 
   // Return exports for tests and programmatic use
   try {

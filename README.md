@@ -65,19 +65,19 @@ Install the Salesforce CLI plugin to use the same local-first commands exposed t
 
 ```bash
 sf plugins install @electivus/plugin-electivus
-sf electivus logs sync --target-org my-org --concurrency 6
-sf electivus logs status --target-org my-org
+sf electivus log sync --target-org my-org --concurrency 6
+sf electivus log status --target-org my-org
 ```
 
-`logs sync` resolves org auth through Salesforce CLI/Core, lists `ApexLog` rows, and downloads raw log bodies over the Salesforce Tooling REST API. It materializes those bodies under `apexlogs/`, keeps incremental state in `apexlogs/.alv/sync-state.json`, writes the canonical org-first layout at `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log`, and removes the legacy SQLite search index files from older runtime versions. Use `--concurrency` when you want to tune how many log bodies are downloaded in parallel; the default is `6` and `1` keeps the serial-style troubleshooting mode.
+`log sync` resolves org auth through Salesforce Core, lists `ApexLog` rows, and downloads raw log bodies over the Salesforce Tooling REST API. It materializes those bodies under `apexlogs/`, keeps incremental state in `apexlogs/.alv/sync-state.json`, writes the canonical org-first layout at `apexlogs/orgs/<safe-target-org>/logs/YYYY-MM-DD/<logId>.log`, and removes legacy SQLite search index files. Use `--concurrency` to tune parallel body downloads.
 
-The VS Code extension bundles this plugin and invokes its embedded runner directly, so extension users do not need to install the plugin globally. The published plugin remains useful for terminal and agent workflows that want the same JSON command surface outside VS Code.
+The VS Code extension and plugin are independent adapters over the private shared `@alv/core`. The extension bundles the core directly and never packages or spawns the plugin, so extension users do not install the plugin. The published plugin provides the same camelCase JSON operations for terminal and agent workflows.
 The standalone plugin runs on Node.js 22.19+; extension users get the compatible runtime through VS Code 1.105+.
 
 Install the companion Codex skill for agent workflows with:
 
 ```bash
-sf electivus skills install
+sf electivus skill install
 ```
 
 ## Usage
@@ -138,21 +138,20 @@ The extension activates automatically when the workspace contains `sfdx-project.
 
 ## Commands
 
-- `Electivus Apex Logs: Refresh Logs` (`sfLogs.refresh`)
-- `Electivus Apex Logs: Select Org` (`sfLogs.selectOrg`)
-- `Electivus Apex Logs: Tail Logs` (`sfLogs.tail`)
-- `Electivus Apex Logs: Show Extension Output` (`sfLogs.showOutput`)
+- `Electivus Apex Logs: Refresh Logs` (`electivus.apexLogViewer.logs.refresh`)
+- `Electivus Apex Logs: Select Org` (`electivus.apexLogViewer.org.select`)
+- `Electivus Apex Logs: Tail Logs` (`electivus.apexLogViewer.tail.start`)
+- `Electivus Apex Logs: Show Extension Output` (`electivus.apexLogViewer.output.show`)
 
 ## Settings
 
-- `electivus.apexLogs.pageSize`: logs fetched per page.
-- `electivus.apexLogs.headConcurrency`: concurrent head requests.
-- `electivus.apexLogs.saveDirName`: directory used to persist downloaded logs. Default: `apexlogs`.
-- `electivus.apexLogs.logsColumns`: reorder, hide, or resize list columns.
-- `electivus.apexLogs.tailBufferSize`: max in-memory tail lines.
-- `electivus.apexLogs.trace`: verbose extension logging to the output channel.
+- `electivus.apexLogViewer.logs.pageSize`: logs fetched per page.
+- `electivus.apexLogViewer.logs.processingConcurrency`: concurrent head requests.
+- `electivus.apexLogViewer.logs.columns`: reorder, hide, or resize list columns.
+- `electivus.apexLogViewer.tail.bufferLines`: max in-memory tail lines.
+- `electivus.apexLogViewer.logging.trace`: verbose extension logging to the output channel.
 
-Legacy `sfLogs.*` keys still work for backward compatibility.
+Previous `sfLogs.*` and `electivus.apexLogs.*` keys are not aliases and are not migrated automatically.
 
 See [docs/SETTINGS.md](docs/SETTINGS.md) for the full configuration reference.
 
@@ -160,10 +159,8 @@ See [docs/SETTINGS.md](docs/SETTINGS.md) for the full configuration reference.
 
 - **Search is not finding the text I know is in the log**
   Run **Refresh Logs** first, then scroll to load more rows if needed. If the log still is not in the current local set, use **Download all logs** to bring the rest of the org backlog into the workspace search cache.
-- **Salesforce CLI not found**
-  Ensure `sf` or `sfdx` is installed and available on `PATH`.
 - **No orgs detected**
-  Authenticate with `sf org login web` and verify with `sf org list`.
+  Authenticate with `sf org login web` and verify with `sf org list`; the extension reads the resulting Salesforce auth state directly.
 - **Replay Debugger does not launch**
   Install the Salesforce Extension Pack or the standalone Apex Replay Debugger extension.
 
@@ -173,11 +170,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and release flow de
 
 Useful local commands:
 
-- `npm run build`
-- `npm run test:unit`
-- `npm run test:integration`
-- `npm run test:e2e`
-- `npm run docs:screenshots`
+- `pnpm run build`
+- `pnpm run test:unit`
+- `pnpm run test:integration`
+- `pnpm run test:e2e`
+- `pnpm run docs:screenshots`
 
 Additional docs:
 
@@ -190,7 +187,7 @@ Additional docs:
 
 - Source code and Apex log content are not sent in telemetry.
 - Tokens are not logged by default.
-- When `electivus.apexLogs.trace` is enabled, review extension output before sharing it externally.
+- When `electivus.apexLogViewer.logging.trace` is enabled, review extension output before sharing it externally.
 - The extension reuses your existing Salesforce CLI authentication and reads downloaded logs locally.
 
 ## Telemetry

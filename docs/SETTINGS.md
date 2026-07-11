@@ -1,54 +1,29 @@
 # Settings
 
-The Electivus Apex Log Viewer extension exposes several settings under the `Electivus Apex Logs` section of the VS Code Settings UI. You can change them from `Preferences: Open Settings (UI)` or by editing your `settings.json` directly.
+All extension settings use the `electivus.apexLogViewer.*` namespace. The previous `sfLogs.*` and `electivus.apexLogs.*` keys are not aliases and are not migrated automatically.
 
 ```jsonc
-"electivus.apexLogs.pageSize": 100,
-"electivus.apexLogs.headConcurrency": 5,
-"electivus.apexLogs.saveDirName": "apexlogs",
-"electivus.apexLogs.trace": false,
-"electivus.apexLogs.tailBufferSize": 10000
+{
+  "electivus.apexLogViewer.logs.pageSize": 100,
+  "electivus.apexLogViewer.logs.processingConcurrency": 5,
+  "electivus.apexLogViewer.logs.columns": {},
+  "electivus.apexLogViewer.tail.bufferLines": 10000,
+  "electivus.apexLogViewer.logging.trace": false
+}
 ```
 
-## `electivus.apexLogs.pageSize`
+## Logs
 
-- Type: number (>= 10)
-- Default: `100`
-- Number of log headers fetched per page. Larger values fetch more per request but may impact performance.
+- `electivus.apexLogViewer.logs.pageSize` — number, minimum `10`, default `100`; visible log rows fetched per page, with an effective maximum of 200.
+- `electivus.apexLogViewer.logs.processingConcurrency` — number, minimum `1`, default `5`; concurrent log processing requests.
+- `electivus.apexLogViewer.logs.columns` — object managed by the Logs panel; persists column visibility, order, and widths in user settings.
 
-## `electivus.apexLogs.headConcurrency`
+## Tail
 
-- Type: number (>= 1)
-- Default: `5`
-- Maximum number of concurrent requests when retrieving log headers. Very high values can overload APIs or hit rate limits.
+- `electivus.apexLogViewer.tail.bufferLines` — number from `1000` to `200000`, default `10000`; maximum lines retained in the rolling tail buffer. Changes apply to an open Tail view immediately.
 
-## `electivus.apexLogs.saveDirName`
+## Logging
 
-- **Type**: string
-- **Default**: `"apexlogs"`
-- Folder name used when saving logs to disk. Files are placed under `${workspaceFolder}/.sflogs/<saveDirName>`.
+- `electivus.apexLogViewer.logging.trace` — boolean, default `false`; enables verbose extension and shared-core diagnostics in the **Electivus Apex Log Viewer** output channel.
 
-## `electivus.apexLogs.trace`
-
-- **Type**: boolean
-- **Default**: `false`
-- Enables verbose trace logging of CLI and HTTP interactions in the **Electivus Apex Log Viewer** output channel. Useful for troubleshooting issues with log retrieval or authentication.
-
-## `electivus.apexLogs.tailBufferSize`
-
-- Type: number (>= 1000)
-- Default: `10000`
-- Number of lines retained in the Tail view's rolling buffer. Higher values keep more history visible to filters and search, at the cost of additional memory and CPU.
-- Changes take effect immediately in an open Tail view; no reload required.
-
-## `electivus.apexLogs.logsColumns`
-
-- Type: object
-- Default: managed by extension defaults
-- Persisted column layout for the **Electivus Apex Logs** table (visibility, order, and optional column widths).
-- This setting is typically updated via the Logs panel UI (the **Columns** button in the toolbar), not edited by hand.
-- When changed via the UI, it applies immediately and is stored in **User** settings so it survives reloads and can sync across machines.
-
-## Applying changes
-
-After adjusting settings, reload the VS Code window to ensure the extension picks up the new configuration (`Developer: Reload Window`).
+The extension no longer exposes a Salesforce CLI path, CLI cache TTLs, or a configurable log directory. The shared core reads Salesforce auth state directly and uses the canonical workspace `apexlogs/` store.

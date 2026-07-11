@@ -693,6 +693,35 @@ function matchesNpmCiInvocation(normalized) {
   return false;
 }
 
+function matchesPnpmInstallInvocation(normalized) {
+  const tokens = parseShellTokens(normalized).filter(token => typeof token === 'string');
+  if (tokens[0] !== 'pnpm') {
+    return false;
+  }
+
+  for (let index = 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token === 'install' || token === 'i') {
+      return true;
+    }
+    if (!token.startsWith('-')) {
+      return false;
+    }
+
+    const nextToken = tokens[index + 1];
+    if (
+      typeof nextToken === 'string' &&
+      !nextToken.startsWith('-') &&
+      nextToken !== 'install' &&
+      nextToken !== 'i'
+    ) {
+      index += 1;
+    }
+  }
+
+  return false;
+}
+
 function commandsFromRunValue(runValue) {
   if (typeof runValue !== 'string') {
     return [];
@@ -786,7 +815,7 @@ function shellTemplateEnablesErrexit(shell) {
   return false;
 }
 
-function npmCiProvenanceViolations(workflow) {
+function dependencyInstallProvenanceViolations(workflow) {
   const violations = [];
 
   for (const job of workflowJobs(workflow)) {
@@ -807,7 +836,7 @@ function npmCiProvenanceViolations(workflow) {
         availableChecks += 1;
       }
 
-      if (isNpmCiSegment(segment)) {
+      if (isDependencyInstallSegment(segment)) {
         if (availableChecks > 0) {
           availableChecks -= 1;
           installIndex += 1;
@@ -829,6 +858,10 @@ function npmCiProvenanceViolations(workflow) {
   }
 
   return violations;
+}
+
+function npmCiProvenanceViolations(workflow) {
+  return dependencyInstallProvenanceViolations(workflow);
 }
 
 function isProvenanceCheckCommand(command) {
@@ -860,6 +893,26 @@ function isNpmCiSegment(segment) {
       isNpmCiSegment({ text: innerSegment })
     )
   );
+}
+
+function isPnpmInstallCommand(command) {
+  return commandExecutionSegments(command).segments.some(isPnpmInstallSegment);
+}
+
+function isPnpmInstallSegment(segment) {
+  if (segmentMatchesCommand(segment.text, normalized => matchesPnpmInstallInvocation(normalized))) {
+    return true;
+  }
+
+  return shellCommandSubstitutions(segment.text).some(substitution =>
+    shellCommandSegments(substitution).some(innerSegment =>
+      isPnpmInstallSegment({ text: innerSegment })
+    )
+  );
+}
+
+function isDependencyInstallSegment(segment) {
+  return isNpmCiSegment(segment) || isPnpmInstallSegment(segment);
 }
 
 test('usesRefs matches dash-prefixed workflow steps', () => {
@@ -982,6 +1035,7 @@ test('devcontainer base image and Salesforce CLI install are pinned', () => {
     /^FROM mcr\.microsoft\.com\/vscode\/devcontainers\/typescript-node:24@sha256:[0-9a-f]{64}$/m
   );
   assert.match(dockerfile, /npm install -g @salesforce\/cli@\d+\.\d+\.\d+ --no-audit --no-fund/);
+  assert.match(dockerfile, /npm install -g pnpm@11\.11\.0 --no-audit --no-fund/);
 });
 
 test('Playwright E2E workflow uses a configurable Salesforce CLI package with a pinned default', () => {
@@ -1015,10 +1069,34 @@ test('dependency review workflow exists and is wired to pull_request', () => {
   assert.match(workflow, /config-file:\s+\.\/\.github\/dependency-review-config\.yml/);
 });
 
-test('CI workflow enforces dependency provenance and npm signature verification', () => {
+test('CI workflow enforces dependency provenance and pnpm signature verification', () => {
   const workflow = read('.github/workflows/ci.yml');
   assert.match(workflow, /\bnode scripts\/check-dependency-sources\.mjs\b/);
-  assert.match(workflow, /\bnpm run security:npm-signatures\b/);
+  assert.match(workflow, /\bpnpm run security:pnpm-signatures\b/);
+});
+
+test('pnpm workspace owns the dependency security overrides', () => {
+  const rootManifest = JSON.parse(read('package.json'));
+  const workspace = read('pnpm-workspace.yaml');
+  const lockfile = read('pnpm-lock.yaml');
+
+  assert.equal(rootManifest.overrides, undefined);
+  assert.match(workspace, /^overrides:\n(?:  .+\n)*  serialize-javascript: '7\.0\.5'$/m);
+  assert.doesNotMatch(lockfile, /serialize-javascript@6\.0\.2/);
+});
+
+test('pnpm install provenance detection handles the frozen workspace install', () => {
+  const workflow = [
+    'jobs:',
+    '  test:',
+    '    steps:',
+    '      - run: node scripts/check-dependency-sources.mjs',
+    '      - run: pnpm install --frozen-lockfile'
+  ].join('\n');
+
+  const installs = commandIndexes(workflow, isPnpmInstallCommand);
+  assert.equal(installs.length, 1);
+  assert.deepEqual(dependencyInstallProvenanceViolations(workflow), []);
 });
 
 test('npm ci provenance detection handles multiline run blocks', () => {
@@ -1490,15 +1568,15 @@ test('piped provenance checks do not satisfy npm ci validation', () => {
   ]);
 });
 
-test('every workflow npm ci step is preceded by dependency provenance validation', () => {
+test('every workflow dependency install is preceded by dependency provenance validation', () => {
   for (const workflowPath of workflowFiles()) {
     const workflow = read(workflowPath);
-    const violations = npmCiProvenanceViolations(workflow);
+    const violations = dependencyInstallProvenanceViolations(workflow);
 
     assert.deepEqual(
       violations,
       [],
-      `${workflowPath} should validate dependency provenance before every npm ci step in the same job`
+      `${workflowPath} should validate dependency provenance before every npm or pnpm install in the same job`
     );
   }
 });
@@ -1525,10 +1603,12 @@ test('CODEOWNERS covers workflows, manifests, lockfiles, and release metadata', 
     '/.github/workflows/ @Electivus/maintainers',
     '/.github/dependency-review-config.yml @Electivus/maintainers',
     '/package.json @Electivus/maintainers',
-    '/package-lock.json @Electivus/maintainers',
+    '/pnpm-lock.yaml @Electivus/maintainers',
+    '/pnpm-workspace.yaml @Electivus/maintainers',
     '/apps/vscode-extension/scripts/copy-ripgrep-runtime.mjs @Electivus/maintainers',
     '/apps/vscode-extension/scripts/copy-package-metadata.mjs @Electivus/maintainers',
-    '/scripts/build-embedded-sf-plugin.mjs @Electivus/maintainers',
+    '/packages/core/ @Electivus/maintainers',
+    '/packages/protocol/ @Electivus/maintainers',
     '/packages/sf-plugin/ @Electivus/maintainers'
   ]) {
     assert.match(owners, new RegExp(`^${expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));

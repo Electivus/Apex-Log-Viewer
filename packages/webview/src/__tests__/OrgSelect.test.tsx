@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
 import { OrgSelect } from '../components/OrgSelect';
-import type { OrgItem } from '../../../../apps/vscode-extension/src/shared/types';
+import type { OrgItem } from '@alv/protocol/types';
 
 describe('OrgSelect', () => {
   it('renders options and handles change', async () => {

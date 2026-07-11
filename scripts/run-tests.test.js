@@ -33,6 +33,7 @@ test("VSIX smoke packaging delegates to the monorepo vsce helper", () => {
   const script = fs.readFileSync(path.join(__dirname, "run-tests.js"), "utf8");
 
   assert.match(script, /scripts',\s*'run-vsce\.js'/);
+  assert.match(script, /'--no-dependencies'/);
   assert.match(script, /'--skip-prepublish'/);
 });
 
@@ -43,14 +44,11 @@ test("VSIX smoke validation keeps existsSync available for the packaged VSIX che
   assert.match(script, /if \(!existsSync\(smokeVsixPath\)\) throw new Error\('\[smoke\] VSIX not found'\);/);
 });
 
-test("VSIX smoke validation exercises the packaged embedded sf runner", () => {
+test("VSIX smoke validation rejects an embedded plugin payload", () => {
   const script = fs.readFileSync(path.join(__dirname, "run-tests.js"), "utf8");
 
-  assert.match(script, /'sf-plugin','electivus-runner\.cjs'/);
-  assert.match(script, /const nodePath=process\.env\.ALV_NODE_BIN_PATH\|\|\(process\.platform==='win32'\?'node\.exe':'node'\)/);
-  assert.match(script, /delete childEnv\.ELECTRON_RUN_AS_NODE/);
-  assert.match(script, /\[runnerPath,'orgs','list','--json'\]/);
-  assert.match(script, /embedded runner did not produce JSON output/);
+  assert.match(script, /VSIX must not contain an embedded plugin/);
+  assert.doesNotMatch(script, /electivus-runner\.cjs/);
 });
 
 test("resolveMissingExtensionIds reports missing dependencies instead of relying on local user extensions", () => {

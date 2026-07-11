@@ -1,0 +1,42 @@
+packages:
+  - apps/*
+  - packages/*
+
+sharedWorkspaceLockfile: true
+strictPeerDependencies: true
+pmOnFail: error
+verifyDepsBeforeRun: error
+
+overrides:
+  '@nevware21/ts-utils': '0.14.0'
+  axios: '1.16.0'
+  'brace-expansion@<=1.1.12': '1.1.15'
+  'brace-expansion@>=2.0.0 <2.0.3': '2.0.3'
+  'brace-expansion@>=4.0.0 <5.0.6': '5.0.6'
+  babel-plugin-istanbul: '8.0.2'
+  diff: '8.0.3'
+  follow-redirects: '1.16.0'
+  glob: '13.0.6'
+  qs: '6.15.2'
+  serialize-javascript: '7.0.5'
+  underscore: '1.13.8'
+  uuid: '11.1.1'
+  ws: '8.21.0'
+  yaml: '2.9.0'
+
+supportedArchitectures:
+  os:
+    - darwin
+    - linux
+    - win32
+  cpu:
+    - arm64
+    - x64
+
+allowBuilds:
+  '@parcel/watcher': true
+  '@vscode/vsce-sign': true
+  esbuild: true
+  fsevents: true
+  keytar: true
+  unrs-resolver: true

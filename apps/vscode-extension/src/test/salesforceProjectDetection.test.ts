@@ -26,7 +26,7 @@ suite('findSalesforceProjectInfo', () => {
     const sfProject = path.join(sfRoot, 'sfdx-project.json');
     const readCalls: string[] = [];
 
-    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict('../../../../src/utils/workspace', {
+    const workspaceModule: typeof import('../host/utils/workspace') = proxyquireStrict('../host/utils/workspace', {
       './logger': {
         logInfo: () => undefined,
         logWarn: () => undefined
@@ -64,7 +64,7 @@ suite('findSalesforceProjectInfo', () => {
     const firstRoot = path.join('/tmp', 'alv-root-a');
     const secondRoot = path.join('/tmp', 'alv-root-b');
 
-    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict('../../../../src/utils/workspace', {
+    const workspaceModule: typeof import('../host/utils/workspace') = proxyquireStrict('../host/utils/workspace', {
       './logger': {
         logInfo: () => undefined,
         logWarn: () => undefined
@@ -88,7 +88,7 @@ suite('findSalesforceProjectInfo', () => {
   test('returns undefined when only unreadable project files are seen', async () => {
     const blockedRoot = path.join('/tmp', 'alv-blocked-root');
 
-    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict('../../../../src/utils/workspace', {
+    const workspaceModule: typeof import('../host/utils/workspace') = proxyquireStrict('../host/utils/workspace', {
       './logger': {
         logInfo: () => undefined,
         logWarn: () => undefined

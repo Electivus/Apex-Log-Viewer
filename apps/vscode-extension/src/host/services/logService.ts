@@ -1,0 +1,532 @@
+import * as vscode from 'vscode';
+import { constants as fsConstants, promises as fs } from 'fs';
+import * as path from 'path';
+import { createLimiter, type Limiter } from '../utils/limiter';
+import { fetchApexLogBody } from '../salesforce/http';
+import type { ApexLogCursor } from '../salesforce/http';
+import type { OrgAuth } from '../salesforce/types';
+import type { ApexLogRow } from '../../shared/types';
+import { buildLogFilePathWithUsername, getLogFilePathWithUsername, findExistingLogFile } from '../utils/workspace';
+import { ensureReplayDebuggerAvailable } from '../utils/replayDebugger';
+import { getErrorMessage } from '../utils/error';
+import { logWarn, logInfo } from '../utils/logger';
+import { localize } from '../utils/localize';
+import { LogViewerPanel } from '../../panel/LogViewerPanel';
+import { runtimeClient } from '../../runtime/runtimeClient';
+import { fetchApexLogs } from '../salesforce/http';
+import { createUnreadableLogSummary, summarizeLogFile } from './logTriage';
+import type { LogTriageSummary } from '../../shared/logTriage';
+
+export type EnsureLogsSavedItemStatus = 'downloaded' | 'existing' | 'missing' | 'failed' | 'cancelled';
+
+export type EnsureLogsSavedItemResult = {
+  logId: string;
+  status: EnsureLogsSavedItemStatus;
+  error?: string;
+};
+
+export type EnsureLogsSavedSummary = {
+  total: number;
+  success: number;
+  downloaded: number;
+  existing: number;
+  missing: number;
+  failed: number;
+  cancelled: number;
+  failedLogIds: string[];
+  localLogPaths?: Record<string, string>;
+};
+
+export type EnsureLogsSavedOptions = {
+  downloadMissing?: boolean;
+  authHint?: OrgAuth;
+  onMissing?: (logId: string) => void;
+  onItemComplete?: (result: EnsureLogsSavedItemResult) => void;
+};
+
+type EnsureLogFileResult = {
+  filePath: string;
+  source: 'existing' | 'downloaded';
+};
+
+export type ClassifyLogsForErrorsProgress = {
+  logId: string;
+  summary: LogTriageSummary;
+  hasErrors: boolean;
+  inferredFromFailure?: boolean;
+  processed: number;
+  total: number;
+  errorsFound: number;
+};
+
+export type ClassifyLogsForErrorsOptions = {
+  onProgress?: (progress: ClassifyLogsForErrorsProgress) => void;
+};
+
+export class LogService {
+  private headConcurrency: number;
+  private saveLimiter: Limiter;
+  private saveConcurrency: number;
+  private classifyLimiter: Limiter;
+  private classifyConcurrency: number;
+  private inFlightSaves = new Map<string, Promise<EnsureLogFileResult>>();
+
+  constructor(headConcurrency = 5) {
+    this.headConcurrency = headConcurrency;
+    this.saveConcurrency = Math.max(1, Math.min(3, Math.ceil(this.headConcurrency / 2)));
+    this.saveLimiter = createLimiter(this.saveConcurrency);
+    // Keep error scans from starving interactive save/download work.
+    this.classifyConcurrency = Math.max(1, Math.min(2, this.saveConcurrency));
+    this.classifyLimiter = createLimiter(this.classifyConcurrency);
+  }
+
+  setHeadConcurrency(conc: number): void {
+    if (conc !== this.headConcurrency) {
+      this.headConcurrency = conc;
+    }
+    const nextSaveConcurrency = Math.max(1, Math.min(3, Math.ceil(this.headConcurrency / 2)));
+    if (nextSaveConcurrency !== this.saveConcurrency) {
+      this.saveConcurrency = nextSaveConcurrency;
+      this.saveLimiter = createLimiter(this.saveConcurrency);
+    }
+    const nextClassifyConcurrency = Math.max(1, Math.min(2, this.saveConcurrency));
+    if (nextClassifyConcurrency !== this.classifyConcurrency) {
+      this.classifyConcurrency = nextClassifyConcurrency;
+      this.classifyLimiter = createLimiter(this.classifyConcurrency);
+    }
+  }
+
+  async fetchLogs(
+    auth: OrgAuth,
+    limit: number,
+    offset: number,
+    signal?: AbortSignal,
+    _cursor?: ApexLogCursor
+  ): Promise<ApexLogRow[]> {
+    const safeLimit = Math.max(1, Math.floor(limit));
+    const safeOffset = Math.max(0, Math.floor(offset));
+    return fetchApexLogs(auth, safeLimit, safeOffset, undefined, undefined, signal, _cursor);
+  }
+
+  private async ensureLogFile(
+    logId: string,
+    selectedOrg?: string,
+    signal?: AbortSignal,
+    authHint?: OrgAuth,
+    startTime?: string
+  ): Promise<string> {
+    return (await this.ensureLogFileResult(logId, selectedOrg, signal, authHint, startTime)).filePath;
+  }
+
+  private async ensureLogFileResult(
+    logId: string,
+    selectedOrg?: string,
+    signal?: AbortSignal,
+    authHint?: OrgAuth,
+    startTime?: string,
+    options?: { checkCacheBeforeAuth?: boolean }
+  ): Promise<EnsureLogFileResult> {
+    const preAuthUsername =
+      authHint?.username ?? (selectedOrg && selectedOrg !== 'default' ? selectedOrg : undefined);
+    if (options?.checkCacheBeforeAuth && preAuthUsername) {
+      const preAuthExisting = await findExistingLogFile(logId, preAuthUsername);
+      if (preAuthExisting) {
+        return { filePath: preAuthExisting, source: 'existing' };
+      }
+    }
+
+    let auth: OrgAuth;
+    try {
+      auth = authHint ?? (await this.getOrgAuth(selectedOrg, signal));
+    } catch (error) {
+      const cachedWithoutAuth = await this.resolveCachedLogResult(logId, undefined, undefined, signal);
+      if (cachedWithoutAuth) {
+        return cachedWithoutAuth;
+      }
+      throw error;
+    }
+    const preferredPath = await this.resolvePreferredLogPath(auth.username, logId, startTime);
+    const cached = await this.resolveCachedLogResult(logId, auth.username, preferredPath, signal);
+    if (cached) {
+      return cached;
+    }
+
+    const key = `${auth.username ?? ''}:${logId}:${preferredPath ?? ''}`;
+    const pending = this.inFlightSaves.get(key);
+    if (pending) {
+      return pending;
+    }
+    const task: Promise<EnsureLogFileResult> = (async (): Promise<EnsureLogFileResult> => {
+      if (preferredPath && (await this.fileExists(preferredPath))) {
+        return { filePath: preferredPath, source: 'existing' };
+      }
+
+      const maybeCached = await this.resolveCachedLogResult(logId, auth.username, preferredPath, signal);
+      if (maybeCached) {
+        return maybeCached;
+      }
+      const { filePath } = preferredPath
+        ? { filePath: preferredPath }
+        : await getLogFilePathWithUsername(auth.username, logId, startTime);
+      const body = await fetchApexLogBody(auth, logId, undefined, signal);
+      this.throwIfAborted(signal);
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, body, 'utf8');
+      return { filePath, source: 'downloaded' };
+    })();
+    this.inFlightSaves.set(key, task);
+    try {
+      const result = await task;
+      return result;
+    } finally {
+      this.inFlightSaves.delete(key);
+    }
+  }
+
+  private async resolveCachedLogResult(
+    logId: string,
+    username: string | undefined,
+    preferredPath: string | undefined,
+    signal?: AbortSignal
+  ): Promise<EnsureLogFileResult | undefined> {
+    if (preferredPath && (await this.fileExists(preferredPath))) {
+      return { filePath: preferredPath, source: 'existing' };
+    }
+
+    const existing = await findExistingLogFile(logId, username);
+    if (!existing) {
+      return undefined;
+    }
+
+    const materialized = await this.materializeExistingAtPreferredPath(existing, preferredPath, signal);
+    if (materialized) {
+      return materialized;
+    }
+    return { filePath: existing, source: 'existing' };
+  }
+
+  private async resolvePreferredLogPath(
+    username: string | undefined,
+    logId: string,
+    startTime?: string
+  ): Promise<string | undefined> {
+    if (typeof startTime !== 'string' || startTime.trim().length === 0) {
+      return undefined;
+    }
+
+    return buildLogFilePathWithUsername(username, logId, startTime).filePath;
+  }
+
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch (e: any) {
+      if (e && e.code === 'ENOENT') {
+        return false;
+      }
+      throw e;
+    }
+  }
+
+  private async materializeExistingAtPreferredPath(
+    existingPath: string,
+    preferredPath: string | undefined,
+    signal?: AbortSignal
+  ): Promise<EnsureLogFileResult | undefined> {
+    if (!preferredPath) {
+      return undefined;
+    }
+    if (path.resolve(existingPath) === path.resolve(preferredPath)) {
+      return { filePath: preferredPath, source: 'existing' };
+    }
+
+    this.throwIfAborted(signal);
+    try {
+      await fs.mkdir(path.dirname(preferredPath), { recursive: true });
+      await fs.copyFile(existingPath, preferredPath, fsConstants.COPYFILE_EXCL);
+      return { filePath: preferredPath, source: 'existing' };
+    } catch (e: any) {
+      if (e && e.code === 'EEXIST' && (await this.fileExists(preferredPath))) {
+        return { filePath: preferredPath, source: 'existing' };
+      }
+      if (e && e.code === 'ENOENT') {
+        return undefined;
+      }
+      throw e;
+    }
+  }
+
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (!signal?.aborted) {
+      return;
+    }
+    const error = new Error('Request aborted');
+    error.name = 'AbortError';
+    throw error;
+  }
+
+  private async resolveSelectedUsername(
+    selectedOrg?: string,
+    signal?: AbortSignal,
+    authHint?: OrgAuth
+  ): Promise<string | undefined> {
+    if (authHint?.username) {
+      return authHint.username;
+    }
+    if (!selectedOrg || signal?.aborted) {
+      return undefined;
+    }
+    try {
+      return (await this.getOrgAuth(selectedOrg, signal)).username;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async getOrgAuth(selectedOrg?: string, signal?: AbortSignal): Promise<OrgAuth> {
+    if (signal?.aborted) {
+      const error = new Error('Request aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
+    const auth = await runtimeClient.getOrgAuth({ username: selectedOrg }, signal);
+    if (signal?.aborted) {
+      const error = new Error('Request aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
+    return auth;
+  }
+
+  async classifyLogsForErrors(
+    logs: ApexLogRow[],
+    selectedOrg?: string,
+    signal?: AbortSignal,
+    options?: ClassifyLogsForErrorsOptions
+  ): Promise<Map<string, LogTriageSummary>> {
+    const validLogs = logs.filter(
+      (log): log is ApexLogRow & { Id: string } => typeof log?.Id === 'string' && log.Id.length > 0
+    );
+    const total = validLogs.length;
+    let processed = 0;
+    let errorsFound = 0;
+    const result = new Map<string, LogTriageSummary>();
+    const tasks: Promise<void>[] = [];
+    const selectedUsername = await this.resolveSelectedUsername(selectedOrg, signal);
+
+    for (const log of validLogs) {
+      tasks.push(
+        this.classifyLimiter(async () => {
+          let summary: LogTriageSummary = {
+            hasErrors: false,
+            reasons: []
+          };
+          let inferredFromFailure = false;
+          try {
+            if (signal?.aborted) {
+              return;
+            }
+            const existingPath = await findExistingLogFile(log.Id, selectedUsername);
+            const filePath =
+              existingPath ?? (await this.ensureLogFile(log.Id, selectedOrg, signal, undefined, log.StartTime));
+            if (signal?.aborted) {
+              return;
+            }
+            summary = await summarizeLogFile(filePath);
+            result.set(log.Id, summary);
+            if (summary.hasErrors) {
+              errorsFound++;
+            }
+          } catch (e) {
+            if (!signal?.aborted) {
+              // Conservative fallback: unreadable/unavailable logs are treated as potentially erroneous
+              // to avoid false negatives in the "Errors only" filter.
+              summary = createUnreadableLogSummary(getErrorMessage(e));
+              inferredFromFailure = true;
+              result.set(log.Id, summary);
+              errorsFound++;
+              logWarn('LogService: classifyLogsForErrors failed for', log.Id, '->', getErrorMessage(e));
+            }
+          } finally {
+            if (signal?.aborted) {
+              return;
+            }
+            processed++;
+            options?.onProgress?.({
+              logId: log.Id,
+              summary,
+              hasErrors: summary.hasErrors,
+              inferredFromFailure,
+              processed,
+              total,
+              errorsFound
+            });
+          }
+        })
+      );
+    }
+
+    await Promise.all(tasks);
+    return result;
+  }
+
+  async openLog(logId: string, selectedOrg?: string): Promise<void> {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: localize('openingApexLog', 'Opening Apex Log…'),
+        cancellable: true
+      },
+      async (_progress, ct) => {
+        const controller = new AbortController();
+        ct.onCancellationRequested(() => controller.abort());
+        try {
+          const targetPath = await this.ensureLogFile(logId, selectedOrg, controller.signal);
+          if (ct.isCancellationRequested) {
+            return;
+          }
+          await LogViewerPanel.show({ logId, filePath: targetPath, signal: controller.signal });
+          if (!controller.signal.aborted) {
+            logInfo('LogService: opened log in viewer', logId);
+          }
+        } catch (e) {
+          if (!controller.signal.aborted) {
+            const msg = getErrorMessage(e);
+            logWarn('LogService: openLog failed ->', msg);
+            void vscode.window.showErrorMessage(
+              localize('openLogFailed', 'Failed to open Apex log: {0}', msg)
+            );
+          }
+        }
+      }
+    );
+  }
+
+  async ensureLogsSaved(
+    logs: ApexLogRow[],
+    selectedOrg?: string,
+    signal?: AbortSignal,
+    options?: EnsureLogsSavedOptions
+  ): Promise<EnsureLogsSavedSummary> {
+    const downloadMissing = options?.downloadMissing !== false;
+    const authHint = options?.authHint;
+    const validLogs = logs.filter((log): log is ApexLogRow & { Id: string } => typeof log?.Id === 'string' && log.Id.length > 0);
+    const selectedUsername = downloadMissing
+      ? authHint?.username
+      : await this.resolveSelectedUsername(selectedOrg, signal, authHint);
+    const summary: EnsureLogsSavedSummary = {
+      total: validLogs.length,
+      success: 0,
+      downloaded: 0,
+      existing: 0,
+      missing: 0,
+      failed: 0,
+      cancelled: 0,
+      failedLogIds: [],
+      localLogPaths: {}
+    };
+    const tasks: Promise<void>[] = [];
+    for (const log of validLogs) {
+      tasks.push(
+        this.saveLimiter(async () => {
+          if (signal?.aborted) {
+            summary.cancelled++;
+            options?.onItemComplete?.({ logId: log.Id, status: 'cancelled' });
+            return;
+          }
+          try {
+            if (downloadMissing) {
+              const result = await this.ensureLogFileResult(log.Id, selectedOrg, signal, authHint, log.StartTime, {
+                checkCacheBeforeAuth: true
+              });
+              if (signal?.aborted) {
+                summary.cancelled++;
+                options?.onItemComplete?.({ logId: log.Id, status: 'cancelled' });
+                return;
+              }
+              summary.success++;
+              summary[result.source]++;
+              summary.localLogPaths![log.Id] = result.filePath;
+              options?.onItemComplete?.({ logId: log.Id, status: result.source });
+            } else {
+              const existing = await findExistingLogFile(log.Id, selectedUsername);
+              if (!existing) {
+                summary.missing++;
+                options?.onMissing?.(log.Id);
+                options?.onItemComplete?.({ logId: log.Id, status: 'missing' });
+              } else {
+                summary.success++;
+                summary.existing++;
+                summary.localLogPaths![log.Id] = existing;
+                options?.onItemComplete?.({ logId: log.Id, status: 'existing' });
+              }
+            }
+          } catch (e) {
+            const msg = getErrorMessage(e);
+            if (signal?.aborted || this.isAbortLikeError(msg, e)) {
+              summary.cancelled++;
+              options?.onItemComplete?.({ logId: log.Id, status: 'cancelled' });
+              return;
+            }
+            summary.failed++;
+            summary.failedLogIds.push(log.Id);
+            options?.onItemComplete?.({ logId: log.Id, status: 'failed', error: msg });
+            logWarn('LogService: ensureLogFile failed for', log.Id, '->', msg);
+          }
+        })
+      );
+    }
+    await Promise.all(tasks);
+    return summary;
+  }
+
+  private isAbortLikeError(message: string, err: unknown): boolean {
+    if ((err as { name?: string } | undefined)?.name === 'AbortError') {
+      return true;
+    }
+    const normalized = String(message || '').toLowerCase();
+    return normalized.includes('abort') || normalized.includes('canceled') || normalized.includes('cancelled');
+  }
+
+  async debugLog(logId: string, selectedOrg?: string): Promise<void> {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Starting Apex Replay Debugger…',
+        cancellable: true
+      },
+      async (_progress, ct) => {
+        const controller = new AbortController();
+        ct.onCancellationRequested(() => controller.abort());
+        try {
+          const ok = await ensureReplayDebuggerAvailable();
+          if (!ok || ct.isCancellationRequested) {
+            return;
+          }
+          const targetPath = await this.ensureLogFile(logId, selectedOrg, controller.signal);
+          if (ct.isCancellationRequested) {
+            return;
+          }
+          const uri = vscode.Uri.file(targetPath);
+          try {
+            await vscode.commands.executeCommand('sf.launch.replay.debugger.logfile', uri);
+          } catch (e) {
+            if (!controller.signal.aborted) {
+              logWarn('LogService: sf.launch.replay.debugger.logfile failed ->', getErrorMessage(e));
+              await vscode.commands.executeCommand('sfdx.launch.replay.debugger.logfile', uri);
+            }
+          }
+        } catch (e) {
+          if (!controller.signal.aborted) {
+            const msg = getErrorMessage(e);
+            logWarn('LogService: debugLog failed ->', msg);
+            void vscode.window.showErrorMessage(
+              localize('startReplayFailed', 'Failed to start Apex Replay Debugger: {0}', msg)
+            );
+          }
+        }
+      }
+    );
+  }
+}

@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ListImperativeAPI } from 'react-window';
 import { createRoot } from 'react-dom/client';
 import { getMessages } from './i18n';
-import type { OrgItem } from '../../../apps/vscode-extension/src/shared/types';
+import type { OrgItem } from '@alv/protocol/types';
 import type {
   ExtensionToWebviewMessage,
   WebviewToExtensionMessage
-} from '../../../apps/vscode-extension/src/shared/messages';
+} from '@alv/protocol/messages';
 import { TailToolbar } from './components/tail/TailToolbar';
 import { TailList } from './components/tail/TailList';
 import { LoadingOverlay } from './components/LoadingOverlay';

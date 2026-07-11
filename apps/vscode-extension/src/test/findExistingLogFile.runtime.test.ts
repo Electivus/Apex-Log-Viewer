@@ -15,37 +15,31 @@ function directoryEntry(name: string) {
 suite('findExistingLogFile runtime lookup', () => {
   test('prefers the runtime-resolved cached path', async () => {
     const resolveCalls: Array<{ logId: string; username?: string; workspaceRoot?: string }> = [];
-    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict(
-      '../../../../src/utils/workspace',
-      {
-        vscode: {
-          workspace: {
-            workspaceFolders: [{ uri: { fsPath: '/tmp/alv-workspace' } }]
-          }
-        },
-        '../../apps/vscode-extension/src/runtime/runtimeClient': {
-          runtimeClient: {
-            resolveCachedLogPath: async (params: { logId: string; username?: string; workspaceRoot?: string }) => {
-              resolveCalls.push(params);
-              return {
-                path: '/tmp/alv-workspace/apexlogs/orgs/demo@example.com/logs/2026-03-30/07L000000000001AA.log'
-              };
-            }
-          }
-        },
-        './logger': {
-          logInfo: () => undefined,
-          logWarn: () => undefined
+    const workspaceModule: typeof import('../host/utils/workspace') = proxyquireStrict('../host/utils/workspace', {
+      vscode: {
+        workspace: {
+          workspaceFolders: [{ uri: { fsPath: '/tmp/alv-workspace' } }]
         }
+      },
+      '../../runtime/runtimeClient': {
+        runtimeClient: {
+          resolveCachedLogPath: async (params: { logId: string; username?: string; workspaceRoot?: string }) => {
+            resolveCalls.push(params);
+            return {
+              path: '/tmp/alv-workspace/apexlogs/orgs/demo@example.com/logs/2026-03-30/07L000000000001AA.log'
+            };
+          }
+        }
+      },
+      './logger': {
+        logInfo: () => undefined,
+        logWarn: () => undefined
       }
-    );
+    });
 
     const result = await workspaceModule.findExistingLogFile('07L000000000001AA', 'demo@example.com');
 
-    assert.equal(
-      result,
-      '/tmp/alv-workspace/apexlogs/orgs/demo@example.com/logs/2026-03-30/07L000000000001AA.log'
-    );
+    assert.equal(result, '/tmp/alv-workspace/apexlogs/orgs/demo@example.com/logs/2026-03-30/07L000000000001AA.log');
     assert.deepEqual(resolveCalls, [
       {
         logId: '07L000000000001AA',
@@ -65,49 +59,46 @@ suite('findExistingLogFile runtime lookup', () => {
       '2026-03-30',
       '07L000000000002AA.log'
     );
-    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict(
-      '../../../../src/utils/workspace',
-      {
-        vscode: {
-          workspace: {
-            workspaceFolders: [{ uri: { fsPath: '/tmp/alv-workspace' } }]
-          }
-        },
-        '../../apps/vscode-extension/src/runtime/runtimeClient': {
-          runtimeClient: {
-            resolveCachedLogPath: async () => {
-              throw new Error('plugin unavailable');
-            }
-          }
-        },
-        fs: {
-          promises: {
-            readdir: async (target: string, options?: { withFileTypes?: boolean }) => {
-              if (target.endsWith(path.join('orgs', 'demo', 'logs'))) {
-                return [directoryEntry('2026-03-30')];
-              }
-              if (target.endsWith(path.join('orgs', 'demo', 'logs', '2026-03-30'))) {
-                return [];
-              }
-              if (options?.withFileTypes) {
-                return [];
-              }
-              return [];
-            },
-            stat: async (target: string) => {
-              if (target === localPath) {
-                return { isFile: () => true };
-              }
-              throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
-            }
-          }
-        },
-        './logger': {
-          logInfo: () => undefined,
-          logWarn: () => undefined
+    const workspaceModule: typeof import('../host/utils/workspace') = proxyquireStrict('../host/utils/workspace', {
+      vscode: {
+        workspace: {
+          workspaceFolders: [{ uri: { fsPath: '/tmp/alv-workspace' } }]
         }
+      },
+      '../../runtime/runtimeClient': {
+        runtimeClient: {
+          resolveCachedLogPath: async () => {
+            throw new Error('plugin unavailable');
+          }
+        }
+      },
+      fs: {
+        promises: {
+          readdir: async (target: string, options?: { withFileTypes?: boolean }) => {
+            if (target.endsWith(path.join('orgs', 'demo', 'logs'))) {
+              return [directoryEntry('2026-03-30')];
+            }
+            if (target.endsWith(path.join('orgs', 'demo', 'logs', '2026-03-30'))) {
+              return [];
+            }
+            if (options?.withFileTypes) {
+              return [];
+            }
+            return [];
+          },
+          stat: async (target: string) => {
+            if (target === localPath) {
+              return { isFile: () => true };
+            }
+            throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+          }
+        }
+      },
+      './logger': {
+        logInfo: () => undefined,
+        logWarn: () => undefined
       }
-    );
+    });
 
     const result = await workspaceModule.findExistingLogFile('07L000000000002AA', 'demo');
 
@@ -115,40 +106,37 @@ suite('findExistingLogFile runtime lookup', () => {
   });
 
   test('ignores flat files when the runtime request fails', async () => {
-    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict(
-      '../../../../src/utils/workspace',
-      {
-        vscode: {
-          workspace: {
-            workspaceFolders: [{ uri: { fsPath: '/tmp/alv-workspace' } }]
-          }
-        },
-        '../../apps/vscode-extension/src/runtime/runtimeClient': {
-          runtimeClient: {
-            resolveCachedLogPath: async () => {
-              throw new Error('plugin unavailable');
-            }
-          }
-        },
-        fs: {
-          promises: {
-            readdir: async (target: string, options?: { withFileTypes?: boolean }) => {
-              if (target.endsWith(path.join('orgs', 'demo', 'logs'))) {
-                return [];
-              }
-              if (options?.withFileTypes) {
-                return [];
-              }
-              return ['demo_07L000000000002AA.log'];
-            }
-          }
-        },
-        './logger': {
-          logInfo: () => undefined,
-          logWarn: () => undefined
+    const workspaceModule: typeof import('../host/utils/workspace') = proxyquireStrict('../host/utils/workspace', {
+      vscode: {
+        workspace: {
+          workspaceFolders: [{ uri: { fsPath: '/tmp/alv-workspace' } }]
         }
+      },
+      '../../runtime/runtimeClient': {
+        runtimeClient: {
+          resolveCachedLogPath: async () => {
+            throw new Error('plugin unavailable');
+          }
+        }
+      },
+      fs: {
+        promises: {
+          readdir: async (target: string, options?: { withFileTypes?: boolean }) => {
+            if (target.endsWith(path.join('orgs', 'demo', 'logs'))) {
+              return [];
+            }
+            if (options?.withFileTypes) {
+              return [];
+            }
+            return ['demo_07L000000000002AA.log'];
+          }
+        }
+      },
+      './logger': {
+        logInfo: () => undefined,
+        logWarn: () => undefined
       }
-    );
+    });
 
     const result = await workspaceModule.findExistingLogFile('07L000000000002AA', 'demo');
 
@@ -158,46 +146,43 @@ suite('findExistingLogFile runtime lookup', () => {
   test('ignores unsupported local log subdirectories when the runtime request fails', async () => {
     const logId = '07L000000000003AA';
     const offLayout = path.join('/tmp/alv-workspace', 'apexlogs', 'orgs', 'demo', 'logs', 'archive', `${logId}.log`);
-    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict(
-      '../../../../src/utils/workspace',
-      {
-        vscode: {
-          workspace: {
-            workspaceFolders: [{ uri: { fsPath: '/tmp/alv-workspace' } }]
-          }
-        },
-        '../../apps/vscode-extension/src/runtime/runtimeClient': {
-          runtimeClient: {
-            resolveCachedLogPath: async () => {
-              throw new Error('plugin unavailable');
-            }
-          }
-        },
-        fs: {
-          promises: {
-            readdir: async (target: string, options?: { withFileTypes?: boolean }) => {
-              if (options?.withFileTypes && target.endsWith(path.join('orgs', 'demo', 'logs'))) {
-                return [directoryEntry('archive')];
-              }
-              if (options?.withFileTypes) {
-                return [];
-              }
-              return [];
-            },
-            stat: async (target: string) => {
-              if (target === offLayout) {
-                return { isFile: () => true };
-              }
-              throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
-            }
-          }
-        },
-        './logger': {
-          logInfo: () => undefined,
-          logWarn: () => undefined
+    const workspaceModule: typeof import('../host/utils/workspace') = proxyquireStrict('../host/utils/workspace', {
+      vscode: {
+        workspace: {
+          workspaceFolders: [{ uri: { fsPath: '/tmp/alv-workspace' } }]
         }
+      },
+      '../../runtime/runtimeClient': {
+        runtimeClient: {
+          resolveCachedLogPath: async () => {
+            throw new Error('plugin unavailable');
+          }
+        }
+      },
+      fs: {
+        promises: {
+          readdir: async (target: string, options?: { withFileTypes?: boolean }) => {
+            if (options?.withFileTypes && target.endsWith(path.join('orgs', 'demo', 'logs'))) {
+              return [directoryEntry('archive')];
+            }
+            if (options?.withFileTypes) {
+              return [];
+            }
+            return [];
+          },
+          stat: async (target: string) => {
+            if (target === offLayout) {
+              return { isFile: () => true };
+            }
+            throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+          }
+        }
+      },
+      './logger': {
+        logInfo: () => undefined,
+        logWarn: () => undefined
       }
-    );
+    });
 
     const result = await workspaceModule.findExistingLogFile(logId, 'demo');
 

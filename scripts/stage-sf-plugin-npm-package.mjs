@@ -32,6 +32,7 @@ export async function stageSfPluginPackage({
   const sourceManifestPath = path.join(sourceDir, 'package.json');
   const manifest = await readJson(sourceManifestPath);
   const files = Array.isArray(manifest.files) ? manifest.files.map(normalizePackageFileEntry) : [];
+  const bundledDependencies = Array.isArray(manifest.bundleDependencies) ? manifest.bundleDependencies : [];
 
   if (path.resolve(sourceDir) === path.resolve(targetDir)) {
     throw new Error('staging output directory must be different from the source package directory');
@@ -42,6 +43,31 @@ export async function stageSfPluginPackage({
 
   const stagedManifest = { ...manifest };
   delete stagedManifest.private;
+  if (bundledDependencies.includes('@alv/core')) {
+    const coreSourceDir = path.join(repoRoot, 'packages', 'core');
+    const coreManifest = await readJson(path.join(coreSourceDir, 'package.json'));
+    const stagedCoreManifest = { ...coreManifest };
+    delete stagedCoreManifest.private;
+    stagedManifest.dependencies = {
+      ...stagedManifest.dependencies,
+      '@alv/core': coreManifest.version
+    };
+    const stagedCoreDir = path.join(targetDir, 'node_modules', '@alv', 'core');
+    try {
+      await fs.access(path.join(coreSourceDir, 'lib'));
+    } catch {
+      throw new Error(
+        `missing bundled core artifact ${path.join(coreSourceDir, 'lib')}; run pnpm run build:core first`
+      );
+    }
+    await fs.mkdir(stagedCoreDir, { recursive: true });
+    await fs.writeFile(
+      path.join(stagedCoreDir, 'package.json'),
+      `${JSON.stringify(stagedCoreManifest, null, 2)}\n`,
+      'utf8'
+    );
+    await fs.cp(path.join(coreSourceDir, 'lib'), path.join(stagedCoreDir, 'lib'), { recursive: true });
+  }
   await fs.writeFile(path.join(targetDir, 'package.json'), `${JSON.stringify(stagedManifest, null, 2)}\n`, 'utf8');
 
   for (const file of files) {
@@ -50,7 +76,7 @@ export async function stageSfPluginPackage({
     try {
       await fs.access(source);
     } catch {
-      throw new Error(`missing plugin package artifact ${source}; run npm run build:sf-plugin first`);
+      throw new Error(`missing plugin package artifact ${source}; run pnpm run build:sf-plugin first`);
     }
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.cp(source, target, { recursive: true });

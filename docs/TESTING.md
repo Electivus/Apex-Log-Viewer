@@ -8,14 +8,14 @@ This project uses three test layers:
 
 ## Commands
 
-- `npm run test:webview`: executes the React webview suites under Jest with a jsdom environment (fast, no VS Code host required).
-- `npm run test:extension:node`: executes Node-only extension tests under Mocha without launching VS Code.
-- `npm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
-- `npm run test:integration`: installs dependency extensions if needed and runs integration tests.
-- `npm run test:all`: runs the Jest webview suites, the Node-only extension lane, and then both VS Code-hosted scopes.
-- `npm run test:e2e:cli`: runs the `sf electivus` plugin real-org Playwright suite. If plugin build output is missing, it builds the Salesforce CLI plugin before validating `sf electivus logs sync` and `logs status` against a seeded scratch org.
-- `npm run test:e2e`: runs Playwright E2E tests against a real scratch org. The runner uses either the legacy single-scratch flow or the Dev Hub scratch-org pool, depending on the configured strategy.
-- `npm run test:e2e:telemetry`: runs the same Playwright E2E suite, but first resolves a dedicated App Insights component for E2E and then validates that telemetry from the current run arrived there.
+- `pnpm run test:webview`: executes the React webview suites under Jest with a jsdom environment (fast, no VS Code host required).
+- `pnpm run test:extension:node`: executes Node-only extension tests under Mocha without launching VS Code.
+- `pnpm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
+- `pnpm run test:integration`: installs dependency extensions if needed and runs integration tests.
+- `pnpm run test:all`: runs the Jest webview suites, the Node-only extension lane, and then both VS Code-hosted scopes.
+- `pnpm run test:e2e:cli`: runs the plugin real-org Playwright suite. If build output is missing, it builds the plugin before validating `sf electivus log sync` and `log status` against a seeded scratch org.
+- `pnpm run test:e2e`: runs Playwright E2E tests against a real scratch org. The runner uses either the legacy single-scratch flow or the Dev Hub scratch-org pool, depending on the configured strategy.
+- `pnpm run test:e2e:telemetry`: runs the same Playwright E2E suite, but first resolves a dedicated App Insights component for E2E and then validates that telemetry from the current run arrived there.
 
 The Node-only Mocha runner lives in `scripts/run-node-tests.js`. The `sf electivus` real-org runner lives in `scripts/run-playwright-cli-e2e.js` and uses `playwright.cli.config.ts`. The VS Code-hosted test orchestrator lives in `scripts/run-tests.js` and the Mocha programmatic host runner in `apps/vscode-extension/src/test/runner.ts`.
 
@@ -52,8 +52,8 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 
 ### Test cache cleanup
 
-- `npm run test:clean`: cleans temp test dirs (user data, legacy temp extension dirs) but preserves `.vscode-test/` (VS Code download cache) by default.
-- `npm run test:clean:all`: fully removes `.vscode-test/` too (forces a re-download on the next run).
+- `pnpm run test:clean`: cleans temp test dirs (user data, legacy temp extension dirs) but preserves `.vscode-test/` (VS Code download cache) by default.
+- `pnpm run test:clean:all`: fully removes `.vscode-test/` too (forces a re-download on the next run).
 - `CLEAN_VSCODE_TEST_CACHE=1`: removes `.vscode-test/` (same effect as `test:clean:all`).
 - `KEEP_VSCODE_TEST_CACHE=1`: preserves `.vscode-test/` (default behavior; useful to override `CLEAN_*`).
 
@@ -78,8 +78,8 @@ The `sf electivus` plugin and VS Code extension suites share the same real-org s
 
 The CLI suite then validates the plugin surface through `packages/sf-plugin/bin/run.js` or `ALV_ELECTIVUS_PLUGIN_BIN_PATH`:
 
-1. `sf electivus logs sync --json` downloads the seeded log into the workspace cache
-2. `sf electivus logs status --json` reports the synced scratch-org metadata
+1. `sf electivus log sync --json` downloads the seeded log into the workspace cache
+2. `sf electivus log status --json` reports the synced scratch-org metadata
 
 The VS Code suite launches the extension host and validates the Logs panel + Log Viewer webview UX against the same seeded org, including panel search through local saved log files.
 
@@ -87,10 +87,10 @@ The VS Code suite launches the extension host and validates the Logs panel + Log
 
 From the repo root:
 
-- `SF_TEST_KEEP_ORG=1 npm run test:e2e:cli`
-- `SF_TEST_KEEP_ORG=1 npm run test:e2e`
-- `SF_TEST_KEEP_ORG=1 npm run test:e2e:telemetry`
-- `SF_DEVHUB_AUTH_URL=force://REDACTED_DEVHUB_AUTH_URL SF_TEST_KEEP_ORG=1 npm run test:e2e:proxy-lab`
+- `SF_TEST_KEEP_ORG=1 pnpm run test:e2e:cli`
+- `SF_TEST_KEEP_ORG=1 pnpm run test:e2e`
+- `SF_TEST_KEEP_ORG=1 pnpm run test:e2e:telemetry`
+- `SF_DEVHUB_AUTH_URL=force://REDACTED_DEVHUB_AUTH_URL SF_TEST_KEEP_ORG=1 pnpm run test:e2e:proxy-lab`
 
 Useful env vars:
 
@@ -108,7 +108,7 @@ Useful env vars:
 - `SF_TEST_KEEP_ORG=1`: Keep the scratch org after the run (recommended while iterating).
 - `SF_E2E_DEBUG_FLAGS_USERNAME`: Optional username for the Debug Flags E2E user. If unset, tests auto-manage `alv.debugflags.<orgid>@example.com` (create if missing, reuse if present). If the org has no spare Salesforce licenses, tests fall back to the authenticated user.
 - `ALV_E2E_TIMING=1`: Prints per-step harness timings for scratch-org setup, VS Code startup, command-palette activation, and webview discovery.
-- `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`: Primary corporate-proxy configuration path, for example `HTTP_PROXY=http://username:pwd@proxy.company.com:8080`. These are honored by the Node-side E2E helpers, scratch-org pool REST calls, Salesforce CLI, VS Code download step, the VS Code extension host, and the plugin runner process. The Playwright configs enable `NODE_USE_ENV_PROXY=1` automatically when one of these proxy vars is present.
+- `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`: Primary corporate-proxy configuration path, for example `HTTP_PROXY=http://username:pwd@proxy.company.com:8080`. These are honored by the Node-side E2E helpers, scratch-org pool REST calls, Salesforce CLI, VS Code download step, the VS Code extension host with its in-process core, and the standalone plugin. The Playwright configs enable `NODE_USE_ENV_PROXY=1` automatically when one of these proxy vars is present.
 - `ALV_E2E_PROXY_SERVER`: Optional E2E-only shorthand for ad-hoc local runs when you do not want to export the standard proxy vars globally. Prefer `HTTP_PROXY` / `HTTPS_PROXY` for corporate parity.
 - `ALV_E2E_PROXY_BYPASS`: Optional E2E-only shorthand for proxy bypass entries (same semantics as `NO_PROXY`).
 - `ALV_E2E_PROXY_PAC_URL`: Adds `--proxy-pac-url=...` to the isolated VS Code launch when your corporate desktop depends on a PAC file.
@@ -118,7 +118,7 @@ Useful env vars:
 
 ### Corporate proxy lab
 
-`npm run test:e2e:proxy-lab` runs the E2E command inside Docker Compose with a real proxy in front of the runner:
+`pnpm run test:e2e:proxy-lab` runs the E2E command inside Docker Compose with a real proxy in front of the runner:
 
 - `runner` is attached only to an internal Docker network, so direct internet egress is blocked.
 - `proxy` is attached to both the internal network and an external egress network, exposing mitmproxy on `http://proxy:8888` only inside Compose.
@@ -130,40 +130,40 @@ Useful env vars:
 - After logging in from `SF_DEVHUB_AUTH_URL`, the lab uses `ConfiguredDevHub` as the container-local Dev Hub alias by default. `ALV_E2E_PROXY_LAB_DEVHUB_ALIAS` only changes that container-local alias.
 - The lab sets `SFDX_DISABLE_DNS_CHECK=true` because the runner has no direct DNS/egress path to Salesforce; Salesforce CLI traffic must be validated through the proxy instead.
 - `ALV_E2E_PROXY_LAB_PROXY_URL` can override the runner proxy URL for negative tests; by default it is `http://alv-proxy-user:alv-proxy-pass@proxy:8888`.
-- Docker named volumes persist `node_modules`, `.vscode-test`, npm cache, and Salesforce CLI auth state under `/root/.sf` and `/root/.sfdx` between proxy-lab runs. These volumes may contain org credentials; reset them with `docker compose -f docker-compose.e2e-proxy.yml down --volumes` only when you intentionally want a clean lab.
+- Docker named volumes persist `node_modules`, the pnpm store, `.vscode-test`, npm cache, and Salesforce CLI auth state under `/root/.sf` and `/root/.sfdx` between proxy-lab runs. These volumes may contain org credentials; reset them with `docker compose -f docker-compose.e2e-proxy.yml down --volumes` only when you intentionally want a clean lab.
 
-By default the lab runs `npm run test:e2e`. To run another E2E command inside the same proxy-only network:
+By default the lab runs `pnpm run test:e2e`. To run another E2E command inside the same proxy-only network:
 
 ```bash
-npm run test:e2e:proxy-lab -- npm run test:e2e:cli
+pnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli
 ```
 
 For local real-org proxy-lab runs, derive an auth URL from an already-authenticated Dev Hub on the host and pass it into the clean container:
 
 ```bash
 ALV_LOCAL_DEVHUB_AUTH_URL="$(sf org auth show-sfdx-auth-url --target-org <dev-hub-alias> --json --no-prompt | jq -r '.result.sfdxAuthUrl')"
-SF_DEVHUB_AUTH_URL="${ALV_LOCAL_DEVHUB_AUTH_URL}" SF_TEST_KEEP_ORG=1 npm run test:e2e:proxy-lab
+SF_DEVHUB_AUTH_URL="${ALV_LOCAL_DEVHUB_AUTH_URL}" SF_TEST_KEEP_ORG=1 pnpm run test:e2e:proxy-lab
 ```
 
 To target the plugin path that powers `logs/list` without paying the full VS Code UI startup cost, run a focused CLI spec:
 
 ```bash
-npm run test:e2e:proxy-lab -- npm run test:e2e:cli -- test/e2e/cli/specs/logs.e2e.spec.ts
+pnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli -- test/e2e/cli/specs/logs.e2e.spec.ts
 ```
 
 For faster iteration after the named Docker volumes already contain dependencies:
 
 ```bash
-ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1 npm run test:e2e:proxy-lab -- npm run test:e2e:cli
+ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL=1 pnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli
 ```
 
 To validate against a Salesforce CLI package override, such as the nightly build that carries upcoming credential-redaction behavior:
 
 ```bash
-npm run test:e2e:proxy-lab:sf-nightly -- npm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts
+pnpm run test:e2e:proxy-lab:sf-nightly -- pnpm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts
 ```
 
-The standard GitHub Playwright E2E workflow runs one full pass per operating system. Ubuntu stays on this MITM proxy lab: its CLI step populates the proxy-lab dependency volume, and its extension step reuses that volume with `ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1`. Windows and macOS run the same real-org CLI and VS Code E2E commands directly on their hosted runners against the scratch-org pool, reusing the dependency, VS Code, and Salesforce CLI caches. When telemetry validation is configured, the Ubuntu extension run emits telemetry under a shared `testRunId`, and a final lightweight Ubuntu job queries Log Analytics after the E2E jobs pass.
+The standard GitHub Playwright E2E workflow runs one full pass per operating system. Ubuntu stays on this MITM proxy lab: its CLI step populates the proxy-lab dependency volume, and its extension step reuses that volume with `ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL=1`. Windows and macOS run the same real-org CLI and VS Code E2E commands directly on their hosted runners against the scratch-org pool, reusing the dependency, VS Code, and Salesforce CLI caches. When telemetry validation is configured, the Ubuntu extension run emits telemetry under a shared `testRunId`, and a final lightweight Ubuntu job queries Log Analytics after the E2E jobs pass.
 
 Pool-specific env vars:
 
@@ -186,15 +186,15 @@ For Dev Hub bootstrap, operational scripts, and GitHub Actions / Codex Cloud set
 
 Troubleshooting:
 
-- If `npm run test:e2e:cli` reports a missing plugin command, rerun `npm run build:sf-plugin` or let the runner rebuild it for you.
-- If the Logs panel shows **“Salesforce CLI not found”**, set the VS Code setting `electivus.apexLogs.cliPath` to the absolute path of your `sf` executable.
+- If `pnpm run test:e2e:cli` reports a missing plugin command, rerun `pnpm run build:sf-plugin` or let the runner rebuild it for you.
+- If no org is available, authenticate with `sf org login web`; the extension core reads Salesforce auth state directly and has no CLI-path setting.
 
 - CLI artifacts (screenshots/traces/videos and attached command/stdout/stderr files on failure) are written under `output/playwright-cli/`.
 - VS Code Playwright artifacts (screenshots/traces/videos on failure) are written under `output/playwright/`.
 
 ### Playwright E2E + dedicated App Insights validation
 
-`npm run test:e2e:telemetry` is the full telemetry-validation path. It:
+`pnpm run test:e2e:telemetry` is the full telemetry-validation path. It:
 
 1. Resolves or creates the dedicated E2E Application Insights component configured for the environment
 2. Reuses the existing Log Analytics workspace from the production telemetry resource

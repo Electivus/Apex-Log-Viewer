@@ -10,5 +10,5 @@ Guidelines
 - Do not stretch or recolor the wordmark; use provided variants.
 
 Generation
-- Run `npm run build:assets` from the repo root to regenerate PNGs from SVG.
+- Run `pnpm run build:assets` from the repo root to regenerate PNGs from SVG.
 

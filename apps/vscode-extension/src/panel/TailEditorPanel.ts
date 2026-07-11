@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
-import { localize } from '../../../../src/utils/localize';
+import { localize } from '../host/utils/localize';
 import { disposeAll } from './disposeAll';
 import type { WebviewProviderDiagnosticState } from '../shared/webviewDiagnostics';
 
@@ -11,7 +11,7 @@ interface ShowOptions {
 export class TailEditorPanel {
   private static context: vscode.ExtensionContext | undefined;
   private static instance: TailEditorPanel | undefined;
-  private static readonly viewType = 'sfLogTail.editorPanel';
+  private static readonly viewType = 'electivus.apexLogViewer.tailView.editorPanel';
 
   static initialize(context: vscode.ExtensionContext): void {
     this.context = context;

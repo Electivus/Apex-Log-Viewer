@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { isApexLogDocument } from '../../../../src/utils/workspace';
-import { localize } from '../../../../src/utils/localize';
+import { isApexLogDocument } from '../host/utils/workspace';
+import { localize } from '../host/utils/localize';
 
 export class ApexLogCodeLensProvider implements vscode.CodeLensProvider {
   private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
@@ -13,7 +13,7 @@ export class ApexLogCodeLensProvider implements vscode.CodeLensProvider {
     }
     const command: vscode.Command = {
       title: localize('openLogInViewer.codeLensTitle', 'Open in Apex Log Viewer'),
-      command: 'sfLogs.openLogInViewer',
+      command: 'electivus.apexLogViewer.log.openViewer',
       arguments: [document.uri]
     };
     return [new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), command)];

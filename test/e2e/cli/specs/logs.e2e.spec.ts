@@ -31,23 +31,23 @@ test('logs sync --json downloads the seeded Apex log into the workspace cache', 
   expect(json).toBeTruthy();
   expect(json?.status).toBe('success');
   expect(Number(json?.downloaded ?? 0)).toBeGreaterThanOrEqual(1);
-  expect(json?.last_synced_log_id).toBeTruthy();
-  expect(json?.last_synced_log_id).toBe(seededLog.logId);
+  expect(json?.lastSyncedLogId).toBeTruthy();
+  expect(json?.lastSyncedLogId).toBe(seededLog.logId);
   expect(scratchAuth.username).toBeTruthy();
-  expect(json?.target_org).toBe(scratchAuth.username);
-  expect(String(json?.safe_target_org || '')).toBeTruthy();
+  expect(json?.targetOrg).toBe(scratchAuth.username);
+  expect(String(json?.safeTargetOrg || '')).toBeTruthy();
 
   const syncStatePath = path.join(workspacePath, 'apexlogs', '.alv', 'sync-state.json');
   await expect(access(syncStatePath)).resolves.toBeUndefined();
 
-  const canonicalOrgRoot = path.join(workspacePath, 'apexlogs', 'orgs', String(json?.safe_target_org || ''));
+  const canonicalOrgRoot = path.join(workspacePath, 'apexlogs', 'orgs', String(json?.safeTargetOrg || ''));
   const orgMetadataPath = path.join(canonicalOrgRoot, 'org.json');
   await expect(access(orgMetadataPath)).resolves.toBeUndefined();
 
   const orgMetadata = JSON.parse(await readFile(orgMetadataPath, 'utf8'));
-  expect(orgMetadata.resolvedUsername).toBe(json?.target_org);
+  expect(orgMetadata.resolvedUsername).toBe(json?.targetOrg);
   expect(orgMetadata.targetOrg).toBe(scratchAlias);
-  expect(orgMetadata.safeTargetOrg).toBe(json?.safe_target_org);
+  expect(orgMetadata.safeTargetOrg).toBe(json?.safeTargetOrg);
 
   const seededLogPath = await findFileNamed(path.join(canonicalOrgRoot, 'logs'), `${seededLog.logId}.log`);
   expect(seededLogPath).toBeTruthy();
@@ -55,15 +55,15 @@ test('logs sync --json downloads the seeded Apex log into the workspace cache', 
 
 test('logs status --json reports sync metadata for the seeded scratch org', async ({ runCli, seededLog, syncLogs, scratchAlias }) => {
   const { json: syncJson } = await syncLogs();
-  const result = await runCli(['logs', 'status', '--json', '--target-org', scratchAlias]);
+  const result = await runCli(['log', 'status', '--json', '--target-org', scratchAlias]);
   const json = sfJsonResult(result);
 
   expect(result.exitCode).toBe(0);
   expect(json).toBeTruthy();
-  expect(json?.target_org).toBe(syncJson?.target_org);
-  expect(json?.safe_target_org).toBe(syncJson?.safe_target_org);
-  expect(json?.has_state).toBe(true);
-  expect(Number(json?.downloaded_count ?? 0)).toBeGreaterThanOrEqual(1);
-  expect(json?.last_synced_log_id).toBe(seededLog.logId);
-  expect(Number(json?.log_count ?? 0)).toBeGreaterThanOrEqual(1);
+  expect(json?.targetOrg).toBe(syncJson?.targetOrg);
+  expect(json?.safeTargetOrg).toBe(syncJson?.safeTargetOrg);
+  expect(json?.hasState).toBe(true);
+  expect(Number(json?.downloadedCount ?? 0)).toBeGreaterThanOrEqual(1);
+  expect(json?.lastSyncedLogId).toBe(seededLog.logId);
+  expect(Number(json?.logCount ?? 0)).toBeGreaterThanOrEqual(1);
 });

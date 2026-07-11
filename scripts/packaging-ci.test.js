@@ -23,8 +23,8 @@ test('package script rebuilds the extension packaging assets that vsce includes'
   const rootPackageJson = JSON.parse(readFile('package.json'));
   const packageScript = String(rootPackageJson.scripts?.package || '');
 
-  assert.match(packageScript, /\bbuild:sf-plugin\b/);
-  assert.match(packageScript, /\bbuild:embedded-sf-plugin\b/);
+  assert.match(packageScript, /\bbuild:shared\b/);
+  assert.doesNotMatch(packageScript, /\bbuild:(?:sf-plugin|embedded-sf-plugin)\b/);
   assert.match(packageScript, /\bbuild:ripgrep-runtime\b/);
   assert.match(packageScript, /\bbuild:package-metadata\b/);
   assert.doesNotMatch(packageScript, /\bpackage:runtime\b/);
@@ -38,20 +38,34 @@ test('root scripts no longer expose native runtime packaging lanes', () => {
   }
 });
 
+test('extension type-check scripts bootstrap generated shared package declarations', () => {
+  const scripts = JSON.parse(readFile('package.json')).scripts || {};
+
+  assert.match(String(scripts['check-types'] || ''), /^pnpm run build:shared && /);
+  assert.match(String(scripts.compile || ''), /^pnpm run build:shared && /);
+});
+
+test('standalone webview tests bootstrap generated protocol artifacts', () => {
+  const scripts = JSON.parse(readFile('package.json')).scripts || {};
+
+  assert.match(String(scripts['test:webview'] || ''), /^pnpm run build:protocol && /);
+});
+
 for (const workflowPath of ['.github/workflows/release.yml', '.github/workflows/prerelease.yml']) {
-  test(`${workflowPath} builds the embedded sf plugin and target-specific ripgrep runtime packages`, () => {
+  test(`${workflowPath} builds the direct-core extension and target-specific ripgrep runtime packages`, () => {
     const workflow = readFile(workflowPath);
 
     assert.match(
       workflow,
-      /npm run build:sf-plugin[\s\S]*?npm run build:embedded-sf-plugin[\s\S]*?npm run build:ripgrep-runtime/,
-      'expected workflow packaging jobs to build the plugin runner before VSIX packaging'
+      /pnpm run clean[\s\S]*?pnpm run build:shared[\s\S]*?pnpm run build:ripgrep-runtime/,
+      'expected workflow packaging jobs to rebuild the shared packages before extension assets'
     );
     assert.match(
       workflow,
-      /MATRIX_TARGET:\s*\$\{\{\s*matrix\.target\s*\}\}[\s\S]*?npm run build:ripgrep-runtime -- "\$\{MATRIX_TARGET\}"/,
+      /MATRIX_TARGET:\s*\$\{\{\s*matrix\.target\s*\}\}[\s\S]*?pnpm run build:ripgrep-runtime "\$\{MATRIX_TARGET\}"/,
       'expected workflow packaging jobs to copy the ripgrep package for the VSIX target'
     );
+    assert.doesNotMatch(workflow, /build:(?:sf-plugin|embedded-sf-plugin)/);
     assert.doesNotMatch(workflow, /fetch-runtime-release\.mjs|verify-runtime-compatibility\.mjs/);
   });
 
@@ -60,10 +74,10 @@ for (const workflowPath of ['.github/workflows/release.yml', '.github/workflows/
 
     assert.doesNotMatch(
       workflow,
-      /npm ci --workspaces=false/,
+      /pnpm install --frozen-lockfile --filter/,
       'expected extension release workflows to install package workspace dependencies for the sf plugin build'
     );
-    assert.match(workflow, /\brun:\s+npm ci\b/);
+    assert.match(workflow, /\brun:\s+pnpm install --frozen-lockfile\b/);
   });
 }
 
@@ -119,9 +133,9 @@ test('sf plugin release workflow publishes matching sf-plugin-v tags through npm
     /ref:\s+\$\{\{\s*needs\.validate_tag\.outputs\.commit_sha\s*\}\}/,
     'expected package jobs to use the validated commit SHA instead of an unqualified tag name'
   );
-  assert.match(packageJob, /\bnpm run test:sf-plugin\b/);
-  assert.match(packageJob, /\bnpm run build:sf-plugin\b/);
-  assert.match(packageJob, /\bnpm run stage:sf-plugin-npm\b/);
+  assert.match(packageJob, /\bpnpm run test:sf-plugin\b/);
+  assert.match(packageJob, /\bpnpm run build:sf-plugin\b/);
+  assert.match(packageJob, /\bpnpm run stage:sf-plugin-npm\b/);
   assert.match(
     publishJob,
     /id-token:\s+write[\s\S]*?node scripts\/publish-npm-package-if-needed\.mjs \.\/dist\/sf-plugin-npm --tag "\$\{NPM_DIST_TAG\}" --access public/,
@@ -134,7 +148,7 @@ test('prerelease Open VSX publish skips already published target artifacts', () 
 
   assert.match(
     publishJob,
-    /OUTPUT=\$\(npx --yes ovsx publish --pat "\$\{OVSX_PAT\}" --packagePath "\$\{FILE\}" --pre-release 2>&1\)/,
+    /OUTPUT=\$\(pnpm dlx ovsx publish --pat "\$\{OVSX_PAT\}" --packagePath "\$\{FILE\}" --pre-release 2>&1\)/,
     'expected Open VSX publish output to be captured for duplicate-version handling'
   );
   assert.match(
@@ -153,7 +167,7 @@ for (const [workflowPath, jobName] of [
 
     assert.match(
       publishJob,
-      /OUTPUT=\$\(npx --yes @vscode\/vsce publish --packagePath "\$\{FILE\}"(?: --pre-release)? 2>&1\)/,
+      /OUTPUT=\$\(pnpm exec vsce publish --packagePath "\$\{FILE\}"(?: --pre-release)? 2>&1\)/,
       'expected Marketplace publish output to be captured for duplicate-version handling'
     );
     assert.match(

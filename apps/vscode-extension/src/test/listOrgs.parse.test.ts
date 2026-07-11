@@ -1,6 +1,6 @@
 import assert from 'assert/strict';
-import { __parseOrgListForTests, __resetListOrgsCacheForTests } from '../../../../src/salesforce/cli';
-import { __resetExecFileImplForTests } from '../../../../src/salesforce/exec';
+import { __parseOrgListForTests, __resetListOrgsCacheForTests } from '../host/salesforce/cli';
+import { __resetExecFileImplForTests } from '../host/salesforce/exec';
 
 suite('listOrgs parsing and sorting', () => {
   setup(() => {

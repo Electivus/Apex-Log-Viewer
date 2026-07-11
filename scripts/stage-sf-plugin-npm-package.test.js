@@ -71,3 +71,38 @@ test('stageSfPluginPackage fails when build artifacts are missing', async () => 
     /missing plugin package artifact .*packages[\\/]sf-plugin[\\/]lib/
   );
 });
+
+test('stageSfPluginPackage materializes the private workspace core for npm bundling', async () => {
+  const mod = await loadModule();
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sf-plugin-stage-core-'));
+  const packageDir = path.join(repoRoot, 'packages', 'sf-plugin');
+  const outDir = path.join(repoRoot, 'dist', 'sf-plugin-npm');
+
+  await writeFile(
+    path.join(packageDir, 'package.json'),
+    JSON.stringify({
+      name: '@electivus/plugin-electivus',
+      version: '1.2.3',
+      private: true,
+      files: ['/lib'],
+      dependencies: { '@alv/core': 'workspace:*' },
+      bundleDependencies: ['@alv/core']
+    })
+  );
+  await writeFile(path.join(packageDir, 'lib', 'index.js'), 'plugin');
+  await writeFile(
+    path.join(repoRoot, 'packages', 'core', 'package.json'),
+    JSON.stringify({ name: '@alv/core', version: '0.0.0', private: true, main: 'lib/index.js' })
+  );
+  await writeFile(path.join(repoRoot, 'packages', 'core', 'lib', 'index.js'), 'core');
+
+  await mod.stageSfPluginPackage({ repoRoot, outDir });
+
+  const manifest = JSON.parse(await fs.readFile(path.join(outDir, 'package.json'), 'utf8'));
+  const coreManifest = JSON.parse(
+    await fs.readFile(path.join(outDir, 'node_modules', '@alv', 'core', 'package.json'), 'utf8')
+  );
+  assert.equal(manifest.dependencies['@alv/core'], '0.0.0');
+  assert.equal(coreManifest.private, undefined);
+  assert.equal(await fs.readFile(path.join(outDir, 'node_modules', '@alv', 'core', 'lib', 'index.js'), 'utf8'), 'core');
+});

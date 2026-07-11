@@ -23,13 +23,13 @@ sf org assign permset --target-org DevHubElectivus --name ALV_ScratchOrgPoolServ
 Create or update the pool records:
 
 ```bash
-npm run scratch-pool:bootstrap -- --target-org DevHubElectivus --pool-key alv-e2e --target-size 30
+pnpm run scratch-pool:bootstrap -- --target-org DevHubElectivus --pool-key alv-e2e --target-size 30
 ```
 
 Notes:
 
-- When invoking these scripts through `npm run`, keep the extra `--` before the script arguments. Without it, `npm` consumes flags like `--pool-key`, and the script fails with errors such as `Missing required --pool-key for bootstrap.`
-- If your shell already exports `SF_DEVHUB_ALIAS`, you can omit `--target-org` and run `npm run scratch-pool:bootstrap -- --pool-key alv-e2e --target-size 30`.
+- When invoking these scripts through `pnpm run`, keep the extra `--` before the script arguments so pnpm forwards flags like `--pool-key` to the script.
+- If your shell already exports `SF_DEVHUB_ALIAS`, you can omit `--target-org` and run `pnpm run scratch-pool:bootstrap -- --pool-key alv-e2e --target-size 30`.
 
 Useful bootstrap overrides:
 
@@ -44,11 +44,11 @@ Useful bootstrap overrides:
 Pool maintenance:
 
 ```bash
-npm run scratch-pool:list -- --target-org DevHubElectivus --pool-key alv-e2e
-npm run scratch-pool:reconcile -- --target-org DevHubElectivus --pool-key alv-e2e
-npm run scratch-pool:prewarm -- --target-org DevHubElectivus --pool-key alv-e2e
-npm run scratch-pool:disable-slot -- --target-org DevHubElectivus --pool-key alv-e2e --slot-key slot-02 --reason "maintenance"
-npm run scratch-pool:reset-slot -- --target-org DevHubElectivus --pool-key alv-e2e --slot-key slot-02 --reason "force recreate"
+pnpm run scratch-pool:list -- --target-org DevHubElectivus --pool-key alv-e2e
+pnpm run scratch-pool:reconcile -- --target-org DevHubElectivus --pool-key alv-e2e
+pnpm run scratch-pool:prewarm -- --target-org DevHubElectivus --pool-key alv-e2e
+pnpm run scratch-pool:disable-slot -- --target-org DevHubElectivus --pool-key alv-e2e --slot-key slot-02 --reason "maintenance"
+pnpm run scratch-pool:reset-slot -- --target-org DevHubElectivus --pool-key alv-e2e --slot-key slot-02 --reason "force recreate"
 ```
 
 After this migration, `reconcile` marks any slot without a stored `sfdxAuthUrl` as `needs_recreate`, so the next lease recreates it once and stores a fresh reusable auth URL.
@@ -93,7 +93,7 @@ Optional tuning:
 Example:
 
 ```bash
-SF_SCRATCH_STRATEGY=pool SF_SCRATCH_POOL_NAME=alv-e2e PLAYWRIGHT_WORKERS=1 PLAYWRIGHT_SHARD=1/4 npm run test:e2e
+SF_SCRATCH_STRATEGY=pool SF_SCRATCH_POOL_NAME=alv-e2e PLAYWRIGHT_WORKERS=1 PLAYWRIGHT_SHARD=1/4 pnpm run test:e2e
 ```
 
 If `SF_SCRATCH_STRATEGY` is unset, the helper automatically switches to pool mode when `SF_SCRATCH_POOL_NAME` is present. The legacy single-scratch flow still works and remains the fallback when the pool is not configured.
@@ -125,7 +125,7 @@ Repository variables for pool mode:
 
 When pool mode is active, each Playwright test acquires its own scratch org slot and reuses the stored `sfdxAuthUrl` for that slot. The repository workflow defaults to `1` Playwright worker; set `PLAYWRIGHT_WORKERS` as an Actions repository variable, or use the `playwright_workers` dispatch input, to run multiple isolated tests concurrently. The Ubuntu VS Code extension proxy-lab lane can be tuned independently with `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS` because it runs VS Code/Electron inside Docker.
 
-The workflow-level concurrency group is keyed by `SF_SCRATCH_POOL_NAME` with `cancel-in-progress: false`. Active runs that share the same Dev Hub pool are not canceled or allowed to run every PR ref at once. This prevents Dependabot bursts from producing spurious lease-exhaustion failures.
+The workflow intentionally has no workflow-level concurrency group. The Apex pool service locks the pool record while it atomically assigns a free slot, so parallel PR and manual runs can use the configured capacity without sharing an org. When every slot is leased, clients retry until `SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS` instead of over-leasing the pool.
 
 ## Codex Cloud
 

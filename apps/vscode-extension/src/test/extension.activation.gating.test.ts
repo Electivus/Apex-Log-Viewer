@@ -29,7 +29,6 @@ function createExtensionHarness(options: {
     readErrorMessage?: string;
     parseErrorMessage?: string;
   };
-  cliCacheEnabled?: boolean;
   appRoot?: string;
   activeDocument?: any;
   isApexLogDocument?: boolean;
@@ -110,7 +109,7 @@ function createExtensionHarness(options: {
   };
 
   class FakeLogsViewProvider {
-    public static viewType = 'sfLogViewer';
+    public static viewType = 'electivus.apexLogViewer.logsView';
     private selectedOrg: string | undefined;
 
     constructor(_context: any) {
@@ -152,7 +151,7 @@ function createExtensionHarness(options: {
   }
 
   class FakeTailViewProvider {
-    public static viewType = 'sfLogTail';
+    public static viewType = 'electivus.apexLogViewer.tailView';
     private selectedOrg: string | undefined;
 
     constructor(_context: any) {
@@ -238,7 +237,7 @@ function createExtensionHarness(options: {
         }
       }
     },
-    '../../../src/salesforce/http': {
+    './host/salesforce/http': {
       setApiVersion: (value?: string) => {
         if (value) {
           setApiVersionCalls.push(value);
@@ -247,7 +246,7 @@ function createExtensionHarness(options: {
       getApiVersion: () => '64.0',
       clearListCache: () => undefined
     },
-    '../../../src/utils/logger': {
+    './host/utils/logger': {
       logInfo: () => undefined,
       logWarn: () => undefined,
       logError: () => undefined,
@@ -256,7 +255,7 @@ function createExtensionHarness(options: {
       setTraceEnabled: () => undefined,
       disposeLogger: () => undefined
     },
-    '../../../src/utils/localize': {
+    './host/utils/localize': {
       localize: (_key: string, defaultValue: string, ...args: Array<string | number>) =>
         defaultValue.replace(/\{(\d+)\}/g, (_match: string, index: string) => String(args[Number(index)] ?? ''))
     },
@@ -268,23 +267,18 @@ function createExtensionHarness(options: {
       safeSendException: () => undefined,
       disposeTelemetry: () => undefined
     },
-    '../../../src/utils/cacheManager': {
+    './host/utils/cacheManager': {
       CacheManager: {
         init: () => undefined,
         clearExpired: async () => undefined,
         delete: async () => undefined
       }
     },
-    '../../../src/utils/config': {
-      getBooleanConfig: (key: string, fallback: boolean) => {
-        if (key === 'sfLogs.cliCache.enabled') {
-          return options.cliCacheEnabled ?? fallback;
-        }
-        return fallback;
-      },
+    './host/utils/config': {
+      getBooleanConfig: (_key: string, fallback: boolean) => fallback,
       affectsConfiguration: () => false
     },
-    '../../../src/utils/error': {
+    './host/utils/error': {
       getErrorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error))
     },
     './runtime/runtimeClient': {
@@ -299,7 +293,7 @@ function createExtensionHarness(options: {
         }
       }
     },
-    '../../../src/utils/workspace': {
+    './host/utils/workspace': {
       findSalesforceProjectInfo: async () => options.salesforceProject,
       isApexLogDocument: () => options.isApexLogDocument ?? true,
       getLogIdFromLogFilePath: () => options.logId
@@ -360,32 +354,38 @@ suite('extension activation gating', () => {
 
     assert.deepEqual(harness.setApiVersionCalls, []);
     assert.equal(harness.timeoutCallbacks.length, 0, 'should not schedule CLI preload outside Salesforce projects');
-    assert.ok(harness.commands.has('sfLogs.refresh'), 'refresh command should stay registered');
-    assert.ok(harness.commands.has('sfLogs.openLogsEditor'), 'open logs editor command should stay registered');
-    assert.ok(harness.commands.has('sfLogs.openTailEditor'), 'open tail editor command should stay registered');
-    assert.ok(harness.commands.has('sfLogs.openLogInViewer'), 'open log viewer command should stay registered');
+    assert.ok(harness.commands.has('electivus.apexLogViewer.logs.refresh'), 'refresh command should stay registered');
+    assert.ok(
+      harness.commands.has('electivus.apexLogViewer.logs.openEditor'),
+      'open logs editor command should stay registered'
+    );
+    assert.ok(
+      harness.commands.has('electivus.apexLogViewer.tail.openEditor'),
+      'open tail editor command should stay registered'
+    );
+    assert.ok(
+      harness.commands.has('electivus.apexLogViewer.log.openViewer'),
+      'open log viewer command should stay registered'
+    );
 
     const activationEvent = harness.events.find(event => event.name === 'extension.activate');
     assert.equal(activationEvent?.props?.hasSalesforceProject, 'false');
 
-    await harness.commands.get('sfLogs.openLogInViewer')!();
+    await harness.commands.get('electivus.apexLogViewer.log.openViewer')!();
 
     assert.deepEqual(harness.logViewerShows, [{ logId: '07L000000000123', filePath }]);
     assert.deepEqual(harness.warningMessages, []);
     assert.deepEqual(harness.errorMessages, []);
   });
 
-  test('applies sourceApiVersion and schedules CLI preload when a Salesforce project is present', async () => {
+  test('applies sourceApiVersion without scheduling CLI preload when a Salesforce project is present', async () => {
     const harness = createExtensionHarness({
       salesforceProject: {
         workspaceRoot: path.join(process.cwd(), 'workspace-salesforce'),
         projectFilePath: path.join(process.cwd(), 'workspace-salesforce', 'sfdx-project.json'),
         sourceApiVersion: '60.0'
       },
-      orgs: [
-        { username: 'first@example.com' },
-        { username: 'default@example.com', isDefaultUsername: true }
-      ]
+      orgs: [{ username: 'first@example.com' }, { username: 'default@example.com', isDefaultUsername: true }]
     });
     (globalThis as any).setTimeout = (callback: () => Promise<void> | void) => {
       harness.timeoutCallbacks.push(callback);
@@ -395,14 +395,12 @@ suite('extension activation gating', () => {
     await harness.extension.activate(createContext());
 
     assert.deepEqual(harness.setApiVersionCalls, ['60.0']);
-    assert.equal(harness.timeoutCallbacks.length, 1, 'should schedule CLI preload for Salesforce projects');
+    assert.equal(harness.timeoutCallbacks.length, 0, 'the autonomous extension should not preload the Salesforce CLI');
 
     const activationEvent = harness.events.find(event => event.name === 'extension.activate');
     assert.equal(activationEvent?.props?.hasSalesforceProject, 'true');
 
-    await harness.timeoutCallbacks[0]!();
-
-    assert.deepEqual(harness.orgListCalls, [false]);
+    assert.deepEqual(harness.orgListCalls, []);
   });
 
   test('syncs the selected logs org into tail before refreshing the tail view', async () => {
@@ -412,7 +410,7 @@ suite('extension activation gating', () => {
     });
 
     await harness.extension.activate(createContext());
-    await harness.commands.get('sfLogs.tail')!();
+    await harness.commands.get('electivus.apexLogViewer.tail.start')!();
 
     assert.deepEqual(harness.tailSyncSelectedOrgCalls, ['worker@example.com']);
     assert.equal(harness.logsTailCalls.length, 1, 'should open the tail view once');
@@ -423,7 +421,7 @@ suite('extension activation gating', () => {
     const harness = createExtensionHarness({ logsViewResolved: true });
 
     await harness.extension.activate(createContext());
-    await harness.commands.get('sfLogs.refresh')!();
+    await harness.commands.get('electivus.apexLogViewer.logs.refresh')!();
 
     assert.equal(harness.logsRefreshCalls.length, 1, 'should refresh an already resolved logs view');
     const refreshEvent = harness.events.find(event => event.name === 'command.refresh');
@@ -435,7 +433,7 @@ suite('extension activation gating', () => {
     const harness = createExtensionHarness({});
 
     await harness.extension.activate(createContext());
-    await harness.commands.get('sfLogs.refresh')!();
+    await harness.commands.get('electivus.apexLogViewer.logs.refresh')!();
 
     assert.equal(harness.logsRefreshCalls.length, 0, 'should not refresh before the logs view resolves');
     const refreshEvent = harness.events.find(event => event.name === 'command.refresh');
@@ -454,8 +452,8 @@ suite('extension activation gating', () => {
         retainContextWhenHidden: registration.options?.webviewOptions?.retainContextWhenHidden
       })),
       [
-        { viewId: 'sfLogViewer', retainContextWhenHidden: true },
-        { viewId: 'sfLogTail', retainContextWhenHidden: true }
+        { viewId: 'electivus.apexLogViewer.logsView', retainContextWhenHidden: true },
+        { viewId: 'electivus.apexLogViewer.tailView', retainContextWhenHidden: true }
       ]
     );
   });
@@ -464,7 +462,7 @@ suite('extension activation gating', () => {
     const harness = createExtensionHarness({ logsViewResolved: true });
 
     await harness.extension.activate(createContext());
-    await harness.commands.get('sfLogs.copyDiagnostics')!();
+    await harness.commands.get('electivus.apexLogViewer.diagnostics.copy')!();
 
     const copied = harness.clipboardWrites[0] ?? '';
     assert.ok(copied.includes('# Electivus Apex Logs Diagnostics'), 'should copy a markdown diagnostics package');

@@ -96,7 +96,7 @@ function createDeferred<T>() {
 
 function createPanelHarness(stubs: { summarizeLogFile: () => Promise<unknown> }) {
   const webview = new MockWebview();
-  const panel = new MockWebviewPanel('sfLogViewer.logPanel', webview);
+  const panel = new MockWebviewPanel('electivus.apexLogViewer.logsView.logPanel', webview);
   const ExtensionContext = {
     extensionUri: vscode.Uri.file(process.cwd()),
     subscriptions: [] as vscode.Disposable[]
@@ -119,11 +119,11 @@ function createPanelHarness(stubs: { summarizeLogFile: () => Promise<unknown> })
 
   const { LogViewerPanel } = proxyquireStrict('../panel/LogViewerPanel', {
     vscode: vscodeMock,
-    '../../../../src/services/logTriage': {
+    '../host/services/logTriage': {
       summarizeLogFile: stubs.summarizeLogFile
     },
-    '../../../../src/utils/webviewHtml': { buildWebviewHtml: () => '<html />' },
-    '../../../../src/utils/logger': {
+    '../host/utils/webviewHtml': { buildWebviewHtml: () => '<html />' },
+    '../host/utils/logger': {
       logInfo: () => undefined,
       logWarn: () => undefined,
       logError: () => undefined,

@@ -1,22 +1,22 @@
 import assert from 'assert/strict';
 const proxyquire: any = require('proxyquire').noCallThru().noPreserveCache();
 
-type ExecModule = typeof import('../../../../src/salesforce/exec');
+type ExecModule = typeof import('../host/salesforce/exec');
 
 function loadExecModule(): ExecModule {
-  return proxyquire('../../../../src/salesforce/exec', {
-    '../../../../src/utils/logger': { logTrace: () => {}, logWarn: () => {}, '@noCallThru': true },
-    '../../../../src/utils/localize': { localize: (_key: string, fallback: string) => fallback, '@noCallThru': true },
+  return proxyquire('../host/salesforce/exec', {
+    '../host/utils/logger': { logTrace: () => {}, logWarn: () => {}, '@noCallThru': true },
+    '../host/utils/localize': { localize: (_key: string, fallback: string) => fallback, '@noCallThru': true },
     '../shared/telemetry': { safeSendException: () => {}, '@noCallThru': true }
   }) as ExecModule;
 }
 
 function loadPathModule(params: { platform: 'win32' | 'linux' | 'darwin'; execModule: ExecModule }) {
-  return proxyquire('../../../../src/salesforce/path', {
+  return proxyquire('../host/salesforce/path', {
     os: { platform: () => params.platform, '@noCallThru': true },
     './exec': params.execModule,
-    '../../../../src/utils/logger': { logTrace: () => {}, '@noCallThru': true }
-  }) as typeof import('../../../../src/salesforce/path');
+    '../host/utils/logger': { logTrace: () => {}, '@noCallThru': true }
+  }) as typeof import('../host/salesforce/path');
 }
 
 suite('resolvePATHFromLoginShell', () => {

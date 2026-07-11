@@ -13,23 +13,22 @@ function loadTailService(stubs?: {
   workspace?: Record<string, unknown>;
   runtime?: Record<string, unknown>;
 }) {
-  return proxyquireStrict('../../../../src/utils/tailService', {
+  return proxyquireStrict('../host/utils/tailService', {
     '../salesforce/cli': stubs?.cli ?? {},
     '../salesforce/http': stubs?.http ?? {},
     './workspace': stubs?.workspace ?? {},
-    '../../apps/vscode-extension/src/runtime/runtimeClient':
-      stubs?.runtime ?? {
-        runtimeClient: {
-          getOrgAuth:
-            stubs?.cli?.getOrgAuth ??
-            (async ({ username }: { username?: string } = {}) => ({
-              username,
-              instanceUrl: 'https://example.com',
-              accessToken: 'token'
-            }))
-        }
+    '../../runtime/runtimeClient': stubs?.runtime ?? {
+      runtimeClient: {
+        getOrgAuth:
+          stubs?.cli?.getOrgAuth ??
+          (async ({ username }: { username?: string } = {}) => ({
+            username,
+            instanceUrl: 'https://example.com',
+            accessToken: 'token'
+          }))
       }
-  }) as typeof import('../../../../src/utils/tailService');
+    }
+  }) as typeof import('../host/utils/tailService');
 }
 
 class MockDisposable implements vscode.Disposable {
@@ -61,7 +60,7 @@ class MockWebview implements vscode.Webview {
 class MockWebviewView implements vscode.WebviewView {
   visible = true;
   title = 'Test';
-  viewType = 'sfLogTail';
+  viewType = 'electivus.apexLogViewer.tailView';
   description?: string | undefined;
   badge?: { value: number; tooltip: string } | undefined;
   webview: vscode.Webview;

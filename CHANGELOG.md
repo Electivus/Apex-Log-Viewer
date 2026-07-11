@@ -2,15 +2,22 @@
 
 ## Unreleased
 
+### Features
+
+- Architecture: introduce private `@alv/core` and `@alv/protocol` workspace packages so the VS Code extension and Salesforce CLI plugin share runtime behavior and contracts without coupling their delivery artifacts.
+- Extension: execute the shared TypeScript core in-process, remove the embedded Salesforce plugin runner from the VSIX, and move commands, views, and settings to the `electivus.apexLogViewer.*` namespace.
+- CLI/Plugin: expose each `sf electivus` operation as an independent `SfCommand` with singular topic names, declarative flags, and camel-case JSON results.
+
 ### Bug Fixes
 
 - Logs/Triage: replace the external parser fork with the shared TypeScript analyzer used by the CLI and extension, preserving structured validation, DML, assertion, rollback, fatal exception, and serialized-payload diagnostics without a native tree-sitter install.
 
 ### Chores
 
+- Build: migrate the JavaScript repository to a pnpm workspace with a single `pnpm-lock.yaml` and package-scoped manifests.
 - Extension: require VS Code 1.105+ so the extension host provides Node.js 22.19+, and update packaged requirements text.
 - CLI/Plugin: require Node.js 22.19+ for the standalone Salesforce CLI plugin to match the dependency runtime baseline.
-- Release/SF Plugin: bump `@electivus/plugin-electivus` to `0.1.19` for the next independent Salesforce CLI plugin npm release.
+- Release/SF Plugin: bump `@electivus/plugin-electivus` to `0.2.0` for the next independent Salesforce CLI plugin npm release.
 
 ## [0.50.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.48.1...v0.50.0) (2026-07-07)
 

@@ -50,7 +50,7 @@ Key runtime event families:
 - `command.refresh`: command invocation timing for the main refresh workflow.
 - `logs.search`: outcome, latency, match count, pending count, and query-length bucket for the in-view search experience.
 - `cli.command`: coarse latency/outcome for `sf`/`sfdx` process execution.
-- `sfPlugin.request`: coarse latency/outcome for calls into the bundled `sf electivus` plugin runner.
+- `core.request`: coarse latency/outcome for calls into the shared core bundled in the extension host.
 
 KQL quick queries
 
@@ -119,7 +119,7 @@ Sf plugin request latency by method:
 AppEvents
 | where TimeGenerated > ago(30d)
 | where _ResourceId =~ '<prod-component-resource-id>'
-| where Name == 'electivus.apex-log-viewer/sfPlugin.request'
+| where Name == 'electivus.apex-log-viewer/core.request'
 | extend props = parse_json(Properties), meas = parse_json(Measurements)
 | extend method = tostring(props['method']), outcome = tostring(props['outcome']), durationMs = todouble(meas['durationMs'])
 | summarize total = count(), errors = countif(outcome == 'error'), p95Ms = percentile(durationMs, 95) by method
@@ -167,7 +167,7 @@ GitHub Actions and packaging
 
 - Workflows can package or publish the VSIX without injecting telemetry secrets.
 - Keep `telemetry.json` in the packaged file list so the runtime and users can inspect the contract shipped in the VSIX.
-- `npm run test:e2e:telemetry` resolves the dedicated E2E App Insights connection string dynamically through `az`, so the test target stays out of the checked-in runtime package metadata.
+- `pnpm run test:e2e:telemetry` resolves the dedicated E2E App Insights connection string dynamically through `az`, so the test target stays out of the checked-in runtime package metadata.
 
 References
 

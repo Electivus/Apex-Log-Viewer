@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-import { __parseOrgListForTests } from '../../../../src/salesforce/cli';
+import { __parseOrgListForTests } from '../host/salesforce/cli';
 
 suite('parseOrgList', () => {
   test('merges groups and sorts with default first, then alias', () => {

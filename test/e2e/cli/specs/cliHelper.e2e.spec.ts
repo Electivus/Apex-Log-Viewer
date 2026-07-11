@@ -58,9 +58,9 @@ test('resolveElectivusPluginInvocation honors ALV_ELECTIVUS_PLUGIN_BIN_PATH', as
 
 test('resolveElectivusPluginInvocation fails clearly when the plugin bin is missing', async () => {
   await withTempRepo(async repoRoot => {
-    expect(() =>
-      resolveElectivusPluginInvocation({ repoRoot, env: withoutConfiguredPluginEnv() })
-    ).toThrow(/Unable to locate local sf electivus plugin bin/);
+    expect(() => resolveElectivusPluginInvocation({ repoRoot, env: withoutConfiguredPluginEnv() })).toThrow(
+      /Unable to locate local sf electivus plugin bin/
+    );
   });
 });
 
@@ -89,18 +89,18 @@ test('runAlvCli passes electivus and command args to the plugin bin', async () =
       'process.stdout.write(JSON.stringify({source:"plugin", marker:process.env.ALV_TEST_MARKER, args:process.argv.slice(2)}) + "\\n");\n'
     );
 
-    const result = await runAlvCli(['logs', 'status', '--target-org', 'demo'], {
+    const result = await runAlvCli(['log', 'status', '--target-org', 'demo'], {
       repoRoot,
       env: { ALV_TEST_MARKER: '1', ALV_ELECTIVUS_PLUGIN_BIN_PATH: '' }
     });
 
     expect(result.exitCode).toBe(0);
     expect(result.command).toBe(process.execPath);
-    expect(result.args).toEqual([pluginBinPath, 'electivus', 'logs', 'status', '--target-org', 'demo']);
+    expect(result.args).toEqual([pluginBinPath, 'electivus', 'log', 'status', '--target-org', 'demo']);
     expect(result.stdoutJson).toEqual({
       source: 'plugin',
       marker: '1',
-      args: ['electivus', 'logs', 'status', '--target-org', 'demo']
+      args: ['electivus', 'log', 'status', '--target-org', 'demo']
     });
   });
 });

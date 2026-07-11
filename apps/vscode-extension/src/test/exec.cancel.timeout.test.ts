@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-import { execCommand, __setExecFileImplForTests, __resetExecFileImplForTests } from '../../../../src/salesforce/exec';
+import { execCommand, __setExecFileImplForTests, __resetExecFileImplForTests } from '../host/salesforce/exec';
 
 suite('execCommand cancel and timeout', () => {
   teardown(() => {

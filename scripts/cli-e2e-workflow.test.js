@@ -54,6 +54,10 @@ function getTelemetryWorkflowStep(workflow, stepName) {
   return getWorkflowStep(workflow, stepName, 'playwright_e2e_telemetry');
 }
 
+function getRequiredWorkflowStep(workflow, stepName) {
+  return getWorkflowStep(workflow, stepName, 'playwright_e2e_required');
+}
+
 test('package.json test:scripts includes the CLI real-org workflow guard', () => {
   const packageJson = JSON.parse(read('package.json'));
 
@@ -64,6 +68,23 @@ test('package.json test:scripts includes the CLI real-org workflow guard', () =>
   );
 });
 
+test('real-org Playwright workflow exposes a stable required PR gate', () => {
+  const workflow = readWorkflow();
+  const job = getWorkflowJob(workflow, 'playwright_e2e_required');
+  const { step } = getRequiredWorkflowStep(workflow, 'Require successful Real Org E2E lanes');
+
+  assert.equal(job.name, 'Real Org E2E required');
+  assert.deepEqual(job.needs, ['playwright_e2e', 'playwright_e2e_os_matrix', 'playwright_e2e_telemetry']);
+  assert.equal(job.if, '${{ always() }}');
+  assert.equal(job['runs-on'], 'ubuntu-latest');
+  assert.equal(step.env?.UBUNTU_RESULT, '${{ needs.playwright_e2e.result }}');
+  assert.equal(step.env?.DIRECT_RESULT, '${{ needs.playwright_e2e_os_matrix.result }}');
+  assert.equal(step.env?.TELEMETRY_RESULT, '${{ needs.playwright_e2e_telemetry.result }}');
+  assert.match(String(step.run || ''), /UBUNTU_RESULT.*success/s);
+  assert.match(String(step.run || ''), /DIRECT_RESULT.*success/s);
+  assert.match(String(step.run || ''), /TELEMETRY_RESULT.*(?:success|skipped)/s);
+});
+
 test('real-org Playwright workflow runs the CLI suite before the extension suite and uploads separate CLI artifacts', () => {
   const workflow = readWorkflow();
   const cliStep = getWorkflowStep(workflow, 'Run CLI real-org E2E');
@@ -72,15 +93,18 @@ test('real-org Playwright workflow runs the CLI suite before the extension suite
 
   assert.match(
     String(cliStep.step.run || ''),
-    /\bnpm run test:e2e:proxy-lab -- npm run test:e2e:cli\b/,
-    'expected the workflow to run CLI real-org E2E through the MITM proxy lab'
+    /^\s*node scripts\/run-e2e-proxy-lab\.js pnpm run test:e2e:cli\s*$/m,
+    'expected the workflow to run CLI real-org E2E directly through the MITM proxy-lab orchestrator'
   );
   assert.ok(
-    !Object.prototype.hasOwnProperty.call(cliStep.step.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'),
+    !Object.prototype.hasOwnProperty.call(cliStep.step.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL'),
     'expected CLI real-org E2E to populate the proxy-lab dependency volume'
   );
   assert.ok(
-    !Object.prototype.hasOwnProperty.call(workflow?.jobs?.playwright_e2e?.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'),
+    !Object.prototype.hasOwnProperty.call(
+      workflow?.jobs?.playwright_e2e?.env || {},
+      'ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL'
+    ),
     'expected proxy-lab dependency reuse to stay scoped to the later extension step'
   );
   assert.equal(
@@ -130,8 +154,13 @@ test('real-org Playwright workflow runs the extension suite through the MITM pro
   );
   assert.match(
     runBlock,
-    /^\s*npm run test:e2e:proxy-lab -- npm run test:e2e\s*$/m,
-    'expected the extension suite to run through the MITM proxy lab'
+    /^\s*node scripts\/run-e2e-proxy-lab\.js pnpm run test:e2e\s*$/m,
+    'expected the extension suite to run directly through the MITM proxy-lab orchestrator'
+  );
+  assert.doesNotMatch(
+    `${cliStep.run || ''}\n${runBlock}`,
+    /pnpm run test:e2e:proxy-lab/,
+    'expected the dependency-free host orchestrator to run before the proxy-lab container installs dependencies'
   );
   assert.equal(
     cliStep.env?.PLAYWRIGHT_WORKERS,
@@ -149,8 +178,8 @@ test('real-org Playwright workflow runs the extension suite through the MITM pro
     'expected CLI E2E proxy-lab alias to follow the configured Dev Hub alias'
   );
   assert.equal(
-    extensionStep.env?.ALV_E2E_PROXY_LAB_SKIP_NPM_CI,
-    "${{ vars.ALV_E2E_PROXY_LAB_SKIP_NPM_CI || '1' }}",
+    extensionStep.env?.ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL,
+    "${{ vars.ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL || '1' }}",
     'expected extension E2E to use the configured proxy-lab dependency reuse setting'
   );
   assert.equal(
@@ -201,7 +230,7 @@ test('real-org Playwright workflow keeps E2E tunables configurable with safe def
     "${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}"
   );
   assert.equal(job?.env?.ALV_E2E_TELEMETRY_RUN_ID_SEED, 'github:${{ github.run_id }}/ubuntu');
-  assert.ok(!Object.prototype.hasOwnProperty.call(job?.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(job?.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL'));
 });
 
 test('real-org Playwright workflow runs once on Ubuntu without shard configuration', () => {
@@ -258,24 +287,12 @@ test('Ubuntu proxy-lab E2E jobs avoid redundant host dependency setup', () => {
   );
 });
 
-test('real-org Playwright workflow serializes CI runs by scratch-org pool', () => {
+test('real-org Playwright workflow lets scratch-org leases bound concurrent CI runs', () => {
   const workflow = readWorkflow();
-  const concurrency = workflow?.concurrency || {};
-
   assert.equal(
-    concurrency.group,
-    "${{ vars.SF_SCRATCH_POOL_NAME != '' && format('e2e-playwright-pool-{0}', vars.SF_SCRATCH_POOL_NAME) || 'sf-e2e-scratch-global' }}",
-    'expected E2E workflow concurrency to be keyed by shared scratch-org pool name'
-  );
-  assert.equal(
-    concurrency['cancel-in-progress'],
-    false,
-    'expected an active E2E run to finish instead of being canceled by another shared-pool run'
-  );
-  assert.doesNotMatch(
-    String(concurrency.group || ''),
-    /github\.ref/,
-    'expected dependency PR bursts to share the same pool concurrency group instead of one group per ref'
+    workflow?.concurrency,
+    undefined,
+    'expected the atomic scratch-org lease service to enforce pool capacity without serializing whole workflow runs'
   );
 });
 
@@ -376,26 +393,20 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
   assert.equal(uploadExtensionStep.step.with?.path, 'output/playwright/');
 });
 
-test('direct E2E jobs restore cached dependencies and build in the same job', () => {
+test('direct E2E jobs install with the frozen pnpm lock and build in the same job', () => {
   const workflow = readWorkflow();
   const job = getWorkflowJob(workflow, 'playwright_e2e_os_matrix');
-  const cacheStep = getDirectWorkflowStep(workflow, 'Restore direct E2E dependency cache');
   const installDepsStep = getDirectWorkflowStep(workflow, 'Install extension dependencies');
   const buildStep = getDirectWorkflowStep(workflow, 'Build direct E2E artifacts');
   const requireConfigStep = getDirectWorkflowStep(workflow, 'Require scratch-org pool configuration');
 
   assert.ok(
-    cacheStep.index < installDepsStep.index &&
-      installDepsStep.index < buildStep.index &&
-      buildStep.index < requireConfigStep.index,
+    installDepsStep.index < buildStep.index && buildStep.index < requireConfigStep.index,
     'expected dependency fallback and build to run before the E2E commands'
   );
   assert.ok(!Object.prototype.hasOwnProperty.call(workflow.jobs, 'playwright_e2e_os_prepare'));
-  assert.equal(cacheStep.step.uses, 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9');
-  assert.match(String(cacheStep.step.with?.key || ''), /^direct-e2e-node-modules-/);
-  assert.match(String(cacheStep.step.with?.path || ''), /node_modules/);
-  assert.equal(installDepsStep.step.if, "steps.direct-e2e-deps.outputs.cache-hit != 'true'");
-  assert.equal(buildStep.step.run, 'npm run build');
+  assert.equal(installDepsStep.step.run, 'pnpm install --frozen-lockfile');
+  assert.equal(buildStep.step.run, 'pnpm run build');
   assert.ok(!job.steps.some(step => step.name === 'Download direct E2E build artifacts'));
   assert.ok(!job.steps.some(step => step.name === 'Restore direct E2E runtime executable bits'));
 });
@@ -431,7 +442,7 @@ test('direct macOS Playwright workflow runs Salesforce CLI through the cached se
   assert.equal(restoreProjectNodeStep.step.with?.['node-version-file'], '.nvmrc');
   assert.ok(
     restoreProjectNodeStep.index < installDepsStep.index,
-    'expected npm ci to run under the project Node version'
+    'expected pnpm install to run under the project Node version'
   );
 });
 
@@ -456,7 +467,7 @@ test('real-org Playwright workflow runs telemetry validation after the E2E jobs'
   assert.ok(!Object.prototype.hasOwnProperty.call(job.env || {}, 'PLAYWRIGHT_WORKERS'));
   assert.ok(!Object.prototype.hasOwnProperty.call(job.env || {}, 'SCRATCH_POOL_NAME'));
   assert.ok(!Object.prototype.hasOwnProperty.call(job.env || {}, 'SALESFORCE_CLI_PACKAGE'));
-  assert.ok(!Object.prototype.hasOwnProperty.call(job.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_NPM_CI'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(job.env || {}, 'ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL'));
   assert.equal(
     job.env?.HAS_AZURE_E2E_TELEMETRY_CONFIG,
     "${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}"

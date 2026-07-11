@@ -41,6 +41,21 @@ function workspacePatterns() {
   if (Array.isArray(workspaces?.packages)) {
     return workspaces.packages.filter(pattern => typeof pattern === 'string' && pattern.trim());
   }
+  const pnpmWorkspacePath = path.join(repoRoot, 'pnpm-workspace.yaml');
+  if (fs.existsSync(pnpmWorkspacePath)) {
+    const patterns = [];
+    let inPackages = false;
+    for (const line of fs.readFileSync(pnpmWorkspacePath, 'utf8').split(/\r?\n/u)) {
+      if (/^packages:\s*$/u.test(line)) {
+        inPackages = true;
+        continue;
+      }
+      if (inPackages && /^\S/u.test(line)) break;
+      const match = inPackages ? line.match(/^\s+-\s+['"]?([^'"]+)['"]?\s*$/u) : undefined;
+      if (match?.[1]) patterns.push(match[1]);
+    }
+    return patterns;
+  }
   return [];
 }
 
@@ -90,7 +105,7 @@ function manifests() {
 function lockfiles() {
   return Array.from(
     new Set(
-      ['package-lock.json', 'npm-shrinkwrap.json'].flatMap(fileName => [
+      ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml'].flatMap(fileName => [
         path.join(repoRoot, fileName),
         ...workspaceFilePaths(fileName)
       ])
@@ -269,6 +284,51 @@ function lockPackageSource(packageMeta) {
   return isRemoteDependencySpec(version) ? version : '';
 }
 
+function unquoteYaml(value) {
+  return String(value || '').trim().replace(/^(['"])(.*)\1$/u, '$2');
+}
+
+function validatePnpmLock(lockfilePath, failures) {
+  const lines = fs.readFileSync(lockfilePath, 'utf8').split(/\r?\n/u);
+  let inImporters = false;
+  let importer = '.';
+  let dependencyName = '';
+
+  for (const [index, line] of lines.entries()) {
+    if (/^importers:\s*$/u.test(line)) {
+      inImporters = true;
+      continue;
+    }
+    if (inImporters && /^\S/u.test(line)) inImporters = false;
+    if (inImporters) {
+      const importerMatch = line.match(/^  ([^ ].*):\s*$/u);
+      if (importerMatch?.[1]) {
+        importer = unquoteYaml(importerMatch[1]);
+        dependencyName = '';
+      }
+      const dependencyMatch = line.match(/^      (.+):\s*$/u);
+      if (dependencyMatch?.[1]) dependencyName = unquoteYaml(dependencyMatch[1]);
+      const linkMatch = line.match(/^        version:\s+link:(.+)\s*$/u);
+      if (linkMatch?.[1]) {
+        const importerDir = path.resolve(repoRoot, importer === '.' ? '' : importer);
+        const linkedPath = path.resolve(importerDir, unquoteYaml(linkMatch[1]));
+        if (workspacePackageNamesByDir.get(linkedPath) !== dependencyName) {
+          failures.push(
+            `${formatRelativePathForReport(lockfilePath)}:${index + 1} -> ${dependencyName || '(unknown)'} -> link:${linkMatch[1]}`
+          );
+        }
+      }
+    }
+
+    for (const match of line.matchAll(/(?:git\+|https?:\/\/|github:|gitlab:|bitbucket:|gist:|file:)[^\s'",}\]]+/giu)) {
+      const source = match[0];
+      if (!isRegistryTarball(source)) {
+        failures.push(`${formatRelativePathForReport(lockfilePath)}:${index + 1} -> ${source}`);
+      }
+    }
+  }
+}
+
 const failures = [];
 
 for (const manifestPath of manifests()) {
@@ -297,6 +357,10 @@ for (const manifestPath of manifests()) {
 }
 
 for (const lockfilePath of lockfiles()) {
+  if (lockfilePath.endsWith('.yaml')) {
+    validatePnpmLock(lockfilePath, failures);
+    continue;
+  }
   const lockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
   if (lockfile.packages && typeof lockfile.packages === 'object') {
     for (const [packagePath, packageMeta] of Object.entries(lockfile.packages)) {

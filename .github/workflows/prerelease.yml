@@ -69,24 +69,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build (type-check + lint + bundle)
-        run: npm run package
+        run: pnpm run package
 
       - name: Run unit tests (fast)
-        run: npm run test:unit:ci
+        run: pnpm run test:unit:ci
 
   prepare:
     name: Prepare nightly metadata
@@ -104,18 +107,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Compute nightly version
         id: meta
@@ -177,18 +183,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Set nightly version in apps/vscode-extension/package.json
         run: |
@@ -200,14 +209,13 @@ jobs:
           MATRIX_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          npm run clean
-          npm run build:sf-plugin
-          npm run build:embedded-sf-plugin
-          npm run build:ripgrep-runtime -- "${MATRIX_TARGET}"
-          npm run build:package-metadata
+          pnpm run clean
+          pnpm run build:shared
+          pnpm run build:ripgrep-runtime "${MATRIX_TARGET}"
+          pnpm run build:package-metadata
           node apps/vscode-extension/esbuild.extension.mjs
-          npm run l10n:write
-          npm run build:webview
+          pnpm run l10n:write
+          pnpm run build:webview
 
       - name: Clean previous VSIX artifacts
         run: |
@@ -218,7 +226,7 @@ jobs:
         env:
           MATRIX_TARGET: ${{ matrix.target }}
         run: |
-          node scripts/run-vsce.js package --skip-prepublish --no-yarn --target "${MATRIX_TARGET}" --out "apex-log-viewer-${VERSION}-${CHANNEL_SUFFIX}-${MATRIX_TARGET}.vsix" --pre-release
+          node scripts/run-vsce.js package --no-dependencies --skip-prepublish --no-yarn --target "${MATRIX_TARGET}" --out "apex-log-viewer-${VERSION}-${CHANNEL_SUFFIX}-${MATRIX_TARGET}.vsix" --pre-release
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -327,10 +335,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
+      - name: Install publishing dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Download VSIX artifact from prerelease job
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -356,7 +373,7 @@ jobs:
           for FILE in "${FILES[@]}"; do
             echo "Publishing ${FILE}"
             set +e
-            OUTPUT=$(npx --yes @vscode/vsce publish --packagePath "${FILE}" --pre-release 2>&1)
+            OUTPUT=$(pnpm exec vsce publish --packagePath "${FILE}" --pre-release 2>&1)
             STATUS=$?
             set -e
             echo "$OUTPUT"
@@ -380,10 +397,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
+      - name: Install publishing dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Download VSIX artifact from prerelease job
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -410,7 +436,7 @@ jobs:
           for FILE in "${FILES[@]}"; do
             echo "Publishing ${FILE} to Open VSX"
             set +e
-            OUTPUT=$(npx --yes ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}" --pre-release 2>&1)
+            OUTPUT=$(pnpm dlx ovsx publish --pat "${OVSX_PAT}" --packagePath "${FILE}" --pre-release 2>&1)
             STATUS=$?
             set -e
             echo "$OUTPUT"

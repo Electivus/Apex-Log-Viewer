@@ -4,6 +4,6 @@ name = "Apex-Log-Viewer"
 
 [setup]
 script = '''
-npm ci
-npm run build
+pnpm install --frozen-lockfile
+pnpm run build
 '''

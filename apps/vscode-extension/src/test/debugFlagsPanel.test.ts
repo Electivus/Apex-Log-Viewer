@@ -11,14 +11,37 @@ function loadDebugFlagsPanel(stubs?: {
   cli?: Record<string, unknown>;
 }) {
   return proxyquireStrict('../panel/DebugFlagsPanel', {
-    '../../../../src/salesforce/traceflags': stubs?.traceflags ?? {},
+    '../host/salesforce/traceflags': stubs?.traceflags ?? {},
     '../shared/telemetry': stubs?.telemetry ?? {},
     '../runtime/runtimeClient': stubs?.runtime ?? {},
-    '../../../../src/salesforce/cli': stubs?.cli ?? {}
+    '../host/salesforce/cli': stubs?.cli ?? {}
   }) as typeof import('../panel/DebugFlagsPanel');
 }
 
 suite('DebugFlagsPanel', () => {
+  test('sendDebugLevelData serializes the in-process runtime reads', async () => {
+    const { DebugFlagsPanel } = loadDebugFlagsPanel();
+    const calls: string[] = [];
+    const panelLike = {
+      disposed: false,
+      listDebugLevelDetailsWithRuntimeFallback: async () => {
+        calls.push('details:start');
+        await Promise.resolve();
+        calls.push('details:end');
+        return [];
+      },
+      getActiveUserDebugLevelWithRuntimeFallback: async () => {
+        calls.push('active');
+        return undefined;
+      },
+      post: () => undefined
+    };
+
+    await (DebugFlagsPanel as any).prototype.sendDebugLevelData.call(panelLike, {} as any);
+
+    assert.deepEqual(calls, ['details:start', 'details:end', 'active']);
+  });
+
   test('sendDebugLevelData ignores stale bootstrap results', async () => {
     let resolveDetails: ((value: ReturnType<typeof createEmptyDebugLevelRecord>[]) => void) | undefined;
     let resolveActive: ((value: string | undefined) => void) | undefined;
@@ -62,7 +85,11 @@ suite('DebugFlagsPanel', () => {
         masterLabel: 'ALV Stale'
       }
     ]);
-    resolveActive?.('ALV_STALE');
+    for (let attempt = 0; attempt < 5 && !resolveActive; attempt += 1) {
+      await Promise.resolve();
+    }
+    assert.ok(resolveActive);
+    resolveActive('ALV_STALE');
     await promise;
 
     assert.deepEqual(posted, []);

@@ -1,5 +1,5 @@
 import assert from 'assert/strict';
-import { pickSelectedOrg } from '../../../../src/utils/orgs';
+import { pickSelectedOrg } from '../host/utils/orgs';
 import type { OrgItem } from '../shared/types';
 
 suite('pickSelectedOrg', () => {

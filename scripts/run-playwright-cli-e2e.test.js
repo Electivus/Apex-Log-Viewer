@@ -22,7 +22,7 @@ function loadRunner() {
   return require(resolvedRunnerPath);
 }
 
-test('ensureSfPluginBuildArtifacts runs npm run build:sf-plugin when the plugin command is missing', async () => {
+test('ensureSfPluginBuildArtifacts runs pnpm run build:sf-plugin when the plugin command is missing', async () => {
   const repoRoot = createTempRepo();
   try {
     const runner = loadRunner();
@@ -45,9 +45,9 @@ test('ensureSfPluginBuildArtifacts runs npm run build:sf-plugin when the plugin 
     assert.ok(recordedCall, 'expected ensureSfPluginBuildArtifacts to invoke the plugin build command');
     if (process.platform === 'win32') {
       assert.equal(recordedCall.command, process.env.ComSpec || 'cmd.exe');
-      assert.deepEqual(recordedCall.args, ['/d', '/s', '/c', 'npm.cmd', 'run', 'build:sf-plugin']);
+      assert.deepEqual(recordedCall.args, ['/d', '/s', '/c', 'pnpm.cmd', 'run', 'build:sf-plugin']);
     } else {
-      assert.equal(recordedCall.command, 'npm');
+      assert.equal(recordedCall.command, 'pnpm');
       assert.deepEqual(recordedCall.args, ['run', 'build:sf-plugin']);
     }
     assert.equal(recordedCall.options.cwd, repoRoot);
@@ -57,7 +57,7 @@ test('ensureSfPluginBuildArtifacts runs npm run build:sf-plugin when the plugin 
   }
 });
 
-test('ensureSfPluginBuildArtifacts skips npm run build:sf-plugin when the plugin command exists', async () => {
+test('ensureSfPluginBuildArtifacts skips pnpm run build:sf-plugin when the plugin command exists', async () => {
   const repoRoot = createTempRepo();
   try {
     const runner = loadRunner();

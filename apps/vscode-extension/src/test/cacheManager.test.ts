@@ -1,6 +1,6 @@
 import assert from 'assert/strict';
 import * as vscode from 'vscode';
-import { CacheManager } from '../../../../src/utils/cacheManager';
+import { CacheManager } from '../host/utils/cacheManager';
 
 class MemoryMemento implements vscode.Memento {
   private store = new Map<string, unknown>();

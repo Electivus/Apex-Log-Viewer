@@ -4,6 +4,7 @@ set -euo pipefail
 MITM_CA_SOURCE="${ALV_E2E_PROXY_LAB_MITM_CA_SOURCE:-/mitmproxy/mitmproxy-ca-cert.cer}"
 MITM_CA_DEST="${ALV_E2E_PROXY_LAB_MITM_CA_DEST:-/usr/local/share/ca-certificates/alv-mitmproxy-ca.crt}"
 SYSTEM_CA_BUNDLE="${ALV_E2E_PROXY_LAB_SYSTEM_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}"
+PNPM_STORE_PATH="${ALV_E2E_PROXY_LAB_PNPM_STORE_PATH:-/root/.local/share/pnpm/store}"
 DEVHUB_ALIAS="${SF_DEVHUB_ALIAS:-ConfiguredDevHub}"
 HOST_GENERATED_PATHS=(
   "apps/vscode-extension/bin"
@@ -13,6 +14,8 @@ HOST_GENERATED_PATHS=(
   "dist"
   "out"
   "output"
+  "packages/core/lib"
+  "packages/protocol/lib"
   "packages/sf-plugin/lib"
   "packages/sf-plugin/skills"
   "packages/sf-plugin/oclif.manifest.json"
@@ -131,11 +134,11 @@ verify_authenticated_mitm_proxy() {
 }
 
 install_dependencies() {
-  if [[ "${ALV_E2E_PROXY_LAB_SKIP_NPM_CI:-}" != "1" ]]; then
-    echo "[proxy-lab] Installing npm dependencies through the MITM proxy..."
-    npm ci
+  if [[ "${ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL:-}" != "1" ]]; then
+    echo "[proxy-lab] Installing pnpm workspace dependencies through the MITM proxy..."
+    pnpm install --frozen-lockfile --store-dir "${PNPM_STORE_PATH}"
   else
-    echo "[proxy-lab] Skipping npm ci because ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1."
+    echo "[proxy-lab] Skipping pnpm install because ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL=1."
   fi
 }
 
@@ -442,8 +445,8 @@ run_requested_command() {
     return
   fi
 
-  echo "[proxy-lab] Running default command: npm run test:e2e"
-  npm run test:e2e
+  echo "[proxy-lab] Running default command: pnpm run test:e2e"
+  pnpm run test:e2e
 }
 
 wait_for_mitm_ca

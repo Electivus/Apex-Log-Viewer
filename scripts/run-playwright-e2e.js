@@ -6,12 +6,7 @@ const { existsSync } = require('fs');
 const { platform } = require('os');
 const path = require('path');
 
-function resolveEmbeddedRunnerRelativePath() {
-  return path.posix.join('apps', 'vscode-extension', 'sf-plugin', 'electivus-runner.cjs');
-}
-
 const requiredBuildArtifacts = [
-  resolveEmbeddedRunnerRelativePath(),
   'apps/vscode-extension/dist/extension.js',
   'apps/vscode-extension/media/webview.css',
   'apps/vscode-extension/media/main.js',
@@ -80,12 +75,12 @@ function resolveBuildInvocation(targetPlatform = process.platform) {
   if (targetPlatform === 'win32') {
     return {
       command: process.env.ComSpec || 'cmd.exe',
-      args: ['/d', '/s', '/c', 'npm.cmd', 'run', 'build']
+      args: ['/d', '/s', '/c', 'pnpm.cmd', 'run', 'build']
     };
   }
 
   return {
-    command: 'npm',
+    command: 'pnpm',
     args: ['run', 'build']
   };
 }
@@ -109,7 +104,7 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
   }
 
   console.log(
-    `[e2e] Missing build artifacts (${missingArtifacts.join(', ')}). Running npm run build before Playwright...`
+    `[e2e] Missing build artifacts (${missingArtifacts.join(', ')}). Running pnpm run build before Playwright...`
   );
   const buildInvocation = resolveBuildInvocation();
   const result = await spawnAsync(
@@ -121,7 +116,7 @@ async function ensureBuildArtifacts(repoRoot, options = {}) {
   if (result.code !== 0) {
     const details =
       typeof result.code === 'number' ? `exit code ${result.code}` : `signal ${result.signal || 'unknown'}`;
-    throw new Error(`npm run build failed while preparing Playwright E2E (${details}).`);
+    throw new Error(`pnpm run build failed while preparing Playwright E2E (${details}).`);
   }
 }
 
@@ -205,7 +200,6 @@ module.exports = {
   ensureBuildArtifacts,
   findMissingBuildArtifacts,
   requiredBuildArtifacts,
-  resolveEmbeddedRunnerRelativePath,
   resolveBuildInvocation,
   resolvePlaywrightEnv,
   resolvePlaywrightShardArgs,

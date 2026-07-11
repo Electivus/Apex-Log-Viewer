@@ -12,7 +12,7 @@ const buildOptions = {
   format: 'cjs',
   sourcemap: true,
   minify,
-  external: ['vscode', '@vscode/ripgrep'],
+  external: ['vscode'],
   plugins: watchMode
     ? [
         {

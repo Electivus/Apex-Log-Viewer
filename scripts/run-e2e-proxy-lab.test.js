@@ -178,6 +178,7 @@ test('proxy lab compose persists runner caches and Salesforce CLI auth state', (
     ['e2e_proxy_node_modules', '/workspace/node_modules'],
     ['e2e_proxy_vscode_test', '/workspace/.vscode-test'],
     ['e2e_proxy_npm_cache', '/root/.npm'],
+    ['e2e_proxy_pnpm_store', '/root/.local/share/pnpm/store'],
     ['e2e_proxy_sf', '/root/.sf'],
     ['e2e_proxy_sfdx', '/root/.sfdx']
   ]) {
@@ -193,6 +194,8 @@ test('proxy lab runner restores ownership of bind-mounted generated outputs on e
   assert.match(script, /trap restore_host_ownership EXIT/);
   assert.match(script, /ALV_E2E_PROXY_LAB_HOST_UID/);
   assert.match(script, /apps\/vscode-extension\/bin/);
+  assert.match(script, /packages\/core\/lib/);
+  assert.match(script, /packages\/protocol\/lib/);
   assert.match(script, /packages\/sf-plugin\/lib/);
   assert.match(script, /packages\/sf-plugin\/skills/);
   assert.match(script, /packages\/sf-plugin\/oclif\.manifest\.json/);
@@ -245,6 +248,20 @@ test('proxy lab runner can install an explicit Salesforce CLI package before pre
     /verify_node_https_proxy\s*\ninstall_salesforce_cli_override\s*\npreflight_salesforce_cli/,
     'expected the Salesforce CLI override install to run after proxy validation and before Salesforce preflight'
   );
+});
+
+test('proxy lab runner installs the pnpm workspace from the frozen lockfile', () => {
+  const script = readProxyLabScript();
+  const gitignore = read('.gitignore');
+
+  assert.match(
+    script,
+    /PNPM_STORE_PATH="\$\{ALV_E2E_PROXY_LAB_PNPM_STORE_PATH:-\/root\/\.local\/share\/pnpm\/store\}"/
+  );
+  assert.match(script, /pnpm install --frozen-lockfile --store-dir "\$\{PNPM_STORE_PATH\}"/);
+  assert.match(script, /ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL/);
+  assert.doesNotMatch(script, /\bnpm ci\b/);
+  assert.match(gitignore, /^\.pnpm-store\/$/m);
 });
 
 test('proxy lab runner requires Dev Hub auth for real-org commands only', () => {
@@ -328,6 +345,8 @@ test('proxy lab runner image installs the configured Salesforce CLI package', ()
     /^ARG ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE=@salesforce\/cli@2\.136\.8$/m
   );
   assert.match(runnerDockerfile, /npm install -g "\$\{ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE\}" --no-audit --no-fund/);
+  assert.match(runnerDockerfile, /^ARG ALV_PNPM_VERSION=11\.11\.0$/m);
+  assert.match(runnerDockerfile, /npm install -g "pnpm@\$\{ALV_PNPM_VERSION\}" --no-audit --no-fund/);
 });
 
 test('proxy lab Dockerfiles bound apt network waits during image builds', () => {

@@ -4,7 +4,7 @@ import {
   execCommand as __execCommandForTests,
   __setExecFileImplForTests,
   __resetExecFileImplForTests
-} from '../../../../src/salesforce/exec';
+} from '../host/salesforce/exec';
 
 suite('execCommand error messages', () => {
   teardown(() => {

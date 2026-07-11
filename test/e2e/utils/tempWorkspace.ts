@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { envFlag } from './envFlag';
@@ -15,7 +15,7 @@ function resolveDefaultWorkspaceSettings(overrides?: Record<string, unknown>): R
   return {
     // Keep extension tracing enabled during E2E runs so preserved user-data/logs
     // contain enough detail to diagnose runtime or UI flakiness afterward.
-    'sfLogs.trace': true,
+    'electivus.apexLogViewer.logging.trace': true,
     'window.logLevel': String(defaultLogLevel),
     ...(overrides || {})
   };
@@ -51,43 +51,13 @@ export async function createTempWorkspace(options: {
       'utf8'
     );
 
-    // Ensure the extension host can locate the Salesforce CLI even when VS Code
-    // is launched in an environment with a minimal PATH.
-    if (options.sfCli?.sfBinPath) {
-      const vscodeDir = path.join(workspacePath, '.vscode');
-      await mkdir(vscodeDir, { recursive: true });
-
-      const settings = resolveDefaultWorkspaceSettings(options.settings);
-      let cliPath = options.sfCli.sfBinPath;
-      // On Unix-like systems, wrap `sf` so it can find `node` even if VS Code
-      // starts with a minimal PATH.
-      if (process.platform !== 'win32' && options.sfCli.nodeBinPath) {
-        const wrapperPath = path.join(vscodeDir, 'sf-cli.sh');
-        const nodeDir = path.dirname(options.sfCli.nodeBinPath);
-        const script = [
-          '#!/bin/bash',
-          'set -euo pipefail',
-          'unset ELECTRON_RUN_AS_NODE',
-          'unset NODE_OPTIONS',
-          `export PATH="${nodeDir}:$PATH"`,
-          `exec "${options.sfCli.sfBinPath}" "$@"`,
-          ''
-        ].join('\n');
-        await writeFile(wrapperPath, script, 'utf8');
-        await chmod(wrapperPath, 0o755);
-        cliPath = wrapperPath;
-      }
-      settings['electivus.apexLogs.cliPath'] = cliPath;
-      await writeFile(path.join(vscodeDir, 'settings.json'), JSON.stringify(settings, null, 2), 'utf8');
-    } else {
-      const vscodeDir = path.join(workspacePath, '.vscode');
-      await mkdir(vscodeDir, { recursive: true });
-      await writeFile(
-        path.join(vscodeDir, 'settings.json'),
-        JSON.stringify(resolveDefaultWorkspaceSettings(options.settings), null, 2),
-        'utf8'
-      );
-    }
+    const vscodeDir = path.join(workspacePath, '.vscode');
+    await mkdir(vscodeDir, { recursive: true });
+    await writeFile(
+      path.join(vscodeDir, 'settings.json'),
+      JSON.stringify(resolveDefaultWorkspaceSettings(options.settings), null, 2),
+      'utf8'
+    );
 
     return {
       workspacePath,

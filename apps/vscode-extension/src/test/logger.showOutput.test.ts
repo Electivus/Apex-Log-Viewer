@@ -4,7 +4,7 @@ import proxyquire from 'proxyquire';
 suite('logger showOutput', () => {
   test('reveals output channel', () => {
     let preserve: boolean | undefined;
-    const { showOutput } = proxyquire('../../../../src/utils/logger', {
+    const { showOutput } = proxyquire('../host/utils/logger', {
       vscode: {
         window: {
           createOutputChannel: () => ({
@@ -29,7 +29,7 @@ suite('logger showOutput', () => {
   });
 
   test('redacts token-shaped log values from recent diagnostic entries', () => {
-    const { getRecentLogEntries, logInfo } = proxyquire('../../../../src/utils/logger', {
+    const { getRecentLogEntries, logInfo } = proxyquire('../host/utils/logger', {
       vscode: {
         window: {
           createOutputChannel: () => ({

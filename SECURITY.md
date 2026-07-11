@@ -81,10 +81,10 @@ security controls detect risk.
   mutable tags.
 - Pull requests run dependency review and fail on new moderate-or-higher risk
   dependencies in runtime or development scopes.
-- Before any workflow `npm ci`, CI runs `node scripts/check-dependency-sources.mjs`
+- Before any workflow `pnpm install --frozen-lockfile`, CI runs `node scripts/check-dependency-sources.mjs`
   to block unapproved dependency source types in both manifests and
-  `package-lock.json`, including arbitrary git, tarball, file, or URL sources.
-- CI also runs `npm audit signatures` so npm registry signature/attestation
+  `pnpm-lock.yaml`, including arbitrary git, tarball, file, or URL sources.
+- CI also runs `pnpm audit signatures` so npm registry signature/attestation
   coverage is validated as part of the gated path.
 - Workflow files, package manifests, lockfiles, plugin packaging scripts, and
   release/publish scripts are protected by `CODEOWNERS`.

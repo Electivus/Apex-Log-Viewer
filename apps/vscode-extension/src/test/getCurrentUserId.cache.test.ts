@@ -1,8 +1,8 @@
 import assert from 'assert/strict';
 import { EventEmitter } from 'events';
-import { getCurrentUserId, __resetUserIdCacheForTests } from '../../../../src/salesforce/traceflags';
-import { __setHttpsRequestImplForTests, __resetHttpsRequestImplForTests } from '../../../../src/salesforce/http';
-import type { OrgAuth } from '../../../../src/salesforce/types';
+import { getCurrentUserId, __resetUserIdCacheForTests } from '../host/salesforce/traceflags';
+import { __setHttpsRequestImplForTests, __resetHttpsRequestImplForTests } from '../host/salesforce/http';
+import type { OrgAuth } from '../host/salesforce/types';
 
 suite('getCurrentUserId caching', () => {
   teardown(() => {

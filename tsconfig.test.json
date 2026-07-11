@@ -12,6 +12,18 @@
     "types": ["node", "mocha"],
     "baseUrl": ".",
     "paths": {
+      "@alv/core": [
+        "packages/core/src/index.ts"
+      ],
+      "@alv/core/*": [
+        "packages/core/src/*"
+      ],
+      "@alv/protocol": [
+        "packages/protocol/src/index.ts"
+      ],
+      "@alv/protocol/*": [
+        "packages/protocol/src/*"
+      ],
       "react-window": [
         "apps/vscode-extension/src/test/stubs/react-window"
       ]
@@ -21,9 +33,7 @@
     "apps/vscode-extension/src/**/*.ts",
     "packages/webview/src/i18n.ts",
     "packages/webview/src/utils/logViewerParser.ts",
-    "packages/webview/src/utils/tail.ts",
-    "src/**/*.ts",
-    "src/**/*.tsx"
+    "packages/webview/src/utils/tail.ts"
   ],
   "exclude": [
     "node_modules",

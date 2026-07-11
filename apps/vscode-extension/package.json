@@ -2,7 +2,7 @@
   "name": "apex-log-viewer",
   "displayName": "Electivus Apex Log Viewer",
   "description": "Fast, searchable Salesforce Apex logs in VS Code — browse, filter, tail, and debug with Apex Replay.",
-  "version": "0.50.0",
+  "version": "0.51.0",
   "publisher": "electivus",
   "telemetryConnectionString": "InstrumentationKey=a8895b37-e877-4b0c-bed4-0d421e313bf5;IngestionEndpoint=https://eastus-8.in.applicationinsights.azure.com/;LiveEndpoint=https://eastus.livediagnostics.monitor.azure.com/;ApplicationId=91194049-f752-4b25-934c-0cdef9251e6f",
   "license": "MIT",
@@ -64,8 +64,7 @@
     "media/tail.js",
     "media/logViewer.js",
     "media/debugFlags.js",
-    "sf-plugin/**",
-    "node_modules/@vscode/ripgrep*/**",
+    "bin/**",
     "README.md",
     "CHANGELOG.md",
     "LICENSE",
@@ -79,70 +78,31 @@
     "configuration": {
       "title": "%configuration.title%",
       "properties": {
-        "electivus.apexLogs.pageSize": {
+        "electivus.apexLogViewer.logs.pageSize": {
           "type": "number",
           "default": 100,
           "minimum": 10,
-          "markdownDescription": "%configuration.electivus.apexLogs.pageSize.description%"
+          "markdownDescription": "%configuration.electivus.apexLogViewer.logs.pageSize.description%"
         },
-        "electivus.apexLogs.headConcurrency": {
+        "electivus.apexLogViewer.logs.processingConcurrency": {
           "type": "number",
           "default": 5,
           "minimum": 1,
-          "markdownDescription": "%configuration.electivus.apexLogs.headConcurrency.description%"
+          "markdownDescription": "%configuration.electivus.apexLogViewer.logs.processingConcurrency.description%"
         },
-        "electivus.apexLogs.saveDirName": {
-          "type": "string",
-          "default": "apexlogs",
-          "markdownDescription": "%configuration.electivus.apexLogs.saveDirName.description%"
-        },
-        "electivus.apexLogs.trace": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "Enable verbose trace logging for CLI and HTTP calls (Output: Electivus Apex Log Viewer)."
-        },
-        "electivus.apexLogs.cliPath": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "%configuration.electivus.apexLogs.cliPath.description%"
-        },
-        "electivus.apexLogs.tailBufferSize": {
+        "electivus.apexLogViewer.tail.bufferLines": {
           "type": "number",
           "default": 10000,
           "minimum": 1000,
           "maximum": 200000,
-          "markdownDescription": "%configuration.electivus.apexLogs.tailBufferSize.description%"
+          "markdownDescription": "%configuration.electivus.apexLogViewer.tail.bufferLines.description%"
         },
-        "electivus.apexLogs.cliCache.enabled": {
+        "electivus.apexLogViewer.logging.trace": {
           "type": "boolean",
-          "default": true,
-          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.enabled.description%"
+          "default": false,
+          "markdownDescription": "%configuration.electivus.apexLogViewer.logging.trace.description%"
         },
-        "electivus.apexLogs.cliCache.orgListTtlSeconds": {
-          "type": "number",
-          "default": 86400,
-          "minimum": 0,
-          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.orgListTtlSeconds.description%"
-        },
-        "electivus.apexLogs.cliCache.authTtlSeconds": {
-          "type": "number",
-          "default": 0,
-          "minimum": 0,
-          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authTtlSeconds.description%"
-        },
-        "electivus.apexLogs.cliCache.authPersistentTtlSeconds": {
-          "type": "number",
-          "default": 86400,
-          "minimum": 0,
-          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authPersistentTtlSeconds.description%"
-        },
-        "electivus.apexLogs.cliCache.debugLevelsTtlSeconds": {
-          "type": "number",
-          "default": 300,
-          "minimum": 0,
-          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.debugLevelsTtlSeconds.description%"
-        },
-        "electivus.apexLogs.logsColumns": {
+        "electivus.apexLogViewer.logs.columns": {
           "type": "object",
           "default": {
             "order": [
@@ -167,7 +127,7 @@
             },
             "widths": {}
           },
-          "markdownDescription": "%configuration.electivus.apexLogs.logsColumns.description%",
+          "markdownDescription": "%configuration.electivus.apexLogViewer.logs.columns.description%",
           "properties": {
             "order": {
               "type": "array",
@@ -252,102 +212,34 @@
               }
             }
           }
-        },
-        "sfLogs.pageSize": {
-          "type": "number",
-          "default": 100,
-          "minimum": 10,
-          "markdownDescription": "%configuration.electivus.apexLogs.pageSize.description%",
-          "deprecationMessage": "Deprecated: use electivus.apexLogs.pageSize"
-        },
-        "sfLogs.headConcurrency": {
-          "type": "number",
-          "default": 5,
-          "minimum": 1,
-          "markdownDescription": "%configuration.electivus.apexLogs.headConcurrency.description%",
-          "deprecationMessage": "Deprecated: use electivus.apexLogs.headConcurrency"
-        },
-        "sfLogs.saveDirName": {
-          "type": "string",
-          "default": "apexlogs",
-          "markdownDescription": "%configuration.electivus.apexLogs.saveDirName.description%",
-          "deprecationMessage": "Deprecated: use electivus.apexLogs.saveDirName"
-        },
-        "sfLogs.trace": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "Enable verbose trace logging for CLI and HTTP calls (Output: Electivus Apex Log Viewer).",
-          "deprecationMessage": "Deprecated: use electivus.apexLogs.trace"
-        },
-        "sfLogs.tailBufferSize": {
-          "type": "number",
-          "default": 10000,
-          "minimum": 1000,
-          "maximum": 200000,
-          "markdownDescription": "%configuration.electivus.apexLogs.tailBufferSize.description%",
-          "deprecationMessage": "Deprecated: use electivus.apexLogs.tailBufferSize"
-        },
-        "sfLogs.cliCache.enabled": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.enabled.description%",
-          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.enabled"
-        },
-        "sfLogs.cliCache.orgListTtlSeconds": {
-          "type": "number",
-          "default": 86400,
-          "minimum": 0,
-          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.orgListTtlSeconds.description%",
-          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.orgListTtlSeconds"
-        },
-        "sfLogs.cliCache.authTtlSeconds": {
-          "type": "number",
-          "default": 0,
-          "minimum": 0,
-          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authTtlSeconds.description%",
-          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.authTtlSeconds"
-        },
-        "sfLogs.cliCache.authPersistentTtlSeconds": {
-          "type": "number",
-          "default": 86400,
-          "minimum": 0,
-          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.authPersistentTtlSeconds.description%",
-          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.authPersistentTtlSeconds"
-        },
-        "sfLogs.cliCache.debugLevelsTtlSeconds": {
-          "type": "number",
-          "default": 300,
-          "minimum": 0,
-          "markdownDescription": "%configuration.electivus.apexLogs.cliCache.debugLevelsTtlSeconds.description%",
-          "deprecationMessage": "Deprecated: use electivus.apexLogs.cliCache.debugLevelsTtlSeconds"
         }
       }
     },
     "viewsContainers": {
       "panel": [
         {
-          "id": "salesforceLogsPanel",
+          "id": "electivus-apex-log-viewer-logs",
           "title": "%salesforce.panel.title%",
           "icon": "media/icon.png"
         },
         {
-          "id": "salesforceTailPanel",
+          "id": "electivus-apex-log-viewer-tail",
           "title": "%salesforce.tail.panel.title%",
           "icon": "media/icon.png"
         }
       ]
     },
     "views": {
-      "salesforceLogsPanel": [
+      "electivus-apex-log-viewer-logs": [
         {
-          "id": "sfLogViewer",
+          "id": "electivus.apexLogViewer.logsView",
           "name": "%salesforce.logs.view.name%",
           "type": "webview"
         }
       ],
-      "salesforceTailPanel": [
+      "electivus-apex-log-viewer-tail": [
         {
-          "id": "sfLogTail",
+          "id": "electivus.apexLogViewer.tailView",
           "name": "%salesforce.tail.view.name%",
           "type": "webview"
         }
@@ -355,48 +247,43 @@
     },
     "commands": [
       {
-        "command": "sfLogs.refresh",
+        "command": "electivus.apexLogViewer.logs.refresh",
         "title": "%command.refresh.title%",
         "category": "Electivus Apex Logs"
       },
       {
-        "command": "sfLogs.selectOrg",
+        "command": "electivus.apexLogViewer.org.select",
         "title": "%command.selectOrg.title%",
         "category": "Electivus Apex Logs"
       },
       {
-        "command": "sfLogs.tail",
+        "command": "electivus.apexLogViewer.tail.start",
         "title": "%command.tail.title%",
         "category": "Electivus Apex Logs"
       },
       {
-        "command": "sfLogs.openLogsEditor",
+        "command": "electivus.apexLogViewer.logs.openEditor",
         "title": "%command.openLogsEditor.title%",
         "category": "Electivus Apex Logs"
       },
       {
-        "command": "sfLogs.openTailEditor",
+        "command": "electivus.apexLogViewer.tail.openEditor",
         "title": "%command.openTailEditor.title%",
         "category": "Electivus Apex Logs"
       },
       {
-        "command": "sfLogs.openLogInViewer",
+        "command": "electivus.apexLogViewer.log.openViewer",
         "title": "%command.openLogInViewer.title%",
         "category": "Electivus Apex Logs"
       },
       {
-        "command": "sfLogs.showOutput",
+        "command": "electivus.apexLogViewer.output.show",
         "title": "Show Extension Output",
         "category": "Electivus Apex Logs"
       },
       {
-        "command": "sfLogs.copyDiagnostics",
+        "command": "electivus.apexLogViewer.diagnostics.copy",
         "title": "%command.copyDiagnostics.title%",
-        "category": "Electivus Apex Logs"
-      },
-      {
-        "command": "sfLogs.resetCliCache",
-        "title": "Reset CLI Cache",
         "category": "Electivus Apex Logs"
       }
     ],
@@ -413,42 +300,45 @@
     "menus": {
       "view/title": [
         {
-          "command": "sfLogs.openLogsEditor",
-          "when": "view == sfLogViewer",
+          "command": "electivus.apexLogViewer.logs.openEditor",
+          "when": "view == electivus.apexLogViewer.logsView",
           "group": "navigation@10",
           "icon": "$(open-preview)"
         },
         {
-          "command": "sfLogs.openTailEditor",
-          "when": "view == sfLogTail",
+          "command": "electivus.apexLogViewer.tail.openEditor",
+          "when": "view == electivus.apexLogViewer.tailView",
           "group": "navigation@10",
           "icon": "$(open-preview)"
         },
         {
-          "command": "sfLogs.resetCliCache",
-          "when": "view == sfLogViewer || view == sfLogTail",
-          "group": "moreActions@98"
-        },
-        {
-          "command": "sfLogs.copyDiagnostics",
-          "when": "view == sfLogViewer || view == sfLogTail",
+          "command": "electivus.apexLogViewer.diagnostics.copy",
+          "when": "view == electivus.apexLogViewer.logsView || view == electivus.apexLogViewer.tailView",
           "group": "moreActions@99"
         },
         {
-          "command": "sfLogs.showOutput",
-          "when": "view == sfLogViewer || view == sfLogTail",
+          "command": "electivus.apexLogViewer.output.show",
+          "when": "view == electivus.apexLogViewer.logsView || view == electivus.apexLogViewer.tailView",
           "group": "moreActions@100"
         }
       ],
       "editor/title": [
         {
-          "command": "sfLogs.openLogInViewer",
+          "command": "electivus.apexLogViewer.log.openViewer",
           "when": "resourceLangId == apexlog",
           "group": "navigation@50",
           "icon": "$(open-preview)"
         }
       ]
     }
+  },
+  "dependencies": {
+    "@alv/core": "workspace:*",
+    "@alv/protocol": "workspace:*",
+    "@jsforce/jsforce-node": "3.10.19",
+    "@vscode/extension-telemetry": "^1.5.2",
+    "cross-spawn": "^7.0.6",
+    "yaml": "^2.9.0"
   },
   "homepage": "https://github.com/Electivus/Apex-Log-Viewer#readme",
   "bugs": {

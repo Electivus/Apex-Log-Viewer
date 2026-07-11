@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { summarizeLogFile } from '../../../../src/services/logTriage';
+import { summarizeLogFile } from '../host/services/logTriage';
 
 suite('logTriage', () => {
   test('summarizeLogFile uses the shared structured analyzer', async () => {

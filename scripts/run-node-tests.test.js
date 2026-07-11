@@ -13,7 +13,7 @@ test("run-node-tests targets the Node-only extension test tree", async () => {
   );
 
   assert.ok(
-    files.some((file) => file.endsWith(path.join("src", "node-test", "runtime", "sfPluginClient.test.ts"))),
+    files.some((file) => file.endsWith(path.join("src", "node-test", "runtime", "coreClient.test.ts"))),
   );
   assert.ok(
     files.some((file) => file.endsWith(path.join("src", "node-test", "salesforce.exec.telemetry.test.ts"))),
