@@ -79,6 +79,7 @@ const LOG_STORE_LAYOUT_VERSION = 1;
 const SYNC_PAGE_SIZE = 200;
 const DEFAULT_API_VERSION = '63.0';
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
+const APEX_LOG_ID_REGEX = /^07L[a-zA-Z0-9]{12}(?:[a-zA-Z0-9]{3})?$/;
 const DEBUG_LEVEL_FIELDS =
   'Id, DeveloperName, Language, MasterLabel, Workflow, Validation, Callout, ApexCode, ApexProfiling, ' +
   'Visualforce, System, Database, Wave, Nba, DataAccess';
@@ -269,7 +270,7 @@ export function parseApexLogIds(value: string | null | undefined): string[] {
   const ids = new Set<string>();
   for (const token of (value ?? '').split(/[\s,]+/)) {
     const id = token.trim();
-    if (isSalesforceId(id)) {
+    if (APEX_LOG_ID_REGEX.test(id)) {
       ids.add(id);
     }
   }
@@ -354,12 +355,13 @@ async function resolveUsername(
   };
 }
 
-async function getConnectionContext(targetOrg?: string): Promise<ConnectionContext> {
-  const resolved = await resolveUsername(targetOrg);
-  const authInfo = await AuthInfo.create({ username: resolved.username });
-  const connection = await Connection.create({ authInfo });
-  await alignConnectionApiVersion(connection);
-  const org = await Org.create({ connection });
+async function getConnectionContext(targetOrg?: string, signal?: AbortSignal): Promise<ConnectionContext> {
+  throwIfAborted(signal);
+  const resolved = await awaitWithAbort(resolveUsername(targetOrg), signal);
+  const authInfo = await awaitWithAbort(AuthInfo.create({ username: resolved.username }), signal);
+  const connection = await awaitWithAbort(Connection.create({ authInfo }), signal);
+  await alignConnectionApiVersion(connection, signal);
+  const org = await awaitWithAbort(Org.create({ connection }), signal);
   const fields = authInfo.getFields(true);
   const username = asString(connection.getUsername()) ?? asString(fields.username) ?? resolved.username;
   const instanceUrl =
@@ -440,13 +442,16 @@ async function resolveOrgNative(params: OrgResolveParams = {}): Promise<OrgResol
 
 export async function toolingQuery<TRecord = JsonObject>(
   connection: Connection,
-  soql: string
+  soql: string,
+  signal?: AbortSignal
 ): Promise<QueryResult<TRecord>> {
-  const firstPage = (await connection.tooling.query(soql)) as QueryResult<TRecord>;
+  throwIfAborted(signal);
+  const firstPage = (await awaitWithAbort(connection.tooling.query(soql), signal)) as QueryResult<TRecord>;
   const records = [...(firstPage.records || [])];
   let page = firstPage;
   while (!page.done && page.nextRecordsUrl) {
-    page = (await connection.tooling.queryMore(page.nextRecordsUrl)) as QueryResult<TRecord>;
+    throwIfAborted(signal);
+    page = (await awaitWithAbort(connection.tooling.queryMore(page.nextRecordsUrl), signal)) as QueryResult<TRecord>;
     records.push(...(page.records || []));
   }
   return {
@@ -485,10 +490,11 @@ export function shouldUseOrgMaxApiVersion(
 }
 
 export async function alignConnectionApiVersion(
-  connection: Pick<Connection, 'getApiVersion' | 'setApiVersion' | 'retrieveMaxApiVersion'>
+  connection: Pick<Connection, 'getApiVersion' | 'setApiVersion' | 'retrieveMaxApiVersion'>,
+  signal?: AbortSignal
 ): Promise<string> {
   const configuredVersion = connection.getApiVersion?.() || DEFAULT_API_VERSION;
-  const orgMaxVersion = await connection.retrieveMaxApiVersion();
+  const orgMaxVersion = await awaitWithAbort(connection.retrieveMaxApiVersion(), signal);
   if (shouldUseOrgMaxApiVersion(configuredVersion, orgMaxVersion)) {
     connection.setApiVersion(orgMaxVersion);
     return orgMaxVersion;
@@ -500,8 +506,10 @@ async function connectionRequest<T = unknown>(
   connection: Connection,
   method: string,
   pathOrUrl: string,
-  body?: unknown
+  body?: unknown,
+  signal?: AbortSignal
 ): Promise<T> {
+  throwIfAborted(signal);
   const request: JsonObject = {
     method,
     url: pathOrUrl
@@ -510,7 +518,7 @@ async function connectionRequest<T = unknown>(
     request.body = typeof body === 'string' ? body : JSON.stringify(body);
     request.headers = { 'Content-Type': 'application/json' };
   }
-  return (await connection.request(request as never)) as T;
+  return (await awaitWithAbort(connection.request(request as never), signal)) as T;
 }
 
 export function resolveOrgRequestPath(ctx: Pick<ConnectionContext, 'instanceUrl'>, pathOrUrl: string): string {
@@ -532,12 +540,12 @@ export function resolveOrgRequestPath(ctx: Pick<ConnectionContext, 'instanceUrl'
   return `${requested.pathname}${requested.search}${requested.hash}`;
 }
 
-async function listLogsNative(params: LogsListParams = {}): Promise<RuntimeLogRow[]> {
-  const ctx = await getConnectionContext(params.username);
+async function listLogsNative(params: LogsListParams = {}, signal?: AbortSignal): Promise<RuntimeLogRow[]> {
+  const ctx = await getConnectionContext(params.username, signal);
   const limit = clampInt(params.limit, 50, 1, 200);
   const offset = clampInt(params.offset, 0, 0, 2000);
   const soql = buildApexLogListSoql({ limit, offset, cursor: params.cursor });
-  const result = await toolingQuery<SalesforceLogRecord>(ctx.connection, soql);
+  const result = await toolingQuery<SalesforceLogRecord>(ctx.connection, soql, signal);
   return (result.records ?? []).flatMap(record =>
     record.Id
       ? [
@@ -582,11 +590,13 @@ export function buildApexLogListSoql(params: {
   return `${baseSelect} ORDER BY StartTime DESC, Id DESC LIMIT ${params.limit} OFFSET ${params.offset}`;
 }
 
-async function fetchLogBody(ctx: ConnectionContext, logId: string): Promise<string> {
+async function fetchLogBody(ctx: ConnectionContext, logId: string, signal?: AbortSignal): Promise<string> {
   const value = await connectionRequest<unknown>(
     ctx.connection,
     'GET',
-    `/services/data/v${apiVersion(ctx.connection)}/tooling/sobjects/ApexLog/${logId}/Body`
+    `/services/data/v${apiVersion(ctx.connection)}/tooling/sobjects/ApexLog/${logId}/Body`,
+    undefined,
+    signal
   );
   return typeof value === 'string' ? value : value === undefined || value === null ? '' : JSON.stringify(value);
 }
@@ -595,17 +605,23 @@ export async function writeLogBody(
   workspaceRoot: string | undefined,
   username: string,
   row: Pick<RuntimeLogRow, 'id' | 'startTime'>,
-  body: string
+  body: string,
+  signal?: AbortSignal
 ): Promise<{ path: string; downloaded: boolean }> {
+  throwIfAborted(signal);
   const filePath = logFilePath(workspaceRoot, username, row.id, row.startTime);
   try {
     await fs.access(filePath);
+    throwIfAborted(signal);
     return { path: filePath, downloaded: false };
   } catch {}
+  throwIfAborted(signal);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
+  throwIfAborted(signal);
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   try {
-    await fs.writeFile(tempPath, body, 'utf8');
+    await fs.writeFile(tempPath, body, { encoding: 'utf8', signal });
+    throwIfAborted(signal);
     await fs.rename(tempPath, filePath);
   } catch (error) {
     try {
@@ -641,10 +657,12 @@ async function fileExists(filePath: string): Promise<boolean> {
 async function findCachedLogPath(
   workspaceRoot: string | undefined,
   logId: string,
-  username?: string
+  username?: string,
+  signal?: AbortSignal
 ): Promise<string | undefined> {
   const logsRootForOrg = (orgName: string) => path.join(orgDir(workspaceRoot, orgName), 'logs');
   const findInLogsDir = async (logsRoot: string): Promise<string | undefined> => {
+    throwIfAborted(signal);
     let days: import('node:fs').Dirent[];
     try {
       days = await fs.readdir(logsRoot, { withFileTypes: true });
@@ -652,6 +670,7 @@ async function findCachedLogPath(
       return undefined;
     }
     for (const day of days) {
+      throwIfAborted(signal);
       if (!day.isDirectory() || !/^(unknown-date|\d{4}-\d{2}-\d{2})$/.test(day.name)) continue;
       const candidate = path.join(logsRoot, day.name, `${logId}.log`);
       try {
@@ -662,6 +681,7 @@ async function findCachedLogPath(
     return undefined;
   };
 
+  throwIfAborted(signal);
   if (username) {
     const canonical = await findInLogsDir(logsRootForOrg(username));
     if (canonical) return canonical;
@@ -676,6 +696,7 @@ async function findCachedLogPath(
     orgDirs = [];
   }
   for (const orgEntry of orgDirs) {
+    throwIfAborted(signal);
     if (!orgEntry.isDirectory()) continue;
     const found = await findInLogsDir(path.join(orgsRoot, orgEntry.name, 'logs'));
     if (found) return found;
@@ -690,8 +711,14 @@ async function findCachedLogPath(
   return undefined;
 }
 
-async function readCachedLog(logId: string, filePath: string, maxBytes?: number): Promise<LogsReadResult> {
-  const bytes = await fs.readFile(filePath);
+async function readCachedLog(
+  logId: string,
+  filePath: string,
+  maxBytes?: number,
+  signal?: AbortSignal
+): Promise<LogsReadResult> {
+  const bytes = await fs.readFile(filePath, { signal });
+  throwIfAborted(signal);
   const byteLimit = maxBytes ? Math.max(1, Math.floor(maxBytes)) : undefined;
   const bodyBytes = byteLimit ? bytes.subarray(0, byteLimit) : bytes;
   return {
@@ -706,14 +733,17 @@ async function readCachedLog(logId: string, filePath: string, maxBytes?: number)
 export async function materializeCachedLogAtDatedPath(
   workspaceRoot: string | undefined,
   username: string,
-  row: Pick<RuntimeLogRow, 'id' | 'startTime'>
+  row: Pick<RuntimeLogRow, 'id' | 'startTime'>,
+  signal?: AbortSignal
 ): Promise<string | undefined> {
+  throwIfAborted(signal);
   const datedPath = logFilePath(workspaceRoot, username, row.id, row.startTime);
   if (await fileExists(datedPath)) return datedPath;
-  const existing = await findCachedLogPath(workspaceRoot, row.id, username);
+  throwIfAborted(signal);
+  const existing = await findCachedLogPath(workspaceRoot, row.id, username, signal);
   if (!existing) return undefined;
-  const body = await fs.readFile(existing, 'utf8');
-  return (await writeLogBody(workspaceRoot, username, row, body)).path;
+  const body = await fs.readFile(existing, { encoding: 'utf8', signal });
+  return (await writeLogBody(workspaceRoot, username, row, body, signal)).path;
 }
 
 async function logsResolveNative(params: LogsResolveParams): Promise<LogsResolveResult> {
@@ -730,29 +760,32 @@ async function resolveCachedLogPathNative(params: ResolveCachedLogPathParams): P
   return { path: await findCachedLogPath(params.workspaceRoot, params.logId, params.username) };
 }
 
-async function logsReadNative(params: LogsReadParams): Promise<LogsReadResult> {
+async function logsReadNative(params: LogsReadParams, signal?: AbortSignal): Promise<LogsReadResult> {
+  throwIfAborted(signal);
   const target = asString(params.targetOrg);
   const localCached = target
-    ? await findCachedLogPath(params.workspaceRoot, params.logId, target)
-    : await findCachedLogPath(params.workspaceRoot, params.logId);
-  if (localCached) return readCachedLog(params.logId, localCached, params.maxBytes);
+    ? await findCachedLogPath(params.workspaceRoot, params.logId, target, signal)
+    : await findCachedLogPath(params.workspaceRoot, params.logId, undefined, signal);
+  if (localCached) return readCachedLog(params.logId, localCached, params.maxBytes, signal);
 
   let ctx: ConnectionContext;
   try {
-    ctx = await getConnectionContext(params.targetOrg);
+    ctx = await getConnectionContext(params.targetOrg, signal);
   } catch (error) {
+    if (signal?.aborted) throw abortError();
     if (target) {
-      const offlineCached = await findCachedLogPath(params.workspaceRoot, params.logId);
-      if (offlineCached) return readCachedLog(params.logId, offlineCached, params.maxBytes);
+      const offlineCached = await findCachedLogPath(params.workspaceRoot, params.logId, undefined, signal);
+      if (offlineCached) return readCachedLog(params.logId, offlineCached, params.maxBytes, signal);
     }
     throw error;
   }
-  const cached = await findCachedLogPath(params.workspaceRoot, params.logId, ctx.username);
-  if (cached) return readCachedLog(params.logId, cached, params.maxBytes);
+  const cached = await findCachedLogPath(params.workspaceRoot, params.logId, ctx.username, signal);
+  if (cached) return readCachedLog(params.logId, cached, params.maxBytes, signal);
 
-  const body = await fetchLogBody(ctx, params.logId);
+  const body = await fetchLogBody(ctx, params.logId, signal);
   const row = { id: params.logId };
-  const saved = await writeLogBody(params.workspaceRoot, ctx.username, row, body);
+  const saved = await writeLogBody(params.workspaceRoot, ctx.username, row, body, signal);
+  throwIfAborted(signal);
   const buffer = Buffer.from(body, 'utf8');
   const maxBytes = params.maxBytes ? Math.max(1, Math.floor(params.maxBytes)) : undefined;
   return {
@@ -764,22 +797,32 @@ async function logsReadNative(params: LogsReadParams): Promise<LogsReadResult> {
   };
 }
 
-async function runLimited<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
+export async function runLimited<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+  signal?: AbortSignal
+): Promise<void> {
   let index = 0;
   const workers = Array.from({ length: Math.max(1, Math.min(concurrency, items.length || 1)) }, async () => {
     while (index < items.length) {
+      throwIfAborted(signal);
       const item = items[index++]!;
       await worker(item);
+      throwIfAborted(signal);
     }
   });
   await Promise.all(workers);
 }
 
-async function logsSyncNative(params: LogsSyncParams = {}): Promise<LogsSyncResult> {
-  const ctx = await getConnectionContext(params.targetOrg);
+async function logsSyncNative(params: LogsSyncParams = {}, signal?: AbortSignal): Promise<LogsSyncResult> {
+  throwIfAborted(signal);
+  const ctx = await getConnectionContext(params.targetOrg, signal);
   const workspaceRoot = params.workspaceRoot;
   await writeVersionFile(workspaceRoot);
+  throwIfAborted(signal);
   await removeLegacyLogIndexFiles(workspaceRoot);
+  throwIfAborted(signal);
   const startedAt = nowIso();
   const safeOrg = safeTargetOrg(ctx.username);
   const state = await readSyncState(workspaceRoot);
@@ -793,12 +836,16 @@ async function logsSyncNative(params: LogsSyncParams = {}): Promise<LogsSyncResu
   const concurrency = clampInt(params.concurrency, 6, 1, 8);
 
   for (;;) {
-    const rows = await listLogsNative({
-      username: ctx.username,
-      limit: SYNC_PAGE_SIZE,
-      cursor,
-      offset: 0
-    });
+    throwIfAborted(signal);
+    const rows = await listLogsNative(
+      {
+        username: ctx.username,
+        limit: SYNC_PAGE_SIZE,
+        cursor,
+        offset: 0
+      },
+      signal
+    );
     if (rows.length === 0) break;
     const pageRows: RuntimeLogRow[] = [];
     let reachedCheckpoint = false;
@@ -817,23 +864,30 @@ async function logsSyncNative(params: LogsSyncParams = {}): Promise<LogsSyncResu
       pageRows.push(row);
     }
     const completedIds = new Set<string>();
-    await runLimited(pageRows, concurrency, async row => {
-      try {
-        const existing = await materializeCachedLogAtDatedPath(workspaceRoot, ctx.username, row);
-        if (existing) {
-          cached += 1;
+    await runLimited(
+      pageRows,
+      concurrency,
+      async row => {
+        try {
+          throwIfAborted(signal);
+          const existing = await materializeCachedLogAtDatedPath(workspaceRoot, ctx.username, row, signal);
+          if (existing) {
+            cached += 1;
+            completedIds.add(row.id);
+            return;
+          }
+          const body = await fetchLogBody(ctx, row.id, signal);
+          const saved = await writeLogBody(workspaceRoot, ctx.username, row, body, signal);
+          if (saved.downloaded) downloaded += 1;
+          else cached += 1;
           completedIds.add(row.id);
-          return;
+        } catch (error) {
+          if (signal?.aborted || (error instanceof AlvError && error.code === 'ABORTED')) throw abortError();
+          failed += 1;
         }
-        const body = await fetchLogBody(ctx, row.id);
-        const saved = await writeLogBody(workspaceRoot, ctx.username, row, body);
-        if (saved.downloaded) downloaded += 1;
-        else cached += 1;
-        completedIds.add(row.id);
-      } catch {
-        failed += 1;
-      }
-    });
+      },
+      signal
+    );
     if (!newest) {
       const checkpointRow = pageRows.find(row => row.id && completedIds.has(row.id));
       if (checkpointRow?.id) {
@@ -847,6 +901,7 @@ async function logsSyncNative(params: LogsSyncParams = {}): Promise<LogsSyncResu
 
   const status = failed > 0 ? 'partial' : 'success';
   const finishedAt = nowIso();
+  throwIfAborted(signal);
   if (status === 'success') {
     state.orgs[ctx.username] = {
       targetOrg: ctx.username,
@@ -861,6 +916,7 @@ async function logsSyncNative(params: LogsSyncParams = {}): Promise<LogsSyncResu
     };
     await writeSyncState(workspaceRoot, state);
   }
+  throwIfAborted(signal);
   await writeOrgMetadata(workspaceRoot, {
     targetOrg: params.targetOrg || ctx.username,
     safeTargetOrg: safeOrg,
@@ -1007,7 +1063,8 @@ function unreadableLogSummary(message: string): RuntimeLogTriageSummary {
   };
 }
 
-async function logsTriageNative(params: LogsTriageParams): Promise<LogsTriageEntry[]> {
+async function logsTriageNative(params: LogsTriageParams, signal?: AbortSignal): Promise<LogsTriageEntry[]> {
+  throwIfAborted(signal);
   const target = asString(params.username);
   let ctx: ConnectionContext | undefined;
   let triedConnectionContext = false;
@@ -1015,34 +1072,38 @@ async function logsTriageNative(params: LogsTriageParams): Promise<LogsTriageEnt
     if (triedConnectionContext) return ctx;
     triedConnectionContext = true;
     try {
-      ctx = await getConnectionContext(target);
-    } catch {
+      ctx = await getConnectionContext(target, signal);
+    } catch (error) {
+      if (signal?.aborted || (error instanceof AlvError && error.code === 'ABORTED')) throw abortError();
       ctx = undefined;
     }
     return ctx;
   };
   const entries: LogsTriageEntry[] = [];
   for (const logId of params.logIds || []) {
-    let filePath = await findCachedLogPath(params.workspaceRoot, logId, target);
+    throwIfAborted(signal);
+    let filePath = await findCachedLogPath(params.workspaceRoot, logId, target, signal);
     let resolvedContext = ctx;
     if (!filePath) {
       resolvedContext = await resolveContext();
       filePath = resolvedContext
-        ? await findCachedLogPath(params.workspaceRoot, logId, resolvedContext.username)
-        : await findCachedLogPath(params.workspaceRoot, logId);
+        ? await findCachedLogPath(params.workspaceRoot, logId, resolvedContext.username, signal)
+        : await findCachedLogPath(params.workspaceRoot, logId, undefined, signal);
     }
     if (!filePath && resolvedContext) {
       try {
-        const body = await fetchLogBody(resolvedContext, logId);
+        const body = await fetchLogBody(resolvedContext, logId, signal);
         await writeLogBody(
           params.workspaceRoot,
           resolvedContext.username,
           { id: logId, startTime: params.logStartTimes?.[logId] },
-          body
+          body,
+          signal
         );
         entries.push({ logId, summary: summarizeLogText(body) });
         continue;
       } catch (error) {
+        if (signal?.aborted || (error instanceof AlvError && error.code === 'ABORTED')) throw abortError();
         entries.push({
           logId,
           summary: unreadableLogSummary(error instanceof Error ? error.message : 'Log body could not be downloaded')
@@ -1058,9 +1119,11 @@ async function logsTriageNative(params: LogsTriageParams): Promise<LogsTriageEnt
       continue;
     }
     try {
-      const body = await fs.readFile(filePath, 'utf8');
+      const body = await fs.readFile(filePath, { encoding: 'utf8', signal });
+      throwIfAborted(signal);
       entries.push({ logId, summary: summarizeLogText(body) });
     } catch (error) {
+      if (signal?.aborted || (error instanceof AlvError && error.code === 'ABORTED')) throw abortError();
       const message = error instanceof Error ? error.message : 'Log body could not be read';
       entries.push({
         logId,
@@ -1583,16 +1646,49 @@ function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw abortError();
 }
 
+export async function awaitWithAbort<T>(operation: PromiseLike<T>, signal?: AbortSignal): Promise<T> {
+  throwIfAborted(signal);
+  if (!signal) return operation;
+
+  const streamBacked = operation as PromiseLike<T> & {
+    stream?: () => { destroy?: () => unknown };
+  };
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      callback();
+    };
+    const onAbort = (): void => {
+      finish(() => {
+        try {
+          streamBacked.stream?.().destroy?.();
+        } catch {}
+        reject(abortError());
+      });
+    };
+
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(operation).then(
+      value => finish(() => resolve(value)),
+      error => finish(() => reject(error))
+    );
+    if (signal.aborted) onAbort();
+  });
+}
+
 async function instrumentedCall<T>(
   instrumentation: CoreInstrumentation | undefined,
   method: string,
   options: CoreCallOptions | undefined,
-  run: () => Promise<T>
+  run: (signal?: AbortSignal) => Promise<T>
 ): Promise<T> {
   const startedAt = Date.now();
   try {
     throwIfAborted(options?.signal);
-    const result = await run();
+    const result = await run(options?.signal);
     throwIfAborted(options?.signal);
     instrumentation?.onCall?.({ method, outcome: 'ok', durationMs: Date.now() - startedAt });
     return result;
@@ -1612,8 +1708,11 @@ async function instrumentedCall<T>(
 export type ApexLogViewerCore = ReturnType<typeof createApexLogViewerCore>;
 
 export function createApexLogViewerCore(options: { instrumentation?: CoreInstrumentation } = {}) {
-  const call = <T>(method: string, callOptions: CoreCallOptions | undefined, run: () => Promise<T>) =>
-    instrumentedCall(options.instrumentation, method, callOptions, run);
+  const call = <T>(
+    method: string,
+    callOptions: CoreCallOptions | undefined,
+    run: (signal?: AbortSignal) => Promise<T>
+  ) => instrumentedCall(options.instrumentation, method, callOptions, run);
 
   return {
     doctor: (params: DoctorParams = {}, callOptions?: CoreCallOptions) =>
@@ -1628,19 +1727,19 @@ export function createApexLogViewerCore(options: { instrumentation?: CoreInstrum
     },
     log: {
       list: (params: LogsListParams = {}, callOptions?: CoreCallOptions) =>
-        call('log.list', callOptions, () => listLogsNative(params)),
+        call('log.list', callOptions, signal => listLogsNative(params, signal)),
       sync: (params: LogsSyncParams = {}, callOptions?: CoreCallOptions) =>
-        call('log.sync', callOptions, () => logsSyncNative(params)),
+        call('log.sync', callOptions, signal => logsSyncNative(params, signal)),
       status: (params: LogsStatusParams = {}, callOptions?: CoreCallOptions) =>
         call('log.status', callOptions, () => logsStatusNative(params)),
       read: (params: LogsReadParams, callOptions?: CoreCallOptions) =>
-        call('log.read', callOptions, () => logsReadNative(params)),
+        call('log.read', callOptions, signal => logsReadNative(params, signal)),
       resolve: (params: LogsResolveParams, callOptions?: CoreCallOptions) =>
         call('log.resolve', callOptions, () => logsResolveNative(params)),
       resolveCachedPath: (params: ResolveCachedLogPathParams, callOptions?: CoreCallOptions) =>
         call('log.resolveCachedPath', callOptions, () => resolveCachedLogPathNative(params)),
       triage: (params: LogsTriageParams, callOptions?: CoreCallOptions) =>
-        call('log.triage', callOptions, () => logsTriageNative(params)),
+        call('log.triage', callOptions, signal => logsTriageNative(params, signal)),
       delete: (params: LogsDeleteParams = {}, callOptions?: CoreCallOptions) =>
         call('log.delete', callOptions, () => logsDeleteNative(params))
     },
