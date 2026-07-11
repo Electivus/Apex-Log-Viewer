@@ -45,6 +45,12 @@ test('extension type-check scripts bootstrap generated shared package declaratio
   assert.match(String(scripts.compile || ''), /^pnpm run build:shared && /);
 });
 
+test('standalone webview tests bootstrap generated protocol artifacts', () => {
+  const scripts = JSON.parse(readFile('package.json')).scripts || {};
+
+  assert.match(String(scripts['test:webview'] || ''), /^pnpm run build:protocol && /);
+});
+
 for (const workflowPath of ['.github/workflows/release.yml', '.github/workflows/prerelease.yml']) {
   test(`${workflowPath} builds the direct-core extension and target-specific ripgrep runtime packages`, () => {
     const workflow = readFile(workflowPath);

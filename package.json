@@ -56,7 +56,7 @@
     "test:unit:ci": "pnpm run test:webview --ci --runInBand && pnpm run test:e2e:utils && pnpm run test:extension:node && pnpm run test:scripts && pnpm run pretest && node scripts/run-tests-cli.js --scope=unit --vscode=stable",
     "test:extension:node": "node scripts/run-node-tests.js",
     "test:integration:ci": "pnpm run test:scripts && pnpm run pretest && node scripts/run-tests-cli.js --scope=integration --vscode=stable --install-deps --timeout=900000",
-    "test:webview": "jest --config jest.config.webview.cjs",
+    "test:webview": "pnpm run build:protocol && jest --config jest.config.webview.cjs",
     "test:e2e:utils": "jest --config jest.config.e2e-utils.cjs --runInBand",
     "test:webview:watch": "pnpm run test:webview --watch",
     "test:ci": "pnpm run test:unit:ci && pnpm run test:integration:ci",
