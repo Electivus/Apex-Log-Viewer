@@ -6,22 +6,25 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-test('release docs mention the embedded sf plugin packaging model', () => {
+test('release docs describe the independent core and plugin packaging model', () => {
   const ci = fs.readFileSync('docs/CI.md', 'utf8');
   const publishing = fs.readFileSync('docs/PUBLISHING.md', 'utf8');
   const architecture = fs.readFileSync('docs/ARCHITECTURE.md', 'utf8');
   const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
 
-  assert.match(ci, /build:embedded-sf-plugin/);
+  assert.match(ci, /pnpm run build/);
   assert.match(ci, /test:sf-plugin/);
+  assert.doesNotMatch(ci, /build:embedded-sf-plugin/);
   assert.doesNotMatch(ci, /NPM_TOKEN/);
   assert.match(publishing, /plugin npm release/i);
   assert.match(publishing, /sf-plugin-vX\.Y\.Z/);
   assert.match(publishing, /sf-plugin-release\.yml/);
   assert.match(publishing, /Trusted Publishing\/OIDC/);
   assert.doesNotMatch(publishing, /rust-release\.yml/);
-  assert.match(architecture, /electivus-runner\.cjs/);
-  assert.match(changelog, /embedded sf electivus plugin/i);
+  assert.match(architecture, /@alv\/core/);
+  assert.match(architecture, /in-process/i);
+  assert.doesNotMatch(architecture, /electivus-runner\.cjs/);
+  assert.match(changelog, /shared TypeScript core/i);
 });
 
 test('README screenshot assets point at the published extension media paths', () => {

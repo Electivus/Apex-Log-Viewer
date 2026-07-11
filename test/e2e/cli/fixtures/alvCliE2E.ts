@@ -144,14 +144,14 @@ export const test = base.extend<Fixtures>({
 
   syncLogs: async ({ runCli, scratchAlias }, use) => {
     await use(async () => {
-      const result = await runCli(['logs', 'sync', '--json', '--target-org', scratchAlias]);
+      const result = await runCli(['log', 'sync', '--json', '--target-org', scratchAlias]);
       const json = sfJsonResult(result);
 
       expect(result.exitCode).toBe(0);
       expect(json).toBeTruthy();
       expect(json?.status).toBe('success');
       expect(Number(json?.downloaded ?? 0)).toBeGreaterThanOrEqual(1);
-      expect(json?.last_synced_log_id).toBeTruthy();
+      expect(json?.lastSyncedLogId).toBeTruthy();
 
       return {
         result,

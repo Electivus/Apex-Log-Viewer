@@ -2,13 +2,28 @@ import assert from 'assert/strict';
 const proxyquire: any = require('proxyquire').noCallThru();
 
 suite('cli telemetry', () => {
+  let originalSfBinPath: string | undefined;
+
+  setup(() => {
+    originalSfBinPath = process.env.ALV_SF_BIN_PATH;
+    delete process.env.ALV_SF_BIN_PATH;
+  });
+
+  teardown(() => {
+    if (originalSfBinPath === undefined) {
+      delete process.env.ALV_SF_BIN_PATH;
+      return;
+    }
+    process.env.ALV_SF_BIN_PATH = originalSfBinPath;
+  });
+
   test('sends telemetry on ENOENT', async () => {
     const calls: any[] = [];
     const telemetry = (name: string, properties: Record<string, string>) => {
       calls.push({ name, properties });
     };
     const cliStubs = {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
       '../utils/config': {
         getBooleanConfig: (_name: string, def: boolean) => def,
@@ -29,11 +44,11 @@ suite('cli telemetry', () => {
         '@noCallThru': true
       }
     };
-    const execModule = proxyquire('../../../../src/salesforce/exec', {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+    const execModule = proxyquire('../host/salesforce/exec', {
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
-    const { getOrgAuth } = proxyquire('../../../../src/salesforce/cli', {
+    const { getOrgAuth } = proxyquire('../host/salesforce/cli', {
       ...cliStubs,
       './exec': execModule,
       '@noCallThru': true
@@ -58,7 +73,7 @@ suite('cli telemetry', () => {
       calls.push({ name, properties });
     };
     const cliStubs = {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
       '../utils/config': {
         getBooleanConfig: (_name: string, def: boolean) => def,
@@ -79,11 +94,11 @@ suite('cli telemetry', () => {
         '@noCallThru': true
       }
     };
-    const execModule = proxyquire('../../../../src/salesforce/exec', {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+    const execModule = proxyquire('../host/salesforce/exec', {
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
-    const { getOrgAuth } = proxyquire('../../../../src/salesforce/cli', {
+    const { getOrgAuth } = proxyquire('../host/salesforce/cli', {
       ...cliStubs,
       './exec': execModule,
       '@noCallThru': true
@@ -108,7 +123,7 @@ suite('cli telemetry', () => {
       calls.push({ name, properties });
     };
     const cliStubs = {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
       '../utils/config': {
         getBooleanConfig: (_name: string, def: boolean) => def,
@@ -129,11 +144,11 @@ suite('cli telemetry', () => {
         '@noCallThru': true
       }
     };
-    const execModule = proxyquire('../../../../src/salesforce/exec', {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+    const execModule = proxyquire('../host/salesforce/exec', {
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
-    const { getOrgAuth } = proxyquire('../../../../src/salesforce/cli', {
+    const { getOrgAuth } = proxyquire('../host/salesforce/cli', {
       ...cliStubs,
       './exec': execModule,
       '@noCallThru': true
@@ -167,7 +182,7 @@ suite('cli telemetry', () => {
       calls.push({ name, properties });
     };
     const cliStubs = {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
       '../utils/config': {
         getBooleanConfig: (_name: string, def: boolean) => def,
@@ -188,11 +203,11 @@ suite('cli telemetry', () => {
         '@noCallThru': true
       }
     };
-    const execModule = proxyquire('../../../../src/salesforce/exec', {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+    const execModule = proxyquire('../host/salesforce/exec', {
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
-    const { getOrgAuth } = proxyquire('../../../../src/salesforce/cli', {
+    const { getOrgAuth } = proxyquire('../host/salesforce/cli', {
       ...cliStubs,
       './exec': execModule,
       '@noCallThru': true
@@ -232,7 +247,7 @@ suite('cli telemetry', () => {
       calls.push({ name, properties });
     };
     const cliStubs = {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
       '../utils/config': {
         getBooleanConfig: (_name: string, def: boolean) => def,
@@ -253,11 +268,11 @@ suite('cli telemetry', () => {
         '@noCallThru': true
       }
     };
-    const execModule = proxyquire('../../../../src/salesforce/exec', {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+    const execModule = proxyquire('../host/salesforce/exec', {
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
-    const { getOrgAuth } = proxyquire('../../../../src/salesforce/cli', {
+    const { getOrgAuth } = proxyquire('../host/salesforce/cli', {
       ...cliStubs,
       './exec': execModule,
       '@noCallThru': true
@@ -291,14 +306,15 @@ suite('cli telemetry', () => {
   });
 
   test('does not reuse a prior terminal auth code across CLI families on the initial PATH', async () => {
+    process.env.ALV_SF_BIN_PATH = 'C:\\stale\\sf.cmd';
     const attempts: Array<{ program: string; args: string[] }> = [];
     const telemetry = () => undefined;
     const cliStubs = {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
       '../utils/config': {
         getBooleanConfig: (_name: string, def: boolean) => def,
-        getConfig: <T>(name: string, def?: T) => (name === 'sfLogs.cliPath' ? ('C:\\stale\\sf.cmd' as T) : def),
+        getConfig: <T>(_name: string, def?: T) => def,
         getNumberConfig: (_name: string, def: number) => def,
         '@noCallThru': true
       },
@@ -315,11 +331,11 @@ suite('cli telemetry', () => {
         '@noCallThru': true
       }
     };
-    const execModule = proxyquire('../../../../src/salesforce/exec', {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+    const execModule = proxyquire('../host/salesforce/exec', {
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
-    const { getOrgAuth } = proxyquire('../../../../src/salesforce/cli', {
+    const { getOrgAuth } = proxyquire('../host/salesforce/cli', {
       ...cliStubs,
       './exec': execModule,
       '@noCallThru': true
@@ -366,13 +382,17 @@ suite('cli telemetry', () => {
 
     assert.equal(auth.username, 'user@example.com');
     assert.deepEqual(
-      attempts.filter(attempt => attempt.program === 'sf').map(attempt => attempt.args.join(' ')).slice(0, 2),
+      attempts
+        .filter(attempt => attempt.program === 'sf')
+        .map(attempt => attempt.args.join(' '))
+        .slice(0, 2),
       ['org display --json', 'org auth show-access-token --json --no-prompt'],
       'expected the plain sf family to use explicit credential retrieval'
     );
   });
 
   test('retries with login-shell PATH before surfacing a terminal auth error from a mixed failure set', async () => {
+    process.env.ALV_SF_BIN_PATH = 'C:\\stale\\sf.cmd';
     const calls: any[] = [];
     const attempts: Array<{ program: string; path: string | undefined }> = [];
     let loginPathCalls = 0;
@@ -380,11 +400,11 @@ suite('cli telemetry', () => {
       calls.push({ name, properties });
     };
     const cliStubs = {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
       '../utils/config': {
         getBooleanConfig: (_name: string, def: boolean) => def,
-        getConfig: <T>(name: string, def?: T) => (name === 'sfLogs.cliPath' ? ('C:\\stale\\sf.cmd' as T) : def),
+        getConfig: <T>(_name: string, def?: T) => def,
         getNumberConfig: (_name: string, def: number) => def,
         '@noCallThru': true
       },
@@ -404,11 +424,11 @@ suite('cli telemetry', () => {
         '@noCallThru': true
       }
     };
-    const execModule = proxyquire('../../../../src/salesforce/exec', {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+    const execModule = proxyquire('../host/salesforce/exec', {
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
-    const { getOrgAuth } = proxyquire('../../../../src/salesforce/cli', {
+    const { getOrgAuth } = proxyquire('../host/salesforce/cli', {
       ...cliStubs,
       './exec': execModule,
       '@noCallThru': true
@@ -466,15 +486,16 @@ suite('cli telemetry', () => {
   });
 
   test('does not reuse a prior terminal auth code across CLI families on login-shell PATH', async () => {
+    process.env.ALV_SF_BIN_PATH = 'C:\\stale\\sf.cmd';
     const attempts: Array<{ program: string; args: string[]; path: string | undefined }> = [];
     let loginPathCalls = 0;
     const telemetry = () => undefined;
     const cliStubs = {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
       '../utils/config': {
         getBooleanConfig: (_name: string, def: boolean) => def,
-        getConfig: <T>(name: string, def?: T) => (name === 'sfLogs.cliPath' ? ('C:\\stale\\sf.cmd' as T) : def),
+        getConfig: <T>(_name: string, def?: T) => def,
         getNumberConfig: (_name: string, def: number) => def,
         '@noCallThru': true
       },
@@ -494,11 +515,11 @@ suite('cli telemetry', () => {
         '@noCallThru': true
       }
     };
-    const execModule = proxyquire('../../../../src/salesforce/exec', {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+    const execModule = proxyquire('../host/salesforce/exec', {
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
-    const { getOrgAuth } = proxyquire('../../../../src/salesforce/cli', {
+    const { getOrgAuth } = proxyquire('../host/salesforce/cli', {
       ...cliStubs,
       './exec': execModule,
       '@noCallThru': true
@@ -563,15 +584,16 @@ suite('cli telemetry', () => {
   });
 
   test('continues to the next CLI family on login-shell PATH after a terminal failure in the current family', async () => {
+    process.env.ALV_SF_BIN_PATH = 'C:\\stale\\sf.cmd';
     const attempts: Array<{ program: string; path: string | undefined }> = [];
     let loginPathCalls = 0;
     const telemetry = () => undefined;
     const cliStubs = {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
       '../utils/config': {
         getBooleanConfig: (_name: string, def: boolean) => def,
-        getConfig: <T>(name: string, def?: T) => (name === 'sfLogs.cliPath' ? ('C:\\stale\\sf.cmd' as T) : def),
+        getConfig: <T>(_name: string, def?: T) => def,
         getNumberConfig: (_name: string, def: number) => def,
         '@noCallThru': true
       },
@@ -591,11 +613,11 @@ suite('cli telemetry', () => {
         '@noCallThru': true
       }
     };
-    const execModule = proxyquire('../../../../src/salesforce/exec', {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+    const execModule = proxyquire('../host/salesforce/exec', {
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
-    const { getOrgAuth } = proxyquire('../../../../src/salesforce/cli', {
+    const { getOrgAuth } = proxyquire('../host/salesforce/cli', {
       ...cliStubs,
       './exec': execModule,
       '@noCallThru': true
@@ -658,7 +680,7 @@ suite('cli telemetry', () => {
       calls.push({ name, properties });
     };
     const cliStubs = {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
       '../utils/config': {
         getBooleanConfig: (_name: string, def: boolean) => def,
@@ -679,11 +701,11 @@ suite('cli telemetry', () => {
         '@noCallThru': true
       }
     };
-    const execModule = proxyquire('../../../../src/salesforce/exec', {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+    const execModule = proxyquire('../host/salesforce/exec', {
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
-    const { getOrgAuth } = proxyquire('../../../../src/salesforce/cli', {
+    const { getOrgAuth } = proxyquire('../host/salesforce/cli', {
       ...cliStubs,
       './exec': execModule,
       '@noCallThru': true
@@ -707,7 +729,7 @@ suite('cli telemetry', () => {
       calls.push({ name, properties });
     };
     const cliStubs = {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
       '../utils/config': {
         getBooleanConfig: (_name: string, def: boolean) => def,
@@ -728,11 +750,11 @@ suite('cli telemetry', () => {
         '@noCallThru': true
       }
     };
-    const execModule = proxyquire('../../../../src/salesforce/exec', {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+    const execModule = proxyquire('../host/salesforce/exec', {
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
-    const { getOrgAuth } = proxyquire('../../../../src/salesforce/cli', {
+    const { getOrgAuth } = proxyquire('../host/salesforce/cli', {
       ...cliStubs,
       './exec': execModule,
       '@noCallThru': true
@@ -756,7 +778,7 @@ suite('cli telemetry', () => {
       calls.push({ name, properties });
     };
     const cliStubs = {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, '@noCallThru': true },
       '../utils/config': {
         getBooleanConfig: (_name: string, def: boolean) => def,
@@ -777,11 +799,11 @@ suite('cli telemetry', () => {
         '@noCallThru': true
       }
     };
-    const execModule = proxyquire('../../../../src/salesforce/exec', {
-      '../../apps/vscode-extension/src/shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
+    const execModule = proxyquire('../host/salesforce/exec', {
+      '../../shared/telemetry': { safeSendException: telemetry, '@noCallThru': true },
       '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true }
     });
-    const { getOrgAuth } = proxyquire('../../../../src/salesforce/cli', {
+    const { getOrgAuth } = proxyquire('../host/salesforce/cli', {
       ...cliStubs,
       './exec': execModule,
       '@noCallThru': true

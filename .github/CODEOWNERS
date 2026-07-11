@@ -3,10 +3,12 @@
 /.github/dependabot.yml @Electivus/maintainers
 /.github/dependency-review-config.yml @Electivus/maintainers
 /package.json @Electivus/maintainers
-/package-lock.json @Electivus/maintainers
+/pnpm-lock.yaml @Electivus/maintainers
+/pnpm-workspace.yaml @Electivus/maintainers
 /apps/vscode-extension/scripts/copy-ripgrep-runtime.mjs @Electivus/maintainers
 /apps/vscode-extension/scripts/copy-package-metadata.mjs @Electivus/maintainers
-/scripts/build-embedded-sf-plugin.mjs @Electivus/maintainers
+/packages/core/ @Electivus/maintainers
+/packages/protocol/ @Electivus/maintainers
 /packages/sf-plugin/ @Electivus/maintainers
 /scripts/publish-npm-package-if-needed.mjs @Electivus/maintainers
 /scripts/stage-sf-plugin-npm-package.mjs @Electivus/maintainers

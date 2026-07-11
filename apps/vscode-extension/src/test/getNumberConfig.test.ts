@@ -2,7 +2,7 @@ import assert from 'assert/strict';
 import proxyquire from 'proxyquire';
 
 function loadGetNumberConfig(getter: (key: string) => unknown) {
-  return proxyquire('../../../../src/utils/config', {
+  return proxyquire('../host/utils/config', {
     vscode: {
       workspace: {
         getConfiguration: () => ({
@@ -10,7 +10,7 @@ function loadGetNumberConfig(getter: (key: string) => unknown) {
         })
       }
     }
-  }).getNumberConfig as typeof import('../../../../src/utils/config').getNumberConfig;
+  }).getNumberConfig as typeof import('../host/utils/config').getNumberConfig;
 }
 
 suite('getNumberConfig', () => {

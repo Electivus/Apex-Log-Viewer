@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { TelemetryReporter } from '@vscode/extension-telemetry';
-import { logWarn } from '../../../../src/utils/logger';
+import { logWarn } from '../host/utils/logger';
 
 interface TelemetryFieldSchema {
   required?: boolean;

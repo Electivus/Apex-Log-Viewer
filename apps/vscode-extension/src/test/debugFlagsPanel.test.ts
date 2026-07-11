@@ -11,10 +11,10 @@ function loadDebugFlagsPanel(stubs?: {
   cli?: Record<string, unknown>;
 }) {
   return proxyquireStrict('../panel/DebugFlagsPanel', {
-    '../../../../src/salesforce/traceflags': stubs?.traceflags ?? {},
+    '../host/salesforce/traceflags': stubs?.traceflags ?? {},
     '../shared/telemetry': stubs?.telemetry ?? {},
     '../runtime/runtimeClient': stubs?.runtime ?? {},
-    '../../../../src/salesforce/cli': stubs?.cli ?? {}
+    '../host/salesforce/cli': stubs?.cli ?? {}
   }) as typeof import('../panel/DebugFlagsPanel');
 }
 

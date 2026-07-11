@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type {
   ExtensionToWebviewMessage,
   WebviewToExtensionMessage
-} from '../../../../apps/vscode-extension/src/shared/messages';
+} from '@alv/protocol/messages';
 import type { VsCodeWebviewApi } from '../vscodeApi';
 import { TailApp } from '../tail';
 

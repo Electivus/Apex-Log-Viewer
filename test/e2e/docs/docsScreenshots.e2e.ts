@@ -212,7 +212,7 @@ test('captures README screenshots from a realistic scratch-org scenario', async 
       targetOrg: scratch.scratchAlias,
       sfCli: sfCli ?? undefined,
       settings: {
-        'electivus.apexLogs.logsColumns': screenshotFriendlyColumns
+        'electivus.apexLogViewer.logs.columns': screenshotFriendlyColumns
       }
     });
     cleanupWorkspace = workspace.cleanup;

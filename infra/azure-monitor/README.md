@@ -36,7 +36,7 @@ You should still keep environment-specific parameter files and receiver details 
 Preview the deployment:
 
 ```bash
-npm run azure:monitor:what-if -- \
+pnpm run azure:monitor:what-if -- \
   --resource-group=<resource-group> \
   --parameters-file=infra/azure-monitor/parameters/apex-log-viewer.bicepparam
 ```
@@ -44,7 +44,7 @@ npm run azure:monitor:what-if -- \
 Create or update the stack:
 
 ```bash
-npm run azure:monitor:deploy -- \
+pnpm run azure:monitor:deploy -- \
   --resource-group=<resource-group> \
   --parameters-file=infra/azure-monitor/parameters/apex-log-viewer.bicepparam
 ```

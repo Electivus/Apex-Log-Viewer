@@ -49,7 +49,7 @@ function loadTelemetryModule() {
   const telemetry = proxyquire('../shared/telemetry', {
     vscode: { ExtensionMode: extensionMode, '@noCallThru': true },
     '@vscode/extension-telemetry': { TelemetryReporter: TelemetryReporterStub, '@noCallThru': true },
-    '../../../../src/utils/logger': {
+    '../host/utils/logger': {
       logWarn: (...args: string[]) => warnings.push(args),
       '@noCallThru': true
     }

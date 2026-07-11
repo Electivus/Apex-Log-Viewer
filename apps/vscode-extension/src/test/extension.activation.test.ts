@@ -10,19 +10,19 @@ suite('integration: extension activation and commands', () => {
 
     const commands = await vscode.commands.getCommands(true);
     console.log('Registered commands count:', commands.length);
-    console.log('Has sfLogs.refresh?', commands.includes('sfLogs.refresh'));
-    console.log('Has sfLogs.selectOrg?', commands.includes('sfLogs.selectOrg'));
-    console.log('Has sfLogs.tail?', commands.includes('sfLogs.tail'));
-    console.log('Has sfLogs.openLogsEditor?', commands.includes('sfLogs.openLogsEditor'));
-    console.log('Has sfLogs.openTailEditor?', commands.includes('sfLogs.openTailEditor'));
-    assert.ok(commands.includes('sfLogs.refresh'), 'registers sfLogs.refresh');
-    assert.ok(commands.includes('sfLogs.selectOrg'), 'registers sfLogs.selectOrg');
-    assert.ok(commands.includes('sfLogs.tail'), 'registers sfLogs.tail');
-    assert.ok(commands.includes('sfLogs.openLogsEditor'), 'registers sfLogs.openLogsEditor');
-    assert.ok(commands.includes('sfLogs.openTailEditor'), 'registers sfLogs.openTailEditor');
+    console.log('Has electivus.apexLogViewer.logs.refresh?', commands.includes('electivus.apexLogViewer.logs.refresh'));
+    console.log('Has electivus.apexLogViewer.org.select?', commands.includes('electivus.apexLogViewer.org.select'));
+    console.log('Has electivus.apexLogViewer.tail.start?', commands.includes('electivus.apexLogViewer.tail.start'));
+    console.log('Has electivus.apexLogViewer.logs.openEditor?', commands.includes('electivus.apexLogViewer.logs.openEditor'));
+    console.log('Has electivus.apexLogViewer.tail.openEditor?', commands.includes('electivus.apexLogViewer.tail.openEditor'));
+    assert.ok(commands.includes('electivus.apexLogViewer.logs.refresh'), 'registers electivus.apexLogViewer.logs.refresh');
+    assert.ok(commands.includes('electivus.apexLogViewer.org.select'), 'registers electivus.apexLogViewer.org.select');
+    assert.ok(commands.includes('electivus.apexLogViewer.tail.start'), 'registers electivus.apexLogViewer.tail.start');
+    assert.ok(commands.includes('electivus.apexLogViewer.logs.openEditor'), 'registers electivus.apexLogViewer.logs.openEditor');
+    assert.ok(commands.includes('electivus.apexLogViewer.tail.openEditor'), 'registers electivus.apexLogViewer.tail.openEditor');
 
     // Executing refresh should be a no-op (no view resolved yet) and not throw.
-    await vscode.commands.executeCommand('sfLogs.refresh');
+    await vscode.commands.executeCommand('electivus.apexLogViewer.logs.refresh');
     // Don't execute tail here to avoid terminal side-effects in CI.
   });
 });

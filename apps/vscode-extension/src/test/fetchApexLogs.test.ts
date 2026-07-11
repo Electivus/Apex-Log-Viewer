@@ -10,8 +10,8 @@ import {
   __setHttpsRequestImplForTests,
   __resetHttpsRequestImplForTests,
   __resetApiVersionFallbackStateForTests
-} from '../../../../src/salesforce/http';
-import type { OrgAuth } from '../../../../src/salesforce/types';
+} from '../host/salesforce/http';
+import type { OrgAuth } from '../host/salesforce/types';
 
 suite('fetchApexLogs', () => {
   teardown(() => {

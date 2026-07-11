@@ -2,11 +2,11 @@ import type * as vscode from 'vscode';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { runtimeClient } from '../runtime/runtimeClient';
-import { pickSelectedOrg } from '../../../../src/utils/orgs';
+import { pickSelectedOrg } from '../host/utils/orgs';
 import type { OrgItem } from '../shared/types';
-import { getWorkspaceRoot } from '../../../../src/utils/workspace';
-import { logWarn } from '../../../../src/utils/logger';
-import { getErrorMessage } from '../../../../src/utils/error';
+import { getWorkspaceRoot } from '../host/utils/workspace';
+import { logWarn } from '../host/utils/logger';
+import { getErrorMessage } from '../host/utils/error';
 
 export class OrgManager {
   private selectedOrg: string | undefined;

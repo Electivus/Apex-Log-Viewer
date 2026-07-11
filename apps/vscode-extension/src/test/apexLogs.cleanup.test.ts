@@ -1,9 +1,9 @@
 import assert from 'assert/strict';
 import { EventEmitter } from 'events';
-import type { OrgAuth } from '../../../../src/salesforce/types';
-import { __resetHttpsRequestImplForTests, __setHttpsRequestImplForTests } from '../../../../src/salesforce/http';
-import { __resetUserIdCacheForTests } from '../../../../src/salesforce/traceflags';
-import { clearApexLogs } from '../../../../src/services/apexLogCleanup';
+import type { OrgAuth } from '../host/salesforce/types';
+import { __resetHttpsRequestImplForTests, __setHttpsRequestImplForTests } from '../host/salesforce/http';
+import { __resetUserIdCacheForTests } from '../host/salesforce/traceflags';
+import { clearApexLogs } from '../host/services/apexLogCleanup';
 
 type StubRequest = {
   method: string;

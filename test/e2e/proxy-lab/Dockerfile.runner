@@ -3,6 +3,7 @@ FROM node:24.15.0-bookworm@sha256:f22d6a1f082c02f292e86929b5b0442ac2e5eaf438a5de
 ARG ALV_E2E_PROXY_LAB_APT_TIMEOUT_SECONDS=20
 ARG ALV_E2E_PROXY_LAB_APT_RETRIES=3
 ARG ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE=@salesforce/cli@2.136.8
+ARG ALV_PNPM_VERSION=11.11.0
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -46,5 +47,6 @@ RUN { \
   && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g "${ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE}" --no-audit --no-fund
+RUN npm install -g "pnpm@${ALV_PNPM_VERSION}" --no-audit --no-fund
 
 WORKDIR /workspace

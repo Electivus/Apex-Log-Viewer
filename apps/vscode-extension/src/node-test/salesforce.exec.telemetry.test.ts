@@ -12,7 +12,7 @@ suite('salesforce exec telemetry', () => {
       measurements?: Record<string, number>;
     }> = [];
 
-    const execModule = proxyquireStrict('../../../../src/salesforce/exec', {
+    const execModule = proxyquireStrict('../host/salesforce/exec', {
       'cross-spawn': (_file: string, _args: readonly string[] | undefined, _opts: any) => {
         const child = new EventEmitter() as any;
         child.stdout = new EventEmitter();
@@ -27,14 +27,14 @@ suite('salesforce exec telemetry', () => {
       },
       '../utils/logger': { logTrace: () => undefined, logWarn: () => undefined, '@noCallThru': true },
       '../utils/localize': { localize: (_key: string, fallback: string) => fallback, '@noCallThru': true },
-      '../../apps/vscode-extension/src/shared/telemetry': {
+      '../../shared/telemetry': {
         safeSendEvent: (name: string, properties?: Record<string, string>, measurements?: Record<string, number>) => {
           events.push({ name, properties, measurements });
         },
         safeSendException: () => undefined,
         '@noCallThru': true
       }
-    }) as typeof import('../../../../src/salesforce/exec');
+    }) as typeof import('../host/salesforce/exec');
 
     const result = await execModule.execCommand('sf', ['org', 'display', '--json']);
     assert.equal(result.stdout, '{"status":0}');

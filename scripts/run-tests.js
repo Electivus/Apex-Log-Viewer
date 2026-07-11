@@ -530,7 +530,7 @@ async function pretestSetup(scope = 'all', opts = {}, helpers = {}) {
       const settings = {};
       const wantTrace = /^1|true$/i.test(String(process.env.SF_LOG_TRACE || ''));
       if (wantTrace) {
-        settings['sfLogs.trace'] = true;
+        settings['electivus.apexLogViewer.logging.trace'] = true;
       }
       const logLevel = process.env.VSCODE_TEST_LOG_LEVEL || process.env.VSCODE_LOG_LEVEL;
       if (logLevel) {
@@ -793,15 +793,16 @@ async function run() {
     // Package VSIX
     console.log('[smoke] Packaging VSIX...');
     // Build artifacts (avoid full 'package' to reduce flakiness on CI)
-    await execFileAsync('npm', ['run', '-s', 'build']);
+    await execFileAsync('pnpm', ['run', 'build']);
     // Ensure l10n bundles exist (best-effort)
     try {
-      await execFileAsync('npm', ['run', '-s', 'l10n:write']);
+      await execFileAsync('pnpm', ['run', 'l10n:write']);
     } catch {}
     const smokeVsixPath = join(repoRoot, 'apex-log-viewer-smoke.vsix');
     await execStreaming(process.execPath, [
       resolve(repoRoot, 'scripts', 'run-vsce.js'),
       'package',
+      '--no-dependencies',
       '--skip-prepublish',
       '--no-yarn',
       '--out',
@@ -846,32 +847,20 @@ async function run() {
     writeFileSync(join(dev, 'package.json'), JSON.stringify(pkg, null, 2));
     writeFileSync(join(dev, 'index.js'), 'exports.activate=()=>{};exports.deactivate=()=>{};\n');
     extensionDevelopmentPath = dev;
-    // Write runner that activates the installed extension and exercises the packaged embedded sf runner.
+    // Write a runner that activates the installed extension and verifies its autonomous package boundary.
     const runner = [
       '"use strict";',
       "const assert=require('assert/strict');",
       "const fs=require('fs');",
       "const path=require('path');",
-      "const {spawn}=require('child_process');",
       "const vscode=require('vscode');",
-      'function run(command,args,options){return new Promise((resolve,reject)=>{const child=spawn(command,args,options);let stdout="";let stderr="";child.stdout.setEncoding("utf8");child.stderr.setEncoding("utf8");child.stdout.on("data",chunk=>{stdout+=String(chunk);});child.stderr.on("data",chunk=>{stderr+=String(chunk);});child.on("error",reject);child.on("close",(code,signal)=>resolve({code,signal,stdout,stderr}));});}',
-      'function parseJson(stdout){const text=String(stdout||"").trim();assert.ok(text,"embedded runner did not produce JSON output");try{return JSON.parse(text);}catch{}const firstArray=text.indexOf("[");const firstObject=text.indexOf("{");const start=firstArray===-1?firstObject:firstObject===-1?firstArray:Math.min(firstArray,firstObject);const end=Math.max(text.lastIndexOf("]"),text.lastIndexOf("}"));assert.ok(start>=0&&end>start,"embedded runner produced invalid JSON: "+text.slice(0,300));return JSON.parse(text.slice(start,end+1));}',
       "exports.run=async function(){",
       "const ext=vscode.extensions.getExtension('electivus.apex-log-viewer');",
       "assert.ok(ext,'extension not found');",
       "await ext.activate();",
       "const cmds=await vscode.commands.getCommands(true);",
-      "for(const c of ['sfLogs.refresh','sfLogs.selectOrg','sfLogs.tail','sfLogs.showOutput']){assert.ok(cmds.includes(c),'missing command: '+c);}",
-      "const runnerPath=path.join(ext.extensionPath,'sf-plugin','electivus-runner.cjs');",
-      "assert.ok(fs.existsSync(runnerPath),'embedded runner missing: '+runnerPath);",
-      "const workspace=vscode.workspace.workspaceFolders&&vscode.workspace.workspaceFolders[0]&&vscode.workspace.workspaceFolders[0].uri.fsPath;",
-      "const nodePath=process.env.ALV_NODE_BIN_PATH||(process.platform==='win32'?'node.exe':'node');",
-      "const childEnv={...process.env,SF_DISABLE_LOG_FILE:'true',SFDX_DISABLE_LOG_FILE:'true'};",
-      "delete childEnv.ELECTRON_RUN_AS_NODE;",
-      "const result=await run(nodePath,[runnerPath,'orgs','list','--json'],{cwd:workspace||ext.extensionPath,env:childEnv,windowsHide:true});",
-      "assert.equal(result.code,0,'embedded runner failed with code '+result.code+' signal '+result.signal+' stdout: '+result.stdout.slice(0,500)+' stderr: '+result.stderr.slice(0,500));",
-      "const parsed=parseJson(result.stdout);",
-      "assert.ok(Array.isArray(parsed),'embedded runner orgs list should return an array');",
+      "for(const c of ['electivus.apexLogViewer.logs.refresh','electivus.apexLogViewer.org.select','electivus.apexLogViewer.tail.start','electivus.apexLogViewer.output.show']){assert.ok(cmds.includes(c),'missing command: '+c);}",
+      "assert.equal(fs.existsSync(path.join(ext.extensionPath,'sf-plugin')),false,'VSIX must not contain an embedded plugin');",
       "};",
       ''
     ].join('\n');

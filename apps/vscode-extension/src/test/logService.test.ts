@@ -5,10 +5,10 @@ import * as fs from 'fs/promises';
 import { constants as fsConstants } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import type { OrgAuth } from '../../../../src/salesforce/types';
+import type { OrgAuth } from '../host/salesforce/types';
 import type { ApexLogRow } from '../shared/types';
-import type { EnsureLogsSavedItemResult } from '../../../../src/services/logService';
-import type { ClassifyLogsForErrorsProgress } from '../../../../src/services/logService';
+import type { EnsureLogsSavedItemResult } from '../host/services/logService';
+import type { ClassifyLogsForErrorsProgress } from '../host/services/logService';
 import type { LogTriageSummary } from '../shared/logTriage';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
@@ -40,7 +40,7 @@ function createVscodeLogServiceStub(commandCalls: Array<{ command: string; uri: 
 
 function createRuntimeClientStub(auth: Partial<OrgAuth> = {}) {
   return {
-    '../../apps/vscode-extension/src/runtime/runtimeClient': {
+    '../../runtime/runtimeClient': {
       runtimeClient: {
         getOrgAuth: async ({ username }: { username?: string } = {}) => ({
           accessToken: 't',
@@ -71,13 +71,13 @@ suite('LogService', () => {
 
   test('fetchLogs delegates to http fetch', async () => {
     const calls: any[] = [];
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async (auth: OrgAuth, limit: number, offset: number) => {
           calls.push({ auth, limit, offset });
           return [{ Id: '1' } as ApexLogRow];
         },
-        fetchApexLogBody: async () => '',
+        fetchApexLogBody: async () => ''
       },
       '../utils/workspace': {
         getLogFilePathWithUsername: async () => ({ dir: '', filePath: '' }),
@@ -99,7 +99,7 @@ suite('LogService', () => {
     const calls: any[] = [];
     const authCalls: Array<{ username?: string }> = [];
     const vscodeMock = createVscodeLogServiceStub([]);
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       vscode: vscodeMock,
       '../salesforce/http': {
         fetchApexLogs: async () => [],
@@ -111,7 +111,7 @@ suite('LogService', () => {
           throw new Error('should not call cli getOrgAuth');
         }
       },
-      '../../apps/vscode-extension/src/runtime/runtimeClient': {
+      '../../runtime/runtimeClient': {
         runtimeClient: {
           getOrgAuth: async ({ username }: { username?: string } = {}) => {
             authCalls.push({ username });
@@ -128,7 +128,7 @@ suite('LogService', () => {
         findExistingLogFile: async (_logId: string, username?: string) =>
           username === 'runtime@example.com' ? '/tmp/runtime.log' : undefined
       },
-      '../../apps/vscode-extension/src/panel/LogViewerPanel': {
+      '../../panel/LogViewerPanel': {
         LogViewerPanel: class {
           static async show(opts: any) {
             calls.push(opts);
@@ -156,22 +156,22 @@ suite('LogService', () => {
       });
     };
     try {
-      const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+      const { LogService } = proxyquireStrict('../host/services/logService', {
         '../salesforce/http': {
           fetchApexLogs: async () => [],
           fetchApexLogHead: async () => [],
           fetchApexLogBody: async () => ''
         },
-      '../salesforce/cli': {
-        getOrgAuth: async () => ({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' })
-      },
-      ...createRuntimeClientStub({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' }),
-      '../utils/workspace': {
-        getLogFilePathWithUsername: async () => ({ dir: '', filePath: '/tmp/test.log' }),
-        findExistingLogFile: async (_logId: string, username?: string) =>
+        '../salesforce/cli': {
+          getOrgAuth: async () => ({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' })
+        },
+        ...createRuntimeClientStub({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' }),
+        '../utils/workspace': {
+          getLogFilePathWithUsername: async () => ({ dir: '', filePath: '/tmp/test.log' }),
+          findExistingLogFile: async (_logId: string, username?: string) =>
             username === 'user@example.com' ? '/tmp/test.log' : undefined
         },
-        '../../apps/vscode-extension/src/panel/LogViewerPanel': {
+        '../../panel/LogViewerPanel': {
           LogViewerPanel: class {
             static async show(opts: any) {
               calls.push(opts);
@@ -192,21 +192,21 @@ suite('LogService', () => {
   test('debugLog routes through ensureLogFile before launching debugger', async () => {
     const commandCalls: any[] = [];
     const vscodeMock = createVscodeLogServiceStub(commandCalls);
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       vscode: vscodeMock,
-        '../salesforce/http': {
-          fetchApexLogs: async () => [],
-          fetchApexLogHead: async () => [],
-          fetchApexLogBody: async () => ''
-        },
-        '../utils/workspace': {
-          getLogFilePathWithUsername: async () => ({ dir: '', filePath: '/tmp/test.log' }),
-          findExistingLogFile: async () => '/tmp/test.log'
-        },
-        '../utils/replayDebugger': {
-          ensureReplayDebuggerAvailable: async () => true
-        }
-      });
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        fetchApexLogHead: async () => [],
+        fetchApexLogBody: async () => ''
+      },
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async () => ({ dir: '', filePath: '/tmp/test.log' }),
+        findExistingLogFile: async () => '/tmp/test.log'
+      },
+      '../utils/replayDebugger': {
+        ensureReplayDebuggerAvailable: async () => true
+      }
+    });
     const svc = new LogService();
     const ensureCalls: string[] = [];
     (svc as any).ensureLogFile = async (logId: string) => {
@@ -225,38 +225,38 @@ suite('LogService', () => {
     let storedPath: string | undefined;
     const fetchCalls: string[] = [];
     const filePath = path.join(os.tmpdir(), 'replay-debug.log');
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       vscode: vscodeMock,
-        '../salesforce/http': {
-          fetchApexLogs: async () => [],
-          fetchApexLogHead: async () => [],
-          fetchApexLogBody: async (_auth: OrgAuth, logId: string) => {
-            fetchCalls.push(logId);
-            await new Promise(resolve => setTimeout(resolve, 5));
-            return 'body';
-          }
-        },
-        '../salesforce/cli': {
-          getOrgAuth: async () => ({ username: 'user', accessToken: 'token', instanceUrl: 'url' })
-        },
-        ...createRuntimeClientStub({ username: 'user', accessToken: 'token', instanceUrl: 'url' }),
-        '../utils/workspace': {
-          getLogFilePathWithUsername: async () => ({ dir: path.dirname(filePath), filePath }),
-          findExistingLogFile: async () => storedPath
-        },
-        '../utils/replayDebugger': {
-          ensureReplayDebuggerAvailable: async () => true
-        },
-        fs: {
-          promises: {
-            mkdir: async () => {},
-            writeFile: async (target: string) => {
-              await new Promise(resolve => setTimeout(resolve, 1));
-              storedPath = target;
-            }
+      '../salesforce/http': {
+        fetchApexLogs: async () => [],
+        fetchApexLogHead: async () => [],
+        fetchApexLogBody: async (_auth: OrgAuth, logId: string) => {
+          fetchCalls.push(logId);
+          await new Promise(resolve => setTimeout(resolve, 5));
+          return 'body';
+        }
+      },
+      '../salesforce/cli': {
+        getOrgAuth: async () => ({ username: 'user', accessToken: 'token', instanceUrl: 'url' })
+      },
+      ...createRuntimeClientStub({ username: 'user', accessToken: 'token', instanceUrl: 'url' }),
+      '../utils/workspace': {
+        getLogFilePathWithUsername: async () => ({ dir: path.dirname(filePath), filePath }),
+        findExistingLogFile: async () => storedPath
+      },
+      '../utils/replayDebugger': {
+        ensureReplayDebuggerAvailable: async () => true
+      },
+      fs: {
+        promises: {
+          mkdir: async () => {},
+          writeFile: async (target: string) => {
+            await new Promise(resolve => setTimeout(resolve, 1));
+            storedPath = target;
           }
         }
-      });
+      }
+    });
     const svc = new LogService();
     await Promise.all([svc.debugLog('abc', 'default'), svc.debugLog('abc', 'default')]);
     assert.equal(fetchCalls.length, 1, 'should only download the log body once');
@@ -266,7 +266,7 @@ suite('LogService', () => {
 
   test('ensureLogsSaved returns summary and per-item statuses for bulk downloads', async () => {
     const itemStatuses: string[] = [];
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogHead: async () => [],
@@ -325,7 +325,7 @@ suite('LogService', () => {
 
   test('ensureLogsSaved passes StartTime to the log file path builder', async () => {
     const pathCalls: Array<{ username?: string; logId: string; startTime?: string }> = [];
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogBody: async () => 'body'
@@ -335,11 +335,7 @@ suite('LogService', () => {
       },
       ...createRuntimeClientStub({ username: 'u', accessToken: 't', instanceUrl: 'url' }),
       '../utils/workspace': {
-        buildLogFilePathWithUsername: (
-          username: string | undefined,
-          logId: string,
-          startTime?: string
-        ) => {
+        buildLogFilePathWithUsername: (username: string | undefined, logId: string, startTime?: string) => {
           pathCalls.push({ username, logId, startTime });
           return { dir: '/tmp', filePath: `/tmp/${logId}.log` };
         },
@@ -382,7 +378,7 @@ suite('LogService', () => {
     let fetchCalls = 0;
     let writeCalls = 0;
 
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogBody: async () => {
@@ -395,11 +391,7 @@ suite('LogService', () => {
       },
       ...createRuntimeClientStub({ username: 'user@example.com', accessToken: 't', instanceUrl: 'url' }),
       '../utils/workspace': {
-        buildLogFilePathWithUsername: (
-          username: string | undefined,
-          id: string,
-          startTime?: string
-        ) => {
+        buildLogFilePathWithUsername: (username: string | undefined, id: string, startTime?: string) => {
           assert.equal(username, 'user@example.com');
           assert.equal(id, logId);
           assert.equal(startTime, '2026-03-30T18:39:58.000Z');
@@ -452,7 +444,7 @@ suite('LogService', () => {
     let accessCalls = 0;
     let copyCalls = 0;
 
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogBody: async () => {
@@ -509,7 +501,7 @@ suite('LogService', () => {
   test('ensureLogsSaved reports missing logs when downloadMissing is disabled', async () => {
     const missing: string[] = [];
     const statuses: string[] = [];
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogHead: async () => [],
@@ -554,7 +546,7 @@ suite('LogService', () => {
     let fetchCalls = 0;
     let writeCalls = 0;
 
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogBody: async () => {
@@ -567,7 +559,7 @@ suite('LogService', () => {
           throw new Error('should use runtime auth');
         }
       },
-      '../../apps/vscode-extension/src/runtime/runtimeClient': {
+      '../../runtime/runtimeClient': {
         runtimeClient: {
           getOrgAuth: async () => {
             authCalls++;
@@ -609,7 +601,7 @@ suite('LogService', () => {
     let authCalls = 0;
     const writeTargets: string[] = [];
     const lookupCalls: Array<{ logId: string; username?: string }> = [];
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogBody: async () => 'body'
@@ -641,24 +633,22 @@ suite('LogService', () => {
     });
 
     const svc = new LogService(1);
-    const summary = await svc.ensureLogsSaved(
-      [{ Id: '1' } as ApexLogRow],
-      'default',
-      undefined,
-      {
-        authHint: { username: 'u', accessToken: 't', instanceUrl: 'url' }
-      } as any
-    );
+    const summary = await svc.ensureLogsSaved([{ Id: '1' } as ApexLogRow], 'default', undefined, {
+      authHint: { username: 'u', accessToken: 't', instanceUrl: 'url' }
+    } as any);
 
     assert.equal(authCalls, 0, 'should avoid a duplicate CLI auth lookup when authHint is provided');
     assert.ok(lookupCalls.length >= 1, 'should check for existing files before writing');
-    assert.equal(lookupCalls.every(call => call.logId === '1' && call.username === 'u'), true);
+    assert.equal(
+      lookupCalls.every(call => call.logId === '1' && call.username === 'u'),
+      true
+    );
     assert.deepEqual(writeTargets, ['/tmp/u_1.log']);
     assert.equal(summary.downloaded, 1);
   });
 
   test('summarizeLogText returns a structured summary for error event lines', async () => {
-    const { summarizeLogText } = proxyquireStrict('../../../../src/services/logTriage', {});
+    const { summarizeLogText } = proxyquireStrict('../host/services/logTriage', {});
 
     const summary = await summarizeLogText('12:00:00.000 | EXCEPTION_THROWN | [6] | boom\n');
 
@@ -675,7 +665,7 @@ suite('LogService', () => {
     await fs.writeFile(errPath, '12:00:00.000 | EXCEPTION_THROWN | [6] | boom\n', 'utf8');
     await fs.writeFile(okPath, '12:00:00.000 | USER_DEBUG | [6] | all good\n', 'utf8');
 
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogHead: async () => [],
@@ -757,7 +747,7 @@ suite('LogService', () => {
     await fs.writeFile(errPath, '12:00:00.000 | EXCEPTION_THROWN | [6] | boom\n', 'utf8');
 
     const summarizeLogFileCalls: string[] = [];
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       fs: {
         promises: {
           readFile: async () => {
@@ -817,7 +807,7 @@ suite('LogService', () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'logservice-errors-fallback-'));
     const okPath = path.join(tmpDir, 'default_ok.log');
 
-    const { LogService } = proxyquireStrict('../../../../src/services/logService', {
+    const { LogService } = proxyquireStrict('../host/services/logService', {
       '../salesforce/http': {
         fetchApexLogs: async () => [],
         fetchApexLogHead: async () => [],

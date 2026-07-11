@@ -42,8 +42,9 @@ function collectSourceFiles(dir: string, acc: string[] = []): string[] {
 
 function collectEmittedEventNames(): string[] {
   const sourceRoots = [
-    path.resolve(__dirname, '../../../../src'),
-    path.resolve(__dirname, '..')
+    path.resolve(__dirname, '../../src'),
+    path.resolve(__dirname, '../../../../packages/core/src'),
+    path.resolve(__dirname, '../../../../packages/protocol/src')
   ];
   const matcher = /safeSend(?:Event|Exception)\(\s*['"]([^'"]+)['"]/g;
   const emitted = new Set<string>();
@@ -98,11 +99,11 @@ suite('telemetry contract', () => {
     assert.ok(catalog.commonProperties?.testRunId);
   });
 
-  test('sf plugin request method values are path-safe', () => {
+  test('core request method values are path-safe', () => {
     const catalog = readTelemetryCatalog();
-    const values = catalog.events['sfPlugin.request']?.properties?.method?.values || [];
+    const values = catalog.events['core.request']?.properties?.method?.values || [];
 
-    assert.notEqual(values.length, 0, 'sfPlugin.request method values should be enumerated');
+    assert.notEqual(values.length, 0, 'core.request method values should be enumerated');
     for (const value of values) {
       assert.doesNotMatch(value, /[\\/]/, `Expected "${value}" not to look like a filesystem path.`);
       assert.doesNotMatch(value, /<REDACTED/i, `Expected "${value}" not to use telemetry redaction markers.`);

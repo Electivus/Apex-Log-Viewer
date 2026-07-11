@@ -1,9 +1,9 @@
 import assert from 'assert/strict';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
-import { fetchApexLogBody, __setHttpsRequestImplForTests, __resetHttpsRequestImplForTests } from '../../../../src/salesforce/http';
-import { __resetConnectionFactoryForTests, __setConnectionFactoryForTests } from '../../../../src/salesforce/jsforce';
-import type { OrgAuth } from '../../../../src/salesforce/types';
+import { fetchApexLogBody, __setHttpsRequestImplForTests, __resetHttpsRequestImplForTests } from '../host/salesforce/http';
+import { __resetConnectionFactoryForTests, __setConnectionFactoryForTests } from '../host/salesforce/jsforce';
+import type { OrgAuth } from '../host/salesforce/types';
 
 suite('https request timeout', () => {
   teardown(() => {

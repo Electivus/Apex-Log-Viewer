@@ -68,6 +68,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
@@ -98,7 +101,7 @@ jobs:
         run: |
           echo "Scratch strategy: ${SCRATCH_STRATEGY}"
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
-          npm run test:e2e:proxy-lab -- npm run test:e2e:cli
+          pnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli
         env:
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
@@ -142,10 +145,10 @@ jobs:
           echo "Scratch strategy: ${SCRATCH_STRATEGY}"
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
           echo "Running Playwright E2E through the MITM proxy lab."
-          npm run test:e2e:proxy-lab -- npm run test:e2e
+          pnpm run test:e2e:proxy-lab -- pnpm run test:e2e
         env:
           VSCODE_TEST_VERSION: ${{ env.VSCODE_TEST_VERSION }}
-          ALV_E2E_PROXY_LAB_SKIP_NPM_CI: ${{ vars.ALV_E2E_PROXY_LAB_SKIP_NPM_CI || '1' }}
+          ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL: ${{ vars.ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL || '1' }}
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
           SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
@@ -206,12 +209,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Resolve VS Code cache metadata
         id: vscode-cache
@@ -261,30 +267,19 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Restore direct E2E dependency cache
-        id: direct-e2e-deps
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: |
-            node_modules
-            apps/vscode-extension/node_modules
-            packages/sf-plugin/node_modules
-          key: direct-e2e-node-modules-${{ runner.os }}-${{ hashFiles('.nvmrc', 'package-lock.json') }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
 
       - name: Install extension dependencies
-        if: steps.direct-e2e-deps.outputs.cache-hit != 'true'
-        run: npm ci
+        run: pnpm install --frozen-lockfile
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Build direct E2E artifacts
-        run: npm run build
+        run: pnpm run build
 
       - name: Require scratch-org pool configuration
         shell: bash
@@ -388,6 +383,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
 
       - name: Setup Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e

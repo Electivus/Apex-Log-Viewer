@@ -13,6 +13,26 @@ suite('package manifest', () => {
     assert.equal(manifest.description?.endsWith('%'), false);
   });
 
+  test('uses schema-valid view container ids and connects every container to its views', async () => {
+    const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
+    const raw = await readFile(path.join(repoRoot, 'apps', 'vscode-extension', 'package.json'), 'utf8');
+    const manifest = JSON.parse(raw) as {
+      contributes?: {
+        views?: Record<string, unknown>;
+        viewsContainers?: Record<string, Array<{ id?: string }>>;
+      };
+    };
+    const containerIds = Object.values(manifest.contributes?.viewsContainers ?? {})
+      .flat()
+      .map(container => container.id ?? '');
+
+    assert.ok(containerIds.length > 0);
+    for (const id of containerIds) {
+      assert.match(id, /^[A-Za-z0-9_-]+$/);
+      assert.ok(Object.hasOwn(manifest.contributes?.views ?? {}, id));
+    }
+  });
+
   test('does not require Apex Replay Debugger as an extension dependency', async () => {
     const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
     const raw = await readFile(path.join(repoRoot, 'package.json'), 'utf8');
@@ -60,7 +80,7 @@ suite('package manifest', () => {
 
     assert.match(
       allTestsScript,
-      /\bnpm run test:extension:node\b/,
+      /\bpnpm run test:extension:node\b/,
       'package.json should keep test:all aligned with the node-only extension test lane'
     );
   });

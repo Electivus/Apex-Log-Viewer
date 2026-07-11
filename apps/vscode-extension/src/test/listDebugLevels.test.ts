@@ -1,10 +1,10 @@
 import assert from 'assert/strict';
 import { EventEmitter } from 'events';
 import { workspace } from 'vscode';
-import { createDebugLevel, ensureDefaultTailDebugLevel, listDebugLevels } from '../../../../src/salesforce/traceflags';
-import { __setHttpsRequestImplForTests, __resetHttpsRequestImplForTests } from '../../../../src/salesforce/http';
-import { CacheManager } from '../../../../src/utils/cacheManager';
-import type { OrgAuth } from '../../../../src/salesforce/types';
+import { createDebugLevel, ensureDefaultTailDebugLevel, listDebugLevels } from '../host/salesforce/traceflags';
+import { __setHttpsRequestImplForTests, __resetHttpsRequestImplForTests } from '../host/salesforce/http';
+import { CacheManager } from '../host/utils/cacheManager';
+import type { OrgAuth } from '../host/salesforce/types';
 
 suite('listDebugLevels', () => {
   const originalGetConfiguration = workspace.getConfiguration;

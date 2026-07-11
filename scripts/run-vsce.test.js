@@ -19,6 +19,27 @@ test('resolveVsceInvocation prefers the local workspace binary when present', ()
   assert.deepEqual(invocation.baseArgs, []);
 });
 
+test('runVsce uses pnpm for the workspace prepublish build', () => {
+  const seen = [];
+  const stageDir = path.join(os.tmpdir(), 'alv-run-vsce-pnpm-stage');
+
+  runVsce(['package', '--no-dependencies'], {
+    createPackagingStage: () => stageDir,
+    resolveVsceInvocation: () => ({ command: 'vsce', baseArgs: [] }),
+    runCommand(command, args, options) {
+      seen.push({ command, args, cwd: options.cwd });
+    },
+    preservePackagedArtifacts() {},
+    removeDir() {}
+  });
+
+  assert.deepEqual(seen[0], {
+    command: 'pnpm',
+    args: ['run', 'package'],
+    cwd: path.resolve(__dirname, '..')
+  });
+});
+
 test('addRepoLocalBinToPath prepends the workspace local bin exactly once', () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-run-vsce-'));
   const fakeEnv = { PATH: path.join(tempRoot, 'bin') };

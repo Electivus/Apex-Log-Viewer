@@ -25,7 +25,7 @@ suite('LogsMessageHandler telemetry', () => {
         },
         '@noCallThru': true
       },
-      '../../../../src/utils/logger': {
+      '../host/utils/logger': {
         logInfo: () => undefined,
         logWarn: () => undefined,
         '@noCallThru': true

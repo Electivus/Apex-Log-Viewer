@@ -1,6 +1,6 @@
 import { parseWebviewToExtensionMessage, type WebviewToExtensionMessage } from '../shared/messages';
 import { safeSendEvent } from '../shared/telemetry';
-import { logInfo, logWarn } from '../../../../src/utils/logger';
+import { logInfo, logWarn } from '../host/utils/logger';
 
 export class LogsMessageHandler {
   constructor(

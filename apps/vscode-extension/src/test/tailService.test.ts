@@ -3,18 +3,18 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { PassThrough } from 'stream';
 import proxyquire from 'proxyquire';
-import { MAX_TAIL_BUFFER_LINES, TailService } from '../../../../src/utils/tailService';
+import { MAX_TAIL_BUFFER_LINES, TailService } from '../host/utils/tailService';
 import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
-import * as cli from '../../../../src/salesforce/cli';
-import * as http from '../../../../src/salesforce/http';
-import * as jsforce from '../../../../src/salesforce/jsforce';
-import * as streaming from '../../../../src/salesforce/streaming';
-import * as traceflags from '../../../../src/salesforce/traceflags';
+import * as cli from '../host/salesforce/cli';
+import * as http from '../host/salesforce/http';
+import * as jsforce from '../host/salesforce/jsforce';
+import * as streaming from '../host/salesforce/streaming';
+import * as traceflags from '../host/salesforce/traceflags';
 import {
   __resetApiVersionFallbackStateForTests,
   recordApiVersionFallback,
   setApiVersion
-} from '../../../../src/salesforce/apiVersion';
+} from '../host/salesforce/apiVersion';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { WEBVIEW_READY_TIMEOUT_MS, WEBVIEW_STABLE_VISIBILITY_DELAY_MS } from '../provider/SfLogTailViewProvider';
 import { TestClock } from './testClock';
@@ -29,13 +29,13 @@ function loadTailService(stubs?: {
   jsforce?: Record<string, unknown>;
   runtime?: Record<string, unknown>;
 }) {
-  return proxyquireStrict('../../../../src/utils/tailService', {
+  return proxyquireStrict('../host/utils/tailService', {
     '../salesforce/cli': stubs?.cli ?? {},
     '../salesforce/http': stubs?.http ?? {},
     '../salesforce/traceflags': stubs?.traceflags ?? {},
     '../salesforce/streaming': stubs?.streaming ?? {},
     '../salesforce/jsforce': stubs?.jsforce ?? {},
-    '../../apps/vscode-extension/src/runtime/runtimeClient': stubs?.runtime ?? {
+    '../../runtime/runtimeClient': stubs?.runtime ?? {
       runtimeClient: {
         getOrgAuth:
           stubs?.cli?.getOrgAuth ??
@@ -46,7 +46,7 @@ function loadTailService(stubs?: {
           }))
       }
     }
-  }) as typeof import('../../../../src/utils/tailService');
+  }) as typeof import('../host/utils/tailService');
 }
 
 function loadTailProvider(stubs?: { cli?: Record<string, unknown>; traceflags?: Record<string, unknown> }) {
@@ -81,11 +81,11 @@ function loadTailProvider(stubs?: { cli?: Record<string, unknown>; traceflags?: 
           }))
       }
     },
-    '../../../../src/utils/replayDebugger': {
+    '../host/utils/replayDebugger': {
       ensureReplayDebuggerAvailable: async () => true
     },
-    '../../../../src/salesforce/traceflags': stubs?.traceflags ?? {},
-    '../../../../src/utils/tailService': { TailService: TailServiceStub }
+    '../host/salesforce/traceflags': stubs?.traceflags ?? {},
+    '../host/utils/tailService': { TailService: TailServiceStub }
   }) as typeof import('../provider/SfLogTailViewProvider');
 }
 
@@ -126,7 +126,7 @@ class MockWebview implements vscode.Webview {
 class MockWebviewView implements vscode.WebviewView {
   visible = true;
   title = 'Test';
-  viewType = 'sfLogTail';
+  viewType = 'electivus.apexLogViewer.tailView';
   description?: string | undefined;
   badge?: { value: number; tooltip: string } | undefined;
   webview: vscode.Webview;
@@ -757,7 +757,7 @@ suite('TailService', () => {
         posted.push(message);
         return Promise.resolve(true);
       };
-      const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+      const panel = new MockWebviewPanel('electivus.apexLogViewer.tailView.editorPanel', webview);
 
       (provider as any).sendOrgs = async () => {
         posted.push({ type: 'sendOrgsCalled' });
@@ -803,7 +803,7 @@ suite('TailService', () => {
       } as unknown as vscode.ExtensionContext;
       const provider = new SfLogTailViewProvider(context);
       const webview = new MockWebview();
-      const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+      const panel = new MockWebviewPanel('electivus.apexLogViewer.tailView.editorPanel', webview);
       const calls: string[] = [];
 
       (provider as any).refreshViewState = async () => {
@@ -958,7 +958,10 @@ suite('TailService', () => {
       view.fireVisible(true);
       await clock.flushMicrotasks();
 
-      assert.ok(posted.some(message => message?.type === 'init'), 'visible transition should attempt tail init replay');
+      assert.ok(
+        posted.some(message => message?.type === 'init'),
+        'visible transition should attempt tail init replay'
+      );
       assert.equal(
         (provider as any).needsReplayOnVisible,
         true,
@@ -973,8 +976,14 @@ suite('TailService', () => {
       await clock.advanceBy(1000);
 
       assert.equal((provider as any).needsReplayOnVisible, false, 'successful tail retry should clear replay request');
-      assert.ok(posted.some(message => message?.type === 'init'), 'visible retry should resend tail init');
-      assert.ok(posted.some(message => message?.type === 'tailStatus'), 'visible retry should resend tail status');
+      assert.ok(
+        posted.some(message => message?.type === 'init'),
+        'visible retry should resend tail init'
+      );
+      assert.ok(
+        posted.some(message => message?.type === 'tailStatus'),
+        'visible retry should resend tail status'
+      );
     } finally {
       clock.dispose();
     }
@@ -1023,7 +1032,10 @@ suite('TailService', () => {
       await clock.advanceBy(1000);
 
       assert.equal((provider as any).needsReplayOnVisible, false, 'successful tail retry should clear replay request');
-      assert.ok(posted.some(message => message?.type === 'init'), 'visible retry should resend tail init');
+      assert.ok(
+        posted.some(message => message?.type === 'init'),
+        'visible retry should resend tail init'
+      );
       assert.ok(
         posted.some(message => message?.type === 'tailStatus' && message?.running === true),
         'visible retry should replay the latest tail running status'
@@ -1075,8 +1087,15 @@ suite('TailService', () => {
       posted.length = 0;
       await clock.advanceBy(1000);
 
-      assert.equal((provider as any).needsReplayOnVisible, false, 'successful tail reset retry should clear replay request');
-      assert.ok(posted.some(message => message?.type === 'init'), 'visible retry should resend tail init');
+      assert.equal(
+        (provider as any).needsReplayOnVisible,
+        false,
+        'successful tail reset retry should clear replay request'
+      );
+      assert.ok(
+        posted.some(message => message?.type === 'init'),
+        'visible retry should resend tail init'
+      );
       assert.ok(
         posted.some(message => message?.type === 'tailReset'),
         'visible retry should replay the retained tail reset'
@@ -1333,13 +1352,21 @@ suite('TailService', () => {
       await clock.advanceBy(WEBVIEW_READY_TIMEOUT_MS + WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
 
       assert.equal(webview.html, mountedHtml, 'hidden initializing tail webview should not fall back to placeholder');
-      assert.equal(webview.htmlAssignments.length, mountedAssignments, 'hidden initializing tail webview should not remount');
+      assert.equal(
+        webview.htmlAssignments.length,
+        mountedAssignments,
+        'hidden initializing tail webview should not remount'
+      );
 
       view.fireVisible(true);
       await clock.advanceBy(WEBVIEW_STABLE_VISIBILITY_DELAY_MS);
 
       assert.equal(webview.html, mountedHtml, 'visible restore should reuse the initializing tail document');
-      assert.equal((provider as any).mountSequence, mountSequence, 'visible restore should not allocate a new tail mount');
+      assert.equal(
+        (provider as any).mountSequence,
+        mountSequence,
+        'visible restore should not allocate a new tail mount'
+      );
 
       await webview.emit({ type: 'ready', mountSequence });
       await clock.flushMicrotasks();
@@ -1488,7 +1515,7 @@ suite('TailService', () => {
       } as unknown as vscode.ExtensionContext;
       const provider = new SfLogTailViewProvider(context);
       const webview = new MockWebview();
-      const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+      const panel = new MockWebviewPanel('electivus.apexLogViewer.tailView.editorPanel', webview);
       const posted: any[] = [];
       webview.postMessage = (message: any) => {
         posted.push(message);
@@ -1531,7 +1558,7 @@ suite('TailService', () => {
       } as unknown as vscode.ExtensionContext;
       const provider = new SfLogTailViewProvider(context);
       const webview = new MockWebview();
-      const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+      const panel = new MockWebviewPanel('electivus.apexLogViewer.tailView.editorPanel', webview);
       const calls: string[] = [];
 
       (provider as any).post({ type: 'orgs', data: [], selected: undefined });
@@ -1593,7 +1620,7 @@ suite('TailService', () => {
     } as unknown as vscode.ExtensionContext;
     const provider = new SfLogTailViewProvider(context);
     const webview = new MockWebview();
-    const panel = new MockWebviewPanel('sfLogTail.editorPanel', webview);
+    const panel = new MockWebviewPanel('electivus.apexLogViewer.tailView.editorPanel', webview);
     const calls: string[] = [];
     const posted: any[] = [];
     webview.postMessage = (message: any) => {

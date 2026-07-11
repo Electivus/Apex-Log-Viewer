@@ -1,0 +1,39 @@
+{
+  "name": "@alv/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js",
+      "require": "./lib/index.js"
+    },
+    "./contracts": {
+      "types": "./lib/contracts.d.ts",
+      "import": "./lib/contracts.js",
+      "require": "./lib/contracts.js"
+    }
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check-types": "tsc --noEmit -p tsconfig.json",
+    "clean": "node -e \"require('fs').rmSync('lib',{recursive:true,force:true})\"",
+    "test": "node --import tsx --test test/*.test.ts",
+    "watch": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "@salesforce/core": "^8.32.2"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

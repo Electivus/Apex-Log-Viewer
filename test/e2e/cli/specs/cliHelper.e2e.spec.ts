@@ -89,7 +89,7 @@ test('runAlvCli passes electivus and command args to the plugin bin', async () =
       'process.stdout.write(JSON.stringify({source:"plugin", marker:process.env.ALV_TEST_MARKER, args:process.argv.slice(2)}) + "\\n");\n'
     );
 
-    const result = await runAlvCli(['logs', 'status', '--target-org', 'demo'], {
+    const result = await runAlvCli(['log', 'status', '--target-org', 'demo'], {
       repoRoot,
       env: { ALV_TEST_MARKER: '1', ALV_ELECTIVUS_PLUGIN_BIN_PATH: '' }
     });

@@ -124,7 +124,7 @@ var cliTimeoutQuery = 'AppEvents\n| where TimeGenerated > ago(1h)\n| where _Reso
 var refreshFailureQuery = 'AppEvents\n| where TimeGenerated > ago(1h)\n| where _ResourceId =~ "${toLower(prodComponentResourceId)}"\n| where Name == "electivus.apex-log-viewer/logs.refresh"\n| extend props = parse_json(Properties)\n| summarize total = count(), errors = countif(tostring(props["outcome"]) == "error")\n| extend errorRate = iff(total == 0, 0.0, 100.0 * todouble(errors) / todouble(total))\n| where total >= 20 and errorRate >= 15'
 var debugLevelsQuery = 'AppEvents\n| where TimeGenerated > ago(2h)\n| where _ResourceId =~ "${toLower(prodComponentResourceId)}"\n| where Name == "electivus.apex-log-viewer/debugLevels.load"\n| extend props = parse_json(Properties), measurements = parse_json(Measurements)\n| extend outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"])\n| summarize total = count(), errors = countif(outcome == "error"), p95 = percentile(durationMs, 95)\n| extend errorRate = iff(total == 0, 0.0, 100.0 * todouble(errors) / todouble(total))\n| where total >= 5 and (errorRate >= 50 or p95 >= 60000)'
 var logsSearchQuery = 'AppEvents\n| where TimeGenerated > ago(2h)\n| where _ResourceId =~ "${toLower(prodComponentResourceId)}"\n| where Name == "electivus.apex-log-viewer/logs.search"\n| extend props = parse_json(Properties), measurements = parse_json(Measurements)\n| extend outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"])\n| where outcome in ("searched", "error")\n| summarize total = count(), errors = countif(outcome == "error"), p95 = percentile(durationMs, 95)\n| extend errorRate = iff(total == 0, 0.0, 100.0 * todouble(errors) / todouble(total))\n| where total >= 10 and (errorRate >= 20 or p95 >= 5000)'
-var sfPluginRequestQuery = 'AppEvents\n| where TimeGenerated > ago(2h)\n| where _ResourceId =~ "${toLower(prodComponentResourceId)}"\n| where Name == "electivus.apex-log-viewer/sfPlugin.request"\n| extend props = parse_json(Properties), measurements = parse_json(Measurements)\n| extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"])\n| where method in ("org_list", "org_auth", "logs_list", "logs_sync", "logs_triage", "logs_resolve_cached_path", "other")\n| summarize total = count(), errors = countif(outcome == "error"), p95 = percentile(durationMs, 95) by method\n| extend errorRate = iff(total == 0, 0.0, 100.0 * todouble(errors) / todouble(total))\n| where total >= 10 and (errorRate >= 20 or p95 >= 15000)'
+var coreRequestQuery = 'AppEvents\n| where TimeGenerated > ago(2h)\n| where _ResourceId =~ "${toLower(prodComponentResourceId)}"\n| where Name == "electivus.apex-log-viewer/core.request"\n| extend props = parse_json(Properties), measurements = parse_json(Measurements)\n| extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"])\n| where method in ("org_list", "org_get_auth", "log_list", "log_sync", "log_triage", "log_resolve_cached_path", "other")\n| summarize total = count(), errors = countif(outcome == "error"), p95 = percentile(durationMs, 95) by method\n| extend errorRate = iff(total == 0, 0.0, 100.0 * todouble(errors) / todouble(total))\n| where total >= 10 and (errorRate >= 20 or p95 >= 15000)'
 
 resource workbook 'Microsoft.Insights/workbooks@2023-06-01' = if (deployWorkbook) {
   name: guid(resourceGroup().id, workspace.id, workbookDisplayName)
@@ -239,19 +239,19 @@ module logsSearchAlert 'modules/scheduled-query-rule.bicep' = if (deployAlerts) 
   }
 }
 
-module sfPluginRequestAlert 'modules/scheduled-query-rule.bicep' = if (deployAlerts) {
-  name: 'sf-plugin-request-alert'
+module coreRequestAlert 'modules/scheduled-query-rule.bicep' = if (deployAlerts) {
+  name: 'core-request-alert'
   params: {
-    name: 'alv-sf-plugin-request-degraded'
+    name: 'alv-core-request-degraded'
     location: location
     workspaceResourceId: workspace.id
-    ruleDescription: 'sfPlugin.request is failing or slowing down above the expected baseline.'
+    ruleDescription: 'core.request is failing or slowing down above the expected baseline.'
     actionGroupIds: actionGroupIds
     severity: 2
     evaluationFrequency: 'PT15M'
     windowSize: 'PT2H'
     tags: tags
-    query: sfPluginRequestQuery
+    query: coreRequestQuery
   }
 }
 

@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 import { promises as fs, type Stats } from 'fs';
 import * as path from 'path';
-import { buildWebviewHtml } from '../../../../src/utils/webviewHtml';
-import { logInfo, logWarn } from '../../../../src/utils/logger';
-import { getErrorMessage } from '../../../../src/utils/error';
-import { summarizeLogFile } from '../../../../src/services/logTriage';
+import { buildWebviewHtml } from '../host/utils/webviewHtml';
+import { logInfo, logWarn } from '../host/utils/logger';
+import { getErrorMessage } from '../host/utils/error';
+import { summarizeLogFile } from '../host/services/logTriage';
 import { normalizeLogTriageSummary, type LogDiagnostic } from '../shared/logTriage';
 import {
   parseLogViewerFromWebviewMessage,
@@ -21,7 +21,7 @@ interface ShowOptions {
 export class LogViewerPanel {
   private static context: vscode.ExtensionContext | undefined;
   private static panels = new Map<string, LogViewerPanel>();
-  private static readonly viewType = 'sfLogViewer.logPanel';
+  private static readonly viewType = 'electivus.apexLogViewer.logsView.logPanel';
 
   static initialize(context: vscode.ExtensionContext): void {
     this.context = context;

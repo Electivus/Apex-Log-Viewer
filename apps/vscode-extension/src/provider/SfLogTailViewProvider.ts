@@ -1,26 +1,26 @@
 import * as vscode from 'vscode';
-import { localize } from '../../../../src/utils/localize';
+import { localize } from '../host/utils/localize';
 import {
   listDebugLevels,
   getActiveUserDebugLevel,
   ensureDefaultTailDebugLevel
-} from '../../../../src/salesforce/traceflags';
-import type { OrgAuth } from '../../../../src/salesforce/types';
+} from '../host/salesforce/traceflags';
+import type { OrgAuth } from '../host/salesforce/types';
 import { parseWebviewToExtensionMessage, type ExtensionToWebviewMessage } from '../shared/messages';
-import { logInfo, logWarn } from '../../../../src/utils/logger';
+import { logInfo, logWarn } from '../host/utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
 import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
-import { ensureReplayDebuggerAvailable } from '../../../../src/utils/replayDebugger';
-import { buildWebviewHtml } from '../../../../src/utils/webviewHtml';
+import { ensureReplayDebuggerAvailable } from '../host/utils/replayDebugger';
+import { buildWebviewHtml } from '../host/utils/webviewHtml';
 import {
   DEFAULT_TAIL_BUFFER_LINES,
   MAX_TAIL_BUFFER_LINES,
   MIN_TAIL_BUFFER_LINES,
   TailService
-} from '../../../../src/utils/tailService';
-import { pickSelectedOrg } from '../../../../src/utils/orgs';
-import { getNumberConfig, affectsConfiguration } from '../../../../src/utils/config';
-import { getErrorMessage } from '../../../../src/utils/error';
+} from '../host/utils/tailService';
+import { pickSelectedOrg } from '../host/utils/orgs';
+import { getNumberConfig, affectsConfiguration } from '../host/utils/config';
+import { getErrorMessage } from '../host/utils/error';
 import type { OrgItem } from '../shared/types';
 import { LogViewerPanel } from '../panel/LogViewerPanel';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
@@ -60,7 +60,7 @@ interface WebviewPostOptions {
 }
 
 export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
-  public static readonly viewType = 'sfLogTail';
+  public static readonly viewType = 'electivus.apexLogViewer.tailView';
   private view?: { webview: vscode.Webview };
   private host?: BoundWebviewHost;
   private readonly disposables: vscode.Disposable[] = [];
@@ -99,7 +99,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
     // React to tail buffer size changes live
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration(e => {
-        if (affectsConfiguration(e, 'sfLogs.tailBufferSize')) {
+        if (affectsConfiguration(e, 'electivus.apexLogViewer.tail.bufferLines')) {
           try {
             const size = this.getTailBufferSize();
             this.tailService.setBufferLimit(size);
@@ -842,7 +842,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
 
   private getTailBufferSize(): number {
     return getNumberConfig(
-      'sfLogs.tailBufferSize',
+      'electivus.apexLogViewer.tail.bufferLines',
       DEFAULT_TAIL_BUFFER_LINES,
       MIN_TAIL_BUFFER_LINES,
       MAX_TAIL_BUFFER_LINES

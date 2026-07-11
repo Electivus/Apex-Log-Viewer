@@ -1,7 +1,7 @@
 import assert from 'assert/strict';
 import proxyquire from 'proxyquire';
 
-const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquire('../../../../src/utils/workspace', {
+const workspaceModule: typeof import('../host/utils/workspace') = proxyquire('../host/utils/workspace', {
   vscode: {
     workspace: { workspaceFolders: undefined },
     Range: class {

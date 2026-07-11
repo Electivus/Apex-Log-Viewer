@@ -28,7 +28,7 @@ suite('Replay Debugger availability', () => {
       }
     };
 
-    const { ensureReplayDebuggerAvailable } = proxyquire('../../../../src/utils/replayDebugger', {
+    const { ensureReplayDebuggerAvailable } = proxyquire('../host/utils/replayDebugger', {
       vscode: vscodeStub,
       './localize': { localize: (_key: string, message: string) => message },
       './logger': { logWarn: () => {} },
@@ -62,7 +62,7 @@ suite('Replay Debugger availability', () => {
       }
     };
 
-    const { ensureReplayDebuggerAvailable } = proxyquire('../../../../src/utils/replayDebugger', {
+    const { ensureReplayDebuggerAvailable } = proxyquire('../host/utils/replayDebugger', {
       vscode: vscodeStub,
       './localize': { localize: (_key: string, message: string) => message },
       './logger': { logWarn: () => {} },

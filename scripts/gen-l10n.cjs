@@ -4,7 +4,7 @@ const path = require('path');
 const ts = require('typescript');
 
 const repoRoot = path.join(__dirname, '..');
-const runtimeSourceRoots = [path.join(repoRoot, 'src'), path.join(repoRoot, 'apps', 'vscode-extension', 'src')];
+const runtimeSourceRoots = [path.join(repoRoot, 'apps', 'vscode-extension', 'src')];
 const l10nDir = path.join(repoRoot, 'apps', 'vscode-extension', 'l10n');
 const baseFile = path.join(l10nDir, 'bundle.l10n.json');
 const ptBrFile = path.join(l10nDir, 'bundle.l10n.pt-br.json');

@@ -14,7 +14,7 @@ This repository keeps README and Marketplace screenshots under `media/docs/` so 
 Use the manual docs flow:
 
 ```bash
-npm run docs:screenshots
+pnpm run docs:screenshots
 ```
 
 What it does:
@@ -24,7 +24,7 @@ What it does:
 - refreshes and saves log bodies into the temporary workspace so README search screenshots use the real local-search flow before any optional bulk download step
 - writes the final PNGs directly into `media/docs/`
 
-This flow is intentionally separate from `npm test` and `npm run test:e2e` so README maintenance does not run in the default CI path.
+This flow is intentionally separate from `pnpm test` and `pnpm run test:e2e` so README maintenance does not run in the default CI path.
 
 ## Conventions
 

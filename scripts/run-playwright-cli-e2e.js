@@ -104,19 +104,19 @@ function resolveSfPluginRunRelativePath() {
 }
 
 function resolveSfPluginCommandRelativePath() {
-  return path.join('packages', 'sf-plugin', 'lib', 'commands', 'electivus.js');
+  return path.join('packages', 'sf-plugin', 'lib', 'commands', 'electivus', 'doctor.js');
 }
 
 function resolveSfPluginBuildInvocation(targetPlatform = process.platform) {
   if (targetPlatform === 'win32') {
     return {
       command: process.env.ComSpec || 'cmd.exe',
-      args: ['/d', '/s', '/c', 'npm.cmd', 'run', 'build:sf-plugin']
+      args: ['/d', '/s', '/c', 'pnpm.cmd', 'run', 'build:sf-plugin']
     };
   }
 
   return {
-    command: 'npm',
+    command: 'pnpm',
     args: ['run', 'build:sf-plugin']
   };
 }
@@ -168,7 +168,7 @@ async function ensureSfPluginBuildArtifacts(repoRoot, options = {}) {
   }
 
   console.log(
-    `[e2e:cli] Missing sf plugin build artifacts (${missingArtifacts.join(', ')}). Running npm run build:sf-plugin before Playwright...`
+    `[e2e:cli] Missing sf plugin build artifacts (${missingArtifacts.join(', ')}). Running pnpm run build:sf-plugin before Playwright...`
   );
   const buildInvocation = resolveSfPluginBuildInvocation();
   const result = await spawnAsync(
@@ -181,13 +181,13 @@ async function ensureSfPluginBuildArtifacts(repoRoot, options = {}) {
   if (result.code !== 0) {
     const details =
       typeof result.code === 'number' ? `exit code ${result.code}` : `signal ${result.signal || 'unknown'}`;
-    throw new Error(`npm run build:sf-plugin failed while preparing CLI Playwright E2E (${details}).`);
+    throw new Error(`pnpm run build:sf-plugin failed while preparing CLI Playwright E2E (${details}).`);
   }
 
   const remainingMissingArtifacts = findMissingSfPluginBuildArtifacts(repoRoot);
   if (remainingMissingArtifacts.length > 0) {
     throw new Error(
-      `npm run build:sf-plugin did not produce required sf plugin artifact(s): ${remainingMissingArtifacts.join(', ')}.`
+      `pnpm run build:sf-plugin did not produce required sf plugin artifact(s): ${remainingMissingArtifacts.join(', ')}.`
     );
   }
 }

@@ -1,10 +1,10 @@
 import assert from 'assert/strict';
-import { getOrgAuth } from '../../../../src/salesforce/cli';
+import { getOrgAuth } from '../host/salesforce/cli';
 import {
   __setExecFileImplForTests,
   __resetExecFileImplForTests,
   __resetExecDedupeCacheForTests
-} from '../../../../src/salesforce/exec';
+} from '../host/salesforce/exec';
 
 suite('getOrgAuth cancellation + dedupe', () => {
   setup(() => {

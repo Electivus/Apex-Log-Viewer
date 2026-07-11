@@ -2,7 +2,7 @@
 
 This repository uses GitHub Actions to build, test, package, and publish the extension.
 
-- Workflow CI (`.github/workflows/ci.yml`): build/test on `push` and `pull_request` across `ubuntu-latest`, `windows-latest`, and `macos-latest`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`). This workflow enforces dependency provenance with `node scripts/check-dependency-sources.mjs` before every `npm ci`, then runs npm registry signature verification (`npm run security:npm-signatures`) before compile/test. The VSIX smoke test remains Ubuntu-only after the OS matrix succeeds.
+- Workflow CI (`.github/workflows/ci.yml`): build/test on `push` and `pull_request` across `ubuntu-latest`, `windows-latest`, and `macos-latest`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`). This workflow enforces dependency provenance with `node scripts/check-dependency-sources.mjs` before every `pnpm install --frozen-lockfile`, then runs npm registry signature verification (`pnpm run security:npm-signatures`) before compile/test. The VSIX smoke test remains Ubuntu-only after the OS matrix succeeds.
 - Workflow Dependency Review (`.github/workflows/dependency-review.yml`): blocks pull requests that introduce new moderate-or-higher dependency risk in runtime or development scopes.
 - Workflow E2E (`.github/workflows/e2e-playwright.yml`): real scratch-org Playwright validation on `pull_request` and manual dispatch. This workflow is pool-only in CI: it requires `SF_SCRATCH_POOL_NAME` plus `SF_DEVHUB_AUTH_URL`, leases one pooled scratch org per Playwright test through each slot's stored `sfdxAuthUrl`, and defaults to `1` Playwright worker unless `PLAYWRIGHT_WORKERS` is set as a repository variable or `playwright_workers` is set for a manual dispatch. Ubuntu runs one full CLI and extension pass through the MITM proxy lab, while Windows and macOS each run one full direct pass. The direct jobs reuse the dependency, VS Code, and Salesforce CLI caches and build their artifacts in the same job. The Ubuntu extension proxy-lab lane has a dedicated `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS` override. When Azure telemetry configuration is present, the Ubuntu extension run emits telemetry and a final lightweight job validates it. CLI artifacts upload from `output/playwright-cli/`; extension artifacts upload from `output/playwright/`, with OS suffixes for direct Windows/macOS runs.
 - Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace (if `VSCE_PAT` is configured) and Open VSX (if `OVSX_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
@@ -10,12 +10,12 @@ This repository uses GitHub Actions to build, test, package, and publish the ext
 
 Build & Test basics:
 
-- Node from `.nvmrc` on `ubuntu-latest`, `windows-latest`, and `macos-latest` with npm cache.
-- `npm ci` → `npm run build` → tests. CI defaults to unit tests on manual runs; Release runs all tests.
-- `npm run build` runs `npm run build:sf-plugin`, `npm run build:embedded-sf-plugin`, copies the ripgrep runtime and package metadata, bundles the extension host, and builds the webview.
-- `npm run test:scripts` includes the repository security regression suite plus `node scripts/check-dependency-sources.mjs`, so local script verification catches dependency source drift without waiting for CI.
-- `npm run test:sf-plugin` runs the plugin's Node test lane; `npm run test:extension:node` covers the extension-side plugin client without launching VS Code.
-- Extension packaging always includes `apps/vscode-extension/sf-plugin/electivus-runner.cjs`; release/pre-release workflows build it before target VSIX packaging.
+- Node from `.nvmrc` and pnpm from the root `packageManager` field on `ubuntu-latest`, `windows-latest`, and `macos-latest`, with the pnpm store cached from `pnpm-lock.yaml`.
+- `pnpm install --frozen-lockfile` → `pnpm run build` → tests. CI defaults to unit tests on manual runs; Release runs all tests.
+- `pnpm run build` builds `@alv/core`, `@alv/protocol`, the direct-core extension bundle, the webview, and the standalone Salesforce CLI plugin.
+- `pnpm run test:scripts` includes the repository security regression suite plus `node scripts/check-dependency-sources.mjs`, so local script verification catches dependency source drift without waiting for CI.
+- `pnpm run test:core`, `pnpm run test:protocol`, and `pnpm run test:sf-plugin` cover shared and CLI boundaries; `pnpm run test:extension:node` covers the in-process core client without launching VS Code.
+- Extension packaging uses `--no-dependencies`; `@alv/core` is bundled into `dist/extension.js`, and CI rejects an embedded `sf-plugin/` payload in the VSIX smoke path.
 
 Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref, except the real-org Playwright workflow when `SF_SCRATCH_POOL_NAME` is configured. That workflow keys concurrency by scratch-org pool name with `cancel-in-progress: false` so active E2E runs are not canceled by dependency bursts or allowed to over-lease the shared Dev Hub pool.
 
@@ -24,9 +24,9 @@ Concurrency: Workflows use concurrency groups to avoid duplicate runs per ref, e
 - Third-party and GitHub-owned Actions are pinned to full commit SHAs rather
   than mutable tags.
 - Dependency-source policy allows only registry packages and in-repo workspace
-  links, and it validates both manifests and `package-lock.json` before
+  links, and it validates workspace manifests and `pnpm-lock.yaml` before
   dependency install.
-- If `npm audit signatures` fails in CI, treat it as a provenance problem:
+- If `pnpm audit signatures` fails in CI, treat it as a provenance problem:
   investigate the package metadata or lockfile change instead of removing the
   gate.
 
@@ -73,10 +73,10 @@ Key behavior in pool mode:
 - The workflow defaults to `PLAYWRIGHT_WORKERS=1` in pool mode; repository variables can override it for pull requests, and manual dispatch can override it with the `playwright_workers` input.
 - The Ubuntu extension proxy-lab step defaults to `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS=1` and can be raised independently of the CLI and direct Windows/macOS lanes.
 - `PLAYWRIGHT_TIMEOUT_MS` and `PLAYWRIGHT_EXPECT_TIMEOUT_MS` default to `360000` and `60000` in GitHub Actions so stuck tests fail faster than the historical local 15-minute test timeout.
-- The Ubuntu CLI real-org step runs `npm run test:e2e:cli` through the proxy lab with the same scratch-org env contract as the extension step, then uploads `output/playwright-cli/` as a dedicated artifact.
-- The Ubuntu extension step then runs `npm run test:e2e` through the proxy lab and uploads `output/playwright/` as a dedicated artifact.
+- The Ubuntu CLI real-org step runs `pnpm run test:e2e:cli` through the proxy lab with the same scratch-org env contract as the extension step, then uploads `output/playwright-cli/` as a dedicated artifact.
+- The Ubuntu extension step then runs `pnpm run test:e2e` through the proxy lab and uploads `output/playwright/` as a dedicated artifact.
 - The final Ubuntu telemetry job waits for both E2E jobs and validates the shared `testRunId` emitted by the Ubuntu extension run without rerunning Playwright.
-- The Windows/macOS direct matrix runs one full `npm run test:e2e:cli` and `npm run test:e2e` pass per OS without proxy-lab, reusing the configured caches and uploading artifacts with OS suffixes such as `playwright-cli-e2e-windows` and `playwright-e2e-macos`.
+- The Windows/macOS direct matrix runs one full `pnpm run test:e2e:cli` and `pnpm run test:e2e` pass per OS without proxy-lab, reusing the configured caches and uploading artifacts with OS suffixes such as `playwright-cli-e2e-windows` and `playwright-e2e-macos`.
 - The workflow-level concurrency lock uses the configured `SF_SCRATCH_POOL_NAME` when pool mode is active, with `cancel-in-progress: false`, so active runs sharing the same Dev Hub pool are not canceled or allowed to over-lease the pool during dependency bursts.
 - The Playwright configs enable `fullyParallel` in pool mode because each test acquires its own scratch org slot; legacy single-scratch mode stays serial.
 - Manual `workflow_dispatch` runs use the same pool-only path as `pull_request`, so dispatch validation exercises the same concurrency and lease behavior as CI.

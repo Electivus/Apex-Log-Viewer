@@ -47,7 +47,7 @@ class MockWebview implements vscode.Webview {
 class MockWebviewView implements vscode.WebviewView {
   visible = true;
   title = 'Test';
-  viewType = 'sfLogViewer';
+  viewType = 'electivus.apexLogViewer.logsView';
   description?: string | undefined;
   badge?: { value: number; tooltip: string } | undefined;
   webview: vscode.Webview;
@@ -191,7 +191,7 @@ suite('SfLogsViewProvider webview', () => {
 
       const provider = new SfLogsViewProvider(context);
       const webview = new MockWebview();
-      const panel = new MockWebviewPanel('sfLogViewer.editorPanel', webview);
+      const panel = new MockWebviewPanel('electivus.apexLogViewer.logsView.editorPanel', webview);
 
       provider.resolveWebviewPanel(panel);
 
@@ -209,7 +209,7 @@ suite('SfLogsViewProvider webview', () => {
   });
 
   test('editor visibility callbacks fire only on actual visibility transitions', () => {
-    const panel = new MockWebviewPanel('sfLogViewer.editorPanel', new MockWebview());
+    const panel = new MockWebviewPanel('electivus.apexLogViewer.logsView.editorPanel', new MockWebview());
     const host = createWebviewPanelHost(panel);
     const transitions: boolean[] = [];
     let becameVisibleCount = 0;
@@ -502,7 +502,7 @@ suite('SfLogsViewProvider webview', () => {
 
       const provider = new SfLogsViewProvider(context);
       const webview = new MockWebview();
-      const panel = new MockWebviewPanel('sfLogViewer.editorPanel', webview);
+      const panel = new MockWebviewPanel('electivus.apexLogViewer.logsView.editorPanel', webview);
       const calls: string[] = [];
 
       (provider as any).sendOrgs = async () => {
@@ -594,7 +594,7 @@ suite('SfLogsViewProvider webview', () => {
       await provider.refresh();
 
       const webview = new MockWebview();
-      const panel = new MockWebviewPanel('sfLogViewer.editorPanel', webview);
+      const panel = new MockWebviewPanel('electivus.apexLogViewer.logsView.editorPanel', webview);
       const posted: any[] = [];
       const calls: string[] = [];
       webview.postMessage = (message: any) => {
@@ -638,7 +638,7 @@ suite('SfLogsViewProvider webview', () => {
       provider.setSelectedOrg('switched@example.com');
 
       const webview = new MockWebview();
-      const panel = new MockWebviewPanel('sfLogViewer.editorPanel', webview);
+      const panel = new MockWebviewPanel('electivus.apexLogViewer.logsView.editorPanel', webview);
       const posted: any[] = [];
       const calls: string[] = [];
       webview.postMessage = (message: any) => {
@@ -720,7 +720,7 @@ suite('SfLogsViewProvider webview', () => {
 
     const provider = new SfLogsViewProvider(context);
     const webview = new MockWebview();
-    const panel = new MockWebviewPanel('sfLogViewer.editorPanel', webview);
+    const panel = new MockWebviewPanel('electivus.apexLogViewer.logsView.editorPanel', webview);
     const calls: string[] = [];
 
     provider.resolveWebviewPanel(panel);
@@ -791,7 +791,7 @@ suite('SfLogsViewProvider webview', () => {
 
       const provider = new SfLogsViewProvider(context);
       const webview = new MockWebview();
-      const panel = new MockWebviewPanel('sfLogViewer.editorPanel', webview);
+      const panel = new MockWebviewPanel('electivus.apexLogViewer.logsView.editorPanel', webview);
       const calls: string[] = [];
 
       (provider as any).post({ type: 'orgs', data: [], selected: 'test@example.com' });
@@ -1259,7 +1259,7 @@ suite('SfLogsViewProvider webview', () => {
 
       const provider = new SfLogsViewProvider(context);
       const webview = new MockWebview();
-      const panel = new MockWebviewPanel('sfLogViewer.editorPanel', webview);
+      const panel = new MockWebviewPanel('electivus.apexLogViewer.logsView.editorPanel', webview);
       const calls: string[] = [];
 
       (provider as any).post({ type: 'orgs', data: [], selected: undefined });

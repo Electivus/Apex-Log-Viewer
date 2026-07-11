@@ -18,7 +18,7 @@ Typical values you will need when operating this stack:
 Generate the operational report used for documentation and telemetry reviews:
 
 ```bash
-npm run telemetry:report -- \
+pnpm run telemetry:report -- \
   --app=<prod-app-insights-name> \
   --resource-group=<telemetry-resource-group> \
   --subscription=<subscription-id> \
@@ -28,12 +28,12 @@ npm run telemetry:report -- \
 Useful overrides:
 
 ```bash
-npm run telemetry:report -- \
+pnpm run telemetry:report -- \
   --app=<e2e-app-insights-name> \
   --resource-group=<telemetry-resource-group> \
   --subscription=<subscription-id> \
   --lookback=7d
-npm run telemetry:report -- --subscription=<sub-id> --resource-group=<rg> --app=<app-name>
+pnpm run telemetry:report -- --subscription=<sub-id> --resource-group=<rg> --app=<app-name>
 ```
 
 Direct workspace query example:
@@ -109,7 +109,7 @@ AppEvents
 ```kusto
 AppEvents
 | where TimeGenerated > ago(30d)
-| where Name == "electivus.apex-log-viewer/sfPlugin.request"
+| where Name == "electivus.apex-log-viewer/core.request"
 | extend props = parse_json(Properties), measurements = parse_json(Measurements)
 | extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"])
 | summarize total = count(), errors = countif(outcome == "error"), p50 = percentile(durationMs, 50), p95 = percentile(durationMs, 95) by method
@@ -148,7 +148,7 @@ Recommended first alerts:
 - `cli-timeout-spike`: detect `ETIMEDOUT` spikes from CLI execution or auth calls.
 - `refresh-failure-rate-spike`: detect high `logs.refresh` error rate on the main workflow.
 - `logs-search-degraded`: detect slow or failing search execution before it becomes user-visible.
-- `sf-plugin-request-degraded`: detect plugin request failures or high latency in the bundled plugin runner.
+- `core-request-degraded`: detect shared core request failures or high latency in the extension host.
 - `debug-levels-degraded`: detect sustained `debugLevels.load` failures or severe latency.
 
 Alert queries:
@@ -226,15 +226,15 @@ AppEvents
 | where total >= 10 and (errorRate >= 20 or p95 >= 5000)
 ```
 
-### sf-plugin-request-degraded
+### core-request-degraded
 
 ```kusto
 AppEvents
 | where TimeGenerated > ago(2h)
-| where Name == "electivus.apex-log-viewer/sfPlugin.request"
+| where Name == "electivus.apex-log-viewer/core.request"
 | extend props = parse_json(Properties), measurements = parse_json(Measurements)
 | extend method = tostring(props["method"]), outcome = tostring(props["outcome"]), durationMs = todouble(measurements["durationMs"])
-| where method in ("org_list", "org_auth", "logs_list", "logs_sync", "logs_triage", "logs_resolve_cached_path", "other")
+| where method in ("org_list", "org_get_auth", "log_list", "log_sync", "log_triage", "log_resolve_cached_path", "other")
 | summarize total = count(), errors = countif(outcome == "error"), p95 = percentile(durationMs, 95) by method
 | extend errorRate = iff(total == 0, 0.0, 100.0 * todouble(errors) / todouble(total))
 | where total >= 10 and (errorRate >= 20 or p95 >= 15000)

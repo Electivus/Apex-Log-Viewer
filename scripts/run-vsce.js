@@ -11,7 +11,7 @@ function resolveVsceInvocation(platformValue = process.platform) {
   if (existsSync(localBinary)) {
     return { command: localBinary, baseArgs: [] };
   }
-  return { command: 'npx', baseArgs: ['--yes', '@vscode/vsce'] };
+  return { command: 'pnpm', baseArgs: ['dlx', '@vscode/vsce@3.9.2'] };
 }
 
 function addRepoLocalBinToPath(env = process.env) {
@@ -92,7 +92,7 @@ function runVsce(rawArgs, options = {}) {
   };
 
   if (!skipPrepublish && (command === 'package' || command === 'publish')) {
-    runCommandImpl('npm', ['run', 'package'], { cwd: repoRoot, env });
+    runCommandImpl('pnpm', ['run', 'package'], { cwd: repoRoot, env });
   }
 
   const invocation = resolveVsceInvocationImpl();

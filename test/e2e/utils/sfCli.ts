@@ -123,6 +123,10 @@ function listSfPathCandidates(stdout: string): string[] {
 
 function isElectivusPluginSfCandidate(candidatePath: string): boolean {
   const normalized = candidatePath.replace(/\\/g, '/');
+  const workspaceShim = path.resolve(process.cwd(), 'node_modules', '.bin', 'sf').replace(/\\/g, '/');
+  if (normalized.replace(/\.(cmd|ps1|exe)$/i, '') === workspaceShim) {
+    return true;
+  }
   try {
     const realPath = fs.realpathSync.native(candidatePath).replace(/\\/g, '/');
     if (realPath.endsWith('/packages/sf-plugin/bin/run.js')) {

@@ -13,7 +13,7 @@
 - Attach visuals for webview changes when helpful.
 
 ## Verification Steps
-- Commands used (e.g., `npm run build`, `npm test`).
+- Commands used (e.g., `pnpm run build`, `pnpm test`).
 - Manual steps to validate (debug via VS Code `F5`).
 - For integration tests, ensure Salesforce extension is available and an org is authenticated (`sf org login web`).
 
@@ -21,9 +21,9 @@
 - Risks introduced and how to revert safely.
 
 ## Checklist
-- [ ] `npm run build` passes
-- [ ] `npm test` (or `npm run test:all`) passes; integration tests prefixed with `integration`
-- [ ] Lint/Types: `npm run lint` and `npm run check-types`
+- [ ] `pnpm run build` passes
+- [ ] `pnpm test` (or `pnpm run test:all`) passes; integration tests prefixed with `integration`
+- [ ] Lint/Types: `pnpm run lint` and `pnpm run check-types`
 - [ ] Docs updated (AGENTS.md/README snippets if applicable)
 - [ ] No secrets or org-sensitive data added
 

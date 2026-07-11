@@ -4,8 +4,8 @@ import {
   __setListOrgsMockForTests,
   __setListOrgsCacheTTLForTests,
   __resetListOrgsCacheForTests
-} from '../../../../src/salesforce/cli';
-import { CacheManager } from '../../../../src/utils/cacheManager';
+} from '../host/salesforce/cli';
+import { CacheManager } from '../host/utils/cacheManager';
 import type * as vscode from 'vscode';
 import { __test__ as extensionTestUtils } from '../extension';
 
@@ -35,7 +35,7 @@ function makeContext(memento: MemoryMemento): vscode.ExtensionContext {
     globalState: memento
   } as unknown as vscode.ExtensionContext;
 }
-import { __resetExecFileImplForTests } from '../../../../src/salesforce/exec';
+import { __resetExecFileImplForTests } from '../host/salesforce/exec';
 
 suite('listOrgs caching', () => {
   teardown(() => {

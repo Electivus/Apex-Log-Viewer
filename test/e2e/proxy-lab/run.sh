@@ -131,11 +131,11 @@ verify_authenticated_mitm_proxy() {
 }
 
 install_dependencies() {
-  if [[ "${ALV_E2E_PROXY_LAB_SKIP_NPM_CI:-}" != "1" ]]; then
-    echo "[proxy-lab] Installing npm dependencies through the MITM proxy..."
-    npm ci
+  if [[ "${ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL:-}" != "1" ]]; then
+    echo "[proxy-lab] Installing pnpm workspace dependencies through the MITM proxy..."
+    pnpm install --frozen-lockfile
   else
-    echo "[proxy-lab] Skipping npm ci because ALV_E2E_PROXY_LAB_SKIP_NPM_CI=1."
+    echo "[proxy-lab] Skipping pnpm install because ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL=1."
   fi
 }
 
@@ -442,8 +442,8 @@ run_requested_command() {
     return
   fi
 
-  echo "[proxy-lab] Running default command: npm run test:e2e"
-  npm run test:e2e
+  echo "[proxy-lab] Running default command: pnpm run test:e2e"
+  pnpm run test:e2e
 }
 
 wait_for_mitm_ca

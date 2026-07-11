@@ -14,7 +14,7 @@ suite('ensureApexLogsDir', () => {
   test('buildLogFilePathWithUsername computes paths without creating directories', () => {
     const workspaceRoot = path.join('/tmp', 'alv-workspace');
 
-    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict('../../../../src/utils/workspace', {
+    const workspaceModule: typeof import('../host/utils/workspace') = proxyquireStrict('../host/utils/workspace', {
       './logger': {
         logInfo: () => undefined,
         logWarn: () => undefined
@@ -73,7 +73,7 @@ suite('ensureApexLogsDir', () => {
     );
     const mkdirCalls: Array<{ dir: string; options: { recursive: boolean } }> = [];
 
-    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict('../../../../src/utils/workspace', {
+    const workspaceModule: typeof import('../host/utils/workspace') = proxyquireStrict('../host/utils/workspace', {
       './logger': {
         logInfo: () => undefined,
         logWarn: () => undefined
@@ -131,7 +131,7 @@ suite('ensureApexLogsDir', () => {
       'unknown-date'
     );
 
-    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict('../../../../src/utils/workspace', {
+    const workspaceModule: typeof import('../host/utils/workspace') = proxyquireStrict('../host/utils/workspace', {
       './logger': {
         logInfo: () => undefined,
         logWarn: () => undefined
@@ -212,7 +212,7 @@ suite('ensureApexLogsDir', () => {
       `${unsupportedNestedId}.log`
     );
 
-    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict('../../../../src/utils/workspace', {
+    const workspaceModule: typeof import('../host/utils/workspace') = proxyquireStrict('../host/utils/workspace', {
       './logger': {
         logInfo: () => undefined,
         logWarn: () => undefined
@@ -277,7 +277,7 @@ suite('ensureApexLogsDir', () => {
     let appendCalls = 0;
     let readCalls = 0;
 
-    const workspaceModule: typeof import('../../../../src/utils/workspace') = proxyquireStrict('../../../../src/utils/workspace', {
+    const workspaceModule: typeof import('../host/utils/workspace') = proxyquireStrict('../host/utils/workspace', {
       './logger': {
         logInfo: () => undefined,
         logWarn: () => undefined

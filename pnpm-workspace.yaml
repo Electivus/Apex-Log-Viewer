@@ -1,0 +1,25 @@
+packages:
+  - apps/*
+  - packages/*
+
+sharedWorkspaceLockfile: true
+strictPeerDependencies: true
+pmOnFail: error
+verifyDepsBeforeRun: error
+
+supportedArchitectures:
+  os:
+    - darwin
+    - linux
+    - win32
+  cpu:
+    - arm64
+    - x64
+
+allowBuilds:
+  '@parcel/watcher': true
+  '@vscode/vsce-sign': true
+  esbuild: true
+  fsevents: true
+  keytar: true
+  unrs-resolver: true

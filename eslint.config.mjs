@@ -10,6 +10,8 @@ const typeAwareProjects = [
   './tsconfig.extension.json',
   './tsconfig.test.json',
   './tsconfig.webview-tests.json',
+  './packages/core/tsconfig.json',
+  './packages/protocol/tsconfig.json',
   './packages/sf-plugin/tsconfig.json'
 ];
 

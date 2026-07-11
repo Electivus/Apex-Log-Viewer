@@ -9,7 +9,6 @@ const {
   ensureBuildArtifacts,
   findMissingBuildArtifacts,
   requiredBuildArtifacts,
-  resolveEmbeddedRunnerRelativePath,
   resolveBuildInvocation,
   resolvePlaywrightEnv,
   resolvePlaywrightInvocation
@@ -34,37 +33,9 @@ function writeArtifacts(repoRoot, artifactPaths) {
 test('findMissingBuildArtifacts reports the missing build outputs', () => {
   const repoRoot = createTempRepo();
   try {
-    writeArtifacts(repoRoot, [
-      resolveEmbeddedRunnerRelativePath(),
-      'apps/vscode-extension/dist/extension.js',
-      'apps/vscode-extension/media/main.js'
-    ]);
-
-    assert.deepEqual(findMissingBuildArtifacts(repoRoot), [
-      'apps/vscode-extension/media/webview.css',
-      'apps/vscode-extension/media/tail.js',
-      'apps/vscode-extension/media/logViewer.js',
-      'apps/vscode-extension/media/debugFlags.js'
-    ]);
-  } finally {
-    cleanupTempRepo(repoRoot);
-  }
-});
-
-test('resolveEmbeddedRunnerRelativePath targets the embedded sf plugin runner inside the extension app', () => {
-  assert.equal(
-    resolveEmbeddedRunnerRelativePath(),
-    'apps/vscode-extension/sf-plugin/electivus-runner.cjs'
-  );
-});
-
-test('findMissingBuildArtifacts reports the embedded plugin runner when it has not been built yet', () => {
-  const repoRoot = createTempRepo();
-  try {
     writeArtifacts(repoRoot, ['apps/vscode-extension/dist/extension.js', 'apps/vscode-extension/media/main.js']);
 
     assert.deepEqual(findMissingBuildArtifacts(repoRoot), [
-      resolveEmbeddedRunnerRelativePath(),
       'apps/vscode-extension/media/webview.css',
       'apps/vscode-extension/media/tail.js',
       'apps/vscode-extension/media/logViewer.js',
@@ -75,7 +46,7 @@ test('findMissingBuildArtifacts reports the embedded plugin runner when it has n
   }
 });
 
-test('ensureBuildArtifacts skips npm run build when all required outputs already exist', async () => {
+test('ensureBuildArtifacts skips pnpm run build when all required outputs already exist', async () => {
   const repoRoot = createTempRepo();
   try {
     writeArtifacts(repoRoot, requiredBuildArtifacts);
@@ -94,7 +65,7 @@ test('ensureBuildArtifacts skips npm run build when all required outputs already
   }
 });
 
-test('ensureBuildArtifacts runs npm run build when required outputs are missing', async () => {
+test('ensureBuildArtifacts runs pnpm run build when required outputs are missing', async () => {
   const repoRoot = createTempRepo();
   try {
     let recordedCall;
@@ -118,11 +89,11 @@ test('ensureBuildArtifacts runs npm run build when required outputs are missing'
   }
 });
 
-test('resolveBuildInvocation uses cmd.exe on Windows to avoid npm.cmd spawn issues', () => {
+test('resolveBuildInvocation uses cmd.exe on Windows to avoid pnpm.cmd spawn issues', () => {
   const invocation = resolveBuildInvocation('win32');
 
   assert.equal(invocation.command, process.env.ComSpec || 'cmd.exe');
-  assert.deepEqual(invocation.args, ['/d', '/s', '/c', 'npm.cmd', 'run', 'build']);
+  assert.deepEqual(invocation.args, ['/d', '/s', '/c', 'pnpm.cmd', 'run', 'build']);
 });
 
 test('resolvePlaywrightInvocation defaults to two retries for three total E2E attempts', () => {

@@ -1,7 +1,7 @@
 import assert from 'assert/strict';
 import { EventEmitter } from 'events';
 import { workspace } from 'vscode';
-import type { OrgAuth } from '../../../../src/salesforce/types';
+import type { OrgAuth } from '../host/salesforce/types';
 import {
   __resetApiVersionFallbackStateForTests,
   getApiVersionFallbackWarning,
@@ -9,7 +9,7 @@ import {
   __resetHttpsRequestImplForTests,
   __setHttpsRequestImplForTests,
   setApiVersion
-} from '../../../../src/salesforce/http';
+} from '../host/salesforce/http';
 import {
   __resetDebugLevelApiVersionCacheForTests,
   __resetUserIdCacheForTests,
@@ -26,7 +26,7 @@ import {
   updateDebugLevel,
   upsertTraceFlag,
   upsertUserTraceFlag
-} from '../../../../src/salesforce/traceflags';
+} from '../host/salesforce/traceflags';
 
 type StubRequest = {
   method: string;

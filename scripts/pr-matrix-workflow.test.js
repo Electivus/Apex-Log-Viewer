@@ -102,8 +102,8 @@ test('real-org E2E keeps Ubuntu on the proxy lab and adds direct Windows/macOS l
 
   assert.equal(proxyJob['runs-on'], 'ubuntu-latest');
   assert.ok(!Object.prototype.hasOwnProperty.call(proxyJob, 'strategy'));
-  assert.match(String(proxyCliStep.run || ''), /\bnpm run test:e2e:proxy-lab -- npm run test:e2e:cli\b/);
-  assert.match(String(proxyExtensionStep.run || ''), /\bnpm run test:e2e:proxy-lab -- npm run test:e2e\b/);
+  assert.match(String(proxyCliStep.run || ''), /\bpnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli\b/);
+  assert.match(String(proxyExtensionStep.run || ''), /\bpnpm run test:e2e:proxy-lab -- pnpm run test:e2e\b/);
 
   assert.equal(directJob.strategy?.['fail-fast'], false);
   assert.ok(!Object.prototype.hasOwnProperty.call(directJob.strategy?.matrix || {}, 'shard'));
@@ -124,10 +124,10 @@ test('direct E2E lanes run without proxy-lab and publish OS-specific artifacts',
 
   assert.match(String(cliStep.run || ''), /^\s*node scripts\/run-playwright-cli-e2e\.js\s*$/m);
   assert.doesNotMatch(String(cliStep.run || ''), /proxy-lab/);
-  assert.doesNotMatch(String(cliStep.run || ''), /npm run test:e2e/);
+  assert.doesNotMatch(String(cliStep.run || ''), /pnpm run test:e2e/);
   assert.match(String(extensionStep.run || ''), /^\s*node scripts\/run-playwright-e2e\.js\s*$/m);
   assert.doesNotMatch(String(extensionStep.run || ''), /proxy-lab/);
-  assert.doesNotMatch(String(extensionStep.run || ''), /npm run test:e2e/);
+  assert.doesNotMatch(String(extensionStep.run || ''), /pnpm run test:e2e/);
   assert.equal(uploadCliStep.with?.name, 'playwright-cli-e2e-${{ matrix.os.artifact_suffix }}');
   assert.equal(uploadCliStep.with?.path, 'output/playwright-cli/');
   assert.equal(uploadExtensionStep.with?.name, 'playwright-e2e-${{ matrix.os.artifact_suffix }}');

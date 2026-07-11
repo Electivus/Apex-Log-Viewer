@@ -1,5 +1,5 @@
 import type { ParsedLogEntry } from './logViewerParser';
-import type { LogDiagnostic } from '../../../../apps/vscode-extension/src/shared/logTriage';
+import type { LogDiagnostic } from '@alv/protocol/logTriage';
 
 type LogDiagnosticSeverity = LogDiagnostic['severity'];
 

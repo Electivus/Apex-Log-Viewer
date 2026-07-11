@@ -19,7 +19,7 @@
       }
     }
   },
-  "postCreateCommand": "bash -lc \"INSTALL_LINUX_DEPS=true bash scripts/install-linux-deps.sh && npm install\"",
+  "postCreateCommand": "bash -lc \"INSTALL_LINUX_DEPS=true bash scripts/install-linux-deps.sh && pnpm install --frozen-lockfile\"",
   "containerEnv": {
     "FORCE_COLOR": "1"
   }

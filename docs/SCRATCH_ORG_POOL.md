@@ -23,13 +23,13 @@ sf org assign permset --target-org DevHubElectivus --name ALV_ScratchOrgPoolServ
 Create or update the pool records:
 
 ```bash
-npm run scratch-pool:bootstrap -- --target-org DevHubElectivus --pool-key alv-e2e --target-size 30
+pnpm run scratch-pool:bootstrap -- --target-org DevHubElectivus --pool-key alv-e2e --target-size 30
 ```
 
 Notes:
 
-- When invoking these scripts through `npm run`, keep the extra `--` before the script arguments. Without it, `npm` consumes flags like `--pool-key`, and the script fails with errors such as `Missing required --pool-key for bootstrap.`
-- If your shell already exports `SF_DEVHUB_ALIAS`, you can omit `--target-org` and run `npm run scratch-pool:bootstrap -- --pool-key alv-e2e --target-size 30`.
+- When invoking these scripts through `pnpm run`, keep the extra `--` before the script arguments so pnpm forwards flags like `--pool-key` to the script.
+- If your shell already exports `SF_DEVHUB_ALIAS`, you can omit `--target-org` and run `pnpm run scratch-pool:bootstrap -- --pool-key alv-e2e --target-size 30`.
 
 Useful bootstrap overrides:
 
@@ -44,11 +44,11 @@ Useful bootstrap overrides:
 Pool maintenance:
 
 ```bash
-npm run scratch-pool:list -- --target-org DevHubElectivus --pool-key alv-e2e
-npm run scratch-pool:reconcile -- --target-org DevHubElectivus --pool-key alv-e2e
-npm run scratch-pool:prewarm -- --target-org DevHubElectivus --pool-key alv-e2e
-npm run scratch-pool:disable-slot -- --target-org DevHubElectivus --pool-key alv-e2e --slot-key slot-02 --reason "maintenance"
-npm run scratch-pool:reset-slot -- --target-org DevHubElectivus --pool-key alv-e2e --slot-key slot-02 --reason "force recreate"
+pnpm run scratch-pool:list -- --target-org DevHubElectivus --pool-key alv-e2e
+pnpm run scratch-pool:reconcile -- --target-org DevHubElectivus --pool-key alv-e2e
+pnpm run scratch-pool:prewarm -- --target-org DevHubElectivus --pool-key alv-e2e
+pnpm run scratch-pool:disable-slot -- --target-org DevHubElectivus --pool-key alv-e2e --slot-key slot-02 --reason "maintenance"
+pnpm run scratch-pool:reset-slot -- --target-org DevHubElectivus --pool-key alv-e2e --slot-key slot-02 --reason "force recreate"
 ```
 
 After this migration, `reconcile` marks any slot without a stored `sfdxAuthUrl` as `needs_recreate`, so the next lease recreates it once and stores a fresh reusable auth URL.
@@ -93,7 +93,7 @@ Optional tuning:
 Example:
 
 ```bash
-SF_SCRATCH_STRATEGY=pool SF_SCRATCH_POOL_NAME=alv-e2e PLAYWRIGHT_WORKERS=1 PLAYWRIGHT_SHARD=1/4 npm run test:e2e
+SF_SCRATCH_STRATEGY=pool SF_SCRATCH_POOL_NAME=alv-e2e PLAYWRIGHT_WORKERS=1 PLAYWRIGHT_SHARD=1/4 pnpm run test:e2e
 ```
 
 If `SF_SCRATCH_STRATEGY` is unset, the helper automatically switches to pool mode when `SF_SCRATCH_POOL_NAME` is present. The legacy single-scratch flow still works and remains the fallback when the pool is not configured.

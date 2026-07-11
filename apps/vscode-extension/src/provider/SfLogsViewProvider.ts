@@ -1,35 +1,35 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { localize } from '../../../../src/utils/localize';
-import { clearListCache, getApiVersionFallbackWarning } from '../../../../src/salesforce/http';
-import { pickSelectedOrg } from '../../../../src/utils/orgs';
+import { localize } from '../host/utils/localize';
+import { clearListCache, getApiVersionFallbackWarning } from '../host/salesforce/http';
+import { pickSelectedOrg } from '../host/utils/orgs';
 import type { ApexLogRow, OrgItem } from '../shared/types';
-import type { OrgAuth } from '../../../../src/salesforce/types';
+import type { OrgAuth } from '../host/salesforce/types';
 import {
   parseWebviewToExtensionMessage,
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage
 } from '../shared/messages';
-import { logInfo, logWarn, logError, logTrace } from '../../../../src/utils/logger';
+import { logInfo, logWarn, logError, logTrace } from '../host/utils/logger';
 import { safeSendEvent } from '../shared/telemetry';
 import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
-import { buildWebviewHtml } from '../../../../src/utils/webviewHtml';
-import { getErrorMessage } from '../../../../src/utils/error';
-import { LogService, type EnsureLogsSavedSummary } from '../../../../src/services/logService';
-import { clearApexLogs } from '../../../../src/services/apexLogCleanup';
+import { buildWebviewHtml } from '../host/utils/webviewHtml';
+import { getErrorMessage } from '../host/utils/error';
+import { LogService, type EnsureLogsSavedSummary } from '../host/services/logService';
+import { clearApexLogs } from '../host/services/apexLogCleanup';
 import { LogsMessageHandler } from './logsMessageHandler';
 import { runtimeClient } from '../runtime/runtimeClient';
 import { OrgManager } from '../utils/orgManager';
-import { ConfigManager } from '../../../../src/utils/configManager';
+import { ConfigManager } from '../host/utils/configManager';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
-import { affectsConfiguration, getConfig } from '../../../../src/utils/config';
+import { affectsConfiguration, getConfig } from '../host/utils/config';
 import {
   ensureApexLogsDir,
   getLogIdFromLogFilePath,
   getWorkspaceRoot,
   purgeSavedLogs
-} from '../../../../src/utils/workspace';
-import { ripgrepSearch, type RipgrepMatch } from '../../../../src/utils/ripgrep';
+} from '../host/utils/workspace';
+import { ripgrepSearch, type RipgrepMatch } from '../host/utils/ripgrep';
 import {
   DEFAULT_LOGS_COLUMNS_CONFIG,
   normalizeLogsColumnsConfig,
@@ -83,7 +83,7 @@ interface WebviewPostOptions {
 }
 
 export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
-  public static readonly viewType = 'sfLogViewer';
+  public static readonly viewType = 'electivus.apexLogViewer.logsView';
   private view?: { webview: vscode.Webview };
   private host?: BoundWebviewHost;
   private readonly disposables: vscode.Disposable[] = [];
@@ -182,7 +182,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         const prevFullBodies = this.configManager.shouldLoadFullLogBodies();
         this.configManager.handleChange(e);
         this.logService.setHeadConcurrency(this.configManager.getHeadConcurrency());
-        if (affectsConfiguration(e, 'electivus.apexLogs.logsColumns')) {
+        if (affectsConfiguration(e, 'electivus.apexLogViewer.logs.columns')) {
           this.logsColumns = this.readLogsColumns();
           this.post({ type: 'logsColumns', value: this.logsColumns });
         }
@@ -577,7 +577,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         if (selectedCooldownKey) {
           cooldownKeys.add(selectedCooldownKey);
         }
-        const resolvedCooldownKey = makeCooldownKey(result.target_org);
+        const resolvedCooldownKey = makeCooldownKey(result.targetOrg);
         if (resolvedCooldownKey) {
           cooldownKeys.add(resolvedCooldownKey);
         }
@@ -653,7 +653,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   }
 
   private readLogsColumns(): NormalizedLogsColumnsConfig {
-    const raw = getConfig<unknown>('electivus.apexLogs.logsColumns', DEFAULT_LOGS_COLUMNS_CONFIG);
+    const raw = getConfig<unknown>('electivus.apexLogViewer.logs.columns', DEFAULT_LOGS_COLUMNS_CONFIG);
     return normalizeLogsColumnsConfig(raw);
   }
 
@@ -662,7 +662,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       const normalized = normalizeLogsColumnsConfig(value);
       await vscode.workspace
         .getConfiguration()
-        .update('electivus.apexLogs.logsColumns', normalized, vscode.ConfigurationTarget.Global);
+        .update('electivus.apexLogViewer.logs.columns', normalized, vscode.ConfigurationTarget.Global);
     } catch (e) {
       logWarn('Logs: failed to persist logsColumns ->', getErrorMessage(e));
     }
@@ -1618,14 +1618,14 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
   }
 
   public async tailLogs() {
-    await vscode.commands.executeCommand('workbench.view.extension.salesforceTailPanel');
+    await vscode.commands.executeCommand('workbench.view.extension.electivus-apex-log-viewer-tail');
     try {
-      await vscode.commands.executeCommand('workbench.viewsService.openView', 'sfLogTail');
+      await vscode.commands.executeCommand('workbench.viewsService.openView', 'electivus.apexLogViewer.tailView');
     } catch {
       // Compatibility fallback for VS Code versions where workbench.viewsService.openView
       // is unavailable.
       try {
-        await vscode.commands.executeCommand('workbench.action.openView', 'sfLogTail');
+        await vscode.commands.executeCommand('workbench.action.openView', 'electivus.apexLogViewer.tailView');
       } catch {
         // Container command above already focused the Tail panel; keep it best-effort.
       }

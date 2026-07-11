@@ -9,7 +9,7 @@ import type { OrgItem } from '../shared/types';
 suite('OrgManager', () => {
   test('setSelectedOrg keeps value in memory', () => {
     const { OrgManager } = proxyquire('../utils/orgManager', {
-      '../../../../src/utils/orgs': {
+      '../host/utils/orgs': {
         pickSelectedOrg: () => undefined,
         '@noCallThru': true
       },
@@ -23,7 +23,7 @@ suite('OrgManager', () => {
 
   test('list returns orgs and selected', async () => {
     const { OrgManager } = proxyquire('../utils/orgManager', {
-      '../../../../src/utils/orgs': {
+      '../host/utils/orgs': {
         pickSelectedOrg: () => 'u1',
         '@noCallThru': true
       },
@@ -41,7 +41,7 @@ suite('OrgManager', () => {
 
   test('list clears selected org when none returned', async () => {
     const { OrgManager } = proxyquire('../utils/orgManager', {
-      '../../../../src/utils/orgs': {
+      '../host/utils/orgs': {
         pickSelectedOrg: () => undefined,
         '@noCallThru': true
       },
@@ -73,15 +73,15 @@ suite('OrgManager', () => {
           runtimeClient: { orgList: async () => orgs },
           '@noCallThru': true
         },
-        '../../../../src/utils/workspace': {
+        '../host/utils/workspace': {
           getWorkspaceRoot: () => tmp,
           '@noCallThru': true
         },
-        '../../../../src/utils/logger': {
+        '../host/utils/logger': {
           logWarn: () => {},
           '@noCallThru': true
         },
-        '../../../../src/utils/error': {
+        '../host/utils/error': {
           getErrorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
           '@noCallThru': true
         }
@@ -98,7 +98,7 @@ suite('OrgManager', () => {
   test('list does not mutate selection after cancellation', async () => {
     const controller = new AbortController();
     const { OrgManager } = proxyquire('../utils/orgManager', {
-      '../../../../src/utils/orgs': {
+      '../host/utils/orgs': {
         pickSelectedOrg: () => 'u1',
         '@noCallThru': true
       },
