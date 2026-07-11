@@ -42,9 +42,21 @@ async function waitForDebugFlagsFrame(page: Page, timeoutMs: number): Promise<Fr
   return await waitForWebviewFrame(
     page,
     async frame =>
-      (await frame.locator('[data-testid="debug-flags-org-select"]').first().isVisible().catch(() => false)) ||
-      (await frame.locator('[data-testid="debug-flags-user-search"]').first().isVisible().catch(() => false)) ||
-      (await frame.locator('text=Apex Debug Flags').first().isVisible().catch(() => false)),
+      (await frame
+        .locator('[data-testid="debug-flags-org-select"]')
+        .first()
+        .isVisible()
+        .catch(() => false)) ||
+      (await frame
+        .locator('[data-testid="debug-flags-user-search"]')
+        .first()
+        .isVisible()
+        .catch(() => false)) ||
+      (await frame
+        .locator('text=Apex Debug Flags')
+        .first()
+        .isVisible()
+        .catch(() => false)),
     { timeoutMs }
   );
 }
@@ -121,8 +133,10 @@ export async function assertSpecialTargetBehavior(
   const notice = debugFlagsFrame.locator('[data-testid="debug-flags-notice"]');
   const unavailableNotice = debugFlagsFrame.locator('[data-testid="debug-flags-target-unavailable"]');
   const selectedTargetLabel = debugFlagsFrame.locator('[data-testid="debug-flags-selected-target-label"]');
+  const targetButton = debugFlagsFrame.locator(`[data-testid="${ui.buttonTestId}"]`);
 
-  await debugFlagsFrame.locator(`[data-testid="${ui.buttonTestId}"]`).click();
+  await expect(targetButton).toBeEnabled({ timeout: 180_000 });
+  await targetButton.click();
   await expect(selectedTargetLabel).toContainText(ui.expectedLabel, { timeout: 60_000 });
 
   if (!resolvedTarget) {
