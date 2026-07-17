@@ -41,6 +41,7 @@ export async function createTempWorkspace(options: {
       sourceApiVersion: String(process.env.SF_TEST_API_VERSION || '60.0')
     };
     await writeFile(path.join(workspacePath, 'sfdx-project.json'), JSON.stringify(proj, null, 2), 'utf8');
+    await writeFile(path.join(workspacePath, '.gitignore'), 'apexlogs/\n', 'utf8');
     await mkdir(path.join(workspacePath, 'force-app'), { recursive: true });
 
     const sfDir = path.join(workspacePath, '.sf');

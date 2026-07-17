@@ -47,6 +47,7 @@ describe('LogRow', () => {
     opened = undefined;
     replayed = undefined;
     const rowEl = getByRole('row');
+    expect(rowEl).toHaveAttribute('data-log-id', row.Id);
     fireEvent.keyDown(rowEl, { key: 'Enter' });
     expect(opened).toBe('1');
     opened = undefined;

@@ -143,6 +143,7 @@ export function LogRow({
   return (
     <div
       role="row"
+      data-log-id={r.Id}
       tabIndex={0}
       onKeyDown={handleKeyDown}
       style={style}
