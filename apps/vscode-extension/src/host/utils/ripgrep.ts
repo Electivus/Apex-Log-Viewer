@@ -4,13 +4,17 @@ import { constants as fsConstants, promises as fs } from 'fs';
 
 let cachedBinary: string | null | undefined;
 
-const RG_ARGS_BASE = ['--no-messages', '--ignore-case', '--fixed-strings', '--glob', '*.log'];
+const RG_ARGS_BASE = ['--no-messages', '--no-ignore', '--ignore-case', '--fixed-strings', '--glob', '*.log'];
 
 export type RipgrepMatch = {
   filePath: string;
   lineText: string;
   submatches: Array<{ start: number; end: number }>;
 };
+
+export function buildRipgrepSearchArgs(pattern: string): string[] {
+  return [...RG_ARGS_BASE, '--json', '--max-count', '1', '--', pattern, '.'];
+}
 
 async function resolveRipgrepBinary(): Promise<string> {
   if (cachedBinary) {
@@ -72,7 +76,7 @@ export async function ripgrepSearch(pattern: string, cwd: string, signal?: Abort
     return [];
   }
 
-  const args = [...RG_ARGS_BASE, '--json', '--max-count', '1', '--', pattern, '.'];
+  const args = buildRipgrepSearchArgs(pattern);
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       resolve([]);

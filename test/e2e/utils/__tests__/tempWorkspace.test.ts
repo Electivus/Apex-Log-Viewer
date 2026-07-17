@@ -9,9 +9,11 @@ describe('createTempWorkspace', () => {
       sfCli: { sfBinPath: '/unused/sf', nodeBinPath: '/unused/node' }
     });
     try {
+      const gitignore = await readFile(path.join(workspace.workspacePath, '.gitignore'), 'utf8');
       const settings = JSON.parse(
         await readFile(path.join(workspace.workspacePath, '.vscode', 'settings.json'), 'utf8')
       );
+      expect(gitignore.split(/\r?\n/)).toContain('apexlogs/');
       expect(settings['electivus.apexLogViewer.logging.trace']).toBe(true);
       expect(Object.keys(settings).some(key => /cliPath/i.test(key))).toBe(false);
     } finally {
