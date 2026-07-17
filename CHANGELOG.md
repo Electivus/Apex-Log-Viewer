@@ -2,9 +2,11 @@
 
 ## Unreleased
 
+## [0.52.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.52.0...v0.52.1) (2026-07-17)
+
 ### Bug Fixes
 
-- Logs/Search: search downloaded Apex log bodies even when the managed `apexlogs/` cache is excluded by the workspace's ignore files.
+- Logs/Search: search downloaded Apex log bodies even when the managed `apexlogs/` cache is excluded by the workspace's ignore files. ([#974](https://github.com/Electivus/Apex-Log-Viewer/pull/974))
 
 ## [0.52.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.50.0...v0.52.0) (2026-07-11)
 
