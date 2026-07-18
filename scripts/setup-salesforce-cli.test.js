@@ -82,11 +82,61 @@ test('setupSalesforceCli installs into the managed prefix and exports bin paths 
     });
 
     assert.equal(calls[0].command, 'npm');
-    assert.deepEqual(calls[0].args.slice(0, 5), ['install', '-g', '--prefix', result.cacheDir, '@salesforce/cli@2.136.8']);
+    assert.deepEqual(calls[0].args.slice(0, 5), [
+      'install',
+      '-g',
+      '--prefix',
+      result.cacheDir,
+      '@salesforce/cli@2.136.8'
+    ]);
     assert.equal(result.sfBinPath, path.join(result.cacheDir, 'bin', 'sf'));
     assert.match(fs.readFileSync(githubEnv, 'utf8'), /SF_CLI_BIN_PATH=.*[\\/]bin[\\/]sf/);
     assert.match(fs.readFileSync(githubEnv, 'utf8'), /ALV_SF_BIN_PATH=.*[\\/]bin[\\/]sf/);
     assert.equal(fs.readFileSync(githubPath, 'utf8').trim(), path.join(result.cacheDir, 'bin'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('setupSalesforceCli invokes npm without a shell for an environment-derived Windows cache path', async () => {
+  const mod = await loadModule();
+  const root = tempDir();
+  const nodePath = path.join(root, 'node.exe');
+  const npmCliPath = path.join(root, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  const runnerToolCache = path.join(root, 'cache & echo compromised');
+  const calls = [];
+
+  try {
+    fs.mkdirSync(path.dirname(npmCliPath), { recursive: true });
+    fs.writeFileSync(npmCliPath, '#!/usr/bin/env node\n');
+
+    const result = mod.setupSalesforceCli({
+      env: {
+        RUNNER_TOOL_CACHE: runnerToolCache,
+        SALESFORCE_CLI_PACKAGE: '@salesforce/cli@2.136.8'
+      },
+      platform: 'win32',
+      nodePath,
+      spawnSyncFn(command, args, options) {
+        calls.push({ command, args, options });
+        return { status: 0 };
+      },
+      execFileSyncFn() {
+        return '@salesforce/cli/2.136.8 win32-x64 node-v24.15.0\n';
+      },
+      stdout: silentStdout()
+    });
+
+    assert.equal(calls[0].command, nodePath);
+    assert.equal(calls[0].args[0], npmCliPath);
+    assert.deepEqual(calls[0].args.slice(1, 6), [
+      'install',
+      '-g',
+      '--prefix',
+      result.cacheDir,
+      '@salesforce/cli@2.136.8'
+    ]);
+    assert.equal(calls[0].options.shell, undefined);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
