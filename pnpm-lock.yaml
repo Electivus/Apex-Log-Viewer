@@ -149,8 +149,8 @@ importers:
         specifier: ^0.35.3
         version: 0.35.3(@types/node@24.13.2)
       shell-quote:
-        specifier: ^1.9.0
-        version: 1.9.0
+        specifier: ^1.10.0
+        version: 1.10.0
       tailwindcss:
         specifier: ^4.1.18
         version: 4.3.2
@@ -5209,6 +5209,10 @@ packages:
   shebang-regex@3.0.0:
     resolution: {integrity: sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==}
     engines: {node: '>=8'}
+
+  shell-quote@1.10.0:
+    resolution: {integrity: sha512-w1aiOKwKuRgtwAReIIj89puqg+I7GvX4IbLrvmhXbzQsj1+Zwi4VO3+fa6ZF91TWSjIxoEkKnMeHcLEODK5ZXA==}
+    engines: {node: '>= 0.4'}
 
   shell-quote@1.9.0:
     resolution: {integrity: sha512-Iov+JwFv/2HcTpcwNMKd8+IWNb8tboQJNQTkAY/LLVK7gGH9jy+LGkVqPxfekHl+yMmiqXszdGWXgkfml7hjqA==}
@@ -11532,6 +11536,8 @@ snapshots:
   shebang-regex@1.0.0: {}
 
   shebang-regex@3.0.0: {}
+
+  shell-quote@1.10.0: {}
 
   shell-quote@1.9.0: {}
 
