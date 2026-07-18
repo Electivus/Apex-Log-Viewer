@@ -1085,6 +1085,29 @@ test('pnpm workspace owns the dependency security overrides', () => {
   assert.doesNotMatch(lockfile, /serialize-javascript@6\.0\.2/);
 });
 
+test('pnpm workspace enforces native supply-chain security policies', () => {
+  const workspace = yaml.parse(read('pnpm-workspace.yaml'));
+
+  assert.equal(workspace.blockExoticSubdeps, true);
+  assert.equal(workspace.minimumReleaseAge, 1440);
+  assert.equal(workspace.minimumReleaseAgeStrict, true);
+  assert.ok(Array.isArray(workspace.minimumReleaseAgeExclude));
+  for (const selector of workspace.minimumReleaseAgeExclude) {
+    assert.match(
+      selector,
+      /^(?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+)@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+    );
+  }
+  assert.equal(workspace.trustPolicy, 'no-downgrade');
+  assert.deepEqual(workspace.trustPolicyExclude, [
+    'chokidar@4.0.3',
+    'pino@9.14.0',
+    'semver@5.7.2',
+    'semver@6.3.1',
+    'undici-types@6.21.0'
+  ]);
+});
+
 test('pnpm install provenance detection handles the frozen workspace install', () => {
   const workflow = [
     'jobs:',

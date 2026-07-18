@@ -29,6 +29,13 @@ Concurrency: Most workflows use concurrency groups to avoid duplicate runs per r
 - Dependency-source policy allows only registry packages and in-repo workspace
   links, and it validates workspace manifests and `pnpm-lock.yaml` before
   dependency install.
+- Native pnpm resolution also blocks exotic transitive sources, strictly delays
+  regular dependency updates for 24 hours, and rejects registry trust
+  downgrades except for reviewed, exact-version lockfile entries.
+  Dependabot security updates bypass the age delay while generating their
+  lockfile, but CI independently reapplies the policy. A patch newer than 24
+  hours must use a reviewed, exact-version `minimumReleaseAgeExclude`; CI never
+  trusts every Dependabot-authored lockfile merely based on its author.
 - If `pnpm audit signatures` fails in CI, treat it as a provenance problem:
   investigate the package metadata or lockfile change instead of removing the
   gate.
