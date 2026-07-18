@@ -106,7 +106,7 @@
     "@vscode/l10n-dev": "^0.0.35",
     "@vscode/ripgrep": "^1.18.0",
     "@vscode/vsce": "^3.9.2",
-    "autoprefixer": "^10.5.2",
+    "autoprefixer": "^10.5.4",
     "c8": "^11.0.0",
     "cross-spawn": "^7.0.6",
     "esbuild": "^0.28.1",
