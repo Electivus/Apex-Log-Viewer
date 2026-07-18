@@ -4,8 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const SALESFORCE_CLI_PACKAGE_PATTERN =
-  /^@salesforce\/cli@(?:\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?|nightly)$/;
+export const SALESFORCE_CLI_PACKAGE_PATTERN = /^@salesforce\/cli@(?:\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?|nightly)$/;
 
 const WRAPPER_ENV_UNSET_NAMES = [
   'ELECTRON_RUN_AS_NODE',
@@ -65,9 +64,7 @@ export function resolveSalesforceCliCacheConfig({
 } = {}) {
   const normalizedPackageName = normalizeSalesforceCliPackage(packageName);
   const cacheRoot = path.resolve(
-    env.SALESFORCE_CLI_CACHE_ROOT ||
-      env.RUNNER_TOOL_CACHE ||
-      path.join(os.tmpdir(), 'alv-salesforce-cli-cache')
+    env.SALESFORCE_CLI_CACHE_ROOT || env.RUNNER_TOOL_CACHE || path.join(os.tmpdir(), 'alv-salesforce-cli-cache')
   );
   const key = [
     'alv-sf-cli',
@@ -104,18 +101,7 @@ function assertPathInside(parent, child) {
   }
 }
 
-function resolveManagedCommand(commandKey) {
-  if (commandKey === 'npm') {
-    return 'npm';
-  }
-  if (commandKey === 'cmd') {
-    return 'cmd.exe';
-  }
-  throw new Error(`Unsupported managed command: ${commandKey}`);
-}
-
-function runCommand(commandKey, args, options = {}, spawnSyncFn = spawnSync) {
-  const command = resolveManagedCommand(commandKey);
+function runCommand(command, args, options = {}, spawnSyncFn = spawnSync) {
   const result = spawnSyncFn(command, args, {
     stdio: options.stdio || 'inherit',
     env: options.env,
@@ -132,15 +118,29 @@ function runCommand(commandKey, args, options = {}, spawnSyncFn = spawnSync) {
   return result;
 }
 
-function npmInstallInvocation({ prefix, packageName, platform = process.platform }) {
+function resolveWindowsNpmCliPath(nodePath, fsImpl = fs) {
+  const npmCliPath = path.join(path.dirname(nodePath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  if (!fsImpl.existsSync(npmCliPath)) {
+    throw new Error(`Unable to find the npm CLI distributed with Node at ${npmCliPath}.`);
+  }
+  return npmCliPath;
+}
+
+function npmInstallInvocation({
+  prefix,
+  packageName,
+  platform = process.platform,
+  nodePath = process.execPath,
+  fsImpl = fs
+}) {
   const args = ['install', '-g', '--prefix', prefix, packageName, '--no-audit', '--no-fund'];
   if (platform === 'win32') {
     return {
-      commandKey: 'cmd',
-      args: ['/d', '/s', '/c', 'npm.cmd', ...args]
+      command: nodePath,
+      args: [resolveWindowsNpmCliPath(nodePath, fsImpl), ...args]
     };
   }
-  return { commandKey: 'npm', args };
+  return { command: 'npm', args };
 }
 
 function sfVersionInvocation(prefix, platform = process.platform) {
@@ -222,17 +222,8 @@ function formatOutputValue(name, value) {
   return `${name}=${String(value).replace(/\r?\n/g, ' ')}`;
 }
 
-export function writeGitHubExports({
-  env = process.env,
-  sfBinPath,
-  pathEntry,
-  nodePath,
-  fsImpl = fs
-}) {
-  const envLines = [
-    formatOutputValue('SF_CLI_BIN_PATH', sfBinPath),
-    formatOutputValue('ALV_SF_BIN_PATH', sfBinPath)
-  ];
+export function writeGitHubExports({ env = process.env, sfBinPath, pathEntry, nodePath, fsImpl = fs }) {
+  const envLines = [formatOutputValue('SF_CLI_BIN_PATH', sfBinPath), formatOutputValue('ALV_SF_BIN_PATH', sfBinPath)];
   if (nodePath) {
     envLines.push(formatOutputValue('SF_CLI_NODE_PATH', nodePath));
   }
@@ -242,10 +233,7 @@ export function writeGitHubExports({
 }
 
 export function writeGitHubCacheOutputs({ env = process.env, cacheKey, cacheDir, fsImpl = fs }) {
-  const output = [
-    formatOutputValue('cache-key', cacheKey),
-    formatOutputValue('cache-dir', cacheDir)
-  ].join('\n');
+  const output = [formatOutputValue('cache-key', cacheKey), formatOutputValue('cache-dir', cacheDir)].join('\n');
   appendOutput(env.GITHUB_OUTPUT, output, fsImpl);
   return output;
 }
@@ -275,10 +263,12 @@ export function setupSalesforceCli({
     const invocation = npmInstallInvocation({
       prefix: config.cacheDir,
       packageName: config.packageName,
-      platform
+      platform,
+      nodePath,
+      fsImpl
     });
     stdout.write(`[sf-cli] Installing ${config.packageName} into ${config.cacheDir}\n`);
-    runCommand(invocation.commandKey, invocation.args, { env }, spawnSyncFn);
+    runCommand(invocation.command, invocation.args, { env }, spawnSyncFn);
   } else {
     stdout.write(`[sf-cli] Reusing cached ${config.packageName} from ${config.cacheDir}\n`);
   }
@@ -325,7 +315,8 @@ export function setupSalesforceCli({
 
 function main() {
   const args = process.argv.slice(2);
-  const packageName = readArgValue(args, '--package') || process.env.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8';
+  const packageName =
+    readArgValue(args, '--package') || process.env.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8';
   const env = { ...process.env, SALESFORCE_CLI_PACKAGE: packageName };
   const config = resolveSalesforceCliCacheConfig({ env });
 
