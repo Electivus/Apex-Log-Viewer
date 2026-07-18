@@ -1101,6 +1101,22 @@ test('pnpm workspace enforces native supply-chain security policies', () => {
   ]);
 });
 
+test('CI trusts policy-checked lockfiles only on Dependabot-authored pull requests', () => {
+  const expectedExpression =
+    "${{ github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]' }}";
+
+  for (const workflowPath of ['.github/workflows/ci.yml', '.github/workflows/e2e-playwright.yml']) {
+    const workflow = yaml.parse(read(workflowPath));
+    assert.equal(workflow.env?.PNPM_CONFIG_TRUST_LOCKFILE, expectedExpression);
+  }
+
+  const proxyCompose = yaml.parse(read('docker-compose.e2e-proxy.yml'));
+  assert.equal(
+    proxyCompose.services?.runner?.environment?.PNPM_CONFIG_TRUST_LOCKFILE,
+    '${PNPM_CONFIG_TRUST_LOCKFILE:-false}'
+  );
+});
+
 test('pnpm install provenance detection handles the frozen workspace install', () => {
   const workflow = [
     'jobs:',

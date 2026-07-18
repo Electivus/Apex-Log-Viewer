@@ -87,8 +87,10 @@ security controls detect risk.
   rejects dependency versions whose registry trust level has decreased.
 - Regular Dependabot version updates inherit these pnpm policies. Dependabot
   security updates intentionally bypass only the 24-hour release-age delay so
-  urgent fixes are not held back; their pull requests still pass the remaining
-  pnpm policies and repository CI gates.
+  urgent fixes are not held back. CI trusts the resulting frozen lockfile only
+  when the pull request author is `dependabot[bot]`, avoiding a second age check;
+  the bot still applies the trust policy during resolution, and the pull request
+  still passes the repository source, signature, and dependency-review gates.
 - Before any workflow `pnpm install --frozen-lockfile`, CI runs `node scripts/check-dependency-sources.mjs`
   to block unapproved dependency source types in both manifests and
   `pnpm-lock.yaml`, including arbitrary git, tarball, file, or URL sources.

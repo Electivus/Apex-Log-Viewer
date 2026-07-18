@@ -30,6 +30,9 @@ permissions:
   contents: read
   id-token: write
 
+env:
+  PNPM_CONFIG_TRUST_LOCKFILE: "${{ github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]' }}"
+
 jobs:
   playwright_e2e:
     name: Playwright E2E (scratch org)
