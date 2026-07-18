@@ -81,6 +81,14 @@ security controls detect risk.
   mutable tags.
 - Pull requests run dependency review and fail on new moderate-or-higher risk
   dependencies in runtime or development scopes.
+- pnpm allows dependency build scripts only for the packages listed in
+  `allowBuilds`, blocks exotic transitive dependency sources, waits 24 hours
+  before resolving newly published versions without a permissive fallback, and
+  rejects dependency versions whose registry trust level has decreased.
+- Regular Dependabot version updates inherit these pnpm policies. Dependabot
+  security updates intentionally bypass only the 24-hour release-age delay so
+  urgent fixes are not held back; their pull requests still pass the remaining
+  pnpm policies and repository CI gates.
 - Before any workflow `pnpm install --frozen-lockfile`, CI runs `node scripts/check-dependency-sources.mjs`
   to block unapproved dependency source types in both manifests and
   `pnpm-lock.yaml`, including arbitrary git, tarball, file, or URL sources.
@@ -94,6 +102,10 @@ Exceptions
 - Any exception to these controls should be rare, reviewed by maintainers, and
   documented in the relevant pull request with the specific reason and planned
   follow-up.
+- Trust-policy exceptions in `pnpm-workspace.yaml` must select exact package
+  versions already reviewed in the lockfile. The current exceptions grandfather
+  signed versions that predate this control; package-wide selectors are not
+  approved.
 - There are currently no approved non-registry JavaScript dependency-source
   exceptions.
 
