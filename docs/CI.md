@@ -32,11 +32,10 @@ Concurrency: Most workflows use concurrency groups to avoid duplicate runs per r
 - Native pnpm resolution also blocks exotic transitive sources, strictly delays
   regular dependency updates for 24 hours, and rejects registry trust
   downgrades except for reviewed, exact-version lockfile entries.
-  Dependabot security updates bypass only the release-age delay so urgent fixes
-  can proceed immediately. For Dependabot-authored pull requests, CI sets
-  `PNPM_CONFIG_TRUST_LOCKFILE=true` so frozen installs do not reapply that age
-  check; Dependabot still applies the trust policy while resolving the lockfile,
-  and the source, signature, and dependency-review gates remain active.
+  Dependabot security updates bypass the age delay while generating their
+  lockfile, but CI independently reapplies the policy. A patch newer than 24
+  hours must use a reviewed, exact-version `minimumReleaseAgeExclude`; CI never
+  trusts every Dependabot-authored lockfile merely based on its author.
 - If `pnpm audit signatures` fails in CI, treat it as a provenance problem:
   investigate the package metadata or lockfile change instead of removing the
   gate.

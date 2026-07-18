@@ -24,9 +24,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  PNPM_CONFIG_TRUST_LOCKFILE: "${{ github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]' }}"
-
 jobs:
   build_and_test:
     name: Build and Test (${{ matrix.os }})

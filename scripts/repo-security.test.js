@@ -1091,6 +1091,13 @@ test('pnpm workspace enforces native supply-chain security policies', () => {
   assert.equal(workspace.blockExoticSubdeps, true);
   assert.equal(workspace.minimumReleaseAge, 1440);
   assert.equal(workspace.minimumReleaseAgeStrict, true);
+  assert.ok(Array.isArray(workspace.minimumReleaseAgeExclude));
+  for (const selector of workspace.minimumReleaseAgeExclude) {
+    assert.match(
+      selector,
+      /^(?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+)@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+    );
+  }
   assert.equal(workspace.trustPolicy, 'no-downgrade');
   assert.deepEqual(workspace.trustPolicyExclude, [
     'chokidar@4.0.3',
@@ -1099,22 +1106,6 @@ test('pnpm workspace enforces native supply-chain security policies', () => {
     'semver@6.3.1',
     'undici-types@6.21.0'
   ]);
-});
-
-test('CI trusts policy-checked lockfiles only on Dependabot-authored pull requests', () => {
-  const expectedExpression =
-    "${{ github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]' }}";
-
-  for (const workflowPath of ['.github/workflows/ci.yml', '.github/workflows/e2e-playwright.yml']) {
-    const workflow = yaml.parse(read(workflowPath));
-    assert.equal(workflow.env?.PNPM_CONFIG_TRUST_LOCKFILE, expectedExpression);
-  }
-
-  const proxyCompose = yaml.parse(read('docker-compose.e2e-proxy.yml'));
-  assert.equal(
-    proxyCompose.services?.runner?.environment?.PNPM_CONFIG_TRUST_LOCKFILE,
-    '${PNPM_CONFIG_TRUST_LOCKFILE:-false}'
-  );
 });
 
 test('pnpm install provenance detection handles the frozen workspace install', () => {

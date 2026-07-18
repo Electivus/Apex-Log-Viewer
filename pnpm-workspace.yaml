@@ -8,6 +8,7 @@ pmOnFail: error
 verifyDepsBeforeRun: error
 blockExoticSubdeps: true
 minimumReleaseAge: 1440
+minimumReleaseAgeExclude: []
 minimumReleaseAgeStrict: true
 trustPolicy: no-downgrade
 trustPolicyExclude:

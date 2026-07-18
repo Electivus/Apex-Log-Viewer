@@ -87,10 +87,9 @@ security controls detect risk.
   rejects dependency versions whose registry trust level has decreased.
 - Regular Dependabot version updates inherit these pnpm policies. Dependabot
   security updates intentionally bypass only the 24-hour release-age delay so
-  urgent fixes are not held back. CI trusts the resulting frozen lockfile only
-  when the pull request author is `dependabot[bot]`, avoiding a second age check;
-  the bot still applies the trust policy during resolution, and the pull request
-  still passes the repository source, signature, and dependency-review gates.
+  it can generate an urgent lockfile, but CI independently reapplies every pnpm
+  policy. A security patch published less than 24 hours ago therefore requires a
+  reviewed, exact-version `minimumReleaseAgeExclude` entry before merge.
 - Before any workflow `pnpm install --frozen-lockfile`, CI runs `node scripts/check-dependency-sources.mjs`
   to block unapproved dependency source types in both manifests and
   `pnpm-lock.yaml`, including arbitrary git, tarball, file, or URL sources.
@@ -104,10 +103,10 @@ Exceptions
 - Any exception to these controls should be rare, reviewed by maintainers, and
   documented in the relevant pull request with the specific reason and planned
   follow-up.
-- Trust-policy exceptions in `pnpm-workspace.yaml` must select exact package
-  versions already reviewed in the lockfile. The current exceptions grandfather
-  signed versions that predate this control; package-wide selectors are not
-  approved.
+- Release-age and trust-policy exceptions in `pnpm-workspace.yaml` must select
+  exact package versions reviewed against the advisory, registry metadata, and
+  lockfile. The current trust exceptions grandfather signed versions that
+  predate this control; package-wide selectors are not approved.
 - There are currently no approved non-registry JavaScript dependency-source
   exceptions.
 
