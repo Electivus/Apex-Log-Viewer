@@ -897,15 +897,20 @@ test('Apex Log Lifecycle persists org identity so aliases work offline', async (
     assert.equal(result.resolvedUsername, username);
     assert.equal(await fs.readFile(result.localPath, 'utf8'), 'offline body');
     assert.deepEqual(remoteCalls, []);
-    assert.deepEqual(
-      JSON.parse(await fs.readFile(path.join(workspaceRoot, 'apexlogs', 'orgs', username, 'org.json'), 'utf8')),
-      {
-        version: 1,
-        username,
-        alias,
-        instanceUrl: 'https://example.my.salesforce.com'
-      }
+    const metadata = JSON.parse(
+      await fs.readFile(path.join(workspaceRoot, 'apexlogs', 'orgs', username, 'org.json'), 'utf8')
     );
+    assert.deepEqual(metadata, {
+      version: 1,
+      username,
+      targetOrg: alias,
+      safeTargetOrg: username,
+      resolvedUsername: username,
+      alias,
+      instanceUrl: 'https://example.my.salesforce.com',
+      updatedAt: metadata.updatedAt
+    });
+    assert.equal(typeof metadata.updatedAt, 'string');
   } finally {
     offline.dispose();
     await fs.rm(workspaceRoot, { recursive: true, force: true });
@@ -1187,7 +1192,7 @@ test('Apex Log Lifecycle reports corrupt local state through a stable persistenc
 });
 
 test('Apex Log Lifecycle translates local directory scan failures into a stable error', async () => {
-  const workspaceRoot = path.join(os.tmpdir(), 'x'.repeat(5_000));
+  const workspaceRoot = path.join(os.tmpdir(), `invalid${String.fromCharCode(0)}path`);
   const logId = '07L000000000033AAA';
   const lifecycle = createApexLogLifecycle({ remote: unavailableRemote([]) });
 

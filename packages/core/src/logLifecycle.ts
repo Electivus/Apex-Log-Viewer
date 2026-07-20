@@ -283,8 +283,12 @@ type LifecycleSyncState = {
 type OrgMetadata = Readonly<{
   version: 1;
   username: string;
+  targetOrg?: string;
+  safeTargetOrg?: string;
+  resolvedUsername?: string;
   alias?: string;
   instanceUrl?: string;
+  updatedAt?: string;
 }>;
 
 async function isRegularFile(filePath: string): Promise<boolean> {
@@ -421,11 +425,16 @@ async function findLocalOrgUsernames(workspaceRoot: string, selector: string): P
 async function writeOrgMetadata(workspaceRoot: string, org: ResolvedApexLogOrg): Promise<void> {
   const filePath = orgMetadataPath(workspaceRoot, org.username);
   const existing = await readOrgMetadata(filePath);
+  const alias = org.alias ?? existing?.alias;
   await writeJsonAtomic(filePath, {
     version: 1,
     username: org.username,
-    ...(org.alias || existing?.alias ? { alias: org.alias ?? existing?.alias } : {}),
-    ...(org.instanceUrl || existing?.instanceUrl ? { instanceUrl: org.instanceUrl ?? existing?.instanceUrl } : {})
+    targetOrg: alias ?? org.username,
+    safeTargetOrg: safeUsername(org.username),
+    resolvedUsername: org.username,
+    ...(alias ? { alias } : {}),
+    ...(org.instanceUrl || existing?.instanceUrl ? { instanceUrl: org.instanceUrl ?? existing?.instanceUrl } : {}),
+    updatedAt: new Date().toISOString()
   } satisfies OrgMetadata);
 }
 

@@ -24,13 +24,19 @@ function vscodeStub(commandCalls: Array<{ command: string; path: string }> = [])
 
 suite('LogService', () => {
   test('openLog asks the Apex Log Lifecycle for a dependable path', async () => {
-    const lifecycleCalls: Array<{ logId: string; targetOrg?: string; startTime?: string }> = [];
+    const lifecycleCalls: Array<{ logId: string; targetOrg?: string; startTime?: string; workspaceRoot?: string }> = [];
     const panelCalls: Array<{ logId: string; filePath: string }> = [];
     const { LogService } = proxyquireStrict('../host/services/logService', {
       vscode: vscodeStub(),
+      '../utils/workspace': { getWorkspaceRoot: () => '/workspace' },
       '../../runtime/runtimeClient': {
         runtimeClient: {
-          requireLocalLogPath: async (params: { logId: string; targetOrg?: string; startTime?: string }) => {
+          requireLocalLogPath: async (params: {
+            logId: string;
+            targetOrg?: string;
+            startTime?: string;
+            workspaceRoot?: string;
+          }) => {
             lifecycleCalls.push(params);
             return {
               logId: params.logId,
@@ -54,7 +60,7 @@ suite('LogService', () => {
     await new LogService().openLog('07L000000000002AAA', 'open@example.com');
 
     assert.deepEqual(lifecycleCalls, [
-      { logId: '07L000000000002AAA', targetOrg: 'open@example.com', startTime: undefined }
+      { logId: '07L000000000002AAA', targetOrg: 'open@example.com', startTime: undefined, workspaceRoot: '/workspace' }
     ]);
     assert.equal(panelCalls[0]?.filePath, '/tmp/open.log');
   });
@@ -119,22 +125,27 @@ suite('LogService', () => {
     const availableId = '07L000000000007AAA';
     const missingId = '07L000000000008AAA';
     const missing: string[] = [];
+    let requestWorkspaceRoot: string | undefined;
     const { LogService } = proxyquireStrict('../host/services/logService', {
+      '../utils/workspace': { getWorkspaceRoot: () => '/workspace' },
       '../../runtime/runtimeClient': {
         runtimeClient: {
-          availableLocalLogPaths: async () => ({
-            available: [
-              {
-                logId: availableId,
-                resolvedUsername: 'search@example.com',
-                source: 'local',
-                persistence: 'existing',
-                localPath: `/tmp/${availableId}.log`
-              }
-            ],
-            missing: [{ logId: missingId }],
-            failures: []
-          })
+          availableLocalLogPaths: async (params: { workspaceRoot?: string }) => {
+            requestWorkspaceRoot = params.workspaceRoot;
+            return {
+              available: [
+                {
+                  logId: availableId,
+                  resolvedUsername: 'search@example.com',
+                  source: 'local',
+                  persistence: 'existing',
+                  localPath: `/tmp/${availableId}.log`
+                }
+              ],
+              missing: [{ logId: missingId }],
+              failures: []
+            };
+          }
         }
       }
     });
@@ -151,5 +162,6 @@ suite('LogService', () => {
     assert.equal(summary.missing, 1);
     assert.deepEqual(missing, [missingId]);
     assert.equal(summary.localLogPaths?.[availableId], `/tmp/${availableId}.log`);
+    assert.equal(requestWorkspaceRoot, '/workspace');
   });
 });

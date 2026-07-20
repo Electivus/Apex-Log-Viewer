@@ -6,6 +6,7 @@ import { runtimeClient } from '../../runtime/runtimeClient';
 import { logInfo, logWarn, logError, showOutput } from './logger';
 import { localize } from './localize';
 import { getErrorMessage } from './error';
+import { getWorkspaceRoot } from './workspace';
 import {
   createConnectionFromAuth,
   createLoggingStreamingClient,
@@ -317,6 +318,7 @@ export class TailService {
         logId: id,
         startTime,
         targetOrg: this.selectedOrg,
+        workspaceRoot: getWorkspaceRoot(),
         persistence: 'best-effort'
       });
       await this.emitLogWithHeader(meta || { Id: id }, result);
@@ -411,7 +413,10 @@ export class TailService {
     if (existing) {
       return existing;
     }
-    const local = await runtimeClient.requireLocalLogPath({ logId, targetOrg: this.selectedOrg }, signal);
+    const local = await runtimeClient.requireLocalLogPath(
+      { logId, targetOrg: this.selectedOrg, workspaceRoot: getWorkspaceRoot() },
+      signal
+    );
     const filePath = local.localPath;
     this.addLogPath(logId, filePath);
     logInfo('Tail: ensured log saved at', filePath);

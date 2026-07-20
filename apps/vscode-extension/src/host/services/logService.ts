@@ -6,6 +6,7 @@ import { ensureReplayDebuggerAvailable } from '../utils/replayDebugger';
 import { getErrorMessage } from '../utils/error';
 import { logWarn, logInfo } from '../utils/logger';
 import { localize } from '../utils/localize';
+import { getWorkspaceRoot } from '../utils/workspace';
 import { LogViewerPanel } from '../../panel/LogViewerPanel';
 import { runtimeClient } from '../../runtime/runtimeClient';
 
@@ -76,7 +77,10 @@ export class LogService {
     signal,
     startTime
   }: EnsureLogFileRequest): Promise<EnsureLogFileResult> {
-    const file = await runtimeClient.requireLocalLogPath({ logId, targetOrg: selectedOrg, startTime }, signal);
+    const file = await runtimeClient.requireLocalLogPath(
+      { logId, targetOrg: selectedOrg, startTime, workspaceRoot: getWorkspaceRoot() },
+      signal
+    );
     return { filePath: file.localPath, source: file.source === 'remote' ? 'downloaded' : 'existing' };
   }
 
@@ -136,6 +140,7 @@ export class LogService {
       const local = await runtimeClient.availableLocalLogPaths(
         {
           targetOrg: options?.authHint?.username ?? selectedOrg,
+          workspaceRoot: getWorkspaceRoot(),
           logs: validLogs.map(log => ({ logId: log.Id, startTime: log.StartTime }))
         },
         signal
