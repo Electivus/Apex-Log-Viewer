@@ -1,8 +1,13 @@
 import assert from 'assert/strict';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
-import { fetchApexLogBody, __setHttpsRequestImplForTests, __resetHttpsRequestImplForTests } from '../host/salesforce/http';
-import { __resetConnectionFactoryForTests, __setConnectionFactoryForTests } from '../host/salesforce/jsforce';
+import {
+  __resetConnectionFactoryForTests,
+  __resetHttpsRequestImplForTests,
+  __setConnectionFactoryForTests,
+  __setHttpsRequestImplForTests,
+  requestText
+} from '../host/salesforce/jsforce';
 import type { OrgAuth } from '../host/salesforce/types';
 
 suite('https request timeout', () => {
@@ -30,7 +35,10 @@ suite('https request timeout', () => {
       return req;
     }) as any);
 
-    await assert.rejects(fetchApexLogBody(auth, 'LOG', 50), /timed out/i);
+    await assert.rejects(
+      requestText(auth, { method: 'GET', url: 'https://example.com/test' }, { timeoutMs: 50 }),
+      /timed out/i
+    );
   });
 
   test('rejects promptly when a jsforce-backed request is aborted', async () => {
@@ -44,27 +52,34 @@ suite('https request timeout', () => {
       return originalDestroy(...args);
     };
 
-    __setConnectionFactoryForTests(async () => ({
-      version: '64.0',
-      instanceUrl: auth.instanceUrl,
-      accessToken: auth.accessToken,
-      query: async () => ({ records: [] }),
-      queryMore: async () => ({ records: [] }),
-      tooling: {
-        query: async () => ({ records: [] }),
-        create: async () => ({ success: true, id: '1', errors: [] }),
-        update: async () => ({ success: true, id: '1', errors: [] }),
-        destroy: async () => ({ success: true, id: '1', errors: [] })
-      },
-      streaming: {} as any,
-      request: () => {
-        const promise = new Promise<string>(() => {}) as Promise<string> & { stream: () => PassThrough };
-        promise.stream = () => stream;
-        return promise;
-      }
-    }) as any);
+    __setConnectionFactoryForTests(
+      async () =>
+        ({
+          version: '64.0',
+          instanceUrl: auth.instanceUrl,
+          accessToken: auth.accessToken,
+          query: async () => ({ records: [] }),
+          queryMore: async () => ({ records: [] }),
+          tooling: {
+            query: async () => ({ records: [] }),
+            create: async () => ({ success: true, id: '1', errors: [] }),
+            update: async () => ({ success: true, id: '1', errors: [] }),
+            destroy: async () => ({ success: true, id: '1', errors: [] })
+          },
+          streaming: {} as any,
+          request: () => {
+            const promise = new Promise<string>(() => {}) as Promise<string> & { stream: () => PassThrough };
+            promise.stream = () => stream;
+            return promise;
+          }
+        }) as any
+    );
 
-    const pending = fetchApexLogBody(auth, 'LOG', undefined, controller.signal);
+    const pending = requestText(
+      auth,
+      { method: 'GET', url: 'https://example.com/test' },
+      { signal: controller.signal }
+    );
     controller.abort();
 
     await assert.rejects(pending, /aborted/i);

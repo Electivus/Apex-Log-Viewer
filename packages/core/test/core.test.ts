@@ -4,10 +4,25 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { AlvError, createApexLogViewerCore, parseApexLogIds } from '../src/index.ts';
+import { AlvError, ApexLogLifecycleError, createApexLogViewerCore, parseApexLogIds } from '../src/index.ts';
+import type { ApexLogRemote } from '../src/logLifecycle.ts';
 import { awaitWithAbort, deleteApexLogIds, runLimited } from '../src/runtime.ts';
 
-test('core resolves legacy cached log paths without Salesforce auth', async () => {
+function unavailableApexLogRemote(): ApexLogRemote {
+  return {
+    async resolveOrg() {
+      throw new Error('Salesforce is unavailable');
+    },
+    async listLogs() {
+      throw new Error('Salesforce is unavailable');
+    },
+    async readBody() {
+      throw new Error('Salesforce is unavailable');
+    }
+  };
+}
+
+test('core log resolve finds legacy cached paths without Salesforce auth', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-legacy-'));
   const logId = '07L000000000001AAA';
   const legacyPath = path.join(workspaceRoot, 'apexlogs', `demo@example.com_${logId}.log`);
@@ -15,9 +30,10 @@ test('core resolves legacy cached log paths without Salesforce auth', async () =
   await fs.writeFile(legacyPath, 'legacy body');
 
   const core = createApexLogViewerCore();
-  const result = await core.log.resolveCachedPath({ logId, username: 'demo@example.com', workspaceRoot });
+  const result = await core.log.resolve({ logId, targetOrg: 'demo@example.com', workspaceRoot });
 
   assert.equal(result.path, legacyPath);
+  assert.equal(result.cached, true);
 });
 
 test('core triages locally cached logs without requiring the CLI plugin', async () => {
@@ -27,14 +43,12 @@ test('core triages locally cached logs without requiring the CLI plugin', async 
   await fs.mkdir(path.dirname(logPath), { recursive: true });
   await fs.writeFile(logPath, '12:00:00.0|FATAL_ERROR|System.NullPointerException: boom');
 
-  const result = await createApexLogViewerCore().log.triage({
-    logIds: [logId],
-    username: 'demo@example.com',
-    workspaceRoot
-  });
+  const core = createApexLogViewerCore({ apexLogRemote: unavailableApexLogRemote() });
+  const result = await core.log.triage({ logIds: [logId], username: 'demo@example.com', workspaceRoot });
 
   assert.equal(result[0]?.summary.hasErrors, true);
   assert.equal(result[0]?.summary.primaryReason, 'Fatal exception');
+  core.dispose();
 });
 
 test('core reports cancellation through its stable error and instrumentation contract', async () => {
@@ -42,6 +56,7 @@ test('core reports cancellation through its stable error and instrumentation con
   const controller = new AbortController();
   controller.abort();
   const core = createApexLogViewerCore({
+    apexLogRemote: unavailableApexLogRemote(),
     instrumentation: { onCall: event => events.push({ method: event.method, outcome: event.outcome }) }
   });
 
@@ -50,6 +65,53 @@ test('core reports cancellation through its stable error and instrumentation con
     error => error instanceof AlvError && error.code === 'ABORTED'
   );
   assert.deepEqual(events, [{ method: 'log.list', outcome: 'cancelled' }]);
+});
+
+test('core instruments the public Apex Log Lifecycle seam', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-lifecycle-instrumentation-'));
+  const username = 'instrumented@example.com';
+  const logId = '07L000000000009AAA';
+  const localPath = path.join(workspaceRoot, 'apexlogs', `${username}_${logId}.log`);
+  await fs.mkdir(path.dirname(localPath), { recursive: true });
+  await fs.writeFile(localPath, 'instrumented body', 'utf8');
+  const events: Array<{ method: string; outcome: string }> = [];
+  const core = createApexLogViewerCore({
+    apexLogRemote: unavailableApexLogRemote(),
+    instrumentation: { onCall: event => events.push({ method: event.method, outcome: event.outcome }) }
+  });
+
+  try {
+    const result = await core.logLifecycle.requireLocalPath({
+      workspaceRoot,
+      targetOrg: username,
+      log: { logId }
+    });
+
+    assert.equal(result.localPath, localPath);
+    assert.deepEqual(events, [{ method: 'log.lifecycle.requireLocalPath', outcome: 'ok' }]);
+  } finally {
+    core.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('core lifecycle instrumentation preserves its stable cancellation error', async () => {
+  const events: Array<{ method: string; outcome: string }> = [];
+  const controller = new AbortController();
+  controller.abort();
+  const core = createApexLogViewerCore({
+    instrumentation: { onCall: event => events.push({ method: event.method, outcome: event.outcome }) }
+  });
+
+  try {
+    await assert.rejects(
+      core.logLifecycle.status({ workspaceRoot: os.tmpdir() }, { signal: controller.signal }),
+      error => error instanceof ApexLogLifecycleError && error.code === 'cancelled'
+    );
+    assert.deepEqual(events, [{ method: 'log.lifecycle.status', outcome: 'cancelled' }]);
+  } finally {
+    core.dispose();
+  }
 });
 
 test('core only parses Salesforce ApexLog ids', () => {
@@ -152,4 +214,123 @@ test('core stops scheduling ApexLog deletion chunks after cancellation', async (
   assert.equal(requestCount, 1, 'must not start later deletion chunks after cancellation');
   assert.equal(destroyed, 1, 'must abort the in-flight Salesforce request');
   releaseRequest([]);
+});
+
+test('core log read uses the shared Apex Log Lifecycle seam', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-lifecycle-read-'));
+  const logId = '07L000000000017AAA';
+  const username = 'core@example.com';
+  const remote: ApexLogRemote = {
+    async resolveOrg() {
+      return { username };
+    },
+    async listLogs() {
+      throw new Error('listLogs is not used by log read');
+    },
+    async readBody() {
+      return 'core lifecycle body';
+    }
+  };
+  const core = createApexLogViewerCore({ apexLogRemote: remote });
+
+  try {
+    const result = await core.log.read({ logId, targetOrg: username, workspaceRoot });
+    assert.equal(result.body, 'core lifecycle body');
+    assert.equal(result.path.endsWith(`${logId}.log`), true);
+  } finally {
+    core.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('core log sync preserves its public result while using the shared lifecycle', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-lifecycle-sync-'));
+  const logId = '07L000000000018AAA';
+  const username = 'sync-core@example.com';
+  const remote: ApexLogRemote = {
+    async resolveOrg() {
+      return { username };
+    },
+    async listLogs() {
+      return [{ logId, startTime: '2026-07-20T13:00:00.000Z' }];
+    },
+    async readBody() {
+      return 'sync core body';
+    }
+  };
+  const core = createApexLogViewerCore({ apexLogRemote: remote });
+
+  try {
+    const result = await core.log.sync({ targetOrg: username, workspaceRoot });
+    assert.equal(result.status, 'success');
+    assert.equal(result.targetOrg, username);
+    assert.equal(result.downloaded, 1);
+    assert.equal(result.cached, 0);
+    assert.equal(result.failed, 0);
+    assert.equal(result.checkpointAdvanced, true);
+    assert.equal(result.lastSyncedLogId, logId);
+  } finally {
+    core.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('core log status maps lifecycle state to the compatibility DTO', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-lifecycle-status-'));
+  const logId = '07L000000000019AAA';
+  const username = 'status-core@example.com';
+  const remote: ApexLogRemote = {
+    async resolveOrg() {
+      return { username };
+    },
+    async listLogs() {
+      return [{ logId, startTime: '2026-07-20T13:30:00.000Z' }];
+    },
+    async readBody() {
+      return 'status core body';
+    }
+  };
+  const core = createApexLogViewerCore({ apexLogRemote: remote });
+
+  try {
+    await core.log.sync({ targetOrg: username, workspaceRoot });
+    const result = await core.log.status({ targetOrg: username, workspaceRoot });
+    assert.equal(result.targetOrg, username);
+    assert.equal(result.logCount, 1);
+    assert.equal(result.hasState, true);
+    assert.equal(result.downloadedCount, 1);
+    assert.equal(result.cachedCount, 0);
+    assert.equal(result.lastSyncedLogId, logId);
+  } finally {
+    core.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('core log triage preserves its DTO while using lifecycle acquisition', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-lifecycle-triage-'));
+  const logId = '07L000000000020AAA';
+  const username = 'triage-core@example.com';
+  const remote: ApexLogRemote = {
+    async resolveOrg() {
+      return { username };
+    },
+    async listLogs() {
+      throw new Error('listLogs is not used by triage');
+    },
+    async readBody() {
+      return '12:00:00.0|FATAL_ERROR|System.NullPointerException: lifecycle';
+    }
+  };
+  const core = createApexLogViewerCore({ apexLogRemote: remote });
+
+  try {
+    const result = await core.log.triage({ username, logIds: [logId], workspaceRoot });
+    assert.equal(result[0]?.logId, logId);
+    assert.equal(result[0]?.summary.hasErrors, true);
+    assert.equal(result[0]?.summary.primaryReason, 'Fatal exception');
+  } finally {
+    core.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
 });

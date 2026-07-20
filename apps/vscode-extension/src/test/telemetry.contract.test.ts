@@ -109,4 +109,17 @@ suite('telemetry contract', () => {
       assert.doesNotMatch(value, /<REDACTED/i, `Expected "${value}" not to use telemetry redaction markers.`);
     }
   });
+
+  test('catalog covers every mapped core request method', () => {
+    const catalog = readTelemetryCatalog();
+    const values = new Set(catalog.events['core.request']?.properties?.method?.values || []);
+    const runtimeClient = fs.readFileSync(path.resolve(__dirname, '../../src/runtime/runtimeClient.ts'), 'utf8');
+    const mappingBody = /const TELEMETRY_METHOD_NAMES:[^{]+\{([\s\S]*?)\n\};/.exec(runtimeClient)?.[1] || '';
+    const mappedValues = [...mappingBody.matchAll(/:\s*'([^']+)'/g)].flatMap(match => (match[1] ? [match[1]] : []));
+
+    assert.deepEqual(
+      mappedValues.filter(value => !values.has(value)),
+      []
+    );
+  });
 });

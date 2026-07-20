@@ -23,13 +23,8 @@ import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../host/utils/configManager';
 import { DebugFlagsPanel } from '../panel/DebugFlagsPanel';
 import { affectsConfiguration, getConfig } from '../host/utils/config';
-import {
-  ensureApexLogsDir,
-  getLogIdFromLogFilePath,
-  getWorkspaceRoot,
-  purgeSavedLogs
-} from '../host/utils/workspace';
-import { ripgrepSearch, type RipgrepMatch } from '../host/utils/ripgrep';
+import { getLogIdFromLogFilePath, getWorkspaceRoot } from '../host/utils/workspace';
+import { ripgrepSearchFiles, type RipgrepMatch } from '../host/utils/ripgrep';
 import {
   DEFAULT_LOGS_COLUMNS_CONFIG,
   normalizeLogsColumnsConfig,
@@ -453,11 +448,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
   }
 
-  private startAuthWarningHydration(
-    authPromise: Promise<OrgAuth>,
-    refreshToken: number,
-    signal?: AbortSignal
-  ): void {
+  private startAuthWarningHydration(authPromise: Promise<OrgAuth>, refreshToken: number, signal?: AbortSignal): void {
     void authPromise
       .then(auth => {
         if (signal?.aborted || refreshToken !== this.refreshToken || this.disposed) {
@@ -904,7 +895,16 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     if (this.purgePromise) {
       return;
     }
-    const purgeTask = purgeSavedLogs({ keepIds, maxAgeMs: this.logCacheMaxAgeMs, signal })
+    const purgeTask = runtimeClient
+      .purgeLocalLogs(
+        {
+          targetOrg: this.orgManager.getSelectedOrg(),
+          workspaceRoot: getWorkspaceRoot(),
+          keepLogIds: Array.from(keepIds),
+          maxAgeMs: this.logCacheMaxAgeMs
+        },
+        signal
+      )
       .then(() => undefined)
       .catch(err => {
         if (!signal?.aborted) {
@@ -986,23 +986,24 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     }
     const missingLogIds = new Set<string>();
     try {
-      const saveSummary = await this.logService.ensureLogsSaved(logsSnapshot, this.orgManager.getSelectedOrg(), signal, {
-        downloadMissing: false,
-        onMissing: id => {
-          if (typeof id === 'string' && id.length > 0) {
-            missingLogIds.add(id);
+      const saveSummary = await this.logService.ensureLogsSaved(
+        logsSnapshot,
+        this.orgManager.getSelectedOrg(),
+        signal,
+        {
+          downloadMissing: false,
+          onMissing: id => {
+            if (typeof id === 'string' && id.length > 0) {
+              missingLogIds.add(id);
+            }
           }
         }
-      });
+      );
       if (!isActive() || signal?.aborted) {
         return;
       }
 
-      const dir = await ensureApexLogsDir();
-      if (signal?.aborted) {
-        return;
-      }
-      const matchesInfo = await ripgrepSearch(trimmed, dir, signal);
+      const matchesInfo = await ripgrepSearchFiles(trimmed, Object.values(saveSummary.localLogPaths ?? {}), signal);
       if (!isActive() || signal?.aborted) {
         return;
       }

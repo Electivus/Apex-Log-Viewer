@@ -1,6 +1,14 @@
 import os from 'node:os';
 
-import { createApexLogViewerCore, type ApexLogViewerCore } from '@alv/core';
+import {
+  createApexLogViewerCore,
+  type ApexLogLifecycleEvent,
+  type ApexLogLocalFile,
+  type ApexLogViewerCore,
+  type AvailableLocalPathsResult,
+  type PurgeApexLogsResult,
+  type ReadApexLogResult
+} from '@alv/core';
 import type {
   DebugLevelDeleteParams,
   DebugLevelGetParams,
@@ -28,8 +36,6 @@ import type {
   OrgListParams,
   OrgResolveParams,
   OrgResolveResult,
-  ResolveCachedLogPathParams,
-  ResolveCachedLogPathResult,
   RuntimeDebugLevelRecord,
   RuntimeLogRow,
   ToolingQueryParams,
@@ -72,9 +78,15 @@ const TELEMETRY_METHOD_NAMES: Record<string, string> = {
   'log.status': 'log_status',
   'log.read': 'log_read',
   'log.resolve': 'log_resolve',
-  'log.resolveCachedPath': 'log_resolve_cached_path',
   'log.triage': 'log_triage',
   'log.delete': 'log_delete',
+  'log.lifecycle.requireLocalPath': 'log_lifecycle_require_local_path',
+  'log.lifecycle.availableLocalPaths': 'log_lifecycle_available_local_paths',
+  'log.lifecycle.read': 'log_lifecycle_read',
+  'log.lifecycle.sync': 'log_lifecycle_sync',
+  'log.lifecycle.status': 'log_lifecycle_status',
+  'log.lifecycle.triage': 'log_lifecycle_triage',
+  'log.lifecycle.purge': 'log_lifecycle_purge',
   'user.search': 'user_search',
   'traceFlag.status': 'trace_flag_status',
   'traceFlag.apply': 'trace_flag_apply',
@@ -95,7 +107,10 @@ function createAbortError(): Error {
 }
 
 function normalizeCoreError(error: unknown, signal?: AbortSignal): unknown {
-  if (signal?.aborted || (error instanceof Error && 'code' in error && error.code === 'ABORTED')) {
+  if (
+    signal?.aborted ||
+    (error instanceof Error && 'code' in error && (error.code === 'ABORTED' || error.code === 'cancelled'))
+  ) {
     return createAbortError();
   }
   return error;
@@ -187,6 +202,99 @@ export class CoreClient {
     return this.call(signal, () => this.core.log.read(normalized, { signal }));
   }
 
+  public requireLocalLogPath(
+    params: {
+      logId: string;
+      startTime?: string;
+      targetOrg?: string;
+      workspaceRoot?: string;
+    },
+    signal?: AbortSignal,
+    observe?: (event: ApexLogLifecycleEvent) => void | PromiseLike<void>
+  ): Promise<ApexLogLocalFile> {
+    const normalized = this.withWorkspaceRoot(params);
+    return this.call(signal, () =>
+      this.core.logLifecycle.requireLocalPath(
+        {
+          workspaceRoot: normalized.workspaceRoot!,
+          targetOrg: normalized.targetOrg,
+          log: { logId: normalized.logId, startTime: normalized.startTime }
+        },
+        { signal, observe }
+      )
+    );
+  }
+
+  public availableLocalLogPaths(
+    params: {
+      logs: readonly { logId: string; startTime?: string }[];
+      targetOrg?: string;
+      workspaceRoot?: string;
+    },
+    signal?: AbortSignal
+  ): Promise<AvailableLocalPathsResult> {
+    const normalized = this.withWorkspaceRoot(params);
+    return this.call(signal, () =>
+      this.core.logLifecycle.availableLocalPaths(
+        {
+          workspaceRoot: normalized.workspaceRoot!,
+          targetOrg: normalized.targetOrg,
+          logs: normalized.logs
+        },
+        { signal }
+      )
+    );
+  }
+
+  public readApexLog(
+    params: {
+      logId: string;
+      startTime?: string;
+      targetOrg?: string;
+      workspaceRoot?: string;
+      maxBytes?: number;
+      persistence?: 'required' | 'best-effort';
+    },
+    signal?: AbortSignal,
+    observe?: (event: ApexLogLifecycleEvent) => void | PromiseLike<void>
+  ): Promise<ReadApexLogResult> {
+    const normalized = this.withWorkspaceRoot(params);
+    const request = {
+      workspaceRoot: normalized.workspaceRoot!,
+      targetOrg: normalized.targetOrg,
+      log: { logId: normalized.logId, startTime: normalized.startTime },
+      maxBytes: normalized.maxBytes
+    };
+    return this.call(signal, () => {
+      if (normalized.persistence === 'best-effort') {
+        return this.core.logLifecycle.read({ ...request, persistence: 'best-effort' }, { signal, observe });
+      }
+      return this.core.logLifecycle.read({ ...request, persistence: normalized.persistence }, { signal, observe });
+    });
+  }
+
+  public purgeLocalLogs(
+    params: {
+      targetOrg?: string;
+      workspaceRoot?: string;
+      maxAgeMs: number;
+      keepLogIds?: readonly string[];
+    },
+    signal?: AbortSignal
+  ): Promise<PurgeApexLogsResult> {
+    const normalized = this.withWorkspaceRoot(params);
+    return this.call(signal, () =>
+      this.core.logLifecycle.purge(
+        {
+          workspaceRoot: normalized.workspaceRoot!,
+          targetOrg: normalized.targetOrg,
+          policy: { maxAgeMs: normalized.maxAgeMs, keepLogIds: normalized.keepLogIds }
+        },
+        { signal }
+      )
+    );
+  }
+
   public logsResolve(params: LogsResolveParams, signal?: AbortSignal): Promise<LogsResolveResult> {
     const normalized = this.withWorkspaceRoot(params);
     return this.call(signal, () => this.core.log.resolve(normalized, { signal }));
@@ -200,14 +308,6 @@ export class CoreClient {
   public logsTriage(params: LogsTriageParams, signal?: AbortSignal): Promise<LogsTriageEntry[]> {
     const normalized = this.withWorkspaceRoot(params);
     return this.call(signal, () => this.core.log.triage(normalized, { signal }));
-  }
-
-  public resolveCachedLogPath(
-    params: ResolveCachedLogPathParams,
-    signal?: AbortSignal
-  ): Promise<ResolveCachedLogPathResult> {
-    const normalized = this.withWorkspaceRoot(params);
-    return this.call(signal, () => this.core.log.resolveCachedPath(normalized, { signal }));
   }
 
   public usersSearch(params: UserSearchParams = {}, signal?: AbortSignal): Promise<UserSearchResult> {

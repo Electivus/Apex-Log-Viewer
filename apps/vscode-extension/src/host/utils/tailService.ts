@@ -1,5 +1,4 @@
-import { promises as fs } from 'fs';
-import { fetchApexLogs, fetchApexLogBody, getEffectiveApiVersion } from '../salesforce/http';
+import { getEffectiveApiVersion } from '../salesforce/http';
 import { ensureUserTraceFlag } from '../salesforce/traceflags';
 import type { OrgAuth } from '../salesforce/types';
 import type { ExtensionToWebviewMessage } from '../../shared/messages';
@@ -8,18 +7,13 @@ import { logInfo, logWarn, logError, showOutput } from './logger';
 import { localize } from './localize';
 import { getErrorMessage } from './error';
 import {
-  getWorkspaceRoot as utilGetWorkspaceRoot,
-  ensureApexLogsDir as utilEnsureApexLogsDir,
-  getLogFilePathWithUsername as utilGetLogFilePathWithUsername
-} from './workspace';
-import {
   createConnectionFromAuth,
   createLoggingStreamingClient,
   type Connection,
   type StreamProcessor,
   type StreamingClient
 } from '../salesforce/streaming';
-import { requestTextWithConnection } from '../salesforce/jsforce';
+import type { ReadApexLogResult } from '@alv/core';
 
 /**
  * Handles Apex log tailing mechanics independent of the webview.
@@ -118,7 +112,7 @@ export class TailService {
       }
 
       try {
-        const recent = await fetchApexLogs(auth, 20, 0, debugLevel);
+        const recent = await runtimeClient.logsList({ username: this.selectedOrg ?? auth.username, limit: 20 });
         logInfo('Tail: primed seen set with', recent.length, 'recent logs for level', debugLevel);
         for (const r of recent) {
           if (r && typeof r.Id === 'string') {
@@ -302,7 +296,7 @@ export class TailService {
     this.bufferedLinesOffset = 0;
   }
 
-  // Streaming handler: fetch body and header fields through the active jsforce connection when available.
+  // Streaming supplies the notification and optional metadata; the shared lifecycle owns body acquisition.
   private async handleIncomingLogId(id: string): Promise<void> {
     if (!this.tailRunning || this.disposed) {
       return;
@@ -317,17 +311,15 @@ export class TailService {
             return undefined;
           })
         : undefined;
-      if (!conn) {
-        // fallback: use existing HTTP path
-        const body = await fetchApexLogBody(auth, id);
-        await this.emitLogWithHeader(auth, { Id: id }, body);
-        return;
-      }
-      const [body, meta] = await Promise.all([
-        this.fetchLogBodyFromConnection(auth, conn, id),
-        this.fetchLogMetadataFromConnection(conn, id)
-      ]);
-      await this.emitLogWithHeader(auth, meta || { Id: id }, body);
+      const meta = conn ? await this.fetchLogMetadataFromConnection(conn, id).catch(() => undefined) : undefined;
+      const startTime = typeof meta?.StartTime === 'string' ? meta.StartTime : undefined;
+      const result = await runtimeClient.readApexLog({
+        logId: id,
+        startTime,
+        targetOrg: this.selectedOrg,
+        persistence: 'best-effort'
+      });
+      await this.emitLogWithHeader(meta || { Id: id }, result);
     } catch (e) {
       // Ensure failures don't permanently mark the log ID as seen
       this.seenLogIds.delete(id);
@@ -337,18 +329,13 @@ export class TailService {
     }
   }
 
-  private async emitLogWithHeader(auth: OrgAuth, r: any, body: string): Promise<void> {
+  private async emitLogWithHeader(r: any, result: ReadApexLogResult): Promise<void> {
     const lines: string[] = [];
     const id = r?.Id as string | undefined;
     const header = `=== ApexLog ${id ?? ''} | ${r?.StartTime ?? ''} | ${r?.Operation ?? ''} | ${r?.Status ?? ''} | ${r?.LogLength ?? ''}`;
     lines.push(header);
-    try {
-      const { filePath } = await this.getLogFilePathWithUsername(
-        auth.username,
-        id ?? String(Date.now()),
-        typeof r?.StartTime === 'string' ? r.StartTime : undefined
-      );
-      await fs.writeFile(filePath, body, 'utf8');
+    const filePath = result.localPath;
+    if (filePath) {
       if (id) {
         this.addLogPath(id, filePath);
       }
@@ -365,10 +352,10 @@ export class TailService {
           savedPath: filePath
         });
       }
-    } catch {
+    } else {
       logWarn(localize('tailSaveFailed', 'Tail: failed to save log to workspace (best-effort).'));
     }
-    for (const l of String(body || '').split(/\r?\n/)) {
+    for (const l of String(result.body || '').split(/\r?\n/)) {
       if (l) {
         lines.push(l);
       }
@@ -424,25 +411,8 @@ export class TailService {
     if (existing) {
       return existing;
     }
-    const auth = this.currentAuth ?? (await this.getOrgAuth(signal));
-    this.currentAuth = auth;
-    const connection =
-      this.connection && !signal?.aborted
-        ? await this.getActiveConnection(auth).catch(error => {
-            logWarn(
-              'Tail: failed to refresh active connection for save; falling back to HTTP path ->',
-              getErrorMessage(error)
-            );
-            return undefined;
-          })
-        : undefined;
-    const body = connection
-      ? await this.fetchLogBodyFromConnection(auth, connection, logId, signal).catch(() =>
-          fetchApexLogBody(auth, logId, undefined, signal)
-        )
-      : await fetchApexLogBody(auth, logId, undefined, signal);
-    const { filePath } = await this.getLogFilePathWithUsername(auth.username, logId);
-    await fs.writeFile(filePath, body, 'utf8');
+    const local = await runtimeClient.requireLocalLogPath({ logId, targetOrg: this.selectedOrg }, signal);
+    const filePath = local.localPath;
     this.addLogPath(logId, filePath);
     logInfo('Tail: ensured log saved at', filePath);
     return filePath;
@@ -461,25 +431,6 @@ export class TailService {
     return Array.isArray((result as any)?.records)
       ? ((result as any).records[0] as Record<string, unknown> | undefined)
       : undefined;
-  }
-
-  private async fetchLogBodyFromConnection(
-    auth: OrgAuth,
-    connection: Connection,
-    logId: string,
-    signal?: AbortSignal
-  ): Promise<string> {
-    return requestTextWithConnection(
-      connection,
-      {
-        method: 'GET',
-        url: `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/ApexLog/${logId}/Body`,
-        headers: {
-          'Content-Type': 'text/plain'
-        }
-      },
-      { signal }
-    );
   }
 
   private async getActiveConnection(auth: OrgAuth): Promise<Connection> {
@@ -506,21 +457,5 @@ export class TailService {
       throw error;
     }
     return auth;
-  }
-
-  private getWorkspaceRoot(): string | undefined {
-    return utilGetWorkspaceRoot();
-  }
-
-  private async ensureApexLogsDir(): Promise<string> {
-    return utilEnsureApexLogsDir();
-  }
-
-  private async getLogFilePathWithUsername(
-    username: string | undefined,
-    logId: string,
-    startTime?: string
-  ): Promise<{ dir: string; filePath: string }> {
-    return utilGetLogFilePathWithUsername(username, logId, startTime);
   }
 }

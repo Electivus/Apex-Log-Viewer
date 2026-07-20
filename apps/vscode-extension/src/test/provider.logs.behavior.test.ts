@@ -46,8 +46,6 @@ function createProviderHarness() {
   };
   const workspaceStub: any = {
     getWorkspaceRoot: () => '/tmp/alv-workspace',
-    ensureApexLogsDir: async () => path.join(process.cwd(), 'apexlogs'),
-    purgeSavedLogs: async () => 0,
     getLogIdFromLogFilePath: () => undefined
   };
   const debugFlagsPanelStub: any = {
@@ -58,18 +56,20 @@ function createProviderHarness() {
     getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' }),
     logsList: async () => [],
     logsTriage: async () => [],
+    purgeLocalLogs: async () => ({ inspected: 0, removed: 0, kept: 0, failures: [] }),
     logsSync: async () => ({
       status: 'success',
       downloaded: 0,
       cached: 0,
       failed: 0,
       checkpointAdvanced: false,
-      stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+      stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json'
     })
   };
   const cliStub: any = runtimeClientStub;
   const ripgrepStub: any = {
-    ripgrepSearch: async () => []
+    ripgrepSearch: async () => [],
+    ripgrepSearchFiles: async () => []
   };
   const vscodeMock: any = {
     Uri: {
@@ -127,9 +127,6 @@ function createProviderHarness() {
 
   class LogServiceStub {
     setHeadConcurrency(): void {}
-    async fetchLogs(): Promise<any[]> {
-      return [];
-    }
     async ensureLogsSaved(): Promise<any> {
       return {
         total: 0,
@@ -363,11 +360,14 @@ suite('SfLogsViewProvider behavior', () => {
     assert.ok(logs, 'should post logs');
     assert.equal((logs?.data || []).length, 2, 'should include two logs');
     const deprecatedHeadKey = ['code', 'Unit', 'Started'].join('');
-    assert.equal(posted.some(m => typeof m?.[deprecatedHeadKey] === 'string'), false);
+    assert.equal(
+      posted.some(m => typeof m?.[deprecatedHeadKey] === 'string'),
+      false
+    );
   });
 
   test('refresh starts shared background sync after listing logs', async () => {
-    const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
+    const { SfLogsViewProvider, cli } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     cli.logsList = async () => [{ Id: '07L000000000001AA' }, { Id: '07L000000000002AA' }];
 
@@ -389,13 +389,13 @@ suite('SfLogsViewProvider behavior', () => {
         cached: 0,
         failed: 0,
         checkpointAdvanced: true,
-        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json'
       };
     };
-    const purged: Array<{ keepIds?: Set<string>; maxAgeMs?: number; signal?: AbortSignal }> = [];
-    workspace.purgeSavedLogs = async (opts: any) => {
-      purged.push(opts);
-      return 3;
+    const purged: Array<{ params: any; signal?: AbortSignal }> = [];
+    cli.purgeLocalLogs = async (params: any, signal?: AbortSignal) => {
+      purged.push({ params, signal });
+      return { inspected: 3, removed: 3, kept: 0, failures: [] };
     };
 
     await provider.refresh();
@@ -409,15 +409,15 @@ suite('SfLogsViewProvider behavior', () => {
     });
     assert.equal(typeof syncCalls[0]?.signal?.aborted, 'boolean', 'should pass abort signal to runtime sync');
     assert.equal(purged.length, 1, 'should purge cached logs after refresh');
-    const keepIds = Array.from(purged[0]?.keepIds ?? []);
+    const keepIds = purged[0]?.params?.keepLogIds ?? [];
     assert.deepEqual(keepIds.sort(), ['07L000000000001AA', '07L000000000002AA'], 'purge should keep current log ids');
+    assert.equal(purged[0]?.params?.workspaceRoot, '/tmp/alv-workspace');
   });
 
   test('refresh skips redundant background sync after a recent successful sync', async () => {
     const { SfLogsViewProvider, cli, workspace } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     cli.logsList = async () => [{ Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 }];
-    workspace.purgeSavedLogs = async () => 0;
 
     const syncCalls: any[] = [];
     cli.logsSync = async (params: any) => {
@@ -430,7 +430,7 @@ suite('SfLogsViewProvider behavior', () => {
         cached: 0,
         failed: 0,
         checkpointAdvanced: true,
-        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json'
       };
     };
     const triageCalls: any[] = [];
@@ -482,7 +482,6 @@ suite('SfLogsViewProvider behavior', () => {
     let authUsername = 'first@example.test';
     cli.getOrgAuth = async () => ({ username: authUsername, instanceUrl: 'i', accessToken: 't' });
     cli.logsList = async () => [{ Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 }];
-    workspace.purgeSavedLogs = async () => 0;
 
     const syncCalls: any[] = [];
     cli.logsSync = async (params: any) => {
@@ -495,7 +494,7 @@ suite('SfLogsViewProvider behavior', () => {
         cached: 0,
         failed: 0,
         checkpointAdvanced: true,
-        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json'
       };
     };
     cli.logsTriage = async () => [];
@@ -526,7 +525,6 @@ suite('SfLogsViewProvider behavior', () => {
         resolveAuth = resolve;
       });
     cli.logsList = async () => [{ Id: '07L000000000001AA', StartTime: '2026-03-30T18:39:58.000Z', LogLength: 10 }];
-    workspace.purgeSavedLogs = async () => 0;
 
     const syncCalls: any[] = [];
     cli.logsSync = async (params: any) => {
@@ -539,7 +537,7 @@ suite('SfLogsViewProvider behavior', () => {
         cached: 0,
         failed: 0,
         checkpointAdvanced: true,
-        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json'
       };
     };
     cli.logsTriage = async () => [];
@@ -608,10 +606,9 @@ suite('SfLogsViewProvider behavior', () => {
         cached: 0,
         failed: 0,
         checkpointAdvanced: true,
-        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json'
       };
     };
-    workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
     const posted: any[] = [];
@@ -669,7 +666,6 @@ suite('SfLogsViewProvider behavior', () => {
         }
       ];
     };
-    workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
     const posted: any[] = [];
@@ -696,7 +692,6 @@ suite('SfLogsViewProvider behavior', () => {
     const { SfLogsViewProvider, cli, workspace, vscode: vscodeMock } = createProviderHarness();
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
-    workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
@@ -729,7 +724,7 @@ suite('SfLogsViewProvider behavior', () => {
         cached: 0,
         failed: 0,
         checkpointAdvanced: false,
-        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json'
       };
     };
 
@@ -771,7 +766,6 @@ suite('SfLogsViewProvider behavior', () => {
       return { username: 'u', instanceUrl: 'i', accessToken: 't' };
     };
     cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
-    workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
     const posted: any[] = [];
@@ -823,7 +817,6 @@ suite('SfLogsViewProvider behavior', () => {
     cli.getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     cli.logsList = async () => [{ Id: '07L000000000001AA', LogLength: 10 }];
     http.getApiVersionFallbackWarning = () => 'sourceApiVersion 66.0 > org max 64.0; falling back to 64.0';
-    workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
     const posted: any[] = [];
@@ -859,8 +852,6 @@ suite('SfLogsViewProvider behavior', () => {
 
     const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests');
     await fs.mkdir(tmpDir, { recursive: true });
-    workspace.ensureApexLogsDir = async () => tmpDir;
-    workspace.purgeSavedLogs = async () => 0;
     workspace.getLogIdFromLogFilePath = (filePath: string) => {
       const match = /07L[0-9A-Za-z]+/.exec(filePath);
       return match?.[0];
@@ -902,10 +893,10 @@ suite('SfLogsViewProvider behavior', () => {
         }
       };
     };
-    const searchCalls: Array<{ query: string; cwd: string; signal?: AbortSignal }> = [];
+    const searchCalls: Array<{ query: string; filePaths: string[]; signal?: AbortSignal }> = [];
     const needle = '323301606';
-    ripgrep.ripgrepSearch = async (query: string, cwd: string, signal?: AbortSignal) => {
-      searchCalls.push({ query, cwd, signal });
+    ripgrep.ripgrepSearchFiles = async (query: string, filePaths: string[], signal?: AbortSignal) => {
+      searchCalls.push({ query, filePaths, signal });
       return [
         {
           filePath: path.join(tmpDir, '07L000000000001AA.log'),
@@ -925,7 +916,7 @@ suite('SfLogsViewProvider behavior', () => {
       assert.equal(ensureCalls[0]?.downloadMissing, false);
       assert.equal(searchCalls.length, 1, 'should call local ripgrep once');
       assert.equal(searchCalls[0]?.query, 'error');
-      assert.equal(searchCalls[0]?.cwd, tmpDir);
+      assert.deepEqual(searchCalls[0]?.filePaths, [localLogPath]);
       const matches = posted
         .filter(m => m?.type === 'searchMatches' && Array.isArray(m.logIds) && m.logIds.includes('07L000000000001AA'))
         .pop();
@@ -955,8 +946,6 @@ suite('SfLogsViewProvider behavior', () => {
 
     const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests-org-collision');
     await fs.mkdir(tmpDir, { recursive: true });
-    workspace.ensureApexLogsDir = async () => tmpDir;
-    workspace.purgeSavedLogs = async () => 0;
     workspace.getLogIdFromLogFilePath = (filePath: string) => {
       const match = /07L[0-9A-Za-z]+/.exec(filePath);
       return match?.[0];
@@ -970,14 +959,7 @@ suite('SfLogsViewProvider behavior', () => {
       '2026-03-30',
       '07L000000000001AA.log'
     );
-    const otherOrgPath = path.join(
-      tmpDir,
-      'orgs',
-      'other@example.com',
-      'logs',
-      '2026-03-30',
-      '07L000000000001AA.log'
-    );
+    const otherOrgPath = path.join(tmpDir, 'orgs', 'other@example.com', 'logs', '2026-03-30', '07L000000000001AA.log');
 
     const context = makeContext();
     const posted: any[] = [];
@@ -1005,7 +987,7 @@ suite('SfLogsViewProvider behavior', () => {
         '07L000000000001AA': selectedPath
       }
     });
-    ripgrep.ripgrepSearch = async () => [
+    ripgrep.ripgrepSearchFiles = async () => [
       {
         filePath: otherOrgPath,
         lineText: 'error from another org\n',
@@ -1036,8 +1018,6 @@ suite('SfLogsViewProvider behavior', () => {
 
     const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests-missing');
     await fs.mkdir(tmpDir, { recursive: true });
-    workspace.ensureApexLogsDir = async () => tmpDir;
-    workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
     const posted: any[] = [];
@@ -1072,7 +1052,7 @@ suite('SfLogsViewProvider behavior', () => {
       };
     };
     let searchCalls = 0;
-    ripgrep.ripgrepSearch = async () => {
+    ripgrep.ripgrepSearchFiles = async () => {
       searchCalls++;
       return [];
     };
@@ -1100,8 +1080,6 @@ suite('SfLogsViewProvider behavior', () => {
 
     const tmpDir = path.join(process.cwd(), 'tmp-apexlogs-tests-cancel');
     await fs.mkdir(tmpDir, { recursive: true });
-    workspace.ensureApexLogsDir = async () => tmpDir;
-    workspace.purgeSavedLogs = async () => 0;
 
     const context = makeContext();
     const posted: any[] = [];
@@ -1134,7 +1112,7 @@ suite('SfLogsViewProvider behavior', () => {
         '07L000000000001AA': localLogPath
       }
     });
-    ripgrep.ripgrepSearch = async (_query: string, _cwd: string, signal?: AbortSignal) => {
+    ripgrep.ripgrepSearchFiles = async (_query: string, _filePaths: string[], signal?: AbortSignal) => {
       if (signal) {
         searchSignals.push(signal);
       }
@@ -1323,7 +1301,7 @@ suite('SfLogsViewProvider behavior', () => {
         cached: 1,
         failed: 0,
         checkpointAdvanced: true,
-        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json'
       };
     };
     const searchCalls: string[] = [];
@@ -1426,7 +1404,7 @@ suite('SfLogsViewProvider behavior', () => {
           failed: 0,
           cached: 0,
           checkpointAdvanced: false,
-          stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+          stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json'
         };
       }
       return {
@@ -1435,7 +1413,7 @@ suite('SfLogsViewProvider behavior', () => {
         failed: 0,
         cached: 0,
         checkpointAdvanced: false,
-        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json',
+        stateFile: '/tmp/alv-workspace/apexlogs/.alv/sync-state.json'
       };
     };
 
