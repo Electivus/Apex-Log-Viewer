@@ -22,7 +22,6 @@ function fakeCore(overrides: Partial<ApexLogViewerCore> = {}): ApexLogViewerCore
       status: async () => ({}) as never,
       read: async () => ({}) as never,
       resolve: async () => ({}) as never,
-      resolveCachedPath: async () => ({}),
       triage: async () => [],
       delete: async () => ({}) as never
     },

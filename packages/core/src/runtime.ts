@@ -16,14 +16,9 @@ import type {
   LogsDeleteResult,
   LogsListParams,
   LogsReadParams,
-  LogsReadResult,
   LogsResolveParams,
-  LogsResolveResult,
   LogsSyncParams,
-  LogsSyncResult,
   LogsStatusParams,
-  LogsStatusResult,
-  LogsTriageEntry,
   LogsTriageParams,
   OrgAuth,
   OrgAuthParams,
@@ -31,8 +26,6 @@ import type {
   OrgListParams,
   OrgResolveParams,
   OrgResolveResult,
-  ResolveCachedLogPathParams,
-  ResolveCachedLogPathResult,
   RuntimeDebugLevelRecord,
   RuntimeLogRow,
   RuntimeLogTriageSummary,
@@ -49,7 +42,16 @@ import type {
   UserSearchParams,
   UserSearchResult
 } from './contracts.js';
-import { summarizeLogText } from './logTriage.js';
+import {
+  ApexLogLifecycleError,
+  createApexLogLifecycle,
+  type ApexLogCallOptions,
+  type ApexLogLifecycle,
+  type ApexLogRemote,
+  type ReadApexLogRequest,
+  type ReadApexLogResult,
+  type StoredApexLogBody
+} from './logLifecycle.js';
 
 export type CoreCallOptions = {
   signal?: AbortSignal;
@@ -75,8 +77,6 @@ export class AlvError extends Error {
   }
 }
 
-const LOG_STORE_LAYOUT_VERSION = 1;
-const SYNC_PAGE_SIZE = 200;
 const DEFAULT_API_VERSION = '63.0';
 const SALESFORCE_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
 const APEX_LOG_ID_REGEX = /^07L[a-zA-Z0-9]{12}(?:[a-zA-Z0-9]{3})?$/;
@@ -115,39 +115,8 @@ type ConnectionContext = {
   instanceUrl?: string;
 };
 
-type SyncState = {
-  version: number;
-  orgs: Record<string, SyncStateOrgEntry>;
-};
-
-type SyncStateOrgEntry = {
-  targetOrg: string;
-  safeTargetOrg: string;
-  orgDir: string;
-  lastSyncStartedAt?: string;
-  lastSyncCompletedAt?: string;
-  lastSyncedLogId?: string;
-  lastSyncedStartTime?: string;
-  downloadedCount: number;
-  cachedCount: number;
-  lastError?: string;
-};
-
-type OrgMetadata = {
-  targetOrg: string;
-  safeTargetOrg: string;
-  resolvedUsername: string;
-  alias?: string;
-  instanceUrl?: string;
-  updatedAt: string;
-};
-
 function packageVersion(): string {
   return process.env.ALVE_PLUGIN_VERSION || process.env.npm_package_version || '0.0.0';
-}
-
-function nowIso(): string {
-  return new Date().toISOString();
 }
 
 function stripTrailingSlash(value: string): string {
@@ -166,71 +135,8 @@ function resolveApexlogsRoot(workspaceRoot?: string): string {
   return root ? path.join(root, 'apexlogs') : path.join(os.tmpdir(), 'apexlogs');
 }
 
-function versionFilePath(workspaceRoot?: string): string {
-  return path.join(resolveApexlogsRoot(workspaceRoot), '.alv', 'version.json');
-}
-
 function syncStatePath(workspaceRoot?: string): string {
   return path.join(resolveApexlogsRoot(workspaceRoot), '.alv', 'sync-state.json');
-}
-
-function orgDir(workspaceRoot: string | undefined, username: string): string {
-  return path.join(resolveApexlogsRoot(workspaceRoot), 'orgs', safeTargetOrg(username));
-}
-
-function logDayDirName(startTime?: string): string {
-  const day = String(startTime || '').slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : 'unknown-date';
-}
-
-function logFilePath(workspaceRoot: string | undefined, username: string, logId: string, startTime?: string): string {
-  return path.join(orgDir(workspaceRoot, username), 'logs', logDayDirName(startTime), `${logId}.log`);
-}
-
-async function writeJson(filePath: string, value: unknown): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-}
-
-async function readJson<T>(filePath: string, fallback: T): Promise<T> {
-  try {
-    const raw = await fs.readFile(filePath, 'utf8');
-    return JSON.parse(raw) as T;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
-      return fallback;
-    }
-    throw error;
-  }
-}
-
-async function writeVersionFile(workspaceRoot?: string): Promise<void> {
-  await writeJson(versionFilePath(workspaceRoot), LOG_STORE_LAYOUT_VERSION);
-}
-
-async function readSyncState(workspaceRoot?: string): Promise<SyncState> {
-  return readJson<SyncState>(syncStatePath(workspaceRoot), {
-    version: LOG_STORE_LAYOUT_VERSION,
-    orgs: {}
-  });
-}
-
-async function writeSyncState(workspaceRoot: string | undefined, state: SyncState): Promise<void> {
-  state.version = LOG_STORE_LAYOUT_VERSION;
-  await writeJson(syncStatePath(workspaceRoot), state);
-}
-
-async function writeOrgMetadata(workspaceRoot: string | undefined, metadata: OrgMetadata): Promise<void> {
-  await writeJson(path.join(orgDir(workspaceRoot, metadata.resolvedUsername), 'org.json'), metadata);
-}
-
-async function readOrgMetadata(filePath: string): Promise<OrgMetadata | undefined> {
-  try {
-    const raw = await fs.readFile(filePath, 'utf8');
-    return JSON.parse(raw) as OrgMetadata;
-  } catch {
-    return undefined;
-  }
 }
 
 function escapeSoqlLiteral(value: string): string {
@@ -602,202 +508,6 @@ async function fetchLogBody(ctx: ConnectionContext, logId: string, signal?: Abor
   return typeof value === 'string' ? value : value === undefined || value === null ? '' : JSON.stringify(value);
 }
 
-export async function writeLogBody(
-  workspaceRoot: string | undefined,
-  username: string,
-  row: Pick<RuntimeLogRow, 'id' | 'startTime'>,
-  body: string,
-  signal?: AbortSignal
-): Promise<{ path: string; downloaded: boolean }> {
-  throwIfAborted(signal);
-  const filePath = logFilePath(workspaceRoot, username, row.id, row.startTime);
-  try {
-    await fs.access(filePath);
-    throwIfAborted(signal);
-    return { path: filePath, downloaded: false };
-  } catch {}
-  throwIfAborted(signal);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  throwIfAborted(signal);
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  try {
-    await fs.writeFile(tempPath, body, { encoding: 'utf8', signal });
-    throwIfAborted(signal);
-    await fs.rename(tempPath, filePath);
-  } catch (error) {
-    try {
-      await fs.unlink(tempPath);
-    } catch {}
-    throw error;
-  }
-  return { path: filePath, downloaded: true };
-}
-
-export async function removeLegacyLogIndexFiles(workspaceRoot: string | undefined): Promise<string[]> {
-  const removed: string[] = [];
-  const alvRoot = path.join(resolveApexlogsRoot(workspaceRoot), '.alv');
-  for (const fileName of ['log-index.sqlite', 'log-index.sqlite-wal', 'log-index.sqlite-shm']) {
-    const filePath = path.join(alvRoot, fileName);
-    try {
-      await fs.rm(filePath, { force: true });
-      removed.push(filePath);
-    } catch {}
-  }
-  return removed;
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    const stat = await fs.stat(filePath);
-    return stat.isFile();
-  } catch {
-    return false;
-  }
-}
-
-async function findCachedLogPath(
-  workspaceRoot: string | undefined,
-  logId: string,
-  username?: string,
-  signal?: AbortSignal
-): Promise<string | undefined> {
-  const logsRootForOrg = (orgName: string) => path.join(orgDir(workspaceRoot, orgName), 'logs');
-  const findInLogsDir = async (logsRoot: string): Promise<string | undefined> => {
-    throwIfAborted(signal);
-    let days: import('node:fs').Dirent[];
-    try {
-      days = await fs.readdir(logsRoot, { withFileTypes: true });
-    } catch {
-      return undefined;
-    }
-    for (const day of days) {
-      throwIfAborted(signal);
-      if (!day.isDirectory() || !/^(unknown-date|\d{4}-\d{2}-\d{2})$/.test(day.name)) continue;
-      const candidate = path.join(logsRoot, day.name, `${logId}.log`);
-      try {
-        const stat = await fs.stat(candidate);
-        if (stat.isFile()) return candidate;
-      } catch {}
-    }
-    return undefined;
-  };
-
-  throwIfAborted(signal);
-  if (username) {
-    const canonical = await findInLogsDir(logsRootForOrg(username));
-    if (canonical) return canonical;
-    const legacy = path.join(resolveApexlogsRoot(workspaceRoot), `${safeTargetOrg(username)}_${logId}.log`);
-    return (await fileExists(legacy)) ? legacy : undefined;
-  }
-  const orgsRoot = path.join(resolveApexlogsRoot(workspaceRoot), 'orgs');
-  let orgDirs: import('node:fs').Dirent[];
-  try {
-    orgDirs = await fs.readdir(orgsRoot, { withFileTypes: true });
-  } catch {
-    orgDirs = [];
-  }
-  for (const orgEntry of orgDirs) {
-    throwIfAborted(signal);
-    if (!orgEntry.isDirectory()) continue;
-    const found = await findInLogsDir(path.join(orgsRoot, orgEntry.name, 'logs'));
-    if (found) return found;
-  }
-  try {
-    const legacyNameSuffix = `_${logId}.log`;
-    const legacyEntry = (await fs.readdir(resolveApexlogsRoot(workspaceRoot), { withFileTypes: true })).find(
-      entry => entry.isFile() && entry.name.endsWith(legacyNameSuffix)
-    );
-    if (legacyEntry) return path.join(resolveApexlogsRoot(workspaceRoot), legacyEntry.name);
-  } catch {}
-  return undefined;
-}
-
-async function readCachedLog(
-  logId: string,
-  filePath: string,
-  maxBytes?: number,
-  signal?: AbortSignal
-): Promise<LogsReadResult> {
-  const bytes = await fs.readFile(filePath, { signal });
-  throwIfAborted(signal);
-  const byteLimit = maxBytes ? Math.max(1, Math.floor(maxBytes)) : undefined;
-  const bodyBytes = byteLimit ? bytes.subarray(0, byteLimit) : bytes;
-  return {
-    logId,
-    path: filePath,
-    body: bodyBytes.toString('utf8'),
-    sizeBytes: bytes.length,
-    truncated: Boolean(byteLimit && bytes.length > byteLimit)
-  };
-}
-
-export async function materializeCachedLogAtDatedPath(
-  workspaceRoot: string | undefined,
-  username: string,
-  row: Pick<RuntimeLogRow, 'id' | 'startTime'>,
-  signal?: AbortSignal
-): Promise<string | undefined> {
-  throwIfAborted(signal);
-  const datedPath = logFilePath(workspaceRoot, username, row.id, row.startTime);
-  if (await fileExists(datedPath)) return datedPath;
-  throwIfAborted(signal);
-  const existing = await findCachedLogPath(workspaceRoot, row.id, username, signal);
-  if (!existing) return undefined;
-  const body = await fs.readFile(existing, { encoding: 'utf8', signal });
-  return (await writeLogBody(workspaceRoot, username, row, body, signal)).path;
-}
-
-async function logsResolveNative(params: LogsResolveParams): Promise<LogsResolveResult> {
-  const target = asString(params.targetOrg);
-  let username = target;
-  if (target) {
-    username = (await resolveUsername(target)).username;
-  }
-  const found = await findCachedLogPath(params.workspaceRoot, params.logId, username);
-  return { logId: params.logId, path: found, cached: Boolean(found) };
-}
-
-async function resolveCachedLogPathNative(params: ResolveCachedLogPathParams): Promise<ResolveCachedLogPathResult> {
-  return { path: await findCachedLogPath(params.workspaceRoot, params.logId, params.username) };
-}
-
-async function logsReadNative(params: LogsReadParams, signal?: AbortSignal): Promise<LogsReadResult> {
-  throwIfAborted(signal);
-  const target = asString(params.targetOrg);
-  const localCached = target
-    ? await findCachedLogPath(params.workspaceRoot, params.logId, target, signal)
-    : await findCachedLogPath(params.workspaceRoot, params.logId, undefined, signal);
-  if (localCached) return readCachedLog(params.logId, localCached, params.maxBytes, signal);
-
-  let ctx: ConnectionContext;
-  try {
-    ctx = await getConnectionContext(params.targetOrg, signal);
-  } catch (error) {
-    if (signal?.aborted) throw abortError();
-    if (target) {
-      const offlineCached = await findCachedLogPath(params.workspaceRoot, params.logId, undefined, signal);
-      if (offlineCached) return readCachedLog(params.logId, offlineCached, params.maxBytes, signal);
-    }
-    throw error;
-  }
-  const cached = await findCachedLogPath(params.workspaceRoot, params.logId, ctx.username, signal);
-  if (cached) return readCachedLog(params.logId, cached, params.maxBytes, signal);
-
-  const body = await fetchLogBody(ctx, params.logId, signal);
-  const row = { id: params.logId };
-  const saved = await writeLogBody(params.workspaceRoot, ctx.username, row, body, signal);
-  throwIfAborted(signal);
-  const buffer = Buffer.from(body, 'utf8');
-  const maxBytes = params.maxBytes ? Math.max(1, Math.floor(params.maxBytes)) : undefined;
-  return {
-    logId: params.logId,
-    path: saved.path,
-    body: maxBytes ? buffer.subarray(0, maxBytes).toString('utf8') : body,
-    sizeBytes: buffer.length,
-    truncated: Boolean(maxBytes && buffer.length > maxBytes)
-  };
-}
-
 export async function runLimited<T>(
   items: T[],
   concurrency: number,
@@ -816,240 +526,6 @@ export async function runLimited<T>(
   await Promise.all(workers);
 }
 
-async function logsSyncNative(params: LogsSyncParams = {}, signal?: AbortSignal): Promise<LogsSyncResult> {
-  throwIfAborted(signal);
-  const ctx = await getConnectionContext(params.targetOrg, signal);
-  const workspaceRoot = params.workspaceRoot;
-  await writeVersionFile(workspaceRoot);
-  throwIfAborted(signal);
-  await removeLegacyLogIndexFiles(workspaceRoot);
-  throwIfAborted(signal);
-  const startedAt = nowIso();
-  const safeOrg = safeTargetOrg(ctx.username);
-  const state = await readSyncState(workspaceRoot);
-  const previous = state.orgs[ctx.username];
-  let cursor: { beforeStartTime: string; beforeId: string } | undefined;
-  let downloaded = 0;
-  let cached = 0;
-  let failed = 0;
-  let newest: { id: string; startTime?: string } | undefined;
-  const seen = new Set<string>();
-  const concurrency = clampInt(params.concurrency, 6, 1, 8);
-
-  for (;;) {
-    throwIfAborted(signal);
-    const rows = await listLogsNative(
-      {
-        username: ctx.username,
-        limit: SYNC_PAGE_SIZE,
-        cursor,
-        offset: 0
-      },
-      signal
-    );
-    if (rows.length === 0) break;
-    const pageRows: RuntimeLogRow[] = [];
-    let reachedCheckpoint = false;
-    for (const row of rows) {
-      if (!row.id || seen.has(row.id)) continue;
-      seen.add(row.id);
-      if (
-        !params.forceFull &&
-        previous &&
-        ((previous.lastSyncedLogId && previous.lastSyncedLogId === row.id) ||
-          (!previous.lastSyncedLogId && previous.lastSyncedStartTime && previous.lastSyncedStartTime === row.startTime))
-      ) {
-        reachedCheckpoint = true;
-        break;
-      }
-      pageRows.push(row);
-    }
-    const completedIds = new Set<string>();
-    await runLimited(
-      pageRows,
-      concurrency,
-      async row => {
-        try {
-          throwIfAborted(signal);
-          const existing = await materializeCachedLogAtDatedPath(workspaceRoot, ctx.username, row, signal);
-          if (existing) {
-            cached += 1;
-            completedIds.add(row.id);
-            return;
-          }
-          const body = await fetchLogBody(ctx, row.id, signal);
-          const saved = await writeLogBody(workspaceRoot, ctx.username, row, body, signal);
-          if (saved.downloaded) downloaded += 1;
-          else cached += 1;
-          completedIds.add(row.id);
-        } catch (error) {
-          if (signal?.aborted || (error instanceof AlvError && error.code === 'ABORTED')) throw abortError();
-          failed += 1;
-        }
-      },
-      signal
-    );
-    if (!newest) {
-      const checkpointRow = pageRows.find(row => row.id && completedIds.has(row.id));
-      if (checkpointRow?.id) {
-        newest = { id: checkpointRow.id, startTime: checkpointRow.startTime };
-      }
-    }
-    const last = rows.at(-1);
-    if (reachedCheckpoint || rows.length < SYNC_PAGE_SIZE || !last?.startTime || !last?.id) break;
-    cursor = { beforeStartTime: last.startTime, beforeId: last.id };
-  }
-
-  const status = failed > 0 ? 'partial' : 'success';
-  const finishedAt = nowIso();
-  throwIfAborted(signal);
-  if (status === 'success') {
-    state.orgs[ctx.username] = {
-      targetOrg: ctx.username,
-      safeTargetOrg: safeOrg,
-      orgDir: `apexlogs/orgs/${safeOrg}`,
-      lastSyncStartedAt: startedAt,
-      lastSyncCompletedAt: finishedAt,
-      lastSyncedLogId: newest?.id ?? previous?.lastSyncedLogId,
-      lastSyncedStartTime: newest?.startTime ?? previous?.lastSyncedStartTime,
-      downloadedCount: downloaded,
-      cachedCount: cached
-    };
-    await writeSyncState(workspaceRoot, state);
-  }
-  throwIfAborted(signal);
-  await writeOrgMetadata(workspaceRoot, {
-    targetOrg: params.targetOrg || ctx.username,
-    safeTargetOrg: safeOrg,
-    resolvedUsername: ctx.username,
-    alias: ctx.alias,
-    instanceUrl: ctx.instanceUrl,
-    updatedAt: finishedAt
-  });
-  return {
-    status,
-    targetOrg: ctx.username,
-    safeTargetOrg: safeOrg,
-    downloaded,
-    cached,
-    failed,
-    checkpointAdvanced: status === 'success',
-    stateFile: syncStatePath(workspaceRoot),
-    lastSyncedLogId: newest?.id ?? previous?.lastSyncedLogId
-  };
-}
-
-async function countLocalLogs(workspaceRoot: string | undefined, username?: string): Promise<number> {
-  const ids = new Set<string>();
-  const collectFromLogsRoot = async (logsRoot: string): Promise<void> => {
-    let days: import('node:fs').Dirent[];
-    try {
-      days = await fs.readdir(logsRoot, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const day of days) {
-      if (!day.isDirectory() || !/^(unknown-date|\d{4}-\d{2}-\d{2})$/.test(day.name)) continue;
-      let files: import('node:fs').Dirent[];
-      try {
-        files = await fs.readdir(path.join(logsRoot, day.name), { withFileTypes: true });
-      } catch {
-        continue;
-      }
-      for (const file of files) {
-        if (file.isFile() && file.name.endsWith('.log')) {
-          ids.add(path.basename(file.name, '.log'));
-        }
-      }
-    }
-  };
-  if (username) {
-    await collectFromLogsRoot(path.join(orgDir(workspaceRoot, username), 'logs'));
-    return ids.size;
-  }
-  const orgsRoot = path.join(resolveApexlogsRoot(workspaceRoot), 'orgs');
-  let orgDirs: import('node:fs').Dirent[];
-  try {
-    orgDirs = await fs.readdir(orgsRoot, { withFileTypes: true });
-  } catch {
-    return 0;
-  }
-  for (const entry of orgDirs) {
-    if (entry.isDirectory()) {
-      await collectFromLogsRoot(path.join(orgsRoot, entry.name, 'logs'));
-    }
-  }
-  return ids.size;
-}
-
-async function findLocalOrgByAlias(
-  workspaceRoot: string | undefined,
-  alias: string,
-  syncState: SyncState
-): Promise<string | undefined> {
-  const orgsRoot = path.join(resolveApexlogsRoot(workspaceRoot), 'orgs');
-  let orgDirs: import('node:fs').Dirent[];
-  try {
-    orgDirs = await fs.readdir(orgsRoot, { withFileTypes: true });
-  } catch {
-    return undefined;
-  }
-  const matches: OrgMetadata[] = [];
-  for (const entry of orgDirs) {
-    if (!entry.isDirectory()) continue;
-    const metadata = await readOrgMetadata(path.join(orgsRoot, entry.name, 'org.json'));
-    if (metadata?.alias === alias) {
-      matches.push(metadata);
-    }
-  }
-  matches.sort((left, right) => {
-    const leftState = syncState.orgs[left.resolvedUsername];
-    const rightState = syncState.orgs[right.resolvedUsername];
-    const leftKey = `${leftState ? '1' : '0'}:${leftState?.lastSyncCompletedAt ?? ''}:${left.updatedAt}:${left.resolvedUsername}`;
-    const rightKey = `${rightState ? '1' : '0'}:${rightState?.lastSyncCompletedAt ?? ''}:${right.updatedAt}:${right.resolvedUsername}`;
-    return rightKey.localeCompare(leftKey);
-  });
-  return matches[0]?.resolvedUsername;
-}
-
-async function resolveLocalStatusOrg(
-  workspaceRoot: string | undefined,
-  targetOrg: string | undefined,
-  syncState: SyncState
-): Promise<string> {
-  const requested = asString(targetOrg);
-  if (requested) {
-    if (requested.includes('@') || syncState.orgs[requested]) return requested;
-    return (await findLocalOrgByAlias(workspaceRoot, requested, syncState)) ?? requested;
-  }
-  return Object.keys(syncState.orgs).sort()[0] ?? 'default';
-}
-
-async function logsStatusNative(params: LogsStatusParams = {}): Promise<LogsStatusResult> {
-  const workspaceRoot = asString(params.workspaceRoot) || undefined;
-  const effectiveWorkspaceRoot = workspaceRoot ?? path.dirname(resolveApexlogsRoot(undefined));
-  const syncState = await readSyncState(workspaceRoot);
-  const targetOrg = await resolveLocalStatusOrg(workspaceRoot, params.targetOrg, syncState);
-  const safeOrg = safeTargetOrg(targetOrg);
-  const entry = syncState.orgs[targetOrg];
-  return {
-    targetOrg,
-    safeTargetOrg: safeOrg,
-    workspaceRoot: effectiveWorkspaceRoot,
-    apexlogsRoot: resolveApexlogsRoot(workspaceRoot),
-    stateFile: syncStatePath(workspaceRoot),
-    logCount: await countLocalLogs(workspaceRoot, targetOrg === 'default' && !entry ? undefined : targetOrg),
-    hasState: Boolean(entry),
-    lastSyncStartedAt: entry?.lastSyncStartedAt,
-    lastSyncCompletedAt: entry?.lastSyncCompletedAt,
-    lastSyncedLogId: entry?.lastSyncedLogId,
-    lastSyncedStartTime: entry?.lastSyncedStartTime,
-    downloadedCount: entry?.downloadedCount ?? 0,
-    cachedCount: entry?.cachedCount ?? 0,
-    lastError: entry?.lastError
-  };
-}
-
 function unreadableLogSummary(message: string): RuntimeLogTriageSummary {
   return {
     hasErrors: false,
@@ -1062,77 +538,6 @@ function unreadableLogSummary(message: string): RuntimeLogTriageSummary {
       }
     ]
   };
-}
-
-async function logsTriageNative(params: LogsTriageParams, signal?: AbortSignal): Promise<LogsTriageEntry[]> {
-  throwIfAborted(signal);
-  const target = asString(params.username);
-  let ctx: ConnectionContext | undefined;
-  let triedConnectionContext = false;
-  const resolveContext = async (): Promise<ConnectionContext | undefined> => {
-    if (triedConnectionContext) return ctx;
-    triedConnectionContext = true;
-    try {
-      ctx = await getConnectionContext(target, signal);
-    } catch (error) {
-      if (signal?.aborted || (error instanceof AlvError && error.code === 'ABORTED')) throw abortError();
-      ctx = undefined;
-    }
-    return ctx;
-  };
-  const entries: LogsTriageEntry[] = [];
-  for (const logId of params.logIds || []) {
-    throwIfAborted(signal);
-    let filePath = await findCachedLogPath(params.workspaceRoot, logId, target, signal);
-    let resolvedContext = ctx;
-    if (!filePath) {
-      resolvedContext = await resolveContext();
-      filePath = resolvedContext
-        ? await findCachedLogPath(params.workspaceRoot, logId, resolvedContext.username, signal)
-        : await findCachedLogPath(params.workspaceRoot, logId, undefined, signal);
-    }
-    if (!filePath && resolvedContext) {
-      try {
-        const body = await fetchLogBody(resolvedContext, logId, signal);
-        await writeLogBody(
-          params.workspaceRoot,
-          resolvedContext.username,
-          { id: logId, startTime: params.logStartTimes?.[logId] },
-          body,
-          signal
-        );
-        entries.push({ logId, summary: summarizeLogText(body) });
-        continue;
-      } catch (error) {
-        if (signal?.aborted || (error instanceof AlvError && error.code === 'ABORTED')) throw abortError();
-        entries.push({
-          logId,
-          summary: unreadableLogSummary(error instanceof Error ? error.message : 'Log body could not be downloaded')
-        });
-        continue;
-      }
-    }
-    if (!filePath) {
-      entries.push({
-        logId,
-        summary: unreadableLogSummary('Log body is not available locally yet')
-      });
-      continue;
-    }
-    try {
-      const body = await fs.readFile(filePath, { encoding: 'utf8', signal });
-      throwIfAborted(signal);
-      entries.push({ logId, summary: summarizeLogText(body) });
-    } catch (error) {
-      if (signal?.aborted || (error instanceof AlvError && error.code === 'ABORTED')) throw abortError();
-      const message = error instanceof Error ? error.message : 'Log body could not be read';
-      entries.push({
-        logId,
-        summary: unreadableLogSummary(message)
-      });
-    }
-  }
-  return entries;
 }
 
 async function getCurrentUserId(ctx: ConnectionContext, signal?: AbortSignal): Promise<string | undefined> {
@@ -1733,14 +1138,123 @@ async function instrumentedCall<T>(
 
 export type ApexLogViewerCore = ReturnType<typeof createApexLogViewerCore>;
 
-export function createApexLogViewerCore(options: { instrumentation?: CoreInstrumentation } = {}) {
+function createRuntimeApexLogRemote(): ApexLogRemote {
+  return {
+    async resolveOrg(targetOrg, signal) {
+      const ctx = await getConnectionContext(targetOrg, signal);
+      return {
+        username: ctx.username,
+        alias: ctx.alias,
+        instanceUrl: ctx.instanceUrl
+      };
+    },
+    async listLogs(request, signal) {
+      const rows = await listLogsNative(
+        {
+          username: request.org.username,
+          limit: request.limit,
+          cursor: request.cursor,
+          offset: 0
+        },
+        signal
+      );
+      return rows.map(row => ({
+        logId: row.id,
+        startTime: row.startTime,
+        operation: row.operation,
+        status: row.status,
+        logLength: row.logLength
+      }));
+    },
+    async readBody(request, signal) {
+      const ctx = await getConnectionContext(request.org.username, signal);
+      return fetchLogBody(ctx, request.logId, signal);
+    }
+  };
+}
+
+export function createApexLogViewerCore(
+  options: { instrumentation?: CoreInstrumentation; apexLogRemote?: ApexLogRemote } = {}
+) {
   const call = <T>(
     method: string,
     callOptions: CoreCallOptions | undefined,
     run: (signal?: AbortSignal) => Promise<T>
   ) => instrumentedCall(options.instrumentation, method, callOptions, run);
+  const rawLogLifecycle = createApexLogLifecycle({ remote: options.apexLogRemote ?? createRuntimeApexLogRemote() });
+  const lifecycleCall = <T>(
+    method: string,
+    callOptions: ApexLogCallOptions | undefined,
+    run: (options: ApexLogCallOptions) => Promise<T>
+  ): Promise<T> => {
+    const startedAt = Date.now();
+    return run(callOptions ?? {}).then(
+      result => {
+        options.instrumentation?.onCall?.({ method, outcome: 'ok', durationMs: Date.now() - startedAt });
+        return result;
+      },
+      error => {
+        const cancelled =
+          callOptions?.signal?.aborted || (error instanceof ApexLogLifecycleError && error.code === 'cancelled');
+        options.instrumentation?.onCall?.({
+          method,
+          outcome: cancelled ? 'cancelled' : 'error',
+          durationMs: Date.now() - startedAt,
+          error
+        });
+        throw error;
+      }
+    );
+  };
+  function readLifecycle(
+    request: ReadApexLogRequest & { persistence?: 'required' },
+    callOptions?: ApexLogCallOptions
+  ): Promise<StoredApexLogBody>;
+  function readLifecycle(
+    request: ReadApexLogRequest & { persistence: 'best-effort' },
+    callOptions?: ApexLogCallOptions
+  ): Promise<ReadApexLogResult>;
+  function readLifecycle(request: ReadApexLogRequest, callOptions?: ApexLogCallOptions): Promise<ReadApexLogResult> {
+    if (request.persistence === 'best-effort') {
+      return lifecycleCall('log.lifecycle.read', callOptions, lifecycleOptions =>
+        rawLogLifecycle.read(request as ReadApexLogRequest & { persistence: 'best-effort' }, lifecycleOptions)
+      );
+    }
+    return lifecycleCall('log.lifecycle.read', callOptions, lifecycleOptions =>
+      rawLogLifecycle.read(request as ReadApexLogRequest & { persistence?: 'required' }, lifecycleOptions)
+    );
+  }
+  const logLifecycle: ApexLogLifecycle = {
+    requireLocalPath: (request, callOptions) =>
+      lifecycleCall('log.lifecycle.requireLocalPath', callOptions, lifecycleOptions =>
+        rawLogLifecycle.requireLocalPath(request, lifecycleOptions)
+      ),
+    availableLocalPaths: (request, callOptions) =>
+      lifecycleCall('log.lifecycle.availableLocalPaths', callOptions, lifecycleOptions =>
+        rawLogLifecycle.availableLocalPaths(request, lifecycleOptions)
+      ),
+    read: readLifecycle,
+    sync: (request, callOptions) =>
+      lifecycleCall('log.lifecycle.sync', callOptions, lifecycleOptions =>
+        rawLogLifecycle.sync(request, lifecycleOptions)
+      ),
+    status: (request, callOptions) =>
+      lifecycleCall('log.lifecycle.status', callOptions, lifecycleOptions =>
+        rawLogLifecycle.status(request, lifecycleOptions)
+      ),
+    triage: (request, callOptions) =>
+      lifecycleCall('log.lifecycle.triage', callOptions, lifecycleOptions =>
+        rawLogLifecycle.triage(request, lifecycleOptions)
+      ),
+    purge: (request, callOptions) =>
+      lifecycleCall('log.lifecycle.purge', callOptions, lifecycleOptions =>
+        rawLogLifecycle.purge(request, lifecycleOptions)
+      ),
+    dispose: () => rawLogLifecycle.dispose()
+  };
 
   return {
+    logLifecycle,
     doctor: (params: DoctorParams = {}, callOptions?: CoreCallOptions) =>
       call('doctor', callOptions, () => doctorNative(params)),
     org: {
@@ -1755,17 +1269,105 @@ export function createApexLogViewerCore(options: { instrumentation?: CoreInstrum
       list: (params: LogsListParams = {}, callOptions?: CoreCallOptions) =>
         call('log.list', callOptions, signal => listLogsNative(params, signal)),
       sync: (params: LogsSyncParams = {}, callOptions?: CoreCallOptions) =>
-        call('log.sync', callOptions, signal => logsSyncNative(params, signal)),
+        call('log.sync', callOptions, async signal => {
+          const workspaceRoot = asString(params.workspaceRoot);
+          if (!workspaceRoot) throw new AlvError('INVALID_ARGUMENT', 'workspaceRoot is required.');
+          const result = await rawLogLifecycle.sync(
+            {
+              workspaceRoot,
+              targetOrg: params.targetOrg,
+              mode: params.forceFull ? 'full' : 'incremental',
+              concurrency: params.concurrency
+            },
+            { signal }
+          );
+          return {
+            status: result.status,
+            targetOrg: result.resolvedUsername,
+            safeTargetOrg: safeTargetOrg(result.resolvedUsername),
+            downloaded: result.downloaded,
+            cached: result.existing + result.materialized,
+            failed: result.failures.length,
+            checkpointAdvanced: result.checkpoint.advanced,
+            stateFile: syncStatePath(workspaceRoot),
+            lastSyncedLogId: result.checkpoint.lastLogId
+          };
+        }),
       status: (params: LogsStatusParams = {}, callOptions?: CoreCallOptions) =>
-        call('log.status', callOptions, () => logsStatusNative(params)),
+        call('log.status', callOptions, async signal => {
+          const workspaceRoot = asString(params.workspaceRoot) ?? process.cwd();
+          const result = await rawLogLifecycle.status({ workspaceRoot, targetOrg: params.targetOrg }, { signal });
+          const targetOrg = result.resolvedUsername ?? asString(params.targetOrg) ?? 'default';
+          return {
+            targetOrg,
+            safeTargetOrg: safeTargetOrg(targetOrg),
+            workspaceRoot,
+            apexlogsRoot: resolveApexlogsRoot(workspaceRoot),
+            stateFile: syncStatePath(workspaceRoot),
+            logCount: result.localLogCount,
+            hasState: result.hasState,
+            lastSyncStartedAt: result.lastSyncStartedAt,
+            lastSyncCompletedAt: result.lastSyncCompletedAt,
+            lastSyncedLogId: result.lastSyncedLogId,
+            lastSyncedStartTime: result.lastSyncedStartTime,
+            downloadedCount: result.lastSync.downloaded,
+            cachedCount: result.lastSync.existing + result.lastSync.materialized
+          };
+        }),
       read: (params: LogsReadParams, callOptions?: CoreCallOptions) =>
-        call('log.read', callOptions, signal => logsReadNative(params, signal)),
+        call('log.read', callOptions, async signal => {
+          const workspaceRoot = asString(params.workspaceRoot);
+          if (!workspaceRoot) throw new AlvError('INVALID_ARGUMENT', 'workspaceRoot is required.');
+          const result = await rawLogLifecycle.read(
+            {
+              workspaceRoot,
+              targetOrg: params.targetOrg,
+              log: { logId: params.logId },
+              maxBytes: params.maxBytes
+            },
+            { signal }
+          );
+          return {
+            logId: result.logId,
+            path: result.localPath,
+            body: result.body,
+            sizeBytes: result.sizeBytes,
+            truncated: result.truncated
+          };
+        }),
       resolve: (params: LogsResolveParams, callOptions?: CoreCallOptions) =>
-        call('log.resolve', callOptions, () => logsResolveNative(params)),
-      resolveCachedPath: (params: ResolveCachedLogPathParams, callOptions?: CoreCallOptions) =>
-        call('log.resolveCachedPath', callOptions, () => resolveCachedLogPathNative(params)),
+        call('log.resolve', callOptions, async signal => {
+          const workspaceRoot = asString(params.workspaceRoot) ?? process.cwd();
+          const result = await rawLogLifecycle.availableLocalPaths(
+            {
+              workspaceRoot,
+              targetOrg: params.targetOrg,
+              logs: [{ logId: params.logId }]
+            },
+            { signal }
+          );
+          if (result.failures[0]) throw result.failures[0].error;
+          const localPath = result.available[0]?.localPath;
+          return { logId: params.logId, path: localPath, cached: Boolean(localPath) };
+        }),
       triage: (params: LogsTriageParams, callOptions?: CoreCallOptions) =>
-        call('log.triage', callOptions, signal => logsTriageNative(params, signal)),
+        call('log.triage', callOptions, async signal => {
+          const workspaceRoot = asString(params.workspaceRoot);
+          if (!workspaceRoot) throw new AlvError('INVALID_ARGUMENT', 'workspaceRoot is required.');
+          const result = await rawLogLifecycle.triage(
+            {
+              workspaceRoot,
+              targetOrg: params.username,
+              logs: params.logIds.map(logId => ({ logId, startTime: params.logStartTimes?.[logId] }))
+            },
+            { signal }
+          );
+          return result.entries.map(entry =>
+            entry.status === 'triaged'
+              ? { logId: entry.log.logId, summary: entry.summary }
+              : { logId: entry.log.logId, summary: unreadableLogSummary(entry.error.message) }
+          );
+        }),
       delete: (params: LogsDeleteParams = {}, callOptions?: CoreCallOptions) =>
         call('log.delete', callOptions, signal => logsDeleteNative(params, signal))
     },
@@ -1814,6 +1416,6 @@ export function createApexLogViewerCore(options: { instrumentation?: CoreInstrum
       get: (params: ToolingRequestGetParams, callOptions?: CoreCallOptions) =>
         call('tooling.get', callOptions, () => toolingRequestGetNative(params))
     },
-    dispose: (): void => undefined
+    dispose: (): void => rawLogLifecycle.dispose()
   };
 }

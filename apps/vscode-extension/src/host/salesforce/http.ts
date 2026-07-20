@@ -13,7 +13,7 @@ import {
 } from './apiVersion';
 import { logTrace, logWarn } from '../utils/logger';
 import { stringifyUnknown } from '../utils/error';
-import type { ApexLogRow, OrgAuth } from './types';
+import type { OrgAuth } from './types';
 
 function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
@@ -24,7 +24,9 @@ function normalizeOrgKey(auth: OrgAuth): string {
   if (instance) {
     return instance;
   }
-  return String(auth.username || '').trim().toLowerCase();
+  return String(auth.username || '')
+    .trim()
+    .toLowerCase();
 }
 
 function errorText(error: unknown): string {
@@ -47,7 +49,11 @@ function isVersionNotFound404(error: unknown): boolean {
   return /not[_\s-]?found|requested resource does not exist/i.test(errorText(error));
 }
 
-async function discoverOrgMaxApiVersion(auth: OrgAuth, timeoutMs?: number, signal?: AbortSignal): Promise<string | undefined> {
+async function discoverOrgMaxApiVersion(
+  auth: OrgAuth,
+  timeoutMs?: number,
+  signal?: AbortSignal
+): Promise<string | undefined> {
   const base = stripTrailingSlash(String(auth.instanceUrl || '').trim());
   if (!base) {
     return undefined;
@@ -171,70 +177,6 @@ export async function httpsRequestWith401Retry(
 
 export function clearListCache(): void {
   // Log list caching removed; function kept for backwards compatibility.
-}
-
-export type ApexLogCursor = {
-  beforeStartTime: string;
-  beforeId: string;
-};
-
-export async function fetchApexLogs(
-  auth: OrgAuth,
-  limit: number = 50,
-  offset: number = 0,
-  _debugLevel?: string,
-  timeoutMs?: number,
-  signal?: AbortSignal,
-  cursor?: ApexLogCursor
-): Promise<ApexLogRow[]> {
-  const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
-  const safeOffset = Math.max(0, Math.floor(offset));
-  const baseSelect =
-    'SELECT Id, StartTime, Operation, Application, DurationMilliseconds, Status, Request, LogLength, LogUser.Name FROM ApexLog';
-  let query: string;
-  if (cursor && cursor.beforeStartTime && cursor.beforeId) {
-    const dt = cursor.beforeStartTime;
-    const id = cursor.beforeId.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    query = `${baseSelect} WHERE StartTime < ${dt} OR (StartTime = ${dt} AND Id < '${id}') ORDER BY StartTime DESC, Id DESC LIMIT ${safeLimit}`;
-  } else {
-    query = `${baseSelect} ORDER BY StartTime DESC, Id DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`;
-  }
-
-  const soql = encodeURIComponent(query);
-  const url = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/query?q=${soql}`;
-  const body = await httpsRequestWith401Retry(
-    auth,
-    'GET',
-    url,
-    {
-      'Content-Type': 'application/json'
-    },
-    undefined,
-    timeoutMs,
-    signal
-  );
-  const json = JSON.parse(body);
-  return (json.records || []) as ApexLogRow[];
-}
-
-export async function fetchApexLogBody(
-  auth: OrgAuth,
-  logId: string,
-  timeoutMs?: number,
-  signal?: AbortSignal
-): Promise<string> {
-  const url = `${auth.instanceUrl}/services/data/v${getEffectiveApiVersion(auth)}/tooling/sobjects/ApexLog/${logId}/Body`;
-  return httpsRequestWith401Retry(
-    auth,
-    'GET',
-    url,
-    {
-      'Content-Type': 'text/plain'
-    },
-    undefined,
-    timeoutMs,
-    signal
-  );
 }
 
 export { __resetHttpsRequestImplForTests, __setHttpsRequestImplForTests };

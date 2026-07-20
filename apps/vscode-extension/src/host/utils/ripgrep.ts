@@ -16,6 +16,10 @@ export function buildRipgrepSearchArgs(pattern: string): string[] {
   return [...RG_ARGS_BASE, '--json', '--max-count', '1', '--', pattern, '.'];
 }
 
+export function buildRipgrepFileSearchArgs(pattern: string, filePaths: readonly string[]): string[] {
+  return [...RG_ARGS_BASE, '--json', '--max-count', '1', '--', pattern, ...filePaths];
+}
+
 async function resolveRipgrepBinary(): Promise<string> {
   if (cachedBinary) {
     return cachedBinary;
@@ -77,6 +81,37 @@ export async function ripgrepSearch(pattern: string, cwd: string, signal?: Abort
   }
 
   const args = buildRipgrepSearchArgs(pattern);
+  return spawnRipgrep(binary, args, cwd, signal);
+}
+
+export async function ripgrepSearchFiles(
+  pattern: string,
+  filePaths: readonly string[],
+  signal?: AbortSignal
+): Promise<RipgrepMatch[]> {
+  const targets = Array.from(new Set(filePaths.map(filePath => path.resolve(filePath))));
+  if (targets.length === 0) {
+    return [];
+  }
+
+  let binary: string;
+  try {
+    binary = await resolveRipgrepBinary();
+  } catch {
+    return [];
+  }
+
+  const cwd = process.cwd();
+  const args = buildRipgrepFileSearchArgs(pattern, targets);
+  return spawnRipgrep(binary, args, cwd, signal);
+}
+
+function spawnRipgrep(
+  binary: string,
+  args: readonly string[],
+  cwd: string,
+  signal?: AbortSignal
+): Promise<RipgrepMatch[]> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       resolve([]);

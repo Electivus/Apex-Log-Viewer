@@ -1,12 +1,10 @@
 import assert from 'assert/strict';
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { PassThrough } from 'stream';
 import proxyquire from 'proxyquire';
 import { MAX_TAIL_BUFFER_LINES, TailService } from '../host/utils/tailService';
 import { SfLogTailViewProvider } from '../provider/SfLogTailViewProvider';
 import * as cli from '../host/salesforce/cli';
-import * as http from '../host/salesforce/http';
 import * as jsforce from '../host/salesforce/jsforce';
 import * as streaming from '../host/salesforce/streaming';
 import * as traceflags from '../host/salesforce/traceflags';
@@ -43,7 +41,25 @@ function loadTailService(stubs?: {
             username,
             instanceUrl: 'https://example.com',
             accessToken: 'token'
-          }))
+          })),
+        logsList: async () => [],
+        readApexLog: async ({ logId }: { logId: string }) => ({
+          logId,
+          resolvedUsername: 'user@example.com',
+          source: 'remote',
+          persistence: 'failed',
+          persistenceError: new Error('not stored'),
+          body: '',
+          sizeBytes: 0,
+          truncated: false
+        }),
+        requireLocalLogPath: async ({ logId }: { logId: string }) => ({
+          logId,
+          resolvedUsername: 'user@example.com',
+          source: 'remote',
+          provenance: 'downloaded',
+          localPath: `/tmp/${logId}.log`
+        })
       }
     }
   }) as typeof import('../host/utils/tailService');
@@ -253,10 +269,8 @@ suite('TailService', () => {
     (service as any).logIdToPath.set('old', '/tmp/old');
     const origGetAuth = cli.getOrgAuth;
     const origEnsure = traceflags.ensureUserTraceFlag;
-    const origFetch = http.fetchApexLogs;
     (cli as any).getOrgAuth = async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' });
     (traceflags as any).ensureUserTraceFlag = async () => false;
-    (http as any).fetchApexLogs = async () => [];
     jsforce.__setConnectionFactoryForTests(
       async () =>
         ({
@@ -286,7 +300,6 @@ suite('TailService', () => {
     assert.equal((service as any).logIdToPath.size, 0);
     (cli as any).getOrgAuth = origGetAuth;
     (traceflags as any).ensureUserTraceFlag = origEnsure;
-    (http as any).fetchApexLogs = origFetch;
     service.stop();
   });
 
@@ -303,14 +316,14 @@ suite('TailService', () => {
             username,
             instanceUrl: 'https://example.com',
             accessToken: 'token'
-          })
+          }),
+          logsList: async () => []
         }
       },
       traceflags: {
         ensureUserTraceFlag: async () => false
       },
       http: {
-        fetchApexLogs: async () => [],
         getEffectiveApiVersion: () => '64.0'
       },
       streaming: {
@@ -361,8 +374,6 @@ suite('TailService', () => {
         }
       },
       http: {
-        fetchApexLogs: async () => [],
-        fetchApexLogBody: async () => '',
         getEffectiveApiVersion: () => '64.0'
       },
       streaming: {
@@ -578,28 +589,29 @@ suite('TailService', () => {
   });
 
   test('retries log ID after fetch failure', async () => {
-    const { TailService } = loadTailService({
-      http: {
-        fetchApexLogBody: async () => {
-          throw new Error('unconfigured');
-        }
-      }
-    });
-    const service = new TailService(() => {});
-    (service as any).tailRunning = true;
-    (service as any).currentAuth = { username: 'u', instanceUrl: 'i', accessToken: 't' };
     let calls = 0;
     const tailFetch = async () => {
       calls++;
       if (calls === 1) {
         throw new Error('fail');
       }
-      return 'body';
+      return {
+        logId: '1',
+        resolvedUsername: 'u',
+        source: 'remote',
+        persistence: 'failed',
+        persistenceError: new Error('not stored'),
+        body: 'body',
+        sizeBytes: 4,
+        truncated: false
+      };
     };
     const { TailService: RetryingTailService } = loadTailService({
-      http: {
-        fetchApexLogBody: tailFetch,
-        getEffectiveApiVersion: () => '64.0'
+      runtime: {
+        runtimeClient: {
+          getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' }),
+          readApexLog: tailFetch
+        }
       }
     });
     const retryService = new RetryingTailService(() => {});
@@ -614,45 +626,38 @@ suite('TailService', () => {
     assert.equal((retryService as any).seenLogIds.has('1'), true);
   });
 
-  test('ensureLogSaved preserves abortability when using the active tail connection', async () => {
-    setApiVersion('64.0');
-    const service = new TailService(() => {});
-    const auth = { username: 'u', instanceUrl: 'https://example.com', accessToken: 't' };
+  test('ensureLogSaved delegates cancellation to the shared lifecycle', async () => {
     const controller = new AbortController();
-    const stream = new PassThrough();
-    let destroyed = false;
-    const originalDestroy = stream.destroy.bind(stream);
-    (stream as any).destroy = (...args: any[]) => {
-      destroyed = true;
-      return originalDestroy(...args);
-    };
-
-    (service as any).currentAuth = auth;
-    (service as any).connection = {
-      version: '64.0',
-      instanceUrl: auth.instanceUrl,
-      accessToken: auth.accessToken,
-      request: () => {
-        const promise = new Promise<string>(() => {}) as Promise<string> & { stream: () => PassThrough };
-        promise.stream = () => stream;
-        return promise;
-      },
-      query: async () => ({ records: [] }),
-      queryMore: async () => ({ records: [] }),
-      tooling: {
-        query: async () => ({ records: [] }),
-        create: async () => ({ success: true, id: '1', errors: [] }),
-        update: async () => ({ success: true, id: '1', errors: [] }),
-        destroy: async () => ({ success: true, id: '1', errors: [] })
-      },
-      streaming: {} as any
-    };
+    let receivedSignal: AbortSignal | undefined;
+    const { TailService: LifecycleTailService } = loadTailService({
+      runtime: {
+        runtimeClient: {
+          getOrgAuth: async () => ({ username: 'u', instanceUrl: 'i', accessToken: 't' }),
+          requireLocalLogPath: async (_params: unknown, signal?: AbortSignal) => {
+            receivedSignal = signal;
+            await new Promise<void>((_resolve, reject) =>
+              signal?.addEventListener(
+                'abort',
+                () => {
+                  const error = new Error('aborted');
+                  error.name = 'AbortError';
+                  reject(error);
+                },
+                { once: true }
+              )
+            );
+            throw new Error('unreachable');
+          }
+        }
+      }
+    });
+    const service = new LifecycleTailService(() => {});
 
     const pending = service.ensureLogSaved('07Lxx0000000001', controller.signal);
     controller.abort();
 
     await assert.rejects(pending, /aborted/i);
-    assert.equal(destroyed, true);
+    assert.equal(receivedSignal, controller.signal);
   });
 
   test('replay treats AbortError from ensureLogSaved as cancellation', async () => {
