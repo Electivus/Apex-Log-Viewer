@@ -1305,7 +1305,7 @@ export function createApexLogViewerCore(
             apexlogsRoot: resolveApexlogsRoot(workspaceRoot),
             stateFile: syncStatePath(workspaceRoot),
             logCount: result.localLogCount,
-            hasState: result.hasCheckpoint,
+            hasState: result.hasState,
             lastSyncStartedAt: result.lastSyncStartedAt,
             lastSyncCompletedAt: result.lastSyncCompletedAt,
             lastSyncedLogId: result.lastSyncedLogId,

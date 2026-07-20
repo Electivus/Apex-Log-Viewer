@@ -57,6 +57,7 @@ Both surfaces use the same org-first store:
 - `apexlogs/orgs/<safe-org>/logs/<YYYY-MM-DD>/<logId>.log` — canonical full log bodies.
 
 Legacy `<safeUser>_<logId>.log` files remain readable for backward compatibility. New writes use the org-first layout; no third cache layout is introduced.
+Before the first workspace write, the lifecycle best-effort adds `apexlogs/` to an existing regular `.gitignore`; it never follows a symbolic-link `.gitignore`.
 
 The lifecycle receives an explicit absolute workspace root and treats the resolved Salesforce username as the canonical org identity. Alias metadata and prior sync-state shapes remain readable offline. Required consumers receive a dependable local path or a stable error; Tail alone opts into best-effort persistence so a freshly acquired body can still be displayed when disk persistence fails.
 

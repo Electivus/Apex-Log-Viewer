@@ -168,6 +168,7 @@ export type ApexLogStatusRequest = ApexLogScope;
 export type ApexLogStatusResult = Readonly<{
   resolvedUsername?: string;
   localLogCount: number;
+  hasState: boolean;
   hasCheckpoint: boolean;
   lastSyncStartedAt?: string;
   lastSyncCompletedAt?: string;
@@ -290,6 +291,27 @@ type OrgMetadata = Readonly<{
   instanceUrl?: string;
   updatedAt?: string;
 }>;
+
+let gitignoreUpdateQueue: Promise<void> = Promise.resolve();
+
+async function ensureWorkspaceLogIgnore(workspaceRoot: string): Promise<void> {
+  const update = async (): Promise<void> => {
+    const gitignorePath = path.join(workspaceRoot, '.gitignore');
+    const stat = await fs.lstat(gitignorePath).catch(() => undefined);
+    if (!stat?.isFile() || stat.isSymbolicLink()) return;
+    const content = await fs.readFile(gitignorePath, 'utf8');
+    const hasEntry = content
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .some(line => line === 'apexlogs' || line === 'apexlogs/' || line === '/apexlogs' || line === '/apexlogs/');
+    if (hasEntry) return;
+    const separator = content.length === 0 || content.endsWith('\n') ? '' : '\n';
+    await fs.appendFile(gitignorePath, `${separator}apexlogs/\n`, 'utf8');
+  };
+  const current = gitignoreUpdateQueue.then(update, update);
+  gitignoreUpdateQueue = current.catch(() => undefined);
+  await current.catch(() => undefined);
+}
 
 async function isRegularFile(filePath: string): Promise<boolean> {
   try {
@@ -423,6 +445,7 @@ async function findLocalOrgUsernames(workspaceRoot: string, selector: string): P
 }
 
 async function writeOrgMetadata(workspaceRoot: string, org: ResolvedApexLogOrg): Promise<void> {
+  await ensureWorkspaceLogIgnore(workspaceRoot);
   const filePath = orgMetadataPath(workspaceRoot, org.username);
   const existing = await readOrgMetadata(filePath);
   const alias = org.alias ?? existing?.alias;
@@ -1256,6 +1279,7 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
       const result: ApexLogStatusResult = {
         resolvedUsername: username || undefined,
         localLogCount,
+        hasState: Boolean(entry),
         hasCheckpoint: Boolean(entry?.lastSyncedLogId || entry?.lastSyncedStartTime),
         lastSyncStartedAt: entry?.lastSyncStartedAt,
         lastSyncCompletedAt: entry?.lastSyncCompletedAt,

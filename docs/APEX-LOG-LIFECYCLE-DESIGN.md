@@ -230,6 +230,7 @@ export type ApexLogStatusRequest = ApexLogScope;
 export type ApexLogStatusResult = Readonly<{
   resolvedUsername?: string;
   localLogCount: number;
+  hasState: boolean;
   hasCheckpoint: boolean;
   lastSyncStartedAt?: string;
   lastSyncCompletedAt?: string;

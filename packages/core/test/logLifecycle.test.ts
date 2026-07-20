@@ -141,6 +141,41 @@ test('Apex Log Lifecycle acquires a missing body and returns its canonical local
   }
 });
 
+test('Apex Log Lifecycle protects materialized workspace logs through the existing gitignore', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-gitignore-'));
+  const logId = '07L000000000037AAA';
+  const username = 'gitignore@example.com';
+  const gitignorePath = path.join(workspaceRoot, '.gitignore');
+  await fs.writeFile(gitignorePath, 'node_modules/\n', 'utf8');
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg() {
+        return { username };
+      },
+      async listLogs() {
+        throw new Error('listLogs is not used by requireLocalPath');
+      },
+      async readBody() {
+        return 'sensitive Salesforce log';
+      }
+    }
+  });
+
+  try {
+    const [result, concurrentResult] = await Promise.all([
+      lifecycle.requireLocalPath({ workspaceRoot, targetOrg: username, log: { logId } }),
+      lifecycle.requireLocalPath({ workspaceRoot, targetOrg: username, log: { logId } })
+    ]);
+
+    assert.equal(await fs.readFile(result.localPath, 'utf8'), 'sensitive Salesforce log');
+    assert.equal(concurrentResult.localPath, result.localPath);
+    assert.equal(await fs.readFile(gitignorePath, 'utf8'), 'node_modules/\napexlogs/\n');
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test('Apex Log Lifecycle contains encoded org identities beneath the canonical root', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-safe-org-'));
   const logId = '07L000000000027AAA';
@@ -617,6 +652,7 @@ test('Apex Log Lifecycle status reports logical sync state without layout paths'
 
     assert.equal(status.resolvedUsername, username);
     assert.equal(status.localLogCount, 1);
+    assert.equal(status.hasState, true);
     assert.equal(status.hasCheckpoint, true);
     assert.equal(status.lastSyncedLogId, logId);
     assert.deepEqual(status.lastSync, {
@@ -1134,6 +1170,7 @@ test('Apex Log Lifecycle reads legacy org metadata and sync-state shapes', async
     assert.equal(file.localPath, localPath);
     assert.equal(file.resolvedUsername, username);
     assert.equal(status.resolvedUsername, username);
+    assert.equal(status.hasState, true);
     assert.equal(status.lastSync.downloaded, 2);
     assert.equal(status.lastSync.existing, 3);
     assert.equal(status.lastSyncedLogId, logId);
@@ -1163,6 +1200,7 @@ test('Apex Log Lifecycle counts canonical logs without requiring sync state', as
   try {
     const status = await lifecycle.status({ workspaceRoot });
     assert.equal(status.localLogCount, 1);
+    assert.equal(status.hasState, false);
     assert.equal(status.hasCheckpoint, false);
   } finally {
     lifecycle.dispose();

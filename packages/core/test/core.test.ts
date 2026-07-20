@@ -307,6 +307,37 @@ test('core log status maps lifecycle state to the compatibility DTO', async () =
   }
 });
 
+test('core log status preserves state existence after a successful empty sync', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-lifecycle-empty-status-'));
+  const username = 'empty-status@example.com';
+  const remote: ApexLogRemote = {
+    async resolveOrg() {
+      return { username };
+    },
+    async listLogs() {
+      return [];
+    },
+    async readBody() {
+      throw new Error('readBody is not used by an empty sync');
+    }
+  };
+  const core = createApexLogViewerCore({ apexLogRemote: remote });
+
+  try {
+    const sync = await core.log.sync({ targetOrg: username, workspaceRoot });
+    assert.equal(sync.status, 'success');
+    assert.equal(sync.lastSyncedLogId, undefined);
+
+    const status = await core.log.status({ targetOrg: username, workspaceRoot });
+    assert.equal(status.logCount, 0);
+    assert.equal(status.hasState, true);
+    assert.equal(status.lastSyncCompletedAt === undefined, false);
+  } finally {
+    core.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test('core log triage preserves its DTO while using lifecycle acquisition', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-lifecycle-triage-'));
   const logId = '07L000000000020AAA';
