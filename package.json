@@ -102,7 +102,7 @@
     "@types/vscode": "1.105.0",
     "@typescript-eslint/eslint-plugin": "^8.63.0",
     "@typescript-eslint/parser": "^8.56.1",
-    "@vscode/test-electron": "^3.0.0",
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/l10n-dev": "^0.0.35",
     "@vscode/ripgrep": "^1.18.0",
     "@vscode/vsce": "^3.9.2",
