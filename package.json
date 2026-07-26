@@ -89,7 +89,7 @@
   "devDependencies": {
     "@jsforce/jsforce-node": "3.10.19",
     "@playwright/test": "^1.61.1",
-    "@tailwindcss/cli": "^4.3.2",
+    "@tailwindcss/cli": "^4.3.3",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/jest": "^30.0.0",
@@ -129,7 +129,7 @@
     "react-window": "^2.2.7",
     "sharp": "^0.35.3",
     "shell-quote": "^1.9.0",
-    "tailwindcss": "^4.1.18",
+    "tailwindcss": "^4.3.3",
     "tailwindcss-animate": "^1.0.7",
     "ts-jest": "^29.4.11",
     "typescript": "^6.0.3",
