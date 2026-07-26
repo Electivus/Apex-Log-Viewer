@@ -28,7 +28,7 @@
     "watch": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
-    "@salesforce/core": "^8.32.2"
+    "@salesforce/core": "^8.32.4"
   },
   "devDependencies": {
     "tsx": "^4.22.4"
