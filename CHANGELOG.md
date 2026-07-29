@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Bug Fixes
+
+- Logs/Viewer: keep multiline `System.debug` payloads, including `JSON.serializePretty` output, together and preserve their formatting in the structured log view.
+
 ## [0.52.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.52.0...v0.52.1) (2026-07-17)
 
 ### Bug Fixes
