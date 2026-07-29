@@ -211,6 +211,34 @@ describe('Log Viewer App', () => {
     });
   });
 
+  it('keeps multiline JSON from USER_DEBUG visible as one formatted debug entry', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+
+    render(<LogViewerApp vscode={vscode} messageBus={bus} />);
+    send(bus, {
+      type: 'logViewerInit',
+      logId: 'serialize-pretty-log',
+      locale: 'en-US',
+      fileName: 'serialize-pretty.log',
+      lines: [
+        '12:00:00.000 (1)|USER_DEBUG|[7]|DEBUG|{',
+        '  "account" : {',
+        '    "name" : "Acme"',
+        '  }',
+        '}',
+        '12:00:01.000 (2)|METHOD_EXIT|[7]|Example.run()'
+      ]
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Debug Only' }));
+
+    const jsonEntry = await screen.findByText(content => content.includes('"account"') && content.includes('"name"'));
+    expect(jsonEntry).toHaveTextContent('DEBUG | { "account" : { "name" : "Acme" } }');
+    expect(jsonEntry.className).toContain('whitespace-pre-wrap');
+    expect(screen.queryByText('Example.run()')).toBeNull();
+  });
+
   it('opens logs immediately, hydrates async triage, and scrolls only when a diagnostic is clicked', async () => {
     const { vscode, posted } = createVsCodeMock();
     const bus = new EventTarget();

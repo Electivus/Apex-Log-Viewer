@@ -76,9 +76,11 @@ export function LogEntryRow({
         {entry.lineNumber ? `[${entry.lineNumber}]` : ''}
       </div>
       <div className="flex-1 space-y-1 text-[12px] leading-relaxed text-foreground">
-        <div className="break-words text-sm">{highlightText(entry.message || entry.raw, normalizedTerm)}</div>
+        <div className="whitespace-pre-wrap break-words text-sm">
+          {highlightText(entry.message || entry.raw, normalizedTerm)}
+        </div>
         {entry.details && (
-          <div className="rounded-md bg-muted/15 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-inner">
+          <div className="whitespace-pre-wrap rounded-md bg-muted/15 px-3 py-1 font-mono text-[11px] text-muted-foreground shadow-inner">
             {highlightText(entry.details, normalizedTerm)}
           </div>
         )}

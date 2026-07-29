@@ -14,10 +14,19 @@ export interface ParsedLogEntry {
   category: LogCategory;
 }
 
+const APEX_EVENT_LINE = /^\d{1,2}:\d{2}:\d{2}\.\d+(?:\s+\(\d+\))?\s*\|/;
+
 export function parseLogLines(lines: string[]): ParsedLogEntry[] {
   const entries: ParsedLogEntry[] = [];
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i] ?? '';
+    const previousEntry = entries[entries.length - 1];
+    if (previousEntry?.category === 'debug' && !APEX_EVENT_LINE.test(raw.trimEnd())) {
+      const continuation = raw.trimEnd();
+      previousEntry.message = `${previousEntry.message}\n${continuation}`;
+      previousEntry.raw = `${previousEntry.raw}\n${raw}`;
+      continue;
+    }
     const entry = parseLogLine(raw, i);
     if (entry) {
       entries.push(entry);
