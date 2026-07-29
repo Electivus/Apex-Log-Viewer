@@ -1,7 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
+const { downloadDirToExecutablePath } = require("@vscode/test-electron/out/util");
 const { ensureDevHub, pretestSetup, resolveMissingExtensionIds, resolveRequiredDevHubConfig } = require("./run-tests");
 
 const originalEnv = { ...process.env };
@@ -26,6 +28,33 @@ test("VS Code host runner targets the extension app output paths", () => {
   assert.match(
     script,
     /mkdirSync\(dirname\(outfile\),\s*\{\s*recursive:\s*true\s*\}\)/,
+  );
+});
+
+test("VS Code host runner resolves the executable declared by modern macOS bundles", t => {
+  const installDir = fs.mkdtempSync(path.join(os.tmpdir(), "alv-vscode-darwin-"));
+  t.after(() => fs.rmSync(installDir, { recursive: true, force: true }));
+
+  const contentsDir = path.join(installDir, "Visual Studio Code.app", "Contents");
+  const macosDir = path.join(contentsDir, "MacOS");
+  fs.mkdirSync(macosDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(contentsDir, "Info.plist"),
+    [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<plist version="1.0">',
+      "<dict>",
+      "  <key>CFBundleExecutable</key>",
+      "  <string>CodeUX</string>",
+      "</dict>",
+      "</plist>"
+    ].join("\n")
+  );
+  fs.writeFileSync(path.join(macosDir, "CodeUX"), "");
+
+  assert.equal(
+    downloadDirToExecutablePath(installDir, "darwin-arm64"),
+    path.join(macosDir, "CodeUX")
   );
 });
 
