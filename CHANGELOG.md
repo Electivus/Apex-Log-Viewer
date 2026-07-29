@@ -2,13 +2,24 @@
 
 ## Unreleased
 
+## [0.54.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.52.1...v0.54.0) (2026-07-29)
+
 ### Bug Fixes
 
-- Logs/Viewer: keep multiline `System.debug` payloads, including `JSON.serializePretty` output, together and preserve their formatting in the structured log view.
+- Logs/Viewer: keep multiline `System.debug` payloads, including `JSON.serializePretty` output, together and preserve their formatting in the structured log view. ([#1012](https://github.com/Electivus/Apex-Log-Viewer/pull/1012))
+- Security/Windows Setup: resolve vulnerable `websocket-driver` versions and execute npm through the known Node.js runtime so cache paths containing spaces or shell metacharacters remain safe. ([#987](https://github.com/Electivus/Apex-Log-Viewer/pull/987))
+- CI/Prerelease: set the nightly extension version before installing dependencies so pnpm's manifest verification no longer rejects pre-release packaging. ([#1013](https://github.com/Electivus/Apex-Log-Viewer/pull/1013))
 
 ### Chores
 
-- Release/SF Plugin: bump `@electivus/plugin-electivus` to `0.2.1` so the standalone CLI publishes the shared log lifecycle and refreshed Salesforce/runtime dependencies. ([#983](https://github.com/Electivus/Apex-Log-Viewer/pull/983)) ([#987](https://github.com/Electivus/Apex-Log-Viewer/pull/987)) ([#988](https://github.com/Electivus/Apex-Log-Viewer/pull/988))
+- Architecture/Logs: centralize open, replay, tail, search, triage, sync, status, and purge behavior in the shared `ApexLogLifecycle`, with cancellation-safe checkpoints, atomic materialization, bounded concurrency, retention safeguards, and legacy-cache compatibility. ([#988](https://github.com/Electivus/Apex-Log-Viewer/pull/988))
+- Release/SF Plugin: publish `@electivus/plugin-electivus` `0.2.1` with the shared log lifecycle and refreshed Salesforce/runtime dependencies. ([#1014](https://github.com/Electivus/Apex-Log-Viewer/pull/1014))
+- Security/Supply Chain: enforce pnpm source trust, signature verification, and a strict 24-hour minimum release age while preserving narrowly verified lockfile exceptions and security-update automation. ([#976](https://github.com/Electivus/Apex-Log-Viewer/pull/976))
+- Dependencies: refresh the supported Node.js types, formatting, linting, coverage, scripting, Salesforce, UI, CSS, VS Code test, and CodeQL dependency set. ([#956](https://github.com/Electivus/Apex-Log-Viewer/pull/956)) ([#969](https://github.com/Electivus/Apex-Log-Viewer/pull/969)) ([#970](https://github.com/Electivus/Apex-Log-Viewer/pull/970)) ([#972](https://github.com/Electivus/Apex-Log-Viewer/pull/972)) ([#977](https://github.com/Electivus/Apex-Log-Viewer/pull/977)) ([#979](https://github.com/Electivus/Apex-Log-Viewer/pull/979)) ([#981](https://github.com/Electivus/Apex-Log-Viewer/pull/981)) ([#982](https://github.com/Electivus/Apex-Log-Viewer/pull/982)) ([#983](https://github.com/Electivus/Apex-Log-Viewer/pull/983)) ([#984](https://github.com/Electivus/Apex-Log-Viewer/pull/984)) ([#985](https://github.com/Electivus/Apex-Log-Viewer/pull/985)) ([#986](https://github.com/Electivus/Apex-Log-Viewer/pull/986)) ([#1012](https://github.com/Electivus/Apex-Log-Viewer/pull/1012))
+
+### Docs
+
+- Maintainers: add the repository domain model, GitHub issue-tracking workflow, and canonical triage-label guidance. ([4444d53](https://github.com/Electivus/Apex-Log-Viewer/commit/4444d53bfa997e992a821131c5413410b7fbba9e))
 
 ## [0.52.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.52.0...v0.52.1) (2026-07-17)
 
