@@ -106,6 +106,31 @@ test('prerelease workflow computes the next publish version via the dedicated he
   );
 });
 
+test('prerelease workflow sets the nightly manifest version before installing package dependencies', () => {
+  const packageJob = readWorkflowJob('.github/workflows/prerelease.yml', 'package_vsix');
+
+  assert.match(
+    packageJob,
+    /- name:\s+Set nightly version in apps\/vscode-extension\/package\.json[\s\S]*?- name:\s+Install dependencies[\s\S]*?- name:\s+Build extension packaging assets/,
+    'expected pnpm to install against the rewritten nightly manifest before verifyDepsBeforeRun checks it'
+  );
+});
+
+test('tag release workflow keeps the checked-in manifest unchanged after installing dependencies', () => {
+  const packageJob = readWorkflowJob('.github/workflows/release.yml', 'package');
+
+  assert.match(
+    packageJob,
+    /- name:\s+Install dependencies[\s\S]*?- name:\s+Verify tag matches extension package version[\s\S]*?- name:\s+Build extension packaging assets/,
+    'expected tag releases to verify, but not rewrite, the manifest installed by pnpm'
+  );
+  assert.doesNotMatch(
+    packageJob,
+    /writeFileSync\(/,
+    'expected tag releases not to invalidate pnpm dependency verification by rewriting the manifest'
+  );
+});
+
 test('sf plugin release workflow publishes matching sf-plugin-v tags through npm', () => {
   const workflowSource = readFile('.github/workflows/sf-plugin-release.yml');
   const validateJob = readWorkflowJob('.github/workflows/sf-plugin-release.yml', 'validate_tag');
