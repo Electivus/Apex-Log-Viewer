@@ -6,6 +6,10 @@
 
 - Logs/Viewer: keep multiline `System.debug` payloads, including `JSON.serializePretty` output, together and preserve their formatting in the structured log view.
 
+### Chores
+
+- Release/SF Plugin: bump `@electivus/plugin-electivus` to `0.2.1` so the standalone CLI publishes the shared log lifecycle and refreshed Salesforce/runtime dependencies. ([#983](https://github.com/Electivus/Apex-Log-Viewer/pull/983)) ([#987](https://github.com/Electivus/Apex-Log-Viewer/pull/987)) ([#988](https://github.com/Electivus/Apex-Log-Viewer/pull/988))
+
 ## [0.52.1](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.52.0...v0.52.1) (2026-07-17)
 
 ### Bug Fixes
