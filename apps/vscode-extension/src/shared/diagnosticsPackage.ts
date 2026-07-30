@@ -48,17 +48,16 @@ export interface DiagnosticsPackage {
 export function formatDiagnosticsPackageMarkdown(pkg: DiagnosticsPackage): string {
   const providers = pkg.webview.providers
     .map(provider => {
-      const host = provider.hostKind ? `${provider.hostKind}, visible=${String(provider.visible)}` : 'unresolved';
-      return `- ${provider.surface}: ready=${provider.ready}, mounted=${provider.contentMounted}, host=${host}, mountSequence=${provider.mountSequence}`;
+      const host = provider.hasHost ? 'attached' : 'unresolved';
+      return `- ${provider.surface}: ready=${provider.ready}, mounted=${provider.contentMounted}, host=${host}, visible=${String(provider.visible)}, mountSequence=${provider.mountSequence}`;
     })
     .join('\n');
 
   const recentEvents = pkg.webview.events
     .slice(-20)
     .map(event => {
-      const host = event.hostKind ? ` ${event.hostKind}` : '';
       const sequence = event.mountSequence === undefined ? '' : ` #${event.mountSequence}`;
-      return `- ${event.timestamp} ${event.surface}${host}${sequence}: ${event.event}`;
+      return `- ${event.timestamp} ${event.surface}${sequence}: ${event.event}`;
     })
     .join('\n');
 

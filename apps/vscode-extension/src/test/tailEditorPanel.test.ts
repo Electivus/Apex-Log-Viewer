@@ -20,6 +20,9 @@ function createPanel() {
     reveal() {
       this.revealCount += 1;
     },
+    dispose() {
+      onDispose?.();
+    },
     onDidDispose(listener: () => void) {
       onDispose = listener;
       return createDisposable();
@@ -56,11 +59,7 @@ suite('TailEditorPanel', () => {
         this.syncedOrgs.push(org);
       }
 
-      onDidReadyTimeout(): { dispose(): void } {
-        return createDisposable();
-      }
-
-      resolveWebviewPanel(nextPanel: any): void {
+      resolveWebviewPanel(nextPanel: any, _recover: () => void | Promise<void>): void {
         this.resolvedPanels.push(nextPanel);
       }
 
@@ -107,6 +106,62 @@ suite('TailEditorPanel', () => {
     assert.equal(panelOptions[0]?.retainContextWhenHidden, true, 'tail editor should retain context while hidden');
   });
 
+  test('replaces a timed-out editor through the bound host recovery capability', async () => {
+    const createdProviders: any[] = [];
+    const panels = [createPanel(), createPanel()];
+    let panelIndex = 0;
+
+    class FakeTailProvider {
+      resolvedPanels: any[] = [];
+      recoveryCallbacks: Array<() => void | Promise<void>> = [];
+
+      constructor(_context: any) {
+        createdProviders.push(this);
+      }
+
+      setSelectedOrg(_org?: string): void {}
+
+      resolveWebviewPanel(nextPanel: any, recover: () => void | Promise<void>): void {
+        this.resolvedPanels.push(nextPanel);
+        this.recoveryCallbacks.push(recover);
+      }
+
+      dispose(): void {}
+    }
+
+    const vscodeStub = {
+      window: {
+        createWebviewPanel: () => panels[panelIndex++]
+      },
+      ViewColumn: {
+        Active: 1
+      },
+      Uri: {
+        joinPath: (...parts: any[]) => parts
+      }
+    };
+
+    const { TailEditorPanel } = proxyquireStrict('../panel/TailEditorPanel', {
+      vscode: vscodeStub,
+      '../provider/SfLogTailViewProvider': { SfLogTailViewProvider: FakeTailProvider },
+      '../host/utils/localize': {
+        localize: (_key: string, defaultValue: string) => defaultValue
+      }
+    });
+
+    const context = {
+      extensionUri: {},
+      subscriptions: [] as any[]
+    };
+
+    TailEditorPanel.initialize(context as any);
+    await TailEditorPanel.show();
+    await createdProviders[0]?.recoveryCallbacks[0]?.();
+
+    assert.deepEqual(createdProviders[0]?.resolvedPanels, panels);
+    assert.equal(panelIndex, 2, 'ready timeout should create one replacement panel');
+  });
+
   test('clears the singleton after dispose so a new editor panel can be created', async () => {
     const createdProviders: any[] = [];
     const panels = [createPanel(), createPanel()];
@@ -121,11 +176,7 @@ suite('TailEditorPanel', () => {
 
       setSelectedOrg(_org?: string): void {}
 
-      onDidReadyTimeout(): { dispose(): void } {
-        return createDisposable();
-      }
-
-      resolveWebviewPanel(_panel: any): void {}
+      resolveWebviewPanel(_panel: any, _recover: () => void | Promise<void>): void {}
 
       dispose(): void {
         this.disposeCount += 1;

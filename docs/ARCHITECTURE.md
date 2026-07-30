@@ -31,6 +31,14 @@ The client in `apps/vscode-extension/src/runtime/runtimeClient.ts` preserves the
 
 Extension Open, Replay, Tail body reads, full-log search preparation, triage, sync, status, and local purge all cross `ApexLogLifecycle`. The extension retains presentation, streaming subscriptions, Replay commands, ripgrep execution, and retention-policy selection; it does not construct cache paths or write Apex log bodies.
 
+### Webview Session
+
+Logs and Tail each bind one rebindable Webview Session. This is the extension's single production implementation of delayed mount, readiness, visibility, classified delivery, latest-snapshot replay, bounded retry, stale-generation rejection, temporary detach, final disposal, and payload-free mechanical diagnostics.
+
+The host adapters expose capabilities instead of identities: a sidebar can prepare and remount its current host in place, while an editor can replace its panel. Webview Session does not branch on a panel/sidebar or editor/sidebar discriminator. Both adapters preserve the established `retainContextWhenHidden` behavior.
+
+The Logs and Tail providers continue to own presentation HTML, authoritative replay snapshots, bootstrap and refresh policy, validated interactions, workflow errors, and surface diagnostics. They explicitly classify deliveries and supply the latest replay batch on request; Webview Session does not retain a generic journal or know either surface's snapshot schema.
+
 Commands, view ids, and settings use the `electivus.apexLogViewer.*` namespace. Old `sfLogs.*` and `electivus.apexLogs.*` aliases are intentionally not registered.
 
 ## Salesforce CLI plugin
