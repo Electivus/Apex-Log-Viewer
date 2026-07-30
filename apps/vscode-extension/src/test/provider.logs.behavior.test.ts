@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'node:os';
 import proxyquire from 'proxyquire';
+import { TestClock } from './testClock';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 const makeUri = (filePath: string) => ({ fsPath: filePath, path: filePath, toString: () => filePath });
@@ -15,6 +16,55 @@ function makeContext() {
     subscriptions: [] as Array<{ dispose?: () => void }>
   } as unknown as vscode.ExtensionContext;
   return context;
+}
+
+async function connectProvider(
+  provider: {
+    resolveWebviewView(view: vscode.WebviewView): void | Thenable<void>;
+    sendOrgs(forceRefresh?: boolean): Promise<void>;
+    refresh(): Promise<void>;
+  },
+  posted: any[] = []
+): Promise<void> {
+  const clock = new TestClock();
+  let messageListener: ((message: unknown) => void) | undefined;
+  const webview = {
+    html: '',
+    options: {},
+    postMessage: (message: unknown) => {
+      posted.push(message);
+      return Promise.resolve(true);
+    },
+    onDidReceiveMessage: (listener: (message: unknown) => void) => {
+      messageListener = listener;
+      return makeDisposable();
+    }
+  };
+  const view = {
+    visible: true,
+    webview,
+    onDidDispose: () => makeDisposable(),
+    onDidChangeVisibility: () => makeDisposable()
+  } as unknown as vscode.WebviewView;
+  const originalSendOrgs = provider.sendOrgs;
+  const originalRefresh = provider.refresh;
+  provider.sendOrgs = async () => undefined;
+  provider.refresh = async () => undefined;
+  try {
+    await provider.resolveWebviewView(view);
+    await clock.advanceBy(1000);
+    const generation = Number(webview.html.match(/content="(\d+)"/)?.[1]);
+    assert.ok(Number.isInteger(generation), 'public webview mount should expose a readiness generation');
+    messageListener?.({ type: 'ready', mountSequence: generation });
+    for (let turn = 0; turn < 10; turn += 1) {
+      await Promise.resolve();
+    }
+  } finally {
+    provider.sendOrgs = originalSendOrgs;
+    provider.refresh = originalRefresh;
+    posted.length = 0;
+    clock.dispose();
+  }
 }
 
 async function waitForCondition(
@@ -187,7 +237,13 @@ function createProviderHarness() {
       '@noCallThru': true
     },
     '../host/utils/webviewHtml': {
-      buildWebviewHtml: () => '<html></html>',
+      buildWebviewHtml: (
+        _webview: unknown,
+        _extensionUri: unknown,
+        _script: unknown,
+        _title: unknown,
+        options?: { mountSequence?: number }
+      ) => `<html><meta content="${options?.mountSequence ?? ''}"></html>`,
       '@noCallThru': true
     },
     '../host/utils/ripgrep': ripgrepStub,
@@ -222,6 +278,29 @@ function createProviderHarness() {
 }
 
 suite('SfLogsViewProvider behavior', () => {
+  test('preserves active refresh and search work across host replacement', () => {
+    const { SfLogsViewProvider } = createProviderHarness();
+    const provider = new SfLogsViewProvider(makeContext()) as any;
+    const searchController = new AbortController();
+    provider.refreshToken = 7;
+    provider.activeRefreshToken = 7;
+    provider.searchAbortController = searchController;
+
+    provider.handleSessionDetach('rebind');
+
+    assert.equal(provider.refreshToken, 7);
+    assert.equal(provider.activeRefreshToken, 7);
+    assert.equal(provider.searchAbortController, searchController);
+    assert.equal(searchController.signal.aborted, false);
+
+    provider.handleSessionDetach('hostDisposed');
+
+    assert.equal(provider.refreshToken, 8);
+    assert.equal(provider.activeRefreshToken, undefined);
+    assert.equal(provider.searchAbortController, undefined);
+    assert.equal(searchController.signal.aborted, true);
+  });
+
   test('refresh handles deferred auth rejection when logs listing fails', async () => {
     const { SfLogsViewProvider, cli } = createProviderHarness();
     let rejectAuth: ((error: Error) => void) | undefined;
@@ -236,14 +315,7 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
-    (provider as any).view = {
-      webview: {
-        postMessage: (m: any) => {
-          posted.push(m);
-          return Promise.resolve(true);
-        }
-      }
-    } as any;
+    await connectProvider(provider, posted);
 
     let unhandled: unknown;
     const onUnhandled = (error: unknown) => {
@@ -275,11 +347,7 @@ suite('SfLogsViewProvider behavior', () => {
 
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
-    (provider as any).view = {
-      webview: {
-        postMessage: () => Promise.resolve(true)
-      }
-    } as any;
+    await connectProvider(provider);
 
     await provider.refresh();
 
@@ -302,14 +370,7 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
-    (provider as any).view = {
-      webview: {
-        postMessage: (m: any) => {
-          posted.push(m);
-          return Promise.resolve(true);
-        }
-      }
-    } as any;
+    await connectProvider(provider, posted);
 
     let unhandled: unknown;
     const onUnhandled = (error: unknown) => {
@@ -341,15 +402,7 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
-    // Inject minimal view so refresh proceeds
-    (provider as any).view = {
-      webview: {
-        postMessage: (m: any) => {
-          posted.push(m);
-          return Promise.resolve(true);
-        }
-      }
-    } as any;
+    await connectProvider(provider, posted);
 
     await provider.refresh();
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -374,11 +427,7 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).view = {
-      webview: {
-        postMessage: () => Promise.resolve(true)
-      }
-    } as any;
+    await connectProvider(provider);
 
     const syncCalls: Array<{ params: any; signal?: AbortSignal }> = [];
     cli.logsSync = async (params: any, signal?: AbortSignal) => {
@@ -453,11 +502,7 @@ suite('SfLogsViewProvider behavior', () => {
     (provider as any).executeSearch = async (query: string) => {
       searchCalls.push(query);
     };
-    (provider as any).view = {
-      webview: {
-        postMessage: () => Promise.resolve(true)
-      }
-    } as any;
+    await connectProvider(provider);
 
     await provider.refresh();
     await waitForCondition(() => syncCalls.length === 1 && triageCalls.length === 1 && searchCalls.length >= 2);
@@ -501,11 +546,7 @@ suite('SfLogsViewProvider behavior', () => {
 
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
-    (provider as any).view = {
-      webview: {
-        postMessage: () => Promise.resolve(true)
-      }
-    } as any;
+    await connectProvider(provider);
 
     await provider.refresh();
     await waitForCondition(() => syncCalls.length === 1);
@@ -544,11 +585,7 @@ suite('SfLogsViewProvider behavior', () => {
 
     const context = makeContext();
     const provider = new SfLogsViewProvider(context);
-    (provider as any).view = {
-      webview: {
-        postMessage: () => Promise.resolve(true)
-      }
-    } as any;
+    await connectProvider(provider);
 
     await provider.refresh();
     await waitForCondition(() => syncCalls.length === 1);
@@ -614,14 +651,7 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => false;
-    (provider as any).view = {
-      webview: {
-        postMessage: (m: any) => {
-          posted.push(m);
-          return Promise.resolve(true);
-        }
-      }
-    } as any;
+    await connectProvider(provider, posted);
 
     await provider.refresh();
     await waitForCondition(() => triageCalls.length === 1);
@@ -670,14 +700,7 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
-    (provider as any).view = {
-      webview: {
-        postMessage: (m: any) => {
-          posted.push(m);
-          return Promise.resolve(true);
-        }
-      }
-    } as any;
+    await connectProvider(provider, posted);
 
     await provider.refresh();
     await waitForCondition(() => triageCalls.length === 1);
@@ -698,14 +721,7 @@ suite('SfLogsViewProvider behavior', () => {
     (provider as any).configManager.shouldLoadFullLogBodies = () => false;
 
     const posted: any[] = [];
-    (provider as any).view = {
-      webview: {
-        postMessage: (m: any) => {
-          posted.push(m);
-          return Promise.resolve(true);
-        }
-      }
-    } as any;
+    await connectProvider(provider, posted);
 
     let syncSignal: AbortSignal | undefined;
     let syncStarted!: () => void;
@@ -771,14 +787,7 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => false;
-    (provider as any).view = {
-      webview: {
-        postMessage: (m: any) => {
-          posted.push(m);
-          return Promise.resolve(true);
-        }
-      }
-    } as any;
+    await connectProvider(provider, posted);
 
     const refreshPromise = provider.refresh();
     await new Promise(resolve => setTimeout(resolve, 20));
@@ -822,14 +831,7 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => false;
-    (provider as any).view = {
-      webview: {
-        postMessage: (m: any) => {
-          posted.push(m);
-          return Promise.resolve(true);
-        }
-      }
-    } as any;
+    await connectProvider(provider, posted);
 
     await provider.refresh();
     await new Promise(resolve => setTimeout(resolve, 20));
@@ -861,14 +863,7 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).view = {
-      webview: {
-        postMessage: (m: any) => {
-          posted.push(m);
-          return Promise.resolve(true);
-        }
-      }
-    } as any;
+    await connectProvider(provider, posted);
 
     const ensureCalls: any[] = [];
     const localLogPath = path.join(tmpDir, '07L000000000001AA.log');
@@ -965,14 +960,7 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).view = {
-      webview: {
-        postMessage: (m: any) => {
-          posted.push(m);
-          return Promise.resolve(true);
-        }
-      }
-    } as any;
+    await connectProvider(provider, posted);
 
     (provider as any).logService.ensureLogsSaved = async () => ({
       total: 1,
@@ -1023,14 +1011,7 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).view = {
-      webview: {
-        postMessage: (m: any) => {
-          posted.push(m);
-          return Promise.resolve(true);
-        }
-      }
-    } as any;
+    await connectProvider(provider, posted);
 
     (provider as any).logService.ensureLogsSaved = async (
       logs: any[],
@@ -1085,14 +1066,7 @@ suite('SfLogsViewProvider behavior', () => {
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
     (provider as any).configManager.shouldLoadFullLogBodies = () => true;
-    (provider as any).view = {
-      webview: {
-        postMessage: (m: any) => {
-          posted.push(m);
-          return Promise.resolve(true);
-        }
-      }
-    } as any;
+    await connectProvider(provider, posted);
 
     await provider.refresh();
     await new Promise(r => setTimeout(r, 20));
@@ -1159,14 +1133,7 @@ suite('SfLogsViewProvider behavior', () => {
     const context = makeContext();
     const posted: any[] = [];
     const provider = new SfLogsViewProvider(context);
-    (provider as any).view = {
-      webview: {
-        postMessage: (m: any) => {
-          posted.push(m);
-          return Promise.resolve(true);
-        }
-      }
-    } as any;
+    await connectProvider(provider, posted);
 
     await provider.refresh();
     await new Promise(r => setTimeout(r, 10));

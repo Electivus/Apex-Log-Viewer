@@ -26,6 +26,19 @@ The Node-only Mocha runner lives in `scripts/run-node-tests.js`. The `sf electiv
 - Keep the default CLI-driven VS Code runtime on `stable`. Use `VSCODE_TEST_VERSION` only when you are intentionally validating another build.
 - If a test can be rewritten to avoid `vscode` at runtime, prefer moving it to `src/node-test/` instead of expanding the host-bound suite.
 
+### Webview lifecycle test seams
+
+Webview lifecycle mechanics have one primary public test seam. Provider tests do not inspect session internals or repeat generic timer, visibility, retry-budget, generation, or disposal cases.
+
+| Test area                                               | Owned verification                                                                                                                                                                                                    |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/node-test/webviewSession.test.ts`                  | Public Webview Session behavior in the Node-only lane with a fake host and private fake clock: mount/readiness timing, visibility, delivery, replay, retry, stale work, detach/disposal, and payload-free diagnostics |
+| `webviewHost.capabilities.test.ts`                      | Sidebar in-place remount and editor replacement capabilities, without a host-kind discriminator                                                                                                                       |
+| `provider.webview.test.ts`                              | Logs presentation, authoritative snapshot composition, bootstrap/refresh decisions, validated interactions, delivery outcomes, workflow errors, and surface recovery                                                  |
+| `tailService.test.ts`                                   | Tail snapshot/reset/buffer composition and ordering, bootstrap decisions, validated interactions, workflow errors, and surface recovery                                                                               |
+| `logsEditorPanel.test.ts` and `tailEditorPanel.test.ts` | Editor replacement ownership and `retainContextWhenHidden`                                                                                                                                                            |
+| `extension.activation.gating.test.ts`                   | Stable activation registration and composed support diagnostics                                                                                                                                                       |
+
 ### VS Code UI Test Runner (opcional)
 
 Se você preferir rodar e depurar via UI, instale a extensão “Extension Test Runner”. Use o launch `Extension Tests` (em `.vscode/launch.json`) para abrir o host de testes apontando para `out/test/runner.js`.

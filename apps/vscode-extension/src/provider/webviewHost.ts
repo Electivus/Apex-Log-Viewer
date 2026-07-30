@@ -1,22 +1,27 @@
 import * as vscode from 'vscode';
 
 export interface BoundWebviewHost {
-  readonly kind: 'panel' | 'editor';
   readonly webview: vscode.Webview;
   readonly visible: boolean;
+  recoverAfterReadyTimeout(remount: () => void): void | Promise<void>;
   onDidDispose(listener: () => void): vscode.Disposable;
   onDidChangeVisibility(listener: (visible: boolean) => void): vscode.Disposable;
-  onDidBecomeVisible(listener: () => void): vscode.Disposable;
 }
 
-export function createWebviewViewHost(view: vscode.WebviewView): BoundWebviewHost {
+export function createWebviewViewHost(
+  view: vscode.WebviewView,
+  prepareForRemount: () => void = () => undefined
+): BoundWebviewHost {
   return {
-    kind: 'panel',
     get webview() {
       return view.webview;
     },
     get visible() {
       return view.visible;
+    },
+    recoverAfterReadyTimeout(remount): void {
+      prepareForRemount();
+      remount();
     },
     onDidDispose(listener: () => void): vscode.Disposable {
       return view.onDidDispose(listener);
@@ -25,18 +30,14 @@ export function createWebviewViewHost(view: vscode.WebviewView): BoundWebviewHos
       return view.onDidChangeVisibility(() => {
         listener(view.visible);
       });
-    },
-    onDidBecomeVisible(listener: () => void): vscode.Disposable {
-      return view.onDidChangeVisibility(() => {
-        if (view.visible) {
-          listener();
-        }
-      });
     }
   };
 }
 
-export function createWebviewPanelHost(panel: vscode.WebviewPanel): BoundWebviewHost {
+export function createWebviewPanelHost(
+  panel: vscode.WebviewPanel,
+  replaceAfterReadyTimeout: () => void | Promise<void> = () => undefined
+): BoundWebviewHost {
   const onVisibilityTransition = (listener: (visible: boolean) => void): vscode.Disposable => {
     let lastVisible = panel.visible;
     return panel.onDidChangeViewState(event => {
@@ -50,25 +51,20 @@ export function createWebviewPanelHost(panel: vscode.WebviewPanel): BoundWebview
   };
 
   return {
-    kind: 'editor',
     get webview() {
       return panel.webview;
     },
     get visible() {
       return panel.visible;
     },
+    recoverAfterReadyTimeout(): void | Promise<void> {
+      return replaceAfterReadyTimeout();
+    },
     onDidDispose(listener: () => void): vscode.Disposable {
       return panel.onDidDispose(listener);
     },
     onDidChangeVisibility(listener: (visible: boolean) => void): vscode.Disposable {
       return onVisibilityTransition(listener);
-    },
-    onDidBecomeVisible(listener: () => void): vscode.Disposable {
-      return onVisibilityTransition(visible => {
-        if (visible) {
-          listener();
-        }
-      });
     }
   };
 }

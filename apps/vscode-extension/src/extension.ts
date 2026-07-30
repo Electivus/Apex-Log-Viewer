@@ -1,10 +1,7 @@
 import * as vscode from 'vscode';
-import {
-  SfLogsViewProvider,
-  WEBVIEW_READY_TIMEOUT_MS,
-  WEBVIEW_STABLE_VISIBILITY_DELAY_MS
-} from './provider/SfLogsViewProvider';
+import { SfLogsViewProvider } from './provider/SfLogsViewProvider';
 import { SfLogTailViewProvider } from './provider/SfLogTailViewProvider';
+import { WEBVIEW_SESSION_MOUNT_DELAY_MS, WEBVIEW_SESSION_READY_TIMEOUT_MS } from './provider/webviewSession';
 import type { OrgItem } from './shared/types';
 import * as path from 'path';
 import { setApiVersion, getApiVersion, clearListCache } from './host/salesforce/http';
@@ -94,8 +91,8 @@ function buildDiagnosticsPackage(
     },
     webview: {
       retainContextWhenHidden: true,
-      stableVisibilityDelayMs: WEBVIEW_STABLE_VISIBILITY_DELAY_MS,
-      readyTimeoutMs: WEBVIEW_READY_TIMEOUT_MS,
+      stableVisibilityDelayMs: WEBVIEW_SESSION_MOUNT_DELAY_MS,
+      readyTimeoutMs: WEBVIEW_SESSION_READY_TIMEOUT_MS,
       providers: providerStates,
       events: getWebviewDiagnosticEvents()
     },
@@ -364,7 +361,6 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     })
   );
-
 
   // Return exports for tests and programmatic use
   try {

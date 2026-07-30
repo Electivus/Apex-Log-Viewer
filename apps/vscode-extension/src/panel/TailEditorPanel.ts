@@ -38,7 +38,6 @@ export class TailEditorPanel {
 
   private readonly controller: SfLogTailViewProvider;
   private readonly context: vscode.ExtensionContext;
-  private readonly instanceDisposables: vscode.Disposable[] = [];
   private panel: vscode.WebviewPanel;
   private panelDisposables: vscode.Disposable[] = [];
   private recreating = false;
@@ -50,11 +49,6 @@ export class TailEditorPanel {
     if (typeof options?.selectedOrg === 'string' && options.selectedOrg.trim()) {
       this.controller.setSelectedOrg(options.selectedOrg);
     }
-    this.instanceDisposables.push(
-      this.controller.onDidReadyTimeout(() => {
-        void this.handleReadyTimeout();
-      })
-    );
 
     this.panel = this.createPanel();
     this.bindPanel(this.panel);
@@ -86,7 +80,7 @@ export class TailEditorPanel {
   private bindPanel(panel: vscode.WebviewPanel): void {
     disposeAll(this.panelDisposables);
     this.panel = panel;
-    this.controller.resolveWebviewPanel(panel);
+    this.controller.resolveWebviewPanel(panel, () => this.handleReadyTimeout(panel));
     this.panelDisposables.push(
       panel.onDidDispose(() => {
         this.handlePanelDisposed();
@@ -94,8 +88,8 @@ export class TailEditorPanel {
     );
   }
 
-  private async handleReadyTimeout(): Promise<void> {
-    if (this.retryAttempted || this.recreating || !this.panel.visible) {
+  private async handleReadyTimeout(panel: vscode.WebviewPanel): Promise<void> {
+    if (panel !== this.panel || this.retryAttempted || this.recreating || !panel.visible) {
       return;
     }
     this.retryAttempted = true;
@@ -122,7 +116,6 @@ export class TailEditorPanel {
       TailEditorPanel.instance = undefined;
     }
     disposeAll(this.panelDisposables);
-    disposeAll(this.instanceDisposables);
     this.controller.dispose();
   }
 }

@@ -213,7 +213,6 @@ function createExtensionHarness(options: {
         getDiagnosticState: () => ({
           surface: 'logs',
           hasHost: true,
-          hostKind: 'editor',
           ready: true,
           disposed: false,
           contentMounted: true,
@@ -468,7 +467,11 @@ suite('extension activation gating', () => {
     assert.ok(copied.includes('# Electivus Apex Logs Diagnostics'), 'should copy a markdown diagnostics package');
     assert.ok(copied.includes('```json'), 'should include machine-readable JSON');
     assert.ok(copied.includes('"logs"'), 'should include logs provider state');
-    assert.ok(copied.includes('"hostKind": "editor"'), 'should include active editor panel provider state');
+    assert.ok(
+      copied.includes('- logs: ready=true, mounted=true, host=attached, visible=undefined, mountSequence=7'),
+      'should include active editor panel provider state without a legacy host discriminator'
+    );
+    assert.ok(!copied.includes('"hostKind"'), 'should not emit the removed host discriminator');
     assert.ok(copied.includes('sample warn'), 'should include recent extension output entries');
   });
 });
