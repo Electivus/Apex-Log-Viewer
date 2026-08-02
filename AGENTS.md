@@ -145,11 +145,11 @@ See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 
 ### Issue tracker
 
-Issues and PRDs are tracked in GitHub Issues using the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and PRDs are tracked in the Electivus Linear workspace, under the `Electivus` team and the `Apex Log Viewer` project. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Triage uses the five default canonical labels. See `docs/agents/triage-labels.md`.
+Triage uses the five default canonical labels in Linear. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

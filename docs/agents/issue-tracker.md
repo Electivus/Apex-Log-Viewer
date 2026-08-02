@@ -1,45 +1,46 @@
-# Issue tracker: GitHub
+# Issue tracker: Linear
 
-Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+Issues and PRDs for this repository live in the Electivus Linear workspace. Use the connected Linear app for all tracker operations.
+
+## Repository scope
+
+- **Team:** `Electivus` (`ELE`)
+- **Project:** [`Apex Log Viewer`](https://linear.app/electivus/project/apex-log-viewer-2c6eeb57f135)
+- **Repository:** `Electivus/Apex-Log-Viewer`
+
+Unless a workflow explicitly says otherwise, create repository work in the `Electivus` team and assign it to the `Apex Log Viewer` project.
 
 ## Conventions
 
-- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
-- **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
-- **Comment on an issue**: `gh issue comment <number> --body "..."`
-- **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh issue close <number> --comment "..."`
-
-Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
+- **Read before writing:** Resolve the team, project, issue, labels, workflow states, and relations with the Linear read/list operations before creating or updating data.
+- **Create an issue:** Create it in team `Electivus` and project `Apex Log Viewer`, with a Markdown description containing the complete implementation or decision context.
+- **Read an issue:** Fetch it by its full Linear identifier, such as `ELE-123`, including relations; fetch comments when discussion history matters.
+- **List issues:** Scope queries to team `Electivus` and, for repository work, project `Apex Log Viewer`. Apply status, label, assignee, cycle, and priority filters as required by the workflow.
+- **Update an issue:** Preserve fields outside the requested change. Use Linear's native assignee, project, parent/sub-issue, blocker, related-issue, label, priority, cycle, estimate, due-date, and workflow-state fields.
+- **Comment on an issue:** Add a Linear comment in Markdown. Do not duplicate information already present in the issue description unless the comment records a decision or status transition.
+- **Apply or remove labels:** Use the exact strings in `docs/agents/triage-labels.md`. Resolve labels before mutation and create a missing canonical label as a team-scoped label only when the workflow requires it.
+- **Close or cancel:** Resolve the current workflow states for team `Electivus`, then move the issue to the appropriate completed or canceled state. Do not assume that a state name is globally available.
+- **Identifiers:** Use full identifiers such as `ELE-123` in documentation and cross-references; do not use ambiguous bare numbers.
 
 ## Pull requests as a triage surface
 
-**PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `$mattpocock-skills:triage` reads this flag.)_
-
-When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr` equivalents:
-
-- **Read a PR**: `gh pr view <number> --comments` and `gh pr diff <number>` for the diff.
-- **List external PRs for triage**: `gh pr list --state open --json number,title,body,labels,author,authorAssociation,comments` then keep only `authorAssociation` of `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, or `NONE` (drop `OWNER`/`MEMBER`/`COLLABORATOR`).
-- **Comment / label / close**: `gh pr comment`, `gh pr edit --add-label`/`--remove-label`, `gh pr close`.
-
-GitHub shares one number space across issues and PRs, so a bare `#42` may be either — resolve with `gh pr view 42` and fall back to `gh issue view 42`.
+**PRs as a request surface: no.** Pull requests remain in GitHub and are not automatically mirrored into Linear. Only create or update a Linear issue for a pull request when a workflow or maintainer explicitly requests it.
 
 ## When a skill says "publish to the issue tracker"
 
-Create a GitHub issue.
+Create a Linear issue in team `Electivus` and project `Apex Log Viewer`.
 
 ## When a skill says "fetch the relevant ticket"
 
-Run `gh issue view <number> --comments`.
+Fetch the Linear issue by its full identifier, include its relations, and read its comments when they carry requirements or decisions.
 
 ## Wayfinding operations
 
-Used by `$mattpocock-skills:wayfinder`. The **map** is a single issue with **child** issues as tickets.
+Used by `$mattpocock-skills:wayfinder`. The **map** is one Linear issue with **child** issues as tickets.
 
-- **Map**: a single issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far / Fog body. `gh issue create --label wayfinder:map`.
-- **Child ticket**: an issue linked to the map as a GitHub sub-issue (`gh api` on the sub-issues endpoint). Where sub-issues aren't enabled, add the child to a task list in the map body and put `Part of #<map>` at the top of the child body. Labels: `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, the ticket is assigned to the driving dev.
-- **Blocking**: GitHub's **native issue dependencies** — the canonical, UI-visible representation. Add an edge with `gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`, where `<blocker-db-id>` is the blocker's numeric **database id** (`gh api repos/<owner>/<repo>/issues/<n> --jq .id`, _not_ the `#number` or `node_id`). GitHub reports `issue_dependencies_summary.blocked_by` (open blockers only — the live gate). Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line at the top of the child body. A ticket is unblocked when every blocker is closed.
-- **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
-- **Claim**: `gh issue edit <n> --add-assignee @me` — the session's first write.
-- **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+- **Map:** Create one issue in project `Apex Log Viewer`, labelled `wayfinder:map`, holding the Notes / Decisions-so-far / Fog body.
+- **Child ticket:** Create a sub-issue whose parent is the map. Label it `wayfinder:<type>` (`research`, `prototype`, `grilling`, or `task`). Once claimed, assign it to the driving developer.
+- **Blocking:** Use Linear's native `blocked by` / `blocks` issue relations. A ticket is unblocked only when every blocker is completed or canceled.
+- **Frontier query:** List the map's open children, exclude issues with unresolved blockers or an assignee, and select the first child in map order.
+- **Claim:** Assign the selected issue to the current user; this is the session's first tracker write.
+- **Resolve:** Comment with the answer or delivery evidence, move the issue to the appropriate completed state, and add the resulting context pointer to the map's Decisions-so-far section.
