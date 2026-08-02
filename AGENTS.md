@@ -20,8 +20,10 @@
 - Implement shared behavior in `packages/core` without VS Code or oclif dependencies, then expose it through a class-per-command `sf electivus ...` adapter and the extension's in-process core client.
 - The extension bundles `@alv/core` into `dist/extension.js`; never add an embedded plugin runner or a child-process command bridge.
 - Keep webview messages and UI-safe DTOs in `packages/protocol`; do not import VS Code there.
+- For Logs and Tail, use the single rebindable Webview Session in `apps/vscode-extension/src/provider/webviewSession.ts` for host binding, delayed mount/readiness, visibility, classified delivery, latest-snapshot replay, retries, generation safety, detach/disposal, and mechanical diagnostics; do not recreate those mechanics in providers.
+- Keep presentation, authoritative replay snapshots, bootstrap/refresh policy, validated interactions, workflow errors, and surface diagnostics in the Logs/Tail providers. Let host adapters expose remount/replacement capabilities instead of adding panel/sidebar identity branches to Webview Session.
 - For log-local workflows, treat the org-first `apexlogs/orgs/<safe-org>/logs/...` layout as the canonical structure while preserving the existing `<safeUser>_<logId>.log` files for backward compatibility; during the transition both layouts may coexist, but avoid introducing additional cache layouts.
-- If incremental log sync state is introduced, treat it as a shared runtime contract that the extension may adopt later; keep extension compatibility by avoiding changes that would break existing `apexlogs/` consumers in either the org-first or legacy flat layouts.
+- Treat `apexlogs/.alv/sync-state.json` as the shared incremental-sync contract for both surfaces; preserve backward-readable state fields and avoid breaking extension or CLI consumers when evolving it.
 - When a CLI flag overlaps with familiar Salesforce CLI behavior, prefer the `sf`-style spelling such as `--target-org`.
 
 ## Build and Development
@@ -45,12 +47,13 @@
 - Watch extension tests with `pnpm run watch-tests`.
 - Default local test command: `pnpm test`.
 - Node-only extension suite: `pnpm run test:extension:node`.
+- Shared package and plugin suites: `pnpm run test:core`, `pnpm run test:protocol`, and `pnpm run test:sf-plugin`.
 - E2E utility Jest suite: `pnpm run test:e2e:utils`.
 - Script/security regression suite: `pnpm run test:scripts`.
 - Unit-focused local test suite: `pnpm run test:unit`.
 - Integration suite: `pnpm run test:integration`.
 - Combined local test sweep: `pnpm run test:all`.
-- Full CI-equivalent suite: `pnpm run test:ci`.
+- Combined CI unit + integration test suites: `pnpm run test:ci`.
 - Webview-only Jest suite: `pnpm run test:webview`.
 - Playwright scratch-org E2E: `pnpm run test:e2e`.
 - Standalone CLI Playwright E2E: `pnpm run test:e2e:cli`.
@@ -78,6 +81,7 @@
 - Keep unit, integration, and Playwright/E2E test defaults aligned with `stable` unless you are intentionally validating another build via `VSCODE_TEST_VERSION` or `--vscode=...`.
 - Do not switch the repo-wide default test runtime to `insiders` just to work around an already-open VS Code instance.
 - On this Windows machine, do not launch extension-host suites via `bash scripts/run-tests.sh` from PowerShell. `bash.exe` resolves to WSL here, which makes the runner detect Linux and download `vscode-linux-x64`. Use `pnpm run test:*`, `node scripts/run-tests-cli.js ...`, or `node scripts/run-tests.js ...` directly instead.
+- Test generic Webview Session mechanics through its public interface in `apps/vscode-extension/src/node-test/webviewSession.test.ts`; keep provider tests focused on surface-owned snapshots, presentation/workflow policy, validated interactions, errors, and recovery outcomes rather than duplicating session timer, retry, generation, or disposal cases.
 
 ## Commit and Pull Request Guidelines
 - Use Conventional Commits (for example `feat(logs): add filter`, `fix(tail): handle missing CLI`).
@@ -114,6 +118,8 @@ This repo follows the VS Code Marketplace pre-release convention:
    - Publish stable/pre-release locally with `pnpm run vsce:publish` / `pnpm run vsce:publish:pre`.
    - Publish to Open VSX locally with `pnpm dlx ovsx publish --pat <token>` or add `--pre-release` for the odd-minor channel.
 
+Salesforce CLI plugin releases are independent: update `packages/sf-plugin/package.json`, merge the release PR, then tag `sf-plugin-vX.Y.Z`. `.github/workflows/sf-plugin-release.yml` validates the tag against the manifest, runs `pnpm run test:sf-plugin`, `pnpm run build:sf-plugin`, and `pnpm run stage:sf-plugin-npm`, publishes the staged package to npm through Trusted Publishing/OIDC, and creates the GitHub release.
+
 Nightly pre-releases are managed by `.github/workflows/prerelease.yml`, which packages and publishes the odd-minor pre-release channel when publishing secrets are configured.
 
 See also: `docs/PUBLISHING.md` and `docs/CI.md`.
@@ -123,7 +129,7 @@ See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 - Never commit tokens or org-sensitive data.
 - Run dependency/provenance checks with `pnpm run security:dependency-sources` and `pnpm run security:pnpm-signatures`.
 - Keep logs under `apexlogs/`.
-- `*.log` and `*.txt` are blocked by hooks/CI.
+- `*.log` and `*.txt` are forbidden in commits and rejected by `.github/workflows/forbid-sensitive-files.yml`.
 
 ## JavaScript REPL (Node)
 - Use `js_repl` for Node-backed JavaScript with top-level await in a persistent kernel. `codex.state` persists for the session (best effort) and is cleared by `js_repl_reset`.
