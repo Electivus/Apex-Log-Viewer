@@ -197,7 +197,7 @@ test('proxy lab runner restores ownership of bind-mounted generated outputs on e
   assert.match(script, /packages\/core\/lib/);
   assert.match(script, /packages\/protocol\/lib/);
   assert.match(script, /packages\/sf-plugin\/lib/);
-  assert.match(script, /packages\/sf-plugin\/skills/);
+  assert.doesNotMatch(script, /packages\/sf-plugin\/skills/);
   assert.match(script, /packages\/sf-plugin\/oclif\.manifest\.json/);
   assert.match(script, /output/);
   assert.doesNotMatch(script, /exec "\$@"/);
@@ -289,8 +289,11 @@ test('proxy lab sf preflight preserves failed command exit status', () => {
 
 test('proxy lab runner guards against proxy auth and Node dependency regressions', () => {
   const script = readProxyLabScript();
-  const unauthenticatedProxyCheck = script.match(/verify_unauthenticated_proxy_blocked\(\) \{(?<body>[\s\S]*?)\n\}/)?.groups.body;
-  const connectParser = script.match(/function readProxyConnectResponse\(socket\) \{(?<body>[\s\S]*?)\n\}\n\nfunction connectTls/)?.groups.body;
+  const unauthenticatedProxyCheck = script.match(/verify_unauthenticated_proxy_blocked\(\) \{(?<body>[\s\S]*?)\n\}/)
+    ?.groups.body;
+  const connectParser = script.match(
+    /function readProxyConnectResponse\(socket\) \{(?<body>[\s\S]*?)\n\}\n\nfunction connectTls/
+  )?.groups.body;
 
   assert.ok(unauthenticatedProxyCheck);
   assert.match(unauthenticatedProxyCheck, /http:\/\/example\.com/);
@@ -340,10 +343,7 @@ test('proxy lab Docker images are pinned by digest without a Rust toolchain stag
 test('proxy lab runner image installs the configured Salesforce CLI package', () => {
   const runnerDockerfile = readRunnerDockerfile();
 
-  assert.match(
-    runnerDockerfile,
-    /^ARG ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE=@salesforce\/cli@2\.136\.8$/m
-  );
+  assert.match(runnerDockerfile, /^ARG ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE=@salesforce\/cli@2\.136\.8$/m);
   assert.match(runnerDockerfile, /npm install -g "\$\{ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE\}" --no-audit --no-fund/);
   assert.match(runnerDockerfile, /^ARG ALV_PNPM_VERSION=11\.11\.0$/m);
   assert.match(runnerDockerfile, /npm install -g "pnpm@\$\{ALV_PNPM_VERSION\}" --no-audit --no-fund/);

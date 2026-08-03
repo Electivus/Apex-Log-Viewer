@@ -16,6 +16,15 @@ async function writeFile(filePath, contents) {
   await fs.writeFile(filePath, contents, 'utf8');
 }
 
+test('Salesforce CLI npm packaging has no bundled Agent Skill lane', async () => {
+  const manifest = JSON.parse(
+    await fs.readFile(path.join(__dirname, '..', 'packages', 'sf-plugin', 'package.json'), 'utf8')
+  );
+
+  assert.equal(manifest.files.includes('/skills'), false);
+  assert.doesNotMatch(manifest.scripts.build, /copy-sf-plugin-skill/);
+});
+
 test('stageSfPluginPackage writes a publishable manifest and copies declared files', async () => {
   const mod = await loadModule();
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sf-plugin-stage-'));
@@ -29,7 +38,7 @@ test('stageSfPluginPackage writes a publishable manifest and copies declared fil
         name: '@electivus/plugin-electivus',
         version: '1.2.3',
         private: true,
-        files: ['/bin', '/lib', '/messages', '/skills', '/oclif.manifest.json']
+        files: ['/bin', '/lib', '/messages', '/oclif.manifest.json']
       },
       null,
       2
@@ -38,7 +47,6 @@ test('stageSfPluginPackage writes a publishable manifest and copies declared fil
   await writeFile(path.join(packageDir, 'bin', 'run.js'), 'runner');
   await writeFile(path.join(packageDir, 'lib', 'index.js'), 'module');
   await writeFile(path.join(packageDir, 'messages', 'electivus.json'), '{}');
-  await writeFile(path.join(packageDir, 'skills', 'apex-log-viewer-cli', 'SKILL.md'), 'skill');
   await writeFile(path.join(packageDir, 'oclif.manifest.json'), '{}');
 
   const result = await mod.stageSfPluginPackage({ repoRoot, outDir });
@@ -46,9 +54,9 @@ test('stageSfPluginPackage writes a publishable manifest and copies declared fil
   const manifest = JSON.parse(await fs.readFile(path.join(outDir, 'package.json'), 'utf8'));
   assert.equal(manifest.name, '@electivus/plugin-electivus');
   assert.equal('private' in manifest, false);
-  assert.deepEqual(result.files, ['bin', 'lib', 'messages', 'skills', 'oclif.manifest.json']);
+  assert.deepEqual(result.files, ['bin', 'lib', 'messages', 'oclif.manifest.json']);
   assert.equal(await fs.readFile(path.join(outDir, 'bin', 'run.js'), 'utf8'), 'runner');
-  assert.equal(await fs.readFile(path.join(outDir, 'skills', 'apex-log-viewer-cli', 'SKILL.md'), 'utf8'), 'skill');
+  await assert.rejects(fs.access(path.join(outDir, 'skills')));
 });
 
 test('stageSfPluginPackage fails when build artifacts are missing', async () => {

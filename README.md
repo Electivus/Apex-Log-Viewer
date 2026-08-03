@@ -12,6 +12,7 @@ Search downloaded Salesforce Apex logs inside VS Code, jump straight to the righ
 ![Downloads](https://img.shields.io/visual-studio-marketplace/d/electivus.apex-log-viewer)
 ![Rating](https://img.shields.io/visual-studio-marketplace/r/electivus.apex-log-viewer)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+[![skills.sh](https://skills.sh/b/Electivus/Apex-Log-Viewer)](https://skills.sh/Electivus/Apex-Log-Viewer)
 
 ## What It Does Best
 
@@ -74,11 +75,23 @@ sf electivus log status --target-org my-org
 The VS Code extension and plugin are independent adapters over the private shared `@alv/core`. The extension bundles the core directly and never packages or spawns the plugin, so extension users do not install the plugin. The published plugin provides the same camelCase JSON operations for terminal and agent workflows.
 The standalone plugin runs on Node.js 22.19+; extension users get the compatible runtime through VS Code 1.105+.
 
-Install the companion Codex skill for agent workflows with:
+## Apex Log Viewer Agent Skill
+
+Preview the repository's portable Agent Skill without installing it:
 
 ```bash
-sf electivus skill install
+npx skills add Electivus/Apex-Log-Viewer --list
 ```
+
+From a Salesforce project, install `apex-log-viewer-cli` for the agents detected by the standard `skills` CLI:
+
+```bash
+npx skills add Electivus/Apex-Log-Viewer --skill apex-log-viewer-cli
+```
+
+Project scope is the default. Review and commit the generated `skills-lock.json` so the team records the source, selected skill, and content hash. The same Agent Skills-compatible package works with Claude Code, Codex, GitHub Copilot, Devin, and other clients that implement the shared format; the repository smoke test exercises the four named agents with the pinned real installer.
+
+See [Agent Skill installation and migration](docs/AGENT-SKILL.md) for global installation, updates, lockfile restoration, and verify-first cleanup of copies created by the former plugin installer.
 
 ## Usage
 

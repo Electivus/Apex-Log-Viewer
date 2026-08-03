@@ -1,5 +1,11 @@
 # Testing
 
+## Agent Skill distribution
+
+`node --test scripts/skills-distribution.test.js` exercises the pinned real `skills` CLI against the neutral repository catalog. It verifies discovery, creates a disposable Git remote, installs into isolated project and home roots for Claude Code, Codex, GitHub Copilot, and Devin, compares deterministic lock hashes, checks optional metadata, enforces portable instructions, and validates active installation and migration guidance. The test accepts the installer's supported copy, symlink, or junction behavior by reading through each agent's public project skill path.
+
+The distribution test is part of `pnpm run test:scripts`. Remote GitHub discovery and the skills.sh catalog page remain post-merge checks because the changed source is unavailable on the default branch before merge and catalog ranking follows remote installation telemetry.
+
 This project uses three test layers:
 
 - Node-only extension tests for modules that can run without a real `vscode` host.

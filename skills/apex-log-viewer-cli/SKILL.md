@@ -1,37 +1,52 @@
 ---
 name: apex-log-viewer-cli
-description: Use the Apex Log Viewer Salesforce CLI plugin for Apex log investigation, local log sync/read/triage, org resolution, debug level and trace flag operations, and read-only Tooling API checks. Trigger when Codex needs to inspect Apex logs with `sf electivus`, operate on local `apexlogs/` caches, diagnose Salesforce log failures, manage trace flags or debug levels through the ALV plugin, or safely run Apex Log Viewer agent workflows.
+description: Use the Apex Log Viewer Salesforce CLI plugin for Apex log investigation, local log sync/read/triage, org resolution, debug level and trace flag operations, and read-only Tooling API checks. Trigger when an agent needs to inspect Apex logs with `sf electivus`, operate on local `apexlogs/` caches, diagnose Salesforce log failures, manage trace flags or debug levels through the ALV plugin, or safely run Apex Log Viewer agent workflows.
 ---
 
 # Apex Log Viewer Salesforce CLI Plugin
 
 Use the standalone `sf electivus` plugin for terminal workflows. It and the VS Code extension are independent adapters over the same TypeScript core; the extension does not install or execute the plugin.
 
-## Start
+## Start With Doctor
 
 Run from the Salesforce workspace whose `apexlogs/` cache should be read or updated:
 
-```bash
-command -v sf >/dev/null
+```text
 sf electivus doctor --json
 ```
 
-If the user names an org or alias, pass it explicitly on every org-backed command:
+If the user names an org or alias, pass it explicitly on the doctor command and every later org-backed command:
 
-```bash
+```text
 sf electivus doctor --target-org my-org --json
 sf electivus org resolve --target-org my-org --json
 ```
 
-Authentication comes from Salesforce CLI state. Never expose access tokens, session IDs, auth URLs, full logs, or org-sensitive payloads unless the user explicitly requests that exact artifact.
+Read `runtimeVersion`, `platform`, `arch`, `workspaceRoot`, `apexlogsRoot`, and every reported check before choosing an operation. Treat `runtimeVersion` as the first compatibility signal, not proof that a particular command exists.
 
-Preview installing or refreshing this skill from the plugin without writing:
+Before relying on an operation that may be absent from an older plugin, verify its public command help, for example:
 
-```bash
-sf electivus skill install --dry-run --json
+```text
+sf electivus log triage --help
 ```
 
-Only after the user explicitly approves replacing the installed skill, run `sf electivus skill install --force --json`. This command does not use `--yes`.
+Only attempt the operation when its help succeeds and describes the expected command. Do not guess a command from these instructions when the installed plugin does not expose it.
+
+If `doctor` is unavailable because the plugin is missing, explain the failure and offer this exact action without running it:
+
+```text
+sf plugins install @electivus/plugin-electivus
+```
+
+If the installed plugin is incompatible or lacks a required operation, explain the observed version or missing capability and offer this exact action without running it:
+
+```text
+sf plugins install @electivus/plugin-electivus@latest --force
+```
+
+Wait for explicit user intent before installing or updating the plugin. Diagnosis alone never authorizes an environment change.
+
+Authentication comes from Salesforce CLI state. Never expose access tokens, session IDs, auth URLs, full logs, or org-sensitive payloads unless the user explicitly requests that exact artifact.
 
 ## JSON Contract
 
@@ -41,20 +56,20 @@ Use `--json` for agent workflows. Salesforce CLI wraps a successful command valu
 
 Inspect the local sync state first. `log status` reads the workspace cache; `log list` performs a read-only Tooling API query for the latest remote metadata:
 
-```bash
+```text
 sf electivus log status --target-org my-org --json
 sf electivus log list --target-org my-org --limit 20 --json
 ```
 
 Sync only when the local cache is missing required logs. This reads the Salesforce Tooling API and writes the canonical store under `apexlogs/`:
 
-```bash
+```text
 sf electivus log sync --target-org my-org --concurrency 6 --json
 ```
 
 Resolve or triage exact IDs with flags, not positional arguments:
 
-```bash
+```text
 sf electivus log resolve --log-id 07L000000000001AAA --target-org my-org --json
 sf electivus log triage --log-id 07L000000000001AAA --target-org my-org --json
 ```
@@ -67,13 +82,13 @@ Repeat `--log-id` to triage or delete multiple logs. The canonical layout is `ap
 
 Search users with an explicit query before targeting user-specific trace flags:
 
-```bash
+```text
 sf electivus user search --query "Ada Lovelace" --target-org my-org --limit 10 --json
 ```
 
 Inspect current configuration before changing it:
 
-```bash
+```text
 sf electivus debug-level list --target-org my-org --json
 sf electivus debug-level get --target-org my-org --developer-name ALV_DEBUG --json
 sf electivus trace-flag status --target-org my-org --current-user --json
@@ -83,16 +98,15 @@ Supply exactly one trace target: `--current-user`, `--user-id <005...>`, `--auto
 
 ## Writes
 
-These commands mutate Salesforce state or the local Codex installation and require explicit user intent before live execution:
+These commands mutate Salesforce state and require explicit user intent before live execution:
 
 - `log delete`
 - `trace-flag apply` and `trace-flag remove`
 - `debug-level create`, `debug-level update`, and `debug-level delete`
-- `skill install`
 
-Preview Salesforce writes first:
+Preview writes first:
 
-```bash
+```text
 sf electivus log delete --target-org my-org --log-id 07L000000000001AAA --dry-run --json
 sf electivus trace-flag apply --target-org my-org --current-user --debug-level ALV_DEBUG --ttl-minutes 30 --dry-run --json
 sf electivus debug-level create --target-org my-org --developer-name ALV_DEBUG --master-label ALV_DEBUG --dry-run --json
@@ -100,7 +114,7 @@ sf electivus debug-level create --target-org my-org --developer-name ALV_DEBUG -
 
 Execute only the Salesforce operation the user approved, and include `--yes`:
 
-```bash
+```text
 sf electivus trace-flag apply --target-org my-org --current-user --debug-level ALV_DEBUG --ttl-minutes 30 --yes --json
 ```
 
@@ -110,13 +124,23 @@ Never run live `log delete --scope all` unless the user specifically asks to del
 
 Prefer typed commands. Use raw Tooling only for read-only gaps, with required values passed as flags:
 
-```bash
+```text
 sf electivus tooling query --soql "SELECT Id, StartTime, Operation, Status FROM ApexLog ORDER BY StartTime DESC LIMIT 5" --target-org my-org --json
 sf electivus tooling get --path "/services/data/v61.0/tooling/query/?q=SELECT+Id+FROM+ApexLog+LIMIT+1" --target-org my-org --json
 ```
 
-Do not attempt raw POST, PATCH, or DELETE through this skill. Use typed commands and their preview/confirmation controls for writes.
+Do not use raw Tooling requests to mutate Salesforce state.
 
-## Runtime Boundary
+## Update This Skill
 
-The Rust app-server, daemon transports, catch-all command parser, and embedded extension plugin runner are removed. For terminal automation, use the standalone `sf electivus ... --json` surface. For extension development, call `@alv/core` through the extension adapter instead of spawning the plugin.
+Only when the user explicitly asks to update this Agent Skill, use the standard updater from the project that owns its `skills-lock.json`:
+
+```text
+npx skills update apex-log-viewer-cli --project -y
+```
+
+For an explicitly requested global-scope update, use `npx skills update apex-log-viewer-cli --global -y`. Never install, remove, or update the Agent Skill merely because the user is investigating logs.
+
+## Output Discipline
+
+Report the resolved org, the commands run, counts and IDs needed for the task, local paths written, and any warnings or failures. Keep secrets and log bodies out of summaries unless the user explicitly asks for them.
