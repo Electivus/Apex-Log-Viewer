@@ -11,6 +11,7 @@
     "/bin",
     "/lib",
     "/messages",
+    "/README.md",
     "/LICENSE",
     "/THIRD_PARTY_NOTICES.md",
     "/oclif.manifest.json"
