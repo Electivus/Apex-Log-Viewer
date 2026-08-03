@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Breaking Changes
+
+- Agent Skill/Salesforce CLI: remove `sf electivus skill install` and stop bundling the Agent Skill in `@electivus/plugin-electivus`; install `apex-log-viewer-cli` with `npx skills add Electivus/Apex-Log-Viewer --skill apex-log-viewer-cli`, verify the portable installation, and only then manually remove a legacy agent-home copy.
+
+### Features
+
+- Agent Skill: publish the vendor-neutral source from `skills/apex-log-viewer-cli`, add runtime capability checks and standard update guidance, pin `skills@1.5.21`, and validate project installation for Claude Code, Codex, GitHub Copilot, and Devin.
+
 ## [0.54.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.52.1...v0.54.0) (2026-07-29)
 
 ### Bug Fixes

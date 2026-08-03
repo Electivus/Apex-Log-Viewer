@@ -34,7 +34,6 @@ test('plugin exposes class-per-command singular taxonomy', async () => {
     'electivus:log:triage',
     'electivus:org:list',
     'electivus:org:resolve',
-    'electivus:skill:install',
     'electivus:tooling:get',
     'electivus:tooling:query',
     'electivus:trace-flag:apply',

@@ -1,21 +1,24 @@
 # Repository Guidelines
 
 ## Scope
+
 - This file defines guidance for the whole repository.
 
 ## Project Structure
+
 - `apps/vscode-extension/` contains the VS Code extension host, extension-only adapters under `src/host`, tests, packaging scripts, and bundled media.
 - `packages/core/` contains the private Salesforce and local-log business core shared by both product surfaces.
 - `packages/protocol/` contains the private, VS Code-free extension/webview message contract.
 - `packages/webview/` contains the webview React UI.
-- `packages/sf-plugin/` contains class-per-command Salesforce CLI adapters and plugin-only skill installation.
+- `packages/sf-plugin/` contains class-per-command Salesforce CLI adapters.
 - `test/e2e/` contains Playwright scratch-org E2E specs, fixtures, and utilities.
 - `config/` holds scratch-org configuration.
 - `docs/` holds architecture/testing/publishing notes and plan docs.
 - `scripts/` contains build/test helper scripts.
-- `.codex/skills/` contains bundled Codex skill packages.
+- `skills/` contains the neutral, portable Agent Skills catalog; `apex-log-viewer-cli` is installed and updated only through the standard `skills` CLI.
 
 ## Shared Runtime Strategy
+
 - Treat the VS Code extension and Salesforce CLI plugin as separate adapters over private `@alv/core`.
 - Implement shared behavior in `packages/core` without VS Code or oclif dependencies, then expose it through a class-per-command `sf electivus ...` adapter and the extension's in-process core client.
 - The extension bundles `@alv/core` into `dist/extension.js`; never add an embedded plugin runner or a child-process command bridge.
@@ -25,8 +28,10 @@
 - For log-local workflows, treat the org-first `apexlogs/orgs/<safe-org>/logs/...` layout as the canonical structure while preserving the existing `<safeUser>_<logId>.log` files for backward compatibility; during the transition both layouts may coexist, but avoid introducing additional cache layouts.
 - Treat `apexlogs/.alv/sync-state.json` as the shared incremental-sync contract for both surfaces; preserve backward-readable state fields and avoid breaking extension or CLI consumers when evolving it.
 - When a CLI flag overlaps with familiar Salesforce CLI behavior, prefer the `sf`-style spelling such as `--target-org`.
+- Keep Agent Skill distribution outside the Salesforce CLI plugin. Do not add a plugin command, npm artifact lane, or agent-home filesystem writer for skill installation.
 
 ## Build and Development
+
 - Use Node `24` via `.nvmrc`.
 - Install deps with `pnpm install --frozen-lockfile`.
 - Clean generated outputs with `pnpm run clean`.
@@ -65,6 +70,7 @@
 - Regenerate extension icon and banner assets with `pnpm run build:icon` and `pnpm run build:assets`.
 
 ## Real Org E2E and Operations
+
 - Corporate proxy/MITM E2E lab: `pnpm run test:e2e:proxy-lab`; pass a child command after `--` such as `pnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli`. Real-org proxy-lab runs require `SF_DEVHUB_AUTH_URL`.
 - GitHub real-org E2E is pool-only in `.github/workflows/e2e-playwright.yml`: configure repository variable `SF_SCRATCH_POOL_NAME` plus secret `SF_DEVHUB_AUTH_URL`; parallel workflow runs are bounded by the pool's atomic slot leases and wait for capacity instead of using a workflow-level concurrency lock.
 - Direct macOS real-org E2E installs Salesforce CLI under Node 20 and exports the wrapper through `ALV_SF_BIN_PATH`; preserve that isolation when changing Salesforce CLI/runtime setup.
@@ -76,6 +82,7 @@
 - Azure Monitor infrastructure helpers: preview with `pnpm run azure:monitor:what-if`; deploy with `pnpm run azure:monitor:deploy`.
 
 ## VS Code Test Runtime Policy
+
 - Follow the official VS Code testing guidance literally: CLI-driven extension tests should default to VS Code `stable`.
 - Use VS Code `Insiders` for day-to-day extension development/debugging when you need a separate running instance from the CLI test target.
 - Keep unit, integration, and Playwright/E2E test defaults aligned with `stable` unless you are intentionally validating another build via `VSCODE_TEST_VERSION` or `--vscode=...`.
@@ -84,6 +91,7 @@
 - Test generic Webview Session mechanics through its public interface in `apps/vscode-extension/src/node-test/webviewSession.test.ts`; keep provider tests focused on surface-owned snapshots, presentation/workflow policy, validated interactions, errors, and recovery outcomes rather than duplicating session timer, retry, generation, or disposal cases.
 
 ## Commit and Pull Request Guidelines
+
 - Use Conventional Commits (for example `feat(logs): add filter`, `fix(tail): handle missing CLI`).
 - PRs should include build/test results.
 - Update `CHANGELOG.md` for user-facing changes.
@@ -92,13 +100,14 @@
 ## Releases (stable vs pre-release)
 
 This repo follows the VS Code Marketplace pre-release convention:
+
 - **Even minor versions** (for example `0.26.x`) are **stable** releases.
 - **Odd minor versions** (for example `0.25.x`) are **pre-releases**.
 
 ### Stable release checklist (even minor only)
 
 1. **Collect changes since the last stable release** (previous even minor).
-   - Release notes in `CHANGELOG.md` should cover *everything* since the last stable tag, even if some changes shipped earlier as odd-minor pre-releases.
+   - Release notes in `CHANGELOG.md` should cover _everything_ since the last stable tag, even if some changes shipped earlier as odd-minor pre-releases.
 2. **Update `CHANGELOG.md`**
    - Move items from `Unreleased` into a new version section `## [X.Y.Z]`.
 3. **Bump versions**
@@ -125,6 +134,7 @@ Nightly pre-releases are managed by `.github/workflows/prerelease.yml`, which pa
 See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 
 ## Security and Configuration Tips
+
 - Salesforce CLI (`sf`/`sfdx`) is required for runtime usage.
 - Never commit tokens or org-sensitive data.
 - Run dependency/provenance checks with `pnpm run security:dependency-sources` and `pnpm run security:pnpm-signatures`.
@@ -132,6 +142,7 @@ See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 - `*.log` and `*.txt` are forbidden in commits and rejected by `.github/workflows/forbid-sensitive-files.yml`.
 
 ## JavaScript REPL (Node)
+
 - Use `js_repl` for Node-backed JavaScript with top-level await in a persistent kernel. `codex.state` persists for the session (best effort) and is cleared by `js_repl_reset`.
 - `js_repl` is a freeform/custom tool. Direct `js_repl` calls must send raw JavaScript tool input (optionally with first-line `// codex-js-repl: timeout_ms=15000`). Do not wrap code in JSON (for example `{"code":"..."}`), quotes, or markdown code fences.
 - Helpers: `codex.state`, `codex.tmpDir`, and `codex.tool(name, args?)`.

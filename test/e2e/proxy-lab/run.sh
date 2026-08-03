@@ -17,7 +17,6 @@ HOST_GENERATED_PATHS=(
   "packages/core/lib"
   "packages/protocol/lib"
   "packages/sf-plugin/lib"
-  "packages/sf-plugin/skills"
   "packages/sf-plugin/oclif.manifest.json"
   "packages/sf-plugin/oclif.lock"
 )
