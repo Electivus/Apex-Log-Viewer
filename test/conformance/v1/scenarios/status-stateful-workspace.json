@@ -10,6 +10,14 @@
   "workspace": {
     "before": [
       {
+        "path": "a.txt",
+        "content": "project file"
+      },
+      {
+        "path": "a/x",
+        "content": "nested project file"
+      },
+      {
         "path": "apexlogs/.alv/sync-state.json",
         "content": "{\"version\":1,\"orgs\":{\"demo@example.com\":{\"lastSyncStartedAt\":\"2026-08-04T12:00:00.000Z\",\"lastSyncCompletedAt\":\"2026-08-04T12:00:01.000Z\",\"lastSyncedLogId\":\"07L000000000020AAA\",\"lastSyncedStartTime\":\"2026-08-04T11:59:00.000Z\",\"existingCount\":3,\"materializedCount\":1,\"downloadedCount\":2,\"failedCount\":0}}}"
       },
@@ -39,6 +47,14 @@
       }
     ],
     "after": [
+      {
+        "path": "a.txt",
+        "content": "project file"
+      },
+      {
+        "path": "a/x",
+        "content": "nested project file"
+      },
       {
         "path": "apexlogs/.alv/sync-state.json",
         "content": "{\"version\":1,\"orgs\":{\"demo@example.com\":{\"lastSyncStartedAt\":\"2026-08-04T12:00:00.000Z\",\"lastSyncCompletedAt\":\"2026-08-04T12:00:01.000Z\",\"lastSyncedLogId\":\"07L000000000020AAA\",\"lastSyncedStartTime\":\"2026-08-04T11:59:00.000Z\",\"existingCount\":3,\"materializedCount\":1,\"downloadedCount\":2,\"failedCount\":0}}}"

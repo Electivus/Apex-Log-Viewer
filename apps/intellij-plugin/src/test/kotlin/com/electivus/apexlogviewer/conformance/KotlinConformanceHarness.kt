@@ -73,7 +73,11 @@ internal object KotlinConformanceHarness {
             }
 
             assertEquals(scenario["description"].asString, scenario["expected"], outcome)
-            assertEquals("$id workspace effects", workspace["after"], readWorkspace(workspaceRoot))
+            assertEquals(
+                "$id workspace effects",
+                sortedWorkspace(workspace["after"].asJsonArray),
+                readWorkspace(workspaceRoot),
+            )
         } finally {
             deleteRecursively(workspaceRoot)
         }
@@ -182,15 +186,24 @@ internal object KotlinConformanceHarness {
     private fun readWorkspace(root: Path): JsonArray =
         JsonArray().apply {
             Files.walk(root).use { paths ->
-                paths.filter(Files::isRegularFile).sorted().forEach { file ->
-                    add(
+                paths.filter(Files::isRegularFile)
+                    .map { file ->
                         JsonObject().apply {
                             addProperty("path", root.relativize(file).invariantSeparatorsPathString)
                             addProperty("content", Files.readString(file, StandardCharsets.UTF_8))
-                        },
-                    )
-                }
+                        }
+                    }
+                    .toList()
+                    .sortedBy { it["path"].asString }
+                    .forEach(::add)
             }
+        }
+
+    private fun sortedWorkspace(entries: JsonArray): JsonArray =
+        JsonArray().apply {
+            entries.map { it.asJsonObject.deepCopy() }
+                .sortedBy { it["path"].asString }
+                .forEach(::add)
         }
 
     private fun deleteRecursively(root: Path) {
@@ -203,6 +216,10 @@ internal object KotlinConformanceHarness {
 
 private class ScriptedProcessDouble(interactions: JsonArray) : RuntimeProcess {
     private val remaining = interactions.map { it.asJsonObject.deepCopy() }.toMutableList()
+
+    init {
+        assertUnambiguousRequests(remaining, "process")
+    }
 
     override suspend fun execute(request: ProcessRequest): ProcessResponse {
         val requestJson = JsonObject().apply {
@@ -223,6 +240,10 @@ private class ScriptedProcessDouble(interactions: JsonArray) : RuntimeProcess {
 private class ScriptedHttpDouble(interactions: JsonArray) : RuntimeHttp {
     private val remaining = interactions.map { it.asJsonObject.deepCopy() }.toMutableList()
 
+    init {
+        assertUnambiguousRequests(remaining, "HTTP")
+    }
+
     override suspend fun execute(request: HttpRequest): HttpResponse {
         val requestJson = JsonObject().apply {
             addProperty("method", request.method)
@@ -239,10 +260,15 @@ private class ScriptedHttpDouble(interactions: JsonArray) : RuntimeHttp {
         }
         val interaction = takeMatching(remaining, requestJson, "HTTP")
         val response = interaction["response"].asJsonObject
+        val body = response.get("body")?.takeUnless(JsonElement::isJsonNull)
         return HttpResponse(
             status = response["status"].asInt,
             headers = response["headers"].asJsonObject.entrySet().associate { it.key to it.value.asString },
-            body = response.get("body")?.takeUnless(JsonElement::isJsonNull)?.toString(),
+            body = when {
+                body == null -> null
+                body.isJsonPrimitive && body.asJsonPrimitive.isString -> body.asString
+                else -> body.toString()
+            },
         )
     }
 
@@ -255,4 +281,13 @@ private fun takeMatching(remaining: MutableList<JsonObject>, request: JsonObject
     val index = remaining.indexOfFirst { it["request"] == request }
     check(index >= 0) { "unexpected $boundary request: $request" }
     return remaining.removeAt(index)
+}
+
+private fun assertUnambiguousRequests(interactions: List<JsonObject>, boundary: String) {
+    interactions.forEachIndexed { index, interaction ->
+        val duplicate = interactions.take(index).firstOrNull { it["request"] == interaction["request"] }
+        check(duplicate == null) {
+            "ambiguous $boundary request shared by interactions ${duplicate?.get("id")?.asString} and ${interaction["id"].asString}"
+        }
+    }
 }

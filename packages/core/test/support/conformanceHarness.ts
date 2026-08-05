@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
 import Ajv2020 from 'ajv/dist/2020.js';
 
@@ -86,10 +87,27 @@ function takeMatching<TInteraction extends { id: string; request: unknown }>(
   return remaining.splice(index, 1)[0]!;
 }
 
+function assertUnambiguousRequests<TInteraction extends { id: string; request: unknown }>(
+  interactions: TInteraction[],
+  boundary: string
+): void {
+  for (const [index, interaction] of interactions.entries()) {
+    const duplicate = interactions
+      .slice(0, index)
+      .find(candidate => isDeepStrictEqual(candidate.request, interaction.request));
+    assert.equal(
+      duplicate,
+      undefined,
+      `ambiguous ${boundary} request shared by interactions ${duplicate?.id} and ${interaction.id}`
+    );
+  }
+}
+
 class ScriptedProcessDouble {
   readonly #remaining: ProcessInteraction[];
 
   public constructor(interactions: ProcessInteraction[]) {
+    assertUnambiguousRequests(interactions, 'process');
     this.#remaining = structuredClone(interactions);
   }
 
@@ -110,6 +128,7 @@ class ScriptedHttpDouble {
   readonly #remaining: HttpInteraction[];
 
   public constructor(interactions: HttpInteraction[]) {
+    assertUnambiguousRequests(interactions, 'HTTP');
     this.#remaining = structuredClone(interactions);
   }
 
@@ -168,8 +187,7 @@ function strictRemote(
         method: 'GET',
         url: `${connection.instanceUrl}/services/data/v${connection.apiVersion}/tooling/query?q=${encodeURIComponent(soql)}`,
         headers: {
-          Authorization: `Bearer ${connection.accessToken}`,
-          'X-Workspace-Root': workspaceRoot
+          Authorization: `Bearer ${connection.accessToken}`
         }
       });
       assert.ok(response.status >= 200 && response.status < 300, `Tooling request failed with ${response.status}`);
@@ -217,6 +235,10 @@ async function readWorkspace(root: string, current = root): Promise<WorkspaceFil
     }
   }
   return files;
+}
+
+function sortedWorkspace(files: WorkspaceFile[]): WorkspaceFile[] {
+  return [...files].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
 }
 
 async function executeScenario(scenario: ConformanceScenario, workspaceRoot: string): Promise<unknown> {
@@ -289,8 +311,8 @@ export async function runTypeScriptConformance(): Promise<void> {
       const outcome = await executeScenario(scenario, workspaceRoot);
       assert.deepEqual(outcome, scenario.expected, scenario.description);
       assert.deepEqual(
-        await readWorkspace(workspaceRoot),
-        scenario.workspace.after,
+        sortedWorkspace(await readWorkspace(workspaceRoot)),
+        sortedWorkspace(scenario.workspace.after),
         `${scenario.id} workspace effects`
       );
     } finally {

@@ -62,12 +62,7 @@ private class DefaultApexLogViewerRuntime(
 ) : ApexLogViewerRuntime {
     override suspend fun logStatus(request: LogStatusRequest): LogStatusResult {
         val workspaceRoot = request.workspaceRoot
-        if (!workspaceRoot.isAbsolute) {
-            throw ApexLogViewerRuntimeException(
-                code = "local-persistence",
-                message = "Apex log workspace root must be an absolute path.",
-            )
-        }
+        requireAbsoluteWorkspace(workspaceRoot)
 
         val targetOrg = request.targetOrg?.trim().takeUnless { it.isNullOrEmpty() } ?: "default"
         val apexlogsRoot = workspaceRoot.resolve("apexlogs")
@@ -108,23 +103,24 @@ private class DefaultApexLogViewerRuntime(
     }
 
     override suspend fun logList(request: LogListRequest): List<LogListRow> {
-        if (!request.workspaceRoot.isAbsolute) {
-            throw ApexLogViewerRuntimeException(
-                code = "local-persistence",
-                message = "Apex log workspace root must be an absolute path.",
-            )
-        }
+        requireAbsoluteWorkspace(request.workspaceRoot)
         val targetOrg = request.username.trim()
         if (targetOrg.isEmpty()) {
             throw ApexLogViewerRuntimeException("org-resolution", "A target org is required.")
         }
-        val processResponse = dependencies.process.execute(
-            ProcessRequest(
-                executable = "sf",
-                arguments = listOf("org", "display", "--target-org", targetOrg, "--json"),
-                cwd = request.workspaceRoot,
-            ),
-        )
+        val processResponse = try {
+            dependencies.process.execute(
+                ProcessRequest(
+                    executable = "sf",
+                    arguments = listOf("org", "display", "--target-org", targetOrg, "--json"),
+                    cwd = request.workspaceRoot,
+                ),
+            )
+        } catch (error: ApexLogViewerRuntimeException) {
+            throw error
+        } catch (error: Exception) {
+            throw ApexLogViewerRuntimeException("org-resolution", "Salesforce org resolution failed.", error)
+        }
         if (processResponse.exitCode != 0) {
             throw ApexLogViewerRuntimeException("org-resolution", "Salesforce org resolution failed.")
         }
@@ -145,16 +141,19 @@ private class DefaultApexLogViewerRuntime(
         val soql = "SELECT Id, StartTime, Operation, Status, LogLength FROM ApexLog " +
             "ORDER BY StartTime DESC, Id DESC LIMIT $limit"
         val encodedSoql = URLEncoder.encode(soql, StandardCharsets.UTF_8).replace("+", "%20")
-        val httpResponse = dependencies.http.execute(
-            HttpRequest(
-                method = "GET",
-                url = "${connection.instanceUrl}/services/data/v${connection.apiVersion}/tooling/query?q=$encodedSoql",
-                headers = mapOf(
-                    "Authorization" to "Bearer ${connection.accessToken}",
-                    "X-Workspace-Root" to request.workspaceRoot.toString(),
+        val httpResponse = try {
+            dependencies.http.execute(
+                HttpRequest(
+                    method = "GET",
+                    url = "${connection.instanceUrl}/services/data/v${connection.apiVersion}/tooling/query?q=$encodedSoql",
+                    headers = mapOf("Authorization" to "Bearer ${connection.accessToken}"),
                 ),
-            ),
-        )
+            )
+        } catch (error: ApexLogViewerRuntimeException) {
+            throw error
+        } catch (error: Exception) {
+            throw ApexLogViewerRuntimeException("remote-acquisition", "Salesforce Tooling request failed.", error)
+        }
         if (httpResponse.status !in 200..299) {
             throw ApexLogViewerRuntimeException(
                 "remote-acquisition",
@@ -181,6 +180,15 @@ private class DefaultApexLogViewerRuntime(
     }
 
     override fun close() = Unit
+
+    private fun requireAbsoluteWorkspace(workspaceRoot: Path) {
+        if (!workspaceRoot.isAbsolute) {
+            throw ApexLogViewerRuntimeException(
+                code = "local-persistence",
+                message = "Apex log workspace root must be an absolute path.",
+            )
+        }
+    }
 
     private fun readSyncState(apexlogsRoot: Path): Map<String, JsonObject> {
         val stateFile = apexlogsRoot.resolve(".alv").resolve("sync-state.json")

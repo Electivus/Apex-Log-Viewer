@@ -11,7 +11,7 @@ Each scenario declares:
 
 `<workspace>` in public requests and scripted process/HTTP values is replaced with a fresh absolute temporary directory for each runner. Paths in observable results are normalized back to forward-slash `<workspace>/...` values before comparison. Workspace file paths are always relative and cannot escape the temporary directory.
 
-The doubles match complete requests without relying on invocation order. Unexpected or unconsumed interactions fail the runner. Scenarios must not encode private class structure, helper calls, or incidental concurrency order.
+The doubles match complete requests without relying on invocation order. Each scripted request must be unique within its boundary; ambiguous duplicates, unexpected calls, and unconsumed interactions fail the runner. Scenarios must not encode private class structure, helper calls, or incidental concurrency order.
 
 Run both facades with:
 
