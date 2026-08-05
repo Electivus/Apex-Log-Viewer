@@ -21,11 +21,13 @@
           "arguments": ["org", "display", "--target-org", "demo@example.com", "--json"],
           "cwd": "<workspace>"
         },
-        "response": {
-          "exitCode": 0,
-          "stdout": "{\"status\":0,\"result\":{\"username\":\"demo@example.com\",\"instanceUrl\":\"https://example.my.salesforce.com\",\"accessToken\":\"test-token\",\"apiVersion\":\"63.0\"}}",
-          "stderr": ""
-        }
+        "responses": [
+          {
+            "exitCode": 0,
+            "stdout": "{\"status\":0,\"result\":{\"username\":\"demo@example.com\",\"instanceUrl\":\"https://example.my.salesforce.com\",\"accessToken\":\"test-token\",\"apiVersion\":\"63.0\"}}",
+            "stderr": ""
+          }
+        ]
       }
     ],
     "http": [
@@ -38,13 +40,15 @@
             "Authorization": "Bearer test-token"
           }
         },
-        "response": {
-          "status": 200,
-          "headers": {
-            "content-type": "application/json"
-          },
-          "body": "{\"records\":[{\"Id\":\"07L000000000022AAA\",\"StartTime\":\"2026-08-05T01:00:00.000Z\",\"Operation\":\"Execute Anonymous\",\"Status\":\"Success\",\"LogLength\":123}]}"
-        }
+        "responses": [
+          {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json"
+            },
+            "body": "{\"records\":[{\"Id\":\"07L000000000022AAA\",\"StartTime\":\"2026-08-05T01:00:00.000Z\",\"Operation\":\"Execute Anonymous\",\"Status\":\"Success\",\"LogLength\":123}]}"
+          }
+        ]
       }
     ]
   },

@@ -16,16 +16,24 @@ type WorkspaceFile = {
   content: string;
 };
 
-type ProcessInteraction = {
-  id: string;
-  request: { executable: string; arguments: string[]; cwd?: string };
-  response: { exitCode: number; stdout: string; stderr: string };
-};
+type ProcessResponse = { exitCode: number; stdout: string; stderr: string };
 
-type HttpInteraction = {
+type HttpResponse = { status: number; headers: Record<string, string>; body?: unknown };
+
+type ScriptedInteraction<TRequest, TResponse> = {
   id: string;
-  request: { method: string; url: string; headers?: Record<string, string>; body?: unknown };
-  response: { status: number; headers: Record<string, string>; body?: unknown };
+  request: TRequest;
+} & ({ response: TResponse; responses?: never } | { response?: never; responses: TResponse[] });
+
+type ProcessRequest = { executable: string; arguments: string[]; cwd?: string };
+type HttpRequest = { method: string; url: string; headers?: Record<string, string>; body?: unknown };
+type ProcessInteraction = ScriptedInteraction<ProcessRequest, ProcessResponse>;
+type HttpInteraction = ScriptedInteraction<HttpRequest, HttpResponse>;
+
+type QueuedInteraction<TRequest, TResponse> = {
+  id: string;
+  request: TRequest;
+  responses: TResponse[];
 };
 
 type ConformanceScenario = {
@@ -70,11 +78,21 @@ function normalizeWorkspacePaths(value: unknown, workspaceRoot: string): unknown
       : value;
 }
 
-function takeMatching<TInteraction extends { id: string; request: unknown }>(
-  remaining: TInteraction[],
-  request: unknown,
+function queueInteractions<TRequest, TResponse>(
+  interactions: ScriptedInteraction<TRequest, TResponse>[]
+): QueuedInteraction<TRequest, TResponse>[] {
+  return interactions.map(interaction => ({
+    id: interaction.id,
+    request: structuredClone(interaction.request),
+    responses: structuredClone(interaction.responses ?? [interaction.response!])
+  }));
+}
+
+function takeMatching<TRequest, TResponse>(
+  remaining: QueuedInteraction<TRequest, TResponse>[],
+  request: TRequest,
   boundary: string
-): TInteraction {
+): TResponse {
   const index = remaining.findIndex(interaction => {
     try {
       assert.deepEqual(interaction.request, request);
@@ -84,7 +102,11 @@ function takeMatching<TInteraction extends { id: string; request: unknown }>(
     }
   });
   assert.notEqual(index, -1, `unexpected ${boundary} request: ${JSON.stringify(request)}`);
-  return remaining.splice(index, 1)[0]!;
+  const interaction = remaining[index]!;
+  const response = interaction.responses.shift();
+  assert.notEqual(response, undefined, `exhausted ${boundary} responses for interaction ${interaction.id}`);
+  if (interaction.responses.length === 0) remaining.splice(index, 1);
+  return response!;
 }
 
 function assertUnambiguousRequests<TInteraction extends { id: string; request: unknown }>(
@@ -104,15 +126,15 @@ function assertUnambiguousRequests<TInteraction extends { id: string; request: u
 }
 
 class ScriptedProcessDouble {
-  readonly #remaining: ProcessInteraction[];
+  readonly #remaining: QueuedInteraction<ProcessRequest, ProcessResponse>[];
 
   public constructor(interactions: ProcessInteraction[]) {
     assertUnambiguousRequests(interactions, 'process');
-    this.#remaining = structuredClone(interactions);
+    this.#remaining = queueInteractions(interactions);
   }
 
-  public run(request: ProcessInteraction['request']): ProcessInteraction['response'] {
-    return takeMatching(this.#remaining, request, 'process').response;
+  public run(request: ProcessRequest): ProcessResponse {
+    return takeMatching(this.#remaining, request, 'process');
   }
 
   public assertSatisfied(): void {
@@ -125,15 +147,15 @@ class ScriptedProcessDouble {
 }
 
 class ScriptedHttpDouble {
-  readonly #remaining: HttpInteraction[];
+  readonly #remaining: QueuedInteraction<HttpRequest, HttpResponse>[];
 
   public constructor(interactions: HttpInteraction[]) {
     assertUnambiguousRequests(interactions, 'HTTP');
-    this.#remaining = structuredClone(interactions);
+    this.#remaining = queueInteractions(interactions);
   }
 
-  public request(request: HttpInteraction['request']): HttpInteraction['response'] {
-    return takeMatching(this.#remaining, request, 'HTTP').response;
+  public request(request: HttpRequest): HttpResponse {
+    return takeMatching(this.#remaining, request, 'HTTP');
   }
 
   public assertSatisfied(): void {

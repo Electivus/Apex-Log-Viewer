@@ -215,7 +215,7 @@ internal object KotlinConformanceHarness {
 }
 
 private class ScriptedProcessDouble(interactions: JsonArray) : RuntimeProcess {
-    private val remaining = interactions.map { it.asJsonObject.deepCopy() }.toMutableList()
+    private val remaining = queueInteractions(interactions)
 
     init {
         assertUnambiguousRequests(remaining, "process")
@@ -227,18 +227,17 @@ private class ScriptedProcessDouble(interactions: JsonArray) : RuntimeProcess {
             add("arguments", JsonArray().apply { request.arguments.forEach { add(it) } })
             request.cwd?.let { addProperty("cwd", it.toString()) }
         }
-        val interaction = takeMatching(remaining, requestJson, "process")
-        val response = interaction["response"].asJsonObject
+        val response = takeMatching(remaining, requestJson, "process")
         return ProcessResponse(response["exitCode"].asInt, response["stdout"].asString, response["stderr"].asString)
     }
 
     fun assertSatisfied() {
-        assertTrue("unconsumed process interactions: ${remaining.map { it["id"].asString }}", remaining.isEmpty())
+        assertTrue("unconsumed process interactions: ${remaining.map { it.id }}", remaining.isEmpty())
     }
 }
 
 private class ScriptedHttpDouble(interactions: JsonArray) : RuntimeHttp {
-    private val remaining = interactions.map { it.asJsonObject.deepCopy() }.toMutableList()
+    private val remaining = queueInteractions(interactions)
 
     init {
         assertUnambiguousRequests(remaining, "HTTP")
@@ -258,8 +257,7 @@ private class ScriptedHttpDouble(interactions: JsonArray) : RuntimeHttp {
             }
             request.body?.let { addProperty("body", it) }
         }
-        val interaction = takeMatching(remaining, requestJson, "HTTP")
-        val response = interaction["response"].asJsonObject
+        val response = takeMatching(remaining, requestJson, "HTTP")
         val body = response.get("body")?.takeUnless(JsonElement::isJsonNull)
         return HttpResponse(
             status = response["status"].asInt,
@@ -273,21 +271,47 @@ private class ScriptedHttpDouble(interactions: JsonArray) : RuntimeHttp {
     }
 
     fun assertSatisfied() {
-        assertTrue("unconsumed HTTP interactions: ${remaining.map { it["id"].asString }}", remaining.isEmpty())
+        assertTrue("unconsumed HTTP interactions: ${remaining.map { it.id }}", remaining.isEmpty())
     }
 }
 
-private fun takeMatching(remaining: MutableList<JsonObject>, request: JsonObject, boundary: String): JsonObject {
-    val index = remaining.indexOfFirst { it["request"] == request }
+private data class QueuedInteraction(
+    val id: String,
+    val request: JsonObject,
+    val responses: ArrayDeque<JsonObject>,
+)
+
+private fun queueInteractions(interactions: JsonArray): MutableList<QueuedInteraction> =
+    interactions.map { element ->
+        val interaction = element.asJsonObject
+        val responses = interaction.getAsJsonArray("responses")?.map { it.asJsonObject.deepCopy() }
+            ?: listOf(interaction["response"].asJsonObject.deepCopy())
+        QueuedInteraction(
+            id = interaction["id"].asString,
+            request = interaction["request"].asJsonObject.deepCopy(),
+            responses = ArrayDeque(responses),
+        )
+    }.toMutableList()
+
+private fun takeMatching(
+    remaining: MutableList<QueuedInteraction>,
+    request: JsonObject,
+    boundary: String,
+): JsonObject {
+    val index = remaining.indexOfFirst { it.request == request }
     check(index >= 0) { "unexpected $boundary request: $request" }
-    return remaining.removeAt(index)
+    val interaction = remaining[index]
+    val response = interaction.responses.removeFirstOrNull()
+        ?: error("exhausted $boundary responses for interaction ${interaction.id}")
+    if (interaction.responses.isEmpty()) remaining.removeAt(index)
+    return response
 }
 
-private fun assertUnambiguousRequests(interactions: List<JsonObject>, boundary: String) {
+private fun assertUnambiguousRequests(interactions: List<QueuedInteraction>, boundary: String) {
     interactions.forEachIndexed { index, interaction ->
-        val duplicate = interactions.take(index).firstOrNull { it["request"] == interaction["request"] }
+        val duplicate = interactions.take(index).firstOrNull { it.request == interaction.request }
         check(duplicate == null) {
-            "ambiguous $boundary request shared by interactions ${duplicate?.get("id")?.asString} and ${interaction["id"].asString}"
+            "ambiguous $boundary request shared by interactions ${duplicate?.id} and ${interaction.id}"
         }
     }
 }
