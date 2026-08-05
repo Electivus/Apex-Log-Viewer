@@ -134,6 +134,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
+      - name: Run dual-runtime conformance
+        run: pnpm run test:conformance
+
       - name: Build and test installable IntelliJ plugin
         run: pnpm run test:intellij-plugin
 

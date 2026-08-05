@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0",
+  "id": "bootstrap-empty-workspace",
+  "description": "An empty workspace reports a stable local bootstrap snapshot without contacting external systems or creating files.",
+  "operation": "log.status",
+  "request": {
+    "workspaceRoot": "<workspace>",
+    "targetOrg": "demo@example.com"
+  },
+  "workspace": {
+    "before": [],
+    "after": []
+  },
+  "doubles": {
+    "process": [],
+    "http": []
+  },
+  "expected": {
+    "result": {
+      "targetOrg": "demo@example.com",
+      "safeTargetOrg": "demo@example.com",
+      "workspaceRoot": "<workspace>",
+      "apexlogsRoot": "<workspace>/apexlogs",
+      "stateFile": "<workspace>/apexlogs/.alv/sync-state.json",
+      "logCount": 0,
+      "hasState": false,
+      "downloadedCount": 0,
+      "cachedCount": 0
+    }
+  }
+}

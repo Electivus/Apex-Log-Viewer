@@ -200,6 +200,9 @@ importers:
         specifier: ^8.32.4
         version: 8.32.4
     devDependencies:
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       tsx:
         specifier: ^4.23.1
         version: 4.23.1

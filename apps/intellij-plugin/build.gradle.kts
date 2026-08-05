@@ -53,5 +53,6 @@ intellijPlatform {
 tasks {
     test {
         useJUnit()
+        systemProperty("alv.conformance.root", rootProject.projectDir.resolve("../../test/conformance").canonicalPath)
     }
 }

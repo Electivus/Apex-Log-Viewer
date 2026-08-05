@@ -30,8 +30,8 @@ test('CI runs the installable IntelliJ plugin validation under cached Java 21', 
   assert.match(job, /cache-dependency-path:[\s\S]*?apps\/intellij-plugin\/gradle\/wrapper\/gradle-wrapper\.properties/);
   assert.match(
     job,
-    /run:\s+node scripts\/check-dependency-sources\.mjs[\s\S]*?run:\s+pnpm install --frozen-lockfile[\s\S]*?run:\s+pnpm run test:intellij-plugin/,
-    'the IntelliJ job must validate dependency provenance and install the frozen workspace before pnpm runs'
+    /run:\s+node scripts\/check-dependency-sources\.mjs[\s\S]*?run:\s+pnpm install --frozen-lockfile[\s\S]*?run:\s+pnpm run test:conformance[\s\S]*?run:\s+pnpm run test:intellij-plugin/,
+    'the IntelliJ job must validate dependencies, run both conformance facades, and then build the plugin'
   );
 });
 

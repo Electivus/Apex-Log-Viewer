@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://electivus.dev/apex-log-viewer/conformance/v1/scenario.schema.json",
+  "title": "Apex Log Viewer dual-runtime conformance scenario v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "description", "operation", "request", "workspace", "doubles", "expected"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "description": { "type": "string", "minLength": 1 },
+    "operation": { "const": "log.status" },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceRoot"],
+      "properties": {
+        "workspaceRoot": { "type": "string", "minLength": 1 },
+        "targetOrg": { "type": "string", "minLength": 1 }
+      }
+    },
+    "workspace": { "$ref": "#/$defs/workspace" },
+    "doubles": { "$ref": "#/$defs/doubles" },
+    "expected": {
+      "oneOf": [{ "$ref": "#/$defs/statusSuccess" }, { "$ref": "#/$defs/failureOutcome" }]
+    }
+  },
+  "$defs": {
+    "statusSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result"],
+      "properties": {
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetOrg",
+            "safeTargetOrg",
+            "workspaceRoot",
+            "apexlogsRoot",
+            "stateFile",
+            "logCount",
+            "hasState",
+            "downloadedCount",
+            "cachedCount"
+          ],
+          "properties": {
+            "targetOrg": { "type": "string", "minLength": 1 },
+            "safeTargetOrg": { "type": "string", "minLength": 1 },
+            "workspaceRoot": { "type": "string", "minLength": 1 },
+            "apexlogsRoot": { "type": "string", "minLength": 1 },
+            "stateFile": { "type": "string", "minLength": 1 },
+            "logCount": { "type": "integer", "minimum": 0 },
+            "hasState": { "type": "boolean" },
+            "lastSyncStartedAt": { "type": "string", "minLength": 1 },
+            "lastSyncCompletedAt": { "type": "string", "minLength": 1 },
+            "lastSyncedLogId": { "type": "string", "minLength": 1 },
+            "lastSyncedStartTime": { "type": "string", "minLength": 1 },
+            "downloadedCount": { "type": "integer", "minimum": 0 },
+            "cachedCount": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "failureOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failure"],
+      "properties": {
+        "failure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code"],
+          "properties": {
+            "code": { "type": "string", "minLength": 1 },
+            "message": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "workspaceFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "content"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+        },
+        "content": { "type": "string" }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["before", "after"],
+      "properties": {
+        "before": { "type": "array", "items": { "$ref": "#/$defs/workspaceFile" } },
+        "after": { "type": "array", "items": { "$ref": "#/$defs/workspaceFile" } }
+      }
+    },
+    "processInteraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "request", "response"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["executable", "arguments"],
+          "properties": {
+            "executable": { "type": "string", "minLength": 1 },
+            "arguments": { "type": "array", "items": { "type": "string" } },
+            "cwd": { "type": "string", "minLength": 1 }
+          }
+        },
+        "response": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["exitCode", "stdout", "stderr"],
+          "properties": {
+            "exitCode": { "type": "integer" },
+            "stdout": { "type": "string" },
+            "stderr": { "type": "string" }
+          }
+        }
+      }
+    },
+    "httpInteraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "request", "response"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "url"],
+          "properties": {
+            "method": { "type": "string", "pattern": "^[A-Z]+$" },
+            "url": { "type": "string", "minLength": 1 },
+            "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+            "body": true
+          }
+        },
+        "response": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "headers", "body"],
+          "properties": {
+            "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+            "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+            "body": true
+          }
+        }
+      }
+    },
+    "doubles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["process", "http"],
+      "properties": {
+        "process": { "type": "array", "items": { "$ref": "#/$defs/processInteraction" } },
+        "http": { "type": "array", "items": { "$ref": "#/$defs/httpInteraction" } }
+      }
+    }
+  }
+}

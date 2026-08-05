@@ -12,10 +12,18 @@ This project uses three test layers:
 - VS Code integration tests (Mocha running inside the Extension Development Host) for activation, commands, providers, and other `vscode`-bound behavior.
 - Playwright E2E tests against a real org across two surfaces: the `sf electivus` plugin and the VS Code extension.
 
+## Dual-runtime conformance
+
+The versioned language-neutral corpus under `test/conformance/` is the public behavioral boundary between the TypeScript core and the native Kotlin IntelliJ runtime. Each JSON scenario declares a public operation, exact JSON DTO or classified failure, real temporary-workspace files before and after execution, and unordered process/HTTP interactions. The runners reject unexpected or unconsumed external calls and normalize only the temporary root and path separators, so semantic drift fails without coupling tests to private class structure or incidental call order.
+
+Run `pnpm run test:conformance` to execute the same v1 scenarios through `createApexLogViewerCore` and `createApexLogViewerRuntime`. The command uses Node from the workspace and resolves Java 21 through the same user/CI environment contract as the IntelliJ packaging tests. It requires neither Salesforce credentials nor a running IDE UI.
+
 ## Commands
 
 - `pnpm run test:webview`: executes the React webview suites under Jest with a jsdom environment (fast, no VS Code host required).
 - `pnpm run test:extension:node`: executes Node-only extension tests under Mocha without launching VS Code.
+- `pnpm run test:conformance`: executes the shared conformance corpus through both public runtime facades.
+- `pnpm run test:intellij-plugin`: runs Kotlin/IntelliJ tests under Java 21 and validates the installable development ZIP.
 - `pnpm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
 - `pnpm run test:integration`: installs dependency extensions if needed and runs integration tests.
 - `pnpm run test:all`: runs the Jest webview suites, the Node-only extension lane, and then both VS Code-hosted scopes.

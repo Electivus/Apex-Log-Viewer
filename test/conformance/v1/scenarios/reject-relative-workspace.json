@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1.0",
+  "id": "reject-relative-workspace",
+  "description": "A relative workspace fails at the public validation boundary before process, HTTP, or filesystem work.",
+  "operation": "log.status",
+  "request": {
+    "workspaceRoot": "relative-workspace",
+    "targetOrg": "demo@example.com"
+  },
+  "workspace": {
+    "before": [],
+    "after": []
+  },
+  "doubles": {
+    "process": [],
+    "http": []
+  },
+  "expected": {
+    "failure": {
+      "code": "local-persistence"
+    }
+  }
+}
