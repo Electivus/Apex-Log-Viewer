@@ -1,10 +1,11 @@
 # Architecture
 
-Apex Log Viewer is a pnpm monorepo with two independent product surfaces over one private TypeScript core.
+Apex Log Viewer is a pnpm monorepo with a VS Code extension and Salesforce CLI plugin over one private TypeScript core, plus an independent native Kotlin IntelliJ plugin kept behaviorally aligned through conformance scenarios.
 
 ```text
 apps/
   vscode-extension/       VS Code host, adapters, tests, packaging, media
+  intellij-plugin/        Native Kotlin runtime, IntelliJ UI, tests, packaging
 packages/
   core/                   Salesforce and local-log business behavior
   protocol/               Extension/webview messages and UI-safe DTOs
@@ -12,6 +13,7 @@ packages/
   webview/                React webview applications
 skills/                   Neutral Agent Skills catalog
 test/e2e/                 Real-org extension and CLI tests
+test/conformance/         Versioned language-neutral runtime scenarios and schemas
 ```
 
 ## Dependency boundaries
@@ -22,8 +24,15 @@ test/e2e/                 Real-org extension and CLI tests
 - `packages/sf-plugin` contains class-per-command `SfCommand` adapters. It depends on the core through `workspace:*`, and the npm staging step materializes `@alv/core` as a bundled private dependency.
 - `packages/webview` imports only `@alv/protocol` for its host contract.
 - `skills/apex-log-viewer-cli` is the canonical Apex Log Viewer Agent Skill source. It depends on the public `sf electivus` contract at use time but is not bundled into, installed by, or lifecycle-coupled to the Salesforce CLI plugin.
+- `apps/intellij-plugin` is a self-contained Java 21 Kotlin implementation. It does not execute the TypeScript core, use a Node sidecar, or depend on `sf electivus`; its public runtime facade conforms through the shared versioned corpus under `test/conformance/`.
 
 The adapters under `apps/vscode-extension/src/shared/` only re-export protocol modules while extension-local telemetry and diagnostics remain in the app.
+
+## Dual-runtime conformance
+
+The TypeScript runner enters through `createApexLogViewerCore`; the Kotlin runner enters through `createApexLogViewerRuntime`. Both consume the same JSON schemas and scenarios directly, create a fresh real workspace per scenario, and inject controllable process and HTTP boundaries. Exact normalized results, classified failures, and final workspace files are the contract. Private helper calls, class decomposition, timestamps, temporary filenames, and incidental request ordering are not.
+
+`pnpm run test:conformance` runs both facades without Salesforce credentials or an IDE UI. New shared behaviors extend the current corpus version when compatible; incompatible semantic changes start a new versioned directory.
 
 ## Extension host
 

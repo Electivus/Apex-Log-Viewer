@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.PathSensitivity
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -50,8 +51,12 @@ intellijPlatform {
     buildSearchableOptions = false
 }
 
+val conformanceCorpus = rootProject.projectDir.resolve("../../test/conformance")
+
 tasks {
     test {
         useJUnit()
+        inputs.dir(conformanceCorpus).withPathSensitivity(PathSensitivity.RELATIVE)
+        systemProperty("alv.conformance.root", conformanceCorpus.canonicalPath)
     }
 }

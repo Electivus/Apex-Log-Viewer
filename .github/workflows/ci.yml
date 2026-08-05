@@ -99,7 +99,11 @@ jobs:
 
   intellij_plugin:
     name: IntelliJ Plugin (Java 21)
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -133,6 +137,9 @@ jobs:
         run: pnpm install --frozen-lockfile
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Run dual-runtime conformance
+        run: pnpm run test:conformance
 
       - name: Build and test installable IntelliJ plugin
         run: pnpm run test:intellij-plugin

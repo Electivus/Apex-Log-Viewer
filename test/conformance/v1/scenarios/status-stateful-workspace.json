@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "1.0",
+  "id": "status-stateful-workspace",
+  "description": "Status resolves local org identity, reads shared sync state, scopes logs by org, and deduplicates canonical and legacy copies.",
+  "operation": "log.status",
+  "request": {
+    "workspaceRoot": "<workspace>",
+    "targetOrg": "demo"
+  },
+  "workspace": {
+    "before": [
+      {
+        "path": "a.txt",
+        "content": "project file"
+      },
+      {
+        "path": "a/x",
+        "content": "nested project file"
+      },
+      {
+        "path": "apexlogs/.alv/sync-state.json",
+        "content": "{\"version\":1,\"orgs\":{\"demo@example.com\":{\"lastSyncStartedAt\":\"2026-08-04T12:00:00.000Z\",\"lastSyncCompletedAt\":\"2026-08-04T12:00:01.000Z\",\"lastSyncedLogId\":\"07L000000000020AAA\",\"lastSyncedStartTime\":\"2026-08-04T11:59:00.000Z\",\"existingCount\":3,\"materializedCount\":1,\"downloadedCount\":2,\"failedCount\":0}}}"
+      },
+      {
+        "path": "apexlogs/demo@example.com_07L000000000019AAA.log",
+        "content": "legacy duplicate"
+      },
+      {
+        "path": "apexlogs/demo@example.com_07L000000000020AAA.log",
+        "content": "legacy only"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/logs/2026-08-04/07L000000000019AAA.log",
+        "content": "canonical duplicate"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/org.json",
+        "content": "{\"version\":1,\"username\":\"demo@example.com\",\"alias\":\"demo\"}"
+      },
+      {
+        "path": "apexlogs/orgs/other@example.com/logs/2026-08-04/07L000000000021AAA.log",
+        "content": "another org"
+      },
+      {
+        "path": "apexlogs/orgs/other@example.com/org.json",
+        "content": "{\"version\":1,\"username\":\"other@example.com\",\"alias\":\"other\"}"
+      }
+    ],
+    "after": [
+      {
+        "path": "a.txt",
+        "content": "project file"
+      },
+      {
+        "path": "a/x",
+        "content": "nested project file"
+      },
+      {
+        "path": "apexlogs/.alv/sync-state.json",
+        "content": "{\"version\":1,\"orgs\":{\"demo@example.com\":{\"lastSyncStartedAt\":\"2026-08-04T12:00:00.000Z\",\"lastSyncCompletedAt\":\"2026-08-04T12:00:01.000Z\",\"lastSyncedLogId\":\"07L000000000020AAA\",\"lastSyncedStartTime\":\"2026-08-04T11:59:00.000Z\",\"existingCount\":3,\"materializedCount\":1,\"downloadedCount\":2,\"failedCount\":0}}}"
+      },
+      {
+        "path": "apexlogs/demo@example.com_07L000000000019AAA.log",
+        "content": "legacy duplicate"
+      },
+      {
+        "path": "apexlogs/demo@example.com_07L000000000020AAA.log",
+        "content": "legacy only"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/logs/2026-08-04/07L000000000019AAA.log",
+        "content": "canonical duplicate"
+      },
+      {
+        "path": "apexlogs/orgs/demo@example.com/org.json",
+        "content": "{\"version\":1,\"username\":\"demo@example.com\",\"alias\":\"demo\"}"
+      },
+      {
+        "path": "apexlogs/orgs/other@example.com/logs/2026-08-04/07L000000000021AAA.log",
+        "content": "another org"
+      },
+      {
+        "path": "apexlogs/orgs/other@example.com/org.json",
+        "content": "{\"version\":1,\"username\":\"other@example.com\",\"alias\":\"other\"}"
+      }
+    ]
+  },
+  "doubles": {
+    "process": [],
+    "http": []
+  },
+  "expected": {
+    "result": {
+      "targetOrg": "demo@example.com",
+      "safeTargetOrg": "demo@example.com",
+      "workspaceRoot": "<workspace>",
+      "apexlogsRoot": "<workspace>/apexlogs",
+      "stateFile": "<workspace>/apexlogs/.alv/sync-state.json",
+      "logCount": 2,
+      "hasState": true,
+      "lastSyncStartedAt": "2026-08-04T12:00:00.000Z",
+      "lastSyncCompletedAt": "2026-08-04T12:00:01.000Z",
+      "lastSyncedLogId": "07L000000000020AAA",
+      "lastSyncedStartTime": "2026-08-04T11:59:00.000Z",
+      "downloadedCount": 2,
+      "cachedCount": 4
+    }
+  }
+}
