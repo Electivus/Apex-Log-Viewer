@@ -19,6 +19,18 @@ function readWorkflowJob(relativePath, jobName) {
   return match[1];
 }
 
+test('CI runs the installable IntelliJ plugin validation under cached Java 21', () => {
+  const job = readWorkflowJob('.github/workflows/ci.yml', 'intellij_plugin');
+
+  assert.match(job, /runs-on:\s+ubuntu-latest/);
+  assert.match(job, /uses:\s+actions\/setup-java@[0-9a-f]{40}/);
+  assert.match(job, /distribution:\s+temurin/);
+  assert.match(job, /java-version:\s+['"]?21['"]?/);
+  assert.match(job, /cache:\s+gradle/);
+  assert.match(job, /cache-dependency-path:[\s\S]*?apps\/intellij-plugin\/gradle\/wrapper\/gradle-wrapper\.properties/);
+  assert.match(job, /run:\s+pnpm run test:intellij-plugin/);
+});
+
 test('package script rebuilds the extension packaging assets that vsce includes', () => {
   const rootPackageJson = JSON.parse(readFile('package.json'));
   const packageScript = String(rootPackageJson.scripts?.package || '');
