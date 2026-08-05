@@ -78,7 +78,7 @@ importers:
         version: 1.18.0
       '@vscode/test-electron':
         specifier: ^3.1.0
-        version: 3.1.0(supports-color@8.1.1)
+        version: 3.1.0
       '@vscode/vsce':
         specifier: ^3.9.2
         version: 3.9.2(supports-color@8.1.1)
@@ -197,8 +197,8 @@ importers:
   packages/core:
     dependencies:
       '@salesforce/core':
-        specifier: ^8.32.4
-        version: 8.32.4
+        specifier: ^9.1.0
+        version: 9.1.0
     devDependencies:
       ajv:
         specifier: ^8.20.0
@@ -222,8 +222,8 @@ importers:
         specifier: ^4.8.0
         version: 4.11.14
       '@salesforce/core':
-        specifier: ^8.32.4
-        version: 8.32.4
+        specifier: ^9.1.0
+        version: 9.1.0
       '@salesforce/sf-plugins-core':
         specifier: ^12.2.26
         version: 12.2.26(@types/node@24.13.3)
@@ -1916,8 +1916,16 @@ packages:
     resolution: {integrity: sha512-0p/nQ24nfPGD0ERp/NHAccgo+66+rDx6c9M88wItDYAMu9+CHcW+FHOLNDAAUsYwinHHVsqVSL8Eyag7gvitqA==}
     engines: {node: '>=18.0.0'}
 
+  '@salesforce/core@9.1.0':
+    resolution: {integrity: sha512-ID9g4YH0yZBeWI0eKJv2IJRRN6ZuNjwpIOjEZm9a79Gzxa3IITsV4PCvD8q7JA3PKqiln57p8yJE458Kn5KW1g==}
+    engines: {node: '>=22.0.0'}
+
   '@salesforce/kit@3.2.6':
     resolution: {integrity: sha512-O8S4LWerHa9Zosqh+IoQjgLtpxMOfObRxaRnUdRV4MLtFUi+bQxQiyFvve6eEaBaMP1b1xVDQpvSvQ+PXEDGFQ==}
+
+  '@salesforce/kit@4.0.0':
+    resolution: {integrity: sha512-VwxhSH/8PQ5YmPAdhmLaJGCgR0n/pOm8T2y+/odMFthd5SA0xsO/kTdaRLFnFQAxxNj1nYtNHRb+BoMuAatzew==}
+    engines: {node: '>=22.0.0'}
 
   '@salesforce/sf-plugins-core@12.2.26':
     resolution: {integrity: sha512-FgGZFwlYIDcD6/8g6+iwv5MNKaCD6r65y+xdX+iqPkIEaEneRVKrcS0tSepmYFi4DG13P0KJwGlCqDOV24g0Bg==}
@@ -1926,6 +1934,10 @@ packages:
   '@salesforce/ts-types@2.0.12':
     resolution: {integrity: sha512-BIJyduJC18Kc8z+arUm5AZ9VkPRyw1KKAm+Tk+9LT99eOzhNilyfKzhZ4t+tG2lIGgnJpmytZfVDZ0e2kFul8g==}
     engines: {node: '>=18.0.0'}
+
+  '@salesforce/ts-types@3.0.1':
+    resolution: {integrity: sha512-NWkveMYT2I3O7EAYwWHi6/ba2YUwp9MFi/zJzA+czK5MVqJfdD6FZbiQrTbALZNvFzgFSdq9BvHm6ygRmtROzw==}
+    engines: {node: '>=22.0.0'}
 
   '@secretlint/config-creator@10.2.2':
     resolution: {integrity: sha512-BynOBe7Hn3LJjb3CqCHZjeNB09s/vgf0baBaHVw67w7gHF0d25c3ZsZ5+vv8TgwSchRdUCRrbbcq5i2B1fJ2QQ==}
@@ -4898,8 +4910,8 @@ packages:
   process-nextick-args@2.0.1:
     resolution: {integrity: sha512-3ouUOpQhtgrbOa17J7+uxOTpITYWaGP7/AhoR3+A+/1e9skrzelGi/dXzEYyvbxubEF6Wn2ypscTKiKJFFn1ag==}
 
-  process-warning@5.0.0:
-    resolution: {integrity: sha512-a39t9ApHNx2L4+HBnQKqxxHNs1r7KF+Intd8Q/g1bUh6q0WIp9voPXJ/x0j+ZL45KF1pJd9+q2jLIRMfvEshkA==}
+  process-warning@5.1.0:
+    resolution: {integrity: sha512-jQSaVHsPgtyw60e1rQ/A+/ArPEj/S8pS/vFnyGa/gYFXrKk/6RuDkoqVDQ5NI5MmS01698ltlAk0NoDBNLujRw==}
 
   process@0.11.10:
     resolution: {integrity: sha512-cdGef/drWFoydD1JsMzuFf8100nZl+GT+yacc2bEced5f9Rjk4z+WtFUTBu9PhOi9j/jfmBPu0mMEY4wIdAF8A==}
@@ -5498,8 +5510,8 @@ packages:
     resolution: {integrity: sha512-tXJwSr9355kFJI3lbCkPpUH5cP8/M0GGy2xLO34aZCjMXBaK3SoPnZwr/oWmo1FdCnELcs4npdCIOFtq9W3ruQ==}
     engines: {node: '>=4'}
 
-  thingies@2.6.0:
-    resolution: {integrity: sha512-rMHRjmlFLM1R96UYPvpmnc3LYtdFrT33JIB7L9hetGue1qAPfn1N2LJeEjxUSidu1Iku+haLZXDuEXUHNGO/lg==}
+  thingies@2.6.1:
+    resolution: {integrity: sha512-cV/CMGTK3M4MlnJ/0At6ismOw/A0EEniDNScajjz/Br3c1sqE72YD01rGpPTKwd27wAxI5Pr+6+0w8yofzFRYw==}
     engines: {node: '>=10.18'}
     peerDependencies:
       tslib: ^2
@@ -7264,7 +7276,7 @@ snapshots:
       '@jsonjoy.com/json-pointer': 1.0.2(tslib@2.8.1)
       '@jsonjoy.com/util': 1.9.0(tslib@2.8.1)
       hyperdyperid: 1.2.0
-      thingies: 2.6.0(tslib@2.8.1)
+      thingies: 2.6.1(tslib@2.8.1)
       tree-dump: 1.1.0(tslib@2.8.1)
       tslib: 2.8.1
 
@@ -7791,9 +7803,35 @@ snapshots:
       ts-retry-promise: 0.8.1
       zod: 4.4.3
 
+  '@salesforce/core@9.1.0':
+    dependencies:
+      '@jsforce/jsforce-node': 3.10.19
+      '@salesforce/kit': 4.0.0
+      '@salesforce/ts-types': 3.0.1
+      ajv: 8.20.0
+      change-case: 4.1.2
+      fast-levenshtein: 3.0.0
+      faye: 1.4.1
+      form-data: 4.0.6
+      js2xmlparser: 4.0.2
+      jsonwebtoken: 9.0.3
+      jszip: 3.10.1
+      memfs: 4.38.1
+      pino: 9.14.0
+      pino-abstract-transport: 1.2.0
+      pino-pretty: 11.3.0
+      proper-lockfile: 4.1.2
+      semver: 7.8.5
+      ts-retry-promise: 0.8.1
+      zod: 4.4.3
+
   '@salesforce/kit@3.2.6':
     dependencies:
       '@salesforce/ts-types': 2.0.12
+
+  '@salesforce/kit@4.0.0':
+    dependencies:
+      '@salesforce/ts-types': 3.0.1
 
   '@salesforce/sf-plugins-core@12.2.26(@types/node@24.13.3)':
     dependencies:
@@ -7814,6 +7852,8 @@ snapshots:
       - utf-8-validate
 
   '@salesforce/ts-types@2.0.12': {}
+
+  '@salesforce/ts-types@3.0.1': {}
 
   '@secretlint/config-creator@10.2.2':
     dependencies:
@@ -8278,8 +8318,8 @@ snapshots:
 
   '@typespec/ts-http-runtime@0.3.6':
     dependencies:
-      http-proxy-agent: 7.0.2(supports-color@8.1.1)
-      https-proxy-agent: 7.0.6(supports-color@8.1.1)
+      http-proxy-agent: 7.0.2
+      https-proxy-agent: 7.0.6
       tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
@@ -8432,10 +8472,10 @@ snapshots:
       '@vscode/ripgrep-win32-ia32': 1.18.0
       '@vscode/ripgrep-win32-x64': 1.18.0
 
-  '@vscode/test-electron@3.1.0(supports-color@8.1.1)':
+  '@vscode/test-electron@3.1.0':
     dependencies:
-      http-proxy-agent: 7.0.2(supports-color@8.1.1)
-      https-proxy-agent: 7.0.6(supports-color@8.1.1)
+      http-proxy-agent: 7.0.2
+      https-proxy-agent: 7.0.6
       jszip: 3.10.1
       ora: 8.2.0
       semver: 7.8.5
@@ -9783,7 +9823,7 @@ snapshots:
 
   http-parser-js@0.5.10: {}
 
-  http-proxy-agent@7.0.2(supports-color@8.1.1):
+  http-proxy-agent@7.0.2:
     dependencies:
       agent-base: 7.1.4
       debug: 4.4.3(supports-color@8.1.1)
@@ -9795,7 +9835,7 @@ snapshots:
       quick-lru: 5.1.1
       resolve-alpn: 1.2.1
 
-  https-proxy-agent@7.0.6(supports-color@8.1.1):
+  https-proxy-agent@7.0.6:
     dependencies:
       agent-base: 7.1.4
       debug: 4.4.3(supports-color@8.1.1)
@@ -10430,8 +10470,8 @@ snapshots:
       data-urls: 5.0.0
       decimal.js: 10.6.0
       html-encoding-sniffer: 4.0.0
-      http-proxy-agent: 7.0.2(supports-color@8.1.1)
-      https-proxy-agent: 7.0.6(supports-color@8.1.1)
+      http-proxy-agent: 7.0.2
+      https-proxy-agent: 7.0.6
       is-potential-custom-element-name: 1.0.1
       nwsapi: 2.2.22
       parse5: 7.3.0
@@ -10721,7 +10761,7 @@ snapshots:
       '@jsonjoy.com/json-pack': 1.21.0(tslib@2.8.1)
       '@jsonjoy.com/util': 1.9.0(tslib@2.8.1)
       glob-to-regex.js: 1.2.0(tslib@2.8.1)
-      thingies: 2.6.0(tslib@2.8.1)
+      thingies: 2.6.1(tslib@2.8.1)
       tree-dump: 1.1.0(tslib@2.8.1)
       tslib: 2.8.1
 
@@ -11151,7 +11191,7 @@ snapshots:
       on-exit-leak-free: 2.1.2
       pino-abstract-transport: 2.0.0
       pino-std-serializers: 7.1.0
-      process-warning: 5.0.0
+      process-warning: 5.1.0
       quick-format-unescaped: 4.0.4
       real-require: 0.2.0
       safe-stable-stringify: 2.5.0
@@ -11221,7 +11261,7 @@ snapshots:
 
   process-nextick-args@2.0.1: {}
 
-  process-warning@5.0.0: {}
+  process-warning@5.1.0: {}
 
   process@0.11.10: {}
 
@@ -11908,7 +11948,7 @@ snapshots:
     dependencies:
       editions: 6.22.0
 
-  thingies@2.6.0(tslib@2.8.1):
+  thingies@2.6.1(tslib@2.8.1):
     dependencies:
       tslib: 2.8.1
 
