@@ -7,6 +7,7 @@
 ## Project Structure
 
 - `apps/vscode-extension/` contains the VS Code extension host, extension-only adapters under `src/host`, tests, packaging scripts, and bundled media.
+- `apps/intellij-plugin/` contains the self-contained Java 21 Kotlin plugin, Gradle wrapper, native IntelliJ UI, and platform tests.
 - `packages/core/` contains the private Salesforce and local-log business core shared by both product surfaces.
 - `packages/protocol/` contains the private, VS Code-free extension/webview message contract.
 - `packages/webview/` contains the webview React UI.
@@ -29,6 +30,7 @@
 - Treat `apexlogs/.alv/sync-state.json` as the shared incremental-sync contract for both surfaces; preserve backward-readable state fields and avoid breaking extension or CLI consumers when evolving it.
 - When a CLI flag overlaps with familiar Salesforce CLI behavior, prefer the `sf`-style spelling such as `--target-org`.
 - Keep Agent Skill distribution outside the Salesforce CLI plugin. Do not add a plugin command, npm artifact lane, or agent-home filesystem writer for skill installation.
+- Treat the IntelliJ plugin as a separate native Kotlin implementation that conforms through language-neutral fixtures; do not execute `@alv/core` through a Node sidecar or depend on `sf electivus`.
 
 ## Build and Development
 
@@ -53,6 +55,7 @@
 - Default local test command: `pnpm test`.
 - Node-only extension suite: `pnpm run test:extension:node`.
 - Shared package and plugin suites: `pnpm run test:core`, `pnpm run test:protocol`, and `pnpm run test:sf-plugin`.
+- IntelliJ shell tests and installable development ZIP validation: `pnpm run test:intellij-plugin` with Java 21.
 - E2E utility Jest suite: `pnpm run test:e2e:utils`.
 - Script/security regression suite: `pnpm run test:scripts`.
 - Unit-focused local test suite: `pnpm run test:unit`.

@@ -1,0 +1,16 @@
+<idea-plugin>
+    <id>com.electivus.apexlogviewer</id>
+    <name>Electivus Apex Log Viewer</name>
+    <vendor>Electivus</vendor>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.idea</depends>
+    <resource-bundle>messages.ApexLogViewerBundle</resource-bundle>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow
+            id="Electivus Apex Log Viewer"
+            anchor="right"
+            factoryClass="com.electivus.apexlogviewer.ui.ApexLogViewerToolWindowFactory" />
+    </extensions>
+</idea-plugin>

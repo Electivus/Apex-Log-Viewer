@@ -11,3 +11,7 @@ _Avoid_: log storage, log download — when referring to the whole lifecycle
 **Apex Log Viewer Agent Skill**:
 The portable `apex-log-viewer-cli` instruction package published from the repository's neutral `skills/` catalog and installed through the cross-agent `skills` CLI.
 _Avoid_: vendor-specific skill names — when referring to the canonical package
+
+**Replay Handoff**:
+The IntelliJ surface ends after opening the dependable raw Apex log in the editor; replay debugging belongs to Illuminated Cloud 2.
+_Avoid_: IntelliJ Replay — when referring to a capability owned by Apex Log Viewer
