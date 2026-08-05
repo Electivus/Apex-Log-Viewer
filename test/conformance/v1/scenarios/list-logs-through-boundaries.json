@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "list-logs-through-boundaries",
+  "description": "Log listing enters the public facade and consumes controllable process and HTTP boundary responses without Salesforce credentials.",
+  "operation": "log.list",
+  "request": {
+    "workspaceRoot": "<workspace>",
+    "username": "demo@example.com",
+    "limit": 2
+  },
+  "workspace": {
+    "before": [],
+    "after": []
+  },
+  "doubles": {
+    "process": [
+      {
+        "id": "resolve-selected-org",
+        "request": {
+          "executable": "sf",
+          "arguments": ["org", "display", "--target-org", "demo@example.com", "--json"],
+          "cwd": "<workspace>"
+        },
+        "response": {
+          "exitCode": 0,
+          "stdout": "{\"status\":0,\"result\":{\"username\":\"demo@example.com\",\"instanceUrl\":\"https://example.my.salesforce.com\",\"accessToken\":\"test-token\",\"apiVersion\":\"63.0\"}}",
+          "stderr": ""
+        }
+      }
+    ],
+    "http": [
+      {
+        "id": "list-apex-logs",
+        "request": {
+          "method": "GET",
+          "url": "https://example.my.salesforce.com/services/data/v63.0/tooling/query?q=SELECT%20Id%2C%20StartTime%2C%20Operation%2C%20Status%2C%20LogLength%20FROM%20ApexLog%20ORDER%20BY%20StartTime%20DESC%2C%20Id%20DESC%20LIMIT%202",
+          "headers": {
+            "Authorization": "Bearer test-token",
+            "X-Workspace-Root": "<workspace>"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body": {
+            "records": [
+              {
+                "Id": "07L000000000022AAA",
+                "StartTime": "2026-08-05T01:00:00.000Z",
+                "Operation": "<workspace>/Execute Anonymous",
+                "Status": "Success",
+                "LogLength": 123
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "expected": {
+    "result": [
+      {
+        "id": "07L000000000022AAA",
+        "startTime": "2026-08-05T01:00:00.000Z",
+        "operation": "<workspace>/Execute Anonymous",
+        "status": "Success",
+        "logLength": 123
+      }
+    ]
+  }
+}

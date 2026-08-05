@@ -9,8 +9,46 @@
     "schemaVersion": { "const": "1.0" },
     "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
     "description": { "type": "string", "minLength": 1 },
-    "operation": { "const": "log.status" },
+    "operation": { "enum": ["log.status", "log.list"] },
     "request": {
+      "oneOf": [{ "$ref": "#/$defs/statusRequest" }, { "$ref": "#/$defs/logListRequest" }]
+    },
+    "workspace": { "$ref": "#/$defs/workspace" },
+    "doubles": { "$ref": "#/$defs/doubles" },
+    "expected": {
+      "oneOf": [
+        { "$ref": "#/$defs/statusSuccess" },
+        { "$ref": "#/$defs/logListSuccess" },
+        { "$ref": "#/$defs/failureOutcome" }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "operation": { "const": "log.status" } }, "required": ["operation"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/statusRequest" },
+          "expected": {
+            "oneOf": [{ "$ref": "#/$defs/statusSuccess" }, { "$ref": "#/$defs/failureOutcome" }]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "log.list" } }, "required": ["operation"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/logListRequest" },
+          "expected": {
+            "oneOf": [{ "$ref": "#/$defs/logListSuccess" }, { "$ref": "#/$defs/failureOutcome" }]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "statusRequest": {
       "type": "object",
       "additionalProperties": false,
       "required": ["workspaceRoot"],
@@ -19,13 +57,16 @@
         "targetOrg": { "type": "string", "minLength": 1 }
       }
     },
-    "workspace": { "$ref": "#/$defs/workspace" },
-    "doubles": { "$ref": "#/$defs/doubles" },
-    "expected": {
-      "oneOf": [{ "$ref": "#/$defs/statusSuccess" }, { "$ref": "#/$defs/failureOutcome" }]
-    }
-  },
-  "$defs": {
+    "logListRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceRoot", "username"],
+      "properties": {
+        "workspaceRoot": { "type": "string", "minLength": 1 },
+        "username": { "type": "string", "minLength": 1 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+      }
+    },
     "statusSuccess": {
       "type": "object",
       "additionalProperties": false,
@@ -59,6 +100,28 @@
             "lastSyncedStartTime": { "type": "string", "minLength": 1 },
             "downloadedCount": { "type": "integer", "minimum": 0 },
             "cachedCount": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "logListSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result"],
+      "properties": {
+        "result": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "startTime": { "type": "string", "minLength": 1 },
+              "operation": { "type": "string", "minLength": 1 },
+              "status": { "type": "string", "minLength": 1 },
+              "logLength": { "type": "integer", "minimum": 0 }
+            }
           }
         }
       }

@@ -3,6 +3,8 @@ package com.electivus.apexlogviewer.conformance
 import com.electivus.apexlogviewer.runtime.ApexLogViewerRuntimeException
 import com.electivus.apexlogviewer.runtime.HttpRequest
 import com.electivus.apexlogviewer.runtime.HttpResponse
+import com.electivus.apexlogviewer.runtime.LogListRequest
+import com.electivus.apexlogviewer.runtime.LogListRow
 import com.electivus.apexlogviewer.runtime.LogStatusRequest
 import com.electivus.apexlogviewer.runtime.LogStatusResult
 import com.electivus.apexlogviewer.runtime.ProcessRequest
@@ -15,6 +17,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.google.gson.JsonPrimitive
 import junit.framework.TestCase.assertEquals
 import junit.framework.TestCase.assertTrue
 import java.nio.charset.StandardCharsets
@@ -47,7 +50,7 @@ internal object KotlinConformanceHarness {
         try {
             val workspace = scenario["workspace"].asJsonObject
             writeWorkspace(workspaceRoot, workspace["before"].asJsonArray)
-            val doubles = scenario["doubles"].asJsonObject
+            val doubles = replaceWorkspaceToken(scenario["doubles"], workspaceRoot).asJsonObject
             val processDouble = ScriptedProcessDouble(doubles["process"].asJsonArray)
             val httpDouble = ScriptedHttpDouble(doubles["http"].asJsonArray)
             val runtime = createApexLogViewerRuntime(RuntimeDependencies(processDouble, httpDouble))
@@ -55,10 +58,14 @@ internal object KotlinConformanceHarness {
             val outcome = try {
                 when (val operation = scenario["operation"].asString) {
                     "log.status" -> successOutcome(runtime.logStatus(statusRequest(scenario["request"].asJsonObject, workspaceRoot)), workspaceRoot)
+                    "log.list" -> successOutcome(runtime.logList(logListRequest(scenario["request"].asJsonObject, workspaceRoot)), workspaceRoot)
                     else -> error("unsupported Kotlin conformance operation: $operation")
                 }
             } catch (failure: ApexLogViewerRuntimeException) {
-                failureOutcome(failure.code)
+                failureOutcome(
+                    failure,
+                    scenario["expected"].asJsonObject.getAsJsonObject("failure")?.has("message") == true,
+                )
             } finally {
                 runtime.close()
                 processDouble.assertSatisfied()
@@ -76,6 +83,13 @@ internal object KotlinConformanceHarness {
         LogStatusRequest(
             workspaceRoot = Path.of(request["workspaceRoot"].asString.replace(WORKSPACE_TOKEN, workspaceRoot.toString())),
             targetOrg = request.get("targetOrg")?.asString,
+        )
+
+    private fun logListRequest(request: JsonObject, workspaceRoot: Path): LogListRequest =
+        LogListRequest(
+            workspaceRoot = Path.of(request["workspaceRoot"].asString.replace(WORKSPACE_TOKEN, workspaceRoot.toString())),
+            username = request["username"].asString,
+            limit = request.get("limit")?.asInt ?: 50,
         )
 
     private fun successOutcome(result: LogStatusResult, workspaceRoot: Path): JsonObject =
@@ -100,9 +114,35 @@ internal object KotlinConformanceHarness {
             )
         }
 
-    private fun failureOutcome(code: String): JsonObject =
+    private fun successOutcome(result: List<LogListRow>, workspaceRoot: Path): JsonObject =
         JsonObject().apply {
-            add("failure", JsonObject().apply { addProperty("code", code) })
+            add(
+                "result",
+                JsonArray().apply {
+                    result.forEach { row ->
+                        add(
+                            JsonObject().apply {
+                                addProperty("id", row.id)
+                                row.startTime?.let { addProperty("startTime", it) }
+                                row.operation?.let { addProperty("operation", normalizeWorkspacePath(it, workspaceRoot)) }
+                                row.status?.let { addProperty("status", it) }
+                                row.logLength?.let { addProperty("logLength", it) }
+                            },
+                        )
+                    }
+                },
+            )
+        }
+
+    private fun failureOutcome(failure: ApexLogViewerRuntimeException, includeMessage: Boolean): JsonObject =
+        JsonObject().apply {
+            add(
+                "failure",
+                JsonObject().apply {
+                    addProperty("code", failure.code)
+                    if (includeMessage) addProperty("message", failure.message)
+                },
+            )
         }
 
     private fun normalizeWorkspacePath(value: String, workspaceRoot: Path): String {
@@ -113,6 +153,20 @@ internal object KotlinConformanceHarness {
             normalizedValue.startsWith("$normalizedRoot/") -> WORKSPACE_TOKEN + normalizedValue.removePrefix(normalizedRoot)
             else -> value
         }
+    }
+
+    private fun replaceWorkspaceToken(value: JsonElement, workspaceRoot: Path): JsonElement = when {
+        value.isJsonArray -> JsonArray().apply {
+            value.asJsonArray.forEach { add(replaceWorkspaceToken(it, workspaceRoot)) }
+        }
+        value.isJsonObject -> JsonObject().apply {
+            value.asJsonObject.entrySet().forEach { (name, element) ->
+                add(name, replaceWorkspaceToken(element, workspaceRoot))
+            }
+        }
+        value.isJsonPrimitive && value.asJsonPrimitive.isString ->
+            JsonPrimitive(value.asString.replace(WORKSPACE_TOKEN, workspaceRoot.toString()))
+        else -> value.deepCopy()
     }
 
     private fun writeWorkspace(root: Path, entries: JsonArray) {

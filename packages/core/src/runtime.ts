@@ -1181,7 +1181,8 @@ export function createApexLogViewerCore(
     callOptions: CoreCallOptions | undefined,
     run: (signal?: AbortSignal) => Promise<T>
   ) => instrumentedCall(options.instrumentation, method, callOptions, run);
-  const rawLogLifecycle = createApexLogLifecycle({ remote: options.apexLogRemote ?? createRuntimeApexLogRemote() });
+  const apexLogRemote = options.apexLogRemote ?? createRuntimeApexLogRemote();
+  const rawLogLifecycle = createApexLogLifecycle({ remote: apexLogRemote });
   const lifecycleCall = <T>(
     method: string,
     callOptions: ApexLogCallOptions | undefined,
@@ -1267,7 +1268,25 @@ export function createApexLogViewerCore(
     },
     log: {
       list: (params: LogsListParams = {}, callOptions?: CoreCallOptions) =>
-        call('log.list', callOptions, signal => listLogsNative(params, signal)),
+        call('log.list', callOptions, async signal => {
+          if (!options.apexLogRemote) return listLogsNative(params, signal);
+          const org = await apexLogRemote.resolveOrg(params.username, signal);
+          const rows = await apexLogRemote.listLogs(
+            {
+              org,
+              limit: clampInt(params.limit, 50, 1, 200),
+              cursor: params.cursor
+            },
+            signal
+          );
+          return rows.map(row => ({
+            id: row.logId,
+            startTime: row.startTime,
+            operation: row.operation,
+            status: row.status,
+            logLength: row.logLength
+          }));
+        }),
       sync: (params: LogsSyncParams = {}, callOptions?: CoreCallOptions) =>
         call('log.sync', callOptions, async signal => {
           const workspaceRoot = asString(params.workspaceRoot);

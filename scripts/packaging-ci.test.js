@@ -22,7 +22,7 @@ function readWorkflowJob(relativePath, jobName) {
 test('CI runs the installable IntelliJ plugin validation under cached Java 21', () => {
   const job = readWorkflowJob('.github/workflows/ci.yml', 'intellij_plugin');
 
-  assert.match(job, /runs-on:\s+ubuntu-latest/);
+  assert.match(job, /matrix:[\s\S]*?os:\s*\[ubuntu-latest, windows-latest\][\s\S]*?runs-on:\s+\$\{\{ matrix\.os \}\}/);
   assert.match(job, /uses:\s+actions\/setup-java@[0-9a-f]{40}/);
   assert.match(job, /distribution:\s+temurin/);
   assert.match(job, /java-version:\s+['"]?21['"]?/);
@@ -33,6 +33,14 @@ test('CI runs the installable IntelliJ plugin validation under cached Java 21', 
     /run:\s+node scripts\/check-dependency-sources\.mjs[\s\S]*?run:\s+pnpm install --frozen-lockfile[\s\S]*?run:\s+pnpm run test:conformance[\s\S]*?run:\s+pnpm run test:intellij-plugin/,
     'the IntelliJ job must validate dependencies, run both conformance facades, and then build the plugin'
   );
+});
+
+test('Gradle invalidates Kotlin conformance when the shared corpus changes', () => {
+  const build = readFile('apps/intellij-plugin/build.gradle.kts');
+
+  assert.match(build, /val conformanceCorpus = rootProject\.projectDir\.resolve\("\.\.\/\.\.\/test\/conformance"\)/);
+  assert.match(build, /inputs\.dir\(conformanceCorpus\)\.withPathSensitivity\(PathSensitivity\.RELATIVE\)/);
+  assert.match(build, /systemProperty\("alv\.conformance\.root", conformanceCorpus\.canonicalPath\)/);
 });
 
 test('package script rebuilds the extension packaging assets that vsce includes', () => {

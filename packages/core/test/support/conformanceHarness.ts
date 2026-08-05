@@ -126,18 +126,62 @@ class ScriptedHttpDouble {
   }
 }
 
-function strictRemote(processDouble: ScriptedProcessDouble, httpDouble: ScriptedHttpDouble): ApexLogRemote {
+function strictRemote(
+  processDouble: ScriptedProcessDouble,
+  httpDouble: ScriptedHttpDouble,
+  workspaceRoot: string
+): ApexLogRemote {
+  let connection: { username: string; instanceUrl: string; accessToken: string; apiVersion: string } | undefined;
   return {
     async resolveOrg(targetOrg) {
-      processDouble.run({
+      const response = processDouble.run({
         executable: 'sf',
-        arguments: ['org', 'display', '--target-org', String(targetOrg || ''), '--json']
+        arguments: ['org', 'display', '--target-org', String(targetOrg || ''), '--json'],
+        cwd: workspaceRoot
       });
-      throw new Error('The initial corpus does not define remote org resolution.');
+      assert.equal(response.exitCode, 0, `sf org display failed: ${response.stderr}`);
+      const envelope = JSON.parse(response.stdout) as {
+        status?: number;
+        result?: Record<string, unknown>;
+      };
+      const result = envelope.result;
+      assert.equal(envelope.status, 0, 'sf org display returned a failure envelope');
+      assert.ok(result, 'sf org display omitted its result');
+      connection = {
+        username: String(result.username || ''),
+        instanceUrl: String(result.instanceUrl || '').replace(/\/+$/, ''),
+        accessToken: String(result.accessToken || ''),
+        apiVersion: String(result.apiVersion || '63.0')
+      };
+      assert.ok(connection.username, 'sf org display omitted username');
+      assert.ok(connection.instanceUrl, 'sf org display omitted instanceUrl');
+      assert.ok(connection.accessToken, 'sf org display omitted accessToken');
+      return { username: connection.username, instanceUrl: connection.instanceUrl };
     },
     async listLogs(request) {
-      httpDouble.request({ method: 'GET', url: `conformance://logs/${request.org.username}` });
-      throw new Error('The initial corpus does not define remote log listing.');
+      assert.ok(connection, 'log listing requires resolved connection material');
+      assert.equal(request.org.username, connection.username);
+      const soql =
+        'SELECT Id, StartTime, Operation, Status, LogLength FROM ApexLog ' +
+        `ORDER BY StartTime DESC, Id DESC LIMIT ${request.limit}`;
+      const response = httpDouble.request({
+        method: 'GET',
+        url: `${connection.instanceUrl}/services/data/v${connection.apiVersion}/tooling/query?q=${encodeURIComponent(soql)}`,
+        headers: {
+          Authorization: `Bearer ${connection.accessToken}`,
+          'X-Workspace-Root': workspaceRoot
+        }
+      });
+      assert.ok(response.status >= 200 && response.status < 300, `Tooling request failed with ${response.status}`);
+      const body = typeof response.body === 'string' ? JSON.parse(response.body) : response.body;
+      const records = (body as { records?: Array<Record<string, unknown>> } | undefined)?.records ?? [];
+      return records.map(record => ({
+        logId: String(record.Id || ''),
+        ...(record.StartTime === undefined ? {} : { startTime: String(record.StartTime) }),
+        ...(record.Operation === undefined ? {} : { operation: String(record.Operation) }),
+        ...(record.Status === undefined ? {} : { status: String(record.Status) }),
+        ...(record.LogLength === undefined ? {} : { logLength: Number(record.LogLength) })
+      }));
     },
     async readBody(request) {
       httpDouble.request({ method: 'GET', url: `conformance://logs/${request.logId}/body` });
@@ -176,9 +220,10 @@ async function readWorkspace(root: string, current = root): Promise<WorkspaceFil
 }
 
 async function executeScenario(scenario: ConformanceScenario, workspaceRoot: string): Promise<unknown> {
-  const processDouble = new ScriptedProcessDouble(scenario.doubles.process);
-  const httpDouble = new ScriptedHttpDouble(scenario.doubles.http);
-  const core = createApexLogViewerCore({ apexLogRemote: strictRemote(processDouble, httpDouble) });
+  const doubles = replaceWorkspaceToken(scenario.doubles, workspaceRoot) as ConformanceScenario['doubles'];
+  const processDouble = new ScriptedProcessDouble(doubles.process);
+  const httpDouble = new ScriptedHttpDouble(doubles.http);
+  const core = createApexLogViewerCore({ apexLogRemote: strictRemote(processDouble, httpDouble, workspaceRoot) });
   const request = replaceWorkspaceToken(scenario.request, workspaceRoot) as JsonObject;
 
   try {
@@ -186,6 +231,9 @@ async function executeScenario(scenario: ConformanceScenario, workspaceRoot: str
     switch (scenario.operation) {
       case 'log.status':
         result = await core.log.status(request);
+        break;
+      case 'log.list':
+        result = await core.log.list(request);
         break;
       default:
         assert.fail(`unsupported TypeScript conformance operation: ${scenario.operation}`);

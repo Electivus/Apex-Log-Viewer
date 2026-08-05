@@ -17,7 +17,8 @@
   },
   "expected": {
     "failure": {
-      "code": "local-persistence"
+      "code": "local-persistence",
+      "message": "Apex log workspace root must be an absolute path."
     }
   }
 }
