@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
+const { gradleWrapperInvocation } = require('./intellij-gradle-wrapper');
 const { java21ProcessEnvironment, javaTool, resolveJava21Home } = require('./intellij-java-home');
 
 const repositoryRoot = path.resolve(__dirname, '..');
@@ -18,12 +19,14 @@ function extractArchive(archive, destination, javaHome) {
   });
 }
 
-function testAndBuildPlugin(wrapper, javaHome) {
-  const args = ['--no-daemon', 'clean', 'test', 'buildPlugin'];
-  const command = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : wrapper;
-  const commandArgs = process.platform === 'win32' ? ['/d', '/c', wrapper, ...args] : args;
+function testAndBuildPlugin(javaHome) {
+  const invocation = gradleWrapperInvocation({
+    gradleArgs: ['--no-daemon', 'clean', 'test', 'buildPlugin'],
+    javaHome,
+    pluginRoot
+  });
 
-  execFileSync(command, commandArgs, {
+  execFileSync(invocation.command, invocation.args, {
     cwd: pluginRoot,
     env: java21ProcessEnvironment(javaHome),
     stdio: 'inherit'
@@ -35,11 +38,13 @@ test(
   { timeout: 30 * 60 * 1000 },
   () => {
     const wrapper = path.join(pluginRoot, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew');
+    const wrapperJar = path.join(pluginRoot, 'gradle', 'wrapper', 'gradle-wrapper.jar');
     assert.ok(fs.existsSync(wrapper), 'the checked-in Gradle wrapper must exist');
+    assert.ok(fs.existsSync(wrapperJar), 'the checked-in Gradle wrapper JAR must exist');
     const javaHome = resolveJava21Home();
     console.log(`Using Java 21 from ${javaHome}`);
 
-    testAndBuildPlugin(wrapper, javaHome);
+    testAndBuildPlugin(javaHome);
 
     const distributions = path.join(pluginRoot, 'build', 'distributions');
     const zipNames = fs.readdirSync(distributions).filter(name => name.endsWith('.zip'));

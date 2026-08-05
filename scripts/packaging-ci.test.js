@@ -28,7 +28,11 @@ test('CI runs the installable IntelliJ plugin validation under cached Java 21', 
   assert.match(job, /java-version:\s+['"]?21['"]?/);
   assert.match(job, /cache:\s+gradle/);
   assert.match(job, /cache-dependency-path:[\s\S]*?apps\/intellij-plugin\/gradle\/wrapper\/gradle-wrapper\.properties/);
-  assert.match(job, /run:\s+pnpm run test:intellij-plugin/);
+  assert.match(
+    job,
+    /run:\s+node scripts\/check-dependency-sources\.mjs[\s\S]*?run:\s+pnpm install --frozen-lockfile[\s\S]*?run:\s+pnpm run test:intellij-plugin/,
+    'the IntelliJ job must validate dependency provenance and install the frozen workspace before pnpm runs'
+  );
 });
 
 test('package script rebuilds the extension packaging assets that vsce includes', () => {
