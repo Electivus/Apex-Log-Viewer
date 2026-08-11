@@ -14,7 +14,13 @@ const extensionMode = {
 function loadTelemetryModule() {
   const created: string[] = [];
   const errorEvents: Array<{ name: string; properties?: Record<string, string> }> = [];
+  const dangerousErrorEvents: Array<{ name: string; properties?: Record<string, string> }> = [];
   const usageEvents: Array<{
+    measurements?: Record<string, number>;
+    name: string;
+    properties?: Record<string, string>;
+  }> = [];
+  const dangerousUsageEvents: Array<{
     measurements?: Record<string, number>;
     name: string;
     properties?: Record<string, string>;
@@ -41,6 +47,20 @@ function loadTelemetryModule() {
       return { name, properties };
     }
 
+    sendDangerousTelemetryEvent(
+      name: string,
+      properties?: Record<string, string>,
+      measurements?: Record<string, number>
+    ) {
+      dangerousUsageEvents.push({ name, properties, measurements });
+      return { name, properties, measurements };
+    }
+
+    sendDangerousTelemetryErrorEvent(name: string, properties?: Record<string, string>) {
+      dangerousErrorEvents.push({ name, properties });
+      return { name, properties };
+    }
+
     dispose() {
       disposeCount++;
     }
@@ -57,6 +77,8 @@ function loadTelemetryModule() {
 
   return {
     created,
+    dangerousErrorEvents,
+    dangerousUsageEvents,
     errorEvents,
     getDisposeCount: () => disposeCount,
     setThrowOnSendEvent: (value: boolean) => {
@@ -304,16 +326,43 @@ suite('telemetry', () => {
     process.env.ALV_TEST_TELEMETRY_CONNECTION_STRING = 'test-conn';
     process.env.ALV_TEST_TELEMETRY_RUN_ID = '123e4567-e89b-12d3-a456-426614174000';
 
-    const { telemetry, usageEvents } = loadTelemetryModule();
+    const { dangerousErrorEvents, dangerousUsageEvents, errorEvents, telemetry, usageEvents } = loadTelemetryModule();
 
     telemetry.activateTelemetry(createContext(extensionMode.Test));
     telemetry.safeSendEvent('logs.refresh', { outcome: 'ok' });
+    telemetry.safeSendException('cli.exec', { code: 'ENOENT' });
 
-    assert.equal(usageEvents.length, 1);
-    assert.deepEqual(usageEvents[0]?.properties, {
+    assert.equal(usageEvents.length, 0);
+    assert.equal(errorEvents.length, 0);
+    assert.equal(dangerousUsageEvents.length, 1);
+    assert.deepEqual(dangerousUsageEvents[0]?.properties, {
       outcome: 'ok',
       testRunId: '123e4567-e89b-12d3-a456-426614174000'
     });
+    assert.equal(dangerousErrorEvents.length, 1);
+    assert.deepEqual(dangerousErrorEvents[0]?.properties, {
+      code: 'ENOENT',
+      outcome: 'error',
+      testRunId: '123e4567-e89b-12d3-a456-426614174000'
+    });
+    telemetry.disposeTelemetry();
+  });
+
+  test('never bypasses production telemetry consent when test environment variables leak', () => {
+    delete process.env.APPLICATIONINSIGHTS_CONNECTION_STRING;
+    delete process.env.VSCODE_TELEMETRY_CONNECTION_STRING;
+    process.env.ALV_ENABLE_TEST_TELEMETRY = '1';
+    process.env.ALV_TEST_TELEMETRY_CONNECTION_STRING = 'test-conn';
+    process.env.ALV_TEST_TELEMETRY_RUN_ID = '123e4567-e89b-12d3-a456-426614174000';
+
+    const { dangerousUsageEvents, telemetry, usageEvents } = loadTelemetryModule();
+
+    telemetry.activateTelemetry(createContext(extensionMode.Production));
+    telemetry.safeSendEvent('logs.refresh', { outcome: 'ok' });
+
+    assert.equal(dangerousUsageEvents.length, 0);
+    assert.equal(usageEvents.length, 1);
+    assert.deepEqual(usageEvents[0]?.properties, { outcome: 'ok' });
     telemetry.disposeTelemetry();
   });
 });
