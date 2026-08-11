@@ -8,12 +8,15 @@
 
 ### Features
 
-- IntelliJ: bootstrap an installable native Kotlin shell for IDEA 2026.1–2026.2 with lazy Logs and Debug Flags tabs, project-scoped disposal, and English/Brazilian Portuguese bundles.
+- IntelliJ: add the native Logs surface with CLI-default-aware org selection, stable keyset pagination, explicit full-catalog download, progressive Unified Log Search, persisted native settings, and English/Brazilian Portuguese bundles; Debug Flags are intentionally outside the first-release scope.
+- IntelliJ/Viewer: add the native Parsed Log Viewer with Debug, SOQL, DML, and Errors perspectives, in-view search, structured triage, raw-event navigation, selected-row copying, and explicit raw-log opening.
+- IntelliJ/Illuminated Cloud 2: add optional Replay Handoff through the public `IlluminatedCloud.LogAnalyzer.Open` action after dependable local materialization, without a binary dependency on Illuminated Cloud implementation classes.
 - Agent Skill: publish the vendor-neutral source from `skills/apex-log-viewer-cli`, add runtime capability checks and standard update guidance, pin `skills@1.5.21`, and validate project installation for Claude Code, Codex, GitHub Copilot, and Devin.
 
 ### Tests
 
 - IntelliJ/TypeScript: add a versioned language-neutral conformance corpus that runs through both public runtime facades with real temporary workspaces and strict process/HTTP doubles.
+- IntelliJ: cover native org discovery, stable catalog cursors, progressive body search, atomic concurrent materialization, authentication retry, parsed multiline debug entries, structured triage, retention protection, registered actions/editors, localization, and plugin lifecycle behavior.
 
 ## [0.54.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.52.1...v0.54.0) (2026-07-29)
 

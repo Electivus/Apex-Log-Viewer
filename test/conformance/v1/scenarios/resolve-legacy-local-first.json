@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0",
+  "id": "resolve-legacy-local-first",
+  "description": "Both runtimes preserve legacy local-log compatibility without authenticating to Salesforce.",
+  "operation": "log.resolve",
+  "request": {
+    "workspaceRoot": "<workspace>",
+    "targetOrg": "demo@example.com",
+    "logId": "07L000000000102AAA"
+  },
+  "workspace": {
+    "before": [
+      {
+        "path": "apexlogs/demo@example.com_07L000000000102AAA.log",
+        "content": "12:00:00.000 (1)|EXECUTION_STARTED|\n"
+      }
+    ],
+    "after": [
+      {
+        "path": "apexlogs/demo@example.com_07L000000000102AAA.log",
+        "content": "12:00:00.000 (1)|EXECUTION_STARTED|\n"
+      }
+    ]
+  },
+  "doubles": { "process": [], "http": [] },
+  "expected": {
+    "result": {
+      "logId": "07L000000000102AAA",
+      "path": "<workspace>/apexlogs/demo@example.com_07L000000000102AAA.log",
+      "cached": true
+    }
+  }
+}

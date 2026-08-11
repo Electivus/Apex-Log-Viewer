@@ -9,9 +9,14 @@
     "schemaVersion": { "const": "1.0" },
     "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
     "description": { "type": "string", "minLength": 1 },
-    "operation": { "enum": ["log.status", "log.list"] },
+    "operation": { "enum": ["log.status", "log.list", "log.resolve", "log.triage"] },
     "request": {
-      "oneOf": [{ "$ref": "#/$defs/statusRequest" }, { "$ref": "#/$defs/logListRequest" }]
+      "oneOf": [
+        { "$ref": "#/$defs/statusRequest" },
+        { "$ref": "#/$defs/logListRequest" },
+        { "$ref": "#/$defs/logResolveRequest" },
+        { "$ref": "#/$defs/triageRequest" }
+      ]
     },
     "workspace": { "$ref": "#/$defs/workspace" },
     "doubles": { "$ref": "#/$defs/doubles" },
@@ -19,6 +24,8 @@
       "oneOf": [
         { "$ref": "#/$defs/statusSuccess" },
         { "$ref": "#/$defs/logListSuccess" },
+        { "$ref": "#/$defs/logResolveSuccess" },
+        { "$ref": "#/$defs/triageSuccess" },
         { "$ref": "#/$defs/failureOutcome" }
       ]
     }
@@ -45,6 +52,28 @@
           }
         }
       }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "log.resolve" } }, "required": ["operation"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/logResolveRequest" },
+          "expected": {
+            "oneOf": [{ "$ref": "#/$defs/logResolveSuccess" }, { "$ref": "#/$defs/failureOutcome" }]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "log.triage" } }, "required": ["operation"] },
+      "then": {
+        "properties": {
+          "request": { "$ref": "#/$defs/triageRequest" },
+          "expected": {
+            "oneOf": [{ "$ref": "#/$defs/triageSuccess" }, { "$ref": "#/$defs/failureOutcome" }]
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -65,6 +94,34 @@
         "workspaceRoot": { "type": "string", "minLength": 1 },
         "username": { "type": "string", "minLength": 1 },
         "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+      }
+    },
+    "triageRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceRoot", "username", "logIds", "logStartTimes"],
+      "properties": {
+        "workspaceRoot": { "type": "string", "minLength": 1 },
+        "username": { "type": "string", "minLength": 1 },
+        "logIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^07L[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$" }
+        },
+        "logStartTimes": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 10 }
+        }
+      }
+    },
+    "logResolveRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceRoot", "targetOrg", "logId"],
+      "properties": {
+        "workspaceRoot": { "type": "string", "minLength": 1 },
+        "targetOrg": { "type": "string", "minLength": 1 },
+        "logId": { "type": "string", "pattern": "^07L[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$" }
       }
     },
     "statusSuccess": {
@@ -119,9 +176,75 @@
               "id": { "type": "string", "minLength": 1 },
               "startTime": { "type": "string", "minLength": 1 },
               "operation": { "type": "string", "minLength": 1 },
+              "application": { "type": "string", "minLength": 1 },
               "status": { "type": "string", "minLength": 1 },
-              "logLength": { "type": "integer", "minimum": 0 }
+              "logLength": { "type": "integer", "minimum": 0 },
+              "logUser": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": { "name": { "type": "string", "minLength": 1 } }
+              }
             }
+          }
+        }
+      }
+    },
+    "triageSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result"],
+      "properties": {
+        "result": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["logId", "summary"],
+            "properties": {
+              "logId": { "type": "string", "minLength": 1 },
+              "codeUnitStarted": { "type": "string", "minLength": 1 },
+              "summary": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["hasErrors", "reasons"],
+                "properties": {
+                  "hasErrors": { "type": "boolean" },
+                  "primaryReason": { "type": "string", "minLength": 1 },
+                  "reasons": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["code", "severity", "summary"],
+                      "properties": {
+                        "code": { "type": "string", "minLength": 1 },
+                        "severity": { "type": "string", "minLength": 1 },
+                        "summary": { "type": "string", "minLength": 1 },
+                        "line": { "type": "integer", "minimum": 0 },
+                        "eventType": { "type": "string", "minLength": 1 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "logResolveSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result"],
+      "properties": {
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["logId", "cached"],
+          "properties": {
+            "logId": { "type": "string", "pattern": "^07L[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$" },
+            "path": { "type": "string", "minLength": 1 },
+            "cached": { "type": "boolean" }
           }
         }
       }

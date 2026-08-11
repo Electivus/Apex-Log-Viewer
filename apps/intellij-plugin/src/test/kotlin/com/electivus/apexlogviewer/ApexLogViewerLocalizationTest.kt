@@ -13,18 +13,6 @@ class ApexLogViewerLocalizationTest : TestCase() {
         val unsupported = ResourceBundle.getBundle(BUNDLE_NAME, Locale.FRANCE, loader, NO_DEFAULT_LOCALE_FALLBACK)
 
         assertEquals(english.keySet(), brazilianPortuguese.keySet())
-        assertEquals(
-            "Native IntelliJ IDEA access to the Apex Log Lifecycle.",
-            english.getString(PLUGIN_DESCRIPTION_KEY),
-        )
-        assertEquals(
-            "Acesso nativo do IntelliJ IDEA ao ciclo de vida de logs do Apex.",
-            brazilianPortuguese.getString(PLUGIN_DESCRIPTION_KEY),
-        )
-        assertEquals(
-            "Native IntelliJ IDEA access to the Apex Log Lifecycle.",
-            unsupported.getString(PLUGIN_DESCRIPTION_KEY),
-        )
         assertEquals("Apex Log Viewer logs", english.getString("toolWindow.logs.accessibleDescription"))
         assertEquals(
             "Logs do Apex Log Viewer",
@@ -38,7 +26,6 @@ class ApexLogViewerLocalizationTest : TestCase() {
 
     companion object {
         private const val BUNDLE_NAME = "messages.ApexLogViewerBundle"
-        private const val PLUGIN_DESCRIPTION_KEY = "plugin.com.electivus.apexlogviewer.description"
         private val NO_DEFAULT_LOCALE_FALLBACK =
             ResourceBundle.Control.getNoFallbackControl(ResourceBundle.Control.FORMAT_PROPERTIES)
     }

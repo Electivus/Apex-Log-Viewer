@@ -1,0 +1,238 @@
+name: IntelliJ Plugin Release
+
+on:
+  push:
+    tags:
+      - 'intellij-v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Existing intellij-vX.Y.Z tag to release'
+        required: true
+        type: string
+
+concurrency:
+  group: intellij-plugin-release-${{ github.event.inputs.tag_name || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  resolve_candidate:
+    name: Resolve immutable release candidate
+    runs-on: ubuntu-latest
+    outputs:
+      candidate_sha: ${{ steps.candidate.outputs.candidate_sha }}
+      tag_name: ${{ steps.candidate.outputs.tag_name }}
+    env:
+      TAG_NAME: ${{ github.event.inputs.tag_name || github.ref_name }}
+    steps:
+      - name: Checkout repository metadata
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+
+      - name: Resolve existing stable tag to a commit
+        id: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG_NAME" =~ ^intellij-v[1-9][0-9]*\.[0-9]+\.[0-9]+$ ]]
+          git ls-remote --exit-code --refs origin "refs/tags/$TAG_NAME" >/dev/null
+          git fetch --force origin "refs/tags/$TAG_NAME:refs/tags/$TAG_NAME"
+          candidate_sha=$(git rev-parse "refs/tags/$TAG_NAME^{commit}")
+          plugin_version=$(git show "$candidate_sha:apps/intellij-plugin/build.gradle.kts" |
+            sed -n 's/^version = "\([^"]*\)"/\1/p')
+          test -n "$plugin_version"
+          test "$plugin_version" = "${TAG_NAME#intellij-v}"
+          echo "candidate_sha=$candidate_sha" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+
+  candidate_matrix:
+    name: Candidate / ${{ matrix.os }}
+    needs: resolve_candidate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout immutable candidate
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.resolve_candidate.outputs.candidate_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Java 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            apps/intellij-plugin/*.gradle.kts
+            apps/intellij-plugin/gradle.properties
+            apps/intellij-plugin/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Verify npm registry signatures
+        run: pnpm run security:pnpm-signatures
+
+      - name: Run dual-runtime conformance
+        run: pnpm run test:conformance
+
+      - name: Build and test installable plugin
+        run: pnpm run test:intellij-plugin
+
+  build_sign:
+    name: Verify and sign IntelliJ plugin
+    needs: [resolve_candidate, candidate_matrix]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: intellij-release
+    permissions:
+      contents: read
+    env:
+      RELEASE_CANDIDATE_SHA: ${{ vars.INTELLIJ_RELEASE_CANDIDATE_SHA }}
+      TAG_NAME: ${{ needs.resolve_candidate.outputs.tag_name }}
+      CANDIDATE_SHA: ${{ needs.resolve_candidate.outputs.candidate_sha }}
+    steps:
+      - name: Checkout immutable candidate
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Java 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            apps/intellij-plugin/*.gradle.kts
+            apps/intellij-plugin/gradle.properties
+            apps/intellij-plugin/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Validate protected candidate attestation
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugin_version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' apps/intellij-plugin/build.gradle.kts)
+          tag_version=${TAG_NAME#intellij-v}
+          candidate_sha=$(git rev-parse HEAD)
+          test -n "$plugin_version"
+          test "$tag_version" = "$plugin_version"
+          test "$candidate_sha" = "$CANDIDATE_SHA"
+          test "$RELEASE_CANDIDATE_SHA" = "$candidate_sha"
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Verify npm registry signatures
+        run: pnpm run security:pnpm-signatures
+
+      - name: Run dual-runtime conformance
+        run: pnpm run test:conformance
+
+      - name: Build and test installable plugin
+        run: pnpm run test:intellij-plugin
+
+      - name: Verify supported IDE lines
+        working-directory: apps/intellij-plugin
+        run: ./gradlew --no-daemon verifyPlugin
+
+      - name: Sign plugin and verify signature
+        working-directory: apps/intellij-plugin
+        env:
+          CERTIFICATE_CHAIN: ${{ secrets.INTELLIJ_CERTIFICATE_CHAIN }}
+          PRIVATE_KEY: ${{ secrets.INTELLIJ_PRIVATE_KEY }}
+          PRIVATE_KEY_PASSWORD: ${{ secrets.INTELLIJ_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$CERTIFICATE_CHAIN"
+          test -n "$PRIVATE_KEY"
+          test -n "$PRIVATE_KEY_PASSWORD"
+          ./gradlew --no-daemon signPlugin verifyPluginSignature
+
+      - name: Upload signed workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: electivus-apex-log-viewer-${{ env.TAG_NAME }}-signed
+          path: apps/intellij-plugin/build/distributions/*-signed.zip
+          if-no-files-found: error
+
+  github_release:
+    name: Attach signed IntelliJ plugin
+    needs: [resolve_candidate, build_sign]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      TAG_NAME: ${{ needs.resolve_candidate.outputs.tag_name }}
+      CANDIDATE_SHA: ${{ needs.resolve_candidate.outputs.candidate_sha }}
+    steps:
+      - name: Download signed workflow artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: electivus-apex-log-viewer-${{ env.TAG_NAME }}-signed
+          path: signed-plugin
+
+      - name: Revalidate tag and create GitHub release without Marketplace publication
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag_object=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME")
+          object_type=$(jq -r '.object.type' <<<"$tag_object")
+          remote_sha=$(jq -r '.object.sha' <<<"$tag_object")
+          while [ "$object_type" = "tag" ]; do
+            tag_object=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$remote_sha")
+            object_type=$(jq -r '.object.type' <<<"$tag_object")
+            remote_sha=$(jq -r '.object.sha' <<<"$tag_object")
+          done
+          test "$object_type" = "commit"
+          test "$remote_sha" = "$CANDIDATE_SHA"
+          title="Electivus Apex Log Viewer ${TAG_NAME#intellij-v}"
+          notes="Signed IntelliJ plugin verified against IntelliJ IDEA 2026.1 and 2026.2. This workflow does not publish to JetBrains Marketplace."
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release edit "$TAG_NAME" --title "$title" --notes "$notes"
+          else
+            gh release create "$TAG_NAME" --title "$title" --notes "$notes"
+          fi
+          gh release upload "$TAG_NAME" signed-plugin/*-signed.zip --clobber

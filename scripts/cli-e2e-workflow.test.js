@@ -74,15 +74,43 @@ test('real-org Playwright workflow exposes a stable required PR gate', () => {
   const { step } = getRequiredWorkflowStep(workflow, 'Require successful Real Org E2E lanes');
 
   assert.equal(job.name, 'Real Org E2E required');
-  assert.deepEqual(job.needs, ['playwright_e2e', 'playwright_e2e_os_matrix', 'playwright_e2e_telemetry']);
+  assert.deepEqual(job.needs, [
+    'classify_e2e',
+    'playwright_e2e',
+    'intellij_native_real_org_linux',
+    'playwright_e2e_os_matrix',
+    'playwright_e2e_telemetry'
+  ]);
   assert.equal(job.if, '${{ always() }}');
   assert.equal(job['runs-on'], 'ubuntu-latest');
+  assert.equal(step.env?.CLASSIFIER_RESULT, '${{ needs.classify_e2e.result }}');
+  assert.equal(step.env?.RUN_E2E, '${{ needs.classify_e2e.outputs.run_e2e }}');
   assert.equal(step.env?.UBUNTU_RESULT, '${{ needs.playwright_e2e.result }}');
+  assert.equal(step.env?.INTELLIJ_LINUX_RESULT, '${{ needs.intellij_native_real_org_linux.result }}');
   assert.equal(step.env?.DIRECT_RESULT, '${{ needs.playwright_e2e_os_matrix.result }}');
   assert.equal(step.env?.TELEMETRY_RESULT, '${{ needs.playwright_e2e_telemetry.result }}');
   assert.match(String(step.run || ''), /UBUNTU_RESULT.*success/s);
+  assert.match(String(step.run || ''), /INTELLIJ_LINUX_RESULT.*success/s);
   assert.match(String(step.run || ''), /DIRECT_RESULT.*success/s);
   assert.match(String(step.run || ''), /TELEMETRY_RESULT.*(?:success|skipped)/s);
+  assert.match(String(step.run || ''), /No product\/runtime\/E2E changes detected/);
+  assert.match(String(step.run || ''), /CLASSIFIER_RESULT.*success/s);
+  assert.match(String(step.run || ''), /invalid result/);
+});
+
+test('real-org workflow classifies risky changes and preserves a successful safe-skip gate', () => {
+  const workflow = readWorkflow();
+  const classifier = getWorkflowJob(workflow, 'classify_e2e');
+  const classificationStep = classifier.steps.find(step => step.name === 'Classify product and test changes');
+
+  assert.equal(classifier.outputs.run_e2e, '${{ steps.changes.outputs.run_e2e }}');
+  assert.match(String(classificationStep?.run || ''), /workflow_dispatch/);
+  assert.match(String(classificationStep?.run || ''), /scripts\/classify-real-org-e2e\.js/);
+  for (const jobName of ['playwright_e2e', 'intellij_native_real_org_linux', 'playwright_e2e_os_matrix']) {
+    const job = getWorkflowJob(workflow, jobName);
+    assert.equal(job.needs, 'classify_e2e');
+    assert.equal(job.if, "${{ needs.classify_e2e.outputs.run_e2e == 'true' }}");
+  }
 });
 
 test('real-org Playwright workflow runs the CLI suite before the extension suite and uploads separate CLI artifacts', () => {
@@ -366,7 +394,8 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
   const uploadCliStep = getDirectWorkflowStep(workflow, 'Upload CLI E2E artifacts');
   const uploadExtensionStep = getDirectWorkflowStep(workflow, 'Upload Playwright artifacts');
 
-  assert.ok(!Object.prototype.hasOwnProperty.call(job, 'needs'));
+  assert.equal(job.needs, 'classify_e2e');
+  assert.equal(job.if, "${{ needs.classify_e2e.outputs.run_e2e == 'true' }}");
   assert.equal(
     job.env?.VSCODE_TEST_VERSION,
     "${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}"
@@ -387,6 +416,9 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
     "${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}"
   );
   assert.equal(job.env?.SF_TEST_KEEP_ORG, "${{ vars.SF_TEST_KEEP_ORG || '1' }}");
+  const cliStep = getDirectWorkflowStep(workflow, 'Run CLI real-org E2E').step;
+  assert.match(String(cliStep.env?.ALV_INTELLIJ_REAL_ORG_E2E), /runner\.os == 'Windows'/);
+  assert.match(String(cliStep.env?.ALV_INTELLIJ_REAL_ORG_E2E), /workflow_dispatch/);
   assert.equal(uploadCliStep.step.with?.name, 'playwright-cli-e2e-${{ matrix.os.artifact_suffix }}');
   assert.equal(uploadCliStep.step.with?.path, 'output/playwright-cli/');
   assert.equal(uploadExtensionStep.step.with?.name, 'playwright-e2e-${{ matrix.os.artifact_suffix }}');
@@ -454,12 +486,12 @@ test('real-org Playwright workflow runs telemetry validation after the E2E jobs'
 
   assert.deepEqual(
     job.needs,
-    ['playwright_e2e', 'playwright_e2e_os_matrix'],
+    ['classify_e2e', 'playwright_e2e', 'playwright_e2e_os_matrix'],
     'expected telemetry validation to wait for both E2E jobs'
   );
   assert.equal(
     job.if,
-    "${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}",
+    "${{ needs.classify_e2e.outputs.run_e2e == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}",
     'expected telemetry validation not to expose Azure secrets to fork pull requests'
   );
   assert.ok(!Object.prototype.hasOwnProperty.call(job, 'strategy'));

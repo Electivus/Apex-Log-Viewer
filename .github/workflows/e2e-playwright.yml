@@ -31,8 +31,38 @@ permissions:
   id-token: write
 
 jobs:
+  classify_e2e:
+    name: Classify Real Org E2E risk
+    runs-on: ubuntu-latest
+    outputs:
+      run_e2e: ${{ steps.changes.outputs.run_e2e }}
+    steps:
+      - name: Checkout change history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Classify product and test changes
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" = "workflow_dispatch" ]]; then
+            echo "run_e2e=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mapfile -t changed_paths < <(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")
+          run_e2e=$(node scripts/classify-real-org-e2e.js "${changed_paths[@]}")
+          echo "run_e2e=$run_e2e" >> "$GITHUB_OUTPUT"
+
   playwright_e2e:
     name: Playwright E2E (scratch org)
+    needs: classify_e2e
+    if: ${{ needs.classify_e2e.outputs.run_e2e == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -169,8 +199,100 @@ jobs:
           path: output/playwright/
           if-no-files-found: ignore
 
+  intellij_native_real_org_linux:
+    name: IntelliJ Native Real Org (linux)
+    needs: classify_e2e
+    if: ${{ needs.classify_e2e.outputs.run_e2e == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
+      HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
+      SALESFORCE_CLI_PACKAGE: ${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}
+      PLAYWRIGHT_WORKERS: '1'
+      SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}
+      SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}
+      SF_TEST_KEEP_ORG: ${{ vars.SF_TEST_KEEP_ORG || '1' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Java 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            apps/intellij-plugin/*.gradle.kts
+            apps/intellij-plugin/gradle.properties
+            apps/intellij-plugin/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Setup Salesforce CLI
+        shell: bash
+        run: node scripts/setup-salesforce-cli.mjs
+        env:
+          SALESFORCE_CLI_CACHE_KEY_OS: ${{ runner.os }}
+          SALESFORCE_CLI_CACHE_ROOT: ${{ runner.tool_cache }}
+
+      - name: Require scratch-org pool configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SCRATCH_POOL_NAME"
+          test "$HAS_POOL_DEVHUB_AUTH" = "1"
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Verify npm registry signatures
+        run: pnpm run security:pnpm-signatures
+
+      - name: Run native Kotlin real-org validation
+        run: node scripts/run-playwright-cli-e2e.js test/e2e/cli/specs/intellijNative.e2e.spec.ts
+        env:
+          ALV_INTELLIJ_REAL_ORG_E2E: '1'
+          SF_SCRATCH_STRATEGY: pool
+          SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
+          SF_SCRATCH_POOL_OWNER: github:${{ github.run_id }}/${{ github.run_attempt }}/intellij-linux
+          SF_SCRATCH_POOL_LEASE_TTL_SECONDS: ${{ vars.SF_SCRATCH_POOL_LEASE_TTL_SECONDS }}
+          SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS: ${{ vars.SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS }}
+          SF_SCRATCH_POOL_HEARTBEAT_SECONDS: ${{ vars.SF_SCRATCH_POOL_HEARTBEAT_SECONDS }}
+          SF_SCRATCH_POOL_MIN_REMAINING_MINUTES: ${{ vars.SF_SCRATCH_POOL_MIN_REMAINING_MINUTES }}
+          SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
+          SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
+          SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
+          SF_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
+          SF_SCRATCH_DURATION: ${{ env.SF_SCRATCH_DURATION }}
+          SF_TEST_KEEP_ORG: ${{ env.SF_TEST_KEEP_ORG }}
+
+      - name: Upload IntelliJ native E2E artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: intellij-native-e2e-linux
+          path: output/playwright-cli/
+          if-no-files-found: error
+
   playwright_e2e_os_matrix:
     name: Playwright E2E Direct (${{ matrix.os.artifact_suffix }})
+    needs: classify_e2e
+    if: ${{ needs.classify_e2e.outputs.run_e2e == 'true' }}
     runs-on: ${{ matrix.os.runner }}
     timeout-minutes: 60
     strategy:
@@ -214,6 +336,18 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+
+      - name: Setup Java 21 for IntelliJ native real-org validation
+        if: ${{ runner.os == 'Windows' || github.event_name == 'workflow_dispatch' }}
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            apps/intellij-plugin/*.gradle.kts
+            apps/intellij-plugin/gradle.properties
+            apps/intellij-plugin/gradle/wrapper/gradle-wrapper.properties
 
       - name: Resolve VS Code cache metadata
         id: vscode-cache
@@ -302,6 +436,7 @@ jobs:
           echo "Direct E2E OS: ${{ matrix.os.artifact_suffix }}"
           node scripts/run-playwright-cli-e2e.js
         env:
+          ALV_INTELLIJ_REAL_ORG_E2E: ${{ (runner.os == 'Windows' || (github.event_name == 'workflow_dispatch' && runner.os == 'macOS')) && '1' || '0' }}
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
           SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
@@ -360,9 +495,10 @@ jobs:
   playwright_e2e_telemetry:
     name: Playwright E2E Telemetry (scratch org)
     needs:
+      - classify_e2e
       - playwright_e2e
       - playwright_e2e_os_matrix
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    if: ${{ needs.classify_e2e.outputs.run_e2e == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -409,7 +545,9 @@ jobs:
   playwright_e2e_required:
     name: Real Org E2E required
     needs:
+      - classify_e2e
       - playwright_e2e
+      - intellij_native_real_org_linux
       - playwright_e2e_os_matrix
       - playwright_e2e_telemetry
     if: ${{ always() }}
@@ -419,19 +557,42 @@ jobs:
       - name: Require successful Real Org E2E lanes
         shell: bash
         env:
+          CLASSIFIER_RESULT: ${{ needs.classify_e2e.result }}
+          RUN_E2E: ${{ needs.classify_e2e.outputs.run_e2e }}
           UBUNTU_RESULT: ${{ needs.playwright_e2e.result }}
+          INTELLIJ_LINUX_RESULT: ${{ needs.intellij_native_real_org_linux.result }}
           DIRECT_RESULT: ${{ needs.playwright_e2e_os_matrix.result }}
           TELEMETRY_RESULT: ${{ needs.playwright_e2e_telemetry.result }}
         run: |
           set -euo pipefail
+          if [[ "${CLASSIFIER_RESULT}" != "success" ]]; then
+            echo "::error::Real Org E2E change classification did not succeed (${CLASSIFIER_RESULT})."
+            exit 1
+          fi
+          if [[ "${RUN_E2E}" = "false" ]]; then
+            for result in "${UBUNTU_RESULT}" "${INTELLIJ_LINUX_RESULT}" "${DIRECT_RESULT}" "${TELEMETRY_RESULT}"; do
+              test "$result" = "skipped"
+            done
+            echo "No product/runtime/E2E changes detected; Real Org lanes skipped safely."
+            exit 0
+          fi
+          if [[ "${RUN_E2E}" != "true" ]]; then
+            echo "::error::Real Org E2E classifier returned an invalid result (${RUN_E2E})."
+            exit 1
+          fi
           failed=0
 
           echo "Ubuntu proxy-lab result: ${UBUNTU_RESULT}"
+          echo "IntelliJ native Linux result: ${INTELLIJ_LINUX_RESULT}"
           echo "Windows/macOS direct result: ${DIRECT_RESULT}"
           echo "Telemetry result: ${TELEMETRY_RESULT}"
 
           if [[ "${UBUNTU_RESULT}" != "success" ]]; then
             echo "::error::Ubuntu proxy-lab Real Org E2E did not succeed (${UBUNTU_RESULT})."
+            failed=1
+          fi
+          if [[ "${INTELLIJ_LINUX_RESULT}" != "success" ]]; then
+            echo "::error::IntelliJ native Linux Real Org E2E did not succeed (${INTELLIJ_LINUX_RESULT})."
             failed=1
           fi
           if [[ "${DIRECT_RESULT}" != "success" ]]; then

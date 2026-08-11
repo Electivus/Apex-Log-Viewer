@@ -19,10 +19,7 @@ function workflowFiles() {
 }
 
 function usesRefs(relativePath) {
-  return Array.from(
-    read(relativePath).matchAll(/^\s*(?:-\s*)?uses:\s+([^\s#]+?)(?:\s+#.*)?\s*$/gm),
-    match => match[1]
-  );
+  return Array.from(read(relativePath).matchAll(/^\s*(?:-\s*)?uses:\s+([^\s#]+?)(?:\s+#.*)?\s*$/gm), match => match[1]);
 }
 
 function findRequiredStep(steps, description, predicate) {
@@ -142,7 +139,7 @@ function heredocTerminator(command) {
       continue;
     }
 
-    if (char === '\'' || char === '"') {
+    if (char === "'" || char === '"') {
       const quote = char;
       index += 1;
       while (index < command.length) {
@@ -174,7 +171,7 @@ function heredocTerminator(command) {
     }
 
     const delimiterQuote = command[delimiterIndex];
-    if (delimiterQuote === '\'' || delimiterQuote === '"') {
+    if (delimiterQuote === "'" || delimiterQuote === '"') {
       const start = delimiterIndex + 1;
       delimiterIndex = start;
       while (delimiterIndex < command.length) {
@@ -348,7 +345,11 @@ function shellInterpreterCommand(segment) {
     return undefined;
   }
 
-  const shellName = shell.split(/[\\/]/).pop()?.replace(/\.exe$/i, '') || shell;
+  const shellName =
+    shell
+      .split(/[\\/]/)
+      .pop()
+      ?.replace(/\.exe$/i, '') || shell;
   if (!new Set(['sh', 'bash', 'zsh', 'dash', 'ksh']).has(shellName)) {
     return undefined;
   }
@@ -402,7 +403,7 @@ function findCommandSubstitutionEnd(command, startIndex) {
     const char = command[index];
 
     if (singleQuoted) {
-      if (char === '\'') {
+      if (char === "'") {
         singleQuoted = false;
       }
       continue;
@@ -413,7 +414,7 @@ function findCommandSubstitutionEnd(command, startIndex) {
       continue;
     }
 
-    if (!doubleQuoted && char === '\'') {
+    if (!doubleQuoted && char === "'") {
       singleQuoted = true;
       continue;
     }
@@ -459,7 +460,7 @@ function shellCommandSubstitutions(command) {
     const char = command[index];
 
     if (singleQuoted) {
-      if (char === '\'') {
+      if (char === "'") {
         singleQuoted = false;
       }
       continue;
@@ -470,7 +471,7 @@ function shellCommandSubstitutions(command) {
       continue;
     }
 
-    if (!doubleQuoted && char === '\'') {
+    if (!doubleQuoted && char === "'") {
       singleQuoted = true;
       continue;
     }
@@ -638,7 +639,12 @@ function stepExecutionSegments(step) {
   const segments = [];
 
   for (const command of commandsFromRunValue(step?.run)) {
-    const result = commandExecutionSegments(command, { failOpen: false, piped: false }, shellFunctions, pendingFunction);
+    const result = commandExecutionSegments(
+      command,
+      { failOpen: false, piped: false },
+      shellFunctions,
+      pendingFunction
+    );
     pendingFunction = result.pendingFunction;
     segments.push(...result.segments);
   }
@@ -709,12 +715,7 @@ function matchesPnpmInstallInvocation(normalized) {
     }
 
     const nextToken = tokens[index + 1];
-    if (
-      typeof nextToken === 'string' &&
-      !nextToken.startsWith('-') &&
-      nextToken !== 'install' &&
-      nextToken !== 'i'
-    ) {
+    if (typeof nextToken === 'string' && !nextToken.startsWith('-') && nextToken !== 'install' && nextToken !== 'i') {
       index += 1;
     }
   }
@@ -772,9 +773,7 @@ function workflowJobs(workflow) {
     .filter(([, job]) => job && typeof job === 'object')
     .map(([jobName, job]) => ({
       jobName,
-      steps: Array.isArray(job.steps)
-        ? job.steps.filter(step => step && typeof step === 'object')
-        : []
+      steps: Array.isArray(job.steps) ? job.steps.filter(step => step && typeof step === 'object') : []
     }));
 }
 
@@ -789,7 +788,11 @@ function shellTemplateEnablesErrexit(shell) {
     return false;
   }
 
-  const shellName = shellToken.split(/[\\/]/).pop()?.replace(/\.exe$/i, '') || shellToken;
+  const shellName =
+    shellToken
+      .split(/[\\/]/)
+      .pop()
+      ?.replace(/\.exe$/i, '') || shellToken;
   if (!new Set(['sh', 'bash', 'zsh', 'dash', 'ksh']).has(shellName)) {
     return false;
   }
@@ -873,9 +876,8 @@ function isProvenanceCheckSegment(segment) {
     return false;
   }
 
-  return segmentMatchesCommand(
-    segment.text,
-    normalized => /^node scripts\/check-dependency-sources\.mjs(?=$|[\s)])/.test(normalized)
+  return segmentMatchesCommand(segment.text, normalized =>
+    /^node scripts\/check-dependency-sources\.mjs(?=$|[\s)])/.test(normalized)
   );
 }
 
@@ -889,9 +891,7 @@ function isNpmCiSegment(segment) {
   }
 
   return shellCommandSubstitutions(segment.text).some(substitution =>
-    shellCommandSegments(substitution).some(innerSegment =>
-      isNpmCiSegment({ text: innerSegment })
-    )
+    shellCommandSegments(substitution).some(innerSegment => isNpmCiSegment({ text: innerSegment }))
   );
 }
 
@@ -905,9 +905,7 @@ function isPnpmInstallSegment(segment) {
   }
 
   return shellCommandSubstitutions(segment.text).some(substitution =>
-    shellCommandSegments(substitution).some(innerSegment =>
-      isPnpmInstallSegment({ text: innerSegment })
-    )
+    shellCommandSegments(substitution).some(innerSegment => isPnpmInstallSegment({ text: innerSegment }))
   );
 }
 
@@ -931,9 +929,7 @@ test('usesRefs matches dash-prefixed workflow steps', () => {
       ].join('\n')
     );
 
-    assert.deepEqual(usesRefs(relativeFixturePath), [
-      'actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0'
-    ]);
+    assert.deepEqual(usesRefs(relativeFixturePath), ['actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0']);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -955,9 +951,7 @@ test('usesRefs keeps pinned refs when the line has an inline comment', () => {
       ].join('\n')
     );
 
-    assert.deepEqual(usesRefs(relativeFixturePath), [
-      'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd'
-    ]);
+    assert.deepEqual(usesRefs(relativeFixturePath), ['actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd']);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -969,11 +963,7 @@ test('all workflow uses refs are pinned to full commit SHAs', () => {
       if (ref.startsWith('./')) {
         continue;
       }
-      assert.match(
-        ref,
-        /@[0-9a-f]{40}$/,
-        `${workflowPath} should pin ${ref} to a full commit SHA`
-      );
+      assert.match(ref, /@[0-9a-f]{40}$/, `${workflowPath} should pin ${ref} to a full commit SHA`);
     }
   }
 });
@@ -1004,6 +994,66 @@ test('release workflows default to read-only token permissions', () => {
     'id-token': 'write'
   });
   assert.deepEqual(sfPluginRelease.jobs.github_release.permissions, { contents: 'write' });
+
+  const intellijRelease = yaml.parse(read('.github/workflows/intellij-plugin-release.yml'));
+  assert.deepEqual(intellijRelease.permissions, { contents: 'read' });
+  assert.deepEqual(intellijRelease.jobs.build_sign.permissions, { contents: 'read' });
+  assert.equal(
+    intellijRelease.jobs.build_sign.steps.find(step => step.name === 'Checkout immutable candidate').with[
+      'persist-credentials'
+    ],
+    false
+  );
+  assert.deepEqual(intellijRelease.jobs.github_release.permissions, {
+    actions: 'read',
+    contents: 'write'
+  });
+  assert.equal(
+    intellijRelease.jobs.github_release.steps.some(step => step.uses?.startsWith('actions/checkout@')),
+    false
+  );
+});
+
+test('IntelliJ builds enforce Gradle dependency verification before signing', () => {
+  const metadata = read('apps/intellij-plugin/gradle/verification-metadata.xml');
+  const workflow = yaml.parse(read('.github/workflows/intellij-plugin-release.yml'));
+  const candidateSteps = workflow.jobs.candidate_matrix.steps;
+  const buildSignSteps = workflow.jobs.build_sign.steps;
+  const signingStep = workflow.jobs.build_sign.steps.find(step => step.name === 'Sign plugin and verify signature');
+
+  assert.match(metadata, /<verify-metadata>true<\/verify-metadata>/);
+  assert.match(metadata, /<component group="org\.jetbrains\.intellij\.platform"/);
+  assert.match(metadata, /<component group="org\.jetbrains\.kotlin"/);
+  assert.doesNotMatch(metadata, /<trust group="idea"(?:\s|\/|>)/);
+  for (const version of ['2026.1', '2026.2']) {
+    const artifactNames = [
+      `idea-${version}-aarch64.dmg`,
+      `idea-${version}-aarch64.tar.gz`,
+      `idea-${version}.dmg`,
+      `idea-${version}.tar.gz`,
+      `idea-${version}-win.zip`
+    ];
+    for (const artifactName of artifactNames) {
+      assert.match(
+        metadata,
+        new RegExp(`<artifact name="${artifactName.replaceAll('.', '\\.')}">\\s*<sha256 value="[0-9a-f]{64}"`)
+      );
+    }
+  }
+  for (const steps of [candidateSteps, buildSignSteps]) {
+    const installIndex = steps.findIndex(step => step.name === 'Install dependencies');
+    const signaturesIndex = steps.findIndex(step => step.name === 'Verify npm registry signatures');
+    const buildIndex = steps.findIndex(step => step.name === 'Build and test installable plugin');
+    assert.ok(installIndex >= 0 && signaturesIndex > installIndex && buildIndex > signaturesIndex);
+  }
+  assert.ok(
+    buildSignSteps.findIndex(step => step.name === 'Sign plugin and verify signature') >
+      buildSignSteps.findIndex(step => step.name === 'Verify npm registry signatures')
+  );
+  assert.ok(signingStep);
+  assert.deepEqual(Object.keys(signingStep.env).sort(), ['CERTIFICATE_CHAIN', 'PRIVATE_KEY', 'PRIVATE_KEY_PASSWORD']);
+  assert.match(signingStep.run, /signPlugin verifyPluginSignature/);
+  assert.doesNotMatch(signingStep.run, /verifyPlugin(?:\s|$)/);
 });
 
 test('OpenSSF Scorecard workflow uploads SARIF with pinned actions', () => {
@@ -1045,9 +1095,13 @@ test('Playwright E2E workflow uses a configurable Salesforce CLI package with a 
   const directSteps = parsed.jobs.playwright_e2e_os_matrix.steps || [];
   const setupHelperStep = directSteps.find(step => step.name === 'Setup Salesforce CLI');
 
-  assert.equal(helperRuns.length, 2);
+  assert.equal(helperRuns.length, 3);
   assert.equal(
     parsed.jobs.playwright_e2e.env.SALESFORCE_CLI_PACKAGE,
+    "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}"
+  );
+  assert.equal(
+    parsed.jobs.intellij_native_real_org_linux.env.SALESFORCE_CLI_PACKAGE,
     "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}"
   );
   assert.equal(
@@ -1093,10 +1147,7 @@ test('pnpm workspace enforces native supply-chain security policies', () => {
   assert.equal(workspace.minimumReleaseAgeStrict, true);
   assert.ok(Array.isArray(workspace.minimumReleaseAgeExclude));
   for (const selector of workspace.minimumReleaseAgeExclude) {
-    assert.match(
-      selector,
-      /^(?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+)@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
-    );
+    assert.match(selector, /^(?:@[^/@\s]+\/[^/@\s]+|[^/@\s]+)@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
   }
   assert.equal(workspace.trustPolicy, 'no-downgrade');
   assert.deepEqual(workspace.trustPolicyExclude, [
@@ -1132,10 +1183,7 @@ test('npm ci provenance detection handles multiline run blocks', () => {
     '          npm ci'
   ].join('\n');
 
-  const provenanceChecks = commandIndexes(
-    workflow,
-    isProvenanceCheckCommand
-  );
+  const provenanceChecks = commandIndexes(workflow, isProvenanceCheckCommand);
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
 
   assert.equal(provenanceChecks.length, 1);
@@ -1144,24 +1192,14 @@ test('npm ci provenance detection handles multiline run blocks', () => {
 });
 
 test('npm ci provenance detection handles inline command chains', () => {
-  const workflow = [
-    'jobs:',
-    '  test:',
-    '    steps:',
-    '      - run: echo prep && npm ci'
-  ].join('\n');
+  const workflow = ['jobs:', '  test:', '    steps:', '      - run: echo prep && npm ci'].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
   assert.equal(npmInstalls.length, 1);
 });
 
 test('npm ci provenance detection handles shell operators without surrounding spaces', () => {
-  const workflow = [
-    'jobs:',
-    '  test:',
-    '    steps:',
-    '      - run: npm ci&&npm run test'
-  ].join('\n');
+  const workflow = ['jobs:', '  test:', '    steps:', '      - run: npm ci&&npm run test'].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
   assert.equal(npmInstalls.length, 1);
@@ -1177,10 +1215,7 @@ test('commented workflow lines do not count as provenance commands', () => {
     '          npm ci'
   ].join('\n');
 
-  const provenanceChecks = commandIndexes(
-    workflow,
-    isProvenanceCheckCommand
-  );
+  const provenanceChecks = commandIndexes(workflow, isProvenanceCheckCommand);
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
 
   assert.equal(provenanceChecks.length, 0);
@@ -1254,14 +1289,7 @@ test('provenance commands in top-level OR fallback chains do not count as valida
 });
 
 test('npm ci provenance detection handles line continuations in run blocks', () => {
-  const workflow = [
-    'jobs:',
-    '  test:',
-    '    steps:',
-    '      - run: |',
-    '          npm \\',
-    '          ci'
-  ].join('\n');
+  const workflow = ['jobs:', '  test:', '    steps:', '      - run: |', '          npm \\', '          ci'].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
   assert.equal(npmInstalls.length, 1);
@@ -1312,7 +1340,7 @@ test('echoed heredoc opener text does not hide later npm ci commands', () => {
     '  test:',
     '    steps:',
     '      - run: |',
-    "          echo \"<<'-EOF'\"",
+    '          echo "<<\'-EOF\'"',
     '          npm ci'
   ].join('\n');
 
@@ -1325,25 +1353,16 @@ test('echoed heredoc opener text does not hide later npm ci commands', () => {
 });
 
 test('npm ci provenance detection handles shell-prefixed installs', () => {
-  const workflow = [
-    'jobs:',
-    '  test:',
-    '    steps:',
-    '      - run: FOO=1 npm ci'
-  ].join('\n');
+  const workflow = ['jobs:', '  test:', '    steps:', '      - run: FOO=1 npm ci'].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
   assert.equal(npmInstalls.length, 1);
 });
 
 test('npm ci provenance detection handles command substitutions', () => {
-  const workflow = [
-    'jobs:',
-    '  test:',
-    '    steps:',
-    '      - run: echo $(npm ci)',
-    '      - run: echo `npm ci`'
-  ].join('\n');
+  const workflow = ['jobs:', '  test:', '    steps:', '      - run: echo $(npm ci)', '      - run: echo `npm ci`'].join(
+    '\n'
+  );
 
   assert.deepEqual(npmCiProvenanceViolations(workflow), [
     {
@@ -1426,48 +1445,28 @@ test('npm ci provenance detection handles wrapper options with separate values',
 });
 
 test('npm ci provenance detection handles shell-builtin-prefixed installs', () => {
-  const workflow = [
-    'jobs:',
-    '  test:',
-    '    steps:',
-    '      - run: command npm ci'
-  ].join('\n');
+  const workflow = ['jobs:', '  test:', '    steps:', '      - run: command npm ci'].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
   assert.equal(npmInstalls.length, 1);
 });
 
 test('npm ci provenance detection handles sudo-prefixed installs', () => {
-  const workflow = [
-    'jobs:',
-    '  test:',
-    '    steps:',
-    '      - run: sudo npm ci'
-  ].join('\n');
+  const workflow = ['jobs:', '  test:', '    steps:', '      - run: sudo npm ci'].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
   assert.equal(npmInstalls.length, 1);
 });
 
 test('npm ci provenance detection handles inline shell conditionals', () => {
-  const workflow = [
-    'jobs:',
-    '  test:',
-    '    steps:',
-    '      - run: if true; then npm ci && npm test; fi'
-  ].join('\n');
+  const workflow = ['jobs:', '  test:', '    steps:', '      - run: if true; then npm ci && npm test; fi'].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
   assert.equal(npmInstalls.length, 1);
 });
 
 test('npm ci provenance detection handles shell interpreter wrappers', () => {
-  const workflow = [
-    'jobs:',
-    '  test:',
-    '    steps:',
-    '      - run: bash -c \"npm ci\"'
-  ].join('\n');
+  const workflow = ['jobs:', '  test:', '    steps:', '      - run: bash -c \"npm ci\"'].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
   assert.equal(npmInstalls.length, 1);
@@ -1510,12 +1509,7 @@ test('npm ci provenance detection handles shell function invocations', () => {
 });
 
 test('npm ci provenance detection handles npm flags before the subcommand', () => {
-  const workflow = [
-    'jobs:',
-    '  test:',
-    '    steps:',
-    '      - run: npm --prefix . ci'
-  ].join('\n');
+  const workflow = ['jobs:', '  test:', '    steps:', '      - run: npm --prefix . ci'].join('\n');
 
   const npmInstalls = commandIndexes(workflow, isNpmCiCommand);
   assert.equal(npmInstalls.length, 1);

@@ -19,4 +19,4 @@ Run both facades with:
 pnpm run test:conformance
 ```
 
-The initial scenarios establish bootstrap, DTO, validation, failure, workspace, and external-boundary primitives. Later runtime tickets extend the same shape with auth, Tooling, lifecycle, parser, triage, settings, telemetry, and Debug Flags operations.
+The corpus establishes bootstrap, DTO, validation, failure, workspace, external-boundary, canonical and legacy local-first resolution, and local triage primitives. Runtime-specific suites additionally cover authentication retry, Tooling pagination, path safety, parser and search behavior, cancellation, partial failures, and purge; future cross-runtime operations extend the same versioned shape.

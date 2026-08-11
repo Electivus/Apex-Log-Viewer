@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0",
+  "id": "resolve-canonical-local-first",
+  "description": "Both runtimes resolve a canonical dependable log locally without process or HTTP access.",
+  "operation": "log.resolve",
+  "request": {
+    "workspaceRoot": "<workspace>",
+    "targetOrg": "demo@example.com",
+    "logId": "07L000000000101AAA"
+  },
+  "workspace": {
+    "before": [
+      {
+        "path": "apexlogs/orgs/demo@example.com/logs/2026-08-10/07L000000000101AAA.log",
+        "content": "12:00:00.000 (1)|EXECUTION_STARTED|\n"
+      }
+    ],
+    "after": [
+      {
+        "path": "apexlogs/orgs/demo@example.com/logs/2026-08-10/07L000000000101AAA.log",
+        "content": "12:00:00.000 (1)|EXECUTION_STARTED|\n"
+      }
+    ]
+  },
+  "doubles": { "process": [], "http": [] },
+  "expected": {
+    "result": {
+      "logId": "07L000000000101AAA",
+      "path": "<workspace>/apexlogs/orgs/demo@example.com/logs/2026-08-10/07L000000000101AAA.log",
+      "cached": true
+    }
+  }
+}

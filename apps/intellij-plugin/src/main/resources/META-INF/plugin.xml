@@ -1,16 +1,69 @@
 <idea-plugin>
     <id>com.electivus.apexlogviewer</id>
     <name>Electivus Apex Log Viewer</name>
-    <vendor>Electivus</vendor>
+    <vendor url="https://github.com/Electivus/Apex-Log-Viewer">Electivus</vendor>
+    <change-notes><![CDATA[
+        Initial native IntelliJ development build with Logs, Unified Log Search,
+        Parsed Log Viewer, raw-log opening, and optional Illuminated Cloud 2 replay handoff.
+    ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.idea</depends>
     <resource-bundle>messages.ApexLogViewerBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
+        <fileEditorProvider implementation="com.electivus.apexlogviewer.ui.ParsedLogFileEditorProvider" />
+        <applicationConfigurable
+            id="com.electivus.apexlogviewer.settings"
+            displayName="%settings.displayName"
+            instance="com.electivus.apexlogviewer.ui.ApexLogViewerConfigurable" />
         <toolWindow
             id="Electivus Apex Log Viewer"
             anchor="right"
             factoryClass="com.electivus.apexlogviewer.ui.ApexLogViewerToolWindowFactory" />
     </extensions>
+
+    <actions>
+        <action
+            id="ApexLogViewer.RefreshLogs"
+            class="com.electivus.apexlogviewer.ui.RefreshLogsAction"
+            text="%action.refreshLogs.text"
+            description="%action.refreshLogs.description" />
+        <action
+            id="ApexLogViewer.LoadMoreLogs"
+            class="com.electivus.apexlogviewer.ui.LoadMoreLogsAction"
+            text="%action.loadMoreLogs.text"
+            description="%action.loadMoreLogs.description" />
+        <action id="ApexLogViewer.CancelSearch" class="com.electivus.apexlogviewer.ui.CancelLogSearchAction"
+            text="%action.cancelSearch.text" description="%action.cancelSearch.description" />
+        <action id="ApexLogViewer.ContinueSearch" class="com.electivus.apexlogviewer.ui.ContinueLogSearchAction"
+            text="%action.continueSearch.text" description="%action.continueSearch.description" />
+        <action id="ApexLogViewer.RetrySearch" class="com.electivus.apexlogviewer.ui.RetryLogSearchAction"
+            text="%action.retrySearch.text" description="%action.retrySearch.description" />
+        <action id="ApexLogViewer.DownloadAllLogs" class="com.electivus.apexlogviewer.ui.DownloadAllLogsAction"
+            text="%action.downloadAll.text" description="%action.downloadAll.description" />
+        <action id="ApexLogViewer.CancelDownloadAll" class="com.electivus.apexlogviewer.ui.CancelDownloadAllLogsAction"
+            text="%action.cancelDownloadAll.text" description="%action.cancelDownloadAll.description" />
+        <action
+            id="ApexLogViewer.OpenParsedLog"
+            class="com.electivus.apexlogviewer.ui.OpenParsedLogAction"
+            text="%action.openParsedLog.text"
+            description="%action.openParsedLog.description">
+            <add-to-group group-id="EditorPopupMenu" anchor="last" />
+        </action>
+        <action
+            id="ApexLogViewer.OpenRawLog"
+            class="com.electivus.apexlogviewer.ui.OpenRawLogAction"
+            text="%action.openRawLog.text"
+            description="%action.openRawLog.description" />
+        <action
+            id="ApexLogViewer.OpenInIlluminatedCloud"
+            class="com.electivus.apexlogviewer.ui.OpenInIlluminatedCloudAction"
+            text="%action.openInIlluminatedCloud.text"
+            description="%action.openInIlluminatedCloud.description" />
+        <action id="ApexLogViewer.OpenDiagnostics" class="com.electivus.apexlogviewer.ui.OpenDiagnosticsAction"
+            text="%action.openDiagnostics.text" description="%action.openDiagnostics.description">
+            <add-to-group group-id="HelpMenu" anchor="last" />
+        </action>
+    </actions>
 </idea-plugin>

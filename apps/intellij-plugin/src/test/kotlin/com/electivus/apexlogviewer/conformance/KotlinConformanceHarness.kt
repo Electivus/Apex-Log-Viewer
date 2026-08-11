@@ -7,8 +7,11 @@ import com.electivus.apexlogviewer.runtime.LogListRequest
 import com.electivus.apexlogviewer.runtime.LogListRow
 import com.electivus.apexlogviewer.runtime.LogStatusRequest
 import com.electivus.apexlogviewer.runtime.LogStatusResult
+import com.electivus.apexlogviewer.runtime.LogTriageSummary
+import com.electivus.apexlogviewer.runtime.ParseLogRequest
 import com.electivus.apexlogviewer.runtime.ProcessRequest
 import com.electivus.apexlogviewer.runtime.ProcessResponse
+import com.electivus.apexlogviewer.runtime.RequireLocalLogRequest
 import com.electivus.apexlogviewer.runtime.RuntimeDependencies
 import com.electivus.apexlogviewer.runtime.RuntimeHttp
 import com.electivus.apexlogviewer.runtime.RuntimeProcess
@@ -59,6 +62,8 @@ internal object KotlinConformanceHarness {
                 when (val operation = scenario["operation"].asString) {
                     "log.status" -> successOutcome(runtime.logStatus(statusRequest(scenario["request"].asJsonObject, workspaceRoot)), workspaceRoot)
                     "log.list" -> successOutcome(runtime.logList(logListRequest(scenario["request"].asJsonObject, workspaceRoot)), workspaceRoot)
+                    "log.resolve" -> resolveOutcome(runtime, scenario["request"].asJsonObject, workspaceRoot)
+                    "log.triage" -> triageOutcome(runtime, scenario["request"].asJsonObject, workspaceRoot)
                     else -> error("unsupported Kotlin conformance operation: $operation")
                 }
             } catch (failure: ApexLogViewerRuntimeException) {
@@ -96,6 +101,82 @@ internal object KotlinConformanceHarness {
             limit = request.get("limit")?.asInt ?: 50,
         )
 
+    private suspend fun resolveOutcome(
+        runtime: com.electivus.apexlogviewer.runtime.ApexLogViewerRuntime,
+        request: JsonObject,
+        workspaceRoot: Path,
+    ): JsonObject {
+        val logId = request["logId"].asString
+        val local = runtime.findLocalLog(
+            RequireLocalLogRequest(
+                workspaceRoot = workspaceRoot,
+                targetOrg = request["targetOrg"].asString,
+                log = LogListRow(id = logId),
+            ),
+        )
+        return JsonObject().apply {
+            add(
+                "result",
+                JsonObject().apply {
+                    addProperty("logId", logId)
+                    local?.let { addProperty("path", normalizeWorkspacePath(it.localPath.toString(), workspaceRoot)) }
+                    addProperty("cached", local != null)
+                },
+            )
+        }
+    }
+
+    private suspend fun triageOutcome(
+        runtime: com.electivus.apexlogviewer.runtime.ApexLogViewerRuntime,
+        request: JsonObject,
+        workspaceRoot: Path,
+    ): JsonObject {
+        val username = request["username"].asString
+        val startTimes = request.getAsJsonObject("logStartTimes")
+        val entries = request.getAsJsonArray("logIds").map { element ->
+            val logId = element.asString
+            val day = startTimes?.get(logId)?.asString?.take(10) ?: error("triage fixture requires a start time")
+            val localPath = workspaceRoot.resolve("apexlogs/orgs/$username/logs/$day/$logId.log")
+            logId to runtime.triageLog(ParseLogRequest(localPath))
+        }
+        return JsonObject().apply {
+            add(
+                "result",
+                JsonArray().apply {
+                    entries.forEach { (logId, summary) -> add(triageEntry(logId, summary)) }
+                },
+            )
+        }
+    }
+
+    private fun triageEntry(logId: String, summary: LogTriageSummary): JsonObject =
+        JsonObject().apply {
+            addProperty("logId", logId)
+            add(
+                "summary",
+                JsonObject().apply {
+                    addProperty("hasErrors", summary.hasErrors)
+                    summary.primaryReason?.let { addProperty("primaryReason", it) }
+                    add(
+                        "reasons",
+                        JsonArray().apply {
+                            summary.reasons.forEach { reason ->
+                                add(
+                                    JsonObject().apply {
+                                        addProperty("code", reason.code)
+                                        addProperty("severity", reason.severity)
+                                        addProperty("summary", reason.summary)
+                                        reason.line?.let { addProperty("line", it) }
+                                        reason.eventType?.let { addProperty("eventType", it) }
+                                    },
+                                )
+                            }
+                        },
+                    )
+                },
+            )
+        }
+
     private fun successOutcome(result: LogStatusResult, workspaceRoot: Path): JsonObject =
         JsonObject().apply {
             add(
@@ -129,8 +210,12 @@ internal object KotlinConformanceHarness {
                                 addProperty("id", row.id)
                                 row.startTime?.let { addProperty("startTime", it) }
                                 row.operation?.let { addProperty("operation", normalizeWorkspacePath(it, workspaceRoot)) }
+                                row.application?.let { addProperty("application", it) }
                                 row.status?.let { addProperty("status", it) }
                                 row.logLength?.let { addProperty("logLength", it) }
+                                row.logUser?.let {
+                                    add("logUser", JsonObject().apply { addProperty("name", it) })
+                                }
                             },
                         )
                     }
@@ -238,6 +323,7 @@ private class ScriptedProcessDouble(interactions: JsonArray) : RuntimeProcess {
 
 private class ScriptedHttpDouble(interactions: JsonArray) : RuntimeHttp {
     private val remaining = queueInteractions(interactions)
+    private val observed = mutableListOf<JsonObject>()
 
     init {
         assertUnambiguousRequests(remaining, "HTTP")
@@ -257,6 +343,7 @@ private class ScriptedHttpDouble(interactions: JsonArray) : RuntimeHttp {
             }
             request.body?.let { addProperty("body", it) }
         }
+        observed += requestJson.deepCopy()
         val response = takeMatching(remaining, requestJson, "HTTP")
         val body = response.get("body")?.takeUnless(JsonElement::isJsonNull)
         return HttpResponse(
@@ -271,7 +358,10 @@ private class ScriptedHttpDouble(interactions: JsonArray) : RuntimeHttp {
     }
 
     fun assertSatisfied() {
-        assertTrue("unconsumed HTTP interactions: ${remaining.map { it.id }}", remaining.isEmpty())
+        assertTrue(
+            "unconsumed HTTP interactions: ${remaining.map { it.id }}; observed requests: $observed",
+            remaining.isEmpty(),
+        )
     }
 }
 
