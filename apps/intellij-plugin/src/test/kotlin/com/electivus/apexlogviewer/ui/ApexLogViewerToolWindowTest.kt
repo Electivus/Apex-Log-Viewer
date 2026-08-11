@@ -20,6 +20,7 @@ import com.intellij.openapi.actionSystem.ActionUiKind
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -159,14 +160,18 @@ class ApexLogViewerToolWindowTest : BasePlatformTestCase() {
         ParsedLogFileEditorProvider.approveForParsedViewer(project, virtualFile)
         var delegatedFile: Any? = null
         var updateFile: Any? = null
+        var delegatedFiles: List<Any> = emptyList()
+        var updateFiles: List<Any> = emptyList()
         val integration = object : AnAction() {
             override fun update(event: AnActionEvent) {
                 updateFile = event.getData(CommonDataKeys.VIRTUAL_FILE)
+                updateFiles = event.getData(PlatformDataKeys.VIRTUAL_FILE_ARRAY)?.toList().orEmpty()
             }
 
             override fun actionPerformed(event: AnActionEvent) {
                 assertSame(project, event.project)
                 delegatedFile = event.getData(CommonDataKeys.VIRTUAL_FILE)
+                delegatedFiles = event.getData(PlatformDataKeys.VIRTUAL_FILE_ARRAY)?.toList().orEmpty()
             }
         }
         val actionManager = ActionManager.getInstance()
@@ -193,6 +198,8 @@ class ApexLogViewerToolWindowTest : BasePlatformTestCase() {
         handoff.actionPerformed(event)
         assertSame(virtualFile, updateFile)
         assertSame(virtualFile, delegatedFile)
+        assertEquals(listOf(virtualFile), updateFiles)
+        assertEquals(listOf(virtualFile), delegatedFiles)
     }
 
     fun testReplayHandoffDoesNotInvokeAnIlluminatedCloudActionThatIsHiddenOrDisabled() {

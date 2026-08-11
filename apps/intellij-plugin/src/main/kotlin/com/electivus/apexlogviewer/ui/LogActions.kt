@@ -10,6 +10,7 @@ import com.intellij.openapi.actionSystem.ActionUiKind
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.DataKey
+import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.ApplicationManager
@@ -144,6 +145,7 @@ internal fun logDataContext(
     when (dataId) {
         CommonDataKeys.PROJECT.name -> project
         CommonDataKeys.VIRTUAL_FILE.name -> file
+        PlatformDataKeys.VIRTUAL_FILE_ARRAY.name -> file?.let { arrayOf(it) }
         ApexLogViewerDataKeys.LOG_ROW.name -> row
         else -> null
     }
