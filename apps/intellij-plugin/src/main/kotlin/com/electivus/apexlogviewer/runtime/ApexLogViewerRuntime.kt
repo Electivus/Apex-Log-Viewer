@@ -98,7 +98,7 @@ data class LogCursor(
     val sortValue: String? = beforeStartTime,
     val sortField: LogPageSortField = LogPageSortField.START_TIME,
     val sortDirection: LogPageSortDirection = LogPageSortDirection.DESCENDING,
-    val snapshotMaxStartTime: String? = null,
+    val snapshotMaxSystemModstamp: String? = null,
 )
 
 enum class LogPageSortField {
@@ -424,13 +424,13 @@ private class DefaultApexLogViewerRuntime(
             throw ApexLogViewerRuntimeException("remote-acquisition", "The Apex log page cursor is invalid.")
         }
         val limit = request.limit.coerceIn(1, 200)
-        val snapshotMaxStartTime = cursor?.snapshotMaxStartTime ?: if (request.requiresSnapshotWatermark()) {
+        val snapshotMaxSystemModstamp = cursor?.snapshotMaxSystemModstamp ?: if (request.requiresSnapshotWatermark()) {
             Instant.now(dependencies.clock).truncatedTo(ChronoUnit.MILLIS).toString()
         } else {
             null
         }
         val predicates = buildList {
-            snapshotMaxStartTime?.let { add("StartTime <= $it") }
+            snapshotMaxSystemModstamp?.let { add("SystemModstamp <= $it") }
             cursor?.let { add(keysetWhereClause(it)) }
         }
         val where = predicates.takeIf { it.isNotEmpty() }?.joinToString(" AND ", " WHERE ").orEmpty()
@@ -489,7 +489,7 @@ private class DefaultApexLogViewerRuntime(
                         sortValue = last.sortValue(request.sortField),
                         sortField = request.sortField,
                         sortDirection = request.sortDirection,
-                        snapshotMaxStartTime = snapshotMaxStartTime,
+                        snapshotMaxSystemModstamp = snapshotMaxSystemModstamp,
                     )
                 } else {
                     null
@@ -2014,10 +2014,10 @@ private fun LogListRow.sortValue(field: LogPageSortField): String? = when (field
 private fun isValidLogCursor(cursor: LogCursor, request: LogPageRequest): Boolean {
     if (!APEX_LOG_ID.matches(cursor.beforeId)) return false
     if (cursor.sortField != request.sortField || cursor.sortDirection != request.sortDirection) return false
-    if (request.requiresSnapshotWatermark() && cursor.snapshotMaxStartTime?.let(SOQL_DATETIME::matches) != true) return false
-    if (cursor.snapshotMaxStartTime != null && !SOQL_DATETIME.matches(cursor.snapshotMaxStartTime)) return false
+    if (request.requiresSnapshotWatermark() && cursor.snapshotMaxSystemModstamp?.let(SOQL_DATETIME::matches) != true) return false
+    if (cursor.snapshotMaxSystemModstamp != null && !SOQL_DATETIME.matches(cursor.snapshotMaxSystemModstamp)) return false
     return when (cursor.sortField) {
-        LogPageSortField.START_TIME -> cursor.sortValue?.let(SOQL_DATETIME::matches) == true
+        LogPageSortField.START_TIME -> cursor.sortValue == null || SOQL_DATETIME.matches(cursor.sortValue)
         LogPageSortField.SIZE -> cursor.sortValue == null || cursor.sortValue.toIntOrNull() != null
         LogPageSortField.LOG_ID -> cursor.sortValue == cursor.beforeId
         LogPageSortField.OPERATION, LogPageSortField.STATUS ->

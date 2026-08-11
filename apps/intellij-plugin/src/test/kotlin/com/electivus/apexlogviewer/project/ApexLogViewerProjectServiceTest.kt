@@ -564,7 +564,7 @@ class ApexLogViewerProjectServiceTest : TestCase() {
                         2 -> {
                             val decoded = java.net.URLDecoder.decode(request.url, java.nio.charset.StandardCharsets.UTF_8)
                             assertTrue(decoded.contains("ORDER BY Id ASC"))
-                            firstSnapshotWatermark = Regex("StartTime <= ([^ ]+)")
+                            firstSnapshotWatermark = Regex("SystemModstamp <= ([^ ]+)")
                                 .find(decoded)?.groupValues?.get(1)
                             assertNotNull(firstSnapshotWatermark)
                             HttpResponse(200, emptyMap(), """{"records":[$sortedPage]}""")
@@ -574,7 +574,7 @@ class ApexLogViewerProjectServiceTest : TestCase() {
                             assertTrue(decoded.contains("Id > '07L000000000050AAA'"))
                             assertEquals(
                                 firstSnapshotWatermark,
-                                Regex("StartTime <= ([^ ]+)").find(decoded)?.groupValues?.get(1),
+                                Regex("SystemModstamp <= ([^ ]+)").find(decoded)?.groupValues?.get(1),
                             )
                             HttpResponse(200, emptyMap(), """{"records":[$initialPage]}""")
                         }
@@ -711,7 +711,7 @@ class ApexLogViewerProjectServiceTest : TestCase() {
             assertEquals(listOf("body-2", "catalog-4"), events.takeLast(2))
             assertTrue(catalogQueries[2].contains("Id > '$matchingId'"))
             assertTrue(catalogQueries[3].contains("Id > '$matchingId'"))
-            val watermark = Regex("StartTime <= ([^ ]+)")
+            val watermark = Regex("SystemModstamp <= ([^ ]+)")
             assertEquals(
                 watermark.find(catalogQueries[2])?.groupValues?.get(1),
                 watermark.find(catalogQueries[3])?.groupValues?.get(1),

@@ -787,6 +787,117 @@ class ApexLogViewerRuntimeTest : TestCase() {
         }
     }
 
+    fun testLogPageContinuesPastAFullPageOfNullStartTimes() = runBlocking {
+        val workspaceRoot = Files.createTempDirectory("alv-runtime-null-start-time-page-")
+        val requests = mutableListOf<HttpRequest>()
+        val runtime = createApexLogViewerRuntime(
+            RuntimeDependencies(
+                process = RuntimeProcess {
+                    ProcessResponse(
+                        0,
+                        """{"status":0,"result":{"username":"demo@example.com","instanceUrl":"https://example.my.salesforce.com","accessToken":"test-token","apiVersion":"63.0"}}""",
+                        "",
+                    )
+                },
+                http = RuntimeHttp { request ->
+                    requests += request
+                    val body = if (requests.size == 1) {
+                        """{"records":[{"Id":"07L000000000013AAA","StartTime":null},{"Id":"07L000000000012AAA","StartTime":null}]}"""
+                    } else {
+                        """{"records":[{"Id":"07L000000000011AAA","StartTime":null}]}"""
+                    }
+                    HttpResponse(200, emptyMap(), body)
+                },
+            ),
+        )
+        try {
+            val first = runtime.logPage(LogPageRequest(workspaceRoot, "demo@example.com", limit = 2))
+            val cursor = requireNotNull(first.nextCursor)
+            assertNull(cursor.sortValue)
+
+            val second = runtime.logPage(
+                LogPageRequest(
+                    workspaceRoot,
+                    "demo@example.com",
+                    limit = 2,
+                    cursor = cursor,
+                ),
+            )
+
+            val secondQuery = URLDecoder.decode(requests[1].url, StandardCharsets.UTF_8)
+            assertTrue(secondQuery.contains("WHERE (StartTime = null AND Id < '07L000000000012AAA')"))
+            assertEquals(listOf("07L000000000011AAA"), second.logs.map(LogListRow::id))
+        } finally {
+            runtime.close()
+            deleteRecursively(workspaceRoot)
+        }
+    }
+
+    fun testAscendingLogPageKeepsNullStartTimesInsideTheSystemModstampSnapshot() = runBlocking {
+        val workspaceRoot = Files.createTempDirectory("alv-runtime-null-start-time-ascending-")
+        val requests = mutableListOf<String>()
+        val watermark = "2026-08-10T18:00:00Z"
+        val runtime = createApexLogViewerRuntime(
+            RuntimeDependencies(
+                process = RuntimeProcess {
+                    ProcessResponse(
+                        0,
+                        """{"status":0,"result":{"username":"demo@example.com","instanceUrl":"https://example.my.salesforce.com","accessToken":"test-token","apiVersion":"63.0"}}""",
+                        "",
+                    )
+                },
+                http = RuntimeHttp { request ->
+                    requests += URLDecoder.decode(request.url, StandardCharsets.UTF_8)
+                    val body = if (requests.size == 1) {
+                        """{"records":[{"Id":"07L000000000011AAA","StartTime":null},{"Id":"07L000000000012AAA","StartTime":null}]}"""
+                    } else {
+                        """{"records":[{"Id":"07L000000000013AAA","StartTime":null}]}"""
+                    }
+                    HttpResponse(200, emptyMap(), body)
+                },
+                clock = Clock.fixed(Instant.parse(watermark), ZoneOffset.UTC),
+            ),
+        )
+        try {
+            val first = runtime.logPage(
+                LogPageRequest(
+                    workspaceRoot,
+                    "demo@example.com",
+                    limit = 2,
+                    sortField = LogPageSortField.START_TIME,
+                    sortDirection = LogPageSortDirection.ASCENDING,
+                ),
+            )
+            val cursor = requireNotNull(first.nextCursor)
+            assertNull(cursor.sortValue)
+            assertEquals(watermark, cursor.snapshotMaxSystemModstamp)
+
+            val second = runtime.logPage(
+                LogPageRequest(
+                    workspaceRoot,
+                    "demo@example.com",
+                    limit = 2,
+                    cursor = cursor,
+                    sortField = LogPageSortField.START_TIME,
+                    sortDirection = LogPageSortDirection.ASCENDING,
+                ),
+            )
+
+            assertTrue(requests[0].contains("WHERE SystemModstamp <= $watermark"))
+            assertTrue(requests[0].contains("ORDER BY StartTime ASC NULLS FIRST, Id ASC"))
+            assertTrue(
+                requests[1].contains(
+                    "WHERE SystemModstamp <= $watermark AND " +
+                        "((StartTime = null AND Id > '07L000000000012AAA') OR StartTime != null)",
+                ),
+            )
+            assertEquals(listOf("07L000000000013AAA"), second.logs.map(LogListRow::id))
+        } finally {
+            runtime.close()
+            deleteRecursively(workspaceRoot)
+        }
+    }
+
     fun testLogPageUsesTheRequestedSortForItsStableCursor() = runBlocking {
         val workspaceRoot = Files.createTempDirectory("alv-runtime-sorted-log-page-")
         var capturedRequest: HttpRequest? = null
@@ -816,7 +927,7 @@ class ApexLogViewerRuntimeTest : TestCase() {
                 sortValue = "07L000000000010AAA",
                 sortField = LogPageSortField.LOG_ID,
                 sortDirection = LogPageSortDirection.ASCENDING,
-                snapshotMaxStartTime = "2026-08-10T18:00:00Z",
+                snapshotMaxSystemModstamp = "2026-08-10T18:00:00Z",
             )
             val page = runtime.logPage(
                 LogPageRequest(
@@ -830,7 +941,7 @@ class ApexLogViewerRuntimeTest : TestCase() {
             )
 
             val decodedUrl = URLDecoder.decode(requireNotNull(capturedRequest).url, StandardCharsets.UTF_8)
-            assertTrue(decodedUrl.contains("WHERE StartTime <= 2026-08-10T18:00:00Z AND Id > '07L000000000010AAA'"))
+            assertTrue(decodedUrl.contains("WHERE SystemModstamp <= 2026-08-10T18:00:00Z AND Id > '07L000000000010AAA'"))
             assertTrue(decodedUrl.contains("ORDER BY Id ASC LIMIT 2"))
             assertEquals(
                 LogCursor(
@@ -839,7 +950,7 @@ class ApexLogViewerRuntimeTest : TestCase() {
                     sortValue = "07L000000000012AAA",
                     sortField = LogPageSortField.LOG_ID,
                     sortDirection = LogPageSortDirection.ASCENDING,
-                    snapshotMaxStartTime = "2026-08-10T18:00:00Z",
+                    snapshotMaxSystemModstamp = "2026-08-10T18:00:00Z",
                 ),
                 page.nextCursor,
             )
@@ -867,7 +978,7 @@ class ApexLogViewerRuntimeTest : TestCase() {
                     requests += decoded
                     val records = if (requests.size == 1) {
                         """[{"Id":"07L000000000011AAA","StartTime":"2026-08-10T17:59:00.000Z"},{"Id":"07L000000000012AAA","StartTime":"2026-08-10T17:58:00.000Z"}]"""
-                    } else if (decoded.contains("StartTime <= $watermark")) {
+                    } else if (decoded.contains("SystemModstamp <= $watermark")) {
                         """[{"Id":"07L000000000013AAA","StartTime":"2026-08-10T17:57:00.000Z"}]"""
                     } else {
                         """[{"Id":"07L000000000014AAA","StartTime":"2026-08-10T18:01:00.000Z"}]"""
@@ -898,9 +1009,9 @@ class ApexLogViewerRuntimeTest : TestCase() {
                 ),
             )
 
-            assertEquals(watermark, requireNotNull(first.nextCursor).snapshotMaxStartTime)
-            assertTrue(requests[0].contains("WHERE StartTime <= $watermark"))
-            assertTrue(requests[1].contains("WHERE StartTime <= $watermark AND Id > '07L000000000012AAA'"))
+            assertEquals(watermark, requireNotNull(first.nextCursor).snapshotMaxSystemModstamp)
+            assertTrue(requests[0].contains("WHERE SystemModstamp <= $watermark"))
+            assertTrue(requests[1].contains("WHERE SystemModstamp <= $watermark AND Id > '07L000000000012AAA'"))
             assertEquals(listOf("07L000000000013AAA"), second.logs.map(LogListRow::id))
         } finally {
             runtime.close()
