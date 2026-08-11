@@ -19,7 +19,8 @@
             instance="com.electivus.apexlogviewer.ui.ApexLogViewerConfigurable" />
         <toolWindow
             id="Electivus Apex Log Viewer"
-            anchor="right"
+            anchor="bottom"
+            icon="AllIcons.FileTypes.Text"
             factoryClass="com.electivus.apexlogviewer.ui.ApexLogViewerToolWindowFactory" />
     </extensions>
 
@@ -27,42 +28,37 @@
         <action
             id="ApexLogViewer.RefreshLogs"
             class="com.electivus.apexlogviewer.ui.RefreshLogsAction"
-            text="%action.refreshLogs.text"
-            description="%action.refreshLogs.description" />
+            icon="AllIcons.Actions.Refresh" />
         <action
             id="ApexLogViewer.LoadMoreLogs"
             class="com.electivus.apexlogviewer.ui.LoadMoreLogsAction"
-            text="%action.loadMoreLogs.text"
-            description="%action.loadMoreLogs.description" />
+            icon="AllIcons.Actions.MoveDown" />
         <action id="ApexLogViewer.CancelSearch" class="com.electivus.apexlogviewer.ui.CancelLogSearchAction"
-            text="%action.cancelSearch.text" description="%action.cancelSearch.description" />
+            icon="AllIcons.Actions.Cancel" />
         <action id="ApexLogViewer.ContinueSearch" class="com.electivus.apexlogviewer.ui.ContinueLogSearchAction"
-            text="%action.continueSearch.text" description="%action.continueSearch.description" />
+            icon="AllIcons.Actions.Execute" />
         <action id="ApexLogViewer.RetrySearch" class="com.electivus.apexlogviewer.ui.RetryLogSearchAction"
-            text="%action.retrySearch.text" description="%action.retrySearch.description" />
+            icon="AllIcons.Actions.Rerun" />
         <action id="ApexLogViewer.DownloadAllLogs" class="com.electivus.apexlogviewer.ui.DownloadAllLogsAction"
-            text="%action.downloadAll.text" description="%action.downloadAll.description" />
+            icon="AllIcons.Actions.Download" />
         <action id="ApexLogViewer.CancelDownloadAll" class="com.electivus.apexlogviewer.ui.CancelDownloadAllLogsAction"
-            text="%action.cancelDownloadAll.text" description="%action.cancelDownloadAll.description" />
+            icon="AllIcons.Actions.Suspend" />
         <action
             id="ApexLogViewer.OpenParsedLog"
             class="com.electivus.apexlogviewer.ui.OpenParsedLogAction"
-            text="%action.openParsedLog.text"
-            description="%action.openParsedLog.description">
+            icon="AllIcons.Actions.Preview">
             <add-to-group group-id="EditorPopupMenu" anchor="last" />
         </action>
         <action
             id="ApexLogViewer.OpenRawLog"
             class="com.electivus.apexlogviewer.ui.OpenRawLogAction"
-            text="%action.openRawLog.text"
-            description="%action.openRawLog.description" />
+            icon="AllIcons.Actions.ShowCode" />
         <action
             id="ApexLogViewer.OpenInIlluminatedCloud"
             class="com.electivus.apexlogviewer.ui.OpenInIlluminatedCloudAction"
-            text="%action.openInIlluminatedCloud.text"
-            description="%action.openInIlluminatedCloud.description" />
+            icon="AllIcons.Actions.StartDebugger" />
         <action id="ApexLogViewer.OpenDiagnostics" class="com.electivus.apexlogviewer.ui.OpenDiagnosticsAction"
-            text="%action.openDiagnostics.text" description="%action.openDiagnostics.description">
+            icon="AllIcons.Actions.Show">
             <add-to-group group-id="HelpMenu" anchor="last" />
         </action>
     </actions>

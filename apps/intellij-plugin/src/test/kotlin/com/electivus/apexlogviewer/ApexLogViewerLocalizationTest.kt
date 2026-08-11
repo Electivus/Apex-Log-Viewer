@@ -14,9 +14,14 @@ class ApexLogViewerLocalizationTest : TestCase() {
 
         assertEquals(english.keySet(), brazilianPortuguese.keySet())
         assertEquals("Apex Log Viewer logs", english.getString("toolWindow.logs.accessibleDescription"))
+        assertEquals("Refresh Apex Logs", english.getString("action.ApexLogViewer.RefreshLogs.text"))
         assertEquals(
             "Logs do Apex Log Viewer",
             brazilianPortuguese.getString("toolWindow.logs.accessibleDescription"),
+        )
+        assertEquals(
+            "Atualizar logs do Apex",
+            brazilianPortuguese.getString("action.ApexLogViewer.RefreshLogs.text"),
         )
         assertEquals(
             "Apex Log Viewer logs",

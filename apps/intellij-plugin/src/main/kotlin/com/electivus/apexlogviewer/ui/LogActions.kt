@@ -94,7 +94,7 @@ class OpenInIlluminatedCloudAction : AnAction() {
         event.presentation.description = if (integration == null) {
             ApexLogViewerBundle.message("action.openInIlluminatedCloud.unavailable")
         } else {
-            ApexLogViewerBundle.message("action.openInIlluminatedCloud.description")
+            ApexLogViewerBundle.message("action.ApexLogViewer.OpenInIlluminatedCloud.description")
         }
     }
 

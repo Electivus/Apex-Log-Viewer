@@ -28,6 +28,24 @@ import kotlinx.coroutines.withTimeout
 
 // This suite intentionally compiles Kotlin default-argument call sites against the current runtime DTO ABI.
 class ApexLogViewerRuntimeTest : TestCase() {
+    private val salesforceTestEnvironment = mapOf(
+        "FORCE_COLOR" to "0",
+        "SF_CONTENT_TYPE" to "JSON",
+        "SF_HIDE_RELEASE_NOTES" to "true",
+    )
+
+    fun testSalesforceCliJsonParserAcceptsAnsiStyledJson() {
+        val envelope = parseSalesforceCliJsonObject(
+            "\u001B[97m{\u001B[39m\n" +
+                "  \u001B[94m\"status\"\u001B[39m: \u001B[34m0\u001B[39m,\n" +
+                "  \u001B[94m\"result\"\u001B[39m: \u001B[97m{\u001B[39m\"value\":true\u001B[97m}\u001B[39m\n" +
+                "\u001B[97m}\u001B[39m",
+        )
+
+        assertEquals(0, envelope.get("status").asInt)
+        assertTrue(envelope.getAsJsonObject("result").get("value").asBoolean)
+    }
+
     fun testExclusiveCompletedFilePublicationNeverOverwritesTheWinner() = runBlocking {
         val workspaceRoot = Files.createTempDirectory("alv-runtime-exclusive-publish-")
         val target = workspaceRoot.resolve("apexlogs/orgs/demo@example.com/logs/2026-08-11/07L000000000096AAA.log")
@@ -532,10 +550,12 @@ class ApexLogViewerRuntimeTest : TestCase() {
     fun testToolingRequestRefreshesAuthenticationOnceAfterUnauthorized() = runBlocking {
         val workspaceRoot = Files.createTempDirectory("alv-runtime-auth-retry-")
         var resolutions = 0
+        val processRequests = mutableListOf<ProcessRequest>()
         val authorizationHeaders = mutableListOf<String?>()
         val runtime = createApexLogViewerRuntime(
             RuntimeDependencies(
-                process = RuntimeProcess {
+                process = RuntimeProcess { request ->
+                    processRequests += request
                     resolutions += 1
                     ProcessResponse(
                         0,
@@ -555,6 +575,8 @@ class ApexLogViewerRuntimeTest : TestCase() {
             assertEquals(emptyList<LogListRow>(), runtime.logList(LogListRequest(workspaceRoot, "demo@example.com")))
             assertEquals(2, resolutions)
             assertEquals(listOf("Bearer token-1", "Bearer token-2"), authorizationHeaders)
+            assertTrue(processRequests.all { it.arguments.take(2) == listOf("org", "display") })
+            assertTrue(processRequests.all { it.environment == salesforceTestEnvironment })
         } finally {
             runtime.close()
             deleteRecursively(workspaceRoot)
@@ -1442,21 +1464,33 @@ class ApexLogViewerRuntimeTest : TestCase() {
 
     fun testRequireLocalLogMaterializesTheRemoteBodyInCanonicalStorage() = runBlocking {
         val workspaceRoot = Files.createTempDirectory("alv-runtime-materialize-")
+        val processRequests = mutableListOf<ProcessRequest>()
         val runtime = createApexLogViewerRuntime(
             RuntimeDependencies(
-                process = RuntimeProcess {
-                    ProcessResponse(
-                        exitCode = 0,
-                        stdout =
-                            """{"status":0,"result":{"username":"resolved@example.com","alias":"demo","instanceUrl":"https://example.my.salesforce.com","accessToken":"test-token","apiVersion":"63.0"}}""",
-                        stderr = "",
-                    )
+                process = RuntimeProcess { request ->
+                    processRequests += request
+                    when (request.arguments.take(3)) {
+                        listOf("org", "display", "--target-org") -> ProcessResponse(
+                            exitCode = 0,
+                            stdout =
+                                """NOTE: This error can be ignored in CI and may be silenced in the future
+                                |{"status":0,"result":{"username":"resolved@example.com","alias":"demo","instanceUrl":"https://example.my.salesforce.com","accessToken":"[REDACTED] Use 'sf org auth show-access-token' to view","apiVersion":"63.0"}}""".trimMargin(),
+                            stderr = "",
+                        )
+                        listOf("org", "auth", "show-access-token") -> ProcessResponse(
+                            exitCode = 0,
+                            stdout = """{"status":0,"result":{"accessToken":"test-token"}}""",
+                            stderr = "",
+                        )
+                        else -> error("unexpected Salesforce CLI request: ${request.arguments}")
+                    }
                 },
                 http = RuntimeHttp { request ->
                     assertEquals(
                         "https://example.my.salesforce.com/services/data/v63.0/tooling/sobjects/ApexLog/07L000000000003AAA/Body",
                         request.url,
                     )
+                    assertEquals("Bearer test-token", request.headers["Authorization"])
                     HttpResponse(200, emptyMap(), "remote body")
                 },
             ),
@@ -1494,6 +1528,142 @@ class ApexLogViewerRuntimeTest : TestCase() {
                 listOf("07L000000000003AAA.log"),
                 Files.list(expectedPath.parent).use { paths -> paths.map { it.fileName.toString() }.sorted().toList() },
             )
+            assertEquals(
+                listOf(
+                    listOf("org", "display", "--target-org", "demo", "--json"),
+                    listOf("org", "auth", "show-access-token", "--target-org", "demo", "--json"),
+                ),
+                processRequests.map(ProcessRequest::arguments),
+            )
+            assertTrue(processRequests.all { it.environment == salesforceTestEnvironment })
+        } finally {
+            runtime.close()
+            deleteRecursively(workspaceRoot)
+        }
+    }
+
+    fun testRedactedCliTokenWithInvalidShowAccessTokenResponseNeverReachesHttp() = runBlocking {
+        val workspaceRoot = Files.createTempDirectory("alv-runtime-redacted-token-")
+        var processCalls = 0
+        var httpCalls = 0
+        val runtime = createApexLogViewerRuntime(
+            RuntimeDependencies(
+                process = RuntimeProcess { request ->
+                    processCalls += 1
+                    when (request.arguments.take(3)) {
+                        listOf("org", "display", "--target-org") -> ProcessResponse(
+                            0,
+                            """{"status":0,"result":{"username":"demo@example.com","instanceUrl":"https://example.my.salesforce.com","accessToken":"[REDACTED] Use 'sf org auth show-access-token' to view","apiVersion":"63.0"}}""",
+                            "",
+                        )
+                        listOf("org", "auth", "show-access-token") -> ProcessResponse(
+                            0,
+                            """{"status":0,"result":{}}""",
+                            "",
+                        )
+                        else -> error("unexpected Salesforce CLI request: ${request.arguments}")
+                    }
+                },
+                http = RuntimeHttp {
+                    httpCalls += 1
+                    error("a redacted token must never reach HTTP")
+                },
+            ),
+        )
+        try {
+            val failure = captureFailure {
+                runtime.logList(LogListRequest(workspaceRoot, "demo@example.com", 2))
+            }
+            assertEquals("org-resolution", failure.code)
+            assertEquals(2, processCalls)
+            assertEquals(0, httpCalls)
+        } finally {
+            runtime.close()
+            deleteRecursively(workspaceRoot)
+        }
+    }
+
+    fun testRedactedCliTokenVariantsAlwaysUseShowAccessToken() = runBlocking {
+        val workspaceRoot = Files.createTempDirectory("alv-runtime-redacted-variants-")
+        val redactedVariants = listOf(
+            "REDACTED",
+            "[redacted]",
+            "Use 'sf org auth show-access-token' to view",
+        )
+        try {
+            redactedVariants.forEach { displayedToken ->
+                var processCalls = 0
+                val runtime = createApexLogViewerRuntime(
+                    RuntimeDependencies(
+                        process = RuntimeProcess { request ->
+                            processCalls += 1
+                            when (request.arguments.take(3)) {
+                                listOf("org", "display", "--target-org") -> ProcessResponse(
+                                    0,
+                                    """{"status":0,"result":{"username":"demo@example.com","instanceUrl":"https://example.my.salesforce.com","accessToken":"$displayedToken","apiVersion":"63.0"}}""",
+                                    "",
+                                )
+                                listOf("org", "auth", "show-access-token") -> ProcessResponse(
+                                    0,
+                                    """{"status":0,"result":{"accessToken":"resolved-token"}}""",
+                                    "",
+                                )
+                                else -> error("unexpected Salesforce CLI request: ${request.arguments}")
+                            }
+                        },
+                        http = RuntimeHttp { request ->
+                            assertEquals("Bearer resolved-token", request.headers["Authorization"])
+                            HttpResponse(200, emptyMap(), """{"records":[]}""")
+                        },
+                    ),
+                )
+                try {
+                    assertEquals(
+                        emptyList<LogListRow>(),
+                        runtime.logList(LogListRequest(workspaceRoot, "demo@example.com", 2)),
+                    )
+                    assertEquals(2, processCalls)
+                } finally {
+                    runtime.close()
+                }
+            }
+        } finally {
+            deleteRecursively(workspaceRoot)
+        }
+    }
+
+    fun testShowAccessTokenRejectsRedactedVariantBeforeHttp() = runBlocking {
+        val workspaceRoot = Files.createTempDirectory("alv-runtime-redacted-fallback-")
+        var httpCalls = 0
+        val runtime = createApexLogViewerRuntime(
+            RuntimeDependencies(
+                process = RuntimeProcess { request ->
+                    when (request.arguments.take(3)) {
+                        listOf("org", "display", "--target-org") -> ProcessResponse(
+                            0,
+                            """{"status":0,"result":{"username":"demo@example.com","instanceUrl":"https://example.my.salesforce.com","accessToken":"[REDACTED]","apiVersion":"63.0"}}""",
+                            "",
+                        )
+                        listOf("org", "auth", "show-access-token") -> ProcessResponse(
+                            0,
+                            """{"status":0,"result":{"accessToken":"REDACTED"}}""",
+                            "",
+                        )
+                        else -> error("unexpected Salesforce CLI request: ${request.arguments}")
+                    }
+                },
+                http = RuntimeHttp {
+                    httpCalls += 1
+                    error("a redacted fallback token must never reach HTTP")
+                },
+            ),
+        )
+        try {
+            val failure = captureFailure {
+                runtime.logList(LogListRequest(workspaceRoot, "demo@example.com", 2))
+            }
+            assertEquals("org-resolution", failure.code)
+            assertEquals(0, httpCalls)
         } finally {
             runtime.close()
             deleteRecursively(workspaceRoot)
@@ -1510,7 +1680,8 @@ class ApexLogViewerRuntimeTest : TestCase() {
                     ProcessResponse(
                         exitCode = 0,
                         stdout =
-                            """{"status":0,"result":{"nonScratchOrgs":[{"username":"zulu@example.com","alias":"Zulu","instanceUrl":"https://zulu.example.com"},{"username":"default@example.com","alias":"Default","isDefaultUsername":true}],"scratchOrgs":[{"username":"alpha@example.com","alias":"Alpha","isScratchOrg":true},{"username":"default@example.com","alias":"Duplicate"}]}}""",
+                            """NOTE: This error can be ignored in CI and may be silenced in the future
+                            |{"status":0,"result":{"nonScratchOrgs":[{"username":"zulu@example.com","alias":"Zulu","instanceUrl":"https://zulu.example.com"},{"username":"default@example.com","alias":"Default","isDefaultUsername":true}],"scratchOrgs":[{"username":"alpha@example.com","alias":"Alpha","isScratchOrg":true},{"username":"default@example.com","alias":"Duplicate"}]}}""".trimMargin(),
                         stderr = "",
                     )
                 },
@@ -1529,7 +1700,14 @@ class ApexLogViewerRuntimeTest : TestCase() {
                 orgs,
             )
             assertEquals(
-                listOf(ProcessRequest("sf", listOf("org", "list", "--json"), workspaceRoot)),
+                listOf(
+                    ProcessRequest(
+                        "sf",
+                        listOf("org", "list", "--json"),
+                        workspaceRoot,
+                        salesforceTestEnvironment,
+                    ),
+                ),
                 requests,
             )
         } finally {

@@ -318,6 +318,7 @@ private class DefaultApexLogViewerRuntime(
                     executable = "sf",
                     arguments = listOf("org", "list", "--json"),
                     cwd = request.workspaceRoot,
+                    environment = SALESFORCE_CLI_ENVIRONMENT,
                 ),
             )
         } catch (error: kotlinx.coroutines.CancellationException) {
@@ -331,7 +332,7 @@ private class DefaultApexLogViewerRuntime(
             throw ApexLogViewerRuntimeException("org-resolution", "Salesforce org discovery failed.")
         }
         return try {
-            val envelope = JsonParser.parseString(processResponse.stdout).asJsonObject
+            val envelope = parseSalesforceCliJsonObject(processResponse.stdout)
             val status = envelope.get("status")?.takeUnless(JsonElement::isJsonNull)?.asInt
             require(status == null || status == 0)
             val result = envelope.getAsJsonObject("result") ?: envelope
@@ -880,6 +881,7 @@ private class DefaultApexLogViewerRuntime(
                     executable = "sf",
                     arguments = listOf("org", "display", "--target-org", targetOrg, "--json"),
                     cwd = workspaceRoot,
+                    environment = SALESFORCE_CLI_ENVIRONMENT,
                 ),
             )
         } catch (error: CancellationException) {
@@ -893,20 +895,60 @@ private class DefaultApexLogViewerRuntime(
             throw ApexLogViewerRuntimeException("org-resolution", "Salesforce org resolution failed.")
         }
         return try {
-            val envelope = JsonParser.parseString(processResponse.stdout).asJsonObject
+            val envelope = parseSalesforceCliJsonObject(processResponse.stdout)
             val result = envelope.getAsJsonObject("result")
             require(envelope.get("status")?.asInt == 0 && result != null)
+            val displayedAccessToken = result.string("accessToken")
             RuntimeConnection(
                 username = requireNotNull(result.string("username")).trim().also { require(it.isNotEmpty()) },
                 alias = result.string("alias")?.trim()?.takeIf(String::isNotEmpty),
                 instanceUrl = canonicalHttpsInstanceUrl(requireNotNull(result.string("instanceUrl"))),
-                accessToken = requireNotNull(result.string("accessToken")).also { require(it.isNotBlank()) },
+                accessToken = displayedAccessToken.usableSalesforceAccessToken()
+                    ?: resolveAccessToken(workspaceRoot, targetOrg),
                 apiVersion = validatedApiVersion(result.string("apiVersion") ?: DEFAULT_API_VERSION),
             )
         } catch (error: CancellationException) {
             throw error
+        } catch (error: ApexLogViewerRuntimeException) {
+            throw error
         } catch (error: Exception) {
             throw ApexLogViewerRuntimeException("org-resolution", "Salesforce org resolution returned invalid data.", error)
+        }
+    }
+
+    private suspend fun resolveAccessToken(workspaceRoot: Path, targetOrg: String): String {
+        val processResponse = try {
+            dependencies.process.execute(
+                ProcessRequest(
+                    executable = "sf",
+                    arguments = listOf("org", "auth", "show-access-token", "--target-org", targetOrg, "--json"),
+                    cwd = workspaceRoot,
+                    environment = SALESFORCE_CLI_ENVIRONMENT,
+                ),
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: ApexLogViewerRuntimeException) {
+            throw error
+        } catch (error: Exception) {
+            throw ApexLogViewerRuntimeException("org-resolution", "Salesforce access token resolution failed.", error)
+        }
+        if (processResponse.exitCode != 0) {
+            throw ApexLogViewerRuntimeException("org-resolution", "Salesforce access token resolution failed.")
+        }
+        return try {
+            val envelope = parseSalesforceCliJsonObject(processResponse.stdout)
+            val result = envelope.getAsJsonObject("result")
+            require(envelope.get("status")?.asInt == 0 && result != null)
+            requireNotNull(result.string("accessToken").usableSalesforceAccessToken())
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw ApexLogViewerRuntimeException(
+                "org-resolution",
+                "Salesforce access token resolution returned invalid data.",
+                error,
+            )
         }
     }
 
@@ -1906,6 +1948,36 @@ internal fun hasBoundedApexLogMarker(path: Path): Boolean = runCatching {
     }
 }.getOrDefault(false)
 
+internal fun parseSalesforceCliJsonObject(output: String): JsonObject {
+    val normalizedOutput = SALESFORCE_ANSI_CSI.replace(output, "")
+    val candidates = buildList {
+        add(normalizedOutput.trim().removePrefix("\uFEFF").trimStart())
+        SALESFORCE_JSON_OBJECT_LINE.findAll(normalizedOutput).forEach { match ->
+            val objectStart = match.range.first + match.value.indexOf('{')
+            add(normalizedOutput.substring(objectStart).trim())
+        }
+    }.distinct()
+    var lastFailure: Exception? = null
+    candidates.forEach { candidate ->
+        try {
+            return JsonParser.parseString(candidate).asJsonObject
+        } catch (error: Exception) {
+            lastFailure = error
+        }
+    }
+    throw IllegalArgumentException("Salesforce CLI output did not contain a complete JSON object.", lastFailure)
+}
+
+private fun String?.usableSalesforceAccessToken(): String? {
+    val candidate = this?.trim().orEmpty()
+    return candidate.takeIf {
+        candidate.isNotEmpty() &&
+        candidate.none(Char::isWhitespace) &&
+        !SALESFORCE_REDACTED_TOKEN.containsMatchIn(candidate) &&
+        !SALESFORCE_TOKEN_INSTRUCTION.containsMatchIn(candidate)
+    }
+}
+
 private fun canonicalHttpsInstanceUrl(value: String): String {
     val candidate = value.trim()
     val uri = URI(candidate)
@@ -1982,6 +2054,15 @@ private const val APEX_LOG_RECOGNITION_BYTE_LIMIT = 64 * 1024
 private const val LOG_READ_BUFFER_SIZE = 8 * 1024
 private const val MAX_CURSOR_TEXT_LENGTH = 1_024
 private const val DEFAULT_API_VERSION = "63.0"
+private val SALESFORCE_CLI_ENVIRONMENT = mapOf(
+    "FORCE_COLOR" to "0",
+    "SF_CONTENT_TYPE" to "JSON",
+    "SF_HIDE_RELEASE_NOTES" to "true",
+)
+private val SALESFORCE_ANSI_CSI = Regex("\u001B\\[[0-?]*[ -/]*[@-~]")
+private val SALESFORCE_JSON_OBJECT_LINE = Regex("(?m)^[\\t ]*\\{")
+private val SALESFORCE_REDACTED_TOKEN = Regex("^\\[?redacted\\]?", RegexOption.IGNORE_CASE)
+private val SALESFORCE_TOKEN_INSTRUCTION = Regex("use ['\"]?sf org auth", RegexOption.IGNORE_CASE)
 private val SALESFORCE_API_VERSION = Regex("^[1-9][0-9]{0,2}\\.[0-9]{1,2}$")
 private const val SYNC_STATE_LOCK_RETRY_MS = 100L
 private val SYNC_STATE_LOCK_STALE_AFTER: Duration = Duration.ofSeconds(120)

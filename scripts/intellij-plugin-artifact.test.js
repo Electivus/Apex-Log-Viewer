@@ -107,10 +107,22 @@ test(
         brazilianPortugueseBundle,
         /^plugin\.com\.electivus\.apexlogviewer\.(?:description|changeNotes)=/m
       );
-      assert.match(pluginXml, /<toolWindow[^>]+anchor="right"/);
+      assert.match(pluginXml, /<toolWindow[^>]+anchor="bottom"/);
+      assert.match(pluginXml, /<toolWindow[^>]+icon="AllIcons\.FileTypes\.Text"/);
       assert.match(
         pluginXml,
         /<toolWindow[^>]+id="Electivus Apex Log Viewer"[^>]+factoryClass="com\.electivus\.apexlogviewer\.ui\.ApexLogViewerToolWindowFactory"/
+      );
+      assert.doesNotMatch(pluginXml, /(?:text|description)="%action\./);
+      assert.match(englishBundle, /^action\.ApexLogViewer\.RefreshLogs\.text=Refresh Apex Logs$/m);
+      assert.match(
+        brazilianPortugueseBundle,
+        /^action\.ApexLogViewer\.RefreshLogs\.text=Atualizar logs do Apex$/m
+      );
+      assert.equal(
+        [...pluginXml.matchAll(/<action\b[^>]+icon="AllIcons\.Actions\.[^"]+"/g)].length,
+        11,
+        'all registered actions must package native IntelliJ icons'
       );
 
       const packagedFiles = fs

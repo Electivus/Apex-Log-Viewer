@@ -84,8 +84,39 @@ class ApexLogViewerToolWindowTest : BasePlatformTestCase() {
     }
 
     fun testRefreshLogsActionIsRegistered() {
-        assertNotNull(ActionManager.getInstance().getAction(RefreshLogsAction.ID))
-        assertNotNull(ActionManager.getInstance().getAction(LoadMoreLogsAction.ID))
+        val actionIds = listOf(
+            RefreshLogsAction.ID,
+            LoadMoreLogsAction.ID,
+            CancelLogSearchAction.ID,
+            ContinueLogSearchAction.ID,
+            RetryLogSearchAction.ID,
+            DownloadAllLogsAction.ID,
+            CancelDownloadAllLogsAction.ID,
+            OpenParsedLogAction.ID,
+            OpenRawLogAction.ID,
+            OpenInIlluminatedCloudAction.ID,
+        )
+        val presentations = actionIds.map { id ->
+            requireNotNull(ActionManager.getInstance().getAction(id)).templatePresentation
+        }
+
+        assertEquals(
+            listOf(
+                "Refresh Apex Logs",
+                "Load More Logs",
+                "Cancel Search",
+                "Continue Search",
+                "Try Search Again",
+                "Download All Logs",
+                "Cancel Download All",
+                "Open in Apex Log Viewer",
+                "Open Raw Log",
+                "Open in Illuminated Cloud 2",
+            ),
+            presentations.map { it.text },
+        )
+        assertTrue(presentations.all { it.icon != null })
+        assertEquals(actionIds.size, presentations.map { it.icon }.distinct().size)
         assertNotNull(ActionManager.getInstance().getAction(OpenDiagnosticsAction.ID))
     }
 
@@ -324,6 +355,8 @@ class ApexLogViewerToolWindowTest : BasePlatformTestCase() {
         val registration = ToolWindowEP.EP_NAME.extensionList.single {
             it.id == ApexLogViewerToolWindowFactory.ID
         }
+        assertEquals("bottom", registration.anchor)
+        assertEquals("AllIcons.FileTypes.Text", registration.icon)
         assertEquals(
             "Native IntelliJ IDEA access to the Apex Log Lifecycle.",
             registration.pluginDescriptor.description,
@@ -335,7 +368,7 @@ class ApexLogViewerToolWindowTest : BasePlatformTestCase() {
                 ApexLogViewerToolWindowFactory.ID,
                 registeredFactory,
                 EmptyIcon.ICON_16,
-                ToolWindowAnchor.RIGHT,
+                ToolWindowAnchor.BOTTOM,
             ),
         )
         assertSame(serviceBeforeRegistration, project.getServiceIfCreated(ApexLogViewerProjectService::class.java))

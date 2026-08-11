@@ -62,7 +62,7 @@ class RuntimePortsTest : TestCase() {
         val extensionlessShim = shimRoot.resolve("sf")
         val shim = shimRoot.resolve("sf.cmd")
         Files.writeString(extensionlessShim, "#!/bin/sh\necho wrong-shim\n")
-        Files.writeString(shim, "@echo off\r\necho sf-shim-ok\r\n")
+        Files.writeString(shim, "@echo off\r\necho sf-shim-%ALV_TEST_PROCESS_ENV%\r\n")
         try {
             val resolved = resolveRuntimeExecutable(
                 executable = "sf",
@@ -71,7 +71,13 @@ class RuntimePortsTest : TestCase() {
                 isWindows = true,
             )
             assertEquals(shim.toAbsolutePath().normalize().toString(), resolved)
-            val result = NativeRuntimeProcess().execute(ProcessRequest(resolved, listOf("--version")))
+            val result = NativeRuntimeProcess().execute(
+                ProcessRequest(
+                    resolved,
+                    listOf("--version"),
+                    environment = mapOf("ALV_TEST_PROCESS_ENV" to "ok"),
+                ),
+            )
             assertEquals(0, result.exitCode)
             assertTrue(result.stdout.contains("sf-shim-ok"))
         } finally {

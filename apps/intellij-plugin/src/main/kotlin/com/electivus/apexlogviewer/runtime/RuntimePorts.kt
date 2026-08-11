@@ -20,6 +20,7 @@ data class ProcessRequest(
     val executable: String,
     val arguments: List<String>,
     val cwd: Path? = null,
+    val environment: Map<String, String> = emptyMap(),
 )
 
 data class ProcessResponse(
@@ -72,6 +73,7 @@ internal class NativeRuntimeProcess : RuntimeProcess {
         val commandLine = GeneralCommandLine(executable)
             .withParameters(request.arguments)
             .withWorkDirectory(request.cwd?.toFile())
+            .withEnvironment(request.environment)
         val handler = CapturingProcessHandler(commandLine)
         val capture = object : CapturingProcessAdapter() {
             override fun processTerminated(event: ProcessEvent) {
