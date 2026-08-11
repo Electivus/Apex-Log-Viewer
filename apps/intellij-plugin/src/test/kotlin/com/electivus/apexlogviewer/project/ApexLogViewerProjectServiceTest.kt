@@ -1248,7 +1248,10 @@ class ApexLogViewerProjectServiceTest : TestCase() {
             service.selectOrg("second@example.com")
             val second = withTimeout(5_000) {
                 service.state.first {
-                    it.selectedOrg == "second@example.com" && !it.isRefreshing && !it.isAcquiringBodies
+                    it.selectedOrg == "second@example.com" &&
+                        !it.isRefreshing &&
+                        !it.isAcquiringBodies &&
+                        it.triageByLogId.containsKey(sharedLogId)
                 }
             }
             assertFalse(second.triageByLogId.getValue(sharedLogId).hasErrors)
