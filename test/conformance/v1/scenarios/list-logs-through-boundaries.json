@@ -35,7 +35,7 @@
         "id": "list-apex-logs",
         "request": {
           "method": "GET",
-          "url": "https://example.my.salesforce.com/services/data/v63.0/tooling/query?q=SELECT%20Id%2C%20StartTime%2C%20Operation%2C%20Status%2C%20LogLength%20FROM%20ApexLog%20ORDER%20BY%20StartTime%20DESC%2C%20Id%20DESC%20LIMIT%202",
+          "url": "https://example.my.salesforce.com/services/data/v63.0/tooling/query?q=SELECT%20Id%2C%20StartTime%2C%20Operation%2C%20Application%2C%20Status%2C%20LogLength%2C%20LogUser.Name%20FROM%20ApexLog%20ORDER%20BY%20StartTime%20DESC%20NULLS%20LAST%2C%20Id%20DESC%20LIMIT%202",
           "headers": {
             "Authorization": "Bearer test-token"
           }
@@ -46,7 +46,7 @@
             "headers": {
               "content-type": "application/json"
             },
-            "body": "{\"records\":[{\"Id\":\"07L000000000022AAA\",\"StartTime\":\"2026-08-05T01:00:00.000Z\",\"Operation\":\"Execute Anonymous\",\"Status\":\"Success\",\"LogLength\":123}]}"
+            "body": "{\"records\":[{\"Id\":\"07L000000000022AAA\",\"StartTime\":\"2026-08-05T01:00:00.000Z\",\"Operation\":\"Execute Anonymous\",\"Application\":\"Workbench\",\"Status\":\"Success\",\"LogLength\":123,\"LogUser\":{\"Name\":\"Demo User\"}}]}"
           }
         ]
       }
@@ -58,8 +58,10 @@
         "id": "07L000000000022AAA",
         "startTime": "2026-08-05T01:00:00.000Z",
         "operation": "Execute Anonymous",
+        "application": "Workbench",
         "status": "Success",
-        "logLength": 123
+        "logLength": 123,
+        "logUser": { "name": "Demo User" }
       }
     ]
   }

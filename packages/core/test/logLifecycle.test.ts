@@ -92,6 +92,171 @@ test('Apex Log Lifecycle finds a canonical local path before consulting Salesfor
   }
 });
 
+test('Apex Log Lifecycle rejects a linked canonical logs root before local-first resolution', async t => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-linked-local-first-'));
+  const externalRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-linked-local-first-external-'));
+  const logId = '07L000000000041AAA';
+  const username = 'linked-local@example.com';
+  const orgRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', username);
+  const externalLog = path.join(externalRoot, '2026-07-20', `${logId}.log`);
+  const remoteCalls: string[] = [];
+
+  await fs.mkdir(path.dirname(externalLog), { recursive: true });
+  await fs.writeFile(externalLog, 'must remain outside the lifecycle', 'utf8');
+  await fs.mkdir(orgRoot, { recursive: true });
+  await fs.writeFile(path.join(orgRoot, 'org.json'), `${JSON.stringify({ version: 1, username })}\n`, 'utf8');
+  try {
+    await fs.symlink(externalRoot, path.join(orgRoot, 'logs'), process.platform === 'win32' ? 'junction' : 'dir');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+      t.skip('filesystem does not permit directory links');
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(externalRoot, { recursive: true, force: true });
+      return;
+    }
+    throw error;
+  }
+
+  const lifecycle = createApexLogLifecycle({ remote: unavailableRemote(remoteCalls) });
+  try {
+    await assert.rejects(
+      lifecycle.requireLocalPath({ workspaceRoot, targetOrg: username, log: { logId } }),
+      error => error instanceof ApexLogLifecycleError && error.code === 'local-persistence'
+    );
+    await assert.rejects(
+      lifecycle.status({ workspaceRoot, targetOrg: username }),
+      error => error instanceof ApexLogLifecycleError && error.code === 'local-persistence'
+    );
+    await assert.rejects(
+      lifecycle.availableLocalPaths({ workspaceRoot, targetOrg: username, logs: [{ logId }] }),
+      error => error instanceof ApexLogLifecycleError && error.code === 'local-persistence'
+    );
+    assert.deepEqual(remoteCalls, []);
+    assert.equal(await fs.readFile(externalLog, 'utf8'), 'must remain outside the lifecycle');
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+    await fs.rm(externalRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle rejects a linked canonical log file before local-first resolution', async t => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-linked-local-file-'));
+  const externalRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-linked-local-file-external-'));
+  const logId = '07L000000000042AAA';
+  const username = 'linked-file@example.com';
+  const orgRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', username);
+  const dayRoot = path.join(orgRoot, 'logs', '2026-07-20');
+  const externalLog = path.join(externalRoot, `${logId}.log`);
+  const remoteCalls: string[] = [];
+
+  await fs.mkdir(dayRoot, { recursive: true });
+  await fs.writeFile(path.join(orgRoot, 'org.json'), `${JSON.stringify({ version: 1, username })}\n`, 'utf8');
+  await fs.writeFile(externalLog, 'must not become a dependable local log', 'utf8');
+  try {
+    await fs.symlink(externalLog, path.join(dayRoot, `${logId}.log`), 'file');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+      t.skip('filesystem does not permit file links');
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(externalRoot, { recursive: true, force: true });
+      return;
+    }
+    throw error;
+  }
+
+  const lifecycle = createApexLogLifecycle({ remote: unavailableRemote(remoteCalls) });
+  try {
+    await assert.rejects(
+      lifecycle.requireLocalPath({ workspaceRoot, targetOrg: username, log: { logId } }),
+      error => error instanceof ApexLogLifecycleError && error.code === 'local-persistence'
+    );
+    assert.deepEqual(remoteCalls, []);
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+    await fs.rm(externalRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle rejects a linked legacy log before returning it as locally available', async t => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-linked-legacy-file-'));
+  const externalRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-linked-legacy-file-external-'));
+  const logId = '07L000000000044AAA';
+  const username = 'linked-legacy@example.com';
+  const legacyPath = path.join(workspaceRoot, 'apexlogs', `${username}_${logId}.log`);
+  const externalLog = path.join(externalRoot, `${logId}.log`);
+  const remoteCalls: string[] = [];
+
+  await fs.mkdir(path.dirname(legacyPath), { recursive: true });
+  await fs.writeFile(externalLog, 'must not be exposed as a local log', 'utf8');
+  try {
+    await fs.symlink(externalLog, legacyPath, 'file');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+      t.skip('filesystem does not permit file links');
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(externalRoot, { recursive: true, force: true });
+      return;
+    }
+    throw error;
+  }
+
+  const lifecycle = createApexLogLifecycle({ remote: unavailableRemote(remoteCalls) });
+  try {
+    await assert.rejects(
+      lifecycle.requireLocalPath({ workspaceRoot, targetOrg: username, log: { logId } }),
+      error => error instanceof ApexLogLifecycleError && error.code === 'local-persistence'
+    );
+    await assert.rejects(
+      lifecycle.availableLocalPaths({ workspaceRoot, logs: [{ logId }] }),
+      error => error instanceof ApexLogLifecycleError && error.code === 'local-persistence'
+    );
+    assert.deepEqual(remoteCalls, ['resolveOrg']);
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+    await fs.rm(externalRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle rejects linked org metadata before resolving a local selector', async t => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-linked-org-metadata-'));
+  const externalRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-linked-org-metadata-external-'));
+  const logId = '07L000000000043AAA';
+  const username = 'linked-metadata@example.com';
+  const orgRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', username);
+  const externalMetadata = path.join(externalRoot, 'org.json');
+  const remoteCalls: string[] = [];
+
+  await fs.mkdir(orgRoot, { recursive: true });
+  await fs.writeFile(externalMetadata, `${JSON.stringify({ version: 1, username })}\n`, 'utf8');
+  try {
+    await fs.symlink(externalMetadata, path.join(orgRoot, 'org.json'), 'file');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+      t.skip('filesystem does not permit file links');
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(externalRoot, { recursive: true, force: true });
+      return;
+    }
+    throw error;
+  }
+
+  const lifecycle = createApexLogLifecycle({ remote: unavailableRemote(remoteCalls) });
+  try {
+    await assert.rejects(
+      lifecycle.requireLocalPath({ workspaceRoot, targetOrg: username, log: { logId } }),
+      error => error instanceof ApexLogLifecycleError && error.code === 'local-persistence'
+    );
+    assert.deepEqual(remoteCalls, []);
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+    await fs.rm(externalRoot, { recursive: true, force: true });
+  }
+});
+
 test('Apex Log Lifecycle acquires a missing body and returns its canonical local path', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-remote-'));
   const logId = '07L000000000003AAA';
@@ -1017,6 +1182,652 @@ test('Apex Log Lifecycle keeps the previous checkpoint after a partial sync', as
   }
 });
 
+test('Apex Log Lifecycle merges a concurrent shared sync-state writer without regressing its checkpoint', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-shared-state-'));
+  const username = 'core-writer@example.com';
+  const otherUsername = 'intellij-writer@example.com';
+  const coreLogId = '07L000000000038AAA';
+  const newerLogId = '07L000000000039AAA';
+  let bodyStartedResolve!: () => void;
+  const bodyStarted = new Promise<void>(resolve => {
+    bodyStartedResolve = resolve;
+  });
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg() {
+        return { username };
+      },
+      async listLogs() {
+        return [{ logId: coreLogId, startTime: '2026-07-20T12:00:00.000Z' }];
+      },
+      async readBody() {
+        bodyStartedResolve();
+        return 'shared state body';
+      }
+    }
+  });
+  const stateDirectory = path.join(workspaceRoot, 'apexlogs', '.alv');
+  const stateFile = path.join(stateDirectory, 'sync-state.json');
+  const lockFile = path.join(stateDirectory, 'sync-state.lock');
+
+  try {
+    await fs.mkdir(stateDirectory, { recursive: true });
+    await fs.writeFile(lockFile, 'external-writer', { flag: 'wx' });
+    const syncing = lifecycle.sync({ workspaceRoot, targetOrg: username });
+    await bodyStarted;
+    await fs.writeFile(
+      stateFile,
+      `${JSON.stringify(
+        {
+          version: 1,
+          extensionField: 'preserved',
+          orgs: {
+            [username]: {
+              lastSyncedLogId: newerLogId,
+              lastSyncedStartTime: '2026-07-21T12:00:00.000Z',
+              customOrgField: 'preserved'
+            },
+            [otherUsername]: { lastSyncedLogId: '07L000000000040AAA', customOtherField: true }
+          }
+        },
+        null,
+        2
+      )}\n`
+    );
+    await fs.rm(lockFile);
+
+    const result = await syncing;
+    const document = JSON.parse(await fs.readFile(stateFile, 'utf8'));
+    assert.deepEqual(result.checkpoint, {
+      advanced: true,
+      lastLogId: newerLogId,
+      lastStartTime: '2026-07-21T12:00:00.000Z'
+    });
+    assert.equal(document.extensionField, 'preserved');
+    assert.equal(document.orgs[username].customOrgField, 'preserved');
+    assert.equal(document.orgs[otherUsername].customOtherField, true);
+    assert.equal(
+      await fs.stat(lockFile).then(
+        () => true,
+        () => false
+      ),
+      false
+    );
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle initializes the shared version marker idempotently across simultaneous syncs', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-concurrent-version-'));
+  const versionFile = path.join(workspaceRoot, 'apexlogs', '.alv', 'version.json');
+  const stateFile = path.join(workspaceRoot, 'apexlogs', '.alv', 'sync-state.json');
+  const originalRename = fs.rename;
+  let releaseSecondRename!: () => void;
+  const secondRenameReached = new Promise<void>(resolve => {
+    releaseSecondRename = resolve;
+  });
+  let versionRenameCount = 0;
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg(targetOrg) {
+        return { username: String(targetOrg) };
+      },
+      async listLogs() {
+        return [];
+      },
+      async readBody() {
+        return '';
+      }
+    }
+  });
+
+  try {
+    fs.rename = (async (...args: Parameters<typeof fs.rename>) => {
+      if (path.resolve(String(args[1])) === path.resolve(versionFile)) {
+        const ordinal = ++versionRenameCount;
+        if (ordinal === 1) await secondRenameReached;
+        if (ordinal === 2) {
+          releaseSecondRename();
+          const error = new Error('simulated simultaneous Windows replacement') as NodeJS.ErrnoException;
+          error.code = 'EPERM';
+          throw error;
+        }
+      }
+      return originalRename(...args);
+    }) as typeof fs.rename;
+
+    const results = await Promise.allSettled([
+      lifecycle.sync({ workspaceRoot, targetOrg: 'first-initializer@example.com' }),
+      lifecycle.sync({ workspaceRoot, targetOrg: 'second-initializer@example.com' })
+    ]);
+
+    assert.deepEqual(
+      results.map(result => result.status),
+      ['fulfilled', 'fulfilled']
+    );
+    assert.equal(JSON.parse(await fs.readFile(versionFile, 'utf8')), 1);
+    const state = JSON.parse(await fs.readFile(stateFile, 'utf8')) as { orgs: Record<string, unknown> };
+    assert.deepEqual(Object.keys(state.orgs).sort(), [
+      'first-initializer@example.com',
+      'second-initializer@example.com'
+    ]);
+  } finally {
+    fs.rename = originalRename;
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle rejects an incompatible shared version marker without replacing it', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-incompatible-version-'));
+  const versionFile = path.join(workspaceRoot, 'apexlogs', '.alv', 'version.json');
+  let listCalls = 0;
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg() {
+        return { username: 'incompatible-version@example.com' };
+      },
+      async listLogs() {
+        listCalls += 1;
+        return [];
+      },
+      async readBody() {
+        return '';
+      }
+    }
+  });
+
+  try {
+    await fs.mkdir(path.dirname(versionFile), { recursive: true });
+    await fs.writeFile(versionFile, '2\n', 'utf8');
+
+    await assert.rejects(
+      lifecycle.sync({ workspaceRoot, targetOrg: 'incompatible-version@example.com' }),
+      error => error instanceof ApexLogLifecycleError && error.code === 'local-persistence'
+    );
+    assert.equal(await fs.readFile(versionFile, 'utf8'), '2\n');
+    assert.equal(listCalls, 0);
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle retries when a shared sync-state lock is released before inspection', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-released-state-lock-'));
+  const stateDirectory = path.join(workspaceRoot, 'apexlogs', '.alv');
+  const lockFile = path.join(stateDirectory, 'sync-state.lock');
+  const originalLstat = fs.lstat;
+  let releasedDuringInspection = false;
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg() {
+        return { username: 'released-lock@example.com' };
+      },
+      async listLogs() {
+        return [];
+      },
+      async readBody() {
+        return '';
+      }
+    }
+  });
+
+  try {
+    await fs.mkdir(stateDirectory, { recursive: true });
+    await fs.writeFile(lockFile, 'completed-external-writer', { flag: 'wx' });
+    fs.lstat = async target => {
+      if (!releasedDuringInspection && path.resolve(String(target)) === path.resolve(lockFile)) {
+        releasedDuringInspection = true;
+        await fs.rm(lockFile);
+        const error = new Error('lock was released') as NodeJS.ErrnoException;
+        error.code = 'ENOENT';
+        throw error;
+      }
+      return originalLstat(target);
+    };
+
+    const result = await lifecycle.sync({ workspaceRoot, targetOrg: 'released-lock@example.com' });
+
+    assert.equal(releasedDuringInspection, true);
+    assert.equal(result.status, 'success');
+    assert.equal(await fs.readFile(path.join(stateDirectory, 'sync-state.json'), 'utf8').then(Boolean), true);
+  } finally {
+    fs.lstat = originalLstat;
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle never reclaims a stale lock whose versioned owner is alive', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-live-state-lock-'));
+  const stateDirectory = path.join(workspaceRoot, 'apexlogs', '.alv');
+  const lockFile = path.join(stateDirectory, 'sync-state.lock');
+  const owner = `${JSON.stringify({ version: 1, pid: process.pid, token: '11111111-1111-4111-8111-111111111111' })}`;
+  const controller = new AbortController();
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg() {
+        return { username: 'live-lock@example.com' };
+      },
+      async listLogs() {
+        return [];
+      },
+      async readBody() {
+        return '';
+      }
+    }
+  });
+
+  try {
+    await fs.mkdir(stateDirectory, { recursive: true });
+    await fs.writeFile(lockFile, owner, { flag: 'wx' });
+    await fs.utimes(lockFile, new Date(0), new Date(0));
+    const cancellation = setTimeout(() => controller.abort(), 250);
+    try {
+      await assert.rejects(
+        lifecycle.sync({ workspaceRoot, targetOrg: 'live-lock@example.com' }, { signal: controller.signal }),
+        error => error instanceof ApexLogLifecycleError && error.code === 'cancelled'
+      );
+    } finally {
+      clearTimeout(cancellation);
+    }
+    assert.equal(await fs.readFile(lockFile, 'utf8'), owner);
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle never automatically reclaims a stale legacy lock', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-legacy-state-lock-'));
+  const stateDirectory = path.join(workspaceRoot, 'apexlogs', '.alv');
+  const lockFile = path.join(stateDirectory, 'sync-state.lock');
+  const controller = new AbortController();
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg() {
+        return { username: 'legacy-lock@example.com' };
+      },
+      async listLogs() {
+        return [];
+      },
+      async readBody() {
+        return '';
+      }
+    }
+  });
+
+  try {
+    await fs.mkdir(stateDirectory, { recursive: true });
+    await fs.writeFile(lockFile, 'legacy-owner-token', { flag: 'wx' });
+    await fs.utimes(lockFile, new Date(0), new Date(0));
+    const cancellation = setTimeout(() => controller.abort(), 250);
+    try {
+      await assert.rejects(
+        lifecycle.sync({ workspaceRoot, targetOrg: 'legacy-lock@example.com' }, { signal: controller.signal }),
+        error => error instanceof ApexLogLifecycleError && error.code === 'cancelled'
+      );
+    } finally {
+      clearTimeout(cancellation);
+    }
+    assert.equal(await fs.readFile(lockFile, 'utf8'), 'legacy-owner-token');
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle never automatically reclaims a noncanonical versioned lock', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-noncanonical-state-lock-'));
+  const stateDirectory = path.join(workspaceRoot, 'apexlogs', '.alv');
+  const lockFile = path.join(stateDirectory, 'sync-state.lock');
+  const owner = '{ "version": 1, "pid": 99999994, "token": "55555555-5555-4555-8555-555555555555" }';
+  const originalKill = process.kill;
+  const controller = new AbortController();
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg() {
+        return { username: 'noncanonical-lock@example.com' };
+      },
+      async listLogs() {
+        return [];
+      },
+      async readBody() {
+        return '';
+      }
+    }
+  });
+
+  try {
+    process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
+      if (pid === 99_999_994) {
+        const error = new Error('owner is dead') as NodeJS.ErrnoException;
+        error.code = 'ESRCH';
+        throw error;
+      }
+      return originalKill(pid, signal);
+    }) as typeof process.kill;
+    await fs.mkdir(stateDirectory, { recursive: true });
+    await fs.writeFile(lockFile, owner, { flag: 'wx' });
+    await fs.utimes(lockFile, new Date(0), new Date(0));
+    const cancellation = setTimeout(() => controller.abort(), 250);
+    try {
+      await assert.rejects(
+        lifecycle.sync({ workspaceRoot, targetOrg: 'noncanonical-lock@example.com' }, { signal: controller.signal }),
+        error => error instanceof ApexLogLifecycleError && error.code === 'cancelled'
+      );
+    } finally {
+      clearTimeout(cancellation);
+    }
+    assert.equal(await fs.readFile(lockFile, 'utf8'), owner);
+  } finally {
+    process.kill = originalKill;
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle reclaims a dead versioned owner through a permanent election marker', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-dead-state-lock-'));
+  const stateDirectory = path.join(workspaceRoot, 'apexlogs', '.alv');
+  const lockFile = path.join(stateDirectory, 'sync-state.lock');
+  const deadPid = 99_999_991;
+  const token = '22222222-2222-4222-8222-222222222222';
+  const owner = JSON.stringify({ version: 1, pid: deadPid, token });
+  const markerFile = `${lockFile}.reclaim-${token}`;
+  const originalKill = process.kill;
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg() {
+        return { username: 'dead-lock@example.com' };
+      },
+      async listLogs() {
+        return [];
+      },
+      async readBody() {
+        return '';
+      }
+    }
+  });
+
+  try {
+    process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
+      if (pid === deadPid) {
+        const error = new Error('owner is dead') as NodeJS.ErrnoException;
+        error.code = 'ESRCH';
+        throw error;
+      }
+      return originalKill(pid, signal);
+    }) as typeof process.kill;
+    await fs.mkdir(stateDirectory, { recursive: true });
+    await fs.writeFile(lockFile, owner, { flag: 'wx' });
+    await fs.utimes(lockFile, new Date(0), new Date(0));
+
+    const result = await lifecycle.sync({ workspaceRoot, targetOrg: 'dead-lock@example.com' });
+
+    assert.equal(result.status, 'success');
+    assert.equal(await fs.readFile(markerFile, 'utf8'), owner);
+    await assert.rejects(fs.lstat(lockFile), error => (error as NodeJS.ErrnoException).code === 'ENOENT');
+  } finally {
+    process.kill = originalKill;
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle fails closed when a dead owner already has an orphaned reclaim marker', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-orphan-reclaim-marker-'));
+  const stateDirectory = path.join(workspaceRoot, 'apexlogs', '.alv');
+  const lockFile = path.join(stateDirectory, 'sync-state.lock');
+  const deadPid = 99_999_992;
+  const token = '33333333-3333-4333-8333-333333333333';
+  const owner = JSON.stringify({ version: 1, pid: deadPid, token });
+  const markerFile = `${lockFile}.reclaim-${token}`;
+  const originalKill = process.kill;
+  const controller = new AbortController();
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg() {
+        return { username: 'orphan-marker@example.com' };
+      },
+      async listLogs() {
+        return [];
+      },
+      async readBody() {
+        return '';
+      }
+    }
+  });
+
+  try {
+    process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
+      if (pid === deadPid) {
+        const error = new Error('owner is dead') as NodeJS.ErrnoException;
+        error.code = 'ESRCH';
+        throw error;
+      }
+      return originalKill(pid, signal);
+    }) as typeof process.kill;
+    await fs.mkdir(stateDirectory, { recursive: true });
+    await fs.writeFile(lockFile, owner, { flag: 'wx' });
+    await fs.writeFile(markerFile, owner, { flag: 'wx' });
+    await fs.utimes(lockFile, new Date(0), new Date(0));
+    const cancellation = setTimeout(() => controller.abort(), 250);
+    try {
+      await assert.rejects(
+        lifecycle.sync({ workspaceRoot, targetOrg: 'orphan-marker@example.com' }, { signal: controller.signal }),
+        error => error instanceof ApexLogLifecycleError && error.code === 'cancelled'
+      );
+    } finally {
+      clearTimeout(cancellation);
+    }
+    assert.equal(await fs.readFile(lockFile, 'utf8'), owner);
+    assert.equal(await fs.readFile(markerFile, 'utf8'), owner);
+  } finally {
+    process.kill = originalKill;
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle serializes two reclaimers after electing one dead-owner reclaimer', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-two-reclaimers-'));
+  const stateDirectory = path.join(workspaceRoot, 'apexlogs', '.alv');
+  const lockFile = path.join(stateDirectory, 'sync-state.lock');
+  const deadPid = 99_999_993;
+  const token = '44444444-4444-4444-8444-444444444444';
+  const owner = JSON.stringify({ version: 1, pid: deadPid, token });
+  const markerFile = `${lockFile}.reclaim-${token}`;
+  const originalKill = process.kill;
+  let releaseFirstList!: () => void;
+  let releaseSecondList!: () => void;
+  const firstListed = new Promise<void>(resolve => {
+    releaseFirstList = resolve;
+  });
+  const secondListed = new Promise<void>(resolve => {
+    releaseSecondList = resolve;
+  });
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg(targetOrg) {
+        if (targetOrg === 'second-reclaimer@example.com') await firstListed;
+        return { username: String(targetOrg) };
+      },
+      async listLogs({ org }) {
+        if (org.username === 'first-reclaimer@example.com') {
+          releaseFirstList();
+          await secondListed;
+        } else {
+          releaseSecondList();
+        }
+        return [];
+      },
+      async readBody() {
+        return '';
+      }
+    }
+  });
+
+  try {
+    process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
+      if (pid === deadPid) {
+        const error = new Error('owner is dead') as NodeJS.ErrnoException;
+        error.code = 'ESRCH';
+        throw error;
+      }
+      return originalKill(pid, signal);
+    }) as typeof process.kill;
+    await fs.mkdir(stateDirectory, { recursive: true });
+    await fs.writeFile(lockFile, owner, { flag: 'wx' });
+    await fs.utimes(lockFile, new Date(0), new Date(0));
+
+    const [first, second] = await Promise.all([
+      lifecycle.sync({ workspaceRoot, targetOrg: 'first-reclaimer@example.com' }),
+      lifecycle.sync({ workspaceRoot, targetOrg: 'second-reclaimer@example.com' })
+    ]);
+
+    assert.equal(first.status, 'success');
+    assert.equal(second.status, 'success');
+    assert.equal(await fs.readFile(markerFile, 'utf8'), owner);
+    const state = JSON.parse(await fs.readFile(path.join(stateDirectory, 'sync-state.json'), 'utf8')) as {
+      orgs: Record<string, unknown>;
+    };
+    assert.deepEqual(Object.keys(state.orgs).sort(), ['first-reclaimer@example.com', 'second-reclaimer@example.com']);
+    await assert.rejects(fs.lstat(lockFile), error => (error as NodeJS.ErrnoException).code === 'ENOENT');
+  } finally {
+    process.kill = originalKill;
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle uses a monotonic timeout while the wall clock jumps', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-monotonic-lock-timeout-'));
+  const stateDirectory = path.join(workspaceRoot, 'apexlogs', '.alv');
+  const lockFile = path.join(stateDirectory, 'sync-state.lock');
+  const originalNow = Date.now;
+  const controller = new AbortController();
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg() {
+        return { username: 'monotonic-timeout@example.com' };
+      },
+      async listLogs() {
+        return [];
+      },
+      async readBody() {
+        return '';
+      }
+    }
+  });
+
+  try {
+    await fs.mkdir(stateDirectory, { recursive: true });
+    await fs.writeFile(lockFile, 'legacy-owner-token', { flag: 'wx' });
+    await fs.utimes(lockFile, new Date(0), new Date(0));
+    let calls = 0;
+    const base = originalNow();
+    Date.now = () => base + calls++ * 60_000;
+    const cancellation = setTimeout(() => controller.abort(), 250);
+    try {
+      await assert.rejects(
+        lifecycle.sync({ workspaceRoot, targetOrg: 'monotonic-timeout@example.com' }, { signal: controller.signal }),
+        error => error instanceof ApexLogLifecycleError && error.code === 'cancelled'
+      );
+    } finally {
+      clearTimeout(cancellation);
+    }
+  } finally {
+    Date.now = originalNow;
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle propagates lock inspection and release I/O failures', async t => {
+  await t.test('inspection', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-lock-inspection-io-'));
+    const stateDirectory = path.join(workspaceRoot, 'apexlogs', '.alv');
+    const lockFile = path.join(stateDirectory, 'sync-state.lock');
+    const originalReadFile = fs.readFile;
+    const lifecycle = createApexLogLifecycle({
+      remote: {
+        async resolveOrg() {
+          return { username: 'inspection-io@example.com' };
+        },
+        async listLogs() {
+          return [];
+        },
+        async readBody() {
+          return '';
+        }
+      }
+    });
+    try {
+      await fs.mkdir(stateDirectory, { recursive: true });
+      await fs.writeFile(lockFile, 'legacy-owner-token', { flag: 'wx' });
+      await fs.utimes(lockFile, new Date(0), new Date(0));
+      fs.readFile = (async (...args: Parameters<typeof fs.readFile>) => {
+        if (path.resolve(String(args[0])) === path.resolve(lockFile)) {
+          const error = new Error('inspection denied') as NodeJS.ErrnoException;
+          error.code = 'EACCES';
+          throw error;
+        }
+        return originalReadFile(...args);
+      }) as typeof fs.readFile;
+      await assert.rejects(
+        lifecycle.sync({ workspaceRoot, targetOrg: 'inspection-io@example.com' }),
+        error => error instanceof ApexLogLifecycleError && error.code === 'local-persistence'
+      );
+    } finally {
+      fs.readFile = originalReadFile;
+      lifecycle.dispose();
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  await t.test('release', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-lock-release-io-'));
+    const lockFile = path.join(workspaceRoot, 'apexlogs', '.alv', 'sync-state.lock');
+    const originalReadFile = fs.readFile;
+    const lifecycle = createApexLogLifecycle({
+      remote: {
+        async resolveOrg() {
+          return { username: 'release-io@example.com' };
+        },
+        async listLogs() {
+          return [];
+        },
+        async readBody() {
+          return '';
+        }
+      }
+    });
+    try {
+      fs.readFile = (async (...args: Parameters<typeof fs.readFile>) => {
+        if (path.resolve(String(args[0])) === path.resolve(lockFile)) {
+          const error = new Error('release denied') as NodeJS.ErrnoException;
+          error.code = 'EACCES';
+          throw error;
+        }
+        return originalReadFile(...args);
+      }) as typeof fs.readFile;
+      await assert.rejects(
+        lifecycle.sync({ workspaceRoot, targetOrg: 'release-io@example.com' }),
+        error => error instanceof ApexLogLifecycleError && error.code === 'local-persistence'
+      );
+      assert.equal((await fs.lstat(lockFile)).isFile(), true);
+    } finally {
+      fs.readFile = originalReadFile;
+      lifecycle.dispose();
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 test('Apex Log Lifecycle rolls back a checkpoint when cancellation arrives during commit', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-cancelled-checkpoint-'));
   const username = 'cancelled-checkpoint@example.com';
@@ -1226,6 +2037,53 @@ test('Apex Log Lifecycle reports corrupt local state through a stable persistenc
   } finally {
     lifecycle.dispose();
     await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle rejects linked shared-state directories without writing outside the workspace', async t => {
+  for (const linkedComponent of ['apexlogs', '.alv'] as const) {
+    await t.test(linkedComponent, async subtest => {
+      const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), `alv-lifecycle-linked-${linkedComponent}-`));
+      const externalRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-external-state-'));
+      const apexlogsRoot = path.join(workspaceRoot, 'apexlogs');
+      const linkedPath = linkedComponent === 'apexlogs' ? apexlogsRoot : path.join(apexlogsRoot, '.alv');
+      const lifecycle = createApexLogLifecycle({
+        remote: {
+          async resolveOrg() {
+            return { username: 'linked-state@example.com' };
+          },
+          async listLogs() {
+            return [];
+          },
+          async readBody() {
+            return '';
+          }
+        }
+      });
+
+      try {
+        if (linkedComponent === '.alv') await fs.mkdir(apexlogsRoot);
+        try {
+          await fs.symlink(externalRoot, linkedPath, process.platform === 'win32' ? 'junction' : 'dir');
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+            subtest.skip('filesystem does not permit directory links');
+            return;
+          }
+          throw error;
+        }
+
+        await assert.rejects(
+          lifecycle.sync({ workspaceRoot, targetOrg: 'linked-state@example.com' }),
+          error => error instanceof ApexLogLifecycleError && error.code === 'local-persistence'
+        );
+        assert.deepEqual(await fs.readdir(externalRoot), []);
+      } finally {
+        lifecycle.dispose();
+        await fs.rm(workspaceRoot, { recursive: true, force: true });
+        await fs.rm(externalRoot, { recursive: true, force: true });
+      }
+    });
   }
 });
 

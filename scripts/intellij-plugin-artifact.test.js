@@ -46,9 +46,12 @@ test(
 
     testAndBuildPlugin(javaHome);
 
+    const buildScript = fs.readFileSync(path.join(pluginRoot, 'build.gradle.kts'), 'utf8');
+    const version = /^version = "([^"]+)"$/m.exec(buildScript)?.[1];
+    assert.ok(version, 'the Gradle plugin version must be declared');
     const distributions = path.join(pluginRoot, 'build', 'distributions');
     const zipNames = fs.readdirSync(distributions).filter(name => name.endsWith('.zip'));
-    assert.deepEqual(zipNames, ['electivus-apex-log-viewer-0.1.0.zip']);
+    assert.deepEqual(zipNames, [`electivus-apex-log-viewer-${version}.zip`]);
 
     const extractionRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-intellij-artifact-'));
     try {
@@ -57,7 +60,7 @@ test(
       const pluginDirectory = path.join(extractionRoot, 'electivus-apex-log-viewer');
       const libraryDirectory = path.join(pluginDirectory, 'lib');
       const pluginJars = fs.readdirSync(libraryDirectory).filter(name => name.endsWith('.jar'));
-      assert.deepEqual(pluginJars, ['electivus-apex-log-viewer-0.1.0.jar']);
+      assert.deepEqual(pluginJars, [`electivus-apex-log-viewer-${version}.jar`]);
 
       const jarRoot = path.join(extractionRoot, 'jar');
       extractArchive(path.join(libraryDirectory, pluginJars[0]), jarRoot, javaHome);
@@ -72,32 +75,54 @@ test(
 
       assert.match(pluginXml, /<id>com\.electivus\.apexlogviewer<\/id>/);
       assert.match(pluginXml, /<name>Electivus Apex Log Viewer<\/name>/);
-      assert.match(pluginXml, /<vendor>Electivus<\/vendor>/);
-      assert.match(pluginXml, /<version>0\.1\.0<\/version>/);
+      assert.match(pluginXml, /<vendor url="https:\/\/github\.com\/Electivus\/Apex-Log-Viewer">Electivus<\/vendor>/);
+      assert.match(pluginXml, /<change-notes><!\[CDATA\[[\s\S]+Unified Log Search[\s\S]+<\/change-notes>/);
+      assert.match(pluginXml, new RegExp(`<version>${version.replaceAll('.', '\\.')}</version>`));
       assert.match(pluginXml, /<idea-version since-build="261" until-build="262\.\*"\s*\/>/);
       assert.match(pluginXml, /<depends>com\.intellij\.modules\.platform<\/depends>/);
       assert.match(pluginXml, /<depends>com\.intellij\.modules\.idea<\/depends>/);
       assert.match(pluginXml, /<resource-bundle>messages\.ApexLogViewerBundle<\/resource-bundle>/);
-      assert.doesNotMatch(pluginXml, /<description\b/);
-      assert.doesNotMatch(pluginXml, /Native IntelliJ IDEA access to the Apex Log Lifecycle\./);
+      assert.match(
+        pluginXml,
+        /<description><!\[CDATA\[Native IntelliJ IDEA access to the Apex Log Lifecycle\.\]\]><\/description>/
+      );
+      assert.ok(fs.existsSync(path.join(jarRoot, 'META-INF', 'pluginIcon.svg')), 'the plugin icon must be packaged');
+      assert.ok(fs.existsSync(path.join(jarRoot, 'META-INF', 'LICENSE')), 'the plugin license must be packaged');
+      for (const policy of ['PRIVACY.md', 'PRIVACY_pt_BR.md', 'SUPPORT.md', 'SUPPORT_pt_BR.md']) {
+        assert.ok(fs.existsSync(path.join(jarRoot, 'META-INF', policy)), `${policy} must be packaged`);
+      }
+      assert.match(fs.readFileSync(path.join(jarRoot, 'META-INF', 'PRIVACY.md'), 'utf8'), /sends no telemetry/i);
+      assert.match(
+        fs.readFileSync(path.join(jarRoot, 'META-INF', 'SUPPORT.md'), 'utf8'),
+        /github\.com\/Electivus\/Apex-Log-Viewer\/issues/
+      );
 
       const englishBundle = fs.readFileSync(path.join(jarRoot, 'messages', 'ApexLogViewerBundle.properties'), 'utf8');
       const brazilianPortugueseBundle = fs.readFileSync(
         path.join(jarRoot, 'messages', 'ApexLogViewerBundle_pt_BR.properties'),
         'utf8'
       );
-      assert.match(
-        englishBundle,
-        /^plugin\.com\.electivus\.apexlogviewer\.description=Native IntelliJ IDEA access to the Apex Log Lifecycle\.$/m
-      );
-      assert.match(
+      assert.doesNotMatch(englishBundle, /^plugin\.com\.electivus\.apexlogviewer\.(?:description|changeNotes)=/m);
+      assert.doesNotMatch(
         brazilianPortugueseBundle,
-        /^plugin\.com\.electivus\.apexlogviewer\.description=Acesso nativo do IntelliJ IDEA ao ciclo de vida de logs do Apex\.$/m
+        /^plugin\.com\.electivus\.apexlogviewer\.(?:description|changeNotes)=/m
       );
-      assert.match(pluginXml, /<toolWindow[^>]+anchor="right"/);
+      assert.match(pluginXml, /<toolWindow[^>]+anchor="bottom"/);
+      assert.match(pluginXml, /<toolWindow[^>]+icon="AllIcons\.FileTypes\.Text"/);
       assert.match(
         pluginXml,
         /<toolWindow[^>]+id="Electivus Apex Log Viewer"[^>]+factoryClass="com\.electivus\.apexlogviewer\.ui\.ApexLogViewerToolWindowFactory"/
+      );
+      assert.doesNotMatch(pluginXml, /(?:text|description)="%action\./);
+      assert.match(englishBundle, /^action\.ApexLogViewer\.RefreshLogs\.text=Refresh Apex Logs$/m);
+      assert.match(
+        brazilianPortugueseBundle,
+        /^action\.ApexLogViewer\.RefreshLogs\.text=Atualizar logs do Apex$/m
+      );
+      assert.equal(
+        [...pluginXml.matchAll(/<action\b[^>]+icon="AllIcons\.Actions\.[^"]+"/g)].length,
+        11,
+        'all registered actions must package native IntelliJ icons'
       );
 
       const packagedFiles = fs

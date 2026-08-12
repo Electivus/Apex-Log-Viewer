@@ -1162,6 +1162,7 @@ function createRuntimeApexLogRemote(): ApexLogRemote {
         logId: row.id,
         startTime: row.startTime,
         operation: row.operation,
+        application: row.application,
         status: row.status,
         logLength: row.logLength
       }));
@@ -1283,8 +1284,10 @@ export function createApexLogViewerCore(
             id: row.logId,
             startTime: row.startTime,
             operation: row.operation,
+            application: row.application,
             status: row.status,
-            logLength: row.logLength
+            logLength: row.logLength,
+            logUser: row.logUser
           }));
         }),
       sync: (params: LogsSyncParams = {}, callOptions?: CoreCallOptions) =>

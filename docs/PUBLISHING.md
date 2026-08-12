@@ -9,6 +9,36 @@ Maintainer quick start
 5. For plugin-only npm releases, bump `packages/sf-plugin/package.json`, merge the release PR, and push a tag `sf-plugin-vX.Y.Z`; the SF Plugin Release workflow validates, stages, publishes to npm, and creates the GitHub release.
 6. Alternatively, publish the extension locally with `pnpm run vsce:publish` (or `:pre`) and `pnpm dlx ovsx publish`.
 
+IntelliJ plugin release
+
+The IntelliJ plugin has an independent signed artifact lane and is not uploaded to JetBrains Marketplace automatically.
+
+1. Update `apps/intellij-plugin/build.gradle.kts` and `CHANGELOG.md` in a release PR.
+2. Configure protected GitHub secrets `INTELLIJ_CERTIFICATE_CHAIN`, `INTELLIJ_PRIVATE_KEY`, and `INTELLIJ_PRIVATE_KEY_PASSWORD` with the long-lived Electivus signing identity, and keep the repository ruleset for `intellij-v*` tags immutable against update or deletion.
+3. On the exact candidate commit, complete real-org validation on Linux, Windows, and macOS plus the installed IntelliJ IDEA Ultimate 2026.2 UI smoke checklist. After reviewing that evidence, an approver sets the protected `intellij-release` environment variable `INTELLIJ_RELEASE_CANDIDATE_SHA` to that commit SHA.
+4. Merge the release PR and create a matching stable tag such as `intellij-v1.0.0`. Versions below 1.0.0 are development artifacts and the release workflow rejects them.
+5. `.github/workflows/intellij-plugin-release.yml` validates the tag and candidate SHA, runs the dual-runtime corpus and plugin tests on Linux, Windows, and macOS, verifies IntelliJ IDEA 2026.1 and 2026.2 compatibility, signs the ZIP, and attaches it to a GitHub release.
+6. Reinstall that signed ZIP into IntelliJ IDEA Ultimate 2026.2 for a final signature-preserving smoke check before manually submitting the same artifact to JetBrains Marketplace.
+
+Local development builds and pull requests require no signing secrets. `buildPlugin` produces an unsigned development ZIP; `verifyPlugin` checks both supported IDE lines. The release workflow intentionally has no Marketplace token or publication step.
+
+Installed IntelliJ smoke checklist
+
+Record the candidate SHA, signed ZIP SHA-256, OS, exact IDEA build, redacted org alias, tester, and outcome for each run.
+
+1. Install the signed ZIP into a clean IDEA 2026.2 profile and confirm that enable, disable, and re-enable complete without startup errors.
+2. Open a Salesforce workspace, select an authenticated org, refresh Logs, and verify metadata columns, pagination, sorting, raw opening, and Parsed Viewer navigation.
+3. Enter a three-or-more-character query, verify the 750 ms delayed progressive search, cancel it, retry it, and use Continue Search to retrieve the next bounded pass without duplicates.
+4. Open a marker-bearing external `.log` explicitly in the Parsed Viewer and confirm that an unrelated or oversized file is rejected.
+5. With Illuminated Cloud 2 installed, send a locally materialized log to replay and confirm that IC2 receives the active Project and VirtualFile; repeat without IC2 and verify the localized recovery message.
+6. Confirm Download All asks for approval, cancellation stops further acquisition, diagnostics contain no credentials or log bodies, and no telemetry request is emitted.
+
+Rollback and rebuild
+
+- Before Marketplace submission, stop the release and retain the signed candidate as evidence; do not upload a known-bad artifact.
+- After submission, hide or unpublish the affected Marketplace version when policy permits and direct users to the last known-good signed ZIP.
+- Never rebuild a published version in place. Fix from the tagged source, increment the patch version, repeat the exact-SHA matrix, signing, signature verification, and installed smoke checklist, then publish the replacement artifact.
+
 This repository includes automated publish flows for the Visual Studio Code Marketplace, Open VSX, and the standalone npm plugin. Workspace installation and builds use pnpm.
 
 - Stable: even minor versions (e.g., 0.6.0, 0.6.1).

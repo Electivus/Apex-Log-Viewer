@@ -28,6 +28,7 @@ type PreparedEvent = {
 
 let reporter: TelemetryReporter | undefined;
 let catalog: TelemetryCatalog | undefined;
+let explicitTestTelemetryActive = false;
 const warningKeys = new Set<string>();
 
 function isExplicitTestTelemetryEnabled(): boolean {
@@ -142,7 +143,7 @@ function prepareProperties(
   if (kind === 'error') {
     input.outcome = input.outcome || 'error';
   }
-  if (isExplicitTestTelemetryEnabled()) {
+  if (explicitTestTelemetryActive) {
     const testRunId = process.env.ALV_TEST_TELEMETRY_RUN_ID?.trim();
     if (testRunId) {
       input.testRunId = testRunId;
@@ -247,7 +248,9 @@ function prepareEvent(
 
 export function activateTelemetry(context: vscode.ExtensionContext) {
   try {
-    if (isNonProductionMode(context) && !isExplicitTestTelemetryEnabled()) {
+    const nonProductionMode = isNonProductionMode(context);
+    const explicitTestTelemetry = nonProductionMode && isExplicitTestTelemetryEnabled();
+    if (nonProductionMode && !explicitTestTelemetry) {
       return;
     }
 
@@ -267,6 +270,7 @@ export function activateTelemetry(context: vscode.ExtensionContext) {
       return;
     }
     reporter = new TelemetryReporter(keyOrConn);
+    explicitTestTelemetryActive = explicitTestTelemetry;
     context.subscriptions.push({
       dispose: () => reporter?.dispose()
     });
@@ -283,6 +287,7 @@ export function disposeTelemetry(): void {
   } finally {
     reporter = undefined;
     catalog = undefined;
+    explicitTestTelemetryActive = false;
     warningKeys.clear();
   }
 }
@@ -296,12 +301,20 @@ export function sendEvent(
   if (!event) {
     return;
   }
+  if (explicitTestTelemetryActive) {
+    reporter?.sendDangerousTelemetryEvent(name, event.properties, event.measurements);
+    return;
+  }
   reporter?.sendTelemetryEvent(name, event.properties, event.measurements);
 }
 
 export function sendException(name: string, properties?: Record<string, string>): void {
   const event = prepareEvent(name, properties, undefined, 'error');
   if (!event) {
+    return;
+  }
+  if (explicitTestTelemetryActive) {
+    reporter?.sendDangerousTelemetryErrorEvent(name, event.properties);
     return;
   }
   reporter?.sendTelemetryErrorEvent(name, event.properties);

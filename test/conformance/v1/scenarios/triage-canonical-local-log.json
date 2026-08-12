@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "1.0",
+  "id": "triage-canonical-local-log",
+  "description": "Both runtimes classify the same dependable canonical Apex log without contacting Salesforce.",
+  "operation": "log.triage",
+  "request": {
+    "workspaceRoot": "<workspace>",
+    "username": "demo@example.com",
+    "logIds": ["07L000000000099AAA"],
+    "logStartTimes": {
+      "07L000000000099AAA": "2026-08-10T18:00:00.000Z"
+    }
+  },
+  "workspace": {
+    "before": [
+      {
+        "path": "apexlogs/orgs/demo@example.com/logs/2026-08-10/07L000000000099AAA.log",
+        "content": "12:00:00.000 (1)|EXCEPTION_THROWN|[6]|System.NullPointerException: boom\n"
+      }
+    ],
+    "after": [
+      {
+        "path": "apexlogs/orgs/demo@example.com/logs/2026-08-10/07L000000000099AAA.log",
+        "content": "12:00:00.000 (1)|EXCEPTION_THROWN|[6]|System.NullPointerException: boom\n"
+      }
+    ]
+  },
+  "doubles": {
+    "process": [],
+    "http": []
+  },
+  "expected": {
+    "result": [
+      {
+        "logId": "07L000000000099AAA",
+        "summary": {
+          "hasErrors": true,
+          "primaryReason": "Fatal exception",
+          "reasons": [
+            {
+              "code": "fatal_exception",
+              "severity": "error",
+              "summary": "Fatal exception",
+              "line": 6,
+              "eventType": "EXCEPTION_THROWN"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 
 import type { RuntimeLogTriageSummary } from './contracts.js';
 import { summarizeLogText } from './logTriage.js';
@@ -19,8 +21,10 @@ export type RemoteApexLogRow = Readonly<{
   logId: string;
   startTime?: string;
   operation?: string;
+  application?: string;
   status?: string;
   logLength?: number;
+  logUser?: { name?: string };
 }>;
 
 export interface ApexLogRemote {
@@ -335,16 +339,85 @@ async function isRealDirectory(directoryPath: string): Promise<boolean> {
   }
 }
 
+async function ensureRealDirectoryPath(
+  workspaceRoot: string,
+  directoryPath: string,
+  createMissing: boolean,
+  treatNonDirectoryAsMissing = false
+): Promise<boolean> {
+  const resolvedRoot = path.resolve(workspaceRoot);
+  const resolvedDirectory = path.resolve(directoryPath);
+  const relative = path.relative(resolvedRoot, resolvedDirectory);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`Apex log directory escapes the workspace root: ${resolvedDirectory}`);
+  }
+
+  const segments = relative ? relative.split(path.sep).filter(Boolean) : [];
+  const inspectDirectory = async (current: string, mayCreate: boolean): Promise<boolean> => {
+    let stat: Awaited<ReturnType<typeof fs.lstat>>;
+    try {
+      stat = await fs.lstat(current);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        if (!mayCreate) return false;
+        try {
+          await fs.mkdir(current);
+        } catch (mkdirError) {
+          if ((mkdirError as NodeJS.ErrnoException).code !== 'EEXIST') throw mkdirError;
+        }
+        stat = await fs.lstat(current);
+      } else {
+        throw error;
+      }
+    }
+    if (stat.isSymbolicLink()) {
+      throw new Error(`Apex log directory must be a real directory: ${current}`);
+    }
+    if (!stat.isDirectory()) {
+      if (treatNonDirectoryAsMissing) return false;
+      throw new Error(`Apex log directory must be a real directory: ${current}`);
+    }
+    return true;
+  };
+
+  if (!(await inspectDirectory(resolvedRoot, false))) {
+    throw new Error(`Apex log workspace root does not exist: ${resolvedRoot}`);
+  }
+  let current = resolvedRoot;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    if (!(await inspectDirectory(current, createMissing))) return false;
+  }
+  return true;
+}
+
+async function ensureRegularFileOrAbsent(filePath: string): Promise<void> {
+  try {
+    const stat = await fs.lstat(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new Error(`Apex log state path must be a regular file: ${filePath}`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+}
+
 async function findCanonicalLogPath(
   workspaceRoot: string,
   safeUsername: string,
   logId: string
 ): Promise<string | undefined> {
   const logsRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', safeUsername, 'logs');
+  if (!(await ensureRealDirectoryPath(workspaceRoot, logsRoot, false, true))) return undefined;
   const entries = await readDirectory(logsRoot);
   for (const entry of entries) {
-    if (!entry.isDirectory() || !/^(unknown-date|\d{4}-\d{2}-\d{2})$/.test(entry.name)) continue;
-    const candidate = path.join(logsRoot, entry.name, `${logId}.log`);
+    if (!/^(unknown-date|\d{4}-\d{2}-\d{2})$/.test(entry.name)) continue;
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    const dayRoot = path.join(logsRoot, entry.name);
+    if (!(await ensureRealDirectoryPath(workspaceRoot, dayRoot, false, true))) continue;
+    const candidate = path.join(dayRoot, `${logId}.log`);
+    await ensureRegularFileOrAbsent(candidate);
     if (await isRegularFile(candidate)) return candidate;
   }
   return undefined;
@@ -366,7 +439,10 @@ async function findLocalLogPath(workspaceRoot: string, username: string, logId: 
   const safe = safeUsername(username);
   const canonical = await findCanonicalLogPath(workspaceRoot, safe, logId);
   if (canonical) return canonical;
+  const apexlogsRoot = path.join(workspaceRoot, 'apexlogs');
+  if (!(await ensureRealDirectoryPath(workspaceRoot, apexlogsRoot, false, true))) return undefined;
   const legacy = path.join(workspaceRoot, 'apexlogs', `${safe}_${logId}.log`);
+  await ensureRegularFileOrAbsent(legacy);
   return (await isRegularFile(legacy)) ? legacy : undefined;
 }
 
@@ -376,19 +452,27 @@ async function findLocalLogMatches(
 ): Promise<Array<{ username: string; localPath: string }>> {
   const matchesByUsername = new Map<string, { username: string; localPath: string }>();
   const orgsRoot = path.join(workspaceRoot, 'apexlogs', 'orgs');
-  for (const org of await readDirectory(orgsRoot)) {
-    if (!org.isDirectory() || org.isSymbolicLink()) continue;
-    const localPath = await findCanonicalLogPath(workspaceRoot, org.name, logId);
-    if (localPath) {
-      const metadata = await readOrgMetadata(path.join(orgsRoot, org.name, 'org.json'));
-      matchesByUsername.set(org.name, { username: metadata?.username ?? org.name, localPath });
+  if (await ensureRealDirectoryPath(workspaceRoot, orgsRoot, false, true)) {
+    for (const org of await readDirectory(orgsRoot)) {
+      if (!org.isDirectory() && !org.isSymbolicLink()) continue;
+      const orgRoot = path.join(orgsRoot, org.name);
+      if (!(await ensureRealDirectoryPath(workspaceRoot, orgRoot, false, true))) continue;
+      const localPath = await findCanonicalLogPath(workspaceRoot, org.name, logId);
+      if (localPath) {
+        const metadata = await readOrgMetadata(path.join(orgRoot, 'org.json'));
+        matchesByUsername.set(org.name, { username: metadata?.username ?? org.name, localPath });
+      }
     }
   }
   const apexlogsRoot = path.join(workspaceRoot, 'apexlogs');
+  if (!(await ensureRealDirectoryPath(workspaceRoot, apexlogsRoot, false, true))) {
+    return Array.from(matchesByUsername.values());
+  }
   const suffix = `_${logId}.log`;
   for (const entry of await readDirectory(apexlogsRoot)) {
-    if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith(suffix)) continue;
+    if (!entry.name.endsWith(suffix) || (!entry.isFile() && !entry.isSymbolicLink())) continue;
     const localPath = path.join(apexlogsRoot, entry.name);
+    await ensureRegularFileOrAbsent(localPath);
     const username = entry.name.slice(0, -suffix.length);
     const identityKey = safeUsername(username);
     if (!matchesByUsername.has(identityKey)) matchesByUsername.set(identityKey, { username, localPath });
@@ -401,10 +485,30 @@ function orgMetadataPath(workspaceRoot: string, username: string): string {
 }
 
 async function readOrgMetadata(filePath: string): Promise<OrgMetadata | undefined> {
+  let stat: Awaited<ReturnType<typeof fs.lstat>>;
   try {
-    const parsed = JSON.parse(await fs.readFile(filePath, 'utf8')) as Partial<OrgMetadata> & {
-      resolvedUsername?: unknown;
-    };
+    stat = await fs.lstat(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error(`Apex log org metadata must be a regular file: ${filePath}`);
+  }
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+  let parsed: Partial<OrgMetadata> & { resolvedUsername?: unknown };
+  try {
+    parsed = JSON.parse(raw) as Partial<OrgMetadata> & { resolvedUsername?: unknown };
+  } catch {
+    return undefined;
+  }
+  try {
     const username =
       typeof parsed.username === 'string'
         ? parsed.username
@@ -428,9 +532,12 @@ async function findLocalOrgUsernames(workspaceRoot: string, selector: string): P
   if (!normalized) return [];
   const matches = new Set<string>();
   const orgsRoot = path.join(workspaceRoot, 'apexlogs', 'orgs');
+  if (!(await ensureRealDirectoryPath(workspaceRoot, orgsRoot, false, true))) return [];
   for (const org of await readDirectory(orgsRoot)) {
-    if (!org.isDirectory() || org.isSymbolicLink()) continue;
-    const metadata = await readOrgMetadata(path.join(orgsRoot, org.name, 'org.json'));
+    if (!org.isDirectory() && !org.isSymbolicLink()) continue;
+    const orgRoot = path.join(orgsRoot, org.name);
+    if (!(await ensureRealDirectoryPath(workspaceRoot, orgRoot, false, true))) continue;
+    const metadata = await readOrgMetadata(path.join(orgRoot, 'org.json'));
     if (!metadata) continue;
     const username = metadata.username;
     if (
@@ -447,6 +554,8 @@ async function findLocalOrgUsernames(workspaceRoot: string, selector: string): P
 async function writeOrgMetadata(workspaceRoot: string, org: ResolvedApexLogOrg): Promise<void> {
   await ensureWorkspaceLogIgnore(workspaceRoot);
   const filePath = orgMetadataPath(workspaceRoot, org.username);
+  await ensureRealDirectoryPath(workspaceRoot, path.dirname(filePath), true);
+  await ensureRegularFileOrAbsent(filePath);
   const existing = await readOrgMetadata(filePath);
   const alias = org.alias ?? existing?.alias;
   await writeJsonAtomic(filePath, {
@@ -476,6 +585,8 @@ async function writeCanonicalLog(
     logDay(log.startTime),
     `${log.logId}.log`
   );
+  await ensureRealDirectoryPath(workspaceRoot, path.dirname(localPath), true);
+  await ensureRegularFileOrAbsent(localPath);
   if (await isRegularFile(localPath)) return { localPath, written: false };
   const written = await writeFileAtomic(localPath, body, true);
   return { localPath, written };
@@ -518,34 +629,200 @@ function syncStatePath(workspaceRoot: string): string {
   return path.join(workspaceRoot, 'apexlogs', '.alv', 'sync-state.json');
 }
 
-async function readSyncState(workspaceRoot: string): Promise<LifecycleSyncState> {
+type SyncStateDocument = Record<string, unknown> & {
+  orgs?: Record<string, Record<string, unknown>>;
+};
+
+const SYNC_STATE_LOCK_STALE_MS = 120_000;
+const SYNC_STATE_LOCK_WAIT_MS = 30_000;
+const SYNC_STATE_LOCK_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+type SyncStateLockOwner = Readonly<{ version: 1; pid: number; token: string }>;
+
+function parseSyncStateLockOwner(value: string): SyncStateLockOwner | undefined {
   try {
-    const raw = await fs.readFile(syncStatePath(workspaceRoot), 'utf8');
-    const parsed = JSON.parse(raw) as {
-      orgs?: Record<string, Record<string, unknown>>;
-    };
-    const orgs: LifecycleSyncState['orgs'] = {};
-    for (const [username, entry] of Object.entries(parsed.orgs ?? {})) {
-      const numberValue = (key: string): number | undefined => {
-        const value = Number(entry[key]);
-        return Number.isFinite(value) ? value : undefined;
-      };
-      orgs[username] = {
-        ...(typeof entry.lastSyncStartedAt === 'string' ? { lastSyncStartedAt: entry.lastSyncStartedAt } : {}),
-        ...(typeof entry.lastSyncCompletedAt === 'string' ? { lastSyncCompletedAt: entry.lastSyncCompletedAt } : {}),
-        ...(typeof entry.lastSyncedLogId === 'string' ? { lastSyncedLogId: entry.lastSyncedLogId } : {}),
-        ...(typeof entry.lastSyncedStartTime === 'string' ? { lastSyncedStartTime: entry.lastSyncedStartTime } : {}),
-        existingCount: numberValue('existingCount') ?? numberValue('cachedCount') ?? 0,
-        materializedCount: numberValue('materializedCount') ?? 0,
-        downloadedCount: numberValue('downloadedCount') ?? 0,
-        failedCount: numberValue('failedCount') ?? 0
-      };
+    const parsed = JSON.parse(value) as Partial<SyncStateLockOwner>;
+    if (
+      parsed.version !== 1 ||
+      !Number.isSafeInteger(parsed.pid) ||
+      Number(parsed.pid) <= 0 ||
+      typeof parsed.token !== 'string' ||
+      !SYNC_STATE_LOCK_TOKEN.test(parsed.token)
+    ) {
+      return undefined;
     }
-    return { version: 1, orgs };
+    const owner = { version: 1, pid: Number(parsed.pid), token: parsed.token } as const;
+    return JSON.stringify(owner) === value ? owner : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isSyncStateLockOwnerDefinitelyDead(owner: SyncStateLockOwner): boolean {
+  try {
+    process.kill(owner.pid, 0);
+    return false;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1, orgs: {} };
+    return (error as NodeJS.ErrnoException).code === 'ESRCH';
+  }
+}
+
+async function readSyncStateDocument(workspaceRoot: string): Promise<SyncStateDocument> {
+  const filePath = syncStatePath(workspaceRoot);
+  if (!(await ensureRealDirectoryPath(workspaceRoot, path.dirname(filePath), false))) return {};
+  await ensureRegularFileOrAbsent(filePath);
+  try {
+    const raw = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(raw) as SyncStateDocument;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
     throw error;
   }
+}
+
+function normalizeSyncState(parsed: SyncStateDocument): LifecycleSyncState {
+  const orgs: LifecycleSyncState['orgs'] = {};
+  for (const [username, entry] of Object.entries(parsed.orgs ?? {})) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const numberValue = (key: string): number | undefined => {
+      const value = Number(entry[key]);
+      return Number.isFinite(value) ? value : undefined;
+    };
+    orgs[username] = {
+      ...(typeof entry.lastSyncStartedAt === 'string' ? { lastSyncStartedAt: entry.lastSyncStartedAt } : {}),
+      ...(typeof entry.lastSyncCompletedAt === 'string' ? { lastSyncCompletedAt: entry.lastSyncCompletedAt } : {}),
+      ...(typeof entry.lastSyncedLogId === 'string' ? { lastSyncedLogId: entry.lastSyncedLogId } : {}),
+      ...(typeof entry.lastSyncedStartTime === 'string' ? { lastSyncedStartTime: entry.lastSyncedStartTime } : {}),
+      existingCount: numberValue('existingCount') ?? numberValue('cachedCount') ?? 0,
+      materializedCount: numberValue('materializedCount') ?? 0,
+      downloadedCount: numberValue('downloadedCount') ?? 0,
+      failedCount: numberValue('failedCount') ?? 0
+    };
+  }
+  return { version: 1, orgs };
+}
+
+async function readSyncState(workspaceRoot: string): Promise<LifecycleSyncState> {
+  return normalizeSyncState(await readSyncStateDocument(workspaceRoot));
+}
+
+async function withSyncStateLock<T>(
+  workspaceRoot: string,
+  ensureActive: () => void,
+  action: () => Promise<T>
+): Promise<T> {
+  const lockPath = path.join(workspaceRoot, 'apexlogs', '.alv', 'sync-state.lock');
+  await ensureRealDirectoryPath(workspaceRoot, path.dirname(lockPath), true);
+  const token = randomUUID();
+  const ownership = JSON.stringify({ version: 1, pid: process.pid, token } satisfies SyncStateLockOwner);
+  const waitStartedAt = performance.now();
+  const waitOrTimeout = async (): Promise<void> => {
+    if (performance.now() - waitStartedAt >= SYNC_STATE_LOCK_WAIT_MS) {
+      throw new Error(`Timed out waiting for shared Apex log sync-state lock at ${lockPath}.`);
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  };
+  for (;;) {
+    ensureActive();
+    try {
+      await fs.writeFile(lockPath, ownership, { encoding: 'utf8', flag: 'wx' });
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      const stat = await fs.lstat(lockPath).catch(statError => {
+        if ((statError as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+        throw statError;
+      });
+      if (stat === undefined) continue;
+      if (!stat?.isFile() || stat.isSymbolicLink()) {
+        throw new Error(`Shared Apex log sync-state lock must be a regular file: ${lockPath}`);
+      }
+      if (Date.now() - stat.mtimeMs > SYNC_STATE_LOCK_STALE_MS) {
+        let observedOwnership: string;
+        try {
+          observedOwnership = await fs.readFile(lockPath, 'utf8');
+        } catch (readError) {
+          if ((readError as NodeJS.ErrnoException).code === 'ENOENT') continue;
+          throw readError;
+        }
+        const observedOwner = parseSyncStateLockOwner(observedOwnership);
+        if (observedOwner && isSyncStateLockOwnerDefinitelyDead(observedOwner)) {
+          const reclaimMarker = `${lockPath}.reclaim-${observedOwner.token}`;
+          let elected = false;
+          try {
+            await fs.writeFile(reclaimMarker, observedOwnership, { encoding: 'utf8', flag: 'wx' });
+            elected = true;
+          } catch (markerError) {
+            if ((markerError as NodeJS.ErrnoException).code !== 'EEXIST') throw markerError;
+          }
+          if (elected) {
+            let currentStat: Awaited<ReturnType<typeof fs.lstat>> | undefined;
+            try {
+              currentStat = await fs.lstat(lockPath);
+            } catch (currentStatError) {
+              if ((currentStatError as NodeJS.ErrnoException).code !== 'ENOENT') throw currentStatError;
+            }
+            if (currentStat !== undefined) {
+              if (!currentStat.isFile() || currentStat.isSymbolicLink()) {
+                throw new Error(`Shared Apex log sync-state lock must be a regular file: ${lockPath}`);
+              }
+              let currentOwnership: string | undefined;
+              try {
+                currentOwnership = await fs.readFile(lockPath, 'utf8');
+              } catch (currentReadError) {
+                if ((currentReadError as NodeJS.ErrnoException).code !== 'ENOENT') throw currentReadError;
+              }
+              if (currentOwnership === observedOwnership) {
+                try {
+                  await fs.unlink(lockPath);
+                } catch (unlinkError) {
+                  if ((unlinkError as NodeJS.ErrnoException).code !== 'ENOENT') throw unlinkError;
+                }
+              }
+            }
+            continue;
+          }
+        }
+      }
+      await waitOrTimeout();
+    }
+  }
+  try {
+    ensureActive();
+    return await action();
+  } finally {
+    let lockStat: Awaited<ReturnType<typeof fs.lstat>> | undefined;
+    try {
+      lockStat = await fs.lstat(lockPath);
+    } catch (statError) {
+      if ((statError as NodeJS.ErrnoException).code !== 'ENOENT') throw statError;
+    }
+    if (lockStat !== undefined) {
+      if (!lockStat.isFile() || lockStat.isSymbolicLink()) {
+        throw new Error(`Shared Apex log sync-state lock must be a regular file: ${lockPath}`);
+      }
+      let currentOwnership: string | undefined;
+      try {
+        currentOwnership = await fs.readFile(lockPath, 'utf8');
+      } catch (readError) {
+        if ((readError as NodeJS.ErrnoException).code !== 'ENOENT') throw readError;
+      }
+      if (currentOwnership === ownership) {
+        try {
+          await fs.unlink(lockPath);
+        } catch (unlinkError) {
+          if ((unlinkError as NodeJS.ErrnoException).code !== 'ENOENT') throw unlinkError;
+        }
+      }
+    }
+  }
+}
+
+async function writeSyncStateDocument(workspaceRoot: string, value: SyncStateDocument): Promise<void> {
+  const filePath = syncStatePath(workspaceRoot);
+  await ensureRealDirectoryPath(workspaceRoot, path.dirname(filePath), true);
+  await ensureRegularFileOrAbsent(filePath);
+  await writeJsonAtomic(filePath, value);
 }
 
 async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
@@ -573,16 +850,60 @@ async function writeFileAtomic(filePath: string, contents: string, keepExisting:
   }
 }
 
+async function ensureLifecycleVersionMarker(workspaceRoot: string, versionPath: string): Promise<void> {
+  await ensureRealDirectoryPath(workspaceRoot, path.dirname(versionPath), true);
+  for (;;) {
+    await ensureRegularFileOrAbsent(versionPath);
+    let created: boolean;
+    try {
+      created = await writeFileAtomic(versionPath, '1\n', true);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw error;
+    }
+    if (created) return;
+
+    await ensureRegularFileOrAbsent(versionPath);
+    let raw: string;
+    try {
+      raw = await fs.readFile(versionPath, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
+    }
+    let version: unknown;
+    try {
+      version = JSON.parse(raw) as unknown;
+    } catch (error) {
+      throw new Error(`Shared Apex log lifecycle version marker is not valid JSON: ${versionPath}`, {
+        cause: error
+      });
+    }
+    if (version !== 1) {
+      throw new Error(`Unsupported shared Apex log lifecycle version at ${versionPath}: ${String(version)}`);
+    }
+    return;
+  }
+}
+
 async function countLocalLogs(workspaceRoot: string, username: string | undefined): Promise<number> {
   const ids = new Set<string>();
   const collectCanonical = async (orgName: string): Promise<void> => {
     const logsRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', safeUsername(orgName), 'logs');
+    if (!(await ensureRealDirectoryPath(workspaceRoot, logsRoot, false, true))) return;
     const days = await readDirectory(logsRoot);
     for (const day of days) {
-      if (!day.isDirectory() || !/^(unknown-date|\d{4}-\d{2}-\d{2})$/.test(day.name)) continue;
-      const files = await readDirectory(path.join(logsRoot, day.name));
+      if (!/^(unknown-date|\d{4}-\d{2}-\d{2})$/.test(day.name)) continue;
+      if (!day.isDirectory() && !day.isSymbolicLink()) continue;
+      const dayRoot = path.join(logsRoot, day.name);
+      if (!(await ensureRealDirectoryPath(workspaceRoot, dayRoot, false, true))) continue;
+      const files = await readDirectory(dayRoot);
       for (const file of files) {
-        if (file.isFile() && /^07L[a-zA-Z0-9]{12}(?:[a-zA-Z0-9]{3})?\.log$/.test(file.name)) {
+        if (
+          (file.isFile() || file.isSymbolicLink()) &&
+          /^07L[a-zA-Z0-9]{12}(?:[a-zA-Z0-9]{3})?\.log$/.test(file.name)
+        ) {
+          await ensureRegularFileOrAbsent(path.join(dayRoot, file.name));
           ids.add(file.name.slice(0, -4));
         }
       }
@@ -592,17 +913,25 @@ async function countLocalLogs(workspaceRoot: string, username: string | undefine
     await collectCanonical(username);
   } else {
     const orgsRoot = path.join(workspaceRoot, 'apexlogs', 'orgs');
-    for (const org of await readDirectory(orgsRoot)) {
-      if (org.isDirectory() && !org.isSymbolicLink()) await collectCanonical(org.name);
+    if (await ensureRealDirectoryPath(workspaceRoot, orgsRoot, false, true)) {
+      for (const org of await readDirectory(orgsRoot)) {
+        if (!org.isDirectory() && !org.isSymbolicLink()) continue;
+        const orgRoot = path.join(orgsRoot, org.name);
+        if (await ensureRealDirectoryPath(workspaceRoot, orgRoot, false, true)) await collectCanonical(org.name);
+      }
     }
   }
   const apexlogsRoot = path.join(workspaceRoot, 'apexlogs');
+  if (!(await ensureRealDirectoryPath(workspaceRoot, apexlogsRoot, false, true))) return ids.size;
   const entries = await readDirectory(apexlogsRoot);
   const prefix = username ? `${safeUsername(username)}_` : undefined;
   for (const entry of entries) {
-    if (!entry.isFile() || (prefix && !entry.name.startsWith(prefix))) continue;
+    if ((!entry.isFile() && !entry.isSymbolicLink()) || (prefix && !entry.name.startsWith(prefix))) continue;
     const match = /_(07L[a-zA-Z0-9]{12}(?:[a-zA-Z0-9]{3})?)\.log$/.exec(entry.name);
-    if (match?.[1]) ids.add(match[1]);
+    if (match?.[1]) {
+      await ensureRegularFileOrAbsent(path.join(apexlogsRoot, entry.name));
+      ids.add(match[1]);
+    }
   }
   return ids.size;
 }
@@ -1093,8 +1422,11 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
       }
       throwIfUnavailable('sync', callOptions?.signal);
       try {
+        const localStateDirectory = path.join(request.workspaceRoot, 'apexlogs', '.alv');
+        await ensureRealDirectoryPath(request.workspaceRoot, localStateDirectory, true);
         await writeOrgMetadata(request.workspaceRoot, org);
-        await writeJsonAtomic(path.join(request.workspaceRoot, 'apexlogs', '.alv', 'version.json'), 1);
+        const versionPath = path.join(localStateDirectory, 'version.json');
+        await ensureLifecycleVersionMarker(request.workspaceRoot, versionPath);
       } catch (error) {
         throw stableError(
           'local-persistence',
@@ -1188,29 +1520,53 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
       throwIfUnavailable('sync', callOptions?.signal);
       const newest = rows[0];
       const successful = failures.length === 0;
-      const lastSyncedLogId = successful ? (newest?.logId ?? previous?.lastSyncedLogId) : previous?.lastSyncedLogId;
-      const lastSyncedStartTime = successful
-        ? (newest?.startTime ?? previous?.lastSyncedStartTime)
-        : previous?.lastSyncedStartTime;
-      const nextState: LifecycleSyncState = {
-        ...state,
-        orgs: {
-          ...state.orgs,
-          [org.username]: {
-            lastSyncStartedAt: startedAt,
-            lastSyncCompletedAt: new Date().toISOString(),
-            lastSyncedLogId,
-            lastSyncedStartTime,
-            existingCount: existing,
-            materializedCount: materialized,
-            downloadedCount: downloaded,
-            failedCount: failures.length
-          }
-        }
-      };
+      const completedAt = new Date().toISOString();
+      let lastSyncedLogId: string | undefined;
+      let lastSyncedStartTime: string | undefined;
+      let previousRawEntry: Record<string, unknown> | undefined;
       try {
-        await writeJsonAtomic(syncStatePath(request.workspaceRoot), nextState);
+        await withSyncStateLock(
+          request.workspaceRoot,
+          () => throwIfUnavailable('sync', callOptions?.signal),
+          async () => {
+            const document = await readSyncStateDocument(request.workspaceRoot);
+            const latestState = normalizeSyncState(document);
+            const latest = latestState.orgs[org.username];
+            const candidateIsNewer =
+              successful &&
+              newest?.startTime &&
+              (!latest?.lastSyncedStartTime ||
+                newest.startTime > latest.lastSyncedStartTime ||
+                (newest.startTime === latest.lastSyncedStartTime && newest.logId > (latest.lastSyncedLogId ?? '')));
+            lastSyncedLogId = candidateIsNewer ? newest.logId : latest?.lastSyncedLogId;
+            lastSyncedStartTime = candidateIsNewer ? newest.startTime : latest?.lastSyncedStartTime;
+
+            const rawOrgs =
+              document.orgs && typeof document.orgs === 'object' && !Array.isArray(document.orgs) ? document.orgs : {};
+            const rawEntry = rawOrgs[org.username];
+            previousRawEntry =
+              rawEntry && typeof rawEntry === 'object' && !Array.isArray(rawEntry) ? { ...rawEntry } : undefined;
+            const nextEntry: Record<string, unknown> = {
+              ...previousRawEntry,
+              lastSyncStartedAt: startedAt,
+              lastSyncCompletedAt: completedAt,
+              lastSyncedLogId,
+              lastSyncedStartTime,
+              existingCount: existing,
+              materializedCount: materialized,
+              downloadedCount: downloaded,
+              failedCount: failures.length
+            };
+            const nextDocument: SyncStateDocument = {
+              ...document,
+              ...(!Object.hasOwn(document, 'version') ? { version: 1 } : {}),
+              orgs: { ...rawOrgs, [org.username]: nextEntry }
+            };
+            await writeSyncStateDocument(request.workspaceRoot, nextDocument);
+          }
+        );
       } catch (error) {
+        if (error instanceof ApexLogLifecycleError && error.code === 'cancelled') throw error;
         throw stableError(
           'local-persistence',
           'sync',
@@ -1238,7 +1594,31 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
         throwIfUnavailable('sync', callOptions?.signal);
       } catch (cancellation) {
         try {
-          await writeJsonAtomic(syncStatePath(request.workspaceRoot), state);
+          await withSyncStateLock(
+            request.workspaceRoot,
+            () => undefined,
+            async () => {
+              const document = await readSyncStateDocument(request.workspaceRoot);
+              const rawOrgs =
+                document.orgs && typeof document.orgs === 'object' && !Array.isArray(document.orgs)
+                  ? document.orgs
+                  : {};
+              const current = rawOrgs[org.username];
+              if (
+                !current ||
+                typeof current !== 'object' ||
+                Array.isArray(current) ||
+                current.lastSyncStartedAt !== startedAt ||
+                current.lastSyncCompletedAt !== completedAt
+              ) {
+                return;
+              }
+              const restoredOrgs = { ...rawOrgs };
+              if (previousRawEntry) restoredOrgs[org.username] = previousRawEntry;
+              else delete restoredOrgs[org.username];
+              await writeSyncStateDocument(request.workspaceRoot, { ...document, orgs: restoredOrgs });
+            }
+          );
         } catch (rollbackError) {
           throw stableError(
             'local-persistence',

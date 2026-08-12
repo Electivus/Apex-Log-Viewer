@@ -203,8 +203,8 @@ function strictRemote(
       assert.ok(connection, 'log listing requires resolved connection material');
       assert.equal(request.org.username, connection.username);
       const soql =
-        'SELECT Id, StartTime, Operation, Status, LogLength FROM ApexLog ' +
-        `ORDER BY StartTime DESC, Id DESC LIMIT ${request.limit}`;
+        'SELECT Id, StartTime, Operation, Application, Status, LogLength, LogUser.Name FROM ApexLog ' +
+        `ORDER BY StartTime DESC NULLS LAST, Id DESC LIMIT ${request.limit}`;
       const response = httpDouble.request({
         method: 'GET',
         url: `${connection.instanceUrl}/services/data/v${connection.apiVersion}/tooling/query?q=${encodeURIComponent(soql)}`,
@@ -219,8 +219,12 @@ function strictRemote(
         logId: String(record.Id || ''),
         ...(record.StartTime === undefined ? {} : { startTime: String(record.StartTime) }),
         ...(record.Operation === undefined ? {} : { operation: String(record.Operation) }),
+        ...(record.Application === undefined ? {} : { application: String(record.Application) }),
         ...(record.Status === undefined ? {} : { status: String(record.Status) }),
-        ...(record.LogLength === undefined ? {} : { logLength: Number(record.LogLength) })
+        ...(record.LogLength === undefined ? {} : { logLength: Number(record.LogLength) }),
+        ...(record.LogUser && typeof record.LogUser === 'object'
+          ? { logUser: { name: String((record.LogUser as Record<string, unknown>).Name || '') } }
+          : {})
       }));
     },
     async readBody(request) {
@@ -278,6 +282,19 @@ async function executeScenario(scenario: ConformanceScenario, workspaceRoot: str
         break;
       case 'log.list':
         result = await core.log.list(request);
+        break;
+      case 'log.resolve':
+        result = await core.log.resolve(request as { workspaceRoot: string; targetOrg: string; logId: string });
+        break;
+      case 'log.triage':
+        result = await core.log.triage(
+          request as {
+            username: string;
+            logIds: string[];
+            logStartTimes?: Record<string, string>;
+            workspaceRoot: string;
+          }
+        );
         break;
       default:
         assert.fail(`unsupported TypeScript conformance operation: ${scenario.operation}`);

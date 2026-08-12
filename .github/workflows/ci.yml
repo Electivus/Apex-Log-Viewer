@@ -144,6 +144,11 @@ jobs:
       - name: Build and test installable IntelliJ plugin
         run: pnpm run test:intellij-plugin
 
+      - name: Verify IntelliJ 2026.1 and 2026.2 compatibility
+        if: runner.os == 'Linux'
+        working-directory: apps/intellij-plugin
+        run: ./gradlew --no-daemon verifyPlugin
+
   smoke_vsix:
     name: VSIX Smoke Test
     needs: build_and_test

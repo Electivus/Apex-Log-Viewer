@@ -4,7 +4,7 @@ Status: accepted
 
 ## Outcome
 
-Add an Apex Log Viewer plugin for IntelliJ IDEA with the user-facing capabilities of the VS Code extension except Tail. The plugin is a first-class JetBrains surface with native UI and a Kotlin runtime, not a wrapper around the VS Code extension or the separately released `sf electivus` plugin.
+Add an Apex Log Viewer plugin for IntelliJ IDEA focused on Apex log discovery, acquisition, Unified Log Search, structured investigation, and Replay Handoff. The plugin is a first-class JetBrains surface with native UI and a Kotlin runtime, not a wrapper around the VS Code extension or the separately released `sf electivus` plugin.
 
 The architectural rationale and runtime boundary are recorded in [ADR 0003](adr/0003-use-a-conformant-kotlin-runtime-for-intellij.md).
 
@@ -17,10 +17,10 @@ The architectural rationale and runtime boundary are recorded in [ADR 0003](adr/
 
 ## Surfaces
 
-- One lazily initialized project tool window with separate Logs and Debug Flags tabs.
-- A dedicated native editor for the parsed Apex Log Viewer.
+- One lazily initialized project tool window for the Logs surface.
+- A dedicated native editor for the Parsed Log Viewer.
 - Open Raw Log opens the dependable local `.log` file in the standard text editor.
-- Replay debugging is a **Replay Handoff**: the user starts the offline debugger through Illuminated Cloud 2, when installed. Apex Log Viewer does not implement or own Replay.
+- Replay debugging is a **Replay Handoff** exposed as **Open in Illuminated Cloud 2** from the selected Logs row and the Parsed Log Viewer toolbar. Illuminated Cloud 2 owns and starts offline replay; when the integration is unavailable, Open Raw Log remains the fallback.
 
 ## Apex log recognition
 
@@ -32,17 +32,21 @@ Selecting a row from the Logs surface opens the dedicated parsed viewer directly
 
 The project tool window is available in every IntelliJ IDEA project and initializes only when the user opens it or invokes an Apex Log Viewer action. Opening a project alone does not invoke the Salesforce CLI, call Salesforce, or create `apexlogs/`.
 
-A missing `sfdx-project.json` does not block org selection, log acquisition and cleanup, local search, parsed or raw log viewing, or Debug Flags. In that mode the IntelliJ project root remains the lifecycle workspace root and owns `apexlogs/`; capabilities that genuinely require Salesforce project metadata are omitted or shown as unavailable with an explanation. When present, valid Salesforce project metadata may supply project-specific defaults such as `sourceApiVersion`.
+A missing `sfdx-project.json` does not block org selection, log acquisition, Unified Log Search, or parsed and raw log viewing. In that mode the IntelliJ project root remains the lifecycle workspace root and owns `apexlogs/`; capabilities that genuinely require Salesforce project metadata are omitted or shown as unavailable with an explanation. When present, valid Salesforce project metadata may supply project-specific defaults such as `sourceApiVersion`.
 
 ## Functional scope
 
-The IntelliJ Logs surface includes CLI-default-aware org selection, refresh and background incremental acquisition, pagination/infinite scroll, bulk download, configurable columns, error and triage indicators, parsed-log opening, raw-log opening, and Debug Flags navigation. Its search combines visible log metadata with lifecycle-approved local log bodies, presents body match snippets and pending-materialization status, and composes with user, operation, status, and Errors-only filters plus sorting.
+The IntelliJ Logs surface includes CLI-default-aware org selection, refresh, pagination/infinite scroll, background acquisition for loaded pages, explicit Download All, a fixed initial set of natively resizable columns, basic filters and sorting, error and triage indicators, Parsed Log Viewer opening, raw-log opening, and Replay Handoff. Refresh never downloads the entire available backlog implicitly.
 
-Remote cleanup preserves both existing scopes: delete logs owned by the authenticated user or delete all Apex logs in the selected org. Both are irreversible Salesforce operations and require explicit modal confirmation, cancelable progress, and a summary that distinguishes deletion, failure, and cancellation counts.
+Unified Log Search combines visible catalog metadata with lifecycle-approved local log bodies, presents the first body match with a readable snippet and submatch ranges, distinguishes pending materialization, and composes with user, operation, status, and Errors-only filters plus sorting. Local results react immediately to each query edit. A query of at least three characters may begin paginating the remote catalog and materializing additional bodies after 750 milliseconds without another edit; shorter queries remain local-only and explain the remote-search threshold. Editing or clearing the query cancels the previous pass and prevents its stale completion from changing the current results. The query text is evaluated locally and is never sent to Salesforce.
 
-The parsed viewer includes the existing debug-, SOQL-, DML-, and error-oriented views, in-view search, triage diagnostics, raw-file navigation, and text copying.
+Each remote search pass captures a stable logical catalog snapshot and follows the active ordering through that boundary. It pauses after finding 50 distinct logs that satisfy the query and active filters, or ends when the snapshot is exhausted. **Continue Search** resumes from the pass checkpoint to find the next batch of up to 50 matches; changing the query, filters, ordering, org, or catalog refresh starts a new pass rather than extending the old snapshot. Every successfully acquired body is atomically materialized through the normal Apex Log Lifecycle and is reusable by later searches, the Parsed Log Viewer, raw opening, and Replay Handoff.
 
-The Debug Flags surface includes user search by name or username; ordinary users plus the aggregated Automated Process and Platform Integration targets; `USER_DEBUG` coverage, debug level, mixed-state, and expiration display; TraceFlag application/removal with a custom TTL; the existing DebugLevel presets and all supported level fields; and DebugLevel creation, update, and deletion. Remote log cleanup is reachable from both Logs and Debug Flags, including the current remediation path for Salesforce log-storage-limit failures.
+Remote matches appear progressively in the ordered Logs table without stealing focus, and selection is preserved by log ID. A compact status strip reports the current phase, pages examined, bodies processed, distinct matches, and partial failures, and exposes the applicable **Cancel**, **Continue Search**, or **Try Again** action. The pass continues as an IntelliJ background task if the Logs tool window is hidden and remains bound to the open project; returning to the tool window shows the same live state.
+
+The Parsed Log Viewer remains an Apex Log Viewer-owned surface rather than being replaced by Illuminated Cloud 2. It includes the existing Debug, SOQL, DML, and Errors perspectives, in-view search, triage diagnostics, selected-text copying, navigation to relevant events, and direct return to the dependable raw file.
+
+Debug Flags, TraceFlag mutation, DebugLevel management, and remote Apex log cleanup are not part of the first IntelliJ release.
 
 Tail views, streaming subscriptions, Tail settings, and Tail commands are not part of the IntelliJ plugin.
 
@@ -50,9 +54,11 @@ Tail views, streaming subscriptions, Tail settings, and Tail commands are not pa
 
 The IntelliJ-only Kotlin runtime implements Salesforce Tooling REST and the Apex Log Lifecycle while conforming to language-neutral fixtures shared with the TypeScript runtime. VS Code and `sf electivus` continue using `@alv/core`.
 
+Replay Handoff is isolated behind an IntelliJ adapter that resolves `IlluminatedCloud.LogAnalyzer.Open` at runtime and invokes it through the platform Action System with the current project and dependable local log. If the body is not yet dependable, the action materializes it with visible progress before invoking the adapter; concurrent handoff for the same log reuses that work. The plugin does not import or reflect over Illuminated Cloud implementation classes and does not require Illuminated Cloud 2 to load. Missing or failed integration is classified as an unavailable optional capability rather than a log-opening failure.
+
 The Salesforce CLI is the authentication broker through `sf org list --json` and `sf org display --json`. Access tokens remain memory-only and redacted from logs and diagnostics. The Kotlin runtime performs Tooling REST calls itself and may refresh credentials once after an authentication failure.
 
-Missing CLI installation, no authenticated orgs, malformed CLI JSON, expired credentials, network failures, unsupported Salesforce responses, partial downloads, and cancellations are modeled as classified, actionable states rather than unhandled exceptions. The UI preserves the last authoritative snapshot when a recoverable refresh fails and offers an explicit retry or setup action where applicable.
+Missing CLI installation, no authenticated orgs, malformed CLI JSON, expired credentials, network failures, unsupported Salesforce responses, partial downloads, and cancellations are modeled as classified, actionable states rather than unhandled exceptions. An individual body failure is marked separately from a negative search match and does not prevent other bodies from being examined. A catalog-page failure pauses the pass without advancing its checkpoint, preserves completed results and materializations, and offers **Try Again** from the failed page. Authentication receives at most one automatic credential refresh before becoming an actionable failure. The UI preserves the last authoritative snapshot when a recoverable refresh fails and offers an explicit retry or setup action where applicable.
 
 ## Repository and execution boundary
 
@@ -62,7 +68,7 @@ A project-scoped IntelliJ service owns the runtime, lifecycle workspace, selecte
 
 ## Storage invariants
 
-The IntelliJ surface uses the existing org-first `apexlogs/` store, sync-state contract, atomic materialization rules, and legacy-file compatibility. It does not introduce another cache layout. Shared conformance fixtures cover path safety, canonical identity, local-first behavior, checkpoint advancement, cancellation, partial failures, and triage outputs.
+The IntelliJ surface uses the existing org-first `apexlogs/` store, sync-state contract, atomic materialization rules, legacy-file compatibility, and 24-hour local body retention policy. A body remains protected while represented by the active Logs state or open in a viewer; an older unprotected body may be purged safely and reacquired later. The plugin does not introduce another cache layout or search-only retention policy. Shared conformance fixtures cover canonical and legacy local-first resolution plus triage outputs; Kotlin and TypeScript runtime suites cover the additional path-safety, checkpoint, cancellation, partial-failure, and safe-purge invariants at their native public seams.
 
 ## Local full-log search
 
@@ -74,15 +80,13 @@ The scanner preserves the current fixed-string, case-insensitive behavior. For e
 
 Configuration parity between VS Code and IntelliJ is semantic rather than structural. A language-neutral contract keeps the meaning, defaults, and validation limits of shared runtime preferences aligned, initially including log page size, processing concurrency, and trace logging. Tail-only configuration is absent from IntelliJ.
 
-The IntelliJ plugin exposes and persists these preferences through native JetBrains settings and state components. It does not read VS Code settings, reproduce VS Code key names as a storage format, or introduce a shared cross-IDE configuration file. Surface-owned presentation state such as column order, visibility, and widths follows IntelliJ conventions and is not a conformance requirement, although its initial defaults should remain behaviorally familiar.
+The IntelliJ plugin exposes and persists these preferences through native JetBrains settings and state components. It does not read VS Code settings, reproduce VS Code key names as a storage format, or introduce a shared cross-IDE configuration file. The first release uses a fixed, behaviorally familiar column set. Native column resizing is available for the live table, but column order, visibility, and widths are not persisted settings or conformance requirements.
 
-Persistence uses a hybrid scope. Log page size, processing concurrency, trace logging, and presentation preferences are application-level user preferences. The selected org and restorable operational view state are project-level so concurrent projects cannot silently inherit one another's Salesforce target. Access tokens and other credentials are excluded from all persisted settings and state.
+Persistence uses a hybrid scope. Log page size, processing concurrency, and trace logging are application-level user preferences. The selected org, search query, filters, ordering, and other restorable operational view state are project-level so concurrent projects cannot silently inherit one another's Salesforce target or investigation context. Reopening a project may rebuild results from the restored local state but does not resume a remote acquisition, reuse its old checkpoint, or initiate network access automatically; the user starts a new pass over a current snapshot. Access tokens and other credentials are excluded from all persisted settings and state.
 
 ## Telemetry
 
-Production builds use a plugin-owned opt-out for remote telemetry because IntelliJ IDEA's JetBrains data-sharing control does not govern collection implemented independently by third-party plugins. The first run clearly discloses the collection and points to an application-level Apex Log Viewer setting that disables it. Development and test builds do not send production telemetry unless a dedicated test configuration enables it.
-
-The IntelliJ sender conforms to the repository's public, language-neutral telemetry catalog. Undeclared events and fields are dropped; errors use coarse classified codes rather than raw messages. Telemetry never includes source or Apex log content, search terms, usernames, org identifiers, instance URLs, local paths, access tokens, or other credentials. Surface identity is explicit so IntelliJ and VS Code behavior can be compared without conflating their populations.
+The first IntelliJ release sends no remote telemetry and therefore has no telemetry disclosure or opt-out setting. The existing language-neutral telemetry catalog remains authoritative for the VS Code surface and for any later, separately approved IntelliJ instrumentation.
 
 ## Diagnostics
 
@@ -92,7 +96,7 @@ The package may include plugin, IDE, OS, Java, and Salesforce CLI versions; coar
 
 ## Localization
 
-Version 1.0.0 ships complete English and Brazilian Portuguese resource bundles, matching the languages already maintained by the VS Code extension. English is the fallback locale. All user-visible actions, settings, notifications, dialogs, tooltips, empty states, errors, and Marketplace-facing plugin text use resource keys; validation rejects missing locale keys and unintended hardcoded UI strings.
+Version 1.0.0 ships complete English and Brazilian Portuguese resource bundles, matching the languages already maintained by the VS Code extension. English is the fallback locale. All in-product actions, settings, notifications, dialogs, tooltips, empty states, and errors use resource keys; validation rejects missing locale keys and unintended hardcoded UI strings. The JetBrains plugin descriptor keeps its required Marketplace description and change notes as canonical English CDATA because the supported descriptor format does not define locale-specific variants for those elements; packaged privacy and support material is supplied in both languages.
 
 ## Distribution outcome
 
@@ -112,6 +116,6 @@ Real-org validation is risk-triggered. Changes to the IntelliJ plugin, Salesforc
 
 Operating-system coverage is staged. Risk-triggered pull requests run the deterministic and applicable real-org coverage on Linux and Windows, including platform-specific Salesforce CLI discovery, process cancellation, and filesystem behavior. The release candidate adds macOS and completes real-org validation on Linux, Windows, and macOS. It also installs the built ZIP into the local Windows IntelliJ IDEA Ultimate 2026.2 instance for an end-to-end UI smoke test. Plugin Verifier continues to cover both IDEA 2026.1 and 2026.2 independently of the OS matrix.
 
-## Open decisions
+## Issue tracker alignment
 
-None.
+Issue #1034 becomes the concise product requirement for the narrowed Logs, Unified Log Search, Parsed Log Viewer, and Replay Handoff scope. Its surviving child issues are updated to match this design. Debug Flags and DebugLevel issues #1044–#1045 and remote-cleanup issue #1046 are closed as not planned for this product; #1047 retains only bounded local diagnostics, and downstream validation and release issues lose the removed telemetry, cleanup, and Debug Flags requirements. The existing issue history and links remain available instead of replacing the epic with a second tracker tree.
