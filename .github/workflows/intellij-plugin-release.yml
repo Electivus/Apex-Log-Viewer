@@ -29,7 +29,7 @@ jobs:
       TAG_NAME: ${{ github.event.inputs.tag_name || github.ref_name }}
     steps:
       - name: Checkout repository metadata
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
 
@@ -60,7 +60,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Checkout immutable candidate
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ needs.resolve_candidate.outputs.candidate_sha }}
 
@@ -116,7 +116,7 @@ jobs:
       CANDIDATE_SHA: ${{ needs.resolve_candidate.outputs.candidate_sha }}
     steps:
       - name: Checkout immutable candidate
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ env.CANDIDATE_SHA }}
           persist-credentials: false
