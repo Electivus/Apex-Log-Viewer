@@ -42,5 +42,5 @@ Configure the repository's real-org workflows to use the dedicated Dev Hub Autom
 - Repository: Electivus/Apex-Log-Viewer
 - Effort: devhub-jwt
 - Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
-- Planning checkpoint: 1d20e5a5515ead606f0e0fa0a6e5b78267230f6e
+- Planning checkpoint: bb6a0ecdead02869d823a828c2fe4e462ba0b2b9
 - Decisions: DEC-001, DEC-002, DEC-003, DEC-004, DEC-005
