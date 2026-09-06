@@ -1,6 +1,6 @@
 # Permanent Dev Hub JWT authentication
 
-Status: design interview in progress. Implementation starts after the user's final shared-understanding confirmation.
+Status: historical interview draft. The [published implementation specification](https://github.com/Electivus/Apex-Log-Viewer/issues/1073), maintained locally as [issue-spec.md](issue-spec.md), supersedes this draft. Refer to its explicit credential-lifecycle prerequisite before permanent provisioning.
 
 ## Intended outcome
 

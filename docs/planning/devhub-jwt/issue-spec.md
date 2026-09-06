@@ -114,6 +114,8 @@ The proposed test strategy reuses these existing entry points. It introduces no 
 
 ## Further Notes
 
+Evidence: [live ECA/JWT feasibility report](https://github.com/Electivus/Apex-Log-Viewer/blob/fa97db1fcfa45990689797450df954fc3679fae8/docs/planning/devhub-jwt/eca-jwt-experiment.md) and [ADR-0004](https://github.com/Electivus/Apex-Log-Viewer/blob/fa97db1fcfa45990689797450df954fc3679fae8/docs/adr/0004-separate-devhub-and-scratch-authentication.md).
+
 The feasibility test passed ECA/JWT Dev Hub login, scratch signup using `PlatformCLI`, scratch API queries, and authorization import into an independent CLI state. Default ECA scratch signup failed with `C-1016`, confirming that the authentication separation is required for the tested flow. The test scratch was deleted, and the temporary ECA was disabled with rejection of new JWT logins verified.
 
 The permanent credential-lifecycle policy is **not yet confirmed**. The proposal discussed was a private key in a repository GitHub Actions Secret, a certificate valid for 12 months, and documented rotation. Keep this as an operator decision; do not hardcode an unconfirmed lifetime or present the proposed storage policy as approved. Production credential provisioning and cutover require this decision, while implementation of the configurable authentication behavior can proceed independently.
@@ -130,5 +132,5 @@ The published specification is the implementation contract. The Planning context
 - Repository: Electivus/Apex-Log-Viewer
 - Effort: devhub-jwt
 - Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
-- Planning checkpoint: de9a31a62a59b3960bafb580bdfbeb825505b815
+- Planning checkpoint: 1d20e5a5515ead606f0e0fa0a6e5b78267230f6e
 - Decisions: DEC-001, DEC-002, DEC-003, DEC-004, DEC-005, DEC-007, DEC-008, DEC-009
