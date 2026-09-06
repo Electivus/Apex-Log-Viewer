@@ -1,0 +1,14 @@
+{
+  "repository": "Electivus/Apex-Log-Viewer",
+  "parent": 1073,
+  "effort": "devhub-jwt",
+  "status": "proposed",
+  "tickets": [
+    { "id": "T01", "file": "01-direct-jwt-validation.md", "title": "Run direct validation with JWT-authenticated Dev Hub access", "blockers": [], "decisions": ["DEC-001", "DEC-003", "DEC-005"] },
+    { "id": "T02", "file": "02-jwt-scratch-pool.md", "title": "Maintain and consume the Scratch Org Pool through JWT", "blockers": ["T01"], "decisions": ["DEC-001", "DEC-003", "DEC-005"] },
+    { "id": "T03", "file": "03-jwt-proxy-lab.md", "title": "Run JWT validation inside the corporate proxy lab", "blockers": ["T01"], "decisions": ["DEC-001", "DEC-003", "DEC-005"] },
+    { "id": "T04", "file": "04-dedicated-automation-identity.md", "title": "Provision and prove the dedicated minimum-access Dev Hub identity", "blockers": [], "decisions": ["DEC-002", "DEC-004", "DEC-007", "DEC-009"] },
+    { "id": "T05", "file": "05-jwt-ci-cutover.md", "title": "Cut over real-org CI to the dedicated JWT identity", "blockers": ["T02", "T03", "T04"], "decisions": ["DEC-001", "DEC-002", "DEC-003", "DEC-004", "DEC-005"] },
+    { "id": "T06", "file": "06-jwt-certificate-rotation.md", "title": "Rotate the automation certificate and recover interrupted replacement", "blockers": ["T05"], "decisions": ["DEC-001", "DEC-004"] }
+  ]
+}
