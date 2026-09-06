@@ -333,7 +333,22 @@ async function ensureDevHub(cli, config, helpers = {}) {
   return authenticateDevHub(
     config,
     async (args, options) => {
-      const { stdout } = await execFileAsyncFn(cli, [...args, '--json'], options);
+      let cliArgs = args;
+      if (cli === 'sfdx') {
+        // Keep command spelling in this execution adapter; selection and
+        // identity validation remain owned by the shared policy.
+        if (args[1] === 'display') {
+          cliArgs = ['force:org:display', '-u', args[3]];
+        } else {
+          const legacyFlags = {
+            '--client-id': '--clientid',
+            '--instance-url': '--instanceurl',
+            '--jwt-key-file': '--jwtkeyfile'
+          };
+          cliArgs = ['force:auth:jwt:grant', ...args.slice(3).map(arg => legacyFlags[arg] || arg)];
+        }
+      }
+      const { stdout } = await execFileAsyncFn(cli, [...cliArgs, '--json'], options);
       return parseJsonOutput(stdout);
     },
     helpers.fs

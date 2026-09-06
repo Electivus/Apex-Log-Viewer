@@ -620,3 +620,58 @@ test('local alias authorization rejects unsuccessful JSON before scratch setup',
     }
   );
 });
+
+test('legacy sfdx adapter authenticates the explicit alias with its supported command', async () => {
+  const session = await ensureDevHub(
+    'sfdx',
+    { mode: 'alias', alias: 'ConfiguredDevHub' },
+    {
+      execFileAsync: async (file, args) => {
+        assert.equal(file, 'sfdx');
+        assert.deepEqual(args, ['force:org:display', '-u', 'ConfiguredDevHub', '--json']);
+        return { stdout: '{"status":0,"result":{}}' };
+      }
+    }
+  );
+  assert.equal(session.targetOrg, 'ConfiguredDevHub');
+});
+
+test('legacy sfdx adapter preserves JWT identity and key cleanup with legacy flags', async t => {
+  let keyFile;
+  const session = await ensureDevHub(
+    'sfdx',
+    {
+      mode: 'jwt',
+      clientId: 'test-client',
+      username: 'selected@example.com',
+      loginUrl: 'https://login.salesforce.com',
+      privateKey: testPrivateKey
+    },
+    {
+      execFileAsync: async (file, args, options) => {
+        assert.equal(file, 'sfdx');
+        assert.equal(args[0], 'force:auth:jwt:grant');
+        keyFile = args[args.indexOf('--jwtkeyfile') + 1];
+        assert.deepEqual(args, [
+          'force:auth:jwt:grant',
+          '--clientid',
+          'test-client',
+          '--username',
+          'selected@example.com',
+          '--instanceurl',
+          'https://login.salesforce.com',
+          '--jwtkeyfile',
+          keyFile,
+          '--json'
+        ]);
+        assert.equal(fs.existsSync(keyFile), true);
+        assert.equal(options.env.SF_TEMP_SHOW_SECRETS, undefined);
+        return { stdout: '{"status":0,"result":{"username":"selected@example.com"}}' };
+      }
+    }
+  );
+  t.after(() => session.cleanup());
+  assert.equal(session.targetOrg, 'selected@example.com');
+  await session.cleanup();
+  assert.equal(fs.existsSync(keyFile), false);
+});

@@ -44,6 +44,8 @@ Salesforce CLI **2.150.6** is the version proven by the direct smoke below. To p
 
 Scratch creation receives `SF_SCRATCH_SIGNUP_CONNECTED_APP=PlatformCLI` and `SF_SCRATCH_SIGNUP_CALLBACK_URL=http://localhost:1717/OauthRedirect` only in its child environment. Dev Hub JWT continues using the ECA. Scratch authorization remains an SFDX authorization URL.
 
+The JavaScript runner's existing `sfdx` fallback translates the shared policy's login/display requests to `force:auth:jwt:grant` and `force:org:display` with legacy flags. This compatibility path has adapter regression tests; the real signup/export evidence uses the documented `sf` version above.
+
 Credential export uses `SF_TEMP_SHOW_SECRETS=true` only for the child whose output is consumed privately. Do not set that opt-in globally. The CLI adapter rejects redacted or malformed authorization URLs on export and import, and credential-operation failures do not copy raw CLI output into errors. Proxy configuration, corporate CA trust and TLS verification remain inherited.
 
 ## Key lifetime and cleanup
