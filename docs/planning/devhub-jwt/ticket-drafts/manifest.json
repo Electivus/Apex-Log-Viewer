@@ -2,7 +2,7 @@
   "repository": "Electivus/Apex-Log-Viewer",
   "parent": 1073,
   "effort": "devhub-jwt",
-  "status": "proposed",
+  "status": "approved",
   "tickets": [
     { "id": "T01", "file": "01-direct-jwt-validation.md", "title": "Run direct validation with JWT-authenticated Dev Hub access", "blockers": [], "decisions": ["DEC-001", "DEC-003", "DEC-005"] },
     { "id": "T02", "file": "02-jwt-scratch-pool.md", "title": "Maintain and consume the Scratch Org Pool through JWT", "blockers": ["T01"], "decisions": ["DEC-001", "DEC-003", "DEC-005"] },

@@ -1,6 +1,6 @@
 # JWT migration ticket breakdown
 
-Status: proposed; awaiting the user's approval of granularity and blocking edges before tracker publication.
+Status: the user approved the six slices and blocking edges on 2026-09-06; ready for tracker publication.
 
 Parent specification: https://github.com/Electivus/Apex-Log-Viewer/issues/1073
 
