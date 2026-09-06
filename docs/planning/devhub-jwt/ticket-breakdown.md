@@ -1,6 +1,6 @@
 # JWT migration ticket breakdown
 
-Status: the user approved the six slices and blocking edges on 2026-09-06; ready for tracker publication.
+Status: the user approved the six slices and blocking edges on 2026-09-06. All six tickets are published as native sub-issues of #1073 with the `ready-for-agent` label and native blocking dependencies.
 
 Parent specification: https://github.com/Electivus/Apex-Log-Viewer/issues/1073
 
@@ -19,18 +19,18 @@ The source ledger declares specification and verification obligations, but no `t
 | DEC-008 | none; applicability complete | No ticket | PR-triage cancellation is an exclusion and creates no implementation work. |
 | DEC-009 | specification, verification | T04 | License fallback is part of the dedicated-identity proof. |
 
-Ticket bodies will carry only the IDs that affect their own deliverable. Their acceptance contracts can extend the existing specification evidence after publication; they must not be recorded as successful verification. The mapping itself records ticket traceability because the source declares no separate `tickets` obligations.
+Ticket bodies carry only the IDs that affect their own deliverable. Their published acceptance contracts extend the existing specification evidence; they are not recorded as successful verification. The mapping itself records ticket traceability because the source declares no separate `tickets` obligations.
 
-## Proposed slices and dependencies
+## Published slices and dependencies
 
-| Ticket | Delivery | Blocked by |
-| --- | --- | --- |
-| T01 | Run direct validation with shared JWT policy and a usable scratch environment | None |
-| T02 | Maintain and consume the Scratch Org Pool through JWT without changing its credential contract | T01 |
-| T03 | Run JWT-authenticated validation inside the corporate proxy lab | T01 |
-| T04 | Reproducibly provision and prove the dedicated minimum-access identity and ECA | None; permanent credentials require the pending operator policy |
-| T05 | Cut over real-org CI to the dedicated JWT identity and verify the actual workflow paths | T02, T03, T04 |
-| T06 | Rotate the automation certificate and recover from interrupted credential replacement | T05 |
+| Ticket | GitHub issue | Delivery | Blocked by |
+| --- | --- | --- | --- |
+| T01 | [#1074](https://github.com/Electivus/Apex-Log-Viewer/issues/1074) | Run direct validation with shared JWT policy and a usable scratch environment | None |
+| T02 | [#1075](https://github.com/Electivus/Apex-Log-Viewer/issues/1075) | Maintain and consume the Scratch Org Pool through JWT without changing its credential contract | #1074 |
+| T03 | [#1076](https://github.com/Electivus/Apex-Log-Viewer/issues/1076) | Run JWT-authenticated validation inside the corporate proxy lab | #1074 |
+| T04 | [#1077](https://github.com/Electivus/Apex-Log-Viewer/issues/1077) | Reproducibly provision and prove the dedicated minimum-access identity and ECA | None; permanent credentials require the pending operator policy |
+| T05 | [#1078](https://github.com/Electivus/Apex-Log-Viewer/issues/1078) | Cut over real-org CI to the dedicated JWT identity and verify the actual workflow paths | #1075, #1076, #1077 |
+| T06 | [#1079](https://github.com/Electivus/Apex-Log-Viewer/issues/1079) | Rotate the automation certificate and recover from interrupted credential replacement | #1078 |
 
 T04 uses the native Salesforce CLI and an isolated validation harness, so it does not depend on the application authentication helper from T01. T03 proves a direct validation path in the proxy lab; pool maintenance is not its prerequisite. T05 depends on all runtime and identity paths. T06 uses the active CI identity and therefore depends on T05.
 
@@ -41,4 +41,4 @@ T04 uses the native Salesforce CLI and an isolated validation harness, so it doe
 - Code slices may be validated on the effort branch before production cutover. Do not merge a partial strict-JWT migration that leaves active workflow credential gates and runner policy inconsistent. Full CI migration is completed and verified by T05.
 - The credential storage and certificate lifetime proposal remains unconfirmed. Parameterized tooling can be implemented; permanent credential creation and production cutover require the operator decision. Do not silently treat a 12-month certificate or GitHub Actions Secret storage as approved.
 - Existing snapshots are not a new feature in this effort. Report any relevant license limitation rather than silently changing the configured pool mode.
-- No implementation or public child issue has been created by this drafting step.
+- This publication creates the approved ticket graph only. Implementation and permanent credential provisioning have not started.
