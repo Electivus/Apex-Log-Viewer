@@ -132,5 +132,5 @@ The published specification is the implementation contract. The Planning context
 - Repository: Electivus/Apex-Log-Viewer
 - Effort: devhub-jwt
 - Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
-- Planning checkpoint: 1d20e5a5515ead606f0e0fa0a6e5b78267230f6e
+- Planning checkpoint: 979e5ded16203ba23c7287ec63e9869aa08e65e5
 - Decisions: DEC-001, DEC-002, DEC-003, DEC-004, DEC-005, DEC-007, DEC-008, DEC-009
