@@ -13,10 +13,10 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
 - ADR: none
 - Obligations: specification, verification
 - Coverage:
-  - specification: pending
+  - specification: complete
   - verification: pending
 - Evidence:
-  - specification: none
+  - specification: docs/planning/devhub-jwt/spec.md
   - verification: none
 
 ## DEC-002
@@ -43,10 +43,10 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
 - Constraints: Update and pin the CI Salesforce CLI to a version that supports the tested signup override and handle secret redaction correctly.
 - Obligations: specification, verification
 - Coverage:
-  - specification: pending
+  - specification: complete
   - verification: pending
 - Evidence:
-  - specification: none
+  - specification: docs/planning/devhub-jwt/spec.md
   - verification: none
 
 ## DEC-004
@@ -58,10 +58,10 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
 - Constraints: Determine available licenses and the required permissions before provisioning.
 - Obligations: specification, verification
 - Coverage:
-  - specification: pending
+  - specification: complete
   - verification: pending
 - Evidence:
-  - specification: none
+  - specification: docs/planning/devhub-jwt/spec.md
   - verification: none
 
 ## DEC-005
@@ -72,10 +72,10 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
 - ADR: none
 - Obligations: specification, verification
 - Coverage:
-  - specification: pending
+  - specification: complete
   - verification: pending
 - Evidence:
-  - specification: none
+  - specification: docs/planning/devhub-jwt/spec.md
   - verification: none
 
 ## DEC-006
@@ -104,8 +104,36 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
 - Obligations: specification, verification
 - Supersedes: DEC-006
 - Coverage:
-  - specification: pending
+  - specification: complete
   - verification: pending
 - Evidence:
-  - specification: none
+  - specification: docs/planning/devhub-jwt/spec.md
+  - verification: none
+
+## DEC-008
+- Status: active
+- Decision: Make permanent Dev Hub JWT authentication the sole active task and stop the Dependabot pull-request triage.
+- Context: The user explicitly replaced the initial PR-triage activity with the JWT migration as the main activity while continuing grill-with-docs.
+- Rationale: Focus design, implementation and validation on the authentication migration.
+- ADR: none
+- Constraints: Do not resume Dependabot triage or perform additional PR triage actions under this effort.
+- Obligations: none
+- Coverage:
+  - applicability: complete
+- Evidence:
+  - applicability: non-ticket: scope direction only; the user ended PR triage and selected this authentication migration as the sole task.
+
+## DEC-009
+- Status: active
+- Decision: Try Salesforce Integration with its minimum API-only profile first, then use Salesforce with a minimum-access profile if required Dev Hub operations are not supported.
+- Context: Read-only discovery found capacity for both licenses but did not establish Integration support for ScratchOrgInfo and ActiveScratchOrg. The user selected a live test with an explicit least-privilege fallback.
+- Rationale: Use the narrower integration license when it supports the workflow without making provisioning depend on undocumented license compatibility.
+- ADR: none
+- Constraints: Do not use System Administrator as the runtime profile. Validate pool and scratch lifecycle behavior under the dedicated identity.
+- Obligations: specification, verification
+- Coverage:
+  - specification: complete
+  - verification: pending
+- Evidence:
+  - specification: docs/planning/devhub-jwt/spec.md
   - verification: none
