@@ -100,7 +100,7 @@ Reuse the existing `ensureScratchOrg` tests, test-runner `ensureDevHub` tests, p
 6. Delete test scratch resources and report any retained metadata or credential material explicitly.
 7. Run the actual real-org CI workflow after configuration, including the relevant proxy-lab and platform paths. Report any unvalidated path as a limit rather than inferring success from source inspection.
 
-The chosen test seams have been submitted to the user for the check required by `to-spec`; their confirmation is pending at draft time.
+The proposed test strategy reuses these existing entry points. It introduces no additional public test-only interface unless implementation demonstrates that the behavior cannot be observed through an existing boundary.
 
 ## Out of Scope
 
@@ -127,6 +127,7 @@ The published specification is the implementation contract. The Planning context
 ## Planning context
 
 - Format: v1
+- Repository: Electivus/Apex-Log-Viewer
 - Effort: devhub-jwt
 - Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
 - Planning checkpoint: de9a31a62a59b3960bafb580bdfbeb825505b815
