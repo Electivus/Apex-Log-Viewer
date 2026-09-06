@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import { isUsableSfdxAuthUrl, safeSfFailureMessage, salesforceChildEnv } from '../../../scripts/devhub-auth.js';
 
 export type ExecOptions = {
   cwd?: string;
@@ -12,6 +13,8 @@ export type ExecResult = {
   stdout: string;
   stderr: string;
 };
+
+type SfProcessOptions = ExecOptions & { credentialOutput?: boolean };
 
 function tryParseSfJson(raw: string): any | undefined {
   const trimmed = String(raw || '').trim();
@@ -110,7 +113,7 @@ export function __resetResolvedSfBinAbsolutePathCacheForTests(): void {
 }
 
 function configuredSfBinPath(): string | undefined {
-  const configuredSfPath = String(process.env.SF_CLI_BIN_PATH || '').trim();
+  const configuredSfPath = String(process.env.SF_CLI_BIN_PATH || process.env.ALV_SF_BIN_PATH || '').trim();
   return configuredSfPath || undefined;
 }
 
@@ -205,20 +208,21 @@ export async function resolveSfCliInvocation(): Promise<{ sfBinPath: string; nod
   return { sfBinPath, nodeBinPath };
 }
 
-function execProcessFileAsync(file: string, args: string[], options: ExecOptions = {}): Promise<ExecResult> {
+function execProcessFileAsync(file: string, args: string[], options: SfProcessOptions = {}): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     const callback = (error: unknown, stdout: string, stderr: string) => {
       if (error) {
         const details = [
-          formatSfErrorDetails(String(stdout || ''), String(stderr || '')),
+          options.credentialOutput
+            ? safeSfFailureMessage(`${stdout}\n${stderr}`)
+            : formatSfErrorDetails(String(stdout || ''), String(stderr || '')),
           formatProcessFailureDetails(file, args, error)
         ]
           .filter(Boolean)
           .join('\n');
         // Avoid echoing stdout/stderr directly to prevent leaking auth tokens.
-        const msg = details
-          ? `Command failed: ${file} ${args.join(' ')}\n${details}`.trim()
-          : `Command failed: ${file} ${args.join(' ')}`.trim();
+        const command = options.credentialOutput ? 'Salesforce CLI credential operation' : `${file} ${args.join(' ')}`;
+        const msg = `Command failed: ${command}\n${details}`.trim();
         const err = new Error(msg) as Error & { code?: unknown };
         (err as any).code = (error as any).code;
         reject(err);
@@ -264,7 +268,7 @@ function getTrustedExecutable(file: string, additionalAllowedBasenames: string[]
   throw new Error(`Refusing to execute unexpected binary '${file}'.`);
 }
 
-async function execSfCliAsync(file: string, args: string[], options: ExecOptions = {}): Promise<ExecResult> {
+async function execSfCliAsync(file: string, args: string[], options: SfProcessOptions = {}): Promise<ExecResult> {
   const executable = getTrustedExecutable(file);
   const finalArgs = normalizeExecArgs(args);
 
@@ -280,27 +284,51 @@ async function execSfCliAsync(file: string, args: string[], options: ExecOptions
 }
 
 export async function runSfJson(args: string[], options: ExecOptions = {}): Promise<any> {
+  if (args.slice(0, 3).join(' ') === 'org login sfdx-url') {
+    try {
+      const fileIndex = args.indexOf('--sfdx-url-file');
+      const authFile = fileIndex >= 0 ? args[fileIndex + 1] : undefined;
+      if (!authFile || !isUsableSfdxAuthUrl(fs.readFileSync(authFile, 'utf8').trim())) {
+        throw new Error();
+      }
+    } catch {
+      throw new Error(
+        'Scratch import requires a readable file containing a usable SFDX authorization URL; redaction placeholders and malformed values are rejected.'
+      );
+    }
+  }
   const withJson = args.includes('--json') ? args : [...args, '--json'];
   const sfPath = configuredSfBinPath() || (await resolveSfBinAbsolutePath()) || getSfBinPath();
-  const { stdout } = await execSfCliAsync(sfPath, withJson, options);
+  const env = salesforceChildEnv(options.env || process.env);
+  const credentialExport =
+    args[0] === 'org' &&
+    ((args[1] === 'auth' && ['show-access-token', 'show-sfdx-auth-url'].includes(args[2] || '')) ||
+      (args[1] === 'display' && args.includes('--verbose')));
+  if (credentialExport) {
+    env.SF_TEMP_SHOW_SECRETS = 'true';
+  }
+  if (args.slice(0, 3).join(' ') === 'org create scratch' && options.env) {
+    for (const name of ['SF_SCRATCH_SIGNUP_CONNECTED_APP', 'SF_SCRATCH_SIGNUP_CALLBACK_URL']) {
+      if (options.env[name]) env[name] = options.env[name];
+    }
+  }
+  const credentialOutput = credentialExport || (args[0] === 'org' && ['login', 'create'].includes(args[1] || ''));
+  const { stdout } = await execSfCliAsync(sfPath, withJson, { ...options, env, credentialOutput });
   const raw = String(stdout || '').trim();
   if (!raw) {
     throw new Error(`Empty JSON output from ${sfPath} ${withJson.join(' ')}`.trim());
   }
-  try {
-    return JSON.parse(raw);
-  } catch {
-    // Some CLI/plugin combinations may print non-JSON noise before/after JSON.
-    const cleaned = raw.replace(/\u001b\[[0-9;]*m/g, '');
-    const start = cleaned.indexOf('{');
-    const end = cleaned.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(cleaned.slice(start, end + 1));
-      } catch {
-        // fall through
-      }
-    }
+  const parsed = tryParseSfJson(raw);
+  if (!parsed) {
     throw new Error(`Invalid JSON output from ${sfPath} ${withJson.join(' ')}`.trim());
   }
+  if (
+    args.slice(0, 3).join(' ') === 'org auth show-sfdx-auth-url' &&
+    !isUsableSfdxAuthUrl((parsed.result ?? parsed).sfdxAuthUrl)
+  ) {
+    throw new Error(
+      'Salesforce CLI did not return a usable SFDX authorization URL. Check the scratch authorization and use the documented compatible CLI version.'
+    );
+  }
+  return parsed;
 }

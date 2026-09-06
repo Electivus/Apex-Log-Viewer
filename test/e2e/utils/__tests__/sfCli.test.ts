@@ -5,7 +5,7 @@ jest.mock('node:child_process', () => ({
   execFile: (...args: unknown[]) => execFileMock(...args)
 }));
 
-function failCommand(error: NodeJS.ErrnoException, stdout = '', stderr = ''): void {
+function failCommand(error: Error, stdout = '', stderr = ''): void {
   const callback = execFileMock.mock.calls.at(-1)?.[3] as (error: unknown, stdout: string, stderr: string) => void;
   callback(error, stdout, stderr);
 }
@@ -31,15 +31,16 @@ async function importSfCli(): Promise<typeof import('../sfCli')> {
 }
 
 describe('runSfJson failure diagnostics', () => {
+  const originalEnv = { ...process.env };
   beforeEach(() => {
     execFileMock.mockReset();
     delete process.env.SF_CLI_BIN_PATH;
     delete process.env.SF_CLI_NODE_PATH;
+    delete process.env.ALV_SF_BIN_PATH;
   });
 
   afterEach(() => {
-    delete process.env.SF_CLI_BIN_PATH;
-    delete process.env.SF_CLI_NODE_PATH;
+    process.env = { ...originalEnv };
   });
 
   test('reports missing Salesforce CLI executable with PATH guidance', async () => {
@@ -106,6 +107,95 @@ describe('runSfJson failure diagnostics', () => {
     await expect(promise).rejects.toThrow(/NamedOrgNotFoundError: No authorization information found\./);
   });
 
+  test('exports usable scratch credentials only in the consuming child environment', async () => {
+    process.env.SF_CLI_BIN_PATH = process.platform === 'win32' ? 'C:\\Tools\\sf.cmd' : '/opt/sf';
+    const { runSfJson } = await importSfCli();
+    const authUrl = 'force://PlatformCLI::test-refresh-token@scratch.my.salesforce.com';
+    const promise = runSfJson(['org', 'auth', 'show-sfdx-auth-url', '--target-org', 'Scratch', '--no-prompt']);
+    await waitForExecCallCount(1);
+    const env = execFileMock.mock.calls[0]?.[2].env;
+    passCommand(JSON.stringify({ status: 0, result: { sfdxAuthUrl: authUrl } }));
+    await expect(promise).resolves.toMatchObject({ result: { sfdxAuthUrl: authUrl } });
+    expect(env.SF_TEMP_SHOW_SECRETS).toBe('true');
+    expect(process.env.SF_TEMP_SHOW_SECRETS).toBeUndefined();
+  });
+
+  test.each([
+    '[REDACTED] use sf org auth',
+    'force://redacted',
+    'force://PlatformCLI::***@scratch.my.salesforce.com',
+    'force://PlatformCLI::token@https://scratch.my.salesforce.com'
+  ])('rejects unusable credential export %# without echoing it', async authUrl => {
+    process.env.SF_CLI_BIN_PATH = process.platform === 'win32' ? 'C:\\Tools\\sf.cmd' : '/opt/sf';
+    const { runSfJson } = await importSfCli();
+    const promise = runSfJson(['org', 'auth', 'show-sfdx-auth-url', '--target-org', 'Scratch', '--no-prompt']);
+    const assertion = expect(promise).rejects.toThrow('usable SFDX authorization URL');
+    await waitForExecCallCount(1);
+    passCommand(JSON.stringify({ status: 0, result: { sfdxAuthUrl: authUrl } }));
+    await assertion;
+  });
+
+  test('credential export failures never copy credential values from CLI errors', async () => {
+    process.env.SF_CLI_BIN_PATH = process.platform === 'win32' ? 'C:\\Tools\\sf.cmd' : '/opt/sf';
+    const { runSfJson } = await importSfCli();
+    const promise = runSfJson(['org', 'auth', 'show-sfdx-auth-url', '--target-org', 'Scratch', '--no-prompt']);
+    const assertion = promise.catch(error => {
+      expect(error.message).toMatch(/failed/i);
+      expect(error.stack).not.toMatch(/unknown-consumer-secret|private-refresh-token|PRIVATE KEY/);
+    });
+    await waitForExecCallCount(1);
+    failCommand(
+      Object.assign(new Error('private-refresh-token'), { code: 1 }),
+      JSON.stringify({
+        name: 'AuthError',
+        message: 'unknown-consumer-secret force://PlatformCLI::private-refresh-token@host.example'
+      })
+    );
+    await assertion;
+  });
+
+  test('ordinary commands strip inherited JWT, export and signup settings', async () => {
+    process.env.SF_CLI_BIN_PATH = process.platform === 'win32' ? 'C:\\Tools\\sf.cmd' : '/opt/sf';
+    process.env.SF_TEMP_SHOW_SECRETS = 'true';
+    process.env.SF_DEVHUB_PRIVATE_KEY = 'test-private-key';
+    process.env.SF_DEVHUB_AUTH_URL = 'test-legacy-url';
+    process.env.SF_SCRATCH_SIGNUP_CONNECTED_APP = 'WrongApp';
+    const { runSfJson } = await importSfCli();
+    const promise = runSfJson(['data', 'query', '--target-org', 'Scratch', '--query', 'SELECT Id FROM Organization']);
+    await waitForExecCallCount(1);
+    const env = execFileMock.mock.calls[0]?.[2].env;
+    for (const name of [
+      'SF_TEMP_SHOW_SECRETS',
+      'SF_DEVHUB_PRIVATE_KEY',
+      'SF_DEVHUB_AUTH_URL',
+      'SF_SCRATCH_SIGNUP_CONNECTED_APP'
+    ]) {
+      expect(env[name]).toBeUndefined();
+    }
+    passCommand('{"status":0,"result":{"records":[]}}');
+    await promise;
+    expect(process.env.SF_TEMP_SHOW_SECRETS).toBe('true');
+  });
+
+  test.each(['[REDACTED]', 'force://PlatformCLI::token@https://host.example'])(
+    'rejects malformed scratch import %# before CLI execution',
+    async value => {
+      const fs = require('node:fs');
+      const directory = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'alv-import-test-'));
+      try {
+        const file = path.join(directory, 'scratch.sfdxurl');
+        fs.writeFileSync(file, value);
+        const { runSfJson } = await importSfCli();
+        await expect(runSfJson(['org', 'login', 'sfdx-url', '--sfdx-url-file', file])).rejects.toThrow(
+          'usable SFDX authorization URL'
+        );
+        expect(execFileMock).not.toHaveBeenCalled();
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    }
+  );
+
   test('uses explicit Salesforce CLI Node runtime when configured', async () => {
     process.env.SF_CLI_NODE_PATH = '/opt/hostedtoolcache/node/22/bin/node';
     const { resolveSfCliInvocation } = await importSfCli();
@@ -156,12 +246,7 @@ describe('runSfJson failure diagnostics', () => {
     await waitForExecCallCount(1);
     if (process.platform === 'win32') {
       expect(String(execFileMock.mock.calls[0]?.[0]).toLowerCase()).toContain('cmd');
-      expect((execFileMock.mock.calls[0]?.[1] as string[]).slice(0, 4)).toEqual([
-        '/d',
-        '/s',
-        '/c',
-        configuredSfPath
-      ]);
+      expect((execFileMock.mock.calls[0]?.[1] as string[]).slice(0, 4)).toEqual(['/d', '/s', '/c', configuredSfPath]);
     } else {
       expect(execFileMock.mock.calls[0]?.[0]).toBe(configuredSfPath);
     }

@@ -1,5 +1,7 @@
 # Testing
 
+For the `devhub-jwt` effort's direct-runner authentication, local alias compatibility and controlled empty-state credential reimport smoke, see [Direct Dev Hub JWT validation](DEVHUB_JWT.md). Production workflow cutover remains a separate step in #1078.
+
 ## Agent Skill distribution
 
 `node --test scripts/skills-distribution.test.js` exercises the pinned real `skills` CLI against the neutral repository catalog. It verifies discovery, creates a disposable Git remote, installs into isolated project and home roots for Claude Code, Codex, GitHub Copilot, and Devin, compares deterministic lock hashes, checks optional metadata, enforces portable instructions, and validates active installation and migration guidance. The test accepts the installer's supported copy, symlink, or junction behavior by reading through each agent's public project skill path.
