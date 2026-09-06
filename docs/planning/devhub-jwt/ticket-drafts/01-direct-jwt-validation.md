@@ -20,7 +20,7 @@ Include any small authentication-policy prefactor within this working path, pres
 - [ ] Errors, logs, and retained test artifacts contain no credential values; temporary key files are removed on success and failure, or a concrete cleanup failure is reported.
 - [ ] Existing Windows executable resolution and macOS Salesforce CLI Node 20 isolation remain intact. The documented CLI version supports the tested signup/export behavior.
 - [ ] Existing runner/authentication tests cover the observable configuration, failure, and scratch-use contract. A controlled end-to-end smoke through the runner entry point demonstrates the path without relying on a previously cached session.
-- [ ] Local JWT/alias usage and the validated command are documented. Production workflow cutover remains owned by T05; do not merge a half-migrated active CI contract.
+- [ ] Local JWT/alias usage and the validated command are documented. Production workflow cutover remains owned by #1078; do not merge a half-migrated active CI contract.
 
 ### Decision consequences
 

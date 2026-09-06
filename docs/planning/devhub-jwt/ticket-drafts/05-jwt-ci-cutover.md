@@ -30,9 +30,9 @@ Configure the repository's real-org workflows to use the dedicated Dev Hub Autom
 
 ## Blocked by
 
-- T02: Maintain and consume the Scratch Org Pool through JWT.
-- T03: Run JWT validation inside the corporate proxy lab.
-- T04: Provision and prove the dedicated minimum-access Dev Hub identity.
+- #1075: Maintain and consume the Scratch Org Pool through JWT.
+- #1076: Run JWT validation inside the corporate proxy lab.
+- #1077: Provision and prove the dedicated minimum-access Dev Hub identity.
 
 **Operator prerequisite:** the permanent credential-lifecycle decision must be confirmed before cutover.
 

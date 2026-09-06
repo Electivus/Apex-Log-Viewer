@@ -28,7 +28,7 @@ Allow a JWT-authenticated operator or runner to maintain and consume the Scratch
 
 ## Blocked by
 
-- T01: Run direct validation with JWT-authenticated Dev Hub access.
+- #1074: Run direct validation with JWT-authenticated Dev Hub access.
 
 ## Planning context
 

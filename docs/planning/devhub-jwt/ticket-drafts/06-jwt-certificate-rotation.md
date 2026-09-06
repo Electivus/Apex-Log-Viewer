@@ -26,7 +26,7 @@ Give operators a reproducible way to rotate the active Dev Hub automation certif
 
 ## Blocked by
 
-- T05: Cut over real-org CI to the dedicated JWT identity.
+- #1078: Cut over real-org CI to the dedicated JWT identity.
 
 ## Planning context
 

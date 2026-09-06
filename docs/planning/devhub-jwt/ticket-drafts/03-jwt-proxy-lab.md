@@ -28,7 +28,7 @@ Run the existing real-org validation commands inside the isolated proxy-lab runn
 
 ## Blocked by
 
-- T01: Run direct validation with JWT-authenticated Dev Hub access.
+- #1074: Run direct validation with JWT-authenticated Dev Hub access.
 
 ## Planning context
 

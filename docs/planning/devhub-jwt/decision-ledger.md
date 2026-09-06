@@ -16,7 +16,7 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: pending
 - Evidence:
-  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts
+  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts; https://github.com/Electivus/Apex-Log-Viewer/issues/1074: published child acceptance contract; implementation verification remains a separate obligation; https://github.com/Electivus/Apex-Log-Viewer/issues/1075: published child acceptance contract; implementation verification remains a separate obligation; https://github.com/Electivus/Apex-Log-Viewer/issues/1076: published child acceptance contract; implementation verification remains a separate obligation; https://github.com/Electivus/Apex-Log-Viewer/issues/1078: published child acceptance contract; implementation verification remains a separate obligation; https://github.com/Electivus/Apex-Log-Viewer/issues/1079: published child acceptance contract; implementation verification remains a separate obligation
   - verification: none
 
 ## DEC-002
@@ -31,7 +31,7 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: complete
 - Evidence:
-  - specification: docs/planning/devhub-jwt/eca-jwt-experiment.md: Scope and acceptance; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts
+  - specification: docs/planning/devhub-jwt/eca-jwt-experiment.md: Scope and acceptance; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts; https://github.com/Electivus/Apex-Log-Viewer/issues/1077: published child acceptance contract; implementation verification remains a separate obligation; https://github.com/Electivus/Apex-Log-Viewer/issues/1078: published child acceptance contract; implementation verification remains a separate obligation
   - verification: docs/planning/devhub-jwt/eca-jwt-experiment.md: Observed results; live ECA JWT login, scratch signup override, API queries, cross-home credential reimport and disabled-app verification on 2026-09-06
 
 ## DEC-003
@@ -46,7 +46,7 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: pending
 - Evidence:
-  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts
+  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts; https://github.com/Electivus/Apex-Log-Viewer/issues/1074: published child acceptance contract; implementation verification remains a separate obligation; https://github.com/Electivus/Apex-Log-Viewer/issues/1075: published child acceptance contract; implementation verification remains a separate obligation; https://github.com/Electivus/Apex-Log-Viewer/issues/1076: published child acceptance contract; implementation verification remains a separate obligation; https://github.com/Electivus/Apex-Log-Viewer/issues/1078: published child acceptance contract; implementation verification remains a separate obligation
   - verification: none
 
 ## DEC-004
@@ -61,7 +61,7 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: pending
 - Evidence:
-  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts
+  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts; https://github.com/Electivus/Apex-Log-Viewer/issues/1077: published child acceptance contract; implementation verification remains a separate obligation; https://github.com/Electivus/Apex-Log-Viewer/issues/1078: published child acceptance contract; implementation verification remains a separate obligation; https://github.com/Electivus/Apex-Log-Viewer/issues/1079: published child acceptance contract; implementation verification remains a separate obligation
   - verification: none
 
 ## DEC-005
@@ -75,7 +75,7 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: pending
 - Evidence:
-  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts
+  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts; https://github.com/Electivus/Apex-Log-Viewer/issues/1074: published child acceptance contract; implementation verification remains a separate obligation; https://github.com/Electivus/Apex-Log-Viewer/issues/1075: published child acceptance contract; implementation verification remains a separate obligation; https://github.com/Electivus/Apex-Log-Viewer/issues/1076: published child acceptance contract; implementation verification remains a separate obligation; https://github.com/Electivus/Apex-Log-Viewer/issues/1078: published child acceptance contract; implementation verification remains a separate obligation
   - verification: none
 
 ## DEC-006
@@ -107,7 +107,7 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: pending
 - Evidence:
-  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts
+  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts; https://github.com/Electivus/Apex-Log-Viewer/issues/1077: published child acceptance contract; implementation verification remains a separate obligation
   - verification: none
 
 ## DEC-008
@@ -135,5 +135,5 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: pending
 - Evidence:
-  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts
+  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts; https://github.com/Electivus/Apex-Log-Viewer/issues/1077: published child acceptance contract; implementation verification remains a separate obligation
   - verification: none
