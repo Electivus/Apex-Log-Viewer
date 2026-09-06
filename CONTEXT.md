@@ -23,3 +23,11 @@ _Avoid_: IntelliJ Replay, direct replay — when referring to a capability owned
 **Unified Log Search**:
 One progressive discovery workflow across a stable Apex log catalog snapshot and dependable local log bodies. Bodies acquired while searching join the normal Apex Log Lifecycle rather than a temporary search-only cache.
 _Avoid_: metadata filter, local search — when referring to the combined behavior
+
+**Scratch Org Pool**:
+The reusable collection of Salesforce test environments available to Apex Log Viewer validation, with each environment assigned through a time-limited lease.
+_Avoid_: org cache, runner pool — when referring to this managed collection
+
+**Dev Hub Automation Identity**:
+The dedicated Salesforce user responsible for managing the Scratch Org Pool and its test environments on behalf of automated validation.
+_Avoid_: scratch user, developer account — when referring to the pool-management identity
