@@ -16,7 +16,7 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: pending
 - Evidence:
-  - specification: docs/planning/devhub-jwt/spec.md
+  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md
   - verification: none
 
 ## DEC-002
@@ -31,7 +31,7 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: complete
 - Evidence:
-  - specification: docs/planning/devhub-jwt/eca-jwt-experiment.md: Scope and acceptance
+  - specification: docs/planning/devhub-jwt/eca-jwt-experiment.md: Scope and acceptance; docs/planning/devhub-jwt/issue-spec.md
   - verification: docs/planning/devhub-jwt/eca-jwt-experiment.md: Observed results; live ECA JWT login, scratch signup override, API queries, cross-home credential reimport and disabled-app verification on 2026-09-06
 
 ## DEC-003
@@ -46,7 +46,7 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: pending
 - Evidence:
-  - specification: docs/planning/devhub-jwt/spec.md
+  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md
   - verification: none
 
 ## DEC-004
@@ -61,7 +61,7 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: pending
 - Evidence:
-  - specification: docs/planning/devhub-jwt/spec.md
+  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md
   - verification: none
 
 ## DEC-005
@@ -75,7 +75,7 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: pending
 - Evidence:
-  - specification: docs/planning/devhub-jwt/spec.md
+  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md
   - verification: none
 
 ## DEC-006
@@ -107,7 +107,7 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: pending
 - Evidence:
-  - specification: docs/planning/devhub-jwt/spec.md
+  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md
   - verification: none
 
 ## DEC-008
@@ -135,5 +135,5 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
   - specification: complete
   - verification: pending
 - Evidence:
-  - specification: docs/planning/devhub-jwt/spec.md
+  - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md
   - verification: none
