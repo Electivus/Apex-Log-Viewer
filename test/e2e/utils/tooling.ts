@@ -59,7 +59,7 @@ const currentUserIdCache = new Map<string, Promise<string>>();
 const debugLevelIdCache = new Map<string, Promise<string>>();
 const ensuredTraceFlagCache = new Map<string, number>();
 const jsforceConnectionCache = new Map<string, Promise<ToolingConnectionLike>>();
-const orgAuthTargetOrgByIdentity = new Map<string, string>();
+let orgAuthContexts = new WeakMap<OrgAuth, { targetOrg: string; env?: NodeJS.ProcessEnv }>();
 
 type ToolingConnectionLike = Pick<Connection, 'request' | 'tooling'>;
 type ToolingConnectionFactory = (auth: OrgAuth) => Promise<ToolingConnectionLike> | ToolingConnectionLike;
@@ -71,12 +71,21 @@ type ToolingQueryResponse<TRecord = any> = {
 
 let toolingConnectionFactoryForTests: ToolingConnectionFactory | undefined;
 
-function getOrgAuthCacheKey(targetOrg: string): string {
-  return String(targetOrg || '').trim() || '__default__';
+function getCliHomeKey(env: NodeJS.ProcessEnv = process.env): string {
+  return String(env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME'] || '');
+}
+
+function getOrgAuthCacheKey(targetOrg: string, env?: NodeJS.ProcessEnv): string {
+  return `${getCliHomeKey(env)}|${String(targetOrg || '').trim() || '__default__'}`;
 }
 
 function getAuthIdentityKey(auth: OrgAuth): string {
-  return [stripTrailingSlash(auth.instanceUrl), String(auth.username || '').trim(), String(auth.apiVersion || '').trim()].join('|');
+  return [
+    getCliHomeKey(orgAuthContexts.get(auth)?.env),
+    stripTrailingSlash(auth.instanceUrl),
+    String(auth.username || '').trim(),
+    String(auth.apiVersion || '').trim()
+  ].join('|');
 }
 
 async function getOrCreateCached<T>(cache: Map<string, Promise<T>>, key: string, load: () => Promise<T>): Promise<T> {
@@ -118,8 +127,8 @@ function getTraceFlagFastPathUntil(ttlMinutes: number, nowMs: number): number {
   return nowMs + fastPathWindowMs;
 }
 
-function rememberOrgAuthTarget(targetOrg: string, auth: OrgAuth): void {
-  orgAuthTargetOrgByIdentity.set(getAuthIdentityKey(auth), getOrgAuthCacheKey(targetOrg));
+function rememberOrgAuthTarget(targetOrg: string, auth: OrgAuth, env?: NodeJS.ProcessEnv): void {
+  orgAuthContexts.set(auth, { targetOrg, env });
 }
 
 function isUsableSecret(value: unknown): value is string {
@@ -178,16 +187,16 @@ function isToolingAuthError(error: unknown): boolean {
 }
 
 async function refreshOrgAuth(auth: OrgAuth): Promise<boolean> {
-  const targetOrg = orgAuthTargetOrgByIdentity.get(getAuthIdentityKey(auth));
-  if (!targetOrg) {
+  const context = orgAuthContexts.get(auth);
+  if (!context) {
     return false;
   }
   const staleIdentityKey = getAuthIdentityKey(auth);
-  orgAuthCache.delete(targetOrg);
+  orgAuthCache.delete(getOrgAuthCacheKey(context.targetOrg, context.env));
   jsforceConnectionCache.delete(staleIdentityKey);
-  const refreshed = await getOrgAuth(targetOrg, { forceRefresh: true });
+  const refreshed = await getOrgAuth(context.targetOrg, { forceRefresh: true, env: context.env });
   replaceOrgAuth(auth, refreshed);
-  rememberOrgAuthTarget(targetOrg, auth);
+  rememberOrgAuthTarget(context.targetOrg, auth, context.env);
   jsforceConnectionCache.delete(getAuthIdentityKey(auth));
   return true;
 }
@@ -276,7 +285,7 @@ export function __resetToolingCachesForTests(): void {
   debugLevelIdCache.clear();
   ensuredTraceFlagCache.clear();
   jsforceConnectionCache.clear();
-  orgAuthTargetOrgByIdentity.clear();
+  orgAuthContexts = new WeakMap();
   toolingConnectionFactoryForTests = undefined;
 }
 
@@ -850,8 +859,13 @@ export async function deleteDebugLevelByDeveloperName(auth: OrgAuth, developerNa
   await deleteDebugLevelById(auth, record.id);
 }
 
-export async function getOrgAuth(targetOrg: string, options?: { forceRefresh?: boolean }): Promise<OrgAuth> {
-  const cacheKey = getOrgAuthCacheKey(targetOrg);
+export async function getOrgAuth(
+  targetOrg: string,
+  options?: { forceRefresh?: boolean; env?: NodeJS.ProcessEnv }
+): Promise<OrgAuth> {
+  const env = options?.env;
+  const executionOptions = env ? { env } : undefined;
+  const cacheKey = getOrgAuthCacheKey(targetOrg, env);
   if (options?.forceRefresh) {
     orgAuthCache.delete(cacheKey);
   }
@@ -860,7 +874,7 @@ export async function getOrgAuth(targetOrg: string, options?: { forceRefresh?: b
       const envAlias = String(process.env.SF_E2E_TARGET_ORG_ALIAS || process.env.SF_SCRATCH_ALIAS || '').trim();
       const envAccessToken = String(process.env.SF_E2E_ACCESS_TOKEN || '').trim();
       const envInstanceUrl = String(process.env.SF_E2E_INSTANCE_URL || '').trim();
-      if (envAccessToken && envInstanceUrl && (!envAlias || envAlias === targetOrg)) {
+      if (!env && envAccessToken && envInstanceUrl && (!envAlias || envAlias === targetOrg)) {
         return {
           accessToken: envAccessToken,
           instanceUrl: envInstanceUrl,
@@ -870,18 +884,14 @@ export async function getOrgAuth(targetOrg: string, options?: { forceRefresh?: b
       }
 
       const apiVersion = getApiVersion();
-      const display = await runSfJson(['org', 'display', '--target-org', targetOrg]);
+      const display = await runSfJson(['org', 'display', '--target-org', targetOrg], executionOptions);
       const result = readSfResult(display);
       let accessToken: string | undefined;
       try {
-        const tokenResponse = await runSfJson([
-          'org',
-          'auth',
-          'show-access-token',
-          '--target-org',
-          targetOrg,
-          '--no-prompt'
-        ]);
+        const tokenResponse = await runSfJson(
+          ['org', 'auth', 'show-access-token', '--target-org', targetOrg, '--no-prompt'],
+          executionOptions
+        );
         accessToken = readAccessToken(readSfResult(tokenResponse));
       } catch {
         accessToken = readAccessToken(result);
@@ -898,7 +908,7 @@ export async function getOrgAuth(targetOrg: string, options?: { forceRefresh?: b
         apiVersion
       };
     });
-    rememberOrgAuthTarget(targetOrg, resolved);
+    rememberOrgAuthTarget(targetOrg, resolved, env);
     return resolved;
   });
 }

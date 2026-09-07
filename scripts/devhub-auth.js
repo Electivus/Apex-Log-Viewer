@@ -137,9 +137,18 @@ async function authenticateDevHub(config, runJson, files = fs) {
   if (!config) {
     throw new Error('Missing required Dev Hub authentication configuration.');
   }
+  const callerEnv = salesforceChildEnv();
+  const deleteWithEnv = async (targetOrg, env) => {
+    try {
+      const result = await runJson(['org', 'delete', 'scratch', '--target-org', targetOrg, '--no-prompt'], { env });
+      if (result?.status !== 0) throw new Error();
+    } catch (error) {
+      throw new Error(safeSfFailureMessage(error, 'Scratch deletion failed.'));
+    }
+  };
   if (config.mode === 'alias') {
     try {
-      const response = await runJson(['org', 'display', '--target-org', config.alias], { env: salesforceChildEnv() });
+      const response = await runJson(['org', 'display', '--target-org', config.alias], { env: callerEnv });
       if (response?.status !== 0) {
         throw new Error('Alias validation did not succeed.');
       }
@@ -148,25 +157,53 @@ async function authenticateDevHub(config, runJson, files = fs) {
         'SF_DEVHUB_ALIAS is not authenticated or unavailable. Authenticate that alias locally or configure complete Dev Hub JWT inputs.'
       );
     }
-    return { targetOrg: config.alias, cleanup: async () => {} };
+    return {
+      targetOrg: config.alias,
+      env: callerEnv,
+      publishScratch: async () => {},
+      deleteScratch: target => deleteWithEnv(target, callerEnv),
+      cleanup: async () => {}
+    };
   }
 
   validateJwt(config, files);
 
+  const temporaryRoot = path.resolve(tmpdir());
   let directory;
+  let env = callerEnv;
+  let recoveryScratch;
   const cleanup = async () => {
     if (directory) {
+      if (recoveryScratch) {
+        throw new Error(
+          `Scratch authorization transfer failed for '${recoveryScratch}'. Credential cleanup deferred to preserve access. Recover the scratch from the isolated CLI home, then remove the credential directory: ${directory}`
+        );
+      }
       try {
+        if (
+          path.dirname(path.resolve(directory)) !== temporaryRoot ||
+          !path.basename(directory).startsWith('alv-devhub-jwt-')
+        ) {
+          throw new Error('Unexpected credential directory.');
+        }
         files.rmSync(directory, { recursive: true, force: true });
       } catch {
-        throw new Error(`Dev Hub JWT temporary-key cleanup failed. Remove the credential directory: ${directory}`);
+        throw new Error(
+          `Dev Hub JWT temporary-key cleanup failed (including isolated CLI state). Remove the credential directory: ${directory}`
+        );
       }
     }
   };
   try {
     let keyFile = config.privateKeyFile ? path.resolve(config.privateKeyFile) : undefined;
     if (config.privateKey) {
-      directory = files.mkdtempSync(path.join(tmpdir(), 'alv-devhub-jwt-'));
+      directory = files.mkdtempSync(path.join(temporaryRoot, 'alv-devhub-jwt-'));
+      // Salesforce core resolves .sf/.sfdx through os.homedir() in each child.
+      // Keep the parent's environment and preexisting same-username auth intact.
+      env = salesforceChildEnv(
+        callerEnv,
+        process.platform === 'win32' ? { USERPROFILE: directory } : { HOME: directory }
+      );
       keyFile = path.join(directory, 'private-key.pem');
       files.writeFileSync(keyFile, config.privateKey, { encoding: 'utf8', mode: 0o600 });
     }
@@ -184,7 +221,7 @@ async function authenticateDevHub(config, runJson, files = fs) {
         '--jwt-key-file',
         keyFile
       ],
-      { env: salesforceChildEnv() }
+      { env }
     );
     if (response?.status !== 0 || response?.result?.username !== config.username) {
       throw new Error('JWT login did not confirm the selected identity.');
@@ -195,9 +232,86 @@ async function authenticateDevHub(config, runJson, files = fs) {
       'Dev Hub JWT login failed. Check SF_DEVHUB_CLIENT_ID, SF_DEVHUB_USERNAME, SF_DEVHUB_LOGIN_URL, SF_DEVHUB_PRIVATE_KEY or SF_DEVHUB_PRIVATE_KEY_FILE, the certificate and ECA preauthorization. No alias or authorization URL fallback was attempted.'
     );
   }
-  // Salesforce stores the key path for token renewal. Retain an inline key for
-  // the entire workflow; caller-owned key files are never removed here.
-  return { targetOrg: config.username, cleanup };
+  const publishedScratchUsers = new Map();
+  const transferScratch = async (alias, sourceEnv, destinationEnv, setDefault = false) => {
+    // Use supported CLI export/import instead of copying encrypted auth state.
+    // Scratch refresh-token auth must outlive the Dev Hub session for keep-org.
+    const authFile = path.join(directory, 'scratch.sfdxurl');
+    try {
+      const exported = await runJson(['org', 'auth', 'show-sfdx-auth-url', '--target-org', alias, '--no-prompt'], {
+        env: salesforceChildEnv(sourceEnv, { SF_TEMP_SHOW_SECRETS: 'true' })
+      });
+      if (exported?.status !== 0 || !isUsableSfdxAuthUrl(exported?.result?.sfdxAuthUrl)) throw new Error();
+      files.writeFileSync(authFile, exported.result.sfdxAuthUrl, { encoding: 'utf8', mode: 0o600 });
+      const imported = await runJson(
+        [
+          'org',
+          'login',
+          'sfdx-url',
+          '--sfdx-url-file',
+          authFile,
+          '--alias',
+          alias,
+          ...(setDefault ? ['--set-default'] : [])
+        ],
+        { env: destinationEnv }
+      );
+      const username = imported?.result?.username;
+      if (
+        imported?.status !== 0 ||
+        typeof username !== 'string' ||
+        !username.includes('@') ||
+        username === config.username
+      )
+        throw new Error();
+      files.rmSync(authFile, { force: true });
+      return username;
+    } catch {
+      throw new Error(`Scratch authorization transfer failed for '${alias}'.`);
+    }
+  };
+  const publishScratch = async (alias, { setDefault = false } = {}) => {
+    if (!directory) return;
+    recoveryScratch = alias;
+    publishedScratchUsers.set(alias, await transferScratch(alias, env, callerEnv, setDefault));
+    recoveryScratch = undefined;
+  };
+  const deleteScratch = async alias => {
+    if (!directory) return deleteWithEnv(alias, callerEnv);
+    try {
+      let username = publishedScratchUsers.get(alias);
+      let hasCallerAuth = Boolean(username);
+      if (!username) {
+        // A reused scratch lives in the caller's state. A failed signup/import
+        // may instead have left its only authorization in this owned home.
+        try {
+          const display = await runJson(['org', 'display', '--target-org', alias], { env });
+          if (display?.status === 0) username = display?.result?.username;
+        } catch {
+          /* Try the existing caller scratch below. */
+        }
+        if (!username) {
+          username = await transferScratch(alias, callerEnv, env);
+          hasCallerAuth = true;
+        }
+      }
+      if (typeof username !== 'string' || !username.includes('@') || username === config.username) throw new Error();
+      await deleteWithEnv(username, env);
+      if (recoveryScratch === alias) recoveryScratch = undefined;
+      // Remote deletion is confirmed first. Target only that scratch username;
+      // never log out the Dev Hub or an alias that another run could repoint.
+      if (hasCallerAuth) {
+        const loggedOut = await runJson(['org', 'logout', '--target-org', username, '--no-prompt'], { env: callerEnv });
+        if (loggedOut?.status !== 0) throw new Error();
+      }
+    } catch {
+      throw new Error(
+        `Scratch cleanup failed for '${alias}'. Delete this test scratch and its local authorization explicitly.`
+      );
+    }
+  };
+  // Token renewal and pool lease release still need the isolated key/auth state.
+  return { targetOrg: config.username, env, publishScratch, deleteScratch, cleanup };
 }
 
 module.exports = {

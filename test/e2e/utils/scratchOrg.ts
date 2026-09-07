@@ -9,7 +9,8 @@ import {
   resolveDevHubConfig,
   authenticateDevHub,
   scratchSignupEnv,
-  safeSfFailureMessage
+  safeSfFailureMessage,
+  type DevHubSession
 } from '../../../scripts/devhub-auth.js';
 
 export type ScratchOrgStrategy = 'single' | 'pool';
@@ -296,7 +297,10 @@ type ScratchProjectContext = {
   cleanup: (shouldDeleteScratch: boolean, scratchAlias: string) => Promise<void>;
 };
 
-async function createScratchProjectContext(definition: Record<string, unknown>): Promise<ScratchProjectContext> {
+async function createScratchProjectContext(
+  definition: Record<string, unknown>,
+  deleteScratch?: (alias: string) => Promise<void>
+): Promise<ScratchProjectContext> {
   const tmp = await mkdtemp(path.join(tmpdir(), 'alv-scratch-'));
   const defFile = path.join(tmp, 'project-scratch-def.json');
   const projectFile = path.join(tmp, 'sfdx-project.json');
@@ -326,8 +330,10 @@ async function createScratchProjectContext(definition: Record<string, unknown>):
       try {
         if (shouldDeleteScratch) {
           try {
-            await runSfJson(['org', 'delete', 'scratch', '-o', scratchAlias, '--no-prompt'], { cwd: tmp });
-          } catch {
+            if (deleteScratch) await deleteScratch(scratchAlias);
+            else await runSfJson(['org', 'delete', 'scratch', '-o', scratchAlias, '--no-prompt'], { cwd: tmp });
+          } catch (error) {
+            if (deleteScratch) throw error;
             // Best-effort cleanup.
           }
         }
@@ -848,7 +854,8 @@ function startPoolLeaseHeartbeat(
   };
 }
 
-async function ensureSingleScratchOrg(devHubAlias: string): Promise<ScratchOrgResult> {
+async function ensureSingleScratchOrg(devHub: DevHubSession): Promise<ScratchOrgResult> {
+  const devHubAlias = devHub.targetOrg;
   const scratchAlias = String(process.env.SF_SCRATCH_ALIAS || 'ALV_E2E_Scratch').trim();
   const durationDays = Number(process.env.SF_SCRATCH_DURATION || 1) || 1;
   const keep = shouldKeepScratchOrg();
@@ -867,11 +874,7 @@ async function ensureSingleScratchOrg(devHubAlias: string): Promise<ScratchOrgRe
         if (keep) {
           return;
         }
-        try {
-          await runSfJson(['org', 'delete', 'scratch', '-o', scratchAlias, '--no-prompt']);
-        } catch {
-          // Best-effort cleanup.
-        }
+        await devHub.deleteScratch(scratchAlias);
       }
     };
   }
@@ -883,7 +886,7 @@ async function ensureSingleScratchOrg(devHubAlias: string): Promise<ScratchOrgRe
     await clearStaleScratchOrg(scratchAlias);
   }
 
-  const context = await createScratchProjectContext(buildBaseScratchDefinition());
+  const context = await createScratchProjectContext(buildBaseScratchDefinition(), devHub.deleteScratch);
   try {
     await runSfJson(
       [
@@ -901,8 +904,9 @@ async function ensureSingleScratchOrg(devHubAlias: string): Promise<ScratchOrgRe
         '--wait',
         '15'
       ],
-      { cwd: context.cwd, env: scratchSignupEnv() }
+      { cwd: context.cwd, env: scratchSignupEnv(devHub.env) }
     );
+    await devHub.publishScratch(scratchAlias);
     const auth = await resolveOrgAuthForReady(scratchAlias, { forceRefresh: true });
     await waitForScratchOrgReady(scratchAlias, auth);
 
@@ -926,8 +930,9 @@ async function ensureSingleScratchOrg(devHubAlias: string): Promise<ScratchOrgRe
   };
 }
 
-async function ensurePooledScratchOrg(devHubAlias: string): Promise<ScratchOrgResult> {
-  const devHubAuth = await getOrgAuth(devHubAlias, { forceRefresh: true });
+async function ensurePooledScratchOrg(devHub: DevHubSession): Promise<ScratchOrgResult> {
+  const devHubAlias = devHub.targetOrg;
+  const devHubAuth = await getOrgAuth(devHubAlias, { forceRefresh: true, env: devHub.env });
   const poolKey = resolvePoolKey();
   const requestedBaseline = await resolveEffectivePoolBaseline(devHubAuth, poolKey);
   const leaseTtlSeconds = resolvePoolLeaseTtlSeconds();
@@ -1085,8 +1090,9 @@ async function ensurePooledScratchOrg(devHubAlias: string): Promise<ScratchOrgRe
             '--wait',
             '15'
           ],
-          { cwd: context.cwd }
+          { cwd: context.cwd, env: scratchSignupEnv(devHub.env) }
         );
+        await devHub.publishScratch(scratchAlias);
       } finally {
         await context.cleanup(false, scratchAlias);
       }
@@ -1137,8 +1143,8 @@ export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
     try {
       const result =
         resolveScratchStrategy() === 'pool'
-          ? await ensurePooledScratchOrg(devHub.targetOrg)
-          : await ensureSingleScratchOrg(devHub.targetOrg);
+          ? await ensurePooledScratchOrg(devHub)
+          : await ensureSingleScratchOrg(devHub);
       return {
         ...result,
         cleanup: async options => {

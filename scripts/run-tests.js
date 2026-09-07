@@ -337,7 +337,22 @@ async function ensureDevHub(cli, config, helpers = {}) {
       if (cli === 'sfdx') {
         // Keep command spelling in this execution adapter; selection and
         // identity validation remain owned by the shared policy.
-        if (args[1] === 'display') {
+        if (args[1] === 'delete') {
+          cliArgs = ['force:org:delete', '-u', args[args.indexOf('--target-org') + 1], '-p'];
+        } else if (args[1] === 'logout') {
+          cliArgs = ['force:auth:logout', '-u', args[args.indexOf('--target-org') + 1], '-p'];
+        } else if (args[1] === 'auth') {
+          cliArgs = ['force:org:display', '-u', args[args.indexOf('--target-org') + 1], '--verbose'];
+        } else if (args[2] === 'sfdx-url') {
+          cliArgs = [
+            'force:auth:sfdxurl:store',
+            '-f',
+            args[args.indexOf('--sfdx-url-file') + 1],
+            '-a',
+            args[args.indexOf('--alias') + 1],
+            ...(args.includes('--set-default') ? ['-s'] : [])
+          ];
+        } else if (args[1] === 'display') {
           cliArgs = ['force:org:display', '-u', args[3]];
         } else {
           const legacyFlags = {
@@ -355,7 +370,11 @@ async function ensureDevHub(cli, config, helpers = {}) {
   );
 }
 
-async function ensureDefaultScratch(cli, { alias, devHubAlias, durationDays, definitionJson, keep }, helpers = {}) {
+async function ensureDefaultScratch(
+  cli,
+  { alias, devHubAlias, devHub, durationDays, definitionJson, keep },
+  helpers = {}
+) {
   const execFileAsyncFn = (file, args, options = {}) =>
     (helpers.execFileAsync || execFileAsync)(file, args, {
       env: salesforceChildEnv(),
@@ -421,7 +440,7 @@ async function ensureDefaultScratch(cli, { alias, devHubAlias, durationDays, def
           '15',
           '--json'
         ],
-        { env: scratchSignupEnv() }
+        { env: scratchSignupEnv(devHub?.env) }
       );
     } else {
       await execFileAsyncFn(
@@ -441,9 +460,10 @@ async function ensureDefaultScratch(cli, { alias, devHubAlias, durationDays, def
           '15',
           '--json'
         ],
-        { env: scratchSignupEnv() }
+        { env: scratchSignupEnv(devHub?.env) }
       );
     }
+    await devHub?.publishScratch(alias, { setDefault: true });
     console.log(`[test-setup] Created scratch org '${alias}' and set as default.`);
 
     const cleanup = async () => {
@@ -451,7 +471,9 @@ async function ensureDefaultScratch(cli, { alias, devHubAlias, durationDays, def
         return;
       }
       try {
-        if (cli === 'sf') {
+        if (devHub?.deleteScratch) {
+          await devHub.deleteScratch(alias);
+        } else if (cli === 'sf') {
           await execFileAsyncFn('sf', ['org', 'delete', 'scratch', '-o', alias, '--no-prompt', '--json']);
         } else {
           await execFileAsyncFn('sfdx', ['force:org:delete', '-u', alias, '-p', '--json']);
@@ -516,6 +538,7 @@ async function pretestSetup(scope = 'all', opts = {}, helpers = {}) {
             {
               alias: scratchAlias,
               devHubAlias: devHub.targetOrg,
+              devHub,
               durationDays,
               definitionJson: undefined,
               keep: keepScratch

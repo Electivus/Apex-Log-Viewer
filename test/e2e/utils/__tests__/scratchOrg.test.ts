@@ -3,6 +3,7 @@ import { runSfJson } from '../sfCli';
 import { assertToolingReady, getOrgAuth, primeOrgAuthCache } from '../tooling';
 import { generateKeyPairSync } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 
 jest.mock('../sfCli', () => ({
   runSfJson: jest.fn()
@@ -112,57 +113,83 @@ describe('ensureScratchOrg', () => {
     process.env = originalEnv;
   });
 
-  test('JWT runner creates through PlatformCLI and releases its key after scratch cleanup', async () => {
-    process.env.SF_DEVHUB_CLIENT_ID = 'test-eca-client';
-    process.env.SF_DEVHUB_USERNAME = 'selected@example.com';
-    process.env.SF_DEVHUB_LOGIN_URL = 'https://login.salesforce.com';
-    process.env.SF_DEVHUB_PRIVATE_KEY = generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-      publicKeyEncoding: { type: 'spki', format: 'pem' }
-    }).privateKey;
-    process.env.CI = 'true';
-    process.env.SF_TEST_KEEP_ORG = '0';
-    let keyFile = '';
-    let scratchCreated = false;
-    let scratchDeleted = false;
-    runSfJsonMock.mockImplementation(async (args, options) => {
-      expect(options?.env?.SF_DEVHUB_PRIVATE_KEY).toBeUndefined();
-      if (args.slice(0, 3).join(' ') === 'org login jwt') {
-        keyFile = args[args.indexOf('--jwt-key-file') + 1]!;
-        expect(readFileSync(keyFile, 'utf8')).toBe(process.env.SF_DEVHUB_PRIVATE_KEY?.trim());
-        expect(options?.env?.SF_SCRATCH_SIGNUP_CONNECTED_APP).toBeUndefined();
-        return { status: 0, result: { username: 'selected@example.com' } };
+  test.each(['success', 'delete-failure'])(
+    'JWT runner creates through PlatformCLI and releases its key after scratch cleanup: %s',
+    async outcome => {
+      process.env.SF_DEVHUB_CLIENT_ID = 'test-eca-client';
+      process.env.SF_DEVHUB_USERNAME = 'selected@example.com';
+      process.env.SF_DEVHUB_LOGIN_URL = 'https://login.salesforce.com';
+      process.env.SF_DEVHUB_PRIVATE_KEY = generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+        publicKeyEncoding: { type: 'spki', format: 'pem' }
+      }).privateKey;
+      process.env.CI = 'true';
+      process.env.SF_TEST_KEEP_ORG = '0';
+      let keyFile = '';
+      let scratchCreated = false;
+      let scratchDeleted = false;
+      runSfJsonMock.mockImplementation(async (args, options) => {
+        expect(options?.env?.SF_DEVHUB_PRIVATE_KEY).toBeUndefined();
+        if (args.slice(0, 3).join(' ') === 'org login jwt') {
+          keyFile = args[args.indexOf('--jwt-key-file') + 1]!;
+          expect(readFileSync(keyFile, 'utf8')).toBe(process.env.SF_DEVHUB_PRIVATE_KEY?.trim());
+          expect(options?.env?.SF_SCRATCH_SIGNUP_CONNECTED_APP).toBeUndefined();
+          return { status: 0, result: { username: 'selected@example.com' } };
+        }
+        if (args.slice(0, 2).join(' ') === 'org display') {
+          throw new Error('Scratch alias does not exist');
+        }
+        if (args.slice(0, 3).join(' ') === 'org create scratch') {
+          expect(args[args.indexOf('--target-dev-hub') + 1]).toBe('selected@example.com');
+          expect(options?.env?.SF_SCRATCH_SIGNUP_CONNECTED_APP).toBe('PlatformCLI');
+          expect(options?.env?.SF_SCRATCH_SIGNUP_CALLBACK_URL).toBe('http://localhost:1717/OauthRedirect');
+          expect(options?.env?.[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']).toBe(path.dirname(keyFile));
+          scratchCreated = true;
+          return { status: 0 };
+        }
+        if (args.includes('show-sfdx-auth-url')) {
+          expect(options?.env?.[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']).toBe(path.dirname(keyFile));
+          return { status: 0, result: { sfdxAuthUrl: 'force://PlatformCLI::fixture-refresh@test.example.com' } };
+        }
+        if (args.includes('sfdx-url')) {
+          expect(options?.env?.[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']).toBe(
+            process.env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']
+          );
+          return { status: 0, result: { username: 'scratch@example.com' } };
+        }
+        if (args.slice(0, 3).join(' ') === 'org delete scratch') {
+          expect(existsSync(keyFile)).toBe(true);
+          expect(options?.env?.[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']).toBe(path.dirname(keyFile));
+          if (outcome === 'delete-failure') throw new Error('untrusted-credential-from-cli');
+          scratchDeleted = true;
+          return { status: 0 };
+        }
+        if (args[1] === 'logout') {
+          expect(scratchDeleted).toBe(true);
+          expect(args[args.indexOf('--target-org') + 1]).toBe('scratch@example.com');
+          expect(options?.env?.[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']).toBe(
+            process.env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']
+          );
+          return { status: 0 };
+        }
+        throw new Error('Unexpected CLI operation');
+      });
+      const result = await ensureScratchOrg();
+      try {
+        expect(result.devHubAlias).toBe('selected@example.com');
+        expect(scratchCreated).toBe(true);
+        expect(assertToolingReadyMock).toHaveBeenCalled();
+      } finally {
+        if (outcome === 'delete-failure') {
+          await expect(result.cleanup()).rejects.toThrow('Scratch cleanup failed');
+        } else await result.cleanup();
       }
-      if (args.slice(0, 2).join(' ') === 'org display') {
-        throw new Error('Scratch alias does not exist');
-      }
-      if (args.slice(0, 3).join(' ') === 'org create scratch') {
-        expect(args[args.indexOf('--target-dev-hub') + 1]).toBe('selected@example.com');
-        expect(options?.env?.SF_SCRATCH_SIGNUP_CONNECTED_APP).toBe('PlatformCLI');
-        expect(options?.env?.SF_SCRATCH_SIGNUP_CALLBACK_URL).toBe('http://localhost:1717/OauthRedirect');
-        scratchCreated = true;
-        return { status: 0 };
-      }
-      if (args.slice(0, 3).join(' ') === 'org delete scratch') {
-        expect(existsSync(keyFile)).toBe(true);
-        scratchDeleted = true;
-        return { status: 0 };
-      }
-      throw new Error('Unexpected CLI operation');
-    });
-    const result = await ensureScratchOrg();
-    try {
-      expect(result.devHubAlias).toBe('selected@example.com');
-      expect(scratchCreated).toBe(true);
-      expect(assertToolingReadyMock).toHaveBeenCalled();
-    } finally {
-      await result.cleanup();
+      expect(scratchDeleted).toBe(outcome === 'success');
+      expect(existsSync(keyFile)).toBe(false);
+      expect(process.env.SF_SCRATCH_SIGNUP_CONNECTED_APP).toBeUndefined();
     }
-    expect(scratchDeleted).toBe(true);
-    expect(existsSync(keyFile)).toBe(false);
-    expect(process.env.SF_SCRATCH_SIGNUP_CONNECTED_APP).toBeUndefined();
-  });
+  );
 
   test('direct scratch readiness failure still deletes the created scratch', async () => {
     process.env.SF_TEST_KEEP_ORG = '0';

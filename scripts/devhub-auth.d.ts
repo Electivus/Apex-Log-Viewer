@@ -2,7 +2,13 @@ export type DevHubConfig =
   | { mode: 'alias'; alias: string }
   | { mode: 'jwt'; clientId: string; username: string; loginUrl: string; privateKey?: string; privateKeyFile?: string };
 
-export type DevHubSession = { targetOrg: string; cleanup: () => Promise<void> };
+export type DevHubSession = {
+  targetOrg: string;
+  env: NodeJS.ProcessEnv;
+  publishScratch: (alias: string, options?: { setDefault?: boolean }) => Promise<void>;
+  deleteScratch: (alias: string) => Promise<void>;
+  cleanup: () => Promise<void>;
+};
 
 export function hasDevHubJwtConfig(env?: NodeJS.ProcessEnv): boolean;
 export function isUsableSfdxAuthUrl(value: unknown): value is string;

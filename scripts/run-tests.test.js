@@ -13,6 +13,134 @@ const testPrivateKey = require('node:crypto').generateKeyPairSync('rsa', {
   publicKeyEncoding: { type: 'spki', format: 'pem' }
 }).privateKey;
 
+for (const cli of ['sf', 'sfdx']) {
+  test(`concurrent inline ${cli} workflows isolate same-username CLI state and keep scratch access after cleanup`, async t => {
+    const homeName = process.platform === 'win32' ? 'USERPROFILE' : 'HOME';
+    const callerHome = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-caller-state-'));
+    process.env = { ...originalEnv, [homeName]: callerHome, HTTPS_PROXY: 'https://proxy.example.com' };
+    t.after(() => {
+      process.env = { ...originalEnv };
+      fs.rmSync(callerHome, { recursive: true, force: true });
+    });
+    fs.mkdirSync(path.join(callerHome, '.sfdx'));
+    const existingState = path.join(callerHome, '.sfdx', 'selected@example.com.json');
+    fs.writeFileSync(existingState, 'existing-user-owned-auth');
+    const config = {
+      mode: 'jwt',
+      clientId: 'test-client',
+      username: 'selected@example.com',
+      loginUrl: 'https://login.salesforce.com',
+      privateKey: testPrivateKey
+    };
+    const sessions = [];
+    const deletedScratchUsers = new Set();
+    t.after(async () => {
+      for (const session of sessions) await session.cleanup();
+    });
+    const execFileAsync = async (file, args, options) => {
+      const home = options.env[homeName];
+      assert.equal(options.env.HTTPS_PROXY, process.env.HTTPS_PROXY);
+      if (args[1] === 'delete' || args[0] === 'force:org:delete') {
+        const username = args[args.indexOf(cli === 'sf' ? '--target-org' : '-u') + 1];
+        assert.notEqual(home, callerHome);
+        assert.equal(fs.existsSync(path.join(home, 'private-key.pem')), true);
+        assert.notEqual(username, config.username);
+        deletedScratchUsers.add(username);
+        return { stdout: '{"status":0,"result":{}}' };
+      }
+      if (args[1] === 'logout' || args[0] === 'force:auth:logout') {
+        const username = args[args.indexOf(cli === 'sf' ? '--target-org' : '-u') + 1];
+        assert.equal(home, callerHome);
+        assert.equal(deletedScratchUsers.has(username), true);
+        fs.rmSync(path.join(home, '.sfdx', username));
+        return { stdout: '{"status":0,"result":{}}' };
+      }
+      if (args.slice(0, 3).join(' ') === 'org login jwt' || args[0] === 'force:auth:jwt:grant') {
+        assert.notEqual(home, callerHome);
+        fs.mkdirSync(path.join(home, '.sfdx'));
+        fs.writeFileSync(
+          path.join(home, '.sfdx', 'selected@example.com.json'),
+          args[args.indexOf(cli === 'sf' ? '--jwt-key-file' : '--jwtkeyfile') + 1]
+        );
+        return { stdout: JSON.stringify({ status: 0, result: { username: config.username } }) };
+      }
+      if (args.includes('show-sfdx-auth-url') || args[0] === 'force:org:display') {
+        if (cli === 'sfdx') assert.equal(args.includes('--verbose'), true);
+        assert.notEqual(home, callerHome);
+        assert.equal(options.env.SF_TEMP_SHOW_SECRETS, 'true');
+        return {
+          stdout: JSON.stringify({
+            status: 0,
+            result: { sfdxAuthUrl: 'force://PlatformCLI::fixture-refresh@test.example.com' }
+          })
+        };
+      }
+      if (args.includes('sfdx-url') || args[0] === 'force:auth:sfdxurl:store') {
+        assert.equal(home, callerHome);
+        assert.equal(options.env.SF_TEMP_SHOW_SECRETS, undefined);
+        const alias = args[args.indexOf(cli === 'sf' ? '--alias' : '-a') + 1];
+        const username = `${alias}@example.com`;
+        fs.writeFileSync(
+          path.join(home, '.sfdx', username),
+          fs.readFileSync(args[args.indexOf(cli === 'sf' ? '--sfdx-url-file' : '-f') + 1])
+        );
+        return { stdout: JSON.stringify({ status: 0, result: { username } }) };
+      }
+      throw new Error('Unexpected CLI operation');
+    };
+    sessions.push(
+      ...(await Promise.all([
+        ensureDevHub(cli, config, { execFileAsync }),
+        ensureDevHub(cli, config, { execFileAsync })
+      ]))
+    );
+    assert.notEqual(sessions[0].env[homeName], sessions[1].env[homeName]);
+    await Promise.all(sessions.map((session, index) => session.publishScratch(`kept-${index}`)));
+    await sessions[0].deleteScratch('kept-0');
+    await sessions[0].cleanup();
+    assert.equal(fs.existsSync(sessions[0].env[homeName]), false);
+    assert.equal(fs.existsSync(sessions[1].env[homeName]), true);
+    await sessions[1].cleanup();
+    assert.equal(fs.existsSync(sessions[1].env[homeName]), false);
+    assert.equal(fs.readFileSync(existingState, 'utf8') === 'existing-user-owned-auth', true);
+    assert.equal(fs.existsSync(path.join(callerHome, '.sfdx', 'kept-0@example.com')), false);
+    assert.equal(fs.existsSync(path.join(callerHome, '.sfdx', 'kept-1@example.com')), true);
+    assert.equal(process.env[homeName], callerHome);
+  });
+}
+
+test('failed scratch auth transfer reports retained recovery state without exposing CLI output', async t => {
+  const session = await ensureDevHub(
+    'sf',
+    {
+      mode: 'jwt',
+      clientId: 'test-client',
+      username: 'selected@example.com',
+      loginUrl: 'https://login.salesforce.com',
+      privateKey: testPrivateKey
+    },
+    {
+      execFileAsync: async (_file, args) => {
+        if (args.includes('jwt')) return { stdout: '{"status":0,"result":{"username":"selected@example.com"}}' };
+        throw new Error('untrusted-private-credential');
+      }
+    }
+  );
+  const directory = session.env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME'];
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  await assert.rejects(() => session.publishScratch('KeptScratch'), /Scratch authorization transfer failed/);
+  await assert.rejects(
+    () => session.cleanup(),
+    error => {
+      assert.match(error.message, /cleanup deferred to preserve access/);
+      assert.equal(error.message.includes(directory), true);
+      assert.doesNotMatch(error.stack, /untrusted-private-credential/);
+      return true;
+    }
+  );
+  assert.equal(fs.existsSync(path.join(directory, 'private-key.pem')), true);
+});
+
 test('selected JWT authenticates the configured username and keeps its key until workflow cleanup', async t => {
   process.env = {
     ...originalEnv,
@@ -343,7 +471,7 @@ test(
     if (args.includes('--version')) { console.log('@salesforce/cli/2.150.6'); process.exit(0); }
     if (args.slice(0,3).join(' ') === 'org login jwt') fs.writeFileSync(${JSON.stringify(capture)}, JSON.stringify(args[args.indexOf('--jwt-key-file') + 1]));
     if (args.slice(0,3).join(' ') === 'org delete scratch') fs.writeFileSync(${JSON.stringify(deleted)}, 'true');
-    console.log(JSON.stringify({status:args[1] === 'display' ? 1 : 0, result:{username:'selected@example.com'}}));
+    console.log(JSON.stringify({status:args[1] === 'display' ? 1 : 0, result:{username:args[2] === 'sfdx-url' ? 'scratch@example.com' : 'selected@example.com',sfdxAuthUrl:'force://PlatformCLI::fixture-refresh@test.example.com'}}));
     process.exit(args[1] === 'display' ? 1 : 0);
   `
     );
@@ -378,7 +506,7 @@ test(
           SF_TEST_KEEP_ORG: '0'
         },
         encoding: 'utf8',
-        timeout: 30_000
+        timeout: 120_000
       }
     );
     assert.equal(result.status, 1);
