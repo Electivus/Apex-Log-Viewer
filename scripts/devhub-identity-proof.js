@@ -456,7 +456,12 @@ async function prove({ values, state, directory, user, sf, query, save }) {
     const maintained = await runtimeQuery(
       `SELECT Id, LeaseState__c, HealthState__c, ScratchAuthUrl__c FROM ALV_ScratchOrgPoolSlot__c WHERE Id = '${proof.slotId}'`
     );
-    if (maintained.length !== 1 || maintained[0].LeaseState__c !== 'disabled' || maintained[0].ScratchAuthUrl__c)
+    if (
+      maintained.length !== 1 ||
+      maintained[0].LeaseState__c !== 'disabled' ||
+      maintained[0].HealthState__c !== 'needs_recreate' ||
+      maintained[0].ScratchAuthUrl__c
+    )
       throw new Error('Pool maintenance result was not verified.');
     proof.completedAt = new Date().toISOString();
     await phase('cleanup');

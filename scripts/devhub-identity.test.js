@@ -1715,6 +1715,8 @@ for (const scenario of [
   'success',
   'import-failure',
   'redacted-export',
+  'maintenance-health-mismatch',
+  'maintenance-health-missing',
   'cleanup-failure',
   'http-failure',
   'signup-not-visible',
@@ -1864,7 +1866,16 @@ for (const scenario of [
         if (soql.includes(' FROM ALV_ScratchOrgPoolSlot__c ')) {
           if (soql.includes(' WHERE Id = '))
             return {
-              records: [{ Id: ownSlot, LeaseState__c: maintained ? 'disabled' : 'leased', ScratchAuthUrl__c: null }]
+              records: [
+                {
+                  Id: ownSlot,
+                  LeaseState__c: maintained ? 'disabled' : 'leased',
+                  ...(scenario === 'maintenance-health-missing'
+                    ? {}
+                    : { HealthState__c: scenario === 'maintenance-health-mismatch' ? 'healthy' : 'needs_recreate' }),
+                  ScratchAuthUrl__c: null
+                }
+              ]
             };
           const proof = JSON.parse(readFileSync(stateFile, 'utf8')).proof;
           return { records: [{ Id: ownSlot, CreatedById: '005runtime', SlotKey__c: proof.slotKey }] };
@@ -1897,7 +1908,9 @@ for (const scenario of [
               ? /pool-acquire/
               : scenario === 'definition-write-failure'
                 ? /scratch-prepare/
-                : /scratch-export-import/
+                : scenario.startsWith('maintenance-health-')
+                  ? /pool-maintenance/
+                  : /scratch-export-import/
         );
         assert.doesNotMatch(error.message, /private-refresh-token|private-lease-token/);
         return true;
