@@ -54,6 +54,91 @@ test('real-org lab entry point rejects missing and partial JWT before starting C
   }
 });
 
+test('integration entry points preserve the direct runner scratch opt-in through both lab boundaries', async () => {
+  const { main: childMain } = require('./run-e2e-proxy-lab-child');
+  const privateKey = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' }
+  }).privateKey;
+  const jwt = {
+    SF_DEVHUB_CLIENT_ID: 'TestEca',
+    SF_DEVHUB_USERNAME: 'test@example.invalid',
+    SF_DEVHUB_LOGIN_URL: 'https://login.salesforce.com',
+    SF_DEVHUB_PRIVATE_KEY: privateKey
+  };
+  for (const argv of [
+    ['node', 'scripts/run-tests-cli.js', '--scope=integration'],
+    ['node', 'scripts/run-tests.js', '--scope=all'],
+    ['pnpm', 'run', 'test:integration:ci'],
+    ['pnpm', 'run', 'test:integration'],
+    ['pnpm', 'run', 'test:ci'],
+    ['pnpm', 'run', 'test:all']
+  ]) {
+    for (const setup of ['1', 'true', '']) {
+      let inputDirectory;
+      const env = { ...jwt, SF_SETUP_SCRATCH: setup };
+      const code = await main({
+        argv,
+        env,
+        execFileAsync: fakeEngine,
+        spawnImpl: (_file, args) => {
+          const config = reportCleanExit(args);
+          inputDirectory = config.services.runner?.volumes.find(mount => mount.target === '/run/alv-devhub')?.source;
+          assert.ok(inputDirectory, `${argv.join(' ')} must transport selected JWT`);
+          const child = new EventEmitter();
+          // The child receives JWT through its mount, not Compose's environment.
+          childMain({
+            argv: ['--validate', ...argv],
+            env: { CI: 'true', SF_SETUP_SCRATCH: setup },
+            inputDirectory
+          }).then(
+            result => child.emit('close', result),
+            error => child.emit('error', error)
+          );
+          return child;
+        }
+      });
+      assert.equal(code, 0);
+      assert.equal(fs.existsSync(inputDirectory), false);
+    }
+    await assert.rejects(
+      () =>
+        main({
+          argv,
+          env: { SF_SETUP_SCRATCH: 'true' },
+          spawnImpl: () => {
+            throw new Error('must fail before Compose');
+          }
+        }),
+      /Dev Hub JWT configuration/
+    );
+  }
+});
+
+test('unit and VSIX invocations remain credential-free even when the host selects a scratch', async () => {
+  for (const argv of [
+    ['pnpm', 'test'],
+    ['pnpm', 'run', 'test:unit:ci'],
+    ['pnpm', 'run', 'test:unit'],
+    ['node', 'scripts/run-tests-cli.js', '--scope=unit'],
+    ['node', 'scripts/run-tests.js', '--smoke-vsix']
+  ]) {
+    const code = await main({
+      argv,
+      env: { SF_SETUP_SCRATCH: 'true', SF_DEVHUB_PRIVATE_KEY: 'irrelevant-partial-input' },
+      spawnImpl: (_file, args, options) => {
+        assert.equal(args.filter(value => value === '-f').length, 1);
+        assert.equal(options.env.SF_DEVHUB_PRIVATE_KEY, undefined);
+        const child = new EventEmitter();
+        process.nextTick(() => child.emit('close', 0));
+        return child;
+      }
+    });
+    assert.equal(code, 0);
+  }
+});
+
 test('lab transports validated JWT in an owned read-only mount and cleans it after either Compose result', async () => {
   const { privateKey } = generateKeyPairSync('rsa', {
     modulusLength: 2048,

@@ -7,9 +7,9 @@ const { spawn } = require('node:child_process');
 const { requestedCommandRequiresDevHub } = require('./run-e2e-proxy-lab');
 const { resolveDevHubConfig, validateDevHubJwt, salesforceChildEnv } = require('./devhub-auth');
 
-function readConfiguration(inputDirectory, required) {
-  if (!required) return undefined;
-  const env = { CI: 'true' };
+function readConfiguration(inputDirectory, commandArgs, commandEnv) {
+  const env = salesforceChildEnv(commandEnv, { CI: 'true' });
+  delete env.SF_DEVHUB_ALIAS;
   const manifest = path.join(inputDirectory, 'devhub.json');
   if (fs.existsSync(manifest)) {
     let values;
@@ -24,8 +24,10 @@ function readConfiguration(inputDirectory, required) {
   }
   const keyFile = path.join(inputDirectory, 'private-key.pem');
   if (fs.existsSync(keyFile)) env.SF_DEVHUB_PRIVATE_KEY_FILE = keyFile;
-  const config = resolveDevHubConfig(env);
-  validateDevHubJwt(config);
+  // Mounted JWT presence is itself a direct-runner scratch opt-in. Derive the
+  // decision from the transported inputs, never from stripped Compose values.
+  const config = resolveDevHubConfig(env, { required: requestedCommandRequiresDevHub(commandArgs, env) });
+  if (config) validateDevHubJwt(config);
   return config;
 }
 
@@ -40,7 +42,7 @@ async function main({
 } = {}) {
   const validateOnly = argv[0] === '--validate';
   const commandArgs = validateOnly ? argv.slice(1) : argv;
-  const config = readConfiguration(inputDirectory, requestedCommandRequiresDevHub(commandArgs, env));
+  const config = readConfiguration(inputDirectory, commandArgs, env);
   if (validateOnly) return 0;
 
   const childEnv = salesforceChildEnv(env, { CI: 'true' });

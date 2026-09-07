@@ -17,6 +17,20 @@ function hasDevHubJwtConfig(env = process.env) {
   return JWT_FIELDS.some(name => String(env[name] || '').trim());
 }
 
+function requiresScratchSetup(scope = 'all', { smokeVsix = false } = {}, env = process.env) {
+  return (
+    String(scope || '')
+      .trim()
+      .toLowerCase() !== 'unit' &&
+    !smokeVsix &&
+    Boolean(
+      String(env.SF_SETUP_SCRATCH || '').trim() ||
+      String(env.SF_DEVHUB_AUTH_URL || '').trim() ||
+      hasDevHubJwtConfig(env)
+    )
+  );
+}
+
 function isUsableSfdxAuthUrl(value) {
   if (typeof value !== 'string' || /redacted|placeholder|[\s<>*]/i.test(value)) {
     return false;
@@ -316,6 +330,7 @@ async function authenticateDevHub(config, runJson, files = fs) {
 }
 
 module.exports = {
+  requiresScratchSetup,
   validateDevHubJwt,
   hasDevHubJwtConfig,
   isUsableSfdxAuthUrl,

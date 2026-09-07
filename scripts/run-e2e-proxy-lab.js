@@ -7,7 +7,7 @@ const { randomUUID } = require('node:crypto');
 const fs = require('fs');
 const path = require('path');
 const { tmpdir } = require('node:os');
-const { resolveDevHubConfig, validateDevHubJwt, salesforceChildEnv } = require('./devhub-auth');
+const { resolveDevHubConfig, validateDevHubJwt, salesforceChildEnv, requiresScratchSetup } = require('./devhub-auth');
 
 const HOST_VOLUME_MOUNTPOINTS = [
   'node_modules',
@@ -49,12 +49,21 @@ function resolveComposeArgs(commandArgs = [], options = {}) {
 function requestedCommandRequiresDevHub(commandArgs = [], env = process.env) {
   const command = commandArgs.length ? commandArgs.join(' ') : String(env.ALV_E2E_PROXY_LAB_COMMAND || '');
   if (!command) return true;
-  return (
+  if (
     /(?:^|[\s/])(?:test:e2e(?::(?:cli|telemetry))?|scratch-pool:[\w-]+)(?=\s|$)/.test(command) ||
-    /(?:^|[\s/\\])(?:run-playwright-(?:cli-)?e2e(?:-telemetry)?|scratch-pool-admin)\.js(?=\s|$)/.test(command) ||
-    (env.SF_SETUP_SCRATCH === '1' &&
-      /(?:run-tests(?:-cli)?\.js|test(?::(?:integration|all|unit))?)(?=\s|$)/.test(command))
-  );
+    /(?:^|[\s/\\])(?:run-playwright-(?:cli-)?e2e(?:-telemetry)?|scratch-pool-admin)\.js(?=\s|$)/.test(command)
+  )
+    return true;
+  const smokeVsix =
+    /(?:^|\s)--smoke-vsix(?=\s|$)/.test(command) || /^1|true$/i.test(String(env.ALWAYS_SMOKE_VSIX || ''));
+  if (/(?:^|[\s/\\])run-tests(?:-cli)?\.js(?=\s|$)/.test(command)) {
+    const scope = [...command.matchAll(/(?:^|\s)--scope=([^\s]+)/g)].at(-1)?.[1] || 'all';
+    return requiresScratchSetup(scope, { smokeVsix }, env);
+  }
+  if (/(?:^|\s)test:(?:integration(?::ci)?|all|ci)(?=\s|$)/.test(command)) {
+    return requiresScratchSetup('integration', { smokeVsix }, env);
+  }
+  return false;
 }
 
 function parseProxyLabArgs(argv = []) {
