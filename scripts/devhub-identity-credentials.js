@@ -47,16 +47,55 @@ async function secureDirectory(directory) {
     await fs.chmod(directory, 0o700);
     return;
   }
-  const identity = spawn.sync('whoami', ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8', windowsHide: true });
-  const sid = identity.status === 0 && identity.stdout.match(/S-1-\d+(?:-\d+)+/)?.[0];
-  if (!sid) throw new Error('Cannot determine the Windows identity for private directory permissions.');
-  const acl = spawn.sync(
-    'icacls',
-    [directory, '/inheritance:r', '/grant:r', `*${sid}:(OI)(CI)F`, '*S-1-5-18:(OI)(CI)F'],
-    { encoding: 'utf8', windowsHide: true }
-  );
+  // A fresh protected DACL removes unexpected explicit ACEs too. Use Windows
+  // PowerShell's .NET Framework APIs directly so a PowerShell 7 PSModulePath
+  // inherited by the child cannot redirect Get-Acl/Set-Acl to incompatible modules.
+  const script = String.raw`
+$ErrorActionPreference = 'Stop'
+$target = $env:ALV_IDENTITY_ACL_DIRECTORY
+$current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$system = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+$security = [System.Security.AccessControl.DirectorySecurity]::new()
+$security.SetAccessRuleProtection($true, $false)
+$inherit = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+foreach ($principal in @($current, $system)) {
+  $security.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($principal,
+    [System.Security.AccessControl.FileSystemRights]::FullControl, $inherit,
+    [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow))
+}
+[System.IO.Directory]::SetAccessControl($target, $security)
+$actual = [System.IO.Directory]::GetAccessControl($target)
+$rules = $actual.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
+if (!$actual.AreAccessRulesProtected -or $rules.Count -ne 2) { throw 'Private directory DACL verification failed.' }
+foreach ($rule in $rules) {
+  if ($rule.IdentityReference.Value -notin @($current.Value, $system.Value) -or $rule.IsInherited -or
+      $rule.AccessControlType -ne 'Allow' -or $rule.FileSystemRights -ne 'FullControl' -or
+      $rule.InheritanceFlags -ne $inherit -or $rule.PropagationFlags -ne 'None') { throw 'Unexpected private directory ACE.' }
+}
+$pending = [System.Collections.Generic.Queue[string]]::new()
+$pending.Enqueue($target)
+while ($pending.Count) {
+  foreach ($entry in [System.IO.Directory]::EnumerateFileSystemEntries($pending.Dequeue())) {
+    $attributes = [System.IO.File]::GetAttributes($entry)
+    if ($attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw 'Reparse points are not allowed in private state.' }
+    if ($attributes -band [System.IO.FileAttributes]::Directory) {
+      $entryAcl = [System.IO.Directory]::GetAccessControl($entry)
+      $pending.Enqueue($entry)
+    } else { $entryAcl = [System.IO.File]::GetAccessControl($entry) }
+    foreach ($rule in $entryAcl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
+      if ($rule.IdentityReference.Value -notin @($current.Value, $system.Value)) { throw 'Unexpected descendant ACE; sensitive writes stopped.' }
+    }
+  }
+}`;
+  const acl = spawn.sync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8',
+    windowsHide: true,
+    env: { ...process.env, ALV_IDENTITY_ACL_DIRECTORY: directory }
+  });
   if (acl.status !== 0)
-    throw new Error('Cannot restrict the generated credential directory ACL; no credentials were written.');
+    throw new Error(
+      'Cannot establish and verify the private directory ACL, or a descendant has unexpected access; sensitive writes stopped.'
+    );
 }
 
 async function readCertificate(certificateFile, privateKeyFile, lifecycle) {
@@ -104,6 +143,7 @@ async function createCertificate(values) {
     if (error.code !== 'EEXIST') throw error;
     exists = true;
   }
+  await secureDirectory(directory);
   if (exists) {
     let recorded;
     try {
@@ -117,7 +157,6 @@ async function createCertificate(values) {
       );
     }
   } else {
-    await secureDirectory(directory);
     await fs.writeFile(path.join(directory, 'lifecycle.json'), JSON.stringify(lifecycle, null, 2), {
       mode: 0o600,
       flag: 'wx'

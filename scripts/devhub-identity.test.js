@@ -225,6 +225,75 @@ test('temporary certificate creation honors the explicit lifetime and retains on
   assert.doesNotMatch(JSON.stringify(result), /BEGIN .*PRIVATE KEY/);
 });
 
+test(
+  'Windows certificate reruns remove unexpected explicit grants before reusing private files',
+  { skip: process.platform !== 'win32' },
+  async t => {
+    const certificate = await temporaryCertificate(t);
+    const credentialDirectory = path.dirname(certificate.privateKeyFile);
+    const granted = require('cross-spawn').sync('icacls', [credentialDirectory, '/grant', '*S-1-1-0:(OI)(CI)R'], {
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    assert.equal(granted.status, 0, 'The test must establish an explicit Everyone read grant');
+    const repeated = await main([
+      'create-certificate',
+      '--state-dir',
+      path.dirname(credentialDirectory),
+      '--credential-mode',
+      'temporary',
+      '--certificate-days',
+      '2',
+      '--storage-policy',
+      'temporary-local'
+    ]);
+    const checked = require('cross-spawn').sync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        '[System.IO.Directory]::GetAccessControl($env:ALV_IDENTITY_TEST_DIRECTORY).GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]) | ForEach-Object { $_.IdentityReference.Value }'
+      ],
+      { encoding: 'utf8', windowsHide: true, env: { ...process.env, ALV_IDENTITY_TEST_DIRECTORY: credentialDirectory } }
+    );
+    assert.equal(checked.status, 0, checked.stderr);
+    assert.doesNotMatch(checked.stdout, /S-1-1-0/);
+    assert.equal(
+      repeated.fingerprint,
+      certificate.fingerprint,
+      'ACL repair must preserve the original certificate and key'
+    );
+  }
+);
+
+test(
+  'Windows private-directory validation refuses an existing child with unexpected explicit access',
+  { skip: process.platform !== 'win32' },
+  async t => {
+    const certificate = await temporaryCertificate(t);
+    const granted = require('cross-spawn').sync('icacls', [certificate.privateKeyFile, '/grant', '*S-1-1-0:R'], {
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    assert.equal(granted.status, 0, 'The fixture must establish unexpected explicit file access');
+    await assert.rejects(
+      main([
+        'create-certificate',
+        '--state-dir',
+        path.dirname(path.dirname(certificate.privateKeyFile)),
+        '--credential-mode',
+        'temporary',
+        '--certificate-days',
+        '2',
+        '--storage-policy',
+        'temporary-local'
+      ]),
+      /descendant has unexpected access/
+    );
+  }
+);
+
 test('app provisioning does not adopt or overwrite an unrelated app with the planned API name', async t => {
   const fixture = provisioningFixture();
   const directory = stateDirectory(t);
@@ -450,7 +519,7 @@ test('app revocation disables only the owned ECA and confirms the effective poli
   assert.doesNotMatch(JSON.stringify(result), /hidden-token/);
 });
 
-for (const scenario of ['success', 'import-failure', 'redacted-export', 'cleanup-failure']) {
+for (const scenario of ['success', 'import-failure', 'redacted-export', 'cleanup-failure', 'http-failure']) {
   test(`native identity proof preserves isolation, lease lifecycle and ownership: ${scenario}`, async t => {
     const { fixture, directory } = await preparedAppFixture(t);
     fixture.records.PermissionSetAssignment = [];
@@ -491,15 +560,24 @@ for (const scenario of ['success', 'import-failure', 'redacted-export', 'cleanup
         const proof = JSON.parse(readFileSync(stateFile, 'utf8')).proof;
         const route = args[3].split('/').at(-1);
         routes.push(route);
+        const bodyArgument = args[args.indexOf('--body') + 1];
+        assert.ok(bodyArgument.startsWith('@'), 'Salesforce CLI 2.150.6 requires @ to read a request body file');
+        const payload = JSON.parse(readFileSync(bodyArgument.slice(1), 'utf8'));
+        assert.equal(payload.poolKey, proof.poolKey);
+        assert.doesNotMatch(args.join(' '), /private-refresh-token|private-lease-token/);
         return {
-          ok: true,
-          poolKey: proof.poolKey,
-          slotKey: proof.slotKey,
-          leaseToken: 'private-lease-token',
-          needsCreate: route === 'acquire',
-          provisioningMode: 'definition',
-          scratchUsername: 'scratch@example.test',
-          leaseState: route === 'release' ? 'available' : 'leased'
+          statusCode: scenario === 'http-failure' ? 503 : 200,
+          headers: { 'content-type': 'application/json' },
+          body: {
+            ok: true,
+            poolKey: proof.poolKey,
+            slotKey: proof.slotKey,
+            leaseToken: 'private-lease-token',
+            needsCreate: route === 'acquire',
+            provisioningMode: 'definition',
+            scratchUsername: 'scratch@example.test',
+            leaseState: route === 'release' ? 'available' : 'leased'
+          }
         };
       }
       if (command === 'org create scratch') {
@@ -589,22 +667,34 @@ for (const scenario of ['success', 'import-failure', 'redacted-export', 'cleanup
       assert.deepEqual(routes, ['acquire', 'finalize', 'heartbeat', 'release']);
     } else {
       await assert.rejects(main(args, fixture), error => {
-        assert.match(error.message, scenario === 'cleanup-failure' ? /cleanup\/recovery/ : /scratch-export-import/);
+        assert.match(
+          error.message,
+          scenario === 'cleanup-failure'
+            ? /cleanup\/recovery/
+            : scenario === 'http-failure'
+              ? /pool-acquire/
+              : /scratch-export-import/
+        );
         assert.doesNotMatch(error.message, /private-refresh-token|private-lease-token/);
         return true;
       });
     }
     assert.ok(firstHome);
-    assert.equal(Boolean(secondHome), scenario !== 'redacted-export');
+    assert.equal(Boolean(secondHome), !['redacted-export', 'http-failure'].includes(scenario));
     assert.deepEqual(
       removed,
       scenario === 'cleanup-failure'
         ? []
-        : [
-            ['ActiveScratchOrg', 'own-scratch'],
-            ['ALV_ScratchOrgPoolSlot__c', 'own-slot'],
-            ['ALV_ScratchOrgPool__c', 'own-pool']
-          ]
+        : scenario === 'http-failure'
+          ? [
+              ['ALV_ScratchOrgPoolSlot__c', 'own-slot'],
+              ['ALV_ScratchOrgPool__c', 'own-pool']
+            ]
+          : [
+              ['ActiveScratchOrg', 'own-scratch'],
+              ['ALV_ScratchOrgPoolSlot__c', 'own-slot'],
+              ['ALV_ScratchOrgPool__c', 'own-pool']
+            ]
     );
     assert.equal(fixture.records.ActiveScratchOrg[0].Id, 'other-scratch');
     assert.equal(fixture.records.ALV_ScratchOrgPool__c[0].Id, 'shared-pool');

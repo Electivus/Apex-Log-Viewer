@@ -178,14 +178,20 @@ async function prove({ values, state, directory, user, sf, query, save }) {
         '--method',
         'POST',
         '--body',
-        body
+        `@${body}`
       ],
       options
     );
-    if (response.ok !== true || response.poolKey !== proof.poolKey || response.slotKey !== proof.slotKey) {
+    const result = response.body;
+    if (
+      response.statusCode !== 200 ||
+      result?.ok !== true ||
+      result.poolKey !== proof.poolKey ||
+      result.slotKey !== proof.slotKey
+    ) {
       throw new Error('Pool REST response did not confirm the owned pool/slot; contents withheld.');
     }
-    return response;
+    return result;
   };
   let loggedIn = false;
   let failure;

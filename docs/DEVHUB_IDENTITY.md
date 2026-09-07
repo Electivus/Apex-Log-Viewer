@@ -14,6 +14,8 @@ Required tools: Node 24, the repository's pinned pnpm, Salesforce CLI **2.150.6*
 
 Authenticate the authorized bootstrap administrator beforehand and supply the independently verified **18-character** target org ID on every remote operation. Use one private state directory outside the repository. Preserve `identity.json`: its UUID marker reconciles interrupted operations without adopting unrelated records. Private directories use current-user/SYSTEM ACLs on Windows and mode 0700/0600 elsewhere. No global Salesforce default, proxy setting or certificate store is changed.
 
+Windows protection replaces the directory DACL with explicit current-user/SYSTEM full-control rules and verifies it, including certificate reruns. Descendants with unexpected principals or reparse points stop sensitive writes. It uses Windows PowerShell's .NET ACL APIs without loading modules from an inherited PowerShell 7 module path; no elevation or machine policy change is involved.
+
 ## Inspect and provision
 
 Replace both placeholders and keep the same state directory throughout:
@@ -109,3 +111,5 @@ node --test scripts/devhub-identity.test.js
 Public-command tests cover target/capacity guards, duplicate-safe resume, username collisions, lifecycle gates, effective grants, concrete license restrictions/interrupted fallback, app staging/preauthorization/revocation, two-home native lifecycle, bad exports/import failures and ownership-scoped cleanup. Mocked CLI success is not live minimum-license evidence. This suite also runs in `pnpm run test:scripts`; normal type/lint/build and Windows-native unit/integration checks apply.
 
 Local validation on **7 September 2026 UTC**, Windows 11 / Node 24.19.0 / pnpm 11.11.0, passed: 23 new command tests, 126 E2E utility tests, `check-types`, `lint`, `build`, the Windows-native `pnpm test` equivalent (including 327 script tests, 105 webview tests and 301 VS Code stable 1.136.1 unit tests), all 3 stable integration tests, dependency provenance and all 1,297 registry signatures. As documented in [DEVHUB_JWT.md](DEVHUB_JWT.md#local-package-manager-setup), build/compile pretest steps ran explicitly before disabling the Linux-only pretest hook for Windows. Integration emitted dependency/listener warnings and the existing noncredential temporary-workspace EPERM cleanup warning; its tests passed. These checks do not remove the live identity/trigger and permanent-policy blockers above.
+
+The consolidated review fix passed **26 command tests**, including real Windows ACL replacement/rejection and the CLI's REST transport envelope. Salesforce CLI 2.150.6 also accepted an `@`-prefixed body file in an actual read-only composite API request and returned HTTP 200 with the payload under `result.body`. That transport check used the existing bootstrap login; it is not dedicated-identity permission proof. Passing unchanged broad suites were not repeated after these isolated script fixes.
