@@ -1,5 +1,7 @@
 # Dev Hub JWT validation
 
+For dedicated-user discovery, explicit certificate policy, minimum grants and independent native proof, see [Dev Hub identity bootstrap](DEVHUB_IDENTITY.md). Its live provisioning/permission evidence is tracked separately from the bootstrap-identity runner results below.
+
 This covers the direct runners in [#1074](https://github.com/Electivus/Apex-Log-Viewer/issues/1074) and pool administration/consumption in [#1075](https://github.com/Electivus/Apex-Log-Viewer/issues/1075) on the `codex/devhub-jwt` effort branch. Production workflow credential gates, proxy-lab transport and permanent identity provisioning have separate tickets. The existing production workflow contract must be cut over together in #1078 before this effort reaches `main`.
 
 ## Configuration
@@ -98,7 +100,7 @@ Before replacing an identity, inspect the configured pool's `ScratchUsername__c`
 
 Have the existing owner or administrator finish and delete those specific old scratches during the transition, then reconcile and prewarm the affected pool under the intended identity. Do not reset a live pool, clear credentials before confirmed deletion, or expand the runtime identity's privileges to avoid this ownership step. A lost conditional maintenance race or HTTP 409 lease conflict remains a conflict, not a reason to overwrite another lease.
 
-The controlled validation below used the previously authorized bootstrap identity. Deletion of its own scratch was observed. Deletion denial for an administrator-owned scratch was exercised at the REST boundary with the actual Salesforce error code; no unrelated administrator-owned scratch was deleted or mutated. The future dedicated identity's grants and its live ownership-transition proof remain #1077/#1078 responsibilities.
+The controlled validation below used the previously authorized bootstrap identity. Deletion of its own scratch was observed. Deletion denial for an administrator-owned scratch was exercised at the REST boundary with the actual Salesforce error code; no unrelated administrator-owned scratch was deleted or mutated. The [dedicated Integration identity proof](DEVHUB_IDENTITY.md#live-1077-result-and-retained-resources) subsequently passed its own scratch lifecycle and pool REST/data operations in #1077. Transition of existing-owner resources and production cutover remain #1078 responsibilities.
 
 ### Controlled pool validation
 
