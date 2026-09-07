@@ -303,19 +303,33 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
     } finally {
       process.env = originalEnv;
       evidence.completed = completed;
-      evidence.cleanupComplete = cleanupComplete;
-      if (!cleanupComplete) evidence.retainedResources = [{ poolKey, credentialDirectory: root }];
-      const evidenceDirectory = path.join(repoRoot, 'apexlogs');
-      await mkdir(evidenceDirectory, { recursive: true });
-      await writeFile(path.join(evidenceDirectory, 'pool-jwt-smoke-evidence.json'), JSON.stringify(evidence, null, 2));
-      if (cleanupComplete) {
-        if (
-          path.dirname(path.resolve(root)) !== temporaryRoot ||
-          !path.basename(root).startsWith('alv-pool-jwt-smoke-')
-        ) {
-          throw new Error('Refusing cleanup outside the owned pool smoke directory.');
+      evidence.remoteCleanupComplete = cleanupComplete;
+      let localCleanupComplete = false;
+      try {
+        if (cleanupComplete) {
+          if (
+            path.dirname(path.resolve(root)) !== temporaryRoot ||
+            !path.basename(root).startsWith('alv-pool-jwt-smoke-')
+          ) {
+            throw new Error('Refusing cleanup outside the owned pool smoke directory.');
+          }
+          await rm(root, { recursive: true, force: true });
+          localCleanupComplete = true;
         }
-        await rm(root, { recursive: true, force: true });
+      } catch (error) {
+        evidence.cleanupError = error instanceof Error ? error.message : 'Unknown local cleanup failure';
+        throw error;
+      } finally {
+        evidence.cleanupComplete = cleanupComplete && localCleanupComplete;
+        if (!evidence.cleanupComplete) {
+          evidence.retainedResources = [{ ...(cleanupComplete ? {} : { poolKey }), credentialDirectory: root }];
+        }
+        const evidenceDirectory = path.join(repoRoot, 'apexlogs');
+        await mkdir(evidenceDirectory, { recursive: true });
+        await writeFile(
+          path.join(evidenceDirectory, 'pool-jwt-smoke-evidence.json'),
+          JSON.stringify(evidence, null, 2)
+        );
       }
     }
   }
