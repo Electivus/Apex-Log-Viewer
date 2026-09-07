@@ -214,15 +214,52 @@ describe('ensureDebugFlagsTestUser', () => {
 
     expect(first).toEqual(second);
     expect(runSfJsonMock).toHaveBeenCalledTimes(2);
-    expect(runSfJsonMock).toHaveBeenCalledWith(['org', 'display', '--target-org', 'ALV_E2E_Scratch']);
-    expect(runSfJsonMock).toHaveBeenCalledWith([
-      'org',
-      'auth',
-      'show-access-token',
-      '--target-org',
-      'ALV_E2E_Scratch',
-      '--no-prompt'
+    expect(runSfJsonMock).toHaveBeenCalledWith(['org', 'display', '--target-org', 'ALV_E2E_Scratch'], undefined);
+    expect(runSfJsonMock).toHaveBeenCalledWith(
+      ['org', 'auth', 'show-access-token', '--target-org', 'ALV_E2E_Scratch', '--no-prompt'],
+      undefined
+    );
+  });
+
+  test('same-username sessions cache and renew auth in their original CLI homes independently', async () => {
+    const homeName = process.platform === 'win32' ? 'USERPROFILE' : 'HOME';
+    const envA = { ...process.env, [homeName]: 'fixture-home-a' };
+    const envB = { ...process.env, [homeName]: 'fixture-home-b' };
+    let renewed = false;
+    runSfJsonMock.mockImplementation(async (args, options) => {
+      const home = options.env[homeName];
+      return {
+        result:
+          args[1] === 'auth'
+            ? { accessToken: `${home}-${renewed ? 'fresh' : 'old'}` }
+            : { instanceUrl: 'https://example.my.salesforce.com', username: 'same@example.com' }
+      };
+    });
+    const [authA, authB] = await Promise.all([
+      getOrgAuth('same@example.com', { env: envA }),
+      getOrgAuth('same@example.com', { env: envB })
     ]);
+    expect(authA).not.toBe(authB);
+    expect(runSfJsonMock).toHaveBeenCalledTimes(4);
+    const seen: string[] = [];
+    globalThis.fetch = jest.fn(async (_input, init) => {
+      const authorization = String((init?.headers as Record<string, string>)?.Authorization);
+      seen.push(authorization);
+      if (authorization === 'Bearer fixture-home-a-old') {
+        renewed = true;
+        return responseFrom({ status: 401, body: [{ errorCode: 'INVALID_SESSION_ID' }] });
+      }
+      return responseFrom({
+        status: 200,
+        body: { records: [{ Id: authorization.includes('home-a') ? '005000000000001AAA' : '005000000000002AAA' }] }
+      });
+    });
+    await expect(getCurrentUserId(authA)).resolves.toBe('005000000000001AAA');
+    await expect(getCurrentUserId(authB)).resolves.toBe('005000000000002AAA');
+    expect(seen).toEqual(['Bearer fixture-home-a-old', 'Bearer fixture-home-a-fresh', 'Bearer fixture-home-b-old']);
+    expect(runSfJsonMock.mock.calls.slice(4).every(([, options]) => options.env[homeName] === 'fixture-home-a')).toBe(
+      true
+    );
   });
 
   test('refreshes cached org auth after an auth failure in REST tooling requests', async () => {

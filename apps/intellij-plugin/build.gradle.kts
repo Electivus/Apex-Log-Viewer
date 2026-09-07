@@ -21,6 +21,8 @@ repositories {
 dependencies {
     intellijPlatform {
         intellijIdea("2026.1")
+        // Keep resolution aligned with the checked-in dependency verification hashes.
+        pluginVerifier("1.409")
         testFramework(TestFrameworkType.Platform)
     }
 

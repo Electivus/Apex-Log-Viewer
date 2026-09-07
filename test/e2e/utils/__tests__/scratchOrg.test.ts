@@ -1,6 +1,9 @@
 import { ensureScratchOrg } from '../scratchOrg';
 import { runSfJson } from '../sfCli';
 import { assertToolingReady, getOrgAuth, primeOrgAuthCache } from '../tooling';
+import { generateKeyPairSync } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 
 jest.mock('../sfCli', () => ({
   runSfJson: jest.fn()
@@ -17,12 +20,7 @@ const getOrgAuthMock = jest.mocked(getOrgAuth);
 const assertToolingReadyMock = jest.mocked(assertToolingReady);
 const primeOrgAuthCacheMock = jest.mocked(primeOrgAuthCache);
 
-const FALLBACK_DEV_HUB_ALIASES = [
-  'DevHubElectivus',
-  'DevHub',
-  'ElectivusDevHub',
-  'InsuranceOrgTrialCreme6DevHub'
-];
+const FALLBACK_DEV_HUB_ALIASES = ['DevHubElectivus', 'DevHub', 'ElectivusDevHub', 'InsuranceOrgTrialCreme6DevHub'];
 
 function createJsonResponse(body: unknown, status = 200): Response {
   return {
@@ -33,8 +31,10 @@ function createJsonResponse(body: unknown, status = 200): Response {
 }
 
 function isPoolConfigQuery(url: string): boolean {
-  return url.includes('/services/data/v60.0/query/?q=SELECT%20SnapshotName__c%2C%20DefinitionHash__c%2C%20SeedVersion__c') &&
-    url.includes('FROM%20ALV_ScratchOrgPool__c');
+  return (
+    url.includes('/services/data/v60.0/query/?q=SELECT%20SnapshotName__c%2C%20DefinitionHash__c%2C%20SeedVersion__c') &&
+    url.includes('FROM%20ALV_ScratchOrgPool__c')
+  );
 }
 
 function createPoolConfigResponse(body: Record<string, unknown> = {}): Response {
@@ -73,6 +73,8 @@ describe('ensureScratchOrg', () => {
   beforeEach(() => {
     process.env = {
       ...originalEnv,
+      CI: 'false',
+      GITHUB_ACTIONS: 'false',
       SF_DEVHUB_ALIAS: 'ConfiguredDevHub',
       SF_SCRATCH_ALIAS: 'ALV_E2E_Scratch',
       SF_TEST_KEEP_ORG: '1'
@@ -111,9 +113,116 @@ describe('ensureScratchOrg', () => {
     process.env = originalEnv;
   });
 
+  test.each(['success', 'delete-failure'])(
+    'JWT runner creates through PlatformCLI and releases its key after scratch cleanup: %s',
+    async outcome => {
+      process.env.SF_DEVHUB_CLIENT_ID = 'test-eca-client';
+      process.env.SF_DEVHUB_USERNAME = 'selected@example.com';
+      process.env.SF_DEVHUB_LOGIN_URL = 'https://login.salesforce.com';
+      process.env.SF_DEVHUB_PRIVATE_KEY = generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+        publicKeyEncoding: { type: 'spki', format: 'pem' }
+      }).privateKey;
+      process.env.CI = 'true';
+      process.env.SF_TEST_KEEP_ORG = '0';
+      let keyFile = '';
+      let scratchCreated = false;
+      let scratchDeleted = false;
+      runSfJsonMock.mockImplementation(async (args, options) => {
+        expect(options?.env?.SF_DEVHUB_PRIVATE_KEY).toBeUndefined();
+        if (args.slice(0, 3).join(' ') === 'org login jwt') {
+          keyFile = args[args.indexOf('--jwt-key-file') + 1]!;
+          expect(readFileSync(keyFile, 'utf8')).toBe(process.env.SF_DEVHUB_PRIVATE_KEY?.trim());
+          expect(options?.env?.SF_SCRATCH_SIGNUP_CONNECTED_APP).toBeUndefined();
+          return { status: 0, result: { username: 'selected@example.com' } };
+        }
+        if (args.slice(0, 2).join(' ') === 'org display') {
+          throw new Error('Scratch alias does not exist');
+        }
+        if (args.slice(0, 3).join(' ') === 'org create scratch') {
+          expect(args[args.indexOf('--target-dev-hub') + 1]).toBe('selected@example.com');
+          expect(options?.env?.SF_SCRATCH_SIGNUP_CONNECTED_APP).toBe('PlatformCLI');
+          expect(options?.env?.SF_SCRATCH_SIGNUP_CALLBACK_URL).toBe('http://localhost:1717/OauthRedirect');
+          expect(options?.env?.[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']).toBe(path.dirname(keyFile));
+          scratchCreated = true;
+          return { status: 0 };
+        }
+        if (args.includes('show-sfdx-auth-url')) {
+          expect(options?.env?.[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']).toBe(path.dirname(keyFile));
+          return { status: 0, result: { sfdxAuthUrl: 'force://PlatformCLI::fixture-refresh@test.example.com' } };
+        }
+        if (args.includes('sfdx-url')) {
+          expect(options?.env?.[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']).toBe(
+            process.env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']
+          );
+          return { status: 0, result: { username: 'scratch@example.com' } };
+        }
+        if (args.slice(0, 3).join(' ') === 'org delete scratch') {
+          expect(existsSync(keyFile)).toBe(true);
+          expect(options?.env?.[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']).toBe(path.dirname(keyFile));
+          if (outcome === 'delete-failure') throw new Error('untrusted-credential-from-cli');
+          scratchDeleted = true;
+          return { status: 0 };
+        }
+        if (args[1] === 'logout') {
+          expect(scratchDeleted).toBe(true);
+          expect(args[args.indexOf('--target-org') + 1]).toBe('scratch@example.com');
+          expect(options?.env?.[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']).toBe(
+            process.env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME']
+          );
+          return { status: 0 };
+        }
+        throw new Error('Unexpected CLI operation');
+      });
+      const result = await ensureScratchOrg();
+      try {
+        expect(result.devHubAlias).toBe('selected@example.com');
+        expect(scratchCreated).toBe(true);
+        expect(assertToolingReadyMock).toHaveBeenCalled();
+      } finally {
+        if (outcome === 'delete-failure') {
+          await expect(result.cleanup()).rejects.toThrow('Scratch cleanup failed');
+        } else await result.cleanup();
+      }
+      expect(scratchDeleted).toBe(outcome === 'success');
+      expect(existsSync(keyFile)).toBe(false);
+      expect(process.env.SF_SCRATCH_SIGNUP_CONNECTED_APP).toBeUndefined();
+    }
+  );
+
+  test('direct scratch readiness failure still deletes the created scratch', async () => {
+    process.env.SF_TEST_KEEP_ORG = '0';
+    let scratchDeleted = false;
+    const clock = jest.spyOn(Date, 'now');
+    runSfJsonMock.mockImplementation(async args => {
+      if (args.slice(0, 2).join(' ') === 'org display' && args.includes('ConfiguredDevHub')) {
+        return { status: 0, result: {} };
+      }
+      if (args.slice(0, 2).join(' ') === 'org display') throw new Error('Scratch absent');
+      if (args.slice(0, 3).join(' ') === 'org create scratch') {
+        clock.mockReturnValueOnce(0).mockReturnValue(300_000);
+        return { status: 0 };
+      }
+      if (args.slice(0, 3).join(' ') === 'org delete scratch') {
+        scratchDeleted = true;
+        return { status: 0 };
+      }
+      throw new Error('Unexpected command');
+    });
+    try {
+      await expect(ensureScratchOrg()).rejects.toThrow(/not ready|Scratch setup failed/);
+      expect(scratchDeleted).toBe(true);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   test('fails before any scratch lookup when dev hub config is missing', async () => {
     process.env = {
       ...originalEnv,
+      CI: 'false',
+      GITHUB_ACTIONS: 'false',
       SF_SCRATCH_ALIAS: 'ALV_E2E_Scratch',
       SF_TEST_KEEP_ORG: '1'
     };
@@ -122,7 +231,7 @@ describe('ensureScratchOrg', () => {
     delete process.env.SF_DEVHUB_AUTH_URL;
 
     await expect(ensureScratchOrg()).rejects.toThrow(
-      'Missing required Dev Hub configuration. Set SF_DEVHUB_AUTH_URL or SF_DEVHUB_ALIAS.'
+      'Missing required Dev Hub configuration. Set complete JWT inputs or an authenticated SF_DEVHUB_ALIAS locally. SF_DEVHUB_AUTH_URL is no longer supported.'
     );
     expect(runSfJsonMock).not.toHaveBeenCalled();
   });
@@ -166,12 +275,7 @@ describe('ensureScratchOrg', () => {
         return { status: 0, result: {} };
       }
 
-      if (
-        args[0] === 'org' &&
-        args[1] === 'create' &&
-        args[2] === 'scratch' &&
-        args.includes('ConfiguredDevHub')
-      ) {
+      if (args[0] === 'org' && args[1] === 'create' && args[2] === 'scratch' && args.includes('ConfiguredDevHub')) {
         return { status: 0, result: {} };
       }
 
@@ -198,7 +302,15 @@ describe('ensureScratchOrg', () => {
     expect(runSfJsonMock).toHaveBeenCalledWith(['org', 'logout', '--target-org', 'ALV_E2E_Scratch', '--no-prompt']);
     expect(runSfJsonMock).toHaveBeenCalledWith(['alias', 'unset', 'ALV_E2E_Scratch']);
     expect(runSfJsonMock).toHaveBeenCalledWith(
-      expect.arrayContaining(['org', 'create', 'scratch', '--target-dev-hub', 'ConfiguredDevHub', '--alias', 'ALV_E2E_Scratch']),
+      expect.arrayContaining([
+        'org',
+        'create',
+        'scratch',
+        '--target-dev-hub',
+        'ConfiguredDevHub',
+        '--alias',
+        'ALV_E2E_Scratch'
+      ]),
       expect.any(Object)
     );
 
@@ -250,7 +362,10 @@ describe('ensureScratchOrg', () => {
       created: false,
       strategy: 'single'
     });
-    expect(runSfJsonMock).not.toHaveBeenCalledWith(expect.arrayContaining(['org', 'create', 'scratch']), expect.anything());
+    expect(runSfJsonMock).not.toHaveBeenCalledWith(
+      expect.arrayContaining(['org', 'create', 'scratch']),
+      expect.anything()
+    );
     expect(consoleInfoSpy).toHaveBeenCalledWith("[e2e] scratch org reused for alias 'ALV_E2E_Scratch'.");
     await scratch.cleanup();
   });
@@ -264,149 +379,27 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected sf command: ${args.join(' ')}`);
     });
 
-    await expect(ensureScratchOrg()).rejects.toThrow(
-      "Dev Hub alias 'ConfiguredDevHub' is not authenticated or unavailable."
-    );
+    await expect(ensureScratchOrg()).rejects.toThrow('SF_DEVHUB_ALIAS is not authenticated or unavailable.');
 
     expect(runSfJsonMock).toHaveBeenCalledTimes(1);
-    expect(runSfJsonMock).toHaveBeenCalledWith(['org', 'display', '--target-org', 'ConfiguredDevHub']);
-  });
-
-  test('fails immediately when SF_DEVHUB_AUTH_URL authentication fails', async () => {
-    process.env = {
-      ...originalEnv,
-      SF_DEVHUB_ALIAS: 'ConfiguredDevHub',
-      SF_DEVHUB_AUTH_URL: 'force://redacted',
-      SF_SCRATCH_ALIAS: 'ALV_E2E_Scratch',
-      SF_TEST_KEEP_ORG: '1'
-    };
-
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
-        throw new Error('INVALID_AUTH_URL: failed to authenticate Dev Hub');
-      }
-
-      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
-    });
-
-    await expect(ensureScratchOrg()).rejects.toThrow('INVALID_AUTH_URL: failed to authenticate Dev Hub');
-
-    expect(runSfJsonMock).toHaveBeenCalledTimes(1);
-    expect(runSfJsonMock.mock.calls[0]?.[0]).toEqual(
-      expect.arrayContaining([
-        'org',
-        'login',
-        'sfdx-url',
-        '--sfdx-url-file',
-        expect.any(String),
-        '--set-default-dev-hub',
-        '--alias',
-        'ConfiguredDevHub'
-      ])
-    );
-  });
-
-  test('fails immediately when SF_DEVHUB_AUTH_URL login does not produce a usable alias', async () => {
-    process.env = {
-      ...originalEnv,
-      SF_DEVHUB_ALIAS: 'ConfiguredDevHub',
-      SF_DEVHUB_AUTH_URL: 'force://redacted',
-      SF_SCRATCH_ALIAS: 'ALV_E2E_Scratch',
-      SF_TEST_KEEP_ORG: '1'
-    };
-
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
-        return { status: 0, result: {} };
-      }
-
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
-        throw new Error('DomainNotFoundError: The org cannot be found');
-      }
-
-      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
-    });
-
-    await expect(ensureScratchOrg()).rejects.toThrow(
-      "Dev Hub auth URL login completed, but alias 'ConfiguredDevHub' is not available."
-    );
-    expect(runSfJsonMock).toHaveBeenCalledTimes(2);
-  });
-
-  test('uses the default dev hub alias when SF_DEVHUB_AUTH_URL is set without SF_DEVHUB_ALIAS', async () => {
-    process.env = {
-      ...originalEnv,
-      SF_DEVHUB_ALIAS: 'LeakedLocalAlias',
-      SF_DEVHUB_AUTH_URL: 'force://redacted',
-      SF_SCRATCH_ALIAS: 'ALV_E2E_Scratch',
-      SF_TEST_KEEP_ORG: '1'
-    };
-    delete process.env.SF_DEVHUB_ALIAS;
-    delete process.env.SF_SCRATCH_STRATEGY;
-    delete process.env.SF_SCRATCH_POOL_NAME;
-
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
-        return { status: 0, result: {} };
-      }
-
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
-        return createDevHubDisplayResult();
-      }
-
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_Scratch')) {
-        throw new Error('NamedOrgNotFoundError: No authorization information found for ALV_E2E_Scratch.');
-      }
-
-      if (
-        args[0] === 'org' &&
-        args[1] === 'create' &&
-        args[2] === 'scratch' &&
-        args.includes('ConfiguredDevHub')
-      ) {
-        return { status: 0, result: {} };
-      }
-
-      if (args[0] === 'data' && args[1] === 'query') {
-        return {
-          status: 0,
-          result: {
-            records: [{ Id: '7dl000000000001AAA' }]
-          }
-        };
-      }
-
-      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
-    });
-
-    const scratch = await ensureScratchOrg();
-
-    expect(scratch).toMatchObject({
-      devHubAlias: 'ConfiguredDevHub',
-      scratchAlias: 'ALV_E2E_Scratch',
-      created: true,
-      strategy: 'single'
-    });
     expect(runSfJsonMock).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        'org',
-        'login',
-        'sfdx-url',
-        '--sfdx-url-file',
-        expect.any(String),
-        '--set-default-dev-hub',
-        '--alias',
-        'ConfiguredDevHub'
-      ])
-    );
-    const allArgs = runSfJsonMock.mock.calls.flatMap(([args]) => args);
-    expect(allArgs).not.toContain('LeakedLocalAlias');
-    expect(runSfJsonMock).toHaveBeenCalledWith(
-      expect.arrayContaining(['org', 'create', 'scratch', '--target-dev-hub', 'ConfiguredDevHub']),
+      ['org', 'display', '--target-org', 'ConfiguredDevHub'],
       expect.any(Object)
     );
-    await scratch.cleanup();
   });
+
+  test.each(['single', 'pool'])(
+    'CI fails before %s mutations with partial JWT despite an alias and auth URL',
+    async strategy => {
+      process.env.CI = 'true';
+      process.env.SF_SCRATCH_STRATEGY = strategy;
+      process.env.SF_DEVHUB_CLIENT_ID = 'partial-client';
+      process.env.SF_DEVHUB_AUTH_URL = 'force://legacy-secret';
+      await expect(ensureScratchOrg()).rejects.toThrow('Incomplete Dev Hub JWT configuration');
+      expect(runSfJsonMock).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    }
+  );
 
   test('fails on scratch signup limit without trying another dev hub alias', async () => {
     runSfJsonMock.mockImplementation(async args => {
@@ -418,12 +411,7 @@ describe('ensureScratchOrg', () => {
         throw new Error('NamedOrgNotFoundError: No authorization information found for ALV_E2E_Scratch.');
       }
 
-      if (
-        args[0] === 'org' &&
-        args[1] === 'create' &&
-        args[2] === 'scratch' &&
-        args.includes('ConfiguredDevHub')
-      ) {
+      if (args[0] === 'org' && args[1] === 'create' && args[2] === 'scratch' && args.includes('ConfiguredDevHub')) {
         throw new Error(
           'LIMIT_EXCEEDED: The signup request failed because this organization has reached its daily scratch org signup limit'
         );
@@ -433,7 +421,7 @@ describe('ensureScratchOrg', () => {
     });
 
     await expect(ensureScratchOrg()).rejects.toThrow(
-      "Failed to create scratch org 'ALV_E2E_Scratch': LIMIT_EXCEEDED: The signup request failed because this organization has reached its daily scratch org signup limit"
+      "Scratch setup failed for 'ALV_E2E_Scratch'. LIMIT_EXCEEDED: Check Dev Hub scratch signup limits."
     );
 
     const createScratchCalls = runSfJsonMock.mock.calls.filter(
@@ -453,7 +441,6 @@ describe('ensureScratchOrg', () => {
   test('reuses a pooled scratch org via sfdx auth URL and releases the lease on cleanup', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
-    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
     getOrgAuthMock.mockImplementation(async targetOrg =>
       targetOrg === 'ALV_E2E_POOL_01'
         ? {
@@ -569,7 +556,6 @@ describe('ensureScratchOrg', () => {
   test('uses the pool definition hash for acquire and finalize when one is configured', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
-    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
 
     fetchSpy.mockImplementation(async (input, init) => {
       const url = String(input);
@@ -650,7 +636,6 @@ describe('ensureScratchOrg', () => {
   test('creates a pooled scratch org when the acquired slot requires recreation', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
-    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
 
     fetchSpy.mockImplementation(async input => {
       const url = String(input);
@@ -768,7 +753,6 @@ describe('ensureScratchOrg', () => {
   test('recreates a pooled scratch org when the stored scratch auth URL is stale', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
-    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
 
     fetchSpy.mockImplementation(async input => {
       const url = String(input);
@@ -882,7 +866,6 @@ describe('ensureScratchOrg', () => {
   test('recreates a pooled scratch org when reuse finalization fails after org auth succeeds', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
-    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
 
     let finalizeAttempts = 0;
 
@@ -1015,7 +998,6 @@ describe('ensureScratchOrg', () => {
   test('aborts pooled reuse when finalize loses the lease token', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
-    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
 
     fetchSpy.mockImplementation(async input => {
       const url = String(input);
@@ -1095,7 +1077,6 @@ describe('ensureScratchOrg', () => {
   test('releases the pool lease when the acquire response is missing scratchAlias', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
-    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
 
     fetchSpy.mockImplementation(async input => {
       const url = String(input);
@@ -1129,9 +1110,7 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected sf command: ${args.join(' ')}`);
     });
 
-    await expect(ensureScratchOrg()).rejects.toThrow(
-      'Scratch-org pool acquire response was missing scratchAlias.'
-    );
+    await expect(ensureScratchOrg()).rejects.toThrow('Scratch-org pool acquire response was missing scratchAlias.');
 
     const releaseCall = fetchSpy.mock.calls.find(([input]) =>
       String(input).endsWith('/services/apexrest/alv/scratch-pool/v1/release')
@@ -1147,7 +1126,6 @@ describe('ensureScratchOrg', () => {
   test('redacts sensitive pool REST response bodies from thrown errors', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
-    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
 
     fetchSpy.mockImplementation(async input => {
       const url = String(input);
@@ -1187,7 +1165,6 @@ describe('ensureScratchOrg', () => {
   test('treats an empty heartbeat env var as unset and still renews pooled leases', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
-    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
     process.env.SF_SCRATCH_POOL_HEARTBEAT_SECONDS = '';
     const setIntervalSpy = jest.spyOn(global, 'setInterval').mockImplementation((handler, _timeout) => {
       return {
@@ -1272,7 +1249,6 @@ describe('ensureScratchOrg', () => {
   test('forwards explicit pooled run failure details during cleanup', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
-    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
 
     fetchSpy.mockImplementation(async input => {
       const url = String(input);
@@ -1348,7 +1324,6 @@ describe('ensureScratchOrg', () => {
   test('marks pooled leases for recreation when cleanup cannot read a refreshed scratch auth url', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
-    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
 
     let simulateCleanupAuthUrlMissing = false;
 
@@ -1437,7 +1412,6 @@ describe('ensureScratchOrg', () => {
   test('marks pooled leases for recreation after heartbeat failures exceed the TTL', async () => {
     process.env.SF_SCRATCH_STRATEGY = 'pool';
     process.env.SF_SCRATCH_POOL_NAME = 'alv-e2e';
-    process.env.SF_DEVHUB_AUTH_URL = 'force://devhub-auth';
     process.env.SF_SCRATCH_POOL_LEASE_TTL_SECONDS = '60';
     process.env.SF_SCRATCH_POOL_HEARTBEAT_SECONDS = '15';
 

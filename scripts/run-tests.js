@@ -1,22 +1,68 @@
-const { spawn, execFile, spawnSync } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const { platform, tmpdir } = require('os');
 const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } = require('fs');
 const { dirname, join, resolve } = require('path');
 const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } = require('@vscode/test-electron');
 const { build } = require('esbuild');
 const { cleanVsCodeTest } = require('./clean-vscode-test.js');
+const {
+  hasDevHubJwtConfig,
+  safeSfFailureMessage,
+  resolveDevHubConfig,
+  authenticateDevHub,
+  salesforceChildEnv,
+  scratchSignupEnv
+} = require('./devhub-auth.js');
+const { resolveSalesforceCliPath } = require('./run-playwright-cli-e2e.js');
+const crossSpawn = require('cross-spawn');
+const spawnSync = crossSpawn.sync;
 
 function execFileAsync(file, args, opts = {}) {
+  const isSalesforce = file === 'sf' || file === 'sfdx';
+  if (file === 'sf') {
+    file = resolveSalesforceCliPath(resolve(__dirname, '..')) || file;
+  }
   return new Promise((resolve, reject) => {
-    execFile(file, args, { maxBuffer: 1024 * 1024 * 10, encoding: 'utf8', ...opts }, (err, stdout, stderr) => {
+    const options = {
+      maxBuffer: 1024 * 1024 * 10,
+      encoding: 'utf8',
+      ...(isSalesforce ? { env: salesforceChildEnv() } : {}),
+      ...opts
+    };
+    const callback = (err, stdout, stderr) => {
       if (err) {
         const output = [stderr, stdout].filter(Boolean).join('\n').trim();
-        const e = new Error(output || err.message);
+        const e = new Error(isSalesforce ? safeSfFailureMessage(output || err.message) : output || err.message);
         e.code = err.code;
         return reject(e);
       }
       resolve({ stdout, stderr });
-    });
+    };
+    if (platform() === 'win32' && /\.cmd$/i.test(file)) {
+      // cross-spawn preserves literal arguments when npm's Windows shim needs
+      // cmd.exe, including configured CLI paths containing spaces.
+      const child = crossSpawn(file, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
+      const chunks = { stdout: [], stderr: [] };
+      let bytes = 0;
+      for (const stream of ['stdout', 'stderr']) {
+        child[stream].on('data', chunk => {
+          bytes += chunk.length;
+          if (bytes > options.maxBuffer) {
+            child.kill();
+            reject(new Error('Command output exceeded the allowed buffer.'));
+          } else {
+            chunks[stream].push(chunk);
+          }
+        });
+      }
+      child.on('error', error => callback(error, '', ''));
+      child.on('close', (code, signal) => {
+        const error = code === 0 && !signal ? undefined : Object.assign(new Error('Command failed.'), { code });
+        callback(error, Buffer.concat(chunks.stdout).toString('utf8'), Buffer.concat(chunks.stderr).toString('utf8'));
+      });
+      return;
+    }
+    execFile(file, args, options, callback);
   });
 }
 
@@ -98,26 +144,8 @@ function parseJsonOutput(stdout) {
   return undefined;
 }
 
-function extractDevHubIdentifier(json, explicitAlias) {
-  if (explicitAlias) {
-    return explicitAlias;
-  }
-
-  const result = json && typeof json === 'object' ? json.result ?? {} : {};
-  const username = typeof result.username === 'string' ? result.username.trim() : '';
-  const alias = typeof result.alias === 'string' ? result.alias.trim() : '';
-  return alias || username || undefined;
-}
-
 function resolveRequiredDevHubConfig({ requireConfig }) {
-  const authUrl = readEnvValue('SF_DEVHUB_AUTH_URL');
-  const alias = readEnvValue('SF_DEVHUB_ALIAS');
-
-  if (requireConfig && !authUrl && !alias) {
-    throw new Error('Missing required Dev Hub configuration. Set SF_DEVHUB_AUTH_URL or SF_DEVHUB_ALIAS.');
-  }
-
-  return { authUrl, alias };
+  return resolveDevHubConfig(process.env, { required: requireConfig });
 }
 
 async function killLeakedVSCodeProcesses(markers) {
@@ -130,10 +158,9 @@ async function killLeakedVSCodeProcesses(markers) {
   if (plat === 'win32') {
     try {
       const markerExpr = normalized.map(m => m.replace(/"/g, '""')).join(' -and ');
-      const psCommand =
-        `$procs = Get-CimInstance Win32_Process | Where-Object { ${normalized
-          .map((m, idx) => `$_.CommandLine -like '*${m.replace(/'/g, "''")}*'`)
-          .join(' -or ')} }; $pids = $procs | ForEach-Object { $_.ProcessId }; if ($pids) { $pids }`;
+      const psCommand = `$procs = Get-CimInstance Win32_Process | Where-Object { ${normalized
+        .map((m, idx) => `$_.CommandLine -like '*${m.replace(/'/g, "''")}*'`)
+        .join(' -or ')} }; $pids = $procs | ForEach-Object { $_.ProcessId }; if ($pids) { $pids }`;
       const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-Command', psCommand]);
       const pids = stdout
         .split(/\r?\n/)
@@ -298,73 +325,61 @@ async function ensureSfCliInstalled() {
   return cli;
 }
 
-async function ensureDevHub(cli, { authUrl, alias }, helpers = {}) {
+async function ensureDevHub(cli, config, helpers = {}) {
   const execFileAsyncFn = helpers.execFileAsync || execFileAsync;
-  const mkdtempSyncFn = helpers.mkdtempSync || mkdtempSync;
-  const writeFileSyncFn = helpers.writeFileSync || writeFileSync;
-  const rmSyncFn = helpers.rmSync || rmSync;
-  const joinFn = helpers.join || join;
-  const tmpdirFn = helpers.tmpdir || tmpdir;
-
   if (!cli) {
-    return undefined;
+    throw new Error('Salesforce CLI is required for Dev Hub authentication.');
   }
-  if (!authUrl && !alias) {
-    throw new Error('Missing required Dev Hub configuration. Set SF_DEVHUB_AUTH_URL or SF_DEVHUB_ALIAS.');
-  }
-  if (!authUrl) {
-    if (cli === 'sf') {
-      await execFileAsyncFn('sf', ['org', 'display', '-o', alias, '--json']);
-    } else {
-      await execFileAsyncFn('sfdx', ['force:org:display', '-u', alias, '--json']);
-    }
-    return alias;
-  }
-
-  const tmp = mkdtempSyncFn(joinFn(tmpdirFn(), 'alv-'));
-  const file = joinFn(tmp, 'devhub.sfdxurl');
-  writeFileSyncFn(file, authUrl, 'utf8');
-  try {
-    if (cli === 'sf') {
-      const args = [
-        'org',
-        'login',
-        'sfdx-url',
-        '--sfdx-url-file',
-        file,
-        '--set-default-dev-hub',
-        '--json'
-      ];
-      if (alias) {
-        args.splice(5, 0, '--alias', alias);
+  return authenticateDevHub(
+    config,
+    async (args, options) => {
+      let cliArgs = args;
+      if (cli === 'sfdx') {
+        // Keep command spelling in this execution adapter; selection and
+        // identity validation remain owned by the shared policy.
+        if (args[1] === 'delete') {
+          cliArgs = ['force:org:delete', '-u', args[args.indexOf('--target-org') + 1], '-p'];
+        } else if (args[1] === 'logout') {
+          cliArgs = ['force:auth:logout', '-u', args[args.indexOf('--target-org') + 1], '-p'];
+        } else if (args[1] === 'auth') {
+          cliArgs = ['force:org:display', '-u', args[args.indexOf('--target-org') + 1], '--verbose'];
+        } else if (args[2] === 'sfdx-url') {
+          cliArgs = [
+            'force:auth:sfdxurl:store',
+            '-f',
+            args[args.indexOf('--sfdx-url-file') + 1],
+            '-a',
+            args[args.indexOf('--alias') + 1],
+            ...(args.includes('--set-default') ? ['-s'] : [])
+          ];
+        } else if (args[1] === 'display') {
+          cliArgs = ['force:org:display', '-u', args[3]];
+        } else {
+          const legacyFlags = {
+            '--client-id': '--clientid',
+            '--instance-url': '--instanceurl',
+            '--jwt-key-file': '--jwtkeyfile'
+          };
+          cliArgs = ['force:auth:jwt:grant', ...args.slice(3).map(arg => legacyFlags[arg] || arg)];
+        }
       }
-      const { stdout } = await execFileAsyncFn('sf', args);
-      const resolvedAlias = extractDevHubIdentifier(parseJsonOutput(stdout), alias);
-      if (!resolvedAlias) {
-        throw new Error('Dev Hub login succeeded but did not return a usable alias or username. Set SF_DEVHUB_ALIAS explicitly.');
-      }
-      return resolvedAlias;
-    } else {
-      const args = ['force:auth:sfdxurl:store', '-f', file, '-d', '--json'];
-      if (alias) {
-        args.splice(3, 0, '-a', alias);
-      }
-      const { stdout } = await execFileAsyncFn('sfdx', args);
-      const resolvedAlias = extractDevHubIdentifier(parseJsonOutput(stdout), alias);
-      if (!resolvedAlias) {
-        throw new Error('Dev Hub login succeeded but did not return a usable alias or username. Set SF_DEVHUB_ALIAS explicitly.');
-      }
-      return resolvedAlias;
-    }
-  } finally {
-    try {
-      rmSyncFn(tmp, { recursive: true, force: true });
-    } catch {}
-  }
+      const { stdout } = await execFileAsyncFn(cli, [...cliArgs, '--json'], options);
+      return parseJsonOutput(stdout);
+    },
+    helpers.fs
+  );
 }
 
-async function ensureDefaultScratch(cli, { alias, devHubAlias, durationDays, definitionJson, keep }, helpers = {}) {
-  const execFileAsyncFn = helpers.execFileAsync || execFileAsync;
+async function ensureDefaultScratch(
+  cli,
+  { alias, devHubAlias, devHub, durationDays, definitionJson, keep },
+  helpers = {}
+) {
+  const execFileAsyncFn = (file, args, options = {}) =>
+    (helpers.execFileAsync || execFileAsync)(file, args, {
+      env: salesforceChildEnv(),
+      ...options
+    });
   const mkdtempSyncFn = helpers.mkdtempSync || mkdtempSync;
   const writeFileSyncFn = helpers.writeFileSync || writeFileSync;
   const rmSyncFn = helpers.rmSync || rmSync;
@@ -389,7 +404,7 @@ async function ensureDefaultScratch(cli, { alias, devHubAlias, durationDays, def
     console.log(`[test-setup] Using existing scratch org '${alias}' as default.`);
     return { alias, cleanup: async () => {} };
   } catch (e) {
-    console.warn(`[test-setup] Failed to check existing scratch org '${alias}':`, e && e.message ? e.message : e);
+    console.warn(`[test-setup] Could not reuse scratch org '${alias}':`, safeSfFailureMessage(e));
   }
 
   const tmp = mkdtempSyncFn(joinFn(tmpdir(), 'alv-'));
@@ -406,40 +421,49 @@ async function ensureDefaultScratch(cli, { alias, devHubAlias, durationDays, def
 
   try {
     if (cli === 'sf') {
-      await execFileAsyncFn('sf', [
-        'org',
-        'create',
-        'scratch',
-        '--target-dev-hub',
-        devHubAlias,
-        '--alias',
-        alias,
-        '--definition-file',
-        defFile,
-        '--duration-days',
-        String(durationDays),
-        '--set-default',
-        '--wait',
-        '15',
-        '--json'
-      ]);
+      await execFileAsyncFn(
+        'sf',
+        [
+          'org',
+          'create',
+          'scratch',
+          '--target-dev-hub',
+          devHubAlias,
+          '--alias',
+          alias,
+          '--definition-file',
+          defFile,
+          '--duration-days',
+          String(durationDays),
+          '--set-default',
+          '--wait',
+          '15',
+          '--json'
+        ],
+        { env: scratchSignupEnv(devHub?.env) }
+      );
     } else {
-      await execFileAsyncFn('sfdx', [
-        'force:org:create',
-        '-v',
-        devHubAlias,
-        '-s',
-        '-f',
-        defFile,
-        '-a',
-        alias,
-        '-d',
-        String(durationDays),
-        '--wait',
-        '15',
-        '--json'
-      ]);
+      await execFileAsyncFn(
+        'sfdx',
+        [
+          'force:org:create',
+          '-v',
+          devHubAlias,
+          '-s',
+          '-f',
+          defFile,
+          '-a',
+          alias,
+          '-d',
+          String(durationDays),
+          '--wait',
+          '15',
+          '--json'
+        ],
+        { env: scratchSignupEnv(devHub?.env) }
+      );
     }
+    await devHub?.publishScratch(alias, { setDefault: true });
     console.log(`[test-setup] Created scratch org '${alias}' and set as default.`);
 
     const cleanup = async () => {
@@ -447,17 +471,23 @@ async function ensureDefaultScratch(cli, { alias, devHubAlias, durationDays, def
         return;
       }
       try {
-        if (cli === 'sf') {
+        if (devHub?.deleteScratch) {
+          await devHub.deleteScratch(alias);
+        } else if (cli === 'sf') {
           await execFileAsyncFn('sf', ['org', 'delete', 'scratch', '-o', alias, '--no-prompt', '--json']);
         } else {
           await execFileAsyncFn('sfdx', ['force:org:delete', '-u', alias, '-p', '--json']);
         }
         console.log(`[test-setup] Deleted scratch org '${alias}'.`);
       } catch (e) {
-        console.warn('[test-setup] Scratch org delete failed:', e && e.message ? e.message : e);
+        throw new Error(
+          safeSfFailureMessage(e, `Scratch org cleanup failed for '${alias}'. Delete this test scratch explicitly.`)
+        );
       }
     };
     return { alias, cleanup };
+  } catch (error) {
+    throw new Error(safeSfFailureMessage(error, 'Scratch signup failed.'));
   } finally {
     try {
       rmSyncFn(tmp, { recursive: true, force: true });
@@ -476,11 +506,16 @@ async function pretestSetup(scope = 'all', opts = {}, helpers = {}) {
   const joinFn = helpers.join || join;
 
   const smokeVsix = !!opts.smokeVsix;
-  const normalizedScope = String(scope || '').trim().toLowerCase();
+  const normalizedScope = String(scope || '')
+    .trim()
+    .toLowerCase();
   const scratchAlias = process.env.SF_SCRATCH_ALIAS || 'ALV_Test_Scratch';
   const keepScratch = /^1|true$/i.test(String(process.env.SF_TEST_KEEP_ORG || ''));
   const durationDays = Number(process.env.SF_SCRATCH_DURATION || 1);
-  const shouldSetupScratch = normalizedScope !== 'unit' && !smokeVsix && Boolean(readEnvValue('SF_SETUP_SCRATCH') || readEnvValue('SF_DEVHUB_AUTH_URL'));
+  const shouldSetupScratch =
+    normalizedScope !== 'unit' &&
+    !smokeVsix &&
+    Boolean(readEnvValue('SF_SETUP_SCRATCH') || readEnvValue('SF_DEVHUB_AUTH_URL') || hasDevHubJwtConfig());
   const devHubConfig = resolveRequiredDevHubConfig({ requireConfig: shouldSetupScratch });
   // When running unit tests, skip any Salesforce CLI/Dev Hub setup.
   // Keep only the temporary workspace preparation below.
@@ -496,16 +531,32 @@ async function pretestSetup(scope = 'all', opts = {}, helpers = {}) {
     } else {
       if (shouldSetupScratch) {
         console.log('[test-setup] Validating Dev Hub configuration...');
-        const resolvedDevHubAlias = await ensureDevHubFn(cli, devHubConfig);
-        const res = await ensureDefaultScratchFn(cli, {
-          alias: scratchAlias,
-          devHubAlias: resolvedDevHubAlias,
-          durationDays,
-          definitionJson: undefined,
-          keep: keepScratch
-        }, helpers);
-        if (res && res.cleanup) {
-          cleanup = res.cleanup;
+        const devHub = await ensureDevHubFn(cli, devHubConfig, helpers);
+        try {
+          const res = await ensureDefaultScratchFn(
+            cli,
+            {
+              alias: scratchAlias,
+              devHubAlias: devHub.targetOrg,
+              devHub,
+              durationDays,
+              definitionJson: undefined,
+              keep: keepScratch
+            },
+            helpers
+          );
+          if (res && res.cleanup) {
+            cleanup = async () => {
+              try {
+                await res.cleanup();
+              } finally {
+                await devHub.cleanup();
+              }
+            };
+          }
+        } catch (error) {
+          await devHub.cleanup();
+          throw error;
         }
       }
     }
@@ -629,10 +680,14 @@ async function run() {
   if (platform() === 'linux' && !process.env.DISPLAY && !process.env.__ALV_XVFB_RAN) {
     try {
       await execFileAsync('bash', ['-lc', 'command -v xvfb-run >/dev/null 2>&1']);
-      const re = spawn('xvfb-run', ['-a', '-s', '-screen 0 1280x1024x24', process.execPath, __filename, ...process.argv.slice(2)], {
-        stdio: 'inherit',
-        env: { ...process.env, __ALV_XVFB_RAN: '1' }
-      });
+      const re = spawn(
+        'xvfb-run',
+        ['-a', '-s', '-screen 0 1280x1024x24', process.execPath, __filename, ...process.argv.slice(2)],
+        {
+          stdio: 'inherit',
+          env: { ...process.env, __ALV_XVFB_RAN: '1' }
+        }
+      );
       re.on('exit', code => process.exit(code ?? 0));
       return;
     } catch {
@@ -641,318 +696,320 @@ async function run() {
   }
 
   const { cleanup } = await pretestSetup(args.scope, { smokeVsix: args.smokeVsix });
-
-  // Hint Electron to avoid GPU issues in headless envs
-  process.env.ELECTRON_DISABLE_GPU = process.env.ELECTRON_DISABLE_GPU || '1';
-  process.env.LC_ALL = process.env.LC_ALL || 'C.UTF-8';
-  // Reduce DBus/AT-SPI chatter in headless CI
-  process.env.DBUS_SESSION_BUS_ADDRESS = process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null';
-  process.env.NO_AT_BRIDGE = process.env.NO_AT_BRIDGE || '1';
-
-  // Global timeout to avoid indefinite hangs (e.g., Marketplace downloads, Electron issues)
-  // Defaults: 8m for unit, 15m for integration/all.
-  const scope = String(args.scope || 'all');
-  const defaultMs = scope === 'unit' ? 8 * 60 * 1000 : 15 * 60 * 1000;
-  const totalTimeout = Number(args.timeoutMs || defaultMs);
-
-  // Download VS Code: default to stable for all test scopes.
-  // Can be overridden via --vscode or VSCODE_TEST_VERSION.
-  const vsVer = String(args.vscode || 'stable');
-  const vscodeCachePath = join(repoRoot, '.vscode-test');
-  const vscodeExecutablePath = await downloadAndUnzipVSCode({ version: vsVer, cachePath: vscodeCachePath });
-  const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, {
-    reuseMachineInstall: true
-  });
-
-  // Install dependency extensions directly (docs approach) when running integration or all
-  const shouldInstall = scope === 'integration' || scope === 'all' || !!args.installDeps;
-  const unitExtensionsDir = join(tmpdir(), 'alv-extensions-unit');
-  const cachedExtensionsDir = join(vscodeCachePath, 'extensions');
-  let resolvedExtensionsDir = cachedExtensionsDir;
-  if (shouldInstall) {
-    const toInstall = (
-      process.env.VSCODE_TEST_EXTENSIONS ||
-      'salesforce.salesforcedx-vscode,salesforce.salesforcedx-vscode-apex-replay-debugger'
-    )
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean);
-    const userDataDir = join(tmpdir(), 'alv-user-data');
-    const extensionsDir = cachedExtensionsDir;
-    try {
-      mkdirSync(extensionsDir, { recursive: true });
-    } catch (e) {
-      console.warn('[deps] Failed to ensure cached extensions dir exists:', e && e.message ? e.message : e);
-    }
-
-    const forceInstall = !!args.forceInstallDeps;
-    const installed = new Set();
-    try {
-      const list = spawnSync(
-        cliPath,
-        [
-          ...cliArgs,
-          '--list-extensions',
-          '--show-versions',
-          '--user-data-dir',
-          userDataDir,
-          '--extensions-dir',
-          extensionsDir
-        ],
-        {
-          stdio: ['pipe', 'pipe', 'pipe'],
-          encoding: 'utf8',
-          input: 'y\n',
-          env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
-        }
-      );
-      const out = [list.stdout, list.stderr].filter(Boolean).join('\n').trim();
-      for (const line of out.split(/\r?\n/)) {
-        const trimmed = (line || '').trim();
-        if (!trimmed) continue;
-        const id = trimmed.split('@')[0].trim().toLowerCase();
-        if (id) installed.add(id);
-      }
-    } catch (e) {
-      // ignore and try installing anyway
-    }
-
-    for (const id of toInstall) {
-      const key = String(id).toLowerCase();
-      if (!forceInstall && installed.has(key)) {
-        console.log(`[deps] Extension already installed; skipping: ${id}`);
-        continue;
-      }
-      console.log(`[deps] Installing extension: ${id}${forceInstall ? ' (forced)' : ''}`);
-      // In WSL, code CLI prompts; feed 'y' automatically. Also isolate dirs.
-      const args = [
-        ...cliArgs,
-        '--install-extension',
-        id,
-        '--force',
-        '--user-data-dir',
-        userDataDir,
-        '--extensions-dir',
-        extensionsDir
-      ];
-      const res = spawnSync(cliPath, args, {
-        stdio: ['pipe', 'inherit', 'inherit'],
-        encoding: 'utf8',
-        input: 'y\n',
-        env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
-      });
-      if (res.status !== 0) {
-        console.warn(`[deps] Failed to install ${id}. Continuing; tests may skip/fail.`);
-      }
-    }
-    let installedOutput = '';
-    // List extensions to aid debugging and verify the isolated profile contents
-    try {
-      const list = spawnSync(
-        cliPath,
-        [
-          ...cliArgs,
-          '--list-extensions',
-          '--show-versions',
-          '--user-data-dir',
-          userDataDir,
-          '--extensions-dir',
-          extensionsDir
-        ],
-        {
-          stdio: ['pipe', 'pipe', 'pipe'],
-          encoding: 'utf8',
-          input: 'y\n',
-          env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
-        }
-      );
-      installedOutput = [list.stdout, list.stderr].filter(Boolean).join('\n').trim();
-      console.log('[deps] Extensions installed in test dir:\n' + installedOutput);
-    } catch (e) {
-      console.warn('[deps] Failed to list installed extensions:', e && e.message ? e.message : e);
-    }
-
-    const missingExtensions = resolveMissingExtensionIds(toInstall, installedOutput);
-    if (missingExtensions.length) {
-      throw new Error(
-        `[deps] Required VS Code extensions are missing from the isolated test profile: ${missingExtensions.join(', ')}`
-      );
-    }
-  }
-
-  // Run tests via @vscode/test-electron with our programmatic Mocha runner
-  let extensionDevelopmentPath = resolve(__dirname, '..', 'apps', 'vscode-extension');
-  let extensionTestsPath = resolve(__dirname, '..', 'apps', 'vscode-extension', 'out', 'test', 'runner.js');
-
-  if (!args.smokeVsix) {
-    await buildExtensionTestRunner(repoRoot);
-  }
-
-  // Optional: VSIX smoke mode installs the freshly built VSIX and runs a minimal activation test
-  if (args.smokeVsix) {
-    // Package VSIX
-    console.log('[smoke] Packaging VSIX...');
-    // Build artifacts (avoid full 'package' to reduce flakiness on CI)
-    await execFileAsync('pnpm', ['run', 'build']);
-    // Ensure l10n bundles exist (best-effort)
-    try {
-      await execFileAsync('pnpm', ['run', 'l10n:write']);
-    } catch {}
-    const smokeVsixPath = join(repoRoot, 'apex-log-viewer-smoke.vsix');
-    await execStreaming(process.execPath, [
-      resolve(repoRoot, 'scripts', 'run-vsce.js'),
-      'package',
-      '--no-dependencies',
-      '--skip-prepublish',
-      '--no-yarn',
-      '--out',
-      smokeVsixPath
-    ]);
-    if (!existsSync(smokeVsixPath)) throw new Error('[smoke] VSIX not found');
-    // Install into test profile
-    const userDataDir = join(tmpdir(), 'alv-user-data');
-    const extensionsDir = join(tmpdir(), 'alv-extensions');
-    console.log('[smoke] Installing VSIX into isolated profile...');
-    const inst = spawnSync(
-      cliPath,
-      [
-        ...cliArgs,
-        '--install-extension',
-        smokeVsixPath,
-        '--force',
-        '--user-data-dir',
-        userDataDir,
-        '--extensions-dir',
-        extensionsDir
-      ],
-      {
-        stdio: ['pipe', 'inherit', 'inherit'],
-        encoding: 'utf8',
-        input: 'y\n',
-        env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
-      }
-    );
-    if (inst.status !== 0) {
-      throw new Error('[smoke] Failed to install VSIX');
-    }
-    // Create minimal harness extension
-    const dev = mkdtempSync(join(tmpdir(), 'alv-smoke-dev-'));
-    const pkg = {
-      name: 'alv-smoke-harness',
-      version: '0.0.0',
-      engines: { vscode: '*' },
-      main: './index.js',
-      activationEvents: ['*']
-    };
-    writeFileSync(join(dev, 'package.json'), JSON.stringify(pkg, null, 2));
-    writeFileSync(join(dev, 'index.js'), 'exports.activate=()=>{};exports.deactivate=()=>{};\n');
-    extensionDevelopmentPath = dev;
-    // Write a runner that activates the installed extension and verifies its autonomous package boundary.
-    const runner = [
-      '"use strict";',
-      "const assert=require('assert/strict');",
-      "const fs=require('fs');",
-      "const path=require('path');",
-      "const vscode=require('vscode');",
-      "exports.run=async function(){",
-      "const ext=vscode.extensions.getExtension('electivus.apex-log-viewer');",
-      "assert.ok(ext,'extension not found');",
-      "await ext.activate();",
-      "const cmds=await vscode.commands.getCommands(true);",
-      "for(const c of ['electivus.apexLogViewer.logs.refresh','electivus.apexLogViewer.org.select','electivus.apexLogViewer.tail.start','electivus.apexLogViewer.output.show']){assert.ok(cmds.includes(c),'missing command: '+c);}",
-      "assert.equal(fs.existsSync(path.join(ext.extensionPath,'sf-plugin')),false,'VSIX must not contain an embedded plugin');",
-      "};",
-      ''
-    ].join('\n');
-    const testsDir = mkdtempSync(join(tmpdir(), 'alv-smoke-tests-'));
-    extensionTestsPath = join(testsDir, 'smoke-runner.js');
-    writeFileSync(extensionTestsPath, runner, 'utf8');
-    // Override launchArgs to reuse the isolated profile with installed VSIX
-    process.env.__ALV_SMOKE_USER_DIR = userDataDir;
-    process.env.__ALV_SMOKE_EXT_DIR = extensionsDir;
-  }
-  // Configure Mocha grep via env for the in-host runner
-  if (scope === 'unit') {
-    process.env.VSCODE_TEST_GREP = '^integration:';
-    process.env.VSCODE_TEST_INVERT = '1';
-  } else if (scope === 'integration') {
-    process.env.VSCODE_TEST_GREP = '^integration:';
-    delete process.env.VSCODE_TEST_INVERT;
-  } else {
-    delete process.env.VSCODE_TEST_GREP;
-    delete process.env.VSCODE_TEST_INVERT;
-  }
-
-  let timedOut = false;
-  const killer = setTimeout(() => {
-    timedOut = true;
-    console.error(`\n[test-runner] Timed out after ${Math.round(totalTimeout / 1000)}s. Exiting...`);
-    process.exit(124);
-  }, totalTimeout);
-
-  const defaultUserDataDir = join(tmpdir(), 'alv-user-data');
-  const defaultExtensionsDir = shouldInstall ? resolvedExtensionsDir : unitExtensionsDir;
+  let cleanupPromise;
+  const cleanupOnce = () => cleanupPromise || (cleanupPromise = cleanup());
   try {
-    mkdirSync(defaultExtensionsDir, { recursive: true });
-  } catch (e) {
-    console.warn('[test-runner] Failed to create extensions dir:', e && e.message ? e.message : e);
-  }
-  let userDataDir = process.env.__ALV_SMOKE_USER_DIR || defaultUserDataDir;
-  let extensionsDir = process.env.__ALV_SMOKE_EXT_DIR || defaultExtensionsDir;
+    // Hint Electron to avoid GPU issues in headless envs
+    process.env.ELECTRON_DISABLE_GPU = process.env.ELECTRON_DISABLE_GPU || '1';
+    process.env.LC_ALL = process.env.LC_ALL || 'C.UTF-8';
+    // Reduce DBus/AT-SPI chatter in headless CI
+    process.env.DBUS_SESSION_BUS_ADDRESS = process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null';
+    process.env.NO_AT_BRIDGE = process.env.NO_AT_BRIDGE || '1';
 
-  try {
-    userDataDir = process.env.__ALV_SMOKE_USER_DIR || defaultUserDataDir;
-    extensionsDir = process.env.__ALV_SMOKE_EXT_DIR || defaultExtensionsDir;
+    // Global timeout to avoid indefinite hangs (e.g., Marketplace downloads, Electron issues)
+    // Defaults: 8m for unit, 15m for integration/all.
+    const scope = String(args.scope || 'all');
+    const defaultMs = scope === 'unit' ? 8 * 60 * 1000 : 15 * 60 * 1000;
+    const totalTimeout = Number(args.timeoutMs || defaultMs);
 
-    const launch = [
-      '--user-data-dir',
-      userDataDir,
-      '--extensions-dir',
-      extensionsDir,
-      '--skip-welcome',
-      '--skip-release-notes',
-      // Use the prepared workspace (set in pretestSetup)
-      ...(process.env.VSCODE_TEST_WORKSPACE ? [process.env.VSCODE_TEST_WORKSPACE] : [])
-    ];
-    const extensionTestsEnv = {};
-    if (process.env.NODE_V8_COVERAGE) {
-      extensionTestsEnv.NODE_V8_COVERAGE = process.env.NODE_V8_COVERAGE;
-    }
-    if (process.env.NODE_OPTIONS) {
-      extensionTestsEnv.NODE_OPTIONS = process.env.NODE_OPTIONS;
-    }
-    if (process.env.ENABLE_COVERAGE) {
-      extensionTestsEnv.ENABLE_COVERAGE = process.env.ENABLE_COVERAGE;
-    }
-
-    await runTests({
-      vscodeExecutablePath,
-      extensionDevelopmentPath,
-      extensionTestsPath,
-      extensionTestsEnv: Object.keys(extensionTestsEnv).length ? extensionTestsEnv : undefined,
-      launchArgs: launch
+    // Download VS Code: default to stable for all test scopes.
+    // Can be overridden via --vscode or VSCODE_TEST_VERSION.
+    const vsVer = String(args.vscode || 'stable');
+    const vscodeCachePath = join(repoRoot, '.vscode-test');
+    const vscodeExecutablePath = await downloadAndUnzipVSCode({ version: vsVer, cachePath: vscodeCachePath });
+    const [cliPath, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, {
+      reuseMachineInstall: true
     });
-  } finally {
-    clearTimeout(killer);
-    try {
-      await cleanup();
-    } catch (e) {
-      console.warn('[test-runner] Cleanup failed:', e && e.message ? e.message : e);
-    }
-    if (timedOut) {
-      return;
+
+    // Install dependency extensions directly (docs approach) when running integration or all
+    const shouldInstall = scope === 'integration' || scope === 'all' || !!args.installDeps;
+    const unitExtensionsDir = join(tmpdir(), 'alv-extensions-unit');
+    const cachedExtensionsDir = join(vscodeCachePath, 'extensions');
+    let resolvedExtensionsDir = cachedExtensionsDir;
+    if (shouldInstall) {
+      const toInstall = (
+        process.env.VSCODE_TEST_EXTENSIONS ||
+        'salesforce.salesforcedx-vscode,salesforce.salesforcedx-vscode-apex-replay-debugger'
+      )
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      const userDataDir = join(tmpdir(), 'alv-user-data');
+      const extensionsDir = cachedExtensionsDir;
+      try {
+        mkdirSync(extensionsDir, { recursive: true });
+      } catch (e) {
+        console.warn('[deps] Failed to ensure cached extensions dir exists:', e && e.message ? e.message : e);
+      }
+
+      const forceInstall = !!args.forceInstallDeps;
+      const installed = new Set();
+      try {
+        const list = spawnSync(
+          cliPath,
+          [
+            ...cliArgs,
+            '--list-extensions',
+            '--show-versions',
+            '--user-data-dir',
+            userDataDir,
+            '--extensions-dir',
+            extensionsDir
+          ],
+          {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            encoding: 'utf8',
+            input: 'y\n',
+            env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
+          }
+        );
+        const out = [list.stdout, list.stderr].filter(Boolean).join('\n').trim();
+        for (const line of out.split(/\r?\n/)) {
+          const trimmed = (line || '').trim();
+          if (!trimmed) continue;
+          const id = trimmed.split('@')[0].trim().toLowerCase();
+          if (id) installed.add(id);
+        }
+      } catch (e) {
+        // ignore and try installing anyway
+      }
+
+      for (const id of toInstall) {
+        const key = String(id).toLowerCase();
+        if (!forceInstall && installed.has(key)) {
+          console.log(`[deps] Extension already installed; skipping: ${id}`);
+          continue;
+        }
+        console.log(`[deps] Installing extension: ${id}${forceInstall ? ' (forced)' : ''}`);
+        // In WSL, code CLI prompts; feed 'y' automatically. Also isolate dirs.
+        const args = [
+          ...cliArgs,
+          '--install-extension',
+          id,
+          '--force',
+          '--user-data-dir',
+          userDataDir,
+          '--extensions-dir',
+          extensionsDir
+        ];
+        const res = spawnSync(cliPath, args, {
+          stdio: ['pipe', 'inherit', 'inherit'],
+          encoding: 'utf8',
+          input: 'y\n',
+          env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
+        });
+        if (res.status !== 0) {
+          console.warn(`[deps] Failed to install ${id}. Continuing; tests may skip/fail.`);
+        }
+      }
+      let installedOutput = '';
+      // List extensions to aid debugging and verify the isolated profile contents
+      try {
+        const list = spawnSync(
+          cliPath,
+          [
+            ...cliArgs,
+            '--list-extensions',
+            '--show-versions',
+            '--user-data-dir',
+            userDataDir,
+            '--extensions-dir',
+            extensionsDir
+          ],
+          {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            encoding: 'utf8',
+            input: 'y\n',
+            env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
+          }
+        );
+        installedOutput = [list.stdout, list.stderr].filter(Boolean).join('\n').trim();
+        console.log('[deps] Extensions installed in test dir:\n' + installedOutput);
+      } catch (e) {
+        console.warn('[deps] Failed to list installed extensions:', e && e.message ? e.message : e);
+      }
+
+      const missingExtensions = resolveMissingExtensionIds(toInstall, installedOutput);
+      if (missingExtensions.length) {
+        throw new Error(
+          `[deps] Required VS Code extensions are missing from the isolated test profile: ${missingExtensions.join(', ')}`
+        );
+      }
     }
 
-    try {
-      const cleanupMarkers = [
-        vscodeExecutablePath,
-        'chrome_crashpad_handler'
-      ];
-      await killLeakedVSCodeProcesses(cleanupMarkers);
-      cleanVsCodeTest({ quiet: true });
-    } catch (e) {
-      console.warn('[test-runner] VS Code cleanup failed:', e && e.message ? e.message : e);
+    // Run tests via @vscode/test-electron with our programmatic Mocha runner
+    let extensionDevelopmentPath = resolve(__dirname, '..', 'apps', 'vscode-extension');
+    let extensionTestsPath = resolve(__dirname, '..', 'apps', 'vscode-extension', 'out', 'test', 'runner.js');
+
+    if (!args.smokeVsix) {
+      await buildExtensionTestRunner(repoRoot);
     }
+
+    // Optional: VSIX smoke mode installs the freshly built VSIX and runs a minimal activation test
+    if (args.smokeVsix) {
+      // Package VSIX
+      console.log('[smoke] Packaging VSIX...');
+      // Build artifacts (avoid full 'package' to reduce flakiness on CI)
+      await execFileAsync('pnpm', ['run', 'build']);
+      // Ensure l10n bundles exist (best-effort)
+      try {
+        await execFileAsync('pnpm', ['run', 'l10n:write']);
+      } catch {}
+      const smokeVsixPath = join(repoRoot, 'apex-log-viewer-smoke.vsix');
+      await execStreaming(process.execPath, [
+        resolve(repoRoot, 'scripts', 'run-vsce.js'),
+        'package',
+        '--no-dependencies',
+        '--skip-prepublish',
+        '--no-yarn',
+        '--out',
+        smokeVsixPath
+      ]);
+      if (!existsSync(smokeVsixPath)) throw new Error('[smoke] VSIX not found');
+      // Install into test profile
+      const userDataDir = join(tmpdir(), 'alv-user-data');
+      const extensionsDir = join(tmpdir(), 'alv-extensions');
+      console.log('[smoke] Installing VSIX into isolated profile...');
+      const inst = spawnSync(
+        cliPath,
+        [
+          ...cliArgs,
+          '--install-extension',
+          smokeVsixPath,
+          '--force',
+          '--user-data-dir',
+          userDataDir,
+          '--extensions-dir',
+          extensionsDir
+        ],
+        {
+          stdio: ['pipe', 'inherit', 'inherit'],
+          encoding: 'utf8',
+          input: 'y\n',
+          env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
+        }
+      );
+      if (inst.status !== 0) {
+        throw new Error('[smoke] Failed to install VSIX');
+      }
+      // Create minimal harness extension
+      const dev = mkdtempSync(join(tmpdir(), 'alv-smoke-dev-'));
+      const pkg = {
+        name: 'alv-smoke-harness',
+        version: '0.0.0',
+        engines: { vscode: '*' },
+        main: './index.js',
+        activationEvents: ['*']
+      };
+      writeFileSync(join(dev, 'package.json'), JSON.stringify(pkg, null, 2));
+      writeFileSync(join(dev, 'index.js'), 'exports.activate=()=>{};exports.deactivate=()=>{};\n');
+      extensionDevelopmentPath = dev;
+      // Write a runner that activates the installed extension and verifies its autonomous package boundary.
+      const runner = [
+        '"use strict";',
+        "const assert=require('assert/strict');",
+        "const fs=require('fs');",
+        "const path=require('path');",
+        "const vscode=require('vscode');",
+        'exports.run=async function(){',
+        "const ext=vscode.extensions.getExtension('electivus.apex-log-viewer');",
+        "assert.ok(ext,'extension not found');",
+        'await ext.activate();',
+        'const cmds=await vscode.commands.getCommands(true);',
+        "for(const c of ['electivus.apexLogViewer.logs.refresh','electivus.apexLogViewer.org.select','electivus.apexLogViewer.tail.start','electivus.apexLogViewer.output.show']){assert.ok(cmds.includes(c),'missing command: '+c);}",
+        "assert.equal(fs.existsSync(path.join(ext.extensionPath,'sf-plugin')),false,'VSIX must not contain an embedded plugin');",
+        '};',
+        ''
+      ].join('\n');
+      const testsDir = mkdtempSync(join(tmpdir(), 'alv-smoke-tests-'));
+      extensionTestsPath = join(testsDir, 'smoke-runner.js');
+      writeFileSync(extensionTestsPath, runner, 'utf8');
+      // Override launchArgs to reuse the isolated profile with installed VSIX
+      process.env.__ALV_SMOKE_USER_DIR = userDataDir;
+      process.env.__ALV_SMOKE_EXT_DIR = extensionsDir;
+    }
+    // Configure Mocha grep via env for the in-host runner
+    if (scope === 'unit') {
+      process.env.VSCODE_TEST_GREP = '^integration:';
+      process.env.VSCODE_TEST_INVERT = '1';
+    } else if (scope === 'integration') {
+      process.env.VSCODE_TEST_GREP = '^integration:';
+      delete process.env.VSCODE_TEST_INVERT;
+    } else {
+      delete process.env.VSCODE_TEST_GREP;
+      delete process.env.VSCODE_TEST_INVERT;
+    }
+
+    let timedOut = false;
+    const killer = setTimeout(async () => {
+      timedOut = true;
+      console.error(`\n[test-runner] Timed out after ${Math.round(totalTimeout / 1000)}s. Cleaning up...`);
+      try {
+        await cleanupOnce();
+      } catch (error) {
+        console.error('[test-runner] Cleanup failed:', error.message);
+      }
+      process.exit(124);
+    }, totalTimeout);
+
+    const defaultUserDataDir = join(tmpdir(), 'alv-user-data');
+    const defaultExtensionsDir = shouldInstall ? resolvedExtensionsDir : unitExtensionsDir;
+    try {
+      mkdirSync(defaultExtensionsDir, { recursive: true });
+    } catch (e) {
+      console.warn('[test-runner] Failed to create extensions dir:', e && e.message ? e.message : e);
+    }
+    let userDataDir = process.env.__ALV_SMOKE_USER_DIR || defaultUserDataDir;
+    let extensionsDir = process.env.__ALV_SMOKE_EXT_DIR || defaultExtensionsDir;
+
+    try {
+      userDataDir = process.env.__ALV_SMOKE_USER_DIR || defaultUserDataDir;
+      extensionsDir = process.env.__ALV_SMOKE_EXT_DIR || defaultExtensionsDir;
+
+      const launch = [
+        '--user-data-dir',
+        userDataDir,
+        '--extensions-dir',
+        extensionsDir,
+        '--skip-welcome',
+        '--skip-release-notes',
+        // Use the prepared workspace (set in pretestSetup)
+        ...(process.env.VSCODE_TEST_WORKSPACE ? [process.env.VSCODE_TEST_WORKSPACE] : [])
+      ];
+      const extensionTestsEnv = {};
+      if (process.env.NODE_V8_COVERAGE) {
+        extensionTestsEnv.NODE_V8_COVERAGE = process.env.NODE_V8_COVERAGE;
+      }
+      if (process.env.NODE_OPTIONS) {
+        extensionTestsEnv.NODE_OPTIONS = process.env.NODE_OPTIONS;
+      }
+      if (process.env.ENABLE_COVERAGE) {
+        extensionTestsEnv.ENABLE_COVERAGE = process.env.ENABLE_COVERAGE;
+      }
+
+      await runTests({
+        vscodeExecutablePath,
+        extensionDevelopmentPath,
+        extensionTestsPath,
+        extensionTestsEnv: Object.keys(extensionTestsEnv).length ? extensionTestsEnv : undefined,
+        launchArgs: launch
+      });
+    } finally {
+      clearTimeout(killer);
+      if (timedOut) {
+        return;
+      }
+
+      try {
+        const cleanupMarkers = [vscodeExecutablePath, 'chrome_crashpad_handler'];
+        await killLeakedVSCodeProcesses(cleanupMarkers);
+        cleanVsCodeTest({ quiet: true });
+      } catch (e) {
+        console.warn('[test-runner] VS Code cleanup failed:', e && e.message ? e.message : e);
+      }
+    }
+  } finally {
+    await cleanupOnce();
   }
 }
 
