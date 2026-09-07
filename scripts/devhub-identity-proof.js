@@ -34,6 +34,24 @@ function fields(values) {
 }
 
 async function cleanupProof({ state, proof, sf, options, user, save }) {
+  const beforeResources =
+    (['initializing', 'login', 'pool-create'].includes(proof.phase) && proof.remoteResourcesAttempted === false) ||
+    (proof.phase === 'login' && !Object.hasOwn(proof, 'remoteResourcesAttempted'));
+  if (
+    beforeResources &&
+    !['poolId', 'slotId', 'scratchOrgId', 'completedAt'].some(field => Object.hasOwn(proof, field))
+  ) {
+    // Persisted intent predates every remote resource write, even if directory
+    // creation/login never completed. Legacy login intent has the same ordering.
+    proof.cleanup = {
+      scratchDeleted: true,
+      poolDeleted: true,
+      remoteResourcesAttempted: false,
+      at: new Date().toISOString()
+    };
+    await save();
+    return;
+  }
   const query = async soql => {
     const response = await sf(['data', 'query', '--target-org', 'alv-runtime', '--query', soql], options);
     if (!Array.isArray(response.records) || response.done === false)
@@ -132,7 +150,8 @@ async function prove({ values, state, directory, user, sf, query, save }) {
     license: state.license,
     poolMode: values['pool-mode'],
     startedAt: new Date().toISOString(),
-    phase: 'login'
+    phase: 'initializing',
+    remoteResourcesAttempted: false
   };
   proof.poolKey = `alv-identity-${proof.id}`;
   proof.slotKey = `${proof.poolKey}-01`;
@@ -140,12 +159,8 @@ async function prove({ values, state, directory, user, sf, query, save }) {
   if (state.proof) (state.proofHistory ||= []).push(state.proof);
   state.proof = proof;
   await save();
-  await fs.mkdir(proof.directory, { mode: 0o700 });
-  await secureDirectory(proof.directory);
   const homeA = path.join(proof.directory, 'home-a');
   const homeB = path.join(proof.directory, 'home-b');
-  await fs.mkdir(homeA);
-  await fs.mkdir(homeB);
   const options = { cwd: proof.directory, env: isolatedEnv(homeA) };
   const otherOptions = { cwd: proof.directory, env: isolatedEnv(homeB) };
   const runtimeQuery = async (soql, target = 'alv-runtime', execution = options) => {
@@ -159,6 +174,10 @@ async function prove({ values, state, directory, user, sf, query, save }) {
     await save();
   };
   const create = async (object, data) => {
+    if (!proof.remoteResourcesAttempted) {
+      proof.remoteResourcesAttempted = true;
+      await save();
+    }
     const response = await sf(
       ['data', 'create', 'record', '--target-org', 'alv-runtime', '--sobject', object, '--values', fields(data)],
       options
@@ -196,9 +215,13 @@ async function prove({ values, state, directory, user, sf, query, save }) {
     }
     return result;
   };
-  let loggedIn = false;
   let failure;
   try {
+    await fs.mkdir(proof.directory, { mode: 0o700 });
+    await secureDirectory(proof.directory);
+    await fs.mkdir(homeA);
+    await fs.mkdir(homeB);
+    await phase('login');
     const login = await sf(
       [
         'org',
@@ -226,7 +249,6 @@ async function prove({ values, state, directory, user, sf, query, save }) {
       throw new Error('Runtime API did not confirm the dedicated identity and intended org.');
     }
     proof.identity = { orgId: login.orgId, userId: user.Id, verifiedAt: new Date().toISOString() };
-    loggedIn = true;
     await phase('pool-create');
     if ((await runtimeQuery(`SELECT Id FROM ALV_ScratchOrgPool__c WHERE PoolKey__c = '${proof.poolKey}'`)).length)
       throw new Error('Test pool already exists; no adoption is allowed.');
@@ -395,11 +417,7 @@ async function prove({ values, state, directory, user, sf, query, save }) {
     await save();
   }
   try {
-    if (loggedIn) await cleanupProof({ state, proof, sf, options, user, save });
-    else {
-      proof.cleanup = { scratchDeleted: true, poolDeleted: true };
-      await save();
-    }
+    await cleanupProof({ state, proof, sf, options, user, save });
   } catch (error) {
     proof.cleanupFailure = { code: error.code || 'CLEANUP_UNCONFIRMED', at: new Date().toISOString() };
     await save();

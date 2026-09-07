@@ -143,6 +143,56 @@ async function verifyApp(sf, target, root, app) {
   return clientId;
 }
 
+async function verifyPreauthorization(sf, target, query, app) {
+  const description = await sf(['sobject', 'describe', '--target-org', target, '--sobject', 'PermissionSet']);
+  const identifier = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_]*$/.test(value);
+  const permissionFields = description.fields?.filter(field => field.name?.startsWith('Permissions'));
+  const children = description.childRelationships;
+  if (
+    !permissionFields?.length ||
+    permissionFields.some(field => !identifier(field.name) || field.type !== 'boolean') ||
+    !Array.isArray(children) ||
+    children.some(child => !identifier(child.childSObject) || !identifier(child.field)) ||
+    ['ObjectPermissions', 'FieldPermissions', 'SetupEntityAccess'].some(
+      object => !children.some(child => child.childSObject === object && child.field === 'ParentId')
+    )
+  )
+    throw new Error('Cannot verify the complete preauthorization grant inventory.');
+  const permissions = await query(
+    `SELECT FIELDS(ALL) FROM PermissionSet WHERE Name = '${app.preauthorization}' LIMIT 2`
+  );
+  const permission = permissions[0];
+  if (
+    permissions.length !== 1 ||
+    permission.Name !== app.preauthorization ||
+    permission.Description !== app.marker ||
+    permission.IsOwnedByProfile !== false ||
+    permission.HasActivationRequired !== false ||
+    permission.LicenseId !== null ||
+    permission.Type !== 'Regular' ||
+    permissionFields.some(field => permission[field.name] !== false)
+  )
+    throw new Error('Owned preauthorization permission set has unexpected or unverified grants.');
+  // These relations describe recipients/sessions, not grants within the set.
+  // Every other described relationship must be empty except the owned ECA binding.
+  for (const child of children) {
+    if (['PermissionSetAssignment', 'SessionPermSetActivation'].includes(child.childSObject)) continue;
+    const binding = child.childSObject === 'SetupEntityAccess';
+    const records = await query(
+      `SELECT ${binding ? 'SetupEntityId, SetupEntityType' : 'Id'} FROM ${child.childSObject} WHERE ${child.field} = '${permission.Id}' LIMIT ${binding ? 2 : 1}`
+    );
+    if (
+      binding
+        ? records.length !== 1 ||
+          records[0].SetupEntityId !== app.id ||
+          records[0].SetupEntityType !== 'ExternalClientApplication'
+        : records.length !== 0
+    )
+      throw new Error(`Preauthorization grant differs in ${child.childSObject}; no grants will be changed.`);
+  }
+  return permission.Id;
+}
+
 async function provisionApp({ values, state, inventory, directory, user, query, sf, save }) {
   const lifecycle = lifecycleInputs(values, true);
   const name = `ALV_DevHub_${state.owner.replaceAll('-', '').slice(0, 16)}_${lifecycle.mode === 'temporary' ? 'Test' : 'CI'}`;
@@ -275,14 +325,9 @@ async function provisionApp({ values, state, inventory, directory, user, query, 
   }
   const privateDirectory = path.join(directory, `app-${lifecycle.mode}`, 'retrieved');
   const clientId = await verifyApp(sf, values['target-org'], privateDirectory, app);
-  const permissions = await query(
-    `SELECT Id, Name, Description, IsOwnedByProfile FROM PermissionSet WHERE Name = '${preauthorization}'`
-  );
-  if (permissions.length !== 1 || permissions[0].Description !== marker || permissions[0].IsOwnedByProfile !== false) {
-    throw new Error('Cannot verify the owned preauthorization permission set.');
-  }
+  const permissionSetId = await verifyPreauthorization(sf, values['target-org'], query, app);
   const assignments = await query(
-    `SELECT Id, AssigneeId, PermissionSetId FROM PermissionSetAssignment WHERE PermissionSetId = '${permissions[0].Id}'`
+    `SELECT Id, AssigneeId, PermissionSetId FROM PermissionSetAssignment WHERE PermissionSetId = '${permissionSetId}'`
   );
   if (assignments.some(assignment => assignment.AssigneeId !== user.Id)) {
     throw new Error(
@@ -299,7 +344,7 @@ async function provisionApp({ values, state, inventory, directory, user, query, 
       '--sobject',
       'PermissionSetAssignment',
       '--values',
-      `AssigneeId='${user.Id}' PermissionSetId='${permissions[0].Id}'`
+      `AssigneeId='${user.Id}' PermissionSetId='${permissionSetId}'`
     ]);
     if (!assigned.success || !assigned.id)
       throw new Error('Preauthorization assignment is unconfirmed; rerun to reconcile.');

@@ -382,10 +382,28 @@ async function preparedAppFixture(t) {
   await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
   const certificate = await temporaryCertificate(t);
   fixture.records.PermissionSetAssignment = [];
+  fixture.permissionFields = ['PermissionsApiEnabled', 'PermissionsManageUsers'];
+  fixture.permissionChildren = [
+    ['ObjectPermissions', 'ParentId'],
+    ['FieldPermissions', 'ParentId'],
+    ['SetupEntityAccess', 'ParentId'],
+    ['PermissionSetTabSetting', 'ParentId'],
+    ['PermissionSetGroupComponent', 'PermissionSetId'],
+    ['PermissionSetAssignment', 'PermissionSetId'],
+    ['SessionPermSetActivation', 'PermissionSetId']
+  ];
+  for (const [object] of fixture.permissionChildren) fixture.records[object] ||= [];
   const invoke = fixture.sf;
   const validated = new Set();
   let deployments = 0;
   fixture.sf = async (args, options) => {
+    if (args[0] === 'sobject' && args[1] === 'describe') {
+      assert.equal(args[args.indexOf('--sobject') + 1], 'PermissionSet');
+      return {
+        fields: fixture.permissionFields.map(name => ({ name, type: 'boolean' })),
+        childRelationships: fixture.permissionChildren.map(([childSObject, field]) => ({ childSObject, field }))
+      };
+    }
     if (args[0] !== 'project') return invoke(args);
     const app = JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8')).apps.temporary;
     if (args[1] === 'deploy') {
@@ -406,8 +424,15 @@ async function preparedAppFixture(t) {
           Id: '0PSaccess',
           Name: app.preauthorization,
           Description: app.marker,
-          IsOwnedByProfile: false
+          IsOwnedByProfile: false,
+          HasActivationRequired: false,
+          LicenseId: null,
+          Type: 'Regular',
+          ...Object.fromEntries(fixture.permissionFields.map(name => [name, false]))
         });
+      }
+      if (path.basename(options.cwd) === 'policy') {
+        fixture.records.SetupEntityAccess = [{ SetupEntityId: app.id, SetupEntityType: 'ExternalClientApplication' }];
       }
       return { success: true, status: 'Succeeded', checkOnly: false, id: '0Afdeploy' };
     }
@@ -466,6 +491,71 @@ test('app setup validates before deployment, preauthorizes only the owned user, 
   assert.equal(deployments(), previousDeployments);
   assert.equal(fixture.records.ExternalClientApplication.length, 1);
   assert.equal(fixture.records.PermissionSetAssignment.length, 1);
+});
+
+test('app setup rejects every extra preauthorization grant before assignment and on a configured rerun', async t => {
+  const { fixture, args, deployments } = await preparedAppFixture(t);
+  const initialDeployments = deployments();
+  const permission = fixture.records.PermissionSet[0];
+  const validEntity = structuredClone(fixture.records.SetupEntityAccess);
+  const initialAssignments = structuredClone(fixture.records.PermissionSetAssignment);
+  for (const assigned of [false, true]) {
+    fixture.records.PermissionSetAssignment = assigned ? structuredClone(initialAssignments) : [];
+    for (const [object, extra] of [
+      ['ObjectPermissions', { Id: 'account-read', SobjectType: 'Account', PermissionsRead: true }],
+      ['FieldPermissions', { Id: 'account-field', Field: 'Account.Name', PermissionsRead: true }],
+      ['SetupEntityAccess', { SetupEntityId: 'unrelated-class', SetupEntityType: 'ApexClass' }],
+      ['SetupEntityAccess', { SetupEntityId: 'unrelated-custom', SetupEntityType: 'CustomPermission' }],
+      ['SetupEntityAccess', { SetupEntityId: 'unrelated-app', SetupEntityType: 'ExternalClientApplication' }],
+      ['PermissionSetTabSetting', { Id: 'extra-tab' }],
+      ['PermissionSetGroupComponent', { Id: 'group-membership' }]
+    ]) {
+      fixture.records[object] = object === 'SetupEntityAccess' ? [...validEntity, extra] : [extra];
+      await assert.rejects(main(args, fixture), /preauthorization.*grant/i);
+      assert.equal(fixture.records.PermissionSetAssignment.length, assigned ? 1 : 0);
+      assert.ok(fixture.records[object].includes(extra), 'The command must not remove drifted grants');
+      fixture.records[object] = object === 'SetupEntityAccess' ? structuredClone(validEntity) : [];
+    }
+    for (const value of [true, undefined]) {
+      permission.PermissionsApiEnabled = value;
+      await assert.rejects(main(args, fixture), /preauthorization.*grant/i);
+      assert.equal(fixture.records.PermissionSetAssignment.length, assigned ? 1 : 0);
+    }
+    permission.PermissionsApiEnabled = false;
+  }
+  fixture.records.SetupEntityAccess = [];
+  await assert.rejects(main(args, fixture), /preauthorization.*grant/i);
+  fixture.records.SetupEntityAccess = [
+    { SetupEntityId: 'unrelated-app', SetupEntityType: 'ExternalClientApplication' }
+  ];
+  await assert.rejects(main(args, fixture), /preauthorization.*grant/i);
+  fixture.records.SetupEntityAccess = validEntity;
+  const result = await main(args, fixture);
+  assert.equal(result.status, 'app-ready');
+  assert.equal(deployments(), initialDeployments);
+});
+
+test('app setup refuses an incomplete or unknown preauthorization grant inventory', async t => {
+  const { fixture, args } = await preparedAppFixture(t);
+  const invoke = fixture.sf;
+  fixture.sf = async (command, options) => {
+    const result = await invoke(command, options);
+    if (
+      command[0] === 'data' &&
+      command.includes('--query') &&
+      command[command.indexOf('--query') + 1].includes(' FROM ObjectPermissions ')
+    ) {
+      return { ...result, done: false };
+    }
+    return result;
+  };
+  await assert.rejects(main(args, fixture), /Incomplete Salesforce inventory/);
+  fixture.sf = invoke;
+  fixture.permissionChildren.push(['NewGrantCategory', 'ParentId']);
+  fixture.records.NewGrantCategory = [{ Id: 'new-grant' }];
+  await assert.rejects(main(args, fixture), /preauthorization.*grant/i);
+  fixture.permissionChildren = fixture.permissionChildren.filter(([object]) => object !== 'FieldPermissions');
+  await assert.rejects(main(args, fixture), /preauthorization.*inventory/i);
 });
 
 test('app reruns reject enabled or unverified alternate OAuth flows from effective metadata', async t => {
@@ -597,6 +687,158 @@ test('app revocation disables only the owned ECA and confirms the effective poli
   assert.doesNotMatch(JSON.stringify(result), /hidden-token/);
 });
 
+test('cleanup-proof recovers persisted pre-resource interruptions without directories or authentication', async t => {
+  const { fixture, directory } = await preparedAppFixture(t);
+  fixture.records.PermissionSetAssignment = [];
+  const stateFile = path.join(directory, 'identity.json');
+  const baseline = JSON.parse(readFileSync(stateFile, 'utf8'));
+  baseline.runtime = { permissionSetId: '0PSruntime' };
+  const invoke = fixture.sf;
+  const proofArgs = [
+    'prove',
+    ...baseArgs.slice(1),
+    '--state-dir',
+    directory,
+    '--credential-mode',
+    'temporary',
+    '--pool-mode',
+    'definition'
+  ];
+  for (const [phase, marker, preparedHomes] of [
+    ['initializing', false, -1],
+    ['initializing', false, 0],
+    ['initializing', false, 1],
+    ['login', false, 2],
+    ['login', undefined, -1],
+    ['pool-create', false, 2]
+  ]) {
+    const id = require('node:crypto').randomUUID();
+    const proof = {
+      id,
+      phase,
+      appMode: 'temporary',
+      directory: path.join(directory, `proof-${id}`),
+      poolKey: `alv-identity-${id}`,
+      slotKey: `alv-identity-${id}-01`,
+      ...(marker === undefined ? {} : { remoteResourcesAttempted: marker })
+    };
+    if (preparedHomes >= 0) mkdirSync(proof.directory);
+    for (const home of ['home-a', 'home-b'].slice(0, Math.max(0, preparedHomes)))
+      mkdirSync(path.join(proof.directory, home));
+    writeFileSync(stateFile, JSON.stringify({ ...baseline, proof }));
+    let runtimeCommands = 0;
+    fixture.sf = async (args, options) => {
+      if (!options?.env) return invoke(args, options);
+      runtimeCommands += 1;
+      throw new Error('No runtime authentication exists at this interrupted boundary');
+    };
+    const result = await main(['cleanup-proof', ...proofArgs.slice(1)], fixture);
+    assert.equal(result.proofs[0].cleanup.scratchDeleted, true);
+    assert.equal(result.proofs[0].cleanup.poolDeleted, true);
+    assert.equal(result.proofs[0].cleanup.remoteResourcesAttempted, false);
+    assert.equal(runtimeCommands, 0, 'Known pre-resource intent needs no authenticated remote inventory');
+    // Recovery releases the next proof gate; the fresh attempt reaches login.
+    await assert.rejects(main(proofArgs, fixture), /Native proof failed at login/);
+    assert.equal(runtimeCommands, 1);
+    // Revocation is no longer blocked by a proof that never attempted resources.
+    fixture.sf = async (args, options) => {
+      if (args[0] === 'project' && args[1] === 'deploy') return { success: false };
+      return invoke(args, options);
+    };
+    await assert.rejects(main(['revoke-app', ...proofArgs.slice(1)], fixture), /Metadata validation failed/);
+  }
+});
+
+test('proof initialization failures enter recovery before any remote operation', async t => {
+  const { fixture, directory } = await preparedAppFixture(t);
+  fixture.records.PermissionSetAssignment = [];
+  const stateFile = path.join(directory, 'identity.json');
+  const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+  state.runtime = { permissionSetId: '0PSruntime' };
+  writeFileSync(stateFile, JSON.stringify(state));
+  const promises = require('node:fs/promises');
+  const mkdir = promises.mkdir;
+  const mocked = t.mock.method(promises, 'mkdir', async (target, options) => {
+    if (path.basename(target).startsWith('proof-'))
+      throw Object.assign(new Error('Directory unavailable'), { code: 'EACCES' });
+    return mkdir(target, options);
+  });
+  await assert.rejects(
+    main(
+      [
+        'prove',
+        ...baseArgs.slice(1),
+        '--state-dir',
+        directory,
+        '--credential-mode',
+        'temporary',
+        '--pool-mode',
+        'definition'
+      ],
+      fixture
+    ),
+    /Native proof failed at initializing/
+  );
+  mocked.mock.restore();
+  const proof = JSON.parse(readFileSync(stateFile, 'utf8')).proof;
+  assert.equal(proof.remoteResourcesAttempted, false);
+  assert.equal(proof.cleanup.scratchDeleted, true);
+  assert.equal(proof.cleanup.poolDeleted, true);
+});
+
+test('cleanup-proof retains uncertain, attempted, incomplete and conflicting remote state', async t => {
+  const { fixture, directory } = await preparedAppFixture(t);
+  const stateFile = path.join(directory, 'identity.json');
+  const baseline = JSON.parse(readFileSync(stateFile, 'utf8'));
+  const invoke = fixture.sf;
+  for (const [details, scenario, expected] of [
+    [{ phase: 'initializing' }, 'missing-auth', /Salesforce CLI operation failed/],
+    [{ phase: 'unknown', remoteResourcesAttempted: false }, 'missing-auth', /Salesforce CLI operation failed/],
+    [{ phase: 'login', remoteResourcesAttempted: true }, 'missing-auth', /Salesforce CLI operation failed/],
+    [{ phase: 'pool-create' }, 'missing-auth', /Salesforce CLI operation failed/],
+    [
+      { phase: 'login', remoteResourcesAttempted: false, poolId: 'uncertain-pool' },
+      'missing-auth',
+      /Salesforce CLI operation failed/
+    ],
+    [
+      { phase: 'login', remoteResourcesAttempted: false, completedAt: '2026-09-07T00:00:00Z' },
+      'missing-auth',
+      /Salesforce CLI operation failed/
+    ],
+    [{ phase: 'pool-create', remoteResourcesAttempted: true }, 'incomplete', /inventory is incomplete/],
+    [{ phase: 'scratch-create', remoteResourcesAttempted: true }, 'foreign-owner', /ownership conflict/],
+    [{ phase: 'scratch-create', remoteResourcesAttempted: true }, 'pending', /still pending/]
+  ]) {
+    const id = require('node:crypto').randomUUID();
+    const proof = {
+      id,
+      appMode: 'temporary',
+      directory: path.join(directory, `proof-${id}`),
+      poolKey: `alv-identity-${id}`,
+      slotKey: `alv-identity-${id}-01`,
+      ...details
+    };
+    writeFileSync(stateFile, JSON.stringify({ ...baseline, proof }));
+    let queries = 0;
+    fixture.sf = async (args, options) => {
+      if (!options?.env) return invoke(args, options);
+      assert.equal(args.slice(0, 2).join(' '), 'data query', 'Uncertain inventory must never permit deletion');
+      queries += 1;
+      if (scenario === 'missing-auth') throw new Error('No runtime authentication');
+      if (scenario === 'incomplete') return { records: [], done: false };
+      return {
+        records: [
+          { Id: 'signup', CreatedById: scenario === 'foreign-owner' ? 'another-user' : '005runtime', Status: 'New' }
+        ]
+      };
+    };
+    await assert.rejects(main(['cleanup-proof', ...baseArgs.slice(1), '--state-dir', directory], fixture), expected);
+    assert.equal(queries, 1);
+    assert.equal(JSON.parse(readFileSync(stateFile, 'utf8')).proof.cleanup, undefined);
+  }
+});
+
 for (const scenario of [
   'success',
   'import-failure',
@@ -632,11 +874,19 @@ for (const scenario of [
       if (command !== 'org create scratch') assert.equal(env.SF_SCRATCH_SIGNUP_CONNECTED_APP, undefined);
       if (command !== 'org display --target-org') assert.equal(env.SF_TEMP_SHOW_SECRETS, undefined);
       if (command === 'org login jwt') {
+        const intent = JSON.parse(readFileSync(stateFile, 'utf8')).proof;
+        assert.equal(intent.phase, 'login');
+        assert.equal(intent.remoteResourcesAttempted, false);
         firstHome = env.USERPROFILE;
         assert.deepEqual(require('node:fs').readdirSync(firstHome), []);
         return { orgId: state.org, username: fixture.records.User[0].Username };
       }
       if (command === 'data create record') {
+        assert.equal(
+          JSON.parse(readFileSync(stateFile, 'utf8')).proof.remoteResourcesAttempted,
+          true,
+          'Persist uncertainty before the first remote write, including a lost CLI response'
+        );
         const object = args[args.indexOf('--sobject') + 1];
         if (object === 'ALV_ScratchOrgPool__c') ownPool = 'own-pool';
         else ownSlot = 'own-slot';

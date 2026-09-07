@@ -16,6 +16,7 @@
 ### Tests
 
 - Dev Hub: add resumable operator commands for minimum-access identity/ECA bootstrap, explicit certificate policy and isolated native scratch/pool permission proof. Permanent provisioning and CI cutover remain gated by their operator decisions and live validation.
+- Dev Hub: reject extra grants on the ECA preauthorization-only set and recover interrupted pre-login proofs without inferring cleanup after an uncertain remote write.
 
 - Scratch Org Pool: authenticate maintenance and consumers through the shared Dev Hub JWT policy, preserve PlatformCLI scratch authorization, renew lease calls after expired sessions, and validate an isolated pool with an independent runner. Production workflow cutover remains a separate step on the JWT effort branch.
 - IntelliJ/TypeScript: add a versioned language-neutral conformance corpus that runs through both public runtime facades with real temporary workspaces and strict process/HTTP doubles.
