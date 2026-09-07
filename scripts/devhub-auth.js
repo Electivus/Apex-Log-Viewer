@@ -17,6 +17,20 @@ function hasDevHubJwtConfig(env = process.env) {
   return JWT_FIELDS.some(name => String(env[name] || '').trim());
 }
 
+function requiresScratchSetup(scope = 'all', { smokeVsix = false } = {}, env = process.env) {
+  return (
+    String(scope || '')
+      .trim()
+      .toLowerCase() !== 'unit' &&
+    !smokeVsix &&
+    Boolean(
+      String(env.SF_SETUP_SCRATCH || '').trim() ||
+      String(env.SF_DEVHUB_AUTH_URL || '').trim() ||
+      hasDevHubJwtConfig(env)
+    )
+  );
+}
+
 function isUsableSfdxAuthUrl(value) {
   if (typeof value !== 'string' || /redacted|placeholder|[\s<>*]/i.test(value)) {
     return false;
@@ -107,7 +121,7 @@ function scratchSignupEnv(env = process.env) {
   });
 }
 
-function validateJwt(config, files) {
+function validateDevHubJwt(config, files = fs) {
   if (!/^[A-Za-z0-9._-]+$/.test(config.clientId) || /redacted|placeholder/i.test(config.clientId)) {
     throw new Error('Invalid SF_DEVHUB_CLIENT_ID. Supply the ECA consumer key, not a redaction placeholder.');
   }
@@ -167,7 +181,7 @@ async function authenticateDevHub(config, runJson, files = fs) {
     };
   }
 
-  validateJwt(config, files);
+  validateDevHubJwt(config, files);
 
   const temporaryRoot = path.resolve(tmpdir());
   let directory;
@@ -316,6 +330,8 @@ async function authenticateDevHub(config, runJson, files = fs) {
 }
 
 module.exports = {
+  requiresScratchSetup,
+  validateDevHubJwt,
   hasDevHubJwtConfig,
   isUsableSfdxAuthUrl,
   safeSfFailureMessage,

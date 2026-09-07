@@ -11,6 +11,12 @@ export type DevHubSession = {
 };
 
 export function hasDevHubJwtConfig(env?: NodeJS.ProcessEnv): boolean;
+export function requiresScratchSetup(
+  scope?: string,
+  options?: { smokeVsix?: boolean },
+  env?: NodeJS.ProcessEnv
+): boolean;
+export function validateDevHubJwt(config: Extract<DevHubConfig, { mode: 'jwt' }>): void;
 export function isUsableSfdxAuthUrl(value: unknown): value is string;
 export function safeSfFailureMessage(error: unknown, fallback?: string): string;
 

@@ -6,7 +6,7 @@ const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests
 const { build } = require('esbuild');
 const { cleanVsCodeTest } = require('./clean-vscode-test.js');
 const {
-  hasDevHubJwtConfig,
+  requiresScratchSetup,
   safeSfFailureMessage,
   resolveDevHubConfig,
   authenticateDevHub,
@@ -512,10 +512,7 @@ async function pretestSetup(scope = 'all', opts = {}, helpers = {}) {
   const scratchAlias = process.env.SF_SCRATCH_ALIAS || 'ALV_Test_Scratch';
   const keepScratch = /^1|true$/i.test(String(process.env.SF_TEST_KEEP_ORG || ''));
   const durationDays = Number(process.env.SF_SCRATCH_DURATION || 1);
-  const shouldSetupScratch =
-    normalizedScope !== 'unit' &&
-    !smokeVsix &&
-    Boolean(readEnvValue('SF_SETUP_SCRATCH') || readEnvValue('SF_DEVHUB_AUTH_URL') || hasDevHubJwtConfig());
+  const shouldSetupScratch = requiresScratchSetup(normalizedScope, { smokeVsix });
   const devHubConfig = resolveRequiredDevHubConfig({ requireConfig: shouldSetupScratch });
   // When running unit tests, skip any Salesforce CLI/Dev Hub setup.
   // Keep only the temporary workspace preparation below.

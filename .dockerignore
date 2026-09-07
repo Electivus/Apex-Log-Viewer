@@ -14,3 +14,13 @@ apps/vscode-extension/media/webview.css
 *.vsix
 *.log
 *.txt
+
+# Credentials must never enter a build context.
+**/.sf
+**/.sfdx
+**/.env*
+**/*.pem
+**/*.key
+**/*.sfdxurl
+apexlogs
+.babysit-pr

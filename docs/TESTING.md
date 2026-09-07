@@ -154,41 +154,48 @@ Useful env vars:
 - The proxy requires Basic authentication using test-only credentials in the proxy URL, matching the corporate shape `http://username:pwd@proxy.company.com:8080`.
 - The lab waits for mitmproxy to generate its CA, then proves that authenticated HTTPS through the proxy fails before that CA is trusted.
 - The runner installs the mitmproxy CA into the container trust store, exports `NODE_USE_SYSTEM_CA=1`, `ALV_E2E_USE_SYSTEM_CA=1`, `NODE_EXTRA_CA_CERTS`, and `SSL_CERT_FILE`, and keeps VS Code `http.proxyStrictSSL` enabled.
-- The lab verifies that `curl` and a dependency-free Node HTTPS check can reach the internet through the authenticated MITM proxy after CA trust is installed. Real-org commands fail fast when `SF_DEVHUB_AUTH_URL` is missing; explicit non-real-org smoke commands skip the Salesforce CLI preflight.
-- Real-org proxy-lab runs require `SF_DEVHUB_AUTH_URL`; a host `SF_DEVHUB_ALIAS` is not sufficient inside the clean runner container.
-- After logging in from `SF_DEVHUB_AUTH_URL`, the lab uses `ConfiguredDevHub` as the container-local Dev Hub alias by default. `ALV_E2E_PROXY_LAB_DEVHUB_ALIAS` only changes that container-local alias.
+- The lab verifies that `curl` and a dependency-free Node HTTPS check can reach the internet through the authenticated MITM proxy after CA trust is installed. Real-org commands require complete [Dev Hub JWT inputs](DEVHUB_JWT.md); missing/partial configuration fails before Compose starts. Explicit non-real-org smoke commands skip Salesforce authentication.
+- Preflight and child use the shared strict JWT policy. A host alias or `SF_DEVHUB_AUTH_URL` cannot bypass it. The child starts with isolated CLI state; Dev Hub JWT and scratch PlatformCLI remain separate.
+- Credentials travel in an operation-scoped read-only input mount outside the build context. A unique native Linux volume holds writable CLI state (Windows bind mounts cannot provide its required secret-file permissions). Normal completion removes this volume and the host input; interrupted or blocked cleanup reports the exact recovery resources. Caller-owned key files remain caller-owned.
 - The lab sets `SFDX_DISABLE_DNS_CHECK=true` because the runner has no direct DNS/egress path to Salesforce; Salesforce CLI traffic must be validated through the proxy instead.
 - `ALV_E2E_PROXY_LAB_PROXY_URL` can override the runner proxy URL for negative tests; by default it is `http://alv-proxy-user:alv-proxy-pass@proxy:8888`.
-- Docker named volumes persist `node_modules`, the pnpm store, `.vscode-test`, npm cache, and Salesforce CLI auth state under `/root/.sf` and `/root/.sfdx` between proxy-lab runs. These volumes may contain org credentials; reset them with `docker compose -f docker-compose.e2e-proxy.yml down --volumes` only when you intentionally want a clean lab.
+- Docker named volumes persist dependencies, the pnpm store, `.vscode-test`, npm cache and the lab CA. Salesforce auth caches are no longer mounted or reused. Older auth volumes may still exist and are not deleted automatically; inspect ownership before intentionally resetting any shared volume.
+- For an upstream corporate TLS inspector, the host mounts `ALV_E2E_PROXY_LAB_UPSTREAM_CA_FILE` (or the existing `SSL_CERT_FILE`) read-only into the proxy. Its approved roots extend the image's system trust without disabling upstream verification.
 
 By default the lab runs `pnpm run test:e2e`. To run another E2E command inside the same proxy-only network:
 
-```bash
+```powershell
 pnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli
 ```
 
-For local real-org proxy-lab runs, derive an auth URL from an already-authenticated Dev Hub on the host and pass it into the clean container:
+For local real-org proxy-lab runs, configure the authorized ECA/JWT identity and choose the direct scratch strategy explicitly:
 
-```bash
-ALV_LOCAL_DEVHUB_AUTH_URL="$(sf org auth show-sfdx-auth-url --target-org <dev-hub-alias> --json --no-prompt | jq -r '.result.sfdxAuthUrl')"
-SF_DEVHUB_AUTH_URL="${ALV_LOCAL_DEVHUB_AUTH_URL}" SF_TEST_KEEP_ORG=1 pnpm run test:e2e:proxy-lab
+```powershell
+$env:SF_DEVHUB_CLIENT_ID = '<authorized ECA consumer key>'
+$env:SF_DEVHUB_USERNAME = '<authorized Dev Hub username>'
+$env:SF_DEVHUB_LOGIN_URL = 'https://login.salesforce.com'
+$env:SF_DEVHUB_PRIVATE_KEY_FILE = 'C:\secure\devhub-private-key.pem'
+$env:SF_SCRATCH_STRATEGY = 'single'
+$env:SF_TEST_KEEP_ORG = '0'
+pnpm run test:e2e:proxy-lab
 ```
 
 To target the plugin path that powers `logs/list` without paying the full VS Code UI startup cost, run a focused CLI spec:
 
-```bash
+```powershell
 pnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli -- test/e2e/cli/specs/logs.e2e.spec.ts
 ```
 
 For faster iteration after the named Docker volumes already contain dependencies:
 
-```bash
-ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL=1 pnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli
+```powershell
+$env:ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL = '1'
+pnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli
 ```
 
 To validate against a Salesforce CLI package override, such as the nightly build that carries upcoming credential-redaction behavior:
 
-```bash
+```powershell
 pnpm run test:e2e:proxy-lab:sf-nightly -- pnpm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts
 ```
 
@@ -197,8 +204,7 @@ The standard GitHub Playwright E2E workflow first classifies the changed paths, 
 Pool-specific env vars:
 
 - `SF_SCRATCH_POOL_NAME`
-- `SF_DEVHUB_AUTH_URL`
-- `ALV_E2E_PROXY_LAB_DEVHUB_ALIAS`
+- The same complete `SF_DEVHUB_*` JWT inputs above
 - `SF_SCRATCH_POOL_OWNER`
 - `SF_SCRATCH_POOL_LEASE_TTL_SECONDS`
 - `SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS`

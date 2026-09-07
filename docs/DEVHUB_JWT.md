@@ -129,3 +129,54 @@ On this Windows host, `pnpm test` stopped in the existing pretest because `bash`
 Integration passed with `node scripts/run-tests-cli.js --scope=integration --vscode=stable --install-deps --timeout=900000` (3 passing). The runner now uses the existing cross-spawn dependency for VS Code's Windows `code.cmd` installation/listing calls, fixing the observed native `spawnSync` EINVAL. Salesforce dependencies were installed in the ignored `.vscode-test/extensions` test profile. One noncredential `alv-ws-*` temporary workspace reported an EPERM cleanup warning after integration; this is separate from JWT smoke cleanup.
 
 `check-types`, `lint`, `build`, the E2E utility suite (119 tests after the lifecycle correction), dependency-source checks and all 1,297 registry signatures passed. An additional full TypeScript check of the E2E utilities still reports 20 preexisting diagnostics; comparison with the starting commit, including the new smoke source, found no introduced diagnostics. No test or type gate was weakened.
+
+## Isolated corporate proxy-lab validation
+
+The lab uses the same strict policy at the host entry point, container preflight and real child runner. Supply `SF_DEVHUB_CLIENT_ID`, `SF_DEVHUB_USERNAME`, `SF_DEVHUB_LOGIN_URL` and exactly one of `SF_DEVHUB_PRIVATE_KEY` (inline PEM) or `SF_DEVHUB_PRIVATE_KEY_FILE` (caller-owned path). Use the verified authorized Dev Hub identity. Neither an authenticated host alias nor a legacy Dev Hub URL is accepted as a fallback. Explicit non-org commands run without these inputs:
+
+```powershell
+$env:DOCKER = 'podman' # Omit when using Docker.
+$env:COMPOSE_PROJECT_NAME = 'alv-jwt-validation'
+pnpm run test:e2e:proxy-lab -- node --version
+```
+
+With the JWT variables already configured as in [TESTING.md](TESTING.md#corporate-proxy-lab), reproduce the controlled direct smoke with:
+
+```powershell
+$env:SF_SCRATCH_STRATEGY = 'single'
+Remove-Item Env:SF_SCRATCH_POOL_NAME -ErrorAction SilentlyContinue
+$env:SF_TEST_KEEP_ORG = '0'
+$env:ALV_DEVHUB_JWT_SMOKE = '1'
+$env:ALV_JWT_SMOKE_DEVHUB_ORG_ID = '<verified authorized Dev Hub org ID>'
+node scripts/run-e2e-proxy-lab.js -- node scripts/run-playwright-cli-e2e.js test/e2e/cli/devhubJwt.e2e.spec.ts --grep typescript --workers=1 --retries=0 --reporter=list --output=apexlogs/proxy-jwt-smoke-results
+```
+
+### Transport, lifetime and recovery
+
+The host validates inputs before invoking the engine, copies them into a private temporary directory outside the repository, and mounts only its `input` directory read-only at `/run/alv-devhub`. A generated Compose override contains paths, never credential values. Build contexts are limited to `test/e2e/proxy-lab` with an allowlist; image layers receive no JWT material. Compose's environment excludes JWT values, host aliases, legacy URLs, secret-output flags and global signup-client overrides.
+
+An exclusive `alv-proxy-lab-jwt-<uuid>` native Linux volume holds `/run/alv-state`. The child isolates its home and temporary directories there, authenticates preflight through the existing CLI adapter, then runs the requested command with the same policy. Dev Hub key/state survives all dependent scratch operations and renewal. The direct runner alone selects PlatformCLI for scratch creation/export. `CI=true` is consistent during pnpm installation and child execution; CLI auth directories are never reusable cache mounts.
+
+On normal success or failure, child state, volume, copied input and generated override are removed. If teardown retains scratch recovery state, the child is interrupted, or removal fails, the command exits unsuccessfully and reports the owned volume/directory. The host prints the operation report location before starting Compose; `report/operation.json` maps it to its unique volume. `recovery-required` identifies the child directory; absence of `complete` means cleanup is unconfirmed. Recover only that execution's scratches using its retained home/key, then remove its exact volume and report directory. Do not reset shared pools or delete another operation's resources. Force-killing the host can prevent its final cleanup; use the already printed report and remove the owned copied input after recovery. A denied removal must be reported and not retried through another mechanism. The original caller-owned key is never removed by the runner.
+
+### Corporate trust and Windows setup
+
+The runner retains proxy-only networking, proxy authentication, the negative test before trusting the lab CA, and positive curl/Node TLS checks afterward. For an upstream corporate inspector, the host reuses `SSL_CERT_FILE` or the explicitly selected `ALV_E2E_PROXY_LAB_UPSTREAM_CA_FILE`. The proxy mounts that approved bundle read-only and combines it with its existing system roots. Unset the explicit variable to revert selection; no host certificate store is changed. No TLS verification or package-signature checks are disabled.
+
+On the tested user-scope Podman 6.1.1 / podman-compose 1.6.0 setup, the provider interpreted a Windows drive path as a Git URL. [repair-podman-compose-windows.ps1](../scripts/repair-podman-compose-windows.ps1) applies the narrow drive-path check to the existing uv-managed provider, preserves its module in `podman_compose.py.alv1076-backup`, and checks Windows paths/Git URLs in a fresh Python process. It refuses unsupported layouts or conflicting backups. Run it with `-Undo` to restore that exact backup. The installed module is under the directory returned by `uv tool dir`, at `podman-compose\Lib\site-packages\podman_compose.py`. No elevation or engine reinstall was needed. Both actual Compose execution and this fresh-process check verified the repair.
+
+### Observed evidence (#1076)
+
+On **2026-09-07 UTC**, the isolated proxy lab passed the direct TypeScript lifecycle smoke in **1.6 minutes** with container Node **24.15.0**, Salesforce CLI **2.150.6**, pnpm **11.11.0**, using the authorized temporary bootstrap identity. All proxy/TLS negative and positive controls passed. Empty-state JWT, Dev Hub state without a refresh token, renewal after a deliberately stale access token, scratch API access, independent scratch credential import/query, keep-org usability after Dev Hub cleanup and final owned-scratch deletion were observed. Preexisting same-username state remained intact. Host input directories and operation volumes were absent afterward. The final Dev Hub inventory matched the original unrelated scratch; no shared pool was acquired or modified.
+
+Earlier attempts exposed native permission requirements for CLI secret state and two Linux-only test-fixture assumptions. Native volumes resolved the permissions failure. Updating `process.env` in place keeps Node's native Linux temporary-directory lookup synchronized; resolving the CLI symlink before loading its AuthInfo writer fixes the renewal fixture. The earlier scratches were deleted and those failed attempts do not count as acceptance. The successful lab proof uses the existing direct runner, not a host substitute.
+
+The temporary ECA `ALV_1076_JWT_20260907` was disabled after the proof with a scoped validated deployment. A fresh JWT login from empty CLI state was rejected specifically because the app was disabled, and its temporary preauthorization assignment was removed. Disabled app/policy/global metadata and the empty `ALV_1076_JWT_PreAuth` remain inert. Automatic approval review rejected deletion of the bootstrap directory with `blocked by policy`. **Its private key is not proven deleted.** The key/certificate, metadata (including consumer secret) and revocation-check state remain outside the repository and their exact location was reported to the coordinator for manual cleanup; removal was not retried. This is separate from the verified per-execution cleanup. Do not reactivate the temporary app or reuse previous tickets' residue.
+
+This proof does not establish the future dedicated user's least privileges or production CI cutover; those remain later tickets. Production workflows were not changed by this slice.
+
+Final local gates passed: 33 proxy-lab boundary tests, 126 E2E utility tests, `check-types`, `lint`, the Windows-native `pnpm test` equivalent (including 302 script tests and 301 stable VS Code unit tests), the 3 stable integration tests, dependency provenance and all 1,297 registry signatures. The credential-free container smoke also passed after the final mount changes. Integration reported the existing noncredential `alv-ws-*` EPERM cleanup warning.
+
+The first Windows build exposed Linux links written into package-level `node_modules` through the workspace bind mount. The lab now gives each package its own dependency volume as well as the root volume. `pnpm install --force --frozen-lockfile` did not repair the existing host links; automatic approval review rejected removing those generated package dependency directories with `blocked by policy`. They were preserved for manual repair. A fresh Windows validation worktree containing the same complete source changes installed the frozen dependencies and passed `pnpm run build`. The failed original build is recorded as a host dependency limitation, not a passing gate in that checkout. No blocked removal was retried by another mechanism.
+
+The independent Standards and Spec reviews both identified the direct-runner command-selection mismatch (ST-001/SP-001): integration/CI entry points, nonempty `SF_SETUP_SCRATCH` values and JWT-only opt-in must preserve the runner's existing semantics. The correction shares `requiresScratchSetup` with that runner, recognizes its published integration commands/scopes, and derives the container decision from mounted JWT inputs. Unit/VSIX commands remain credential-free. The affected follow-up validation passed 69 lab/direct-runner tests (including 35 lab tests), 126 E2E utility tests and `check-types`; the earlier broad gates were not repeated for unchanged behavior.
