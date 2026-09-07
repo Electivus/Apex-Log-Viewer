@@ -72,6 +72,8 @@ async function cleanupProof({ state, proof, sf, options, user, save }) {
   if (!signups.length && (proof.phase === 'scratch-create' || proof.scratchOrgId)) {
     throw new Error('Scratch signup is not yet observable; retain access and reconcile with cleanup-proof later.');
   }
+  if (signups.some(item => !item.Id) || new Set(signups.map(item => item.Id)).size !== signups.length)
+    throw new Error('Cleanup inventory is incomplete or ambiguous.');
   if (signups.some(item => item.CreatedById !== user.Id))
     throw new Error('Scratch ownership conflict; cleanup stopped.');
   for (const signup of signups) {
@@ -80,9 +82,27 @@ async function cleanupProof({ state, proof, sf, options, user, save }) {
     const active = await query(
       `SELECT Id, OwnerId, ScratchOrgInfoId FROM ActiveScratchOrg WHERE ScratchOrgInfoId = '${signup.Id}'`
     );
-    if (active.some(item => item.OwnerId !== user.Id))
+    if (
+      active.length > 1 ||
+      active.some(item => !item.Id || item.OwnerId !== user.Id || item.ScratchOrgInfoId !== signup.Id)
+    )
       throw new Error('Active scratch owner differs; ask the existing owner to drain it.');
-    for (const scratch of active) await remove('ActiveScratchOrg', scratch.Id);
+    const deletion = proof.scratchDeletionReceipts?.find(
+      item =>
+        item.signupId === signup.Id &&
+        item.ownerId === user.Id &&
+        typeof item.scratchId === 'string' &&
+        item.scratchId.length > 0
+    );
+    if (signup.Status === 'Active' && !active.length && !deletion)
+      throw new Error('Active scratch is not yet observable; retain access and reconcile with cleanup-proof later.');
+    for (const scratch of active) {
+      await remove('ActiveScratchOrg', scratch.Id);
+      // Acknowledged deletion distinguishes a later recovery after a pool error
+      // from a signup whose ActiveScratchOrg row has never been observed.
+      (proof.scratchDeletionReceipts ||= []).push({ signupId: signup.Id, scratchId: scratch.Id, ownerId: user.Id });
+      await save();
+    }
     if ((await query(`SELECT Id FROM ActiveScratchOrg WHERE ScratchOrgInfoId = '${signup.Id}'`)).length) {
       throw new Error('Active scratch deletion is not yet confirmed; keep credentials for recovery.');
     }

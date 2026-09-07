@@ -1,10 +1,8 @@
 'use strict';
 
-const fs = require('node:fs/promises');
 const path = require('node:path');
-const { metadataProject, validatedDeploy, xmlValue, verifyPreauthorization } = require('./devhub-identity-app');
-
-const RUNTIME_PERMISSION_SET = 'ALV_ScratchOrgPoolService';
+const { metadataProject, validatedDeploy, verifyPreauthorization } = require('./devhub-identity-app');
+const { RUNTIME_PERMISSION_SET, readRuntimeSource, verifyRuntimeGrants } = require('./devhub-identity-runtime-grants');
 
 const ADMINISTRATIVE_PERMISSIONS = [
   'PermissionsModifyAllData',
@@ -43,6 +41,7 @@ async function auditRuntime(query, user, { state, sf, target, requireRuntime = f
   }
   const verified = new Set();
   let runtimeAssigned = false;
+  let runtimePermissionSetId;
   const unrecognized = () =>
     new Error('Unrecognized or unverified runtime permission-set assignment; preserve access and reconcile ownership.');
   if (state.userId !== user.Id) throw unrecognized();
@@ -72,6 +71,7 @@ async function auditRuntime(query, user, { state, sf, target, requireRuntime = f
       )
         throw unrecognized();
       permissionSetId = sets[0].Id;
+      runtimePermissionSetId = permissionSetId;
       runtimeAssigned = true;
     } else if (assignment.PermissionSet?.IsOwnedByProfile === true) {
       // Salesforce exposes the user's profile through its own assignment too.
@@ -109,6 +109,7 @@ async function auditRuntime(query, user, { state, sf, target, requireRuntime = f
     verified.add(permissionSetId);
   }
   if (requireRuntime && !runtimeAssigned) throw new Error('Verified runtime permission-set assignment is missing.');
+  if (runtimeAssigned) await verifyRuntimeGrants(sf, target, query, runtimePermissionSetId);
   return assignments;
 }
 
@@ -117,33 +118,14 @@ async function grantRuntime({ values, state, directory, query, user, sf, save })
   const assignments = await auditRuntime(query, user, auditOptions);
   const permissionName = RUNTIME_PERMISSION_SET;
   const project = path.join(directory, 'runtime-permissions');
-  const source = await fs.readFile(
-    path.join(
-      __dirname,
-      '..',
-      'force-app',
-      'main',
-      'default',
-      'permissionsets',
-      `${permissionName}.permissionset-meta.xml`
-    ),
-    'utf8'
-  );
+  const source = await readRuntimeSource();
   await metadataProject(project, { [`permissionsets/${permissionName}.permissionset-meta.xml`]: source });
   state.runtimeDeployment = await validatedDeploy(sf, values['target-org'], project);
   await save();
-  const permissionSets = await query(
-    `SELECT Id, Name, IsOwnedByProfile, ${ADMINISTRATIVE_PERMISSIONS.join(', ')} FROM PermissionSet WHERE Name = '${permissionName}'`
-  );
-  const matching = permissionSets.filter(item => item.Name === permissionName);
-  if (
-    matching.length !== 1 ||
-    matching[0].IsOwnedByProfile !== false ||
-    ADMINISTRATIVE_PERMISSIONS.some(name => matching[0][name] !== false)
-  ) {
-    throw new Error('Runtime permission set has unexpected administrative grants or is not uniquely available.');
-  }
-  const permissionSetId = matching[0].Id;
+  // Verify the deployed set before attaching it to the identity. On reruns the
+  // initial audit above also rejects drift before attempting a deployment.
+  const runtime = await verifyRuntimeGrants(sf, values['target-org'], query);
+  const permissionSetId = runtime.permissionSetId;
   if (!assignments.some(assignment => assignment.PermissionSetId === permissionSetId)) {
     try {
       const result = await sf([
@@ -179,62 +161,9 @@ async function grantRuntime({ values, state, directory, query, user, sf, save })
     }
   }
   await auditRuntime(query, user, { ...auditOptions, requireRuntime: true });
-  const objects = await query(
-    `SELECT SobjectType, PermissionsRead, PermissionsCreate, PermissionsEdit, PermissionsDelete, PermissionsViewAllRecords, PermissionsModifyAllRecords FROM ObjectPermissions WHERE ParentId = '${permissionSetId}'`
-  );
-  const scratch = objects.find(item => item.SobjectType === 'ScratchOrgInfo');
-  if (scratch?.PermissionsCreate !== true) {
-    throw new Error('ScratchOrgInfo creation permission is missing after deployment; runtime proof cannot proceed.');
-  }
-  const permissionMap = {
-    allowRead: 'PermissionsRead',
-    allowCreate: 'PermissionsCreate',
-    allowEdit: 'PermissionsEdit',
-    allowDelete: 'PermissionsDelete',
-    viewAllRecords: 'PermissionsViewAllRecords',
-    modifyAllRecords: 'PermissionsModifyAllRecords'
-  };
-  for (const block of source.matchAll(/<objectPermissions>([\s\S]*?)<\/objectPermissions>/g)) {
-    const name = xmlValue(block[1], 'object');
-    const actual = objects.find(item => item.SobjectType === name);
-    if (
-      !actual ||
-      Object.entries(permissionMap).some(
-        ([xmlName, apiName]) => actual[apiName] !== (xmlValue(block[1], xmlName) === 'true')
-      )
-    ) {
-      throw new Error(`Runtime object grants differ for ${name}; stop before proof.`);
-    }
-  }
-  const fields = await query(
-    `SELECT Field, PermissionsRead, PermissionsEdit FROM FieldPermissions WHERE ParentId = '${permissionSetId}'`
-  );
-  for (const block of source.matchAll(/<fieldPermissions>([\s\S]*?)<\/fieldPermissions>/g)) {
-    const name = xmlValue(block[1], 'field');
-    const actual = fields.find(item => item.Field === name);
-    if (actual?.PermissionsRead !== true || actual?.PermissionsEdit !== true) {
-      throw new Error(`Runtime field access is missing for ${name}; stop before proof.`);
-    }
-  }
-  const classes = await query(
-    "SELECT Id, Name FROM ApexClass WHERE Name IN ('ALVScratchPoolRest','ALVScratchPoolService') AND NamespacePrefix = null",
-    true
-  );
-  const access = await query(
-    `SELECT SetupEntityId FROM SetupEntityAccess WHERE ParentId = '${permissionSetId}' AND SetupEntityType = 'ApexClass'`
-  );
-  if (classes.length !== 2 || classes.some(item => !access.some(grant => grant.SetupEntityId === item.Id))) {
-    throw new Error('Runtime pool Apex class access is missing; stop before proof.');
-  }
-  state.runtime = {
-    permissionSetId,
-    objects,
-    fieldCount: fields.length,
-    classes: classes.map(item => item.Name),
-    verifiedAt: new Date().toISOString()
-  };
+  state.runtime = runtime;
   await save();
-  return { status: 'runtime-ready', permissionSetId, userId: user.Id, objects };
+  return { status: 'runtime-ready', permissionSetId, userId: user.Id, objects: runtime.objects };
 }
 
 async function useSalesforceFallback({ values, state, inventory, user, query, sf, save }) {
