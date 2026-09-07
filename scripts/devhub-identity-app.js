@@ -193,6 +193,59 @@ async function verifyPreauthorization(sf, target, query, app) {
   return permission.Id;
 }
 
+async function verifyProofApp({ sf, query, target, directory, state, mode, user, clientId }) {
+  const app = state.apps?.[mode];
+  const name = `ALV_DevHub_${state.owner.replaceAll('-', '').slice(0, 16)}_${mode === 'temporary' ? 'Test' : 'CI'}`;
+  if (
+    !['temporary', 'permanent'].includes(mode) ||
+    !app?.id ||
+    app.name !== name ||
+    app.marker !== `alv-devhub:${state.owner}:${mode}` ||
+    app.preauthorization !== `${name}_Access` ||
+    app.lifecycle?.mode !== mode
+  )
+    throw new Error('Owned ECA identity is unverified; no proof may start.');
+  const apps = await query(
+    `SELECT Id, DeveloperName, Description, ContactEmail FROM ExternalClientApplication WHERE DeveloperName = '${name}'`,
+    true
+  );
+  if (
+    apps.length !== 1 ||
+    apps[0].Id !== app.id ||
+    apps[0].DeveloperName !== name ||
+    apps[0].Description !== app.marker ||
+    apps[0].ContactEmail !== state.contact
+  )
+    throw new Error('Owned ECA identity differs from current Salesforce inventory; no proof may start.');
+  const permissionSetId = await verifyPreauthorization(sf, target, query, app);
+  const inventory = await sf([
+    'data',
+    'query',
+    '--target-org',
+    target,
+    '--query',
+    `SELECT Id, AssigneeId, PermissionSetId, PermissionSetGroupId FROM PermissionSetAssignment WHERE PermissionSetId = '${permissionSetId}'`
+  ]);
+  if (!Array.isArray(inventory.records) || inventory.done !== true || inventory.totalSize !== inventory.records.length)
+    throw new Error('ECA preauthorization assignment inventory is incomplete.');
+  const assignments = inventory.records;
+  if (
+    assignments.length !== 1 ||
+    !app.assignmentId ||
+    assignments[0].Id !== app.assignmentId ||
+    assignments[0].AssigneeId !== user.Id ||
+    assignments[0].PermissionSetId !== permissionSetId ||
+    assignments[0].PermissionSetGroupId !== null
+  )
+    throw new Error('ECA preauthorization assignment inventory is not exclusively the recorded dedicated user.');
+  // A fresh private project prevents partial retrieval from reusing old files.
+  const metadataDirectory = await fs.mkdtemp(path.join(directory, `app-${mode}`, 'proof-audit-'));
+  const effectiveClientId = await verifyApp(sf, target, metadataDirectory, app);
+  if (effectiveClientId !== clientId)
+    throw new Error('Effective ECA client identity differs from the private JWT inputs.');
+  return { appId: app.id, permissionSetId, assignmentId: assignments[0].Id, metadataDirectory };
+}
+
 async function provisionApp({ values, state, inventory, directory, user, query, sf, save }) {
   const lifecycle = lifecycleInputs(values, true);
   const name = `ALV_DevHub_${state.owner.replaceAll('-', '').slice(0, 16)}_${lifecycle.mode === 'temporary' ? 'Test' : 'CI'}`;
@@ -378,4 +431,13 @@ async function provisionApp({ values, state, inventory, directory, user, query, 
   };
 }
 
-module.exports = { provisionApp, xml, metadataProject, validatedDeploy, xmlValue, verifyApp, verifyPreauthorization };
+module.exports = {
+  provisionApp,
+  xml,
+  metadataProject,
+  validatedDeploy,
+  xmlValue,
+  verifyApp,
+  verifyPreauthorization,
+  verifyProofApp
+};

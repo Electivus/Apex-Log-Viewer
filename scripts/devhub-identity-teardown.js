@@ -4,10 +4,11 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { X509Certificate } = require('node:crypto');
 const { metadataProject, validatedDeploy, xml, xmlValue } = require('./devhub-identity-app');
-const { isolatedEnv } = require('./devhub-identity-proof');
+const { isolatedEnv, assertKnownProofPhases } = require('./devhub-identity-proof');
 const { secureDirectory } = require('./devhub-identity-credentials');
 
 async function revokeApp({ values, state, inventory, directory, user, sf, save }) {
+  assertKnownProofPhases(state);
   const mode = values['credential-mode'];
   const app = state.apps?.[mode];
   if (
@@ -119,6 +120,7 @@ async function revokeApp({ values, state, inventory, directory, user, sf, save }
 }
 
 async function cleanupAppFiles({ values, state, directory, save }) {
+  assertKnownProofPhases(state);
   const mode = values['credential-mode'];
   const app = state.apps?.[mode];
   if (mode !== 'temporary' || !app?.revoked)

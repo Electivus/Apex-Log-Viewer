@@ -5,6 +5,32 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { secureDirectory, readCertificate } = require('./devhub-identity-credentials');
 const { auditRuntime } = require('./devhub-identity-permissions');
+const { verifyProofApp } = require('./devhub-identity-app');
+
+const PROOF_PHASES = new Set([
+  'initializing',
+  'login',
+  'pool-create',
+  'pool-acquire',
+  'scratch-prepare',
+  'scratch-create',
+  'scratch-query',
+  'scratch-export-import',
+  'pool-finalize-heartbeat-release',
+  'pool-maintenance',
+  'cleanup'
+]);
+
+function assertKnownProofPhases(state) {
+  const history = state.proofHistory === undefined ? [] : state.proofHistory;
+  if (
+    !Array.isArray(history) ||
+    [...history, ...(Object.hasOwn(state, 'proof') ? [state.proof] : [])].some(
+      proof => !proof || !PROOF_PHASES.has(proof.phase)
+    )
+  )
+    throw new Error('Unknown or missing proof phase; preserve state and runtime access for operator reconciliation.');
+}
 
 function isolatedEnv(directory) {
   const env = { ...process.env, HOME: directory, USERPROFILE: directory, SF_STATE_FOLDER: '.sf' };
@@ -132,6 +158,7 @@ async function cleanupProof({ state, proof, sf, options, user, save }) {
 }
 
 async function prove({ values, state, directory, user, sf, query, save }) {
+  assertKnownProofPhases(state);
   const app = state.apps?.[values['credential-mode']];
   if (!app?.configured || app.revoked || !state.runtime) {
     throw new Error('Native proof requires a configured owned app and verified runtime grants.');
@@ -164,6 +191,16 @@ async function prove({ values, state, directory, user, sf, query, save }) {
     inputs.loginUrl !== 'https://login.salesforce.com'
   )
     throw new Error('JWT inputs do not match the owned identity.');
+  await verifyProofApp({
+    sf,
+    query,
+    target: values['target-org'],
+    directory,
+    state,
+    mode: values['credential-mode'],
+    user,
+    clientId: inputs.clientId
+  });
   const proof = {
     id: randomUUID(),
     appMode: app.lifecycle.mode,
@@ -463,6 +500,9 @@ async function prove({ values, state, directory, user, sf, query, save }) {
 }
 
 async function recoverProof({ state, directory, user, sf, save }) {
+  // Validate every ledger entry before changing an earlier entry or accepting a
+  // persisted cleanup flag. A future/corrupt phase must not release credentials.
+  assertKnownProofPhases(state);
   const proofs = [...(state.proofHistory || []), ...(state.proof ? [state.proof] : [])];
   if (!proofs.length) throw new Error('No owned proof is available for cleanup.');
   for (const proof of proofs) {
@@ -510,4 +550,4 @@ async function recoverProof({ state, directory, user, sf, save }) {
   };
 }
 
-module.exports = { prove, recoverProof, isolatedEnv };
+module.exports = { prove, recoverProof, isolatedEnv, assertKnownProofPhases };

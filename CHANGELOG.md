@@ -19,6 +19,7 @@
 - Dev Hub: reject extra grants on the ECA preauthorization-only set and recover interrupted pre-login proofs without inferring cleanup after an uncertain remote write.
 - Dev Hub: reject unrecognized runtime permission-set assignments before setup, proof or fallback while preserving the verified minimum-profile and owned ECA assignments.
 - Dev Hub: revalidate the recognized runtime set's complete effective grants before readiness/proof, and keep Active scratch signups pending until their scratch is observable or an owned deletion is confirmed.
+- Dev Hub: verify current ECA policies and the complete sole-user preauthorization inventory before each proof; reject unknown recovery phases before cleanup, proof reuse or credential revocation.
 
 - Scratch Org Pool: authenticate maintenance and consumers through the shared Dev Hub JWT policy, preserve PlatformCLI scratch authorization, renew lease calls after expired sessions, and validate an isolated pool with an independent runner. Production workflow cutover remains a separate step on the JWT effort branch.
 - IntelliJ/TypeScript: add a versioned language-neutral conformance corpus that runs through both public runtime facades with real temporary workspaces and strict process/HTTP doubles.

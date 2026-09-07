@@ -84,13 +84,15 @@ function discoveryFixture() {
     if (namedPermission) result = result.filter(item => item.Name === namedPermission[1]);
     const profilePermission = object === 'PermissionSet' && soql.match(/WHERE ProfileId = '([^']+)'/);
     if (profilePermission) result = result.filter(item => item.ProfileId === profilePermission[1]);
+    const assignedSet = object === 'PermissionSetAssignment' && soql.match(/WHERE PermissionSetId = '([^']+)'/);
+    if (assignedSet) result = result.filter(item => item.PermissionSetId === assignedSet[1]);
     if (object === 'PermissionSetAssignment' && soql.includes('PermissionSet.')) {
       result = result.map(item => ({
         ...item,
         PermissionSet: item.PermissionSet || records.PermissionSet.find(set => set.Id === item.PermissionSetId)
       }));
     }
-    return { records: result };
+    return { records: result, done: true, totalSize: result.length };
   };
   return { records, sf };
 }
@@ -927,6 +929,193 @@ test('app setup validates before deployment, preauthorizes only the owned user, 
   assert.equal(fixture.records.PermissionSetAssignment.length, 1);
 });
 
+test('native proof rejects ECA policy drift after provisioning before JWT login or resource mutation', async t => {
+  const { fixture, directory, first } = await preparedAppFixture(t);
+  const stateFile = path.join(directory, 'identity.json');
+  const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+  addRuntimeAssignment(fixture, state);
+  writeFileSync(stateFile, JSON.stringify(state));
+  const persisted = readFileSync(stateFile);
+  const invoke = fixture.sf;
+  const files = {
+    global: `extlClntAppGlobalOauthSets/${first.name}_global.ecaGlblOauth-meta.xml`,
+    oauth: `extlClntAppOauthSettings/${first.name}_oauth.ecaOauth-meta.xml`,
+    policy: `extlClntAppOauthPolicies/${first.name}_oauthPlcy.ecaOauthPlcy-meta.xml`,
+    app: `extlClntAppPolicies/${first.name}_plcy.ecaPlcy-meta.xml`
+  };
+  const privateInputs = readFileSync(state.apps.temporary.inputsFile);
+  const privateKey = readFileSync(state.apps.temporary.privateKeyFile);
+  for (const [component, field, replacement] of [
+    ['policy', 'isClientCredentialsFlowEnabled', 'true'],
+    ['policy', 'isGuestCodeCredFlowEnabled', null],
+    ['policy', 'isTokenExchangeFlowEnabled', 'true'],
+    ['global', 'isPkceRequired', 'false'],
+    ['global', 'isSecretRequiredForRefreshToken', null],
+    ['global', 'isConsumerSecretOptional', 'true'],
+    ['global', 'isIntrospectAllTokens', 'true'],
+    ['global', 'shouldRotateConsumerKey', 'true'],
+    ['global', 'shouldRotateConsumerSecret', 'true'],
+    ['global', 'callbackUrl', 'https://another.example.test'],
+    ['oauth', 'commaSeparatedOauthScopes', 'Api,RefreshToken,Full'],
+    ['policy', 'ipRelaxationPolicyType', 'Relax'],
+    ['policy', 'refreshTokenPolicyType', 'Infinite'],
+    ['policy', 'sessionTimeoutInMinutes', '60'],
+    ['policy', 'permittedUsersPolicyType', 'AllUsersMaySelfAuthorize'],
+    ['policy', 'commaSeparatedPermissionSet', 'AnotherSet'],
+    ['app', 'isEnabled', 'false'],
+    ['app', 'isOauthPluginEnabled', 'false'],
+    ['global', 'consumerKey', 'different-client-key'],
+    ['global', 'certificate', 'invalid-certificate'],
+    ['retrieval', 'partial', null],
+    ['retrieval', 'no-files', null],
+    ['retrieval', 'failure', null]
+  ]) {
+    await t.test(`${component}:${field}`, async () => {
+      writeFileSync(stateFile, persisted);
+      let loginOrMutations = 0;
+      fixture.sf = async (args, options) => {
+        if (options?.env || ['create', 'update', 'delete', 'deploy'].includes(args[1])) {
+          loginOrMutations++;
+          throw new Error('Changed ECA policy reached login or mutation');
+        }
+        const retrieval = args[0] === 'project' && args[1] === 'retrieve';
+        if (retrieval && component === 'retrieval' && field !== 'partial') return { success: field === 'no-files' };
+        const result = await invoke(args, options);
+        if (retrieval) {
+          if (component === 'retrieval') {
+            rmSync(path.join(options.cwd, 'force-app', 'main', 'default', files.oauth));
+          } else {
+            const file = path.join(options.cwd, 'force-app', 'main', 'default', files[component]);
+            writeFileSync(
+              file,
+              readFileSync(file, 'utf8').replace(
+                new RegExp(`<${field}>[\\s\\S]*?</${field}>`),
+                replacement === null ? '' : `<${field}>${replacement}</${field}>`
+              )
+            );
+          }
+        }
+        return result;
+      };
+      await assert.rejects(
+        main(
+          [
+            'prove',
+            ...baseArgs.slice(1),
+            '--state-dir',
+            directory,
+            '--credential-mode',
+            'temporary',
+            '--pool-mode',
+            'definition'
+          ],
+          fixture
+        ),
+        /Effective ECA|active ECA certificate|metadata retrieval failed|metadata inventory is incomplete|ENOENT/
+      );
+      assert.equal(loginOrMutations, 0);
+      assert.ok(readFileSync(stateFile).equals(persisted), 'Rejected app drift preserves proof and identity state');
+      assert.ok(readFileSync(state.apps.temporary.inputsFile).equals(privateInputs), 'Private inputs are preserved');
+      assert.ok(readFileSync(state.apps.temporary.privateKeyFile).equals(privateKey), 'Private key is preserved');
+    });
+  }
+});
+
+test('native proof requires a complete sole-user ECA preauthorization inventory', async t => {
+  const { fixture, directory } = await preparedAppFixture(t);
+  const stateFile = path.join(directory, 'identity.json');
+  const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+  addRuntimeAssignment(fixture, state);
+  writeFileSync(stateFile, JSON.stringify(state));
+  const persisted = readFileSync(stateFile);
+  const assignment = structuredClone(fixture.records.PermissionSetAssignment[0]);
+  const invoke = fixture.sf;
+  for (const scenario of [
+    'another-user',
+    'missing',
+    'duplicate',
+    'wrong-set',
+    'wrong-id',
+    'group',
+    'missing-assignee',
+    'missing-records',
+    'incomplete',
+    'missing-completion',
+    'missing-total',
+    'truncated',
+    'app-missing',
+    'app-duplicate',
+    'app-id',
+    'app-name',
+    'app-owner',
+    'app-contact',
+    'app-incomplete'
+  ]) {
+    await t.test(scenario, async () => {
+      writeFileSync(stateFile, persisted);
+      let loginOrMutations = 0;
+      fixture.sf = async (args, options) => {
+        if (options?.env || ['create', 'update', 'delete', 'deploy'].includes(args[1])) {
+          loginOrMutations++;
+          throw new Error('Unverified ECA recipients reached login or mutation');
+        }
+        const soql = args.includes('--query') ? args[args.indexOf('--query') + 1] : '';
+        if (scenario.startsWith('app-') && soql.includes('FROM ExternalClientApplication WHERE DeveloperName =')) {
+          const records = structuredClone(fixture.records.ExternalClientApplication);
+          if (scenario === 'app-missing') records.length = 0;
+          if (scenario === 'app-duplicate') records.push({ ...records[0] });
+          if (scenario === 'app-id') records[0].Id = 'another-app';
+          if (scenario === 'app-name') records[0].DeveloperName = 'AnotherApp';
+          if (scenario === 'app-owner') records[0].Description = 'another-owner';
+          if (scenario === 'app-contact') delete records[0].ContactEmail;
+          return { records, done: scenario !== 'app-incomplete' };
+        }
+        if (soql.includes("FROM PermissionSetAssignment WHERE PermissionSetId = '0PSaccess'")) {
+          const records = [{ ...assignment }];
+          if (scenario === 'another-user')
+            records.push({ ...assignment, Id: 'other-assignment', AssigneeId: 'another-user' });
+          if (scenario === 'missing') records.length = 0;
+          if (scenario === 'duplicate') records.push({ ...assignment });
+          if (scenario === 'wrong-set') records[0].PermissionSetId = 'other-set';
+          if (scenario === 'wrong-id') records[0].Id = 'other-assignment';
+          if (scenario === 'group') records[0].PermissionSetGroupId = 'other-group';
+          if (scenario === 'missing-assignee') delete records[0].AssigneeId;
+          if (scenario === 'missing-records') return {};
+          const result = { records, done: scenario !== 'incomplete', totalSize: records.length };
+          if (scenario === 'missing-completion') delete result.done;
+          if (scenario === 'missing-total') delete result.totalSize;
+          if (scenario === 'truncated') result.totalSize = 2;
+          return result;
+        }
+        return invoke(args, options);
+      };
+      await assert.rejects(
+        main(
+          [
+            'prove',
+            ...baseArgs.slice(1),
+            '--state-dir',
+            directory,
+            '--credential-mode',
+            'temporary',
+            '--pool-mode',
+            'definition'
+          ],
+          fixture
+        ),
+        /ECA preauthorization assignment|Owned ECA identity|Incomplete Salesforce inventory/
+      );
+      assert.equal(loginOrMutations, 0);
+      assert.ok(readFileSync(stateFile).equals(persisted), 'Rejected ECA inventory preserves identity state');
+      assert.deepEqual(
+        fixture.records.PermissionSetAssignment[0],
+        assignment,
+        'Do not alter recipients to pass an audit'
+      );
+    });
+  }
+});
+
 test('app setup rejects every extra preauthorization grant before assignment and on a configured rerun', async t => {
   const { fixture, args, deployments } = await preparedAppFixture(t);
   const initialDeployments = deployments();
@@ -1121,6 +1310,111 @@ test('app revocation disables only the owned ECA and confirms the effective poli
   assert.doesNotMatch(JSON.stringify(result), /hidden-token/);
 });
 
+test('cleanup-proof rejects an unknown persisted phase even when authenticated inventories are empty', async t => {
+  const { fixture, directory } = await preparedAppFixture(t);
+  const stateFile = path.join(directory, 'identity.json');
+  const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+  const id = require('node:crypto').randomUUID();
+  state.proof = {
+    id,
+    appMode: 'temporary',
+    phase: 'unknown-after-write',
+    remoteResourcesAttempted: true,
+    directory: path.join(await realpath(directory), `proof-${id}`),
+    poolKey: `alv-identity-${id}`,
+    slotKey: `alv-identity-${id}-01`
+  };
+  writeFileSync(stateFile, JSON.stringify(state));
+  const persisted = readFileSync(stateFile);
+  const invoke = fixture.sf;
+  let reconciliationCalls = 0;
+  fixture.sf = async (args, options) => {
+    if (!options?.env) return invoke(args, options);
+    reconciliationCalls++;
+    assert.equal(args.slice(0, 2).join(' '), 'data query');
+    return { records: [], done: true };
+  };
+  await assert.rejects(
+    main(['cleanup-proof', ...baseArgs.slice(1), '--state-dir', directory], fixture),
+    /Unknown or missing proof phase/
+  );
+  assert.equal(reconciliationCalls, 0, 'Unknown phases must stop before authenticated reconciliation');
+  assert.ok(readFileSync(stateFile).equals(persisted), 'Rejected proof phase preserves identity state');
+});
+
+test('unknown current and historical phases cannot release proof, revocation or private-cleanup gates', async t => {
+  const { fixture, directory } = await preparedAppFixture(t);
+  const stateFile = path.join(directory, 'identity.json');
+  const baseline = JSON.parse(readFileSync(stateFile, 'utf8'));
+  addRuntimeAssignment(fixture, baseline);
+  const id = require('node:crypto').randomUUID();
+  const proof = {
+    id,
+    appMode: 'temporary',
+    phase: 'cleanup',
+    remoteResourcesAttempted: true,
+    directory: path.join(await realpath(directory), `proof-${id}`),
+    poolKey: `alv-identity-${id}`,
+    slotKey: `alv-identity-${id}-01`,
+    cleanup: { scratchDeleted: true, poolDeleted: true, localDirectoryDeleted: true }
+  };
+  const privateInputs = readFileSync(baseline.apps.temporary.inputsFile);
+  const privateKey = readFileSync(baseline.apps.temporary.privateKeyFile);
+  const invoke = fixture.sf;
+  let sideEffects = 0;
+  fixture.sf = async (args, options) => {
+    if (options?.env || args[0] === 'project' || ['create', 'update', 'delete'].includes(args[1])) {
+      sideEffects++;
+      throw new Error('Unknown phase reached a forbidden operation');
+    }
+    return invoke(args, options);
+  };
+  for (const [label, phase, historical] of [
+    ['unknown', 'unknown-after-write', false],
+    ['absent', undefined, false],
+    ['null', null, false],
+    ['number', 7, false],
+    ['object', {}, false],
+    ['historical', 'future-workflow-phase', true]
+  ]) {
+    await t.test(label, async () => {
+      for (const command of ['cleanup-proof', 'prove', 'revoke-app', 'cleanup-app-files']) {
+        const state = structuredClone(baseline);
+        const unknown = { ...proof, phase };
+        state.proof = historical ? { ...proof } : unknown;
+        if (historical)
+          state.proofHistory = [
+            { ...proof, phase: 'login', remoteResourcesAttempted: false, cleanup: undefined },
+            unknown
+          ];
+        state.apps.temporary.revoked = command === 'cleanup-app-files';
+        writeFileSync(stateFile, JSON.stringify(state));
+        const persisted = readFileSync(stateFile);
+        await assert.rejects(
+          main(
+            [
+              command,
+              ...baseArgs.slice(1),
+              '--state-dir',
+              directory,
+              '--credential-mode',
+              'temporary',
+              '--pool-mode',
+              'definition'
+            ],
+            fixture
+          ),
+          /Unknown or missing proof phase/
+        );
+        assert.equal(sideEffects, 0);
+        assert.ok(readFileSync(stateFile).equals(persisted), 'Validate all phases before changing any ledger entry');
+        assert.ok(readFileSync(state.apps.temporary.inputsFile).equals(privateInputs), 'Private inputs are preserved');
+        assert.ok(readFileSync(state.apps.temporary.privateKeyFile).equals(privateKey), 'Private key is preserved');
+      }
+    });
+  }
+});
+
 test('cleanup-proof recovers persisted pre-resource interruptions without directories or authentication', async t => {
   const { fixture, directory } = await preparedAppFixture(t);
   const stateFile = path.join(directory, 'identity.json');
@@ -1191,8 +1485,11 @@ test('proof initialization failures enter recovery before any remote operation',
   const promises = require('node:fs/promises');
   const mkdir = promises.mkdir;
   const mocked = t.mock.method(promises, 'mkdir', async (target, options) => {
-    if (path.basename(target).startsWith('proof-'))
+    const proof = JSON.parse(readFileSync(stateFile, 'utf8')).proof;
+    if (target === proof?.directory) {
+      assert.equal(proof.phase, 'initializing', 'Inject failure only after proof initialization intent is saved');
       throw Object.assign(new Error('Directory unavailable'), { code: 'EACCES' });
+    }
     return mkdir(target, options);
   });
   await assert.rejects(
@@ -1225,7 +1522,6 @@ test('cleanup-proof retains uncertain, attempted, incomplete and conflicting rem
   const invoke = fixture.sf;
   for (const [details, scenario, expected] of [
     [{ phase: 'initializing' }, 'missing-auth', /Salesforce CLI operation failed/],
-    [{ phase: 'unknown', remoteResourcesAttempted: false }, 'missing-auth', /Salesforce CLI operation failed/],
     [{ phase: 'login', remoteResourcesAttempted: true }, 'missing-auth', /Salesforce CLI operation failed/],
     [{ phase: 'pool-create' }, 'missing-auth', /Salesforce CLI operation failed/],
     [
