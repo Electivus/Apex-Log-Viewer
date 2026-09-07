@@ -23,6 +23,7 @@ function xml(type, fields) {
 async function metadataProject(directory, files) {
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   await secureDirectory(directory);
+  await fs.mkdir(path.join(directory, 'force-app'), { recursive: true, mode: 0o700 });
   await fs.writeFile(
     path.join(directory, 'sfdx-project.json'),
     JSON.stringify({

@@ -412,6 +412,13 @@ async function preparedAppFixture(t) {
       return { success: true, status: 'Succeeded', checkOnly: false, id: '0Afdeploy' };
     }
     assert.equal(args[1], 'retrieve');
+    const project = JSON.parse(readFileSync(path.join(options.cwd, 'sfdx-project.json'), 'utf8'));
+    for (const entry of project.packageDirectories) {
+      assert.ok(
+        existsSync(path.join(options.cwd, entry.path)),
+        'Salesforce CLI requires every package directory before retrieval'
+      );
+    }
     const files = {
       [`extlClntAppGlobalOauthSets/${app.name}_global.ecaGlblOauth-meta.xml`]: `<ExtlClntAppGlobalOauthSettings><consumerKey>fixture-client-key</consumerKey><consumerSecret>fixture-consumer-secret</consumerSecret><certificate>${readFileSync(certificate.certificateFile, 'utf8')}</certificate></ExtlClntAppGlobalOauthSettings>`,
       [`extlClntAppOauthSettings/${app.name}_oauth.ecaOauth-meta.xml`]:
@@ -624,8 +631,11 @@ for (const scenario of ['success', 'import-failure', 'redacted-export', 'cleanup
       if (args[0] === 'data' && args[1] === 'query') {
         const soql = args[args.indexOf('--query') + 1];
         const target = args[args.indexOf('--target-org') + 1];
-        if (soql.includes(' FROM Organization'))
-          return { records: [{ Id: target === 'alv-runtime' ? state.org : '00D000000000003AAA' }] };
+        if (soql.includes(' FROM Organization')) {
+          if (target === 'alv-runtime')
+            throw Object.assign(new Error("sObject type 'Organization' is not supported."), { code: 'INVALID_TYPE' });
+          return { records: [{ Id: '00D000000000003AAA' }] };
+        }
         if (soql.includes(' FROM User ')) return { records: fixture.records.User };
         if (soql.includes(' FROM ScratchOrgInfo ')) {
           signupObserved = true;

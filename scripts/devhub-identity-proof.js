@@ -216,11 +216,13 @@ async function prove({ values, state, directory, user, sf, query, save }) {
     );
     if (login.username !== user.Username || login.orgId !== state.org)
       throw new Error('JWT did not confirm the dedicated identity and intended org.');
-    const org = await runtimeQuery('SELECT Id FROM Organization');
+    // The minimum Integration profile cannot query Organization. The fresh JWT
+    // result binds the org, and the globally unique User ID binds the API session.
     const runtimeUser = await runtimeQuery(`SELECT Id, Username FROM User WHERE Username = '${user.Username}'`);
-    if (org.length !== 1 || org[0].Id !== state.org || runtimeUser.length !== 1 || runtimeUser[0].Id !== user.Id) {
+    if (runtimeUser.length !== 1 || runtimeUser[0].Id !== user.Id) {
       throw new Error('Runtime API did not confirm the dedicated identity and intended org.');
     }
+    proof.identity = { orgId: login.orgId, userId: user.Id, verifiedAt: new Date().toISOString() };
     loggedIn = true;
     await phase('pool-create');
     if ((await runtimeQuery(`SELECT Id FROM ALV_ScratchOrgPool__c WHERE PoolKey__c = '${proof.poolKey}'`)).length)
