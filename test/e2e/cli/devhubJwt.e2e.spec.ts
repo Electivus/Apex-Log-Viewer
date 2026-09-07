@@ -38,7 +38,7 @@ for (const runner of ['typescript', 'javascript'] as const) {
     try {
       await mkdir(primaryHome);
       await mkdir(independentHome);
-      process.env = {
+      Object.assign(process.env, {
         ...originalEnv,
         ...(process.platform === 'win32' ? { USERPROFILE: primaryHome } : { HOME: primaryHome }),
         // Contain all runner-owned temporary state inside this smoke's root.
@@ -54,7 +54,7 @@ for (const runner of ['typescript', 'javascript'] as const) {
         SF_DISABLE_TELEMETRY: 'true',
         SF_AUTOUPDATE_DISABLE: 'true',
         ALV_E2E_TIMING: '0'
-      };
+      });
       for (const name of [
         'SF_DEVHUB_ALIAS',
         'SF_DEVHUB_AUTH_URL',
@@ -125,7 +125,8 @@ for (const runner of ['typescript', 'javascript'] as const) {
         staleTokenFixture,
         `
         import { createRequire } from 'node:module';
-        const require = createRequire(process.argv[1]);
+        import { realpathSync } from 'node:fs';
+        const require = createRequire(realpathSync(process.argv[1]));
         const { AuthInfo } = require('@salesforce/core');
         const auth = await AuthInfo.create({ username: process.env.ALV_JWT_SMOKE_USERNAME });
         await auth.save({ accessToken: 'alv-intentionally-stale-access-token' });
@@ -234,7 +235,10 @@ for (const runner of ['typescript', 'javascript'] as const) {
         } catch {
           remoteCleanupFailed = true;
         } finally {
-          process.env = originalEnv;
+          for (const name of Object.keys(process.env)) {
+            if (!(name in originalEnv)) delete process.env[name];
+          }
+          Object.assign(process.env, originalEnv);
         }
         if (remoteCleanupFailed) {
           throw new Error(

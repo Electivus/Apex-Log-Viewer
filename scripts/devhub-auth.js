@@ -107,7 +107,7 @@ function scratchSignupEnv(env = process.env) {
   });
 }
 
-function validateJwt(config, files) {
+function validateDevHubJwt(config, files = fs) {
   if (!/^[A-Za-z0-9._-]+$/.test(config.clientId) || /redacted|placeholder/i.test(config.clientId)) {
     throw new Error('Invalid SF_DEVHUB_CLIENT_ID. Supply the ECA consumer key, not a redaction placeholder.');
   }
@@ -167,7 +167,7 @@ async function authenticateDevHub(config, runJson, files = fs) {
     };
   }
 
-  validateJwt(config, files);
+  validateDevHubJwt(config, files);
 
   const temporaryRoot = path.resolve(tmpdir());
   let directory;
@@ -316,6 +316,7 @@ async function authenticateDevHub(config, runJson, files = fs) {
 }
 
 module.exports = {
+  validateDevHubJwt,
   hasDevHubJwtConfig,
   isUsableSfdxAuthUrl,
   safeSfFailureMessage,

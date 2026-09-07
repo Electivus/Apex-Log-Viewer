@@ -3,6 +3,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { EventEmitter } = require('node:events');
+const { generateKeyPairSync } = require('node:crypto');
+const yaml = require('yaml');
 
 const {
   ensureHostVolumeMountpoints,
@@ -11,6 +15,446 @@ const {
   resolveComposeArgs,
   resolveProxyLabEnv
 } = require('./run-e2e-proxy-lab');
+const { main } = require('./run-e2e-proxy-lab');
+
+async function fakeEngine(_file, args) {
+  assert.equal(args[0], 'volume');
+  return { stdout: '' };
+}
+
+function reportCleanExit(args) {
+  const overrideFile = args[args.lastIndexOf('-f') + 1];
+  const config = yaml.parse(fs.readFileSync(overrideFile, 'utf8'));
+  const report = config.services.runner?.volumes.find(mount => mount.target === '/run/alv-report');
+  if (report) fs.writeFileSync(path.join(report.source, 'complete'), 'clean');
+  return config;
+}
+
+test('real-org lab entry point rejects missing and partial JWT before starting Compose', () => {
+  for (const jwt of [{}, { SF_DEVHUB_USERNAME: 'test@example.invalid' }]) {
+    const env = { ...process.env, CI: 'false', DOCKER: 'alv-compose-must-not-start', ...jwt };
+    for (const name of [
+      'SF_DEVHUB_CLIENT_ID',
+      'SF_DEVHUB_LOGIN_URL',
+      'SF_DEVHUB_PRIVATE_KEY',
+      'SF_DEVHUB_PRIVATE_KEY_FILE'
+    ]) {
+      delete env[name];
+    }
+    env.SF_DEVHUB_ALIAS = 'CachedHostAlias';
+    env.SF_DEVHUB_AUTH_URL = 'legacy-auth-must-not-be-used';
+    const result = spawnSync(
+      process.execPath,
+      [path.join(__dirname, 'run-e2e-proxy-lab.js'), '--', 'node', 'scripts/run-playwright-cli-e2e.js'],
+      { env, encoding: 'utf8' }
+    );
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Dev Hub JWT configuration/);
+    assert.doesNotMatch(result.stderr, /Failed to start|ENOENT|legacy-auth-must-not-be-used/);
+  }
+});
+
+test('lab transports validated JWT in an owned read-only mount and cleans it after either Compose result', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' }
+  });
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-lab-caller-'));
+  const sourceKey = path.join(source, 'caller.pem');
+  fs.writeFileSync(sourceKey, privateKey);
+  try {
+    for (const exitCode of [0, 19]) {
+      let secretDirectory;
+      const engineCalls = [];
+      const result = await main({
+        execFileAsync: async (...args) => {
+          engineCalls.push(args[1]);
+          return fakeEngine(...args);
+        },
+        argv: ['--', 'node', 'scripts/run-playwright-cli-e2e.js'],
+        env: {
+          ...process.env,
+          SF_DEVHUB_CLIENT_ID: 'TestEca',
+          SF_DEVHUB_USERNAME: 'test@example.invalid',
+          SF_DEVHUB_LOGIN_URL: 'https://login.salesforce.com',
+          SF_DEVHUB_PRIVATE_KEY_FILE: sourceKey,
+          SF_DEVHUB_PRIVATE_KEY: '',
+          SF_DEVHUB_AUTH_URL: 'must-not-propagate',
+          SF_SCRATCH_SIGNUP_CONNECTED_APP: 'PlatformCLI',
+          SF_TEMP_SHOW_SECRETS: 'true'
+        },
+        spawnImpl: (_command, args, options) => {
+          const overrideFile = args[args.lastIndexOf('-f') + 1];
+          const volumes = yaml.parse(fs.readFileSync(overrideFile, 'utf8')).services.runner.volumes;
+          const state = volumes.find(value => value.target === '/run/alv-state');
+          assert.equal(state.type, 'volume', 'CLI secret state needs native Linux permissions');
+          reportCleanExit(args);
+          const mount = volumes.find(value => value.target === '/run/alv-devhub');
+          assert.equal(mount.read_only, true, 'the input mount must be read-only');
+          secretDirectory = mount.source;
+          assert.equal(path.resolve(secretDirectory).startsWith(path.resolve(__dirname, '..') + path.sep), false);
+          assert.equal(fs.existsSync(path.join(secretDirectory, 'private-key.pem')), true);
+          assert.equal(fs.readFileSync(path.join(secretDirectory, 'private-key.pem'), 'utf8') === privateKey, true);
+          for (const name of [
+            'SF_DEVHUB_PRIVATE_KEY',
+            'SF_DEVHUB_PRIVATE_KEY_FILE',
+            'SF_DEVHUB_CLIENT_ID',
+            'SF_DEVHUB_USERNAME',
+            'SF_DEVHUB_AUTH_URL',
+            'SF_TEMP_SHOW_SECRETS',
+            'SF_SCRATCH_SIGNUP_CONNECTED_APP'
+          ]) {
+            assert.equal(options.env[name], undefined, `${name} must not enter Compose`);
+          }
+          assert.equal(
+            args.some(value => value.includes(privateKey)),
+            false
+          );
+          const child = new EventEmitter();
+          process.nextTick(() => child.emit('close', exitCode, null));
+          return child;
+        }
+      });
+      assert.equal(result, exitCode);
+      assert.equal(fs.existsSync(secretDirectory), false);
+      assert.equal(fs.existsSync(sourceKey), true, 'caller-owned material survives');
+      assert.equal(engineCalls.length, 2);
+      assert.deepEqual(engineCalls[1], ['volume', 'rm', engineCalls[0][2]]);
+    }
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+  }
+});
+
+test('interrupted runner reports its owned volume and removes input without destroying recovery state', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' }
+  });
+  const engineCalls = [];
+  let operation;
+  let stateVolume;
+  try {
+    await assert.rejects(
+      () =>
+        main({
+          argv: [],
+          env: {
+            SF_DEVHUB_CLIENT_ID: 'TestEca',
+            SF_DEVHUB_USERNAME: 'test@example.invalid',
+            SF_DEVHUB_LOGIN_URL: 'https://login.salesforce.com',
+            SF_DEVHUB_PRIVATE_KEY: privateKey
+          },
+          execFileAsync: async (...args) => {
+            engineCalls.push(args[1]);
+            return fakeEngine(...args);
+          },
+          spawnImpl: (_file, args) => {
+            const config = JSON.parse(fs.readFileSync(args[args.lastIndexOf('-f') + 1], 'utf8'));
+            operation = path.dirname(
+              config.services.runner.volumes.find(mount => mount.target === '/run/alv-devhub').source
+            );
+            stateVolume = config.volumes.alv_jwt_state.name;
+            const child = new EventEmitter();
+            process.nextTick(() => child.emit('close', null, 'SIGTERM'));
+            return child;
+          }
+        }),
+      error => error.message.includes(stateVolume) && error.message.includes(path.join(operation, 'report'))
+    );
+    assert.equal(engineCalls.length, 1, 'retained volume must not be removed');
+    assert.equal(fs.existsSync(path.join(operation, 'input')), false);
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(operation, 'report', 'operation.json'), 'utf8')).stateVolume,
+      stateVolume
+    );
+  } finally {
+    if (operation) fs.rmSync(operation, { recursive: true, force: true });
+  }
+});
+
+test('child validates the same strict policy and keeps a credential-free non-org smoke usable', async () => {
+  const { main: childMain } = require('./run-e2e-proxy-lab-child');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-lab-child-test-'));
+  try {
+    await assert.rejects(
+      () =>
+        childMain({
+          argv: ['--validate', 'node', 'scripts/run-playwright-cli-e2e.js'],
+          inputDirectory: root,
+          env: { CI: 'false', SF_DEVHUB_ALIAS: 'CachedAlias', SF_DEVHUB_AUTH_URL: 'legacy-value' }
+        }),
+      /Dev Hub JWT configuration/
+    );
+    fs.writeFileSync(path.join(root, 'devhub.json'), JSON.stringify({ SF_DEVHUB_USERNAME: 'test@example.invalid' }));
+    await assert.rejects(
+      () => childMain({ argv: ['--validate', 'pnpm', 'run', 'test:e2e:cli'], inputDirectory: root, env: {} }),
+      /Incomplete Dev Hub JWT configuration/
+    );
+    let spawned = false;
+    const code = await childMain({
+      argv: ['node', '-e', 'process.exit(0)'],
+      inputDirectory: root,
+      env: {
+        CI: 'false',
+        SF_DEVHUB_PRIVATE_KEY: 'unused-sensitive-value',
+        SF_DEVHUB_ALIAS: 'CachedAlias',
+        SF_TEMP_SHOW_SECRETS: 'true'
+      },
+      spawnImpl: (_command, _args, options) => {
+        spawned = true;
+        assert.equal(options.env.SF_DEVHUB_PRIVATE_KEY, undefined);
+        assert.equal(options.env.SF_DEVHUB_ALIAS, undefined);
+        assert.equal(options.env.SF_TEMP_SHOW_SECRETS, undefined);
+        assert.equal(options.env.CI, 'true');
+        const child = new EventEmitter();
+        process.nextTick(() => child.emit('close', 0));
+        return child;
+      }
+    });
+    assert.equal(code, 0);
+    assert.equal(spawned, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('JWT preflight and child retain separate Dev Hub and scratch clients with owned state until child exit', async () => {
+  const { main: childMain } = require('./run-e2e-proxy-lab-child');
+  const { privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' }
+  });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-lab-child-test-'));
+  fs.writeFileSync(
+    path.join(root, 'devhub.json'),
+    JSON.stringify({
+      SF_DEVHUB_CLIENT_ID: 'TestEca',
+      SF_DEVHUB_USERNAME: 'test@example.invalid',
+      SF_DEVHUB_LOGIN_URL: 'https://login.salesforce.com'
+    })
+  );
+  fs.writeFileSync(path.join(root, 'private-key.pem'), privateKey);
+  try {
+    for (const exitCode of [0, 23]) {
+      let ownedHome;
+      let authenticated = false;
+      const code = await childMain({
+        argv: ['node', 'scripts/run-playwright-cli-e2e.js'],
+        inputDirectory: root,
+        stateDirectory: root,
+        reportDirectory: root,
+        env: {
+          ...process.env,
+          CI: 'false',
+          SF_DEVHUB_ALIAS: 'HostAlias',
+          SF_SCRATCH_SIGNUP_CONNECTED_APP: 'PlatformCLI',
+          SF_SCRATCH_SIGNUP_CALLBACK_URL: 'http://localhost:1717/OauthRedirect',
+          SF_TEMP_SHOW_SECRETS: 'true'
+        },
+        execFileAsync: async (_file, args, options) => {
+          assert.deepEqual(args.slice(0, 3), ['org', 'login', 'jwt']);
+          assert.equal(args[args.indexOf('--client-id') + 1], 'TestEca');
+          assert.equal(options.env.SF_SCRATCH_SIGNUP_CONNECTED_APP, undefined);
+          assert.equal(options.env.SF_TEMP_SHOW_SECRETS, undefined);
+          authenticated = true;
+          return { stdout: JSON.stringify({ status: 0, result: { username: 'test@example.invalid' } }) };
+        },
+        spawnImpl: (_file, _args, options) => {
+          assert.equal(authenticated, true);
+          const config = require('./devhub-auth').resolveDevHubConfig(options.env);
+          assert.equal(config.mode, 'jwt');
+          assert.equal(config.clientId, 'TestEca');
+          assert.equal(Boolean(config.privateKey), true);
+          assert.equal(options.env.SF_SCRATCH_SIGNUP_CONNECTED_APP, undefined);
+          assert.equal(options.env.SF_TEMP_SHOW_SECRETS, undefined);
+          ownedHome = process.platform === 'win32' ? options.env.USERPROFILE : options.env.HOME;
+          assert.notEqual(ownedHome, process.platform === 'win32' ? process.env.USERPROFILE : process.env.HOME);
+          assert.equal(fs.existsSync(ownedHome), true);
+          fs.mkdirSync(path.join(ownedHome, '.sf'));
+          fs.writeFileSync(path.join(ownedHome, '.sf', 'auth.json'), '{}');
+          const child = new EventEmitter();
+          process.nextTick(() => child.emit('close', exitCode));
+          return child;
+        }
+      });
+      assert.equal(code, exitCode);
+      assert.equal(fs.existsSync(ownedHome), false);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('lab configuration isolates auth from reusable caches and uses the validated Salesforce CLI pin', () => {
+  const compose = yaml.parse(readComposeFile());
+  const runner = compose.services.runner;
+  assert.equal(
+    runner.build.args.ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE,
+    '${SALESFORCE_CLI_PACKAGE:-@salesforce/cli@2.150.6}'
+  );
+  assert.deepEqual(runner.networks, ['e2e_proxy_internal']);
+  assert.equal(compose.networks.e2e_proxy_internal.internal, true);
+  assert.equal(
+    runner.volumes.some(value => /:\/root\/\.(?:sf|sfdx)$/.test(value)),
+    false
+  );
+  assert.equal(runner.environment.SF_DEVHUB_AUTH_URL, undefined);
+  for (const packagePath of [
+    'apps/vscode-extension',
+    'packages/core',
+    'packages/protocol',
+    'packages/sf-plugin',
+    'packages/webview'
+  ]) {
+    assert.ok(
+      runner.volumes.some(value => value.endsWith(`:/workspace/${packagePath}/node_modules`)),
+      'Linux package links must not overwrite the host workspace'
+    );
+  }
+  assert.equal(runner.environment.SF_DEVHUB_ALIAS, undefined);
+  assert.equal(runner.environment.CI, 'true');
+  assert.equal(runner.environment.SF_TEST_KEEP_ORG, '${SF_TEST_KEEP_ORG:-0}');
+  for (const service of Object.values(compose.services)) {
+    assert.equal(service.build.context, './test/e2e/proxy-lab');
+  }
+});
+
+test('lab makes the approved upstream CA available read-only without adding it to image build inputs', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-lab-ca-test-'));
+  const caFile = path.join(root, 'approved-ca.pem');
+  fs.writeFileSync(caFile, require('node:tls').rootCertificates[0]);
+  let overrideFile;
+  try {
+    const code = await main({
+      argv: ['node', '-e', 'process.exit(0)'],
+      env: { ALV_E2E_PROXY_LAB_UPSTREAM_CA_FILE: caFile },
+      spawnImpl: (_file, args) => {
+        const files = args.flatMap((value, index) => (value === '-f' ? [args[index + 1]] : []));
+        assert.equal(files.length, 2);
+        overrideFile = files[1];
+        const config = yaml.parse(fs.readFileSync(overrideFile, 'utf8'));
+        assert.deepEqual(config.services.proxy.volumes, [
+          { type: 'bind', source: caFile, target: '/run/alv-upstream-ca.pem', read_only: true }
+        ]);
+        assert.equal(config.services.proxy.build, undefined);
+        const child = new EventEmitter();
+        process.nextTick(() => child.emit('close', 0));
+        return child;
+      }
+    });
+    assert.equal(code, 0);
+    assert.equal(fs.existsSync(overrideFile), false);
+    assert.equal(fs.existsSync(caFile), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('invalid JWT material fails at the lab boundary without spawning or exposing its value', async () => {
+  let spawned = false;
+  const secret = 'invalid-key-material-must-not-appear';
+  await assert.rejects(
+    () =>
+      main({
+        argv: [],
+        env: {
+          SF_DEVHUB_CLIENT_ID: 'TestEca',
+          SF_DEVHUB_USERNAME: 'test@example.invalid',
+          SF_DEVHUB_LOGIN_URL: 'https://login.salesforce.com',
+          SF_DEVHUB_PRIVATE_KEY: secret
+        },
+        spawnImpl: () => {
+          spawned = true;
+          throw new Error('must not spawn');
+        }
+      }),
+    error => /Invalid SF_DEVHUB_PRIVATE_KEY/.test(error.message) && !error.message.includes(secret)
+  );
+  assert.equal(spawned, false);
+});
+
+test('Compose startup failure still removes the operation credential mount', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' }
+  });
+  let directory;
+  await assert.rejects(
+    () =>
+      main({
+        env: {
+          SF_DEVHUB_CLIENT_ID: 'TestEca',
+          SF_DEVHUB_USERNAME: 'test@example.invalid',
+          SF_DEVHUB_LOGIN_URL: 'https://login.salesforce.com',
+          SF_DEVHUB_PRIVATE_KEY: privateKey
+        },
+        argv: [],
+        execFileAsync: fakeEngine,
+        spawnImpl: (_file, args) => {
+          const overrideFile = args[args.lastIndexOf('-f') + 1];
+          directory = yaml
+            .parse(fs.readFileSync(overrideFile, 'utf8'))
+            .services.runner.volumes.find(mount => mount.target === '/run/alv-devhub').source;
+          const child = new EventEmitter();
+          process.nextTick(() => child.emit('error', new Error('engine unavailable')));
+          return child;
+        }
+      }),
+    /Failed to start Docker compose/
+  );
+  assert.equal(fs.existsSync(path.dirname(directory)), false);
+});
+
+test('blocked credential removal reports the exact owned directory and does not retry it', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' }
+  });
+  let directory;
+  let attempts = 0;
+  try {
+    await assert.rejects(
+      () =>
+        main({
+          env: {
+            SF_DEVHUB_CLIENT_ID: 'TestEca',
+            SF_DEVHUB_USERNAME: 'test@example.invalid',
+            SF_DEVHUB_LOGIN_URL: 'https://login.salesforce.com',
+            SF_DEVHUB_PRIVATE_KEY: privateKey
+          },
+          argv: [],
+          execFileAsync: fakeEngine,
+          files: {
+            ...fs,
+            rmSync: (target, options) => {
+              if (path.basename(target) !== 'input') return fs.rmSync(target, options);
+              attempts += 1;
+              directory = target;
+              throw new Error('simulated EPERM');
+            }
+          },
+          spawnImpl: (_file, args) => {
+            reportCleanExit(args);
+            const child = new EventEmitter();
+            process.nextTick(() => child.emit('close', 0));
+            return child;
+          }
+        }),
+      error => error.message.endsWith(directory) && /credential cleanup failed/.test(error.message)
+    );
+    assert.equal(attempts, 1);
+    assert.equal(fs.existsSync(path.join(directory, 'private-key.pem')), true);
+  } finally {
+    // Dispose of this generated test fixture after the simulated filesystem failure.
+    if (directory) fs.rmSync(path.dirname(directory), { recursive: true, force: true });
+  }
+});
 
 function read(relativePath) {
   return fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
@@ -45,6 +489,7 @@ test('resolveComposeArgs runs the proxy lab runner with the compose file', () =>
     'run',
     '--rm',
     '--build',
+    '-T',
     'runner'
   ]);
 });
@@ -58,6 +503,7 @@ test('resolveComposeArgs forwards an explicit E2E command through the lab script
     'run',
     '--rm',
     '--build',
+    '-T',
     'runner',
     'bash',
     'test/e2e/proxy-lab/run.sh',
@@ -86,7 +532,7 @@ test('parseProxyLabArgs requires a Salesforce CLI package value', () => {
 });
 
 test('Salesforce CLI package overrides are constrained to the official CLI package', () => {
-  assert.equal(normalizeSalesforceCliPackage(' @salesforce/cli@2.136.8 '), '@salesforce/cli@2.136.8');
+  assert.equal(normalizeSalesforceCliPackage(' @salesforce/cli@2.150.6 '), '@salesforce/cli@2.150.6');
   assert.equal(normalizeSalesforceCliPackage('@salesforce/cli@nightly'), '@salesforce/cli@nightly');
   assert.throws(
     () => normalizeSalesforceCliPackage('evil-package@1.0.0'),
@@ -111,16 +557,6 @@ test('ensureHostVolumeMountpoints creates Docker volume mountpoints before compo
   } finally {
     fs.rmSync(repoRoot, { recursive: true, force: true });
   }
-});
-
-test('proxy lab runner prepares host volume mountpoints before spawning compose', () => {
-  const script = read('scripts/run-e2e-proxy-lab.js');
-  const mainBody = script.match(/function main\(\) \{(?<body>[\s\S]*?)\n\}/)?.groups.body;
-
-  assert.ok(mainBody, 'expected run-e2e-proxy-lab.js to define main()');
-  assert.match(mainBody, /ensureHostVolumeMountpoints\(repoRoot\)/);
-  assert.match(mainBody, /resolveProxyLabEnv\(process\.env, process,/);
-  assert.match(mainBody, /spawn\(docker,/);
 });
 
 test('resolveProxyLabEnv forwards the host uid and gid for bind-mounted cleanup', () => {
@@ -156,7 +592,7 @@ test('proxy lab compose forwards the Salesforce CLI package override into the ru
 
   assert.match(
     compose,
-    /^\s+ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: \$\{SALESFORCE_CLI_PACKAGE:-@salesforce\/cli@2\.136\.8\}$/m
+    /^\s+ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: \$\{SALESFORCE_CLI_PACKAGE:-@salesforce\/cli@2\.150\.6\}$/m
   );
   assert.match(compose, /^\s+ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: \$\{ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE:-\}$/m);
 });
@@ -171,16 +607,14 @@ test('proxy lab compose forwards Playwright controls into the runner', () => {
   assert.match(compose, /^\s+PLAYWRIGHT_EXPECT_TIMEOUT_MS: \$\{PLAYWRIGHT_EXPECT_TIMEOUT_MS:-\}$/m);
 });
 
-test('proxy lab compose persists runner caches and Salesforce CLI auth state', () => {
+test('proxy lab compose persists noncredential runner caches', () => {
   const compose = readComposeFile();
 
   for (const [volume, mountPath] of [
     ['e2e_proxy_node_modules', '/workspace/node_modules'],
     ['e2e_proxy_vscode_test', '/workspace/.vscode-test'],
     ['e2e_proxy_npm_cache', '/root/.npm'],
-    ['e2e_proxy_pnpm_store', '/root/.local/share/pnpm/store'],
-    ['e2e_proxy_sf', '/root/.sf'],
-    ['e2e_proxy_sfdx', '/root/.sfdx']
+    ['e2e_proxy_pnpm_store', '/root/.local/share/pnpm/store']
   ]) {
     assert.match(compose, new RegExp(`^\\s+- ${escapeRegExp(volume)}:${escapeRegExp(mountPath)}$`, 'm'));
     assert.match(compose, new RegExp(`^\\s{2}${escapeRegExp(volume)}: \\{\\}$`, 'm'));
@@ -209,7 +643,7 @@ test('proxy lab compose uses mitmproxy with a shared CA volume instead of Tinypr
   const compose = readComposeFile();
   const dockerfile = readProxyDockerfile();
 
-  assert.match(compose, /dockerfile:\s+test\/e2e\/proxy-lab\/Dockerfile\.proxy/);
+  assert.equal(yaml.parse(compose).services.proxy.build.dockerfile, 'Dockerfile.proxy');
   assert.match(compose, /^\s+- e2e_proxy_mitmproxy_ca:\/mitmproxy$/m);
   assert.match(compose, /^\s+- e2e_proxy_mitmproxy_ca:\/mitmproxy:ro$/m);
   assert.match(compose, /mitmproxy-ca-cert\.cer/);
@@ -217,7 +651,8 @@ test('proxy lab compose uses mitmproxy with a shared CA volume instead of Tinypr
   assert.match(compose, /ALV_TEST_TELEMETRY_RUN_ID:/);
   assert.match(compose, /^\s+VSCODE_TEST_DOWNLOAD_TIMEOUT_MS: \$\{VSCODE_TEST_DOWNLOAD_TIMEOUT_MS:-\}$/m);
   assert.doesNotMatch(compose, /tinyproxy/i);
-  assert.match(dockerfile, /"stream_large_bodies=1m"/);
+  assert.match(dockerfile, /COPY proxy.sh/);
+  assert.match(read('test/e2e/proxy-lab/proxy.sh'), /--set stream_large_bodies=1m/);
 });
 
 test('proxy lab runner script validates MITM trust before running E2E commands', () => {
@@ -232,7 +667,6 @@ test('proxy lab runner script validates MITM trust before running E2E commands',
   assert.match(script, /verify_node_https_proxy/);
   assert.match(script, /Node HTTPS through the configured MITM proxy/);
   assert.doesNotMatch(script, /Node fetch/);
-  assert.match(script, /preflight_salesforce_cli/);
 });
 
 test('proxy lab runner can install an explicit Salesforce CLI package before preflight', () => {
@@ -245,7 +679,7 @@ test('proxy lab runner can install an explicit Salesforce CLI package before pre
   assert.match(script, /sf --version/);
   assert.match(
     script,
-    /verify_node_https_proxy\s*\ninstall_salesforce_cli_override\s*\npreflight_salesforce_cli/,
+    /verify_node_https_proxy\s*\ninstall_salesforce_cli_override\s*\nnode scripts\/run-e2e-proxy-lab-child\.js/,
     'expected the Salesforce CLI override install to run after proxy validation and before Salesforce preflight'
   );
 });
@@ -262,29 +696,6 @@ test('proxy lab runner installs the pnpm workspace from the frozen lockfile', ()
   assert.match(script, /ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL/);
   assert.doesNotMatch(script, /\bnpm ci\b/);
   assert.match(gitignore, /^\.pnpm-store\/$/m);
-});
-
-test('proxy lab runner requires Dev Hub auth for real-org commands only', () => {
-  const script = readProxyLabScript();
-
-  assert.match(script, /requested_command_requires_devhub\(\)/);
-  assert.match(script, /SF_DEVHUB_AUTH_URL is required for real-org proxy-lab commands/);
-  assert.match(script, /clean runner container cannot use host Salesforce CLI aliases/);
-  assert.match(script, /if \[\[ "\$#" -eq 0 && -z "\$\{ALV_E2E_PROXY_LAB_COMMAND:-\}" \]\]; then/);
-  assert.match(script, /\*"test:e2e"\*/);
-  assert.match(script, /requested command does not look like a real-org E2E run/);
-  assert.match(script, /preflight_salesforce_cli "\$@"/);
-});
-
-test('proxy lab sf preflight preserves failed command exit status', () => {
-  const script = readProxyLabScript();
-  const body = script.match(/run_sf_preflight_command\(\) \{(?<body>[\s\S]*?)\n\}/)?.groups.body;
-
-  assert.ok(body);
-  assert.match(body, /local status=0/);
-  assert.match(body, /"\$@" >"\$\{output_file\}" 2>&1 \|\| status=\$\?/);
-  assert.match(body, /if \[\[ "\$\{status\}" -eq 0 \]\]; then/);
-  assert.doesNotMatch(body, /local status=\$\?/);
 });
 
 test('proxy lab runner guards against proxy auth and Node dependency regressions', () => {
@@ -313,7 +724,6 @@ test('proxy lab runner guards against proxy auth and Node dependency regressions
   assert.match(script, /require\(['"]node:tls['"]\)/);
   assert.match(script, /require\(['"]node:buffer['"]\)/);
   assert.match(script, /require\(['"]node:url['"]\)/);
-  assert.match(script, /trap 'rm -f "\$\{auth_file\}"' RETURN ERR/);
 });
 
 test('proxy lab runner image installs xauth for xvfb-run', () => {
@@ -343,7 +753,7 @@ test('proxy lab Docker images are pinned by digest without a Rust toolchain stag
 test('proxy lab runner image installs the configured Salesforce CLI package', () => {
   const runnerDockerfile = readRunnerDockerfile();
 
-  assert.match(runnerDockerfile, /^ARG ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE=@salesforce\/cli@2\.136\.8$/m);
+  assert.match(runnerDockerfile, /^ARG ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE=@salesforce\/cli@2\.150\.6$/m);
   assert.match(runnerDockerfile, /npm install -g "\$\{ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE\}" --no-audit --no-fund/);
   assert.match(runnerDockerfile, /^ARG ALV_PNPM_VERSION=11\.11\.0$/m);
   assert.match(runnerDockerfile, /npm install -g "pnpm@\$\{ALV_PNPM_VERSION\}" --no-audit --no-fund/);
