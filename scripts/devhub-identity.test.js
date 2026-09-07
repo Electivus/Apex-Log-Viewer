@@ -423,7 +423,7 @@ async function preparedAppFixture(t) {
       [`extlClntAppGlobalOauthSets/${app.name}_global.ecaGlblOauth-meta.xml`]: `<ExtlClntAppGlobalOauthSettings><consumerKey>fixture-client-key</consumerKey><consumerSecret>fixture-consumer-secret</consumerSecret><certificate>${readFileSync(certificate.certificateFile, 'utf8')}</certificate></ExtlClntAppGlobalOauthSettings>`,
       [`extlClntAppOauthSettings/${app.name}_oauth.ecaOauth-meta.xml`]:
         '<ExtlClntAppOauthSettings><commaSeparatedOauthScopes>Api,RefreshToken</commaSeparatedOauthScopes></ExtlClntAppOauthSettings>',
-      [`extlClntAppOauthPolicies/${app.name}_oauthPlcy.ecaOauthPlcy-meta.xml`]: `<ExtlClntAppOauthConfigurablePolicies><commaSeparatedPermissionSet>${app.preauthorization}</commaSeparatedPermissionSet><ipRelaxationPolicyType>Enforce</ipRelaxationPolicyType><permittedUsersPolicyType>AdminApprovedPreAuthorized</permittedUsersPolicyType><refreshTokenPolicyType>Zero</refreshTokenPolicyType><sessionTimeoutInMinutes>15</sessionTimeoutInMinutes></ExtlClntAppOauthConfigurablePolicies>`,
+      [`extlClntAppOauthPolicies/${app.name}_oauthPlcy.ecaOauthPlcy-meta.xml`]: `<ExtlClntAppOauthConfigurablePolicies><commaSeparatedPermissionSet>${app.preauthorization}</commaSeparatedPermissionSet><ipRelaxationPolicyType>Enforce</ipRelaxationPolicyType><permittedUsersPolicyType>AdminApprovedPreAuthorized</permittedUsersPolicyType><refreshTokenPolicyType>Zero</refreshTokenPolicyType><sessionTimeoutInMinutes>15</sessionTimeoutInMinutes><isClientCredentialsFlowEnabled>false</isClientCredentialsFlowEnabled><isGuestCodeCredFlowEnabled>false</isGuestCodeCredFlowEnabled><isTokenExchangeFlowEnabled>false</isTokenExchangeFlowEnabled></ExtlClntAppOauthConfigurablePolicies>`,
       [`extlClntAppPolicies/${app.name}_plcy.ecaPlcy-meta.xml`]:
         '<ExtlClntAppConfigurablePolicies><isEnabled>true</isEnabled><isOauthPluginEnabled>true</isOauthPluginEnabled></ExtlClntAppConfigurablePolicies>'
     };
@@ -466,6 +466,35 @@ test('app setup validates before deployment, preauthorizes only the owned user, 
   assert.equal(deployments(), previousDeployments);
   assert.equal(fixture.records.ExternalClientApplication.length, 1);
   assert.equal(fixture.records.PermissionSetAssignment.length, 1);
+});
+
+test('app reruns reject enabled or unverified alternate OAuth flows from effective metadata', async t => {
+  const { fixture, directory, args, first, deployments } = await preparedAppFixture(t);
+  const invoke = fixture.sf;
+  const initialDeployments = deployments();
+  for (const flow of ['isClientCredentialsFlowEnabled', 'isGuestCodeCredFlowEnabled', 'isTokenExchangeFlowEnabled']) {
+    for (const replacement of [`<${flow}>true</${flow}>`, '']) {
+      fixture.sf = async (command, options) => {
+        const result = await invoke(command, options);
+        if (command[0] === 'project' && command[1] === 'retrieve') {
+          const file = path.join(
+            directory,
+            'app-temporary',
+            'retrieved',
+            'force-app',
+            'main',
+            'default',
+            'extlClntAppOauthPolicies',
+            `${first.name}_oauthPlcy.ecaOauthPlcy-meta.xml`
+          );
+          writeFileSync(file, readFileSync(file, 'utf8').replace(`<${flow}>false</${flow}>`, replacement));
+        }
+        return result;
+      };
+      await assert.rejects(main(args, fixture), /Effective ECA/);
+    }
+  }
+  assert.equal(deployments(), initialDeployments, 'Drift must be reported without silently rewriting active policy');
 });
 
 test('app revocation disables only the owned ECA and confirms the effective policy before recording teardown', async t => {
@@ -526,7 +555,14 @@ test('app revocation disables only the owned ECA and confirms the effective poli
   assert.doesNotMatch(JSON.stringify(result), /hidden-token/);
 });
 
-for (const scenario of ['success', 'import-failure', 'redacted-export', 'cleanup-failure', 'http-failure']) {
+for (const scenario of [
+  'success',
+  'import-failure',
+  'redacted-export',
+  'cleanup-failure',
+  'http-failure',
+  'signup-not-visible'
+]) {
   test(`native identity proof preserves isolation, lease lifecycle and ownership: ${scenario}`, async t => {
     const { fixture, directory } = await preparedAppFixture(t);
     fixture.records.PermissionSetAssignment = [];
@@ -591,6 +627,7 @@ for (const scenario of ['success', 'import-failure', 'redacted-export', 'cleanup
         assert.equal(env.USERPROFILE, firstHome);
         assert.equal(env.SF_SCRATCH_SIGNUP_CONNECTED_APP, 'PlatformCLI');
         assert.equal(env.SF_SCRATCH_SIGNUP_CALLBACK_URL, 'http://localhost:1717/OauthRedirect');
+        if (scenario === 'signup-not-visible') throw new Error('Lost asynchronous signup response');
         signedUp = true;
         return { orgId: '00D000000000003AAA', username: 'scratch@example.test' };
       }
@@ -679,7 +716,7 @@ for (const scenario of ['success', 'import-failure', 'redacted-export', 'cleanup
       await assert.rejects(main(args, fixture), error => {
         assert.match(
           error.message,
-          scenario === 'cleanup-failure'
+          ['cleanup-failure', 'signup-not-visible'].includes(scenario)
             ? /cleanup\/recovery/
             : scenario === 'http-failure'
               ? /pool-acquire/
@@ -690,10 +727,10 @@ for (const scenario of ['success', 'import-failure', 'redacted-export', 'cleanup
       });
     }
     assert.ok(firstHome);
-    assert.equal(Boolean(secondHome), !['redacted-export', 'http-failure'].includes(scenario));
+    assert.equal(Boolean(secondHome), !['redacted-export', 'http-failure', 'signup-not-visible'].includes(scenario));
     assert.deepEqual(
       removed,
-      scenario === 'cleanup-failure'
+      ['cleanup-failure', 'signup-not-visible'].includes(scenario)
         ? []
         : scenario === 'http-failure'
           ? [
@@ -709,9 +746,23 @@ for (const scenario of ['success', 'import-failure', 'redacted-export', 'cleanup
     assert.equal(fixture.records.ActiveScratchOrg[0].Id, 'other-scratch');
     assert.equal(fixture.records.ALV_ScratchOrgPool__c[0].Id, 'shared-pool');
     const proof = JSON.parse(readFileSync(stateFile, 'utf8')).proof;
-    if (scenario === 'cleanup-failure') {
+    if (['cleanup-failure', 'signup-not-visible'].includes(scenario)) {
       assert.equal(proof.cleanup, undefined);
       await assert.rejects(main(args, fixture), /prior proof needs recovery/);
+      if (scenario === 'signup-not-visible') {
+        await assert.rejects(main(['revoke-app', ...args.slice(1)], fixture), /Recover the owned scratch/);
+        await assert.rejects(main(['cleanup-proof', ...args.slice(1)], fixture), /signup.*not yet observable/);
+        assert.deepEqual(removed, []);
+        signedUp = true;
+        const recovered = await main(['cleanup-proof', ...args.slice(1)], fixture);
+        assert.equal(recovered.proofs[0].cleanup.scratchDeleted, true);
+        assert.equal(recovered.proofs[0].cleanup.poolDeleted, true);
+        assert.deepEqual(removed, [
+          ['ActiveScratchOrg', 'own-scratch'],
+          ['ALV_ScratchOrgPoolSlot__c', 'own-slot'],
+          ['ALV_ScratchOrgPool__c', 'own-pool']
+        ]);
+      }
     } else {
       assert.equal(proof.cleanup.scratchDeleted, true);
       assert.equal(proof.cleanup.poolDeleted, true);

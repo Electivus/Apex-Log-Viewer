@@ -51,6 +51,9 @@ async function cleanupProof({ state, proof, sf, options, user, save }) {
   const signups = await query(
     `SELECT Id, CreatedById, Status FROM ScratchOrgInfo WHERE alvPoolKey__c = '${proof.poolKey}' AND alvSlotKey__c = '${proof.slotKey}'`
   );
+  if (!signups.length && (proof.phase === 'scratch-create' || proof.scratchOrgId)) {
+    throw new Error('Scratch signup is not yet observable; retain access and reconcile with cleanup-proof later.');
+  }
   if (signups.some(item => item.CreatedById !== user.Id))
     throw new Error('Scratch ownership conflict; cleanup stopped.');
   for (const signup of signups) {

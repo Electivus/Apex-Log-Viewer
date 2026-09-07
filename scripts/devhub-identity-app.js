@@ -104,11 +104,14 @@ async function verifyApp(sf, target, root, app) {
     xmlValue(policy, 'permittedUsersPolicyType') !== 'AdminApprovedPreAuthorized' ||
     xmlValue(policy, 'refreshTokenPolicyType') !== 'Zero' ||
     xmlValue(policy, 'sessionTimeoutInMinutes') !== '15' ||
+    ['isClientCredentialsFlowEnabled', 'isGuestCodeCredFlowEnabled', 'isTokenExchangeFlowEnabled'].some(
+      field => xmlValue(policy, field) !== 'false'
+    ) ||
     xmlValue(configuration, 'isEnabled') !== 'true' ||
     xmlValue(configuration, 'isOauthPluginEnabled') !== 'true'
   ) {
     throw new Error(
-      'Effective ECA scopes, preauthorization, IP or token/session policy differs from the intended policy.'
+      'Effective ECA scopes, preauthorization, OAuth flows, IP or token/session policy differs from the intended policy.'
     );
   }
   let certificate;
