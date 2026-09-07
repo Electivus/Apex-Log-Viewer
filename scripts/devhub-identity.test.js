@@ -420,7 +420,7 @@ async function preparedAppFixture(t) {
       );
     }
     const files = {
-      [`extlClntAppGlobalOauthSets/${app.name}_global.ecaGlblOauth-meta.xml`]: `<ExtlClntAppGlobalOauthSettings><consumerKey>fixture-client-key</consumerKey><consumerSecret>fixture-consumer-secret</consumerSecret><certificate>${readFileSync(certificate.certificateFile, 'utf8')}</certificate></ExtlClntAppGlobalOauthSettings>`,
+      [`extlClntAppGlobalOauthSets/${app.name}_global.ecaGlblOauth-meta.xml`]: `<ExtlClntAppGlobalOauthSettings><consumerKey>fixture-client-key</consumerKey><consumerSecret>fixture-consumer-secret</consumerSecret><certificate>${readFileSync(certificate.certificateFile, 'utf8')}</certificate><callbackUrl>http://localhost:1717/OauthRedirect</callbackUrl><isConsumerSecretOptional>false</isConsumerSecretOptional><isIntrospectAllTokens>false</isIntrospectAllTokens><isPkceRequired>true</isPkceRequired><isSecretRequiredForRefreshToken>true</isSecretRequiredForRefreshToken><shouldRotateConsumerKey>false</shouldRotateConsumerKey><shouldRotateConsumerSecret>false</shouldRotateConsumerSecret></ExtlClntAppGlobalOauthSettings>`,
       [`extlClntAppOauthSettings/${app.name}_oauth.ecaOauth-meta.xml`]:
         '<ExtlClntAppOauthSettings><commaSeparatedOauthScopes>Api,RefreshToken</commaSeparatedOauthScopes></ExtlClntAppOauthSettings>',
       [`extlClntAppOauthPolicies/${app.name}_oauthPlcy.ecaOauthPlcy-meta.xml`]: `<ExtlClntAppOauthConfigurablePolicies><commaSeparatedPermissionSet>${app.preauthorization}</commaSeparatedPermissionSet><ipRelaxationPolicyType>Enforce</ipRelaxationPolicyType><permittedUsersPolicyType>AdminApprovedPreAuthorized</permittedUsersPolicyType><refreshTokenPolicyType>Zero</refreshTokenPolicyType><sessionTimeoutInMinutes>15</sessionTimeoutInMinutes><isClientCredentialsFlowEnabled>false</isClientCredentialsFlowEnabled><isGuestCodeCredFlowEnabled>false</isGuestCodeCredFlowEnabled><isTokenExchangeFlowEnabled>false</isTokenExchangeFlowEnabled></ExtlClntAppOauthConfigurablePolicies>`,
@@ -497,6 +497,48 @@ test('app reruns reject enabled or unverified alternate OAuth flows from effecti
   assert.equal(deployments(), initialDeployments, 'Drift must be reported without silently rewriting active policy');
 });
 
+test('app reruns reject changed or missing effective global OAuth controls without redeploying', async t => {
+  const { fixture, directory, args, first, deployments } = await preparedAppFixture(t);
+  const invoke = fixture.sf;
+  const initialDeployments = deployments();
+  for (const [field, intended, changed] of [
+    ['callbackUrl', 'http://localhost:1717/OauthRedirect', 'https://untrusted.example.test/callback'],
+    ['isConsumerSecretOptional', 'false', 'true'],
+    ['isIntrospectAllTokens', 'false', 'true'],
+    ['isPkceRequired', 'true', 'false'],
+    ['isSecretRequiredForRefreshToken', 'true', 'false'],
+    ['shouldRotateConsumerKey', 'false', 'true'],
+    ['shouldRotateConsumerSecret', 'false', 'true'],
+    ['callbackUrl', 'http://localhost:1717/OauthRedirect', undefined]
+  ]) {
+    fixture.sf = async (command, options) => {
+      const result = await invoke(command, options);
+      if (command[0] === 'project' && command[1] === 'retrieve') {
+        const file = path.join(
+          directory,
+          'app-temporary',
+          'retrieved',
+          'force-app',
+          'main',
+          'default',
+          'extlClntAppGlobalOauthSets',
+          `${first.name}_global.ecaGlblOauth-meta.xml`
+        );
+        writeFileSync(
+          file,
+          readFileSync(file, 'utf8').replace(
+            `<${field}>${intended}</${field}>`,
+            changed === undefined ? '' : `<${field}>${changed}</${field}>`
+          )
+        );
+      }
+      return result;
+    };
+    await assert.rejects(main(args, fixture), /Effective ECA/);
+  }
+  assert.equal(deployments(), initialDeployments);
+});
+
 test('app revocation disables only the owned ECA and confirms the effective policy before recording teardown', async t => {
   const { fixture, directory } = await preparedAppFixture(t);
   const stateFile = path.join(directory, 'identity.json');
@@ -561,7 +603,8 @@ for (const scenario of [
   'redacted-export',
   'cleanup-failure',
   'http-failure',
-  'signup-not-visible'
+  'signup-not-visible',
+  'definition-write-failure'
 ]) {
   test(`native identity proof preserves isolation, lease lifecycle and ownership: ${scenario}`, async t => {
     const { fixture, directory } = await preparedAppFixture(t);
@@ -608,6 +651,9 @@ for (const scenario of [
         const payload = JSON.parse(readFileSync(bodyArgument.slice(1), 'utf8'));
         assert.equal(payload.poolKey, proof.poolKey);
         assert.doesNotMatch(args.join(' '), /private-refresh-token|private-lease-token/);
+        if (scenario === 'definition-write-failure' && route === 'acquire') {
+          mkdirSync(path.join(proof.directory, 'scratch.json'));
+        }
         return {
           statusCode: scenario === 'http-failure' ? 503 : 200,
           headers: { 'content-type': 'application/json' },
@@ -720,19 +766,24 @@ for (const scenario of [
             ? /cleanup\/recovery/
             : scenario === 'http-failure'
               ? /pool-acquire/
-              : /scratch-export-import/
+              : scenario === 'definition-write-failure'
+                ? /scratch-prepare/
+                : /scratch-export-import/
         );
         assert.doesNotMatch(error.message, /private-refresh-token|private-lease-token/);
         return true;
       });
     }
     assert.ok(firstHome);
-    assert.equal(Boolean(secondHome), !['redacted-export', 'http-failure', 'signup-not-visible'].includes(scenario));
+    assert.equal(
+      Boolean(secondHome),
+      !['redacted-export', 'http-failure', 'signup-not-visible', 'definition-write-failure'].includes(scenario)
+    );
     assert.deepEqual(
       removed,
       ['cleanup-failure', 'signup-not-visible'].includes(scenario)
         ? []
-        : scenario === 'http-failure'
+        : ['http-failure', 'definition-write-failure'].includes(scenario)
           ? [
               ['ALV_ScratchOrgPoolSlot__c', 'own-slot'],
               ['ALV_ScratchOrgPool__c', 'own-pool']

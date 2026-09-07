@@ -268,7 +268,7 @@ async function prove({ values, state, directory, user, sf, query, save }) {
       leaseToken: lease.leaseToken,
       leaseOwner: proof.id
     };
-    await phase('scratch-create');
+    await phase('scratch-prepare');
     const definition = path.join(proof.directory, 'scratch.json');
     await fs.writeFile(
       definition,
@@ -284,6 +284,7 @@ async function prove({ values, state, directory, user, sf, query, save }) {
       }),
       { mode: 0o600 }
     );
+    await phase('scratch-create');
     const scratch = await sf(
       [
         'org',

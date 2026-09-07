@@ -5,6 +5,16 @@ const path = require('node:path');
 const { X509Certificate } = require('node:crypto');
 const { lifecycleInputs, readCertificate, secureDirectory } = require('./devhub-identity-credentials');
 
+const GLOBAL_OAUTH_CONTROLS = Object.freeze({
+  callbackUrl: 'http://localhost:1717/OauthRedirect',
+  isConsumerSecretOptional: false,
+  isIntrospectAllTokens: false,
+  isPkceRequired: true,
+  isSecretRequiredForRefreshToken: true,
+  shouldRotateConsumerKey: false,
+  shouldRotateConsumerSecret: false
+});
+
 function xml(type, fields) {
   const escape = value =>
     String(value)
@@ -93,6 +103,7 @@ async function verifyApp(sf, target, root, app) {
   const policy = await read(`extlClntAppOauthPolicies/${app.name}_oauthPlcy.ecaOauthPlcy-meta.xml`);
   const configuration = await read(`extlClntAppPolicies/${app.name}_plcy.ecaPlcy-meta.xml`);
   if (
+    Object.entries(GLOBAL_OAUTH_CONTROLS).some(([field, value]) => xmlValue(global, field) !== String(value)) ||
     xmlValue(oauth, 'commaSeparatedOauthScopes')
       .split(',')
       .map(value => value.trim())
@@ -226,16 +237,10 @@ async function provisionApp({ values, state, inventory, directory, user, query, 
     const oauthDirectory = path.join(directory, `app-${lifecycle.mode}`, 'oauth');
     await metadataProject(oauthDirectory, {
       [`extlClntAppGlobalOauthSets/${name}_global.ecaGlblOauth-meta.xml`]: xml('ExtlClntAppGlobalOauthSettings', {
-        callbackUrl: 'http://localhost:1717/OauthRedirect',
+        ...GLOBAL_OAUTH_CONTROLS,
         certificate: certificate.pem,
         externalClientApplication: name,
-        isConsumerSecretOptional: false,
-        isIntrospectAllTokens: false,
-        isPkceRequired: false,
-        isSecretRequiredForRefreshToken: true,
-        label: `${name} Global OAuth`,
-        shouldRotateConsumerKey: false,
-        shouldRotateConsumerSecret: false
+        label: `${name} Global OAuth`
       }),
       [`extlClntAppOauthSettings/${name}_oauth.ecaOauth-meta.xml`]: xml('ExtlClntAppOauthSettings', {
         commaSeparatedOauthScopes: 'Api,RefreshToken',
