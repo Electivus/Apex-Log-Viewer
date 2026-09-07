@@ -186,7 +186,7 @@ function isToolingAuthError(error: unknown): boolean {
   return isAuthFailure(statusCode, `${errorCode} ${message}`.trim());
 }
 
-async function refreshOrgAuth(auth: OrgAuth): Promise<boolean> {
+export async function refreshOrgAuth(auth: OrgAuth): Promise<boolean> {
   const context = orgAuthContexts.get(auth);
   if (!context) {
     return false;
