@@ -227,11 +227,19 @@ for (const runner of ['typescript', 'javascript'] as const) {
       try {
         await cleanup?.();
       } finally {
+        let remoteCleanupFailed = false;
         try {
           if (scratchAttempted)
             await runSfJson(['org', 'delete', 'scratch', '--target-org', scratchAlias, '--no-prompt']);
+        } catch {
+          remoteCleanupFailed = true;
         } finally {
           process.env = originalEnv;
+        }
+        if (remoteCleanupFailed) {
+          throw new Error(
+            `JWT smoke scratch cleanup failed. Credential state is retained for recovery at: ${root}. Recover or delete the test scratch using that CLI state, then remove the directory.`
+          );
         }
         // Both CLI homes contain credential state and must never be retained
         // as Playwright artifacts, even when validation fails.
