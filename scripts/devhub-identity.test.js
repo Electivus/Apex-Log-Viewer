@@ -1,0 +1,879 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } = require('node:fs');
+const { tmpdir } = require('node:os');
+const path = require('node:path');
+const { X509Certificate, createPrivateKey } = require('node:crypto');
+const { main } = require('./devhub-identity');
+
+const baseArgs = ['inspect', '--target-org', 'Bootstrap', '--expected-org-id', '00D000000000001AAA'];
+
+test('provisioning refuses an unexpected target before any mutation', async () => {
+  const sf = async args => {
+    assert.equal(args.slice(0, 3).join(' '), 'data query --target-org');
+    return { records: [{ Id: '00D000000000002AAA', IsSandbox: false }] };
+  };
+  await assert.rejects(main(baseArgs, { sf }), /Target org does not match/);
+});
+
+function discoveryFixture() {
+  const records = {
+    Organization: [{ Id: '00D000000000001AAA', IsSandbox: false }],
+    UserLicense: [
+      { Id: '100integration', Name: 'Salesforce Integration', TotalLicenses: 5, UsedLicenses: 0 },
+      { Id: '100salesforce', Name: 'Salesforce', TotalLicenses: 10, UsedLicenses: 2 }
+    ],
+    Profile: [
+      {
+        Id: '00eintegration',
+        Name: 'Minimum Access - API Only Integrations',
+        UserLicenseId: '100integration',
+        PermissionsApiEnabled: true,
+        PermissionsApiUserOnly: true,
+        PermissionsModifyAllData: false,
+        PermissionsModifyMetadata: false,
+        PermissionsManageUsers: false
+      },
+      {
+        Id: '00esalesforce',
+        Name: 'Minimum Access - Salesforce',
+        UserLicenseId: '100salesforce',
+        PermissionsApiEnabled: false,
+        PermissionsApiUserOnly: false,
+        PermissionsModifyAllData: false,
+        PermissionsModifyMetadata: false,
+        PermissionsManageUsers: false
+      }
+    ],
+    PermissionSetLicense: [
+      {
+        Id: '0PLintegration',
+        DeveloperName: 'SalesforceAPIIntegrationPsl',
+        MasterLabel: 'Salesforce API Integration',
+        TotalLicenses: 5,
+        UsedLicenses: 0
+      }
+    ],
+    User: [],
+    ExternalClientApplication: [],
+    PermissionSet: [],
+    ActiveScratchOrg: [{ Id: 'other-scratch', OwnerId: 'other-user', ScratchOrgInfoId: 'other-signup' }],
+    ALV_ScratchOrgPool__c: [
+      { Id: 'shared-pool', PoolKey__c: 'production', ProvisioningMode__c: 'snapshot', TargetSize__c: 2 }
+    ]
+  };
+  for (const profile of records.Profile) {
+    Object.assign(profile, {
+      PermissionsCustomizeApplication: false,
+      PermissionsAuthorApex: false,
+      PermissionsManageProfilesPermissionsets: false,
+      PermissionsManageRoles: false,
+      PermissionsViewAllData: false
+    });
+  }
+  const sf = async args => {
+    assert.equal(args[0], 'data');
+    assert.equal(args[1], 'query', 'inspect must remain read-only');
+    const soql = args[args.indexOf('--query') + 1];
+    const object = soql.match(/ FROM (\w+)/)[1];
+    assert.ok(records[object], `Unrecognized Salesforce query: ${object}`);
+    return { records: records[object] };
+  };
+  return { records, sf };
+}
+
+test('inspection reports live minimum-license candidates and unrelated resource ownership without mutation', async () => {
+  const { sf } = discoveryFixture();
+  const result = await main(baseArgs, { sf });
+  assert.deepEqual(result.candidates.integration, {
+    licenseId: '100integration',
+    profileId: '00eintegration',
+    profile: 'Minimum Access - API Only Integrations',
+    available: 5,
+    permissionSetLicenseId: '0PLintegration',
+    permissionSetLicenseAvailable: 5
+  });
+  assert.equal(result.candidates.salesforce.profile, 'Minimum Access - Salesforce');
+  assert.equal(result.scratches[0].OwnerId, 'other-user');
+  assert.equal(result.pools[0].ProvisioningMode__c, 'snapshot');
+});
+
+function stateDirectory(t) {
+  const directory = mkdtempSync(path.join(tmpdir(), 'alv-identity-test-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  return directory;
+}
+
+test('an exhausted Integration license fails before user creation and does not silently use Salesforce', async t => {
+  const fixture = discoveryFixture();
+  fixture.records.UserLicense[0].UsedLicenses = 5;
+  const directory = stateDirectory(t);
+  await assert.rejects(
+    main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture),
+    /Integration license capacity/
+  );
+  assert.equal(existsSync(path.join(directory, 'identity.json')), false);
+});
+
+function provisioningFixture() {
+  const fixture = discoveryFixture();
+  fixture.records.PermissionSetLicenseAssign = [];
+  const read = fixture.sf;
+  const created = [];
+  fixture.sf = async args => {
+    if (args[0] === 'data' && args[1] === 'query') return read(args);
+    assert.equal(args.slice(0, 3).join(' '), 'data create record');
+    const object = args[args.indexOf('--sobject') + 1];
+    const fields = Object.fromEntries(
+      require('shell-quote')
+        .parse(args[args.indexOf('--values') + 1])
+        .map(value => [value.slice(0, value.indexOf('=')), value.slice(value.indexOf('=') + 1)])
+    );
+    const id = object === 'User' ? '005runtime' : '2LApsl';
+    const record = { Id: id, ...fields };
+    if (object === 'User') record.IsActive = fields.IsActive === 'true';
+    fixture.records[object].push(record);
+    created.push({ object, record });
+    return { id, success: true };
+  };
+  return { ...fixture, created };
+}
+
+test('provisioning resumes its owned Integration user and PSL without duplicate records', async t => {
+  const fixture = provisioningFixture();
+  const directory = stateDirectory(t);
+  const args = ['provision-user', ...baseArgs.slice(1), '--state-dir', directory];
+  const first = await main(args, fixture);
+  assert.equal(first.status, 'user-ready');
+  assert.equal(first.user.Username, 'apex-log-viewer-ci@electivus.com');
+  assert.equal(first.user.Email, 'apex-log-viewer-ci@electivus.com');
+  assert.equal(first.user.ProfileId, '00eintegration');
+  const second = await main(args, fixture);
+  assert.equal(second.user.Id, first.user.Id);
+  assert.deepEqual(
+    fixture.created.map(entry => entry.object),
+    ['User', 'PermissionSetLicenseAssign']
+  );
+  const state = JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8'));
+  assert.equal(state.userId, first.user.Id);
+  assert.match(first.user.FederationIdentifier, /^alv-devhub:[0-9a-f-]{36}$/);
+});
+
+test('a global username collision chooses a unique electivus.com candidate while preserving the contact', async t => {
+  const fixture = provisioningFixture();
+  const invoke = fixture.sf;
+  let collision = true;
+  fixture.sf = async args => {
+    if (collision && args[1] === 'create' && args.includes('User')) {
+      collision = false;
+      throw Object.assign(new Error('Remote details must not be disclosed'), { code: 'DUPLICATE_USERNAME' });
+    }
+    return invoke(args);
+  };
+  const result = await main(['provision-user', ...baseArgs.slice(1), '--state-dir', stateDirectory(t)], fixture);
+  assert.match(result.user.Username, /^apex-log-viewer-ci\+[0-9a-f-]+@electivus\.com$/);
+  assert.equal(result.user.Email, 'apex-log-viewer-ci@electivus.com');
+  assert.equal(fixture.created.filter(entry => entry.object === 'User').length, 1);
+});
+
+test('permanent app provisioning requires an explicit storage and certificate-lifetime decision before any operation', async t => {
+  const sf = async () => assert.fail('No remote calls before the permanent credential policy is confirmed');
+  await assert.rejects(
+    main(['provision-app', ...baseArgs.slice(1), '--state-dir', stateDirectory(t), '--credential-mode', 'permanent'], {
+      sf
+    }),
+    /Explicit credential lifecycle inputs/
+  );
+});
+
+async function temporaryCertificate(t) {
+  const directory = stateDirectory(t);
+  const openssl = [
+    'openssl',
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Git', 'usr', 'bin', 'openssl.exe'),
+    path.join(process.env.ProgramFiles || '', 'Git', 'usr', 'bin', 'openssl.exe')
+  ].find(
+    candidate =>
+      require('cross-spawn').sync(candidate, ['version'], { encoding: 'utf8', windowsHide: true }).status === 0
+  );
+  assert.ok(openssl, 'OpenSSL is required for certificate interoperability tests; provide it through PATH.');
+  return main(
+    [
+      'create-certificate',
+      '--state-dir',
+      directory,
+      '--credential-mode',
+      'temporary',
+      '--certificate-days',
+      '2',
+      '--storage-policy',
+      'temporary-local',
+      '--openssl',
+      openssl
+    ],
+    { sf: async () => assert.fail('Certificate generation is local') }
+  );
+}
+
+test('temporary certificate creation honors the explicit lifetime and retains one matching key without overwriting it', async t => {
+  const result = await temporaryCertificate(t);
+  const certificate = new X509Certificate(readFileSync(result.certificateFile));
+  assert.equal(certificate.checkPrivateKey(createPrivateKey(readFileSync(result.privateKeyFile))), true);
+  assert.equal((Date.parse(certificate.validTo) - Date.parse(certificate.validFrom)) / 86400000, 2);
+  assert.equal(certificate.publicKey.asymmetricKeyDetails.modulusLength, 2048);
+  assert.equal(result.mode, 'temporary');
+  assert.doesNotMatch(JSON.stringify(result), /BEGIN .*PRIVATE KEY/);
+});
+
+test('app provisioning does not adopt or overwrite an unrelated app with the planned API name', async t => {
+  const fixture = provisioningFixture();
+  const directory = stateDirectory(t);
+  await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
+  const state = JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8'));
+  fixture.records.ExternalClientApplication.push({
+    Id: 'unrelated-app',
+    DeveloperName: `ALV_DevHub_${state.owner.replaceAll('-', '').slice(0, 16)}_Test`,
+    Description: 'Unrelated owner',
+    ContactEmail: 'someone@example.com'
+  });
+  const certificate = await temporaryCertificate(t);
+  await assert.rejects(
+    main(
+      [
+        'provision-app',
+        ...baseArgs.slice(1),
+        '--state-dir',
+        directory,
+        '--credential-mode',
+        'temporary',
+        '--certificate-days',
+        '2',
+        '--storage-policy',
+        'temporary-local',
+        '--certificate-file',
+        certificate.certificateFile,
+        '--private-key-file',
+        certificate.privateKeyFile
+      ],
+      fixture
+    ),
+    /App ownership conflict/
+  );
+});
+
+test('a rejected metadata validation leaves app activation and assignments untouched', async t => {
+  const fixture = provisioningFixture();
+  const directory = stateDirectory(t);
+  await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
+  const certificate = await temporaryCertificate(t);
+  const invoke = fixture.sf;
+  let validated = false;
+  fixture.sf = async args => {
+    if (args[0] === 'project') {
+      assert.equal(args[1], 'deploy');
+      assert.ok(args.includes('--dry-run'), 'No live deployment after validation failure');
+      validated = true;
+      return { success: false, status: 'Failed', id: '0Afvalidation', checkOnly: true };
+    }
+    return invoke(args);
+  };
+  await assert.rejects(
+    main(
+      [
+        'provision-app',
+        ...baseArgs.slice(1),
+        '--state-dir',
+        directory,
+        '--credential-mode',
+        'temporary',
+        '--certificate-days',
+        '2',
+        '--storage-policy',
+        'temporary-local',
+        '--certificate-file',
+        certificate.certificateFile,
+        '--private-key-file',
+        certificate.privateKeyFile
+      ],
+      fixture
+    ),
+    /Metadata validation failed/
+  );
+  assert.equal(validated, true);
+  assert.equal(fixture.records.ExternalClientApplication.length, 0);
+  assert.deepEqual(
+    fixture.created.map(item => item.object),
+    ['User', 'PermissionSetLicenseAssign']
+  );
+});
+
+async function preparedAppFixture(t) {
+  const fixture = provisioningFixture();
+  const directory = stateDirectory(t);
+  await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
+  const certificate = await temporaryCertificate(t);
+  fixture.records.PermissionSetAssignment = [];
+  const invoke = fixture.sf;
+  const validated = new Set();
+  let deployments = 0;
+  fixture.sf = async (args, options) => {
+    if (args[0] !== 'project') return invoke(args);
+    const app = JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8')).apps.temporary;
+    if (args[1] === 'deploy') {
+      if (args.includes('--dry-run')) {
+        validated.add(options.cwd);
+        return { success: true, status: 'Succeeded', checkOnly: true, id: '0Afcheck' };
+      }
+      assert.ok(validated.has(options.cwd), 'Every deployed stage must have passed validation');
+      deployments += 1;
+      if (path.basename(options.cwd) === 'base') {
+        fixture.records.ExternalClientApplication.push({
+          Id: '0xIruntime',
+          DeveloperName: app.name,
+          Description: app.marker,
+          ContactEmail: 'apex-log-viewer-ci@electivus.com'
+        });
+        fixture.records.PermissionSet.push({
+          Id: '0PSaccess',
+          Name: app.preauthorization,
+          Description: app.marker,
+          IsOwnedByProfile: false
+        });
+      }
+      return { success: true, status: 'Succeeded', checkOnly: false, id: '0Afdeploy' };
+    }
+    assert.equal(args[1], 'retrieve');
+    const files = {
+      [`extlClntAppGlobalOauthSets/${app.name}_global.ecaGlblOauth-meta.xml`]: `<ExtlClntAppGlobalOauthSettings><consumerKey>fixture-client-key</consumerKey><consumerSecret>fixture-consumer-secret</consumerSecret><certificate>${readFileSync(certificate.certificateFile, 'utf8')}</certificate></ExtlClntAppGlobalOauthSettings>`,
+      [`extlClntAppOauthSettings/${app.name}_oauth.ecaOauth-meta.xml`]:
+        '<ExtlClntAppOauthSettings><commaSeparatedOauthScopes>Api,RefreshToken</commaSeparatedOauthScopes></ExtlClntAppOauthSettings>',
+      [`extlClntAppOauthPolicies/${app.name}_oauthPlcy.ecaOauthPlcy-meta.xml`]: `<ExtlClntAppOauthConfigurablePolicies><commaSeparatedPermissionSet>${app.preauthorization}</commaSeparatedPermissionSet><ipRelaxationPolicyType>Enforce</ipRelaxationPolicyType><permittedUsersPolicyType>AdminApprovedPreAuthorized</permittedUsersPolicyType><refreshTokenPolicyType>Zero</refreshTokenPolicyType><sessionTimeoutInMinutes>15</sessionTimeoutInMinutes></ExtlClntAppOauthConfigurablePolicies>`,
+      [`extlClntAppPolicies/${app.name}_plcy.ecaPlcy-meta.xml`]:
+        '<ExtlClntAppConfigurablePolicies><isEnabled>true</isEnabled><isOauthPluginEnabled>true</isOauthPluginEnabled></ExtlClntAppConfigurablePolicies>'
+    };
+    for (const [relative, body] of Object.entries(files)) {
+      const file = path.join(options.cwd, 'force-app', 'main', 'default', relative);
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, body);
+    }
+    return { success: true, status: 'Succeeded' };
+  };
+  const args = [
+    'provision-app',
+    ...baseArgs.slice(1),
+    '--state-dir',
+    directory,
+    '--credential-mode',
+    'temporary',
+    '--certificate-days',
+    '2',
+    '--storage-policy',
+    'temporary-local',
+    '--certificate-file',
+    certificate.certificateFile,
+    '--private-key-file',
+    certificate.privateKeyFile
+  ];
+  const first = await main(args, fixture);
+  return { fixture, directory, args, first, deployments: () => deployments };
+}
+
+test('app setup validates before deployment, preauthorizes only the owned user, and resumes without another identity or app', async t => {
+  const { fixture, args, first, deployments } = await preparedAppFixture(t);
+  assert.equal(first.status, 'app-ready');
+  assert.equal(first.mode, 'temporary');
+  assert.equal(fixture.records.PermissionSetAssignment[0].AssigneeId, '005runtime');
+  assert.doesNotMatch(JSON.stringify(first), /fixture-consumer-secret|fixture-client-key|BEGIN .*PRIVATE KEY/);
+  const previousDeployments = deployments();
+  const second = await main(args, fixture);
+  assert.equal(second.name, first.name);
+  assert.equal(deployments(), previousDeployments);
+  assert.equal(fixture.records.ExternalClientApplication.length, 1);
+  assert.equal(fixture.records.PermissionSetAssignment.length, 1);
+});
+
+test('app revocation disables only the owned ECA and confirms the effective policy before recording teardown', async t => {
+  const { fixture, directory } = await preparedAppFixture(t);
+  const stateFile = path.join(directory, 'identity.json');
+  const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+  const app = state.apps.temporary;
+  const invoke = fixture.sf;
+  let disabled = false,
+    validated = false;
+  fixture.sf = async (args, options) => {
+    if (args[0] === 'project') {
+      if (args[1] === 'deploy') {
+        const file = path.join(
+          options.cwd,
+          'force-app',
+          'main',
+          'default',
+          'extlClntAppPolicies',
+          `${app.name}_plcy.ecaPlcy-meta.xml`
+        );
+        assert.match(readFileSync(file, 'utf8'), /<isEnabled>false<\/isEnabled>/);
+        if (args.includes('--dry-run')) validated = true;
+        else {
+          assert.ok(validated);
+          disabled = true;
+        }
+        return { success: true, status: 'Succeeded', checkOnly: args.includes('--dry-run'), id: '0Afrevoke' };
+      }
+      assert.ok(disabled);
+      const file = path.join(
+        options.cwd,
+        'force-app',
+        'main',
+        'default',
+        'extlClntAppPolicies',
+        `${app.name}_plcy.ecaPlcy-meta.xml`
+      );
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(
+        file,
+        '<ExtlClntAppConfigurablePolicies><isEnabled>false</isEnabled></ExtlClntAppConfigurablePolicies>'
+      );
+      return { success: true };
+    }
+    if (args[0] === 'org' && args[1] === 'login')
+      throw Object.assign(new Error('invalid_client hidden-token'), { code: 'INVALID_CLIENT' });
+    return invoke(args, options);
+  };
+  const result = await main(
+    ['revoke-app', ...baseArgs.slice(1), '--state-dir', directory, '--credential-mode', 'temporary'],
+    fixture
+  );
+  assert.equal(result.status, 'app-disabled');
+  assert.equal(result.jwtRejection, 'INVALID_CLIENT');
+  assert.equal(JSON.parse(readFileSync(stateFile, 'utf8')).apps.temporary.revoked, true);
+  assert.equal(fixture.records.User[0].IsActive, true);
+  assert.doesNotMatch(JSON.stringify(result), /hidden-token/);
+});
+
+for (const scenario of ['success', 'import-failure', 'redacted-export', 'cleanup-failure']) {
+  test(`native identity proof preserves isolation, lease lifecycle and ownership: ${scenario}`, async t => {
+    const { fixture, directory } = await preparedAppFixture(t);
+    fixture.records.PermissionSetAssignment = [];
+    const stateFile = path.join(directory, 'identity.json');
+    const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+    state.runtime = { permissionSetId: '0PSruntime' };
+    writeFileSync(stateFile, JSON.stringify(state));
+    const invoke = fixture.sf;
+    const removed = [];
+    let firstHome,
+      secondHome,
+      ownPool,
+      ownSlot,
+      signedUp = false,
+      active = true,
+      signupObserved = false;
+    const routes = [];
+    let maintained = false;
+    fixture.sf = async (args, options) => {
+      if (!options?.env) return invoke(args, options);
+      const env = options.env;
+      const command = args.slice(0, 3).join(' ');
+      assert.equal(env.SF_DEVHUB_AUTH_URL, undefined);
+      if (command !== 'org create scratch') assert.equal(env.SF_SCRATCH_SIGNUP_CONNECTED_APP, undefined);
+      if (command !== 'org display --target-org') assert.equal(env.SF_TEMP_SHOW_SECRETS, undefined);
+      if (command === 'org login jwt') {
+        firstHome = env.USERPROFILE;
+        assert.deepEqual(require('node:fs').readdirSync(firstHome), []);
+        return { orgId: state.org, username: fixture.records.User[0].Username };
+      }
+      if (command === 'data create record') {
+        const object = args[args.indexOf('--sobject') + 1];
+        if (object === 'ALV_ScratchOrgPool__c') ownPool = 'own-pool';
+        else ownSlot = 'own-slot';
+        return { id: object === 'ALV_ScratchOrgPool__c' ? ownPool : ownSlot, success: true };
+      }
+      if (command === 'api request rest') {
+        const proof = JSON.parse(readFileSync(stateFile, 'utf8')).proof;
+        const route = args[3].split('/').at(-1);
+        routes.push(route);
+        return {
+          ok: true,
+          poolKey: proof.poolKey,
+          slotKey: proof.slotKey,
+          leaseToken: 'private-lease-token',
+          needsCreate: route === 'acquire',
+          provisioningMode: 'definition',
+          scratchUsername: 'scratch@example.test',
+          leaseState: route === 'release' ? 'available' : 'leased'
+        };
+      }
+      if (command === 'org create scratch') {
+        assert.equal(env.USERPROFILE, firstHome);
+        assert.equal(env.SF_SCRATCH_SIGNUP_CONNECTED_APP, 'PlatformCLI');
+        assert.equal(env.SF_SCRATCH_SIGNUP_CALLBACK_URL, 'http://localhost:1717/OauthRedirect');
+        signedUp = true;
+        return { orgId: '00D000000000003AAA', username: 'scratch@example.test' };
+      }
+      if (command === 'org display --target-org') {
+        assert.equal(env.SF_TEMP_SHOW_SECRETS, 'true');
+        return {
+          sfdxAuthUrl:
+            scenario === 'redacted-export'
+              ? '<REDACTED>'
+              : 'force://client::private-refresh-token@scratch.my.salesforce.com'
+        };
+      }
+      if (command === 'org login sfdx-url') {
+        secondHome = env.USERPROFILE;
+        assert.notEqual(secondHome, firstHome);
+        assert.deepEqual(require('node:fs').readdirSync(secondHome), []);
+        const auth = readFileSync(args[args.indexOf('--sfdx-url-file') + 1], 'utf8');
+        assert.match(auth, /private-refresh-token/);
+        if (scenario === 'import-failure') throw new Error('Transport failure containing private-refresh-token');
+        return { username: 'scratch@example.test' };
+      }
+      if (command === 'data update record') {
+        maintained = true;
+        return { success: true };
+      }
+      if (command === 'data delete record') {
+        const object = args[args.indexOf('--sobject') + 1];
+        const id = args[args.indexOf('--record-id') + 1];
+        if (scenario === 'cleanup-failure')
+          throw Object.assign(new Error('INSUFFICIENT_ACCESS_OR_READONLY private-refresh-token'), {
+            code: 'INSUFFICIENT_ACCESS_OR_READONLY'
+          });
+        removed.push([object, id]);
+        if (object === 'ActiveScratchOrg') active = false;
+        if (object === 'ALV_ScratchOrgPool__c') ownPool = undefined;
+        return { success: true };
+      }
+      if (args[0] === 'data' && args[1] === 'query') {
+        const soql = args[args.indexOf('--query') + 1];
+        const target = args[args.indexOf('--target-org') + 1];
+        if (soql.includes(' FROM Organization'))
+          return { records: [{ Id: target === 'alv-runtime' ? state.org : '00D000000000003AAA' }] };
+        if (soql.includes(' FROM User ')) return { records: fixture.records.User };
+        if (soql.includes(' FROM ScratchOrgInfo ')) {
+          signupObserved = true;
+          return { records: signedUp ? [{ Id: 'own-signup', CreatedById: '005runtime', Status: 'Active' }] : [] };
+        }
+        if (soql.includes(' FROM ActiveScratchOrg ')) {
+          assert.ok(signupObserved, 'Reconcile the scratch ownership marker before deletion');
+          return {
+            records: active ? [{ Id: 'own-scratch', OwnerId: '005runtime', ScratchOrgInfoId: 'own-signup' }] : []
+          };
+        }
+        if (soql.includes(' FROM ALV_ScratchOrgPool__c '))
+          return { records: ownPool ? [{ Id: ownPool, CreatedById: '005runtime' }] : [] };
+        if (soql.includes(' FROM ALV_ScratchOrgPoolSlot__c ')) {
+          if (soql.includes(' WHERE Id = '))
+            return {
+              records: [{ Id: ownSlot, LeaseState__c: maintained ? 'disabled' : 'leased', ScratchAuthUrl__c: null }]
+            };
+          const proof = JSON.parse(readFileSync(stateFile, 'utf8')).proof;
+          return { records: [{ Id: ownSlot, CreatedById: '005runtime', SlotKey__c: proof.slotKey }] };
+        }
+      }
+      assert.fail(`Unexpected native proof command: ${command}`);
+    };
+    const args = [
+      'prove',
+      ...baseArgs.slice(1),
+      '--state-dir',
+      directory,
+      '--credential-mode',
+      'temporary',
+      '--pool-mode',
+      'definition'
+    ];
+    if (scenario === 'success') {
+      const result = await main(args, fixture);
+      assert.equal(result.status, 'proof-passed');
+      assert.doesNotMatch(JSON.stringify(result), /private-refresh-token|private-lease-token/);
+      assert.deepEqual(routes, ['acquire', 'finalize', 'heartbeat', 'release']);
+    } else {
+      await assert.rejects(main(args, fixture), error => {
+        assert.match(error.message, scenario === 'cleanup-failure' ? /cleanup\/recovery/ : /scratch-export-import/);
+        assert.doesNotMatch(error.message, /private-refresh-token|private-lease-token/);
+        return true;
+      });
+    }
+    assert.ok(firstHome);
+    assert.equal(Boolean(secondHome), scenario !== 'redacted-export');
+    assert.deepEqual(
+      removed,
+      scenario === 'cleanup-failure'
+        ? []
+        : [
+            ['ActiveScratchOrg', 'own-scratch'],
+            ['ALV_ScratchOrgPoolSlot__c', 'own-slot'],
+            ['ALV_ScratchOrgPool__c', 'own-pool']
+          ]
+    );
+    assert.equal(fixture.records.ActiveScratchOrg[0].Id, 'other-scratch');
+    assert.equal(fixture.records.ALV_ScratchOrgPool__c[0].Id, 'shared-pool');
+    const proof = JSON.parse(readFileSync(stateFile, 'utf8')).proof;
+    if (scenario === 'cleanup-failure') {
+      assert.equal(proof.cleanup, undefined);
+      await assert.rejects(main(args, fixture), /prior proof needs recovery/);
+    } else {
+      assert.equal(proof.cleanup.scratchDeleted, true);
+      assert.equal(proof.cleanup.poolDeleted, true);
+    }
+    assert.equal(Boolean(proof.completedAt), ['success', 'cleanup-failure'].includes(scenario));
+  });
+}
+
+test('runtime setup rejects inherited metadata administration instead of using or removing unrelated grants', async t => {
+  const fixture = provisioningFixture();
+  const directory = stateDirectory(t);
+  await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
+  fixture.records.PermissionSetAssignment = [
+    {
+      Id: 'other-assignment',
+      PermissionSetId: 'other-permission',
+      PermissionSet: { Name: 'UnrelatedMetadataAdmin', PermissionsModifyMetadata: true }
+    }
+  ];
+  await assert.rejects(
+    main(['grant-runtime', ...baseArgs.slice(1), '--state-dir', directory], fixture),
+    /Runtime identity has administrative grants/
+  );
+  assert.deepEqual(
+    fixture.created.map(item => item.object),
+    ['User', 'PermissionSetLicenseAssign']
+  );
+});
+
+test('runtime setup requires actual ScratchOrgInfo creation permission after the scoped deployment', async t => {
+  const fixture = provisioningFixture();
+  const directory = stateDirectory(t);
+  await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
+  fixture.records.PermissionSetAssignment = [];
+  fixture.records.PermissionSet = [
+    {
+      Id: '0PSruntime',
+      Name: 'ALV_ScratchOrgPoolService',
+      IsOwnedByProfile: false,
+      ...Object.fromEntries(
+        Object.entries(fixture.records.Profile[0]).filter(([name]) => name.startsWith('Permissions'))
+      )
+    }
+  ];
+  fixture.records.ObjectPermissions = [
+    {
+      SobjectType: 'ScratchOrgInfo',
+      PermissionsRead: true,
+      PermissionsCreate: false,
+      PermissionsEdit: true,
+      PermissionsDelete: true,
+      PermissionsModifyAllRecords: false,
+      PermissionsViewAllRecords: true
+    }
+  ];
+  const invoke = fixture.sf;
+  fixture.sf = async args => {
+    if (args[0] === 'project' && args[1] === 'deploy') {
+      return { success: true, status: 'Succeeded', checkOnly: args.includes('--dry-run'), id: '0Afpermissions' };
+    }
+    const result = await invoke(args);
+    for (const assignment of fixture.records.PermissionSetAssignment)
+      assignment.PermissionSet = fixture.records.PermissionSet[0];
+    return result;
+  };
+  await assert.rejects(
+    main(['grant-runtime', ...baseArgs.slice(1), '--state-dir', directory], fixture),
+    /ScratchOrgInfo creation permission/
+  );
+});
+
+test('a concrete scratch-object license restriction is recorded privately for the explicit Salesforce fallback', async t => {
+  const fixture = provisioningFixture();
+  const directory = stateDirectory(t);
+  await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
+  fixture.records.PermissionSetAssignment = [];
+  fixture.records.PermissionSet = [
+    {
+      Id: '0PSruntime',
+      Name: 'ALV_ScratchOrgPoolService',
+      IsOwnedByProfile: false,
+      ...Object.fromEntries(
+        Object.entries(fixture.records.Profile[0]).filter(([name]) => name.startsWith('Permissions'))
+      )
+    }
+  ];
+  const invoke = fixture.sf;
+  fixture.sf = async (args, options) => {
+    if (args[0] === 'project')
+      return { success: true, status: 'Succeeded', checkOnly: args.includes('--dry-run'), id: '0Afpermissions' };
+    if (args[1] === 'create' && args.includes('PermissionSetAssignment'))
+      throw Object.assign(
+        new Error('FIELD_INTEGRITY_EXCEPTION: user license does not allow ScratchOrgInfo. private-token-value'),
+        { code: 'FIELD_INTEGRITY_EXCEPTION' }
+      );
+    return invoke(args, options);
+  };
+  await assert.rejects(
+    main(['grant-runtime', ...baseArgs.slice(1), '--state-dir', directory], fixture),
+    /permission assignment failed/
+  );
+  const contents = readFileSync(path.join(directory, 'identity.json'), 'utf8');
+  const failure = JSON.parse(contents).integrationFailure;
+  assert.equal(failure.licenseRestriction, true);
+  assert.deepEqual(failure.affectedObjects, ['ScratchOrgInfo']);
+  assert.doesNotMatch(contents, /private-token-value/);
+  assert.equal(
+    fixture.records.User[0].ProfileId,
+    '00eintegration',
+    'Recording a restriction does not silently switch the user'
+  );
+});
+
+test('runtime setup rejects missing pool field grants even when scratch creation is granted', async t => {
+  const fixture = provisioningFixture();
+  const directory = stateDirectory(t);
+  await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
+  fixture.records.PermissionSetAssignment = [];
+  fixture.records.PermissionSet = [
+    {
+      Id: '0PSruntime',
+      Name: 'ALV_ScratchOrgPoolService',
+      IsOwnedByProfile: false,
+      ...Object.fromEntries(
+        Object.entries(fixture.records.Profile[0]).filter(([name]) => name.startsWith('Permissions'))
+      )
+    }
+  ];
+  fixture.records.ObjectPermissions = [
+    'ALV_ScratchOrgPool__c',
+    'ALV_ScratchOrgPoolSlot__c',
+    'ActiveScratchOrg',
+    'ScratchOrgInfo'
+  ].map(name => ({
+    SobjectType: name,
+    PermissionsRead: true,
+    PermissionsCreate: name !== 'ActiveScratchOrg',
+    PermissionsEdit: true,
+    PermissionsDelete: true,
+    PermissionsViewAllRecords: true,
+    PermissionsModifyAllRecords: name.startsWith('ALV_')
+  }));
+  fixture.records.FieldPermissions = [];
+  const invoke = fixture.sf;
+  fixture.sf = async (args, options) => {
+    if (args[0] === 'project')
+      return { success: true, status: 'Succeeded', checkOnly: args.includes('--dry-run'), id: '0Afpermissions' };
+    const result = await invoke(args, options);
+    for (const assignment of fixture.records.PermissionSetAssignment)
+      assignment.PermissionSet = fixture.records.PermissionSet[0];
+    return result;
+  };
+  await assert.rejects(
+    main(['grant-runtime', ...baseArgs.slice(1), '--state-dir', directory], fixture),
+    /Runtime field access is missing for ALV_ScratchOrgPool__c.AcquireTimeoutSeconds__c/
+  );
+  assert.equal(JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8')).runtime, undefined);
+});
+
+test('a common trigger or infrastructure failure never qualifies for the Salesforce-license fallback', async t => {
+  const fixture = provisioningFixture();
+  const directory = stateDirectory(t);
+  await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
+  const stateFile = path.join(directory, 'identity.json');
+  const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+  state.runtimeFailure = { code: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY', license: 'integration' };
+  writeFileSync(stateFile, JSON.stringify(state));
+  await assert.rejects(
+    main(['use-salesforce-fallback', ...baseArgs.slice(1), '--state-dir', directory], fixture),
+    /recorded Integration incompatibility/
+  );
+  assert.deepEqual(
+    fixture.created.map(item => item.object),
+    ['User', 'PermissionSetLicenseAssign']
+  );
+});
+
+test('remote failures expose only a recognized category, without secrets or misleading license fallback evidence', async t => {
+  const fixture = provisioningFixture();
+  const directory = stateDirectory(t);
+  const invoke = fixture.sf;
+  fixture.sf = async args => {
+    if (args[1] === 'create')
+      throw Object.assign(new Error('CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY private-token-value'), {
+        code: 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY'
+      });
+    return invoke(args);
+  };
+  await assert.rejects(main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture), error => {
+    assert.doesNotMatch(error.message, /private-token-value/);
+    assert.match(error.message, /CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY/);
+    assert.equal(error.licenseRestriction, false);
+    return true;
+  });
+});
+
+test('the native proof refuses cached identity or unconfigured app state before scratch or pool mutation', async t => {
+  const fixture = provisioningFixture();
+  const directory = stateDirectory(t);
+  await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
+  await assert.rejects(
+    main(
+      [
+        'prove',
+        ...baseArgs.slice(1),
+        '--state-dir',
+        directory,
+        '--credential-mode',
+        'temporary',
+        '--pool-mode',
+        'definition'
+      ],
+      fixture
+    ),
+    /configured owned app and verified runtime grants/
+  );
+  assert.deepEqual(
+    fixture.created.map(item => item.object),
+    ['User', 'PermissionSetLicenseAssign']
+  );
+});
+
+test('the explicit supported fallback preserves the user and resumes an uncertain profile update without duplicating it', async t => {
+  const fixture = provisioningFixture();
+  const directory = stateDirectory(t);
+  await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
+  fixture.records.PermissionSetAssignment = [];
+  const stateFile = path.join(directory, 'identity.json');
+  const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+  state.integrationFailure = {
+    phase: 'permission-set-assignment',
+    code: 'FIELD_INTEGRITY_EXCEPTION',
+    license: 'integration',
+    licenseRestriction: true,
+    affectedObjects: ['ScratchOrgInfo']
+  };
+  writeFileSync(stateFile, JSON.stringify(state));
+  const invoke = fixture.sf;
+  let profileWrites = 0;
+  fixture.sf = async args => {
+    if (args[0] === 'data' && args[1] === 'delete') {
+      assert.equal(args[args.indexOf('--sobject') + 1], 'PermissionSetLicenseAssign');
+      assert.equal(args[args.indexOf('--record-id') + 1], '2LApsl');
+      fixture.records.PermissionSetLicenseAssign = [];
+      return { id: '2LApsl', success: true };
+    }
+    if (args[0] === 'data' && args[1] === 'update') {
+      assert.equal(args[args.indexOf('--record-id') + 1], '005runtime');
+      assert.equal(args[args.indexOf('--values') + 1], "ProfileId='00esalesforce'");
+      fixture.records.User[0].ProfileId = '00esalesforce';
+      profileWrites += 1;
+      throw Object.assign(new Error('Uncertain network result'), { code: 'ETIMEDOUT' });
+    }
+    return invoke(args);
+  };
+  const args = ['use-salesforce-fallback', ...baseArgs.slice(1), '--state-dir', directory];
+  await assert.rejects(main(args, fixture), /profile update is unconfirmed/);
+  const result = await main(args, fixture);
+  assert.equal(result.status, 'fallback-ready');
+  assert.equal(result.userId, '005runtime');
+  assert.equal(result.profile, 'Minimum Access - Salesforce');
+  assert.equal(profileWrites, 1);
+  assert.equal(fixture.records.User.length, 1);
+  assert.equal(fixture.records.PermissionSetLicenseAssign.length, 0);
+});

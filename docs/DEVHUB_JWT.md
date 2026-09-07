@@ -1,5 +1,7 @@
 # Dev Hub JWT validation
 
+For dedicated-user discovery, explicit certificate policy, minimum grants and independent native proof, see [Dev Hub identity bootstrap](DEVHUB_IDENTITY.md). Its live provisioning/permission evidence is tracked separately from the bootstrap-identity runner results below.
+
 This covers the direct runners in [#1074](https://github.com/Electivus/Apex-Log-Viewer/issues/1074) and pool administration/consumption in [#1075](https://github.com/Electivus/Apex-Log-Viewer/issues/1075) on the `codex/devhub-jwt` effort branch. Production workflow credential gates, proxy-lab transport and permanent identity provisioning have separate tickets. The existing production workflow contract must be cut over together in #1078 before this effort reaches `main`.
 
 ## Configuration
