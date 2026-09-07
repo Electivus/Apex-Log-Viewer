@@ -15,6 +15,7 @@
 
 ### Tests
 
+- Scratch Org Pool: authenticate maintenance and consumers through the shared Dev Hub JWT policy, preserve PlatformCLI scratch authorization, renew lease calls after expired sessions, and validate an isolated pool with an independent runner. Production workflow cutover remains a separate step on the JWT effort branch.
 - IntelliJ/TypeScript: add a versioned language-neutral conformance corpus that runs through both public runtime facades with real temporary workspaces and strict process/HTTP doubles.
 - IntelliJ: cover native org discovery, stable catalog cursors, progressive body search, atomic concurrent materialization, authentication retry, parsed multiline debug entries, structured triage, retention protection, registered actions/editors, localization, and plugin lifecycle behavior.
 

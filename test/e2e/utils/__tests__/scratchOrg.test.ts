@@ -394,7 +394,7 @@ describe('ensureScratchOrg', () => {
       process.env.CI = 'true';
       process.env.SF_SCRATCH_STRATEGY = strategy;
       process.env.SF_DEVHUB_CLIENT_ID = 'partial-client';
-      process.env.SF_DEVHUB_AUTH_URL = 'force://legacy-secret';
+      process.env.SF_DEVHUB_AUTH_URL = 'force://PlatformCLI::legacy-secret@scratch.example.com';
       await expect(ensureScratchOrg()).rejects.toThrow('Incomplete Dev Hub JWT configuration');
       expect(runSfJsonMock).not.toHaveBeenCalled();
       expect(fetchSpy).not.toHaveBeenCalled();
@@ -472,7 +472,7 @@ describe('ensureScratchOrg', () => {
           needsCreate: false,
           scratchUsername: 'slot01@example.com',
           scratchLoginUrl: 'https://slot01.scratch.my.salesforce.com',
-          scratchAuthUrl: 'force://slot01-auth',
+          scratchAuthUrl: 'force://PlatformCLI::slot01-auth@scratch.example.com',
           scratchDurationDays: 30
         });
       }
@@ -507,13 +507,13 @@ describe('ensureScratchOrg', () => {
             accessToken: 'scratch-token',
             instanceUrl: 'https://slot01.scratch.my.salesforce.com',
             username: 'slot01@example.com',
-            sfdxAuthUrl: 'force://slot01-auth-updated'
+            sfdxAuthUrl: 'force://PlatformCLI::slot01-auth-updated@scratch.example.com'
           }
         };
       }
 
       if (args[0] === 'org' && args[1] === 'auth' && args[2] === 'show-sfdx-auth-url') {
-        return { status: 0, result: { sfdxAuthUrl: 'force://slot01-auth-updated' } };
+        return { status: 0, result: { sfdxAuthUrl: 'force://PlatformCLI::slot01-auth-updated@scratch.example.com' } };
       }
 
       throw new Error(`Unexpected sf command: ${args.join(' ')}`);
@@ -550,7 +550,7 @@ describe('ensureScratchOrg', () => {
     );
     expect(releaseCall).toBeDefined();
     const releaseBody = JSON.parse(String(releaseCall?.[1]?.body || '{}'));
-    expect(releaseBody.scratchAuthUrl).toBe('force://slot01-auth-updated');
+    expect(releaseBody.scratchAuthUrl).toBe('force://PlatformCLI::slot01-auth-updated@scratch.example.com');
   });
 
   test('uses the pool definition hash for acquire and finalize when one is configured', async () => {
@@ -572,7 +572,7 @@ describe('ensureScratchOrg', () => {
           needsCreate: false,
           scratchUsername: 'slot01@example.com',
           scratchLoginUrl: 'https://slot01.scratch.my.salesforce.com',
-          scratchAuthUrl: 'force://slot01-auth',
+          scratchAuthUrl: 'force://PlatformCLI::slot01-auth@scratch.example.com',
           scratchDurationDays: 30
         });
       }
@@ -607,7 +607,7 @@ describe('ensureScratchOrg', () => {
             accessToken: 'scratch-token',
             instanceUrl: 'https://slot01.scratch.my.salesforce.com',
             username: 'slot01@example.com',
-            sfdxAuthUrl: 'force://slot01-auth-updated'
+            sfdxAuthUrl: 'force://PlatformCLI::slot01-auth-updated@scratch.example.com'
           }
         };
       }
@@ -641,6 +641,9 @@ describe('ensureScratchOrg', () => {
       const url = String(input);
       if (isPoolConfigQuery(url)) {
         return createPoolConfigResponse();
+      }
+      if (url.includes('FROM%20ScratchOrgInfo')) {
+        return createJsonResponse({ records: [] });
       }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
         return createJsonResponse({
@@ -699,7 +702,7 @@ describe('ensureScratchOrg', () => {
             accessToken: 'scratch-token',
             instanceUrl: 'https://slot02.scratch.my.salesforce.com',
             username: 'slot02@example.com',
-            sfdxAuthUrl: 'force://slot02-auth'
+            sfdxAuthUrl: 'force://PlatformCLI::slot02-auth@scratch.example.com'
           }
         };
       }
@@ -745,7 +748,7 @@ describe('ensureScratchOrg', () => {
     expect(finalizeCall).toBeDefined();
     const finalizeBody = JSON.parse(String(finalizeCall?.[1]?.body || '{}'));
     expect(finalizeBody.created).toBe(true);
-    expect(finalizeBody.scratchAuthUrl).toBe('force://slot02-auth');
+    expect(finalizeBody.scratchAuthUrl).toBe('force://PlatformCLI::slot02-auth@scratch.example.com');
 
     await scratch.cleanup();
   });
@@ -769,7 +772,7 @@ describe('ensureScratchOrg', () => {
           needsCreate: false,
           scratchUsername: 'slot03@example.com',
           scratchLoginUrl: 'https://slot03.scratch.my.salesforce.com',
-          scratchAuthUrl: 'force://slot03-stale-auth',
+          scratchAuthUrl: 'force://PlatformCLI::slot03-stale-auth@scratch.example.com',
           scratchOrgInfoId: '2SR000000000001AAA',
           activeScratchOrgId: '0SO000000000001AAA',
           scratchDurationDays: 30
@@ -832,7 +835,7 @@ describe('ensureScratchOrg', () => {
             accessToken: 'scratch-token',
             instanceUrl: 'https://slot03.scratch.my.salesforce.com',
             username: 'slot03@example.com',
-            sfdxAuthUrl: 'force://slot03-fresh-auth'
+            sfdxAuthUrl: 'force://PlatformCLI::slot03-fresh-auth@scratch.example.com'
           }
         };
       }
@@ -858,7 +861,7 @@ describe('ensureScratchOrg', () => {
     expect(finalizeCall).toBeDefined();
     const finalizeBody = JSON.parse(String(finalizeCall?.[1]?.body || '{}'));
     expect(finalizeBody.created).toBe(true);
-    expect(finalizeBody.scratchAuthUrl).toBe('force://slot03-fresh-auth');
+    expect(finalizeBody.scratchAuthUrl).toBe('force://PlatformCLI::slot03-fresh-auth@scratch.example.com');
 
     await scratch.cleanup();
   });
@@ -884,7 +887,7 @@ describe('ensureScratchOrg', () => {
           needsCreate: false,
           scratchUsername: 'slot03@example.com',
           scratchLoginUrl: 'https://slot03.scratch.my.salesforce.com',
-          scratchAuthUrl: 'force://slot03-auth',
+          scratchAuthUrl: 'force://PlatformCLI::slot03-auth@scratch.example.com',
           scratchOrgInfoId: '2SR000000000001AAA',
           activeScratchOrgId: '0SO000000000001AAA',
           scratchDurationDays: 30
@@ -951,7 +954,7 @@ describe('ensureScratchOrg', () => {
             accessToken: 'scratch-token',
             instanceUrl: 'https://slot03.scratch.my.salesforce.com',
             username: 'slot03@example.com',
-            sfdxAuthUrl: 'force://slot03-fresh-auth'
+            sfdxAuthUrl: 'force://PlatformCLI::slot03-fresh-auth@scratch.example.com'
           }
         };
       }
@@ -990,7 +993,7 @@ describe('ensureScratchOrg', () => {
     expect(finalizeCalls).toHaveLength(2);
     const recreateFinalizeBody = JSON.parse(String(finalizeCalls[1]?.[1]?.body || '{}'));
     expect(recreateFinalizeBody.created).toBe(true);
-    expect(recreateFinalizeBody.scratchAuthUrl).toBe('force://slot03-fresh-auth');
+    expect(recreateFinalizeBody.scratchAuthUrl).toBe('force://PlatformCLI::slot03-fresh-auth@scratch.example.com');
 
     await scratch.cleanup();
   });
@@ -1014,17 +1017,17 @@ describe('ensureScratchOrg', () => {
           needsCreate: false,
           scratchUsername: 'slot03@example.com',
           scratchLoginUrl: 'https://slot03.scratch.my.salesforce.com',
-          scratchAuthUrl: 'force://slot03-auth',
+          scratchAuthUrl: 'force://PlatformCLI::slot03-auth@scratch.example.com',
           scratchOrgInfoId: '2SR000000000001AAA',
           activeScratchOrgId: '0SO000000000001AAA',
           scratchDurationDays: 30
         });
       }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')) {
-        return createJsonResponse({ message: 'Lease ownership lost' }, 409);
+        return createJsonResponse({ message: 'Scratch-org pool slot slot-01 is no longer leased by this caller.' }, 409);
       }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/release')) {
-        return createJsonResponse({ message: 'Lease ownership lost' }, 409);
+        return createJsonResponse({ message: 'Scratch-org pool slot slot-01 is no longer leased by this caller.' }, 409);
       }
       throw new Error(`Unexpected fetch url: ${url}`);
     });
@@ -1047,7 +1050,7 @@ describe('ensureScratchOrg', () => {
             accessToken: 'scratch-token',
             instanceUrl: 'https://slot03.scratch.my.salesforce.com',
             username: 'slot03@example.com',
-            sfdxAuthUrl: 'force://slot03-fresh-auth'
+            sfdxAuthUrl: 'force://PlatformCLI::slot03-fresh-auth@scratch.example.com'
           }
         };
       }
@@ -1067,7 +1070,7 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected sf command: ${args.join(' ')}`);
     });
 
-    await expect(ensureScratchOrg()).rejects.toThrow(/lease ownership lost/i);
+    await expect(ensureScratchOrg()).rejects.toThrow(/no longer leased by this caller/i);
     expect(runSfJsonMock).not.toHaveBeenCalledWith(
       expect.arrayContaining(['org', 'create', 'scratch']),
       expect.anything()
@@ -1136,7 +1139,7 @@ describe('ensureScratchOrg', () => {
         return createJsonResponse(
           {
             message: 'Pool REST failure',
-            scratchAuthUrl: 'force://secret-slot-auth'
+            scratchAuthUrl: 'force://PlatformCLI::secret-slot-auth@scratch.example.com'
           },
           500
         );
@@ -1158,8 +1161,8 @@ describe('ensureScratchOrg', () => {
 
     const error = await ensureScratchOrg().catch(caught => caught as Error);
     expect(error).toBeInstanceOf(Error);
-    expect(error.message).toContain('Pool REST failure');
-    expect(error.message).not.toContain('force://secret-slot-auth');
+    expect(error.message).toContain('response body redacted');
+    expect(error.message).not.toContain('force://PlatformCLI::secret-slot-auth@scratch.example.com');
   });
 
   test('treats an empty heartbeat env var as unset and still renews pooled leases', async () => {
@@ -1193,7 +1196,7 @@ describe('ensureScratchOrg', () => {
           needsCreate: false,
           scratchUsername: 'slot05@example.com',
           scratchLoginUrl: 'https://test.salesforce.com',
-          scratchAuthUrl: 'force://slot05-auth'
+          scratchAuthUrl: 'force://PlatformCLI::slot05-auth@scratch.example.com'
         });
       }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/heartbeat')) {
@@ -1226,7 +1229,7 @@ describe('ensureScratchOrg', () => {
             accessToken: 'scratch-token',
             instanceUrl: 'https://slot05.scratch.my.salesforce.com',
             username: 'slot05@example.com',
-            sfdxAuthUrl: 'force://slot05-auth-updated'
+            sfdxAuthUrl: 'force://PlatformCLI::slot05-auth-updated@scratch.example.com'
           }
         };
       }
@@ -1265,7 +1268,7 @@ describe('ensureScratchOrg', () => {
           needsCreate: false,
           scratchUsername: 'slot06@example.com',
           scratchLoginUrl: 'https://test.salesforce.com',
-          scratchAuthUrl: 'force://slot06-auth'
+          scratchAuthUrl: 'force://PlatformCLI::slot06-auth@scratch.example.com'
         });
       }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')) {
@@ -1295,7 +1298,7 @@ describe('ensureScratchOrg', () => {
             accessToken: 'scratch-token',
             instanceUrl: 'https://slot06.scratch.my.salesforce.com',
             username: 'slot06@example.com',
-            sfdxAuthUrl: 'force://slot06-auth-updated'
+            sfdxAuthUrl: 'force://PlatformCLI::slot06-auth-updated@scratch.example.com'
           }
         };
       }
@@ -1342,7 +1345,7 @@ describe('ensureScratchOrg', () => {
           needsCreate: false,
           scratchUsername: 'slot06b@example.com',
           scratchLoginUrl: 'https://test.salesforce.com',
-          scratchAuthUrl: 'force://slot06b-auth'
+          scratchAuthUrl: 'force://PlatformCLI::slot06b-auth@scratch.example.com'
         });
       }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')) {
@@ -1373,7 +1376,7 @@ describe('ensureScratchOrg', () => {
               accessToken: 'scratch-token',
               instanceUrl: 'https://slot06b.scratch.my.salesforce.com',
               username: 'slot06b@example.com',
-              sfdxAuthUrl: 'force://slot06b-auth-updated'
+              sfdxAuthUrl: 'force://PlatformCLI::slot06b-auth-updated@scratch.example.com'
             }
           };
         }
@@ -1446,7 +1449,7 @@ describe('ensureScratchOrg', () => {
           needsCreate: false,
           scratchUsername: 'slot07@example.com',
           scratchLoginUrl: 'https://test.salesforce.com',
-          scratchAuthUrl: 'force://slot07-auth'
+          scratchAuthUrl: 'force://PlatformCLI::slot07-auth@scratch.example.com'
         });
       }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/finalize')) {
@@ -1479,7 +1482,7 @@ describe('ensureScratchOrg', () => {
             accessToken: 'scratch-token',
             instanceUrl: 'https://slot07.scratch.my.salesforce.com',
             username: 'slot07@example.com',
-            sfdxAuthUrl: 'force://slot07-auth-updated'
+            sfdxAuthUrl: 'force://PlatformCLI::slot07-auth-updated@scratch.example.com'
           }
         };
       }

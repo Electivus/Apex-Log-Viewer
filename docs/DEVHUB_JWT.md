@@ -1,10 +1,10 @@
-# Direct validation with Dev Hub JWT
+# Dev Hub JWT validation
 
-This is the direct-runner slice of [#1074](https://github.com/Electivus/Apex-Log-Viewer/issues/1074), integrated on the `codex/devhub-jwt` effort branch. Production workflow credential gates, pool administration, proxy-lab transport and permanent identity provisioning have separate tickets. The existing production workflow contract must be cut over together in #1078 before this effort reaches `main`.
+This covers the direct runners in [#1074](https://github.com/Electivus/Apex-Log-Viewer/issues/1074) and pool administration/consumption in [#1075](https://github.com/Electivus/Apex-Log-Viewer/issues/1075) on the `codex/devhub-jwt` effort branch. Production workflow credential gates, proxy-lab transport and permanent identity provisioning have separate tickets. The existing production workflow contract must be cut over together in #1078 before this effort reaches `main`.
 
 ## Configuration
 
-The JavaScript runner (`scripts/run-tests.js`) and TypeScript E2E runner (`ensureScratchOrg`) use `scripts/devhub-auth.js` through their existing Salesforce CLI adapters.
+The JavaScript runner (`scripts/run-tests.js`), TypeScript E2E runner (`ensureScratchOrg`) and administrative commands (`scripts/scratch-pool-admin.js`) use `scripts/devhub-auth.js` through their existing Salesforce CLI adapters.
 
 | Variable                     | Meaning                                                                        |
 | ---------------------------- | ------------------------------------------------------------------------------ |
@@ -75,6 +75,50 @@ The invalid-token fixture uses the installed CLI's AuthInfo writer in a separate
 The temporary bootstrap ECA was disabled after validation, and a fresh isolated JWT attempt confirmed rejection by the disabled app. The disabled ECA and its empty preauthorization permission set remain as inert test metadata. The bootstrap's source key/certificate, metadata project and revocation-check CLI directory remain outside the repository: automatic approval review rejected their removal with `blocked by policy`. **The bootstrap private key is not proven deleted.** Its exact local location and rejection were reported to the coordinator for manual follow-up. This residue is separate from the runner-owned files whose cleanup passed; global cleanup is not complete.
 
 This is implementation-level direct-runner evidence using the authorized bootstrap identity. It does not prove the future dedicated identity's least privileges, pool maintenance, proxy-lab execution or production CI cutover. macOS runtime behavior has regression-test coverage for the existing Node 20 wrapper, but this live smoke was run on Windows.
+
+## Pool maintenance and independent consumers
+
+All six existing administrative commands authenticate before reading or mutating a pool: `bootstrap`, `list`, `reconcile`, `prewarm`, `disable-slot` and `reset-slot`. Set the JWT variables above, then select the pool explicitly:
+
+```powershell
+pnpm run scratch-pool:list -- --pool-key '<configured pool>' --json
+pnpm run scratch-pool:reconcile -- --pool-key '<configured pool>'
+pnpm run scratch-pool:prewarm -- --pool-key '<configured pool>' --limit 1
+```
+
+`--target-org <alias>` is an explicit local alias alternative only when all JWT inputs are absent. It cannot override a selected JWT identity or make an alias valid in CI. `list` omits scratch authorization URLs and lease tokens even with `--json`.
+
+Prewarm still uses the conditional slot update to acquire its maintenance lease. The scratch is created with PlatformCLI, its usable authorization is handed to the caller through CLI export/import, and the existing `ScratchAuthUrl__c` field receives the same authorization URL format. Reconciliation marks redaction placeholders or unusable URLs as requiring recreation. No schema, lease API, credential format or cache layout changes are required.
+
+An independent consumer uses `SF_SCRATCH_STRATEGY=pool` and `SF_SCRATCH_POOL_NAME=<configured pool>` with the same JWT inputs. It imports the stored scratch authorization through the CLI. Pool REST calls retain their originating JWT home and can renew authentication once after HTTP 401, including acquisition, heartbeat, finalization, release and owned-scratch deletion. Cleanup stops and drains an in-flight heartbeat before releasing the lease and removing the owned JWT key/state.
+
+### Ownership transition
+
+Before replacing an identity, inspect the configured pool's `ScratchUsername__c`, `ScratchOrgInfoId__c` and `ActiveScratchOrgId__c`, and establish who owns those resources. Drain existing leases before maintenance. If deletion returns `INSUFFICIENT_ACCESS`, the command reports that the existing owner or administrator must delete that scratch; it does not create a replacement or clear the only stored credential. Failed prewarm returns the slot to `available` with `needs_recreate`; a failed consumer deletion releases a recoverable `broken` slot with the prior credential retained. Do not repeatedly prewarm it under an identity that lacks deletion access.
+
+Have the existing owner or administrator finish and delete those specific old scratches during the transition, then reconcile and prewarm the affected pool under the intended identity. Do not reset a live pool, clear credentials before confirmed deletion, or expand the runtime identity's privileges to avoid this ownership step. A lost conditional maintenance race or HTTP 409 lease conflict remains a conflict, not a reason to overwrite another lease.
+
+The controlled validation below used the previously authorized bootstrap identity. Deletion of its own scratch was observed. Deletion denial for an administrator-owned scratch was exercised at the REST boundary with the actual Salesforce error code; no unrelated administrator-owned scratch was deleted or mutated. The future dedicated identity's grants and its live ownership-transition proof remain #1077/#1078 responsibilities.
+
+### Controlled pool validation
+
+With an authorized Dev Hub, complete **inline** JWT inputs and available scratch capacity, run:
+
+```powershell
+$env:ALV_POOL_JWT_SMOKE = '1'
+$env:ALV_JWT_SMOKE_DEVHUB_ORG_ID = '<verified authorized Dev Hub org ID>'
+node scripts/run-playwright-cli-e2e.js test/e2e/cli/poolJwt.e2e.spec.ts --workers=1 --retries=0 --reporter=list --output=apexlogs/pool-jwt-smoke-results
+```
+
+The parent creates a unique pool with two logical slots and only **one one-day scratch**. The empty first slot is disabled; the second is prewarmed and consumed. The existing shrink operation later deletes that scratch, after which the smoke removes only its own pool/slot records. A separate Playwright process starts with empty CLI state and exercises import, scratch query, a real 401 followed by JWT renewal and a successful heartbeat, finalization, successful release, and a second lease released with a controlled failure. The parent verifies recovery through `list`/`reconcile` and cleans up. The consumer-only test is skipped in the parent and runs in the child; that expected skip is not a skipped acceptance gate.
+
+Observed on **2026-09-06** (America/Bahia), Windows 11, Node **24.19.0**, Salesforce CLI **2.150.6**: parent lifecycle **passed in 23.8 minutes**, including the passing independent consumer. Dev Hub auth had a private-key reference with no refresh token; the imported scratch used a PlatformCLI refresh token with no private key. The successful smoke removed its scratch, both slot records, pool, and temporary CLI homes. One unrelated active scratch remained before and after. Sanitized local evidence is written to ignored `apexlogs/pool-jwt-smoke-evidence.json`.
+
+Two earlier attempts exposed a CLI stdout/stderr diagnostic issue and smoke timing/inventory assumptions. Their scratchs and isolated pool records were subsequently deleted through JWT. The final code tolerates the current CLI's `NoAuthFoundForTargetOrgError` on already-absent local authorization, even when stderr contains unrelated warnings. The smoke starts its heartbeat observation timeout after import, and recognizes scratch authorization in either CLI inventory category.
+
+The temporary ECA `ALV_1075_JWT_20260907` was disabled after validation; a fresh JWT login in an empty home was rejected specifically because the app was disabled. Its temporary preauthorization assignment was removed. The disabled ECA, its generated policies/global settings and the empty `ALV_1075_JWT_PreAuth` permission set remain as inert metadata. Automatic approval review rejected removal of the bootstrap private key and the first failed smoke's local directory with `blocked by policy`; those removals were not retried by another mechanism. **The bootstrap private key is not proven deleted.** The bootstrap directory and both failed-attempt directories remain outside the repository and were reported by exact path to the coordinator for manual follow-up. This retained local state is distinct from the successful smoke's verified cleanup. Do not reactivate that test ECA. The #1074 residue was neither reused nor altered.
+
+The #1075 local gates passed: 126 E2E utility tests, 70 focused admin/shared-auth/runner tests, `check-types`, `lint`, `build`, and the Windows-native `pnpm test` equivalent below, including 295 script tests and 301 VS Code unit tests. The stable 1.136.1 integration host passed all 3 tests. Dependency provenance and all 1,297 registry signatures passed. A full E2E TypeScript comparison against the starting commit included both smoke sources and found the same 20 preexisting diagnostics, with none introduced. Integration again reported a noncredential temporary-workspace EPERM cleanup warning; no validation gate was weakened.
 
 ## Local package-manager setup
 

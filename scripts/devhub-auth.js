@@ -32,6 +32,7 @@ function safeSfFailureMessage(error, fallback = 'Salesforce CLI credential opera
     ['LIMIT_EXCEEDED', 'LIMIT_EXCEEDED: Check Dev Hub scratch signup limits.'],
     ['C-1016', 'C-1016: Scratch signup must use the PlatformCLI override with this CLI version.'],
     ['NamedOrgNotFoundError', 'NamedOrgNotFoundError: No authorization information found.'],
+    ['NoAuthFoundForTargetOrgError', 'NoAuthFoundForTargetOrgError: No authorization information found.'],
     ['INVALID_AUTH', 'Check the selected identity, ECA preauthorization and certificate.'],
     ['invalid_grant', 'Check the selected identity, ECA preauthorization and certificate.'],
     ['CERT_', 'Check the approved corporate CA trust configuration.']
