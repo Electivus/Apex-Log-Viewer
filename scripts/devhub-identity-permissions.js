@@ -2,7 +2,9 @@
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { metadataProject, validatedDeploy, xmlValue } = require('./devhub-identity-app');
+const { metadataProject, validatedDeploy, xmlValue, verifyPreauthorization } = require('./devhub-identity-app');
+
+const RUNTIME_PERMISSION_SET = 'ALV_ScratchOrgPoolService';
 
 const ADMINISTRATIVE_PERMISSIONS = [
   'PermissionsModifyAllData',
@@ -15,9 +17,9 @@ const ADMINISTRATIVE_PERMISSIONS = [
   'PermissionsViewAllData'
 ];
 
-async function auditRuntime(query, user) {
+async function auditRuntime(query, user, { state, sf, target, requireRuntime = false }) {
   const assignments = await query(
-    `SELECT Id, PermissionSetId, PermissionSet.Name, ${ADMINISTRATIVE_PERMISSIONS.map(
+    `SELECT Id, AssigneeId, PermissionSetId, PermissionSetGroupId, PermissionSet.Name, PermissionSet.IsOwnedByProfile, PermissionSet.ProfileId, ${ADMINISTRATIVE_PERMISSIONS.map(
       name => `PermissionSet.${name}`
     ).join(', ')} FROM PermissionSetAssignment WHERE AssigneeId = '${user.Id}'`
   );
@@ -39,12 +41,81 @@ async function auditRuntime(query, user) {
   ) {
     throw new Error('Runtime administrative grants are present or incompletely reported; do not proceed.');
   }
+  const verified = new Set();
+  let runtimeAssigned = false;
+  const unrecognized = () =>
+    new Error('Unrecognized or unverified runtime permission-set assignment; preserve access and reconcile ownership.');
+  if (state.userId !== user.Id) throw unrecognized();
+  for (const assignment of assignments) {
+    if (
+      !assignment.Id ||
+      !assignment.PermissionSetId ||
+      assignment.AssigneeId !== user.Id ||
+      assignment.PermissionSetGroupId !== null ||
+      verified.has(assignment.PermissionSetId)
+    )
+      throw unrecognized();
+    const name = assignment.PermissionSet?.Name;
+    let permissionSetId;
+    if (name === RUNTIME_PERMISSION_SET) {
+      const sets = await query(
+        `SELECT Id, Name, IsOwnedByProfile, Type, NamespacePrefix FROM PermissionSet WHERE Name = '${RUNTIME_PERMISSION_SET}'`
+      );
+      if (
+        sets.length !== 1 ||
+        sets[0].Name !== name ||
+        sets[0].IsOwnedByProfile !== false ||
+        sets[0].Type !== 'Regular' ||
+        sets[0].NamespacePrefix !== null ||
+        (state.runtime && state.runtime.permissionSetId !== sets[0].Id) ||
+        (state.runtimeAssignmentId && state.runtimeAssignmentId !== assignment.Id)
+      )
+        throw unrecognized();
+      permissionSetId = sets[0].Id;
+      runtimeAssigned = true;
+    } else if (assignment.PermissionSet?.IsOwnedByProfile === true) {
+      // Salesforce exposes the user's profile through its own assignment too.
+      // Bind this generated set to the already verified minimum profile by ID.
+      const sets = await query(
+        `SELECT Id, Name, IsOwnedByProfile, ProfileId, Type, NamespacePrefix FROM PermissionSet WHERE ProfileId = '${user.ProfileId}'`
+      );
+      if (
+        sets.length !== 1 ||
+        sets[0].Name !== name ||
+        sets[0].IsOwnedByProfile !== true ||
+        sets[0].ProfileId !== user.ProfileId ||
+        assignment.PermissionSet.ProfileId !== user.ProfileId ||
+        sets[0].Type !== 'Profile' ||
+        sets[0].NamespacePrefix !== null
+      )
+        throw unrecognized();
+      permissionSetId = sets[0].Id;
+    } else {
+      const apps = Object.entries(state.apps || {}).filter(
+        ([mode, app]) =>
+          ['temporary', 'permanent'].includes(mode) &&
+          app.preauthorization === name &&
+          app.id &&
+          app.name ===
+            `ALV_DevHub_${state.owner.replaceAll('-', '').slice(0, 16)}_${mode === 'temporary' ? 'Test' : 'CI'}` &&
+          app.marker === `alv-devhub:${state.owner}:${mode}` &&
+          name === `${app.name}_Access` &&
+          (!app.assignmentId || app.assignmentId === assignment.Id)
+      );
+      if (apps.length !== 1) throw unrecognized();
+      permissionSetId = await verifyPreauthorization(sf, target, query, apps[0][1]);
+    }
+    if (!permissionSetId || assignment.PermissionSetId !== permissionSetId) throw unrecognized();
+    verified.add(permissionSetId);
+  }
+  if (requireRuntime && !runtimeAssigned) throw new Error('Verified runtime permission-set assignment is missing.');
   return assignments;
 }
 
 async function grantRuntime({ values, state, directory, query, user, sf, save }) {
-  const assignments = await auditRuntime(query, user);
-  const permissionName = 'ALV_ScratchOrgPoolService';
+  const auditOptions = { state, sf, target: values['target-org'] };
+  const assignments = await auditRuntime(query, user, auditOptions);
+  const permissionName = RUNTIME_PERMISSION_SET;
   const project = path.join(directory, 'runtime-permissions');
   const source = await fs.readFile(
     path.join(
@@ -107,7 +178,7 @@ async function grantRuntime({ values, state, directory, query, user, sf, save })
       );
     }
   }
-  await auditRuntime(query, user);
+  await auditRuntime(query, user, { ...auditOptions, requireRuntime: true });
   const objects = await query(
     `SELECT SobjectType, PermissionsRead, PermissionsCreate, PermissionsEdit, PermissionsDelete, PermissionsViewAllRecords, PermissionsModifyAllRecords FROM ObjectPermissions WHERE ParentId = '${permissionSetId}'`
   );
@@ -177,7 +248,7 @@ async function useSalesforceFallback({ values, state, inventory, user, query, sf
       'The Salesforce fallback requires recorded Integration incompatibility for the required scratch lifecycle.'
     );
   }
-  await auditRuntime(query, user);
+  const assignments = await auditRuntime(query, user, { state, sf, target: values['target-org'] });
   const candidate = inventory.candidates.salesforce;
   if (!candidate.profileId) throw new Error('The minimum Salesforce profile is unavailable.');
   if (state.license === 'salesforce' && !state.pendingTransition) {
@@ -211,10 +282,7 @@ async function useSalesforceFallback({ values, state, inventory, user, query, sf
     startedAt: new Date().toISOString()
   };
   await save();
-  const assignments = await query(
-    `SELECT Id, PermissionSetId, PermissionSet.Name FROM PermissionSetAssignment WHERE AssigneeId = '${user.Id}'`
-  );
-  for (const assignment of assignments.filter(item => item.PermissionSet?.Name === 'ALV_ScratchOrgPoolService')) {
+  for (const assignment of assignments.filter(item => item.PermissionSet?.Name === RUNTIME_PERMISSION_SET)) {
     const result = await sf([
       'data',
       'delete',

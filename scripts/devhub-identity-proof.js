@@ -127,7 +127,7 @@ async function prove({ values, state, directory, user, sf, query, save }) {
   if (state.proof && (!state.proof.cleanup?.scratchDeleted || !state.proof.cleanup?.poolDeleted)) {
     throw new Error('A prior proof needs recovery. Run cleanup-proof before creating another test pool or scratch.');
   }
-  await auditRuntime(query, user);
+  await auditRuntime(query, user, { state, sf, target: values['target-org'], requireRuntime: true });
   const certificate = await readCertificate(app.certificateFile, app.privateKeyFile, app.lifecycle);
   if (certificate.fingerprint !== app.fingerprint) throw new Error('Proof certificate differs from the recorded app.');
   let inputs;

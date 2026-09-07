@@ -5,6 +5,7 @@ const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { X509Certificate, createPrivateKey } = require('node:crypto');
 const { main } = require('./devhub-identity');
+const { ADMINISTRATIVE_PERMISSIONS } = require('./devhub-identity-permissions');
 
 const baseArgs = ['inspect', '--target-org', 'Bootstrap', '--expected-org-id', '00D000000000001AAA'];
 
@@ -77,7 +78,18 @@ function discoveryFixture() {
     const soql = args[args.indexOf('--query') + 1];
     const object = soql.match(/ FROM (\w+)/)[1];
     assert.ok(records[object], `Unrecognized Salesforce query: ${object}`);
-    return { records: records[object] };
+    let result = records[object];
+    const namedPermission = object === 'PermissionSet' && soql.match(/WHERE Name = '([^']+)'/);
+    if (namedPermission) result = result.filter(item => item.Name === namedPermission[1]);
+    const profilePermission = object === 'PermissionSet' && soql.match(/WHERE ProfileId = '([^']+)'/);
+    if (profilePermission) result = result.filter(item => item.ProfileId === profilePermission[1]);
+    if (object === 'PermissionSetAssignment' && soql.includes('PermissionSet.')) {
+      result = result.map(item => ({
+        ...item,
+        PermissionSet: item.PermissionSet || records.PermissionSet.find(set => set.Id === item.PermissionSetId)
+      }));
+    }
+    return { records: result };
   };
   return { records, sf };
 }
@@ -131,6 +143,7 @@ function provisioningFixture() {
     );
     const id = object === 'User' ? '005runtime' : '2LApsl';
     const record = { Id: id, ...fields };
+    if (object === 'PermissionSetAssignment') record.PermissionSetGroupId = null;
     if (object === 'User') record.IsActive = fields.IsActive === 'true';
     fixture.records[object].push(record);
     created.push({ object, record });
@@ -382,7 +395,7 @@ async function preparedAppFixture(t) {
   await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
   const certificate = await temporaryCertificate(t);
   fixture.records.PermissionSetAssignment = [];
-  fixture.permissionFields = ['PermissionsApiEnabled', 'PermissionsManageUsers'];
+  fixture.permissionFields = ['PermissionsApiEnabled', ...ADMINISTRATIVE_PERMISSIONS];
   fixture.permissionChildren = [
     ['ObjectPermissions', 'ParentId'],
     ['FieldPermissions', 'ParentId'],
@@ -478,6 +491,279 @@ async function preparedAppFixture(t) {
   const first = await main(args, fixture);
   return { fixture, directory, args, first, deployments: () => deployments };
 }
+
+function addRuntimeAssignment(fixture, state) {
+  const permission = {
+    Id: '0PSruntime',
+    Name: 'ALV_ScratchOrgPoolService',
+    IsOwnedByProfile: false,
+    Type: 'Regular',
+    NamespacePrefix: null,
+    ...Object.fromEntries(ADMINISTRATIVE_PERMISSIONS.map(name => [name, false]))
+  };
+  fixture.records.PermissionSet.push(permission);
+  fixture.records.PermissionSetAssignment.push({
+    Id: 'runtime-assignment',
+    AssigneeId: '005runtime',
+    PermissionSetId: permission.Id,
+    PermissionSetGroupId: null
+  });
+  state.runtime = { permissionSetId: permission.Id };
+  state.runtimeAssignmentId = 'runtime-assignment';
+  return permission;
+}
+
+function addRuntimeGrantInventory(fixture) {
+  const { xmlValue } = require('./devhub-identity-app');
+  const source = readFileSync(
+    path.join(
+      __dirname,
+      '..',
+      'force-app',
+      'main',
+      'default',
+      'permissionsets',
+      'ALV_ScratchOrgPoolService.permissionset-meta.xml'
+    ),
+    'utf8'
+  );
+  const permissionNames = {
+    allowRead: 'PermissionsRead',
+    allowCreate: 'PermissionsCreate',
+    allowEdit: 'PermissionsEdit',
+    allowDelete: 'PermissionsDelete',
+    viewAllRecords: 'PermissionsViewAllRecords',
+    modifyAllRecords: 'PermissionsModifyAllRecords'
+  };
+  const objects = [...source.matchAll(/<objectPermissions>([\s\S]*?)<\/objectPermissions>/g)].map(([, body]) => ({
+    SobjectType: xmlValue(body, 'object'),
+    ...Object.fromEntries(Object.entries(permissionNames).map(([xml, api]) => [api, xmlValue(body, xml) === 'true']))
+  }));
+  const fields = [...source.matchAll(/<fieldPermissions>([\s\S]*?)<\/fieldPermissions>/g)].map(([, body]) => ({
+    Field: xmlValue(body, 'field'),
+    PermissionsRead: true,
+    PermissionsEdit: true
+  }));
+  fixture.records.ApexClass = [
+    { Id: 'rest-class', Name: 'ALVScratchPoolRest' },
+    { Id: 'service-class', Name: 'ALVScratchPoolService' }
+  ];
+  const invoke = fixture.sf;
+  fixture.sf = async (args, options) => {
+    if (args[0] === 'project' && args[1] === 'deploy' && path.basename(options.cwd) === 'runtime-permissions')
+      return { success: true, status: 'Succeeded', checkOnly: args.includes('--dry-run'), id: '0Afpermissions' };
+    const soql = args.includes('--query') ? args[args.indexOf('--query') + 1] : '';
+    if (soql.includes("WHERE ParentId = '0PSruntime'")) {
+      const object = soql.match(/ FROM (\w+)/)[1];
+      return {
+        records: {
+          ObjectPermissions: objects,
+          FieldPermissions: fields,
+          SetupEntityAccess: fixture.records.ApexClass.map(item => ({ SetupEntityId: item.Id }))
+        }[object]
+      };
+    }
+    return invoke(args, options);
+  };
+}
+
+function addProfileAssignment(fixture) {
+  const permission = {
+    Id: 'profile-set',
+    Name: 'GeneratedProfileSet',
+    IsOwnedByProfile: true,
+    ProfileId: fixture.records.User[0].ProfileId,
+    Type: 'Profile',
+    NamespacePrefix: null,
+    ...Object.fromEntries(ADMINISTRATIVE_PERMISSIONS.map(name => [name, false]))
+  };
+  fixture.records.PermissionSet.push(permission);
+  fixture.records.PermissionSetAssignment.push({
+    Id: 'profile-assignment',
+    AssigneeId: '005runtime',
+    PermissionSetId: permission.Id,
+    PermissionSetGroupId: null
+  });
+}
+
+test('runtime commands reject unknown object, field, Apex and custom grants even with every admin flag false', async t => {
+  const { fixture, directory } = await preparedAppFixture(t);
+  const stateFile = path.join(directory, 'identity.json');
+  const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+  addRuntimeAssignment(fixture, state);
+  state.integrationFailure = { license: 'integration', licenseRestriction: true, affectedObjects: ['ScratchOrgInfo'] };
+  writeFileSync(stateFile, JSON.stringify(state));
+  const allowed = structuredClone(fixture.records.PermissionSetAssignment);
+  const invoke = fixture.sf;
+  let mutations = 0;
+  fixture.sf = async (args, options) => {
+    if (options?.env || args[0] === 'project' || ['create', 'update', 'delete'].includes(args[1])) {
+      mutations += 1;
+      throw new Error('Runtime drift reached a forbidden mutation/login');
+    }
+    return invoke(args, options);
+  };
+  for (const extra of [
+    { ObjectPermissions: [{ SobjectType: 'Account', PermissionsRead: true }] },
+    { FieldPermissions: [{ Field: 'Account.Name', PermissionsRead: true }] },
+    { SetupEntityAccess: [{ SetupEntityType: 'ApexClass', SetupEntityId: 'extra-class' }] },
+    { SetupEntityAccess: [{ SetupEntityType: 'CustomPermission', SetupEntityId: 'extra-custom' }] }
+  ]) {
+    const assignment = {
+      Id: 'unexpected-assignment',
+      AssigneeId: '005runtime',
+      PermissionSetId: 'unexpected-set',
+      PermissionSetGroupId: null,
+      PermissionSet: {
+        Name: 'UnrelatedDataAccess',
+        ...Object.fromEntries(ADMINISTRATIVE_PERMISSIONS.map(name => [name, false])),
+        ...extra
+      }
+    };
+    fixture.records.PermissionSetAssignment = [...allowed, assignment];
+    for (const command of ['grant-runtime', 'prove', 'use-salesforce-fallback']) {
+      await assert.rejects(
+        main(
+          [
+            command,
+            ...baseArgs.slice(1),
+            '--state-dir',
+            directory,
+            '--credential-mode',
+            'temporary',
+            '--pool-mode',
+            'definition'
+          ],
+          fixture
+        ),
+        /Unrecognized or unverified runtime permission-set assignment/
+      );
+      assert.equal(mutations, 0);
+      assert.ok(fixture.records.PermissionSetAssignment.includes(assignment), 'Unrelated access must be preserved');
+    }
+  }
+});
+
+test('runtime assignment validation preserves initial setup before ECA and the legitimate owned ECA binding', async t => {
+  for (const withApp of [false, true]) {
+    let fixture, directory;
+    if (withApp) ({ fixture, directory } = await preparedAppFixture(t));
+    else {
+      fixture = provisioningFixture();
+      directory = stateDirectory(t);
+      await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
+      fixture.records.PermissionSetAssignment = [];
+    }
+    const stateFile = path.join(directory, 'identity.json');
+    const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+    addRuntimeAssignment(fixture, state);
+    if (!withApp) {
+      fixture.records.PermissionSetAssignment = [];
+      delete state.runtime;
+      delete state.runtimeAssignmentId;
+    }
+    addProfileAssignment(fixture);
+    writeFileSync(stateFile, JSON.stringify(state));
+    addRuntimeGrantInventory(fixture);
+    const args = ['grant-runtime', ...baseArgs.slice(1), '--state-dir', directory];
+    const first = await main(args, fixture);
+    assert.equal(first.status, 'runtime-ready');
+    assert.equal(first.permissionSetId, '0PSruntime');
+    const assignments = structuredClone(fixture.records.PermissionSetAssignment);
+    assert.equal(assignments.length, withApp ? 3 : 2);
+    const second = await main(args, fixture);
+    assert.equal(second.status, 'runtime-ready');
+    assert.deepEqual(
+      fixture.records.PermissionSetAssignment,
+      assignments,
+      'Legitimate rerun must not duplicate assignments'
+    );
+    if (withApp) assert.equal(fixture.records.SetupEntityAccess[0].SetupEntityId, state.apps.temporary.id);
+    else assert.equal(JSON.parse(readFileSync(stateFile, 'utf8')).apps, undefined);
+  }
+});
+
+test('runtime commands fail closed on missing inventory, mismatched identity and unverified assignments', async t => {
+  const { fixture, directory } = await preparedAppFixture(t);
+  const stateFile = path.join(directory, 'identity.json');
+  const baseline = JSON.parse(readFileSync(stateFile, 'utf8'));
+  addRuntimeAssignment(fixture, baseline);
+  const allowed = structuredClone(fixture.records.PermissionSetAssignment);
+  const invoke = fixture.sf;
+  for (const scenario of [
+    'missing-records',
+    'incomplete-query',
+    'missing-runtime',
+    'wrong-assignee',
+    'wrong-set-id',
+    'group-assignment',
+    'duplicate',
+    'changed-recorded-id',
+    'changed-app-owner',
+    'missing-set',
+    'incomplete-set',
+    'foreign-profile'
+  ]) {
+    const state = structuredClone(baseline);
+    fixture.records.PermissionSetAssignment = structuredClone(allowed);
+    const assignment = fixture.records.PermissionSetAssignment.at(-1);
+    if (scenario === 'missing-runtime') fixture.records.PermissionSetAssignment.pop();
+    if (scenario === 'wrong-assignee') assignment.AssigneeId = 'other-user';
+    if (scenario === 'wrong-set-id') {
+      assignment.PermissionSet = { ...fixture.records.PermissionSet.at(-1) };
+      assignment.PermissionSetId = 'unrecognized-id';
+    }
+    if (scenario === 'group-assignment') assignment.PermissionSetGroupId = 'group-id';
+    if (scenario === 'duplicate') fixture.records.PermissionSetAssignment.push({ ...assignment });
+    if (scenario === 'changed-recorded-id') state.runtime.permissionSetId = 'different-recorded-id';
+    if (scenario === 'changed-app-owner') state.apps.temporary.marker = 'another-owner';
+    if (scenario === 'foreign-profile')
+      assignment.PermissionSet = {
+        ...fixture.records.PermissionSet.at(-1),
+        Name: 'OtherProfileSet',
+        IsOwnedByProfile: true,
+        ProfileId: 'other-profile'
+      };
+    writeFileSync(stateFile, JSON.stringify(state));
+    let mutations = 0;
+    fixture.sf = async (args, options) => {
+      if (options?.env || args[0] === 'project' || ['create', 'update', 'delete'].includes(args[1])) {
+        mutations += 1;
+        throw new Error('Unverified inventory reached a mutation');
+      }
+      const result = await invoke(args, options);
+      const soql = args.includes('--query') ? args[args.indexOf('--query') + 1] : '';
+      if (soql.includes(' FROM PermissionSetAssignment ')) {
+        if (scenario === 'missing-records') return {};
+        if (scenario === 'incomplete-query') return { ...result, done: false };
+      }
+      if (soql.includes("WHERE Name = 'ALV_ScratchOrgPoolService'")) {
+        if (scenario === 'missing-set') return { records: [] };
+        if (scenario === 'incomplete-set') return { ...result, done: false };
+      }
+      return result;
+    };
+    for (const command of scenario === 'missing-runtime' ? ['prove'] : ['grant-runtime', 'prove']) {
+      await assert.rejects(
+        main(
+          [
+            command,
+            ...baseArgs.slice(1),
+            '--state-dir',
+            directory,
+            '--credential-mode',
+            'temporary',
+            '--pool-mode',
+            'definition'
+          ],
+          fixture
+        ),
+        /Unrecognized or unverified runtime|Incomplete Salesforce inventory|Verified runtime permission-set assignment is missing/
+      );
+      assert.equal(mutations, 0);
+    }
+  }
+});
 
 test('app setup validates before deployment, preauthorizes only the owned user, and resumes without another identity or app', async t => {
   const { fixture, args, first, deployments } = await preparedAppFixture(t);
@@ -689,10 +975,9 @@ test('app revocation disables only the owned ECA and confirms the effective poli
 
 test('cleanup-proof recovers persisted pre-resource interruptions without directories or authentication', async t => {
   const { fixture, directory } = await preparedAppFixture(t);
-  fixture.records.PermissionSetAssignment = [];
   const stateFile = path.join(directory, 'identity.json');
   const baseline = JSON.parse(readFileSync(stateFile, 'utf8'));
-  baseline.runtime = { permissionSetId: '0PSruntime' };
+  addRuntimeAssignment(fixture, baseline);
   const invoke = fixture.sf;
   const proofArgs = [
     'prove',
@@ -751,10 +1036,9 @@ test('cleanup-proof recovers persisted pre-resource interruptions without direct
 
 test('proof initialization failures enter recovery before any remote operation', async t => {
   const { fixture, directory } = await preparedAppFixture(t);
-  fixture.records.PermissionSetAssignment = [];
   const stateFile = path.join(directory, 'identity.json');
   const state = JSON.parse(readFileSync(stateFile, 'utf8'));
-  state.runtime = { permissionSetId: '0PSruntime' };
+  addRuntimeAssignment(fixture, state);
   writeFileSync(stateFile, JSON.stringify(state));
   const promises = require('node:fs/promises');
   const mkdir = promises.mkdir;
@@ -850,10 +1134,9 @@ for (const scenario of [
 ]) {
   test(`native identity proof preserves isolation, lease lifecycle and ownership: ${scenario}`, async t => {
     const { fixture, directory } = await preparedAppFixture(t);
-    fixture.records.PermissionSetAssignment = [];
     const stateFile = path.join(directory, 'identity.json');
     const state = JSON.parse(readFileSync(stateFile, 'utf8'));
-    state.runtime = { permissionSetId: '0PSruntime' };
+    addRuntimeAssignment(fixture, state);
     writeFileSync(stateFile, JSON.stringify(state));
     const invoke = fixture.sf;
     const removed = [];
@@ -1103,6 +1386,8 @@ test('runtime setup requires actual ScratchOrgInfo creation permission after the
       Id: '0PSruntime',
       Name: 'ALV_ScratchOrgPoolService',
       IsOwnedByProfile: false,
+      Type: 'Regular',
+      NamespacePrefix: null,
       ...Object.fromEntries(
         Object.entries(fixture.records.Profile[0]).filter(([name]) => name.startsWith('Permissions'))
       )
@@ -1145,6 +1430,8 @@ test('a concrete scratch-object license restriction is recorded privately for th
       Id: '0PSruntime',
       Name: 'ALV_ScratchOrgPoolService',
       IsOwnedByProfile: false,
+      Type: 'Regular',
+      NamespacePrefix: null,
       ...Object.fromEntries(
         Object.entries(fixture.records.Profile[0]).filter(([name]) => name.startsWith('Permissions'))
       )
@@ -1187,6 +1474,8 @@ test('runtime setup rejects missing pool field grants even when scratch creation
       Id: '0PSruntime',
       Name: 'ALV_ScratchOrgPoolService',
       IsOwnedByProfile: false,
+      Type: 'Regular',
+      NamespacePrefix: null,
       ...Object.fromEntries(
         Object.entries(fixture.records.Profile[0]).filter(([name]) => name.startsWith('Permissions'))
       )

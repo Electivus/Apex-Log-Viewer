@@ -378,4 +378,4 @@ async function provisionApp({ values, state, inventory, directory, user, query, 
   };
 }
 
-module.exports = { provisionApp, xml, metadataProject, validatedDeploy, xmlValue, verifyApp };
+module.exports = { provisionApp, xml, metadataProject, validatedDeploy, xmlValue, verifyApp, verifyPreauthorization };
