@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } = require('node:fs');
+const { realpath } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { X509Certificate, createPrivateKey } = require('node:crypto');
@@ -1002,7 +1003,7 @@ test('cleanup-proof recovers persisted pre-resource interruptions without direct
       id,
       phase,
       appMode: 'temporary',
-      directory: path.join(require('node:fs').realpathSync(directory), `proof-${id}`),
+      directory: path.join(await realpath(directory), `proof-${id}`),
       poolKey: `alv-identity-${id}`,
       slotKey: `alv-identity-${id}-01`,
       ...(marker === undefined ? {} : { remoteResourcesAttempted: marker })
@@ -1098,7 +1099,7 @@ test('cleanup-proof retains uncertain, attempted, incomplete and conflicting rem
     const proof = {
       id,
       appMode: 'temporary',
-      directory: path.join(require('node:fs').realpathSync(directory), `proof-${id}`),
+      directory: path.join(await realpath(directory), `proof-${id}`),
       poolKey: `alv-identity-${id}`,
       slotKey: `alv-identity-${id}-01`,
       ...details
