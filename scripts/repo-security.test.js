@@ -1088,7 +1088,7 @@ test('devcontainer base image and Salesforce CLI install are pinned', () => {
   assert.match(dockerfile, /npm install -g pnpm@11\.11\.0 --no-audit --no-fund/);
 });
 
-test('Playwright E2E workflow uses a configurable Salesforce CLI package with a pinned default', () => {
+test('Playwright E2E workflow pins the Salesforce CLI release proven for JWT signup and export', () => {
   const workflow = read('.github/workflows/e2e-playwright.yml');
   const parsed = yaml.parse(workflow);
   const helperRuns = workflow.match(/node scripts\/setup-salesforce-cli\.mjs/g) || [];
@@ -1096,18 +1096,9 @@ test('Playwright E2E workflow uses a configurable Salesforce CLI package with a 
   const setupHelperStep = directSteps.find(step => step.name === 'Setup Salesforce CLI');
 
   assert.equal(helperRuns.length, 3);
-  assert.equal(
-    parsed.jobs.playwright_e2e.env.SALESFORCE_CLI_PACKAGE,
-    "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}"
-  );
-  assert.equal(
-    parsed.jobs.intellij_native_real_org_linux.env.SALESFORCE_CLI_PACKAGE,
-    "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}"
-  );
-  assert.equal(
-    parsed.jobs.playwright_e2e_os_matrix.env.SALESFORCE_CLI_PACKAGE,
-    "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}"
-  );
+  assert.equal(parsed.jobs.playwright_e2e.env.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.150.6');
+  assert.equal(parsed.jobs.intellij_native_real_org_linux.env.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.150.6');
+  assert.equal(parsed.jobs.playwright_e2e_os_matrix.env.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.150.6');
   assert.ok(!Object.hasOwn(parsed.jobs.playwright_e2e_telemetry.env, 'SALESFORCE_CLI_PACKAGE'));
   assert.equal(setupHelperStep.run, 'node scripts/setup-salesforce-cli.mjs');
   assert.equal(setupHelperStep.env.SALESFORCE_CLI_CACHE_ROOT, '${{ runner.tool_cache }}');

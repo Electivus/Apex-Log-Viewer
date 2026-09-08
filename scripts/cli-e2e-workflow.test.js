@@ -2,6 +2,90 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const YAML = require('yaml');
+const { spawnSync } = require('node:child_process');
+const { generateKeyPairSync } = require('node:crypto');
+const { salesforceChildEnv, resolveDevHubConfig, validateDevHubJwt } = require('./devhub-auth');
+
+test('real-org configuration gate rejects missing JWT even with a legacy URL and cached alias', () => {
+  const result = spawnSync(process.execPath, ['scripts/check-real-org-config.js'], {
+    env: {
+      ...salesforceChildEnv(),
+      CI: 'true',
+      SF_SCRATCH_POOL_NAME: 'test-pool',
+      SF_DEVHUB_AUTH_URL: 'force://legacy:secret:token@example.com',
+      SF_DEVHUB_ALIAS: 'cached-devhub'
+    },
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /CI requires complete Dev Hub JWT configuration/);
+  assert.doesNotMatch(result.stdout + result.stderr, /force:\/\/|legacy:secret:token/);
+});
+
+const JWT_SECRET_NAMES = ['SF_DEVHUB_CLIENT_ID', 'SF_DEVHUB_USERNAME', 'SF_DEVHUB_LOGIN_URL', 'SF_DEVHUB_PRIVATE_KEY'];
+const jwtSecrets = {
+  SF_DEVHUB_CLIENT_ID: 'workflow-test-client',
+  SF_DEVHUB_USERNAME: 'workflow-test@example.com',
+  SF_DEVHUB_LOGIN_URL: 'https://login.salesforce.com',
+  SF_DEVHUB_PRIVATE_KEY: generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({
+    type: 'pkcs8',
+    format: 'pem'
+  })
+};
+
+function workflowCredentialEnv(job, step, secrets) {
+  const configured = { ...job.env, ...step.env };
+  const env = { ...salesforceChildEnv(), CI: 'true', SF_DEVHUB_ALIAS: 'cached-devhub' };
+  // Resolve the workflow's credential bindings without evaluating shell or GitHub expressions.
+  for (const name of [...JWT_SECRET_NAMES, 'SF_DEVHUB_AUTH_URL', 'SF_SCRATCH_POOL_NAME']) {
+    const value = configured[name];
+    const secret = /^\$\{\{ secrets\.(\w+) \}\}$/.exec(value || '');
+    env[name] = secret ? secrets[secret[1]] || '' : value === '${{ env.SCRATCH_POOL_NAME }}' ? 'test-pool' : '';
+  }
+  return env;
+}
+
+test('each real-org workflow gate validates complete JWT and rejects partial or placeholder secrets', () => {
+  const workflow = readWorkflow();
+  for (const jobName of ['playwright_e2e', 'intellij_native_real_org_linux', 'playwright_e2e_os_matrix']) {
+    const job = getWorkflowJob(workflow, jobName);
+    const gate = getWorkflowStep(workflow, 'Require scratch-org pool configuration', jobName).step;
+    const [command, ...args] = String(gate.run).trim().split(/\s+/);
+    assert.equal(command, 'node', 'the credential gate must run natively on every supported OS');
+    for (const [label, changes] of [
+      ['complete', {}],
+      ...JWT_SECRET_NAMES.map(name => [`missing ${name}`, { [name]: '' }]),
+      ...JWT_SECRET_NAMES.map(name => [`redacted ${name}`, { [name]: '[REDACTED]' }])
+    ]) {
+      const secrets = { ...jwtSecrets, SF_DEVHUB_AUTH_URL: 'force://legacy:secret:token@example.com', ...changes };
+      const result = spawnSync(process.execPath, args, {
+        env: workflowCredentialEnv(job, gate, secrets),
+        encoding: 'utf8'
+      });
+      assert.equal(result.status, label === 'complete' ? 0 : 1, `${jobName}: ${label}: ${result.stderr}`);
+      assert.doesNotMatch(result.stdout + result.stderr, /PRIVATE KEY|force:\/\/legacy|workflow-test-client/);
+    }
+    const missingPool = workflowCredentialEnv(job, gate, jwtSecrets);
+    delete missingPool.SF_SCRATCH_POOL_NAME;
+    const result = spawnSync(process.execPath, args, { env: missingPool, encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /SF_SCRATCH_POOL_NAME/);
+
+    const consumers = job.steps.filter(step =>
+      /Run (CLI real-org E2E|Playwright E2E|native Kotlin real-org validation)$/.test(step.name)
+    );
+    assert.ok(consumers.length);
+    for (const step of consumers) {
+      const env = workflowCredentialEnv(job, step, jwtSecrets);
+      validateDevHubJwt(resolveDevHubConfig(env));
+      for (const name of JWT_SECRET_NAMES) {
+        assert.throws(() => validateDevHubJwt(resolveDevHubConfig({ ...env, [name]: '' })), /Incomplete/);
+      }
+      assert.equal(step.env.SF_DEVHUB_AUTH_URL, undefined);
+      assert.equal(step.env.SF_DEVHUB_ALIAS, undefined);
+    }
+  }
+});
 
 const SHARED_SCRATCH_ENV_KEYS = [
   'SF_SCRATCH_STRATEGY',
@@ -13,8 +97,7 @@ const SHARED_SCRATCH_ENV_KEYS = [
   'SF_SCRATCH_POOL_MIN_REMAINING_MINUTES',
   'SF_SCRATCH_POOL_SEED_VERSION',
   'SF_SCRATCH_POOL_SNAPSHOT_NAME',
-  'SF_DEVHUB_AUTH_URL',
-  'SF_DEVHUB_ALIAS',
+  ...JWT_SECRET_NAMES,
   'SF_SCRATCH_DURATION',
   'SF_TEST_KEEP_ORG'
 ];
@@ -66,6 +149,23 @@ test('package.json test:scripts includes the CLI real-org workflow guard', () =>
     /\bscripts\/cli-e2e-workflow\.test\.js\b/,
     'expected the CLI real-org workflow guard to run in the default script suite'
   );
+});
+
+test('manual JWT lifecycle proof requires an explicit expected Dev Hub and keeps normal PR runs unchanged', () => {
+  const workflow = readWorkflow();
+  const input = workflow.on.workflow_dispatch.inputs.jwt_smoke_devhub_org_id;
+  assert.equal(input?.type, 'string');
+  assert.equal(input.required, false);
+  assert.equal(input.default, undefined);
+  for (const jobName of ['playwright_e2e', 'playwright_e2e_os_matrix']) {
+    const step = getWorkflowStep(workflow, 'Run CLI real-org E2E', jobName).step;
+    assert.equal(step.env.ALV_JWT_SMOKE_DEVHUB_ORG_ID, '${{ inputs.jwt_smoke_devhub_org_id }}');
+    assert.equal(step.env.ALV_DEVHUB_JWT_SMOKE, "${{ inputs.jwt_smoke_devhub_org_id != '' && '1' || '' }}");
+  }
+  const proxyStep = getWorkflowStep(workflow, 'Run CLI real-org E2E').step;
+  assert.equal(proxyStep.env.ALV_POOL_JWT_SMOKE, "${{ inputs.jwt_smoke_devhub_org_id != '' && '1' || '' }}");
+  const compose = YAML.parse(read('docker-compose.e2e-proxy.yml'));
+  assert.equal(compose.services.runner.environment.ALV_POOL_JWT_SMOKE, '${ALV_POOL_JWT_SMOKE:-}');
 });
 
 test('real-org Playwright workflow exposes a stable required PR gate', () => {
@@ -200,21 +300,13 @@ test('real-org Playwright workflow runs the extension suite through the MITM pro
     '${{ env.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS }}',
     'expected Ubuntu extension proxy-lab E2E to use its dedicated worker setting'
   );
-  assert.equal(
-    cliStep.env?.ALV_E2E_PROXY_LAB_DEVHUB_ALIAS,
-    '${{ env.SF_DEVHUB_ALIAS }}',
-    'expected CLI E2E proxy-lab alias to follow the configured Dev Hub alias'
-  );
+  assert.equal(cliStep.env?.ALV_E2E_PROXY_LAB_DEVHUB_ALIAS, undefined);
   assert.equal(
     extensionStep.env?.ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL,
     "${{ vars.ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL || '1' }}",
     'expected extension E2E to use the configured proxy-lab dependency reuse setting'
   );
-  assert.equal(
-    extensionStep.env?.ALV_E2E_PROXY_LAB_DEVHUB_ALIAS,
-    '${{ env.SF_DEVHUB_ALIAS }}',
-    'expected extension E2E proxy-lab alias to follow the configured Dev Hub alias'
-  );
+  assert.equal(extensionStep.env?.ALV_E2E_PROXY_LAB_DEVHUB_ALIAS, undefined);
 });
 
 test('real-org Playwright workflow keeps E2E tunables configurable with safe defaults', () => {
@@ -230,7 +322,7 @@ test('real-org Playwright workflow keeps E2E tunables configurable with safe def
     job?.env?.VSCODE_TEST_VERSION,
     "${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}"
   );
-  assert.equal(job?.env?.SALESFORCE_CLI_PACKAGE, "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}");
+  assert.equal(job?.env?.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.150.6');
   assert.equal(
     job?.env?.PLAYWRIGHT_WORKERS,
     "${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}"
@@ -243,7 +335,7 @@ test('real-org Playwright workflow keeps E2E tunables configurable with safe def
   assert.ok(!Object.prototype.hasOwnProperty.call(job?.env || {}, 'PLAYWRIGHT_SHARD'));
   assert.equal(job?.env?.PLAYWRIGHT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}");
   assert.equal(job?.env?.PLAYWRIGHT_EXPECT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}");
-  assert.equal(job?.env?.SF_DEVHUB_ALIAS, "${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}");
+  assert.equal(job?.env?.SF_DEVHUB_ALIAS, undefined);
   assert.equal(
     job?.env?.SF_SCRATCH_DURATION,
     "${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}"
@@ -400,8 +492,8 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
     job.env?.VSCODE_TEST_VERSION,
     "${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}"
   );
-  assert.equal(job.env?.SALESFORCE_CLI_PACKAGE, "${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}");
-  assert.equal(job.env?.SALESFORCE_CLI_NODE_VERSION, "${{ vars.SALESFORCE_CLI_NODE_VERSION || '20' }}");
+  assert.equal(job.env?.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.150.6');
+  assert.equal(job.env?.SALESFORCE_CLI_NODE_VERSION, '20');
   assert.equal(
     job.env?.PLAYWRIGHT_WORKERS,
     "${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}"
@@ -410,7 +502,7 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
   assert.equal(job.env?.PLAYWRIGHT_RETRIES, "${{ vars.PLAYWRIGHT_RETRIES || '0' }}");
   assert.equal(job.env?.PLAYWRIGHT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}");
   assert.equal(job.env?.PLAYWRIGHT_EXPECT_TIMEOUT_MS, "${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}");
-  assert.equal(job.env?.SF_DEVHUB_ALIAS, "${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}");
+  assert.equal(job.env?.SF_DEVHUB_ALIAS, undefined);
   assert.equal(
     job.env?.SF_SCRATCH_DURATION,
     "${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}"

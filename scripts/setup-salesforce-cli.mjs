@@ -60,7 +60,7 @@ export function resolveSalesforceCliCacheConfig({
   env = process.env,
   platform = process.platform,
   nodeVersion = process.versions.node,
-  packageName = env.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8'
+  packageName = env.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.150.6'
 } = {}) {
   const normalizedPackageName = normalizeSalesforceCliPackage(packageName);
   const cacheRoot = path.resolve(
@@ -316,7 +316,7 @@ export function setupSalesforceCli({
 function main() {
   const args = process.argv.slice(2);
   const packageName =
-    readArgValue(args, '--package') || process.env.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8';
+    readArgValue(args, '--package') || process.env.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.150.6';
   const env = { ...process.env, SALESFORCE_CLI_PACKAGE: packageName };
   const config = resolveSalesforceCliCacheConfig({ env });
 

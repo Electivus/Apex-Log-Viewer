@@ -109,13 +109,14 @@ In pool mode, each Playwright test acquires its own scratch-org pool slot. `PLAY
 
 ## GitHub Actions
 
-This section records the existing workflow gate, pending the coordinated JWT cutover in #1078. It does not make `SF_DEVHUB_AUTH_URL` a fallback for the migrated helpers. Complete that workflow change before promoting this effort to `main`.
-
-The Playwright workflow is pool-only in CI. It requires `SF_SCRATCH_POOL_NAME` and `SF_DEVHUB_AUTH_URL`, and it fails fast when either value is missing instead of falling back to the legacy single-scratch path.
+The Playwright workflow is pool-only in CI. It requires `SF_SCRATCH_POOL_NAME` and all four JWT secrets below, and it fails fast when any input is missing or invalid instead of falling back to the legacy single-scratch path.
 
 Repository secrets for pool mode:
 
-- `SF_DEVHUB_AUTH_URL`
+- `SF_DEVHUB_CLIENT_ID`
+- `SF_DEVHUB_USERNAME`
+- `SF_DEVHUB_LOGIN_URL`
+- `SF_DEVHUB_PRIVATE_KEY`
 
 Repository variables for pool mode:
 
@@ -138,4 +139,4 @@ The workflow intentionally has no workflow-level concurrency group. The Apex poo
 
 ## Codex Cloud
 
-Codex Cloud consumers use the same shared JWT inputs for Dev Hub access and the same slot-specific `sfdxAuthUrl` for scratch reuse. Supply JWT inputs through the environment's approved secret mechanism; keep the workflow-owned key/state alive through the final lease release. Permanent credential provisioning and production cutover remain separate steps in the JWT effort.
+Codex Cloud consumers use the same shared JWT inputs for Dev Hub access and the same slot-specific `sfdxAuthUrl` for scratch reuse. Supply JWT inputs through the environment's approved secret mechanism; keep the workflow-owned key/state alive through the final lease release. The dedicated identity is provisioned; see [workflow cutover and recovery](DEVHUB_JWT.md#production-workflow-cutover) for production evidence and ownership constraints.

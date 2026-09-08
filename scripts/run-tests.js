@@ -316,7 +316,7 @@ async function ensureSfCliInstalled() {
   }
   try {
     console.log('[test-setup] Installing @salesforce/cli globally via npm...');
-    await execFileAsync('npm', ['i', '--no-audit', '--no-fund', '-g', '@salesforce/cli@latest']);
+    await execFileAsync('npm', ['i', '--no-audit', '--no-fund', '-g', '@salesforce/cli@2.150.6']);
     await addGlobalBinToPath();
   } catch (e) {
     console.warn('[test-setup] Failed to install @salesforce/cli globally:', e && e.message ? e.message : e);

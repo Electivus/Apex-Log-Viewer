@@ -15,14 +15,16 @@
 
 ### Tests
 
-- Dev Hub: add resumable operator commands for minimum-access identity/ECA bootstrap, explicit certificate policy and isolated native scratch/pool permission proof. Permanent provisioning and CI cutover remain gated by their operator decisions and live validation.
+- CI/Dev Hub: require complete dedicated-identity JWT in every real-org gate and child environment, pin Salesforce CLI 2.150.6 with macOS Node 20 isolation, and expose opt-in integrated signup/export/import and pool lifecycle validation.
+
+- Dev Hub: add resumable operator commands for minimum-access identity/ECA bootstrap, explicit certificate policy and isolated native scratch/pool permission proof. Permanent provisioning follows the approved storage/lifetime policy; integrated CI acceptance is tracked in #1078.
 - Dev Hub: reject extra grants on the ECA preauthorization-only set and recover interrupted pre-login proofs without inferring cleanup after an uncertain remote write.
 - Dev Hub: reject unrecognized runtime permission-set assignments before setup, proof or fallback while preserving the verified minimum-profile and owned ECA assignments.
 - Dev Hub: revalidate the recognized runtime set's complete effective grants before readiness/proof, and keep Active scratch signups pending until their scratch is observable or an owned deletion is confirmed.
 - Dev Hub: verify current ECA policies and the complete sole-user preauthorization inventory before each proof; reject unknown recovery phases before cleanup, proof reuse or credential revocation.
 - Dev Hub: reject missing or unexpected pool maintenance health before declaring the dedicated-identity proof complete.
 
-- Scratch Org Pool: authenticate maintenance and consumers through the shared Dev Hub JWT policy, preserve PlatformCLI scratch authorization, renew lease calls after expired sessions, and validate an isolated pool with an independent runner. Production workflow cutover remains a separate step on the JWT effort branch.
+- Scratch Org Pool: authenticate maintenance and consumers through the shared Dev Hub JWT policy, preserve PlatformCLI scratch authorization, renew lease calls after expired sessions, and validate an isolated pool with an independent runner.
 - IntelliJ/TypeScript: add a versioned language-neutral conformance corpus that runs through both public runtime facades with real temporary workspaces and strict process/HTTP doubles.
 - IntelliJ: cover native org discovery, stable catalog cursors, progressive body search, atomic concurrent materialization, authentication retry, parsed multiline debug entries, structured triage, retention protection, registered actions/editors, localization, and plugin lifecycle behavior.
 

@@ -2,7 +2,7 @@
 
 For dedicated-user discovery, explicit certificate policy, minimum grants and independent native proof, see [Dev Hub identity bootstrap](DEVHUB_IDENTITY.md). Its live provisioning/permission evidence is tracked separately from the bootstrap-identity runner results below.
 
-This covers the direct runners in [#1074](https://github.com/Electivus/Apex-Log-Viewer/issues/1074) and pool administration/consumption in [#1075](https://github.com/Electivus/Apex-Log-Viewer/issues/1075) on the `codex/devhub-jwt` effort branch. Production workflow credential gates, proxy-lab transport and permanent identity provisioning have separate tickets. The existing production workflow contract must be cut over together in #1078 before this effort reaches `main`.
+The integrated contract covers direct runners (#1074), pool administration/consumption (#1075), proxy transport (#1076), the dedicated identity (#1077) and production workflow cutover (#1078). Historical smoke results below retain their original identities and limits; they are not production CI evidence. [Production workflow cutover](#production-workflow-cutover) records the current procedure and acceptance.
 
 ## Configuration
 
@@ -19,7 +19,7 @@ The JavaScript runner (`scripts/run-tests.js`), TypeScript E2E runner (`ensureSc
 
 Any JWT input selects JWT. Partial, malformed or rejected JWT configuration fails without trying an alias, a default identity or an authorization URL. CI requires complete JWT even when a cached alias or `SF_DEVHUB_AUTH_URL` exists. Neither `SF_DEVHUB_AUTH_URL` nor `SFDX_AUTH_URL` is an authentication fallback.
 
-JWT uses the configured username as the target identifier. It does not change the global default Dev Hub or repoint a supplied alias. With an inline key, this username is resolved only in the workflow-owned CLI home. The ECA must already allow certificate-backed login for that user. Permanent user permissions, key storage and certificate lifetime remain separate provisioning decisions.
+JWT uses the configured username as the target identifier. It does not change the global default Dev Hub or repoint a supplied alias. With an inline key, this username is resolved only in the workflow-owned CLI home. The ECA must already allow certificate-backed login for that user. The approved permanent identity, GitHub repository Secret storage and 365-day certificate are recorded in [DEVHUB_IDENTITY.md](DEVHUB_IDENTITY.md).
 
 ### Local JWT
 
@@ -42,7 +42,7 @@ In a local session with all five JWT inputs absent, set `SF_DEVHUB_ALIAS` to an 
 
 ## CLI and child-process boundaries
 
-Salesforce CLI **2.150.6** is the version proven by the direct smoke below. To prepare that exact version in the existing cache, use `node scripts/setup-salesforce-cli.mjs --package @salesforce/cli@2.150.6`, then point `SF_CLI_BIN_PATH` at its Salesforce CLI executable. `ALV_SF_BIN_PATH` is also recognized. Windows npm `.cmd` resolution is preserved, including configured paths with spaces. Keep the existing macOS Node 20 wrapper from `setup-salesforce-cli.mjs`; point the binary variables at that wrapper instead of bypassing it. This slice does not change the production CI version pin.
+Salesforce CLI **2.150.6** is the version proven by the direct smoke below. To prepare that exact version in the existing cache, use `node scripts/setup-salesforce-cli.mjs --package @salesforce/cli@2.150.6`, then point `SF_CLI_BIN_PATH` at its Salesforce CLI executable. `ALV_SF_BIN_PATH` is also recognized. Windows npm `.cmd` resolution is preserved, including configured paths with spaces. Keep the existing macOS Node 20 wrapper from `setup-salesforce-cli.mjs`; point the binary variables at that wrapper instead of bypassing it. Production real-org jobs pin this exact CLI version; the macOS CLI runtime remains Node 20 while application builds use Node 24.
 
 Scratch creation receives `SF_SCRATCH_SIGNUP_CONNECTED_APP=PlatformCLI` and `SF_SCRATCH_SIGNUP_CALLBACK_URL=http://localhost:1717/OauthRedirect` only in its child environment. Dev Hub JWT continues using the ECA. Scratch authorization remains an SFDX authorization URL.
 
@@ -182,3 +182,28 @@ Final local gates passed: 33 proxy-lab boundary tests, 126 E2E utility tests, `c
 The first Windows build exposed Linux links written into package-level `node_modules` through the workspace bind mount. The lab now gives each package its own dependency volume as well as the root volume. `pnpm install --force --frozen-lockfile` did not repair the existing host links; automatic approval review rejected removing those generated package dependency directories with `blocked by policy`. They were preserved for manual repair. A fresh Windows validation worktree containing the same complete source changes installed the frozen dependencies and passed `pnpm run build`. The failed original build is recorded as a host dependency limitation, not a passing gate in that checkout. No blocked removal was retried by another mechanism.
 
 The independent Standards and Spec reviews both identified the direct-runner command-selection mismatch (ST-001/SP-001): integration/CI entry points, nonempty `SF_SETUP_SCRATCH` values and JWT-only opt-in must preserve the runner's existing semantics. The correction shares `requiresScratchSetup` with that runner, recognizes its published integration commands/scopes, and derives the container decision from mounted JWT inputs. Unit/VSIX commands remain credential-free. The affected follow-up validation passed 69 lab/direct-runner tests (including 35 lab tests), 126 E2E utility tests and `check-types`; the earlier broad gates were not repeated for unchanged behavior.
+
+
+## Production workflow cutover
+
+The operator approved repository GitHub Actions Secrets and a 365-day certificate on 7 September 2026. The four stored inputs are `SF_DEVHUB_CLIENT_ID`, `SF_DEVHUB_USERNAME`, `SF_DEVHUB_LOGIN_URL` and `SF_DEVHUB_PRIVATE_KEY`; the runtime username is `apex-log-viewer-ci@electivus.com`. Electivus repository maintainers own CI configuration and the Dev Hub administrator owns user/ECA grants and owner-scoped scratch retirement. The certificate expires on 7 September 2027 at 11:34:01 UTC; rotation and interrupted-replacement recovery belong to #1079.
+
+All three real-org jobs validate the actual JWT and pool configuration through `node scripts/check-real-org-config.js`. They pass the same four inputs to the CLI, native Kotlin harness and extension runners. The proxy host copies them into its private operation mount; container preflight and child enforce the same policy. Telemetry preparation/query-only steps need no Salesforce credentials; the emitting extension run receives complete JWT. The main-required E2E, security and quality gates remain enforced.
+
+### Operator verification and retirement
+
+1. Inspect the configured pool and scratch ownership before starting consumers. Drain live leases through their owners. If an old scratch remains active, have its existing owner/admin delete that exact resource; retain stored credentials until deletion is confirmed. Never reset a live pool or broaden runtime grants to evade ownership.
+2. Check Secret names/timestamps with `gh secret list --repo Electivus/Apex-Log-Viewer --json name,updatedAt`. This cannot read values or prove a runner login. Supply the approved inputs privately when running `node scripts/check-real-org-config.js` locally, with `SF_SCRATCH_POOL_NAME` set.
+3. Dispatch the candidate with `gh workflow run e2e-playwright.yml --repo Electivus/Apex-Log-Viewer --ref <reviewed-branch> -f jwt_smoke_devhub_org_id=<verified-authorized-org-id>`. Verify actual direct, pool, proxy and telemetry results at the exact candidate SHA. The controlled smokes create/delete their own scratches and verify independent credential import; expected pre-cutover failures never count as success.
+4. Merge only the reviewed, passing candidate. Dispatch the same workflow at the integrated `main` commit and verify its actual results before closing #1078. Record exact source/merge SHAs, run URLs, platforms, retries and cleanup in the issue evidence.
+5. Inventory remaining legacy references with `git grep -n SF_DEVHUB_AUTH_URL`. No workflow reads or propagates the old secret. Remaining references document rejection, tests, historical evidence or the direct runner's legacy opt-in signal, which still fails strict JWT selection. The unused GitHub Secret is retained pending owner-controlled retirement; it cannot authenticate these workflows. Do not revoke a personal refresh token or another consumer's session to prove independence.
+
+### Transition observation and recovery
+
+On 8 September 2026, a fresh Windows Node 24.19.0 / Salesforce CLI 2.150.6 process authenticated the dedicated identity and verified its expected Dev Hub/user IDs. The configured `alv-e2e` pool retained its 30 slots, definition mode, baseline and lease settings. All 718 associated historical signups were already `Deleted`, and no active scratch belonged to that pool. One unrelated active scratch was preserved. The canonical JWT `reconcile` command completed for all 30 slots, marking each `needs_recreate` without resetting leases, clearing stored credentials or changing the pool definition. Consumers can provision/reuse slots under the new identity; no owner/admin deletion or privilege change was needed at this stage.
+
+If JWT configuration fails, stop real-org work, check the four approved Secret inputs, ECA preauthorization, certificate and the expected identity, then rerun from clean CLI state. Recover via the existing permanent identity/operator files; do not restore legacy fallback or revoke/replace the active certificate as part of this cutover. If a workflow fails after signup, reconcile its exact scratch/lease using retained CLI state before deleting owned operation files. Keep usable shared-pool scratches for future runs and retain their stored authorization. Report retained operation directories/volumes and cleanup errors explicitly. Previously denied local removals remain separate unresolved residues and must not be retried by another mechanism.
+
+Actual premerge and integrated-main CI acceptance is pending in #1078; the configuration checks and local identity observation above do not establish it.
+
+Local cutover validation on 8 September 2026 passed Node 24.19.0/pnpm 11.11.0 type-check, lint, build, E2E utilities, dependency provenance, registry signatures and VS Code stable unit/integration checks. The Windows-native `pnpm test` sequence initially stopped at an obsolete security assertion expecting the old configurable CLI pin (420 of 421 script tests passed); the corrected pinned-version guard passed independently and the remaining unit-host/coverage steps completed. Passing unchanged script suites were not repeated. The first VS Code download lacked the current user's already-persisted `NODE_USE_SYSTEM_CA` and `NODE_EXTRA_CA_CERTS`; loading those approved settings into the invoking process and retrying from a fresh Node process passed. No persistent trust settings, roots or TLS verification were changed.
