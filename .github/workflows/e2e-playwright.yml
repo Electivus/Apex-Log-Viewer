@@ -418,6 +418,7 @@ jobs:
           chmod 700 "$auth_home"
           test "$(stat -f '%Lp' "$auth_home")" = 700
           echo "GRADLE_USER_HOME=${GRADLE_USER_HOME:-$HOME/.gradle}" >> "$GITHUB_ENV"
+          echo "ALV_E2E_DESKTOP_HOME=$HOME" >> "$GITHUB_ENV"
           echo "HOME=$auth_home" >> "$GITHUB_ENV"
           echo "ALV_CI_AUTH_HOME=$auth_home" >> "$GITHUB_ENV"
 

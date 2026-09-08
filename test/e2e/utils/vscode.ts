@@ -432,10 +432,7 @@ function installExtensions(args: {
       env: { ...process.env, DONT_PROMPT_WSL_INSTALL: '1' }
     });
     if (res.error || res.status !== 0) {
-      const details = [
-        typeof res.status === 'number' ? `exit code ${res.status}` : undefined,
-        res.error?.message
-      ]
+      const details = [typeof res.status === 'number' ? `exit code ${res.status}` : undefined, res.error?.message]
         .filter(Boolean)
         .join('; ');
       console.warn(
@@ -605,6 +602,9 @@ export async function launchVsCode(options: {
         args,
         env: {
           ...process.env,
+          ...(process.platform === 'darwin' && process.env.ALV_E2E_DESKTOP_HOME
+            ? { HOME: process.env.ALV_E2E_DESKTOP_HOME }
+            : {}),
           ELECTRON_DISABLE_GPU: process.env.ELECTRON_DISABLE_GPU || '1',
           LC_ALL: process.env.LC_ALL || 'C.UTF-8',
           DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null',

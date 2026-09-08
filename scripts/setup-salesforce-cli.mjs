@@ -200,6 +200,11 @@ export function writeMacOSNodeWrapper({ nodePath, sfBinPath, wrapperPath, fsImpl
     '#!/usr/bin/env bash',
     'set -euo pipefail',
     ...WRAPPER_ENV_UNSET_NAMES.map(name => `unset ${name} || true`),
+    // Electron needs the runner's native keychain; its Salesforce children still
+    // use private auth state. Preserve each explicitly isolated JWT operation home.
+    'if [[ -n "${ALV_CI_AUTH_HOME:-}" && -n "${ALV_E2E_DESKTOP_HOME:-}" && "${HOME:-}" = "$ALV_E2E_DESKTOP_HOME" ]]; then',
+    '  export HOME="$ALV_CI_AUTH_HOME"',
+    'fi',
     `export PATH=${quoteForBash(nodeDir)}:"\${PATH:-}"`,
     `exec ${quoteForBash(sfBinPath)} "$@"`,
     ''
