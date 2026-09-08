@@ -58,6 +58,7 @@ Provision the user with the minimum Integration profile and appropriate permissi
 - **DEC-005:** Require JWT in CI, reject legacy authorization-URL fallback there, and retain explicit authenticated-alias support locally.
 - **DEC-007:** Use the authorized purpose-specific `electivus.com` alias for the automation contact and initial username; handle global Salesforce username collisions without changing the agreed domain.
 - **DEC-009:** Test Salesforce Integration with the minimum API-only profile and permission set license first; if required Dev Hub behavior is unsupported, use Salesforce with a minimum-access profile rather than System Administrator.
+- **DEC-010:** Run the isolated macOS Salesforce CLI 2.150.6 with Node from `.nvmrc` (24.15.0 at cutover). Prove the captured wrapper, empty-state CLI, dedicated JWT identity, scratch signup/API, and cross-home import in actual CI.
 
 The authentication policy must be shared by the JavaScript test runner, TypeScript E2E runner, pool-administration commands, and proxy-lab preflight. Adapters retain their existing Salesforce CLI execution mechanisms. Prefer the existing command and workflow interfaces to introducing another orchestration layer.
 
@@ -67,7 +68,7 @@ The tested scratch-signup configuration uses `SF_SCRATCH_SIGNUP_CONNECTED_APP=Pl
 
 The permanent ECA uses a certificate and the tested `Api,RefreshToken` scopes, explicit permission-set preauthorization, and enforced IP restrictions. The dedicated user needs the scratch lifecycle grants, required pool and slot data access, and access to the pool's Apex REST classes. Correct the missing `ScratchOrgInfo.Create` permission and test actual operations before expanding any privileges. App metadata deployment remains an administrator bootstrap responsibility.
 
-Salesforce CLI 2.150.6 passed the Windows feasibility test. The selected CI version must support the signup override and valid credential export, while preserving the existing macOS Node 20 isolation for Salesforce CLI. Redacted values must not pass validation merely because they are nonempty. Any CLI opt-in required to export usable credentials must be scoped to the consuming child process, with secret-safe logging and artifact handling.
+Salesforce CLI 2.150.6 passed the Windows feasibility test. The selected CI version must support the signup override and valid credential export. Preserve the isolated, sanitized macOS wrapper while capturing the supported Node runtime from `.nvmrc` (24.15.0 at cutover); DEC-010 replaces the former Node 20 constraint because the pinned CLI requires Node >=22. Redacted values must not pass validation merely because they are nonempty. Any CLI opt-in required to export usable credentials must be scoped to the consuming child process, with secret-safe logging and artifact handling.
 
 Update all real-org workflow gates and credential propagation together with the runner behavior. Preserve corporate proxy and CA handling, keep TLS verification enabled, and avoid embedding private keys in images or versioned files. Preserve current pool records and handle any ownership transition explicitly; do not reset live pools to make validation pass.
 
@@ -133,4 +134,4 @@ The published specification is the implementation contract. The Planning context
 - Effort: devhub-jwt
 - Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
 - Planning checkpoint: 979e5ded16203ba23c7287ec63e9869aa08e65e5
-- Decisions: DEC-001, DEC-002, DEC-003, DEC-004, DEC-005, DEC-007, DEC-008, DEC-009
+- Decisions: DEC-001, DEC-002, DEC-003, DEC-004, DEC-005, DEC-007, DEC-008, DEC-009, DEC-010

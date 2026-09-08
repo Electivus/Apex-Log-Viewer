@@ -137,3 +137,21 @@ Decision meanings are immutable after a Planning checkpoint. Coverage advances f
 - Evidence:
   - specification: docs/planning/devhub-jwt/spec.md; docs/planning/devhub-jwt/issue-spec.md; https://github.com/Electivus/Apex-Log-Viewer/issues/1073; docs/planning/devhub-jwt/ticket-breakdown.md: user-approved delivery mapping and child acceptance contracts; https://github.com/Electivus/Apex-Log-Viewer/issues/1077: published child acceptance contract; implementation verification remains a separate obligation
   - verification: none
+
+## DEC-010
+- Status: active
+- Decision: Run the isolated macOS Salesforce CLI 2.150.6 with the repository-pinned Node runtime (24.15.0 at cutover), using .nvmrc as the version source.
+- Context: Run 34174333682 at ea2f7682ef23d97c3b9b78f5eb5122a70b7f1d54 captured Node 20.20.2 and reported EBADENGINE plus a failing wrapper org list. Salesforce CLI 2.150.6 requires Node >=22. The coordinator approved this runtime correction on 2026-09-08 under continuing user authorization.
+- Rationale: Replace the unsupported Node 20 operational constraint while preserving the DEC-003 ECA/PlatformCLI separation, proven CLI pin, and isolated macOS execution.
+- ADR: none
+- Constraints: Keep the sanitized wrapper, captured executable, runtime restoration, TLS and credential isolation. Require actual macOS CI proof of empty-state org list, dedicated JWT identity, signup, API access and cross-home credential import; version output alone is insufficient.
+- Rejected alternatives: Retaining Node 20 violates the pinned CLI engine requirement; downgrading the CLI discards the verified signup/export version.
+- Obligations: specification, tickets, verification
+- Coverage:
+  - specification: complete
+  - tickets: complete
+  - verification: pending
+- Evidence:
+  - specification: docs/planning/devhub-jwt/issue-spec.md: supported isolated macOS runtime and actual lifecycle CI proof
+  - tickets: docs/planning/devhub-jwt/ticket-drafts/05-jwt-ci-cutover.md: #1078 acceptance and DEC-010 consequence; docs/planning/devhub-jwt/ticket-breakdown.md: T05 owns the runtime correction
+  - verification: none

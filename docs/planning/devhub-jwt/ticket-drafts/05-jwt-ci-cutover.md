@@ -12,7 +12,7 @@ Configure the repository's real-org workflows to use the dedicated Dev Hub Autom
 
 - [ ] Every real-org workflow credential gate and child environment requires the complete JWT configuration and no longer selects or depends on the legacy Dev Hub authorization URL.
 - [ ] Approved credential storage is configured without exposing the private key in repository files, command output, or artifacts. The operator has explicitly supplied the storage policy and certificate lifetime required for permanent provisioning.
-- [ ] The selected Salesforce CLI is pinned to the version verified for signup and export behavior; Windows/Linux execution and the existing macOS Node 20 CLI isolation remain aligned with their supported runtime paths.
+- [ ] Salesforce CLI remains pinned to the verified 2.150.6; Windows/Linux execution and the isolated macOS wrapper use supported runtime paths. Capture macOS Node from `.nvmrc` (24.15.0 at cutover), preserve sanitization and runtime restoration, and prove empty-state org list, dedicated JWT identity, signup/API/export/import in actual macOS CI.
 - [ ] Actual real-org workflow execution succeeds through the relevant direct, pool, telemetry, and proxy-lab paths using the dedicated identity. Provide links and results, and identify any path that could not be validated.
 - [ ] Negative workflow-contract coverage proves that absent or partial JWT configuration cannot be bypassed by the old secret, an alias, or redacted placeholder values.
 - [ ] Existing pool records and scratch credentials remain usable. Any ownership transition identified by prior slices is applied explicitly without resetting live pools or silently broadening privileges.
@@ -27,6 +27,7 @@ Configure the repository's real-org workflows to use the dedicated Dev Hub Autom
 - `DEC-003`: Verify the ECA/PlatformCLI separation and preserved pool credentials in the selected CI runtime.
 - `DEC-004`: Run production validation with the dedicated identity.
 - `DEC-005`: Make JWT mandatory across the real-org workflows without legacy fallback.
+- `DEC-010`: Replace the unsupported macOS Node 20 constraint with the repository-pinned Node runtime while preserving CLI isolation and proving actual lifecycle behavior.
 
 ## Blocked by
 
@@ -43,4 +44,4 @@ Configure the repository's real-org workflows to use the dedicated Dev Hub Autom
 - Effort: devhub-jwt
 - Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
 - Planning checkpoint: 979e5ded16203ba23c7287ec63e9869aa08e65e5
-- Decisions: DEC-001, DEC-002, DEC-003, DEC-004, DEC-005
+- Decisions: DEC-001, DEC-002, DEC-003, DEC-004, DEC-005, DEC-010
