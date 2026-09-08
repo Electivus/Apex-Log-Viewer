@@ -307,6 +307,7 @@ jobs:
             vscode_platform: darwin-arm64
             artifact_suffix: macos
     env:
+      SF_USE_GENERIC_UNIX_KEYCHAIN: ${{ runner.os == 'macOS' && 'true' || '' }}
       SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
       SCRATCH_STRATEGY: pool
       VSCODE_TEST_VERSION: ${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}
@@ -408,6 +409,18 @@ jobs:
       - name: Build direct E2E artifacts
         run: pnpm run build
 
+      - name: Prepare private macOS authentication home
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth_home=$(mktemp -d "$RUNNER_TEMP/alv-sf-home.XXXXXX")
+          chmod 700 "$auth_home"
+          test "$(stat -f '%Lp' "$auth_home")" = 700
+          echo "GRADLE_USER_HOME=${GRADLE_USER_HOME:-$HOME/.gradle}" >> "$GITHUB_ENV"
+          echo "HOME=$auth_home" >> "$GITHUB_ENV"
+          echo "ALV_CI_AUTH_HOME=$auth_home" >> "$GITHUB_ENV"
+
       - name: Require scratch-org pool configuration
         run: node scripts/check-real-org-config.js
         env:
@@ -486,6 +499,19 @@ jobs:
           name: playwright-e2e-${{ matrix.os.artifact_suffix }}
           path: output/playwright/
           if-no-files-found: ignore
+
+      - name: Remove private macOS caller authentication
+        if: ${{ always() && runner.os == 'macOS' && env.ALV_CI_AUTH_HOME != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$ALV_CI_AUTH_HOME" in
+            "$RUNNER_TEMP"/alv-sf-home.*) ;;
+            *) echo "Unexpected macOS authentication home" >&2; exit 1 ;;
+          esac
+          test ! -L "$ALV_CI_AUTH_HOME"
+          rm -rf -- "$ALV_CI_AUTH_HOME"
+          test ! -e "$ALV_CI_AUTH_HOME"
 
   playwright_e2e_telemetry:
     name: Playwright E2E Telemetry (scratch org)

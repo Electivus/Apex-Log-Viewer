@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ensureScratchOrg } from '../utils/scratchOrg';
@@ -40,9 +40,15 @@ for (const runner of ['typescript', 'javascript'] as const) {
     let validationError: unknown;
     const shortCommand = async (phase: string, args: string[], options: ExecOptions = {}) => {
       const started = Date.now();
-      console.info(JSON.stringify({ runner, phase, state: 'started',
-        cli: process.env.SF_CLI_BIN_PATH || process.env.ALV_SF_BIN_PATH || 'PATH',
-        node: process.env.SF_CLI_NODE_PATH || process.execPath }));
+      console.info(
+        JSON.stringify({
+          runner,
+          phase,
+          state: 'started',
+          cli: process.env.SF_CLI_BIN_PATH || process.env.ALV_SF_BIN_PATH || 'PATH',
+          node: process.env.SF_CLI_NODE_PATH || process.execPath
+        })
+      );
       try {
         return await runSfJson(args, { ...options, timeoutMs: 90_000 });
       } finally {
@@ -50,8 +56,8 @@ for (const runner of ['typescript', 'javascript'] as const) {
       }
     };
     try {
-      await mkdir(primaryHome);
-      await mkdir(independentHome);
+      await mkdir(primaryHome, { mode: 0o700 });
+      await mkdir(independentHome, { mode: 0o700 });
       Object.assign(process.env, {
         ...originalEnv,
         ...(process.platform === 'win32' ? { USERPROFILE: primaryHome } : { HOME: primaryHome }),
@@ -103,6 +109,25 @@ for (const runner of ['typescript', 'javascript'] as const) {
       ]);
       const preexistingAuthPath = path.join(primaryHome, '.sfdx', `${config.username}.json`);
       const preexistingAuth = await readFile(preexistingAuthPath);
+      if (process.platform === 'darwin') {
+        expect(process.env.SF_USE_GENERIC_UNIX_KEYCHAIN).toBe('true');
+        expect((await stat(primaryHome)).mode & 0o777).toBe(0o700);
+        expect((await stat(path.join(primaryHome, '.sfdx', 'key.json'))).mode & 0o777).toBe(0o600);
+        const token = await shortCommand('verify-encrypted-state', [
+          'org',
+          'auth',
+          'show-access-token',
+          '--target-org',
+          config.username,
+          '--no-prompt'
+        ]);
+        const storedToken = JSON.parse(preexistingAuth.toString('utf8')).accessToken;
+        expect(
+          typeof token.result.accessToken === 'string' &&
+            typeof storedToken === 'string' &&
+            storedToken !== token.result.accessToken
+        ).toBe(true);
+      }
 
       scratchAttempted = true;
       console.info(JSON.stringify({ runner, phase: 'runner-setup', state: 'started' }));
@@ -127,6 +152,10 @@ for (const runner of ['typescript', 'javascript'] as const) {
         env: devHubEnv
       });
       const devHubState = JSON.parse(await readFile(path.join(jwtHome, '.sfdx', `${config.username}.json`), 'utf8'));
+      if (process.platform === 'darwin') {
+        expect((await stat(jwtHome)).mode & 0o777).toBe(0o700);
+        expect((await stat(path.join(jwtHome, '.sfdx', 'key.json'))).mode & 0o777).toBe(0o600);
+      }
       expect(String(devHubState.orgId).slice(0, 15) === expectedDevHubId.slice(0, 15)).toBe(true);
       expect(devHubState.username === config.username).toBe(true);
       expect(devHubQuery.result.records.length).toBe(1);
@@ -210,6 +239,12 @@ for (const runner of ['typescript', 'javascript'] as const) {
         cwd: independentHome,
         env: independentEnv
       });
+      if (process.platform === 'darwin') {
+        expect((await stat(independentHome)).mode & 0o777).toBe(0o700);
+        const importedKey = await readFile(path.join(independentHome, '.sfdx', 'key.json'));
+        expect((await stat(path.join(independentHome, '.sfdx', 'key.json'))).mode & 0o777).toBe(0o600);
+        expect(importedKey.equals(await readFile(path.join(primaryHome, '.sfdx', 'key.json')))).toBe(false);
+      }
       const importedQuery = await runSfJson(
         ['data', 'query', '--target-org', 'ImportedScratch', '--query', 'SELECT Id FROM Organization'],
         { cwd: independentHome, env: independentEnv }
@@ -253,7 +288,16 @@ for (const runner of ['typescript', 'javascript'] as const) {
           independentImportQuery: true,
           workflowCleanup: true,
           isolatedDevHubDeletion: true,
-          keptScratchUsableAfterCleanup: true
+          keptScratchUsableAfterCleanup: true,
+          ...(process.platform === 'darwin'
+            ? {
+                genericKeychain: true,
+                privateHomes: true,
+                keyMode0600: true,
+                encryptedTokenAtRest: true,
+                independentEncryptionKeys: true
+              }
+            : {})
         })
       );
     } catch (error) {
