@@ -787,6 +787,9 @@ describe('ensureScratchOrg', () => {
       if (url.includes('/sobjects/ScratchOrgInfo/2SR000000000001AAA')) {
         return createJsonResponse({ Id: '2SR000000000001AAA', Status: 'Active' });
       }
+      if (decodeURIComponent(url).includes('FROM ScratchOrgInfo')) {
+        return createJsonResponse({ done: true, records: [{ Id: '2SR000000000001AAA' }] });
+      }
       if (url.includes('/services/data/v60.0/sobjects/ActiveScratchOrg/0SO000000000001AAA')) {
         return {
           ok: true,
@@ -908,6 +911,9 @@ describe('ensureScratchOrg', () => {
       }
       if (url.includes('/sobjects/ScratchOrgInfo/2SR000000000001AAA')) {
         return createJsonResponse({ Id: '2SR000000000001AAA', Status: 'Active' });
+      }
+      if (decodeURIComponent(url).includes('FROM ScratchOrgInfo')) {
+        return createJsonResponse({ done: true, records: [{ Id: '2SR000000000001AAA' }] });
       }
       if (url.includes('/services/data/v60.0/sobjects/ActiveScratchOrg/0SO000000000001AAA')) {
         return {
