@@ -13,6 +13,18 @@ const testPrivateKey = require('node:crypto').generateKeyPairSync('rsa', {
   publicKeyEncoding: { type: 'spki', format: 'pem' }
 }).privateKey;
 
+test('JWT response diagnostics identify a wrong envelope without exposing identity or credentials', async () => {
+  await assert.rejects(ensureDevHub('sf', {
+    mode: 'jwt', clientId: 'test-client', username: 'selected@example.com',
+    loginUrl: 'https://login.salesforce.com', privateKey: testPrivateKey
+  }, { execFileAsync: async () => ({ stdout: JSON.stringify({ status: 0,
+    username: 'selected@example.com', accessToken: 'private-response-token' }) }) }), error => {
+    assert.match(error.message, /status=0.*resultIdentity=false.*topLevelIdentity=true/);
+    assert.doesNotMatch(error.message, /selected@example.com|private-response-token|PRIVATE KEY/);
+    return true;
+  });
+});
+
 for (const cli of ['sf', 'sfdx']) {
   test(`concurrent inline ${cli} workflows isolate same-username CLI state and keep scratch access after cleanup`, async t => {
     const homeName = process.platform === 'win32' ? 'USERPROFILE' : 'HOME';

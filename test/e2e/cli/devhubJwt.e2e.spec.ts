@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ensureScratchOrg } from '../utils/scratchOrg';
-import { runSfJson } from '../utils/sfCli';
+import { runSfJson, type ExecOptions } from '../utils/sfCli';
 import { authenticateDevHub, resolveDevHubConfig, salesforceChildEnv } from '../../../scripts/devhub-auth.js';
 
 const { pretestSetup } = require('../../../scripts/run-tests.js');
@@ -38,6 +38,17 @@ for (const runner of ['typescript', 'javascript'] as const) {
     let scratchId: string | undefined;
     let scratchAttempted = false;
     let validationError: unknown;
+    const shortCommand = async (phase: string, args: string[], options: ExecOptions = {}) => {
+      const started = Date.now();
+      console.info(JSON.stringify({ runner, phase, state: 'started',
+        cli: process.env.SF_CLI_BIN_PATH || process.env.ALV_SF_BIN_PATH || 'PATH',
+        node: process.env.SF_CLI_NODE_PATH || process.execPath }));
+      try {
+        return await runSfJson(args, { ...options, timeoutMs: 90_000 });
+      } finally {
+        console.info(JSON.stringify({ runner, phase, state: 'finished', durationMs: Date.now() - started }));
+      }
+    };
     try {
       await mkdir(primaryHome);
       await mkdir(independentHome);
@@ -69,15 +80,15 @@ for (const runner of ['typescript', 'javascript'] as const) {
       ]) {
         delete process.env[name];
       }
-      const version = await runSfJson(['version']);
+      const version = await shortCommand('version', ['version']);
       expect(version.cliVersion).toBe('@salesforce/cli/2.150.6');
-      const initial = await runSfJson(['org', 'list'], { cwd: primaryHome });
+      const initial = await shortCommand('empty-org-list', ['org', 'list'], { cwd: primaryHome });
       expect(Object.values(initial.result).filter(Array.isArray).flat().length).toBe(0);
 
       if (!config.privateKey) throw new Error('Lifecycle smoke requires the inline PEM mode.');
       const preexistingKey = path.join(primaryHome, 'preexisting.pem');
       await writeFile(preexistingKey, config.privateKey, { encoding: 'utf8', mode: 0o600 });
-      await runSfJson([
+      await shortCommand('preexisting-jwt-login', [
         'org',
         'login',
         'jwt',
@@ -94,6 +105,7 @@ for (const runner of ['typescript', 'javascript'] as const) {
       const preexistingAuth = await readFile(preexistingAuthPath);
 
       scratchAttempted = true;
+      console.info(JSON.stringify({ runner, phase: 'runner-setup', state: 'started' }));
       if (runner === 'javascript') {
         ({ cleanup } = await pretestSetup('integration'));
       } else {
@@ -101,6 +113,7 @@ for (const runner of ['typescript', 'javascript'] as const) {
         expect(scratch.created).toBe(true);
         cleanup = () => scratch.cleanup();
       }
+      console.info(JSON.stringify({ runner, phase: 'runner-setup', state: 'finished' }));
 
       const ownedHomes = (await readdir(root)).filter(name => name.startsWith('alv-devhub-jwt-'));
       expect(ownedHomes.length).toBe(1);
@@ -128,8 +141,9 @@ for (const runner of ['typescript', 'javascript'] as const) {
       expect(path.dirname(jwtKeyFile!) === jwtHome).toBe(true);
       // Use the installed CLI's AuthInfo writer in this owned home. Run the
       // fixture explicitly: the macOS wrapper correctly strips NODE_OPTIONS.
-      const installed = await runSfJson(['plugins', 'inspect', '@salesforce/cli']);
-      const cliRoot = installed.find((plugin: any) => plugin.name === '@salesforce/cli')?.root;
+      const installed = await shortCommand('inspect-cli', ['plugins', 'inspect', '@salesforce/cli']);
+      const plugins = Array.isArray(installed) ? installed : [installed];
+      const cliRoot = plugins.find((plugin: any) => plugin?.name === '@salesforce/cli')?.root;
       expect(typeof cliRoot === 'string' && path.isAbsolute(cliRoot)).toBe(true);
       const staleTokenFixture = path.join(root, 'stale-token.cjs');
       await writeFile(

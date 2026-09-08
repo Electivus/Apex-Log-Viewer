@@ -187,6 +187,7 @@ async function authenticateDevHub(config, runJson, files = fs) {
   let directory;
   let env = callerEnv;
   let recoveryScratch;
+  let loginDiagnostic = 'command did not return';
   const cleanup = async () => {
     if (directory) {
       if (recoveryScratch) {
@@ -238,13 +239,18 @@ async function authenticateDevHub(config, runJson, files = fs) {
       ],
       { env }
     );
+    loginDiagnostic = `response=${Array.isArray(response) ? 'array' : typeof response}, ` +
+      `status=${typeof response?.status === 'number' ? response.status : 'absent'}, ` +
+      `resultIdentity=${response?.result?.username === config.username}, ` +
+      `topLevelIdentity=${response?.username === config.username}`;
     if (response?.status !== 0 || response?.result?.username !== config.username) {
       throw new Error('JWT login did not confirm the selected identity.');
     }
   } catch {
     await cleanup();
     throw new Error(
-      'Dev Hub JWT login failed. Check SF_DEVHUB_CLIENT_ID, SF_DEVHUB_USERNAME, SF_DEVHUB_LOGIN_URL, SF_DEVHUB_PRIVATE_KEY or SF_DEVHUB_PRIVATE_KEY_FILE, the certificate and ECA preauthorization. No alias or authorization URL fallback was attempted.'
+      'Dev Hub JWT login failed. Check SF_DEVHUB_CLIENT_ID, SF_DEVHUB_USERNAME, SF_DEVHUB_LOGIN_URL, SF_DEVHUB_PRIVATE_KEY or SF_DEVHUB_PRIVATE_KEY_FILE, the certificate and ECA preauthorization. No alias or authorization URL fallback was attempted. ' +
+      `Diagnostic: ${loginDiagnostic}.`
     );
   }
   const publishedScratchUsers = new Map();
