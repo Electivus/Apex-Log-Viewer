@@ -25,6 +25,10 @@ on:
         description: Optional Playwright worker override for the Ubuntu extension proxy-lab lane
         required: false
         type: string
+      jwt_smoke_devhub_org_id:
+        description: Optional verified Dev Hub org ID; enables controlled JWT signup/export/import and pool lifecycle smokes
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -77,16 +81,14 @@ jobs:
       HAS_AZURE_E2E_TELEMETRY_CONFIG: ${{ vars.ALV_E2E_TELEMETRY_RESOURCE_GROUP != '' && vars.ALV_E2E_TELEMETRY_APP != '' && vars.ALV_E2E_TELEMETRY_BASE_APP != '' && '1' || '' }}
       ALV_E2E_TELEMETRY_RUN_ID_SEED: github:${{ github.run_id }}/ubuntu
       SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
-      HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
       SCRATCH_STRATEGY: pool
       VSCODE_TEST_VERSION: ${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}
-      SALESFORCE_CLI_PACKAGE: ${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}
+      SALESFORCE_CLI_PACKAGE: '@salesforce/cli@2.150.6'
       PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}
       PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS: ${{ github.event.inputs.playwright_extension_proxy_lab_workers || vars.PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS || '1' }}
       PLAYWRIGHT_RETRIES: ${{ vars.PLAYWRIGHT_RETRIES || '0' }}
       PLAYWRIGHT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}
       PLAYWRIGHT_EXPECT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}
-      SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}
       SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}
       SF_TEST_KEEP_ORG: ${{ vars.SF_TEST_KEEP_ORG || '1' }}
       INSTALL_LINUX_DEPS: ${{ vars.INSTALL_LINUX_DEPS || 'true' }}
@@ -103,21 +105,13 @@ jobs:
           node-version-file: .nvmrc
 
       - name: Require scratch-org pool configuration
-        shell: bash
-        run: |
-          set -euo pipefail
-          missing=0
-          if [[ -z "${SCRATCH_POOL_NAME}" ]]; then
-            echo "::error::SF_SCRATCH_POOL_NAME must be configured for the Playwright E2E workflow."
-            missing=1
-          fi
-          if [[ "${HAS_POOL_DEVHUB_AUTH}" != "1" ]]; then
-            echo "::error::SF_DEVHUB_AUTH_URL must be configured for the Playwright E2E workflow."
-            missing=1
-          fi
-          if [[ "${missing}" != "0" ]]; then
-            exit 1
-          fi
+        run: node scripts/check-real-org-config.js
+        env:
+          SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
+          SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+          SF_DEVHUB_LOGIN_URL: ${{ secrets.SF_DEVHUB_LOGIN_URL }}
+          SF_DEVHUB_PRIVATE_KEY: ${{ secrets.SF_DEVHUB_PRIVATE_KEY }}
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
@@ -129,6 +123,9 @@ jobs:
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
           node scripts/run-e2e-proxy-lab.js pnpm run test:e2e:cli
         env:
+          ALV_DEVHUB_JWT_SMOKE: ${{ inputs.jwt_smoke_devhub_org_id != '' && '1' || '' }}
+          ALV_POOL_JWT_SMOKE: ${{ inputs.jwt_smoke_devhub_org_id != '' && '1' || '' }}
+          ALV_JWT_SMOKE_DEVHUB_ORG_ID: ${{ inputs.jwt_smoke_devhub_org_id }}
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
           SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
@@ -139,11 +136,12 @@ jobs:
           SF_SCRATCH_POOL_MIN_REMAINING_MINUTES: ${{ vars.SF_SCRATCH_POOL_MIN_REMAINING_MINUTES }}
           SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
           SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
-          SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
-          SF_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
+          SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+          SF_DEVHUB_LOGIN_URL: ${{ secrets.SF_DEVHUB_LOGIN_URL }}
+          SF_DEVHUB_PRIVATE_KEY: ${{ secrets.SF_DEVHUB_PRIVATE_KEY }}
           SF_SCRATCH_DURATION: ${{ env.SF_SCRATCH_DURATION }}
           SF_TEST_KEEP_ORG: ${{ env.SF_TEST_KEEP_ORG }}
-          ALV_E2E_PROXY_LAB_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
 
       - name: Upload CLI E2E artifacts
         if: ${{ !cancelled() }}
@@ -185,11 +183,12 @@ jobs:
           SF_SCRATCH_POOL_MIN_REMAINING_MINUTES: ${{ vars.SF_SCRATCH_POOL_MIN_REMAINING_MINUTES }}
           SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
           SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
-          SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
-          SF_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
+          SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+          SF_DEVHUB_LOGIN_URL: ${{ secrets.SF_DEVHUB_LOGIN_URL }}
+          SF_DEVHUB_PRIVATE_KEY: ${{ secrets.SF_DEVHUB_PRIVATE_KEY }}
           SF_SCRATCH_DURATION: ${{ env.SF_SCRATCH_DURATION }}
           SF_TEST_KEEP_ORG: ${{ env.SF_TEST_KEEP_ORG }}
-          ALV_E2E_PROXY_LAB_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
 
       - name: Upload Playwright artifacts
         if: ${{ !cancelled() }}
@@ -207,10 +206,8 @@ jobs:
     timeout-minutes: 45
     env:
       SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
-      HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
-      SALESFORCE_CLI_PACKAGE: ${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}
+      SALESFORCE_CLI_PACKAGE: '@salesforce/cli@2.150.6'
       PLAYWRIGHT_WORKERS: '1'
-      SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}
       SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}
       SF_TEST_KEEP_ORG: ${{ vars.SF_TEST_KEEP_ORG || '1' }}
     steps:
@@ -246,11 +243,13 @@ jobs:
           SALESFORCE_CLI_CACHE_ROOT: ${{ runner.tool_cache }}
 
       - name: Require scratch-org pool configuration
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$SCRATCH_POOL_NAME"
-          test "$HAS_POOL_DEVHUB_AUTH" = "1"
+        run: node scripts/check-real-org-config.js
+        env:
+          SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
+          SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+          SF_DEVHUB_LOGIN_URL: ${{ secrets.SF_DEVHUB_LOGIN_URL }}
+          SF_DEVHUB_PRIVATE_KEY: ${{ secrets.SF_DEVHUB_PRIVATE_KEY }}
 
       - name: Enforce dependency source policy
         run: node scripts/check-dependency-sources.mjs
@@ -276,8 +275,10 @@ jobs:
           SF_SCRATCH_POOL_MIN_REMAINING_MINUTES: ${{ vars.SF_SCRATCH_POOL_MIN_REMAINING_MINUTES }}
           SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
           SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
-          SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
-          SF_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
+          SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+          SF_DEVHUB_LOGIN_URL: ${{ secrets.SF_DEVHUB_LOGIN_URL }}
+          SF_DEVHUB_PRIVATE_KEY: ${{ secrets.SF_DEVHUB_PRIVATE_KEY }}
           SF_SCRATCH_DURATION: ${{ env.SF_SCRATCH_DURATION }}
           SF_TEST_KEEP_ORG: ${{ env.SF_TEST_KEEP_ORG }}
 
@@ -306,17 +307,15 @@ jobs:
             vscode_platform: darwin-arm64
             artifact_suffix: macos
     env:
+      SF_USE_GENERIC_UNIX_KEYCHAIN: ${{ matrix.os.artifact_suffix == 'macos' && 'true' || '' }}
       SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
-      HAS_POOL_DEVHUB_AUTH: ${{ secrets.SF_DEVHUB_AUTH_URL != '' && '1' || '' }}
       SCRATCH_STRATEGY: pool
       VSCODE_TEST_VERSION: ${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}
-      SALESFORCE_CLI_PACKAGE: ${{ vars.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8' }}
-      SALESFORCE_CLI_NODE_VERSION: ${{ vars.SALESFORCE_CLI_NODE_VERSION || '20' }}
+      SALESFORCE_CLI_PACKAGE: '@salesforce/cli@2.150.6'
       PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}
       PLAYWRIGHT_RETRIES: ${{ vars.PLAYWRIGHT_RETRIES || '0' }}
       PLAYWRIGHT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}
       PLAYWRIGHT_EXPECT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_EXPECT_TIMEOUT_MS || '60000' }}
-      SF_DEVHUB_ALIAS: ${{ vars.SF_DEVHUB_ALIAS || 'DevHubElectivus' }}
       SF_SCRATCH_DURATION: ${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}
       SF_TEST_KEEP_ORG: ${{ vars.SF_TEST_KEEP_ORG || '1' }}
     steps:
@@ -366,9 +365,8 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
-          # Node 22.23 can exit with "Detected unsettled top-level await" for
-          # @salesforce/cli inside the VS Code macOS test host.
-          node-version: ${{ env.SALESFORCE_CLI_NODE_VERSION }}
+          # Capture a supported runtime before creating the sanitized CLI wrapper.
+          node-version-file: .nvmrc
 
       - name: Resolve Salesforce CLI cache metadata
         id: sf-cli-cache
@@ -411,22 +409,27 @@ jobs:
       - name: Build direct E2E artifacts
         run: pnpm run build
 
-      - name: Require scratch-org pool configuration
+      - name: Prepare private macOS authentication home
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
-          missing=0
-          if [[ -z "${SCRATCH_POOL_NAME}" ]]; then
-            echo "::error::SF_SCRATCH_POOL_NAME must be configured for the Playwright E2E workflow."
-            missing=1
-          fi
-          if [[ "${HAS_POOL_DEVHUB_AUTH}" != "1" ]]; then
-            echo "::error::SF_DEVHUB_AUTH_URL must be configured for the Playwright E2E workflow."
-            missing=1
-          fi
-          if [[ "${missing}" != "0" ]]; then
-            exit 1
-          fi
+          auth_home=$(mktemp -d "$RUNNER_TEMP/alv-sf-home.XXXXXX")
+          chmod 700 "$auth_home"
+          test "$(stat -f '%Lp' "$auth_home")" = 700
+          echo "GRADLE_USER_HOME=${GRADLE_USER_HOME:-$HOME/.gradle}" >> "$GITHUB_ENV"
+          echo "ALV_E2E_DESKTOP_HOME=$HOME" >> "$GITHUB_ENV"
+          echo "HOME=$auth_home" >> "$GITHUB_ENV"
+          echo "ALV_CI_AUTH_HOME=$auth_home" >> "$GITHUB_ENV"
+
+      - name: Require scratch-org pool configuration
+        run: node scripts/check-real-org-config.js
+        env:
+          SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
+          SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+          SF_DEVHUB_LOGIN_URL: ${{ secrets.SF_DEVHUB_LOGIN_URL }}
+          SF_DEVHUB_PRIVATE_KEY: ${{ secrets.SF_DEVHUB_PRIVATE_KEY }}
 
       - name: Run CLI real-org E2E
         shell: bash
@@ -436,6 +439,8 @@ jobs:
           echo "Direct E2E OS: ${{ matrix.os.artifact_suffix }}"
           node scripts/run-playwright-cli-e2e.js
         env:
+          ALV_DEVHUB_JWT_SMOKE: ${{ inputs.jwt_smoke_devhub_org_id != '' && '1' || '' }}
+          ALV_JWT_SMOKE_DEVHUB_ORG_ID: ${{ inputs.jwt_smoke_devhub_org_id }}
           ALV_INTELLIJ_REAL_ORG_E2E: ${{ (runner.os == 'Windows' || (github.event_name == 'workflow_dispatch' && runner.os == 'macOS')) && '1' || '0' }}
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}
           SF_SCRATCH_STRATEGY: ${{ env.SCRATCH_STRATEGY }}
@@ -447,8 +452,10 @@ jobs:
           SF_SCRATCH_POOL_MIN_REMAINING_MINUTES: ${{ vars.SF_SCRATCH_POOL_MIN_REMAINING_MINUTES }}
           SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
           SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
-          SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
-          SF_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
+          SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+          SF_DEVHUB_LOGIN_URL: ${{ secrets.SF_DEVHUB_LOGIN_URL }}
+          SF_DEVHUB_PRIVATE_KEY: ${{ secrets.SF_DEVHUB_PRIVATE_KEY }}
           SF_SCRATCH_DURATION: ${{ env.SF_SCRATCH_DURATION }}
           SF_TEST_KEEP_ORG: ${{ env.SF_TEST_KEEP_ORG }}
 
@@ -479,8 +486,10 @@ jobs:
           SF_SCRATCH_POOL_MIN_REMAINING_MINUTES: ${{ vars.SF_SCRATCH_POOL_MIN_REMAINING_MINUTES }}
           SF_SCRATCH_POOL_SEED_VERSION: ${{ vars.SF_SCRATCH_POOL_SEED_VERSION }}
           SF_SCRATCH_POOL_SNAPSHOT_NAME: ${{ vars.SF_SCRATCH_POOL_SNAPSHOT_NAME }}
-          SF_DEVHUB_AUTH_URL: ${{ secrets.SF_DEVHUB_AUTH_URL }}
-          SF_DEVHUB_ALIAS: ${{ env.SF_DEVHUB_ALIAS }}
+          SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+          SF_DEVHUB_LOGIN_URL: ${{ secrets.SF_DEVHUB_LOGIN_URL }}
+          SF_DEVHUB_PRIVATE_KEY: ${{ secrets.SF_DEVHUB_PRIVATE_KEY }}
           SF_SCRATCH_DURATION: ${{ env.SF_SCRATCH_DURATION }}
           SF_TEST_KEEP_ORG: ${{ env.SF_TEST_KEEP_ORG }}
 
@@ -491,6 +500,19 @@ jobs:
           name: playwright-e2e-${{ matrix.os.artifact_suffix }}
           path: output/playwright/
           if-no-files-found: ignore
+
+      - name: Remove private macOS caller authentication
+        if: ${{ always() && runner.os == 'macOS' && env.ALV_CI_AUTH_HOME != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$ALV_CI_AUTH_HOME" in
+            "$RUNNER_TEMP"/alv-sf-home.*) ;;
+            *) echo "Unexpected macOS authentication home" >&2; exit 1 ;;
+          esac
+          test ! -L "$ALV_CI_AUTH_HOME"
+          rm -rf -- "$ALV_CI_AUTH_HOME"
+          test ! -e "$ALV_CI_AUTH_HOME"
 
   playwright_e2e_telemetry:
     name: Playwright E2E Telemetry (scratch org)

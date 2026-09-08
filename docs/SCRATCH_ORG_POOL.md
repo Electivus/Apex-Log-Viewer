@@ -57,11 +57,14 @@ After this migration, `reconcile` marks any slot without a stored `sfdxAuthUrl` 
 
 ## Authentication model
 
-The pool no longer depends on a custom Salesforce OAuth app.
+On the `codex/devhub-jwt` effort branch, administrative commands and consumers use the shared [Dev Hub JWT policy](DEVHUB_JWT.md). Production workflow/credential cutover remains #1078; the current Actions contract below is transitional.
 
-- Dev Hub operations use `SF_DEVHUB_AUTH_URL` or an already-authenticated `SF_DEVHUB_ALIAS`
+- Dev Hub operations use the ECA client ID, explicit username/login URL, and exactly one private-key input documented in `DEVHUB_JWT.md`. CI requires complete JWT.
+- Local use may explicitly select an already-authenticated `SF_DEVHUB_ALIAS` or administrative `--target-org` only when JWT inputs are absent. A failed selected JWT never falls back.
 - Scratch-org reuse uses the slot's stored `sfdxAuthUrl`
 - The helper reauthenticates a pooled scratch org with `sf org login sfdx-url`
+
+See [pool maintenance, ownership transition and the isolated validation command](DEVHUB_JWT.md#pool-maintenance-and-independent-consumers) for the current operating procedure and observed cleanup results.
 
 The slot object stores `ScratchAuthUrl__c` as a `LongTextArea`. Treat it as a secret:
 
@@ -76,7 +79,7 @@ Set these env vars before running Playwright:
 
 - `SF_SCRATCH_STRATEGY=pool`
 - `SF_SCRATCH_POOL_NAME=alv-e2e`
-- `SF_DEVHUB_AUTH_URL=<devhub-sfdx-auth-url>`
+- Complete JWT inputs from `DEVHUB_JWT.md`, or an explicit authenticated local alias with JWT absent
 
 Optional tuning:
 
@@ -92,8 +95,12 @@ Optional tuning:
 
 Example:
 
-```bash
-SF_SCRATCH_STRATEGY=pool SF_SCRATCH_POOL_NAME=alv-e2e PLAYWRIGHT_WORKERS=1 PLAYWRIGHT_SHARD=1/4 pnpm run test:e2e
+```powershell
+$env:SF_SCRATCH_STRATEGY = 'pool'
+$env:SF_SCRATCH_POOL_NAME = 'alv-e2e'
+$env:PLAYWRIGHT_WORKERS = '1'
+$env:PLAYWRIGHT_SHARD = '1/4'
+pnpm run test:e2e
 ```
 
 If `SF_SCRATCH_STRATEGY` is unset, the helper automatically switches to pool mode when `SF_SCRATCH_POOL_NAME` is present. The legacy single-scratch flow still works and remains the fallback when the pool is not configured.
@@ -102,11 +109,14 @@ In pool mode, each Playwright test acquires its own scratch-org pool slot. `PLAY
 
 ## GitHub Actions
 
-The Playwright workflow is pool-only in CI. It requires `SF_SCRATCH_POOL_NAME` and `SF_DEVHUB_AUTH_URL`, and it fails fast when either value is missing instead of falling back to the legacy single-scratch path.
+The Playwright workflow is pool-only in CI. It requires `SF_SCRATCH_POOL_NAME` and all four JWT secrets below, and it fails fast when any input is missing or invalid instead of falling back to the legacy single-scratch path.
 
 Repository secrets for pool mode:
 
-- `SF_DEVHUB_AUTH_URL`
+- `SF_DEVHUB_CLIENT_ID`
+- `SF_DEVHUB_USERNAME`
+- `SF_DEVHUB_LOGIN_URL`
+- `SF_DEVHUB_PRIVATE_KEY`
 
 Repository variables for pool mode:
 
@@ -129,11 +139,4 @@ The workflow intentionally has no workflow-level concurrency group. The Apex poo
 
 ## Codex Cloud
 
-Codex Cloud can use the same pool model.
-
-- Keep `SF_DEVHUB_AUTH_URL` as a setup-only secret
-- Materialize that secret into an env var or temp file during setup
-- Let the task runtime use the Dev Hub auth URL to create or recreate slots
-- Let the pool API return the slot-specific `sfdxAuthUrl` when the scratch is reused
-
-This keeps local, CI, and Codex Cloud on the same non-JWT scratch-org reuse model.
+Codex Cloud consumers use the same shared JWT inputs for Dev Hub access and the same slot-specific `sfdxAuthUrl` for scratch reuse. Supply JWT inputs through the environment's approved secret mechanism; keep the workflow-owned key/state alive through the final lease release. The dedicated identity is provisioned; see [workflow cutover and recovery](DEVHUB_JWT.md#production-workflow-cutover) for production evidence and ownership constraints.

@@ -1,29 +1,29 @@
 services:
   proxy:
     build:
-      context: .
-      dockerfile: test/e2e/proxy-lab/Dockerfile.proxy
+      context: ./test/e2e/proxy-lab
+      dockerfile: Dockerfile.proxy
     networks:
       e2e_proxy_egress: {}
       e2e_proxy_internal:
         aliases:
           - proxy
     expose:
-      - "8888"
+      - '8888'
     volumes:
       - e2e_proxy_mitmproxy_ca:/mitmproxy
     healthcheck:
-      test: ["CMD-SHELL", "test -s /mitmproxy/mitmproxy-ca-cert.cer && nc -z 127.0.0.1 8888"]
+      test: ['CMD-SHELL', 'test -s /mitmproxy/mitmproxy-ca-cert.cer && nc -z 127.0.0.1 8888']
       interval: 5s
       timeout: 3s
       retries: 24
 
   runner:
     build:
-      context: .
-      dockerfile: test/e2e/proxy-lab/Dockerfile.runner
+      context: ./test/e2e/proxy-lab
+      dockerfile: Dockerfile.runner
       args:
-        ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: ${SALESFORCE_CLI_PACKAGE:-@salesforce/cli@2.136.8}
+        ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: ${SALESFORCE_CLI_PACKAGE:-@salesforce/cli@2.150.6}
     depends_on:
       proxy:
         condition: service_healthy
@@ -33,13 +33,17 @@ services:
     volumes:
       - .:/workspace
       - e2e_proxy_node_modules:/workspace/node_modules
+      - e2e_proxy_extension_node_modules:/workspace/apps/vscode-extension/node_modules
+      - e2e_proxy_core_node_modules:/workspace/packages/core/node_modules
+      - e2e_proxy_protocol_node_modules:/workspace/packages/protocol/node_modules
+      - e2e_proxy_sf_plugin_node_modules:/workspace/packages/sf-plugin/node_modules
+      - e2e_proxy_webview_node_modules:/workspace/packages/webview/node_modules
       - e2e_proxy_vscode_test:/workspace/.vscode-test
       - e2e_proxy_npm_cache:/root/.npm
       - e2e_proxy_pnpm_store:/root/.local/share/pnpm/store
-      - e2e_proxy_sf:/root/.sf
-      - e2e_proxy_sfdx:/root/.sfdx
       - e2e_proxy_mitmproxy_ca:/mitmproxy:ro
     environment:
+      CI: 'true'
       HTTP_PROXY: ${ALV_E2E_PROXY_LAB_PROXY_URL:-http://alv-proxy-user:alv-proxy-pass@proxy:8888}
       HTTPS_PROXY: ${ALV_E2E_PROXY_LAB_PROXY_URL:-http://alv-proxy-user:alv-proxy-pass@proxy:8888}
       http_proxy: ${ALV_E2E_PROXY_LAB_PROXY_URL:-http://alv-proxy-user:alv-proxy-pass@proxy:8888}
@@ -56,7 +60,7 @@ services:
       SF_DISABLE_AUTOUPDATE: ${SF_DISABLE_AUTOUPDATE:-true}
       SFDX_DISABLE_AUTOUPDATE: ${SFDX_DISABLE_AUTOUPDATE:-true}
       SFDX_DISABLE_DNS_CHECK: ${SFDX_DISABLE_DNS_CHECK:-true}
-      HUSKY: "0"
+      HUSKY: '0'
       PLAYWRIGHT_WORKERS: ${PLAYWRIGHT_WORKERS:-1}
       PLAYWRIGHT_SHARD: ${PLAYWRIGHT_SHARD:-}
       PLAYWRIGHT_RETRIES: ${PLAYWRIGHT_RETRIES:-0}
@@ -67,8 +71,11 @@ services:
       ALV_ENABLE_TEST_TELEMETRY: ${ALV_ENABLE_TEST_TELEMETRY:-}
       ALV_TEST_TELEMETRY_CONNECTION_STRING: ${ALV_TEST_TELEMETRY_CONNECTION_STRING:-}
       ALV_TEST_TELEMETRY_RUN_ID: ${ALV_TEST_TELEMETRY_RUN_ID:-}
-      SF_DEVHUB_AUTH_URL: ${SF_DEVHUB_AUTH_URL:-}
-      SF_DEVHUB_ALIAS: ${ALV_E2E_PROXY_LAB_DEVHUB_ALIAS:-ConfiguredDevHub}
+      ALV_DEVHUB_JWT_SMOKE: ${ALV_DEVHUB_JWT_SMOKE:-}
+      ALV_POOL_JWT_SMOKE: ${ALV_POOL_JWT_SMOKE:-}
+      ALV_JWT_SMOKE_DEVHUB_ORG_ID: ${ALV_JWT_SMOKE_DEVHUB_ORG_ID:-}
+      SF_SETUP_SCRATCH: ${SF_SETUP_SCRATCH:-}
+      ALWAYS_SMOKE_VSIX: ${ALWAYS_SMOKE_VSIX:-}
       SF_SCRATCH_STRATEGY: ${SF_SCRATCH_STRATEGY:-}
       SF_SCRATCH_POOL_NAME: ${SF_SCRATCH_POOL_NAME:-}
       SF_SCRATCH_POOL_OWNER: ${SF_SCRATCH_POOL_OWNER:-}
@@ -80,13 +87,13 @@ services:
       SF_SCRATCH_POOL_SNAPSHOT_NAME: ${SF_SCRATCH_POOL_SNAPSHOT_NAME:-}
       SF_SCRATCH_ALIAS: ${SF_SCRATCH_ALIAS:-}
       SF_SCRATCH_DURATION: ${SF_SCRATCH_DURATION:-1}
-      SF_TEST_KEEP_ORG: ${SF_TEST_KEEP_ORG:-1}
+      SF_TEST_KEEP_ORG: ${SF_TEST_KEEP_ORG:-0}
       ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL: ${ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL:-}
       ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE: ${ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE:-}
       ALV_E2E_PROXY_LAB_COMMAND: ${ALV_E2E_PROXY_LAB_COMMAND:-}
       ALV_E2E_PROXY_LAB_HOST_UID: ${ALV_E2E_PROXY_LAB_HOST_UID:-}
       ALV_E2E_PROXY_LAB_HOST_GID: ${ALV_E2E_PROXY_LAB_HOST_GID:-}
-    command: ["bash", "test/e2e/proxy-lab/run.sh"]
+    command: ['bash', 'test/e2e/proxy-lab/run.sh']
 
 networks:
   e2e_proxy_internal:
@@ -95,9 +102,12 @@ networks:
 
 volumes:
   e2e_proxy_node_modules: {}
+  e2e_proxy_extension_node_modules: {}
+  e2e_proxy_core_node_modules: {}
+  e2e_proxy_protocol_node_modules: {}
+  e2e_proxy_sf_plugin_node_modules: {}
+  e2e_proxy_webview_node_modules: {}
   e2e_proxy_vscode_test: {}
   e2e_proxy_npm_cache: {}
   e2e_proxy_pnpm_store: {}
-  e2e_proxy_sf: {}
-  e2e_proxy_sfdx: {}
   e2e_proxy_mitmproxy_ca: {}

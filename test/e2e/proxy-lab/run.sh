@@ -5,7 +5,6 @@ MITM_CA_SOURCE="${ALV_E2E_PROXY_LAB_MITM_CA_SOURCE:-/mitmproxy/mitmproxy-ca-cert
 MITM_CA_DEST="${ALV_E2E_PROXY_LAB_MITM_CA_DEST:-/usr/local/share/ca-certificates/alv-mitmproxy-ca.crt}"
 SYSTEM_CA_BUNDLE="${ALV_E2E_PROXY_LAB_SYSTEM_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}"
 PNPM_STORE_PATH="${ALV_E2E_PROXY_LAB_PNPM_STORE_PATH:-/root/.local/share/pnpm/store}"
-DEVHUB_ALIAS="${SF_DEVHUB_ALIAS:-ConfiguredDevHub}"
 HOST_GENERATED_PATHS=(
   "apps/vscode-extension/bin"
   "apps/vscode-extension/dist"
@@ -39,7 +38,7 @@ fail() {
 validate_salesforce_cli_package() {
   local package_name="$1"
   if [[ ! "${package_name}" =~ ^@salesforce/cli@([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|nightly)$ ]]; then
-    fail "ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE must be @salesforce/cli pinned to an exact version, for example @salesforce/cli@2.136.8."
+    fail "ALV_E2E_PROXY_LAB_SF_CLI_PACKAGE must be @salesforce/cli pinned to an exact version, for example @salesforce/cli@2.150.6."
   fi
 }
 
@@ -364,89 +363,10 @@ main().catch(error => {
 NODE
 }
 
-redact_salesforce_cli_output() {
-  sed -E \
-    -e 's#force://[^[:space:]]+#force://[redacted]#g' \
-    -e 's#"(accessToken|refreshToken|clientSecret)"[[:space:]]*:[[:space:]]*"[^"]+"#"\1":"[redacted]"#g'
-}
 
-run_sf_preflight_command() {
-  local description="$1"
-  shift
-  local output_file
-  output_file="$(mktemp)"
-  local status=0
-
-  "$@" >"${output_file}" 2>&1 || status=$?
-  if [[ "${status}" -eq 0 ]]; then
-    rm -f "${output_file}"
-    return 0
-  fi
-
-  echo "[proxy-lab] Salesforce CLI preflight failed while ${description} (exit ${status})." >&2
-  if [[ -s "${output_file}" ]]; then
-    redact_salesforce_cli_output <"${output_file}" >&2
-  fi
-  rm -f "${output_file}"
-  return "${status}"
-}
-
-requested_command_requires_devhub() {
-  if [[ "$#" -eq 0 && -z "${ALV_E2E_PROXY_LAB_COMMAND:-}" ]]; then
-    return 0
-  fi
-
-  local requested_command="$* ${ALV_E2E_PROXY_LAB_COMMAND:-}"
-  case "${requested_command}" in
-    *"test:e2e"*)
-      return 0
-      ;;
-  esac
-
-  return 1
-}
-
-preflight_salesforce_cli() {
-  if [[ -z "${SF_DEVHUB_AUTH_URL:-}" ]]; then
-    if requested_command_requires_devhub "$@"; then
-      fail "SF_DEVHUB_AUTH_URL is required for real-org proxy-lab commands because the clean runner container cannot use host Salesforce CLI aliases. Export a Dev Hub SFDX auth URL or pass an explicit non-real-org smoke command after '--'."
-    fi
-    echo "[proxy-lab] Skipping Salesforce CLI network preflight because SF_DEVHUB_AUTH_URL is not set and the requested command does not look like a real-org E2E run."
-    return 0
-  fi
-
-  echo "[proxy-lab] Verifying Salesforce CLI through the authenticated MITM proxy..."
-  local auth_file
-  auth_file="$(mktemp)"
-  trap 'rm -f "${auth_file}"' RETURN ERR
-  chmod 0600 "${auth_file}"
-  printf '%s' "${SF_DEVHUB_AUTH_URL}" >"${auth_file}"
-  run_sf_preflight_command \
-    "authenticating Dev Hub alias '${DEVHUB_ALIAS}'" \
-    sf org login sfdx-url --sfdx-url-file "${auth_file}" --set-default-dev-hub --alias "${DEVHUB_ALIAS}" --json
-  run_sf_preflight_command \
-    "displaying Dev Hub alias '${DEVHUB_ALIAS}'" \
-    sf org display -o "${DEVHUB_ALIAS}" --json
-  rm -f "${auth_file}"
-  trap - RETURN ERR
-}
-
-run_requested_command() {
-  if [[ "$#" -gt 0 ]]; then
-    echo "[proxy-lab] Running command: $*"
-    "$@"
-    return
-  fi
-
-  if [[ -n "${ALV_E2E_PROXY_LAB_COMMAND:-}" ]]; then
-    echo "[proxy-lab] Running command: ${ALV_E2E_PROXY_LAB_COMMAND}"
-    bash -lc "${ALV_E2E_PROXY_LAB_COMMAND}"
-    return
-  fi
-
-  echo "[proxy-lab] Running default command: pnpm run test:e2e"
-  pnpm run test:e2e
-}
+# Validate before network preflight or dependency installation, using the same
+# policy and mounted input that the actual child command will consume.
+node scripts/run-e2e-proxy-lab-child.js --validate "$@"
 
 wait_for_mitm_ca
 verify_direct_egress_blocked
@@ -457,5 +377,4 @@ verify_authenticated_mitm_proxy
 install_dependencies
 verify_node_https_proxy
 install_salesforce_cli_override
-preflight_salesforce_cli "$@"
-run_requested_command "$@"
+node scripts/run-e2e-proxy-lab-child.js "$@"

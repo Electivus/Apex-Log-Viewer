@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { test as base, expect, type Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
 import { ensureScratchOrg } from '../utils/scratchOrg';
@@ -109,6 +111,17 @@ export const test = base.extend<Fixtures & Options>({
     try {
       await use(launch.app);
     } finally {
+      if (process.env.ALV_E2E_TIMING === '1' && testInfo.status !== testInfo.expectedStatus) {
+        console.log(`[e2e] VS Code test status before cleanup: ${testInfo.status}`);
+        if (process.platform === 'darwin') {
+          await promisify(execFile)('/usr/sbin/screencapture', ['-x', testInfo.outputPath('native-failure.png')], {
+            timeout: 5_000
+          }).catch(() => console.warn('[e2e] Native macOS failure screenshot unavailable.'));
+        }
+        await launch.page
+          .screenshot({ path: testInfo.outputPath('vscode-failure.png'), timeout: 5_000 })
+          .catch(() => console.warn('[e2e] VS Code failure screenshot unavailable.'));
+      }
       await launch.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
     }
   },

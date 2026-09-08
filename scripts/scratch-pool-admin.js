@@ -5,13 +5,19 @@ const { mkdtemp, mkdir, rm, writeFile } = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const path = require('path');
 const spawn = require('cross-spawn');
+const { AsyncLocalStorage } = require('node:async_hooks');
+const { stripVTControlCharacters } = require('node:util');
+const { authenticateDevHub, resolveDevHubConfig, salesforceChildEnv, scratchSignupEnv,
+  isUsableSfdxAuthUrl, safeSfFailureMessage } = require('./devhub-auth');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const SLOT_KEY_WIDTH = 2;
 const DEFAULT_SLOT_KEY_PREFIX = 'slot';
 const DEFAULT_SLOT_ALIAS_PREFIX = 'ALV_E2E_POOL';
 const DEFAULT_API_VERSION = '66.0';
-const orgDisplayCache = new Map();
+// Each command owns its CLI home and REST token cache through its last mutation.
+// Async scoping also prevents simultaneous commands for one username sharing state.
+const commandContext = new AsyncLocalStorage();
 
 function getCommand(argv = process.argv.slice(2)) {
   return argv.find(arg => !arg.startsWith('-')) || '';
@@ -161,10 +167,13 @@ function normalizePrewarmOptions(argv = process.argv.slice(2)) {
 }
 
 function execFileAsync(file, args, options = {}) {
-  const { cwd = REPO_ROOT, spawnImpl = spawn, timeoutMs } = options;
+  const context = commandContext.getStore();
+  const { cwd = REPO_ROOT, spawnImpl = context?.spawnImpl || spawn, timeoutMs,
+    env = context?.env || salesforceChildEnv() } = options;
   return new Promise((resolve, reject) => {
     const child = spawnImpl(file, args, {
       cwd,
+      env,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
     });
@@ -211,7 +220,7 @@ function execFileAsync(file, args, options = {}) {
     }
 
     child.on('error', error => {
-      const message = String(stderr || stdout || error.message || 'Command failed').trim();
+      const message = [stdout, stderr].filter(Boolean).join('\n').trim() || error.message || 'Command failed';
       rejectOnce(new Error(message));
     });
 
@@ -224,21 +233,33 @@ function execFileAsync(file, args, options = {}) {
         resolveOnce({ stdout, stderr });
         return;
       }
-      const message = String(stderr || stdout || `Command failed with exit code ${code}.`).trim();
+      const message = [stdout, stderr].filter(Boolean).join('\n').trim() || `Command failed with exit code ${code}.`;
       rejectOnce(new Error(message));
     });
   });
 }
 
 async function runSfJson(args, options = {}) {
-  const executable = process.platform === 'win32' ? 'sf.cmd' : 'sf';
-  const finalArgs = [...args, '--json'];
-  const { stdout } = await execFileAsync(executable, finalArgs, options);
-  const parsed = JSON.parse(stdout || '{}');
-  if (parsed && typeof parsed.status === 'number' && parsed.status !== 0) {
-    throw new Error(parsed.message || `Salesforce CLI exited with status ${parsed.status}.`);
+  const executable = String(process.env.SF_CLI_BIN_PATH || process.env.ALV_SF_BIN_PATH || '').trim() ||
+    (process.platform === 'win32' ? 'sf.cmd' : 'sf');
+  const env = salesforceChildEnv(options.env || commandContext.getStore()?.env || process.env);
+  if (args.slice(0, 3).join(' ') === 'org create scratch') {
+    Object.assign(env, scratchSignupEnv(env));
   }
-  return parsed;
+  if ((args[0] === 'org' && args[1] === 'auth') || (args[1] === 'display' && args.includes('--verbose'))) {
+    env.SF_TEMP_SHOW_SECRETS = 'true';
+  }
+  const finalArgs = [...args, '--json'];
+  try {
+    const { stdout } = await execFileAsync(executable, finalArgs, { ...options, env });
+    const parsed = JSON.parse(stripVTControlCharacters(stdout || '{}'));
+    if (parsed && typeof parsed.status === 'number' && parsed.status !== 0) {
+      throw new Error(parsed.message || `Salesforce CLI exited with status ${parsed.status}.`);
+    }
+    return parsed;
+  } catch (error) {
+    throw new Error(safeSfFailureMessage(error, 'Salesforce CLI pool operation failed.'));
+  }
 }
 
 function isUsableSecret(value) {
@@ -298,22 +319,26 @@ async function getSfdxAuthUrl(targetOrg) {
       '--no-prompt'
     ]);
     const result = readSfResult(response);
-    if (isUsableSecret(result.sfdxAuthUrl)) {
+    if (isUsableSfdxAuthUrl(result.sfdxAuthUrl)) {
       return String(result.sfdxAuthUrl).trim();
     }
   } catch {
     // Older Salesforce CLI versions expose this only on org display --verbose.
   }
   const display = await getAuthenticatedOrgDisplay(targetOrg, { verbose: true });
-  return isUsableSecret(display.sfdxAuthUrl) ? String(display.sfdxAuthUrl).trim() : undefined;
+  return isUsableSfdxAuthUrl(display.sfdxAuthUrl) ? String(display.sfdxAuthUrl).trim() : undefined;
 }
 
-async function queryRecords(targetOrg, soql) {
+async function queryRecords(targetOrg, soql, requireComplete = false) {
   const response = await runSfJson(['data', 'query', '--target-org', targetOrg, '--query', soql]);
+  if (requireComplete && (response?.result?.done !== true || !Array.isArray(response.result.records))) {
+    throw new Error('Cannot confirm scratch metadata: incomplete Salesforce query response.');
+  }
   return Array.isArray(response?.result?.records) ? response.result.records : [];
 }
 
 async function getOrgDisplay(targetOrg) {
+  const orgDisplayCache = commandContext.getStore()?.orgDisplayCache || new Map();
   if (orgDisplayCache.has(targetOrg)) {
     return orgDisplayCache.get(targetOrg);
   }
@@ -350,7 +375,7 @@ function toHttpDateString(value) {
 
 async function callSalesforceRest(targetOrg, method, resourcePath, body, options = {}) {
   const connection = await getOrgDisplay(targetOrg);
-  const response = await fetch(
+  const response = await (commandContext.getStore()?.fetchImpl || fetch)(
     `${connection.instanceUrl}/services/data/v${connection.apiVersion}${resourcePath}`,
     {
       method,
@@ -361,22 +386,39 @@ async function callSalesforceRest(targetOrg, method, resourcePath, body, options
       },
       body: body === undefined ? undefined : JSON.stringify(body)
     }
-  );
+  ).catch(error => {
+    throw new Error(safeSfFailureMessage(error, 'Salesforce REST pool transport failed.'));
+  });
 
   if (response.status === 204) {
     return undefined;
   }
 
   const raw = await response.text();
-  const parsed = raw ? JSON.parse(raw) : undefined;
+  if (response.status === 401 && options.retryAuth !== false) {
+    commandContext.getStore()?.orgDisplayCache.delete(targetOrg);
+    return callSalesforceRest(targetOrg, method, resourcePath, body, { ...options, retryAuth: false });
+  }
+  let parsed;
+  try {
+    parsed = raw ? JSON.parse(raw) : undefined;
+  } catch {
+    throw new Error(`Invalid Salesforce REST response (HTTP ${response.status}); response body redacted.`);
+  }
   if (!response.ok) {
     if (response.status === 412) {
-      throw new ConditionalUpdateConflictError(raw || 'Record changed before the update could be applied.');
+      throw new ConditionalUpdateConflictError('Record changed before the update could be applied.');
     }
-    const details = Array.isArray(parsed)
-      ? parsed.map(item => `${item.errorCode}: ${item.message}`).join('; ')
-      : raw || `HTTP ${response.status}`;
-    throw new Error(details);
+    const codes = Array.isArray(parsed) ? parsed.map(item => item.errorCode) : [];
+    if (codes.some(code => ['ENTITY_IS_DELETED', 'NOT_FOUND', 'NOT_FOUND_ERROR'].includes(code))) {
+      throw new Error('NOT_FOUND: Salesforce record no longer exists.');
+    }
+    if (codes.some(code => ['INSUFFICIENT_ACCESS_OR_READONLY', 'INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY'].includes(code))) {
+      throw new Error(method === 'DELETE'
+        ? 'INSUFFICIENT_ACCESS: The configured identity cannot delete this scratch. Have its existing owner or administrator drain and delete it before transitioning this slot; keep the stored credential until deletion is confirmed.'
+        : 'INSUFFICIENT_ACCESS: Check the configured identity\'s pool object, field and Apex REST permissions.');
+    }
+    throw new Error(`Salesforce REST pool operation failed (HTTP ${response.status}); response body redacted.`);
   }
 
   return parsed;
@@ -481,24 +523,6 @@ async function getScratchAuthUrlOrThrow(scratchAlias) {
   return scratchAuthUrl;
 }
 
-async function clearStaleScratchOrg(alias) {
-  if (!alias) {
-    return;
-  }
-
-  try {
-    await runSfJson(['org', 'logout', '--target-org', alias, '--no-prompt']);
-  } catch {
-    // Best-effort cleanup.
-  }
-
-  try {
-    await runSfJson(['alias', 'unset', alias]);
-  } catch {
-    // Best-effort cleanup.
-  }
-}
-
 async function waitForScratchOrgReady(targetOrg) {
   const timeoutMs = 240_000;
   const deadline = Date.now() + timeoutMs;
@@ -554,6 +578,7 @@ async function deleteExistingScratchForSlot(targetOrg, poolKey, slot, dependenci
   const latestInfo = await getLatestScratchOrgInfoImpl(targetOrg, poolKey, slot.SlotKey__c);
   const scratchOrgInfoIds = [];
   const activeScratchOrgIds = [];
+  const deletedSignupIds = new Set();
 
   const pushUniqueId = (collection, value) => {
     const normalized = String(value || '').trim();
@@ -568,6 +593,34 @@ async function deleteExistingScratchForSlot(targetOrg, poolKey, slot, dependenci
   pushUniqueId(activeScratchOrgIds, slot.ActiveScratchOrgId__c);
 
   for (const scratchOrgInfoId of scratchOrgInfoIds) {
+    let info = latestInfo?.Id === scratchOrgInfoId ? latestInfo : undefined;
+    if (!info) {
+      try {
+        info = await callSalesforceRestImpl(
+          targetOrg,
+          'GET',
+          `/sobjects/ScratchOrgInfo/${encodeURIComponent(scratchOrgInfoId)}?fields=Id,Status`
+        );
+      } catch (error) {
+        if (!isDeleteNotFoundErrorImpl(error)) throw error;
+      }
+    }
+    if (info?.Id === scratchOrgInfoId && info.Status === 'Deleted') {
+      const storedActiveId = String(slot.ActiveScratchOrgId__c || '').trim();
+      const query =
+        `SELECT Id FROM ActiveScratchOrg WHERE ScratchOrgInfoId = '${escapeSoqlLiteral(scratchOrgInfoId)}'` +
+        (storedActiveId ? ` OR Id = '${escapeSoqlLiteral(storedActiveId)}'` : '');
+      const active = await callSalesforceRestImpl(targetOrg, 'GET', `/query?q=${encodeURIComponent(query)}`);
+      if (active?.done !== true || !Array.isArray(active.records)) {
+        throw new Error('Cannot confirm historical scratch deletion: incomplete ActiveScratchOrg response.');
+      }
+      if (active.records.length === 0) {
+        deletedSignupIds.add(scratchOrgInfoId);
+        const index = activeScratchOrgIds.indexOf(storedActiveId);
+        if (index !== -1) activeScratchOrgIds.splice(index, 1);
+        continue;
+      }
+    }
     const activeScratch = await getActiveScratchOrgByInfoIdImpl(targetOrg, scratchOrgInfoId);
     pushUniqueId(activeScratchOrgIds, activeScratch?.Id);
   }
@@ -587,6 +640,7 @@ async function deleteExistingScratchForSlot(targetOrg, poolKey, slot, dependenci
   }
 
   for (const scratchOrgInfoId of scratchOrgInfoIds) {
+    if (deletedSignupIds.has(scratchOrgInfoId)) continue;
     try {
       await callSalesforceRestImpl(
         targetOrg,
@@ -596,6 +650,25 @@ async function deleteExistingScratchForSlot(targetOrg, poolKey, slot, dependenci
     } catch (error) {
       if (!isDeleteNotFoundErrorImpl(error)) {
         throw error;
+      }
+    }
+  }
+
+  const context = commandContext.getStore();
+  if (context) {
+    const usernames = new Set([slot.ScratchUsername__c, latestInfo?.SignupUsername]);
+    const homeField = process.platform === 'win32' ? 'USERPROFILE' : 'HOME';
+    const environments = new Map([context.env, context.callerEnv].map(env => [env[homeField], env]));
+    for (const username of usernames) {
+      if (typeof username !== 'string' || !username.includes('@') || username === targetOrg) continue;
+      for (const env of environments.values()) {
+        try {
+          await runSfJson(['org', 'logout', '--target-org', username, '--no-prompt'], { env });
+        } catch (error) {
+          if (!/NamedOrgNotFoundError|NoAuthFoundForTargetOrgError/.test(error.message)) {
+            throw new Error(`Remote scratch deletion completed but local authorization cleanup failed for '${username}'. Remove only that scratch authorization explicitly.`);
+          }
+        }
       }
     }
   }
@@ -661,7 +734,8 @@ async function getLatestScratchOrgInfo(targetOrg, poolKey, slotKey) {
       'FROM ScratchOrgInfo',
       `WHERE alvPoolKey__c = '${escapeSoqlLiteral(poolKey)}' AND alvSlotKey__c = '${escapeSoqlLiteral(slotKey)}'`,
       'ORDER BY CreatedDate DESC LIMIT 1'
-    ].join(' ')
+    ].join(' '),
+    true
   );
   return records[0];
 }
@@ -676,7 +750,8 @@ async function getActiveScratchOrgByInfoId(targetOrg, scratchOrgInfoId) {
       'SELECT Id, ScratchOrg, SignupUsername, ExpirationDate, ScratchOrgInfoId',
       'FROM ActiveScratchOrg',
       `WHERE ScratchOrgInfoId = '${escapeSoqlLiteral(scratchOrgInfoId)}' LIMIT 1`
-    ].join(' ')
+    ].join(' '),
+    true
   );
   return records[0];
 }
@@ -831,11 +906,17 @@ async function listPool(targetOrg, poolKey) {
     throw new Error(`Scratch pool '${poolKey}' was not found.`);
   }
   const slots = await getSlotsByPoolId(targetOrg, pool.Id);
+  const publicSlots = slots.map(slot => {
+    const publicSlot = { ...slot };
+    delete publicSlot.ScratchAuthUrl__c;
+    delete publicSlot.LeaseToken__c;
+    return publicSlot;
+  });
   return {
     ok: true,
     command: 'list',
     pool,
-    slots
+    slots: publicSlots
   };
 }
 
@@ -853,7 +934,7 @@ async function reconcilePool(targetOrg, poolKey) {
     const info = await getLatestScratchOrgInfo(targetOrg, poolKey, slot.SlotKey__c);
     const active = await getActiveScratchOrgByInfoId(targetOrg, info?.Id);
     const hasActiveScratch = Boolean(active?.Id);
-    const hasScratchAuthUrl = Boolean(String(slot.ScratchAuthUrl__c || '').trim());
+    const hasScratchAuthUrl = isUsableSfdxAuthUrl(slot.ScratchAuthUrl__c);
     const healthState = hasActiveScratch && hasScratchAuthUrl ? 'healthy' : 'needs_recreate';
 
     if (healthState === 'healthy') {
@@ -875,7 +956,7 @@ async function reconcilePool(targetOrg, poolKey) {
       LastError__c: healthState === 'healthy'
         ? null
         : !hasScratchAuthUrl
-          ? 'Slot has no stored scratch auth URL and must be recreated.'
+          ? 'Slot has no usable stored scratch auth URL and must be recreated.'
           : info?.Id
             ? `ScratchOrgInfo ${info.Id} no longer has an ActiveScratchOrg.`
             : 'No ScratchOrgInfo found for this slot.'
@@ -993,9 +1074,10 @@ async function prewarmSlot(targetOrg, pool, slot) {
     throw error;
   }
 
+  let previousScratchDeleted = false;
   try {
     await deleteExistingScratchForSlot(targetOrg, pool.PoolKey__c, refreshedSlot);
-    await clearStaleScratchOrg(refreshedSlot.ScratchAlias__c);
+    previousScratchDeleted = true;
 
     const definition = buildPoolScratchDefinition({
       poolKey: pool.PoolKey__c,
@@ -1024,6 +1106,7 @@ async function prewarmSlot(targetOrg, pool, slot) {
         ],
         { cwd: context.cwd, timeoutMs: 20 * 60 * 1000 }
       );
+      await commandContext.getStore()?.devHub.publishScratch(refreshedSlot.ScratchAlias__c);
     } finally {
       await context.cleanup();
     }
@@ -1066,7 +1149,6 @@ async function prewarmSlot(targetOrg, pool, slot) {
     };
   } catch (error) {
     const completedAt = new Date().toISOString();
-    await clearStaleScratchOrg(refreshedSlot.ScratchAlias__c);
     await updateRecord(targetOrg, 'ALV_ScratchOrgPoolSlot__c', refreshedSlot.Id, {
       LeaseState__c: 'available',
       LeaseOwner__c: null,
@@ -1076,13 +1158,15 @@ async function prewarmSlot(targetOrg, pool, slot) {
       LastLeaseReleasedAt__c: completedAt,
       LastRunResult__c: 'prewarm_failed',
       HealthState__c: 'needs_recreate',
-      ScratchUsername__c: null,
-      ScratchLoginUrl__c: null,
-      ScratchAuthUrl__c: null,
-      ScratchOrgId__c: null,
-      ScratchOrgInfoId__c: null,
-      ActiveScratchOrgId__c: null,
-      ScratchExpiresAt__c: null,
+      ...(previousScratchDeleted ? {
+        ScratchUsername__c: null,
+        ScratchLoginUrl__c: null,
+        ScratchAuthUrl__c: null,
+        ScratchOrgId__c: null,
+        ScratchOrgInfoId__c: null,
+        ActiveScratchOrgId__c: null,
+        ScratchExpiresAt__c: null
+      } : {}),
       LastError__c: truncateLongText(error instanceof Error ? error.message : String(error))
     });
     throw error;
@@ -1100,7 +1184,7 @@ async function prewarmPool(targetOrg, poolKey, options = {}) {
   const slotsToPrewarm = [];
 
   for (const slot of slots) {
-    const hasAuthUrl = Boolean(String(slot.ScratchAuthUrl__c || '').trim());
+    const hasAuthUrl = isUsableSfdxAuthUrl(slot.ScratchAuthUrl__c);
     const isHealthy = slot.HealthState__c === 'healthy' && hasAuthUrl && slot.LeaseState__c === 'available';
     if (isHealthy) {
       healthySlots.push(slot.SlotKey__c);
@@ -1129,10 +1213,10 @@ async function prewarmPool(targetOrg, poolKey, options = {}) {
 
   const refreshedSlots = await getSlotsByPoolIdForMaintenance(targetOrg, pool.Id);
   const finalHealthySlots = refreshedSlots.filter(
-    slot => slot.HealthState__c === 'healthy' && String(slot.ScratchAuthUrl__c || '').trim()
+    slot => slot.HealthState__c === 'healthy' && isUsableSfdxAuthUrl(slot.ScratchAuthUrl__c)
   );
   const finalNeedsRecreateSlots = refreshedSlots.filter(
-    slot => slot.HealthState__c === 'needs_recreate' || !String(slot.ScratchAuthUrl__c || '').trim()
+    slot => slot.HealthState__c === 'needs_recreate' || !isUsableSfdxAuthUrl(slot.ScratchAuthUrl__c)
   );
 
   return {
@@ -1220,20 +1304,35 @@ function isSlotEligibleForPrewarm(slot) {
   return String(slot?.LeaseState__c || '').trim() === 'available';
 }
 
-async function main(argv = process.argv.slice(2)) {
+async function main(argv = process.argv.slice(2), dependencies = {}) {
   const command = getCommand(argv);
   if (!command || hasFlag('help', argv)) {
     printHelp();
     return;
   }
 
-  const targetOrg = resolveTargetOrg(argv);
-  if (!targetOrg) {
-    throw new Error('Missing target org. Pass --target-org or set SF_DEVHUB_ALIAS.');
-  }
+  const config = resolveDevHubConfig({ ...process.env, SF_DEVHUB_ALIAS: resolveTargetOrg(argv) });
+  return commandContext.run({ ...dependencies, env: salesforceChildEnv(), callerEnv: salesforceChildEnv(),
+    orgDisplayCache: new Map() }, async () => {
+    const devHub = await authenticateDevHub(config, runSfJson);
+    const context = commandContext.getStore();
+    context.env = devHub.env;
+    context.devHub = devHub;
+    let result;
+    try {
+      result = await runCommand(devHub.targetOrg, argv);
+    } finally {
+      await devHub.cleanup();
+      context.orgDisplayCache.clear();
+    }
+    renderResult(result, hasFlag('json', argv));
+    return result;
+  });
+}
 
+async function runCommand(targetOrg, argv) {
+  const command = getCommand(argv);
   const poolKey = getArgValue('pool-key', argv) || getArgValue('pool', argv);
-  const asJson = hasFlag('json', argv);
 
   let result;
   if (command === 'bootstrap') {
@@ -1273,7 +1372,7 @@ async function main(argv = process.argv.slice(2)) {
     throw new Error(`Unknown command '${command}'.`);
   }
 
-  renderResult(result, asJson);
+  return result;
 }
 
 if (require.main === module) {
@@ -1284,6 +1383,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  main,
   bootstrapPool,
   buildSlotDescriptors,
   buildPoolScratchDefinition,

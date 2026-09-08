@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
   closeVsCodeApp,
@@ -12,8 +12,56 @@ import {
   resolveVscodeCachePath,
   resolveVscodeDownloadTimeoutMs,
   resolveWindowSizeArg,
-  resolveSupportExtensionIds
+  resolveSupportExtensionIds,
+  resolveVsCodeAuthLaunch
 } from '../vscode';
+
+describe('macOS CI authentication homes', () => {
+  test('keeps Electron on the desktop home and native core plus CLI in the private Extension Host home', async () => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), 'alv-vscode-auth-')));
+    const desktopHome = path.join(root, 'desktop');
+    const authHome = path.join(root, 'alv-sf-home.test');
+    await mkdir(desktopHome);
+    await mkdir(authHome, { mode: 0o700 });
+    const env = {
+      GITHUB_ACTIONS: 'true',
+      RUNNER_OS: 'macOS',
+      RUNNER_TEMP: root,
+      HOME: authHome,
+      ALV_E2E_DESKTOP_HOME: desktopHome,
+      ALV_CI_AUTH_HOME: authHome
+    };
+    try {
+      await expect(resolveVsCodeAuthLaunch(env, 'darwin')).resolves.toEqual({
+        env: { HOME: desktopHome },
+        args: [`--extensionEnvironment=${JSON.stringify({ HOME: authHome })}`]
+      });
+      expect(env.HOME).toBe(authHome);
+      for (const override of [
+        { ALV_CI_AUTH_HOME: '' },
+        { ALV_E2E_DESKTOP_HOME: '' },
+        { ALV_CI_AUTH_HOME: 'relative' },
+        { RUNNER_TEMP: '' },
+        { ALV_CI_AUTH_HOME: desktopHome },
+        { HOME: desktopHome },
+        { ALV_E2E_DESKTOP_HOME: path.join(root, 'missing') }
+      ]) {
+        await expect(resolveVsCodeAuthLaunch({ ...env, ...override }, 'darwin')).rejects.toThrow(
+          'Invalid macOS CI authentication homes'
+        );
+      }
+      for (const [otherEnv, platform] of [
+        [{}, 'darwin'],
+        [env, 'win32'],
+        [{ ...env, GITHUB_ACTIONS: '' }, 'darwin']
+      ] as const) {
+        await expect(resolveVsCodeAuthLaunch(otherEnv, platform)).resolves.toEqual({ env: {}, args: [] });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('resolveSupportExtensionIds', () => {
   test('keeps replay debugger support local to the scenario', () => {

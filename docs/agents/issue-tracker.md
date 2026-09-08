@@ -2,6 +2,20 @@
 
 Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
+## Repository target
+
+- Repository: `Electivus/Apex-Log-Viewer`
+- Base branch: `main`
+
+Use the explicit `--repo Electivus/Apex-Log-Viewer` option for issue, label, and pull-request commands. Do not rely on the current `gh` context to choose the repository.
+
+### Planning publication for `devhub-jwt`
+
+- Remote: `origin`
+- Branch: `codex/devhub-jwt`
+
+Push the effort's Planning checkpoints to this branch and verify their remote reachability before publishing or refreshing a Planning marker. This branch is the publication target for this effort, not the repository's integration branch.
+
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
@@ -11,7 +25,7 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
 
-Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
+Use the configured repository target above in every command; a Git remote is verification evidence, not an implicit tracker target.
 
 ## Pull requests as a triage surface
 

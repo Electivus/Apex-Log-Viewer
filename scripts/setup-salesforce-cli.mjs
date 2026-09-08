@@ -60,7 +60,7 @@ export function resolveSalesforceCliCacheConfig({
   env = process.env,
   platform = process.platform,
   nodeVersion = process.versions.node,
-  packageName = env.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8'
+  packageName = env.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.150.6'
 } = {}) {
   const normalizedPackageName = normalizeSalesforceCliPackage(packageName);
   const cacheRoot = path.resolve(
@@ -200,6 +200,20 @@ export function writeMacOSNodeWrapper({ nodePath, sfBinPath, wrapperPath, fsImpl
     '#!/usr/bin/env bash',
     'set -euo pipefail',
     ...WRAPPER_ENV_UNSET_NAMES.map(name => `unset ${name} || true`),
+    // Electron needs the runner's native keychain; its Salesforce children still
+    // use private auth state. Preserve each explicitly isolated JWT operation home.
+    'if [[ "${GITHUB_ACTIONS:-}" = true && "${RUNNER_OS:-}" = macOS && ( -n "${ALV_CI_AUTH_HOME:-}" || -n "${ALV_E2E_DESKTOP_HOME:-}" ) ]]; then',
+    '  if [[ -z "${RUNNER_TEMP:-}" || "${ALV_CI_AUTH_HOME:-}" != "$RUNNER_TEMP"/alv-sf-home.?* || "${ALV_E2E_DESKTOP_HOME:-}" != /* || "${ALV_CI_AUTH_HOME:-}" = "${ALV_E2E_DESKTOP_HOME:-}" ]]; then',
+    '    echo "Invalid macOS CI authentication homes" >&2; exit 1',
+    '  fi',
+    '  for auth_dir in "$RUNNER_TEMP" "$ALV_CI_AUTH_HOME" "$ALV_E2E_DESKTOP_HOME"; do',
+    '    if [[ "$auth_dir" != /* || ! -d "$auth_dir" || -L "$auth_dir" || "$(cd "$auth_dir" && pwd -P)" != "$auth_dir" ]]; then',
+    '      echo "Invalid macOS CI authentication homes" >&2; exit 1',
+    '    fi',
+    '  done',
+    '  if [[ "${ALV_CI_AUTH_HOME%/*}" != "$RUNNER_TEMP" ]]; then echo "Invalid macOS CI authentication homes" >&2; exit 1; fi',
+    '  if [[ "${HOME:-}" = "$ALV_E2E_DESKTOP_HOME" ]]; then export HOME="$ALV_CI_AUTH_HOME"; fi',
+    'fi',
     `export PATH=${quoteForBash(nodeDir)}:"\${PATH:-}"`,
     `exec ${quoteForBash(sfBinPath)} "$@"`,
     ''
@@ -283,7 +297,7 @@ export function setupSalesforceCli({
   if (env.SALESFORCE_CLI_WRAP_NODE === '1') {
     const wrapperPath = path.join(
       env.RUNNER_TEMP || os.tmpdir(),
-      'alv-sf-node20',
+      'alv-sf-node',
       platform === 'win32' ? 'sf.cmd' : 'sf'
     );
     exportedSfBinPath = writeMacOSNodeWrapper({
@@ -316,7 +330,7 @@ export function setupSalesforceCli({
 function main() {
   const args = process.argv.slice(2);
   const packageName =
-    readArgValue(args, '--package') || process.env.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.136.8';
+    readArgValue(args, '--package') || process.env.SALESFORCE_CLI_PACKAGE || '@salesforce/cli@2.150.6';
   const env = { ...process.env, SALESFORCE_CLI_PACKAGE: packageName };
   const config = resolveSalesforceCliCacheConfig({ env });
 

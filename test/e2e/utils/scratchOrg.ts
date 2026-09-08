@@ -2,9 +2,17 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
-import { getOrgAuth, assertToolingReady, primeOrgAuthCache, type OrgAuth } from './tooling';
+import { getOrgAuth, refreshOrgAuth, assertToolingReady, primeOrgAuthCache, type OrgAuth } from './tooling';
 import { runSfJson } from './sfCli';
 import { timeE2eStep } from './timing';
+import {
+  resolveDevHubConfig,
+  authenticateDevHub,
+  scratchSignupEnv,
+  isUsableSfdxAuthUrl,
+  safeSfFailureMessage,
+  type DevHubSession
+} from '../../../scripts/devhub-auth.js';
 
 export type ScratchOrgStrategy = 'single' | 'pool';
 
@@ -26,13 +34,6 @@ export type ScratchOrgResult = {
   assertLeaseHealthy?: () => void;
 };
 
-type DevHubConfig = {
-  authUrl?: string;
-  alias?: string;
-};
-
-const DEFAULT_DEV_HUB_ALIAS = 'ConfiguredDevHub';
-
 type OrgDisplaySummary = {
   status?: string;
   expirationDate?: string;
@@ -44,7 +45,6 @@ type OrgDisplaySummary = {
 
 type HttpError = Error & {
   status?: number;
-  responseBody?: string;
 };
 
 type PoolAcquireRequest = {
@@ -208,16 +208,6 @@ function resolveScratchStrategy(): ScratchOrgStrategy {
   throw new Error(`Invalid SF_SCRATCH_STRATEGY value '${configured}'. Expected 'single' or 'pool'.`);
 }
 
-function resolveRequiredDevHubConfig(): DevHubConfig {
-  const authUrl = readEnvValue('SF_DEVHUB_AUTH_URL');
-  const alias = readEnvValue('SF_DEVHUB_ALIAS');
-
-  if (!authUrl && !alias) {
-    throw new Error('Missing required Dev Hub configuration. Set SF_DEVHUB_AUTH_URL or SF_DEVHUB_ALIAS.');
-  }
-  return { authUrl, alias };
-}
-
 async function getOrgDisplayOrThrow(alias: string, options?: { verbose?: boolean }): Promise<OrgDisplaySummary> {
   const args = ['org', 'display', '--target-org', alias];
   if (options?.verbose) {
@@ -230,22 +220,21 @@ async function getOrgDisplay(alias: string, options?: { verbose?: boolean }): Pr
   try {
     return await getOrgDisplayOrThrow(alias, options);
   } catch (error) {
-    console.warn(
-      `[e2e] sf org display failed for alias '${alias}': ${error instanceof Error ? error.message : String(error)}`
-    );
+    console.warn(`[e2e] sf org display failed for alias '${alias}': ${safeSfFailureMessage(error)}`);
     return undefined;
   }
 }
 
-async function resolveOrgAuthForReady(alias: string, options?: { forceRefresh?: boolean }): Promise<OrgAuth | undefined> {
+async function resolveOrgAuthForReady(
+  alias: string,
+  options?: { forceRefresh?: boolean }
+): Promise<OrgAuth | undefined> {
   try {
     const auth = await getOrgAuth(alias, options);
     primeOrgAuthCache(alias, auth);
     return auth;
   } catch (error) {
-    console.warn(
-      `[e2e] sf org auth failed for alias '${alias}': ${error instanceof Error ? error.message : String(error)}`
-    );
+    console.warn(`[e2e] sf org auth failed for alias '${alias}': ${safeSfFailureMessage(error)}`);
     return undefined;
   }
 }
@@ -265,44 +254,6 @@ async function clearStaleScratchOrg(alias: string): Promise<void> {
     console.warn(
       `[e2e] sf alias unset failed for stale alias '${alias}': ${error instanceof Error ? error.message : String(error)}`
     );
-  }
-}
-
-async function ensureDevHubAuth(config: DevHubConfig): Promise<string> {
-  const authUrl = config.authUrl;
-  if (!authUrl) {
-    const devHubAlias = config.alias;
-    if (!devHubAlias) {
-      throw new Error('Missing required Dev Hub configuration. Set SF_DEVHUB_AUTH_URL or SF_DEVHUB_ALIAS.');
-    }
-    try {
-      await getOrgDisplayOrThrow(devHubAlias);
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(`Dev Hub alias '${devHubAlias}' is not authenticated or unavailable. ${detail}`.trim());
-    }
-    return devHubAlias;
-  }
-
-  const dir = await mkdtemp(path.join(tmpdir(), 'alv-devhub-'));
-  const filePath = path.join(dir, 'devhub.sfdxurl');
-  await writeFile(filePath, authUrl, 'utf8');
-  try {
-    const args = ['org', 'login', 'sfdx-url', '--sfdx-url-file', filePath, '--set-default-dev-hub'];
-    const resolvedDevHubAlias = config.alias || DEFAULT_DEV_HUB_ALIAS;
-    args.push('--alias', resolvedDevHubAlias);
-    await runSfJson(args);
-    try {
-      await getOrgDisplayOrThrow(resolvedDevHubAlias);
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `Dev Hub auth URL login completed, but alias '${resolvedDevHubAlias}' is not available. ${detail}`.trim()
-      );
-    }
-    return resolvedDevHubAlias;
-  } finally {
-    await rm(dir, { recursive: true, force: true });
   }
 }
 
@@ -336,7 +287,7 @@ async function waitForScratchOrgReady(targetOrg: string, auth?: OrgAuth): Promis
     }
   }
 
-  const detail = lastError instanceof Error ? lastError.message : String(lastError || '');
+  const detail = safeSfFailureMessage(lastError);
   throw new Error(`Scratch org '${targetOrg}' was not ready after ${timeoutMs}ms. ${detail}`.trim());
 }
 
@@ -346,7 +297,10 @@ type ScratchProjectContext = {
   cleanup: (shouldDeleteScratch: boolean, scratchAlias: string) => Promise<void>;
 };
 
-async function createScratchProjectContext(definition: Record<string, unknown>): Promise<ScratchProjectContext> {
+async function createScratchProjectContext(
+  definition: Record<string, unknown>,
+  deleteScratch?: (alias: string) => Promise<void>
+): Promise<ScratchProjectContext> {
   const tmp = await mkdtemp(path.join(tmpdir(), 'alv-scratch-'));
   const defFile = path.join(tmp, 'project-scratch-def.json');
   const projectFile = path.join(tmp, 'sfdx-project.json');
@@ -376,8 +330,10 @@ async function createScratchProjectContext(definition: Record<string, unknown>):
       try {
         if (shouldDeleteScratch) {
           try {
-            await runSfJson(['org', 'delete', 'scratch', '-o', scratchAlias, '--no-prompt'], { cwd: tmp });
-          } catch {
+            if (deleteScratch) await deleteScratch(scratchAlias);
+            else await runSfJson(['org', 'delete', 'scratch', '-o', scratchAlias, '--no-prompt'], { cwd: tmp });
+          } catch (error) {
+            if (deleteScratch) throw error;
             // Best-effort cleanup.
           }
         }
@@ -501,24 +457,30 @@ function isHttpError(error: unknown, status: number): boolean {
   return Number((error as HttpError | undefined)?.status) === status;
 }
 
-async function requestOrgJson(auth: OrgAuth, method: string, resourcePath: string, body?: unknown): Promise<any> {
+async function requestOrgJson(auth: OrgAuth, method: string, resourcePath: string, body?: unknown,
+  allowRefresh = true): Promise<any> {
   const url = `${auth.instanceUrl.replace(/\/+$/, '')}${resourcePath}`;
   const response = await fetch(url, {
     method,
+    signal: AbortSignal.timeout(30_000),
     headers: {
       Authorization: `Bearer ${auth.accessToken}`,
       'Content-Type': 'application/json'
     },
     body: body === undefined ? undefined : JSON.stringify(body)
+  }).catch(error => {
+    throw new Error(safeSfFailureMessage(error, 'Salesforce pool transport failed.'));
   });
   const text = await response.text();
   if (!response.ok) {
+    if (response.status === 401 && allowRefresh && (await refreshOrgAuth(auth))) {
+      return requestOrgJson(auth, method, resourcePath, body, false);
+    }
     const safeDetail = formatHttpErrorDetail(text);
     const error = new Error(
       `HTTP ${response.status} for ${resourcePath}${safeDetail ? ` -> ${safeDetail}` : ''}`
     ) as HttpError;
     error.status = response.status;
-    error.responseBody = text;
     throw error;
   }
   if (!text) {
@@ -532,15 +494,20 @@ async function requestOrgJson(auth: OrgAuth, method: string, resourcePath: strin
 }
 
 function escapeSoqlLiteral(value: string): string {
-  return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'");
 }
 
-async function queryOrgRecords(auth: OrgAuth, soql: string): Promise<any[]> {
+async function queryOrgRecords(auth: OrgAuth, soql: string, requireComplete = false): Promise<any[]> {
   const response = await requestOrgJson(
     auth,
     'GET',
     `/services/data/v${auth.apiVersion}/query/?q=${encodeURIComponent(soql)}`
   );
+  if (requireComplete && (response?.done !== true || !Array.isArray(response.records))) {
+    throw new Error('Cannot confirm scratch metadata: incomplete Salesforce query response.');
+  }
   return Array.isArray(response?.records) ? response.records : [];
 }
 
@@ -579,14 +546,23 @@ function collectSafeErrorMessages(value: unknown): string[] {
     }
 
     const record = current as Record<string, unknown>;
-    const message = typeof record.message === 'string' ? record.message.trim() : '';
-    const errorCode = typeof record.errorCode === 'string' ? record.errorCode.trim() : '';
-    const error = typeof record.error === 'string' ? record.error.trim() : '';
-
-    if (message) {
-      messages.add(errorCode ? `${errorCode}: ${message}` : message);
-    } else if (error) {
-      messages.add(error);
+    // Remote exception messages can embed DML values, including the stored
+    // scratch credential. Classify known failures without echoing that text.
+    const detail = `${record.errorCode || ''} ${record.message || ''}`;
+    const diagnostics: Array<[RegExp, string]> = [
+      [
+        /INSUFFICIENT_ACCESS/,
+        "INSUFFICIENT_ACCESS: Check the configured identity's grants. For a scratch owned by another user, have its existing owner or administrator drain and delete it before transitioning the slot."
+      ],
+      [/INVALID_SESSION_ID/, 'INVALID_SESSION_ID: Dev Hub authentication could not be renewed.'],
+      [/no longer leased by this caller/, 'The slot is no longer leased by this caller.'],
+      [/No scratch-org pool slot.*available|No scratch-org pool slots are configured/, 'No scratch-org pool slot is available.'],
+      [/pool .* is disabled/, 'The configured scratch-org pool is disabled.'],
+      [/was not found|No ScratchOrgInfo was found/, 'The requested pool, slot or scratch record was not found.'],
+      [/Missing required field/, 'The pool request is missing a required field.']
+    ];
+    for (const [pattern, diagnostic] of diagnostics) {
+      if (pattern.test(detail)) messages.add(diagnostic);
     }
 
     if (Array.isArray(record.errors)) {
@@ -604,7 +580,12 @@ async function acquirePoolLeaseWithRetry(auth: OrgAuth, request: PoolAcquireRequ
 
   while (Date.now() < deadline) {
     try {
-      return (await requestOrgJson(auth, 'POST', '/services/apexrest/alv/scratch-pool/v1/acquire', request)) as PoolAcquireResponse;
+      return (await requestOrgJson(
+        auth,
+        'POST',
+        '/services/apexrest/alv/scratch-pool/v1/acquire',
+        request
+      )) as PoolAcquireResponse;
     } catch (error) {
       lastError = error;
       if (!isHttpError(error, 409)) {
@@ -623,7 +604,12 @@ async function heartbeatPoolLease(auth: OrgAuth, request: PoolHeartbeatRequest):
 }
 
 async function finalizePoolLease(auth: OrgAuth, request: PoolFinalizeRequest): Promise<PoolAcquireResponse> {
-  return (await requestOrgJson(auth, 'POST', '/services/apexrest/alv/scratch-pool/v1/finalize', request)) as PoolAcquireResponse;
+  return (await requestOrgJson(
+    auth,
+    'POST',
+    '/services/apexrest/alv/scratch-pool/v1/finalize',
+    request
+  )) as PoolAcquireResponse;
 }
 
 async function releasePoolLease(auth: OrgAuth, request: PoolReleaseRequest): Promise<void> {
@@ -667,12 +653,43 @@ async function deleteExistingPooledScratch(
 ): Promise<void> {
   const triedIds = new Set<string>();
 
-  const tryDeleteByIds = async (ids: { activeScratchOrgId?: string; scratchOrgInfoId?: string }): Promise<boolean> => {
+  const tryDeleteByIds = async (ids: { activeScratchOrgId?: string; scratchOrgInfoId?: string }): Promise<void> => {
+    if (ids.scratchOrgInfoId) {
+      triedIds.add(ids.scratchOrgInfoId);
+      let info;
+      try {
+        info = await requestOrgJson(
+          auth,
+          'GET',
+          `/services/data/v${auth.apiVersion}/sobjects/ScratchOrgInfo/${encodeURIComponent(ids.scratchOrgInfoId)}?fields=Id,Status`
+        );
+      } catch (error) {
+        if (!isHttpError(error, 404)) throw error;
+      }
+      if (info?.Id === ids.scratchOrgInfoId && info.Status === 'Deleted') {
+        const query =
+          `SELECT Id FROM ActiveScratchOrg WHERE ScratchOrgInfoId = '${escapeSoqlLiteral(ids.scratchOrgInfoId)}'` +
+          (ids.activeScratchOrgId ? ` OR Id = '${escapeSoqlLiteral(ids.activeScratchOrgId)}'` : '');
+        const active = await requestOrgJson(
+          auth,
+          'GET',
+          `/services/data/v${auth.apiVersion}/query/?q=${encodeURIComponent(query)}`
+        );
+        if (active?.done !== true || !Array.isArray(active.records)) {
+          throw new Error('Cannot confirm historical scratch deletion: incomplete ActiveScratchOrg response.');
+        }
+        if (active.records.length === 0) return;
+      }
+    }
     if (ids.activeScratchOrgId) {
       triedIds.add(ids.activeScratchOrgId);
       try {
-        await requestOrgJson(auth, 'DELETE', `/services/data/v${auth.apiVersion}/sobjects/ActiveScratchOrg/${ids.activeScratchOrgId}`);
-        return true;
+        await requestOrgJson(
+          auth,
+          'DELETE',
+          `/services/data/v${auth.apiVersion}/sobjects/ActiveScratchOrg/${ids.activeScratchOrgId}`
+        );
+        return;
       } catch (error) {
         if (!isHttpError(error, 404)) {
           throw error;
@@ -680,22 +697,24 @@ async function deleteExistingPooledScratch(
       }
     }
     if (ids.scratchOrgInfoId) {
-      triedIds.add(ids.scratchOrgInfoId);
       try {
-        await requestOrgJson(auth, 'DELETE', `/services/data/v${auth.apiVersion}/sobjects/ScratchOrgInfo/${ids.scratchOrgInfoId}`);
-        return true;
+        await requestOrgJson(
+          auth,
+          'DELETE',
+          `/services/data/v${auth.apiVersion}/sobjects/ScratchOrgInfo/${ids.scratchOrgInfoId}`
+        );
+        return;
       } catch (error) {
         if (!isHttpError(error, 404)) {
           throw error;
         }
       }
     }
-    return false;
   };
 
-  if (await tryDeleteByIds(lease)) {
-    return;
-  }
+  // A signup created before an interrupted finalize may be newer than the IDs
+  // persisted on the slot. Reconcile that metadata even when stored IDs are gone.
+  await tryDeleteByIds(lease);
 
   const poolKey = String(lease.poolKey || '').trim();
   const slotKey = String(lease.slotKey || '').trim();
@@ -711,7 +730,8 @@ async function deleteExistingPooledScratch(
       `WHERE alvPoolKey__c = '${escapeSoqlLiteral(poolKey)}' AND alvSlotKey__c = '${escapeSoqlLiteral(slotKey)}'`,
       'ORDER BY CreatedDate DESC',
       'LIMIT 1'
-    ].join(' ')
+    ].join(' '),
+    true
   );
   const latestScratchOrgInfoId = String(latestInfoRecords[0]?.Id || '').trim();
   if (!latestScratchOrgInfoId || triedIds.has(latestScratchOrgInfoId)) {
@@ -726,7 +746,8 @@ async function deleteExistingPooledScratch(
       `WHERE ScratchOrgInfoId = '${escapeSoqlLiteral(latestScratchOrgInfoId)}'`,
       'ORDER BY CreatedDate DESC',
       'LIMIT 1'
-    ].join(' ')
+    ].join(' '),
+    true
   );
   const latestActiveScratchOrgId = String(activeScratchRecords[0]?.Id || '').trim();
   await tryDeleteByIds({
@@ -774,14 +795,14 @@ async function resolveEffectivePoolBaseline(
 }
 
 async function loginScratchOrgWithSfdxUrl(scratchAlias: string, scratchAuthUrl: string): Promise<void> {
-  if (!scratchAuthUrl) {
-    throw new Error('Pooled scratch-org login requires a scratchAuthUrl.');
+  if (!isUsableSfdxAuthUrl(scratchAuthUrl)) {
+    throw new Error('Pooled scratch-org login requires a usable SFDX authorization URL.');
   }
 
   const dir = await mkdtemp(path.join(tmpdir(), 'alv-scratch-auth-'));
   const filePath = path.join(dir, 'scratch.sfdxurl');
-  await writeFile(filePath, scratchAuthUrl, 'utf8');
   try {
+    await writeFile(filePath, scratchAuthUrl, { encoding: 'utf8', mode: 0o600 });
     await runSfJson(['org', 'login', 'sfdx-url', '--sfdx-url-file', filePath, '--alias', scratchAlias]);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -805,8 +826,8 @@ async function getScratchAuthUrlOrThrow(scratchAlias: string): Promise<string> {
     const display = await getOrgDisplayOrThrow(scratchAlias, { verbose: true });
     scratchAuthUrl = String(display.sfdxAuthUrl || '').trim();
   }
-  if (!scratchAuthUrl) {
-    throw new Error(`Scratch org '${scratchAlias}' did not return an sfdxAuthUrl.`);
+  if (!isUsableSfdxAuthUrl(scratchAuthUrl)) {
+    throw new Error(`Scratch org '${scratchAlias}' did not return a usable SFDX authorization URL.`);
   }
   return scratchAuthUrl;
 }
@@ -828,10 +849,10 @@ function startPoolLeaseHeartbeat(
   auth: OrgAuth,
   request: PoolHeartbeatRequest,
   intervalSeconds: number
-): { stop: () => void; getFailure: () => Error | undefined; assertHealthy: () => void } {
+): { stop: () => Promise<void>; getFailure: () => Error | undefined; assertHealthy: () => void } {
   if (intervalSeconds <= 0) {
     return {
-      stop: () => undefined,
+      stop: async () => undefined,
       getFailure: () => undefined,
       assertHealthy: () => undefined
     };
@@ -840,13 +861,14 @@ function startPoolLeaseHeartbeat(
   let stopped = false;
   let failureStartedAt: number | undefined;
   let leaseFailure: Error | undefined;
+  let inFlight: Promise<void> | undefined;
   const leaseTtlMs = Math.max(1, request.leaseTtlSeconds) * 1000;
   const timer = setInterval(() => {
-    if (stopped || leaseFailure) {
+    if (stopped || leaseFailure || inFlight) {
       return;
     }
     const tickStartedAt = Date.now();
-    void heartbeatPoolLease(auth, request)
+    inFlight = heartbeatPoolLease(auth, request)
       .then(() => {
         failureStartedAt = undefined;
       })
@@ -860,14 +882,15 @@ function startPoolLeaseHeartbeat(
             `Scratch-org pool lease for slot '${request.slotKey}' was lost after heartbeat failures exceeded the ${request.leaseTtlSeconds}s TTL. ${detail}`.trim()
           );
         }
-      });
+      }).finally(() => { inFlight = undefined; });
   }, intervalSeconds * 1000);
   timer.unref?.();
 
   return {
-    stop: () => {
+    stop: async () => {
       stopped = true;
       clearInterval(timer);
+      await inFlight;
     },
     getFailure: () => leaseFailure,
     assertHealthy: () => {
@@ -878,9 +901,8 @@ function startPoolLeaseHeartbeat(
   };
 }
 
-async function ensureSingleScratchOrg(): Promise<ScratchOrgResult> {
-  const devHubConfig = resolveRequiredDevHubConfig();
-  const devHubAlias = await ensureDevHubAuth(devHubConfig);
+async function ensureSingleScratchOrg(devHub: DevHubSession): Promise<ScratchOrgResult> {
+  const devHubAlias = devHub.targetOrg;
   const scratchAlias = String(process.env.SF_SCRATCH_ALIAS || 'ALV_E2E_Scratch').trim();
   const durationDays = Number(process.env.SF_SCRATCH_DURATION || 1) || 1;
   const keep = shouldKeepScratchOrg();
@@ -899,11 +921,7 @@ async function ensureSingleScratchOrg(): Promise<ScratchOrgResult> {
         if (keep) {
           return;
         }
-        try {
-          await runSfJson(['org', 'delete', 'scratch', '-o', scratchAlias, '--no-prompt']);
-        } catch {
-          // Best-effort cleanup.
-        }
+        await devHub.deleteScratch(scratchAlias);
       }
     };
   }
@@ -915,7 +933,7 @@ async function ensureSingleScratchOrg(): Promise<ScratchOrgResult> {
     await clearStaleScratchOrg(scratchAlias);
   }
 
-  const context = await createScratchProjectContext(buildBaseScratchDefinition());
+  const context = await createScratchProjectContext(buildBaseScratchDefinition(), devHub.deleteScratch);
   try {
     await runSfJson(
       [
@@ -933,19 +951,18 @@ async function ensureSingleScratchOrg(): Promise<ScratchOrgResult> {
         '--wait',
         '15'
       ],
-      { cwd: context.cwd }
+      { cwd: context.cwd, env: scratchSignupEnv(devHub.env) }
     );
+    await devHub.publishScratch(scratchAlias);
+    const auth = await resolveOrgAuthForReady(scratchAlias, { forceRefresh: true });
+    await waitForScratchOrgReady(scratchAlias, auth);
+
+    if (!auth) {
+      await resolveOrgAuthForReady(scratchAlias, { forceRefresh: true });
+    }
   } catch (error) {
     await context.cleanup(!keep, scratchAlias);
-    const msg = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to create scratch org '${scratchAlias}': ${msg}`);
-  }
-
-  const auth = await resolveOrgAuthForReady(scratchAlias, { forceRefresh: true });
-  await waitForScratchOrgReady(scratchAlias, auth);
-
-  if (!auth) {
-    await resolveOrgAuthForReady(scratchAlias, { forceRefresh: true });
+    throw new Error(safeSfFailureMessage(error, `Scratch setup failed for '${scratchAlias}'.`));
   }
 
   console.info(`[e2e] scratch org created for alias '${scratchAlias}'.`);
@@ -960,10 +977,9 @@ async function ensureSingleScratchOrg(): Promise<ScratchOrgResult> {
   };
 }
 
-async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
-  const devHubConfig = resolveRequiredDevHubConfig();
-  const devHubAlias = await ensureDevHubAuth(devHubConfig);
-  const devHubAuth = await getOrgAuth(devHubAlias, { forceRefresh: true });
+async function ensurePooledScratchOrg(devHub: DevHubSession): Promise<ScratchOrgResult> {
+  const devHubAlias = devHub.targetOrg;
+  const devHubAuth = await getOrgAuth(devHubAlias, { forceRefresh: true, env: devHub.env });
   const poolKey = resolvePoolKey();
   const requestedBaseline = await resolveEffectivePoolBaseline(devHubAuth, poolKey);
   const leaseTtlSeconds = resolvePoolLeaseTtlSeconds();
@@ -1002,20 +1018,21 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
     },
     heartbeatIntervalSeconds
   );
+  let preservePreviousScratch = false;
 
   const cleanup = async (options?: ScratchOrgCleanupOptions) => {
-    heartbeat.stop();
+    await heartbeat.stop();
     const heartbeatFailure = heartbeat.getFailure();
     let resolvedScratchAuthUrl: string | undefined;
     let needsRecreate = options?.needsRecreate ?? Boolean(heartbeatFailure);
     const success = options?.success ?? !heartbeatFailure;
-    const errorMessage =
-      options?.errorMessage ||
-      (heartbeatFailure ? heartbeatFailure.message : undefined);
+    const errorMessage = options?.errorMessage || (heartbeatFailure ? heartbeatFailure.message : undefined);
     const lastRunResult =
-      options?.lastRunResult ||
-      (success ? 'completed' : heartbeatFailure ? 'lease-lost' : 'failed');
-    if (!needsRecreate) {
+      options?.lastRunResult || (success ? 'completed' : heartbeatFailure ? 'lease-lost' : 'failed');
+    if (preservePreviousScratch) {
+      needsRecreate = false;
+      resolvedScratchAuthUrl = lease.scratchAuthUrl;
+    } else if (!needsRecreate) {
       resolvedScratchAuthUrl = await tryGetScratchAuthUrl(scratchAlias);
       if (!resolvedScratchAuthUrl) {
         needsRecreate = true;
@@ -1082,19 +1099,16 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
 
     if (!readyAuth) {
       created = true;
-      try {
-        await deleteExistingPooledScratch(devHubAuth, lease);
-      } catch (error) {
-        console.warn(
-          `[e2e] scratch-org pool slot '${slotKey}' could not delete the previous scratch before recreation: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
+      preservePreviousScratch = true;
+      await deleteExistingPooledScratch(devHubAuth, lease);
+      preservePreviousScratch = false;
 
       await clearStaleScratchOrg(scratchAlias);
 
-      const durationDays = Math.max(1, Number(lease.scratchDurationDays || process.env.SF_SCRATCH_DURATION || 30) || 30);
+      const durationDays = Math.max(
+        1,
+        Number(lease.scratchDurationDays || process.env.SF_SCRATCH_DURATION || 30) || 30
+      );
       const context = await createScratchProjectContext(
         buildPoolScratchDefinition({
           poolKey,
@@ -1121,8 +1135,9 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
             '--wait',
             '15'
           ],
-          { cwd: context.cwd }
+          { cwd: context.cwd, env: scratchSignupEnv(devHub.env) }
         );
+        await devHub.publishScratch(scratchAlias);
       } finally {
         await context.cleanup(false, scratchAlias);
       }
@@ -1169,6 +1184,25 @@ async function ensurePooledScratchOrg(): Promise<ScratchOrgResult> {
 
 export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
   return await timeE2eStep('scratch.ensure', async () => {
-    return resolveScratchStrategy() === 'pool' ? await ensurePooledScratchOrg() : await ensureSingleScratchOrg();
+    const devHub = await authenticateDevHub(resolveDevHubConfig(), runSfJson);
+    try {
+      const result =
+        resolveScratchStrategy() === 'pool'
+          ? await ensurePooledScratchOrg(devHub)
+          : await ensureSingleScratchOrg(devHub);
+      return {
+        ...result,
+        cleanup: async options => {
+          try {
+            await result.cleanup(options);
+          } finally {
+            await devHub.cleanup();
+          }
+        }
+      };
+    } catch (error) {
+      await devHub.cleanup();
+      throw error;
+    }
   });
 }

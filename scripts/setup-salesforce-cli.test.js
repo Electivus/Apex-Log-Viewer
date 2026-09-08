@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { spawnSync } = require('node:child_process');
 
 const modulePath = path.join(__dirname, 'setup-salesforce-cli.mjs');
 
@@ -18,6 +19,11 @@ function tempDir(name = 'alv-sf-cli-') {
 function silentStdout() {
   return { write() {} };
 }
+
+test('default Salesforce CLI cache selects the JWT signup and export validated release', async () => {
+  const mod = await loadModule();
+  assert.equal(mod.resolveSalesforceCliCacheConfig({ env: {} }).packageName, '@salesforce/cli@2.150.6');
+});
 
 test('normalizeSalesforceCliPackage accepts exact and nightly official package specs only', async () => {
   const mod = await loadModule();
@@ -248,15 +254,15 @@ test('setupSalesforceCli writes a sanitized Node wrapper when SALESFORCE_CLI_WRA
       stdout: silentStdout()
     });
 
-    assert.equal(result.exportedSfBinPath, path.join(runnerTemp, 'alv-sf-node20', 'sf'));
+    assert.equal(result.exportedSfBinPath, path.join(runnerTemp, 'alv-sf-node', 'sf'));
     const wrapper = fs.readFileSync(result.exportedSfBinPath, 'utf8');
     assert.match(wrapper, /unset ELECTRON_RUN_AS_NODE/);
     assert.match(wrapper, /export PATH='\/opt\/hostedtoolcache\/node\/20\/bin':"\$\{PATH:-\}"/);
     assert.match(wrapper, /exec '.*[\\/]bin[\\/]sf' "\$@"/);
 
     const envFile = fs.readFileSync(githubEnv, 'utf8');
-    assert.match(envFile, /SF_CLI_BIN_PATH=.*alv-sf-node20[\\/]sf/);
-    assert.match(envFile, /ALV_SF_BIN_PATH=.*alv-sf-node20[\\/]sf/);
+    assert.match(envFile, /SF_CLI_BIN_PATH=.*alv-sf-node[\\/]sf/);
+    assert.match(envFile, /ALV_SF_BIN_PATH=.*alv-sf-node[\\/]sf/);
     assert.match(envFile, /SF_CLI_NODE_PATH=\/opt\/hostedtoolcache\/node\/20\/bin\/node/);
     assert.match(fs.readFileSync(githubPath, 'utf8'), /[\\/]bin$/m);
   } finally {
@@ -278,6 +284,102 @@ test('writeGitHubCacheOutputs emits cache key and path outputs', async () => {
 
     assert.match(text, /cache-key=alv-sf-cli-linux-node-24-salesforce-cli-2\.136\.8/);
     assert.match(fs.readFileSync(outputFile, 'utf8'), /cache-dir=.*cache/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('macOS wrapper shares private Salesforce state with the desktop without overriding isolated JWT homes', async t => {
+  const bash =
+    process.platform === 'win32'
+      ? [
+          path.join(process.env.LOCALAPPDATA || '', 'Programs/Git/bin/bash.exe'),
+          path.join(process.env.ProgramFiles || '', 'Git/bin/bash.exe')
+        ].find(fs.existsSync)
+      : 'bash';
+  if (!bash) return t.skip('Requires a native POSIX shell for the macOS wrapper.');
+  const mod = await loadModule();
+  const root = tempDir();
+  try {
+    fs.writeFileSync(
+      path.join(root, 'fake-sf'),
+      '#!/usr/bin/env bash\nprintf "%s\\n" "$HOME" "$SF_USE_GENERIC_UNIX_KEYCHAIN"\n',
+      { mode: 0o755 }
+    );
+    mod.writeMacOSNodeWrapper({
+      nodePath: '/usr/bin/node',
+      sfBinPath: './fake-sf',
+      wrapperPath: path.join(root, 'wrapper')
+    });
+    for (const dir of ['desktop', 'runner/alv-sf-home.test', 'jwt-operation', 'importer']) {
+      fs.mkdirSync(path.join(root, dir), { recursive: true, mode: 0o700 });
+    }
+    const unixRoot = spawnSync(bash, ['-c', 'pwd -P'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+    const desktop = `${unixRoot}/desktop`;
+    const privateAuth = `${unixRoot}/runner/alv-sf-home.test`;
+    const baseEnv = {
+      ...process.env,
+      GITHUB_ACTIONS: 'true',
+      RUNNER_OS: 'macOS',
+      RUNNER_TEMP: `${unixRoot}/runner`,
+      SF_USE_GENERIC_UNIX_KEYCHAIN: 'true',
+      MSYS_NO_PATHCONV: '1'
+    };
+    for (const [home, privateHome, desktopHome, expected] of [
+      [desktop, privateAuth, desktop, privateAuth],
+      [privateAuth, privateAuth, desktop, privateAuth],
+      [`${unixRoot}/jwt-operation`, privateAuth, desktop, `${unixRoot}/jwt-operation`],
+      [`${unixRoot}/importer`, privateAuth, desktop, `${unixRoot}/importer`],
+      [desktop, '', '', desktop]
+    ]) {
+      const result = spawnSync(bash, ['wrapper'], {
+        cwd: root,
+        encoding: 'utf8',
+        env: {
+          ...baseEnv,
+          HOME: home,
+          ALV_CI_AUTH_HOME: privateHome,
+          ALV_E2E_DESKTOP_HOME: desktopHome,
+          SF_USE_GENERIC_UNIX_KEYCHAIN: 'true',
+          MSYS_NO_PATHCONV: '1'
+        }
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(result.stdout.trim().split(/\r?\n/), [expected, 'true']);
+    }
+    for (const [privateHome, desktopHome] of [
+      ['', desktop],
+      [privateAuth, ''],
+      ['relative', desktop],
+      [privateAuth, 'relative'],
+      [desktop, desktop],
+      [`${unixRoot}/missing`, desktop],
+      [`${unixRoot}/jwt-operation`, desktop],
+      [privateAuth, `${unixRoot}/missing`],
+      [`${unixRoot}/runner/../desktop`, desktop]
+    ]) {
+      const result = spawnSync(bash, ['wrapper'], {
+        cwd: root,
+        encoding: 'utf8',
+        env: {
+          ...baseEnv,
+          HOME: desktop,
+          ALV_CI_AUTH_HOME: privateHome,
+          ALV_E2E_DESKTOP_HOME: desktopHome,
+          SF_USE_GENERIC_UNIX_KEYCHAIN: 'true',
+          MSYS_NO_PATHCONV: '1'
+        }
+      });
+      assert.notEqual(result.status, 0, `Invalid CI authentication homes must not invoke Salesforce: ${privateHome}`);
+      assert.equal(result.stdout, '');
+    }
+    const outsideCI = spawnSync(bash, ['wrapper'], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...baseEnv, GITHUB_ACTIONS: '', HOME: desktop, ALV_CI_AUTH_HOME: 'invalid', ALV_E2E_DESKTOP_HOME: desktop }
+    });
+    assert.equal(outsideCI.status, 0, outsideCI.stderr);
+    assert.deepEqual(outsideCI.stdout.trim().split(/\r?\n/), [desktop, 'true']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

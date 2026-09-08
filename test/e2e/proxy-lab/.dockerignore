@@ -1,0 +1,6 @@
+# Images need no workspace files or credentials.
+*
+!Dockerfile.runner
+!Dockerfile.proxy
+!proxy.sh
+!.dockerignore

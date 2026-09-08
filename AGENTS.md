@@ -74,9 +74,9 @@
 
 ## Real Org E2E and Operations
 
-- Corporate proxy/MITM E2E lab: `pnpm run test:e2e:proxy-lab`; pass a child command after `--` such as `pnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli`. Real-org proxy-lab runs require `SF_DEVHUB_AUTH_URL`.
-- GitHub real-org E2E is pool-only in `.github/workflows/e2e-playwright.yml`: configure repository variable `SF_SCRATCH_POOL_NAME` plus secret `SF_DEVHUB_AUTH_URL`; parallel workflow runs are bounded by the pool's atomic slot leases and wait for capacity instead of using a workflow-level concurrency lock.
-- Direct macOS real-org E2E installs Salesforce CLI under Node 20 and exports the wrapper through `ALV_SF_BIN_PATH`; preserve that isolation when changing Salesforce CLI/runtime setup.
+- Corporate proxy/MITM E2E lab: `pnpm run test:e2e:proxy-lab`; pass a child command after `--` such as `pnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli`. Real-org proxy-lab runs require complete Dev Hub JWT inputs from `docs/DEVHUB_JWT.md`; host aliases and `SF_DEVHUB_AUTH_URL` are not fallbacks.
+- GitHub real-org E2E is pool-only in `.github/workflows/e2e-playwright.yml`: configure repository variable `SF_SCRATCH_POOL_NAME` plus the four `SF_DEVHUB_*` JWT secrets documented in `docs/DEVHUB_JWT.md`; parallel workflow runs are bounded by the pool's atomic slot leases and wait for capacity instead of using a workflow-level concurrency lock.
+- Direct macOS real-org E2E installs Salesforce CLI under the Node runtime pinned by `.nvmrc` and exports the wrapper through `ALV_SF_BIN_PATH`; preserve that isolation when changing Salesforce CLI/runtime setup.
 - Faster proxy-lab reruns can reuse Docker dependency volumes with `ALV_E2E_PROXY_LAB_SKIP_PNPM_INSTALL=1 pnpm run test:e2e:proxy-lab -- <child-command>` after dependencies are already installed.
 - Salesforce CLI nightly proxy-lab validation uses `pnpm run test:e2e:proxy-lab:sf-nightly -- <child-command>`, for example `pnpm run test:e2e:proxy-lab:sf-nightly -- pnpm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts`.
 - Reset proxy-lab Docker volumes only intentionally with `docker compose -f docker-compose.e2e-proxy.yml down --volumes`; the volumes may contain Salesforce CLI auth state from real-org runs.
