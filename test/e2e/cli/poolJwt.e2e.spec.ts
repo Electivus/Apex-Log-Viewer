@@ -6,7 +6,8 @@ import path from 'node:path';
 import { ensureScratchOrg } from '../utils/scratchOrg';
 import { runSfJson } from '../utils/sfCli';
 import { getOrgAuth } from '../utils/tooling';
-import { authenticateDevHub, resolveDevHubConfig } from '../../../scripts/devhub-auth.js';
+import { completePoolSmokeQuery, verifyPoolSmokeCleanup } from '../utils/poolSmokeCleanup';
+import { authenticateDevHub, resolveDevHubConfig, safeSfFailureMessage } from '../../../scripts/devhub-auth.js';
 
 const { execFileAsync } = require('../../../scripts/scratch-pool-admin.js');
 const repoRoot = path.resolve(__dirname, '../../..');
@@ -22,10 +23,12 @@ async function admin(command: string, args: string[], env: NodeJS.ProcessEnv): P
   return JSON.parse(stdout.slice(stdout.indexOf('{')));
 }
 
-async function query(target: string, soql: string, env: NodeJS.ProcessEnv): Promise<any[]> {
-  const response = await runSfJson(['data', 'query', '--target-org', target, '--query', soql], { env });
-  expect(response.status).toBe(0);
-  return response.result.records;
+async function query(target: string, soql: string, env: NodeJS.ProcessEnv, allRows = false): Promise<any[]> {
+  return completePoolSmokeQuery(
+    await runSfJson(['data', 'query', '--target-org', target, '--query', soql, ...(allRows ? ['--all-rows'] : [])], {
+      env
+    })
+  );
 }
 
 test('isolated JWT pool administration and independent consumer lifecycle', async () => {
@@ -72,6 +75,8 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
   let poolMayExist = false;
   let completed = false;
   let cleanupComplete = false;
+  let failure: unknown;
+  let creatorId = '';
   const evidence: Record<string, unknown> = { poolKey, temporaryRoot: root, retainedResources: [] };
   try {
     await mkdir(adminHome);
@@ -97,6 +102,7 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
       expect(String(state.orgId).slice(0, 15) === expectedOrg.slice(0, 15)).toBe(true);
       expect(state.username === config.username).toBe(true);
       expect(users).toEqual([expect.objectContaining({ Username: config.username, IsActive: true })]);
+      creatorId = users[0].Id;
       expect(Boolean(state.privateKey) && !state.refreshToken && state.clientId !== 'PlatformCLI').toBe(true);
       expect(
         (
@@ -158,6 +164,10 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
     const prewarmed = listed.slots.find((slot: any) => slot.SlotKey__c === 'slot-02');
     evidence.scratchOrgId = prewarmed.ScratchOrgId__c;
     evidence.scratchOrgInfoId = prewarmed.ScratchOrgInfoId__c;
+    evidence.activeScratchOrgId = prewarmed.ActiveScratchOrgId__c;
+    expect(typeof prewarmed.ScratchOrgInfoId__c === 'string' && prewarmed.ScratchOrgInfoId__c.startsWith('2SR')).toBe(
+      true
+    );
     expect(prewarmed.HealthState__c).toBe('healthy');
     expect(!JSON.stringify(listed).includes('force://') && !JSON.stringify(listed).includes('LeaseToken__c')).toBe(
       true
@@ -205,6 +215,9 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
     expect(recovered.healthySlots).toBe(1);
     evidence.failedConsumerRecovered = true;
     completed = true;
+  } catch (error) {
+    failure = error;
+    evidence.executionError = safeSfFailureMessage(error, 'Pool smoke execution failed.');
   } finally {
     for (const name of Object.keys(process.env)) if (!(name in adminEnv)) delete process.env[name];
     Object.assign(process.env, adminEnv);
@@ -212,18 +225,38 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
       if (poolMayExist) {
         const inspection = await authenticateDevHub(config, runSfJson);
         let pools: any[];
+        let observedSignups: any[];
+        const signupQuery = `SELECT Id, Status, CreatedById, ScratchOrg, alvPoolKey__c, alvSlotKey__c FROM ScratchOrgInfo WHERE alvPoolKey__c = '${poolKey}'`;
         try {
           pools = await query(
             inspection.targetOrg,
             `SELECT Id FROM ALV_ScratchOrgPool__c WHERE PoolKey__c = '${poolKey}'`,
             inspection.env
           );
+          observedSignups = await query(inspection.targetOrg, signupQuery, inspection.env, true);
         } finally {
           await inspection.cleanup();
         }
         if (pools.length) {
           expect(pools.length).toBe(1);
           const beforeCleanup = await admin('list', ['--pool-key', poolKey], adminEnv);
+          const expected = {
+            poolKey,
+            creatorId,
+            signupIds: [
+              evidence.scratchOrgInfoId,
+              ...observedSignups.map(signup => signup.Id),
+              ...beforeCleanup.slots.map((slot: any) => slot.ScratchOrgInfoId__c)
+            ].filter(Boolean) as string[],
+            activeIds: [
+              evidence.activeScratchOrgId,
+              ...beforeCleanup.slots.map((slot: any) => slot.ActiveScratchOrgId__c)
+            ].filter(Boolean) as string[],
+            orgIds: [evidence.scratchOrgId, ...beforeCleanup.slots.map((slot: any) => slot.ScratchOrgId__c)].filter(
+              Boolean
+            ) as string[]
+          };
+          evidence.observedSignupIds = expected.signupIds;
           if (beforeCleanup.slots.some((slot: any) => slot.SlotKey__c === 'slot-02')) {
             await admin(
               'disable-slot',
@@ -238,15 +271,14 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
           );
           const deletion = await authenticateDevHub(config, runSfJson);
           try {
-            expect(
-              (
-                await query(
-                  deletion.targetOrg,
-                  `SELECT Id FROM ScratchOrgInfo WHERE alvPoolKey__c = '${poolKey}'`,
-                  deletion.env
-                )
-              ).length
-            ).toBe(0);
+            const signups = await query(deletion.targetOrg, signupQuery, deletion.env, true);
+            const active = await query(
+              deletion.targetOrg,
+              'SELECT Id, ScratchOrgInfoId, ScratchOrg FROM ActiveScratchOrg',
+              deletion.env
+            );
+            evidence.deletedSignupHistory = verifyPoolSmokeCleanup(signups, active, expected);
+            evidence.noOwnedActiveScratch = true;
             const slots = await query(
               deletion.targetOrg,
               `SELECT Id FROM ALV_ScratchOrgPoolSlot__c WHERE Pool__c = '${pools[0].Id}'`,
@@ -304,10 +336,8 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
       }
       cleanupComplete = true;
     } catch (error) {
-      // Keep cleanup failures observable without replacing them with a generic
-      // retained-resource message in the outer finally block.
-      evidence.cleanupError = error instanceof Error ? error.message : 'Unknown cleanup failure';
-      throw error;
+      evidence.remoteCleanupError = safeSfFailureMessage(error, 'Pool smoke remote cleanup failed.');
+      failure ??= error;
     } finally {
       for (const name of Object.keys(process.env)) if (!(name in originalEnv)) delete process.env[name];
       Object.assign(process.env, originalEnv);
@@ -326,22 +356,32 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
           localCleanupComplete = true;
         }
       } catch (error) {
-        evidence.cleanupError = error instanceof Error ? error.message : 'Unknown local cleanup failure';
-        throw error;
+        evidence.localCleanupError = safeSfFailureMessage(error, 'Pool smoke local cleanup failed.');
+        failure ??= error;
       } finally {
+        evidence.localCleanupComplete = localCleanupComplete;
         evidence.cleanupComplete = cleanupComplete && localCleanupComplete;
         if (!evidence.cleanupComplete) {
           evidence.retainedResources = [{ ...(cleanupComplete ? {} : { poolKey }), credentialDirectory: root }];
         }
-        const evidenceDirectory = path.join(repoRoot, 'apexlogs');
-        await mkdir(evidenceDirectory, { recursive: true });
-        await writeFile(
-          path.join(evidenceDirectory, 'pool-jwt-smoke-evidence.json'),
-          JSON.stringify(evidence, null, 2)
-        );
+        const body = JSON.stringify(evidence, null, 2);
+        try {
+          await writeFile(test.info().outputPath('pool-jwt-smoke-evidence.json'), body);
+          await test.info().attach('pool-jwt-smoke-evidence', {
+            body: Buffer.from(body),
+            contentType: 'application/json'
+          });
+          const evidenceDirectory = path.join(repoRoot, 'apexlogs');
+          await mkdir(evidenceDirectory, { recursive: true });
+          await writeFile(path.join(evidenceDirectory, 'pool-jwt-smoke-evidence.json'), body);
+        } catch (error) {
+          console.error('Pool smoke evidence could not be written.');
+          failure ??= error;
+        }
       }
     }
   }
+  if (failure) throw failure;
 });
 
 test('independent pool runner imports, queries, renews and releases its lease', async () => {
