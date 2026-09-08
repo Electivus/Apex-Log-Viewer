@@ -15,6 +15,7 @@ export async function timeE2eStep<T>(label: string, run: () => Promise<T>): Prom
   }
 
   const startedAt = Date.now();
+  console.log(`[e2e][timing] ${label}: started`);
   try {
     return await run();
   } finally {

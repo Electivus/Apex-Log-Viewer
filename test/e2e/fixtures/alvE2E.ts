@@ -109,6 +109,12 @@ export const test = base.extend<Fixtures & Options>({
     try {
       await use(launch.app);
     } finally {
+      if (process.env.ALV_E2E_TIMING === '1' && testInfo.status !== testInfo.expectedStatus) {
+        console.log(`[e2e] VS Code test status before cleanup: ${testInfo.status}`);
+        await launch.page
+          .screenshot({ path: testInfo.outputPath('vscode-failure.png'), timeout: 5_000 })
+          .catch(() => console.warn('[e2e] VS Code failure screenshot unavailable.'));
+      }
       await launch.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
     }
   },
