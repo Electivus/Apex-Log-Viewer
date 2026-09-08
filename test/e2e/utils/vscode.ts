@@ -1,4 +1,17 @@
-import { mkdtemp, readFile, access, readdir, mkdir, open, stat, unlink, utimes, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  readFile,
+  access,
+  readdir,
+  mkdir,
+  open,
+  stat,
+  lstat,
+  realpath,
+  unlink,
+  utimes,
+  writeFile
+} from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
@@ -526,12 +539,46 @@ export async function ensureAuxiliaryBarClosed(page: Page): Promise<void> {
   }
 }
 
+export async function resolveVsCodeAuthLaunch(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
+): Promise<{ env: NodeJS.ProcessEnv; args: string[] }> {
+  if (platform !== 'darwin' || env.GITHUB_ACTIONS !== 'true' || (!env.ALV_CI_AUTH_HOME && !env.ALV_E2E_DESKTOP_HOME))
+    return { env: {}, args: [] };
+  const authHome = env.ALV_CI_AUTH_HOME ?? '';
+  const desktopHome = env.ALV_E2E_DESKTOP_HOME ?? '';
+  const runnerTemp = env.RUNNER_TEMP ?? '';
+  try {
+    if (
+      env.RUNNER_OS !== 'macOS' ||
+      env.HOME !== authHome ||
+      authHome === desktopHome ||
+      path.dirname(authHome) !== runnerTemp ||
+      !/^alv-sf-home\..+$/.test(path.basename(authHome))
+    )
+      throw new Error();
+    for (const dir of [runnerTemp, authHome, desktopHome]) {
+      if (!path.isAbsolute(dir) || !(await lstat(dir)).isDirectory() || (await realpath(dir)) !== dir)
+        throw new Error();
+    }
+  } catch {
+    throw new Error('Invalid macOS CI authentication homes');
+  }
+  // Native @salesforce/core reads auth inside the Extension Host without spawning
+  // the CLI. VS Code's launch contract isolates that process before SDK loading.
+  return {
+    env: { HOME: desktopHome },
+    args: [`--extensionEnvironment=${JSON.stringify({ HOME: authHome })}`]
+  };
+}
+
 export async function launchVsCode(options: {
   workspacePath: string;
   extensionDevelopmentPath: string;
   extensionIds?: string[];
   windowSize?: Partial<VscodeWindowSize>;
 }): Promise<VscodeLaunch> {
+  const authLaunch = await resolveVsCodeAuthLaunch();
   applyE2eNetworkEnvironment();
   const vscodeVersion = getVsCodeVersion();
   const vscodeCachePath = resolveVscodeCachePath(options.extensionDevelopmentPath);
@@ -589,6 +636,7 @@ export async function launchVsCode(options: {
     '--no-sandbox'
   ];
   args.push(...resolveVsCodeProxyLaunchArgs());
+  args.push(...authLaunch.args);
   const windowSizeArg = resolveWindowSizeArg(options.windowSize);
   if (windowSizeArg) {
     args.push(windowSizeArg);
@@ -602,9 +650,7 @@ export async function launchVsCode(options: {
         args,
         env: {
           ...process.env,
-          ...(process.platform === 'darwin' && process.env.ALV_E2E_DESKTOP_HOME
-            ? { HOME: process.env.ALV_E2E_DESKTOP_HOME }
-            : {}),
+          ...authLaunch.env,
           ELECTRON_DISABLE_GPU: process.env.ELECTRON_DISABLE_GPU || '1',
           LC_ALL: process.env.LC_ALL || 'C.UTF-8',
           DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null',

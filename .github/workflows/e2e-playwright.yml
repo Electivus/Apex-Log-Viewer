@@ -473,15 +473,7 @@ jobs:
           echo "Scratch strategy: ${SCRATCH_STRATEGY}"
           echo "Playwright workers: ${PLAYWRIGHT_WORKERS}"
           echo "Direct E2E OS: ${{ matrix.os.artifact_suffix }}"
-          # Temporary #1078 diagnostic selection; restore full macOS coverage before acceptance.
-          if [[ "${{ matrix.os.artifact_suffix }}" = "macos" ]]; then
-            diagnostic_status=0
-            ALV_E2E_TIMING=1 DEBUG=pw:api node scripts/run-playwright-e2e.js test/e2e/specs/debugFlagsFilter.e2e.spec.ts --workers=1 --retries=0 --max-failures=1 || diagnostic_status=$?
-            ps -axo pid,ppid,comm > output/playwright/native-processes.out
-            exit "$diagnostic_status"
-          else
-            node scripts/run-playwright-e2e.js
-          fi
+          node scripts/run-playwright-e2e.js
         env:
           VSCODE_TEST_VERSION: ${{ env.VSCODE_TEST_VERSION }}
           PLAYWRIGHT_WORKERS: ${{ env.PLAYWRIGHT_WORKERS }}

@@ -311,17 +311,32 @@ test('macOS wrapper shares private Salesforce state with the desktop without ove
       sfBinPath: './fake-sf',
       wrapperPath: path.join(root, 'wrapper')
     });
+    for (const dir of ['desktop', 'runner/alv-sf-home.test', 'jwt-operation', 'importer']) {
+      fs.mkdirSync(path.join(root, dir), { recursive: true, mode: 0o700 });
+    }
+    const unixRoot = spawnSync(bash, ['-c', 'pwd -P'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+    const desktop = `${unixRoot}/desktop`;
+    const privateAuth = `${unixRoot}/runner/alv-sf-home.test`;
+    const baseEnv = {
+      ...process.env,
+      GITHUB_ACTIONS: 'true',
+      RUNNER_OS: 'macOS',
+      RUNNER_TEMP: `${unixRoot}/runner`,
+      SF_USE_GENERIC_UNIX_KEYCHAIN: 'true',
+      MSYS_NO_PATHCONV: '1'
+    };
     for (const [home, privateHome, desktopHome, expected] of [
-      ['/desktop', '/private-auth', '/desktop', '/private-auth'],
-      ['/private-auth', '/private-auth', '/desktop', '/private-auth'],
-      ['/jwt-operation', '/private-auth', '/desktop', '/jwt-operation'],
-      ['/desktop', '', '', '/desktop']
+      [desktop, privateAuth, desktop, privateAuth],
+      [privateAuth, privateAuth, desktop, privateAuth],
+      [`${unixRoot}/jwt-operation`, privateAuth, desktop, `${unixRoot}/jwt-operation`],
+      [`${unixRoot}/importer`, privateAuth, desktop, `${unixRoot}/importer`],
+      [desktop, '', '', desktop]
     ]) {
       const result = spawnSync(bash, ['wrapper'], {
         cwd: root,
         encoding: 'utf8',
         env: {
-          ...process.env,
+          ...baseEnv,
           HOME: home,
           ALV_CI_AUTH_HOME: privateHome,
           ALV_E2E_DESKTOP_HOME: desktopHome,
@@ -332,6 +347,39 @@ test('macOS wrapper shares private Salesforce state with the desktop without ove
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(result.stdout.trim().split(/\r?\n/), [expected, 'true']);
     }
+    for (const [privateHome, desktopHome] of [
+      ['', desktop],
+      [privateAuth, ''],
+      ['relative', desktop],
+      [privateAuth, 'relative'],
+      [desktop, desktop],
+      [`${unixRoot}/missing`, desktop],
+      [`${unixRoot}/jwt-operation`, desktop],
+      [privateAuth, `${unixRoot}/missing`],
+      [`${unixRoot}/runner/../desktop`, desktop]
+    ]) {
+      const result = spawnSync(bash, ['wrapper'], {
+        cwd: root,
+        encoding: 'utf8',
+        env: {
+          ...baseEnv,
+          HOME: desktop,
+          ALV_CI_AUTH_HOME: privateHome,
+          ALV_E2E_DESKTOP_HOME: desktopHome,
+          SF_USE_GENERIC_UNIX_KEYCHAIN: 'true',
+          MSYS_NO_PATHCONV: '1'
+        }
+      });
+      assert.notEqual(result.status, 0, `Invalid CI authentication homes must not invoke Salesforce: ${privateHome}`);
+      assert.equal(result.stdout, '');
+    }
+    const outsideCI = spawnSync(bash, ['wrapper'], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...baseEnv, GITHUB_ACTIONS: '', HOME: desktop, ALV_CI_AUTH_HOME: 'invalid', ALV_E2E_DESKTOP_HOME: desktop }
+    });
+    assert.equal(outsideCI.status, 0, outsideCI.stderr);
+    assert.deepEqual(outsideCI.stdout.trim().split(/\r?\n/), [desktop, 'true']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
