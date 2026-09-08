@@ -13,6 +13,113 @@ const testPrivateKey = require('node:crypto').generateKeyPairSync('rsa', {
   publicKeyEncoding: { type: 'spki', format: 'pem' }
 }).privateKey;
 
+for (const scenario of ['pending', 'success', 'reject', 'normal']) {
+  test(`runner entry point bounds timeout cleanup: ${scenario}`, t => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-timeout-test-'));
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+    const state = path.join(directory, 'private-state');
+    const events = path.join(directory, 'events.jsonl');
+    const preload = path.join(directory, 'preload.cjs');
+    fs.writeFileSync(
+      preload,
+      `
+      const fs = require('node:fs');
+      const Module = require('node:module');
+      const load = Module._load;
+      const scenario = ${JSON.stringify(scenario)};
+      const state = ${JSON.stringify(state)};
+      const record = event => fs.appendFileSync(${JSON.stringify(events)}, JSON.stringify(event) + '\\n');
+      fs.mkdirSync(state);
+      fs.writeFileSync(require('node:path').join(state, 'credential'), 'fixture-private-state');
+      const timer = setTimeout;
+      const clear = clearTimeout;
+      const cleanupTimers = new Set();
+      global.setTimeout = (callback, ms, ...args) => {
+        if (ms === 30000) record('cleanup-deadline-armed');
+        const handle = timer(callback, ms === 30000 ? 50 : ms, ...args);
+        if (ms === 30000) cleanupTimers.add(handle);
+        return handle;
+      };
+      global.clearTimeout = handle => {
+        if (cleanupTimers.delete(handle)) record('cleanup-deadline-cleared');
+        clear(handle);
+      };
+      Module._load = function(name) {
+        if (name === './clean-vscode-test.js') return { cleanVsCodeTest() {} };
+        if (name === 'esbuild') return { build: async () => {} };
+        if (name === 'cross-spawn') return Object.assign(() => { throw Error('Unexpected spawn'); },
+          { sync: () => ({ status: 0, stdout: '' }) });
+        if (name === 'child_process') return { ...load.apply(this, arguments),
+          execFile(file, args, options, callback) {
+            if (args[0] === 'org' && args[1] === 'display') return callback(Error('fixture missing scratch'), '', '');
+            callback(null, '', '');
+          }
+        };
+        if (name === '@vscode/test-electron') return {
+          downloadAndUnzipVSCode: async () => ${JSON.stringify(path.join(directory, 'code'))},
+          resolveCliArgsFromVSCodeExecutablePath: () => ['fixture-code'],
+          runTests: async () => {
+            if (scenario === 'normal') return;
+            setInterval(() => {}, 1000);
+            await new Promise(() => {});
+          }
+        };
+        if (name === './devhub-auth.js') return { ...load.apply(this, arguments),
+          authenticateDevHub: async () => ({ targetOrg: 'FixtureHub', env: process.env,
+            publishScratch: async () => {},
+            deleteScratch: async () => {
+              record('scratch-cleanup');
+              if (scenario === 'pending') await new Promise(() => {});
+              if (scenario === 'reject') throw Error('fixture deletion denied');
+            },
+            cleanup: async () => { record('credential-cleanup'); fs.rmSync(state, { recursive: true }); }
+          })
+        };
+        return load.apply(this, arguments);
+      };
+    `
+    );
+    const result = require('node:child_process').spawnSync(
+      process.execPath,
+      ['--require', preload, path.join(__dirname, 'run-tests.js'), '--scope=integration', '--timeout=20'],
+      {
+        cwd: path.join(__dirname, '..'),
+        encoding: 'utf8',
+        timeout: 5000,
+        env: {
+          ...originalEnv,
+          SF_SETUP_SCRATCH: '1',
+          SF_DEVHUB_ALIAS: 'FixtureHub',
+          CI: '',
+          SF_DEVHUB_CLIENT_ID: '',
+          SF_DEVHUB_USERNAME: '',
+          SF_DEVHUB_LOGIN_URL: '',
+          SF_DEVHUB_PRIVATE_KEY: '',
+          SF_DEVHUB_PRIVATE_KEY_FILE: '',
+          SF_DEVHUB_AUTH_URL: '',
+          SF_TEST_KEEP_ORG: '0',
+          ALV_SF_BIN_PATH: process.execPath,
+          SF_CLI_BIN_PATH: process.execPath,
+          VSCODE_TEST_EXTENSIONS: ' ',
+          __ALV_XVFB_RAN: '1'
+        }
+      }
+    );
+    assert.equal(result.status, scenario === 'normal' ? 0 : 124, result.stderr);
+    const calls = fs.readFileSync(events, 'utf8').trim().split('\n').map(JSON.parse);
+    assert.equal(calls.filter(value => value === 'scratch-cleanup').length, 1);
+    assert.equal(calls.filter(value => value === 'cleanup-deadline-armed').length, scenario === 'normal' ? 0 : 1);
+    assert.equal(
+      calls.filter(value => value === 'cleanup-deadline-cleared').length,
+      ['success', 'reject'].includes(scenario) ? 1 : 0
+    );
+    assert.equal(fs.existsSync(state), scenario === 'pending');
+    assert.doesNotMatch(result.stderr, /fixture-private-state/);
+    if (scenario === 'pending') assert.match(result.stderr, /Cleanup still pending.*30s/);
+    else assert.doesNotMatch(result.stderr, /Cleanup still pending/);
+  });
+}
+
 test('JWT runner authenticates the selected identity when the CLI colors JSON tokens', async () => {
   const session = await ensureDevHub('sf', {
     mode: 'jwt', clientId: 'test-client', username: 'selected@example.com',

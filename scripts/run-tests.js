@@ -942,10 +942,18 @@ async function run() {
     const killer = setTimeout(async () => {
       timedOut = true;
       console.error(`\n[test-runner] Timed out after ${Math.round(totalTimeout / 1000)}s. Cleaning up...`);
+      const cleanupKiller = setTimeout(() => {
+        console.error(
+          `[test-runner] Cleanup still pending after 30s. Scratch deletion is unconfirmed; preserve scratch authorization and any alv-devhub-jwt-* state under ${tmpdir()} for recovery. See the scratch alias in setup output.`
+        );
+        process.exit(124);
+      }, 30_000);
       try {
         await cleanupOnce();
       } catch (error) {
         console.error('[test-runner] Cleanup failed:', error.message);
+      } finally {
+        clearTimeout(cleanupKiller);
       }
       process.exit(124);
     }, totalTimeout);

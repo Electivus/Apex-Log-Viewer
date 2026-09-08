@@ -106,7 +106,11 @@ async function main(argv = process.argv.slice(2), { sf: invoke = nativeSf } = {}
       soql,
       ...(tooling ? ['--use-tooling-api'] : [])
     ]);
-    if (!Array.isArray(result.records) || result.done === false) {
+    if (
+      !Array.isArray(result?.records) ||
+      result.done !== true ||
+      (Object.hasOwn(result, 'totalSize') && result.totalSize !== result.records.length)
+    ) {
       throw new Error('Incomplete Salesforce inventory; no mutation is allowed.');
     }
     return result.records.map(({ attributes, ...record }) => record);

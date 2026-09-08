@@ -15,6 +15,8 @@
 
 ### Tests
 
+- Dev Hub/test runner: reject inventories without completion proof or with contradictory counts before identity mutations; bound timeout cleanup to 30 seconds and report unconfirmed scratch cleanup without removing pending recovery credentials.
+
 - CI/Dev Hub: require complete dedicated-identity JWT in every real-org gate and child environment, pin Salesforce CLI 2.150.6 with the isolated macOS Node runtime from `.nvmrc`, and expose opt-in integrated signup/export/import and pool lifecycle validation.
 
 - Dev Hub: add resumable operator commands for minimum-access identity/ECA bootstrap, explicit certificate policy and isolated native scratch/pool permission proof. Permanent provisioning follows the approved storage/lifetime policy; integrated CI acceptance is tracked in #1078.

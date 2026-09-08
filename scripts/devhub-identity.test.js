@@ -13,7 +13,7 @@ const baseArgs = ['inspect', '--target-org', 'Bootstrap', '--expected-org-id', '
 test('provisioning refuses an unexpected target before any mutation', async () => {
   const sf = async args => {
     assert.equal(args.slice(0, 3).join(' '), 'data query --target-org');
-    return { records: [{ Id: '00D000000000002AAA', IsSandbox: false }] };
+    return { records: [{ Id: '00D000000000002AAA', IsSandbox: false }], done: true, totalSize: 1 };
   };
   await assert.rejects(main(baseArgs, { sf }), /Target org does not match/);
 });
@@ -153,6 +153,24 @@ function provisioningFixture() {
     return { id, success: true };
   };
   return { ...fixture, created };
+}
+
+for (const invalid of [{ done: undefined }, { done: false }, { totalSize: 2 }, { totalSize: -1 }, { totalSize: '1' }]) {
+  test(`provisioning rejects incomplete initial inventory ${JSON.stringify(invalid)} without mutation`, async t => {
+    const fixture = provisioningFixture();
+    const read = fixture.sf;
+    fixture.sf = async args => {
+      const result = await read(args);
+      return args.includes('SELECT Id, IsSandbox, OrganizationType FROM Organization')
+        ? { ...result, ...invalid }
+        : result;
+    };
+    await assert.rejects(
+      main(['provision-user', ...baseArgs.slice(1), '--state-dir', stateDirectory(t)], fixture),
+      /Incomplete Salesforce inventory/
+    );
+    assert.deepEqual(fixture.created, []);
+  });
 }
 
 test('provisioning resumes its owned Integration user and PSL without duplicate records', async t => {
@@ -606,7 +624,9 @@ function addRuntimeGrantInventory(fixture) {
     ) {
       const object = soql.match(/ FROM (\w+)/)[1];
       return {
-        records: fixture.runtimeGrants[object] || []
+        records: fixture.runtimeGrants[object] || [],
+        done: true,
+        totalSize: (fixture.runtimeGrants[object] || []).length
       };
     }
     return invoke(args, options);
@@ -888,7 +908,7 @@ test('runtime commands fail closed on missing inventory, mismatched identity and
         if (scenario === 'incomplete-query') return { ...result, done: false };
       }
       if (soql.includes("WHERE Name = 'ALV_ScratchOrgPoolService'")) {
-        if (scenario === 'missing-set') return { records: [] };
+        if (scenario === 'missing-set') return { records: [], done: true, totalSize: 0 };
         if (scenario === 'incomplete-set') return { ...result, done: false };
       }
       return result;
