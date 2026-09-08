@@ -54,6 +54,7 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
     SF_AUTOUPDATE_DISABLE: 'true',
     SF_SCRATCH_STRATEGY: 'pool',
     SF_SCRATCH_POOL_NAME: poolKey,
+    SF_SCRATCH_POOL_SEED_VERSION: 'alv-jwt-pool-smoke-v1',
     SF_SCRATCH_POOL_LEASE_TTL_SECONDS: '180',
     SF_SCRATCH_POOL_HEARTBEAT_SECONDS: '15',
     SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS: '30',
@@ -65,6 +66,7 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
   for (const name of [
     'SF_DEVHUB_ALIAS',
     'SF_DEVHUB_AUTH_URL',
+    'SF_SCRATCH_POOL_SNAPSHOT_NAME',
     'SF_TEMP_SHOW_SECRETS',
     'SF_E2E_ACCESS_TOKEN',
     'SF_E2E_INSTANCE_URL',
