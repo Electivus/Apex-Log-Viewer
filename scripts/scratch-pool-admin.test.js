@@ -120,13 +120,35 @@ function poolSalesforce(t) {
           }
           if (args[0] === 'data' && args[1] === 'query') {
             const query = args[args.indexOf('--query') + 1];
-            if (query.includes('FROM ALV_ScratchOrgPool__c')) return { records: [pool] };
-            if (query.includes('FROM ALV_ScratchOrgPoolSlot__c')) return { records: [{ ...slot }] };
-            if (query.includes('FROM ScratchOrgInfo')) return { records: state.created && !state.deleted
-              ? [{ Id: 'info-id', SignupUsername: 'scratch@example.com', ScratchOrg: 'scratch-id' }] : [] };
-            if (query.includes('FROM ActiveScratchOrg')) return { records: state.created && !state.deleted
-              ? [{ Id: 'active-id', SignupUsername: 'scratch@example.com', ScratchOrg: 'scratch-id' }] : [] };
-            if (query.includes('FROM DebugLevel')) return { records: [{ Id: 'debug-id' }] };
+            if (query.includes('FROM ALV_ScratchOrgPool__c')) return { done: true, records: [pool] };
+            if (query.includes('FROM ALV_ScratchOrgPoolSlot__c')) return { done: true, records: [{ ...slot }] };
+            if (query.includes('FROM ScratchOrgInfo') && state.latestQueryResponse) return state.latestQueryResponse;
+            if (query.includes('FROM ScratchOrgInfo'))
+              return {
+                done: true,
+                records:
+                  state.created && !state.deleted
+                    ? [
+                        {
+                          Id: 'info-id',
+                          SignupUsername: 'scratch@example.com',
+                          ScratchOrg: 'scratch-id',
+                          Status: 'Active'
+                        }
+                      ]
+                    : state.historicalInfo
+                      ? [state.historicalInfo]
+                      : []
+              };
+            if (query.includes('FROM ActiveScratchOrg'))
+              return {
+                done: true,
+                records:
+                  state.created && !state.deleted
+                    ? [{ Id: 'active-id', SignupUsername: 'scratch@example.com', ScratchOrg: 'scratch-id' }]
+                    : []
+              };
+            if (query.includes('FROM DebugLevel')) return { done: true, records: [{ Id: 'debug-id' }] };
           }
           if (args[1] === 'logout' && state.logoutError) throw new Error(state.logoutError);
           if (args[1] === 'logout' || args[0] === 'alias') return {};
@@ -171,6 +193,100 @@ test('JWT prewarm persists usable scratch authorization through the existing poo
   assert.equal(process.env.SF_TEMP_SHOW_SECRETS, undefined);
   assert.deepEqual(state.failures, []);
 });
+
+for (const source of ['stored', 'fallback', 'stale-stored']) {
+  test(`prewarm replaces historical Deleted signup through ${source} metadata without its former owner`, async t => {
+    const { state, dependencies } = poolSalesforce(t);
+    state.historicalInfo = { Id: 'old-info', Status: 'Deleted' };
+    state.slot.ScratchOrgInfoId__c =
+      source === 'stored' ? 'old-info' : source === 'stale-stored' ? 'stale-info' : undefined;
+    const request = dependencies.fetchImpl;
+    dependencies.fetchImpl = async (url, options) => {
+      if (url.includes('/sobjects/ScratchOrgInfo/stale-info')) {
+        return { ok: false, status: 404, text: async () => '[{"errorCode":"NOT_FOUND"}]' };
+      }
+      if (options.method === 'DELETE') throw new Error('Historical signup must not be deleted again');
+      if (url.includes('/sobjects/ScratchOrgInfo/old-info')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify(state.historicalInfo) };
+      }
+      if (url.includes('/query')) {
+        assert.match(decodeURIComponent(url), /FROM ActiveScratchOrg.*old-info/);
+        return { ok: true, status: 200, text: async () => JSON.stringify({ done: true, records: [] }) };
+      }
+      return request(url, options);
+    };
+    const result = await main(['prewarm', '--pool-key', 'isolated', '--limit', '1', '--json'], dependencies);
+    assert.deepEqual(result.prewarmedSlotKeys, ['slot-01']);
+    assert.equal(state.slot.HealthState__c, 'healthy');
+  });
+}
+
+for (const scenario of [
+  'active',
+  'contradictory',
+  'missing-status',
+  'wrong-id',
+  'denied',
+  'incomplete',
+  'missing-records',
+  'missing-done'
+]) {
+  test(`prewarm preserves credentials when historical deletion proof is ${scenario}`, async t => {
+    const { state, dependencies } = poolSalesforce(t);
+    state.historicalInfo = { Id: 'old-info', Status: scenario === 'active' ? 'Active' : 'Deleted' };
+    if (scenario === 'missing-status') delete state.historicalInfo.Status;
+    // A stored ID must be inspected independently of the latest metadata.
+    Object.assign(state.slot, { ScratchOrgInfoId__c: 'stored-info', ScratchAuthUrl__c: state.authUrl });
+    const request = dependencies.fetchImpl;
+    dependencies.fetchImpl = async (url, options) => {
+      if (options.method === 'DELETE' || (scenario === 'denied' && url.includes('/sobjects/ScratchOrgInfo/'))) {
+        return { ok: false, status: 403, text: async () => '[{"errorCode":"INSUFFICIENT_ACCESS"}]' };
+      }
+      if (url.includes('/sobjects/ScratchOrgInfo/stored-info')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              ...state.historicalInfo,
+              Id: scenario === 'wrong-id' ? 'different-info' : 'stored-info'
+            })
+        };
+      }
+      if (url.includes('/query')) {
+        const active = {
+          done: scenario !== 'incomplete',
+          records: scenario === 'contradictory' ? [{ Id: 'live-id' }] : []
+        };
+        if (scenario === 'missing-records') delete active.records;
+        if (scenario === 'missing-done') delete active.done;
+        return { ok: true, status: 200, text: async () => JSON.stringify(active) };
+      }
+      return request(url, options);
+    };
+    await assert.rejects(
+      main(['prewarm', '--pool-key', 'isolated'], dependencies),
+      /incomplete ActiveScratchOrg|HTTP 403/
+    );
+    assert.equal(state.slot.ScratchAuthUrl__c, state.authUrl);
+    assert.equal(state.slot.ScratchOrgInfoId__c, 'stored-info');
+    assert.equal(state.slot.LeaseState__c, 'available');
+    assert.equal(
+      state.cliCalls.some(call => call.args.slice(0, 3).join(' ') === 'org create scratch'),
+      false
+    );
+  });
+}
+
+for (const latestQueryResponse of [{}, { records: [] }, { done: false, records: [] }]) {
+  test(`prewarm rejects incomplete fallback inventory: ${JSON.stringify(latestQueryResponse)}`, async t => {
+    const { state, dependencies } = poolSalesforce(t);
+    state.latestQueryResponse = latestQueryResponse;
+    await assert.rejects(main(['prewarm', '--pool-key', 'isolated'], dependencies), /incomplete Salesforce query/);
+    assert.equal(state.created, false);
+    assert.equal(state.slot.LeaseState__c, 'available');
+  });
+}
 
 test('prewarm failure releases its maintenance lease with recoverable secret-safe diagnostics', async t => {
   const { state, dependencies } = poolSalesforce(t);
@@ -460,7 +576,7 @@ test('deleteExistingScratchForSlot falls back to ScratchOrgInfo when ActiveScrat
     },
     {
       callSalesforceRest: async (_targetOrg, method, resourcePath) => {
-        deletes.push({ method, resourcePath });
+        if (method === 'DELETE') deletes.push({ method, resourcePath });
         if (resourcePath.includes('/ActiveScratchOrg/')) {
           throw new Error('NOT_FOUND');
         }
@@ -496,7 +612,7 @@ test('deleteExistingScratchForSlot retries cleanup with the latest scratch metad
     },
     {
       callSalesforceRest: async (_targetOrg, method, resourcePath) => {
-        deletes.push({ method, resourcePath });
+        if (method === 'DELETE') deletes.push({ method, resourcePath });
         if (
           resourcePath === '/sobjects/ActiveScratchOrg/00Dxx0000000001' ||
           resourcePath === '/sobjects/ScratchOrgInfo/2SRxx0000000001'
@@ -544,7 +660,7 @@ test('deleteExistingScratchForSlot deduplicates stored and latest scratch ids', 
     },
     {
       callSalesforceRest: async (_targetOrg, method, resourcePath) => {
-        deletes.push({ method, resourcePath });
+        if (method === 'DELETE') deletes.push({ method, resourcePath });
       },
       getLatestScratchOrgInfo: async () => ({ Id: '2SRxx0000000001' }),
       getActiveScratchOrgByInfoId: async (_targetOrg, scratchOrgInfoId) =>

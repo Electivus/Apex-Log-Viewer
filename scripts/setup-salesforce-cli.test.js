@@ -253,15 +253,15 @@ test('setupSalesforceCli writes a sanitized Node wrapper when SALESFORCE_CLI_WRA
       stdout: silentStdout()
     });
 
-    assert.equal(result.exportedSfBinPath, path.join(runnerTemp, 'alv-sf-node20', 'sf'));
+    assert.equal(result.exportedSfBinPath, path.join(runnerTemp, 'alv-sf-node', 'sf'));
     const wrapper = fs.readFileSync(result.exportedSfBinPath, 'utf8');
     assert.match(wrapper, /unset ELECTRON_RUN_AS_NODE/);
     assert.match(wrapper, /export PATH='\/opt\/hostedtoolcache\/node\/20\/bin':"\$\{PATH:-\}"/);
     assert.match(wrapper, /exec '.*[\\/]bin[\\/]sf' "\$@"/);
 
     const envFile = fs.readFileSync(githubEnv, 'utf8');
-    assert.match(envFile, /SF_CLI_BIN_PATH=.*alv-sf-node20[\\/]sf/);
-    assert.match(envFile, /ALV_SF_BIN_PATH=.*alv-sf-node20[\\/]sf/);
+    assert.match(envFile, /SF_CLI_BIN_PATH=.*alv-sf-node[\\/]sf/);
+    assert.match(envFile, /ALV_SF_BIN_PATH=.*alv-sf-node[\\/]sf/);
     assert.match(envFile, /SF_CLI_NODE_PATH=\/opt\/hostedtoolcache\/node\/20\/bin\/node/);
     assert.match(fs.readFileSync(githubPath, 'utf8'), /[\\/]bin$/m);
   } finally {

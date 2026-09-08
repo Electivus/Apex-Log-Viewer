@@ -473,7 +473,7 @@ async function requestOrgJson(auth: OrgAuth, method: string, resourcePath: strin
   });
   const text = await response.text();
   if (!response.ok) {
-    if (response.status === 401 && allowRefresh && await refreshOrgAuth(auth)) {
+    if (response.status === 401 && allowRefresh && (await refreshOrgAuth(auth))) {
       return requestOrgJson(auth, method, resourcePath, body, false);
     }
     const safeDetail = formatHttpErrorDetail(text);
@@ -499,12 +499,15 @@ function escapeSoqlLiteral(value: string): string {
     .replace(/'/g, "\\'");
 }
 
-async function queryOrgRecords(auth: OrgAuth, soql: string): Promise<any[]> {
+async function queryOrgRecords(auth: OrgAuth, soql: string, requireComplete = false): Promise<any[]> {
   const response = await requestOrgJson(
     auth,
     'GET',
     `/services/data/v${auth.apiVersion}/query/?q=${encodeURIComponent(soql)}`
   );
+  if (requireComplete && (response?.done !== true || !Array.isArray(response.records))) {
+    throw new Error('Cannot confirm scratch metadata: incomplete Salesforce query response.');
+  }
   return Array.isArray(response?.records) ? response.records : [];
 }
 
@@ -547,7 +550,10 @@ function collectSafeErrorMessages(value: unknown): string[] {
     // scratch credential. Classify known failures without echoing that text.
     const detail = `${record.errorCode || ''} ${record.message || ''}`;
     const diagnostics: Array<[RegExp, string]> = [
-      [/INSUFFICIENT_ACCESS/, 'INSUFFICIENT_ACCESS: Check the configured identity\'s grants. For a scratch owned by another user, have its existing owner or administrator drain and delete it before transitioning the slot.'],
+      [
+        /INSUFFICIENT_ACCESS/,
+        "INSUFFICIENT_ACCESS: Check the configured identity's grants. For a scratch owned by another user, have its existing owner or administrator drain and delete it before transitioning the slot."
+      ],
       [/INVALID_SESSION_ID/, 'INVALID_SESSION_ID: Dev Hub authentication could not be renewed.'],
       [/no longer leased by this caller/, 'The slot is no longer leased by this caller.'],
       [/No scratch-org pool slot.*available|No scratch-org pool slots are configured/, 'No scratch-org pool slot is available.'],
@@ -648,6 +654,32 @@ async function deleteExistingPooledScratch(
   const triedIds = new Set<string>();
 
   const tryDeleteByIds = async (ids: { activeScratchOrgId?: string; scratchOrgInfoId?: string }): Promise<boolean> => {
+    if (ids.scratchOrgInfoId) {
+      let info;
+      try {
+        info = await requestOrgJson(
+          auth,
+          'GET',
+          `/services/data/v${auth.apiVersion}/sobjects/ScratchOrgInfo/${encodeURIComponent(ids.scratchOrgInfoId)}?fields=Id,Status`
+        );
+      } catch (error) {
+        if (!isHttpError(error, 404)) throw error;
+      }
+      if (info?.Id === ids.scratchOrgInfoId && info.Status === 'Deleted') {
+        const query =
+          `SELECT Id FROM ActiveScratchOrg WHERE ScratchOrgInfoId = '${escapeSoqlLiteral(ids.scratchOrgInfoId)}'` +
+          (ids.activeScratchOrgId ? ` OR Id = '${escapeSoqlLiteral(ids.activeScratchOrgId)}'` : '');
+        const active = await requestOrgJson(
+          auth,
+          'GET',
+          `/services/data/v${auth.apiVersion}/query/?q=${encodeURIComponent(query)}`
+        );
+        if (active?.done !== true || !Array.isArray(active.records)) {
+          throw new Error('Cannot confirm historical scratch deletion: incomplete ActiveScratchOrg response.');
+        }
+        if (active.records.length === 0) return true;
+      }
+    }
     if (ids.activeScratchOrgId) {
       triedIds.add(ids.activeScratchOrgId);
       try {
@@ -699,7 +731,8 @@ async function deleteExistingPooledScratch(
       `WHERE alvPoolKey__c = '${escapeSoqlLiteral(poolKey)}' AND alvSlotKey__c = '${escapeSoqlLiteral(slotKey)}'`,
       'ORDER BY CreatedDate DESC',
       'LIMIT 1'
-    ].join(' ')
+    ].join(' '),
+    true
   );
   const latestScratchOrgInfoId = String(latestInfoRecords[0]?.Id || '').trim();
   if (!latestScratchOrgInfoId || triedIds.has(latestScratchOrgInfoId)) {
@@ -714,7 +747,8 @@ async function deleteExistingPooledScratch(
       `WHERE ScratchOrgInfoId = '${escapeSoqlLiteral(latestScratchOrgInfoId)}'`,
       'ORDER BY CreatedDate DESC',
       'LIMIT 1'
-    ].join(' ')
+    ].join(' '),
+    true
   );
   const latestActiveScratchOrgId = String(activeScratchRecords[0]?.Id || '').trim();
   await tryDeleteByIds({

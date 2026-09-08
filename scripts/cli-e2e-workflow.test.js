@@ -493,7 +493,7 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
     "${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}"
   );
   assert.equal(job.env?.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.150.6');
-  assert.equal(job.env?.SALESFORCE_CLI_NODE_VERSION, '20');
+  assert.equal(job.env?.SALESFORCE_CLI_NODE_VERSION, undefined);
   assert.equal(
     job.env?.PLAYWRIGHT_WORKERS,
     "${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}"
@@ -550,7 +550,7 @@ test('direct macOS Playwright workflow runs Salesforce CLI through the cached se
   );
   assert.equal(setupSfNodeStep.step.if, "runner.os == 'macOS'");
   assert.equal(setupSfNodeStep.step.uses, 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e');
-  assert.equal(setupSfNodeStep.step.with?.['node-version'], '${{ env.SALESFORCE_CLI_NODE_VERSION }}');
+  assert.equal(setupSfNodeStep.step.with?.['node-version-file'], '.nvmrc');
   assert.equal(resolveCacheStep.step.run, 'node scripts/setup-salesforce-cli.mjs --print-cache-key');
   assert.equal(restoreCacheStep.step.with?.path, '${{ steps.sf-cli-cache.outputs.cache-dir }}');
   assert.equal(restoreCacheStep.step.with?.key, '${{ steps.sf-cli-cache.outputs.cache-key }}');

@@ -42,7 +42,7 @@ In a local session with all five JWT inputs absent, set `SF_DEVHUB_ALIAS` to an 
 
 ## CLI and child-process boundaries
 
-Salesforce CLI **2.150.6** is the version proven by the direct smoke below. To prepare that exact version in the existing cache, use `node scripts/setup-salesforce-cli.mjs --package @salesforce/cli@2.150.6`, then point `SF_CLI_BIN_PATH` at its Salesforce CLI executable. `ALV_SF_BIN_PATH` is also recognized. Windows npm `.cmd` resolution is preserved, including configured paths with spaces. Keep the existing macOS Node 20 wrapper from `setup-salesforce-cli.mjs`; point the binary variables at that wrapper instead of bypassing it. Production real-org jobs pin this exact CLI version; the macOS CLI runtime remains Node 20 while application builds use Node 24.
+Salesforce CLI **2.150.6** is the version proven by the direct smoke below. To prepare that exact version in the existing cache, use `node scripts/setup-salesforce-cli.mjs --package @salesforce/cli@2.150.6`, then point `SF_CLI_BIN_PATH` at its Salesforce CLI executable. `ALV_SF_BIN_PATH` is also recognized. Windows npm `.cmd` resolution is preserved, including configured paths with spaces. Keep the isolated macOS Node wrapper from `setup-salesforce-cli.mjs`; point the binary variables at that wrapper instead of bypassing it. Production real-org jobs pin this exact CLI version; the macOS CLI captures Node from `.nvmrc` (24.15.0 at cutover), preserving sanitization and runtime restoration; CLI 2.150.6 requires Node >=22.
 
 Scratch creation receives `SF_SCRATCH_SIGNUP_CONNECTED_APP=PlatformCLI` and `SF_SCRATCH_SIGNUP_CALLBACK_URL=http://localhost:1717/OauthRedirect` only in its child environment. Dev Hub JWT continues using the ECA. Scratch authorization remains an SFDX authorization URL.
 
@@ -97,6 +97,8 @@ An independent consumer uses `SF_SCRATCH_STRATEGY=pool` and `SF_SCRATCH_POOL_NAM
 ### Ownership transition
 
 Before replacing an identity, inspect the configured pool's `ScratchUsername__c`, `ScratchOrgInfoId__c` and `ActiveScratchOrgId__c`, and establish who owns those resources. Drain existing leases before maintenance. If deletion returns `INSUFFICIENT_ACCESS`, the command reports that the existing owner or administrator must delete that scratch; it does not create a replacement or clear the only stored credential. Failed prewarm returns the slot to `available` with `needs_recreate`; a failed consumer deletion releases a recoverable `broken` slot with the prior credential retained. Do not repeatedly prewarm it under an identity that lacks deletion access.
+
+Historical signup records need no second deletion when a fresh read explicitly reports `Status=Deleted` and a complete query confirms no corresponding `ActiveScratchOrg`. Both consumer recreation and administrative prewarm check stored IDs and fallback metadata. Denied, missing or incomplete reads do not establish that a scratch is deleted; active resources still require authorized cleanup. Preserve historical records and existing slot credentials during this check.
 
 Have the existing owner or administrator finish and delete those specific old scratches during the transition, then reconcile and prewarm the affected pool under the intended identity. Do not reset a live pool, clear credentials before confirmed deletion, or expand the runtime identity's privileges to avoid this ownership step. A lost conditional maintenance race or HTTP 409 lease conflict remains a conflict, not a reason to overwrite another lease.
 

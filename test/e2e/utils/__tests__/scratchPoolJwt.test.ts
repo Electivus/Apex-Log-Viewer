@@ -130,6 +130,106 @@ describe('JWT pool consumer through CLI and REST adapters', () => {
     jest.restoreAllMocks();
   });
 
+  test.each(['stored', 'fallback', 'stale-stored'])(
+    'recreates a pool slot from %s Deleted signup without another DELETE',
+    async source => {
+      const request = fetchSpy.getMockImplementation()!;
+      fetchSpy.mockImplementation(async (input, options) => {
+        const url = String(input);
+        if (url.includes('/sobjects/ScratchOrgInfo/stale-info')) return response([{ errorCode: 'NOT_FOUND' }], 404);
+        if (options?.method === 'DELETE') throw new Error('Historical signup must not be deleted again');
+        if (url.includes('/sobjects/ScratchOrgInfo/old-info')) return response({ Id: 'old-info', Status: 'Deleted' });
+        if (decodeURIComponent(url).includes('FROM ScratchOrgInfo'))
+          return response({ done: true, records: [{ Id: 'old-info' }] });
+        if (decodeURIComponent(url).includes('FROM ActiveScratchOrg')) return response({ done: true, records: [] });
+        if (url.endsWith('/acquire'))
+          return response({
+            ok: true,
+            poolKey: 'isolated',
+            slotKey: 'slot-01',
+            scratchAlias: 'ISOLATED_01',
+            leaseToken: 'fixture-lease',
+            needsCreate: true,
+            scratchOrgInfoId: source === 'stored' ? 'old-info' : source === 'stale-stored' ? 'stale-info' : undefined
+          });
+        return request(input, options);
+      });
+      const command = cli.getMockImplementation()!;
+      cli.mockImplementation(async (args, options) => {
+        if (args[1] === 'logout' || args[0] === 'alias' || args.slice(0, 3).join(' ') === 'org create scratch') {
+          return { status: 0, result: {} };
+        }
+        return command(args, options);
+      });
+      const scratch = await ensureScratchOrg();
+      expect(scratch.created).toBe(true);
+      await scratch.cleanup();
+      expect(requests.find(item => item.operation === 'finalize')?.body.created).toBe(true);
+    }
+  );
+
+  test.each([
+    'active',
+    'contradictory',
+    'missing-status',
+    'wrong-id',
+    'denied',
+    'incomplete',
+    'missing-records',
+    'missing-done'
+  ])('preserves the pool lease credential when historical deletion proof is %s', async scenario => {
+    const request = fetchSpy.getMockImplementation()!;
+    fetchSpy.mockImplementation(async (input, options) => {
+      const url = String(input);
+      if (options?.method === 'DELETE' || (scenario === 'denied' && url.includes('/sobjects/ScratchOrgInfo/'))) {
+        return response([{ errorCode: 'INSUFFICIENT_ACCESS' }], 403);
+      }
+      if (url.includes('/sobjects/ScratchOrgInfo/old-info'))
+        return response({
+          Id: scenario === 'wrong-id' ? 'different-info' : 'old-info',
+          Status: scenario === 'missing-status' ? undefined : scenario === 'active' ? 'Active' : 'Deleted'
+        });
+      if (decodeURIComponent(url).includes('FROM ActiveScratchOrg'))
+        return response({
+          done: scenario === 'missing-done' ? undefined : scenario !== 'incomplete',
+          records: scenario === 'missing-records' ? undefined : scenario === 'contradictory' ? [{ Id: 'live-id' }] : []
+        });
+      if (url.endsWith('/acquire'))
+        return response({
+          ok: true,
+          poolKey: 'isolated',
+          slotKey: 'slot-01',
+          scratchAlias: 'ISOLATED_01',
+          leaseToken: 'fixture-lease',
+          needsCreate: true,
+          scratchOrgInfoId: 'old-info',
+          scratchAuthUrl: authUrl
+        });
+      return request(input, options);
+    });
+    await expect(ensureScratchOrg()).rejects.toThrow(/HTTP 403|incomplete ActiveScratchOrg/);
+    expect(cli.mock.calls.some(([args]) => args.slice(0, 3).join(' ') === 'org create scratch')).toBe(false);
+    expect(requests.find(item => item.operation === 'release')?.body).toMatchObject({
+      success: false,
+      leaseToken: 'fixture-lease',
+      scratchAuthUrl: authUrl
+    });
+  });
+
+  test.each([{}, { records: [] }, { done: false, records: [] }])('rejects incomplete fallback scratch inventory: %j', async inventory => {
+    const request = fetchSpy.getMockImplementation()!;
+    fetchSpy.mockImplementation(async (input, options) => {
+      const url = String(input);
+      if (decodeURIComponent(url).includes('FROM ScratchOrgInfo')) return response(inventory);
+      if (url.endsWith('/acquire')) return response({ ok: true, poolKey: 'isolated', slotKey: 'slot-01',
+        scratchAlias: 'ISOLATED_01', leaseToken: 'fixture-lease', needsCreate: true });
+      return request(input, options);
+    });
+    await expect(ensureScratchOrg()).rejects.toThrow(/incomplete Salesforce query/);
+    expect(cli.mock.calls.some(([args]) => args.slice(0, 3).join(' ') === 'org create scratch')).toBe(false);
+    expect(requests.find(item => item.operation === 'release')?.body.success).toBe(false);
+  });
+
   test.each(['acquire', 'finalize', 'heartbeat', 'release'])(
     'renews JWT from the originating home when %s rejects an expired token',
     async operation => {

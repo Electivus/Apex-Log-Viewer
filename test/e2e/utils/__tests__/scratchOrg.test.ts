@@ -643,7 +643,7 @@ describe('ensureScratchOrg', () => {
         return createPoolConfigResponse();
       }
       if (url.includes('FROM%20ScratchOrgInfo')) {
-        return createJsonResponse({ records: [] });
+        return createJsonResponse({ done: true, records: [] });
       }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/acquire')) {
         return createJsonResponse({
@@ -784,6 +784,9 @@ describe('ensureScratchOrg', () => {
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/release')) {
         return createJsonResponse({ ok: true });
       }
+      if (url.includes('/sobjects/ScratchOrgInfo/2SR000000000001AAA')) {
+        return createJsonResponse({ Id: '2SR000000000001AAA', Status: 'Active' });
+      }
       if (url.includes('/services/data/v60.0/sobjects/ActiveScratchOrg/0SO000000000001AAA')) {
         return {
           ok: true,
@@ -902,6 +905,9 @@ describe('ensureScratchOrg', () => {
       }
       if (url.endsWith('/services/apexrest/alv/scratch-pool/v1/release')) {
         return createJsonResponse({ ok: true });
+      }
+      if (url.includes('/sobjects/ScratchOrgInfo/2SR000000000001AAA')) {
+        return createJsonResponse({ Id: '2SR000000000001AAA', Status: 'Active' });
       }
       if (url.includes('/services/data/v60.0/sobjects/ActiveScratchOrg/0SO000000000001AAA')) {
         return {

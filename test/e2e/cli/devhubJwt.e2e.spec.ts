@@ -1,14 +1,16 @@
 import { test, expect } from '@playwright/test';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { ensureScratchOrg } from '../utils/scratchOrg';
 import { runSfJson } from '../utils/sfCli';
 import { authenticateDevHub, resolveDevHubConfig, salesforceChildEnv } from '../../../scripts/devhub-auth.js';
 
 const { pretestSetup } = require('../../../scripts/run-tests.js');
+const execFileAsync = promisify(execFile);
 
 // Explicit opt-in keeps this controlled direct-path proof separate from the
 // production pool workflow, whose JWT cutover belongs to #1078.
@@ -35,6 +37,7 @@ for (const runner of ['typescript', 'javascript'] as const) {
     let jwtHome: string | undefined;
     let scratchId: string | undefined;
     let scratchAttempted = false;
+    let validationError: unknown;
     try {
       await mkdir(primaryHome);
       await mkdir(independentHome);
@@ -106,47 +109,61 @@ for (const runner of ['typescript', 'javascript'] as const) {
         process.env,
         process.platform === 'win32' ? { USERPROFILE: jwtHome } : { HOME: jwtHome }
       );
-      const devHubQuery = await runSfJson(
-        ['data', 'query', '--target-org', config.username, '--query', 'SELECT Id FROM Organization'],
-        { env: devHubEnv }
-      );
-      expect(devHubQuery.result.records[0].Id === expectedDevHubId).toBe(true);
+      const userQuery = `SELECT Id, Username, IsActive FROM User WHERE Username = '${config.username.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+      const devHubQuery = await runSfJson(['data', 'query', '--target-org', config.username, '--query', userQuery], {
+        env: devHubEnv
+      });
       const devHubState = JSON.parse(await readFile(path.join(jwtHome, '.sfdx', `${config.username}.json`), 'utf8'));
+      expect(String(devHubState.orgId).slice(0, 15) === expectedDevHubId.slice(0, 15)).toBe(true);
+      expect(devHubState.username === config.username).toBe(true);
+      expect(devHubQuery.result.records.length).toBe(1);
+      expect(devHubQuery.result.records[0]).toMatchObject({
+        Username: config.username,
+        IsActive: true
+      });
       expect(
         Boolean(devHubState.privateKey) && !devHubState.refreshToken && devHubState.clientId !== 'PlatformCLI'
       ).toBe(true);
       jwtKeyFile = devHubState.privateKey;
       expect(path.dirname(jwtKeyFile!) === jwtHome).toBe(true);
-      // Use the installed CLI's AuthInfo writer to encrypt a stale cached token
-      // in this owned home. --import runs before CLI startup on its own runtime,
-      // including the existing macOS Node 20 wrapper. Never touch caller state.
-      const staleTokenFixture = path.join(root, 'stale-token.mjs');
+      // Use the installed CLI's AuthInfo writer in this owned home. Run the
+      // fixture explicitly: the macOS wrapper correctly strips NODE_OPTIONS.
+      const installed = await runSfJson(['plugins', 'inspect', '@salesforce/cli']);
+      const cliRoot = installed.find((plugin: any) => plugin.name === '@salesforce/cli')?.root;
+      expect(typeof cliRoot === 'string' && path.isAbsolute(cliRoot)).toBe(true);
+      const staleTokenFixture = path.join(root, 'stale-token.cjs');
       await writeFile(
         staleTokenFixture,
         `
-        import { createRequire } from 'node:module';
-        import { realpathSync } from 'node:fs';
-        const require = createRequire(realpathSync(process.argv[1]));
-        const { AuthInfo } = require('@salesforce/core');
-        const auth = await AuthInfo.create({ username: process.env.ALV_JWT_SMOKE_USERNAME });
-        await auth.save({ accessToken: 'alv-intentionally-stale-access-token' });
+        const { createRequire } = require('node:module');
+        const path = require('node:path');
+        const { AuthInfo } = createRequire(path.join(process.argv[2], 'package.json'))('@salesforce/core');
+        (async () => {
+          const auth = await AuthInfo.create({ username: process.env.ALV_JWT_SMOKE_USERNAME });
+          await auth.save({ accessToken: 'alv-intentionally-stale-access-token' });
+          console.log(JSON.stringify({ staleTokenWritten: true, nodeVersion: process.version }));
+        })().catch(() => { console.error('Could not write the controlled stale token.'); process.exitCode = 1; });
       `
       );
-      await runSfJson(['version'], {
-        env: {
-          ...devHubEnv,
-          ALV_JWT_SMOKE_USERNAME: config.username,
-          NODE_OPTIONS: `${devHubEnv.NODE_OPTIONS || ''} --import=${pathToFileURL(staleTokenFixture).href}`.trim()
+      const fixture = await execFileAsync(
+        process.env.SF_CLI_NODE_PATH || process.execPath,
+        [staleTokenFixture, cliRoot],
+        {
+          env: {
+            ...devHubEnv,
+            ALV_JWT_SMOKE_USERNAME: config.username,
+            NODE_OPTIONS: ''
+          }
         }
-      });
+      );
+      expect(JSON.parse(fixture.stdout).staleTokenWritten).toBe(true);
       // A fresh CLI process must recover from the invalid on-disk token using
       // the stored JWT key path before it can complete this real API request.
       expect(existsSync(jwtKeyFile!)).toBe(true);
-      const renewed = await runSfJson(
-        ['data', 'query', '--target-org', config.username, '--query', 'SELECT Id FROM Organization'],
-        { env: devHubEnv }
-      );
-      expect(renewed.result.records[0].Id === expectedDevHubId).toBe(true);
+      const renewed = await runSfJson(['data', 'query', '--target-org', config.username, '--query', userQuery], {
+        env: devHubEnv
+      });
+      expect(renewed.result.records).toEqual(devHubQuery.result.records);
 
       const scratchQuery = await runSfJson([
         'data',
@@ -213,6 +230,7 @@ for (const runner of ['typescript', 'javascript'] as const) {
         JSON.stringify({
           runner,
           cliVersion: version.cliVersion,
+          cliNodeVersion: JSON.parse(fixture.stdout).nodeVersion,
           emptyStateJwt: true,
           devHubJwtWithoutRefreshToken: true,
           renewedJwt: true,
@@ -224,6 +242,9 @@ for (const runner of ['typescript', 'javascript'] as const) {
           keptScratchUsableAfterCleanup: true
         })
       );
+    } catch (error) {
+      validationError = error;
+      throw error;
     } finally {
       try {
         await cleanup?.();
@@ -241,9 +262,12 @@ for (const runner of ['typescript', 'javascript'] as const) {
           Object.assign(process.env, originalEnv);
         }
         if (remoteCleanupFailed) {
-          throw new Error(
+          const cleanupError = new Error(
             `JWT smoke scratch cleanup failed. Credential state is retained for recovery at: ${root}. Recover or delete the test scratch using that CLI state, then remove the directory.`
           );
+          throw validationError
+            ? new AggregateError([validationError, cleanupError], 'JWT smoke validation and cleanup failed.')
+            : cleanupError;
         }
         // Both CLI homes contain credential state and must never be retained
         // as Playwright artifacts, even when validation fails.

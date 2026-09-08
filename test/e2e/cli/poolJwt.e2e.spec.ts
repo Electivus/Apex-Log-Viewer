@@ -31,7 +31,7 @@ async function query(target: string, soql: string, env: NodeJS.ProcessEnv): Prom
 test('isolated JWT pool administration and independent consumer lifecycle', async () => {
   test.skip(process.env.ALV_POOL_JWT_SMOKE !== '1' || consumerMode, 'Requires authorized isolated pool validation.');
   test.setTimeout(40 * 60_000);
-  const originalEnv = process.env;
+  const originalEnv = { ...process.env };
   const config = resolveDevHubConfig();
   if (config?.mode !== 'jwt' || !config.privateKey) throw new Error('Pool smoke requires inline Dev Hub JWT inputs.');
   const expectedOrg = String(process.env.ALV_JWT_SMOKE_DEVHUB_ORG_ID || '');
@@ -76,7 +76,8 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
   try {
     await mkdir(adminHome);
     await mkdir(consumerHome);
-    process.env = adminEnv;
+    for (const name of Object.keys(process.env)) if (!(name in adminEnv)) delete process.env[name];
+    Object.assign(process.env, adminEnv);
     const version = await runSfJson(['version']);
     expect(version.cliVersion).toBe('@salesforce/cli/2.150.6');
     evidence.cliVersion = version.cliVersion;
@@ -85,11 +86,17 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
     expect(Object.values(empty.result).filter(Array.isArray).flat().length).toBe(0);
     const inventory = await authenticateDevHub(config, runSfJson);
     try {
-      const organizations = await query(inventory.targetOrg, 'SELECT Id FROM Organization', inventory.env);
-      expect(organizations[0].Id === expectedOrg).toBe(true);
+      const users = await query(
+        inventory.targetOrg,
+        `SELECT Id, Username, IsActive FROM User WHERE Username = '${config.username.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`,
+        inventory.env
+      );
       const state = JSON.parse(
         await readFile(path.join(inventory.env[homeField]!, '.sfdx', `${config.username}.json`), 'utf8')
       );
+      expect(String(state.orgId).slice(0, 15) === expectedOrg.slice(0, 15)).toBe(true);
+      expect(state.username === config.username).toBe(true);
+      expect(users).toEqual([expect.objectContaining({ Username: config.username, IsActive: true })]);
       expect(Boolean(state.privateKey) && !state.refreshToken && state.clientId !== 'PlatformCLI').toBe(true);
       expect(
         (
@@ -199,7 +206,8 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
     evidence.failedConsumerRecovered = true;
     completed = true;
   } finally {
-    process.env = adminEnv;
+    for (const name of Object.keys(process.env)) if (!(name in adminEnv)) delete process.env[name];
+    Object.assign(process.env, adminEnv);
     try {
       if (poolMayExist) {
         const inspection = await authenticateDevHub(config, runSfJson);
@@ -301,7 +309,8 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
       evidence.cleanupError = error instanceof Error ? error.message : 'Unknown cleanup failure';
       throw error;
     } finally {
-      process.env = originalEnv;
+      for (const name of Object.keys(process.env)) if (!(name in originalEnv)) delete process.env[name];
+      Object.assign(process.env, originalEnv);
       evidence.completed = completed;
       evidence.remoteCleanupComplete = cleanupComplete;
       let localCleanupComplete = false;

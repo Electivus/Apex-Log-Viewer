@@ -311,7 +311,6 @@ jobs:
       SCRATCH_STRATEGY: pool
       VSCODE_TEST_VERSION: ${{ vars.VSCODE_TEST_VERSION || github.event.inputs.vscode_version || 'stable' }}
       SALESFORCE_CLI_PACKAGE: '@salesforce/cli@2.150.6'
-      SALESFORCE_CLI_NODE_VERSION: '20'
       PLAYWRIGHT_WORKERS: ${{ github.event.inputs.playwright_workers || vars.PLAYWRIGHT_WORKERS || '1' }}
       PLAYWRIGHT_RETRIES: ${{ vars.PLAYWRIGHT_RETRIES || '0' }}
       PLAYWRIGHT_TIMEOUT_MS: ${{ vars.PLAYWRIGHT_TIMEOUT_MS || '360000' }}
@@ -365,9 +364,8 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
-          # Node 22.23 can exit with "Detected unsettled top-level await" for
-          # @salesforce/cli inside the VS Code macOS test host.
-          node-version: ${{ env.SALESFORCE_CLI_NODE_VERSION }}
+          # Capture a supported runtime before creating the sanitized CLI wrapper.
+          node-version-file: .nvmrc
 
       - name: Resolve Salesforce CLI cache metadata
         id: sf-cli-cache

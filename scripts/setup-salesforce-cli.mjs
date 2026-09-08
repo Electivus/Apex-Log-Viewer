@@ -283,7 +283,7 @@ export function setupSalesforceCli({
   if (env.SALESFORCE_CLI_WRAP_NODE === '1') {
     const wrapperPath = path.join(
       env.RUNNER_TEMP || os.tmpdir(),
-      'alv-sf-node20',
+      'alv-sf-node',
       platform === 'win32' ? 'sf.cmd' : 'sf'
     );
     exportedSfBinPath = writeMacOSNodeWrapper({

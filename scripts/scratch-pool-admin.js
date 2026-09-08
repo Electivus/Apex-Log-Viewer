@@ -328,8 +328,11 @@ async function getSfdxAuthUrl(targetOrg) {
   return isUsableSfdxAuthUrl(display.sfdxAuthUrl) ? String(display.sfdxAuthUrl).trim() : undefined;
 }
 
-async function queryRecords(targetOrg, soql) {
+async function queryRecords(targetOrg, soql, requireComplete = false) {
   const response = await runSfJson(['data', 'query', '--target-org', targetOrg, '--query', soql]);
+  if (requireComplete && (response?.result?.done !== true || !Array.isArray(response.result.records))) {
+    throw new Error('Cannot confirm scratch metadata: incomplete Salesforce query response.');
+  }
   return Array.isArray(response?.result?.records) ? response.result.records : [];
 }
 
@@ -574,6 +577,7 @@ async function deleteExistingScratchForSlot(targetOrg, poolKey, slot, dependenci
   const latestInfo = await getLatestScratchOrgInfoImpl(targetOrg, poolKey, slot.SlotKey__c);
   const scratchOrgInfoIds = [];
   const activeScratchOrgIds = [];
+  const deletedSignupIds = new Set();
 
   const pushUniqueId = (collection, value) => {
     const normalized = String(value || '').trim();
@@ -588,6 +592,34 @@ async function deleteExistingScratchForSlot(targetOrg, poolKey, slot, dependenci
   pushUniqueId(activeScratchOrgIds, slot.ActiveScratchOrgId__c);
 
   for (const scratchOrgInfoId of scratchOrgInfoIds) {
+    let info = latestInfo?.Id === scratchOrgInfoId ? latestInfo : undefined;
+    if (!info) {
+      try {
+        info = await callSalesforceRestImpl(
+          targetOrg,
+          'GET',
+          `/sobjects/ScratchOrgInfo/${encodeURIComponent(scratchOrgInfoId)}?fields=Id,Status`
+        );
+      } catch (error) {
+        if (!isDeleteNotFoundErrorImpl(error)) throw error;
+      }
+    }
+    if (info?.Id === scratchOrgInfoId && info.Status === 'Deleted') {
+      const storedActiveId = String(slot.ActiveScratchOrgId__c || '').trim();
+      const query =
+        `SELECT Id FROM ActiveScratchOrg WHERE ScratchOrgInfoId = '${escapeSoqlLiteral(scratchOrgInfoId)}'` +
+        (storedActiveId ? ` OR Id = '${escapeSoqlLiteral(storedActiveId)}'` : '');
+      const active = await callSalesforceRestImpl(targetOrg, 'GET', `/query?q=${encodeURIComponent(query)}`);
+      if (active?.done !== true || !Array.isArray(active.records)) {
+        throw new Error('Cannot confirm historical scratch deletion: incomplete ActiveScratchOrg response.');
+      }
+      if (active.records.length === 0) {
+        deletedSignupIds.add(scratchOrgInfoId);
+        const index = activeScratchOrgIds.indexOf(storedActiveId);
+        if (index !== -1) activeScratchOrgIds.splice(index, 1);
+        continue;
+      }
+    }
     const activeScratch = await getActiveScratchOrgByInfoIdImpl(targetOrg, scratchOrgInfoId);
     pushUniqueId(activeScratchOrgIds, activeScratch?.Id);
   }
@@ -607,6 +639,7 @@ async function deleteExistingScratchForSlot(targetOrg, poolKey, slot, dependenci
   }
 
   for (const scratchOrgInfoId of scratchOrgInfoIds) {
+    if (deletedSignupIds.has(scratchOrgInfoId)) continue;
     try {
       await callSalesforceRestImpl(
         targetOrg,
@@ -700,7 +733,8 @@ async function getLatestScratchOrgInfo(targetOrg, poolKey, slotKey) {
       'FROM ScratchOrgInfo',
       `WHERE alvPoolKey__c = '${escapeSoqlLiteral(poolKey)}' AND alvSlotKey__c = '${escapeSoqlLiteral(slotKey)}'`,
       'ORDER BY CreatedDate DESC LIMIT 1'
-    ].join(' ')
+    ].join(' '),
+    true
   );
   return records[0];
 }
@@ -715,7 +749,8 @@ async function getActiveScratchOrgByInfoId(targetOrg, scratchOrgInfoId) {
       'SELECT Id, ScratchOrg, SignupUsername, ExpirationDate, ScratchOrgInfoId',
       'FROM ActiveScratchOrg',
       `WHERE ScratchOrgInfoId = '${escapeSoqlLiteral(scratchOrgInfoId)}' LIMIT 1`
-    ].join(' ')
+    ].join(' '),
+    true
   );
   return records[0];
 }
