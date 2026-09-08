@@ -21,6 +21,10 @@ The source ledger declares specification and verification obligations, but no `t
 
 Ticket bodies carry only the IDs that affect their own deliverable. Their published acceptance contracts extend the existing specification evidence; they are not recorded as successful verification. The mapping itself records ticket traceability because the source declares no separate `tickets` obligations.
 
+## Runtime correction during T05
+
+DEC-010 adds specification, tickets, and verification obligations for the supported macOS CLI runtime. T05/#1078 owns this correction and its actual CI proof; T06/#1079 inherits the resulting runtime without reopening accepted T01-T04 behavior. The earlier mapping and publication snapshot above describe the original ticket graph.
+
 ## Published slices and dependencies
 
 | Ticket | GitHub issue | Delivery | Blocked by |

@@ -89,7 +89,8 @@
         "DEC-002",
         "DEC-003",
         "DEC-004",
-        "DEC-005"
+        "DEC-005",
+        "DEC-010"
       ],
       "issue_number": 1078,
       "url": "https://github.com/Electivus/Apex-Log-Viewer/issues/1078",
