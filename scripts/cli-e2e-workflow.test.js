@@ -145,7 +145,7 @@ test('direct CI selects the generic keychain only for macOS and propagates it to
   const workflow = readWorkflow();
   const job = getWorkflowJob(workflow, 'playwright_e2e_os_matrix');
   const selection = job.env.SF_USE_GENERIC_UNIX_KEYCHAIN;
-  assert.equal(selection, "${{ runner.os == 'macOS' && 'true' || '' }}");
+  assert.equal(selection, "${{ matrix.os.artifact_suffix == 'macos' && 'true' || '' }}");
   for (const os of ['macOS', 'Windows']) {
     const env = { SF_USE_GENERIC_UNIX_KEYCHAIN: os === 'macOS' ? 'true' : '' };
     assert.equal(salesforceChildEnv(env).SF_USE_GENERIC_UNIX_KEYCHAIN, env.SF_USE_GENERIC_UNIX_KEYCHAIN);
