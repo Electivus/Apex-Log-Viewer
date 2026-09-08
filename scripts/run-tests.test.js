@@ -13,6 +13,20 @@ const testPrivateKey = require('node:crypto').generateKeyPairSync('rsa', {
   publicKeyEncoding: { type: 'spki', format: 'pem' }
 }).privateKey;
 
+test('JWT runner authenticates the selected identity when the CLI colors JSON tokens', async () => {
+  const session = await ensureDevHub('sf', {
+    mode: 'jwt', clientId: 'test-client', username: 'selected@example.com',
+    loginUrl: 'https://login.salesforce.com', privateKey: testPrivateKey
+  }, { execFileAsync: async () => ({
+    stdout: '{\u001b[34m"status"\u001b[39m:0,"result":{"username":"selected@example.com"}}'
+  }) });
+  try {
+    assert.equal(session.targetOrg, 'selected@example.com');
+  } finally {
+    await session.cleanup();
+  }
+});
+
 test('JWT response diagnostics identify a wrong envelope without exposing identity or credentials', async () => {
   await assert.rejects(ensureDevHub('sf', {
     mode: 'jwt', clientId: 'test-client', username: 'selected@example.com',

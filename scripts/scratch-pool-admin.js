@@ -6,6 +6,7 @@ const { tmpdir } = require('node:os');
 const path = require('path');
 const spawn = require('cross-spawn');
 const { AsyncLocalStorage } = require('node:async_hooks');
+const { stripVTControlCharacters } = require('node:util');
 const { authenticateDevHub, resolveDevHubConfig, salesforceChildEnv, scratchSignupEnv,
   isUsableSfdxAuthUrl, safeSfFailureMessage } = require('./devhub-auth');
 
@@ -251,7 +252,7 @@ async function runSfJson(args, options = {}) {
   const finalArgs = [...args, '--json'];
   try {
     const { stdout } = await execFileAsync(executable, finalArgs, { ...options, env });
-    const parsed = JSON.parse(stdout || '{}');
+    const parsed = JSON.parse(stripVTControlCharacters(stdout || '{}'));
     if (parsed && typeof parsed.status === 'number' && parsed.status !== 0) {
       throw new Error(parsed.message || `Salesforce CLI exited with status ${parsed.status}.`);
     }

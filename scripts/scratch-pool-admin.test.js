@@ -154,7 +154,8 @@ function poolSalesforce(t) {
           if (args[1] === 'logout' || args[0] === 'alias') return {};
           throw new Error('Unexpected CLI operation');
         });
-        child.stdout.emit('data', JSON.stringify({ status: 0, result }));
+        const output = JSON.stringify({ status: 0, result });
+        child.stdout.emit('data', state.colorJson ? output.replace('"status"', '\u001b[34m"status"\u001b[39m') : output);
         child.emit('close', 0);
       } catch (error) {
         if (state.cliWarning) {
@@ -192,6 +193,16 @@ test('JWT prewarm persists usable scratch authorization through the existing poo
   assert.equal(state.cliCalls.every(call => call.file === 'C:/fixture path/sf.cmd'), true);
   assert.equal(process.env.SF_TEMP_SHOW_SECRETS, undefined);
   assert.deepEqual(state.failures, []);
+});
+
+test('JWT pool prewarm preserves scratch credentials when the CLI colors JSON tokens', async t => {
+  const { state, dependencies } = poolSalesforce(t);
+  state.colorJson = true;
+  const result = await main(['prewarm', '--pool-key', 'isolated', '--limit', '1', '--json'], dependencies);
+  assert.deepEqual(result.prewarmedSlotKeys, ['slot-01']);
+  assert.equal(state.slot.ScratchAuthUrl__c, state.authUrl);
+  assert.equal(state.slot.LeaseState__c, 'available');
+  assert.equal(state.keyFiles.every(key => !existsSync(key)), true);
 });
 
 for (const source of ['stored', 'fallback', 'stale-stored']) {

@@ -2,6 +2,7 @@ const { spawn, execFile } = require('child_process');
 const { platform, tmpdir } = require('os');
 const { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } = require('fs');
 const { dirname, join, resolve } = require('path');
+const { stripVTControlCharacters } = require('node:util');
 const { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } = require('@vscode/test-electron');
 const { build } = require('esbuild');
 const { cleanVsCodeTest } = require('./clean-vscode-test.js');
@@ -121,7 +122,7 @@ function readEnvValue(name) {
 }
 
 function parseJsonOutput(stdout) {
-  const text = String(stdout || '').trim();
+  const text = stripVTControlCharacters(String(stdout || '')).trim();
   if (!text) {
     return undefined;
   }
