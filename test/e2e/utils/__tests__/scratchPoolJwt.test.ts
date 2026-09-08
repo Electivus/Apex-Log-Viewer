@@ -168,6 +168,51 @@ describe('JWT pool consumer through CLI and REST adapters', () => {
     }
   );
 
+  test.each(['allowed', 'denied'])('reconciles a newer active signup after stored Deleted history: %s', async permission => {
+    const request = fetchSpy.getMockImplementation()!;
+    const deletions: string[] = [];
+    fetchSpy.mockImplementation(async (input, options) => {
+      const url = String(input);
+      const decoded = decodeURIComponent(url);
+      if (url.endsWith('/acquire')) return response({
+        ok: true, poolKey: 'isolated', slotKey: 'slot-01', scratchAlias: 'ISOLATED_01',
+        leaseToken: 'fixture-lease', needsCreate: true, scratchOrgInfoId: 'old-info', scratchAuthUrl: authUrl
+      });
+      if (options?.method === 'DELETE') {
+        deletions.push(url.split('/').pop()!);
+        return permission === 'denied'
+          ? response([{ errorCode: 'INSUFFICIENT_ACCESS' }], 403)
+          : response({});
+      }
+      if (url.includes('/sobjects/ScratchOrgInfo/old-info')) return response({ Id: 'old-info', Status: 'Deleted' });
+      if (url.includes('/sobjects/ScratchOrgInfo/new-info')) return response({ Id: 'new-info', Status: 'Active' });
+      if (decoded.includes('FROM ScratchOrgInfo')) return response({ done: true, records: [{ Id: 'new-info' }] });
+      if (decoded.includes('FROM ActiveScratchOrg')) return response({
+        done: true, records: decoded.includes("'new-info'") ? [{ Id: 'new-active' }] : []
+      });
+      return request(input, options);
+    });
+    const command = cli.getMockImplementation()!;
+    cli.mockImplementation(async (args, options) => {
+      if (args[1] === 'logout' || args[0] === 'alias' || args.slice(0, 3).join(' ') === 'org create scratch') {
+        return { status: 0, result: {} };
+      }
+      return command(args, options);
+    });
+    if (permission === 'denied') {
+      await expect(ensureScratchOrg()).rejects.toThrow(/existing owner|administrator/);
+      expect(cli.mock.calls.some(([args]) => ['logout', 'create'].includes(args[1]!))).toBe(false);
+      expect(requests.find(item => item.operation === 'release')?.body).toMatchObject({
+        success: false, scratchAuthUrl: authUrl
+      });
+    } else {
+      const scratch = await ensureScratchOrg();
+      await scratch.cleanup();
+      expect(requests.find(item => item.operation === 'finalize')?.body.created).toBe(true);
+    }
+    expect(deletions).toEqual(['new-active']);
+  });
+
   test.each([
     'active',
     'contradictory',

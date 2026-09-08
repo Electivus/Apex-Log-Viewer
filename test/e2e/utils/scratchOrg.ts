@@ -653,8 +653,9 @@ async function deleteExistingPooledScratch(
 ): Promise<void> {
   const triedIds = new Set<string>();
 
-  const tryDeleteByIds = async (ids: { activeScratchOrgId?: string; scratchOrgInfoId?: string }): Promise<boolean> => {
+  const tryDeleteByIds = async (ids: { activeScratchOrgId?: string; scratchOrgInfoId?: string }): Promise<void> => {
     if (ids.scratchOrgInfoId) {
+      triedIds.add(ids.scratchOrgInfoId);
       let info;
       try {
         info = await requestOrgJson(
@@ -677,7 +678,7 @@ async function deleteExistingPooledScratch(
         if (active?.done !== true || !Array.isArray(active.records)) {
           throw new Error('Cannot confirm historical scratch deletion: incomplete ActiveScratchOrg response.');
         }
-        if (active.records.length === 0) return true;
+        if (active.records.length === 0) return;
       }
     }
     if (ids.activeScratchOrgId) {
@@ -688,7 +689,7 @@ async function deleteExistingPooledScratch(
           'DELETE',
           `/services/data/v${auth.apiVersion}/sobjects/ActiveScratchOrg/${ids.activeScratchOrgId}`
         );
-        return true;
+        return;
       } catch (error) {
         if (!isHttpError(error, 404)) {
           throw error;
@@ -696,26 +697,24 @@ async function deleteExistingPooledScratch(
       }
     }
     if (ids.scratchOrgInfoId) {
-      triedIds.add(ids.scratchOrgInfoId);
       try {
         await requestOrgJson(
           auth,
           'DELETE',
           `/services/data/v${auth.apiVersion}/sobjects/ScratchOrgInfo/${ids.scratchOrgInfoId}`
         );
-        return true;
+        return;
       } catch (error) {
         if (!isHttpError(error, 404)) {
           throw error;
         }
       }
     }
-    return false;
   };
 
-  if (await tryDeleteByIds(lease)) {
-    return;
-  }
+  // A signup created before an interrupted finalize may be newer than the IDs
+  // persisted on the slot. Reconcile that metadata even when stored IDs are gone.
+  await tryDeleteByIds(lease);
 
   const poolKey = String(lease.poolKey || '').trim();
   const slotKey = String(lease.slotKey || '').trim();

@@ -15,7 +15,7 @@
 
 ### Tests
 
-- CI/Dev Hub: require complete dedicated-identity JWT in every real-org gate and child environment, pin Salesforce CLI 2.150.6 with macOS Node 20 isolation, and expose opt-in integrated signup/export/import and pool lifecycle validation.
+- CI/Dev Hub: require complete dedicated-identity JWT in every real-org gate and child environment, pin Salesforce CLI 2.150.6 with the isolated macOS Node runtime from `.nvmrc`, and expose opt-in integrated signup/export/import and pool lifecycle validation.
 
 - Dev Hub: add resumable operator commands for minimum-access identity/ECA bootstrap, explicit certificate policy and isolated native scratch/pool permission proof. Permanent provisioning follows the approved storage/lifetime policy; integrated CI acceptance is tracked in #1078.
 - Dev Hub: reject extra grants on the ECA preauthorization-only set and recover interrupted pre-login proofs without inferring cleanup after an uncertain remote write.
