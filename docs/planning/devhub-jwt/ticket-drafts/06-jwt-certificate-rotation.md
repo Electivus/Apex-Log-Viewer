@@ -34,5 +34,5 @@ Give operators a reproducible way to rotate the active Dev Hub automation certif
 - Repository: Electivus/Apex-Log-Viewer
 - Effort: devhub-jwt
 - Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
-- Planning checkpoint: 979e5ded16203ba23c7287ec63e9869aa08e65e5
+- Planning checkpoint: d6301c31287b315cc5929a6ce603a5c70eb11775
 - Decisions: DEC-001, DEC-004
