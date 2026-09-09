@@ -10,6 +10,532 @@ const { ADMINISTRATIVE_PERMISSIONS } = require('./devhub-identity-permissions');
 
 const baseArgs = ['inspect', '--target-org', 'Bootstrap', '--expected-org-id', '00D000000000001AAA'];
 
+test('rotation preparation validates replacement and rollback material without changing the app, store or grants', async t => {
+  const { fixture, directory, deployments } = await preparedAppFixture(t, 'permanent');
+  const state = JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8'));
+  addRuntimeAssignment(fixture, state);
+  writeFileSync(path.join(directory, 'identity.json'), JSON.stringify(state));
+  const replacement = await temporaryCertificate(t);
+  const before = JSON.stringify(fixture.records);
+  const deploysBefore = deployments();
+  fixture.gh = async args => {
+    assert.deepEqual(args, [
+      'secret',
+      'list',
+      '--repo',
+      'Electivus/Apex-Log-Viewer',
+      '--app',
+      'actions',
+      '--json',
+      'name,updatedAt'
+    ]);
+    return ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY'].map(name => ({
+      name: `SF_DEVHUB_${name}`,
+      updatedAt: '2026-09-07T12:00:00Z'
+    }));
+  };
+  const result = await main(
+    [
+      'prepare-rotation',
+      ...baseArgs.slice(1),
+      '--state-dir',
+      directory,
+      '--credential-mode',
+      'permanent',
+      '--certificate-days',
+      '2',
+      '--storage-policy',
+      'github-actions-secret:Electivus/Apex-Log-Viewer/SF_DEVHUB_PRIVATE_KEY',
+      '--policy-reference',
+      'fixture-rotation-approval',
+      '--expected-fingerprint',
+      state.apps.permanent.fingerprint,
+      '--certificate-file',
+      replacement.certificateFile,
+      '--private-key-file',
+      replacement.privateKeyFile
+    ],
+    fixture
+  );
+  assert.equal(result.status, 'rotation-prepared');
+  assert.equal(result.fingerprint, replacement.fingerprint);
+  assert.equal(result.rollbackAvailable, true);
+  assert.equal(deployments(), deploysBefore);
+  assert.equal(JSON.stringify(fixture.records), before);
+  const saved = JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8'));
+  assert.equal(saved.rotation.phase, 'prepared');
+  assert.equal(saved.apps.permanent.fingerprint, state.apps.permanent.fingerprint);
+  assert.doesNotMatch(
+    JSON.stringify(result) + JSON.stringify(saved),
+    /BEGIN PRIVATE KEY|fixture-consumer-secret|fixture-client-key/
+  );
+});
+
+async function rotationFixture(t) {
+  const prepared = await preparedAppFixture(t, 'permanent');
+  const { fixture, directory } = prepared;
+  const state = JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8'));
+  addRuntimeAssignment(fixture, state);
+  writeFileSync(path.join(directory, 'identity.json'), JSON.stringify(state));
+  const replacement = await temporaryCertificate(t);
+  const changes = { app: 0, store: 0, logins: 0 };
+  const invoke = fixture.sf;
+  fixture.sf = async (args, options) => {
+    if (args[0] === 'org' && args[1] === 'list') return { nonScratchOrgs: [], scratchOrgs: [] };
+    if (args[0] === 'org' && args[1] === 'login') {
+      assert.equal(args[2], 'jwt', 'No refresh-token or alias fallback');
+      const home = options.env.USERPROFILE;
+      assert.equal(existsSync(path.join(home, '.sf')), false, 'Each authentication starts from empty CLI state');
+      assert.equal(
+        new X509Certificate(readFileSync(fixture.activeCertificateFile)).checkPrivateKey(
+          createPrivateKey(readFileSync(args[args.indexOf('--jwt-key-file') + 1]))
+        ),
+        true
+      );
+      mkdirSync(path.join(home, '.sf'));
+      changes.logins += 1;
+      return { username: state.username, orgId: state.org };
+    }
+    if (args[0] === 'data' && options?.env?.SF_STATE_FOLDER === '.sf') {
+      return { records: [{ Id: state.userId, Username: state.username }], done: true, totalSize: 1 };
+    }
+    if (args[0] === 'project' && args[1] === 'deploy' && !args.includes('--dry-run')) {
+      const file = path.join(
+        options.cwd,
+        'force-app',
+        'main',
+        'default',
+        'extlClntAppGlobalOauthSets',
+        `${state.apps.permanent.name}_global.ecaGlblOauth-meta.xml`
+      );
+      const { xmlValue } = require('./devhub-identity-app');
+      const certificateFile = path.join(directory, `live-${changes.app}.pem`);
+      writeFileSync(certificateFile, xmlValue(readFileSync(file, 'utf8'), 'certificate'));
+      fixture.activeCertificateFile = certificateFile;
+      changes.app += 1;
+      return { success: true, status: 'Succeeded', checkOnly: false, id: `rotation-deploy-${changes.app}` };
+    }
+    return invoke(args, options);
+  };
+  fixture.gh = async (args, options) => {
+    if (args[1] === 'list')
+      return ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY'].map(name => ({
+        name: `SF_DEVHUB_${name}`,
+        updatedAt: '2026-09-07T12:00:00Z'
+      }));
+    assert.deepEqual(args, [
+      'secret',
+      'set',
+      'SF_DEVHUB_PRIVATE_KEY',
+      '--repo',
+      'Electivus/Apex-Log-Viewer',
+      '--app',
+      'actions'
+    ]);
+    assert.equal(
+      new X509Certificate(readFileSync(fixture.activeCertificateFile)).checkPrivateKey(createPrivateKey(options.input)),
+      true
+    );
+    changes.store += 1;
+  };
+  const prepareArgs = [
+    'prepare-rotation',
+    ...baseArgs.slice(1),
+    '--state-dir',
+    directory,
+    '--credential-mode',
+    'permanent',
+    '--certificate-days',
+    '2',
+    '--storage-policy',
+    'github-actions-secret:Electivus/Apex-Log-Viewer/SF_DEVHUB_PRIVATE_KEY',
+    '--policy-reference',
+    'fixture-rotation-approval',
+    '--expected-fingerprint',
+    state.apps.permanent.fingerprint,
+    '--certificate-file',
+    replacement.certificateFile,
+    '--private-key-file',
+    replacement.privateKeyFile
+  ];
+  return {
+    ...prepared,
+    changes,
+    prepareArgs,
+    state,
+    replacement,
+    read: () => JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8'))
+  };
+}
+
+test('rotation applies only the certificate and private-key Secret, proves fresh JWT, and resumes without repeated mutation', async t => {
+  const setup = await rotationFixture(t);
+  const { fixture, prepareArgs, changes, read, state, replacement } = setup;
+  const before = JSON.stringify(fixture.records);
+  const prepared = await main(prepareArgs, fixture);
+  const args = [
+    'apply-rotation',
+    ...baseArgs.slice(1),
+    '--state-dir',
+    setup.directory,
+    '--rotation-id',
+    prepared.rotationId
+  ];
+  const result = await main(args, fixture);
+  assert.equal(result.status, 'rotation-applied');
+  assert.equal(result.ciVerified, false, 'A local login or Secret timestamp never attests actual CI');
+  assert.equal(read().apps.permanent.fingerprint, replacement.fingerprint);
+  assert.equal(read().apps.permanent.id, state.apps.permanent.id);
+  assert.equal(read().rotation.phase, 'applied');
+  assert.equal(JSON.stringify(fixture.records), before, 'Runtime grants and pool records stay intact');
+  assert.deepEqual(changes, { app: 1, store: 1, logins: 2 });
+  await main(args, fixture);
+  assert.equal(changes.app, 1);
+  assert.equal(changes.store, 1);
+  assert.ok(read().rotation.loginAttempts.every(item => item.cleanup === true && !existsSync(item.directory)));
+  assert.doesNotMatch(
+    JSON.stringify(result) + JSON.stringify(read()),
+    /BEGIN PRIVATE KEY|fixture-consumer-secret|fixture-client-key/
+  );
+});
+
+test('rotation rejects contradictory fresh API inventories before app or Secret writes and can recover', async t => {
+  const setup = await rotationFixture(t);
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  const invoke = setup.fixture.sf;
+  const user = { Id: setup.state.userId, Username: setup.state.username };
+  let response;
+  setup.fixture.sf = async (args, options) => {
+    if (args[0] === 'data' && options?.env?.SF_STATE_FOLDER === '.sf') return response;
+    return invoke(args, options);
+  };
+  const args = [...baseArgs.slice(1), '--state-dir', setup.directory, '--rotation-id', prepared.rotationId];
+  for (response of [
+    { records: { 0: user, length: 1 }, done: true, totalSize: 1 },
+    { records: [user], done: true, totalSize: 2 },
+    { records: [user], done: true, totalSize: '1' },
+    { records: [user], done: true, totalSize: null }
+  ]) {
+    await assert.rejects(main(['apply-rotation', ...args], setup.fixture), /did not confirm the dedicated user/);
+    assert.equal(setup.changes.app, 0);
+    assert.equal(setup.changes.store, 0);
+    const attempt = setup.read().rotation.loginAttempts.at(-1);
+    assert.equal(attempt.verifiedAt, undefined);
+    assert.equal(attempt.cleanup, true);
+    assert.equal(existsSync(attempt.directory), false);
+  }
+  response = { records: [user], done: true };
+  const recovered = await main(['recover-rotation', ...args, '--recovery-direction', 'forward'], setup.fixture);
+  assert.equal(recovered.status, 'rotation-applied', 'totalSize remains optional for a complete inventory');
+  assert.equal(setup.changes.app, 1);
+  assert.equal(setup.changes.store, 1);
+});
+
+test('the next approved rotation preserves prior history and uses the current certificate as rollback material', async t => {
+  const setup = await rotationFixture(t);
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  await main(
+    ['apply-rotation', ...baseArgs.slice(1), '--state-dir', setup.directory, '--rotation-id', prepared.rotationId],
+    setup.fixture
+  );
+  const next = await temporaryCertificate(t);
+  const args = [...setup.prepareArgs];
+  args[args.indexOf('--expected-fingerprint') + 1] = setup.replacement.fingerprint;
+  args[args.indexOf('--certificate-file') + 1] = next.certificateFile;
+  args[args.indexOf('--private-key-file') + 1] = next.privateKeyFile;
+  const result = await main(args, setup.fixture);
+  assert.notEqual(result.rotationId, prepared.rotationId);
+  assert.equal(setup.read().rotationHistory[0].phase, 'applied');
+  assert.equal(setup.read().rotation.previous.fingerprint, setup.replacement.fingerprint);
+  assert.equal(setup.read().rotation.candidate.fingerprint, next.fingerprint);
+});
+
+test('an interrupted certificate replacement blocks other identity mutations until explicit recovery', async t => {
+  const setup = await rotationFixture(t);
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  const invoke = setup.fixture.sf;
+  let interrupt = true;
+  setup.fixture.sf = async (args, options) => {
+    if (interrupt && args[0] === 'project' && args[1] === 'deploy' && !args.includes('--dry-run')) {
+      await invoke(args, options);
+      interrupt = false;
+      throw new Error('lost response fixture-consumer-secret BEGIN PRIVATE KEY');
+    }
+    return invoke(args, options);
+  };
+  const args = [...baseArgs.slice(1), '--state-dir', setup.directory];
+  await assert.rejects(
+    main(['apply-rotation', ...args, '--rotation-id', prepared.rotationId], setup.fixture),
+    /output withheld/
+  );
+  assert.equal(setup.read().rotation.phase, 'app-update-pending');
+  assert.deepEqual(setup.changes, { app: 1, store: 0, logins: 1 });
+  await assert.rejects(main(['grant-runtime', ...args], setup.fixture), /Recover the pending certificate rotation/);
+  const result = await main(
+    ['recover-rotation', ...args, '--rotation-id', prepared.rotationId, '--recovery-direction', 'forward'],
+    setup.fixture
+  );
+  assert.equal(result.status, 'rotation-applied');
+  assert.deepEqual(setup.changes, { app: 1, store: 1, logins: 2 });
+});
+
+for (const boundary of ['before-app', 'before-store', 'after-store']) {
+  test(`rotation recovers forward from interruption ${boundary} with explicit mutation evidence`, async t => {
+    const setup = await rotationFixture(t);
+    const prepared = await main(setup.prepareArgs, setup.fixture);
+    let interrupt = true;
+    const sf = setup.fixture.sf;
+    const gh = setup.fixture.gh;
+    setup.fixture.sf = async (args, options) => {
+      if (
+        interrupt &&
+        boundary === 'before-app' &&
+        args[0] === 'project' &&
+        args[1] === 'deploy' &&
+        !args.includes('--dry-run')
+      ) {
+        interrupt = false;
+        throw new Error('fixture-consumer-secret');
+      }
+      return sf(args, options);
+    };
+    setup.fixture.gh = async (args, options) => {
+      if (interrupt && boundary !== 'before-app' && args[1] === 'set') {
+        interrupt = false;
+        if (boundary === 'after-store') await gh(args, options);
+        throw new Error('fixture-consumer-secret');
+      }
+      return gh(args, options);
+    };
+    const args = [...baseArgs.slice(1), '--state-dir', setup.directory, '--rotation-id', prepared.rotationId];
+    await assert.rejects(main(['apply-rotation', ...args], setup.fixture), /output withheld/);
+    assert.equal(
+      setup.read().rotation.phase,
+      boundary === 'before-app' ? 'app-update-pending' : 'store-update-pending'
+    );
+    assert.equal(setup.changes.app, boundary === 'before-app' ? 0 : 1);
+    assert.equal(setup.changes.store, boundary === 'after-store' ? 1 : 0);
+    const recovered = await main(['recover-rotation', ...args, '--recovery-direction', 'forward'], setup.fixture);
+    assert.equal(recovered.status, 'rotation-applied');
+    assert.equal(setup.changes.app, 1);
+    assert.equal(
+      setup.changes.store,
+      boundary === 'after-store' ? 2 : 1,
+      'An uncertain write-only store response is safely rewritten'
+    );
+    assert.equal(setup.read().rotation.phase, 'applied');
+  });
+}
+
+test('rotation rollback restores the prior matching certificate and Secret after a store failure', async t => {
+  const setup = await rotationFixture(t);
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  const gh = setup.fixture.gh;
+  let fail = true;
+  setup.fixture.gh = async (args, options) => {
+    if (args[1] === 'set' && fail) {
+      fail = false;
+      throw new Error('fixture-consumer-secret');
+    }
+    return gh(args, options);
+  };
+  const args = [...baseArgs.slice(1), '--state-dir', setup.directory, '--rotation-id', prepared.rotationId];
+  await assert.rejects(main(['apply-rotation', ...args], setup.fixture), /output withheld/);
+  const recovered = await main(['recover-rotation', ...args, '--recovery-direction', 'rollback'], setup.fixture);
+  assert.equal(recovered.status, 'rotation-rolled-back');
+  assert.equal(setup.read().apps.permanent.fingerprint, setup.state.apps.permanent.fingerprint);
+  assert.equal(setup.read().rotation.phase, 'rolled-back');
+  assert.equal(setup.changes.app, 2);
+  assert.equal(setup.changes.store, 1);
+});
+
+test('missing rollback key fails without writes while retained candidate permits explicit forward recovery', async t => {
+  const setup = await rotationFixture(t);
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  const gh = setup.fixture.gh;
+  let fail = true;
+  setup.fixture.gh = async (args, options) => {
+    if (args[1] === 'set' && fail) {
+      fail = false;
+      throw new Error('fixture-consumer-secret');
+    }
+    return gh(args, options);
+  };
+  const args = [...baseArgs.slice(1), '--state-dir', setup.directory, '--rotation-id', prepared.rotationId];
+  await assert.rejects(main(['apply-rotation', ...args], setup.fixture), /output withheld/);
+  rmSync(setup.read().rotation.previous.privateKeyFile);
+  const before = { ...setup.changes };
+  await assert.rejects(
+    main(['recover-rotation', ...args, '--recovery-direction', 'rollback'], setup.fixture),
+    /GitHub Secrets cannot return old keys/
+  );
+  assert.deepEqual(setup.changes, before);
+  const recovered = await main(['recover-rotation', ...args, '--recovery-direction', 'forward'], setup.fixture);
+  assert.equal(recovered.status, 'rotation-applied');
+  assert.equal(setup.changes.app, 1);
+  assert.equal(setup.changes.store, 1);
+});
+
+test('invalid rotation lifecycle, missing files and mismatched keys fail before remote calls', async t => {
+  const setup = await rotationFixture(t);
+  for (const [flag, value, message] of [
+    ['--certificate-days', '3', /lifetime differs/],
+    ['--certificate-days', '', /Explicit credential lifecycle inputs/],
+    ['--policy-reference', '', /Explicit credential lifecycle inputs/],
+    ['--private-key-file', path.join(setup.directory, 'missing-key.pem'), /readable X.509/],
+    ['--private-key-file', setup.state.apps.permanent.privateKeyFile, /Certificate\/key mismatch/],
+    ['--storage-policy', 'temporary-local', /GitHub Actions Secret storage policy/],
+    ['--expected-fingerprint', '', /explicit current SHA-256/]
+  ]) {
+    const args = [...setup.prepareArgs];
+    args[args.indexOf(flag) + 1] = value;
+    await assert.rejects(
+      main(args, {
+        sf: async () => assert.fail('Invalid inputs must stop before Salesforce'),
+        gh: async () => assert.fail('No GitHub calls')
+      }),
+      message
+    );
+  }
+});
+
+test('rotation refuses changed live grants without repairing them', async t => {
+  const setup = await rotationFixture(t);
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  setup.fixture.records.PermissionSetAssignment.push({
+    Id: 'unexpected',
+    AssigneeId: '005runtime',
+    PermissionSetId: 'unexpected',
+    PermissionSetGroupId: null
+  });
+  const before = JSON.stringify(setup.fixture.records);
+  await assert.rejects(
+    main(
+      ['apply-rotation', ...baseArgs.slice(1), '--state-dir', setup.directory, '--rotation-id', prepared.rotationId],
+      setup.fixture
+    ),
+    /Runtime administrative grants/
+  );
+  assert.equal(setup.changes.app, 0);
+  assert.equal(setup.changes.store, 0);
+  assert.equal(JSON.stringify(setup.fixture.records), before);
+});
+
+test('rotation retains the primary JWT failure and cleanup code, then reconciles the owned home before recovery', async t => {
+  const setup = await rotationFixture(t);
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  const invoke = setup.fixture.sf;
+  let loginFails = true;
+  setup.fixture.sf = async (args, options) => {
+    if (loginFails && args[0] === 'org' && args[1] === 'login') {
+      throw new Error('INVALID_GRANT fixture-consumer-secret');
+    }
+    return invoke(args, options);
+  };
+  const files = require('node:fs/promises');
+  const nativeRemove = files.rm;
+  const removal = t.mock.method(files, 'rm', async (directory, options) => {
+    if (path.basename(directory).startsWith('jwt-check-')) {
+      throw Object.assign(new Error('fixture-consumer-secret'), { code: 'EBUSY' });
+    }
+    return nativeRemove(directory, options);
+  });
+  const args = [...baseArgs.slice(1), '--state-dir', setup.directory, '--rotation-id', prepared.rotationId];
+  await assert.rejects(main(['apply-rotation', ...args], setup.fixture), error => {
+    assert.match(error.message, /INVALID_GRANT/);
+    assert.match(error.message, /cleanup failed \(EBUSY\)/);
+    assert.doesNotMatch(error.message, /fixture-consumer-secret/);
+    return true;
+  });
+  const failed = setup.read().rotation.loginAttempts[0];
+  assert.equal(failed.cleanup, false);
+  assert.equal(failed.cleanupErrorCode, 'EBUSY');
+  assert.equal(failed.verifiedAt, undefined);
+  assert.equal(setup.changes.app, 0);
+  assert.equal(setup.changes.store, 0);
+  removal.mock.restore();
+  loginFails = false;
+  const recovered = await main(['recover-rotation', ...args, '--recovery-direction', 'forward'], setup.fixture);
+  assert.equal(recovered.status, 'rotation-applied');
+  assert.equal(setup.read().rotation.loginAttempts[0].cleanup, true);
+  assert.equal(existsSync(failed.directory), false);
+  assert.equal(setup.changes.app, 1);
+  assert.equal(setup.changes.store, 1);
+});
+
+test('a successful JWT with blocked cleanup stays recorded and stops rotation before active writes', async t => {
+  const setup = await rotationFixture(t);
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  const files = require('node:fs/promises');
+  const nativeRemove = files.rm;
+  const removal = t.mock.method(files, 'rm', async (directory, options) => {
+    if (path.basename(directory).startsWith('jwt-check-'))
+      throw Object.assign(new Error('withheld'), { code: 'EPERM' });
+    return nativeRemove(directory, options);
+  });
+  await assert.rejects(
+    main(
+      ['apply-rotation', ...baseArgs.slice(1), '--state-dir', setup.directory, '--rotation-id', prepared.rotationId],
+      setup.fixture
+    ),
+    /cleanup failed \(EPERM\)/
+  );
+  removal.mock.restore();
+  const state = setup.read();
+  assert.equal(state.rotation.phase, 'prepared');
+  assert.ok(state.rotation.loginAttempts[0].verifiedAt);
+  assert.equal(state.rotation.loginAttempts[0].cleanup, false);
+  assert.equal(state.rotation.loginAttempts[0].failure, undefined);
+  assert.deepEqual(setup.changes, { app: 0, store: 0, logins: 1 });
+});
+
+test('expired or not-yet-valid replacement fails before remote calls', async t => {
+  const setup = await rotationFixture(t);
+  const now = Date.now();
+  t.mock.timers.enable({ apis: ['Date'], now: now + 3 * 86400000 });
+  const boundaries = {
+    sf: async () => assert.fail('No Salesforce calls'),
+    gh: async () => assert.fail('No store calls')
+  };
+  await assert.rejects(main(setup.prepareArgs, boundaries), /expired certificate or lifetime differs/);
+  t.mock.timers.setTime(now - 86400000);
+  await assert.rejects(main(setup.prepareArgs, boundaries), /expired certificate or lifetime differs/);
+  t.mock.timers.reset();
+});
+
+test('rotation refuses live certificate drift, a missing Secret and unknown recovery phase before writes', async t => {
+  const setup = await rotationFixture(t);
+  const oldCertificate = setup.fixture.activeCertificateFile;
+  setup.fixture.activeCertificateFile = setup.replacement.certificateFile;
+  await assert.rejects(main(setup.prepareArgs, setup.fixture), /active ECA certificate differs/);
+  setup.fixture.activeCertificateFile = oldCertificate;
+  const gh = setup.fixture.gh;
+  setup.fixture.gh = async () => [];
+  await assert.rejects(main(setup.prepareArgs, setup.fixture), /all four JWT inputs/);
+  setup.fixture.gh = gh;
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  const saved = setup.read();
+  saved.rotation.phase = 'unknown-version';
+  writeFileSync(path.join(setup.directory, 'identity.json'), JSON.stringify(saved));
+  await assert.rejects(
+    main(
+      [
+        'recover-rotation',
+        ...baseArgs.slice(1),
+        '--state-dir',
+        setup.directory,
+        '--rotation-id',
+        prepared.rotationId,
+        '--recovery-direction',
+        'forward'
+      ],
+      setup.fixture
+    ),
+    /phase or recovery direction is invalid/
+  );
+  assert.deepEqual(setup.changes, { app: 0, store: 0, logins: 0 });
+});
+
 test('provisioning refuses an unexpected target before any mutation', async () => {
   const sf = async args => {
     assert.equal(args.slice(0, 3).join(' '), 'data query --target-org');
@@ -410,11 +936,12 @@ test('a rejected metadata validation leaves app activation and assignments untou
   );
 });
 
-async function preparedAppFixture(t) {
+async function preparedAppFixture(t, mode = 'temporary') {
   const fixture = provisioningFixture();
   const directory = stateDirectory(t);
   await main(['provision-user', ...baseArgs.slice(1), '--state-dir', directory], fixture);
   const certificate = await temporaryCertificate(t);
+  fixture.activeCertificateFile = certificate.certificateFile;
   fixture.records.PermissionSetAssignment = [];
   fixture.permissionFields = ['PermissionsApiEnabled', ...ADMINISTRATIVE_PERMISSIONS];
   fixture.permissionChildren = [
@@ -439,7 +966,7 @@ async function preparedAppFixture(t) {
       };
     }
     if (args[0] !== 'project') return invoke(args);
-    const app = JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8')).apps.temporary;
+    const app = JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8')).apps[mode];
     if (args[1] === 'deploy') {
       if (args.includes('--dry-run')) {
         validated.add(options.cwd);
@@ -479,7 +1006,7 @@ async function preparedAppFixture(t) {
       );
     }
     const files = {
-      [`extlClntAppGlobalOauthSets/${app.name}_global.ecaGlblOauth-meta.xml`]: `<ExtlClntAppGlobalOauthSettings><consumerKey>fixture-client-key</consumerKey><consumerSecret>fixture-consumer-secret</consumerSecret><certificate>${readFileSync(certificate.certificateFile, 'utf8')}</certificate><callbackUrl>http://localhost:1717/OauthRedirect</callbackUrl><isConsumerSecretOptional>false</isConsumerSecretOptional><isIntrospectAllTokens>false</isIntrospectAllTokens><isPkceRequired>true</isPkceRequired><isSecretRequiredForRefreshToken>true</isSecretRequiredForRefreshToken><shouldRotateConsumerKey>false</shouldRotateConsumerKey><shouldRotateConsumerSecret>false</shouldRotateConsumerSecret></ExtlClntAppGlobalOauthSettings>`,
+      [`extlClntAppGlobalOauthSets/${app.name}_global.ecaGlblOauth-meta.xml`]: `<ExtlClntAppGlobalOauthSettings><consumerKey>fixture-client-key</consumerKey><consumerSecret>fixture-consumer-secret</consumerSecret><certificate>${readFileSync(fixture.activeCertificateFile, 'utf8')}</certificate><callbackUrl>http://localhost:1717/OauthRedirect</callbackUrl><isConsumerSecretOptional>false</isConsumerSecretOptional><isIntrospectAllTokens>false</isIntrospectAllTokens><isPkceRequired>true</isPkceRequired><isSecretRequiredForRefreshToken>true</isSecretRequiredForRefreshToken><shouldRotateConsumerKey>false</shouldRotateConsumerKey><shouldRotateConsumerSecret>false</shouldRotateConsumerSecret></ExtlClntAppGlobalOauthSettings>`,
       [`extlClntAppOauthSettings/${app.name}_oauth.ecaOauth-meta.xml`]:
         '<ExtlClntAppOauthSettings><commaSeparatedOauthScopes>Api,RefreshToken</commaSeparatedOauthScopes></ExtlClntAppOauthSettings>',
       [`extlClntAppOauthPolicies/${app.name}_oauthPlcy.ecaOauthPlcy-meta.xml`]: `<ExtlClntAppOauthConfigurablePolicies><commaSeparatedPermissionSet>${app.preauthorization}</commaSeparatedPermissionSet><ipRelaxationPolicyType>Enforce</ipRelaxationPolicyType><permittedUsersPolicyType>AdminApprovedPreAuthorized</permittedUsersPolicyType><refreshTokenPolicyType>Zero</refreshTokenPolicyType><sessionTimeoutInMinutes>15</sessionTimeoutInMinutes><isClientCredentialsFlowEnabled>false</isClientCredentialsFlowEnabled><isGuestCodeCredFlowEnabled>false</isGuestCodeCredFlowEnabled><isTokenExchangeFlowEnabled>false</isTokenExchangeFlowEnabled></ExtlClntAppOauthConfigurablePolicies>`,
@@ -499,11 +1026,12 @@ async function preparedAppFixture(t) {
     '--state-dir',
     directory,
     '--credential-mode',
-    'temporary',
+    mode,
     '--certificate-days',
     '2',
     '--storage-policy',
-    'temporary-local',
+    mode === 'temporary' ? 'temporary-local' : 'github-actions-secret:Electivus/Apex-Log-Viewer/SF_DEVHUB_PRIVATE_KEY',
+    ...(mode === 'permanent' ? ['--policy-reference', 'fixture-operator-approval'] : []),
     '--certificate-file',
     certificate.certificateFile,
     '--private-key-file',

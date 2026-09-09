@@ -12,6 +12,8 @@ const { grantRuntime, useSalesforceFallback } = require('./devhub-identity-permi
 const { nativeSf, safeFailure } = require('./devhub-identity-sf');
 const { prove, recoverProof } = require('./devhub-identity-proof');
 const { revokeApp, cleanupAppFiles } = require('./devhub-identity-teardown');
+const { prepareRotation, applyRotation, rotationInputs } = require('./devhub-identity-rotation');
+const { nativeGh } = require('./devhub-identity-store');
 
 function soqlLiteral(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -38,7 +40,7 @@ async function saveState(directory, state) {
   await fs.rename(pending, path.join(directory, 'identity.json'));
 }
 
-async function main(argv = process.argv.slice(2), { sf: invoke = nativeSf } = {}) {
+async function main(argv = process.argv.slice(2), { sf: invoke = nativeSf, gh = nativeGh } = {}) {
   const sf = async (...args) => {
     try {
       return await invoke(...args);
@@ -65,6 +67,9 @@ async function main(argv = process.argv.slice(2), { sf: invoke = nativeSf } = {}
       'policy-reference': { type: 'string' },
       'certificate-file': { type: 'string' },
       'private-key-file': { type: 'string' },
+      'expected-fingerprint': { type: 'string' },
+      'rotation-id': { type: 'string' },
+      'recovery-direction': { type: 'string' },
       openssl: { type: 'string' },
       'pool-mode': { type: 'string' },
       'snapshot-name': { type: 'string' }
@@ -77,6 +82,9 @@ async function main(argv = process.argv.slice(2), { sf: invoke = nativeSf } = {}
       'provision-user',
       'provision-app',
       'create-certificate',
+      'prepare-rotation',
+      'apply-rotation',
+      'recover-rotation',
       'grant-runtime',
       'use-salesforce-fallback',
       'prove',
@@ -86,10 +94,11 @@ async function main(argv = process.argv.slice(2), { sf: invoke = nativeSf } = {}
     ].includes(positionals[0])
   ) {
     throw new Error(
-      'Use inspect, provision-user, create-certificate, provision-app, grant-runtime, use-salesforce-fallback, prove, cleanup-proof, revoke-app or cleanup-app-files.'
+      'Use inspect, provision-user, create-certificate, provision-app, prepare-rotation, apply-rotation, recover-rotation, grant-runtime, use-salesforce-fallback, prove, cleanup-proof, revoke-app or cleanup-app-files.'
     );
   }
   if (positionals[0] === 'create-certificate') return createCertificate(values);
+  if (positionals[0] === 'prepare-rotation') await rotationInputs(values);
   if (positionals[0] === 'provision-app') {
     lifecycleInputs(values, true);
   }
@@ -219,6 +228,13 @@ async function main(argv = process.argv.slice(2), { sf: invoke = nativeSf } = {}
       throw new Error('Resume the pending use-salesforce-fallback operation before any other mutation.');
     }
     if (
+      state?.rotation &&
+      !['applied', 'rolled-back'].includes(state.rotation.phase) &&
+      !['prepare-rotation', 'apply-rotation', 'recover-rotation'].includes(positionals[0])
+    ) {
+      throw new Error('Recover the pending certificate rotation before other identity operations.');
+    }
+    if (
       !owned.length &&
       (!(candidate.available > 0) ||
         !candidate.permissionSetLicenseId ||
@@ -264,6 +280,20 @@ async function main(argv = process.argv.slice(2), { sf: invoke = nativeSf } = {}
         user,
         query,
         sf,
+        save: () => saveState(directory, state)
+      });
+    }
+    if (['prepare-rotation', 'apply-rotation', 'recover-rotation'].includes(positionals[0])) {
+      if (!user || !state.userId) throw new Error('Reconcile the owned user before rotating its certificate.');
+      return await (positionals[0] === 'prepare-rotation' ? prepareRotation : applyRotation)({
+        values,
+        state,
+        directory,
+        user,
+        query,
+        sf,
+        gh,
+        command: positionals[0],
         save: () => saveState(directory, state)
       });
     }

@@ -74,7 +74,7 @@ function xmlValue(body, name) {
     .replaceAll('&amp;', '&');
 }
 
-async function verifyApp(sf, target, root, app) {
+async function verifyApp(sf, target, root, app, acceptedFingerprints = [app.fingerprint]) {
   await metadataProject(root, {});
   const retrieved = await sf(
     [
@@ -134,13 +134,13 @@ async function verifyApp(sf, target, root, app) {
   } catch {
     throw new Error('Cannot verify the active ECA certificate; metadata contents withheld.');
   }
-  if (certificate.fingerprint256 !== app.fingerprint)
+  if (!acceptedFingerprints.includes(certificate.fingerprint256))
     throw new Error('The active ECA certificate differs from the owned certificate.');
   const clientId = xmlValue(global, 'consumerKey');
   if (!/^[a-zA-Z0-9._-]{12,512}$/.test(clientId) || /redact|placeholder/i.test(clientId)) {
     throw new Error('Salesforce did not return a usable ECA consumer key; metadata contents withheld.');
   }
-  return clientId;
+  return { clientId, fingerprint: certificate.fingerprint256 };
 }
 
 async function verifyPreauthorization(sf, target, query, app) {
@@ -193,7 +193,7 @@ async function verifyPreauthorization(sf, target, query, app) {
   return permission.Id;
 }
 
-async function verifyProofApp({ sf, query, target, directory, state, mode, user, clientId }) {
+async function verifyProofApp({ sf, query, target, directory, state, mode, user, clientId, acceptedFingerprints }) {
   const app = state.apps?.[mode];
   const name = `ALV_DevHub_${state.owner.replaceAll('-', '').slice(0, 16)}_${mode === 'temporary' ? 'Test' : 'CI'}`;
   if (
@@ -240,10 +240,16 @@ async function verifyProofApp({ sf, query, target, directory, state, mode, user,
     throw new Error('ECA preauthorization assignment inventory is not exclusively the recorded dedicated user.');
   // A fresh private project prevents partial retrieval from reusing old files.
   const metadataDirectory = await fs.mkdtemp(path.join(directory, `app-${mode}`, 'proof-audit-'));
-  const effectiveClientId = await verifyApp(sf, target, metadataDirectory, app);
-  if (effectiveClientId !== clientId)
+  const effective = await verifyApp(sf, target, metadataDirectory, app, acceptedFingerprints);
+  if (effective.clientId !== clientId)
     throw new Error('Effective ECA client identity differs from the private JWT inputs.');
-  return { appId: app.id, permissionSetId, assignmentId: assignments[0].Id, metadataDirectory };
+  return {
+    appId: app.id,
+    permissionSetId,
+    assignmentId: assignments[0].Id,
+    metadataDirectory,
+    fingerprint: effective.fingerprint
+  };
 }
 
 async function provisionApp({ values, state, inventory, directory, user, query, sf, save }) {
@@ -377,7 +383,7 @@ async function provisionApp({ values, state, inventory, directory, user, query, 
     await save();
   }
   const privateDirectory = path.join(directory, `app-${lifecycle.mode}`, 'retrieved');
-  const clientId = await verifyApp(sf, values['target-org'], privateDirectory, app);
+  const { clientId } = await verifyApp(sf, values['target-org'], privateDirectory, app);
   const permissionSetId = await verifyPreauthorization(sf, values['target-org'], query, app);
   const assignments = await query(
     `SELECT Id, AssigneeId, PermissionSetId FROM PermissionSetAssignment WHERE PermissionSetId = '${permissionSetId}'`
@@ -432,6 +438,7 @@ async function provisionApp({ values, state, inventory, directory, user, query, 
 }
 
 module.exports = {
+  GLOBAL_OAUTH_CONTROLS,
   provisionApp,
   xml,
   metadataProject,

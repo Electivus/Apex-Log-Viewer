@@ -1,5 +1,7 @@
 # Dev Hub JWT validation
 
+For ordered replacement of the active ECA certificate and GitHub Actions Secret, see [certificate rotation and recovery](DEVHUB_ROTATION.md). The procedure preserves these runtime and pool authentication contracts.
+
 For dedicated-user discovery, explicit certificate policy, minimum grants and independent native proof, see [Dev Hub identity bootstrap](DEVHUB_IDENTITY.md). Its live provisioning/permission evidence is tracked separately from the bootstrap-identity runner results below.
 
 The integrated contract covers direct runners (#1074), pool administration/consumption (#1075), proxy transport (#1076), the dedicated identity (#1077) and production workflow cutover (#1078). Historical smoke results below retain their original identities and limits; they are not production CI evidence. [Production workflow cutover](#production-workflow-cutover) records the current procedure and acceptance.

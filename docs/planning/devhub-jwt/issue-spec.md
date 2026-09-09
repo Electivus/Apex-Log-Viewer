@@ -119,13 +119,19 @@ Evidence: [live ECA/JWT feasibility report](https://github.com/Electivus/Apex-Lo
 
 The feasibility test passed ECA/JWT Dev Hub login, scratch signup using `PlatformCLI`, scratch API queries, and authorization import into an independent CLI state. Default ECA scratch signup failed with `C-1016`, confirming that the authentication separation is required for the tested flow. The test scratch was deleted, and the temporary ECA was disabled with rejection of new JWT logins verified.
 
-The permanent credential-lifecycle policy is **not yet confirmed**. The proposal discussed was a private key in a repository GitHub Actions Secret, a certificate valid for 12 months, and documented rotation. Keep this as an operator decision; do not hardcode an unconfirmed lifetime or present the proposed storage policy as approved. Production credential provisioning and cutover require this decision, while implementation of the configurable authentication behavior can proceed independently.
+The operator-approved credential policy is a private key in repository GitHub Actions Secrets and an explicitly supplied **365-day certificate**. Provisioning in #1077, production cutover in #1078 and controlled rotation in #1079 used this policy. The policy remains an explicit operator input. Current key/journal and recovery material remain private until final integrated rotation proof; GitHub cannot return a previous Secret value.
 
-Local discovery found available Integration and Salesforce licenses; availability must be rechecked during provisioning. Integration eligibility for the Dev Hub scratch objects has not been proven. The existing pool permission set was assigned only to an administrator, so its successful historical use does not establish least-privilege compatibility.
+The dedicated Salesforce Integration identity with Minimum Access - API Only Integrations and SalesforceAPIIntegrationPsl passed native definition-mode scratch and pool validation in #1077 and integrated production in #1078. The minimum-access Salesforce fallback was not needed live. Snapshot entitlement remains unproven and older-owner cleanup retains its explicit transition procedure. Future provisioning must still recheck capacity, effective grants and actual behavior.
 
 Execution approval review blocked deletion of the temporary local experiment credential files, including an attempt restricted to exact filenames. They remain local; no temporary key or authorization URL belongs in the repository or this issue. The associated test ECA is disabled and the scratch org is deleted.
 
-The published specification is the implementation contract. The Planning context below identifies its active decisions and durable checkpoint; verification obligations remain pending except for the completed feasibility experiment.
+The published specification remains the implementation contract. The Planning context identifies the active decisions and durable checkpoint. The coordinator has aggregated implementation verification across all six delivery slices, preserving the original feasibility evidence and historical verification records. This does not close #1079 or #1073: final PR gates, actual integrated-main rotation verification and retirement/retention reporting remain acceptance requirements.
+
+## Execution status - 9 September 2026
+
+#1074-#1078 are accepted and integrated. #1079 has reviewed code, controlled live rotation/recovery and complementary CI evidence at source `1dbd80ed5ff4d126838d4bc588ee7353741f0045`. [The coordinator verification report](implementation-verification.md) maps the complete graph, exact sources, runtime receipts, review counts and retained resources.
+
+The native PR production gates passed on the same Git tree as the six explicit JWT lifecycle receipts and isolated pool receipt. The explicit candidate run remains **failed** with Azure `AADSTS700213` for the unsupported feature-branch federation; its failure is not waived or relabeled. The coordinator approved using these complementary receipts before merge, preserving all final-head required checks. A complete opted-in workflow on the actual integrated `main` SHA must pass and its receipts must be inspected before final acceptance or retirement. #1079 and this parent remain open until that evidence and cleanup qualifications are reconciled.
 
 ## Planning context
 
@@ -133,5 +139,5 @@ The published specification is the implementation contract. The Planning context
 - Repository: Electivus/Apex-Log-Viewer
 - Effort: devhub-jwt
 - Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
-- Planning checkpoint: d6301c31287b315cc5929a6ce603a5c70eb11775
+- Planning checkpoint: a4c28849d40ba1e1f949bd5e689e71f9cc047dc3
 - Decisions: DEC-001, DEC-002, DEC-003, DEC-004, DEC-005, DEC-007, DEC-008, DEC-009, DEC-010
