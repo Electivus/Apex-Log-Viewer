@@ -8,6 +8,7 @@
 
 ### Features
 
+- Dev Hub: add explicit certificate rotation with private recovery copies, fresh JWT verification, ordered GitHub Actions Secret replacement and resumable forward/rollback recovery without changing runtime grants.
 - IntelliJ: add the native Logs surface with CLI-default-aware org selection, stable keyset pagination, explicit full-catalog download, progressive Unified Log Search, persisted native settings, and English/Brazilian Portuguese bundles; Debug Flags are intentionally outside the first-release scope.
 - IntelliJ/Viewer: add the native Parsed Log Viewer with Debug, SOQL, DML, and Errors perspectives, in-view search, structured triage, raw-event navigation, selected-row copying, and explicit raw-log opening.
 - IntelliJ/Illuminated Cloud 2: add optional Replay Handoff through the public `IlluminatedCloud.LogAnalyzer.Open` action after dependable local materialization, without a binary dependency on Illuminated Cloud implementation classes.

@@ -1,5 +1,7 @@
 # Dedicated Dev Hub identity bootstrap
 
+For the active identity's next certificate replacement, use [certificate rotation and interrupted-replacement recovery](DEVHUB_ROTATION.md). Keep the existing ownership state; provisioning is not a rotation mechanism.
+
 The operator commands prepare the dedicated `apex-log-viewer-ci@electivus.com` identity, minimum runtime grants and certificate-backed External Client App (ECA). The administrator performs discovery, user/license changes and metadata deployment. The native proof starts from empty Salesforce CLI homes under the dedicated user, independently of `devhub-auth.js` and the application's runners.
 
 ## Current evidence and prerequisites
