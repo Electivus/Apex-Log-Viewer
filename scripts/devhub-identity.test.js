@@ -199,6 +199,38 @@ test('rotation applies only the certificate and private-key Secret, proves fresh
   );
 });
 
+test('rotation rejects contradictory fresh API inventories before app or Secret writes and can recover', async t => {
+  const setup = await rotationFixture(t);
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  const invoke = setup.fixture.sf;
+  const user = { Id: setup.state.userId, Username: setup.state.username };
+  let response;
+  setup.fixture.sf = async (args, options) => {
+    if (args[0] === 'data' && options?.env?.SF_STATE_FOLDER === '.sf') return response;
+    return invoke(args, options);
+  };
+  const args = [...baseArgs.slice(1), '--state-dir', setup.directory, '--rotation-id', prepared.rotationId];
+  for (response of [
+    { records: { 0: user, length: 1 }, done: true, totalSize: 1 },
+    { records: [user], done: true, totalSize: 2 },
+    { records: [user], done: true, totalSize: '1' },
+    { records: [user], done: true, totalSize: null }
+  ]) {
+    await assert.rejects(main(['apply-rotation', ...args], setup.fixture), /did not confirm the dedicated user/);
+    assert.equal(setup.changes.app, 0);
+    assert.equal(setup.changes.store, 0);
+    const attempt = setup.read().rotation.loginAttempts.at(-1);
+    assert.equal(attempt.verifiedAt, undefined);
+    assert.equal(attempt.cleanup, true);
+    assert.equal(existsSync(attempt.directory), false);
+  }
+  response = { records: [user], done: true };
+  const recovered = await main(['recover-rotation', ...args, '--recovery-direction', 'forward'], setup.fixture);
+  assert.equal(recovered.status, 'rotation-applied', 'totalSize remains optional for a complete inventory');
+  assert.equal(setup.changes.app, 1);
+  assert.equal(setup.changes.store, 1);
+});
+
 test('the next approved rotation preserves prior history and uses the current certificate as rollback material', async t => {
   const setup = await rotationFixture(t);
   const prepared = await main(setup.prepareArgs, setup.fixture);

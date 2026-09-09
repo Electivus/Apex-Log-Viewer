@@ -260,7 +260,9 @@ async function freshJwt({ sf, state, user, rotation, inputs, material, root, sav
     );
     if (
       result.done !== true ||
-      result.records?.length !== 1 ||
+      !Array.isArray(result.records) ||
+      result.records.length !== 1 ||
+      (result.totalSize !== undefined && result.totalSize !== result.records.length) ||
       result.records[0].Id !== user.Id ||
       result.records[0].Username !== user.Username
     )
