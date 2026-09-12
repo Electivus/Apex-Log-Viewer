@@ -168,20 +168,45 @@ async function rotationFixture(t) {
   };
 }
 
+function directoryPermissions(directory) {
+  const fs = require('node:fs');
+  if (process.platform !== 'win32') return fs.statSync(directory).mode & 0o777;
+  const result = require('cross-spawn').sync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    '[System.IO.Directory]::GetAccessControl($env:ALV_TEST_ACL_DIRECTORY).GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access)'],
+    { encoding: 'utf8', windowsHide: true, env: { ...process.env, ALV_TEST_ACL_DIRECTORY: directory } });
+  assert.equal(result.status, 0, 'Read-only ACL inspection must succeed');
+  return result.stdout.trim();
+}
+
+test('lost-material recovery preparation preserves unrelated existing directories', async t => {
+  const fs = require('node:fs');
+  const directory = mkdtempSync(path.join(homedir(), 'alv-unrelated-preparation-test-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  if (process.platform !== 'win32') fs.chmodSync(directory, 0o750);
+  const before = directoryPermissions(directory);
+  const candidate = await temporaryCertificate(t);
+  const args = ['prepare-lost-material-recovery', ...baseArgs.slice(1), '--state-dir', directory,
+    '--expected-app-name', 'ALV_DevHub_1111111111114111_CI', '--expected-fingerprint', Array(32).fill('00').join(':'),
+    '--lost-state-dir', path.join(directory, 'missing-original'), '--credential-mode', 'permanent',
+    '--certificate-days', '2', '--storage-policy', 'github-actions-secret:Electivus/Apex-Log-Viewer/SF_DEVHUB_PRIVATE_KEY',
+    '--policy-reference', 'controlled-preparation', '--certificate-file', candidate.certificateFile,
+    '--private-key-file', candidate.privateKeyFile];
+  for (const marker of [undefined, '{invalid', JSON.stringify({ version: 1, kind: 'unrelated' })]) {
+    if (marker !== undefined) writeFileSync(path.join(directory, 'recovery-preparation.json'), marker, { mode: 0o600 });
+    const files = fs.readdirSync(directory);
+    await assert.rejects(main(args, discoveryFixture()));
+    assert.equal(directoryPermissions(directory), before, 'Preparation must not change an unrelated directory ACL');
+    assert.deepEqual(fs.readdirSync(directory), files, 'Preparation must not add artifacts to an unrelated directory');
+    if (marker !== undefined) assert.equal(readFileSync(path.join(directory, 'recovery-preparation.json'), 'utf8'), marker);
+  }
+});
+
 test('lost-material recovery rejects an unrecognized plan without changing directory permissions', async t => {
   const fs = require('node:fs');
   const directory = mkdtempSync(path.join(homedir(), 'alv-unrelated-recovery-test-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const snapshot = () => {
-    if (process.platform !== 'win32') return fs.statSync(directory).mode & 0o777;
-    const result = require('cross-spawn').sync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-      '[System.IO.Directory]::GetAccessControl($env:ALV_TEST_ACL_DIRECTORY).GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access)'],
-      { encoding: 'utf8', windowsHide: true, env: { ...process.env, ALV_TEST_ACL_DIRECTORY: directory } });
-    assert.equal(result.status, 0, 'Read-only ACL inspection must succeed');
-    return result.stdout.trim();
-  };
   if (process.platform !== 'win32') fs.chmodSync(directory, 0o750);
-  const before = snapshot();
+  const before = directoryPermissions(directory);
   for (const { body, approvedHash } of [
     {},
     { body: '{invalid' },
@@ -193,7 +218,7 @@ test('lost-material recovery rejects an unrecognized plan without changing direc
     const approved = approvedHash || require('node:crypto').createHash('sha256').update(body || '').digest('hex');
     await assert.rejects(main(['apply-lost-material-recovery', ...baseArgs.slice(1), '--state-dir', directory,
       '--approved-plan-sha256', approved, '--policy-reference', 'controlled-invalid-plan'], discoveryFixture()));
-    assert.equal(snapshot(), before, 'An unrecognized directory must retain its existing permissions');
+    assert.equal(directoryPermissions(directory), before, 'An unrecognized directory must retain its existing permissions');
     assert.deepEqual(fs.readdirSync(directory), files, 'Rejected input must not create a lock or journal');
     if (body !== undefined) assert.equal(readFileSync(path.join(directory, 'recovery-plan.json'), 'utf8'), body);
   }
@@ -225,6 +250,9 @@ test('lost-material recovery preserves approved Secret inputs and resumes withou
   await assert.rejects(main(preparationArgs, fixture), /ownership/);
   assert.equal(existsSync(oldJournal), false);
   assert.equal(changes.app, 0);
+  const changedRequest = [...preparationArgs];
+  changedRequest[changedRequest.indexOf('--expected-app-name') + 1] = 'ALV_DevHub_other_CI';
+  await assert.rejects(main(changedRequest, fixture), /preparation root/);
   fixture.records.User[0].FederationIdentifier = federationId;
   const result = await main(preparationArgs, fixture);
   assert.equal(result.status, 'lost-material-recovery-prepared');

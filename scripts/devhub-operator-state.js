@@ -17,7 +17,7 @@ function defaultDirectory() {
 
 // Validate both the lexical path and every existing ancestor before creating or
 // securing anything. A junction must not redirect private writes or ACL changes.
-async function durablePath(input, { create = false } = {}) {
+async function durablePath(input, { create = false, exclusive = false } = {}) {
   const target = path.resolve(input || defaultDirectory());
   const forbidden = [
     os.tmpdir(),
@@ -53,7 +53,10 @@ async function durablePath(input, { create = false } = {}) {
     }
     if (path.dirname(ancestor) === ancestor) break;
   }
-  if (create) await fs.mkdir(target, { recursive: true, mode: 0o700 });
+  if (create && exclusive) {
+    await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    await fs.mkdir(target, { mode: 0o700 });
+  } else if (create) await fs.mkdir(target, { recursive: true, mode: 0o700 });
   try {
     const real = await fs.realpath(target);
     if (real.toLowerCase() !== target.toLowerCase())

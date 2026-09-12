@@ -107,10 +107,12 @@ Pending rotation blocks unrelated identity mutations. The public-command tests i
 
 Loss of the original operator files requires forward recovery of the same identity. It is not a normal rotation with an available previous-key rollback. Confirm that no verified backup is available and retain the missing path as evidence; do not search arbitrary credential stores or infer an ownership UUID or historical phase.
 
-Generate a new candidate using the approved permanent policy above in the durable root. Then prepare a plan using the verified current app name and public certificate fingerprint:
+Generate a new candidate using the approved permanent policy above in a separate durable candidate directory. Select a new, dedicated leaf for the recovery state; preparation creates it and copies the candidate inside it. An existing unrelated directory, including one containing only candidate files, is rejected before its permissions or contents change. Then prepare a plan using the verified current app name and public certificate fingerprint:
 
 ```powershell
 $identityState = Join-Path $env:USERPROFILE '.electivus\apex-log-viewer\devhub-jwt'
+# This path must not exist yet. If occupied, select a new unique durable leaf
+# and keep using its explicit --state-dir for verification and test commands.
 $identityArgs = @('--target-org', '<authorized bootstrap alias>',
   '--expected-org-id', '<verified Dev Hub ID>', '--state-dir', $identityState)
 node scripts/devhub-identity.js prepare-lost-material-recovery @identityArgs @policyArgs `
@@ -120,6 +122,8 @@ node scripts/devhub-identity.js prepare-lost-material-recovery @identityArgs @po
   --certificate-file '<durable candidate certificate>' --private-key-file '<durable candidate private key>'
 if ($LASTEXITCODE -ne 0) { throw 'Preserve the audit/candidate and resolve the preparation failure.' }
 ```
+
+Preparation records `recovery-preparation.json` only in its newly created private leaf. A failed preparation can reuse that leaf only when the marker matches the same org, app, fingerprints, missing-state path and explicit lifecycle inputs. Preserve incomplete roots without a readable matching marker and select a new leaf instead of adopting them. This local marker records the preparation request, not historical Salesforce ownership or approval for active replacement.
 
 Preparation reads live user/ECA ownership markers, the minimum Integration profile and PSL, exclusive preauthorization, complete runtime grants, current ECA policies/client ID/certificate and the four Secret names/timestamps. It retains a private immutable `recovery-plan.json`, copies the candidate, and dry-runs only the certificate metadata update. It makes no active credential change and does not create `identity.json`. The receipt contains the exact plan SHA-256 and new recovery ID, with the old journal/key unavailable, historical phases and outstanding historical proof resources unknown, rollback unavailable and CI unverified.
 

@@ -142,14 +142,47 @@ async function observe({ values, inventory, query, sf, directory, lifecycle, fin
   };
 }
 
+async function preparationDirectory(input, request) {
+  let directory;
+  let created = false;
+  try {
+    directory = await durablePath(input, { create: true, exclusive: true });
+    created = true;
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    directory = await durablePath(input);
+    let recorded;
+    try {
+      const marker = await privateFile(directory, path.join(directory, 'recovery-preparation.json'));
+      recorded = JSON.parse(await fs.readFile(marker, 'utf8'));
+    } catch {
+      throw new Error('Existing directory is not a recognized preparation root; preserve it and select a new dedicated leaf.');
+    }
+    if (JSON.stringify(recorded) !== JSON.stringify(request))
+      throw new Error('Existing preparation root belongs to another request; preserve it and reconcile before retrying.');
+  }
+  await secureDirectory(directory);
+  if (created)
+    await fs.writeFile(path.join(directory, 'recovery-preparation.json'), JSON.stringify(request), { mode: 0o600, flag: 'wx' });
+  return directory;
+}
+
 async function prepare(context) {
   const { values, inventory, sf, gh } = context;
   const { lifecycle, certificate } = await rotationInputs(values);
   if (!values['state-dir'] || !values['lost-state-dir'] || !path.isAbsolute(values['lost-state-dir']))
     throw new Error('Explicit durable --state-dir and the missing original --lost-state-dir are required.');
   await mustBeAbsent(values['lost-state-dir']);
-  const directory = await durablePath(values['state-dir'], { create: true });
-  await secureDirectory(directory);
+  const directory = await preparationDirectory(values['state-dir'], {
+    version: 1,
+    kind: 'lost-material-preparation-root',
+    org: inventory.org,
+    appName: values['expected-app-name'],
+    previousFingerprint: values['expected-fingerprint'],
+    candidateFingerprint: certificate.fingerprint,
+    lostStateDirectory: path.resolve(values['lost-state-dir']),
+    lifecycle
+  });
   return locked(directory, async () => {
     await mustBeAbsent(path.join(directory, 'identity.json'));
     await mustBeAbsent(path.join(directory, 'recovery-plan.json'));
