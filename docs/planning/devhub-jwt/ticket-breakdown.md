@@ -4,7 +4,7 @@ Status: the user approved the six slices and blocking edges on 2026-09-06. All s
 
 Parent specification: https://github.com/Electivus/Apex-Log-Viewer/issues/1073
 
-## Decision coverage before drafting
+## Historical decision coverage before drafting
 
 The source ledger declares specification and verification obligations, but no `tickets` obligations. Preserve those checkpointed meanings and IDs. The mapping below gives delivery traceability without inventing new decisions or claiming that a published ticket constitutes completed verification. No active source decision requires a separate mandatory ticket solely to satisfy a `tickets` gate.
 
@@ -24,6 +24,12 @@ Ticket bodies carry only the IDs that affect their own deliverable. Their publis
 ## Runtime correction during T05
 
 DEC-010 adds specification, tickets, and verification obligations for the supported macOS CLI runtime. T05/#1078 owns this correction and its actual CI proof; T06/#1079 inherits the resulting runtime without reopening accepted T01-T04 behavior. The earlier mapping and publication snapshot above describe the original ticket graph.
+
+## Policy extension during T06 - 12 September 2026
+
+DEC-011 supersedes DEC-005: local and CI Dev Hub runtime authentication now require JWT, with no authenticated-alias or cached-account exception. DEC-012 requires durable private operator credentials/journal and explicit recovery after loss of the registered local material. Both decisions declare specification, tickets and verification obligations, mapped to the still-open T06/#1079 acceptance criteria and the current parent specification. Verification is pending for these new requirements; earlier accepted slices and their recorded evidence are preserved.
+
+T06 owns the shared authentication-policy update, public-boundary negative tests, durable operator input/cleanup behavior, an auditable recovery procedure, repeatable local JWT proof and remaining integrated UI/telemetry validation. Preserve the ECA/PlatformCLI authentication separation, existing identity and grants. A separate concrete operator-approved plan is required before active certificate/Secret replacement; the Planning extension alone does not perform or attest that recovery.
 
 ## Published slices and dependencies
 
