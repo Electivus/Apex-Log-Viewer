@@ -4,7 +4,6 @@ const fs = require('node:fs');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { createPrivateKey } = require('node:crypto');
-const { secureDirectory } = require('./devhub-identity-credentials');
 
 const JWT_FIELDS = [
   'SF_DEVHUB_CLIENT_ID',
@@ -190,6 +189,9 @@ async function authenticateDevHub(config, runJson, files = fs) {
   try {
     const key = config.privateKey || files.readFileSync(path.resolve(config.privateKeyFile), 'utf8');
     directory = files.mkdtempSync(path.join(temporaryRoot, 'alv-devhub-jwt-'));
+    // The proxy-lab validates config before installing dependencies. Load the
+    // platform ACL helper only when an actual JWT session creates private state.
+    const { secureDirectory } = require('./devhub-identity-credentials');
     await secureDirectory(directory);
     // File and inline inputs both start with empty CLI state. The operator's
     // durable key and existing same-username auth remain caller-owned.
