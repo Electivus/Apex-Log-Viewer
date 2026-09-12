@@ -31,6 +31,10 @@ DEC-011 supersedes DEC-005: local and CI Dev Hub runtime authentication now requ
 
 T06 owns the shared authentication-policy update, public-boundary negative tests, durable operator input/cleanup behavior, an auditable recovery procedure, repeatable local JWT proof and remaining integrated UI/telemetry validation. Preserve the ECA/PlatformCLI authentication separation, existing identity and grants. A separate concrete operator-approved plan is required before active certificate/Secret replacement; the Planning extension alone does not perform or attest that recovery.
 
+## T06 follow-up after PR #1098
+
+DEC-013 maps to the still-open #1079: extend rotation and recovery to Actions and Dependabot in one new PR. Reuse the existing public command test boundary to prove partial-delivery recovery, rollback to both scopes and timestamp drift rejection. Preserve legacy journals and the active credential. The earlier JWT-only/durable-state scope passed actual integrated-main CI and workflow 34721729839; its evidence is separate from this new delta. Dependency PR triage and merge remain excluded.
+
 ## Published slices and dependencies
 
 | Ticket | GitHub issue | Delivery | Blocked by |
@@ -52,3 +56,12 @@ T04 uses the native Salesforce CLI and an isolated validation harness, so it doe
 - The credential storage and certificate lifetime proposal remains unconfirmed. Parameterized tooling can be implemented; permanent credential creation and production cutover require the operator decision. Do not silently treat a 12-month certificate or GitHub Actions Secret storage as approved.
 - Existing snapshots are not a new feature in this effort. Report any relevant license limitation rather than silently changing the configured pool mode.
 - This publication creates the approved ticket graph only. Implementation and permanent credential provisioning have not started.
+
+## Planning context
+
+- Format: v1
+- Repository: Electivus/Apex-Log-Viewer
+- Effort: devhub-jwt
+- Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
+- Planning checkpoint: 4a7b254f7024f4add2af006bb0474ca4a40e7fbb
+- Decisions: DEC-001, DEC-004, DEC-011, DEC-012, DEC-013

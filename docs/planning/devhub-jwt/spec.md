@@ -84,4 +84,5 @@ T06/#1079 owns this follow-up PR, public `devhub-identity` command tests for par
 - Repository: Electivus/Apex-Log-Viewer
 - Effort: devhub-jwt
 - Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
-- Planning checkpoint: 915e9ffa71d925fe63f6d2e1037f172d0ba85e50
+- Planning checkpoint: 4a7b254f7024f4add2af006bb0474ca4a40e7fbb
+- Decisions: DEC-001, DEC-004, DEC-011, DEC-012, DEC-013
