@@ -168,6 +168,314 @@ async function rotationFixture(t) {
   };
 }
 
+async function dualStoreFixture(t) {
+  const setup = await rotationFixture(t);
+  setup.prepareArgs[setup.prepareArgs.indexOf('--storage-policy') + 1] =
+    'github-actions-dependabot-secrets:Electivus/Apex-Log-Viewer/SF_DEVHUB_PRIVATE_KEY';
+  const stores = Object.fromEntries(
+    ['actions', 'dependabot'].map(app => [
+      app,
+      [
+        { name: 'SF_DEVHUB_CLIENT_ID', value: 'fixture-client-key' },
+        { name: 'SF_DEVHUB_USERNAME', value: setup.state.username },
+        { name: 'SF_DEVHUB_LOGIN_URL', value: 'https://login.salesforce.com' },
+        { name: 'SF_DEVHUB_PRIVATE_KEY', value: readFileSync(setup.state.apps.permanent.privateKeyFile, 'utf8') }
+      ].map(item => ({ ...item, updatedAt: '2026-09-07T12:00:00Z' }))
+    ])
+  );
+  const deliveries = [];
+  setup.fixture.gh = async (args, options) => {
+    const app = args[args.indexOf('--app') + 1];
+    assert.ok(stores[app], 'Only the two approved GitHub scopes may be accessed');
+    assert.equal(args[args.indexOf('--repo') + 1], 'Electivus/Apex-Log-Viewer');
+    if (args[1] === 'list') return stores[app].map(({ name, updatedAt }) => ({ name, updatedAt }));
+    assert.deepEqual(args.slice(0, 3), ['secret', 'set', 'SF_DEVHUB_PRIVATE_KEY']);
+    assert.equal(
+      new X509Certificate(readFileSync(setup.fixture.activeCertificateFile)).checkPrivateKey(
+        createPrivateKey(options.input)
+      ),
+      true,
+      'Each delivered key must match the active certificate'
+    );
+    deliveries.push(app);
+    setup.changes.store += 1;
+    Object.assign(
+      stores[app].find(item => item.name === 'SF_DEVHUB_PRIVATE_KEY'),
+      {
+        value: options.input,
+        updatedAt: new Date(Date.UTC(2026, 8, 7, 13, 0, deliveries.length)).toISOString()
+      }
+    );
+  };
+  return { ...setup, stores, deliveries };
+}
+
+test('explicit dual-store rotation upgrades Actions-only state and delivers only the private key to both scopes', async t => {
+  const setup = await dualStoreFixture(t);
+  const unchanged = Object.fromEntries(
+    Object.entries(setup.stores).map(([app, records]) => [
+      app,
+      records.filter(item => item.name !== 'SF_DEVHUB_PRIVATE_KEY').map(item => ({ ...item }))
+    ])
+  );
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  assert.equal(prepared.activeAppChanged, false);
+  assert.equal(setup.changes.store, 0);
+  const args = [
+    'apply-rotation',
+    ...baseArgs.slice(1),
+    '--state-dir',
+    setup.directory,
+    '--rotation-id',
+    prepared.rotationId
+  ];
+  const result = await main(args, setup.fixture);
+  assert.equal(result.status, 'rotation-applied');
+  assert.equal(result.ciVerified, false);
+  for (const app of ['actions', 'dependabot']) {
+    assert.equal(
+      setup.stores[app].find(item => item.name === 'SF_DEVHUB_PRIVATE_KEY').value,
+      readFileSync(setup.replacement.privateKeyFile, 'utf8')
+    );
+    assert.deepEqual(
+      setup.stores[app].filter(item => item.name !== 'SF_DEVHUB_PRIVATE_KEY'),
+      unchanged[app]
+    );
+  }
+  assert.deepEqual(setup.deliveries, ['actions', 'dependabot']);
+  assert.equal(setup.changes.app, 1);
+  assert.equal(setup.changes.logins, 2);
+  await main(args, setup.fixture);
+  assert.deepEqual(
+    setup.deliveries,
+    ['actions', 'dependabot'],
+    'Completed verification must not repeat either delivery'
+  );
+  assert.doesNotMatch(
+    JSON.stringify(result) + JSON.stringify(setup.read()),
+    /BEGIN PRIVATE KEY|fixture-consumer-secret|fixture-client-key/
+  );
+});
+
+for (const scope of ['actions', 'dependabot'])
+  for (const boundary of ['before', 'after']) {
+    test(`dual-store forward recovery reconciles interruption ${boundary} ${scope} delivery`, async t => {
+      const setup = await dualStoreFixture(t);
+      const prepared = await main(setup.prepareArgs, setup.fixture);
+      const gh = setup.fixture.gh;
+      let interrupt = true;
+      setup.fixture.gh = async (args, options) => {
+        if (interrupt && args[1] === 'set' && args.at(-1) === scope) {
+          interrupt = false;
+          if (boundary === 'after') await gh(args, options);
+          throw new Error('lost response fixture-consumer-secret BEGIN PRIVATE KEY');
+        }
+        return gh(args, options);
+      };
+      const args = [...baseArgs.slice(1), '--state-dir', setup.directory, '--rotation-id', prepared.rotationId];
+      await assert.rejects(main(['apply-rotation', ...args], setup.fixture), /output withheld/);
+      assert.equal(setup.read().rotation.phase, 'store-update-pending');
+      if (scope === 'dependabot') {
+        const confirmed = setup.stores.actions.find(item => item.name === 'SF_DEVHUB_PRIVATE_KEY');
+        const recordedTime = confirmed.updatedAt;
+        confirmed.updatedAt = '2026-09-08T12:00:00Z';
+        await assert.rejects(
+          main(['recover-rotation', ...args, '--recovery-direction', 'forward'], setup.fixture),
+          /Secret inventory differs/
+        );
+        confirmed.updatedAt = recordedTime;
+      }
+      const result = await main(['recover-rotation', ...args, '--recovery-direction', 'forward'], setup.fixture);
+      assert.equal(result.status, 'rotation-applied');
+      assert.equal(setup.changes.app, 1);
+      const expected =
+        boundary === 'before'
+          ? ['actions', 'dependabot']
+          : scope === 'actions'
+            ? ['actions', 'actions', 'dependabot']
+            : ['actions', 'dependabot', 'dependabot'];
+      assert.deepEqual(setup.deliveries, expected);
+      for (const app of ['actions', 'dependabot'])
+        assert.equal(
+          setup.stores[app].find(item => item.name === 'SF_DEVHUB_PRIVATE_KEY').value,
+          readFileSync(setup.replacement.privateKeyFile, 'utf8')
+        );
+      await main(['recover-rotation', ...args, '--recovery-direction', 'forward'], setup.fixture);
+      assert.deepEqual(setup.deliveries, expected);
+    });
+  }
+
+test('dual-store rotation rejects input drift before writes and recorded key drift after completion', async t => {
+  const setup = await dualStoreFixture(t);
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  const args = [
+    'apply-rotation',
+    ...baseArgs.slice(1),
+    '--state-dir',
+    setup.directory,
+    '--rotation-id',
+    prepared.rotationId
+  ];
+  for (const records of Object.values(setup.stores)) {
+    for (const item of records) {
+      const approvedTime = item.updatedAt;
+      item.updatedAt = '2026-09-08T12:00:00Z';
+      await assert.rejects(main(args, setup.fixture), /Secret inventory differs/);
+      assert.equal(setup.changes.app, 0);
+      assert.equal(setup.deliveries.length, 0);
+      item.updatedAt = approvedTime;
+    }
+  }
+  await main(args, setup.fixture);
+  for (const records of Object.values(setup.stores)) {
+    for (const item of records) {
+      const recordedTime = item.updatedAt;
+      item.updatedAt = '2026-09-09T12:00:00Z';
+      await assert.rejects(main(args, setup.fixture), /Secret inventory differs/);
+      assert.equal(setup.changes.app, 1);
+      assert.equal(setup.deliveries.length, 2, 'Completed replay must not repair unrelated Secret drift');
+      item.updatedAt = recordedTime;
+    }
+  }
+});
+
+test('dual-store rollback restores both stores selected by an upgrade from Actions-only material', async t => {
+  const setup = await dualStoreFixture(t);
+  const previousKey = readFileSync(setup.state.apps.permanent.privateKeyFile, 'utf8');
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  const gh = setup.fixture.gh;
+  let interrupt = true;
+  setup.fixture.gh = async (args, options) => {
+    if (interrupt && args[1] === 'set' && args.at(-1) === 'dependabot') {
+      interrupt = false;
+      throw new Error('controlled delivery failure');
+    }
+    return gh(args, options);
+  };
+  const args = [...baseArgs.slice(1), '--state-dir', setup.directory, '--rotation-id', prepared.rotationId];
+  await assert.rejects(main(['apply-rotation', ...args], setup.fixture), /output withheld/);
+  const result = await main(['recover-rotation', ...args, '--recovery-direction', 'rollback'], setup.fixture);
+  assert.equal(result.status, 'rotation-rolled-back');
+  assert.equal(result.fingerprint, setup.state.apps.permanent.fingerprint);
+  assert.deepEqual(setup.deliveries, ['actions', 'actions', 'dependabot']);
+  for (const records of Object.values(setup.stores))
+    assert.equal(records.find(item => item.name === 'SF_DEVHUB_PRIVATE_KEY').value, previousKey);
+  await main(['recover-rotation', ...args, '--recovery-direction', 'rollback'], setup.fixture);
+  assert.equal(setup.deliveries.length, 3);
+  assert.equal(setup.changes.app, 2);
+});
+
+test('dual-store preparation rejects missing or contradictory inputs in either scope and unauthorized policy changes', async t => {
+  const setup = await dualStoreFixture(t);
+  const gh = setup.fixture.gh;
+  for (const scope of ['actions', 'dependabot'])
+    for (const invalid of ['missing', 'duplicate', 'timestamp']) {
+      setup.fixture.gh = async (args, options) => {
+        const result = await gh(args, options);
+        if (args[1] !== 'list' || args[args.indexOf('--app') + 1] !== scope) return result;
+        if (invalid === 'missing') return result.filter(item => item.name !== 'SF_DEVHUB_USERNAME');
+        if (invalid === 'duplicate') return [...result, { name: 'SF_DEVHUB_USERNAME', updatedAt: 'invalid' }];
+        return result.map(item => (item.name === 'SF_DEVHUB_USERNAME' ? { ...item, updatedAt: 'invalid' } : item));
+      };
+      await assert.rejects(main(setup.prepareArgs, setup.fixture), /all four JWT inputs/);
+      assert.equal(setup.changes.app, 0);
+      assert.equal(setup.deliveries.length, 0);
+    }
+  setup.fixture.gh = gh;
+  const otherRepository = [...setup.prepareArgs];
+  otherRepository[otherRepository.indexOf('--storage-policy') + 1] =
+    'github-actions-dependabot-secrets:Electivus/Another-Repository/SF_DEVHUB_PRIVATE_KEY';
+  await assert.rejects(main(otherRepository, setup.fixture), /cannot change repository/);
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  await main(
+    ['apply-rotation', ...baseArgs.slice(1), '--state-dir', setup.directory, '--rotation-id', prepared.rotationId],
+    setup.fixture
+  );
+  const downgrade = [...setup.prepareArgs];
+  downgrade[downgrade.indexOf('--storage-policy') + 1] = setup.state.apps.permanent.lifecycle.storagePolicy;
+  downgrade[downgrade.indexOf('--expected-fingerprint') + 1] = setup.replacement.fingerprint;
+  downgrade[downgrade.indexOf('--certificate-file') + 1] = setup.state.apps.permanent.certificateFile;
+  downgrade[downgrade.indexOf('--private-key-file') + 1] = setup.state.apps.permanent.privateKeyFile;
+  await assert.rejects(main(downgrade, setup.fixture), /remove a previously selected scope/);
+  assert.equal(setup.changes.app, 1);
+  assert.equal(setup.deliveries.length, 2);
+});
+
+test('dual-store lost-material recovery binds both inventories and preserves forward-only recovery across partial delivery', async t => {
+  const setup = await dualStoreFixture(t);
+  setup.fixture.observedApp = { ...setup.state.apps.permanent };
+  const directory = path.join(setup.directory, 'dual-recovered-state');
+  const args = [
+    ...setup.prepareArgs,
+    '--expected-app-name',
+    setup.state.apps.permanent.name,
+    '--lost-state-dir',
+    path.join(setup.directory, 'missing-original')
+  ];
+  args[0] = 'prepare-lost-material-recovery';
+  args[args.indexOf('--state-dir') + 1] = directory;
+  const prepared = await main(args, setup.fixture);
+  const plan = JSON.parse(readFileSync(path.join(directory, 'recovery-plan.json'), 'utf8'));
+  assert.equal(plan.storeInventory.length, 8);
+  assert.deepEqual([...new Set(plan.storeInventory.map(item => item.app))], ['actions', 'dependabot']);
+  assert.equal(prepared.rollbackAvailable, false);
+  const gh = setup.fixture.gh;
+  let interrupt = true;
+  setup.fixture.gh = async (args, options) => {
+    const result = await gh(args, options);
+    if (interrupt && args[1] === 'set' && args.at(-1) === 'actions') {
+      interrupt = false;
+      throw new Error('uncertain first delivery');
+    }
+    return result;
+  };
+  const apply = [
+    'apply-lost-material-recovery',
+    ...baseArgs.slice(1),
+    '--state-dir',
+    directory,
+    '--approved-plan-sha256',
+    prepared.planSha256,
+    '--policy-reference',
+    'controlled-dual-store-approval'
+  ];
+  await assert.rejects(main(apply, setup.fixture), /output withheld/);
+  const loginInput = setup.stores.dependabot.find(item => item.name === 'SF_DEVHUB_USERNAME');
+  const baselineTime = loginInput.updatedAt;
+  loginInput.updatedAt = '2026-09-09T12:00:00Z';
+  await assert.rejects(main(apply, setup.fixture), /Secret inventory differs.*approved recovery plan/);
+  assert.deepEqual(setup.deliveries, ['actions']);
+  loginInput.updatedAt = baselineTime;
+  const result = await main(apply, setup.fixture);
+  assert.equal(result.status, 'rotation-applied');
+  assert.equal(result.rollbackAvailable, false);
+  assert.deepEqual(setup.deliveries, ['actions', 'actions', 'dependabot']);
+  await main(apply, setup.fixture);
+  assert.equal(setup.deliveries.length, 3);
+  setup.stores.dependabot.find(item => item.name === 'SF_DEVHUB_PRIVATE_KEY').updatedAt = '2026-09-10T12:00:00Z';
+  await assert.rejects(main(apply, setup.fixture), /Secret inventory differs.*approved recovery plan/);
+  assert.equal(setup.deliveries.length, 3);
+  const journal = JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8'));
+  assert.equal(journal.recovery.historicalPhases, 'unknown');
+  assert.equal(journal.recovery.previousPrivateKeyAvailable, false);
+  await assert.rejects(
+    main(
+      [
+        'recover-rotation',
+        ...baseArgs.slice(1),
+        '--state-dir',
+        directory,
+        '--rotation-id',
+        prepared.recoveryId,
+        '--recovery-direction',
+        'rollback'
+      ],
+      setup.fixture
+    ),
+    /rollback.*unavailable/i
+  );
+});
+
 function directoryPermissions(directory) {
   const fs = require('node:fs');
   if (process.platform !== 'win32') return fs.statSync(directory).mode & 0o777;
@@ -340,6 +648,9 @@ test('lost-material recovery preserves approved Secret inputs and resumes withou
   const completedJournal = readFileSync(oldJournal);
   const legacyJournal = JSON.parse(completedJournal);
   assert.equal(legacyJournal.rotation.storePrivateKeyUpdatedAt, '2026-09-08T12:00:00Z');
+  delete legacyJournal.rotation.storeWrites;
+  writeFileSync(oldJournal, JSON.stringify(legacyJournal));
+  await main(approval, fixture);
   delete legacyJournal.rotation.storePrivateKeyUpdatedAt;
   writeFileSync(oldJournal, JSON.stringify(legacyJournal));
   await assert.rejects(main(approval, fixture), /Secret.*approved recovery plan/);
@@ -387,6 +698,44 @@ test('lost-material recovery retains the owned username despite an unrelated sam
   assert.equal(changes.app, 1);
   assert.equal(changes.store, 1);
   assert.equal(JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8')).username, state.username);
+});
+
+test('legacy Actions delivery uncertainty survives another interruption during forward recovery', async t => {
+  const setup = await rotationFixture(t);
+  const prepared = await main(setup.prepareArgs, setup.fixture);
+  const gh = setup.fixture.gh;
+  let delivered = false;
+  setup.fixture.gh = async (args, options) => {
+    const result = await gh(args, options);
+    if (args[1] === 'list') return result.map(item => delivered && item.name === 'SF_DEVHUB_PRIVATE_KEY'
+      ? { ...item, updatedAt: '2026-09-08T12:00:00Z' } : item);
+    if (!delivered) {
+      delivered = true;
+      throw new Error('uncertain legacy delivery');
+    }
+    return result;
+  };
+  const args = [...baseArgs.slice(1), '--state-dir', setup.directory, '--rotation-id', prepared.rotationId];
+  await assert.rejects(main(['apply-rotation', ...args], setup.fixture), /output withheld/);
+  const journalFile = path.join(setup.directory, 'identity.json');
+  const legacy = setup.read();
+  delete legacy.rotation.storeWrites;
+  legacy.rotation.storeInventory = legacy.rotation.storeInventory.map(({ name, updatedAt }) => ({ name, updatedAt }));
+  writeFileSync(journalFile, JSON.stringify(legacy));
+  const sf = setup.fixture.sf;
+  let interrupt = true;
+  setup.fixture.sf = async (args, options) => {
+    if (interrupt && args.slice(0, 3).join(' ') === 'org login jwt') {
+      interrupt = false;
+      throw new Error('second interrupted verification');
+    }
+    return sf(args, options);
+  };
+  await assert.rejects(main(['recover-rotation', ...args, '--recovery-direction', 'forward'], setup.fixture));
+  const result = await main(['recover-rotation', ...args, '--recovery-direction', 'forward'], setup.fixture);
+  assert.equal(result.status, 'rotation-applied');
+  assert.equal(setup.changes.app, 1);
+  assert.equal(setup.changes.store, 2);
 });
 
 test('rotation applies only the certificate and private-key Secret, proves fresh JWT, and resumes without repeated mutation', async t => {
@@ -605,7 +954,7 @@ test('invalid rotation lifecycle, missing files and mismatched keys fail before 
     ['--policy-reference', '', /Explicit credential lifecycle inputs/],
     ['--private-key-file', path.join(setup.directory, 'missing-key.pem'), /Durable operator state is missing/],
     ['--private-key-file', setup.state.apps.permanent.privateKeyFile, /Certificate\/key mismatch/],
-    ['--storage-policy', 'temporary-local', /GitHub Actions Secret storage policy/],
+    ['--storage-policy', 'temporary-local', /GitHub.*Secret storage policy/],
     ['--expected-fingerprint', '', /explicit current SHA-256/]
   ]) {
     const args = [...setup.prepareArgs];

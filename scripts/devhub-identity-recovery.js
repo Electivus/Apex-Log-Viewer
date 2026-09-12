@@ -366,27 +366,6 @@ async function apply(context) {
       state.recovery.rollbackAvailable !== false
     )
       throw new Error('Existing journal is not this approved recovery; no history may be overwritten.');
-    const currentStore = await githubStore(plan.lifecycle, gh).inspect();
-    // A lost delivery response can already have changed the private-key Secret.
-    // Every other input must still match the operator-approved snapshot, even
-    // when resuming or verifying an already completed recovery.
-    const keyWriteUncertain = ['store-update-pending', 'store-updated'].includes(state.rotation.phase);
-    if (
-      !Array.isArray(plan.storeInventory) ||
-      currentStore.some(({ name, updatedAt }) => {
-        const approved = plan.storeInventory.filter(item => item.name === name);
-        if (approved.length !== 1 || !Number.isFinite(Date.parse(approved[0].updatedAt))) return true;
-        if (name === 'SF_DEVHUB_PRIVATE_KEY') {
-          if (state.rotation.phase === 'applied') {
-            const recorded = Date.parse(state.rotation.storePrivateKeyUpdatedAt);
-            return !Number.isFinite(recorded) || Date.parse(updatedAt) !== recorded;
-          }
-          if (keyWriteUncertain) return false;
-        }
-        return Date.parse(updatedAt) !== Date.parse(approved[0].updatedAt);
-      })
-    )
-      throw new Error('GitHub Secret inventory differs from the approved recovery plan; reconcile before active writes.');
     const save = async () => {
       const pending = path.join(directory, 'identity.pending.json');
       await fs.writeFile(pending, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
@@ -402,6 +381,7 @@ async function apply(context) {
       sf,
       gh,
       command: 'apply-lost-material-recovery',
+      approvedStoreInventory: plan.storeInventory,
       save
     });
     return { ...result, rollbackAvailable: false, historicalJournalAvailable: false };

@@ -25,14 +25,16 @@ function nativeGh(args, { input } = {}) {
 }
 
 function githubStore(lifecycle, invoke) {
-  const match = /^github-actions-secret:([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/SF_DEVHUB_PRIVATE_KEY$/.exec(
-    lifecycle.storagePolicy
-  );
+  const match =
+    /^(github-actions-secret|github-actions-dependabot-secrets):([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/SF_DEVHUB_PRIVATE_KEY$/.exec(
+      lifecycle.storagePolicy
+    );
   if (!match)
     throw new Error(
-      'Rotation requires an explicit repository GitHub Actions Secret storage policy for SF_DEVHUB_PRIVATE_KEY.'
+      'Rotation requires an explicit repository GitHub Actions or Actions and Dependabot Secret storage policy for SF_DEVHUB_PRIVATE_KEY.'
     );
-  const repository = match[1];
+  const repository = match[2];
+  const apps = match[1] === 'github-actions-secret' ? ['actions'] : ['actions', 'dependabot'];
   const run = async (args, options) => {
     try {
       return await invoke(args, options);
@@ -44,29 +46,31 @@ function githubStore(lifecycle, invoke) {
   };
   return {
     repository,
-    async replacePrivateKey(input) {
-      await run(['secret', 'set', 'SF_DEVHUB_PRIVATE_KEY', '--repo', repository, '--app', 'actions'], { input });
+    apps,
+    async replacePrivateKey(input, app) {
+      if (!apps.includes(app)) throw new Error('Secret delivery scope differs from the approved storage policy.');
+      await run(['secret', 'set', 'SF_DEVHUB_PRIVATE_KEY', '--repo', repository, '--app', app], { input });
     },
     async inspect() {
-      const records = await run([
-        'secret',
-        'list',
-        '--repo',
-        repository,
-        '--app',
-        'actions',
-        '--json',
-        'name,updatedAt'
-      ]);
-      const required = ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY'].map(name => `SF_DEVHUB_${name}`);
-      if (
-        !Array.isArray(records) ||
-        required.some(
-          name => records.filter(item => item.name === name && Number.isFinite(Date.parse(item.updatedAt))).length !== 1
+      const inventory = [];
+      for (const app of apps) {
+        const records = await run(['secret', 'list', '--repo', repository, '--app', app, '--json', 'name,updatedAt']);
+        const required = ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY'].map(name => `SF_DEVHUB_${name}`);
+        if (
+          !Array.isArray(records) ||
+          required.some(name => {
+            const matches = records.filter(item => item?.name === name);
+            return matches.length !== 1 || !Number.isFinite(Date.parse(matches[0].updatedAt));
+          })
         )
-      )
-        throw new Error('Approved GitHub Actions store must contain all four JWT inputs; values cannot be read back.');
-      return records.filter(item => required.includes(item.name)).map(({ name, updatedAt }) => ({ name, updatedAt }));
+          throw new Error(`Approved GitHub ${app} store must contain all four JWT inputs; values cannot be read back.`);
+        inventory.push(
+          ...records
+            .filter(item => required.includes(item?.name))
+            .map(({ name, updatedAt }) => ({ app, name, updatedAt }))
+        );
+      }
+      return inventory;
     }
   };
 }
