@@ -382,6 +382,8 @@ async function applyRotation({ values, state, directory, user, query, sf, gh, co
   await save();
   await store.replacePrivateKey(await fs.readFile(material.privateKeyFile, 'utf8'));
   rotation.storeWrittenAt = new Date().toISOString();
+  if (rotation.kind === 'lost-material')
+    rotation.storePrivateKeyUpdatedAt = (await store.inspect()).find(item => item.name === 'SF_DEVHUB_PRIVATE_KEY').updatedAt;
   rotation.phase = 'store-updated';
   await save();
   const inputsFile = path.join(root, `${direction}-jwt-inputs.json`);

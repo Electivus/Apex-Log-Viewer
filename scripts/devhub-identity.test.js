@@ -325,6 +325,26 @@ test('lost-material recovery preserves approved Secret inputs and resumes withou
   await main(approval, fixture);
   assert.equal(changes.app, 1);
   assert.equal(changes.store, 2);
+  const completedStore = fixture.gh;
+  fixture.gh = async (args, options) => {
+    const response = await completedStore(args, options);
+    return args[1] === 'list'
+      ? response.map(item => item.name === 'SF_DEVHUB_PRIVATE_KEY'
+        ? { ...item, updatedAt: '2026-09-09T12:00:00Z' } : item)
+      : response;
+  };
+  await assert.rejects(main(approval, fixture), /Secret.*approved recovery plan/);
+  assert.equal(changes.app, 1, 'A completed recovery must not silently repair later Secret drift');
+  assert.equal(changes.store, 2);
+  fixture.gh = completedStore;
+  const completedJournal = readFileSync(oldJournal);
+  const legacyJournal = JSON.parse(completedJournal);
+  assert.equal(legacyJournal.rotation.storePrivateKeyUpdatedAt, '2026-09-08T12:00:00Z');
+  delete legacyJournal.rotation.storePrivateKeyUpdatedAt;
+  writeFileSync(oldJournal, JSON.stringify(legacyJournal));
+  await assert.rejects(main(approval, fixture), /Secret.*approved recovery plan/);
+  assert.equal(changes.store, 2, 'Missing historical Secret evidence must not be fabricated or authorize a rewrite');
+  writeFileSync(oldJournal, completedJournal);
   assert.ok(lockRecords.length > 0);
   for (const body of lockRecords) {
     assert.notEqual(body, '', 'Recovery must record lock ownership before external operations');

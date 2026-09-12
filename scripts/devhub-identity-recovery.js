@@ -370,13 +370,19 @@ async function apply(context) {
     // A lost delivery response can already have changed the private-key Secret.
     // Every other input must still match the operator-approved snapshot, even
     // when resuming or verifying an already completed recovery.
-    const keyWriteAttempted = ['store-update-pending', 'store-updated', 'applied'].includes(state.rotation.phase);
+    const keyWriteUncertain = ['store-update-pending', 'store-updated'].includes(state.rotation.phase);
     if (
       !Array.isArray(plan.storeInventory) ||
       currentStore.some(({ name, updatedAt }) => {
         const approved = plan.storeInventory.filter(item => item.name === name);
         if (approved.length !== 1 || !Number.isFinite(Date.parse(approved[0].updatedAt))) return true;
-        if (name === 'SF_DEVHUB_PRIVATE_KEY' && keyWriteAttempted) return false;
+        if (name === 'SF_DEVHUB_PRIVATE_KEY') {
+          if (state.rotation.phase === 'applied') {
+            const recorded = Date.parse(state.rotation.storePrivateKeyUpdatedAt);
+            return !Number.isFinite(recorded) || Date.parse(updatedAt) !== recorded;
+          }
+          if (keyWriteUncertain) return false;
+        }
         return Date.parse(updatedAt) !== Date.parse(approved[0].updatedAt);
       })
     )
