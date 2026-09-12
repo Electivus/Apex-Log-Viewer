@@ -39,7 +39,7 @@ async function locked(directory, action) {
 }
 
 async function observe({ values, inventory, query, sf, directory, lifecycle, fingerprints }) {
-  const users = inventory.users.filter(item => item.Username === CONTACT);
+  const users = inventory.users.filter(item => item.Email === CONTACT);
   const user = users[0];
   const owner = /^alv-devhub:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.exec(
     user?.FederationIdentifier || ''
@@ -49,6 +49,8 @@ async function observe({ values, inventory, query, sf, directory, lifecycle, fin
     users.length !== 1 ||
     inventory.users.length !== 1 ||
     !owner ||
+    typeof user.Username !== 'string' ||
+    !/^[^\s<>]+@[^\s<>]+$/.test(user.Username) ||
     user.Email !== CONTACT ||
     !user.Id ||
     user.IsActive !== true ||
@@ -327,6 +329,21 @@ async function apply(context) {
       state.recovery.rollbackAvailable !== false
     )
       throw new Error('Existing journal is not this approved recovery; no history may be overwritten.');
+    const currentStore = await githubStore(plan.lifecycle, gh).inspect();
+    // A lost delivery response can already have changed the private-key Secret.
+    // Every other input must still match the operator-approved snapshot, even
+    // when resuming or verifying an already completed recovery.
+    const keyWriteAttempted = ['store-update-pending', 'store-updated', 'applied'].includes(state.rotation.phase);
+    if (
+      !Array.isArray(plan.storeInventory) ||
+      currentStore.some(({ name, updatedAt }) => {
+        const approved = plan.storeInventory.filter(item => item.name === name);
+        if (approved.length !== 1 || !Number.isFinite(Date.parse(approved[0].updatedAt))) return true;
+        if (name === 'SF_DEVHUB_PRIVATE_KEY' && keyWriteAttempted) return false;
+        return Date.parse(updatedAt) !== Date.parse(approved[0].updatedAt);
+      })
+    )
+      throw new Error('GitHub Secret inventory differs from the approved recovery plan; reconcile before active writes.');
     const save = async () => {
       const pending = path.join(directory, 'identity.pending.json');
       await fs.writeFile(pending, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });

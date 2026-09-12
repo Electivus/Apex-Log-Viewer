@@ -168,7 +168,7 @@ async function rotationFixture(t) {
   };
 }
 
-test('lost-material recovery starts from fresh durable storage and resumes the same identity without invented history', async t => {
+test('lost-material recovery preserves approved Secret inputs and resumes without invented history', async t => {
   const setup = await rotationFixture(t);
   const { fixture, state, changes, replacement } = setup;
   const directory = path.join(setup.directory, 'recovered-operator-state');
@@ -217,9 +217,27 @@ test('lost-material recovery starts from fresh durable storage and resumes the s
   assert.equal(existsSync(oldJournal), false);
   writeFileSync(planFile, planBytes);
   const gh = fixture.gh;
+  for (const changedName of ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY']) {
+    fixture.gh = async (args, options) => {
+      const response = await gh(args, options);
+      return args[1] === 'list'
+        ? response.map(item => item.name === `SF_DEVHUB_${changedName}`
+          ? { ...item, updatedAt: '2026-09-08T12:00:00Z' } : item)
+        : response;
+    };
+    await assert.rejects(main(approval, fixture), /Secret.*approved recovery plan/);
+    assert.equal(changes.app, 0, 'Secret drift must stop certificate replacement');
+    assert.equal(changes.store, 0, 'Secret drift must stop private-key replacement');
+  }
   let interrupted = false;
+  let changedNonKeySecret = false;
   fixture.gh = async (args, options) => {
     const response = await gh(args, options);
+    if (args[1] === 'list') {
+      return response.map(item => (interrupted && item.name === 'SF_DEVHUB_PRIVATE_KEY') ||
+        (changedNonKeySecret && item.name === 'SF_DEVHUB_USERNAME')
+        ? { ...item, updatedAt: '2026-09-08T12:00:00Z' } : item);
+    }
     if (args[1] === 'set' && !interrupted) {
       interrupted = true;
       throw new Error('controlled interruption after Secret delivery');
@@ -228,6 +246,11 @@ test('lost-material recovery starts from fresh durable storage and resumes the s
   };
   await assert.rejects(main(approval, fixture), /GitHub credential-store operation failed/);
   assert.equal(JSON.parse(readFileSync(oldJournal, 'utf8')).rotation.phase, 'store-update-pending');
+  changedNonKeySecret = true;
+  await assert.rejects(main(approval, fixture), /Secret.*approved recovery plan/);
+  assert.equal(changes.app, 1);
+  assert.equal(changes.store, 1, 'Resume must still reject changes to non-key Secrets');
+  changedNonKeySecret = false;
   const applied = await main(approval, fixture);
   assert.equal(applied.status, 'rotation-applied');
   assert.equal(applied.rollbackAvailable, false);
@@ -253,6 +276,31 @@ test('lost-material recovery starts from fresh durable storage and resumes the s
   assert.equal(existsSync(lockFile), false);
   await assert.rejects(main(['recover-rotation', ...baseArgs.slice(1), '--state-dir', directory,
     '--rotation-id', result.recoveryId, '--recovery-direction', 'rollback'], fixture), /rollback.*unavailable/i);
+});
+
+test('lost-material recovery retains the owned username selected after a global collision', async t => {
+  const setup = await rotationFixture(t);
+  const { fixture, state, replacement, changes } = setup;
+  state.username = `apex-log-viewer-ci+${state.owner}@electivus.com`;
+  fixture.records.User[0].Username = state.username;
+  fixture.observedApp = { ...state.apps.permanent };
+  const directory = path.join(setup.directory, 'recovered-collision-state');
+  const prepared = await main(['prepare-lost-material-recovery', ...baseArgs.slice(1), '--state-dir', directory,
+    '--expected-app-name', state.apps.permanent.name, '--expected-fingerprint', state.apps.permanent.fingerprint,
+    '--lost-state-dir', path.join(directory, 'lost-original'), '--credential-mode', 'permanent',
+    '--certificate-days', '2', '--storage-policy', state.apps.permanent.lifecycle.storagePolicy,
+    '--policy-reference', 'controlled-collision-recovery', '--certificate-file', replacement.certificateFile,
+    '--private-key-file', replacement.privateKeyFile], fixture);
+  assert.equal(prepared.activeCredentialChanged, false);
+  const plan = JSON.parse(readFileSync(path.join(directory, 'recovery-plan.json'), 'utf8'));
+  assert.equal(plan.binding.username, state.username);
+  assert.equal(plan.binding.userId, state.userId);
+  const applied = await main(['apply-lost-material-recovery', ...baseArgs.slice(1), '--state-dir', directory,
+    '--approved-plan-sha256', prepared.planSha256, '--policy-reference', 'controlled-collision-approval'], fixture);
+  assert.equal(applied.status, 'rotation-applied');
+  assert.equal(changes.app, 1);
+  assert.equal(changes.store, 1);
+  assert.equal(JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8')).username, state.username);
 });
 
 test('rotation applies only the certificate and private-key Secret, proves fresh JWT, and resumes without repeated mutation', async t => {
