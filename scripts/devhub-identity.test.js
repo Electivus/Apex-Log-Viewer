@@ -363,6 +363,15 @@ test('dual-store rollback restores both stores selected by an upgrade from Actio
   await main(['recover-rotation', ...args, '--recovery-direction', 'rollback'], setup.fixture);
   assert.equal(setup.deliveries.length, 3);
   assert.equal(setup.changes.app, 2);
+  const downgrade = [...setup.prepareArgs];
+  downgrade[downgrade.indexOf('--storage-policy') + 1] = setup.state.apps.permanent.lifecycle.storagePolicy;
+  await assert.rejects(main(downgrade, setup.fixture), /remove a previously selected scope/);
+  assert.equal(setup.changes.app, 2);
+  assert.equal(setup.deliveries.length, 3, 'Rollback must not authorize dropping Dependabot on the next rotation');
+  const next = await main(setup.prepareArgs, setup.fixture);
+  assert.equal(next.status, 'rotation-prepared');
+  assert.equal(setup.read().rotationHistory.at(-1).previous.lifecycle.storagePolicy,
+    setup.state.apps.permanent.lifecycle.storagePolicy, 'Historical material policy remains unchanged');
 });
 
 test('dual-store preparation rejects missing or contradictory inputs in either scope and unauthorized policy changes', async t => {

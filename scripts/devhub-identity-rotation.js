@@ -486,7 +486,14 @@ async function applyRotation({ values, state, directory, user, query, sf, gh, co
   await fs.writeFile(inputsFile, JSON.stringify({ ...inputs, privateKeyFile: material.privateKeyFile }), {
     mode: 0o600
   });
-  Object.assign(app, material, { inputsFile });
+  // Rollback restores the previous certificate validity, not an older store
+  // scope. Keep the operation's approved destinations for future rotations.
+  const lifecycle = {
+    ...material.lifecycle,
+    storagePolicy: rotation.candidate.lifecycle.storagePolicy,
+    policyReference: rotation.candidate.lifecycle.policyReference
+  };
+  Object.assign(app, material, { lifecycle, inputsFile });
   rotation.phase = finalPhase;
   rotation.completedAt = new Date().toISOString();
   await save();
