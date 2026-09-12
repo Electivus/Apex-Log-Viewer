@@ -43,5 +43,5 @@ The 12 September 2026 policy extension also requires JWT-only local validation a
 - Repository: Electivus/Apex-Log-Viewer
 - Effort: devhub-jwt
 - Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
-- Planning checkpoint: a4c28849d40ba1e1f949bd5e689e71f9cc047dc3
-- Decisions: DEC-001, DEC-004
+- Planning checkpoint: 915e9ffa71d925fe63f6d2e1037f172d0ba85e50
+- Decisions: DEC-001, DEC-004, DEC-011, DEC-012

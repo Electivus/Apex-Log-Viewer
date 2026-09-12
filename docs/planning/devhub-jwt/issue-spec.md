@@ -154,5 +154,4 @@ PR #1097 was merged as `29f44560bd5a63043307edd297dd9a8689f31630`. Run `34384880
 - Repository: Electivus/Apex-Log-Viewer
 - Effort: devhub-jwt
 - Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
-- Planning checkpoint: a4c28849d40ba1e1f949bd5e689e71f9cc047dc3
-- Decisions: DEC-001, DEC-002, DEC-003, DEC-004, DEC-005, DEC-007, DEC-008, DEC-009, DEC-010
+- Planning checkpoint: 915e9ffa71d925fe63f6d2e1037f172d0ba85e50

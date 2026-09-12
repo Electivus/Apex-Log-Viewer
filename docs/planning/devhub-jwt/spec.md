@@ -72,7 +72,7 @@ This effort does not change product runtime authentication, log storage, the scr
 ## Planning context
 
 - Format: v1
+- Repository: Electivus/Apex-Log-Viewer
 - Effort: devhub-jwt
 - Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
-- Planning checkpoint: 8a6560180fded60f4f7a75ca4cbd61479d06b3f3
-- Decisions: DEC-001, DEC-002, DEC-003, DEC-004, DEC-005, DEC-007, DEC-008, DEC-009
+- Planning checkpoint: 915e9ffa71d925fe63f6d2e1037f172d0ba85e50
