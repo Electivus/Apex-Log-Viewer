@@ -30,6 +30,7 @@ async function locked(directory, action) {
     throw new Error('Operator state is locked; reconcile the prior operation before recovery.');
   }
   try {
+    await lock.writeFile(JSON.stringify({ pid: process.pid, started: new Date().toISOString() }));
     return await action();
   } finally {
     await lock.close();

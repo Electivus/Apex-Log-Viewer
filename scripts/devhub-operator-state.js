@@ -32,9 +32,11 @@ async function durablePath(input, { create = false } = {}) {
     forbidden.some(root => contains(path.resolve(root), target)) ||
     target
       .split(/[\\/]/)
-      .some(part => /^(?:temp|tmp|localcache|cache|onedrive(?:.*)|dropbox|google drive|iclouddrive)$/i.test(part))
+      .some(part => /^(?:temp|tmp|localcache|\.?caches?|onedrive(?:.*)|dropbox|google drive|iclouddrive)$/i.test(part))
   ) {
-    throw new Error('Operator state requires durable per-user storage outside temporary and synchronized folders.');
+    throw new Error(
+      'Operator state requires durable per-user storage outside temporary, cache and synchronized folders.'
+    );
   }
   for (let ancestor = target; ; ancestor = path.dirname(ancestor)) {
     try {

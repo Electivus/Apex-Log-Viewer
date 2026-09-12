@@ -124,6 +124,38 @@ test('permanent certificate creation refuses temporary storage before producing 
   );
 });
 
+test('local operator commands reject platform cache roots before reading or creating credentials', async t => {
+  const root = fs.mkdtempSync(path.join(os.homedir(), 'alv-storage-policy-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  let calls = 0;
+  for (const relative of ['.cache', 'Library/Caches', 'AppData/Local/Packages/Fixture/LocalCache']) {
+    const directory = path.join(root, relative, 'devhub-jwt');
+    fs.mkdirSync(directory, { recursive: true });
+    await assert.rejects(main(['verify', '--state-dir', directory], { sf: async () => calls++ }), /outside temporary/);
+    const candidate = path.join(directory, 'candidate');
+    await assert.rejects(
+      require('./devhub-identity').main([
+        'create-certificate',
+        '--state-dir',
+        candidate,
+        '--credential-mode',
+        'permanent',
+        '--certificate-days',
+        '365',
+        '--policy-reference',
+        'controlled-test',
+        '--storage-policy',
+        'github-actions-secret:Electivus/Apex-Log-Viewer/SF_DEVHUB_PRIVATE_KEY',
+        '--openssl',
+        'must-not-run'
+      ]),
+      /outside temporary/
+    );
+    assert.equal(fs.existsSync(candidate), false);
+  }
+  assert.equal(calls, 0);
+});
+
 test('repeated local JWT verification uses empty homes and preserves the durable journal and key', async t => {
   const fixture = await operatorFixture(t);
   const key = fs.readFileSync(fixture.material.privateKeyFile);

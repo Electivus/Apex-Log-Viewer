@@ -168,12 +168,21 @@ async function rotationFixture(t) {
   };
 }
 
-test('lost-material preparation audits the same identity without inventing a journal or changing active credentials', async t => {
+test('lost-material recovery starts from fresh durable storage and resumes the same identity without invented history', async t => {
   const setup = await rotationFixture(t);
-  const { fixture, state, directory, changes, replacement } = setup;
+  const { fixture, state, changes, replacement } = setup;
+  const directory = path.join(setup.directory, 'recovered-operator-state');
+  assert.equal(existsSync(directory), false);
   fixture.observedApp = { ...state.apps.permanent };
   const oldJournal = path.join(directory, 'identity.json');
-  require('node:fs').unlinkSync(oldJournal);
+  const lockFile = path.join(directory, 'operation.lock');
+  const lockRecords = [];
+  const startedBeforeRecovery = Date.now();
+  const store = fixture.gh;
+  fixture.gh = async (args, options) => {
+    lockRecords.push(readFileSync(lockFile, 'utf8'));
+    return store(args, options);
+  };
   const preparationArgs = ['prepare-lost-material-recovery', ...baseArgs.slice(1), '--state-dir', directory,
     '--expected-app-name', state.apps.permanent.name, '--expected-fingerprint', state.apps.permanent.fingerprint,
     '--lost-state-dir', path.join(directory, 'lost-original'), '--credential-mode', 'permanent',
@@ -234,6 +243,14 @@ test('lost-material preparation audits the same identity without inventing a jou
   await main(approval, fixture);
   assert.equal(changes.app, 1);
   assert.equal(changes.store, 2);
+  assert.ok(lockRecords.length > 0);
+  for (const body of lockRecords) {
+    assert.notEqual(body, '', 'Recovery must record lock ownership before external operations');
+    const lock = JSON.parse(body);
+    assert.equal(lock.pid, process.pid);
+    assert.ok(Date.parse(lock.started) >= startedBeforeRecovery && Date.parse(lock.started) <= Date.now());
+  }
+  assert.equal(existsSync(lockFile), false);
   await assert.rejects(main(['recover-rotation', ...baseArgs.slice(1), '--state-dir', directory,
     '--rotation-id', result.recoveryId, '--recovery-direction', 'rollback'], fixture), /rollback.*unavailable/i);
 });

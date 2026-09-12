@@ -92,7 +92,7 @@ Tests do not require an authenticated org by default. If you want the runner to 
 
 - Complete [Dev Hub JWT inputs](DEVHUB_JWT.md): client ID, username, login URL and exactly one inline PEM or key file.
 - Local repeatable credentials: use [durable JWT inputs](DEVHUB_LOCAL.md); Dev Hub aliases are not accepted.
-- `SF_SETUP_SCRATCH=1`: Enables scratch org creation and requires complete JWT, or an explicit authenticated alias outside CI.
+- `SF_SETUP_SCRATCH=1`: Enables scratch org creation and requires complete JWT locally and in CI.
 - `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_Test_Scratch`).
 - `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
 - `SF_TEST_KEEP_ORG=1`: Skip deleting the scratch org during cleanup.
