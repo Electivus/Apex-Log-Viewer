@@ -168,6 +168,37 @@ async function rotationFixture(t) {
   };
 }
 
+test('lost-material recovery rejects an unrecognized plan without changing directory permissions', async t => {
+  const fs = require('node:fs');
+  const directory = mkdtempSync(path.join(homedir(), 'alv-unrelated-recovery-test-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const snapshot = () => {
+    if (process.platform !== 'win32') return fs.statSync(directory).mode & 0o777;
+    const result = require('cross-spawn').sync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      '[System.IO.Directory]::GetAccessControl($env:ALV_TEST_ACL_DIRECTORY).GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access)'],
+      { encoding: 'utf8', windowsHide: true, env: { ...process.env, ALV_TEST_ACL_DIRECTORY: directory } });
+    assert.equal(result.status, 0, 'Read-only ACL inspection must succeed');
+    return result.stdout.trim();
+  };
+  if (process.platform !== 'win32') fs.chmodSync(directory, 0o750);
+  const before = snapshot();
+  for (const { body, approvedHash } of [
+    {},
+    { body: '{invalid' },
+    { body: JSON.stringify({ version: 1, kind: 'unrelated' }) },
+    { body: '{}', approvedHash: '0'.repeat(64) }
+  ]) {
+    if (body !== undefined) writeFileSync(path.join(directory, 'recovery-plan.json'), body, { mode: 0o600 });
+    const files = fs.readdirSync(directory);
+    const approved = approvedHash || require('node:crypto').createHash('sha256').update(body || '').digest('hex');
+    await assert.rejects(main(['apply-lost-material-recovery', ...baseArgs.slice(1), '--state-dir', directory,
+      '--approved-plan-sha256', approved, '--policy-reference', 'controlled-invalid-plan'], discoveryFixture()));
+    assert.equal(snapshot(), before, 'An unrecognized directory must retain its existing permissions');
+    assert.deepEqual(fs.readdirSync(directory), files, 'Rejected input must not create a lock or journal');
+    if (body !== undefined) assert.equal(readFileSync(path.join(directory, 'recovery-plan.json'), 'utf8'), body);
+  }
+});
+
 test('lost-material recovery preserves approved Secret inputs and resumes without invented history', async t => {
   const setup = await rotationFixture(t);
   const { fixture, state, changes, replacement } = setup;

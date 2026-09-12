@@ -236,22 +236,28 @@ async function apply(context) {
   if (!/^[a-f0-9]{64}$/.test(values['approved-plan-sha256'] || '') || !values['policy-reference']?.trim())
     throw new Error('An approved plan SHA-256 and explicit active-operation policy reference are required.');
   const directory = await durablePath(values['state-dir']);
+  const readPlan = async () => fs.readFile(await privateFile(directory, path.join(directory, 'recovery-plan.json')), 'utf8');
+  const body = await readPlan();
+  if (digest(body) !== values['approved-plan-sha256'])
+    throw new Error('Recovery plan differs from the approved plan SHA-256; no active write is allowed.');
+  const plan = JSON.parse(body);
+  if (
+    plan.version !== 1 ||
+    plan.kind !== 'lost-material-forward-recovery' ||
+    !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(plan.id) ||
+    plan.rollbackAvailable !== false ||
+    plan.previousPrivateKeyAvailable !== false ||
+    plan.historicalJournalAvailable !== false ||
+    plan.historicalPhases !== 'unknown'
+  )
+    throw new Error('Recovery evidence must explicitly record the lost key, journal and unavailable rollback.');
+  // Recognize the approved recovery root before changing its ACL or creating a
+  // lock. Mistyped directories and invalid plans must remain untouched.
   await secureDirectory(directory);
   return locked(directory, async () => {
-    const body = await fs.readFile(await privateFile(directory, path.join(directory, 'recovery-plan.json')), 'utf8');
-    if (digest(body) !== values['approved-plan-sha256'])
+    // Another operation may have changed the plan before this lock was acquired.
+    if (digest(await readPlan()) !== values['approved-plan-sha256'])
       throw new Error('Recovery plan differs from the approved plan SHA-256; no active write is allowed.');
-    const plan = JSON.parse(body);
-    if (
-      plan.version !== 1 ||
-      plan.kind !== 'lost-material-forward-recovery' ||
-      !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(plan.id) ||
-      plan.rollbackAvailable !== false ||
-      plan.previousPrivateKeyAvailable !== false ||
-      plan.historicalJournalAvailable !== false ||
-      plan.historicalPhases !== 'unknown'
-    )
-      throw new Error('Recovery evidence must explicitly record the lost key, journal and unavailable rollback.');
     const observed = await observe({
       ...context,
       values: { ...values, 'expected-app-name': plan.binding.appName },
