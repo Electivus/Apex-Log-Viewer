@@ -260,6 +260,47 @@ test('interrupted runner reports its owned volume and removes input without dest
   }
 });
 
+test('container validation starts from a clean checkout before dependency installation', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-lab-clean-checkout-'));
+  try {
+    fs.cpSync(__dirname, path.join(root, 'scripts'), { recursive: true });
+    const input = path.join(root, 'input');
+    fs.mkdirSync(input);
+    const validate = argv =>
+      spawnSync(
+        process.execPath,
+        [
+          '-e',
+          `require('./scripts/run-e2e-proxy-lab-child').main({argv:${JSON.stringify(['--validate', ...argv])},inputDirectory:'./input',env:{}}).catch(error=>{console.error(error.message);process.exitCode=1;})`
+        ],
+        { cwd: root, env: { ...process.env, NODE_PATH: '' }, encoding: 'utf8' }
+      );
+    const nonOrg = validate(['node', '--version']);
+    assert.equal(nonOrg.status, 0, nonOrg.stderr);
+    fs.writeFileSync(
+      path.join(input, 'devhub.json'),
+      JSON.stringify({
+        SF_DEVHUB_CLIENT_ID: 'TestEca',
+        SF_DEVHUB_USERNAME: 'test@example.invalid',
+        SF_DEVHUB_LOGIN_URL: 'https://login.salesforce.com'
+      })
+    );
+    fs.writeFileSync(
+      path.join(input, 'private-key.pem'),
+      generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+        publicKeyEncoding: { type: 'spki', format: 'pem' }
+      }).privateKey,
+      { mode: 0o600 }
+    );
+    const jwt = validate(['pnpm', 'run', 'test:e2e:cli']);
+    assert.equal(jwt.status, 0, jwt.stderr);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('child validates the same strict policy and keeps a credential-free non-org smoke usable', async () => {
   const { main: childMain } = require('./run-e2e-proxy-lab-child');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-lab-child-test-'));

@@ -1,6 +1,11 @@
-export type DevHubConfig =
-  | { mode: 'alias'; alias: string }
-  | { mode: 'jwt'; clientId: string; username: string; loginUrl: string; privateKey?: string; privateKeyFile?: string };
+export type DevHubConfig = {
+  mode: 'jwt';
+  clientId: string;
+  username: string;
+  loginUrl: string;
+  privateKey?: string;
+  privateKeyFile?: string;
+};
 
 export type DevHubSession = {
   targetOrg: string;

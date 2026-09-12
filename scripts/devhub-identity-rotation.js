@@ -282,7 +282,11 @@ async function freshJwt({ sf, state, user, rotation, inputs, material, root, sav
 
 async function applyRotation({ values, state, directory, user, query, sf, gh, command, save }) {
   const rotation = state.rotation;
-  const direction = command === 'apply-rotation' ? 'forward' : values['recovery-direction'];
+  const direction = ['apply-rotation', 'apply-lost-material-recovery'].includes(command) ? 'forward' : values['recovery-direction'];
+  if (rotation?.kind === 'lost-material' && direction === 'rollback')
+    throw new Error('Rollback is unavailable after loss of the previous private key; use approved forward recovery.');
+  if (rotation?.kind && (rotation.kind !== 'lost-material' || command !== 'apply-lost-material-recovery'))
+    throw new Error('Lost-material recovery requires its approved plan entry point; unknown recovery kinds are rejected.');
   const app = state.apps?.permanent;
   const phases = [
     'prepared',
@@ -358,7 +362,7 @@ async function applyRotation({ values, state, directory, user, query, sf, gh, co
     return { status, rotationId: rotation.id, fingerprint: app.fingerprint, ciVerified: false };
   }
   if (current.fingerprint !== material.fingerprint) {
-    if (rotation.phase === 'prepared' && direction === 'forward')
+    if (rotation.phase === 'prepared' && direction === 'forward' && rotation.kind !== 'lost-material')
       await freshJwt({ sf, state, user, rotation, inputs, material: rotation.previous, root, save });
     const metadataDirectory = path.join(root, `${direction}-metadata`);
     await rotationMetadata(metadataDirectory, app, certificate);
@@ -378,6 +382,8 @@ async function applyRotation({ values, state, directory, user, query, sf, gh, co
   await save();
   await store.replacePrivateKey(await fs.readFile(material.privateKeyFile, 'utf8'));
   rotation.storeWrittenAt = new Date().toISOString();
+  if (rotation.kind === 'lost-material')
+    rotation.storePrivateKeyUpdatedAt = (await store.inspect()).find(item => item.name === 'SF_DEVHUB_PRIVATE_KEY').updatedAt;
   rotation.phase = 'store-updated';
   await save();
   const inputsFile = path.join(root, `${direction}-jwt-inputs.json`);
@@ -399,4 +405,4 @@ async function applyRotation({ values, state, directory, user, query, sf, gh, co
   };
 }
 
-module.exports = { rotationInputs, prepareRotation, applyRotation };
+module.exports = { rotationInputs, prepareRotation, applyRotation, copyMaterial, rotationMetadata };

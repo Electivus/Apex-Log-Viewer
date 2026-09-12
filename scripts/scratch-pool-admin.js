@@ -48,13 +48,6 @@ function hasOption(name, argv = process.argv.slice(2)) {
   return argv.includes(flag) || argv.some(arg => arg.startsWith(prefix));
 }
 
-function resolveTargetOrg(argv = process.argv.slice(2)) {
-  return (
-    getArgValue('target-org', argv) ||
-    String(process.env.SF_DEVHUB_ALIAS || '').trim()
-  );
-}
-
 function escapeSoqlLiteral(value) {
   return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
@@ -1234,12 +1227,12 @@ async function prewarmPool(targetOrg, poolKey, options = {}) {
 
 function printHelp() {
   console.log(`Usage:
-  node scripts/scratch-pool-admin.js bootstrap --pool-key <pool> [--target-org <alias>]
-  node scripts/scratch-pool-admin.js list --pool-key <pool> [--target-org <alias>] [--json]
-  node scripts/scratch-pool-admin.js reconcile --pool-key <pool> [--target-org <alias>] [--json]
-  node scripts/scratch-pool-admin.js prewarm --pool-key <pool> [--limit <n>] [--target-org <alias>] [--json]
-  node scripts/scratch-pool-admin.js disable-slot --pool-key <pool> --slot-key <slot> [--reason <text>] [--target-org <alias>] [--json]
-  node scripts/scratch-pool-admin.js reset-slot --pool-key <pool> --slot-key <slot> [--reason <text>] [--target-org <alias>] [--json]
+  node scripts/scratch-pool-admin.js bootstrap --pool-key <pool> [--target-org <JWT username>]
+  node scripts/scratch-pool-admin.js list --pool-key <pool> [--target-org <JWT username>] [--json]
+  node scripts/scratch-pool-admin.js reconcile --pool-key <pool> [--target-org <JWT username>] [--json]
+  node scripts/scratch-pool-admin.js prewarm --pool-key <pool> [--limit <n>] [--target-org <JWT username>] [--json]
+  node scripts/scratch-pool-admin.js disable-slot --pool-key <pool> --slot-key <slot> [--reason <text>] [--target-org <JWT username>] [--json]
+  node scripts/scratch-pool-admin.js reset-slot --pool-key <pool> --slot-key <slot> [--reason <text>] [--target-org <JWT username>] [--json]
 
 Bootstrap options:
   --target-size <n>                Number of logical slots to maintain. Default: 30
@@ -1259,7 +1252,8 @@ Prewarm options:
   --limit <n>                      Maximum number of non-healthy slots to prewarm in this run. Default: all pending slots
 
 General notes:
-  - Authenticate the Dev Hub first, then pass --target-org or set SF_DEVHUB_ALIAS.
+  - Complete Dev Hub JWT inputs are required locally and in CI (docs/DEVHUB_JWT.md).
+  - --target-org, when supplied, must match SF_DEVHUB_USERNAME; it cannot select an alias.
   - Use --json for machine-readable output.
 `);
 }
@@ -1311,7 +1305,11 @@ async function main(argv = process.argv.slice(2), dependencies = {}) {
     return;
   }
 
-  const config = resolveDevHubConfig({ ...process.env, SF_DEVHUB_ALIAS: resolveTargetOrg(argv) });
+  const config = resolveDevHubConfig();
+  const target = getArgValue('target-org', argv);
+  if (target && target !== config.username) {
+    throw new Error('--target-org must match SF_DEVHUB_USERNAME. Dev Hub aliases are no longer supported.');
+  }
   return commandContext.run({ ...dependencies, env: salesforceChildEnv(), callerEnv: salesforceChildEnv(),
     orgDisplayCache: new Map() }, async () => {
     const devHub = await authenticateDevHub(config, runSfJson);

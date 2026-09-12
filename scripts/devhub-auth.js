@@ -63,16 +63,8 @@ function resolveDevHubConfig(env = process.env, { required = true } = {}) {
   const selectedJwt = hasDevHubJwtConfig(env);
   const ci = /^(1|true)$/i.test(value('CI')) || value('GITHUB_ACTIONS') === 'true';
   if (!selectedJwt) {
-    if (ci) {
-      throw new Error(
-        'CI requires complete Dev Hub JWT configuration: SF_DEVHUB_CLIENT_ID, SF_DEVHUB_USERNAME, SF_DEVHUB_LOGIN_URL and SF_DEVHUB_PRIVATE_KEY or SF_DEVHUB_PRIVATE_KEY_FILE.'
-      );
-    }
-    if (value('SF_DEVHUB_ALIAS')) {
-      return { mode: 'alias', alias: value('SF_DEVHUB_ALIAS') };
-    }
     throw new Error(
-      'Missing required Dev Hub configuration. Set complete JWT inputs or an authenticated SF_DEVHUB_ALIAS locally. SF_DEVHUB_AUTH_URL is no longer supported.'
+      `${ci ? 'CI' : 'Local validation'} requires complete Dev Hub JWT configuration: SF_DEVHUB_CLIENT_ID, SF_DEVHUB_USERNAME, SF_DEVHUB_LOGIN_URL and SF_DEVHUB_PRIVATE_KEY or SF_DEVHUB_PRIVATE_KEY_FILE. No alias or authorization URL fallback is allowed.`
     );
   }
   const missing = JWT_FIELDS.slice(0, 3).filter(name => !value(name));
@@ -103,6 +95,7 @@ function salesforceChildEnv(env = process.env, overrides = {}) {
   const child = { ...env };
   for (const name of [
     ...JWT_FIELDS,
+    'SF_DEVHUB_ALIAS',
     'SF_DEVHUB_AUTH_URL',
     'SFDX_AUTH_URL',
     'SF_TEMP_SHOW_SECRETS',
@@ -152,6 +145,9 @@ async function authenticateDevHub(config, runJson, files = fs) {
   if (!config) {
     throw new Error('Missing required Dev Hub authentication configuration.');
   }
+  if (config.mode !== 'jwt') {
+    throw new Error('Dev Hub authentication requires JWT. No alias or authorization URL fallback is allowed.');
+  }
   const callerEnv = salesforceChildEnv();
   const deleteWithEnv = async (targetOrg, env) => {
     try {
@@ -161,26 +157,6 @@ async function authenticateDevHub(config, runJson, files = fs) {
       throw new Error(safeSfFailureMessage(error, 'Scratch deletion failed.'));
     }
   };
-  if (config.mode === 'alias') {
-    try {
-      const response = await runJson(['org', 'display', '--target-org', config.alias], { env: callerEnv });
-      if (response?.status !== 0) {
-        throw new Error('Alias validation did not succeed.');
-      }
-    } catch {
-      throw new Error(
-        'SF_DEVHUB_ALIAS is not authenticated or unavailable. Authenticate that alias locally or configure complete Dev Hub JWT inputs.'
-      );
-    }
-    return {
-      targetOrg: config.alias,
-      env: callerEnv,
-      publishScratch: async () => {},
-      deleteScratch: target => deleteWithEnv(target, callerEnv),
-      cleanup: async () => {}
-    };
-  }
-
   validateDevHubJwt(config, files);
 
   const temporaryRoot = path.resolve(tmpdir());
@@ -211,18 +187,20 @@ async function authenticateDevHub(config, runJson, files = fs) {
     }
   };
   try {
-    let keyFile = config.privateKeyFile ? path.resolve(config.privateKeyFile) : undefined;
-    if (config.privateKey) {
-      directory = files.mkdtempSync(path.join(temporaryRoot, 'alv-devhub-jwt-'));
-      // Salesforce core resolves .sf/.sfdx through os.homedir() in each child.
-      // Keep the parent's environment and preexisting same-username auth intact.
-      env = salesforceChildEnv(
-        callerEnv,
-        process.platform === 'win32' ? { USERPROFILE: directory } : { HOME: directory }
-      );
-      keyFile = path.join(directory, 'private-key.pem');
-      files.writeFileSync(keyFile, config.privateKey, { encoding: 'utf8', mode: 0o600 });
-    }
+    const key = config.privateKey || files.readFileSync(path.resolve(config.privateKeyFile), 'utf8');
+    directory = files.mkdtempSync(path.join(temporaryRoot, 'alv-devhub-jwt-'));
+    // The proxy-lab validates config before installing dependencies. Load the
+    // platform ACL helper only when an actual JWT session creates private state.
+    const { secureDirectory } = require('./devhub-identity-credentials');
+    await secureDirectory(directory);
+    // File and inline inputs both start with empty CLI state. The operator's
+    // durable key and existing same-username auth remain caller-owned.
+    env = salesforceChildEnv(
+      callerEnv,
+      process.platform === 'win32' ? { USERPROFILE: directory } : { HOME: directory }
+    );
+    const keyFile = path.join(directory, 'private-key.pem');
+    files.writeFileSync(keyFile, key, { encoding: 'utf8', mode: 0o600 });
     const response = await runJson(
       [
         'org',
@@ -292,13 +270,11 @@ async function authenticateDevHub(config, runJson, files = fs) {
     }
   };
   const publishScratch = async (alias, { setDefault = false } = {}) => {
-    if (!directory) return;
     recoveryScratch = alias;
     publishedScratchUsers.set(alias, await transferScratch(alias, env, callerEnv, setDefault));
     recoveryScratch = undefined;
   };
   const deleteScratch = async alias => {
-    if (!directory) return deleteWithEnv(alias, callerEnv);
     try {
       let username = publishedScratchUsers.get(alias);
       let hasCallerAuth = Boolean(username);

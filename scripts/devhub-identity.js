@@ -14,6 +14,7 @@ const { prove, recoverProof } = require('./devhub-identity-proof');
 const { revokeApp, cleanupAppFiles } = require('./devhub-identity-teardown');
 const { prepareRotation, applyRotation, rotationInputs } = require('./devhub-identity-rotation');
 const { nativeGh } = require('./devhub-identity-store');
+const { durablePath } = require('./devhub-operator-state');
 
 function soqlLiteral(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -68,6 +69,9 @@ async function main(argv = process.argv.slice(2), { sf: invoke = nativeSf, gh = 
       'certificate-file': { type: 'string' },
       'private-key-file': { type: 'string' },
       'expected-fingerprint': { type: 'string' },
+      'expected-app-name': { type: 'string' },
+      'lost-state-dir': { type: 'string' },
+      'approved-plan-sha256': { type: 'string' },
       'rotation-id': { type: 'string' },
       'recovery-direction': { type: 'string' },
       openssl: { type: 'string' },
@@ -85,6 +89,8 @@ async function main(argv = process.argv.slice(2), { sf: invoke = nativeSf, gh = 
       'prepare-rotation',
       'apply-rotation',
       'recover-rotation',
+      'prepare-lost-material-recovery',
+      'apply-lost-material-recovery',
       'grant-runtime',
       'use-salesforce-fallback',
       'prove',
@@ -94,7 +100,7 @@ async function main(argv = process.argv.slice(2), { sf: invoke = nativeSf, gh = 
     ].includes(positionals[0])
   ) {
     throw new Error(
-      'Use inspect, provision-user, create-certificate, provision-app, prepare-rotation, apply-rotation, recover-rotation, grant-runtime, use-salesforce-fallback, prove, cleanup-proof, revoke-app or cleanup-app-files.'
+      'Use inspect, provision-user, create-certificate, provision-app, prepare-rotation, apply-rotation, recover-rotation, prepare-lost-material-recovery, apply-lost-material-recovery, grant-runtime, use-salesforce-fallback, prove, cleanup-proof, revoke-app or cleanup-app-files.'
     );
   }
   if (positionals[0] === 'create-certificate') return createCertificate(values);
@@ -187,9 +193,15 @@ async function main(argv = process.argv.slice(2), { sf: invoke = nativeSf, gh = 
   if (positionals[0] === 'inspect') {
     return inventory;
   }
+  if (['prepare-lost-material-recovery', 'apply-lost-material-recovery'].includes(positionals[0])) {
+    const recovery = require('./devhub-identity-recovery');
+    return (positionals[0].startsWith('prepare') ? recovery.prepare : recovery.apply)({ values, inventory, query, sf, gh });
+  }
   if (!values['state-dir']) {
     throw new Error('--state-dir is required to record ownership and resume safely.');
   }
+  if (values['credential-mode'] === 'permanent' || positionals[0].includes('rotation'))
+    await durablePath(values['state-dir'], { create: true });
   await fs.mkdir(path.resolve(values['state-dir']), { recursive: true, mode: 0o700 });
   const directory = await fs.realpath(values['state-dir']);
   const repo = await fs.realpath(path.resolve(__dirname, '..'));
@@ -206,6 +218,7 @@ async function main(argv = process.argv.slice(2), { sf: invoke = nativeSf, gh = 
   try {
     await lock.writeFile(JSON.stringify({ pid: process.pid, started: new Date().toISOString() }));
     let state = await loadState(directory);
+    if (state?.apps?.permanent) await durablePath(directory);
     if (
       state &&
       (state.org !== inventory.org ||

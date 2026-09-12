@@ -36,7 +36,7 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
   test.setTimeout(40 * 60_000);
   const originalEnv = { ...process.env };
   const config = resolveDevHubConfig();
-  if (config?.mode !== 'jwt' || !config.privateKey) throw new Error('Pool smoke requires inline Dev Hub JWT inputs.');
+  if (config?.mode !== 'jwt') throw new Error('Pool smoke requires complete Dev Hub JWT inputs.');
   const expectedOrg = String(process.env.ALV_JWT_SMOKE_DEVHUB_ORG_ID || '');
   if (!/^00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/.test(expectedOrg)) {
     throw new Error('Set ALV_JWT_SMOKE_DEVHUB_ORG_ID to the verified authorized Dev Hub.');

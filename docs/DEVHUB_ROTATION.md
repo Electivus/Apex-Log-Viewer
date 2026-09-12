@@ -11,7 +11,7 @@ The approved policy for this installation is a **365-day certificate** and `gith
 Before replacing an active credential:
 
 1. Use Node 24, the pinned pnpm, Salesforce CLI **2.150.6**, OpenSSL and authenticated `gh`. Keep the repository-pinned CLI runtime and macOS isolation described in [CI.md](CI.md). On Windows 11 use PowerShell without elevation. Retain approved proxy/CA settings and TLS verification.
-2. Authenticate the authorized bootstrap administrator and independently verify the exact **18-character** Dev Hub ID. Keep the same private state directory and `identity.json` ownership UUID used to provision the active identity. Do not adopt another similarly named app or start a new state ledger.
+2. Authenticate the authorized bootstrap administrator and independently verify the exact **18-character** Dev Hub ID. For a normal rotation, retain the existing `identity.json` ownership UUID and history in [durable operator storage](DEVHUB_LOCAL.md). Do not adopt another similarly named app. If the original journal/key was lost, use the separate audited recovery procedure below.
 3. Confirm the previous private key and certificate are readable, matching and unexpired. Preparation checks them and copies both into private recovery storage. **GitHub Actions Secrets cannot return an old key.** A successful Secret inventory query confirms names/timestamps only.
 4. Resolve every owned proof's pending scratch/pool cleanup. Preserve shared pool leases, configuration and scratch authorization. Existing active scratches do not need deletion for a certificate rotation.
 5. Schedule a quiet transition: inspect active real-org workflow runs and allow existing consumers to finish. A running/queued job may already hold the old Secret value; changing the store does not update that process. Do not reset its pool or revoke personal sessions to force the transition.
@@ -20,7 +20,7 @@ The supported metadata path has one effective `certificate` field on `ExtlClntAp
 
 ## Prepare the next certificate
 
-Use an existing private state directory outside Git and a new, uniquely named candidate directory. Substitute verified values locally. Never put private material in command arguments, committed files, logs or CI artifacts.
+Use an existing private durable state directory outside Git, temporary roots, synchronized folders and application caches, and a new, uniquely named candidate directory. Substitute verified values locally. Never put private material in command arguments, committed files, logs or CI artifacts.
 
 ```powershell
 $identityState = '<existing private identity state directory>'
@@ -103,6 +103,46 @@ Forward recovery needs the retained candidate pair and private JWT inputs. Rollb
 
 Pending rotation blocks unrelated identity mutations. The public-command tests inject failures before ECA replacement, after a successful ECA update with a lost response, before Secret writing and after a successful Secret write with a lost response. They prove forward recovery, rollback, missing-key rejection, mutation counts and unchanged grants/pool records. These are controlled boundary tests, not deliberate outages of active CI.
 
+## Lost local key or journal
+
+Loss of the original operator files requires forward recovery of the same identity. It is not a normal rotation with an available previous-key rollback. Confirm that no verified backup is available and retain the missing path as evidence; do not search arbitrary credential stores or infer an ownership UUID or historical phase.
+
+Generate a new candidate using the approved permanent policy above in a separate durable candidate directory. Select a new, dedicated leaf for the recovery state; preparation creates it and copies the candidate inside it. An existing unrelated directory, including one containing only candidate files, is rejected before its permissions or contents change. Then prepare a plan using the verified current app name and public certificate fingerprint:
+
+```powershell
+$identityState = Join-Path $env:USERPROFILE '.electivus\apex-log-viewer\devhub-jwt'
+# This path must not exist yet. If occupied, select a new unique durable leaf
+# and keep using its explicit --state-dir for verification and test commands.
+$identityArgs = @('--target-org', '<authorized bootstrap alias>',
+  '--expected-org-id', '<verified Dev Hub ID>', '--state-dir', $identityState)
+node scripts/devhub-identity.js prepare-lost-material-recovery @identityArgs @policyArgs `
+  --expected-app-name '<verified existing ECA developer name>' `
+  --expected-fingerprint '<verified currently active SHA-256 fingerprint>' `
+  --lost-state-dir '<exact missing original state directory>' `
+  --certificate-file '<durable candidate certificate>' --private-key-file '<durable candidate private key>'
+if ($LASTEXITCODE -ne 0) { throw 'Preserve the audit/candidate and resolve the preparation failure.' }
+```
+
+Preparation records `recovery-preparation.json` only in its newly created private leaf. A failed preparation can reuse that leaf only when the marker matches the same org, app, fingerprints, missing-state path and explicit lifecycle inputs. Preserve incomplete roots without a readable matching marker and select a new leaf instead of adopting them. This local marker records the preparation request, not historical Salesforce ownership or approval for active replacement.
+
+Preparation reads live user/ECA ownership markers, the minimum Integration profile and PSL, exclusive preauthorization, complete runtime grants, current ECA policies/client ID/certificate and the four Secret names/timestamps. It retains a private immutable `recovery-plan.json`, copies the candidate, and dry-runs only the certificate metadata update. It makes no active credential change and does not create `identity.json`. The receipt contains the exact plan SHA-256 and new recovery ID, with the old journal/key unavailable, historical phases and outstanding historical proof resources unknown, rollback unavailable and CI unverified.
+
+Before applying, the operator must approve that concrete plan: current identity/assignment evidence, candidate fingerprint/expiry, target store, quiet transition window, expected interruption of old-key JWT renewal, forward-only recovery and subsequent validation. The preparation's policy reference records candidate preparation; it does not authorize active replacement. Recheck active workflow consumers and pool leases before the transition without resetting or deleting them.
+
+```powershell
+node scripts/devhub-identity.js apply-lost-material-recovery @identityArgs `
+  --approved-plan-sha256 '<exact approved receipt SHA-256>' `
+  --policy-reference '<actual approval for this active recovery>'
+if ($LASTEXITCODE -ne 0) { throw 'Preserve recovery state; reconcile and resume the same approved plan.' }
+node scripts/devhub-local.js verify --state-dir $identityState
+```
+
+Apply rechecks the approved plan, live ownership/client ID/assignments, effective grants and GitHub Secret timestamps. The client ID, username and login URL Secrets must retain their approved timestamps on every attempt. The private-key timestamp must also match until the journal records an attempted Secret write; `store-update-pending` and `store-updated` allow its timestamp to change because an interrupted delivery may already have succeeded. Before completing recovery, the command records GitHub's post-write private-key timestamp. An `applied` journal must match that timestamp on reruns; later replacement, or an older journal without that evidence, stops replay without an automatic rewrite or fabricated history. Preserve the journal and reconcile the store using independent CI evidence and an explicitly approved corrective operation if needed. A mismatch stops active writes and requires reconciliation. User selection verifies the contact email and ownership marker while preserving the actual username, including a suffix assigned after a global username collision. Only then does apply start a new recovery journal using the ownership marker read from Salesforce. `recovery` records the loss and unknown history; `recoveredAt` and new rotation phases describe this recovery's actual operations. No old provisioning timestamp, completed proof or successful old-key login is invented.
+
+The existing ordered transition updates the same ECA certificate, proves the candidate through fresh JWT/User API, then writes only `SF_DEVHUB_PRIVATE_KEY` and saves the new active file references. Use the same `apply-lost-material-recovery` command to resume an interrupted operation: an already observed candidate certificate is preserved and an uncertain Secret delivery is safely rewritten after fresh JWT. A completed operation does not repeat the writes. A mismatched plan/journal, changed ownership/client/assignments or unavailable candidate fails closed. Rollback to the lost key is rejected; if the candidate itself becomes unusable, preserve evidence and approve a new recovery plan.
+
+This command's completion establishes the local credential transition only. Run the existing JWT/scratch/pool smoke and actual source/integrated-main CI separately. UI failures and skipped telemetry still block full acceptance.
+
 ## Private artifacts and retirement
 
 The ledger contains ownership, phases, fingerprints, expiry and private file references. The private tree contains keys, candidate/rollback pairs, JWT inputs, retrieved metadata that can include a consumer secret, and any interrupted CLI homes. Do not publish or upload that tree. Normal JWT checks remove only their own empty-home verification state; a cleanup failure reports the exact retained directory.
@@ -120,3 +160,11 @@ The owned permanent ECA was updated through the narrow Metadata API deployment a
 The initial attempt proved the previous JWT but stopped on local verification-home cleanup before any ECA/Secret write. Its original filesystem code was not retained. Later inspection found the expected owner/full-control ACLs, and the same removal operation succeeded. The corrected command preserved the verification outcome, reconciled that home and resumed the same journal through forward replacement. All three JWT verification homes were confirmed removed. Before/after snapshots retained the same eight active scratches, four pools and 72 slots, with identical hashes for the selected configuration and lease fields. This proves continuity during the controlled replacement; it does not attest global removal of older retained artifacts.
 
 Actual source and integrated-main workflow acceptance, retries and final retirement are recorded in [#1079](https://github.com/Electivus/Apex-Log-Viewer/issues/1079). Local rotation success alone does not establish that acceptance.
+
+## Lost-material recovery on 12 September 2026
+
+After the operator confirmed loss of the registered temporary key/journal, a new 365-day pair was retained in the private durable operator root and a live ownership audit produced an immutable recovery plan. The operator approved that exact plan before active replacement. Recovery `e6202766-2077-4f9d-851a-2fc7e9ef73e7` completed at **18:41:47 UTC**, preserving the dedicated user, ECA/client ID and grants. Fresh JWT and the dedicated User API query passed before only `SF_DEVHUB_PRIVATE_KEY` was updated. Its new fingerprint is `41:DF:46:D0:00:E1:FA:CB:AC:0A:A4:1C:7E:11:7F:09:E7:C4:38:12:53:E4:AC:9C:C4:82:8E:9D:88:29:D8:49`, valid until **12 September 2027 at 15:54:55 UTC**.
+
+Two subsequent local verifications from independent Windows CLI homes passed with the durable inputs; the source key and journal were byte-for-byte preserved and the verification homes were removed. The other three JWT Secret timestamps were unchanged. Local verification uses the fresh JWT org ID and globally unique User API identity, matching the minimum Integration profile's documented inability to query Dev Hub `Organization`. Historical phases remain unknown and rollback to the lost key is unavailable.
+
+The actual Windows file-key pool smoke passed in **15.8 minutes**, including independent consumer import, JWT renewal/heartbeat, finalization/release, failure recovery and owned scratch/pool cleanup. Its unrelated active scratch count stayed at eight and no owned resources were retained. The JavaScript and TypeScript direct lifecycle smokes then passed in **8.5 minutes**, proving fresh JWT, renewal, PlatformCLI signup, scratch API/export/import, preservation of preexisting same-username state and owned cleanup. Both used CLI **2.150.6** with Windows Node **24.19.0**, and neither used configured retries. Their first file-input attempt stopped before scratch creation because the smoke required inline PEM; the corrected smoke accepts either supported key input without changing the runtime authentication path. Actual Linux/proxy, UI/telemetry and source/integrated-main CI acceptance remain separate, pending evidence; the initial generation copy remains retained as recorded in the operator's private approval summary.

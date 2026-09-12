@@ -140,7 +140,7 @@ async function verifyApp(sf, target, root, app, acceptedFingerprints = [app.fing
   if (!/^[a-zA-Z0-9._-]{12,512}$/.test(clientId) || /redact|placeholder/i.test(clientId)) {
     throw new Error('Salesforce did not return a usable ECA consumer key; metadata contents withheld.');
   }
-  return { clientId, fingerprint: certificate.fingerprint256 };
+  return { clientId, fingerprint: certificate.fingerprint256, validFrom: certificate.validFrom, validTo: certificate.validTo };
 }
 
 async function verifyPreauthorization(sf, target, query, app) {
@@ -239,7 +239,10 @@ async function verifyProofApp({ sf, query, target, directory, state, mode, user,
   )
     throw new Error('ECA preauthorization assignment inventory is not exclusively the recorded dedicated user.');
   // A fresh private project prevents partial retrieval from reusing old files.
-  const metadataDirectory = await fs.mkdtemp(path.join(directory, `app-${mode}`, 'proof-audit-'));
+  const auditParent = path.join(directory, `app-${mode}`);
+  await fs.mkdir(auditParent, { recursive: true, mode: 0o700 });
+  await secureDirectory(auditParent);
+  const metadataDirectory = await fs.mkdtemp(path.join(auditParent, 'proof-audit-'));
   const effective = await verifyApp(sf, target, metadataDirectory, app, acceptedFingerprints);
   if (effective.clientId !== clientId)
     throw new Error('Effective ECA client identity differs from the private JWT inputs.');

@@ -1,6 +1,6 @@
 # Testing
 
-For the `devhub-jwt` effort's direct-runner authentication, local alias compatibility and controlled empty-state credential reimport smoke, see [Direct Dev Hub JWT validation](DEVHUB_JWT.md). Production workflow cutover remains a separate step in #1078.
+For the `devhub-jwt` effort's direct-runner authentication, JWT-only local validation and controlled empty-state credential reimport smoke, see [Direct Dev Hub JWT validation](DEVHUB_JWT.md). Production workflow cutover remains a separate step in #1078.
 
 ## Agent Skill distribution
 
@@ -91,8 +91,8 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 Tests do not require an authenticated org by default. If you want the runner to authenticate a Dev Hub and create a scratch org automatically:
 
 - Complete [Dev Hub JWT inputs](DEVHUB_JWT.md): client ID, username, login URL and exactly one inline PEM or key file.
-- `SF_DEVHUB_ALIAS`: Explicit authenticated local alias, only with all JWT inputs absent.
-- `SF_SETUP_SCRATCH=1`: Enables scratch org creation and requires complete JWT, or an explicit authenticated alias outside CI.
+- Local repeatable credentials: use [durable JWT inputs](DEVHUB_LOCAL.md); Dev Hub aliases are not accepted.
+- `SF_SETUP_SCRATCH=1`: Enables scratch org creation and requires complete JWT locally and in CI.
 - `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_Test_Scratch`).
 - `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
 - `SF_TEST_KEEP_ORG=1`: Skip deleting the scratch org during cleanup.
@@ -124,7 +124,7 @@ From the repo root:
 Useful env vars:
 
 - Complete JWT inputs are mandatory in CI and real-org proxy-lab runs. Legacy Dev Hub authorization URLs are unsupported.
-- `SF_DEVHUB_ALIAS`: Explicit authenticated alias for local non-proxy runs only, with JWT entirely absent.
+- Dev Hub JWT is required for local and proxy runs; there is no authenticated-alias alternative.
 - `SF_SCRATCH_STRATEGY`: `single` or `pool`. If unset, the helper auto-enables pool mode when `SF_SCRATCH_POOL_NAME` is present. Local runs can use either mode; CI forces `pool`.
 - `PLAYWRIGHT_WORKERS`: Number of Playwright workers. In pool mode this controls how many isolated tests can run at once, with one scratch-org lease per test. Default `1` locally; the GitHub Actions pool workflow also defaults to `1` unless overridden by the `PLAYWRIGHT_WORKERS` repository variable or the `playwright_workers` dispatch input. In single-scratch mode, the Playwright configs force serial execution.
 - `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS`: GitHub Actions-only worker override for the Ubuntu VS Code extension proxy-lab lane. This is mapped into `PLAYWRIGHT_WORKERS` for that step.
@@ -215,7 +215,7 @@ Pool-specific env vars:
 
 For the pool bootstrap flow and the stored `sfdxAuthUrl` reuse model, see `docs/SCRATCH_ORG_POOL.md`.
 
-The E2E helpers no longer auto-discover or retry alternate Dev Hub aliases. Missing, incomplete or rejected selected JWT fails immediately without alias or authorization-URL fallback; an unauthenticated explicit local alias also fails.
+The E2E helpers no longer auto-discover or retry alternate Dev Hub aliases. Missing, incomplete or rejected JWT fails immediately without alias, cached-account or authorization-URL fallback, locally and in CI.
 
 For Dev Hub bootstrap, operational scripts, and GitHub Actions / Codex Cloud setup, see `docs/SCRATCH_ORG_POOL.md`.
 

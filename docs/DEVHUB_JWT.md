@@ -17,30 +17,16 @@ The JavaScript runner (`scripts/run-tests.js`), TypeScript E2E runner (`ensureSc
 | `SF_DEVHUB_LOGIN_URL`        | HTTPS login origin, such as `https://login.salesforce.com`                     |
 | `SF_DEVHUB_PRIVATE_KEY_FILE` | Path to a readable, unencrypted RSA PEM private key, at least 2048 bits        |
 | `SF_DEVHUB_PRIVATE_KEY`      | Alternative inline PEM; supply exactly one of the two key inputs               |
-| `SF_DEVHUB_ALIAS`            | Explicit, already authenticated local alias, available only when JWT is absent |
 
-Any JWT input selects JWT. Partial, malformed or rejected JWT configuration fails without trying an alias, a default identity or an authorization URL. CI requires complete JWT even when a cached alias or `SF_DEVHUB_AUTH_URL` exists. Neither `SF_DEVHUB_AUTH_URL` nor `SFDX_AUTH_URL` is an authentication fallback.
+Local automated validation and CI both require complete JWT. Missing, partial, malformed or rejected JWT configuration fails before Dev Hub or pool access, even when an explicit alias, cached account or `SF_DEVHUB_AUTH_URL` exists. Neither `SF_DEVHUB_AUTH_URL` nor `SFDX_AUTH_URL` is an authentication fallback.
 
-JWT uses the configured username as the target identifier. It does not change the global default Dev Hub or repoint a supplied alias. With an inline key, this username is resolved only in the workflow-owned CLI home. The ECA must already allow certificate-backed login for that user. The approved permanent identity, GitHub repository Secret storage and 365-day certificate are recorded in [DEVHUB_IDENTITY.md](DEVHUB_IDENTITY.md).
+JWT uses the configured username as the target identifier. It does not change the global default Dev Hub or repoint a supplied alias. With either a key file or inline PEM, this username is resolved only in a new workflow-owned CLI home. The ECA must already allow certificate-backed login for that user. The approved permanent identity, GitHub repository Secret storage and 365-day certificate are recorded in [DEVHUB_IDENTITY.md](DEVHUB_IDENTITY.md).
 
-### Local JWT
+### Repeatable local JWT
 
-In a PowerShell session, set the client ID, username and login origin, then select a key file:
+Use [Durable local JWT validation](DEVHUB_LOCAL.md) to keep the operator key, certificate, journal and input references in private per-user storage. The default is `%USERPROFILE%\.electivus\apex-log-viewer\devhub-jwt`, outside Git, temporary files, synchronization and application caches. `devhub-local.js verify` proves the recorded org/user through fresh JWT and API reads; `run -- <command>` performs that proof before scoping JWT input references to the requested test command. No machine-wide credential environment settings are needed.
 
-```powershell
-$env:SF_DEVHUB_CLIENT_ID = '<ECA consumer key>'
-$env:SF_DEVHUB_USERNAME = '<Salesforce username>'
-$env:SF_DEVHUB_LOGIN_URL = 'https://login.salesforce.com'
-$env:SF_DEVHUB_PRIVATE_KEY_FILE = '<absolute path to private PEM>'
-$env:SF_SETUP_SCRATCH = '1'
-node scripts/run-tests.js --scope=integration --vscode=stable
-```
-
-Replace the placeholders locally; never commit credentials. TypeScript E2E uses the same inputs through `node scripts/run-playwright-cli-e2e.js` or `node scripts/run-playwright-e2e.js`. Use `SF_SCRATCH_STRATEGY=single` for the direct path. Unit-only and VSIX smoke runs do not require Dev Hub credentials.
-
-### Local alias
-
-In a local session with all five JWT inputs absent, set `SF_DEVHUB_ALIAS` to an alias that is already authenticated and set `SF_SETUP_SCRATCH=1` for the JavaScript runner. A selected JWT failure does not enable this mode. Alias mode is unavailable in CI.
+Existing callers may still supply the four JWT values directly, with exactly one key input. Use `SF_SETUP_SCRATCH=1` for the JavaScript integration runner and `SF_SCRATCH_STRATEGY=single` for the direct scratch path. Unit-only and VSIX smoke runs do not require Dev Hub credentials. Dev Hub alias authentication is unavailable locally and in CI. The separately authorized bootstrap administrator and PlatformCLI scratch authorization remain supported.
 
 ## CLI and child-process boundaries
 
@@ -60,11 +46,11 @@ The identity operator rejects an inventory unless `records` is an array and `don
 
 The ephemeral macOS CI lane selects the CLI's official `SF_USE_GENERIC_UNIX_KEYCHAIN=true` backend. Native keychain access stalled during JWT login in the hosted runner; the controlled alternative keeps CLI encryption enabled and stores its local encryption key in `.sfdx/key.json` with mode `0600`. The workflow creates a fresh caller home with mode `0700`, outside dependency caches and published artifacts, and removes that caller state at job cleanup. Each JWT session and independent smoke home remains separate. The smoke checks home/key permissions, encrypted token storage, distinct independent encryption keys, renewal and cleanup. No existing authorization is migrated between backends. Remove the macOS environment selection and recreate its ephemeral homes to reverse this runner-only setting; the operator's host keychain and permanent JWT certificate are unchanged.
 
-Inline PEM creates a private workflow directory containing the key and the CLI's `.sf`/`.sfdx` state. Only the Dev Hub child processes receive its `USERPROFILE` on Windows or `HOME` on macOS/Linux. The parent environment and existing authorizations for the same username remain intact. Salesforce stores the key path for renewal, so this entire state lives until workflow cleanup, including pool lease release. Tooling caches and renewal retain their originating CLI home; concurrent Dev Hub sessions cannot share authentication by username alone.
+Both key-file and inline inputs create a private workflow directory containing the key and the CLI's `.sf`/`.sfdx` state. Only the Dev Hub child processes receive its `USERPROFILE` on Windows or `HOME` on macOS/Linux. The parent environment and existing authorizations for the same username remain intact. Salesforce stores the key path for renewal, so this entire state lives until workflow cleanup, including pool lease release. Tooling caches and renewal retain their originating CLI home; concurrent Dev Hub sessions cannot share authentication by username alone.
 
 After creating a scratch, the runner exports and imports its refresh-token authorization through the supported CLI commands into the caller's normal CLI state. Existing UI/CLI consumers therefore retain their usual access, and `SF_TEST_KEEP_ORG=1` leaves usable scratch authorization after JWT cleanup. Deletion runs with the isolated Dev Hub, then logs out only the exact deleted scratch username in caller state after remote deletion succeeds. Reused scratches can be imported into the isolated state for this deletion. The Dev Hub is never logged out in caller state.
 
-Login failures, scratch setup failures and JavaScript VS Code bootstrap failures clean up workflow-owned state. Caller-owned key files and explicit alias mode retain their normal CLI home and are never removed by JWT cleanup. If scratch authorization transfer fails, the runner reports the retained recovery directory and preserves its only usable credentials rather than silently losing scratch access. Recover or delete that scratch using the reported CLI home, then remove that owned directory. Other key/state cleanup failures similarly identify the exact remaining directory without credential values. An abrupt OS/process termination can require manual cleanup.
+Login failures, scratch setup failures and JavaScript VS Code bootstrap failures clean up workflow-owned state. Caller-owned key files remain in durable storage; the session uses its own copy and never removes the original during JWT cleanup. If scratch authorization transfer fails, the runner reports the retained recovery directory and preserves its only usable credentials rather than silently losing scratch access. Recover or delete that scratch using the reported CLI home, then remove that owned directory. Other key/state cleanup failures similarly identify the exact remaining directory without credential values. An abrupt OS/process termination can require manual cleanup.
 
 ## Controlled smoke and observed results
 
@@ -96,7 +82,7 @@ pnpm run scratch-pool:reconcile -- --pool-key '<configured pool>'
 pnpm run scratch-pool:prewarm -- --pool-key '<configured pool>' --limit 1
 ```
 
-`--target-org <alias>` is an explicit local alias alternative only when all JWT inputs are absent. It cannot override a selected JWT identity or make an alias valid in CI. `list` omits scratch authorization URLs and lease tokens even with `--json`.
+`--target-org`, when supplied to a pool command, must equal `SF_DEVHUB_USERNAME`. It cannot select an alias or override the JWT identity. `list` omits scratch authorization URLs and lease tokens even with `--json`.
 
 Prewarm still uses the conditional slot update to acquire its maintenance lease. The scratch is created with PlatformCLI, its usable authorization is handed to the caller through CLI export/import, and the existing `ScratchAuthUrl__c` field receives the same authorization URL format. Reconciliation marks redaction placeholders or unusable URLs as requiring recreation. No schema, lease API, credential format or cache layout changes are required.
 
@@ -114,7 +100,7 @@ The controlled validation below used the previously authorized bootstrap identit
 
 ### Controlled pool validation
 
-With an authorized Dev Hub, complete **inline** JWT inputs and available scratch capacity, run:
+With an authorized Dev Hub, complete JWT inputs (inline PEM or a key file) and available scratch capacity, run:
 
 ```powershell
 $env:ALV_POOL_JWT_SMOKE = '1'

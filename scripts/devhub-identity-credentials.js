@@ -4,6 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { generateKeyPairSync, X509Certificate, createPrivateKey } = require('node:crypto');
 const spawn = require('cross-spawn');
+const { durablePath } = require('./devhub-operator-state');
 
 function lifecycleInputs(values, requireFiles) {
   const mode = values['credential-mode'];
@@ -99,6 +100,10 @@ while ($pending.Count) {
 }
 
 async function readCertificate(certificateFile, privateKeyFile, lifecycle) {
+  if (lifecycle.mode === 'permanent') {
+    await durablePath(certificateFile);
+    await durablePath(privateKeyFile);
+  }
   let pem, certificate, key;
   try {
     pem = await fs.readFile(certificateFile, 'utf8');
@@ -132,6 +137,8 @@ async function readCertificate(certificateFile, privateKeyFile, lifecycle) {
 
 async function createCertificate(values) {
   const lifecycle = lifecycleInputs(values, false);
+  if (!values['state-dir']) throw new Error('--state-dir is required.');
+  if (lifecycle.mode === 'permanent') await durablePath(values['state-dir'], { create: true });
   const root = await outsideRepository(values['state-dir']);
   const directory = path.join(root, `credentials-${lifecycle.mode}`);
   const certificateFile = path.join(directory, 'certificate.pem');
