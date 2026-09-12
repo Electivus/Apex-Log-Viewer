@@ -74,12 +74,12 @@ async function operatorFixture(t) {
       return { username, orgId: state.org };
     }
     assert.deepEqual(args.slice(0, 2), ['data', 'query']);
+    if (args.includes('SELECT Id FROM Organization'))
+      throw new Error('INVALID_TYPE: The minimum Integration identity cannot query Organization.');
     return {
       done: true,
       totalSize: 1,
-      records: args.includes('SELECT Id FROM Organization')
-        ? [{ Id: state.org }]
-        : [{ Id: state.userId, Username: username }]
+      records: [{ Id: state.userId, Username: username }]
     };
   };
   return { directory, material, state, sf, homes };
@@ -242,10 +242,9 @@ test('local JWT API verification rejects contradictory identity evidence and cle
     let childCalls = 0;
     const sf = async (args, options) => {
       const result = await fixture.sf(args, options);
+      if (args[2] === 'jwt' && invalid === 'wrong-org') result.orgId = '00D000000000002AAA';
       if (args[0] === 'data') {
-        if (invalid === 'wrong-org') result.records[0].Id = '00D000000000002AAA';
-        if (invalid === 'wrong-user' && !args.includes('SELECT Id FROM Organization'))
-          result.records[0].Username = 'another@example.com';
+        if (invalid === 'wrong-user') result.records[0].Username = 'another@example.com';
         if (invalid === 'incomplete') result.done = false;
         if (invalid === 'contradictory') result.totalSize = 0;
       }
@@ -258,7 +257,7 @@ test('local JWT API verification rejects contradictory identity evidence and cle
           childCalls++;
         }
       }),
-      /JWT.*(?:identity|evidence)/
+      /JWT.*(?:identity|evidence)|JWT login failed/
     );
     assert.equal(childCalls, 0);
     assert.equal(

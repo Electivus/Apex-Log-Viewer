@@ -15,7 +15,7 @@ An existing valid journal can be restored from an operator-verified backup into 
 Use Node 24, pnpm 11.11.0 through the existing Corepack setup and the repository-pinned Salesforce CLI. Retain approved corporate proxy and CA trust settings.
 
 ```powershell
-# Fresh JWT plus Organization/User API identity proof, with no scratch mutation.
+# Fresh JWT confirms the Dev Hub; a User API query confirms the dedicated identity.
 node scripts/devhub-local.js verify
 if ($LASTEXITCODE -ne 0) { throw 'Repair JWT inputs before real-org tests.' }
 
@@ -29,6 +29,8 @@ node scripts/devhub-local.js run -- corepack pnpm run scratch-pool:list -- --poo
 ```
 
 Use `--state-dir '<absolute private directory>'` before `--` to select another verified durable root. The wrapper does not install persistent credential environment variables. Child exit status is preserved. It validates the recorded org and dedicated user before starting the child; a valid RSA key alone is not sufficient proof.
+
+The minimum Salesforce Integration profile rejects Dev Hub SOQL on `Organization`. As in the [native identity proof](DEVHUB_IDENTITY.md#independent-native-proof), verification checks the org ID returned by fresh JWT login and the globally unique dedicated user ID through the runtime API. It does not add administrative permissions to run that query.
 
 Every JWT session, including a file-based key, copies the key into its own empty CLI home. Renewal uses that session's private copy. Normal success/failure cleanup removes only workflow-owned state, leaving the durable original and journal intact for the next run. Pending scratch recovery retains its execution's credentials and reports its directory. Preserve that reported state until the owned scratch is recovered; do not delete the operator root or retry a denied removal through another mechanism.
 

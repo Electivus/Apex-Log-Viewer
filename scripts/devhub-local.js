@@ -83,9 +83,10 @@ async function verify({ state, config, certificate }, sf) {
   });
   try {
     const query = soql => sf(['data', 'query', '--target-org', config.username, '--query', soql], { env: session.env });
-    const org = completeRecord(await query('SELECT Id FROM Organization'));
+    // The minimum Integration profile cannot query Organization. The fresh JWT
+    // login binds the org above; the globally unique user ID proves API identity.
     const user = completeRecord(await query(`SELECT Id, Username FROM User WHERE Id = '${state.userId}'`));
-    if (org.Id !== state.org || user.Id !== state.userId || user.Username !== state.username)
+    if (user.Id !== state.userId || user.Username !== state.username)
       throw new Error('Fresh JWT API identity differs from the durable journal.');
   } finally {
     await session.cleanup();
