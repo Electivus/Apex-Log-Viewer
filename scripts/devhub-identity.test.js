@@ -278,11 +278,18 @@ test('lost-material recovery preserves approved Secret inputs and resumes withou
     '--rotation-id', result.recoveryId, '--recovery-direction', 'rollback'], fixture), /rollback.*unavailable/i);
 });
 
-test('lost-material recovery retains the owned username selected after a global collision', async t => {
+test('lost-material recovery retains the owned username despite an unrelated same-org collision', async t => {
   const setup = await rotationFixture(t);
   const { fixture, state, replacement, changes } = setup;
   state.username = `apex-log-viewer-ci+${state.owner}@electivus.com`;
   fixture.records.User[0].Username = state.username;
+  fixture.records.User.push({
+    ...fixture.records.User[0],
+    Id: '005000000000002AAA',
+    Username: 'apex-log-viewer-ci@electivus.com',
+    Email: 'unrelated@example.com',
+    FederationIdentifier: null
+  });
   fixture.observedApp = { ...state.apps.permanent };
   const directory = path.join(setup.directory, 'recovered-collision-state');
   const prepared = await main(['prepare-lost-material-recovery', ...baseArgs.slice(1), '--state-dir', directory,

@@ -100,6 +100,28 @@ test('local JWT verification rejects a temporary operator root before Salesforce
   assert.equal(calls, 0);
 });
 
+test('local JWT rejects an unrecognized state root without changing its permissions', async t => {
+  const directory = fs.mkdtempSync(path.join(os.homedir(), 'alv-unrelated-directory-test-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const snapshot = () => {
+    if (process.platform !== 'win32') return fs.statSync(directory).mode & 0o777;
+    const result = require('cross-spawn').sync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      '[System.IO.Directory]::GetAccessControl($env:ALV_TEST_ACL_DIRECTORY).GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access)'],
+      { encoding: 'utf8', windowsHide: true, env: { ...process.env, ALV_TEST_ACL_DIRECTORY: directory } });
+    assert.equal(result.status, 0, 'Read-only ACL inspection must succeed');
+    return result.stdout.trim();
+  };
+  if (process.platform !== 'win32') fs.chmodSync(directory, 0o750);
+  let calls = 0;
+  const before = snapshot();
+  for (const journal of [undefined, '{invalid', JSON.stringify({ version: 1, owner: 'not-an-operator' })]) {
+    if (journal !== undefined) fs.writeFileSync(path.join(directory, 'identity.json'), journal, { mode: 0o600 });
+    await assert.rejects(main(['verify', '--state-dir', directory], { sf: async () => calls++ }), /identity|journal/i);
+    assert.equal(snapshot(), before, 'An unrecognized directory must retain its existing permissions');
+  }
+  assert.equal(calls, 0);
+});
+
 test('permanent certificate creation refuses temporary storage before producing credentials', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-storage-rejection-test-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));

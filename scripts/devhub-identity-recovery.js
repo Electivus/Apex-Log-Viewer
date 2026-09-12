@@ -10,6 +10,7 @@ const { verifyApp, verifyPreauthorization } = require('./devhub-identity-app');
 const { auditRuntime } = require('./devhub-identity-permissions');
 const { githubStore } = require('./devhub-identity-store');
 const CONTACT = 'apex-log-viewer-ci@electivus.com';
+const OWNER_MARKER = /^alv-devhub:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/;
 const digest = value => createHash('sha256').update(value).digest('hex');
 
 async function mustBeAbsent(file) {
@@ -39,15 +40,12 @@ async function locked(directory, action) {
 }
 
 async function observe({ values, inventory, query, sf, directory, lifecycle, fingerprints }) {
-  const users = inventory.users.filter(item => item.Email === CONTACT);
+  const users = inventory.users.filter(item => item.Email === CONTACT && OWNER_MARKER.test(item.FederationIdentifier || ''));
   const user = users[0];
-  const owner = /^alv-devhub:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.exec(
-    user?.FederationIdentifier || ''
-  )?.[1];
+  const owner = OWNER_MARKER.exec(user?.FederationIdentifier || '')?.[1];
   const candidate = inventory.candidates.integration;
   if (
     users.length !== 1 ||
-    inventory.users.length !== 1 ||
     !owner ||
     typeof user.Username !== 'string' ||
     !/^[^\s<>]+@[^\s<>]+$/.test(user.Username) ||

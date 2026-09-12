@@ -11,7 +11,6 @@ const { authenticateDevHub, validateDevHubJwt, salesforceChildEnv } = require('.
 const { nativeSf } = require('./devhub-identity-sf');
 
 async function operatorInputs(directory) {
-  await secureDirectory(directory);
   const read = async file => {
     try {
       return JSON.parse(await fs.readFile(await privateFile(directory, file), 'utf8'));
@@ -39,6 +38,9 @@ async function operatorInputs(directory) {
   ) {
     throw new Error('Durable identity ownership, lifecycle or pending recovery is invalid; no JWT session may start.');
   }
+  // Recognize the dedicated operator journal before changing an existing root's
+  // permissions. A mistyped directory must remain untouched when verification fails.
+  await secureDirectory(directory);
   const inputs = await read(app.inputsFile);
   if (
     inputs.username !== state.username ||
