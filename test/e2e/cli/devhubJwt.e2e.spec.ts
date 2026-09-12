@@ -91,9 +91,12 @@ for (const runner of ['typescript', 'javascript'] as const) {
       const initial = await shortCommand('empty-org-list', ['org', 'list'], { cwd: primaryHome });
       expect(Object.values(initial.result).filter(Array.isArray).flat().length).toBe(0);
 
-      if (!config.privateKey) throw new Error('Lifecycle smoke requires the inline PEM mode.');
+      const privateKey =
+        config.privateKey ||
+        (config.privateKeyFile ? await readFile(path.resolve(config.privateKeyFile), 'utf8') : undefined);
+      if (!privateKey) throw new Error('Lifecycle smoke requires an inline PEM or a readable private-key file.');
       const preexistingKey = path.join(primaryHome, 'preexisting.pem');
-      await writeFile(preexistingKey, config.privateKey, { encoding: 'utf8', mode: 0o600 });
+      await writeFile(preexistingKey, privateKey, { encoding: 'utf8', mode: 0o600 });
       await shortCommand('preexisting-jwt-login', [
         'org',
         'login',
