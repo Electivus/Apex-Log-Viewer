@@ -143,7 +143,7 @@ async function observe({ values, inventory, query, sf, directory, lifecycle, fin
 }
 
 async function prepare(context) {
-  const { values, inventory, query, sf, gh } = context;
+  const { values, inventory, sf, gh } = context;
   const { lifecycle, certificate } = await rotationInputs(values);
   if (!values['state-dir'] || !values['lost-state-dir'] || !path.isAbsolute(values['lost-state-dir']))
     throw new Error('Explicit durable --state-dir and the missing original --lost-state-dir are required.');
