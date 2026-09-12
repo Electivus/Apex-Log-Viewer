@@ -148,6 +148,14 @@ The user revoked the authenticated Dev Hub alias exception for local development
 
 PR #1097 was merged as `29f44560bd5a63043307edd297dd9a8689f31630`. Run `34384880623`, attempt 3, passed the six JS/TS JWT lifecycle receipts and the isolated pool/cleanup proof, but failed Linux UI and skipped telemetry. Its complete integration acceptance remains pending. The new storage/recovery requirements do not authorize an unplanned active certificate or Secret change, and neither issue is closed by this Planning update.
 
+## Actions and Dependabot rotation extension - 12 September 2026
+
+The user approved DEC-013 after PR #1098 merged: future rotation and recovery must update `SF_DEVHUB_PRIVATE_KEY` in both repository Actions and Dependabot Secrets under the explicit `github-actions-dependabot-secrets:Electivus/Apex-Log-Viewer/SF_DEVHUB_PRIVATE_KEY` policy. All four JWT inputs must be present in each scope before active writes; the other three values remain unchanged.
+
+T06/#1079 owns a follow-up PR. Preserve Actions-only journals and support an explicit upgrade in the same repository; reject a downgrade or repository change. Bind the selected scopes and all input timestamps during preparation. Record pending and confirmed deliveries separately, reconcile uncertain writes, and complete only after both scopes match the selected direction. Rollback must restore the previous key in both scopes even when the previous material's policy mentions Actions only. Reject drift in non-key inputs or confirmed key timestamps, including completed replay. Lost-material recovery binds both inventories in its approved plan while preserving unknown history and unavailable rollback. Test these behaviors through the existing public command interface and document the next operation. This code follow-up does not replace the active certificate or authorize dependency PR triage or merge.
+
+Prior-scope integrated acceptance is now established at main `1bd1ac3156fd83a4ea69299c65d9675e44939001`: CI `34721708541` and opted-in workflow `34721729839` passed on attempt 1. All six inspected JS/TS JWT lifecycle receipts and the isolated pool/consumer cleanup receipt passed. Windows IntelliJ and errors-only UI tests each used one configured retry; telemetry validated 19 events across five names in one query. Historical failures and retained private material remain recorded. This evidence does not attest the newly requested dual-store code, and #1073 stays open.
+
 ## Planning context
 
 - Format: v1

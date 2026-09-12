@@ -18,6 +18,7 @@ Scratch signup uses Salesforce's existing `PlatformCLI` application. Scratch cre
 | DEC-004 | Provision and validate a dedicated automation identity instead of retaining the personal administrator account. |
 | DEC-011 | Require JWT locally and in CI; reject alias, cached-account and legacy authorization-URL fallback for the Dev Hub. |
 | DEC-012 | Preserve private operator credentials and recovery state in durable storage and explicitly handle loss of the local material. |
+| DEC-013 | Use an explicit Actions and Dependabot storage policy for future rotation and recovery, retaining progress and inventory evidence for each scope. |
 | DEC-007 | Use the user-authorized purpose-specific `electivus.com` contact alias; ensure global Salesforce username uniqueness at provisioning. |
 | DEC-008 | Deliver this authentication migration only; do not continue Dependabot triage. |
 | DEC-009 | Test the minimum Integration license/profile combination and use a minimum Salesforce profile if the required Dev Hub operations are unsupported. |
@@ -68,6 +69,14 @@ Do not install a recurring rotation or reminder automation unless the user reque
 ## Exclusions
 
 This effort does not change product runtime authentication, log storage, the scratch-pool data model, unrelated dependency versions, or release behavior. Existing snapshot support remains a separate license/permission consideration; the currently configured pools use definition-based creation.
+
+## Actions and Dependabot rotation extension - 12 September 2026
+
+DEC-013 extends the installation policy to `github-actions-dependabot-secrets:Electivus/Apex-Log-Viewer/SF_DEVHUB_PRIVATE_KEY`. The four JWT inputs must already exist in each scope; rotation updates only the private key after fresh JWT verification. The current credential is not rotated for this code change.
+
+Preserve legacy Actions-only state and allow an explicitly approved upgrade to both scopes in the same repository. Reject a repository change or downgrade. Preparation binds both inventories; record each pending and confirmed private-key delivery with its observed timestamp. Interrupted forward recovery reconciles completed and uncertain writes. Rollback restores the retained previous key to every scope selected by the operation, even when that previous material used an Actions-only policy. Do not declare completion while either scope is pending or has drifted. Non-key input changes always require reconciliation; completed key writes must match their recorded timestamps. Lost-material plans bind the same scope and inventory evidence and do not invent an old key or rollback.
+
+T06/#1079 owns this follow-up PR, public `devhub-identity` command tests for partial writes/recovery/rollback/drift and operator documentation. Dependabot dependency changes, triage and merge remain excluded. Actual CI using each configured scope is separate from controlled tests of the new rotation code.
 
 ## Planning context
 

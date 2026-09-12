@@ -26,12 +26,21 @@ The 12 September 2026 policy extension also requires JWT-only local validation a
 - [ ] Repeatable local validation proves the dedicated JWT identity from isolated CLI state using the durable operator inputs. PlatformCLI scratch signup/import and separate administrator bootstrap remain supported; neither is treated as a personal Dev Hub fallback.
 - [ ] Current UI failures, telemetry validation and actual integrated-main acceptance remain required. Prior JWT/pool receipts and local diagnostic success are not represented as a passing complete workflow or verification of the new policy.
 
+### Actions and Dependabot follow-up
+
+- [ ] An explicit dual-store policy updates the private-key Secret in Actions and Dependabot; all four JWT inputs are inventoried per scope and non-key values remain unchanged.
+- [ ] Existing Actions-only state can be explicitly upgraded for the same repository; a downgrade or different repository fails before active writes.
+- [ ] Each pending/confirmed delivery is journaled. Controlled public-command tests cover failure before and after either delivery, forward resumption, drift rejection and completion without repeated writes.
+- [ ] Rollback restores the retained previous key to both selected scopes even when the old lifecycle was Actions-only. Lost-material plans bind both inventories and retain unavailable rollback and unknown history.
+- [ ] Operator documentation describes the new policy, partial failures and actual CI verification for both scopes. This code follow-up does not rotate the current credential or merge dependency PRs.
+
 ### Decision consequences
 
 - `DEC-004`: Maintain a separate operational credential lifecycle for the dedicated Dev Hub identity.
 - `DEC-001`: Preserve certificate-backed Dev Hub authentication during rotation and recovery.
 - `DEC-011`: Replace the old local-alias exception with mandatory JWT across local and CI Dev Hub entry points.
 - `DEC-012`: Preserve durable private operator state and provide auditable recovery when the local key/journal is unavailable.
+- `DEC-013`: Keep Actions and Dependabot private-key delivery consistent across rotation and recovery.
 
 ## Blocked by
 
