@@ -163,4 +163,3 @@ Prior-scope integrated acceptance is now established at main `1bd1ac3156fd83a4ea
 - Effort: devhub-jwt
 - Decision ledger: `docs/planning/devhub-jwt/decision-ledger.md`
 - Planning checkpoint: 4a7b254f7024f4add2af006bb0474ca4a40e7fbb
-- Decisions: DEC-001, DEC-004, DEC-011, DEC-012, DEC-013
