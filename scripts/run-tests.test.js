@@ -308,10 +308,11 @@ test('selected JWT authenticates the configured username and keeps its key until
   assert.equal(fs.existsSync(keyFile), false);
 });
 
-test('real-org CI rejects a cached alias and legacy URL before scratch mutations', async t => {
+for (const ci of ['true', 'false']) test(`real-org setup rejects cached alias and legacy URL without JWT (CI=${ci})`, async t => {
   process.env = {
     ...originalEnv,
-    CI: 'true',
+    CI: ci,
+    GITHUB_ACTIONS: ci,
     SF_SETUP_SCRATCH: '1',
     SF_DEVHUB_ALIAS: 'CachedDevHub',
     SF_DEVHUB_AUTH_URL: 'force://legacy-secret'
@@ -334,7 +335,7 @@ test('real-org CI rejects a cached alias and legacy URL before scratch mutations
           }
         }
       ),
-    /CI requires.*JWT/
+    /requires complete Dev Hub JWT/
   );
   assert.equal(scratchMutated, false);
 });
@@ -540,8 +541,15 @@ test('caller-owned key files survive successful JWT workflow cleanup', async t =
     privateKeyFile: keyFile
   };
   const session = await ensureDevHub('sf', config, {
-    execFileAsync: async (file, args) => {
-      assert.equal(args[args.indexOf('--jwt-key-file') + 1], keyFile);
+    execFileAsync: async (file, args, options) => {
+      const homeField = process.platform === 'win32' ? 'USERPROFILE' : 'HOME';
+      const home = options.env[homeField];
+      assert.notEqual(home, process.env[homeField]);
+      assert.equal(fs.existsSync(path.join(home, '.sf')), false);
+      const copiedKey = args[args.indexOf('--jwt-key-file') + 1];
+      assert.notEqual(copiedKey, keyFile);
+      assert.equal(path.dirname(copiedKey), home);
+      assert.equal(fs.readFileSync(copiedKey, 'utf8'), testPrivateKey);
       return { stdout: '{"status":0,"result":{"username":"selected@example.com"}}' };
     }
   });
@@ -563,20 +571,21 @@ test(
     const binary = path.join(directory, 'sf.cmd');
     fs.writeFileSync(
       entry,
-      `require('node:fs').writeFileSync(${JSON.stringify(capture)}, JSON.stringify(process.argv.slice(2))); process.stdout.write(JSON.stringify({status:0,result:{}}));`
+      `require('node:fs').writeFileSync(${JSON.stringify(capture)}, JSON.stringify(process.argv.slice(2))); process.stdout.write(JSON.stringify({status:0,result:{username:'selected@example.com'}}));`
     );
     fs.writeFileSync(binary, `@"${process.execPath}" "${entry}" %*\r\n`);
     process.env.SF_CLI_BIN_PATH = binary;
     delete process.env.ALV_SF_BIN_PATH;
-    const session = await ensureDevHub('sf', { mode: 'alias', alias: 'Selected DevHub & literal' });
-    await session.cleanup();
-    assert.deepEqual(JSON.parse(fs.readFileSync(capture, 'utf8')), [
-      'org',
-      'display',
-      '--target-org',
-      'Selected DevHub & literal',
-      '--json'
-    ]);
+    const session = await ensureDevHub('sf', {
+      mode: 'jwt', clientId: 'test-client', username: 'selected@example.com',
+      loginUrl: 'https://login.salesforce.com', privateKey: testPrivateKey
+    });
+    try {
+      const args = JSON.parse(fs.readFileSync(capture, 'utf8'));
+      assert.deepEqual(args.slice(0, 3), ['org', 'login', 'jwt']);
+      assert.equal(args[args.indexOf('--username') + 1], 'selected@example.com');
+      assert.equal(fs.existsSync(args[args.indexOf('--jwt-key-file') + 1]), true);
+    } finally { await session.cleanup(); }
   }
 );
 
@@ -782,7 +791,7 @@ test('resolveRequiredDevHubConfig ignores the legacy SFDX_AUTH_URL fallback', ()
   delete process.env.SF_DEVHUB_AUTH_URL;
   delete process.env.SF_DEVHUB_ALIAS;
 
-  assert.throws(() => resolveRequiredDevHubConfig({ requireConfig: true }), /Missing required Dev Hub configuration/);
+  assert.throws(() => resolveRequiredDevHubConfig({ requireConfig: true }), /requires complete Dev Hub JWT configuration/);
 
   process.env = { ...originalEnv };
 });
@@ -807,7 +816,7 @@ test('pretestSetup fails fast when scratch setup is enabled without explicit Dev
           ensureSfCliInstalled: async () => 'sf'
         }
       ),
-    /Missing required Dev Hub configuration/
+    /requires complete Dev Hub JWT configuration/
   );
 
   process.env = { ...originalEnv };
@@ -821,7 +830,10 @@ test('pretestSetup propagates Dev Hub auth failures instead of continuing', asyn
     CI: 'false',
     GITHUB_ACTIONS: 'false',
     SF_SETUP_SCRATCH: '1',
-    SF_DEVHUB_ALIAS: 'ConfiguredDevHub'
+    SF_DEVHUB_CLIENT_ID: 'test-client',
+    SF_DEVHUB_USERNAME: 'selected@example.com',
+    SF_DEVHUB_LOGIN_URL: 'https://login.salesforce.com',
+    SF_DEVHUB_PRIVATE_KEY: testPrivateKey
   };
 
   await assert.rejects(
@@ -847,55 +859,12 @@ test('pretestSetup propagates Dev Hub auth failures instead of continuing', asyn
   process.env = { ...originalEnv };
 });
 
-test('ensureDevHub validates an explicit alias without mutating global CLI config', async () => {
-  const calls = [];
-
-  const resolvedAlias = await ensureDevHub(
-    'sf',
-    { mode: 'alias', alias: 'ConfiguredDevHub' },
-    {
-      execFileAsync: async (file, args) => {
-        calls.push([file, args]);
-        return { stdout: '{"status":0,"result":{}}' };
-      }
-    }
-  );
-
-  assert.equal(resolvedAlias.targetOrg, 'ConfiguredDevHub');
-  assert.deepEqual(calls, [['sf', ['org', 'display', '--target-org', 'ConfiguredDevHub', '--json']]]);
-});
-
-test('local alias authorization rejects unsuccessful JSON before scratch setup', async () => {
-  await assert.rejects(
-    () =>
-      ensureDevHub(
-        'sf',
-        { mode: 'alias', alias: 'ConfiguredDevHub' },
-        {
-          execFileAsync: async () => ({ stdout: '{"status":1,"message":"sensitive-credential"}' })
-        }
-      ),
-    error => {
-      assert.match(error.message, /SF_DEVHUB_ALIAS is not authenticated/);
-      assert.doesNotMatch(error.stack, /sensitive-credential/);
-      return true;
-    }
-  );
-});
-
-test('legacy sfdx adapter authenticates the explicit alias with its supported command', async () => {
-  const session = await ensureDevHub(
-    'sfdx',
-    { mode: 'alias', alias: 'ConfiguredDevHub' },
-    {
-      execFileAsync: async (file, args) => {
-        assert.equal(file, 'sfdx');
-        assert.deepEqual(args, ['force:org:display', '-u', 'ConfiguredDevHub', '--json']);
-        return { stdout: '{"status":0,"result":{}}' };
-      }
-    }
-  );
-  assert.equal(session.targetOrg, 'ConfiguredDevHub');
+for (const cli of ['sf', 'sfdx']) test(`Dev Hub ${cli} rejects explicit alias authentication before CLI access`, async () => {
+  let calls = 0;
+  await assert.rejects(() => ensureDevHub(cli, { mode: 'alias', alias: 'ConfiguredDevHub' }, {
+    execFileAsync: async () => { calls++; throw new Error('Must not access cached credentials'); }
+  }), /requires JWT/);
+  assert.equal(calls, 0);
 });
 
 test('legacy sfdx adapter preserves JWT identity and key cleanup with legacy flags', async t => {

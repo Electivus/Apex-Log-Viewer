@@ -20,7 +20,31 @@ const getOrgAuthMock = jest.mocked(getOrgAuth);
 const assertToolingReadyMock = jest.mocked(assertToolingReady);
 const primeOrgAuthCacheMock = jest.mocked(primeOrgAuthCache);
 
+const fixturePrivateKey = generateKeyPairSync('rsa', { modulusLength: 2048,
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' }
+}).privateKey;
+
 const FALLBACK_DEV_HUB_ALIASES = ['DevHubElectivus', 'DevHub', 'ElectivusDevHub', 'InsuranceOrgTrialCreme6DevHub'];
+
+function mockScratchSf(handler: Parameters<typeof runSfJsonMock.mockImplementation>[0]): void {
+  runSfJsonMock.mockImplementation(async (args, options) => {
+    if (args.slice(0, 3).join(' ') === 'org login jwt') {
+      return { status: 0, result: { username: 'devhub@example.com' } };
+    }
+    if (args.slice(0, 3).join(' ') === 'org auth show-sfdx-auth-url' && process.env.SF_SCRATCH_STRATEGY !== 'pool') {
+      return { status: 0, result: { sfdxAuthUrl: 'force://PlatformCLI::fixture-refresh@scratch.example.com' } };
+    }
+    const inputFile = args[args.indexOf('--sfdx-url-file') + 1];
+    if (args.slice(0, 3).join(' ') === 'org login sfdx-url' && inputFile &&
+        path.basename(path.dirname(inputFile)).startsWith('alv-devhub-jwt-')) {
+      return { status: 0, result: { username: `${args[args.indexOf('--alias') + 1]}@example.com` } };
+    }
+    if (args.slice(0, 2).join(' ') === 'org logout' && args.some(value => value.endsWith('@example.com'))) {
+      return { status: 0, result: {} };
+    }
+    return handler!(args, options);
+  });
+}
 
 function createJsonResponse(body: unknown, status = 200): Response {
   return {
@@ -75,11 +99,16 @@ describe('ensureScratchOrg', () => {
       ...originalEnv,
       CI: 'false',
       GITHUB_ACTIONS: 'false',
-      SF_DEVHUB_ALIAS: 'ConfiguredDevHub',
+      SF_DEVHUB_ALIAS: 'CachedDevHub',
+      SF_DEVHUB_CLIENT_ID: 'test-client',
+      SF_DEVHUB_USERNAME: 'devhub@example.com',
+      SF_DEVHUB_LOGIN_URL: 'https://login.salesforce.com',
+      SF_DEVHUB_PRIVATE_KEY: fixturePrivateKey,
       SF_SCRATCH_ALIAS: 'ALV_E2E_Scratch',
       SF_TEST_KEEP_ORG: '1'
     };
     delete process.env.SF_DEVHUB_AUTH_URL;
+    delete process.env.SF_DEVHUB_PRIVATE_KEY_FILE;
     delete process.env.SF_SCRATCH_STRATEGY;
     delete process.env.SF_SCRATCH_POOL_NAME;
     delete process.env.SFDX_AUTH_URL;
@@ -195,8 +224,8 @@ describe('ensureScratchOrg', () => {
     process.env.SF_TEST_KEEP_ORG = '0';
     let scratchDeleted = false;
     const clock = jest.spyOn(Date, 'now');
-    runSfJsonMock.mockImplementation(async args => {
-      if (args.slice(0, 2).join(' ') === 'org display' && args.includes('ConfiguredDevHub')) {
+    mockScratchSf(async args => {
+      if (args.slice(0, 2).join(' ') === 'org display' && args.includes('devhub@example.com')) {
         return { status: 0, result: {} };
       }
       if (args.slice(0, 2).join(' ') === 'org display') throw new Error('Scratch absent');
@@ -231,16 +260,16 @@ describe('ensureScratchOrg', () => {
     delete process.env.SF_DEVHUB_AUTH_URL;
 
     await expect(ensureScratchOrg()).rejects.toThrow(
-      'Missing required Dev Hub configuration. Set complete JWT inputs or an authenticated SF_DEVHUB_ALIAS locally. SF_DEVHUB_AUTH_URL is no longer supported.'
+      'requires complete Dev Hub JWT configuration'
     );
     expect(runSfJsonMock).not.toHaveBeenCalled();
   });
 
-  test('recreates a scratch org using only the explicitly configured dev hub alias', async () => {
+  test('recreates a scratch org using the configured JWT identity', async () => {
     let scratchDisplayCount = 0;
 
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+    mockScratchSf(async args => {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return { status: 0, result: {} };
       }
 
@@ -275,7 +304,7 @@ describe('ensureScratchOrg', () => {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'create' && args[2] === 'scratch' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'create' && args[2] === 'scratch' && args.includes('devhub@example.com')) {
         return { status: 0, result: {} };
       }
 
@@ -294,7 +323,7 @@ describe('ensureScratchOrg', () => {
     const scratch = await ensureScratchOrg();
 
     expect(scratch).toMatchObject({
-      devHubAlias: 'ConfiguredDevHub',
+      devHubAlias: 'devhub@example.com',
       scratchAlias: 'ALV_E2E_Scratch',
       created: true,
       strategy: 'single'
@@ -307,7 +336,7 @@ describe('ensureScratchOrg', () => {
         'create',
         'scratch',
         '--target-dev-hub',
-        'ConfiguredDevHub',
+        'devhub@example.com',
         '--alias',
         'ALV_E2E_Scratch'
       ]),
@@ -326,8 +355,8 @@ describe('ensureScratchOrg', () => {
   });
 
   test('reuses an active scratch org when the alias is still valid', async () => {
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+    mockScratchSf(async args => {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return { status: 0, result: {} };
       }
 
@@ -357,7 +386,7 @@ describe('ensureScratchOrg', () => {
     const scratch = await ensureScratchOrg();
 
     expect(scratch).toMatchObject({
-      devHubAlias: 'ConfiguredDevHub',
+      devHubAlias: 'devhub@example.com',
       scratchAlias: 'ALV_E2E_Scratch',
       created: false,
       strategy: 'single'
@@ -370,40 +399,36 @@ describe('ensureScratchOrg', () => {
     await scratch.cleanup();
   });
 
-  test('fails immediately when the configured dev hub alias is not authenticated', async () => {
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
-        throw new Error('NamedOrgNotFoundError: No authorization information found for ConfiguredDevHub.');
-      }
-
-      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
-    });
-
-    await expect(ensureScratchOrg()).rejects.toThrow('SF_DEVHUB_ALIAS is not authenticated or unavailable.');
-
+  test('fails immediately when JWT authentication is rejected despite cached auth', async () => {
+    runSfJsonMock.mockRejectedValue(new Error('invalid_grant sensitive-response'));
+    await expect(ensureScratchOrg()).rejects.toThrow('Dev Hub JWT login failed');
     expect(runSfJsonMock).toHaveBeenCalledTimes(1);
-    expect(runSfJsonMock).toHaveBeenCalledWith(
-      ['org', 'display', '--target-org', 'ConfiguredDevHub'],
-      expect.any(Object)
-    );
+    expect(runSfJsonMock).toHaveBeenCalledWith(expect.arrayContaining(['org', 'login', 'jwt']), expect.any(Object));
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  test.each(['single', 'pool'])(
-    'CI fails before %s mutations with partial JWT despite an alias and auth URL',
-    async strategy => {
-      process.env.CI = 'true';
+  test.each(['single', 'pool'].flatMap(strategy => ['true', 'false'].flatMap(ci =>
+    ['missing', 'partial', 'malformed'].map(input => ({strategy, ci, input})))))(
+    'fails before $strategy mutations with $input JWT (CI=$ci) despite cached alias and legacy URL',
+    async ({strategy, ci, input}) => {
+      process.env.CI = ci;
+      process.env.GITHUB_ACTIONS = ci;
       process.env.SF_SCRATCH_STRATEGY = strategy;
-      process.env.SF_DEVHUB_CLIENT_ID = 'partial-client';
       process.env.SF_DEVHUB_AUTH_URL = 'force://PlatformCLI::legacy-secret@scratch.example.com';
-      await expect(ensureScratchOrg()).rejects.toThrow('Incomplete Dev Hub JWT configuration');
+      if (input === 'malformed') process.env.SF_DEVHUB_PRIVATE_KEY = 'invalid-private-fixture';
+      else {
+        for (const field of ['USERNAME', 'LOGIN_URL', 'PRIVATE_KEY', 'PRIVATE_KEY_FILE']) delete process.env[`SF_DEVHUB_${field}`];
+        if (input === 'missing') delete process.env.SF_DEVHUB_CLIENT_ID;
+      }
+      await expect(ensureScratchOrg()).rejects.toThrow(/JWT configuration|Invalid SF_DEVHUB_PRIVATE_KEY/);
       expect(runSfJsonMock).not.toHaveBeenCalled();
       expect(fetchSpy).not.toHaveBeenCalled();
     }
   );
 
   test('fails on scratch signup limit without trying another dev hub alias', async () => {
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+    mockScratchSf(async args => {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return { status: 0, result: {} };
       }
 
@@ -411,7 +436,7 @@ describe('ensureScratchOrg', () => {
         throw new Error('NamedOrgNotFoundError: No authorization information found for ALV_E2E_Scratch.');
       }
 
-      if (args[0] === 'org' && args[1] === 'create' && args[2] === 'scratch' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'create' && args[2] === 'scratch' && args.includes('devhub@example.com')) {
         throw new Error(
           'LIMIT_EXCEEDED: The signup request failed because this organization has reached its daily scratch org signup limit'
         );
@@ -429,7 +454,7 @@ describe('ensureScratchOrg', () => {
     );
     expect(createScratchCalls).toHaveLength(1);
     expect(createScratchCalls[0]?.[0]).toEqual(
-      expect.arrayContaining(['org', 'create', 'scratch', '--target-dev-hub', 'ConfiguredDevHub'])
+      expect.arrayContaining(['org', 'create', 'scratch', '--target-dev-hub', 'devhub@example.com'])
     );
 
     const allArgs = runSfJsonMock.mock.calls.flatMap(([args]) => args);
@@ -485,12 +510,12 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
+    mockScratchSf(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('devhub@example.com')) {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return createDevHubDisplayResult();
       }
 
@@ -522,7 +547,7 @@ describe('ensureScratchOrg', () => {
     const scratch = await ensureScratchOrg();
 
     expect(scratch).toMatchObject({
-      devHubAlias: 'ConfiguredDevHub',
+      devHubAlias: 'devhub@example.com',
       scratchAlias: 'ALV_E2E_POOL_01',
       created: false,
       strategy: 'pool',
@@ -585,12 +610,12 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
+    mockScratchSf(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('devhub@example.com')) {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return createDevHubDisplayResult();
       }
 
@@ -665,12 +690,12 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
+    mockScratchSf(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('devhub@example.com')) {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return createDevHubDisplayResult();
       }
 
@@ -687,13 +712,13 @@ describe('ensureScratchOrg', () => {
         args[1] === 'create' &&
         args[2] === 'scratch' &&
         args.includes('--target-dev-hub') &&
-        args.includes('ConfiguredDevHub') &&
+        args.includes('devhub@example.com') &&
         args.includes('ALV_E2E_POOL_02')
       ) {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_02')) {
+      if (args[0] === 'org' && (args[1] === 'display' || args[2] === 'show-sfdx-auth-url') && args.includes('ALV_E2E_POOL_02')) {
         return {
           status: 0,
           result: {
@@ -727,7 +752,7 @@ describe('ensureScratchOrg', () => {
         'create',
         'scratch',
         '--target-dev-hub',
-        'ConfiguredDevHub',
+        'devhub@example.com',
         '--alias',
         'ALV_E2E_POOL_02'
       ]),
@@ -800,12 +825,12 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
+    mockScratchSf(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('devhub@example.com')) {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return createDevHubDisplayResult();
       }
 
@@ -826,13 +851,13 @@ describe('ensureScratchOrg', () => {
         args[1] === 'create' &&
         args[2] === 'scratch' &&
         args.includes('--target-dev-hub') &&
-        args.includes('ConfiguredDevHub') &&
+        args.includes('devhub@example.com') &&
         args.includes('ALV_E2E_POOL_03')
       ) {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_03')) {
+      if (args[0] === 'org' && (args[1] === 'display' || args[2] === 'show-sfdx-auth-url') && args.includes('ALV_E2E_POOL_03')) {
         return {
           status: 0,
           result: {
@@ -925,12 +950,12 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
+    mockScratchSf(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('devhub@example.com')) {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return createDevHubDisplayResult();
       }
 
@@ -951,13 +976,13 @@ describe('ensureScratchOrg', () => {
         args[1] === 'create' &&
         args[2] === 'scratch' &&
         args.includes('--target-dev-hub') &&
-        args.includes('ConfiguredDevHub') &&
+        args.includes('devhub@example.com') &&
         args.includes('ALV_E2E_POOL_03')
       ) {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ALV_E2E_POOL_03')) {
+      if (args[0] === 'org' && (args[1] === 'display' || args[2] === 'show-sfdx-auth-url') && args.includes('ALV_E2E_POOL_03')) {
         return {
           status: 0,
           result: {
@@ -992,7 +1017,7 @@ describe('ensureScratchOrg', () => {
         'create',
         'scratch',
         '--target-dev-hub',
-        'ConfiguredDevHub',
+        'devhub@example.com',
         '--alias',
         'ALV_E2E_POOL_03'
       ]),
@@ -1044,12 +1069,12 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    runSfJsonMock.mockImplementation(async args => {
+    mockScratchSf(async args => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return createDevHubDisplayResult();
       }
 
@@ -1113,12 +1138,12 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
+    mockScratchSf(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('devhub@example.com')) {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return createDevHubDisplayResult();
       }
 
@@ -1159,12 +1184,12 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    runSfJsonMock.mockImplementation(async args => {
-      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('ConfiguredDevHub')) {
+    mockScratchSf(async args => {
+      if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url' && args.includes('devhub@example.com')) {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return createDevHubDisplayResult();
       }
 
@@ -1223,12 +1248,12 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    runSfJsonMock.mockImplementation(async args => {
+    mockScratchSf(async args => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return createDevHubDisplayResult();
       }
 
@@ -1292,12 +1317,12 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    runSfJsonMock.mockImplementation(async args => {
+    mockScratchSf(async args => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return createDevHubDisplayResult();
       }
 
@@ -1369,12 +1394,12 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    runSfJsonMock.mockImplementation(async args => {
+    mockScratchSf(async args => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return createDevHubDisplayResult();
       }
 
@@ -1476,12 +1501,12 @@ describe('ensureScratchOrg', () => {
       throw new Error(`Unexpected fetch url: ${url}`);
     });
 
-    runSfJsonMock.mockImplementation(async args => {
+    mockScratchSf(async args => {
       if (args[0] === 'org' && args[1] === 'login' && args[2] === 'sfdx-url') {
         return { status: 0, result: {} };
       }
 
-      if (args[0] === 'org' && args[1] === 'display' && args.includes('ConfiguredDevHub')) {
+      if (args[0] === 'org' && args[1] === 'display' && args.includes('devhub@example.com')) {
         return createDevHubDisplayResult();
       }
 

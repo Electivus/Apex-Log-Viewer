@@ -4,6 +4,7 @@
 
 ### Breaking Changes
 
+- Dev Hub: require JWT for local real-org validation and pool commands; load durable private operator inputs with `devhub-local.js` and recover lost material through an audited plan for the same identity.
 - Agent Skill/Salesforce CLI: remove `sf electivus skill install` and stop bundling the Agent Skill in `@electivus/plugin-electivus`; install `apex-log-viewer-cli` with `npx skills add Electivus/Apex-Log-Viewer --skill apex-log-viewer-cli`, verify the portable installation, and only then manually remove a legacy agent-home copy.
 
 ### Features

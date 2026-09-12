@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } = require('node:fs');
 const { realpath } = require('node:fs/promises');
-const { tmpdir } = require('node:os');
+const { tmpdir, homedir } = require('node:os');
 const path = require('node:path');
 const { X509Certificate, createPrivateKey } = require('node:crypto');
 const { main } = require('./devhub-identity');
@@ -167,6 +167,76 @@ async function rotationFixture(t) {
     read: () => JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8'))
   };
 }
+
+test('lost-material preparation audits the same identity without inventing a journal or changing active credentials', async t => {
+  const setup = await rotationFixture(t);
+  const { fixture, state, directory, changes, replacement } = setup;
+  fixture.observedApp = { ...state.apps.permanent };
+  const oldJournal = path.join(directory, 'identity.json');
+  require('node:fs').unlinkSync(oldJournal);
+  const preparationArgs = ['prepare-lost-material-recovery', ...baseArgs.slice(1), '--state-dir', directory,
+    '--expected-app-name', state.apps.permanent.name, '--expected-fingerprint', state.apps.permanent.fingerprint,
+    '--lost-state-dir', path.join(directory, 'lost-original'), '--credential-mode', 'permanent',
+    '--certificate-days', '2', '--storage-policy', state.apps.permanent.lifecycle.storagePolicy,
+    '--policy-reference', 'controlled-recovery-preparation', '--certificate-file', replacement.certificateFile,
+    '--private-key-file', replacement.privateKeyFile];
+  const federationId = fixture.records.User[0].FederationIdentifier;
+  fixture.records.User[0].FederationIdentifier = 'alv-devhub:fabricated';
+  await assert.rejects(main(preparationArgs, fixture), /ownership/);
+  assert.equal(existsSync(oldJournal), false);
+  assert.equal(changes.app, 0);
+  fixture.records.User[0].FederationIdentifier = federationId;
+  const result = await main(preparationArgs, fixture);
+  assert.equal(result.status, 'lost-material-recovery-prepared');
+  assert.equal(result.rollbackAvailable, false);
+  assert.equal(result.historicalJournalAvailable, false);
+  assert.equal(result.activeCredentialChanged, false);
+  assert.equal(existsSync(oldJournal), false);
+  assert.equal(changes.app, 0);
+  assert.equal(changes.store, 0);
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE KEY|fixture-client-key|fixture-consumer-secret/);
+  const applyArgs = ['apply-lost-material-recovery', ...baseArgs.slice(1), '--state-dir', directory];
+  await assert.rejects(main(applyArgs, fixture), /approved plan/);
+  assert.equal(existsSync(oldJournal), false);
+  assert.equal(changes.app, 0);
+  const approval = [...applyArgs, '--approved-plan-sha256', result.planSha256, '--policy-reference', 'controlled-active-approval'];
+  const planFile = path.join(directory, 'recovery-plan.json');
+  const planBytes = readFileSync(planFile);
+  require('node:fs').appendFileSync(planFile, '\n');
+  await assert.rejects(main(approval, fixture), /differs from the approved plan/);
+  assert.equal(changes.app, 0);
+  assert.equal(existsSync(oldJournal), false);
+  writeFileSync(planFile, planBytes);
+  const gh = fixture.gh;
+  let interrupted = false;
+  fixture.gh = async (args, options) => {
+    const response = await gh(args, options);
+    if (args[1] === 'set' && !interrupted) {
+      interrupted = true;
+      throw new Error('controlled interruption after Secret delivery');
+    }
+    return response;
+  };
+  await assert.rejects(main(approval, fixture), /GitHub credential-store operation failed/);
+  assert.equal(JSON.parse(readFileSync(oldJournal, 'utf8')).rotation.phase, 'store-update-pending');
+  const applied = await main(approval, fixture);
+  assert.equal(applied.status, 'rotation-applied');
+  assert.equal(applied.rollbackAvailable, false);
+  const recovered = JSON.parse(readFileSync(oldJournal, 'utf8'));
+  assert.equal(recovered.owner, state.owner);
+  assert.equal(recovered.userId, state.userId);
+  assert.equal(recovered.apps.permanent.id, state.apps.permanent.id);
+  assert.equal(recovered.recovery.historicalPhases, 'unknown');
+  assert.equal(recovered.rotation.phase, 'applied');
+  assert.equal(changes.logins, 2, 'Each recovery attempt proves only the new key');
+  assert.equal(changes.app, 1);
+  assert.equal(changes.store, 2, 'Uncertain Secret delivery is safely rewritten');
+  await main(approval, fixture);
+  assert.equal(changes.app, 1);
+  assert.equal(changes.store, 2);
+  await assert.rejects(main(['recover-rotation', ...baseArgs.slice(1), '--state-dir', directory,
+    '--rotation-id', result.recoveryId, '--recovery-direction', 'rollback'], fixture), /rollback.*unavailable/i);
+});
 
 test('rotation applies only the certificate and private-key Secret, proves fresh JWT, and resumes without repeated mutation', async t => {
   const setup = await rotationFixture(t);
@@ -382,7 +452,7 @@ test('invalid rotation lifecycle, missing files and mismatched keys fail before 
     ['--certificate-days', '3', /lifetime differs/],
     ['--certificate-days', '', /Explicit credential lifecycle inputs/],
     ['--policy-reference', '', /Explicit credential lifecycle inputs/],
-    ['--private-key-file', path.join(setup.directory, 'missing-key.pem'), /readable X.509/],
+    ['--private-key-file', path.join(setup.directory, 'missing-key.pem'), /Durable operator state is missing/],
     ['--private-key-file', setup.state.apps.permanent.privateKeyFile, /Certificate\/key mismatch/],
     ['--storage-policy', 'temporary-local', /GitHub Actions Secret storage policy/],
     ['--expected-fingerprint', '', /explicit current SHA-256/]
@@ -640,7 +710,7 @@ test('inspection reports live minimum-license candidates and unrelated resource 
 });
 
 function stateDirectory(t) {
-  const directory = mkdtempSync(path.join(tmpdir(), 'alv-identity-test-'));
+  const directory = mkdtempSync(path.join(homedir(), 'alv-identity-test-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
@@ -966,7 +1036,7 @@ async function preparedAppFixture(t, mode = 'temporary') {
       };
     }
     if (args[0] !== 'project') return invoke(args);
-    const app = JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8')).apps[mode];
+    const app = fixture.observedApp || JSON.parse(readFileSync(path.join(directory, 'identity.json'), 'utf8')).apps[mode];
     if (args[1] === 'deploy') {
       if (args.includes('--dry-run')) {
         validated.add(options.cwd);

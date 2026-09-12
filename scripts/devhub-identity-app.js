@@ -140,7 +140,7 @@ async function verifyApp(sf, target, root, app, acceptedFingerprints = [app.fing
   if (!/^[a-zA-Z0-9._-]{12,512}$/.test(clientId) || /redact|placeholder/i.test(clientId)) {
     throw new Error('Salesforce did not return a usable ECA consumer key; metadata contents withheld.');
   }
-  return { clientId, fingerprint: certificate.fingerprint256 };
+  return { clientId, fingerprint: certificate.fingerprint256, validFrom: certificate.validFrom, validTo: certificate.validTo };
 }
 
 async function verifyPreauthorization(sf, target, query, app) {

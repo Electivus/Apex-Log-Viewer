@@ -21,10 +21,11 @@ const {
   toSfValuesArgument
 } = require('./scratch-pool-admin');
 
-test('pool commands reject missing CI JWT before reading or mutating the pool', async t => {
+for (const ci of ['true', 'false']) test(`pool commands reject missing JWT before pool access (CI=${ci})`, async t => {
   t.mock.property(process, 'env', {
     ...process.env,
-    CI: 'true',
+    CI: ci,
+    GITHUB_ACTIONS: ci,
     SF_DEVHUB_ALIAS: 'CachedDevHub',
     SF_DEVHUB_AUTH_URL: 'force://legacy-credential'
   });
@@ -36,7 +37,7 @@ test('pool commands reject missing CI JWT before reading or mutating the pool', 
         spawnImpl: () => { throw new Error('Must not invoke Salesforce before configuration is valid'); },
         fetchImpl: () => { throw new Error('Must not access the pool before configuration is valid'); }
       }),
-      /CI requires complete Dev Hub JWT configuration/
+      /requires complete Dev Hub JWT configuration/
     );
   }
 });
