@@ -78,15 +78,16 @@ async function rotationMetadata(root, app, certificate) {
   });
 }
 
+function assertStorePolicy(previousLifecycle, store) {
+  const previousStore = githubStore(previousLifecycle);
+  if (previousStore.repository !== store.repository || previousStore.apps.some(scope => !store.apps.includes(scope)))
+    throw new Error('Approved store cannot change repository or remove a previously selected scope.');
+}
+
 async function prepareRotation({ values, state, directory, user, query, sf, gh, save }) {
   const { lifecycle, certificate } = await rotationInputs(values);
   const app = state.apps?.permanent;
-  if (
-    !app?.configured ||
-    app.revoked ||
-    app.fingerprint !== values['expected-fingerprint'] ||
-    app.lifecycle.storagePolicy !== lifecycle.storagePolicy
-  )
+  if (!app?.configured || app.revoked || app.fingerprint !== values['expected-fingerprint'])
     throw new Error('Active owned app, fingerprint or approved store differs; no rotation may start.');
   assertKnownProofPhases(state);
   if (
@@ -100,6 +101,7 @@ async function prepareRotation({ values, state, directory, user, query, sf, gh, 
     throw new Error('Current private recovery material differs from the recorded app.');
   const inputs = await privateInputs(app, user);
   const store = githubStore(lifecycle, gh);
+  assertStorePolicy(app.lifecycle, store);
   const inventory = await store.inspect();
   await auditRuntime(query, user, { state, sf, target: values['target-org'], requireRuntime: true });
   await verifyProofApp({
@@ -280,13 +282,72 @@ async function freshJwt({ sf, state, user, rotation, inputs, material, root, sav
   if (failure) throw failure;
 }
 
-async function applyRotation({ values, state, directory, user, query, sf, gh, command, save }) {
+function assertStoreInventory(store, rotation, approved, current) {
+  const fail = () => {
+    const plan = rotation.kind === 'lost-material' ? 'recovery plan' : 'rotation';
+    throw new Error(`GitHub Secret inventory differs from the approved ${plan}; reconcile before active writes.`);
+  };
+  const writes = rotation.storeWrites;
+  const completed = ['applied', 'rolled-back'].includes(rotation.phase);
+  if (!Array.isArray(approved) || approved.length !== current.length) fail();
+  if (
+    writes !== undefined &&
+    (!writes ||
+      typeof writes !== 'object' ||
+      Array.isArray(writes) ||
+      Object.entries(writes).some(
+        ([scope, write]) =>
+          !store.apps.includes(scope) ||
+          !write ||
+          !['forward', 'rollback'].includes(write.direction) ||
+          !['pending', 'written'].includes(write.phase) ||
+          (write.phase === 'written' && !Number.isFinite(Date.parse(write.updatedAt)))
+      ))
+  )
+    fail();
+  for (const { app, name, updatedAt } of current) {
+    // Pre-existing Actions-only plans had no scope field. A dual-store plan
+    // must still contain a distinct row for every input in both scopes.
+    const baseline = approved.filter(item => item?.name === name && (item.app ?? 'actions') === app);
+    if (baseline.length !== 1 || !Number.isFinite(Date.parse(baseline[0].updatedAt))) fail();
+    let expected = baseline[0].updatedAt;
+    if (name === 'SF_DEVHUB_PRIVATE_KEY') {
+      const write = writes?.[app];
+      if (write) {
+        if (
+          completed &&
+          (write.phase !== 'written' || write.direction !== (rotation.phase === 'applied' ? 'forward' : 'rollback'))
+        )
+          fail();
+        if (write.phase === 'pending') continue;
+        expected = write.updatedAt;
+      } else if (completed) {
+        // The old lost-material journal recorded one Actions timestamp. Missing
+        // historical evidence remains an error, never an inferred delivery.
+        if (store.apps.length !== 1 || writes !== undefined) fail();
+        expected = rotation.storePrivateKeyUpdatedAt;
+      } else if (
+        writes === undefined &&
+        store.apps.length === 1 &&
+        ['store-update-pending', 'store-updated'].includes(rotation.phase)
+      )
+        continue;
+    }
+    if (!Number.isFinite(Date.parse(expected)) || Date.parse(updatedAt) !== Date.parse(expected)) fail();
+  }
+}
+
+async function applyRotation({ values, state, directory, user, query, sf, gh, command, save, approvedStoreInventory }) {
   const rotation = state.rotation;
-  const direction = ['apply-rotation', 'apply-lost-material-recovery'].includes(command) ? 'forward' : values['recovery-direction'];
+  const direction = ['apply-rotation', 'apply-lost-material-recovery'].includes(command)
+    ? 'forward'
+    : values['recovery-direction'];
   if (rotation?.kind === 'lost-material' && direction === 'rollback')
     throw new Error('Rollback is unavailable after loss of the previous private key; use approved forward recovery.');
   if (rotation?.kind && (rotation.kind !== 'lost-material' || command !== 'apply-lost-material-recovery'))
-    throw new Error('Lost-material recovery requires its approved plan entry point; unknown recovery kinds are rejected.');
+    throw new Error(
+      'Lost-material recovery requires its approved plan entry point; unknown recovery kinds are rejected.'
+    );
   const app = state.apps?.permanent;
   const phases = [
     'prepared',
@@ -337,8 +398,12 @@ async function applyRotation({ values, state, directory, user, query, sf, gh, co
     if (attempt.cleanup !== true) await cleanupJwtAttempt(attempt, root, save);
   }
   const inputs = await privateInputs(app, user);
-  const store = githubStore(material.lifecycle, gh);
-  await store.inspect();
+  // The operation owns its target scopes even when rollback selects material
+  // created under the older Actions-only policy.
+  const store = githubStore(rotation.candidate.lifecycle, gh);
+  if (rotation.kind !== 'lost-material') assertStorePolicy(rotation.previous.lifecycle, store);
+  const approvedInventory = approvedStoreInventory === undefined ? rotation.storeInventory : approvedStoreInventory;
+  assertStoreInventory(store, rotation, approvedInventory, await store.inspect());
   assertKnownProofPhases(state);
   await auditRuntime(query, user, { state, sf, target: values['target-org'], requireRuntime: true });
   const audit = () =>
@@ -354,6 +419,18 @@ async function applyRotation({ values, state, directory, user, query, sf, gh, co
       acceptedFingerprints: [rotation.previous.fingerprint, rotation.candidate.fingerprint]
     });
   const current = await audit();
+  if (
+    rotation.storeWrites === undefined &&
+    store.apps.length === 1 &&
+    ['store-update-pending', 'store-updated'].includes(rotation.phase)
+  ) {
+    if (!['forward', 'rollback'].includes(rotation.direction))
+      throw new Error('Legacy Secret delivery direction is unknown; preserve state for reconciliation.');
+    // Preserve the old uncertain delivery before another app/JWT attempt can
+    // replace the global phase. This records uncertainty, never a confirmed write.
+    rotation.storeWrites = { actions: { direction: rotation.direction, phase: 'pending' } };
+    await save();
+  }
   const status = direction === 'forward' ? 'rotation-applied' : 'rotation-rolled-back';
   const finalPhase = direction === 'forward' ? 'applied' : 'rolled-back';
   if (rotation.phase === finalPhase) {
@@ -380,17 +457,43 @@ async function applyRotation({ values, state, directory, user, query, sf, gh, co
   await freshJwt({ sf, state, user, rotation, inputs, material, root, save });
   rotation.phase = 'store-update-pending';
   await save();
-  await store.replacePrivateKey(await fs.readFile(material.privateKeyFile, 'utf8'));
+  const key = await fs.readFile(material.privateKeyFile, 'utf8');
+  rotation.storeWrites ||= {};
+  for (const scope of store.apps) {
+    const delivered = rotation.storeWrites[scope];
+    if (delivered?.direction === direction && delivered.phase === 'written') continue;
+    rotation.storeWrites[scope] = { direction, phase: 'pending' };
+    await save();
+    await store.replacePrivateKey(key, scope);
+    const inventory = await store.inspect();
+    assertStoreInventory(store, rotation, approvedInventory, inventory);
+    rotation.storeWrites[scope] = {
+      direction,
+      phase: 'written',
+      updatedAt: inventory.find(item => item.app === scope && item.name === 'SF_DEVHUB_PRIVATE_KEY').updatedAt
+    };
+    await save();
+  }
+  assertStoreInventory(store, rotation, approvedInventory, await store.inspect());
   rotation.storeWrittenAt = new Date().toISOString();
   if (rotation.kind === 'lost-material')
-    rotation.storePrivateKeyUpdatedAt = (await store.inspect()).find(item => item.name === 'SF_DEVHUB_PRIVATE_KEY').updatedAt;
+    rotation.storePrivateKeyUpdatedAt = (await store.inspect()).find(
+      item => item.name === 'SF_DEVHUB_PRIVATE_KEY'
+    ).updatedAt;
   rotation.phase = 'store-updated';
   await save();
   const inputsFile = path.join(root, `${direction}-jwt-inputs.json`);
   await fs.writeFile(inputsFile, JSON.stringify({ ...inputs, privateKeyFile: material.privateKeyFile }), {
     mode: 0o600
   });
-  Object.assign(app, material, { inputsFile });
+  // Rollback restores the previous certificate validity, not an older store
+  // scope. Keep the operation's approved destinations for future rotations.
+  const lifecycle = {
+    ...material.lifecycle,
+    storagePolicy: rotation.candidate.lifecycle.storagePolicy,
+    policyReference: rotation.candidate.lifecycle.policyReference
+  };
+  Object.assign(app, material, { lifecycle, inputsFile });
   rotation.phase = finalPhase;
   rotation.completedAt = new Date().toISOString();
   await save();

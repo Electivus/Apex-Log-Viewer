@@ -1,6 +1,6 @@
 # Dev Hub JWT validation
 
-For ordered replacement of the active ECA certificate and GitHub Actions Secret, see [certificate rotation and recovery](DEVHUB_ROTATION.md). The procedure preserves these runtime and pool authentication contracts.
+For ordered replacement of the active ECA certificate and the Actions/Dependabot private-key Secrets, see [certificate rotation and recovery](DEVHUB_ROTATION.md). The procedure preserves these runtime and pool authentication contracts.
 
 For dedicated-user discovery, explicit certificate policy, minimum grants and independent native proof, see [Dev Hub identity bootstrap](DEVHUB_IDENTITY.md). Its live provisioning/permission evidence is tracked separately from the bootstrap-identity runner results below.
 
@@ -189,7 +189,7 @@ All three real-org jobs validate the actual JWT and pool configuration through `
 ### Operator verification and retirement
 
 1. Inspect the configured pool and scratch ownership before starting consumers. Drain live leases through their owners. If an old scratch remains active, have its existing owner/admin delete that exact resource; retain stored credentials until deletion is confirmed. Never reset a live pool or broaden runtime grants to evade ownership.
-2. Check Secret names/timestamps with `gh secret list --repo Electivus/Apex-Log-Viewer --json name,updatedAt`. This cannot read values or prove a runner login. Supply the approved inputs privately when running `node scripts/check-real-org-config.js` locally, with `SF_SCRATCH_POOL_NAME` set.
+2. Configure the same four JWT inputs in repository Actions and Dependabot Secrets. Check names/timestamps with `gh secret list --repo Electivus/Apex-Log-Viewer --app actions --json name,updatedAt` and repeat with `--app dependabot`. This cannot read values or prove a runner login. Supply the approved inputs privately when running `node scripts/check-real-org-config.js` locally, with `SF_SCRATCH_POOL_NAME` set. Future rotation uses the explicit dual-store policy in [DEVHUB_ROTATION.md](DEVHUB_ROTATION.md); it updates only the private key in each scope.
 3. Dispatch the candidate with `gh workflow run e2e-playwright.yml --repo Electivus/Apex-Log-Viewer --ref <reviewed-branch> -f jwt_smoke_devhub_org_id=<verified-authorized-org-id>`. Verify actual direct, pool, proxy and telemetry results at the exact candidate SHA. The controlled smokes create/delete their own scratches and verify independent credential import; expected pre-cutover failures never count as success.
 4. Merge only the reviewed, passing candidate. Dispatch the same workflow at the integrated `main` commit and verify its actual results before closing #1078. Record exact source/merge SHAs, run URLs, platforms, retries and cleanup in the issue evidence.
 5. Inventory remaining legacy references with `git grep -n SF_DEVHUB_AUTH_URL`. No workflow reads or propagates the old secret. Remaining references document rejection, tests, historical evidence or the direct runner's legacy opt-in signal, which still fails strict JWT selection. The unused GitHub Secret is retained pending owner-controlled retirement; it cannot authenticate these workflows. Do not revoke a personal refresh token or another consumer's session to prove independence.
