@@ -34,7 +34,8 @@
 
 ## Build and Development
 
-- Use Node `24` via `.nvmrc`.
+- Use Node `24` via `.nvmrc` for CI and default development.
+- For explicitly configured native Arch Linux / WSL2 E2E, use system Node 24 LTS at or above the `.nvmrc` release; follow `docs/E2E_ARCH_WSL.md` when preparing or running that environment. Keep the CI runtime pinned to the exact `.nvmrc` release.
 - Install deps with `pnpm install --frozen-lockfile`.
 - Clean generated outputs with `pnpm run clean`.
 - Type-check only with `pnpm run check-types`.

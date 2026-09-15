@@ -17,6 +17,8 @@
 
 ### Tests
 
+- Arch Linux/WSL: load opted-in local settings and the verified durable Dev Hub JWT automatically for Playwright UI/CLI commands; add native Electron/Xvfb dependencies and a system-Node launcher without changing CI authentication.
+
 - Dev Hub/test runner: reject inventories without completion proof or with contradictory counts before identity mutations; bound timeout cleanup to 30 seconds and report unconfirmed scratch cleanup without removing pending recovery credentials.
 
 - CI/Dev Hub: require complete dedicated-identity JWT in every real-org gate and child environment, pin Salesforce CLI 2.150.6 with the isolated macOS Node runtime from `.nvmrc`, and expose opt-in integrated signup/export/import and pool lifecycle validation.

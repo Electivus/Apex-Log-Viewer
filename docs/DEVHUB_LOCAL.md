@@ -38,6 +38,8 @@ For a complete lifecycle smoke, supply the existing opt-ins and verified Dev Hub
 
 ## WSL and containers
 
+For native Arch Linux / WSL2 dependencies, restoration from Windows, encrypted CLI state, corporate Java trust and daily test commands, see [Real-org E2E on Arch Linux / WSL2](E2E_ARCH_WSL.md). Once its operator configuration is installed, `npm run test:e2e` and `npm run test:e2e:cli` load the verified local JWT automatically without exporting credential variables in the interactive shell. CI and explicit JWT inputs continue to use their existing setup.
+
 The [proxy-lab runner](DEVHUB_JWT.md#transport-lifetime-and-recovery) validates the same JWT inputs, transports only copied private inputs through a read-only mount, and owns a separate credential volume for that execution. For example:
 
 ```powershell
