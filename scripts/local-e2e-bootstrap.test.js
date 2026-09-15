@@ -1,19 +1,20 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { assertSupportedSystemNode, bootstrapLocalE2e } = require('./local-e2e-bootstrap');
+const { assertSupportedNode, bootstrapLocalE2e } = require('./local-e2e-bootstrap');
 
-test('system Node follows the pinned LTS major and minimum release', () => {
+test('selected Node follows the pinned LTS major and minimum release', () => {
   for (const version of ['24.15.0', '24.15.1', '24.21.0']) {
-    assert.doesNotThrow(() => assertSupportedSystemNode(version, '24.15.0'));
+    assert.doesNotThrow(() => assertSupportedNode(version, '24.15.0'));
   }
   for (const version of ['26.8.2', '22.21.0', '24.14.9', '24.21.0-nightly']) {
-    assert.throws(() => assertSupportedSystemNode(version, '24.15.0'), /requires system Node 24.x at least 24.15.0/);
+    assert.throws(() => assertSupportedNode(version, '24.15.0'), /requires Node 24.x at least 24.15.0/);
   }
-  assert.throws(() => assertSupportedSystemNode('24.21.0', '24'), /complete Node version in .nvmrc/);
+  assert.throws(() => assertSupportedNode('24.21.0', '24'), /complete Node version in .nvmrc/);
 });
 
 function fixture(t) {
@@ -23,6 +24,77 @@ function fixture(t) {
   fs.writeFileSync(config, '# operator configuration\n', { mode: 0o600 });
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   return { home, config };
+}
+
+for (const selectedPnpm of [true, false]) {
+  test(
+    `Linux launcher preserves the selected Node and uses ${selectedPnpm ? 'selected' : 'fallback'} pnpm`,
+    { skip: process.platform !== 'linux' },
+    t => {
+      const { home, config } = fixture(t);
+      const scripts = path.join(home, 'checkout', 'scripts');
+      const runtimeBin = path.join(home, 'selected runtime', 'bin');
+      const localBin = path.join(home, '.local', 'bin');
+      const toolsBin = path.join(home, 'tools');
+      const sfCache = path.join(home, 'sf-cache');
+      for (const directory of [scripts, runtimeBin, localBin, toolsBin, path.join(sfCache, 'bin')]) {
+        fs.mkdirSync(directory, { recursive: true });
+      }
+      const executable = (file, content) => fs.writeFileSync(file, content, { mode: 0o755 });
+      const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
+      executable(
+        path.join(runtimeBin, 'node'),
+        `#!/bin/sh\nexport ALV_TEST_SELECTED_NODE=1\nexec ${quote(process.execPath)} "$@"\n`
+      );
+      // A user-tool fallback must not override the caller's runtime selection.
+      executable(path.join(localBin, 'node'), '#!/bin/sh\nexit 97\n');
+      executable(path.join(localBin, 'pnpm'), '#!/bin/sh\nprintf fallback-pnpm\n');
+      if (selectedPnpm) executable(path.join(runtimeBin, 'pnpm'), '#!/bin/sh\nprintf selected-pnpm\n');
+      fs.symlinkSync('/usr/bin/dirname', path.join(toolsBin, 'dirname'));
+      fs.copyFileSync(path.join(__dirname, 'run-wsl-e2e.sh'), path.join(scripts, 'run-wsl-e2e.sh'));
+      fs.symlinkSync(path.join(__dirname, 'local-e2e-bootstrap.js'), path.join(scripts, 'local-e2e-bootstrap.js'));
+      fs.writeFileSync(config, 'export SF_SCRATCH_POOL_NAME=test-pool\n');
+      executable(path.join(sfCache, 'bin', 'sf'), '#!/bin/sh\nexit 0\n');
+      fs.writeFileSync(
+        path.join(scripts, 'setup-salesforce-cli.mjs'),
+        'export const resolveSalesforceCliCacheConfig = () => ({cacheDir: process.env.SALESFORCE_CLI_CACHE_ROOT});\n' +
+          'export const resolveSalesforceCliBinPath = cacheDir => `${cacheDir}/bin/sf`;\n'
+      );
+      // Stub only JWT/network work; run the real launcher, version guard and child.
+      fs.writeFileSync(
+        path.join(scripts, 'devhub-local.js'),
+        'const {spawnSync} = require("node:child_process");\n' +
+          'const args = process.argv.slice(process.argv.indexOf("--") + 1);\n' +
+          'process.exit(spawnSync(args[0], args.slice(1), {stdio: "inherit"}).status ?? 1);\n'
+      );
+      const result = spawnSync(
+        '/bin/bash',
+        [
+          path.join(scripts, 'run-wsl-e2e.sh'),
+          'run',
+          '--',
+          'node',
+          '-e',
+          'console.log(JSON.stringify({selectedNode: process.env.ALV_TEST_SELECTED_NODE, ' +
+            'pnpm: require("node:child_process").execFileSync("pnpm", {encoding: "utf8"})}));'
+        ],
+        {
+          env: {
+            HOME: home,
+            PATH: `${runtimeBin}:${toolsBin}`,
+            SALESFORCE_CLI_CACHE_ROOT: sfCache
+          },
+          encoding: 'utf8',
+          timeout: 10000
+        }
+      );
+      assert.equal(result.status, 0, result.stderr || result.error?.message);
+      assert.deepEqual(JSON.parse(result.stdout), {
+        selectedNode: '1',
+        pnpm: selectedPnpm ? 'selected-pnpm' : 'fallback-pnpm'
+      });
+    }
+  );
 }
 
 test('configured GUI bootstrap forwards literal arguments and the child exit code without another package build', async t => {
