@@ -4,12 +4,12 @@ Keep the checkout, dependencies, builds and IDE caches on the Linux filesystem. 
 
 ## Prepare the Linux runtime
 
-Use Arch's system Node.js 24 LTS and the approved corporate CA already trusted by Arch. The launcher requires the same major as `.nvmrc` and at least that release; CI remains pinned to its exact version. From the repository:
+Select Node.js 24 in the current shell and use the approved corporate CA already trusted by Arch. The launcher uses `node` from `PATH`, whether supplied by fnm, another version manager or a system installation. It requires the same major as `.nvmrc` and at least that release; CI remains pinned to its exact version. With an already configured fnm shell, run from the repository:
 
 ```bash
-sudo -n pacman -S --needed nodejs-lts-krypton npm corepack
-/usr/bin/node --version
-/usr/bin/npm --version
+fnm use --install-if-missing
+node --version
+npm --version
 export NODE_USE_SYSTEM_CA=1
 install -d "$HOME/.local/bin"
 corepack enable --install-directory "$HOME/.local/bin" pnpm
@@ -23,7 +23,9 @@ node scripts/setup-salesforce-cli.mjs
 corepack pnpm run build
 ```
 
-The CLI setup uses the repository's exact Salesforce CLI version and the system Node runtime. Corepack selects the project's pinned pnpm version. The Arch dependency installer uses existing synchronized package metadata with `--needed`; it never runs a partial `pacman -Sy` upgrade. This Electron-based suite uses the VS Code download supplied by the test harness and does not require installing a separate Playwright browser. After a system Node upgrade, rerun `node scripts/setup-salesforce-cli.mjs` to prepare the cache for that runtime version.
+If using another version manager or a system installation, select the compatible runtime with that tool instead of running `fnm use`. An Arch Node package is not required by the launcher. Corepack must be available for the selected runtime and selects the project's pinned pnpm version.
+
+The CLI setup uses the repository's exact Salesforce CLI version and the selected Node runtime. The Arch dependency installer uses existing synchronized package metadata with `--needed`; it never runs a partial `pacman -Sy` upgrade. This Electron-based suite uses the VS Code download supplied by the test harness and does not require installing a separate Playwright browser. After changing Node versions, rerun `node scripts/setup-salesforce-cli.mjs` with the same cache root to prepare the cache for that runtime version.
 
 ## Restore the existing operator state
 
@@ -113,7 +115,7 @@ bash scripts/run-wsl-e2e.sh intellij
 bash scripts/run-wsl-e2e.sh ui test/e2e/specs/openLogViewer.e2e.spec.ts
 ```
 
-The launcher selects `/usr/bin/node`, checks its LTS major/minimum release against `.nvmrc`, loads the non-secret configuration, selects the pinned Linux Salesforce CLI and verifies JWT before starting the child. Automatically configured UI runs and the explicit `ui` command use their own Xvfb display, independent of WSLg and open editor windows. CLI runs do not launch Xvfb. Test subprocesses do not inherit `PLAYWRIGHT_MCP_CDP_ENDPOINT`. Exit codes are preserved. `bash scripts/run-wsl-e2e.sh run -- <command> [args]` applies the same settings and verified JWT inputs to an explicit command.
+The launcher preserves the shell's selected `node` and tool precedence, checks the Node major/minimum release against `.nvmrc`, loads the non-secret configuration, selects the pinned Linux Salesforce CLI and verifies JWT before starting the child. It appends `~/.local/bin` for fallback tools such as pnpm. Automatically configured UI runs and the explicit `ui` command use their own Xvfb display, independent of WSLg and open editor windows. CLI runs do not launch Xvfb. Test subprocesses do not inherit `PLAYWRIGHT_MCP_CDP_ENDPOINT`. Exit codes are preserved. `bash scripts/run-wsl-e2e.sh run -- <command> [args]` applies the same settings and verified JWT inputs to an explicit command.
 
 For a cold IntelliJ checkout, prepare the test classes before consuming a scratch lease:
 

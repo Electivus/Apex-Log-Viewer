@@ -17,7 +17,7 @@
 
 ### Tests
 
-- Arch Linux/WSL: load opted-in local settings and the verified durable Dev Hub JWT automatically for Playwright UI/CLI commands; add native Electron/Xvfb dependencies and a system-Node launcher without changing CI authentication.
+- Arch Linux/WSL: load opted-in local settings and the verified durable Dev Hub JWT automatically for Playwright UI/CLI commands; add native Electron/Xvfb dependencies and a launcher that preserves the shell's selected Node 24 runtime (including fnm) without changing CI authentication.
 
 - Dev Hub/test runner: reject inventories without completion proof or with contradictory counts before identity mutations; bound timeout cleanup to 30 seconds and report unconfirmed scratch cleanup without removing pending recovery credentials.
 

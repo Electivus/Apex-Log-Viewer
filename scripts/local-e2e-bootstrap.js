@@ -6,7 +6,7 @@ const { homedir } = require('node:os');
 const path = require('node:path');
 const { hasDevHubJwtConfig } = require('./devhub-auth');
 
-function assertSupportedSystemNode(
+function assertSupportedNode(
   version = process.versions.node,
   baseline = readFileSync(path.join(__dirname, '..', '.nvmrc'), 'utf8').trim()
 ) {
@@ -20,7 +20,7 @@ function assertSupportedSystemNode(
     (actual[1] === required[1] && actual[2] < required[2])
   ) {
     throw new Error(
-      `Native Linux E2E requires system Node ${required[0]}.x at least ${baseline}; detected ${version}. Install the matching Arch nodejs-lts package.`
+      `Native Linux E2E requires Node ${required[0]}.x at least ${baseline}; detected ${version}. Select the .nvmrc version in this shell (for example: fnm use).`
     );
   }
 }
@@ -63,4 +63,4 @@ async function bootstrapLocalE2e(
   });
 }
 
-module.exports = { assertSupportedSystemNode, bootstrapLocalE2e };
+module.exports = { assertSupportedNode, bootstrapLocalE2e };
