@@ -100,12 +100,14 @@ function spawnAsync(command, args, options = {}, spawnImpl = spawn) {
 
 async function ensureBuildArtifacts(repoRoot, options = {}) {
   const missingArtifacts = findMissingBuildArtifacts(repoRoot);
-  if (!missingArtifacts.length) {
+  if (!missingArtifacts.length && !options.force) {
     return;
   }
 
   console.log(
-    `[e2e] Missing build artifacts (${missingArtifacts.join(', ')}). Running pnpm run build before Playwright...`
+    options.force
+      ? '[e2e] Building before Playwright with the prepared runtime environment...'
+      : `[e2e] Missing build artifacts (${missingArtifacts.join(', ')}). Running pnpm run build before Playwright...`
   );
   const buildInvocation = resolveBuildInvocation();
   const result = await spawnAsync(
@@ -186,7 +188,9 @@ async function main() {
   }
 
   const repoRoot = path.join(__dirname, '..');
-  await ensureBuildArtifacts(repoRoot);
+  // Package commands always rebuild, including when outputs already exist.
+  // Running this after bootstrap keeps the build in the prepared environment.
+  await ensureBuildArtifacts(repoRoot, { force: process.env.npm_lifecycle_event === 'test:e2e' });
   const invocation = resolvePlaywrightInvocation(process.argv.slice(2));
   const child = spawn(invocation.command, invocation.args, {
     stdio: 'inherit',

@@ -99,6 +99,28 @@ test('ensureBuildArtifacts runs pnpm run build when required outputs are missing
   }
 });
 
+test('package execution rebuilds existing outputs after runtime bootstrap', async () => {
+  const repoRoot = createTempRepo();
+  try {
+    writeArtifacts(repoRoot, requiredBuildArtifacts);
+    let builds = 0;
+    await ensureBuildArtifacts(repoRoot, {
+      force: true,
+      spawnImpl(command, args) {
+        builds += 1;
+        assert.equal(command, resolveBuildInvocation().command);
+        assert.deepEqual(args, resolveBuildInvocation().args);
+        const child = new EventEmitter();
+        process.nextTick(() => child.emit('exit', 0, null));
+        return child;
+      }
+    });
+    assert.equal(builds, 1);
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
+});
+
 test('resolveBuildInvocation uses cmd.exe on Windows to avoid pnpm.cmd spawn issues', () => {
   const invocation = resolveBuildInvocation('win32');
 

@@ -4,10 +4,10 @@ Keep the checkout, dependencies, builds and IDE caches on the Linux filesystem. 
 
 ## Prepare the Linux runtime
 
-Use Arch's system Node.js and the approved corporate CA already trusted by Arch. The local runtime must satisfy `package.json#engines`; `.nvmrc` remains the exact reference version for CI. From the repository:
+Use Arch's system Node.js 24 LTS and the approved corporate CA already trusted by Arch. The launcher requires the same major as `.nvmrc` and at least that release; CI remains pinned to its exact version. From the repository:
 
 ```bash
-sudo -n pacman -S --needed nodejs npm corepack
+sudo -n pacman -S --needed nodejs-lts-krypton npm corepack
 /usr/bin/node --version
 /usr/bin/npm --version
 export NODE_USE_SYSTEM_CA=1
@@ -97,9 +97,9 @@ npm run test:e2e:cli
 npm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts
 ```
 
-Creating the operator's `e2e.sh` opts this Linux machine into automatic setup. The runners start the existing JWT wrapper, which validates the durable journal, certificate, fresh login and User API before exposing inputs to the child. The child resumes the runner directly, so bootstrap does not repeat the npm build hook or recursively invoke the package command. The private key remains in durable storage and the current journal is read on each execution, including after rotation.
+Creating the operator's `e2e.sh` opts this Linux machine into automatic setup. The runners start the existing JWT wrapper, which validates the durable journal, certificate, fresh login and User API before exposing inputs to the child. The child resumes the runner directly. UI package commands always build once inside this prepared environment, including when previous outputs exist; there is no earlier `pretest:e2e` hook. Bootstrap does not recursively invoke the package command. The private key remains in durable storage and the current journal is read on each execution, including after rotation.
 
-CI, Windows/macOS, explicit credential inputs (including incomplete JWT or legacy auth selections), custom Playwright configs, and help/list invocations retain their existing setup behavior. Explicit inputs are not replaced with the operator's identity. Remove or rename the local `e2e.sh` to disable automatic setup; do not remove the durable JWT root. This automatic path covers UI and CLI E2E; telemetry and Docker proxy-lab still use their documented explicit setup.
+CI (`CI=1|true` or `GITHUB_ACTIONS=true`), Windows/macOS, explicit credential inputs (including incomplete JWT or legacy auth selections), custom Playwright configs, and help/list invocations retain their existing setup behavior. False CI flags permit local setup. Explicit inputs are not replaced with the operator's identity. Remove or rename the local `e2e.sh` to disable automatic setup; do not remove the durable JWT root. This automatic path covers UI and CLI E2E; telemetry and Docker proxy-lab still use their documented explicit setup.
 
 The launcher is also available for verification, explicit execution and the optional IntelliJ lane:
 
@@ -113,7 +113,7 @@ bash scripts/run-wsl-e2e.sh intellij
 bash scripts/run-wsl-e2e.sh ui test/e2e/specs/openLogViewer.e2e.spec.ts
 ```
 
-The launcher selects `/usr/bin/node`, loads the non-secret configuration, selects the pinned Linux Salesforce CLI and verifies JWT before starting the child. Automatically configured UI runs and the explicit `ui` command use their own Xvfb display, independent of WSLg and open editor windows. CLI runs do not launch Xvfb. Test subprocesses do not inherit `PLAYWRIGHT_MCP_CDP_ENDPOINT`. Exit codes are preserved. `bash scripts/run-wsl-e2e.sh run -- <command> [args]` applies the same settings and verified JWT inputs to an explicit command.
+The launcher selects `/usr/bin/node`, checks its LTS major/minimum release against `.nvmrc`, loads the non-secret configuration, selects the pinned Linux Salesforce CLI and verifies JWT before starting the child. Automatically configured UI runs and the explicit `ui` command use their own Xvfb display, independent of WSLg and open editor windows. CLI runs do not launch Xvfb. Test subprocesses do not inherit `PLAYWRIGHT_MCP_CDP_ENDPOINT`. Exit codes are preserved. `bash scripts/run-wsl-e2e.sh run -- <command> [args]` applies the same settings and verified JWT inputs to an explicit command.
 
 For a cold IntelliJ checkout, prepare the test classes before consuming a scratch lease:
 

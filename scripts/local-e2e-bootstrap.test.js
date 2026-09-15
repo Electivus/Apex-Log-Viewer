@@ -4,7 +4,17 @@ const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { bootstrapLocalE2e } = require('./local-e2e-bootstrap');
+const { assertSupportedSystemNode, bootstrapLocalE2e } = require('./local-e2e-bootstrap');
+
+test('system Node follows the pinned LTS major and minimum release', () => {
+  for (const version of ['24.15.0', '24.15.1', '24.21.0']) {
+    assert.doesNotThrow(() => assertSupportedSystemNode(version, '24.15.0'));
+  }
+  for (const version of ['26.8.2', '22.21.0', '24.14.9', '24.21.0-nightly']) {
+    assert.throws(() => assertSupportedSystemNode(version, '24.15.0'), /requires system Node 24.x at least 24.15.0/);
+  }
+  assert.throws(() => assertSupportedSystemNode('24.21.0', '24'), /complete Node version in .nvmrc/);
+});
 
 function fixture(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-local-bootstrap-'));
@@ -136,6 +146,26 @@ test('the JWT supplied by the verified wrapper prevents recursive bootstrap', as
     undefined
   );
 });
+
+for (const env of [{ CI: 'false' }, { CI: '0' }, { CI: ' FALSE ' }, { GITHUB_ACTIONS: 'false' }]) {
+  test(`false CI flags permit configured local authentication: ${JSON.stringify(env)}`, async t => {
+    const { home } = fixture(t);
+    const result = await bootstrapLocalE2e(
+      { entrypoint: __filename },
+      {
+        home,
+        platform: 'linux',
+        env,
+        spawnImpl() {
+          const child = new EventEmitter();
+          process.nextTick(() => child.emit('close', 0, null));
+          return child;
+        }
+      }
+    );
+    assert.deepEqual(result, { code: 0, signal: null });
+  });
+}
 
 test('an unconfigured machine retains the existing runner behavior', async t => {
   const { home, config } = fixture(t);

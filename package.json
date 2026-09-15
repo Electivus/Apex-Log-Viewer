@@ -65,7 +65,6 @@
     "test:webview:watch": "pnpm run test:webview --watch",
     "test:ci": "pnpm run test:unit:ci && pnpm run test:integration:ci",
     "test:smoke:vsix": "node scripts/run-tests.js --scope=unit --smoke-vsix",
-    "pretest:e2e": "pnpm run build",
     "test:e2e": "node scripts/run-playwright-e2e.js",
     "test:e2e:cli": "node scripts/run-playwright-cli-e2e.js",
     "test:e2e:proxy-lab": "node scripts/run-e2e-proxy-lab.js",

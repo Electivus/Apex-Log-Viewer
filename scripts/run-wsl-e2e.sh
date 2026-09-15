@@ -6,12 +6,13 @@ set -euo pipefail
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 cd -- "$repo_root"
 if [[ ! -x /usr/bin/node ]]; then
-  echo '[e2e:wsl] Install the Arch nodejs package first.' >&2
+  echo '[e2e:wsl] Install the Arch nodejs-lts package matching .nvmrc first.' >&2
   exit 1
 fi
 # This operator uses Arch's system Node. Also select it in child commands whose
 # launchers use /usr/bin/env node, even from an older terminal environment.
-export PATH="/usr/bin:$PATH"
+export PATH="/usr/bin:$HOME/.local/bin:$PATH"
+node -e 'require("./scripts/local-e2e-bootstrap").assertSupportedSystemNode()'
 
 config_file="${XDG_CONFIG_HOME:-$HOME/.config}/electivus/apex-log-viewer/e2e.sh"
 if [[ -f "$config_file" ]]; then
