@@ -8,7 +8,19 @@ if [[ "${INSTALL_LINUX_DEPS:-}" != "true" ]]; then
 fi
 
 # Installs the required system libraries to run VS Code/Electron in headless Linux.
-# Supports Ubuntu 24.04 (t64 packages) and older variants when available.
+# Supports Arch Linux and Ubuntu 24.04 (t64 packages)/older variants.
+
+if command -v pacman >/dev/null 2>&1; then
+  echo "[deps] Installing Arch Linux Electron/Xvfb dependencies..."
+  # Use the existing synchronized databases; never introduce a partial upgrade
+  # with pacman -Sy. Pacman resolves libraries already provided by dependencies.
+  sudo -n pacman -S --needed --noconfirm \
+    gtk3 nss alsa-lib libcups libxss libxtst mesa libxshmfence \
+    libxcomposite libxdamage libxrandr libsecret ttf-liberation \
+    xorg-server-xvfb xorg-xauth
+  echo "[deps] Libraries installed successfully."
+  exit 0
+fi
 
 if ! command -v apt-get >/dev/null 2>&1; then
   echo "[deps] apt-get not found; skip this step or install the libraries manually." >&2

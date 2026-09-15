@@ -5,6 +5,7 @@ const { execFile, spawn } = require('child_process');
 const { existsSync } = require('fs');
 const { platform } = require('os');
 const path = require('path');
+const { bootstrapLocalE2e } = require('./local-e2e-bootstrap');
 
 const requiredBuildArtifacts = [
   'apps/vscode-extension/dist/extension.js',
@@ -154,6 +155,12 @@ function resolvePlaywrightEnv(env = process.env, nodePath = process.execPath) {
 }
 
 async function main() {
+  const localRun = await bootstrapLocalE2e({ entrypoint: __filename, args: process.argv.slice(2), gui: true });
+  if (localRun) {
+    exitWithChildResult(localRun.code, localRun.signal);
+    return;
+  }
+
   // Some environments leak ELECTRON_RUN_AS_NODE=1; VS Code won't boot properly.
   try {
     delete process.env.ELECTRON_RUN_AS_NODE;

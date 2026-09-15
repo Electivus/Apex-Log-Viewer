@@ -4,6 +4,7 @@
 const { spawn, spawnSync } = require('child_process');
 const { existsSync, realpathSync } = require('fs');
 const path = require('path');
+const { bootstrapLocalE2e } = require('./local-e2e-bootstrap');
 
 const requiredSfPluginArtifacts = [resolveSfPluginCommandRelativePath()];
 
@@ -241,6 +242,12 @@ function resolvePlaywrightEnv(env = process.env, repoRoot = path.join(__dirname,
 }
 
 async function main() {
+  const localRun = await bootstrapLocalE2e({ entrypoint: __filename, args: process.argv.slice(2) });
+  if (localRun) {
+    exitWithChildResult(localRun.code, localRun.signal);
+    return;
+  }
+
   const repoRoot = path.join(__dirname, '..');
   await ensureSfPluginBuildArtifacts(repoRoot);
   const invocation = resolvePlaywrightInvocation(process.argv.slice(2));
