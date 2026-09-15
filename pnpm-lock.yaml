@@ -152,8 +152,8 @@ importers:
         specifier: ^1.10.0
         version: 1.10.0
       skills:
-        specifier: 1.5.21
-        version: 1.5.21
+        specifier: 1.5.26
+        version: 1.5.26
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
@@ -5268,8 +5268,8 @@ packages:
   simple-get@4.0.1:
     resolution: {integrity: sha512-brv7p5WgH0jmQJr1ZDDfKDOSeWWg+OVypG99A/5vYGPqJ6pxiaHLy8nxtFjBA7oMa01ebA9gfh1uMCFqOuXxvA==}
 
-  skills@1.5.21:
-    resolution: {integrity: sha512-CJ4wx692UkQAW+DLpjJg/ww6dJBojq5E8sQBOqP639GutO72v4EFiV/fq1etW2r9NhM/mwaIq8YoqKFJ9XV7ng==}
+  skills@1.5.26:
+    resolution: {integrity: sha512-D5jnWoMPDRQ3fJM3RpQH8SBrAS9tmVlTC7OdOB2tk7D6nORbRnw8RLwjVj81IIGlxwWuBthEgUChM7SOZGvTHQ==}
     engines: {node: '>=22.20.0'}
     hasBin: true
 
@@ -11648,7 +11648,7 @@ snapshots:
       simple-concat: 1.0.1
     optional: true
 
-  skills@1.5.21:
+  skills@1.5.26:
     dependencies:
       tar: 7.5.22
       yaml: 2.9.0
