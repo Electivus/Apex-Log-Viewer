@@ -51,5 +51,6 @@ infra/azure-monitor/main.json
 .babysit-pr/
 .gradle/
 apps/intellij-plugin/.idea/
+apps/intellij-plugin/.kotlin/
 apps/intellij-plugin/.intellijPlatform/
 apps/intellij-plugin/build/

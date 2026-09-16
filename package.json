@@ -90,7 +90,7 @@
     "azure:monitor:what-if": "node scripts/deploy-azure-monitor.js --what-if"
   },
   "devDependencies": {
-    "@jsforce/jsforce-node": "3.10.19",
+    "@jsforce/jsforce-node": "3.10.25",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/cli": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",
@@ -98,18 +98,18 @@
     "@types/jest": "^30.0.0",
     "@types/jsdom": "^30.0.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "~24.13.3",
+    "@types/node": "~24.13.4",
     "@types/proxyquire": "^1.3.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/vscode": "1.105.0",
-    "@typescript-eslint/eslint-plugin": "^8.63.0",
-    "@typescript-eslint/parser": "^8.56.1",
+    "@typescript-eslint/eslint-plugin": "^8.70.0",
+    "@typescript-eslint/parser": "^8.70.0",
     "@vscode/l10n-dev": "^0.0.35",
     "@vscode/ripgrep": "^1.18.0",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.9.2",
-    "autoprefixer": "^10.5.4",
+    "autoprefixer": "^10.6.0",
     "c8": "^12.0.0",
     "cross-spawn": "^7.0.6",
     "esbuild": "^0.28.2",
@@ -138,6 +138,6 @@
     "ts-jest": "^29.4.12",
     "typescript": "^6.0.3",
     "undici": "^8.10.2",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.1"
   }
 }
