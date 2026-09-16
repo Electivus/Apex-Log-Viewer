@@ -4,6 +4,7 @@
 
 ### Maintenance
 
+- Refresh Autoprefixer and IntelliJ Kotlin/Gradle tooling, with verified dependency metadata for the updated Kotlin artifacts.
 - Refresh Salesforce, React, test, packaging, and CI dependencies; keep Playwright packages aligned and validate Agent Skill distribution against the exact installed CLI release.
 - Reduce Dependabot churn with coordinated dependency families, bounded weekly batches, separate security updates, and IntelliJ Gradle coverage; defer incompatible TypeScript 7 and oclif runtime 5 updates.
 
