@@ -65,12 +65,18 @@ function getNpmGroupConfig(raw: string, groupName: string): DependabotGroup {
   const groups = getNpmGroups(raw);
   const group = groups[groupName];
 
-  assert.ok(group && typeof group === 'object' && !Array.isArray(group), `npm dependabot group "${groupName}" should exist`);
+  assert.ok(
+    group && typeof group === 'object' && !Array.isArray(group),
+    `npm dependabot group "${groupName}" should exist`
+  );
 
   const typedGroup = group as Record<string, unknown>;
 
   return {
-    patterns: asStringArray(typedGroup.patterns, `npm dependabot group "${groupName}" patterns should be a string array`),
+    patterns: asStringArray(
+      typedGroup.patterns,
+      `npm dependabot group "${groupName}" patterns should be a string array`
+    ),
     'update-types': asStringArray(
       typedGroup['update-types'],
       `npm dependabot group "${groupName}" update-types should be a string array`
@@ -147,6 +153,33 @@ updates:
       !tailwindGroup.patterns?.includes('tailwind-*'),
       'tailwind group should not use the broader tailwind-* wildcard that catches unrelated packages'
     );
+  });
+
+  test('keeps both direct Playwright packages in the same first matching version-update group', async () => {
+    const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
+    const raw = await readFile(path.join(repoRoot, '.github', 'dependabot.yml'), 'utf8');
+    const groups = getNpmGroups(raw);
+    const groupFor = (dependency: string) =>
+      Object.entries(groups).find(([, value]) => {
+        const group = value as Record<string, unknown>;
+        if (group['applies-to'] === 'security-updates') {
+          return false;
+        }
+        const patterns = asStringArray(group.patterns, 'group patterns must be strings') ?? [];
+        return patterns.some(pattern => {
+          const expression = pattern
+            .split('*')
+            .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+            .join('.*');
+          return new RegExp(`^${expression}$`).test(dependency);
+        });
+      })?.[0];
+
+    const runtimeGroup = groupFor('playwright');
+    assert.ok(runtimeGroup, 'Playwright must be grouped rather than updated independently');
+    assert.equal(groupFor('@playwright/test'), runtimeGroup);
+    const group = getNpmGroupConfig(raw, runtimeGroup);
+    assert.equal(group['update-types'], undefined, 'Playwright packages must also stay together across majors');
   });
 
   test('keeps React majors grouped for the lockstep runtime and type packages', async () => {
@@ -229,10 +262,7 @@ updates:
 
     assert.ok(testingGroup.patterns?.includes('jest'), 'testing group should include jest');
     assert.ok(testingGroup.patterns?.includes('jest-*'), 'testing group should include jest-*');
-    assert.ok(
-      testingGroup.patterns?.includes('jest-environment-*'),
-      'testing group should include jest-environment-*'
-    );
+    assert.ok(testingGroup.patterns?.includes('jest-environment-*'), 'testing group should include jest-environment-*');
     assert.ok(testingGroup.patterns?.includes('ts-jest'), 'testing group should include ts-jest');
     assert.equal(
       testingGroup['update-types'],

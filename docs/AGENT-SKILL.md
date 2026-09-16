@@ -26,7 +26,7 @@ Review and commit `skills-lock.json`. It records the repository source, selected
 npx skills experimental_install
 ```
 
-`experimental_install` is the command name in `skills@1.5.21`; review it when deliberately upgrading the pinned development contract.
+`experimental_install` is the command name in `skills@1.5.26`; review it when deliberately upgrading the pinned development contract.
 
 ## Global alternative
 
@@ -64,7 +64,7 @@ If the old and new copies both remain visible, do not guess which one the agent 
 
 ## Compatibility and catalog verification
 
-The repository claims format compatibility across the Agent Skills ecosystem. Automated distribution tests use the pinned `skills@1.5.21` CLI and target Claude Code, Codex, GitHub Copilot, and Devin in isolated project roots; they do not launch proprietary agents or exercise live Salesforce org workflows inside each product.
+The repository claims format compatibility across the Agent Skills ecosystem. Automated distribution tests use the exact `skills` version pinned in the root `package.json` and target Claude Code, Codex, GitHub Copilot, and Devin in isolated project roots; they do not launch proprietary agents or exercise live Salesforce org workflows inside each product.
 
 After this source is merged, verify remote discovery with:
 
