@@ -40,7 +40,12 @@ function runCommand(command, args, cwd) {
 
 test('the neutral catalog discovers exactly the portable Apex Log Viewer Agent Skill', async () => {
   const manifest = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8'));
-  assert.equal(manifest.devDependencies?.skills, '1.5.21');
+  const pinnedVersion = manifest.devDependencies?.skills;
+  assert.match(pinnedVersion, /^\d+\.\d+\.\d+$/, 'the skills CLI must stay pinned to an exact release');
+  const installed = JSON.parse(
+    await fs.readFile(path.join(repoRoot, 'node_modules', 'skills', 'package.json'), 'utf8')
+  );
+  assert.equal(installed.version, pinnedVersion, 'distribution tests must exercise the pinned skills CLI');
 
   await fs.access(path.join(repoRoot, 'skills', 'apex-log-viewer-cli', 'SKILL.md'));
   await assert.rejects(fs.access(path.join(repoRoot, '.codex', 'skills', 'apex-log-viewer-cli', 'SKILL.md')));

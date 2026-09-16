@@ -563,7 +563,7 @@ test('direct macOS Playwright workflow runs Salesforce CLI through the cached se
     'expected macOS to select the Salesforce CLI Node runtime before resolving the CLI cache'
   );
   assert.equal(setupSfNodeStep.step.if, "runner.os == 'macOS'");
-  assert.equal(setupSfNodeStep.step.uses, 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e');
+  assert.match(setupSfNodeStep.step.uses, /^actions\/setup-node@[0-9a-f]{40}$/);
   assert.equal(setupSfNodeStep.step.with?.['node-version-file'], '.nvmrc');
   assert.equal(resolveCacheStep.step.run, 'node scripts/setup-salesforce-cli.mjs --print-cache-key');
   assert.equal(restoreCacheStep.step.with?.path, '${{ steps.sf-cli-cache.outputs.cache-dir }}');
@@ -576,7 +576,7 @@ test('direct macOS Playwright workflow runs Salesforce CLI through the cached se
     'expected the project Node runtime to be restored after capturing the Salesforce CLI runtime'
   );
   assert.equal(restoreProjectNodeStep.step.if, "runner.os == 'macOS'");
-  assert.equal(restoreProjectNodeStep.step.uses, 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e');
+  assert.equal(restoreProjectNodeStep.step.uses, setupSfNodeStep.step.uses);
   assert.equal(restoreProjectNodeStep.step.with?.['node-version-file'], '.nvmrc');
   assert.ok(
     restoreProjectNodeStep.index < installDepsStep.index,

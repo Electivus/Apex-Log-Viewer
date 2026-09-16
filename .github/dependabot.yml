@@ -4,7 +4,13 @@ updates:
     directory: '/'
     schedule:
       interval: 'weekly'
-    open-pull-requests-limit: 20
+      day: 'monday'
+      time: '06:00'
+      timezone: 'America/Bahia'
+    open-pull-requests-limit: 10
+    # Exceed pnpm's one-day minimum release age without delaying security updates.
+    cooldown:
+      default-days: 3
     groups:
       # Group tightly coupled dependency families for lower review overhead.
       # Coupled stacks stay grouped across majors to avoid peer mismatch PRs.
@@ -28,6 +34,8 @@ updates:
           - 'tailwindcss'
           - '@tailwindcss/*'
           - 'tailwindcss-*'
+          - 'postcss'
+          - 'autoprefixer'
       testing:
         applies-to: version-updates
         patterns:
@@ -44,13 +52,47 @@ updates:
         patterns:
           - 'typescript'
           - '@typescript-eslint/*'
+          - 'eslint'
+          - '@eslint/*'
+      playwright:
+        applies-to: version-updates
+        patterns:
+          - 'playwright'
+          - '@playwright/test'
+      salesforce-runtime:
+        applies-to: version-updates
+        patterns:
+          - '@salesforce/core'
+          - '@salesforce/sf-plugins-core'
+          - '@oclif/core'
       vscode-extension-tooling:
         applies-to: version-updates
         patterns:
           - '@vscode/test-electron'
           - '@vscode/l10n-dev'
           - '@vscode/vsce'
+      # Specific families above take precedence; unrelated majors stay separate.
+      other-production:
+        applies-to: version-updates
+        dependency-type: production
+        update-types: ['minor', 'patch']
+        patterns: ['*']
+      other-development:
+        applies-to: version-updates
+        dependency-type: development
+        update-types: ['minor', 'patch']
+        patterns: ['*']
+      security:
+        applies-to: security-updates
+        patterns: ['*']
     ignore:
+      # TS 7 removes baseUrl/Node10 resolution and is outside ts-jest/parser peers.
+      # Revisit with a coordinated compiler and test-transformer migration (#980).
+      - dependency-name: 'typescript'
+        versions: ['>=7.0.0 <8.0.0']
+      # sf-plugins-core 12 exports oclif 4 flag types; v5 breaks declarations (#1092).
+      - dependency-name: '@oclif/core'
+        versions: ['>=5.0.0 <6.0.0']
       - dependency-name: '@types/node'
         update-types:
           - 'version-update:semver-major'
@@ -66,4 +108,26 @@ updates:
     directory: '/'
     schedule:
       interval: 'weekly'
-    open-pull-requests-limit: 20
+      day: 'tuesday'
+      time: '06:00'
+      timezone: 'America/Bahia'
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        applies-to: version-updates
+        update-types: ['minor', 'patch']
+        patterns: ['*']
+  - package-ecosystem: 'gradle'
+    directory: '/apps/intellij-plugin'
+    schedule:
+      interval: 'weekly'
+      day: 'wednesday'
+      time: '06:00'
+      timezone: 'America/Bahia'
+    open-pull-requests-limit: 3
+    # Review verification-metadata.xml alongside updates; keep checksum checks enabled.
+    groups:
+      intellij-tooling:
+        applies-to: version-updates
+        update-types: ['minor', 'patch']
+        patterns: ['*']
