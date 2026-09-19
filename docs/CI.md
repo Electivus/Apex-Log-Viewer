@@ -5,8 +5,8 @@ This repository uses GitHub Actions to build, test, package, and publish the ext
 - Workflow CI (`.github/workflows/ci.yml`): build/test on `push` and `pull_request` across `ubuntu-latest`, `windows-latest`, and `macos-latest`. Manual `workflow_dispatch` allows choosing the test scope (`unit`, `integration`, or `all`). This workflow enforces dependency provenance with `node scripts/check-dependency-sources.mjs` before every `pnpm install --frozen-lockfile`, then runs npm registry signature verification (`pnpm run security:npm-signatures`) before compile/test. The VSIX smoke test remains Ubuntu-only after the OS matrix succeeds.
 - Workflow Dependency Review (`.github/workflows/dependency-review.yml`): blocks pull requests that introduce new moderate-or-higher dependency risk in runtime or development scopes.
 - Workflow E2E (`.github/workflows/e2e-playwright.yml`): risk-classified real scratch-org Playwright validation on `pull_request` and manual dispatch. Documentation-only and other safe changes skip the costly lanes while the stable required summary still succeeds; product, runtime, workflow, script, or E2E changes run the pool-only matrix. It requires `SF_SCRATCH_POOL_NAME` plus complete Dev Hub JWT inputs, leases one pooled scratch org per Playwright test through each slot's stored `sfdxAuthUrl`, and defaults to `1` Playwright worker unless `PLAYWRIGHT_WORKERS` is set as a repository variable or `playwright_workers` is set for a manual dispatch. Multiple workflow runs may execute concurrently; the atomic lease service admits work up to the configured slot capacity and makes excess tests wait for a slot. Ubuntu runs one full CLI and extension pass through the MITM proxy lab plus a focused native Kotlin/Tooling lane; Windows runs the Kotlin validation inside the full direct pass. Manual candidate dispatches additionally enable the Kotlin lane on macOS. The native lane resolves the pooled org through the native process adapter, queries ApexLog through the native HTTP adapter, materializes the seeded body, recognizes it, and parses it. The direct jobs reuse dependency, IDE, VS Code, Gradle, and Salesforce CLI caches and build their artifacts in the same job. The Ubuntu extension proxy-lab lane has a dedicated `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS` override. When Azure telemetry configuration is present, the Ubuntu extension run emits telemetry and a final lightweight job validates it. The stable `Real Org E2E required` gate summarizes all lanes and is a required status check in the active `main` ruleset. CLI and native IntelliJ artifacts upload from `output/playwright-cli/`; extension artifacts upload from `output/playwright/`, with OS suffixes for direct Windows/macOS runs.
-- Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace (if `VSCE_PAT` is configured) and Open VSX (if `OVSX_PAT` is configured). Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
-- Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes automatically to the Marketplace and Open VSX pre‑release channels (when `VSCE_PAT`/`OVSX_PAT` are set).
+- Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace through Microsoft Entra ID/GitHub OIDC and Open VSX (if `OVSX_PAT` is configured), subject to the `marketplace` environment approval. Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
+- Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes to the Marketplace (OIDC) and Open VSX (`OVSX_PAT`) pre‑release channels after environment approval. The manual `verify_marketplace_only` input checks identity and publisher access without building or publishing.
 - Workflow IntelliJ Plugin Release (`.github/workflows/intellij-plugin-release.yml`): stable tags `intellij-v1.0.0` and later run the dual-runtime corpus and installable-plugin suite on Linux, Windows, and macOS, then verify IntelliJ IDEA 2026.1 and 2026.2, require the protected `intellij-release` environment and Electivus signing secrets, and attach the signed ZIP to a GitHub release without publishing it to JetBrains Marketplace. The environment variable `INTELLIJ_RELEASE_CANDIDATE_SHA` must equal the tagged commit, attesting that the separately required real-org matrix and installed IDEA Ultimate smoke check completed on that exact candidate. Pre-1.0 development versions remain CI artifacts and are rejected by the release job.
 
 Build & Test basics:
@@ -135,18 +135,19 @@ Standard releases are driven by git tags `v*`.
 
 1. Merge PRs using Conventional Commits (e.g., `feat:`, `fix:`, `docs:`).
 2. Bump the version in `package.json` and push a tag `vX.Y.Z` for that commit.
-3. On tag push, the Release workflow packages and publishes to the Marketplace (`VSCE_PAT`) and Open VSX (`OVSX_PAT`) automatically.
+3. On tag push, the Release workflow packages and publishes to the Marketplace (OIDC) and Open VSX (`OVSX_PAT`) after environment approval.
 4. The changelog (`CHANGELOG.md`) is maintained manually. Update it as part of preparing the release commit.
 
-Pre‑releases: nightly builds run daily and are published automatically to the Marketplace (`VSCE_PAT`) and Open VSX (`OVSX_PAT`) pre‑release channels; the VSIX is also attached to a GitHub pre‑release.
+Pre‑releases: nightly builds run daily and publish to the Marketplace (OIDC) and Open VSX (`OVSX_PAT`) pre‑release channels after environment approval; the VSIX is also attached to a GitHub pre‑release.
 
 See also: `docs/PUBLISHING.md` for the full Marketplace/Open VSX publishing flow and guidance.
 
-## Setup `VSCE_PAT`
+## Setup Marketplace OIDC
 
-- Create a Personal Access Token with publish rights for the Visual Studio Marketplace.
-- Add it as a GitHub secret named `VSCE_PAT` in the repository (Settings → Secrets and variables → Actions → New repository secret).
-- Publishing is optional; without the secret, the workflow still builds, tests, and attaches the VSIX artifact to the run.
+- Follow [Marketplace authentication](MARKETPLACE_OIDC.md) to configure the dedicated Azure managed identity, federated credential, publisher Contributor membership, and environment variables.
+- Only Marketplace publishing and verification jobs receive `id-token: write`. The existing `marketplace` environment review remains required.
+- Marketplace workflows do not read `VSCE_PAT`; remove the obsolete secret after the migration has been integrated and verified.
+- Missing Marketplace identity configuration fails the publishing job. Packaging and GitHub artifacts remain independent jobs.
 
 ## Setup `OVSX_PAT`
 
