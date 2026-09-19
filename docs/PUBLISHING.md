@@ -2,10 +2,10 @@
 
 Maintainer quick start
 
-1. Create a Marketplace publisher and PAT, add secret `VSCE_PAT` in GitHub.
+1. Configure the Marketplace publisher's dedicated managed identity and GitHub OIDC using [Marketplace authentication](MARKETPLACE_OIDC.md).
 2. Create an Open VSX namespace + PAT, add secret `OVSX_PAT` in GitHub.
 3. For standard extension releases, update `CHANGELOG.md` manually, bump `apps/vscode-extension/package.json`, and push a tag `vX.Y.Z`.
-4. The Release workflow on the tag builds, attaches the `.vsix`, and, if `VSCE_PAT`/`OVSX_PAT` exist, publishes automatically.
+4. The Release workflow on the tag builds, attaches the `.vsix`, and publishes to Marketplace using OIDC after the `marketplace` environment approval. Open VSX publishing requires `OVSX_PAT`.
 5. For plugin-only npm releases, bump `packages/sf-plugin/package.json`, merge the release PR, and push a tag `sf-plugin-vX.Y.Z`; the SF Plugin Release workflow validates, stages, publishes to npm, and creates the GitHub release.
 6. Alternatively, publish the extension locally with `pnpm run vsce:publish` (or `:pre`) and `pnpm dlx ovsx publish`.
 
@@ -48,8 +48,8 @@ VS Code Marketplace does not use semver pre‑release identifiers in the manifes
 
 Prerequisites
 
-- Create a publisher and PAT on the VS Code Marketplace.
-- Add the PAT as the repository secret `VSCE_PAT` (Settings → Secrets and variables → Actions).
+- Create a VS Code Marketplace publisher and authorize its dedicated managed identity as Contributor.
+- Configure the three `MARKETPLACE_AZURE_*` variables in the protected `marketplace` environment; see [Marketplace authentication](MARKETPLACE_OIDC.md).
 - Create a namespace + PAT on Open VSX.
 - Add the PAT as the repository secret `OVSX_PAT` (Settings → Secrets and variables → Actions).
 
@@ -59,7 +59,7 @@ How it works
 - The workflow reads `apps/vscode-extension/package.json` and determines the channel:
   - Odd minor → pre‑release → `vsce publish --pre-release`.
   - Even minor → stable → `vsce publish`.
-- If `VSCE_PAT` is present, it publishes to Marketplace; otherwise it only attaches the `.vsix` artifact to the workflow run.
+- Marketplace jobs authenticate with GitHub OIDC and `vsce publish --azure-credential`; missing identity configuration or authorization fails the job instead of silently skipping publication.
 - If `OVSX_PAT` is present, it publishes the same VSIX artifacts to Open VSX.
 - The extension bundles private `@alv/core` directly and packages with `--no-dependencies`; the VSIX contains no Salesforce CLI plugin runner. The npm plugin is built and released independently over the same core.
 
@@ -86,6 +86,7 @@ Local packaging/publish
 - Package a VSIX (pre‑release flag): `pnpm run vsce:package:pre`
 - Publish to Marketplace (stable): `pnpm run vsce:publish`
 - Publish to Marketplace (pre‑release): `pnpm run vsce:publish:pre`
+- These local helpers use the operator's own authentication. CI uses the dedicated federated identity, without a stored PAT.
 - Publish to Open VSX (stable): `pnpm dlx ovsx publish --pat <token>`
 - Publish to Open VSX (pre‑release): `pnpm dlx ovsx publish --pat <token> --pre-release`
 

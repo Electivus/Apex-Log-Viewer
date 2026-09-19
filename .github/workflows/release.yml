@@ -346,6 +346,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: marketplace
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -370,18 +373,20 @@ jobs:
           name: ${{ needs.prepare_publish.outputs.artifact_name }}
           path: .
 
+      - name: Azure login for Marketplace publishing
+        uses: azure/login@93381592711f247e165c389ebb30b596c84cdc48
+        with:
+          client-id: ${{ vars.MARKETPLACE_AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.MARKETPLACE_AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.MARKETPLACE_AZURE_SUBSCRIPTION_ID }}
+
       - name: Publish from VSIX artifact
         env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
           PRE_RELEASE: ${{ needs.prepare_publish.outputs.pre_release }}
           VERSION: ${{ needs.prepare_publish.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${VSCE_PAT}" ]; then
-            echo "VSCE_PAT not set; skipping Marketplace publish."
-            exit 0
-          fi
           shopt -s nullglob
           FILES=( *.vsix )
           if [ ${#FILES[@]} -eq 0 ]; then
@@ -392,13 +397,13 @@ jobs:
             if [ "${PRE_RELEASE}" = "true" ]; then
               echo "Publishing pre-release ${VERSION} from ${FILE}"
               set +e
-              OUTPUT=$(pnpm exec vsce publish --packagePath "${FILE}" --pre-release 2>&1)
+              OUTPUT=$(pnpm exec vsce publish --azure-credential --packagePath "${FILE}" --pre-release 2>&1)
               STATUS=$?
               set -e
             else
               echo "Publishing stable ${VERSION} from ${FILE}"
               set +e
-              OUTPUT=$(pnpm exec vsce publish --packagePath "${FILE}" 2>&1)
+              OUTPUT=$(pnpm exec vsce publish --azure-credential --packagePath "${FILE}" 2>&1)
               STATUS=$?
               set -e
             fi

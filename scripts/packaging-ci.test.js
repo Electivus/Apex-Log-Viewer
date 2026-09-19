@@ -216,7 +216,7 @@ for (const [workflowPath, jobName] of [
 
     assert.match(
       publishJob,
-      /OUTPUT=\$\(pnpm exec vsce publish --packagePath "\$\{FILE\}"(?: --pre-release)? 2>&1\)/,
+      /OUTPUT=\$\(pnpm exec vsce publish --azure-credential --packagePath "\$\{FILE\}"(?: --pre-release)? 2>&1\)/,
       'expected Marketplace publish output to be captured for duplicate-version handling'
     );
     assert.match(

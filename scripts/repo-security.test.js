@@ -974,7 +974,7 @@ test('release workflows default to read-only token permissions', () => {
   assert.deepEqual(release.jobs.package.permissions, { contents: 'read' });
   assert.equal(release.jobs.package.permissions.actions, undefined);
   assert.deepEqual(release.jobs.prepare_publish.permissions, { contents: 'write' });
-  assert.equal(release.jobs.publish_marketplace.permissions, undefined);
+  assert.deepEqual(release.jobs.publish_marketplace.permissions, { contents: 'read', 'id-token': 'write' });
   assert.equal(release.jobs.publish_open_vsx.permissions, undefined);
 
   const prerelease = yaml.parse(read('.github/workflows/prerelease.yml'));
@@ -982,7 +982,8 @@ test('release workflows default to read-only token permissions', () => {
   assert.equal(prerelease.jobs.package_vsix.permissions, undefined);
   assert.deepEqual(prerelease.jobs.assemble_release.permissions, { contents: 'write' });
   assert.deepEqual(prerelease.jobs.rollback_prerelease.permissions, { contents: 'write' });
-  assert.equal(prerelease.jobs.publish_marketplace.permissions, undefined);
+  assert.deepEqual(prerelease.jobs.publish_marketplace.permissions, { contents: 'read', 'id-token': 'write' });
+  assert.deepEqual(prerelease.jobs.verify_marketplace.permissions, { contents: 'read', 'id-token': 'write' });
   assert.equal(prerelease.jobs.publish_open_vsx.permissions, undefined);
 
   const sfPluginRelease = yaml.parse(read('.github/workflows/sf-plugin-release.yml'));
@@ -1012,6 +1013,38 @@ test('release workflows default to read-only token permissions', () => {
     intellijRelease.jobs.github_release.steps.some(step => step.uses?.startsWith('actions/checkout@')),
     false
   );
+});
+
+test('Marketplace OIDC access stays confined to protected publishing and verification jobs', () => {
+  for (const [workflowPath, oidcJobs] of [
+    ['.github/workflows/release.yml', ['publish_marketplace']],
+    ['.github/workflows/prerelease.yml', ['verify_marketplace', 'publish_marketplace']]
+  ]) {
+    const source = read(workflowPath);
+    const workflow = yaml.parse(source);
+    assert.doesNotMatch(source, /VSCE_PAT/);
+    assert.deepEqual(
+      Object.entries(workflow.jobs)
+        .filter(([, job]) => job.permissions?.['id-token'] === 'write')
+        .map(([name]) => name),
+      oidcJobs
+    );
+    for (const jobName of oidcJobs) {
+      const job = workflow.jobs[jobName];
+      assert.equal(job.environment, 'marketplace');
+      assert.match(job.if, /github\.repository == 'Electivus\/Apex-Log-Viewer'/);
+      const login = findRequiredStep(job.steps, `${jobName} Azure login`, step =>
+        step.uses?.startsWith('azure/login@')
+      );
+      assert.deepEqual(login.with, {
+        'client-id': '${{ vars.MARKETPLACE_AZURE_CLIENT_ID }}',
+        'tenant-id': '${{ vars.MARKETPLACE_AZURE_TENANT_ID }}',
+        'subscription-id': '${{ vars.MARKETPLACE_AZURE_SUBSCRIPTION_ID }}'
+      });
+      const commands = job.steps.map(step => step.run || '').join('\n');
+      assert.match(commands, /vsce (?:publish|verify-pat electivus) --azure-credential/);
+    }
+  }
 });
 
 test('IntelliJ builds enforce Gradle dependency verification before signing', () => {

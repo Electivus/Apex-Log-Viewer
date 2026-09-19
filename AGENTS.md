@@ -126,7 +126,7 @@ This repo follows the VS Code Marketplace pre-release convention:
    - `git checkout main && git pull --ff-only`
    - `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
 6. **Monitor CI**
-   - Tag push triggers `.github/workflows/release.yml` (packages VSIX + creates GitHub Release; publishes to Marketplace/Open VSX when tokens are configured).
+   - Tag push triggers `.github/workflows/release.yml` (packages VSIX + creates GitHub Release; Marketplace uses Entra ID/GitHub OIDC, Open VSX uses its PAT, and both retain the `marketplace` environment approval).
    - Useful: `gh run list --workflow release.yml --limit 5`
 7. **Local packaging/publishing helpers**
    - Package stable/pre-release VSIX with `pnpm run vsce:package` / `pnpm run vsce:package:pre`.
@@ -135,7 +135,7 @@ This repo follows the VS Code Marketplace pre-release convention:
 
 Salesforce CLI plugin releases are independent: update `packages/sf-plugin/package.json`, merge the release PR, then tag `sf-plugin-vX.Y.Z`. `.github/workflows/sf-plugin-release.yml` validates the tag against the manifest, runs `pnpm run test:sf-plugin`, `pnpm run build:sf-plugin`, and `pnpm run stage:sf-plugin-npm`, publishes the staged package to npm through Trusted Publishing/OIDC, and creates the GitHub release.
 
-Nightly pre-releases are managed by `.github/workflows/prerelease.yml`, which packages and publishes the odd-minor pre-release channel when publishing secrets are configured.
+Nightly pre-releases are managed by `.github/workflows/prerelease.yml`, which packages and publishes the odd-minor pre-release channel. Marketplace uses a dedicated federated managed identity; see `docs/MARKETPLACE_OIDC.md`. The manual `verify_marketplace_only` mode checks authentication and publisher access without publishing.
 
 See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 

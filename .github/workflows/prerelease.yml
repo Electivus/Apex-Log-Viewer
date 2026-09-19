@@ -9,6 +9,11 @@ on:
         description: 'Optional label for the nightly tag/title (defaults to date)'
         required: false
         type: string
+      verify_marketplace_only:
+        description: 'Verify Marketplace OIDC and publisher access without building or publishing'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: prerelease-${{ github.ref }}
@@ -20,6 +25,7 @@ permissions:
 jobs:
   check_changes:
     name: Check for changes since last pre-release
+    if: ${{ !inputs.verify_marketplace_only }}
     runs-on: ubuntu-latest
     outputs:
       has_changes: ${{ steps.check.outputs.has_changes }}
@@ -324,6 +330,50 @@ jobs:
             gh release upload "$TAG" "$FILE" --clobber
           done
 
+  verify_marketplace:
+    name: Verify Marketplace identity (no publishing)
+    if: github.repository == 'Electivus/Apex-Log-Viewer' && inputs.verify_marketplace_only
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: marketplace
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
+      - name: Install publishing dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Azure login for Marketplace publishing
+        uses: azure/login@93381592711f247e165c389ebb30b596c84cdc48
+        with:
+          client-id: ${{ vars.MARKETPLACE_AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.MARKETPLACE_AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.MARKETPLACE_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Read Marketplace identity ID for publisher membership
+        run: >-
+          az rest
+          --url https://app.vssps.visualstudio.com/_apis/profile/profiles/me
+          --resource 499b84ac-1321-427f-aa17-267ca6975798
+          --query '{id:id,displayName:displayName}' --output json
+
+      - name: Verify publisher access with Microsoft Entra ID
+        run: pnpm exec vsce verify-pat electivus --azure-credential
+
   publish_marketplace:
     name: Publish to VS Code Marketplace (pre-release channel)
     needs: [assemble_release, prepare, check_changes]
@@ -331,6 +381,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: marketplace
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -355,15 +408,17 @@ jobs:
           name: nightly-vsix
           path: .
 
+      - name: Azure login for Marketplace publishing
+        uses: azure/login@93381592711f247e165c389ebb30b596c84cdc48
+        with:
+          client-id: ${{ vars.MARKETPLACE_AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.MARKETPLACE_AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.MARKETPLACE_AZURE_SUBSCRIPTION_ID }}
+
       - name: Publish pre-release to Marketplace from VSIX
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${VSCE_PAT}" ]; then
-            echo "VSCE_PAT not set; skipping publish." && exit 0
-          fi
           shopt -s nullglob
           FILES=( *.vsix )
           if [ ${#FILES[@]} -eq 0 ]; then
@@ -373,7 +428,7 @@ jobs:
           for FILE in "${FILES[@]}"; do
             echo "Publishing ${FILE}"
             set +e
-            OUTPUT=$(pnpm exec vsce publish --packagePath "${FILE}" --pre-release 2>&1)
+            OUTPUT=$(pnpm exec vsce publish --azure-credential --packagePath "${FILE}" --pre-release 2>&1)
             STATUS=$?
             set -e
             echo "$OUTPUT"
