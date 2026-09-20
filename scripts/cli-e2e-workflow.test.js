@@ -47,7 +47,7 @@ function workflowCredentialEnv(job, step, secrets) {
 
 test('each real-org workflow gate validates complete JWT and rejects partial or placeholder secrets', () => {
   const workflow = readWorkflow();
-  for (const jobName of ['playwright_e2e', 'intellij_native_real_org_linux', 'playwright_e2e_os_matrix']) {
+  for (const jobName of ['playwright_e2e', 'playwright_e2e_os_matrix']) {
     const job = getWorkflowJob(workflow, jobName);
     const gate = getWorkflowStep(workflow, 'Require scratch-org pool configuration', jobName).step;
     const [command, ...args] = String(gate.run).trim().split(/\s+/);
@@ -71,9 +71,7 @@ test('each real-org workflow gate validates complete JWT and rejects partial or 
     assert.equal(result.status, 1);
     assert.match(result.stderr, /SF_SCRATCH_POOL_NAME/);
 
-    const consumers = job.steps.filter(step =>
-      /Run (CLI real-org E2E|Playwright E2E|native Kotlin real-org validation)$/.test(step.name)
-    );
+    const consumers = job.steps.filter(step => /Run (CLI real-org E2E|Playwright E2E)$/.test(step.name));
     assert.ok(consumers.length);
     for (const step of consumers) {
       const env = workflowCredentialEnv(job, step, jwtSecrets);
@@ -150,7 +148,7 @@ test('direct CI selects the generic keychain only for macOS and propagates it to
     const env = { SF_USE_GENERIC_UNIX_KEYCHAIN: os === 'macOS' ? 'true' : '' };
     assert.equal(salesforceChildEnv(env).SF_USE_GENERIC_UNIX_KEYCHAIN, env.SF_USE_GENERIC_UNIX_KEYCHAIN);
   }
-  for (const name of ['playwright_e2e', 'intellij_native_real_org_linux', 'playwright_e2e_telemetry']) {
+  for (const name of ['playwright_e2e', 'playwright_e2e_telemetry']) {
     assert.equal(getWorkflowJob(workflow, name).env.SF_USE_GENERIC_UNIX_KEYCHAIN, undefined);
   }
 });
@@ -191,7 +189,6 @@ test('real-org Playwright workflow exposes a stable required PR gate', () => {
   assert.deepEqual(job.needs, [
     'classify_e2e',
     'playwright_e2e',
-    'intellij_native_real_org_linux',
     'playwright_e2e_os_matrix',
     'playwright_e2e_telemetry'
   ]);
@@ -200,17 +197,73 @@ test('real-org Playwright workflow exposes a stable required PR gate', () => {
   assert.equal(step.env?.CLASSIFIER_RESULT, '${{ needs.classify_e2e.result }}');
   assert.equal(step.env?.RUN_E2E, '${{ needs.classify_e2e.outputs.run_e2e }}');
   assert.equal(step.env?.UBUNTU_RESULT, '${{ needs.playwright_e2e.result }}');
-  assert.equal(step.env?.INTELLIJ_LINUX_RESULT, '${{ needs.intellij_native_real_org_linux.result }}');
   assert.equal(step.env?.DIRECT_RESULT, '${{ needs.playwright_e2e_os_matrix.result }}');
   assert.equal(step.env?.TELEMETRY_RESULT, '${{ needs.playwright_e2e_telemetry.result }}');
   assert.match(String(step.run || ''), /UBUNTU_RESULT.*success/s);
-  assert.match(String(step.run || ''), /INTELLIJ_LINUX_RESULT.*success/s);
   assert.match(String(step.run || ''), /DIRECT_RESULT.*success/s);
   assert.match(String(step.run || ''), /TELEMETRY_RESULT.*(?:success|skipped)/s);
   assert.match(String(step.run || ''), /No product\/runtime\/E2E changes detected/);
   assert.match(String(step.run || ''), /CLASSIFIER_RESULT.*success/s);
   assert.match(String(step.run || ''), /invalid result/);
 });
+
+// The gate runs on Ubuntu; Windows Node suites do not require a local Bash installation.
+test(
+  'required real-org gate executes success, failure, and documentation-only decisions',
+  { skip: process.platform === 'win32' },
+  () => {
+    const { step } = getRequiredWorkflowStep(readWorkflow(), 'Require successful Real Org E2E lanes');
+    const success = {
+      CLASSIFIER_RESULT: 'success',
+      RUN_E2E: 'true',
+      UBUNTU_RESULT: 'success',
+      DIRECT_RESULT: 'success',
+      TELEMETRY_RESULT: 'success'
+    };
+    const skipped = {
+      ...success,
+      RUN_E2E: 'false',
+      UBUNTU_RESULT: 'skipped',
+      DIRECT_RESULT: 'skipped',
+      TELEMETRY_RESULT: 'skipped'
+    };
+    const cases = [
+      { name: 'all required lanes succeed', env: success, expected: 0 },
+      { name: 'optional telemetry skips', env: { ...success, TELEMETRY_RESULT: 'skipped' }, expected: 0 },
+      { name: 'documentation-only lanes all skip', env: skipped, expected: 0 },
+      {
+        name: 'failed classifier cannot approve a skip',
+        env: { ...skipped, CLASSIFIER_RESULT: 'failure' },
+        expected: 1
+      },
+      { name: 'invalid classification fails closed', env: { ...success, RUN_E2E: '' }, expected: 1 }
+    ];
+    for (const key of ['UBUNTU_RESULT', 'DIRECT_RESULT', 'TELEMETRY_RESULT']) {
+      for (const result of ['failure', 'cancelled', 'skipped']) {
+        if (key === 'TELEMETRY_RESULT' && result === 'skipped') continue;
+        cases.push({
+          name: `${key}=${result} blocks product changes`,
+          env: { ...success, [key]: result },
+          expected: 1
+        });
+      }
+      cases.push({
+        name: `${key} must skip for documentation-only changes`,
+        env: { ...skipped, [key]: 'failure' },
+        expected: 1
+      });
+    }
+    for (const scenario of cases) {
+      const result = spawnSync('bash', ['--noprofile', '--norc', '-c', step.run], {
+        env: { ...process.env, ...scenario.env },
+        encoding: 'utf8',
+        timeout: 10_000
+      });
+      assert.ifError(result.error);
+      assert.equal(result.status, scenario.expected, `${scenario.name}\n${result.stdout}\n${result.stderr}`);
+    }
+  }
+);
 
 test('real-org workflow classifies risky changes and preserves a successful safe-skip gate', () => {
   const workflow = readWorkflow();
@@ -220,7 +273,7 @@ test('real-org workflow classifies risky changes and preserves a successful safe
   assert.equal(classifier.outputs.run_e2e, '${{ steps.changes.outputs.run_e2e }}');
   assert.match(String(classificationStep?.run || ''), /workflow_dispatch/);
   assert.match(String(classificationStep?.run || ''), /scripts\/classify-real-org-e2e\.js/);
-  for (const jobName of ['playwright_e2e', 'intellij_native_real_org_linux', 'playwright_e2e_os_matrix']) {
+  for (const jobName of ['playwright_e2e', 'playwright_e2e_os_matrix']) {
     const job = getWorkflowJob(workflow, jobName);
     assert.equal(job.needs, 'classify_e2e');
     assert.equal(job.if, "${{ needs.classify_e2e.outputs.run_e2e == 'true' }}");
@@ -522,9 +575,6 @@ test('direct real-org Playwright workflow uploads OS-specific artifacts and keep
     "${{ github.event.inputs.scratch_duration_days || vars.SF_SCRATCH_DURATION || '1' }}"
   );
   assert.equal(job.env?.SF_TEST_KEEP_ORG, "${{ vars.SF_TEST_KEEP_ORG || '1' }}");
-  const cliStep = getDirectWorkflowStep(workflow, 'Run CLI real-org E2E').step;
-  assert.match(String(cliStep.env?.ALV_INTELLIJ_REAL_ORG_E2E), /runner\.os == 'Windows'/);
-  assert.match(String(cliStep.env?.ALV_INTELLIJ_REAL_ORG_E2E), /workflow_dispatch/);
   assert.equal(uploadCliStep.step.with?.name, 'playwright-cli-e2e-${{ matrix.os.artifact_suffix }}');
   assert.equal(uploadCliStep.step.with?.path, 'output/playwright-cli/');
   assert.equal(uploadExtensionStep.step.with?.name, 'playwright-e2e-${{ matrix.os.artifact_suffix }}');

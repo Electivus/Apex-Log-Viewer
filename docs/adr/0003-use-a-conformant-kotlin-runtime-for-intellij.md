@@ -1,6 +1,8 @@
 # Use a conformant Kotlin runtime for IntelliJ
 
-Status: accepted
+Status: retired (2026-09-20)
+
+The IntelliJ product initiative has been discontinued. Its implementation, build tooling, tests, and release automation have been removed. The TypeScript behavioral corpus remains as core regression coverage for VS Code and the Salesforce CLI. The decision below is historical and no longer prescribes the current architecture; see [Architecture](../ARCHITECTURE.md).
 
 The IntelliJ plugin will implement Salesforce and Apex Log Lifecycle behavior in a JVM-native Kotlin runtime instead of executing `@alv/core` through a Node sidecar or depending on `sf electivus`. This runtime is an intentional IntelliJ-only implementation: the VS Code extension and Salesforce CLI plugin remain adapters over the TypeScript `@alv/core`. Language-neutral fixtures and conformance contracts must cover the shared invariants and DTO semantics so behavior drift between the Kotlin and TypeScript runtimes is detected rather than silently accepted.
 

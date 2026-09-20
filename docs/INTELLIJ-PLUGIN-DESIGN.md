@@ -1,6 +1,8 @@
 # IntelliJ Plugin design
 
-Status: accepted
+Status: retired (2026-09-20)
+
+The IntelliJ product initiative has been discontinued and its implementation and automation removed. This document preserves the historical design only; its commands, release requirements, and compatibility claims no longer apply. Current product surfaces are the VS Code extension and Salesforce CLI plugin; see [Architecture](ARCHITECTURE.md).
 
 ## Outcome
 

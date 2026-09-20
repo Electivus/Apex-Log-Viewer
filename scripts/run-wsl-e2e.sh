@@ -33,7 +33,6 @@ export ALV_SF_BIN_PATH
 export SF_CLI_BIN_PATH="$ALV_SF_BIN_PATH"
 PATH="$(dirname -- "$ALV_SF_BIN_PATH"):$PATH"
 export PATH
-export JAVA_HOME="${JAVA_HOME_21_X64:-${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk}}"
 export PLAYWRIGHT_WORKERS="${PLAYWRIGHT_WORKERS:-1}"
 # Never attach test automation to the operator's browser or Electron process.
 unset PLAYWRIGHT_MCP_CDP_ENDPOINT ELECTRON_RUN_AS_NODE
@@ -44,12 +43,12 @@ case "$suite" in
 verify)
   exec node scripts/devhub-local.js verify "$@"
   ;;
-cli | ui | intellij | telemetry | run)
+cli | ui | telemetry | run)
   : "${SF_SCRATCH_POOL_NAME:?Configure SF_SCRATCH_POOL_NAME in the local e2e.sh file.}"
   export SF_SCRATCH_STRATEGY=pool
   ;;
 *)
-  echo 'Usage: bash scripts/run-wsl-e2e.sh {verify|cli|ui|intellij|telemetry} [Playwright arguments] | run -- <command> [args]' >&2
+  echo 'Usage: bash scripts/run-wsl-e2e.sh {verify|cli|ui|telemetry} [Playwright arguments] | run -- <command> [args]' >&2
   exit 2
   ;;
 esac
@@ -65,10 +64,6 @@ run)
   ;;
 cli)
   exec node scripts/devhub-local.js run -- corepack pnpm run test:e2e:cli "$@"
-  ;;
-intellij)
-  export ALV_INTELLIJ_REAL_ORG_E2E=1
-  exec node scripts/devhub-local.js run -- corepack pnpm run test:e2e:cli test/e2e/cli/specs/intellijNative.e2e.spec.ts "$@"
   ;;
 ui | telemetry)
   command -v xvfb-run >/dev/null

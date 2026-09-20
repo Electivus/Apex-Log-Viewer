@@ -14,12 +14,12 @@ test('real-org E2E classifier fails closed for empty or behavior-bearing changes
     'playwright.config.ts',
     'playwright.cli.config.ts',
     'docker-compose.e2e-proxy.yml',
-    'apps/intellij-plugin/build.gradle.kts',
+    'apps/vscode-extension/package.json',
     'packages/core/src/runtime.ts',
     'scripts/run-playwright-cli-e2e.js'
   ]) {
     assert.equal(shouldRunRealOrgE2E([changedPath]), true, changedPath);
   }
   assert.equal(shouldRunRealOrgE2E([]), true);
-  assert.equal(shouldRunRealOrgE2E(['docs/CI.md', 'apps/intellij-plugin/build.gradle.kts']), true);
+  assert.equal(shouldRunRealOrgE2E(['docs/CI.md', 'apps/vscode-extension/package.json']), true);
 });
