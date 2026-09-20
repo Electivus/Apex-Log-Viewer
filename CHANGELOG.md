@@ -11,9 +11,11 @@
 ### Breaking Changes
 
 - Dev Hub: require JWT for local real-org validation and pool commands; load durable private operator inputs with `devhub-local.js` and recover lost material through an audited plan for the same identity.
-- Agent Skill/Salesforce CLI: remove `sf electivus skill install` and stop bundling the Agent Skill in `@electivus/plugin-electivus`; install `apex-log-viewer-cli` with `npx skills add Electivus/Apex-Log-Viewer --skill apex-log-viewer-cli`, verify the portable installation, and only then manually remove a legacy agent-home copy.
+- Agent Skill/Salesforce CLI: `sf electivus skill install` now selects agents interactively and defaults to project scope; non-interactive calls require an explicit destination and JSON results contain an `installations` array. The explicit legacy `--codex-home` flag remains supported.
 
 ### Features
+
+- Salesforce CLI/Agent Skill: bundle the portable catalog in npm and install it locally without GitHub access, with Claude Code, Codex, GitHub Copilot and Devin presets, custom destinations, dry-run, idempotence and recoverable force replacement. Repository-based `skills` CLI installation remains available.
 
 - Dev Hub: add explicit certificate rotation with private recovery copies, fresh JWT verification, ordered Actions and Dependabot Secret replacement, and resumable forward/rollback recovery across partial deliveries without changing runtime grants.
 - IntelliJ: add the native Logs surface with CLI-default-aware org selection, stable keyset pagination, explicit full-catalog download, progressive Unified Log Search, persisted native settings, and English/Brazilian Portuguese bundles; Debug Flags are intentionally outside the first-release scope.

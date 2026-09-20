@@ -122,7 +122,7 @@ test(
       const installedSkill = await fs.readFile(path.join(installedRoot, 'SKILL.md'), 'utf8');
       await fs.access(path.join(installedRoot, 'agents', 'openai.yaml'));
       assert.match(installedSkill, /^---\r?\nname: apex-log-viewer-cli\r?\n/);
-      assert.doesNotMatch(installedSkill, /Trigger when Codex\b|command -v sf|sf electivus skill install/);
+      assert.doesNotMatch(installedSkill, /Trigger when Codex\b|command -v sf/);
 
       const lock = JSON.parse(await fs.readFile(path.join(projectRoot, 'skills-lock.json'), 'utf8'));
       assert.deepEqual(Object.keys(lock.skills), ['apex-log-viewer-cli']);
@@ -166,6 +166,6 @@ test('active documentation describes the standard portable install and verify-fi
   assert.doesNotMatch(skill, /sf plugins update @electivus\/plugin-electivus/);
 
   const activeGuidance = [readme, guide, architecture, agents, skill].join('\n');
-  assert.doesNotMatch(activeGuidance, /sf electivus skill install/);
+  assert.match(activeGuidance, /sf electivus skill install/);
   assert.doesNotMatch(activeGuidance, /Codex skill/i);
 });

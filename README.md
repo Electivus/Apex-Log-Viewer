@@ -77,7 +77,18 @@ The standalone plugin runs on Node.js 22.19+; extension users get the compatible
 
 ## Apex Log Viewer Agent Skill
 
-Preview the repository's portable Agent Skill without installing it:
+For corporate environments that permit npm but block GitHub, install the bundled skill locally:
+
+```bash
+sf plugins install @electivus/plugin-electivus
+sf electivus skill install
+# Non-interactive installation into the current project:
+sf electivus skill install --agent codex --json
+```
+
+The installer asks which agents to target, defaults to project scope, and supports Claude Code, Codex, GitHub Copilot, Devin, or `--skills-dir` for another client. It reads only files shipped in the plugin. Use `--global` for a user-wide installation, `--dry-run` to preview, and `--force` to replace different content.
+
+Alternatively, preview the repository's portable Agent Skill without installing it:
 
 ```bash
 npx skills add Electivus/Apex-Log-Viewer --list
@@ -91,7 +102,7 @@ npx skills add Electivus/Apex-Log-Viewer --skill apex-log-viewer-cli
 
 Project scope is the default. Review and commit the generated `skills-lock.json` so the team records the source, selected skill, and content hash. The same Agent Skills-compatible package works with Claude Code, Codex, GitHub Copilot, Devin, and other clients that implement the shared format; the repository smoke test exercises the four named agents with the pinned real installer.
 
-See [Agent Skill installation and migration](docs/AGENT-SKILL.md) for global installation, updates, lockfile restoration, and verify-first cleanup of copies created by the former plugin installer.
+See [Agent Skill installation and migration](docs/AGENT-SKILL.md) for offline installation, updates for each distribution channel, global installation, lockfile restoration, and verify-first migration.
 
 ## Usage
 

@@ -23,7 +23,7 @@ test/conformance/         Versioned language-neutral runtime scenarios and schem
 - `apps/vscode-extension` imports the core directly. esbuild includes it in `dist/extension.js`; no plugin, command parser, runner, or child process is shipped in the VSIX.
 - `packages/sf-plugin` contains class-per-command `SfCommand` adapters. It depends on the core through `workspace:*`, and the npm staging step materializes `@alv/core` as a bundled private dependency.
 - `packages/webview` imports only `@alv/protocol` for its host contract.
-- `skills/apex-log-viewer-cli` is the canonical Apex Log Viewer Agent Skill source. It depends on the public `sf electivus` contract at use time but is not bundled into, installed by, or lifecycle-coupled to the Salesforce CLI plugin.
+- `skills/apex-log-viewer-cli` is the canonical Apex Log Viewer Agent Skill source. It depends on the public `sf electivus` contract at use time and is also copied into the npm plugin for explicit offline installation.
 - `apps/intellij-plugin` is a self-contained Java 21 Kotlin implementation. It does not execute the TypeScript core, use a Node sidecar, or depend on `sf electivus`; its public runtime facade conforms through the shared versioned corpus under `test/conformance/`.
 
 The adapters under `apps/vscode-extension/src/shared/` only re-export protocol modules while extension-local telemetry and diagnostics remain in the app.
@@ -64,13 +64,13 @@ sf electivus debug-level list --target-org my-org
 sf electivus tooling query --soql "SELECT Id FROM ApexLog" --target-org my-org
 ```
 
-Every route has its own `SfCommand` class and declarative flags. Destructive commands retain `--dry-run` and `--yes`. The plugin owns Salesforce and local-log operations only; Agent Skill distribution belongs to the external `skills` CLI.
+Every route has its own `SfCommand` class and declarative flags. Destructive commands retain `--dry-run` and `--yes`. The plugin also owns `sf electivus skill install`, a local-only adapter that copies its bundled Agent Skill without accessing Salesforce or the network.
 
 ## Agent Skill distribution
 
-The top-level `skills/` catalog is vendor-neutral and follows the common Agent Skills format. Project-scoped installation through `npx skills add Electivus/Apex-Log-Viewer --skill apex-log-viewer-cli` is the primary route, with `skills-lock.json` as the consumer-side reproducibility contract. Agent selection, canonical-copy/link behavior, update, removal, and platform fallback all remain owned by the `skills` CLI.
+The top-level `skills/` catalog is vendor-neutral and follows the common Agent Skills format. Project-scoped installation through `npx skills add Electivus/Apex-Log-Viewer --skill apex-log-viewer-cli` is the primary route, with `skills-lock.json` as the consumer-side reproducibility contract. For repository installations, agent selection, canonical-copy/link behavior, update, removal, and platform fallback remain owned by the `skills` CLI. The alternative npm channel ships the same canonical catalog and installs physical copies through `sf electivus skill install`, with project scope by default, explicit global/custom destinations, interactive selection, and force-gated replacement. It does not modify `skills-lock.json`.
 
-The Agent Skill and `@electivus/plugin-electivus` release independently. Operational workflows therefore begin with `sf electivus doctor --json`, use `runtimeVersion` as an initial compatibility signal, and verify command availability before execution. Optional agent metadata may improve presentation but cannot alter core behavior.
+Repository-based Agent Skills and `@electivus/plugin-electivus` can update independently; bundled skill snapshots follow the plugin release and require explicit reinstallation to update an agent copy. Operational workflows therefore begin with `sf electivus doctor --json`, use `runtimeVersion` as an initial compatibility signal, and verify command availability before execution. Optional agent metadata may improve presentation but cannot alter core behavior.
 
 ## Local log storage
 
@@ -95,7 +95,7 @@ The lifecycle receives an explicit absolute workspace root and treats the resolv
 - `pnpm run build:sf-plugin` builds class-per-command CLI output and its oclif manifest.
 - VSIX packaging uses `--no-dependencies` because runtime code is bundled and the ripgrep native package is staged explicitly.
 - Plugin npm staging copies `@alv/core` into `node_modules/@alv/core` and marks it as a bundled dependency.
-- Plugin npm staging does not copy or declare Agent Skill artifacts.
+- The plugin build refreshes its generated `skills/` copy from the canonical catalog; npm staging includes that declared artifact and the packaged README. The tarball test installs from an extracted package with network/subprocess calls denied.
 
 ## Data flow
 

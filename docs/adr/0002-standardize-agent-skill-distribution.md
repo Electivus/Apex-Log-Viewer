@@ -1,6 +1,6 @@
 # Standardize Agent Skill distribution on the cross-agent skills CLI
 
-Status: accepted
+Status: superseded in part by [0005: bundle Agent Skills for offline installation](0005-bundle-agent-skills-for-offline-installation.md). The canonical portable catalog and repository installer remain supported.
 
 ## Context
 
