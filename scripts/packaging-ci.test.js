@@ -169,8 +169,8 @@ test('sf plugin release workflow publishes matching sf-plugin-v tags through npm
   );
   assert.match(
     validateJob,
-    /ref:\s+\$\{\{\s*inputs\.tag_name && format\('refs\/tags\/\{0\}', inputs\.tag_name\) \|\| github\.ref\s*\}\}/,
-    'expected manual dispatch to checkout the fully qualified tag ref before validation'
+    /ref:\s+\$\{\{\s*github\.sha\s*\}\}/,
+    'expected validation to checkout only the immutable triggering commit'
   );
   assert.match(
     validateJob,
@@ -179,9 +179,12 @@ test('sf plugin release workflow publishes matching sf-plugin-v tags through npm
   );
   assert.match(
     packageJob,
-    /ref:\s+\$\{\{\s*needs\.validate_tag\.outputs\.commit_sha\s*\}\}/,
-    'expected package jobs to use the validated commit SHA instead of an unqualified tag name'
+    /ref:\s+\$\{\{\s*github\.sha\s*\}\}/,
+    'expected package jobs to use the same immutable triggering commit'
   );
+  assert.match(validateJob, /EVENT_REF:\s+\$\{\{ github\.ref \}\}/);
+  assert.match(validateJob, /if \[\[ "\$\{EVENT_REF\}" != "refs\/tags\/\$\{REQUESTED_TAG\}" \]\]/);
+  assert.match(packageJob, /\bpnpm run test:sf-plugin:package\b/);
   assert.match(packageJob, /\bpnpm run test:sf-plugin\b/);
   assert.match(packageJob, /\bpnpm run build:sf-plugin\b/);
   assert.match(packageJob, /\bpnpm run stage:sf-plugin-npm\b/);
