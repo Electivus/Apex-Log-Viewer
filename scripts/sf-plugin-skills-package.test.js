@@ -52,7 +52,8 @@ test(
       );
     assert.ok(packed.files.some(entry => entry.path === 'node_modules/@alv/core/lib/index.js'));
     assert.ok(packed.files.some(entry => entry.path === 'README.md'));
-    run('tar', ['-xzf', path.join(temporary, packed.filename), '-C', temporary]);
+    // GNU tar interprets a Windows drive colon as a remote host; use a local filename.
+    run('tar', ['-xzf', packed.filename], { cwd: temporary });
     const extracted = path.join(temporary, 'package');
     const manifest = JSON.parse(await fs.readFile(path.join(extracted, 'package.json'), 'utf8'));
     assert.equal(manifest.private, undefined);
