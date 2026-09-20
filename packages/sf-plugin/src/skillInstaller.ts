@@ -13,6 +13,7 @@ import {
 type FileSystem = Pick<typeof fs, 'lstat' | 'readdir' | 'readFile' | 'mkdir' | 'mkdtemp' | 'cp' | 'rename' | 'rm'>;
 export type SkillInstallation = SkillTarget & {
   status: 'installed' | 'replaced' | 'unchanged' | 'wouldInstall' | 'wouldReplace';
+  warnings?: string[];
 };
 export type SkillInstallResult = {
   skillName: string;
@@ -83,6 +84,7 @@ async function replaceSkill(source: string, destination: string, root: string, r
   const staged = path.join(temporary, 'new');
   const backup = path.join(temporary, 'previous');
   let safeToClean = true;
+  let failure: Error | undefined;
   try {
     await io.cp(source, staged, { recursive: true, dereference: false });
     const exists = await ordinaryDirectory(destination, io);
@@ -105,9 +107,21 @@ async function replaceSkill(source: string, destination: string, root: string, r
       }
       throw error;
     }
-  } finally {
-    if (safeToClean) await io.rm(temporary, { recursive: true, force: true });
+  } catch (error) {
+    failure = error instanceof Error ? error : new Error(String(error));
   }
+  let warning: string | undefined;
+  if (safeToClean) {
+    try {
+      await io.rm(temporary, { recursive: true, force: true });
+    } catch (error) {
+      const message = `Could not clean temporary skill directory ${temporary}: ${error instanceof Error ? error.message : String(error)}`;
+      if (failure) failure = new AggregateError([failure, error], `${failure.message}. ${message}`);
+      else warning = message;
+    }
+  }
+  if (failure) throw failure;
+  return warning;
 }
 
 export async function installSkill(
@@ -161,13 +175,14 @@ export async function installSkill(
     for (const installation of installations) {
       if (installation.status === 'unchanged') continue;
       try {
-        await replaceSkill(
+        const warning = await replaceSkill(
           source,
           installation.destination,
           destinationRoot(installation, options, environment),
           installation.status === 'wouldReplace',
           io
         );
+        if (warning) installation.warnings = [warning];
       } catch (error) {
         throw new Error(
           `Skill installation failed at ${installation.destination}. Completed destinations: ${completed.join(', ') || 'none'}. ${error instanceof Error ? error.message : String(error)}`,

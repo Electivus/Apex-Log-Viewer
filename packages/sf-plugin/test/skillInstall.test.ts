@@ -200,6 +200,44 @@ test('failed rollback retains a recoverable backup and reports its path', async 
   );
 });
 
+test('cleanup failure reports a committed replacement with a warning and continues other destinations', async t => {
+  const data = await fixture(t);
+  const installed = await installSkill({ agents: ['codex'] }, data);
+  const destination = installed.installations[0]!.destination;
+  await fs.writeFile(path.join(destination, 'old.md'), 'previous content');
+  const result = await installSkill(
+    { agents: ['codex', 'claude-code'], force: true },
+    {
+      ...data,
+      io: {
+        ...fs,
+        rm: async (target, options) => {
+          if (String(target).startsWith(path.join(path.dirname(destination), '.alv-skill-'))) {
+            throw Object.assign(new Error('backup temporarily locked'), { code: 'EBUSY' });
+          }
+          return fs.rm(target, options);
+        }
+      }
+    }
+  );
+  assert.deepEqual(
+    result.installations.map(item => item.status),
+    ['replaced', 'installed']
+  );
+  assert.match(
+    result.installations[0]!.warnings![0]!,
+    /Could not clean temporary skill directory .*backup temporarily locked/
+  );
+  assert.equal(result.installations[1]?.warnings, undefined);
+  await assert.rejects(fs.access(path.join(destination, 'old.md')));
+  for (const item of result.installations) await fs.access(path.join(item.destination, 'SKILL.md'));
+  const backupDirectory = (await fs.readdir(path.dirname(destination))).find(name => name.startsWith('.alv-skill-'))!;
+  assert.equal(
+    await fs.readFile(path.join(path.dirname(destination), backupDirectory, 'previous/old.md'), 'utf8'),
+    'previous content'
+  );
+});
+
 test('symlink or junction destinations are refused even with force', async t => {
   const data = await fixture(t);
   const [target] = resolveSkillTargets({ agents: ['codex'] }, data.environment);
