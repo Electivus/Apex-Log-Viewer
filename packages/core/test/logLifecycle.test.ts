@@ -1185,7 +1185,7 @@ test('Apex Log Lifecycle keeps the previous checkpoint after a partial sync', as
 test('Apex Log Lifecycle merges a concurrent shared sync-state writer without regressing its checkpoint', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-shared-state-'));
   const username = 'core-writer@example.com';
-  const otherUsername = 'intellij-writer@example.com';
+  const otherUsername = 'cli-writer@example.com';
   const coreLogId = '07L000000000038AAA';
   const newerLogId = '07L000000000039AAA';
   let bodyStartedResolve!: () => void;

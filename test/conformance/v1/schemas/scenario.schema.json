@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://electivus.dev/apex-log-viewer/conformance/v1/scenario.schema.json",
-  "title": "Apex Log Viewer dual-runtime conformance scenario v1",
+  "title": "Apex Log Viewer core behavioral contract scenario v1",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "id", "description", "operation", "request", "workspace", "doubles", "expected"],
