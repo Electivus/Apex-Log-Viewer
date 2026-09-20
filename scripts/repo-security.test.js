@@ -995,24 +995,6 @@ test('release workflows default to read-only token permissions', () => {
     'id-token': 'write'
   });
   assert.deepEqual(sfPluginRelease.jobs.github_release.permissions, { contents: 'write' });
-
-  const intellijRelease = yaml.parse(read('.github/workflows/intellij-plugin-release.yml'));
-  assert.deepEqual(intellijRelease.permissions, { contents: 'read' });
-  assert.deepEqual(intellijRelease.jobs.build_sign.permissions, { contents: 'read' });
-  assert.equal(
-    intellijRelease.jobs.build_sign.steps.find(step => step.name === 'Checkout immutable candidate').with[
-      'persist-credentials'
-    ],
-    false
-  );
-  assert.deepEqual(intellijRelease.jobs.github_release.permissions, {
-    actions: 'read',
-    contents: 'write'
-  });
-  assert.equal(
-    intellijRelease.jobs.github_release.steps.some(step => step.uses?.startsWith('actions/checkout@')),
-    false
-  );
 });
 
 test('Marketplace OIDC access stays confined to protected publishing and verification jobs', () => {
@@ -1045,48 +1027,6 @@ test('Marketplace OIDC access stays confined to protected publishing and verific
       assert.match(commands, /vsce (?:publish|verify-pat electivus) --azure-credential/);
     }
   }
-});
-
-test('IntelliJ builds enforce Gradle dependency verification before signing', () => {
-  const metadata = read('apps/intellij-plugin/gradle/verification-metadata.xml');
-  const workflow = yaml.parse(read('.github/workflows/intellij-plugin-release.yml'));
-  const candidateSteps = workflow.jobs.candidate_matrix.steps;
-  const buildSignSteps = workflow.jobs.build_sign.steps;
-  const signingStep = workflow.jobs.build_sign.steps.find(step => step.name === 'Sign plugin and verify signature');
-
-  assert.match(metadata, /<verify-metadata>true<\/verify-metadata>/);
-  assert.match(metadata, /<component group="org\.jetbrains\.intellij\.platform"/);
-  assert.match(metadata, /<component group="org\.jetbrains\.kotlin"/);
-  assert.doesNotMatch(metadata, /<trust group="idea"(?:\s|\/|>)/);
-  for (const version of ['2026.1', '2026.2']) {
-    const artifactNames = [
-      `idea-${version}-aarch64.dmg`,
-      `idea-${version}-aarch64.tar.gz`,
-      `idea-${version}.dmg`,
-      `idea-${version}.tar.gz`,
-      `idea-${version}-win.zip`
-    ];
-    for (const artifactName of artifactNames) {
-      assert.match(
-        metadata,
-        new RegExp(`<artifact name="${artifactName.replaceAll('.', '\\.')}">\\s*<sha256 value="[0-9a-f]{64}"`)
-      );
-    }
-  }
-  for (const steps of [candidateSteps, buildSignSteps]) {
-    const installIndex = steps.findIndex(step => step.name === 'Install dependencies');
-    const signaturesIndex = steps.findIndex(step => step.name === 'Verify npm registry signatures');
-    const buildIndex = steps.findIndex(step => step.name === 'Build and test installable plugin');
-    assert.ok(installIndex >= 0 && signaturesIndex > installIndex && buildIndex > signaturesIndex);
-  }
-  assert.ok(
-    buildSignSteps.findIndex(step => step.name === 'Sign plugin and verify signature') >
-      buildSignSteps.findIndex(step => step.name === 'Verify npm registry signatures')
-  );
-  assert.ok(signingStep);
-  assert.deepEqual(Object.keys(signingStep.env).sort(), ['CERTIFICATE_CHAIN', 'PRIVATE_KEY', 'PRIVATE_KEY_PASSWORD']);
-  assert.match(signingStep.run, /signPlugin verifyPluginSignature/);
-  assert.doesNotMatch(signingStep.run, /verifyPlugin(?:\s|$)/);
 });
 
 test('OpenSSF Scorecard workflow uploads SARIF with pinned actions', () => {
@@ -1128,9 +1068,8 @@ test('Playwright E2E workflow pins the Salesforce CLI release proven for JWT sig
   const directSteps = parsed.jobs.playwright_e2e_os_matrix.steps || [];
   const setupHelperStep = directSteps.find(step => step.name === 'Setup Salesforce CLI');
 
-  assert.equal(helperRuns.length, 3);
+  assert.equal(helperRuns.length, 2);
   assert.equal(parsed.jobs.playwright_e2e.env.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.150.6');
-  assert.equal(parsed.jobs.intellij_native_real_org_linux.env.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.150.6');
   assert.equal(parsed.jobs.playwright_e2e_os_matrix.env.SALESFORCE_CLI_PACKAGE, '@salesforce/cli@2.150.6');
   assert.ok(!Object.hasOwn(parsed.jobs.playwright_e2e_telemetry.env, 'SALESFORCE_CLI_PACKAGE'));
   assert.equal(setupHelperStep.run, 'node scripts/setup-salesforce-cli.mjs');

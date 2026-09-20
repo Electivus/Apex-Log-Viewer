@@ -16,18 +16,17 @@ This project uses three test layers:
 - VS Code integration tests (Mocha running inside the Extension Development Host) for activation, commands, providers, and other `vscode`-bound behavior.
 - Playwright E2E tests against a real org across two surfaces: the `sf electivus` plugin and the VS Code extension.
 
-## Dual-runtime conformance
+## Core behavioral contract
 
-The versioned language-neutral corpus under `test/conformance/` is the public behavioral boundary between the TypeScript core and the native Kotlin IntelliJ runtime. Each JSON scenario declares a public operation, exact JSON DTO or classified failure, real temporary-workspace files before and after execution, and unordered process/HTTP interactions. The runners reject unexpected or unconsumed external calls and normalize only the temporary root and path separators, so semantic drift fails without coupling tests to private class structure or incidental call order.
+The versioned corpus under `test/conformance/` validates the public TypeScript core used by VS Code and the Salesforce CLI. Each JSON scenario declares a public operation, exact JSON DTO or classified failure, real temporary-workspace files before and after execution, and unordered process/HTTP interactions. The runner rejects unexpected or unconsumed external calls and normalizes only the temporary root and path separators, so regressions fail without coupling tests to private class structure or incidental call order.
 
-Run `pnpm run test:conformance` to execute the same v1 scenarios through `createApexLogViewerCore` and `createApexLogViewerRuntime`. The command uses Node from the workspace and resolves Java 21 through the same user/CI environment contract as the IntelliJ packaging tests. It requires neither Salesforce credentials nor a running IDE UI.
+Run `pnpm run test:conformance` to execute the v1 scenarios through `createApexLogViewerCore`. They also run in `test:core`. The command uses Node from the workspace and requires neither Salesforce credentials nor a running IDE UI.
 
 ## Commands
 
 - `pnpm run test:webview`: executes the React webview suites under Jest with a jsdom environment (fast, no VS Code host required).
 - `pnpm run test:extension:node`: executes Node-only extension tests under Mocha without launching VS Code.
-- `pnpm run test:conformance`: executes the shared conformance corpus through both public runtime facades.
-- `pnpm run test:intellij-plugin`: runs Kotlin/IntelliJ tests under Java 21 and validates the installable development ZIP.
+- `pnpm run test:conformance`: executes the core behavioral contract scenarios through its public facade.
 - `pnpm run test:unit`: fast path; runs Jest first and then the VS Code-hosted unit scope.
 - `pnpm run test:integration`: installs dependency extensions if needed and runs integration tests.
 - `pnpm run test:all`: runs the Jest webview suites, the Node-only extension lane, and then both VS Code-hosted scopes.
@@ -201,7 +200,7 @@ To validate against a Salesforce CLI package override, such as the nightly build
 pnpm run test:e2e:proxy-lab:sf-nightly -- pnpm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts
 ```
 
-The standard GitHub Playwright E2E workflow first classifies the changed paths, preserving a successful required summary while safely skipping costly real-org lanes for documentation-only changes. Risk-triggered runs execute one full pass per operating system. Ubuntu stays on this MITM proxy lab for CLI and VS Code and also runs the focused native IntelliJ runtime test directly with Java 21. Windows runs that Kotlin/Tooling test inside the same real-org CLI suite before the VS Code E2E command; manual release-candidate dispatches additionally enable it on macOS. The native test consumes the existing pooled scratch-org fixture and seeded Apex log, so it validates Salesforce CLI discovery, authenticated Tooling queries, body acquisition, canonical persistence, marker recognition, and parsing without a Node sidecar. The jobs reuse dependency, IDE, VS Code, Gradle, and Salesforce CLI caches. When telemetry validation is configured, the Ubuntu extension run emits telemetry under a shared `testRunId`, and a final lightweight Ubuntu job queries Log Analytics after the E2E jobs pass.
+The standard GitHub Playwright E2E workflow first classifies the changed paths, preserving a successful required summary while safely skipping costly real-org lanes for documentation-only changes. Risk-triggered runs execute one full pass per operating system. Ubuntu runs CLI and VS Code tests through the MITM proxy lab; Windows and macOS run both suites directly. The jobs reuse dependency, VS Code, and Salesforce CLI caches. When telemetry validation is configured, the Ubuntu extension run emits telemetry under a shared `testRunId`, and a final lightweight Ubuntu job queries Log Analytics after the E2E jobs pass.
 
 Pool-specific env vars:
 

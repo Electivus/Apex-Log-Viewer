@@ -1,5 +1,7 @@
 # Dependabot triage, 2026-09-16
 
+Historical snapshot: the decisions and validation below describe this triage batch. For current supported products, tooling, and CI, see [Architecture](ARCHITECTURE.md) and [CI](CI.md).
+
 The inventory contained 25 open Dependabot PRs. Review started from `main` at
 `5172cab7f6fe1ca3c6aae94eb8386dc0f575d64a`. Their manifest and workflow changes
 were compared with current main, and compatible changes were assembled on that

@@ -117,17 +117,3 @@ updates:
         applies-to: version-updates
         update-types: ['minor', 'patch']
         patterns: ['*']
-  - package-ecosystem: 'gradle'
-    directory: '/apps/intellij-plugin'
-    schedule:
-      interval: 'weekly'
-      day: 'wednesday'
-      time: '06:00'
-      timezone: 'America/Bahia'
-    open-pull-requests-limit: 3
-    # Review verification-metadata.xml alongside updates; keep checksum checks enabled.
-    groups:
-      intellij-tooling:
-        applies-to: version-updates
-        update-types: ['minor', 'patch']
-        patterns: ['*']

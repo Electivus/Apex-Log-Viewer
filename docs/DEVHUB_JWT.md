@@ -10,13 +10,13 @@ The integrated contract covers direct runners (#1074), pool administration/consu
 
 The JavaScript runner (`scripts/run-tests.js`), TypeScript E2E runner (`ensureScratchOrg`) and administrative commands (`scripts/scratch-pool-admin.js`) use `scripts/devhub-auth.js` through their existing Salesforce CLI adapters.
 
-| Variable                     | Meaning                                                                        |
-| ---------------------------- | ------------------------------------------------------------------------------ |
-| `SF_DEVHUB_CLIENT_ID`        | ECA consumer key                                                               |
-| `SF_DEVHUB_USERNAME`         | Explicit Salesforce username to authenticate                                   |
-| `SF_DEVHUB_LOGIN_URL`        | HTTPS login origin, such as `https://login.salesforce.com`                     |
-| `SF_DEVHUB_PRIVATE_KEY_FILE` | Path to a readable, unencrypted RSA PEM private key, at least 2048 bits        |
-| `SF_DEVHUB_PRIVATE_KEY`      | Alternative inline PEM; supply exactly one of the two key inputs               |
+| Variable                     | Meaning                                                                 |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| `SF_DEVHUB_CLIENT_ID`        | ECA consumer key                                                        |
+| `SF_DEVHUB_USERNAME`         | Explicit Salesforce username to authenticate                            |
+| `SF_DEVHUB_LOGIN_URL`        | HTTPS login origin, such as `https://login.salesforce.com`              |
+| `SF_DEVHUB_PRIVATE_KEY_FILE` | Path to a readable, unencrypted RSA PEM private key, at least 2048 bits |
+| `SF_DEVHUB_PRIVATE_KEY`      | Alternative inline PEM; supply exactly one of the two key inputs        |
 
 Local automated validation and CI both require complete JWT. Missing, partial, malformed or rejected JWT configuration fails before Dev Hub or pool access, even when an explicit alias, cached account or `SF_DEVHUB_AUTH_URL` exists. Neither `SF_DEVHUB_AUTH_URL` nor `SFDX_AUTH_URL` is an authentication fallback.
 
@@ -179,12 +179,11 @@ The first Windows build exposed Linux links written into package-level `node_mod
 
 The independent Standards and Spec reviews both identified the direct-runner command-selection mismatch (ST-001/SP-001): integration/CI entry points, nonempty `SF_SETUP_SCRATCH` values and JWT-only opt-in must preserve the runner's existing semantics. The correction shares `requiresScratchSetup` with that runner, recognizes its published integration commands/scopes, and derives the container decision from mounted JWT inputs. Unit/VSIX commands remain credential-free. The affected follow-up validation passed 69 lab/direct-runner tests (including 35 lab tests), 126 E2E utility tests and `check-types`; the earlier broad gates were not repeated for unchanged behavior.
 
-
 ## Production workflow cutover
 
 The operator approved repository GitHub Actions Secrets and a 365-day certificate on 7 September 2026. The four stored inputs are `SF_DEVHUB_CLIENT_ID`, `SF_DEVHUB_USERNAME`, `SF_DEVHUB_LOGIN_URL` and `SF_DEVHUB_PRIVATE_KEY`; the runtime username is `apex-log-viewer-ci@electivus.com`. Electivus repository maintainers own CI configuration and the Dev Hub administrator owns user/ECA grants and owner-scoped scratch retirement. The certificate expires on 7 September 2027 at 11:34:01 UTC; rotation and interrupted-replacement recovery belong to #1079.
 
-All three real-org jobs validate the actual JWT and pool configuration through `node scripts/check-real-org-config.js`. They pass the same four inputs to the CLI, native Kotlin harness and extension runners. The proxy host copies them into its private operation mount; container preflight and child enforce the same policy. Telemetry preparation/query-only steps need no Salesforce credentials; the emitting extension run receives complete JWT. The main-required E2E, security and quality gates remain enforced.
+Both real-org jobs validate the actual JWT and pool configuration through `node scripts/check-real-org-config.js`. They pass the same four inputs to the CLI and extension runners. The proxy host copies them into its private operation mount; container preflight and child enforce the same policy. Telemetry preparation/query-only steps need no Salesforce credentials; the emitting extension run receives complete JWT. The main-required E2E, security and quality gates remain enforced.
 
 ### Operator verification and retirement
 

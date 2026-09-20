@@ -4,9 +4,10 @@
 
 ### Maintenance
 
-- Refresh IntelliJ Kotlin/Gradle tooling, JSforce, oclif 4, YAML, CSS and TypeScript tooling; verify the updated Kotlin artifacts and align the YAML override with its runtime update.
+- Discontinue the IntelliJ product initiative and remove its plugin, build tooling, CI/E2E lanes, and release workflow; retain useful TypeScript core regression coverage.
+- Refresh JSforce, oclif 4, YAML, CSS and TypeScript tooling; align the YAML override with its runtime update.
 - Refresh Salesforce, React, test, packaging, and CI dependencies; keep Playwright packages aligned and validate Agent Skill distribution against the exact installed CLI release.
-- Reduce Dependabot churn with coordinated dependency families, bounded weekly batches, separate security updates, and IntelliJ Gradle coverage; defer incompatible TypeScript 7 and oclif runtime 5 updates.
+- Reduce Dependabot churn with coordinated dependency families, bounded weekly batches, and separate security updates; defer incompatible TypeScript 7 and oclif runtime 5 updates.
 
 ### Breaking Changes
 
@@ -15,9 +16,7 @@
 ### Features
 
 - Dev Hub: add explicit certificate rotation with private recovery copies, fresh JWT verification, ordered Actions and Dependabot Secret replacement, and resumable forward/rollback recovery across partial deliveries without changing runtime grants.
-- IntelliJ: add the native Logs surface with CLI-default-aware org selection, stable keyset pagination, explicit full-catalog download, progressive Unified Log Search, persisted native settings, and English/Brazilian Portuguese bundles; Debug Flags are intentionally outside the first-release scope.
-- IntelliJ/Viewer: add the native Parsed Log Viewer with Debug, SOQL, DML, and Errors perspectives, in-view search, structured triage, raw-event navigation, selected-row copying, and explicit raw-log opening.
-- IntelliJ/Illuminated Cloud 2: add optional Replay Handoff through the public `IlluminatedCloud.LogAnalyzer.Open` action after dependable local materialization, without a binary dependency on Illuminated Cloud implementation classes.
+- Agent Skill: publish the vendor-neutral source from `skills/apex-log-viewer-cli`, add runtime capability checks and standard update guidance, pin `skills@1.5.21`, and validate project installation for Claude Code, Codex, GitHub Copilot, and Devin.
 
 ### Tests
 
@@ -35,8 +34,7 @@
 - Dev Hub: reject missing or unexpected pool maintenance health before declaring the dedicated-identity proof complete.
 
 - Scratch Org Pool: authenticate maintenance and consumers through the shared Dev Hub JWT policy, preserve PlatformCLI scratch authorization, renew lease calls after expired sessions, and validate an isolated pool with an independent runner.
-- IntelliJ/TypeScript: add a versioned language-neutral conformance corpus that runs through both public runtime facades with real temporary workspaces and strict process/HTTP doubles.
-- IntelliJ: cover native org discovery, stable catalog cursors, progressive body search, atomic concurrent materialization, authentication retry, parsed multiline debug entries, structured triage, retention protection, registered actions/editors, localization, and plugin lifecycle behavior.
+- Core: preserve the versioned behavioral contract corpus with real temporary workspaces and strict process/HTTP doubles for the TypeScript core shared by VS Code and the Salesforce CLI.
 
 ## [SF Plugin 0.3.0](https://github.com/Electivus/Apex-Log-Viewer/compare/sf-plugin-v0.2.1...sf-plugin-v0.3.0) (2026-09-20)
 
