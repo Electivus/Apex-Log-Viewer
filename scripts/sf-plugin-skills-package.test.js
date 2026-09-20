@@ -109,7 +109,10 @@ require('node:module').syncBuiltinESMExports();
     );
     assert.equal(result.status, 0);
     assert.equal(result.result.installations.length, 2);
-    assert.equal(result.result.source, await fs.realpath(path.join(extracted, 'skills/apex-log-viewer-cli')));
+    assert.equal(
+      await fs.realpath(result.result.source),
+      await fs.realpath(path.join(extracted, 'skills/apex-log-viewer-cli'))
+    );
     for (const installation of result.result.installations) {
       assert.equal(installation.status, 'installed');
       await fs.access(path.join(installation.destination, 'agents/openai.yaml'));
