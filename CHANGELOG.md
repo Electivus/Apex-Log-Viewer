@@ -51,7 +51,7 @@ Independent npm release of `@electivus/plugin-electivus`; the VS Code extension 
 
 ### Fixes and Maintenance
 
-- Shared log lifecycle: preserve concurrent writers and newer checkpoints in sync state, coordinate version markers and lock ownership, and reject linked cache/state paths before accessing files outside the workspace. These changes are covered by the shared TypeScript/Kotlin conformance corpus. ([#1062](https://github.com/Electivus/Apex-Log-Viewer/pull/1062))
+- Shared log lifecycle: preserve concurrent writers and newer checkpoints in sync state, coordinate version markers and lock ownership, and reject linked cache/state paths before accessing files outside the workspace. These changes are covered by the TypeScript core conformance corpus. ([#1062](https://github.com/Electivus/Apex-Log-Viewer/pull/1062))
 - Refresh Salesforce, JSforce and oclif 4 runtime dependencies and their locked transitive dependencies. ([#1112](https://github.com/Electivus/Apex-Log-Viewer/pull/1112)) ([#1119](https://github.com/Electivus/Apex-Log-Viewer/pull/1119))
 - Validate offline installation from the npm tarball on Linux, macOS and Windows before release. Manual release dispatch requires the release tag as its workflow ref; publication uses the immutable triggering commit. ([#1121](https://github.com/Electivus/Apex-Log-Viewer/pull/1121))
 
