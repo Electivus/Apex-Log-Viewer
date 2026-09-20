@@ -289,6 +289,18 @@ test('an explicitly selected workspace can use an OS path alias without allowing
   await fs.access(path.join(data.environment.cwd, '.agents/skills', skillName, 'SKILL.md'));
 });
 
+test('Devin rejects a redirected directory below an external XDG_CONFIG_HOME', async t => {
+  const data = await fixture(t);
+  const config = path.join(data.root, 'external config');
+  const unrelated = path.join(data.root, 'unrelated');
+  await fs.mkdir(config);
+  await fs.mkdir(path.join(unrelated, 'skills'), { recursive: true });
+  await fs.symlink(unrelated, path.join(config, 'devin'), process.platform === 'win32' ? 'junction' : 'dir');
+  data.environment.env = { XDG_CONFIG_HOME: config };
+  await assert.rejects(installSkill({ agents: ['devin'], global: true, force: true }, data), /symlink\/junction/);
+  assert.deepEqual(await fs.readdir(path.join(unrelated, 'skills')), []);
+});
+
 test('detection is local and the menu requires a selection, including when none are detected', async t => {
   const data = await fixture(t);
   assert.deepEqual(await detectSkillAgents(data.environment), []);

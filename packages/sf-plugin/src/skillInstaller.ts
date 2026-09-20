@@ -49,6 +49,13 @@ function insideDirectory(root: string, target: string): boolean {
 function destinationRoot(target: SkillTarget, options: SkillInstallOptions, environment: SkillEnvironment): string {
   if (target.scope === 'project') return path.resolve(environment.cwd, options.workspaceRoot ?? '.');
   if (target.scope === 'global' && insideDirectory(environment.home, target.destination)) return environment.home;
+  if (target.scope === 'global' && target.agents.includes('devin')) {
+    // XDG_CONFIG_HOME is explicit; the appended devin directory is not.
+    return path.resolve(
+      environment.cwd,
+      environment.env.XDG_CONFIG_HOME?.trim() || path.join(environment.home, '.config')
+    );
+  }
   // Outside the profile, the caller explicitly selected the custom/configuration root.
   return path.dirname(path.dirname(target.destination));
 }
