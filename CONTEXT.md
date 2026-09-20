@@ -9,7 +9,7 @@ The end-to-end journey of an Apex log body from acquisition or cache discovery t
 _Avoid_: log storage, log download — when referring to the whole lifecycle
 
 **Apex Log Viewer Agent Skill**:
-The portable `apex-log-viewer-cli` instruction package published from the repository's neutral `skills/` catalog and installed through the cross-agent `skills` CLI.
+The portable `apex-log-viewer-cli` instruction package published from the repository's neutral `skills/` catalog and installed through the cross-agent `skills` CLI or the offline Salesforce plugin installer.
 _Avoid_: vendor-specific skill names — when referring to the canonical package
 
 **Parsed Log Viewer**:

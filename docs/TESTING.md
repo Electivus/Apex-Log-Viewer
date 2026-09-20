@@ -4,6 +4,8 @@ For the `devhub-jwt` effort's direct-runner authentication, JWT-only local valid
 
 ## Agent Skill distribution
 
+`pnpm run test:sf-plugin` covers offline installer destinations, selection, replacement, rollback, and filesystem errors. `pnpm run test:sf-plugin:package` builds and stages a real npm tarball, extracts it outside the checkout, reuses frozen external runtime dependencies, and executes its command with network/subprocess calls denied. It verifies supporting files and both explicit and legacy CLI flags. This package test also runs in `test:scripts` and the plugin release workflow.
+
 `node --test scripts/skills-distribution.test.js` exercises the pinned real `skills` CLI against the neutral repository catalog. It verifies discovery, creates a disposable Git remote, installs into isolated project and home roots for Claude Code, Codex, GitHub Copilot, and Devin, compares deterministic lock hashes, checks optional metadata, enforces portable instructions, and validates active installation and migration guidance. The test accepts the installer's supported copy, symlink, or junction behavior by reading through each agent's public project skill path.
 
 The distribution test is part of `pnpm run test:scripts`. Remote GitHub discovery and the skills.sh catalog page remain post-merge checks because the changed source is unavailable on the default branch before merge and catalog ranking follows remote installation telemetry.

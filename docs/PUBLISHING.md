@@ -76,9 +76,9 @@ Quick recipes
 - Prepare a plugin npm release:
   - Bump `packages/sf-plugin/package.json` when the plugin package is published independently.
   - Open and merge a release PR, then push a matching tag such as `sf-plugin-v0.2.0`.
-  - The `.github/workflows/sf-plugin-release.yml` workflow validates that the tag version matches the package manifest, runs `pnpm run test:sf-plugin`, `pnpm run build:sf-plugin`, and `pnpm run stage:sf-plugin-npm`, then publishes the staged package to npm through Trusted Publishing/OIDC.
+  - The `.github/workflows/sf-plugin-release.yml` workflow validates that the tag version matches the package manifest, runs `pnpm run test:sf-plugin`, `pnpm run test:sf-plugin:package`, `pnpm run build:sf-plugin`, and `pnpm run stage:sf-plugin-npm`, then publishes the staged package to npm through Trusted Publishing/OIDC.
   - For an existing tag that predates the workflow, rerun the SF Plugin Release workflow manually with the `tag_name` input.
-  - The staging step removes the plugin's workspace-only `private` marker, copies plugin artifacts, and materializes private `@alv/core` under `node_modules/@alv/core` as a bundled dependency.
+  - The staging step removes the plugin's workspace-only `private` marker, copies plugin artifacts including the portable `skills/` catalog and offline installation README, and materializes private `@alv/core` under `node_modules/@alv/core` as a bundled dependency.
 
 Local packaging/publish
 

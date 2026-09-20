@@ -101,6 +101,9 @@ jobs:
       - name: Test sf plugin
         run: pnpm run test:sf-plugin
 
+      - name: Verify bundled skills in the npm tarball
+        run: pnpm run test:sf-plugin:package
+
       - name: Build sf plugin
         run: pnpm run build:sf-plugin
 

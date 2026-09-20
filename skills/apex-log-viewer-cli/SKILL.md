@@ -133,7 +133,11 @@ Do not use raw Tooling requests to mutate Salesforce state.
 
 ## Update This Skill
 
-Only when the user explicitly asks to update this Agent Skill, use the standard updater from the project that owns its `skills-lock.json`:
+Only update this Agent Skill when the user explicitly requests it. Identify its installation channel first; if unknown, ask instead of guessing.
+
+For a copy installed from the npm plugin, use `sf electivus skill install` with the original `--agent` and scope (or `--skills-dir`), plus `--force`. For example, a project-scoped Codex copy uses `sf electivus skill install --agent codex --force --json`. This copies the installed plugin's bundled version without accessing GitHub. Update the plugin first only if that update is also requested; a plugin update alone does not refresh the agent copy.
+
+For a repository installation, use the standard updater from the project that owns its `skills-lock.json`:
 
 ```text
 npx skills update apex-log-viewer-cli --project -y

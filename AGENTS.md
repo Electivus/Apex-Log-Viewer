@@ -16,7 +16,7 @@
 - `config/` holds scratch-org configuration.
 - `docs/` holds architecture/testing/publishing notes and plan docs.
 - `scripts/` contains build/test helper scripts.
-- `skills/` contains the neutral, portable Agent Skills catalog; `apex-log-viewer-cli` is installed and updated only through the standard `skills` CLI.
+- `skills/` contains the neutral, portable Agent Skills catalog; `apex-log-viewer-cli` can be installed through the standard `skills` CLI or the offline Salesforce plugin installer.
 
 ## Shared Runtime Strategy
 
@@ -29,7 +29,7 @@
 - For log-local workflows, treat the org-first `apexlogs/orgs/<safe-org>/logs/...` layout as the canonical structure while preserving the existing `<safeUser>_<logId>.log` files for backward compatibility; during the transition both layouts may coexist, but avoid introducing additional cache layouts.
 - Treat `apexlogs/.alv/sync-state.json` as the shared incremental-sync contract for both surfaces; preserve backward-readable state fields and avoid breaking extension or CLI consumers when evolving it.
 - When a CLI flag overlaps with familiar Salesforce CLI behavior, prefer the `sf`-style spelling such as `--target-org`.
-- Keep Agent Skill distribution outside the Salesforce CLI plugin. Do not add a plugin command, npm artifact lane, or agent-home filesystem writer for skill installation.
+- Keep the portable `skills/` catalog as the only Agent Skill source. Bundle it in the npm plugin for offline installation through `sf electivus skill install`; keep installation mechanics in the CLI adapter, with explicit agent/destination selection and no network or agent-home writes during npm installation.
 - Treat the IntelliJ plugin as a separate native Kotlin implementation that conforms through language-neutral fixtures; do not execute `@alv/core` through a Node sidecar or depend on `sf electivus`.
 
 ## Build and Development

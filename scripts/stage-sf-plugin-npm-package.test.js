@@ -16,13 +16,13 @@ async function writeFile(filePath, contents) {
   await fs.writeFile(filePath, contents, 'utf8');
 }
 
-test('Salesforce CLI npm packaging has no bundled Agent Skill lane', async () => {
+test('Salesforce CLI npm packaging includes the canonical Agent Skill catalog', async () => {
   const manifest = JSON.parse(
     await fs.readFile(path.join(__dirname, '..', 'packages', 'sf-plugin', 'package.json'), 'utf8')
   );
 
-  assert.equal(manifest.files.includes('/skills'), false);
-  assert.doesNotMatch(manifest.scripts.build, /copy-sf-plugin-skill/);
+  assert.equal(manifest.files.includes('/skills'), true);
+  assert.match(manifest.scripts.build, /copy-sf-plugin-skills/);
 });
 
 test('stageSfPluginPackage writes a publishable manifest and copies declared files', async () => {
