@@ -11,17 +11,13 @@
 ### Breaking Changes
 
 - Dev Hub: require JWT for local real-org validation and pool commands; load durable private operator inputs with `devhub-local.js` and recover lost material through an audited plan for the same identity.
-- Agent Skill/Salesforce CLI: `sf electivus skill install` now selects agents interactively and defaults to project scope; non-interactive calls require an explicit destination and JSON results contain an `installations` array. The explicit legacy `--codex-home` flag remains supported.
 
 ### Features
-
-- Salesforce CLI/Agent Skill: bundle the portable catalog in npm and install it locally without GitHub access, with Claude Code, Codex, GitHub Copilot and Devin presets, custom destinations, dry-run, idempotence and recoverable force replacement. Repository-based `skills` CLI installation remains available.
 
 - Dev Hub: add explicit certificate rotation with private recovery copies, fresh JWT verification, ordered Actions and Dependabot Secret replacement, and resumable forward/rollback recovery across partial deliveries without changing runtime grants.
 - IntelliJ: add the native Logs surface with CLI-default-aware org selection, stable keyset pagination, explicit full-catalog download, progressive Unified Log Search, persisted native settings, and English/Brazilian Portuguese bundles; Debug Flags are intentionally outside the first-release scope.
 - IntelliJ/Viewer: add the native Parsed Log Viewer with Debug, SOQL, DML, and Errors perspectives, in-view search, structured triage, raw-event navigation, selected-row copying, and explicit raw-log opening.
 - IntelliJ/Illuminated Cloud 2: add optional Replay Handoff through the public `IlluminatedCloud.LogAnalyzer.Open` action after dependable local materialization, without a binary dependency on Illuminated Cloud implementation classes.
-- Agent Skill: publish the vendor-neutral source from `skills/apex-log-viewer-cli`, add runtime capability checks and standard update guidance, pin `skills@1.5.21`, and validate project installation for Claude Code, Codex, GitHub Copilot, and Devin.
 
 ### Tests
 
@@ -41,6 +37,25 @@
 - Scratch Org Pool: authenticate maintenance and consumers through the shared Dev Hub JWT policy, preserve PlatformCLI scratch authorization, renew lease calls after expired sessions, and validate an isolated pool with an independent runner.
 - IntelliJ/TypeScript: add a versioned language-neutral conformance corpus that runs through both public runtime facades with real temporary workspaces and strict process/HTTP doubles.
 - IntelliJ: cover native org discovery, stable catalog cursors, progressive body search, atomic concurrent materialization, authentication retry, parsed multiline debug entries, structured triage, retention protection, registered actions/editors, localization, and plugin lifecycle behavior.
+
+## [SF Plugin 0.3.0](https://github.com/Electivus/Apex-Log-Viewer/compare/sf-plugin-v0.2.1...sf-plugin-v0.3.0) (2026-09-20)
+
+Independent npm release of `@electivus/plugin-electivus`; the VS Code extension version is unchanged.
+
+### Breaking Changes
+
+- `sf electivus skill install` now selects agents interactively and defaults to project scope. Non-interactive calls require an explicit destination, and JSON results contain an `installations` array. The explicit legacy `--codex-home` flag remains supported. ([#1121](https://github.com/Electivus/Apex-Log-Viewer/pull/1121))
+
+### Features
+
+- Bundle the portable `apex-log-viewer-cli` catalog and supporting resources in npm for installation without GitHub access. Support Claude Code, Codex, GitHub Copilot and Devin presets, project/global/custom destinations, dry-run, idempotence and recoverable force replacement. ([#1121](https://github.com/Electivus/Apex-Log-Viewer/pull/1121))
+- Keep `skills/apex-log-viewer-cli` as the vendor-neutral source, with runtime capability checks and update guidance. Repository-based installation through the standard `skills` CLI remains supported, and the npm package includes its README. ([#1033](https://github.com/Electivus/Apex-Log-Viewer/pull/1033))
+
+### Fixes and Maintenance
+
+- Shared log lifecycle: preserve concurrent writers and newer checkpoints in sync state, coordinate version markers and lock ownership, and reject linked cache/state paths before accessing files outside the workspace. These changes are covered by the shared TypeScript/Kotlin conformance corpus. ([#1062](https://github.com/Electivus/Apex-Log-Viewer/pull/1062))
+- Refresh Salesforce, JSforce and oclif 4 runtime dependencies and their locked transitive dependencies. ([#1112](https://github.com/Electivus/Apex-Log-Viewer/pull/1112)) ([#1119](https://github.com/Electivus/Apex-Log-Viewer/pull/1119))
+- Validate offline installation from the npm tarball on Linux, macOS and Windows before release. Manual release dispatch requires the release tag as its workflow ref; publication uses the immutable triggering commit. ([#1121](https://github.com/Electivus/Apex-Log-Viewer/pull/1121))
 
 ## [0.54.0](https://github.com/Electivus/Apex-Log-Viewer/compare/v0.52.1...v0.54.0) (2026-07-29)
 
