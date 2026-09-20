@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   resolveSkillTargets,
+  skillEnvironment,
   skillName,
   type SkillEnvironment,
   type SkillInstallOptions,
@@ -39,6 +40,27 @@ async function ordinaryDirectory(target: string, io: FileSystem): Promise<boolea
   return Boolean(stat);
 }
 
+function insideDirectory(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+function destinationRoot(target: SkillTarget, options: SkillInstallOptions, environment: SkillEnvironment): string {
+  if (target.scope === 'project') return path.resolve(environment.cwd, options.workspaceRoot ?? '.');
+  if (target.scope === 'global' && insideDirectory(environment.home, target.destination)) return environment.home;
+  // Outside the profile, the caller explicitly selected the custom/configuration root.
+  return path.dirname(path.dirname(target.destination));
+}
+
+async function validateAncestors(destination: string, root: string, io: FileSystem): Promise<void> {
+  // Trust the explicitly chosen root, including OS aliases such as macOS /var.
+  // Every component below it must be an ordinary directory, never a redirect.
+  for (let directory = path.dirname(destination); directory !== root; directory = path.dirname(directory)) {
+    await ordinaryDirectory(directory, io);
+    if (directory === path.dirname(directory)) throw new Error('Invalid skill destination root.');
+  }
+}
+
 async function readTree(directory: string, io: FileSystem, prefix = ''): Promise<Map<string, Buffer>> {
   await ordinaryDirectory(directory, io);
   const files = new Map<string, Buffer>();
@@ -53,7 +75,8 @@ async function readTree(directory: string, io: FileSystem, prefix = ''): Promise
   return files;
 }
 
-async function replaceSkill(source: string, destination: string, replace: boolean, io: FileSystem) {
+async function replaceSkill(source: string, destination: string, root: string, replace: boolean, io: FileSystem) {
+  await validateAncestors(destination, root, io);
   const parent = path.dirname(destination);
   await io.mkdir(parent, { recursive: true });
   const temporary = await io.mkdtemp(path.join(parent, '.alv-skill-'));
@@ -94,7 +117,8 @@ export async function installSkill(
   const io = dependencies.io ?? fs;
   const packageRoot = dependencies.packageRoot ?? fileURLToPath(new URL('../', import.meta.url));
   const source = path.join(packageRoot, 'skills', skillName);
-  const targets = resolveSkillTargets(options, dependencies.environment);
+  const environment = dependencies.environment ?? skillEnvironment();
+  const targets = resolveSkillTargets(options, environment);
   const manifest = JSON.parse(await io.readFile(path.join(packageRoot, 'package.json'), 'utf8')) as { version: string };
   if (!(await ordinaryDirectory(source, io)))
     throw new Error('Bundled skill is missing; reinstall the plugin from your npm registry.');
@@ -118,7 +142,7 @@ export async function installSkill(
     ) {
       throw new Error('The installation destination must not overlap the bundled skill.');
     }
-    await ordinaryDirectory(path.dirname(target.destination), io);
+    await validateAncestors(target.destination, destinationRoot(target, options, environment), io);
     const exists = await ordinaryDirectory(target.destination, io);
     const previous = exists ? await readTree(target.destination, io) : new Map<string, Buffer>();
     const identical =
@@ -137,7 +161,13 @@ export async function installSkill(
     for (const installation of installations) {
       if (installation.status === 'unchanged') continue;
       try {
-        await replaceSkill(source, installation.destination, installation.status === 'wouldReplace', io);
+        await replaceSkill(
+          source,
+          installation.destination,
+          destinationRoot(installation, options, environment),
+          installation.status === 'wouldReplace',
+          io
+        );
       } catch (error) {
         throw new Error(
           `Skill installation failed at ${installation.destination}. Completed destinations: ${completed.join(', ') || 'none'}. ${error instanceof Error ? error.message : String(error)}`,

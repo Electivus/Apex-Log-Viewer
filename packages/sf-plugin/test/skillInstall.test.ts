@@ -224,6 +224,33 @@ test('bundle overlap, empty destinations and conflicting selectors are rejected'
     assert.throws(() => resolveSkillTargets(options, data.environment));
 });
 
+test('ancestor symlinks cannot redirect a project installation or force replacement outside the workspace', async t => {
+  const data = await fixture(t);
+  const external = path.join(data.root, 'external');
+  const existing = path.join(external, 'skills', skillName);
+  await fs.mkdir(existing, { recursive: true });
+  await fs.writeFile(path.join(existing, 'SKILL.md'), 'external user content');
+  await fs.symlink(
+    external,
+    path.join(data.environment.cwd, '.agents'),
+    process.platform === 'win32' ? 'junction' : 'dir'
+  );
+  for (const dryRun of [false, true]) {
+    await assert.rejects(installSkill({ agents: ['codex'], force: true, dryRun }, data), /symlink\/junction/);
+  }
+  assert.equal(await fs.readFile(path.join(existing, 'SKILL.md'), 'utf8'), 'external user content');
+  assert.deepEqual(await fs.readdir(path.join(external, 'skills')), [skillName]);
+});
+
+test('an explicitly selected workspace can use an OS path alias without allowing redirects below it', async t => {
+  const data = await fixture(t);
+  const alias = path.join(data.root, 'workspace alias');
+  await fs.symlink(data.environment.cwd, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  const result = await installSkill({ agents: ['codex'], workspaceRoot: alias }, data);
+  assert.equal(result.installations[0]?.status, 'installed');
+  await fs.access(path.join(data.environment.cwd, '.agents/skills', skillName, 'SKILL.md'));
+});
+
 test('detection is local and the menu requires a selection, including when none are detected', async t => {
   const data = await fixture(t);
   assert.deepEqual(await detectSkillAgents(data.environment), []);
