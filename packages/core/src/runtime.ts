@@ -1307,9 +1307,17 @@ export function createApexLogViewerCore(
             status: result.status,
             targetOrg: result.resolvedUsername,
             safeTargetOrg: safeTargetOrg(result.resolvedUsername),
+            apexlogsRoot: resolveApexlogsRoot(workspaceRoot),
+            orgLogsRoot: path.join(
+              resolveApexlogsRoot(workspaceRoot),
+              'orgs',
+              safeTargetOrg(result.resolvedUsername),
+              'logs'
+            ),
             downloaded: result.downloaded,
             cached: result.existing + result.materialized,
             failed: result.failures.length,
+            failures: result.failures.map(failure => ({ logId: failure.logId, code: failure.error.code })),
             checkpointAdvanced: result.checkpoint.advanced,
             stateFile: syncStatePath(workspaceRoot),
             lastSyncedLogId: result.checkpoint.lastLogId
@@ -1325,6 +1333,16 @@ export function createApexLogViewerCore(
             safeTargetOrg: safeTargetOrg(targetOrg),
             workspaceRoot,
             apexlogsRoot: resolveApexlogsRoot(workspaceRoot),
+            ...(result.resolvedUsername
+              ? {
+                  orgLogsRoot: path.join(
+                    resolveApexlogsRoot(workspaceRoot),
+                    'orgs',
+                    safeTargetOrg(result.resolvedUsername),
+                    'logs'
+                  )
+                }
+              : {}),
             stateFile: syncStatePath(workspaceRoot),
             logCount: result.localLogCount,
             hasState: result.hasState,
@@ -1333,7 +1351,8 @@ export function createApexLogViewerCore(
             lastSyncedLogId: result.lastSyncedLogId,
             lastSyncedStartTime: result.lastSyncedStartTime,
             downloadedCount: result.lastSync.downloaded,
-            cachedCount: result.lastSync.existing + result.lastSync.materialized
+            cachedCount: result.lastSync.existing + result.lastSync.materialized,
+            failedCount: result.lastSync.failed
           };
         }),
       read: (params: LogsReadParams, callOptions?: CoreCallOptions) =>

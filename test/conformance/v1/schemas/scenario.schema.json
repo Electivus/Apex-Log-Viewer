@@ -141,13 +141,15 @@
             "logCount",
             "hasState",
             "downloadedCount",
-            "cachedCount"
+            "cachedCount",
+            "failedCount"
           ],
           "properties": {
             "targetOrg": { "type": "string", "minLength": 1 },
             "safeTargetOrg": { "type": "string", "minLength": 1 },
             "workspaceRoot": { "type": "string", "minLength": 1 },
             "apexlogsRoot": { "type": "string", "minLength": 1 },
+            "orgLogsRoot": { "type": "string", "minLength": 1 },
             "stateFile": { "type": "string", "minLength": 1 },
             "logCount": { "type": "integer", "minimum": 0 },
             "hasState": { "type": "boolean" },
@@ -156,7 +158,8 @@
             "lastSyncedLogId": { "type": "string", "minLength": 1 },
             "lastSyncedStartTime": { "type": "string", "minLength": 1 },
             "downloadedCount": { "type": "integer", "minimum": 0 },
-            "cachedCount": { "type": "integer", "minimum": 0 }
+            "cachedCount": { "type": "integer", "minimum": 0 },
+            "failedCount": { "type": "integer", "minimum": 0 }
           }
         }
       }

@@ -103,7 +103,9 @@
       "lastSyncedLogId": "07L000000000020AAA",
       "lastSyncedStartTime": "2026-08-04T11:59:00.000Z",
       "downloadedCount": 2,
-      "cachedCount": 4
+      "cachedCount": 4,
+      "failedCount": 0,
+      "orgLogsRoot": "<workspace>/apexlogs/orgs/demo@example.com/logs"
     }
   }
 }
