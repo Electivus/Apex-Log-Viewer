@@ -1,0 +1,6 @@
+interface:
+  display_name: 'Investigate Apex Failures'
+  short_description: 'Find and diagnose failures across synchronized local logs'
+  default_prompt: 'Use $apex-debug-investigate to find the relevant transaction in my local Apex logs, diagnose the failure and verify a correction.'
+policy:
+  allow_implicit_invocation: true

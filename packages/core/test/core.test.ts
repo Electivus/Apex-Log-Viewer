@@ -22,6 +22,74 @@ function unavailableApexLogRemote(): ApexLogRemote {
   };
 }
 
+test('sync exposes searchable paths and payload-free failures, then recovers incrementally', async t => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-corpus '));
+  t.after(() => fs.rm(workspaceRoot, { recursive: true, force: true }));
+  const username = 'demo@example.com';
+  const good = '07L000000000101AAA';
+  const bad = '07L000000000102AAA';
+  const reads: string[] = [];
+  let fail = true;
+  let offline = false;
+  const core = createApexLogViewerCore({
+    apexLogRemote: {
+      async resolveOrg() {
+        assert.equal(offline, false);
+        return { username, alias: 'demo' };
+      },
+      async listLogs() {
+        return [
+          { logId: bad, startTime: '2026-09-21T10:02:00.000Z' },
+          { logId: good, startTime: '2026-09-21T10:01:00.000Z' }
+        ];
+      },
+      async readBody({ logId }) {
+        reads.push(logId);
+        if (fail && logId === bad) throw new Error('private upstream payload');
+        return '12:00:00.0|USER_DEBUG|[1]|DEBUG|ORDER-4821';
+      }
+    }
+  });
+  t.after(() => core.dispose());
+  const partial = await core.log.sync({ targetOrg: 'demo', workspaceRoot });
+  assert.equal(partial.status, 'partial');
+  assert.equal(partial.checkpointAdvanced, false);
+  assert.deepEqual(partial.failures, [{ logId: bad, code: 'remote-acquisition' }]);
+  assert.doesNotMatch(JSON.stringify(partial), /private upstream/);
+  assert.equal(partial.apexlogsRoot, path.join(workspaceRoot, 'apexlogs'));
+  assert.equal(partial.orgLogsRoot, path.join(partial.apexlogsRoot, 'orgs', username, 'logs'));
+  offline = true;
+  const partialStatus = await core.log.status({ targetOrg: 'demo', workspaceRoot });
+  assert.equal(partialStatus.failedCount, 1);
+  assert.equal(partialStatus.orgLogsRoot, partial.orgLogsRoot);
+  assert.equal(partialStatus.logCount, 1);
+  offline = false;
+  fail = false;
+  const recovered = await core.log.sync({ targetOrg: 'demo', workspaceRoot });
+  assert.equal(recovered.status, 'success');
+  assert.deepEqual(recovered.failures, []);
+  assert.equal(recovered.downloaded, 1);
+  assert.equal(recovered.cached, 1);
+  assert.equal(recovered.lastSyncedLogId, bad);
+  const unchanged = await core.log.sync({ targetOrg: 'demo', workspaceRoot });
+  assert.equal(unchanged.downloaded, 0);
+  assert.deepEqual(reads.sort(), [bad, bad, good].sort());
+  const ready = await core.log.status({ targetOrg: 'demo', workspaceRoot });
+  assert.equal(ready.failedCount, 0);
+  assert.equal(ready.logCount, 2);
+});
+
+test('status does not invent a canonical search directory for an unresolved local org', async t => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-no-org-'));
+  t.after(() => fs.rm(workspaceRoot, { recursive: true, force: true }));
+  const core = createApexLogViewerCore({ apexLogRemote: unavailableApexLogRemote() });
+  t.after(() => core.dispose());
+  const result = await core.log.status({ targetOrg: 'unknown-alias', workspaceRoot });
+  assert.equal(result.orgLogsRoot, undefined);
+  assert.equal(result.failedCount, 0);
+  assert.equal(result.logCount, 0);
+});
+
 test('core log resolve finds legacy cached paths without Salesforce auth', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-legacy-'));
   const logId = '07L000000000001AAA';

@@ -5,6 +5,7 @@ import {
   resolveSkillTargets,
   skillEnvironment,
   skillName,
+  selectedSkillNames,
   type SkillEnvironment,
   type SkillInstallOptions,
   type SkillTarget
@@ -23,6 +24,12 @@ export type SkillInstallResult = {
   dryRun: boolean;
   installations: SkillInstallation[];
 };
+export type SkillsInstallResult = {
+  pluginVersion: string;
+  dryRun: boolean;
+  skills: SkillInstallResult[];
+};
+type InstallDependencies = { packageRoot?: string; environment?: SkillEnvironment; io?: FileSystem };
 
 async function statIfPresent(target: string, io: FileSystem) {
   try {
@@ -131,36 +138,31 @@ async function replaceSkill(source: string, destination: string, root: string, r
   return warning;
 }
 
-export async function installSkill(
+async function prepareSkill(
   options: SkillInstallOptions,
-  dependencies: { packageRoot?: string; environment?: SkillEnvironment; io?: FileSystem } = {}
+  dependencies: InstallDependencies,
+  selectedSkill: string
 ): Promise<SkillInstallResult> {
   const io = dependencies.io ?? fs;
   const packageRoot = dependencies.packageRoot ?? fileURLToPath(new URL('../', import.meta.url));
-  const source = path.join(packageRoot, 'skills', skillName);
+  const bundleRoot = path.join(packageRoot, 'skills');
+  const source = path.join(bundleRoot, selectedSkill);
   const environment = dependencies.environment ?? skillEnvironment();
-  const targets = resolveSkillTargets(options, environment);
+  const targets = resolveSkillTargets(options, environment, selectedSkill);
   const manifest = JSON.parse(await io.readFile(path.join(packageRoot, 'package.json'), 'utf8')) as { version: string };
   if (!(await ordinaryDirectory(source, io)))
     throw new Error('Bundled skill is missing; reinstall the plugin from your npm registry.');
   const files = await readTree(source, io);
   if (
-    !files
-      .get('SKILL.md')
-      ?.toString('utf8')
-      .match(/^---\r?\nname: apex-log-viewer-cli\r?\n/)
+    !files.get('SKILL.md')?.toString('utf8').startsWith(`---\nname: ${selectedSkill}\n`) &&
+    !files.get('SKILL.md')?.toString('utf8').startsWith(`---\r\nname: ${selectedSkill}\r\n`)
   ) {
-    throw new Error('Bundled apex-log-viewer-cli/SKILL.md is missing or invalid.');
+    throw new Error(`Bundled ${selectedSkill}/SKILL.md is missing or invalid.`);
   }
   const installations: SkillInstallation[] = [];
   // Validate every destination before making any change.
   for (const target of targets) {
-    const relative = path.relative(source, target.destination);
-    const inverse = path.relative(target.destination, source);
-    if (
-      (!relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) ||
-      (!inverse.startsWith(`..${path.sep}`) && !path.isAbsolute(inverse))
-    ) {
+    if (insideDirectory(bundleRoot, target.destination) || insideDirectory(target.destination, bundleRoot)) {
       throw new Error('The installation destination must not overlap the bundled skill.');
     }
     await validateAncestors(target.destination, destinationRoot(target, options, environment), io);
@@ -177,35 +179,69 @@ export async function installSkill(
     }
     installations.push({ ...target, status: identical ? 'unchanged' : exists ? 'wouldReplace' : 'wouldInstall' });
   }
-  const completed: string[] = [];
-  if (!options.dryRun) {
-    for (const installation of installations) {
-      if (installation.status === 'unchanged') continue;
-      try {
-        const warning = await replaceSkill(
-          source,
-          installation.destination,
-          destinationRoot(installation, options, environment),
-          installation.status === 'wouldReplace',
-          io
-        );
-        if (warning) installation.warnings = [warning];
-      } catch (error) {
-        throw new Error(
-          `Skill installation failed at ${installation.destination}. Completed destinations: ${completed.join(', ') || 'none'}. ${error instanceof Error ? error.message : String(error)}`,
-          { cause: error }
-        );
-      }
-      installation.status = installation.status === 'wouldReplace' ? 'replaced' : 'installed';
-      completed.push(installation.destination);
-    }
-  }
   return {
-    skillName,
+    skillName: selectedSkill,
     pluginVersion: manifest.version,
     source,
     files: [...files.keys()].sort(),
     dryRun: options.dryRun === true,
     installations
   };
+}
+
+async function writeSkills(
+  results: SkillInstallResult[],
+  options: SkillInstallOptions,
+  dependencies: InstallDependencies
+) {
+  const io = dependencies.io ?? fs;
+  const environment = dependencies.environment ?? skillEnvironment();
+  const completed: string[] = [];
+  if (!options.dryRun) {
+    for (const result of results) {
+      for (const installation of result.installations) {
+        if (installation.status === 'unchanged') continue;
+        try {
+          const warning = await replaceSkill(
+            result.source,
+            installation.destination,
+            destinationRoot(installation, options, environment),
+            installation.status === 'wouldReplace',
+            io
+          );
+          if (warning) installation.warnings = [warning];
+        } catch (error) {
+          throw new Error(
+            `Skill installation failed at ${installation.destination}. Completed destinations: ${completed.join(', ') || 'none'}. ${error instanceof Error ? error.message : String(error)}`,
+            { cause: error }
+          );
+        }
+        installation.status = installation.status === 'wouldReplace' ? 'replaced' : 'installed';
+        completed.push(installation.destination);
+      }
+    }
+  }
+}
+
+// The legacy API and command response stay unchanged without an explicit selection.
+export async function installSkill(
+  options: SkillInstallOptions,
+  dependencies: InstallDependencies = {}
+): Promise<SkillInstallResult> {
+  const result = await prepareSkill(options, dependencies, skillName);
+  await writeSkills([result], options, dependencies);
+  return result;
+}
+
+export async function installSkills(
+  options: SkillInstallOptions,
+  dependencies: InstallDependencies = {}
+): Promise<SkillInstallResult | SkillsInstallResult> {
+  const selected = selectedSkillNames(options);
+  if (!options.all && options.skills === undefined) return installSkill(options, dependencies);
+  const results: SkillInstallResult[] = [];
+  // Preflight every skill and destination before writing any of them.
+  for (const name of selected) results.push(await prepareSkill(options, dependencies, name));
+  await writeSkills(results, options, dependencies);
+  return { pluginVersion: results[0]!.pluginVersion, dryRun: options.dryRun === true, skills: results };
 }

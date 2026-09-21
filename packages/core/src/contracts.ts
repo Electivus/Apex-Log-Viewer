@@ -90,9 +90,12 @@ export type LogsSyncResult = {
   status: string;
   targetOrg: string;
   safeTargetOrg: string;
+  apexlogsRoot: string;
+  orgLogsRoot: string;
   downloaded: number;
   cached: number;
   failed: number;
+  failures: { logId: string; code: string }[];
   checkpointAdvanced: boolean;
   stateFile: string;
   lastSyncedLogId?: string;
@@ -108,6 +111,7 @@ export type LogsStatusResult = {
   safeTargetOrg: string;
   workspaceRoot: string;
   apexlogsRoot: string;
+  orgLogsRoot?: string;
   stateFile: string;
   logCount: number;
   hasState: boolean;
@@ -117,6 +121,7 @@ export type LogsStatusResult = {
   lastSyncedStartTime?: string;
   downloadedCount: number;
   cachedCount: number;
+  failedCount: number;
   lastError?: string;
 };
 

@@ -1,19 +1,28 @@
 import { Flags } from '@salesforce/sf-plugins-core';
 import { AlvCommand } from '../../../command.js';
 import { dryRunFlag } from '../../../flags.js';
-import { installSkill, type SkillInstallResult } from '../../../skillInstaller.js';
+import { installSkills, type SkillInstallResult, type SkillsInstallResult } from '../../../skillInstaller.js';
 import { promptForSkillAgents } from '../../../skillPrompt.js';
-import { agentIds, detectSkillAgents, skillEnvironment } from '../../../skillTargets.js';
+import { agentIds, detectSkillAgents, skillEnvironment, skillNames } from '../../../skillTargets.js';
 
-export default class SkillInstall extends AlvCommand<SkillInstallResult> {
-  public static override readonly summary = 'Install the bundled Apex Log Viewer Agent Skill without network access.';
+export default class SkillInstall extends AlvCommand<SkillInstallResult | SkillsInstallResult> {
+  public static override readonly summary = 'Install bundled Apex Log Viewer Agent Skills without network access.';
   public static override readonly examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --agent codex --agent claude-code',
+    '<%= config.bin %> <%= command.id %> --agent codex --all --json',
+    '<%= config.bin %> <%= command.id %> --agent claude-code --skill apex-debug-investigate --skill apex-debug-performance',
     '<%= config.bin %> <%= command.id %> --agent codex --global --force --json',
     '<%= config.bin %> <%= command.id %> --skills-dir ./custom-skills --dry-run'
   ];
   public static override readonly flags = {
+    skill: Flags.string({
+      summary: 'Bundled skill to install; repeat to select several.',
+      options: [...skillNames],
+      multiple: true,
+      exclusive: ['all']
+    }),
+    all: Flags.boolean({ summary: 'Install all bundled skills.', default: false, exclusive: ['skill'] }),
     agent: Flags.string({
       summary: 'Agent to install for; repeat to select several.',
       options: [...agentIds],
@@ -41,7 +50,7 @@ export default class SkillInstall extends AlvCommand<SkillInstallResult> {
     force: Flags.boolean({ summary: 'Replace different existing skill content.', default: false })
   };
 
-  public override async run(): Promise<SkillInstallResult> {
+  public override async run(): Promise<SkillInstallResult | SkillsInstallResult> {
     const { flags } = await this.parse(SkillInstall);
     let agents = flags.agent;
     if (!agents?.length && flags['skills-dir'] === undefined && flags['codex-home'] === undefined) {
@@ -53,7 +62,9 @@ export default class SkillInstall extends AlvCommand<SkillInstallResult> {
       agents = await promptForSkillAgents(await detectSkillAgents(environment));
     }
     return this.printResult(
-      await installSkill({
+      await installSkills({
+        skills: flags.skill,
+        all: flags.all,
         agents,
         global: flags.global,
         workspaceRoot: flags['workspace-root'],

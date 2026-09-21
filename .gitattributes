@@ -16,4 +16,7 @@
 *.cjs text eol=lf
 *.json text eol=lf
 *.md text eol=lf
+
+# Keep source and generated notices byte-identical on Windows checkouts.
+LICENSE text eol=lf
 *.log -diff

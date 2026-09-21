@@ -38,7 +38,7 @@ function runCommand(command, args, cwd) {
   assert.equal(result.status, 0, output);
 }
 
-test('the neutral catalog discovers exactly the portable Apex Log Viewer Agent Skill', async () => {
+test('the neutral catalog discovers exactly three skills without generated bundle duplicates', async () => {
   const manifest = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8'));
   const pinnedVersion = manifest.devDependencies?.skills;
   assert.match(pinnedVersion, /^\d+\.\d+\.\d+$/, 'the skills CLI must stay pinned to an exact release');
@@ -54,7 +54,9 @@ test('the neutral catalog discovers exactly the portable Apex Log Viewer Agent S
   const output = formatCommandOutput(result, { stripColors: true });
 
   assert.equal(result.status, 0, output);
-  assert.match(output, /Found 1 skill\b/);
+  assert.match(output, /Found 3 skills\b/);
+  assert.match(output, /\bapex-debug-investigate\b/);
+  assert.match(output, /\bapex-debug-performance\b/);
   assert.match(output, /\bapex-log-viewer-cli\b/);
   assert.doesNotMatch(output, /Trigger when Codex\b/);
 });
@@ -134,6 +136,20 @@ test(
       assert.match(lockEntry.computedHash, /^[a-f0-9]{64}$/);
       expectedHash ??= lockEntry.computedHash;
       assert.equal(lockEntry.computedHash, expectedHash);
+
+      for (const name of ['apex-debug-investigate', 'apex-debug-performance']) {
+        const selected = runSkills(['add', sourceUrl, '--skill', name, '--agent', agent, '--yes'], projectRoot, {
+          HOME: isolatedHome,
+          USERPROFILE: isolatedHome,
+          XDG_CONFIG_HOME: path.join(isolatedHome, '.config')
+        });
+        assert.equal(selected.status, 0, `${agent}/${name}: ${formatCommandOutput(selected)}`);
+        const destination = path.join(projectRoot, skillsDirectory, name);
+        assert.match(await fs.readFile(path.join(destination, 'SKILL.md'), 'utf8'), new RegExp(`name: ${name}`));
+        assert.ok((await fs.readdir(path.join(destination, 'references'))).length > 0);
+      }
+      const completeLock = JSON.parse(await fs.readFile(path.join(projectRoot, 'skills-lock.json'), 'utf8'));
+      assert.equal(Object.keys(completeLock.skills).length, 3);
     }
   }
 );

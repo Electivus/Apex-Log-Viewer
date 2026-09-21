@@ -25,7 +25,8 @@
       "logCount": 0,
       "hasState": false,
       "downloadedCount": 0,
-      "cachedCount": 0
+      "cachedCount": 0,
+      "failedCount": 0
     }
   }
 }
