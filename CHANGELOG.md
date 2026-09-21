@@ -15,14 +15,11 @@
 
 ### Features
 
-- Agent debugging: add the `electivus-debug` plugin for Codex, Claude Code and GitHub Copilot, generated from three portable skills covering local corpus search, functional investigation, capture and performance. Configure the optional official Certinia MCP with a pinned version and anonymous Apex execution disabled.
-- Salesforce CLI: add repeatable `skill install --skill` and `--all` while preserving the previous default and JSON contract. Expose search roots and per-log failure codes from sync, and the previous failed count from offline status.
 - Dev Hub: add explicit certificate rotation with private recovery copies, fresh JWT verification, ordered Actions and Dependabot Secret replacement, and resumable forward/rollback recovery across partial deliveries without changing runtime grants.
 - Agent Skill: publish the vendor-neutral source from `skills/apex-log-viewer-cli`, add runtime capability checks and standard update guidance, pin `skills@1.5.21`, and validate project installation for Claude Code, Codex, GitHub Copilot, and Devin.
 
 ### Tests
 
-- Agent debugging: verify ignored local corpus search, legacy deduplication, isolated cross-agent skill installation, generated plugin freshness and the real pinned analyzer on synthetic failure, limit and incomplete-log fixtures.
 - Arch Linux/WSL: load opted-in local settings and the verified durable Dev Hub JWT automatically for Playwright UI/CLI commands; add native Electron/Xvfb dependencies and a launcher that preserves the shell's selected Node 24 runtime (including fnm) without changing CI authentication.
 
 - Dev Hub/test runner: reject inventories without completion proof or with contradictory counts before identity mutations; bound timeout cleanup to 30 seconds and report unconfirmed scratch cleanup without removing pending recovery credentials.
@@ -38,6 +35,25 @@
 
 - Scratch Org Pool: authenticate maintenance and consumers through the shared Dev Hub JWT policy, preserve PlatformCLI scratch authorization, renew lease calls after expired sessions, and validate an isolated pool with an independent runner.
 - Core: preserve the versioned behavioral contract corpus with real temporary workspaces and strict process/HTTP doubles for the TypeScript core shared by VS Code and the Salesforce CLI.
+
+## [SF Plugin 0.4.0](https://github.com/Electivus/Apex-Log-Viewer/compare/sf-plugin-v0.3.0...sf-plugin-v0.4.0) (2026-09-21)
+
+Independent npm release of `@electivus/plugin-electivus`, containing the debugging workflows from [#1132](https://github.com/Electivus/Apex-Log-Viewer/pull/1132). The VS Code extension and the separate `electivus-debug` agent plugin retain their own versions.
+
+### Features
+
+- Bundle three portable skills for CLI/capture operations, functional investigation and performance analysis: `apex-log-viewer-cli`, `apex-debug-investigate`, and `apex-debug-performance`. Workflows synchronize available logs in bulk, find transactions through local content search, and follow evidence through an authorized correction and verification.
+- Add repeatable `sf electivus skill install --skill` and `--all` for offline catalog installation. Without an explicit selection, preserve the existing single-skill default and JSON response. Preflight all selected skills and destinations before writing.
+- Add absolute `apexlogsRoot` and `orgLogsRoot` paths and per-log failure codes to sync results. Offline status reports `failedCount` and the canonical log directory when the local org identity is resolved. These fields help agents detect partial syncs and search the correct corpus.
+
+### Agent Plugin Distribution
+
+- Provide the separate `electivus-debug` 0.1.0 repository plugin for Codex, Claude Code and GitHub Copilot, generated from the same skills. It configures the optional official Certinia MCP 2.0.1 with anonymous Apex execution disabled. The npm offline skill installer does not install this MCP runtime or agent-plugin configuration.
+- Preserve generated bundle freshness on Windows by using LF for license files; include the upstream BSD notice for the separately downloaded analyzer.
+
+### Tests
+
+- Cover ignored corpus search, org scoping, legacy deduplication, caught exceptions, asynchronous boundaries and incomplete capture with synthetic fixtures and acceptance guidance. Verify cross-agent installation, npm tarball contents, generated plugin freshness and the real pinned analyzer's analysis and execution-refusal behavior.
 
 ## [SF Plugin 0.3.0](https://github.com/Electivus/Apex-Log-Viewer/compare/sf-plugin-v0.2.1...sf-plugin-v0.3.0) (2026-09-20)
 
