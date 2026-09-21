@@ -1,0 +1,101 @@
+{
+  "org": "demo@example.com",
+  "clue": "ORDER-4821",
+  "cases": [
+    {
+      "id": "functional-failure",
+      "logId": "07L000000000101AAA",
+      "prompt": "ORDER-4821 failed during checkout. Find the responsible transaction and the smallest supported fix.",
+      "lines": [
+        "66.0 APEX_CODE,FINE;APEX_PROFILING,FINE;CALLOUT,INFO;DATABASE,FINEST;SYSTEM,DEBUG;VALIDATION,INFO;VISUALFORCE,INFO;WORKFLOW,FINE",
+        "12:00:00.0 (1000)|EXECUTION_STARTED",
+        "12:00:00.0 (2000)|CODE_UNIT_STARTED|[EXTERNAL]|01p000000000001|CheckoutService.submit()",
+        "12:00:00.0 (3000)|USER_DEBUG|[4]|DEBUG|ORDER-4821 phase=validate",
+        "12:00:00.0 (4000)|EXCEPTION_THROWN|[7]|System.NullPointerException: Attempt to de-reference a null object",
+        "12:00:00.0 (5000)|FATAL_ERROR|System.NullPointerException: Attempt to de-reference a null object\nClass.CheckoutService.submit: line 7, column 1",
+        "12:00:00.0 (6000)|CODE_UNIT_FINISHED|CheckoutService.submit()",
+        "12:00:00.0 (7000)|EXECUTION_FINISHED"
+      ],
+      "expected": {
+        "fatal": true,
+        "sourceLocation": "CheckoutService.submit:7",
+        "cause": "Optional discount was dereferenced without a null check",
+        "doNotInfer": "A similarly named failure in another org is unrelated"
+      }
+    },
+    {
+      "id": "caught-exception",
+      "logId": "07L000000000102AAA",
+      "prompt": "This ORDER-4821 log contains EXCEPTION_THROWN. Did it fail?",
+      "lines": [
+        "66.0 APEX_CODE,FINE;APEX_PROFILING,FINE;DATABASE,INFO",
+        "12:01:00.0 (1000)|EXECUTION_STARTED",
+        "12:01:00.0 (2000)|CODE_UNIT_STARTED|[EXTERNAL]|01p000000000001|CheckoutService.retry()",
+        "12:01:00.0 (3000)|USER_DEBUG|[1]|DEBUG|ORDER-4821 phase=retry",
+        "12:01:00.0 (4000)|EXCEPTION_THROWN|[2]|System.CalloutException: transient timeout",
+        "12:01:00.0 (5000)|USER_DEBUG|[3]|DEBUG|Handled timeout; fallback accepted ORDER-4821",
+        "12:01:00.0 (6000)|CODE_UNIT_FINISHED|CheckoutService.retry()",
+        "12:01:00.0 (7000)|EXECUTION_FINISHED"
+      ],
+      "expected": { "fatal": false, "doNotInfer": "triage.hasErrors alone proves a failed transaction" }
+    },
+    {
+      "id": "async-flow",
+      "logId": "07L000000000103AAA",
+      "prompt": "Find why the downstream order automation failed, including the asynchronous boundary.",
+      "lines": [
+        "66.0 APEX_CODE,FINE;APEX_PROFILING,INFO;DATABASE,INFO;WORKFLOW,FINE",
+        "12:02:00.0 (1000)|EXECUTION_STARTED",
+        "12:02:00.0 (2000)|USER_DEBUG|[1]|DEBUG|ORDER-4821 asyncJob=707000000000001AAA flow=OrderFulfillment",
+        "12:02:00.0 (3000)|FLOW_ELEMENT_ERROR|Required shipping address missing|FlowRecordUpdate|SetShipment",
+        "12:02:00.0 (4000)|FATAL_ERROR|System.DmlException: FIELD_CUSTOM_VALIDATION_EXCEPTION, Shipping address required",
+        "12:02:00.0 (5000)|EXECUTION_FINISHED"
+      ],
+      "expected": {
+        "fatal": true,
+        "doNotInfer": "Matching timestamps establish the async relationship or the executing user"
+      }
+    },
+    {
+      "id": "governor-limit",
+      "logId": "07L000000000104AAA",
+      "prompt": "CheckoutService is slow. Which resource is actually exhausted?",
+      "lines": [
+        "66.0 APEX_CODE,FINE;APEX_PROFILING,FINE;DATABASE,FINEST;SYSTEM,DEBUG",
+        "12:03:00.0 (1000)|EXECUTION_STARTED",
+        "12:03:00.0 (2000)|CODE_UNIT_STARTED|[EXTERNAL]|01p000000000001|CheckoutService.bulk()",
+        "12:03:00.0 (3000)|SOQL_EXECUTE_BEGIN|[12]|Aggregations:0|SELECT Id FROM Account WHERE Id = :accountId",
+        "12:03:00.0 (1003000)|SOQL_EXECUTE_END|[12]|Rows:1",
+        "12:03:00.0 (1004000)|SOQL_EXECUTE_BEGIN|[12]|Aggregations:0|SELECT Id FROM Account WHERE Id = :accountId",
+        "12:03:00.0 (2004000)|SOQL_EXECUTE_END|[12]|Rows:1",
+        "12:03:00.0 (2005000)|FATAL_ERROR|System.LimitException: Too many SOQL queries: 101",
+        "12:03:00.0 (2006000)|CUMULATIVE_LIMIT_USAGE",
+        "12:03:00.0 (2007000)|LIMIT_USAGE_FOR_NS|(default)|\n  Number of SOQL queries: 101 out of 100\n  Number of query rows: 101 out of 50000\n  Number of DML statements: 0 out of 150\n  Number of DML rows: 0 out of 10000\n  Maximum CPU time: 500 out of 10000\n  Maximum heap size: 1024 out of 6000000",
+        "12:03:00.0 (2008000)|CUMULATIVE_LIMIT_USAGE_END",
+        "12:03:00.0 (2009000)|CODE_UNIT_FINISHED|CheckoutService.bulk()",
+        "12:03:00.0 (2010000)|EXECUTION_FINISHED"
+      ],
+      "expected": {
+        "fatal": true,
+        "soqlUsed": 101,
+        "doNotInfer": "The observed query repetitions alone prove a loop; inspect the supplied source"
+      }
+    },
+    {
+      "id": "partial-low-detail",
+      "logId": "07L000000000105AAA",
+      "prompt": "The profiler shows zero database operations. Can we rule out SOQL?",
+      "lines": [
+        "66.0 APEX_CODE,INFO;APEX_PROFILING,NONE;DATABASE,NONE",
+        "12:04:00.0 (1000)|EXECUTION_STARTED",
+        "12:04:00.0 (2000)|USER_DEBUG|[1]|DEBUG|CheckoutService ORDER-4821",
+        "*** Skipped 1024 bytes of detailed log",
+        "MAXIMUM DEBUG LOG SIZE REACHED"
+      ],
+      "expected": { "incomplete": true, "doNotInfer": "No database operations occurred or no limit was reached" }
+    }
+  ],
+  "sources": {
+    "CheckoutService.cls": "public class CheckoutService {\n    public static Decimal submit(Decimal amount, Decimal discount) {\n        // Optional discount can be absent.\n        System.debug('ORDER-4821 phase=validate');\n        Decimal total = amount;\n        // Defect exercised by the failure fixture:\n        total -= discount.abs();\n        return total;\n    }\n    public static void bulk(List<Id> ids) {\n        for (Id accountId : ids) {\n            Account row = [SELECT Id FROM Account WHERE Id = :accountId];\n        }\n    }\n}\n"
+  }
+}

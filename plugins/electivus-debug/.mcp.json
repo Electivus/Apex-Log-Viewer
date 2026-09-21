@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "apex-log-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@certinia/apex-log-mcp@2.0.1",
+        "--no-apex-execution"
+      ]
+    }
+  }
+}

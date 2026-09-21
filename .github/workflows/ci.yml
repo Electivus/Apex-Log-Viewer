@@ -84,6 +84,13 @@ jobs:
       - name: Type-check and lint
         run: pnpm run compile
 
+      - name: Verify generated agent plugin
+        run: pnpm run check:agent-plugin
+
+      - name: Test official analyzer MCP integration
+        if: runner.os == 'Linux'
+        run: pnpm run test:agent-plugin:mcp
+
       - name: Build (bundle)
         run: pnpm run build
 

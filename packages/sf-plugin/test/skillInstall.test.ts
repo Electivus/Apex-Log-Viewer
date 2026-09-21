@@ -3,9 +3,9 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test, { type TestContext } from 'node:test';
-import { installSkill } from '../src/skillInstaller.ts';
+import { installSkill, installSkills } from '../src/skillInstaller.ts';
 import { selectSkillAgents } from '../src/skillPrompt.ts';
-import { agentIds, detectSkillAgents, resolveSkillTargets, skillName } from '../src/skillTargets.ts';
+import { agentIds, detectSkillAgents, resolveSkillTargets, skillName, skillNames } from '../src/skillTargets.ts';
 
 async function fixture(t: TestContext) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-skill test-'));
@@ -20,6 +20,85 @@ async function fixture(t: TestContext) {
   await fs.mkdir(environment.cwd);
   return { root, source, packageRoot, environment };
 }
+
+async function catalogFixture(t: TestContext) {
+  const data = await fixture(t);
+  for (const name of skillNames.slice(1)) {
+    const source = path.join(data.packageRoot, 'skills', name);
+    await fs.mkdir(path.join(source, 'references'), { recursive: true });
+    await fs.writeFile(path.join(source, 'SKILL.md'), `---\nname: ${name}\n---\nInvestigation\n`);
+    await fs.writeFile(path.join(source, 'references', 'scenario.md'), 'Standalone reference\n');
+  }
+  return data;
+}
+
+test('explicit catalog selection installs all skills and deduplicates shared agent destinations', async t => {
+  const data = await catalogFixture(t);
+  const options = { agents: ['codex', 'github-copilot', 'claude-code'], all: true };
+  const result = await installSkills(options, data);
+  assert.ok('skills' in result);
+  assert.deepEqual(
+    result.skills.map(item => item.skillName),
+    [...skillNames]
+  );
+  for (const item of result.skills) {
+    assert.equal(item.installations.length, 2);
+    for (const installation of item.installations) {
+      assert.equal(installation.status, 'installed');
+      for (const file of item.files) {
+        assert.deepEqual(
+          await fs.readFile(path.join(installation.destination, file)),
+          await fs.readFile(path.join(item.source, file))
+        );
+      }
+    }
+  }
+  const again = await installSkills(options, data);
+  assert.ok('skills' in again);
+  assert.ok(again.skills.every(item => item.installations.every(target => target.status === 'unchanged')));
+  const legacy = await installSkills({ agents: ['codex'] }, data);
+  assert.ok(!('skills' in legacy));
+  assert.equal(legacy.skillName, skillName);
+});
+
+test('selected skills use the collection envelope even for one name and preserve legacy default', async t => {
+  const data = await catalogFixture(t);
+  const name = 'apex-debug-investigate';
+  const result = await installSkills({ skills: [name, name], skillsDir: 'custom skills' }, data);
+  assert.ok('skills' in result);
+  assert.equal(result.skills.length, 1);
+  assert.equal(result.skills[0]!.installations[0]!.destination, path.join(data.environment.cwd, 'custom skills', name));
+  await assert.rejects(fs.access(path.join(data.environment.cwd, 'custom skills', skillName)));
+  for (const options of [{ all: true, skills: [name] }, { skills: [] }, { skills: ['../outside'] }]) {
+    await assert.rejects(
+      installSkills({ ...options, agents: ['codex'] }, data),
+      /mutually exclusive|at least one|Unsupported skill/
+    );
+  }
+});
+
+test('all skills are preflighted before writes, including replacement conflicts in the last skill', async t => {
+  const data = await catalogFixture(t);
+  const name = 'apex-debug-performance';
+  const existing = path.join(data.environment.cwd, '.agents/skills', name);
+  await fs.mkdir(existing, { recursive: true });
+  await fs.writeFile(path.join(existing, 'custom.md'), 'preserve');
+  await assert.rejects(installSkills({ all: true, agents: ['codex', 'claude-code'] }, data), /--force/);
+  await assert.rejects(fs.access(path.join(data.environment.cwd, '.claude')));
+  await assert.rejects(fs.access(path.join(data.environment.cwd, '.agents/skills', skillName)));
+  const preview = await installSkills({ all: true, agents: ['codex'], dryRun: true, force: true }, data);
+  assert.ok('skills' in preview);
+  assert.equal(preview.skills.at(-1)!.installations[0]!.status, 'wouldReplace');
+  assert.equal(await fs.readFile(path.join(existing, 'custom.md'), 'utf8'), 'preserve');
+});
+
+test('a selected skill cannot overwrite a different source skill in its own bundle', async t => {
+  const data = await catalogFixture(t);
+  await assert.rejects(
+    installSkills({ skills: ['apex-debug-performance'], skillsDir: path.dirname(data.source), force: true }, data),
+    /overlap/
+  );
+});
 
 test('project installation copies every file and deduplicates Codex/Copilot', async t => {
   const fixtureData = await fixture(t);

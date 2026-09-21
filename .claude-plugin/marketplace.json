@@ -1,0 +1,15 @@
+{
+  "name": "electivus",
+  "description": "Salesforce debugging skills and local log analysis from Electivus.",
+  "owner": {
+    "name": "Electivus"
+  },
+  "plugins": [
+    {
+      "name": "electivus-debug",
+      "source": "./plugins/electivus-debug",
+      "description": "Synchronize Salesforce logs, find the right transaction locally, and investigate failures and performance with evidence.",
+      "version": "0.1.0"
+    }
+  ]
+}

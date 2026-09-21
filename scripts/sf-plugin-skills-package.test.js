@@ -132,6 +132,29 @@ require('node:module').syncBuiltinESMExports();
       })
     );
     assert.equal(legacy.result.installations[0].destination, path.join(temporary, 'legacy/skills/apex-log-viewer-cli'));
+    const catalog = JSON.parse(
+      run(process.execPath, [...args, '--agent', 'codex', '--all', '--json'], { cwd: workspace, env })
+    );
+    assert.equal(catalog.status, 0);
+    assert.deepEqual(
+      catalog.result.skills.map(item => item.skillName),
+      ['apex-log-viewer-cli', 'apex-debug-investigate', 'apex-debug-performance']
+    );
+    for (const item of catalog.result.skills) {
+      for (const file of item.files)
+        assert.deepEqual(
+          await fs.readFile(path.join(item.installations[0].destination, file)),
+          await fs.readFile(path.join(item.source, file))
+        );
+    }
+    const selected = JSON.parse(
+      run(process.execPath, [...args, '--agent', 'claude-code', '--skill', 'apex-debug-performance', '--json'], {
+        cwd: workspace,
+        env
+      })
+    );
+    assert.equal(selected.result.skills.length, 1);
+    assert.equal(selected.result.skills[0].skillName, 'apex-debug-performance');
   }
 );
 
@@ -140,7 +163,7 @@ test('rebuilding skill artifacts removes stale files and includes supporting res
   t.after(() => fs.rm(temporary, { recursive: true, force: true }));
   const source = path.join(temporary, 'skills/apex-log-viewer-cli');
   await fs.mkdir(path.join(source, 'references'), { recursive: true });
-  await fs.writeFile(path.join(source, 'SKILL.md'), '---\nname: apex-log-viewer-cli\n---\n');
+  await fs.writeFile(path.join(source, 'SKILL.md'), '---\nname: apex-log-viewer-cli\ndescription: Test catalog\n---\n');
   await fs.writeFile(path.join(source, 'references/example.md'), 'supporting content');
   const { copySfPluginSkills } = await import(pathToFileURL(path.join(__dirname, 'copy-sf-plugin-skills.mjs')).href);
   await copySfPluginSkills(temporary);

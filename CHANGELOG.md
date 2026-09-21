@@ -15,11 +15,14 @@
 
 ### Features
 
+- Agent debugging: add the `electivus-debug` plugin for Codex, Claude Code and GitHub Copilot, generated from three portable skills covering local corpus search, functional investigation, capture and performance. Configure the optional official Certinia MCP with a pinned version and anonymous Apex execution disabled.
+- Salesforce CLI: add repeatable `skill install --skill` and `--all` while preserving the previous default and JSON contract. Expose search roots and per-log failure codes from sync, and the previous failed count from offline status.
 - Dev Hub: add explicit certificate rotation with private recovery copies, fresh JWT verification, ordered Actions and Dependabot Secret replacement, and resumable forward/rollback recovery across partial deliveries without changing runtime grants.
 - Agent Skill: publish the vendor-neutral source from `skills/apex-log-viewer-cli`, add runtime capability checks and standard update guidance, pin `skills@1.5.21`, and validate project installation for Claude Code, Codex, GitHub Copilot, and Devin.
 
 ### Tests
 
+- Agent debugging: verify ignored local corpus search, legacy deduplication, isolated cross-agent skill installation, generated plugin freshness and the real pinned analyzer on synthetic failure, limit and incomplete-log fixtures.
 - Arch Linux/WSL: load opted-in local settings and the verified durable Dev Hub JWT automatically for Playwright UI/CLI commands; add native Electron/Xvfb dependencies and a launcher that preserves the shell's selected Node 24 runtime (including fnm) without changing CI authentication.
 
 - Dev Hub/test runner: reject inventories without completion proof or with contradictory counts before identity mutations; bound timeout cleanup to 30 seconds and report unconfirmed scratch cleanup without removing pending recovery credentials.

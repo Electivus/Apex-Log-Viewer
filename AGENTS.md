@@ -15,7 +15,8 @@
 - `config/` holds scratch-org configuration.
 - `docs/` holds architecture/testing/publishing notes and plan docs.
 - `scripts/` contains build/test helper scripts.
-- `skills/` contains the neutral, portable Agent Skills catalog; `apex-log-viewer-cli` can be installed through the standard `skills` CLI or the offline Salesforce plugin installer.
+- `skills/` contains the neutral, portable Agent Skills catalog: `apex-log-viewer-cli`, `apex-debug-investigate`, and `apex-debug-performance`. Install through the standard `skills` CLI, the offline Salesforce plugin installer, or the complete `electivus-debug` agent plugin.
+- `plugins/electivus-debug/` and the root marketplace catalogs are generated from `skills/` and `config/agent-plugin.json`. Run `pnpm run build:agent-plugin` after source edits and commit the outputs; do not hand-edit the bundle. `pnpm run check:agent-plugin` verifies freshness.
 
 ## Shared Runtime Strategy
 
@@ -29,6 +30,7 @@
 - Treat `apexlogs/.alv/sync-state.json` as the shared incremental-sync contract for both surfaces; preserve backward-readable state fields and avoid breaking extension or CLI consumers when evolving it.
 - When a CLI flag overlaps with familiar Salesforce CLI behavior, prefer the `sf`-style spelling such as `--target-org`.
 - Keep the portable `skills/` catalog as the only Agent Skill source. Bundle it in the npm plugin for offline installation through `sf electivus skill install`; keep installation mechanics in the CLI adapter, with explicit agent/destination selection and no network or agent-home writes during npm installation.
+- Debugging workflows synchronize the available log corpus before local content search, then analyze selected transactions. Preserve offline investigation and optional MCP fallback. Keep the agent plugin version independent of the Salesforce CLI release, and reference the official pinned analyzer with anonymous Apex execution disabled.
 
 ## Build and Development
 

@@ -3,11 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 
 export const skillName = 'apex-log-viewer-cli';
+export const skillNames = [skillName, 'apex-debug-investigate', 'apex-debug-performance'] as const;
 export const agentIds = ['claude-code', 'codex', 'github-copilot', 'devin'] as const;
 export type SkillAgent = (typeof agentIds)[number];
 export type SkillScope = 'project' | 'global' | 'custom';
 export type SkillTarget = { agents: SkillAgent[]; scope: SkillScope; destination: string };
 export type SkillInstallOptions = {
+  skills?: string[];
+  all?: boolean;
   agents?: string[];
   global?: boolean;
   workspaceRoot?: string;
@@ -64,7 +67,22 @@ export async function detectSkillAgents(context = skillEnvironment()): Promise<S
   return detected;
 }
 
-export function resolveSkillTargets(options: SkillInstallOptions, context = skillEnvironment()): SkillTarget[] {
+export function selectedSkillNames(options: SkillInstallOptions): string[] {
+  if (options.all && options.skills !== undefined) throw new Error('--all and --skill are mutually exclusive.');
+  if (options.skills !== undefined && options.skills.length === 0) throw new Error('Select at least one skill.');
+  const selected = options.all ? [...skillNames] : (options.skills ?? [skillName]);
+  for (const name of selected) {
+    if (!(skillNames as readonly string[]).includes(name)) throw new Error(`Unsupported skill: ${name}.`);
+  }
+  return [...new Set(selected)];
+}
+
+export function resolveSkillTargets(
+  options: SkillInstallOptions,
+  context = skillEnvironment(),
+  selectedSkill = skillName
+): SkillTarget[] {
+  selectedSkillNames({ skills: [selectedSkill] });
   const explicitScope = options.global || options.workspaceRoot !== undefined;
   if (options.global && options.workspaceRoot !== undefined) {
     throw new Error('--global and --workspace-root are mutually exclusive.');
@@ -87,7 +105,7 @@ export function resolveSkillTargets(options: SkillInstallOptions, context = skil
           context.cwd,
           directory,
           ...(options.codexHome !== undefined ? ['skills'] : []),
-          skillName
+          selectedSkill
         )
       }
     ];
@@ -99,8 +117,8 @@ export function resolveSkillTargets(options: SkillInstallOptions, context = skil
     if (!agentIds.includes(value as SkillAgent)) throw new Error(`Unsupported agent: ${value}.`);
     const agent = value as SkillAgent;
     const destination = options.global
-      ? path.resolve(context.cwd, directories[agent].global, skillName)
-      : path.resolve(context.cwd, options.workspaceRoot ?? '.', directories[agent].project, skillName);
+      ? path.resolve(context.cwd, directories[agent].global, selectedSkill)
+      : path.resolve(context.cwd, options.workspaceRoot ?? '.', directories[agent].project, selectedSkill);
     const key = process.platform === 'win32' ? destination.toLowerCase() : destination;
     const existing = targets.get(key);
     if (existing) {

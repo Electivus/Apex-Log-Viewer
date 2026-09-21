@@ -1,0 +1,6 @@
+interface:
+  display_name: 'Investigate Apex Performance'
+  short_description: 'Explain Apex resource usage and verify optimizations'
+  default_prompt: 'Use $apex-debug-performance to locate expensive transactions in my local Apex logs and verify a targeted optimization.'
+policy:
+  allow_implicit_invocation: true

@@ -11,6 +11,7 @@ packages/
   sf-plugin/              Salesforce CLI command adapters
   webview/                React webview applications
 skills/                   Neutral Agent Skills catalog
+plugins/electivus-debug/   Generated self-contained agent plugin
 test/e2e/                 Real-org extension and CLI tests
 test/conformance/         Versioned core behavioral scenarios and schemas
 ```
@@ -22,7 +23,7 @@ test/conformance/         Versioned core behavioral scenarios and schemas
 - `apps/vscode-extension` imports the core directly. esbuild includes it in `dist/extension.js`; no plugin, command parser, runner, or child process is shipped in the VSIX.
 - `packages/sf-plugin` contains class-per-command `SfCommand` adapters. It depends on the core through `workspace:*`, and the npm staging step materializes `@alv/core` as a bundled private dependency.
 - `packages/webview` imports only `@alv/protocol` for its host contract.
-- `skills/apex-log-viewer-cli` is the canonical Apex Log Viewer Agent Skill source. It depends on the public `sf electivus` contract at use time and is also copied into the npm plugin for explicit offline installation.
+- `skills/` is the canonical catalog for `apex-log-viewer-cli`, `apex-debug-investigate`, and `apex-debug-performance`. It depends on the public `sf electivus` contract at use time and is copied into the npm plugin for explicit offline installation and into the generated agent plugin.
 
 The adapters under `apps/vscode-extension/src/shared/` only re-export protocol modules while extension-local telemetry and diagnostics remain in the app.
 
@@ -62,13 +63,17 @@ sf electivus debug-level list --target-org my-org
 sf electivus tooling query --soql "SELECT Id FROM ApexLog" --target-org my-org
 ```
 
-Every route has its own `SfCommand` class and declarative flags. Destructive commands retain `--dry-run` and `--yes`. The plugin also owns `sf electivus skill install`, a local-only adapter that copies its bundled Agent Skill without accessing Salesforce or the network.
+Every route has its own `SfCommand` class and declarative flags. Destructive commands retain `--dry-run` and `--yes`. The plugin also owns `sf electivus skill install`, a local-only adapter that copies its bundled Agent Skills without accessing Salesforce or the network. Repeatable `--skill` and `--all` select the catalog; no selection preserves the original skill and response shape.
 
 ## Agent Skill distribution
 
 The top-level `skills/` catalog is vendor-neutral and follows the common Agent Skills format. Project-scoped installation through `npx skills add Electivus/Apex-Log-Viewer --skill apex-log-viewer-cli` is the primary route, with `skills-lock.json` as the consumer-side reproducibility contract. For repository installations, agent selection, canonical-copy/link behavior, update, removal, and platform fallback remain owned by the `skills` CLI. The alternative npm channel ships the same canonical catalog and installs physical copies through `sf electivus skill install`, with project scope by default, explicit global/custom destinations, interactive selection, and force-gated replacement. It does not modify `skills-lock.json`.
 
-Repository-based Agent Skills and `@electivus/plugin-electivus` can update independently; bundled skill snapshots follow the plugin release and require explicit reinstallation to update an agent copy. Operational workflows therefore begin with `sf electivus doctor --json`, use `runtimeVersion` as an initial compatibility signal, and verify command availability before execution. Optional agent metadata may improve presentation but cannot alter core behavior.
+Repository-based Agent Skills and `@electivus/plugin-electivus` can update independently; bundled skill snapshots follow the plugin release and require explicit reinstallation to update an agent copy. Org-backed workflows begin with `sf electivus doctor --json`, use `runtimeVersion` as an initial compatibility signal, and verify command availability before execution. Offline workflows begin with supplied files. Optional agent metadata may improve presentation but cannot alter core behavior.
+
+`config/agent-plugin.json` declares the independent `electivus-debug` version and pinned official Certinia MCP command. `build:agent-plugin` derives `plugins/electivus-debug` and the Codex/Claude-compatible marketplace catalogs from this configuration and the same skill sources. The bundle includes portable Agent Plugins 1.0 manifests and client overlays. `check:agent-plugin` rejects drift, including stale files. It carries MCP configuration and license notices, not a vendored analyzer runtime. The MCP runs in the client's local filesystem with anonymous Apex execution disabled; skills also support plain local file analysis.
+
+Investigation starts with bulk sync, then content search across the local corpus. Core sync results expose absolute roots and bounded failure details; status exposes the previous failed count without auth. There is no additional search index, remote filtering surface or capture-session store.
 
 ## Local log storage
 

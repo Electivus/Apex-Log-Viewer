@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "apex-log-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@certinia/apex-log-mcp@2.0.1",
+        "--no-apex-execution"
+      ]
+    }
+  }
+}

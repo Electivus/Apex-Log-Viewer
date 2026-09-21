@@ -1,0 +1,20 @@
+{
+  "name": "electivus",
+  "interface": {
+    "displayName": "Electivus"
+  },
+  "plugins": [
+    {
+      "name": "electivus-debug",
+      "source": {
+        "source": "local",
+        "path": "./plugins/electivus-debug"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

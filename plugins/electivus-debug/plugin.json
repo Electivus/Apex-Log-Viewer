@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "electivus-debug",
+  "version": "0.1.0",
+  "description": "Synchronize Salesforce logs, find the right transaction locally, and investigate failures and performance with evidence.",
+  "author": {
+    "name": "Electivus",
+    "url": "https://github.com/Electivus"
+  },
+  "homepage": "https://github.com/Electivus/Apex-Log-Viewer/blob/main/docs/AGENT-SKILL.md",
+  "repository": "https://github.com/Electivus/Apex-Log-Viewer",
+  "license": "MIT",
+  "keywords": [
+    "salesforce",
+    "apex",
+    "debug",
+    "logs",
+    "performance"
+  ]
+}

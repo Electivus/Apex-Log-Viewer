@@ -75,20 +75,24 @@ sf electivus log status --target-org my-org
 The VS Code extension and plugin are independent adapters over the private shared `@alv/core`. The extension bundles the core directly and never packages or spawns the plugin, so extension users do not install the plugin. The published plugin provides the same camelCase JSON operations for terminal and agent workflows.
 The standalone plugin runs on Node.js 22.19+; extension users get the compatible runtime through VS Code 1.105+.
 
-## Apex Log Viewer Agent Skill
+## Electivus Debug Agent Plugin and Skills
 
-For corporate environments that permit npm but block GitHub, install the bundled skill locally:
+The `electivus-debug` agent plugin combines local log discovery, functional debugging and performance investigation for Codex, Claude Code and GitHub Copilot. Its three portable skills synchronize the available logs with `sf electivus`, search the local corpus for the relevant transaction, then diagnose and verify a correction. The optional Certinia MCP analyzes selected files with anonymous Apex execution disabled.
+
+See the [complete plugin installation guide](docs/AGENT-SKILL.md#complete-agent-plugin) for each client. The generated bundle lives in `plugins/electivus-debug`; canonical skills remain under `skills/` and can also be installed separately.
+
+For corporate environments that permit npm but block GitHub, install the bundled skills locally:
 
 ```bash
 sf plugins install @electivus/plugin-electivus
 sf electivus skill install
 # Non-interactive installation into the current project:
-sf electivus skill install --agent codex --json
+sf electivus skill install --all --agent codex --json
 ```
 
-The installer asks which agents to target, defaults to project scope, and supports Claude Code, Codex, GitHub Copilot, Devin, or `--skills-dir` for another client. It reads only files shipped in the plugin. Use `--global` for a user-wide installation, `--dry-run` to preview, and `--force` to replace different content.
+The installer asks which agents to target, defaults to project scope, and supports Claude Code, Codex, GitHub Copilot, Devin, or `--skills-dir` for another client. It reads only files shipped in the plugin. Use `--all` for all three skills, repeat `--skill <name>` to select skills, `--global` for a user-wide installation, `--dry-run` to preview, and `--force` to replace different content. Without a skill selection it preserves the original `apex-log-viewer-cli` installation and JSON contract.
 
-Alternatively, preview the repository's portable Agent Skill without installing it:
+Alternatively, preview the repository's portable Agent Skills without installing them:
 
 ```bash
 npx skills add Electivus/Apex-Log-Viewer --list
