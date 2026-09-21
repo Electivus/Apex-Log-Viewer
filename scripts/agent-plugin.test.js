@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const { pathToFileURL } = require('node:url');
 const repoRoot = path.resolve(__dirname, '..');
@@ -56,4 +57,42 @@ test('generation detects stale content and removes stale bundle files on rebuild
   await buildAgentPlugin({ repoRoot: temporary });
   await buildAgentPlugin({ repoRoot: temporary, check: true });
   await assert.rejects(fs.access(path.join(result.destination, 'stale.md')));
+});
+
+test('a Windows-style Git checkout preserves generated plugin freshness', async t => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-agent-checkout-'));
+  t.after(() => fs.rm(temporary, { recursive: true, force: true }));
+  for (const name of ['config', 'skills'])
+    await fs.cp(path.join(repoRoot, name), path.join(temporary, name), { recursive: true });
+  for (const name of ['.gitattributes', 'LICENSE', 'THIRD_PARTY_NOTICES.md'])
+    await fs.copyFile(path.join(repoRoot, name), path.join(temporary, name));
+  const { buildAgentPlugin } = await load('build-agent-plugin.mjs');
+  const { destination } = await buildAgentPlugin({ repoRoot: temporary });
+  const git = args => {
+    const result = spawnSync('git', ['-c', 'core.autocrlf=false', '-c', 'core.eol=crlf', ...args], {
+      cwd: temporary,
+      encoding: 'utf8',
+      timeout: 30000
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${result.error ?? ''}`);
+  };
+  git(['init', '--quiet']);
+  git(['add', '.']);
+  git([
+    '-c',
+    'user.name=Electivus Tests',
+    '-c',
+    'user.email=tests@example.invalid',
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '--quiet',
+    '-m',
+    'Fixture'
+  ]);
+  // Remove both notices so Git must materialize their configured checkout line endings.
+  await fs.rm(path.join(temporary, 'LICENSE'));
+  await fs.rm(path.join(destination, 'LICENSE'));
+  git(['checkout', 'HEAD', '--', 'LICENSE', 'plugins/electivus-debug/LICENSE']);
+  await buildAgentPlugin({ repoRoot: temporary, check: true });
 });
