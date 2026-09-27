@@ -602,6 +602,23 @@ function readProxyDockerfile() {
   return read('test/e2e/proxy-lab/Dockerfile.proxy');
 }
 
+function readHostGeneratedPaths() {
+  const body = readProxyLabScript().match(/^HOST_GENERATED_PATHS=\(\n(?<body>[\s\S]*?)\n\)$/m)?.groups.body;
+  assert.ok(body, 'run.sh must declare HOST_GENERATED_PATHS as a multi-line array');
+  return body.split('\n').map(line => {
+    const entry = line.match(/^\s+"(?<path>[^"]+)"$/)?.groups.path;
+    assert.ok(entry, `unexpected HOST_GENERATED_PATHS entry: ${line}`);
+    return entry;
+  });
+}
+
+function readCleanScriptPaths() {
+  const clean = JSON.parse(read('package.json')).scripts.clean;
+  const lists = [...clean.matchAll(/for\(const [a-z]+ of \[(?<items>[^\]]*)\]\)/g)];
+  assert.equal(lists.length, 2, 'clean script must keep its directory and file lists');
+  return lists.flatMap(({ groups }) => [...groups.items.matchAll(/'(?<path>[^']+)'/g)].map(match => match.groups.path));
+}
+
 function escapeRegExp(value) {
   return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 }
@@ -753,16 +770,37 @@ test('proxy lab runner restores ownership of bind-mounted generated outputs on e
   assert.match(script, /restore_host_ownership\(\)/);
   assert.match(script, /trap restore_host_ownership EXIT/);
   assert.match(script, /ALV_E2E_PROXY_LAB_HOST_UID/);
-  assert.match(script, /apps\/vscode-extension\/bin/);
-  assert.match(script, /packages\/core\/lib/);
-  assert.match(script, /packages\/protocol\/lib/);
-  assert.match(script, /packages\/sf-plugin\/lib/);
-  assert.doesNotMatch(script, /packages\/sf-plugin\/skills/);
-  assert.match(script, /packages\/sf-plugin\/oclif\.manifest\.json/);
-  assert.match(script, /output/);
   assert.doesNotMatch(script, /exec "\$@"/);
   assert.doesNotMatch(script, /exec bash -lc/);
   assert.doesNotMatch(script, /exec npm run test:e2e/);
+});
+
+test('proxy lab ownership restore covers every output the clean script regenerates', () => {
+  const restored = readHostGeneratedPaths();
+  const uncovered = readCleanScriptPaths().filter(
+    generated => !restored.some(listed => generated === listed || generated.startsWith(`${listed}/`))
+  );
+
+  // The container's `pnpm run build` recreates these as root; a later host build
+  // cannot replace them (for example copy-sf-plugin-skills.mjs removing skills/).
+  assert.deepEqual(uncovered, []);
+});
+
+test('proxy lab ownership restore covers runner outputs outside the clean script', () => {
+  const restored = readHostGeneratedPaths();
+
+  assert.equal(new Set(restored).size, restored.length, 'HOST_GENERATED_PATHS must not repeat entries');
+  for (const generated of [
+    'apex-log-viewer-smoke.vsix', // run-tests.js --smoke-vsix
+    'apexlogs',
+    'apps/vscode-extension/dist', // extension esbuild bundle
+    'apps/vscode-extension/media', // webview bundles and CSS
+    'apps/vscode-extension/out', // compile-tests (tsconfig.test.json)
+    'coverage', // Jest (CI=true in the runner) and c8
+    'output' // Playwright results and reports
+  ]) {
+    assert.ok(restored.includes(generated), `HOST_GENERATED_PATHS must include ${generated}`);
+  }
 });
 
 test('proxy lab compose uses mitmproxy with a shared CA volume instead of Tinyproxy', () => {
