@@ -14,6 +14,12 @@ updates:
     groups:
       # scripts/run-playwright-e2e.test.js requires both ranges to stay identical.
       playwright:
+        applies-to: version-updates
+        patterns:
+          - 'playwright'
+          - '@playwright/test'
+      playwright-security:
+        applies-to: security-updates
         patterns:
           - 'playwright'
           - '@playwright/test'

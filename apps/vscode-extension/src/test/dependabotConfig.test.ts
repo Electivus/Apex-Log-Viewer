@@ -32,7 +32,10 @@ suite('dependabot config', () => {
     );
     assert.deepEqual(
       updates.find(update => update['package-ecosystem'] === 'npm')?.groups,
-      { playwright: { patterns: ['playwright', '@playwright/test'] } },
+      {
+        playwright: { 'applies-to': 'version-updates', patterns: ['playwright', '@playwright/test'] },
+        'playwright-security': { 'applies-to': 'security-updates', patterns: ['playwright', '@playwright/test'] }
+      },
       'playwright and @playwright/test must update together because run-playwright-e2e.test.js requires equal ranges'
     );
   });
