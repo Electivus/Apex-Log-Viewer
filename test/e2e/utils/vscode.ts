@@ -216,6 +216,15 @@ export function resolveWindowSizeArg(windowSize?: Partial<VscodeWindowSize>): st
   return `--window-size=${Math.floor(width)},${Math.floor(height)}`;
 }
 
+// Linux CI runners and the proxy-lab container have no GPU, so Chromium falls back to
+// software compositing. Since VS Code 1.139 (Electron 43), webview renderers on that path
+// intermittently abort in cc's software zero-copy tile raster (an FD ownership CHECK),
+// which Playwright reports as "Target crashed"/"Page crashed". SwiftShader keeps GPU
+// compositing enabled without hardware, like a Linux desktop with a GPU.
+export function resolveVsCodeCompositingLaunchArgs(targetPlatform: NodeJS.Platform = process.platform): string[] {
+  return targetPlatform === 'linux' ? ['--use-gl=angle', '--use-angle=swiftshader'] : [];
+}
+
 async function readExtensionReferences(
   extensionDevelopmentPath: string,
   extraExtensionIds: string[] = []
@@ -635,6 +644,7 @@ export async function launchVsCode(options: {
     '--disable-updates',
     '--no-sandbox'
   ];
+  args.push(...resolveVsCodeCompositingLaunchArgs());
   args.push(...resolveVsCodeProxyLaunchArgs());
   args.push(...authLaunch.args);
   const windowSizeArg = resolveWindowSizeArg(options.windowSize);
@@ -651,7 +661,6 @@ export async function launchVsCode(options: {
         env: {
           ...process.env,
           ...authLaunch.env,
-          ELECTRON_DISABLE_GPU: process.env.ELECTRON_DISABLE_GPU || '1',
           LC_ALL: process.env.LC_ALL || 'C.UTF-8',
           DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null',
           NO_AT_BRIDGE: process.env.NO_AT_BRIDGE || '1'
