@@ -28,7 +28,7 @@
     "watch": "tsc -p tsconfig.json --watch"
   },
   "devDependencies": {
-    "tsx": "^4.23.13"
+    "tsx": "^4.23.15"
   },
   "engines": {
     "node": ">=22.19.0"
