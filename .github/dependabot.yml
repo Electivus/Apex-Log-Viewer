@@ -11,80 +11,6 @@ updates:
     # Exceed pnpm's one-day minimum release age without delaying security updates.
     cooldown:
       default-days: 3
-    groups:
-      # Group tightly coupled dependency families for lower review overhead.
-      # Coupled stacks stay grouped across majors to avoid peer mismatch PRs.
-      react:
-        applies-to: version-updates
-        patterns:
-          - 'react'
-          - 'react-dom'
-          - '@types/react'
-          - '@types/react-dom'
-      radix-ui:
-        applies-to: version-updates
-        update-types:
-          - 'minor'
-          - 'patch'
-        patterns:
-          - '@radix-ui/*'
-      tailwind:
-        applies-to: version-updates
-        patterns:
-          - 'tailwindcss'
-          - '@tailwindcss/*'
-          - 'tailwindcss-*'
-          - 'postcss'
-          - 'autoprefixer'
-      testing:
-        applies-to: version-updates
-        patterns:
-          - 'jest'
-          - 'jest-*'
-          - 'jest-environment-*'
-          - '@types/jest'
-          - '@testing-library/*'
-          - 'ts-jest'
-          - 'jsdom'
-          - '@types/jsdom'
-      typescript-tooling:
-        applies-to: version-updates
-        patterns:
-          - 'typescript'
-          - '@typescript-eslint/*'
-          - 'eslint'
-          - '@eslint/*'
-      playwright:
-        applies-to: version-updates
-        patterns:
-          - 'playwright'
-          - '@playwright/test'
-      salesforce-runtime:
-        applies-to: version-updates
-        patterns:
-          - '@salesforce/core'
-          - '@salesforce/sf-plugins-core'
-          - '@oclif/core'
-      vscode-extension-tooling:
-        applies-to: version-updates
-        patterns:
-          - '@vscode/test-electron'
-          - '@vscode/l10n-dev'
-          - '@vscode/vsce'
-      # Specific families above take precedence; unrelated majors stay separate.
-      other-production:
-        applies-to: version-updates
-        dependency-type: production
-        update-types: ['minor', 'patch']
-        patterns: ['*']
-      other-development:
-        applies-to: version-updates
-        dependency-type: development
-        update-types: ['minor', 'patch']
-        patterns: ['*']
-      security:
-        applies-to: security-updates
-        patterns: ['*']
     ignore:
       # TS 7 removes baseUrl/Node10 resolution and is outside ts-jest/parser peers.
       # Revisit with a coordinated compiler and test-transformer migration (#980).
@@ -112,8 +38,3 @@ updates:
       time: '06:00'
       timezone: 'America/Bahia'
     open-pull-requests-limit: 3
-    groups:
-      actions:
-        applies-to: version-updates
-        update-types: ['minor', 'patch']
-        patterns: ['*']

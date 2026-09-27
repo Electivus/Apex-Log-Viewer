@@ -1083,7 +1083,8 @@ test('dependency review workflow exists and is wired to pull_request', () => {
   assert.match(workflow, /^name:\s+Dependency Review$/m);
   assert.match(workflow, /^on:\s*[\r\n]+  pull_request:/m);
   assert.match(workflow, /uses:\s+actions\/dependency-review-action@[0-9a-f]{40}/);
-  assert.match(workflow, /config-file:\s+\.\/\.github\/dependency-review-config\.yml/);
+  assert.match(workflow, /fail-on-severity:\s+moderate/);
+  assert.match(workflow, /fail-on-scopes:\s+runtime, development/);
 });
 
 test('CI workflow enforces dependency provenance and pnpm signature verification', () => {
@@ -1581,7 +1582,6 @@ test('CODEOWNERS covers workflows, manifests, lockfiles, and release metadata', 
   const owners = read('.github/CODEOWNERS');
   for (const expected of [
     '/.github/workflows/ @Electivus/maintainers',
-    '/.github/dependency-review-config.yml @Electivus/maintainers',
     '/package.json @Electivus/maintainers',
     '/pnpm-lock.yaml @Electivus/maintainers',
     '/pnpm-workspace.yaml @Electivus/maintainers',
