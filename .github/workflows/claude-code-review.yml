@@ -10,6 +10,11 @@ on:
     #   - "src/**/*.js"
     #   - "src/**/*.jsx"
 
+# Cancel a superseded review when new commits land on the same PR.
+concurrency:
+  group: claude-code-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   claude-review:
     # Fork and Dependabot PRs do not receive ANTHROPIC_API_KEY, so skip them.
@@ -30,12 +35,24 @@ jobs:
         with:
           fetch-depth: 1
 
+      # Pin the review plugin marketplace to an immutable revision.
+      - name: Checkout Claude Code review plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: anthropics/claude-code
+          ref: 7779afb12e3635f46f56ec823979d68350ae000b
+          path: .claude-code-plugins
+          persist-credentials: false
+          sparse-checkout: |
+            .claude-plugin
+            plugins/code-review
+
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@756cc22e19660d20e8cc9496b4f242475a7f7790 # v1.0.235
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
+          plugin_marketplaces: './.claude-code-plugins'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
