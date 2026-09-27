@@ -1,7 +1,6 @@
 * @Electivus/maintainers
 /.github/workflows/ @Electivus/maintainers
 /.github/dependabot.yml @Electivus/maintainers
-/.github/dependency-review-config.yml @Electivus/maintainers
 /package.json @Electivus/maintainers
 /pnpm-lock.yaml @Electivus/maintainers
 /pnpm-workspace.yaml @Electivus/maintainers
