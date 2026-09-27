@@ -47,13 +47,21 @@ jobs:
             .claude-plugin
             plugins/code-review
 
+      # Claude Code reserves the upstream marketplace name for GitHub sources in
+      # the anthropics org, so rename the pinned local copy before adding it.
+      - name: Rename pinned review plugin marketplace
+        run: |
+          jq '.name = "electivus-claude-code-plugins"' \
+            .claude-code-plugins/.claude-plugin/marketplace.json > marketplace.json.tmp
+          mv marketplace.json.tmp .claude-code-plugins/.claude-plugin/marketplace.json
+
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@756cc22e19660d20e8cc9496b4f242475a7f7790 # v1.0.235
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           plugin_marketplaces: './.claude-code-plugins'
-          plugins: 'code-review@claude-code-plugins'
+          plugins: 'code-review@electivus-claude-code-plugins'
           prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
