@@ -146,3 +146,17 @@ See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 - Run dependency/provenance checks with `pnpm run security:dependency-sources` and `pnpm run security:pnpm-signatures`.
 - Keep logs under `apexlogs/`.
 - `*.log` and `*.txt` are forbidden in commits and rejected by `.github/workflows/forbid-sensitive-files.yml`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues using the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage uses the five default canonical labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repository uses a single-context layout. See `docs/agents/domain.md`.
