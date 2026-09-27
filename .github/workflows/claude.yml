@@ -48,3 +48,13 @@ jobs:
           # or https://code.claude.com/docs/en/cli-reference for available options
           # claude_args: '--allowed-tools Bash(gh pr *)'
 
+      # The action hides Claude's output by default; on failure, print only the
+      # final result message so API errors (auth, credits, model access) show up.
+      - name: Show Claude error
+        if: failure() && steps.claude.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          jq -r '[.[] | select(.type == "result")] | last
+            | "subtype: \(.subtype)\nresult: \(.result // "")\nerrors: \(.errors // [] | join("; "))"' \
+            "$EXECUTION_FILE"
