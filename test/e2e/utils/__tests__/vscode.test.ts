@@ -13,7 +13,8 @@ import {
   resolveVscodeDownloadTimeoutMs,
   resolveWindowSizeArg,
   resolveSupportExtensionIds,
-  resolveVsCodeAuthLaunch
+  resolveVsCodeAuthLaunch,
+  resolveVsCodeCompositingLaunchArgs
 } from '../vscode';
 
 describe('macOS CI authentication homes', () => {
@@ -310,5 +311,16 @@ describe('resolveWindowSizeArg', () => {
     expect(resolveWindowSizeArg()).toBeUndefined();
     expect(resolveWindowSizeArg({ width: 0, height: 1320 })).toBeUndefined();
     expect(resolveWindowSizeArg({ width: 1720, height: Number.NaN })).toBeUndefined();
+  });
+});
+
+describe('resolveVsCodeCompositingLaunchArgs', () => {
+  test('keeps Linux webviews on SwiftShader GPU compositing', () => {
+    expect(resolveVsCodeCompositingLaunchArgs('linux')).toEqual(['--use-gl=angle', '--use-angle=swiftshader']);
+  });
+
+  test('leaves the native compositor on other platforms', () => {
+    expect(resolveVsCodeCompositingLaunchArgs('darwin')).toEqual([]);
+    expect(resolveVsCodeCompositingLaunchArgs('win32')).toEqual([]);
   });
 });
