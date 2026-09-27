@@ -22,13 +22,18 @@ async function readDependabotUpdates(): Promise<ParsedDependabotUpdate[]> {
 }
 
 suite('dependabot config', () => {
-  test('does not group dependency updates', async () => {
+  test('groups only the Playwright packages that must share one version range', async () => {
     const updates = await readDependabotUpdates();
 
     assert.deepEqual(
       updates.filter(update => update.groups !== undefined).map(update => update['package-ecosystem']),
-      [],
-      'dependabot updaters should open one pull request per dependency'
+      ['npm'],
+      'only the npm updater should define groups; other updates open one pull request per dependency'
+    );
+    assert.deepEqual(
+      updates.find(update => update['package-ecosystem'] === 'npm')?.groups,
+      { playwright: { patterns: ['playwright', '@playwright/test'] } },
+      'playwright and @playwright/test must update together because run-playwright-e2e.test.js requires equal ranges'
     );
   });
 

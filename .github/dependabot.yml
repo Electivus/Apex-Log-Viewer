@@ -11,6 +11,12 @@ updates:
     # Exceed pnpm's one-day minimum release age without delaying security updates.
     cooldown:
       default-days: 3
+    groups:
+      # scripts/run-playwright-e2e.test.js requires both ranges to stay identical.
+      playwright:
+        patterns:
+          - 'playwright'
+          - '@playwright/test'
     ignore:
       # TS 7 removes baseUrl/Node10 resolution and is outside ts-jest/parser peers.
       # Revisit with a coordinated compiler and test-transformer migration (#980).
