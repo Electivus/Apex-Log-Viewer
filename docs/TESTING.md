@@ -67,6 +67,7 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 - The CLI real-org suite uses the same scratch-org helper layer as the extension suite, but it stays entirely outside the VS Code host and validates the `sf electivus` workflows directly.
 - Playwright E2E runs keep the isolated VS Code profile intentionally minimal. Support extensions are installed per scenario instead of pulling the full Salesforce Extension Pack by default. Replay-specific specs opt into `salesforce.salesforcedx-vscode-apex-replay-debugger`, and the harness dismisses visible VS Code notifications during startup to reduce click interception flakiness.
 - Playwright E2E keeps `--extensions-dir` isolated. If a required support extension is missing from that isolated profile, the harness now fails explicitly instead of reusing your machine-wide VS Code extensions.
+- On Linux, Playwright E2E launches VS Code with `--use-gl=angle --use-angle=swiftshader`. CI runners and the proxy-lab container have no GPU, so Chromium would otherwise fall back to software compositing. Since VS Code 1.139 (Electron 43), webview renderers on that path intermittently abort (Playwright reports `Target crashed` / `Page crashed`), typically in the second webview opened in the editor area, such as Debug Flags or the Log Viewer. SwiftShader keeps GPU compositing enabled without hardware, which is also closer to Linux desktops.
 - On headless Linux, the script re‑executes under `xvfb-run` if available and sets Electron flags to reduce GPU/DBus issues.
 
 ## Environment variables
