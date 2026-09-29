@@ -1,0 +1,90 @@
+name: Warm Salesforce CLI cache
+
+# Caches saved from a pull request are scoped to that PR, so the direct Real Org
+# E2E Lanes only restore the Salesforce CLI cache. This workflow saves it in the
+# default-branch scope, which every PR targeting main can read.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .nvmrc
+      - scripts/setup-salesforce-cli.mjs
+      - .github/workflows/salesforce-cli-cache.yml
+  schedule:
+    # Days 1, 7, 13, 19, 25 and 31 keep every gap inside GitHub's 7-day eviction window.
+    - cron: '23 5 */6 * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  warm_salesforce_cli_cache:
+    name: Warm Salesforce CLI cache (${{ matrix.os.runner }})
+    runs-on: ${{ matrix.os.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - runner: windows-latest
+          - runner: macos-latest
+    env:
+      SALESFORCE_CLI_PACKAGE: '@salesforce/cli@2.150.6'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      # The steps below mirror the direct lanes' Salesforce CLI setup in
+      # e2e-playwright.yml. The key embeds the Node version that runs the resolver.
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup Salesforce CLI Node.js
+        if: runner.os == 'macOS'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .nvmrc
+
+      - name: Resolve Salesforce CLI cache metadata
+        id: sf-cli-cache
+        shell: bash
+        run: node scripts/setup-salesforce-cli.mjs --print-cache-key
+        env:
+          SALESFORCE_CLI_CACHE_KEY_OS: ${{ runner.os }}
+          SALESFORCE_CLI_CACHE_ROOT: ${{ runner.tool_cache }}
+
+      # Same cache-service request as a restore, without the download. On a hit,
+      # nothing is left to do; on an eviction, the scheduled run recreates the entry.
+      - name: Look up Salesforce CLI cache
+        id: sf-cli-cache-lookup
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ steps.sf-cli-cache.outputs.cache-dir }}
+          key: ${{ steps.sf-cli-cache.outputs.cache-key }}
+          lookup-only: true
+
+      - name: Setup Salesforce CLI
+        if: steps.sf-cli-cache-lookup.outputs.cache-hit != 'true'
+        shell: bash
+        run: node scripts/setup-salesforce-cli.mjs
+        env:
+          SALESFORCE_CLI_CACHE_KEY_OS: ${{ runner.os }}
+          SALESFORCE_CLI_CACHE_ROOT: ${{ runner.tool_cache }}
+          SALESFORCE_CLI_WRAP_NODE: ${{ runner.os == 'macOS' && '1' || '' }}
+
+      - name: Save Salesforce CLI cache
+        if: steps.sf-cli-cache-lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ steps.sf-cli-cache.outputs.cache-dir }}
+          key: ${{ steps.sf-cli-cache.outputs.cache-key }}

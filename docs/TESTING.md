@@ -201,7 +201,7 @@ To validate against a Salesforce CLI package override, such as the nightly build
 pnpm run test:e2e:proxy-lab:sf-nightly -- pnpm run test:e2e -- test/e2e/specs/openLogViewer.e2e.spec.ts
 ```
 
-The standard GitHub Playwright E2E workflow first classifies the changed paths, preserving a successful required summary while safely skipping costly real-org lanes for documentation-only changes. Risk-triggered runs execute one full pass per operating system. Ubuntu runs CLI and VS Code tests through the MITM proxy lab; Windows and macOS run both suites directly. The jobs reuse dependency, VS Code, and Salesforce CLI caches. When telemetry validation is configured, the Ubuntu extension run emits telemetry under a shared `testRunId`, and a final lightweight Ubuntu job queries Log Analytics after the E2E jobs pass.
+The standard GitHub Playwright E2E workflow first classifies the changed paths, preserving a successful required summary while safely skipping costly real-org lanes for documentation-only changes. Risk-triggered runs execute one full pass per operating system. Ubuntu runs CLI and VS Code tests through the MITM proxy lab; Windows and macOS run both suites directly. The jobs reuse dependency, VS Code, and Salesforce CLI caches; Windows and macOS restore a Salesforce CLI cache warmed on `main` and never save it from a pull request. When telemetry validation is configured, the Ubuntu extension run emits telemetry under a shared `testRunId`, and a lightweight Ubuntu job queries Log Analytics after the Ubuntu lane passes, in parallel with the Windows and macOS lanes.
 
 Pool-specific env vars:
 

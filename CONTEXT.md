@@ -20,6 +20,14 @@ _Avoid_: replay debugger — when referring to the Apex Log Viewer-owned present
 One progressive discovery workflow across a stable Apex log catalog snapshot and dependable local log bodies. Bodies acquired while searching join the normal Apex Log Lifecycle rather than a temporary search-only cache.
 _Avoid_: metadata filter, local search — when referring to the combined behavior
 
+**Real Org E2E**:
+The end-to-end validation of the product surfaces against real Salesforce test environments leased from the Scratch Org Pool.
+_Avoid_: scratch-org tests, Playwright E2E — when referring to the whole real-org validation
+
+**Real Org E2E Lane**:
+One complete run of Real Org E2E in a single operating-system environment. Real Org E2E passes only when every lane passes.
+_Avoid_: shard
+
 **Scratch Org Pool**:
 The reusable collection of Salesforce test environments available to Apex Log Viewer validation, with each environment assigned through a time-limited lease.
 _Avoid_: org cache, runner pool — when referring to this managed collection
