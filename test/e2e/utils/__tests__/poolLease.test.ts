@@ -31,13 +31,19 @@ function fakeScratchOrgProvider() {
 
 const passed = (title = 'passes'): PoolLeaseTestOutcome => ({ title, status: 'passed', expectedStatus: 'passed' });
 const timedOut: PoolLeaseTestOutcome = { title: 'opens the log', status: 'timedOut', expectedStatus: 'passed' };
+const completedRelease: ScratchOrgCleanupOptions = {
+  success: true,
+  needsRecreate: false,
+  errorMessage: undefined,
+  lastRunResult: 'completed'
+};
 
 describe('createPoolLease', () => {
   test('takes no Pool Lease when no test requests the org', async () => {
     const provider = fakeScratchOrgProvider();
     const poolLease = createPoolLease(provider.provide);
 
-    poolLease.recordTestOutcome(passed());
+    await poolLease.finishTest(passed());
     await poolLease.release();
 
     expect(provider.provide).not.toHaveBeenCalled();
@@ -67,7 +73,7 @@ describe('createPoolLease', () => {
     const poolLease = createPoolLease(provider.provide);
 
     const concurrent = await Promise.all([poolLease.acquire(), poolLease.acquire()]);
-    poolLease.recordTestOutcome(passed('first'));
+    await poolLease.finishTest(passed('first'));
     const later = await poolLease.acquire();
 
     expect(concurrent).toEqual(['ALV_Pool_1', 'ALV_Pool_1']);
@@ -80,12 +86,10 @@ describe('createPoolLease', () => {
     const poolLease = createPoolLease(provider.provide);
 
     await poolLease.acquire();
-    poolLease.recordTestOutcome(passed());
+    await poolLease.finishTest(passed());
     await poolLease.release();
 
-    expect(provider.releases).toEqual([
-      { success: true, needsRecreate: false, errorMessage: undefined, lastRunResult: 'completed' }
-    ]);
+    expect(provider.releases).toEqual([completedRelease]);
   });
 
   test('retires the environment when a test status differs from its expected status', async () => {
@@ -93,7 +97,7 @@ describe('createPoolLease', () => {
     const poolLease = createPoolLease(provider.provide);
 
     await poolLease.acquire();
-    poolLease.recordTestOutcome(timedOut);
+    await poolLease.finishTest(timedOut);
     await poolLease.release();
 
     expect(provider.releases).toEqual([
@@ -117,7 +121,7 @@ describe('createPoolLease', () => {
         throw teardownError;
       })
     ).rejects.toBe(teardownError);
-    poolLease.recordTestOutcome(passed());
+    await poolLease.finishTest(passed());
     await poolLease.release();
 
     expect(provider.releases).toEqual([
@@ -133,12 +137,10 @@ describe('createPoolLease', () => {
     const poolLease = createPoolLease(provider.provide);
 
     await poolLease.acquire();
-    poolLease.recordTestOutcome(outcome);
+    await poolLease.finishTest(outcome);
     await poolLease.release();
 
-    expect(provider.releases).toEqual([
-      { success: true, needsRecreate: false, errorMessage: undefined, lastRunResult: 'completed' }
-    ]);
+    expect(provider.releases).toEqual([completedRelease]);
   });
 
   test('fails the test and retires the environment when the lease health check fails after it', async () => {
@@ -147,7 +149,7 @@ describe('createPoolLease', () => {
 
     await poolLease.acquire();
     provider.loseLeaseHealth('Scratch-org pool heartbeat lost the lease.');
-    expect(() => poolLease.recordTestOutcome(passed())).toThrow('Scratch-org pool heartbeat lost the lease.');
+    await expect(poolLease.finishTest(passed())).rejects.toThrow('Scratch-org pool heartbeat lost the lease.');
     await poolLease.release();
 
     expect(provider.releases).toEqual([
@@ -160,15 +162,19 @@ describe('createPoolLease', () => {
     ]);
   });
 
-  test('refuses reuse after a recorded failure', async () => {
+  test('refuses reuse of the Pool Lease once a failure is recorded', async () => {
     const provider = fakeScratchOrgProvider();
     const poolLease = createPoolLease(provider.provide);
 
     await poolLease.acquire();
-    poolLease.recordTestOutcome({ title: 'opens the log', status: 'failed', expectedStatus: 'passed' });
+    await expect(
+      poolLease.runTeardown(passed(), async () => {
+        throw new Error('VS Code did not exit');
+      })
+    ).rejects.toThrow();
 
     await expect(poolLease.acquire()).rejects.toThrow(
-      "Test 'opens the log' ended with status 'failed' (expected 'passed')."
+      'Pool Lease cannot be reused after a failure: VS Code did not exit'
     );
     expect(provider.provide).toHaveBeenCalledTimes(1);
   });
@@ -183,7 +189,7 @@ describe('createPoolLease', () => {
         throw new Error('Could not redact the preserved VS Code user data.');
       })
     ).rejects.toThrow();
-    poolLease.recordTestOutcome(timedOut);
+    await poolLease.finishTest(timedOut);
     await poolLease.release();
 
     expect(provider.releases).toEqual([
@@ -205,7 +211,7 @@ describe('createPoolLease', () => {
       })
     ).rejects.toThrow();
     provider.loseLeaseHealth('Scratch-org pool heartbeat lost the lease.');
-    expect(() => poolLease.recordTestOutcome(passed())).toThrow();
+    await expect(poolLease.finishTest(passed())).rejects.toThrow();
     await poolLease.release();
 
     expect(provider.releases).toEqual([
@@ -224,6 +230,93 @@ describe('createPoolLease', () => {
 
     expect(provider.releases).toEqual([
       expect.objectContaining({ needsRecreate: true, errorMessage: 'Scratch-org pool heartbeat lost the lease.' })
+    ]);
+  });
+});
+
+describe('createPoolLease across one test runner', () => {
+  test('reuses one Pool Lease across consecutive tests and releases it once as completed', async () => {
+    const provider = fakeScratchOrgProvider();
+    const poolLease = createPoolLease(provider.provide);
+    const consecutiveTests: PoolLeaseTestOutcome[] = [
+      passed('opens the log'),
+      { title: 'known bug', status: 'failed', expectedStatus: 'failed' },
+      { title: 'needs replay debugger', status: 'skipped', expectedStatus: 'skipped' },
+      passed('filters errors')
+    ];
+
+    const aliases: string[] = [];
+    for (const outcome of consecutiveTests) {
+      aliases.push(await poolLease.acquire());
+      await poolLease.runTeardown(outcome, async () => {});
+      await poolLease.finishTest(outcome);
+    }
+    await poolLease.release();
+
+    expect(aliases).toEqual(['ALV_Pool_1', 'ALV_Pool_1', 'ALV_Pool_1', 'ALV_Pool_1']);
+    expect(provider.provide).toHaveBeenCalledTimes(1);
+    expect(provider.releases).toEqual([completedRelease]);
+  });
+
+  test('ends the Pool Lease when a test with a failure finishes, so the next test takes a new one', async () => {
+    const provider = fakeScratchOrgProvider();
+    const poolLease = createPoolLease(provider.provide);
+    const knownBug: PoolLeaseTestOutcome = { title: 'known bug', status: 'failed', expectedStatus: 'failed' };
+
+    await poolLease.acquire();
+    await poolLease.finishTest(passed('opens the log'));
+    await poolLease.acquire();
+    await expect(
+      poolLease.runTeardown(knownBug, async () => {
+        throw new Error('VS Code did not exit');
+      })
+    ).rejects.toThrow();
+    await poolLease.finishTest(knownBug);
+
+    expect(provider.releases).toEqual([
+      { success: false, needsRecreate: true, errorMessage: 'VS Code did not exit', lastRunResult: 'failed' }
+    ]);
+
+    await expect(poolLease.acquire()).resolves.toBe('ALV_Pool_2');
+    await poolLease.finishTest(passed('filters errors'));
+    await poolLease.release();
+
+    expect(provider.provide).toHaveBeenCalledTimes(2);
+    expect(provider.releases).toEqual([
+      { success: false, needsRecreate: true, errorMessage: 'VS Code did not exit', lastRunResult: 'failed' },
+      completedRelease
+    ]);
+  });
+
+  test('ignores the outcome of a later test that never requested the org', async () => {
+    const provider = fakeScratchOrgProvider();
+    const poolLease = createPoolLease(provider.provide);
+
+    await poolLease.acquire();
+    await poolLease.finishTest(passed('uses the org'));
+    await poolLease.finishTest({ title: 'checks settings only', status: 'failed', expectedStatus: 'passed' });
+    await poolLease.release();
+
+    expect(provider.releases).toEqual([completedRelease]);
+  });
+
+  test('skips the health check for a test that never requested the org and retires the environment at release', async () => {
+    const provider = fakeScratchOrgProvider();
+    const poolLease = createPoolLease(provider.provide);
+
+    await poolLease.acquire();
+    await poolLease.finishTest(passed('uses the org'));
+    provider.loseLeaseHealth('Scratch-org pool heartbeat lost the lease.');
+    await expect(poolLease.finishTest(passed('checks settings only'))).resolves.toBeUndefined();
+    await poolLease.release();
+
+    expect(provider.releases).toEqual([
+      {
+        success: false,
+        needsRecreate: true,
+        errorMessage: 'Scratch-org pool heartbeat lost the lease.',
+        lastRunResult: 'failed'
+      }
     ]);
   });
 });
