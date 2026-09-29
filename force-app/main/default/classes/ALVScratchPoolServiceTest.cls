@@ -29,6 +29,27 @@ private class ALVScratchPoolServiceTest {
         return slot;
     }
 
+    private static ALV_ScratchOrgPoolSlot__c createHealthySlot(ALV_ScratchOrgPool__c pool, String slotKey) {
+        ALV_ScratchOrgPoolSlot__c slot = createSlot(pool, slotKey);
+        slot.HealthState__c = 'healthy';
+        slot.DefinitionHash__c = 'baseline-hash';
+        slot.SeedVersion__c = 'seed-v1';
+        slot.ScratchUsername__c = slotKey + '@example.com';
+        slot.ScratchLoginUrl__c = 'https://' + slotKey + '.scratch.my.salesforce.com';
+        slot.ScratchAuthUrl__c = 'force://' + slotKey + '-auth';
+        slot.ScratchExpiresAt__c = Datetime.now().addDays(7);
+        update slot;
+        return slot;
+    }
+
+    private static void expireLease(ALV_ScratchOrgPoolSlot__c slot, String leaseState) {
+        slot.LeaseState__c = leaseState;
+        slot.LeaseOwner__c = 'abandoned-owner';
+        slot.LeaseToken__c = 'abandoned-token';
+        slot.LeaseExpiresAt__c = Datetime.now().addMinutes(-10);
+        update slot;
+    }
+
     @IsTest
     static void acquirePrefersHealthySlots() {
         ALV_ScratchOrgPool__c pool = createPool('alv-e2e');
@@ -114,6 +135,92 @@ private class ALVScratchPoolServiceTest {
         System.assertEquals('slot-expired', response.slotKey);
         System.assertEquals(true, response.needsCreate);
         System.assertEquals('provisioning', response.leaseState);
+        ALV_ScratchOrgPoolSlot__c refreshed = [
+            SELECT HealthState__c, LastRunResult__c, LastError__c
+            FROM ALV_ScratchOrgPoolSlot__c
+            WHERE Id = :slot.Id
+        ];
+        System.assertEquals('broken', refreshed.HealthState__c);
+        System.assertEquals('lease-expired', refreshed.LastRunResult__c);
+        System.assert(refreshed.LastError__c.contains('expired without release'), refreshed.LastError__c);
+    }
+
+    @IsTest
+    static void acquireRetiresSlotsWhoseLeaseExpiredWithoutRelease() {
+        ALV_ScratchOrgPool__c pool = createPool('alv-expired-healthy');
+        ALV_ScratchOrgPoolSlot__c abandonedLeaseSlot = createHealthySlot(pool, 'slot-01');
+        expireLease(abandonedLeaseSlot, 'leased');
+        ALV_ScratchOrgPoolSlot__c abandonedMaintenanceSlot = createHealthySlot(pool, 'slot-02');
+        expireLease(abandonedMaintenanceSlot, 'provisioning');
+        createHealthySlot(pool, 'slot-03');
+
+        System.Test.startTest();
+        ALVScratchPoolService.LeaseResponse response = ALVScratchPoolService.acquire(new Map<String, Object>{
+            'poolKey' => 'alv-expired-healthy',
+            'leaseOwner' => 'new-owner',
+            'leaseTtlSeconds' => 120,
+            'definitionHash' => 'baseline-hash',
+            'seedVersion' => 'seed-v1',
+            'minRemainingMinutes' => 60
+        });
+        System.Test.stopTest();
+
+        System.assertEquals('slot-03', response.slotKey);
+        System.assertEquals(false, response.needsCreate);
+        List<Id> abandonedSlotIds = new List<Id>{ abandonedLeaseSlot.Id, abandonedMaintenanceSlot.Id };
+        List<ALV_ScratchOrgPoolSlot__c> retiredSlots = [
+            SELECT SlotKey__c, LeaseState__c, HealthState__c, LeaseOwner__c, LeaseToken__c, LeaseExpiresAt__c,
+                   ScratchAuthUrl__c, LastRunResult__c, LastError__c
+            FROM ALV_ScratchOrgPoolSlot__c
+            WHERE Id IN :abandonedSlotIds
+        ];
+        System.assertEquals(2, retiredSlots.size());
+        for (ALV_ScratchOrgPoolSlot__c retired : retiredSlots) {
+            System.assertEquals('available', retired.LeaseState__c, retired.SlotKey__c);
+            System.assertEquals('needs_recreate', retired.HealthState__c, retired.SlotKey__c);
+            System.assertEquals(null, retired.LeaseOwner__c, retired.SlotKey__c);
+            System.assertEquals(null, retired.LeaseToken__c, retired.SlotKey__c);
+            System.assertEquals(null, retired.LeaseExpiresAt__c, retired.SlotKey__c);
+            System.assertEquals(null, retired.ScratchAuthUrl__c, retired.SlotKey__c);
+            System.assertEquals('lease-expired', retired.LastRunResult__c, retired.SlotKey__c);
+            System.assert(retired.LastError__c.contains('expired without release'), retired.LastError__c);
+        }
+    }
+
+    @IsTest
+    static void releaseKeepsHealthySlotHealthyAfterCompletedLease() {
+        ALV_ScratchOrgPool__c pool = createPool('alv-release-healthy');
+        ALV_ScratchOrgPoolSlot__c slot = createHealthySlot(pool, 'slot-01');
+        slot.LeaseState__c = 'leased';
+        slot.LeaseOwner__c = 'owner';
+        slot.LeaseToken__c = 'lease-token';
+        slot.LeaseExpiresAt__c = Datetime.now().addMinutes(5);
+        update slot;
+
+        System.Test.startTest();
+        ALVScratchPoolService.releaseLease(new Map<String, Object>{
+            'poolKey' => 'alv-release-healthy',
+            'slotKey' => 'slot-01',
+            'leaseToken' => 'lease-token',
+            'success' => true,
+            'needsRecreate' => false,
+            'lastRunResult' => 'completed',
+            'scratchAuthUrl' => 'force://slot-01-refreshed-auth'
+        });
+        System.Test.stopTest();
+
+        ALV_ScratchOrgPoolSlot__c refreshed = [
+            SELECT LeaseState__c, HealthState__c, LeaseToken__c, ScratchAuthUrl__c, LastRunResult__c, LastError__c, UsageCount__c
+            FROM ALV_ScratchOrgPoolSlot__c
+            WHERE Id = :slot.Id
+        ];
+        System.assertEquals('available', refreshed.LeaseState__c);
+        System.assertEquals('healthy', refreshed.HealthState__c);
+        System.assertEquals(null, refreshed.LeaseToken__c);
+        System.assertEquals('force://slot-01-refreshed-auth', refreshed.ScratchAuthUrl__c);
+        System.assertEquals('completed', refreshed.LastRunResult__c);
+        System.assertEquals(null, refreshed.LastError__c);
+        System.assertEquals(1, refreshed.UsageCount__c);
     }
 
     @IsTest

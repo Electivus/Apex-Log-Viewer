@@ -33,11 +33,11 @@ The reusable collection of Salesforce test environments available to Apex Log Vi
 _Avoid_: org cache, runner pool — when referring to this managed collection
 
 **Pool Lease**:
-One sequential test runner's exclusive, time-limited hold on a Scratch Org Pool environment, kept across the runner's consecutive tests until the runner finishes or a test that used the environment does not finish as expected.
+One sequential test runner's exclusive, time-limited hold on a Scratch Org Pool environment, kept across the runner's consecutive tests until the runner finishes, a test that used the environment does not finish as expected, or the lease expires without being released.
 _Avoid_: slot lease, slot checkout
 
 **Slot Recovery**:
-Replacing retired Scratch Org Pool environments outside any Real Org E2E run, so that a Pool Lease almost never waits for a new environment to be created. An environment is retired when a test that used it did not finish as expected. Slot Recovery never touches an environment while it is leased.
+Replacing retired Scratch Org Pool environments outside any Real Org E2E run, so that a Pool Lease almost never waits for a new environment to be created. An environment is retired when a test that used it did not finish as expected, or when its lease expired without being released. Slot Recovery never touches an environment while it is leased.
 _Avoid_: reconcile, pool refresh — when referring to this replacement
 
 **Dev Hub Automation Identity**:
