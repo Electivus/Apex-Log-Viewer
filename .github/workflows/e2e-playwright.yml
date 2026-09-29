@@ -272,8 +272,9 @@ jobs:
           SALESFORCE_CLI_CACHE_KEY_OS: ${{ runner.os }}
           SALESFORCE_CLI_CACHE_ROOT: ${{ runner.tool_cache }}
 
+      # Warmed on main by salesforce-cli-cache.yml; PR-scoped saves are invisible to other PRs.
       - name: Restore Salesforce CLI cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ${{ steps.sf-cli-cache.outputs.cache-dir }}
           key: ${{ steps.sf-cli-cache.outputs.cache-key }}
@@ -410,10 +411,10 @@ jobs:
 
   playwright_e2e_telemetry:
     name: Playwright E2E Telemetry (scratch org)
+    # Only the Ubuntu lane emits telemetry, so validation runs alongside the direct lanes.
     needs:
       - classify_e2e
       - playwright_e2e
-      - playwright_e2e_os_matrix
     if: ${{ needs.classify_e2e.outputs.run_e2e == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20

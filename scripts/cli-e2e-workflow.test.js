@@ -634,7 +634,7 @@ test('direct macOS Playwright workflow runs Salesforce CLI through the cached se
   );
 });
 
-test('real-org Playwright workflow runs telemetry validation after the E2E jobs', () => {
+test('real-org Playwright workflow validates Ubuntu telemetry in parallel with the direct lanes', () => {
   const workflow = readWorkflow();
   const job = getWorkflowJob(workflow, 'playwright_e2e_telemetry');
   const telemetryStep = getTelemetryWorkflowStep(workflow, 'Run Playwright E2E telemetry validation');
@@ -642,8 +642,8 @@ test('real-org Playwright workflow runs telemetry validation after the E2E jobs'
 
   assert.deepEqual(
     job.needs,
-    ['classify_e2e', 'playwright_e2e', 'playwright_e2e_os_matrix'],
-    'expected telemetry validation to wait for both E2E jobs'
+    ['classify_e2e', 'playwright_e2e'],
+    'expected telemetry validation to wait only for the classifier and the Ubuntu lane that emits the telemetry'
   );
   assert.equal(
     job.if,
