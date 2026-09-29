@@ -79,7 +79,12 @@ export function createPoolLease(provideScratchOrg: () => Promise<ScratchOrgResul
         throw new Error(`Pool Lease cannot be reused after a failure: ${failureMessage}`);
       }
       acquisition ??= provideScratchOrg();
-      scratch = await acquisition;
+      try {
+        scratch = await acquisition;
+      } catch (error) {
+        recordFailure(error);
+        throw error;
+      }
       const healthFailure = recordLeaseHealth(scratch);
       if (healthFailure) {
         throw healthFailure;

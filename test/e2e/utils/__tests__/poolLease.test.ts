@@ -288,6 +288,18 @@ describe('createPoolLease across one test runner', () => {
     ]);
   });
 
+  test('retries acquisition in the next test after it failed in a test expected to fail', async () => {
+    const provider = fakeScratchOrgProvider();
+    provider.provide.mockRejectedValueOnce(new Error('No healthy pool slot became available.'));
+    const poolLease = createPoolLease(provider.provide);
+
+    await expect(poolLease.acquire()).rejects.toThrow('No healthy pool slot became available.');
+    await poolLease.finishTest({ title: 'known bug', status: 'failed', expectedStatus: 'failed' });
+
+    await expect(poolLease.acquire()).resolves.toBe('ALV_Pool_2');
+    expect(provider.provide).toHaveBeenCalledTimes(2);
+  });
+
   test('ignores the outcome of a later test that never requested the org', async () => {
     const provider = fakeScratchOrgProvider();
     const poolLease = createPoolLease(provider.provide);
