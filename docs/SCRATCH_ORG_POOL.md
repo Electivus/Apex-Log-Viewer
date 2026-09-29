@@ -55,6 +55,19 @@ After this migration, `reconcile` marks any slot without a stored `sfdxAuthUrl` 
 
 `prewarm` is the maintenance command to eagerly create every pending scratch org slot instead of waiting for the first E2E worker to trigger recreation. Use `--limit <n>` when you want to warm the pool gradually.
 
+`prewarm` takes a conditional maintenance lease per slot and skips slots that are leased or provisioning, so it is safe while Real Org E2E runs. When a scratch creation fails, prewarm marks that slot `needs_recreate` and stops. If the process is cancelled or times out mid-slot, that slot stays `provisioning` until its 90-minute maintenance lease expires. `reconcile` is not safe alongside active leases: it rewrites every slot without a lease check and can move a retired slot back to `healthy` (#1156).
+
+## Slot Recovery
+
+The Slot Recovery workflow (`.github/workflows/slot-recovery.yml`) runs `prewarm` for `SF_SCRATCH_POOL_NAME` outside any Real Org E2E run, so a lease almost never waits for scratch creation. It runs after every completed E2E workflow run, whatever its conclusion, hourly, and on manual dispatch. Overlapping triggers collapse into one run at a time. It never runs `reconcile`.
+
+A run fails when prewarm cannot create a scratch org, for example at the Dev Hub's daily signup limit; the next trigger retries the remaining retired slots. A successful prewarm logs the healthy and `needs_recreate` slot counts. To confirm the outcome, dispatch the workflow and check the pool:
+
+```bash
+gh workflow run slot-recovery.yml --repo Electivus/Apex-Log-Viewer
+node scripts/devhub-local.js run -- corepack pnpm run scratch-pool:list -- --pool-key '<configured pool>'
+```
+
 ## Authentication model
 
 On the `codex/devhub-jwt` effort branch, administrative commands and consumers use the shared [Dev Hub JWT policy](DEVHUB_JWT.md). Production workflow/credential cutover remains #1078; the current Actions contract below is transitional.

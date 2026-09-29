@@ -1,0 +1,84 @@
+name: Slot Recovery
+
+# Replaces retired Scratch Org Pool environments outside any Real Org E2E run, so
+# a lease almost never waits for scratch org creation. Flaky first attempts retire
+# environments even in green runs, so every completed E2E run triggers recovery.
+on:
+  workflow_run:
+    workflows:
+      - E2E (Playwright • Real Org)
+    types:
+      - completed
+  schedule:
+    # Hourly backstop for when no Real Org E2E ran recently.
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+# One group for every trigger and ref: a running recovery finishes, and newer
+# triggers collapse into a single pending run.
+concurrency:
+  group: scratch-org-pool-slot-recovery
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  slot_recovery:
+    name: Recover Scratch Org Pool slots
+    runs-on: ubuntu-latest
+    # Prewarm replaces slots one at a time, so healing a fully retired pool can take about an hour.
+    timeout-minutes: 120
+    env:
+      SCRATCH_POOL_NAME: ${{ vars.SF_SCRATCH_POOL_NAME }}
+      SALESFORCE_CLI_PACKAGE: '@salesforce/cli@2.150.6'
+      # Hosted Linux runners have no desktop Secret Service; use the CLI's encrypted file keychain.
+      SF_USE_GENERIC_UNIX_KEYCHAIN: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Require scratch-org pool configuration
+        run: node scripts/check-real-org-config.js
+        env:
+          SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
+          SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+          SF_DEVHUB_LOGIN_URL: ${{ secrets.SF_DEVHUB_LOGIN_URL }}
+          SF_DEVHUB_PRIVATE_KEY: ${{ secrets.SF_DEVHUB_PRIVATE_KEY }}
+
+      - name: Enforce dependency source policy
+        run: node scripts/check-dependency-sources.mjs
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Setup Salesforce CLI
+        run: node scripts/setup-salesforce-cli.mjs
+
+      # Prewarm takes a conditional maintenance lease per slot and skips leased or
+      # provisioning slots, so it is safe alongside running lanes. Never add
+      # reconcile here: it rewrites every slot without a lease check and can move a
+      # retired slot back to healthy (#1156).
+      - name: Prewarm retired scratch-org pool slots
+        run: node scripts/scratch-pool-admin.js prewarm --pool-key "$SF_SCRATCH_POOL_NAME"
+        env:
+          SF_SCRATCH_POOL_NAME: ${{ env.SCRATCH_POOL_NAME }}
+          SF_DEVHUB_CLIENT_ID: ${{ secrets.SF_DEVHUB_CLIENT_ID }}
+          SF_DEVHUB_USERNAME: ${{ secrets.SF_DEVHUB_USERNAME }}
+          SF_DEVHUB_LOGIN_URL: ${{ secrets.SF_DEVHUB_LOGIN_URL }}
+          SF_DEVHUB_PRIVATE_KEY: ${{ secrets.SF_DEVHUB_PRIVATE_KEY }}
