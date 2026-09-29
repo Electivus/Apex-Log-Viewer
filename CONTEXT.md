@@ -32,6 +32,10 @@ _Avoid_: shard
 The reusable collection of Salesforce test environments available to Apex Log Viewer validation, with each environment assigned through a time-limited lease.
 _Avoid_: org cache, runner pool — when referring to this managed collection
 
+**Slot Recovery**:
+Replacing retired Scratch Org Pool environments outside any Real Org E2E run, so that a lease almost never waits for a new environment to be created. An environment is retired when a test that used it did not finish as expected. Slot Recovery never touches an environment while it is leased.
+_Avoid_: reconcile, pool refresh — when referring to this replacement
+
 **Dev Hub Automation Identity**:
 The dedicated Salesforce user responsible for managing the Scratch Org Pool and its test environments on behalf of automated validation.
 _Avoid_: scratch user, developer account — when referring to the pool-management identity
