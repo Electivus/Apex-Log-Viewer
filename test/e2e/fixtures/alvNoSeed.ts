@@ -1,21 +1,15 @@
 import path from 'node:path';
-import { test as base, expect, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
-import { ensureScratchOrg } from '../utils/scratchOrg';
 import { resolveSfCliInvocation } from '../utils/sfCli';
 import { createTempWorkspace } from '../utils/tempWorkspace';
 import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
+import { test as base } from './alvPoolLease';
 
 type Fixtures = {
-  scratchAlias: string;
   workspacePath: string;
   vscodeApp: ElectronApplication;
   vscodePage: Page;
-  scratchLeaseState: {
-    scratch: Awaited<ReturnType<typeof ensureScratchOrg>>;
-    hadFailure: boolean;
-    failureMessage?: string;
-  };
 };
 
 type Options = {
@@ -25,67 +19,18 @@ type Options = {
 export const test = base.extend<Fixtures & Options>({
   supportExtensionIds: [[], { option: true }],
 
-  scratchLeaseState: async ({}, use) => {
-    const scratch = await ensureScratchOrg();
-    const state = {
-      scratch,
-      hadFailure: false
-    };
-    try {
-      await use(state);
-    } finally {
-      await scratch.cleanup({
-        success: !state.hadFailure,
-        needsRecreate: state.hadFailure,
-        errorMessage: state.failureMessage,
-        lastRunResult: state.hadFailure ? 'failed' : 'completed'
-      });
-    }
-  },
-
-  _scratchLeaseGuard: [
-    async ({ scratchLeaseState }, use, testInfo) => {
-      try {
-        scratchLeaseState.scratch.assertLeaseHealthy?.();
-      } catch (error) {
-        scratchLeaseState.hadFailure = true;
-        scratchLeaseState.failureMessage ??= error instanceof Error ? error.message : String(error);
-        throw error;
-      }
-      await use();
-
-      if (testInfo.status !== testInfo.expectedStatus) {
-        scratchLeaseState.hadFailure = true;
-        scratchLeaseState.failureMessage ??= `Test '${testInfo.title}' ended with status '${testInfo.status}' (expected '${testInfo.expectedStatus}').`;
-      }
-
-      try {
-        scratchLeaseState.scratch.assertLeaseHealthy?.();
-      } catch (error) {
-        scratchLeaseState.hadFailure = true;
-        scratchLeaseState.failureMessage ??= error instanceof Error ? error.message : String(error);
-        throw error;
-      }
-    },
-    { auto: true }
-  ],
-
-  scratchAlias: async ({ scratchLeaseState }, use) => {
-    await use(scratchLeaseState.scratch.scratchAlias);
-  },
-
-  workspacePath: async ({ scratchAlias }, use, testInfo) => {
+  workspacePath: async ({ scratchAlias, poolLease }, use, testInfo) => {
     const sfCli = await resolveSfCliInvocation();
     const ws = await createTempWorkspace({ targetOrg: scratchAlias, sfCli: sfCli ?? undefined });
     try {
       await use(ws.workspacePath);
     } finally {
       // Preserve temp artifacts on failures so flaky E2E runs can be inspected locally.
-      await ws.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
+      await poolLease.runTeardown(testInfo, () => ws.cleanup({ keep: testInfo.status !== testInfo.expectedStatus }));
     }
   },
 
-  vscodeApp: async ({ workspacePath, supportExtensionIds }, use, testInfo) => {
+  vscodeApp: async ({ workspacePath, supportExtensionIds, poolLease }, use, testInfo) => {
     const repoRoot = path.join(__dirname, '..', '..', '..');
     const extensionDevelopmentPath = resolveExtensionDevelopmentPath(repoRoot);
     const launch = await launchVsCode({
@@ -96,7 +41,9 @@ export const test = base.extend<Fixtures & Options>({
     try {
       await use(launch.app);
     } finally {
-      await launch.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
+      await poolLease.runTeardown(testInfo, () =>
+        launch.cleanup({ keep: testInfo.status !== testInfo.expectedStatus })
+      );
     }
   },
 

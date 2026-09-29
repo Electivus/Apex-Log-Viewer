@@ -1,5 +1,5 @@
-import { test as base, expect } from '@playwright/test';
-import { ensureScratchOrg } from '../../utils/scratchOrg';
+import { expect } from '@playwright/test';
+import { test as base } from '../../fixtures/alvPoolLease';
 import { clearOrgApexLogs, seedApexLog } from '../../utils/seedLog';
 import { createTempWorkspace } from '../../utils/tempWorkspace';
 import { runAlvCli, type CliRunResult, type CliExecOptions } from '../utils/cli';
@@ -9,24 +9,16 @@ type SeededLog = {
   logId: string;
 };
 
-type ScratchLeaseState = {
-  scratch: Awaited<ReturnType<typeof ensureScratchOrg>>;
-  hadFailure: boolean;
-  failureMessage?: string;
-};
-
 type SyncLogsResult = {
   result: CliRunResult;
   json: any;
 };
 
 type Fixtures = {
-  scratchAlias: string;
   seededLog: SeededLog;
   workspacePath: string;
   runCli: (args: string[], options?: CliExecOptions) => Promise<CliRunResult>;
   syncLogs: () => Promise<SyncLogsResult>;
-  scratchLeaseState: ScratchLeaseState;
 };
 
 async function attachTextArtifact(
@@ -51,68 +43,20 @@ export function sfJsonResult(result: CliRunResult): any {
 }
 
 export const test = base.extend<Fixtures>({
-  scratchLeaseState: async ({}, use) => {
-    const scratch = await ensureScratchOrg();
-    const state: ScratchLeaseState = {
-      scratch,
-      hadFailure: false
-    };
-    try {
-      await use(state);
-    } finally {
-      await scratch.cleanup({
-        success: !state.hadFailure,
-        needsRecreate: state.hadFailure,
-        errorMessage: state.failureMessage,
-        lastRunResult: state.hadFailure ? 'failed' : 'completed'
-      });
-    }
-  },
-
-  _scratchLeaseGuard: [
-    async ({ scratchLeaseState }, use, testInfo) => {
-      try {
-        scratchLeaseState.scratch.assertLeaseHealthy?.();
-      } catch (error) {
-        scratchLeaseState.hadFailure = true;
-        scratchLeaseState.failureMessage ??= error instanceof Error ? error.message : String(error);
-        throw error;
-      }
-
-      await use();
-
-      if (testInfo.status !== testInfo.expectedStatus) {
-        scratchLeaseState.hadFailure = true;
-        scratchLeaseState.failureMessage ??= `Test '${testInfo.title}' ended with status '${testInfo.status}' (expected '${testInfo.expectedStatus}').`;
-      }
-
-      try {
-        scratchLeaseState.scratch.assertLeaseHealthy?.();
-      } catch (error) {
-        scratchLeaseState.hadFailure = true;
-        scratchLeaseState.failureMessage ??= error instanceof Error ? error.message : String(error);
-        throw error;
-      }
-    },
-    { auto: true }
-  ],
-
-  scratchAlias: async ({ scratchLeaseState }, use) => {
-    await use(scratchLeaseState.scratch.scratchAlias);
-  },
-
   seededLog: async ({ scratchAlias }, use) => {
     await clearOrgApexLogs(scratchAlias, 'all');
     const seeded = await seedApexLog(scratchAlias);
     await use(seeded);
   },
 
-  workspacePath: async ({ scratchAlias }, use, testInfo) => {
+  workspacePath: async ({ scratchAlias, poolLease }, use, testInfo) => {
     const workspace = await createTempWorkspace({ targetOrg: scratchAlias });
     try {
       await use(workspace.workspacePath);
     } finally {
-      await workspace.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
+      await poolLease.runTeardown(testInfo, () =>
+        workspace.cleanup({ keep: testInfo.status !== testInfo.expectedStatus })
+      );
     }
   },
 
