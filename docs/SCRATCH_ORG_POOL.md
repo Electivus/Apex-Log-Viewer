@@ -118,7 +118,7 @@ pnpm run test:e2e
 
 If `SF_SCRATCH_STRATEGY` is unset, the helper automatically switches to pool mode when `SF_SCRATCH_POOL_NAME` is present. The legacy single-scratch flow still works and remains the fallback when the pool is not configured.
 
-In pool mode, each Playwright test acquires its own scratch-org pool slot. `PLAYWRIGHT_WORKERS` controls how many isolated tests may run at the same time. In legacy single-scratch mode, the Playwright configs force serial execution so parallel tests do not share the same scratch alias.
+In pool mode, each Playwright worker holds one Pool Lease across its consecutive tests, from the first test that requests the org until the worker ends or the first failure ends it and marks the slot `needs_recreate` ([ADR 0006](adr/0006-hold-one-pool-lease-per-test-runner.md)). `PLAYWRIGHT_WORKERS` controls how many workers, each with its own Pool Lease, run at the same time. In legacy single-scratch mode, the Playwright configs force serial execution so parallel tests do not share the same scratch alias.
 
 ## GitHub Actions
 
@@ -146,7 +146,7 @@ Repository variables for pool mode:
 - `PLAYWRIGHT_TIMEOUT_MS` (optional)
 - `PLAYWRIGHT_EXPECT_TIMEOUT_MS` (optional)
 
-When pool mode is active, each Playwright test acquires its own scratch org slot and reuses the stored `sfdxAuthUrl` for that slot. The repository workflow defaults to `1` Playwright worker; set `PLAYWRIGHT_WORKERS` as an Actions repository variable, or use the `playwright_workers` dispatch input, to run multiple isolated tests concurrently. The Ubuntu VS Code extension proxy-lab lane can be tuned independently with `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS` because it runs VS Code/Electron inside Docker.
+When pool mode is active, each Playwright worker holds one Pool Lease across its consecutive tests and reuses the stored `sfdxAuthUrl` for that slot. The repository workflow defaults to `1` Playwright worker; set `PLAYWRIGHT_WORKERS` as an Actions repository variable, or use the `playwright_workers` dispatch input, to run several workers, each with its own Pool Lease, concurrently. The Ubuntu VS Code extension proxy-lab lane can be tuned independently with `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS` because it runs VS Code/Electron inside Docker.
 
 The workflow intentionally has no workflow-level concurrency group. The Apex pool service locks the pool record while it atomically assigns a free slot, so parallel PR and manual runs can use the configured capacity without sharing an org. When every slot is leased, clients retry until `SF_SCRATCH_POOL_WAIT_TIMEOUT_SECONDS` instead of over-leasing the pool.
 
