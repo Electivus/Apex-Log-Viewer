@@ -135,7 +135,7 @@
     "react-window": "^2.3.1",
     "sharp": "^0.35.4",
     "shell-quote": "^1.10.0",
-    "skills": "1.5.26",
+    "skills": "1.7.0",
     "tailwindcss": "^4.3.3",
     "tailwindcss-animate": "^1.0.7",
     "ts-jest": "^29.4.12",
