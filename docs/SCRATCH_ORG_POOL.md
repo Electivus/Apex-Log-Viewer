@@ -55,7 +55,11 @@ After this migration, `reconcile` marks any slot without a stored `sfdxAuthUrl` 
 
 `prewarm` is the maintenance command to eagerly create every pending scratch org slot instead of waiting for the first E2E worker to trigger recreation. Use `--limit <n>` when you want to warm the pool gradually.
 
-`prewarm` takes a conditional maintenance lease per slot and skips slots that are leased or provisioning, so it is safe while Real Org E2E runs. When a scratch creation fails, prewarm marks that slot `needs_recreate` and stops. If the process is cancelled or times out mid-slot, that slot stays `provisioning` until its 90-minute maintenance lease expires. `reconcile` is not safe alongside active leases: it rewrites every slot without a lease check and can move a retired slot back to `healthy` (#1156).
+`prewarm` takes a conditional maintenance lease per slot and skips slots that are leased or provisioning, so it is safe while Real Org E2E runs. When a scratch creation fails, prewarm marks that slot `needs_recreate` and stops. If the process is cancelled or times out mid-slot, that slot stays `provisioning` until its 90-minute maintenance lease expires.
+
+`reconcile` refreshes each slot's scratch-org inventory from the Dev Hub and is also safe while Real Org E2E runs. It skips slots that are `leased`, `provisioning` or `repairing`. It writes each slot with a conditional update and skips a slot that changed after it was read. It never moves a `needs_recreate` or `broken` slot back to `healthy`. Skipped slots are listed, each with its reason, in `skippedSlots`. A retired slot returns to service only through recreation: `prewarm` (or the next Pool Lease that lands on it) replaces its scratch org, and `reset-slot` forces that recreation for a slot that is not yet retired.
+
+A lease that expires without being released, whether a Pool Lease or a maintenance lease, is reclaimed the next time an acquire scans the pool. This happens when a job is cancelled, times out or loses its runner. The reclaim retires the environment: the slot becomes `available` and `needs_recreate`, or stays `broken`. It also loses its stored auth URL, gets `LastRunResult__c` set to `lease-expired`, and records the expired lease's state and owner in `LastError__c`. Slot Recovery or the next Pool Lease then recreates the environment, so a scratch org abandoned mid-change never returns to circulation.
 
 ## Slot Recovery
 

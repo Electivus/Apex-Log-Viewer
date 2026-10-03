@@ -15,6 +15,10 @@ const SLOT_KEY_WIDTH = 2;
 const DEFAULT_SLOT_KEY_PREFIX = 'slot';
 const DEFAULT_SLOT_ALIAS_PREFIX = 'ALV_E2E_POOL';
 const DEFAULT_API_VERSION = '66.0';
+// Lease states in which a Pool Lease or a maintenance operation owns the slot.
+const BUSY_LEASE_STATES = new Set(['leased', 'provisioning', 'repairing']);
+// Health states that retire an environment until it is recreated.
+const RETIRED_HEALTH_STATES = new Set(['needs_recreate', 'broken']);
 // Each command owns its CLI home and REST token cache through its last mutation.
 // Async scoping also prevents simultaneous commands for one username sharing state.
 const commandContext = new AsyncLocalStorage();
@@ -710,7 +714,7 @@ async function getSlotsByPoolIdForMaintenance(targetOrg, poolId) {
   return await queryRecords(
     targetOrg,
     [
-      'SELECT Id, SlotKey__c, ScratchAlias__c, LeaseState__c, LeaseOwner__c, LeaseToken__c, LeaseExpiresAt__c,',
+      'SELECT Id, LastModifiedDate, SlotKey__c, ScratchAlias__c, LeaseState__c, LeaseOwner__c, LeaseToken__c, LeaseExpiresAt__c,',
       'LastHeartbeatAt__c, LastLeaseStartedAt__c, LastLeaseReleasedAt__c, LastRunResult__c, HealthState__c,',
       'ScratchUsername__c, ScratchLoginUrl__c, ScratchAuthUrl__c, ScratchOrgId__c, ScratchOrgInfoId__c, ActiveScratchOrgId__c, ScratchExpiresAt__c,',
       'DefinitionHash__c, SeedVersion__c, UsageCount__c, LastError__c',
@@ -922,21 +926,26 @@ async function reconcilePool(targetOrg, poolKey) {
   const slots = await getSlotsByPoolIdForMaintenance(targetOrg, pool.Id);
   let healthySlots = 0;
   let needsRecreateSlots = 0;
+  const skippedSlots = [];
 
   for (const slot of slots) {
+    const leaseState = String(slot.LeaseState__c || '').trim();
+    if (BUSY_LEASE_STATES.has(leaseState)) {
+      skippedSlots.push({ slotKey: slot.SlotKey__c, reason: `slot is currently '${leaseState}'` });
+      continue;
+    }
+
     const info = await getLatestScratchOrgInfo(targetOrg, poolKey, slot.SlotKey__c);
     const active = await getActiveScratchOrgByInfoId(targetOrg, info?.Id);
     const hasActiveScratch = Boolean(active?.Id);
     const hasScratchAuthUrl = isUsableSfdxAuthUrl(slot.ScratchAuthUrl__c);
-    const healthState = hasActiveScratch && hasScratchAuthUrl ? 'healthy' : 'needs_recreate';
-
-    if (healthState === 'healthy') {
-      healthySlots += 1;
-    } else {
-      needsRecreateSlots += 1;
-    }
-
-    await updateRecord(targetOrg, 'ALV_ScratchOrgPoolSlot__c', slot.Id, {
+    const retired = RETIRED_HEALTH_STATES.has(slot.HealthState__c);
+    const healthState = retired
+      ? slot.HealthState__c
+      : hasActiveScratch && hasScratchAuthUrl
+        ? 'healthy'
+        : 'needs_recreate';
+    const fields = {
       ScratchOrgInfoId__c: info?.Id || null,
       ScratchOrgId__c: active?.ScratchOrg || info?.ScratchOrg || null,
       ScratchUsername__c: active?.SignupUsername || info?.SignupUsername || null,
@@ -945,15 +954,35 @@ async function reconcilePool(targetOrg, poolKey) {
       ScratchExpiresAt__c: toScratchExpirationDateTimeValue(active?.ExpirationDate || info?.ExpirationDate),
       DefinitionHash__c: info?.alvDefinitionHash__c || pool.DefinitionHash__c || slot.DefinitionHash__c || null,
       SeedVersion__c: info?.alvSeedVersion__c || pool.SeedVersion__c || slot.SeedVersion__c || null,
-      HealthState__c: healthState,
-      LastError__c: healthState === 'healthy'
+      HealthState__c: healthState
+    };
+    if (!retired) {
+      fields.LastError__c = healthState === 'healthy'
         ? null
         : !hasScratchAuthUrl
           ? 'Slot has no usable stored scratch auth URL and must be recreated.'
           : info?.Id
             ? `ScratchOrgInfo ${info.Id} no longer has an ActiveScratchOrg.`
-            : 'No ScratchOrgInfo found for this slot.'
-    });
+            : 'No ScratchOrgInfo found for this slot.';
+    }
+
+    try {
+      await updateRecord(targetOrg, 'ALV_ScratchOrgPoolSlot__c', slot.Id, fields, {
+        ifUnmodifiedSince: slot.LastModifiedDate
+      });
+    } catch (error) {
+      if (error instanceof ConditionalUpdateConflictError) {
+        skippedSlots.push({ slotKey: slot.SlotKey__c, reason: 'slot changed before the conditional update' });
+        continue;
+      }
+      throw error;
+    }
+
+    if (healthState === 'healthy') {
+      healthySlots += 1;
+    } else {
+      needsRecreateSlots += 1;
+    }
   }
 
   return {
@@ -962,7 +991,8 @@ async function reconcilePool(targetOrg, poolKey) {
     poolKey,
     slotCount: slots.length,
     healthySlots,
-    needsRecreateSlots
+    needsRecreateSlots,
+    skippedSlots
   };
 }
 

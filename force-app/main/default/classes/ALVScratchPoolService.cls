@@ -33,6 +33,7 @@ public without sharing class ALVScratchPoolService {
     private static final String HEALTH_NEEDS_RECREATE = 'needs_recreate';
     private static final String HEALTH_BROKEN = 'broken';
     private static final String HEALTH_UNKNOWN = 'unknown';
+    private static final String RUN_RESULT_LEASE_EXPIRED = 'lease-expired';
 
     public static LeaseResponse acquire(Map<String, Object> payload) {
         String poolKey = requireString(payload, 'poolKey');
@@ -59,7 +60,7 @@ public without sharing class ALVScratchPoolService {
             }
 
             if (isExpiredLease(slot, nowValue)) {
-                resetLease(slot, nowValue);
+                retireExpiredLease(slot, nowValue);
                 dirtyById.put(slot.Id, slot);
             }
 
@@ -82,13 +83,17 @@ public without sharing class ALVScratchPoolService {
         }
 
         Boolean needsCreate = slotNeedsCreate(selected, requestedDefinitionHash, requestedSeedVersion, minRemainingMinutes, nowValue);
+        Boolean retiredByThisAcquire = dirtyById.containsKey(selected.Id);
         selected.LeaseOwner__c = leaseOwner;
         selected.LeaseToken__c = generateLeaseToken();
         selected.LeaseExpiresAt__c = nowValue.addSeconds(leaseTtlSeconds);
         selected.LastHeartbeatAt__c = nowValue;
         selected.LastLeaseStartedAt__c = nowValue;
         selected.LeaseState__c = needsCreate ? STATE_PROVISIONING : STATE_LEASED;
-        selected.LastError__c = null;
+        if (!retiredByThisAcquire) {
+            // Keep the expired-lease reason on a slot that this acquire both retired and selected.
+            selected.LastError__c = null;
+        }
         dirtyById.put(selected.Id, selected);
 
         update dirtyById.values();
@@ -255,16 +260,25 @@ public without sharing class ALVScratchPoolService {
         return slot.LeaseToken__c != null && slot.LeaseExpiresAt__c != null && slot.LeaseExpiresAt__c <= nowValue;
     }
 
-    private static void resetLease(ALV_ScratchOrgPoolSlot__c slot, Datetime nowValue) {
+    // A lease that expires without release may have abandoned its environment mid-change, so the
+    // environment is retired for recreation instead of returning to circulation.
+    private static void retireExpiredLease(ALV_ScratchOrgPoolSlot__c slot, Datetime nowValue) {
+        String expiredLeaseState = slot.LeaseState__c;
+        String expiredLeaseOwner = slot.LeaseOwner__c;
         slot.LeaseState__c = STATE_AVAILABLE;
         slot.LeaseOwner__c = null;
         slot.LeaseToken__c = null;
         slot.LeaseExpiresAt__c = null;
         slot.LastLeaseReleasedAt__c = nowValue;
-        slot.LastError__c = truncateLongText('Lease reclaimed automatically after TTL expiration.');
-        if (slot.HealthState__c == null || slot.HealthState__c == HEALTH_UNKNOWN) {
-            slot.HealthState__c = HEALTH_UNKNOWN;
+        slot.LastRunResult__c = RUN_RESULT_LEASE_EXPIRED;
+        slot.LastError__c = truncateLongText(
+            'The ' + expiredLeaseState + ' lease held by ' + expiredLeaseOwner +
+            ' expired without release; the environment was retired for recreation.'
+        );
+        if (slot.HealthState__c != HEALTH_BROKEN) {
+            slot.HealthState__c = HEALTH_NEEDS_RECREATE;
         }
+        slot.ScratchAuthUrl__c = null;
     }
 
     private static Boolean slotNeedsCreate(

@@ -429,11 +429,69 @@ test('a redacted export preserves the only new scratch authorization for recover
 test('reconcile identifies a stored redaction placeholder as requiring recreation', async t => {
   const { state, dependencies } = poolSalesforce(t);
   state.created = true;
-  state.slot.ScratchAuthUrl__c = '[REDACTED]';
+  Object.assign(state.slot, { HealthState__c: 'healthy', ScratchAuthUrl__c: '[REDACTED]' });
   const result = await main(['reconcile', '--pool-key', 'isolated'], dependencies);
   assert.equal(result.healthySlots, 0);
   assert.equal(result.needsRecreateSlots, 1);
   assert.equal(state.slot.HealthState__c, 'needs_recreate');
+});
+
+for (const retiredState of ['needs_recreate', 'broken']) {
+  test(`reconcile never moves a ${retiredState} slot back to healthy`, async t => {
+    const { state, dependencies } = poolSalesforce(t);
+    const retirementReason = "Test 'opens the log' ended with status 'failed' (expected 'passed').";
+    state.created = true;
+    Object.assign(state.slot, {
+      HealthState__c: retiredState,
+      ScratchAuthUrl__c: state.authUrl,
+      LastError__c: retirementReason
+    });
+    const result = await main(['reconcile', '--pool-key', 'isolated'], dependencies);
+    assert.equal(state.slot.HealthState__c, retiredState);
+    assert.equal(state.slot.LastError__c, retirementReason);
+    assert.equal(result.healthySlots, 0);
+    assert.equal(result.needsRecreateSlots, 1);
+  });
+}
+
+for (const leaseState of ['leased', 'provisioning', 'repairing']) {
+  test(`reconcile leaves a ${leaseState} slot untouched`, async t => {
+    const { state, dependencies } = poolSalesforce(t);
+    state.created = true;
+    Object.assign(state.slot, {
+      LeaseState__c: leaseState,
+      HealthState__c: 'needs_recreate',
+      ScratchAuthUrl__c: state.authUrl
+    });
+    const result = await main(['reconcile', '--pool-key', 'isolated'], dependencies);
+    assert.deepEqual(state.requests.filter(request => request.method === 'PATCH'), []);
+    assert.deepEqual(result.skippedSlots, [{ slotKey: 'slot-01', reason: `slot is currently '${leaseState}'` }]);
+    assert.equal(state.slot.HealthState__c, 'needs_recreate');
+  });
+}
+
+test('reconcile updates an available slot conditionally and marks a usable unknown slot healthy', async t => {
+  const { state, dependencies } = poolSalesforce(t);
+  state.created = true;
+  Object.assign(state.slot, { HealthState__c: 'unknown', ScratchAuthUrl__c: state.authUrl });
+  const result = await main(['reconcile', '--pool-key', 'isolated'], dependencies);
+  const updates = state.requests.filter(request => request.method === 'PATCH');
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].headers['If-Unmodified-Since'], 'Tue, 01 Sep 2026 00:00:00 GMT');
+  assert.equal(state.slot.HealthState__c, 'healthy');
+  assert.equal(result.healthySlots, 1);
+  assert.deepEqual(result.skippedSlots, []);
+});
+
+test('reconcile skips a slot that changed before its conditional update', async t => {
+  const { state, dependencies } = poolSalesforce(t);
+  state.created = true;
+  Object.assign(state.slot, { HealthState__c: 'healthy', ScratchAuthUrl__c: state.authUrl });
+  dependencies.fetchImpl = async () => ({ ok: false, status: 412, text: async () => '[]' });
+  const result = await main(['reconcile', '--pool-key', 'isolated'], dependencies);
+  assert.deepEqual(result.skippedSlots, [{ slotKey: 'slot-01', reason: 'slot changed before the conditional update' }]);
+  assert.equal(result.healthySlots, 0);
+  assert.equal(state.slot.HealthState__c, 'healthy');
 });
 
 test('buildSlotDescriptors creates stable slot keys and aliases', () => {

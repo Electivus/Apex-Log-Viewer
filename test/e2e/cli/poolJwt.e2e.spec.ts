@@ -213,9 +213,14 @@ test('isolated JWT pool administration and independent consumer lifecycle', asyn
     expect(recoveredSlot.LeaseState__c).toBe('available');
     expect(recoveredSlot.HealthState__c).toBe('broken');
     expect(recoveredSlot.LastRunResult__c).toBe('controlled-validation-failure');
-    const recovered = await admin('reconcile', ['--pool-key', poolKey], adminEnv);
-    expect(recovered.healthySlots).toBe(1);
-    evidence.failedConsumerRecovered = true;
+    // Reconcile never returns a retired slot to healthy; only recreation brings it back.
+    const reconciledAfterFailure = await admin('reconcile', ['--pool-key', poolKey], adminEnv);
+    expect(reconciledAfterFailure.healthySlots).toBe(0);
+    const retiredSlot = (await admin('list', ['--pool-key', poolKey], adminEnv)).slots.find(
+      (slot: any) => slot.SlotKey__c === 'slot-02'
+    );
+    expect(retiredSlot.HealthState__c).toBe('broken');
+    evidence.failedConsumerStaysRetired = true;
     completed = true;
   } catch (error) {
     failure = error;

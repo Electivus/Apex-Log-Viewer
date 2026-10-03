@@ -17,4 +17,4 @@ The trade-off is isolation between consecutive tests in one runner, which now sh
 
 - Tests in one runner must tolerate state left by earlier tests in the same environment, as they already had to across runs.
 - Lease TTL, heartbeat and acquire-timeout settings are unchanged. Heartbeats keep a long-held Pool Lease alive for the runner's whole lifetime.
-- A Pool Lease that expires without being released, for example when a runner is killed, still returns its environment to circulation without retiring it. That gap predates this decision and is tracked in #1156; longer-held leases widen it slightly.
+- A Pool Lease that expires without being released, for example when a runner is killed, retires its environment when the slot is reclaimed (#1156), so longer-held leases do not return abandoned environments to circulation.
