@@ -36,6 +36,39 @@ Every JWT session, including a file-based key, copies the key into its own empty
 
 For a complete lifecycle smoke, supply the existing opt-ins and verified Dev Hub ID from [DEVHUB_JWT.md](DEVHUB_JWT.md#controlled-smoke-and-observed-results), then run the smoke through this wrapper. It creates/deletes the authorized test scratches; `verify` alone does not prove scratch signup/import, pool leasing, UI behavior, telemetry ingestion or a passing CI workflow.
 
+## Daily macOS workflow
+
+Create `~/.config/electivus/apex-log-viewer/e2e-macos.sh` (mode `0600`) to opt this Mac into automatic JWT setup. Keep only non-secret runtime settings there. Select Node from `.nvmrc` and install the isolated CLI once:
+
+```bash
+source "$HOME/.nvm/nvm.sh"
+nvm use
+export SALESFORCE_CLI_CACHE_ROOT="$HOME/.local/share/electivus/apex-log-viewer/salesforce-cli"
+export RUNNER_TEMP="$HOME/.local/share/electivus/apex-log-viewer/runtime"
+SALESFORCE_CLI_WRAP_NODE=1 node scripts/setup-salesforce-cli.mjs
+```
+
+Example operator configuration (adjust the Node version when `.nvmrc` changes):
+
+```bash
+export PATH="$HOME/.nvm/versions/node/v24.15.0/bin:$PATH"
+export ALV_SF_BIN_PATH="$HOME/.local/share/electivus/apex-log-viewer/runtime/alv-sf-node/sf"
+export VSCODE_TEST_VERSION=stable
+export SF_SCRATCH_STRATEGY=pool
+export SF_SCRATCH_POOL_NAME='<configured pool>'
+export PLAYWRIGHT_WORKERS=1
+```
+
+Keep the operator's existing keychain backend consistent. Do not switch backends or move encrypted auth files merely to enable this launcher. A local single-scratch run can instead set `SF_SCRATCH_STRATEGY=single`, choose its own `SF_SCRATCH_ALIAS`, omit the pool name and set `SF_TEST_KEEP_ORG=0` to delete its scratch afterward.
+
+```bash
+bash scripts/run-macos-e2e.sh verify
+npm run test:e2e
+npm run test:e2e:cli
+```
+
+The package commands load the configuration, verify the durable identity with a fresh JWT login, then start the requested runner. Credentials are passed only to child processes; the interactive shell receives no JWT secrets. UI runs use native macOS Electron, with the operator's browser endpoint removed. CI, explicit credential inputs, custom Playwright configs and help/list commands retain their existing behavior. Remove or rename `e2e-macos.sh` to disable automatic setup while retaining the durable credentials. The repository launcher runs in the current checkout; it does not depend on a user-wide `npm` alias or shell wrapper.
+
 ## WSL and containers
 
 For native Arch Linux / WSL2 dependencies, restoration from Windows, encrypted CLI state, corporate Java trust and daily test commands, see [Real-org E2E on Arch Linux / WSL2](E2E_ARCH_WSL.md). Once its operator configuration is installed, `npm run test:e2e` and `npm run test:e2e:cli` load the verified local JWT automatically without exporting credential variables in the interactive shell. CI and explicit JWT inputs continue to use their existing setup.

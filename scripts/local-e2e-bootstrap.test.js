@@ -17,9 +17,15 @@ test('selected Node follows the pinned LTS major and minimum release', () => {
   assert.throws(() => assertSupportedNode('24.21.0', '24'), /complete Node version in .nvmrc/);
 });
 
-function fixture(t) {
+function fixture(t, platform = 'linux') {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'alv-local-bootstrap-'));
-  const config = path.join(home, '.config', 'electivus', 'apex-log-viewer', 'e2e.sh');
+  const config = path.join(
+    home,
+    '.config',
+    'electivus',
+    'apex-log-viewer',
+    platform === 'darwin' ? 'e2e-macos.sh' : 'e2e.sh'
+  );
   fs.mkdirSync(path.dirname(config), { recursive: true });
   fs.writeFileSync(config, '# operator configuration\n', { mode: 0o600 });
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
@@ -97,6 +103,72 @@ for (const selectedPnpm of [true, false]) {
   );
 }
 
+test('macOS GUI bootstrap uses the native launcher without Xvfb or another package build', async t => {
+  const { home } = fixture(t, 'darwin');
+  const entrypoint = path.join(__dirname, 'run-playwright-e2e.js');
+  const args = ['--grep', 'viewer $HOME; echo wrong'];
+  const result = await bootstrapLocalE2e(
+    { entrypoint, args, gui: true },
+    {
+      home,
+      env: {},
+      platform: 'darwin',
+      spawnImpl(file, argv) {
+        assert.equal(file, 'bash');
+        assert.deepEqual(argv, [path.join(__dirname, 'run-macos-e2e.sh'), 'run', '--', 'node', entrypoint, ...args]);
+        const child = new EventEmitter();
+        process.nextTick(() => child.emit('close', 37, null));
+        return child;
+      }
+    }
+  );
+  assert.deepEqual(result, { code: 37, signal: null });
+});
+
+test(
+  'macOS launcher loads scoped settings, isolates the browser and preserves literal arguments and exit status',
+  { skip: process.platform === 'win32' },
+  t => {
+    const { home, config } = fixture(t, 'darwin');
+    const scripts = path.join(home, 'checkout', 'scripts');
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.copyFileSync(path.join(__dirname, 'run-macos-e2e.sh'), path.join(scripts, 'run-macos-e2e.sh'));
+    fs.writeFileSync(path.join(scripts, 'local-e2e-bootstrap.js'), 'exports.assertSupportedNode = () => {};\n');
+    fs.writeFileSync(
+      path.join(scripts, 'devhub-local.js'),
+      'console.log(JSON.stringify({args: process.argv.slice(2), sf: process.env.SF_CLI_BIN_PATH, ' +
+        'workers: process.env.PLAYWRIGHT_WORKERS, cdp: process.env.PLAYWRIGHT_MCP_CDP_ENDPOINT, ' +
+        'electron: process.env.ELECTRON_RUN_AS_NODE})); process.exit(37);\n'
+    );
+    const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
+    fs.writeFileSync(
+      config,
+      `export PATH=${quote(path.dirname(process.execPath))}:"$PATH"\nexport ALV_SF_BIN_PATH=${quote(process.execPath)}\n`
+    );
+    const args = ['node', 'test with spaces.js', '$HOME; echo wrong'];
+    const result = spawnSync('/bin/bash', [path.join(scripts, 'run-macos-e2e.sh'), 'run', '--', ...args], {
+      env: {
+        HOME: home,
+        PATH: '/usr/bin:/bin',
+        PLAYWRIGHT_MCP_CDP_ENDPOINT: 'http://operator-browser',
+        ELECTRON_RUN_AS_NODE: '1'
+      },
+      encoding: 'utf8',
+      timeout: 10000
+    });
+    assert.equal(result.status, 37, result.stderr || result.error?.message);
+    assert.deepEqual(JSON.parse(result.stdout), { args: ['run', '--', ...args], sf: process.execPath, workers: '1' });
+    fs.appendFileSync(config, 'export ALV_SF_BIN_PATH=relative-sf\n');
+    const invalid = spawnSync('/bin/bash', [path.join(scripts, 'run-macos-e2e.sh'), 'verify'], {
+      env: { HOME: home, PATH: '/usr/bin:/bin' },
+      encoding: 'utf8',
+      timeout: 10000
+    });
+    assert.equal(invalid.status, 1);
+    assert.match(invalid.stderr, /executable absolute Salesforce CLI wrapper/);
+  }
+);
+
 test('configured GUI bootstrap forwards literal arguments and the child exit code without another package build', async t => {
   const { home } = fixture(t);
   const args = ['--grep', 'viewer $HOME; echo wrong', 'test with spaces.e2e.spec.ts'];
@@ -164,7 +236,6 @@ for (const [name, overrides, args] of [
   ['CI', { env: { CI: 'true' } }],
   ['GitHub Actions', { env: { GITHUB_ACTIONS: 'true' } }],
   ['Windows', { platform: 'win32' }],
-  ['macOS', { platform: 'darwin' }],
   ['partial JWT', { env: { SF_DEVHUB_CLIENT_ID: 'explicit-client' } }],
   ['file JWT input', { env: { SF_DEVHUB_PRIVATE_KEY_FILE: '/private/key.pem' } }],
   ['legacy alias', { env: { SF_DEVHUB_ALIAS: 'host-alias' } }],
@@ -175,24 +246,25 @@ for (const [name, overrides, args] of [
   ['custom configuration', {}, ['--config=playwright.docs.config.ts']],
   ['separate custom configuration', {}, ['--config', 'playwright.docs.config.ts']]
 ]) {
-  test(`${name} never starts operator authentication or reads local shell configuration`, async t => {
-    const { home } = fixture(t);
-    assert.equal(
-      await bootstrapLocalE2e(
-        { entrypoint: __filename, args },
-        {
-          home,
-          platform: 'linux',
-          env: {},
-          ...overrides,
-          spawnImpl() {
-            throw new Error('Must not start local authentication');
+  for (const platform of ['linux', 'darwin'])
+    test(`${platform}: ${name} never starts operator authentication or reads local shell configuration`, async t => {
+      const { home } = fixture(t, platform);
+      assert.equal(
+        await bootstrapLocalE2e(
+          { entrypoint: __filename, args },
+          {
+            home,
+            platform,
+            env: {},
+            ...overrides,
+            spawnImpl() {
+              throw new Error('Must not start local authentication');
+            }
           }
-        }
-      ),
-      undefined
-    );
-  });
+        ),
+        undefined
+      );
+    });
 }
 
 test('the JWT supplied by the verified wrapper prevents recursive bootstrap', async t => {

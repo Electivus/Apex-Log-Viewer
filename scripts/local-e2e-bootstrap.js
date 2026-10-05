@@ -12,7 +12,7 @@ function assertSupportedNode(
 ) {
   const actual = /^(\d+)\.(\d+)\.(\d+)$/.exec(version)?.slice(1).map(Number);
   const required = /^(\d+)\.(\d+)\.(\d+)$/.exec(baseline)?.slice(1).map(Number);
-  if (!required) throw new Error('Native Linux E2E requires a complete Node version in .nvmrc.');
+  if (!required) throw new Error('Native E2E requires a complete Node version in .nvmrc.');
   if (
     !actual ||
     actual[0] !== required[0] ||
@@ -20,7 +20,7 @@ function assertSupportedNode(
     (actual[1] === required[1] && actual[2] < required[2])
   ) {
     throw new Error(
-      `Native Linux E2E requires Node ${required[0]}.x at least ${baseline}; detected ${version}. Select the .nvmrc version in this shell (for example: fnm use).`
+      `Native E2E requires Node ${required[0]}.x at least ${baseline}; detected ${version}. Select the .nvmrc version in this shell (for example: nvm use or fnm use).`
     );
   }
 }
@@ -30,11 +30,11 @@ async function bootstrapLocalE2e(
   { env = process.env, platform = process.platform, home = homedir(), spawnImpl = spawn } = {}
 ) {
   const ci = /^(1|true)$/i.test(String(env.CI || '').trim()) || String(env.GITHUB_ACTIONS || '').trim() === 'true';
-  // The private Linux configuration is an explicit local opt-in. CI and callers
+  // The private platform configuration is an explicit local opt-in. CI and callers
   // supplying any credential input retain their existing validation contract,
   // including rejection of partial JWT and legacy alias/auth-URL inputs.
   if (
-    platform !== 'linux' ||
+    !['linux', 'darwin'].includes(platform) ||
     ci ||
     hasDevHubJwtConfig(env) ||
     env.SF_DEVHUB_ALIAS ||
@@ -46,14 +46,20 @@ async function bootstrapLocalE2e(
     return undefined;
   }
 
-  const config = path.join(env.XDG_CONFIG_HOME || path.join(home, '.config'), 'electivus', 'apex-log-viewer', 'e2e.sh');
+  const config = path.join(
+    env.XDG_CONFIG_HOME || path.join(home, '.config'),
+    'electivus',
+    'apex-log-viewer',
+    platform === 'darwin' ? 'e2e-macos.sh' : 'e2e.sh'
+  );
   if (!existsSync(config)) return undefined;
 
   const command = ['node', entrypoint, ...args];
-  if (gui) command.unshift('xvfb-run', '-a', '-s', '-screen 0 1280x1024x24');
+  if (gui && platform === 'linux') command.unshift('xvfb-run', '-a', '-s', '-screen 0 1280x1024x24');
+  const launcher = platform === 'darwin' ? 'run-macos-e2e.sh' : 'run-wsl-e2e.sh';
 
   return new Promise((resolve, reject) => {
-    const child = spawnImpl('bash', [path.join(__dirname, 'run-wsl-e2e.sh'), 'run', '--', ...command], {
+    const child = spawnImpl('bash', [path.join(__dirname, launcher), 'run', '--', ...command], {
       cwd: path.join(__dirname, '..'),
       env,
       stdio: 'inherit'
