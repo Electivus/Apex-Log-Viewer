@@ -128,7 +128,7 @@ test('macOS GUI bootstrap uses the native launcher without Xvfb or another packa
 test(
   'macOS launcher loads scoped settings, isolates the browser and preserves literal arguments and exit status',
   { skip: process.platform === 'win32' },
-  t => {
+  async t => {
     const { home, config } = fixture(t, 'darwin');
     const scripts = path.join(home, 'checkout', 'scripts');
     fs.mkdirSync(scripts, { recursive: true });
@@ -140,10 +140,19 @@ test(
         'workers: process.env.PLAYWRIGHT_WORKERS, cdp: process.env.PLAYWRIGHT_MCP_CDP_ENDPOINT, ' +
         'electron: process.env.ELECTRON_RUN_AS_NODE})); process.exit(37);\n'
     );
+    const { writeMacOSNodeWrapper } = await import('./setup-salesforce-cli.mjs');
+    const sfBinPath = path.join(home, 'cli-cache', 'bin', 'sf');
+    fs.mkdirSync(path.dirname(sfBinPath), { recursive: true });
+    fs.writeFileSync(sfBinPath, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const wrapperPath = writeMacOSNodeWrapper({
+      nodePath: process.execPath,
+      sfBinPath,
+      wrapperPath: path.join(home, 'runtime', 'alv-sf-node', 'sf')
+    });
     const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
     fs.writeFileSync(
       config,
-      `export PATH=${quote(path.dirname(process.execPath))}:"$PATH"\nexport ALV_SF_BIN_PATH=${quote(process.execPath)}\n`
+      `export PATH=${quote(path.dirname(process.execPath))}:"$PATH"\nexport ALV_SF_BIN_PATH=${quote(wrapperPath)}\n`
     );
     const args = ['node', 'test with spaces.js', '$HOME; echo wrong'];
     const result = spawnSync('/bin/bash', [path.join(scripts, 'run-macos-e2e.sh'), 'run', '--', ...args], {
@@ -157,15 +166,24 @@ test(
       timeout: 10000
     });
     assert.equal(result.status, 37, result.stderr || result.error?.message);
-    assert.deepEqual(JSON.parse(result.stdout), { args: ['run', '--', ...args], sf: process.execPath, workers: '1' });
-    fs.appendFileSync(config, 'export ALV_SF_BIN_PATH=relative-sf\n');
-    const invalid = spawnSync('/bin/bash', [path.join(scripts, 'run-macos-e2e.sh'), 'verify'], {
-      env: { HOME: home, PATH: '/usr/bin:/bin' },
-      encoding: 'utf8',
-      timeout: 10000
-    });
-    assert.equal(invalid.status, 1);
-    assert.match(invalid.stderr, /executable absolute Salesforce CLI wrapper/);
+    assert.deepEqual(JSON.parse(result.stdout), { args: ['run', '--', ...args], sf: wrapperPath, workers: '1' });
+    const symlinkPath = path.join(home, 'symlink', 'alv-sf-node', 'sf');
+    fs.mkdirSync(path.dirname(symlinkPath), { recursive: true });
+    fs.symlinkSync(sfBinPath, symlinkPath);
+    const nonExecutablePath = path.join(home, 'non-executable', 'alv-sf-node', 'sf');
+    fs.mkdirSync(path.dirname(nonExecutablePath), { recursive: true });
+    fs.writeFileSync(nonExecutablePath, fs.readFileSync(wrapperPath), { mode: 0o600 });
+    for (const candidate of [sfBinPath, 'relative-sf', symlinkPath, nonExecutablePath]) {
+      fs.appendFileSync(config, `export ALV_SF_BIN_PATH=${quote(candidate)}\n`);
+      const invalid = spawnSync('/bin/bash', [path.join(scripts, 'run-macos-e2e.sh'), 'verify'], {
+        env: { HOME: home, PATH: '/usr/bin:/bin' },
+        encoding: 'utf8',
+        timeout: 10000
+      });
+      assert.equal(invalid.status, 1, `Must reject ${candidate} before JWT verification`);
+      assert.equal(invalid.stdout, '', 'Must not start the JWT wrapper');
+      assert.match(invalid.stderr, /generated executable alv-sf-node\/sf wrapper/);
+    }
   }
 );
 

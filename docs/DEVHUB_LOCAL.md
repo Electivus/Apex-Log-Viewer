@@ -48,6 +48,8 @@ export RUNNER_TEMP="$HOME/.local/share/electivus/apex-log-viewer/runtime"
 SALESFORCE_CLI_WRAP_NODE=1 node scripts/setup-salesforce-cli.mjs
 ```
 
+Point `ALV_SF_BIN_PATH` directly to the generated executable `alv-sf-node/sf` file. The launcher rejects the cache's ordinary `bin/sf`, relative paths and symlinks before JWT verification.
+
 Example operator configuration (adjust the Node version when `.nvmrc` changes):
 
 ```bash

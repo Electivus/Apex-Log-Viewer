@@ -13,8 +13,8 @@ fi
 source "$config_file"
 node -e 'require("./scripts/local-e2e-bootstrap").assertSupportedNode()'
 : "${ALV_SF_BIN_PATH:?Configure the isolated Salesforce CLI Node wrapper in e2e-macos.sh.}"
-if [[ "$ALV_SF_BIN_PATH" != /* || ! -x "$ALV_SF_BIN_PATH" ]]; then
-  echo '[e2e:macos] ALV_SF_BIN_PATH must select an executable absolute Salesforce CLI wrapper path.' >&2
+if [[ "$ALV_SF_BIN_PATH" != /*/alv-sf-node/sf || ! -f "$ALV_SF_BIN_PATH" || ! -x "$ALV_SF_BIN_PATH" || -L "$ALV_SF_BIN_PATH" ]]; then
+  echo '[e2e:macos] ALV_SF_BIN_PATH must select the generated executable alv-sf-node/sf wrapper by its absolute path, not a symlink or the CLI cache bin/sf.' >&2
   exit 1
 fi
 export SF_CLI_BIN_PATH="$ALV_SF_BIN_PATH"
