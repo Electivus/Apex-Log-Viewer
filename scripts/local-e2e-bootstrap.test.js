@@ -256,7 +256,7 @@ for (const [name, overrides, args] of [
   ['Windows', { platform: 'win32' }],
   ['partial JWT', { env: { SF_DEVHUB_CLIENT_ID: 'explicit-client' } }],
   ['file JWT input', { env: { SF_DEVHUB_PRIVATE_KEY_FILE: '/private/key.pem' } }],
-  ['legacy alias', { env: { SF_DEVHUB_ALIAS: 'host-alias' } }],
+  ['explicit Dev Hub alias', { env: { SF_DEVHUB_ALIAS: 'host-alias' } }],
   ['legacy auth URL', { env: { SF_DEVHUB_AUTH_URL: 'explicit-legacy-input' } }],
   ['legacy SFDX auth URL', { env: { SFDX_AUTH_URL: 'explicit-legacy-input' } }],
   ['help', {}, ['--help']],

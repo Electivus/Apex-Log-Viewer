@@ -92,9 +92,9 @@ Se você preferir rodar e depurar via UI, instale a extensão “Extension Test 
 
 Tests do not require an authenticated org by default. If you want the runner to authenticate a Dev Hub and create a scratch org automatically:
 
-- Complete [Dev Hub JWT inputs](DEVHUB_JWT.md): client ID, username, login URL and exactly one inline PEM or key file.
-- Local repeatable credentials: use [durable JWT inputs](DEVHUB_LOCAL.md); Dev Hub aliases are not accepted.
-- `SF_SETUP_SCRATCH=1`: Enables scratch org creation and requires complete JWT locally and in CI.
+- Locally, `SF_DEVHUB_ALIAS`: a Dev Hub you already authenticated in the Salesforce CLI (see [Run locally](#run-locally)).
+- Or complete [Dev Hub JWT inputs](DEVHUB_JWT.md): client ID, username, login URL and exactly one inline PEM or key file. CI accepts only JWT; for repeatable local JWT, use [durable JWT inputs](DEVHUB_LOCAL.md).
+- `SF_SETUP_SCRATCH=1`: Enables scratch org creation; requires `SF_DEVHUB_ALIAS` or complete JWT locally, and complete JWT in CI.
 - `SF_SCRATCH_ALIAS`: Scratch alias (default `ALV_Test_Scratch`).
 - `SF_SCRATCH_DURATION`: Scratch duration in days (default `1`).
 - `SF_TEST_KEEP_ORG=1`: Skip deleting the scratch org during cleanup.
@@ -116,7 +116,24 @@ The VS Code suite launches the extension host and validates the Logs panel + Log
 
 ### Run locally
 
-From the repo root:
+The simplest local setup uses a Dev Hub you already authenticated in the Salesforce CLI. Authenticate it once, then set `SF_DEVHUB_ALIAS` for the run:
+
+```bash
+sf org login web --set-default-dev-hub --alias MyDevHub   # once
+SF_DEVHUB_ALIAS=MyDevHub pnpm run test:e2e
+SF_DEVHUB_ALIAS=MyDevHub pnpm run test:e2e:cli
+```
+
+```powershell
+$env:SF_DEVHUB_ALIAS = 'MyDevHub'
+pnpm run test:e2e
+```
+
+The first run creates a scratch org under `SF_SCRATCH_ALIAS` (default `ALV_E2E_Scratch`); later runs reuse it while it is active. Local runs keep the scratch org by default; set `SF_TEST_KEEP_ORG=0` to delete it after the run. The scratch is created in your normal Salesforce CLI state, so no JWT key or operator configuration is involved, and no pool lease unless you also set `SF_SCRATCH_POOL_NAME`. `SF_DEVHUB_ALIAS` also skips the automatic Linux/macOS JWT setup from [DEVHUB_LOCAL.md](DEVHUB_LOCAL.md).
+
+Any JWT input takes precedence over the alias, so a partial JWT configuration fails instead of falling back to it. CI, the proxy lab and the scratch-org pool administrative commands always require JWT.
+
+With JWT inputs or a configured pool instead:
 
 - `SF_TEST_KEEP_ORG=1 pnpm run test:e2e:cli`
 - `SF_TEST_KEEP_ORG=1 pnpm run test:e2e`
@@ -126,7 +143,7 @@ From the repo root:
 Useful env vars:
 
 - Complete JWT inputs are mandatory in CI and real-org proxy-lab runs. Legacy Dev Hub authorization URLs are unsupported.
-- Dev Hub JWT is required for local and proxy runs; there is no authenticated-alias alternative.
+- `SF_DEVHUB_ALIAS`: Local-only Dev Hub alias already authenticated in the Salesforce CLI. Used only when no JWT input is set.
 - `SF_SCRATCH_STRATEGY`: `single` or `pool`. If unset, the helper auto-enables pool mode when `SF_SCRATCH_POOL_NAME` is present. Local runs can use either mode; CI forces `pool`.
 - `PLAYWRIGHT_WORKERS`: Number of Playwright workers. In pool mode each worker holds one Pool Lease across its consecutive tests, so this controls how many scratch orgs are in use at once; the first failure ends a worker's Pool Lease and retires the environment. Default `1` locally; the GitHub Actions pool workflow also defaults to `1` unless overridden by the `PLAYWRIGHT_WORKERS` repository variable or the `playwright_workers` dispatch input. In single-scratch mode, the Playwright configs force serial execution.
 - `PLAYWRIGHT_EXTENSION_PROXY_LAB_WORKERS`: GitHub Actions-only worker override for the Ubuntu VS Code extension proxy-lab lane. This is mapped into `PLAYWRIGHT_WORKERS` for that step.
@@ -217,7 +234,7 @@ Pool-specific env vars:
 
 For the pool bootstrap flow and the stored `sfdxAuthUrl` reuse model, see `docs/SCRATCH_ORG_POOL.md`.
 
-The E2E helpers no longer auto-discover or retry alternate Dev Hub aliases. Missing, incomplete or rejected JWT fails immediately without alias, cached-account or authorization-URL fallback, locally and in CI.
+The E2E helpers never auto-discover or retry alternate Dev Hub aliases: they use only the explicit local `SF_DEVHUB_ALIAS` or the JWT identity. Once any JWT input is set, missing, incomplete or rejected JWT fails immediately without alias, cached-account or authorization-URL fallback, locally and in CI.
 
 For Dev Hub bootstrap, operational scripts, and GitHub Actions / Codex Cloud setup, see `docs/SCRATCH_ORG_POOL.md`.
 

@@ -55,7 +55,7 @@ function safeSfFailureMessage(error, fallback = 'Salesforce CLI credential opera
   return diagnostic ? `${fallback} ${diagnostic[1]}` : fallback;
 }
 
-function resolveDevHubConfig(env = process.env, { required = true } = {}) {
+function resolveDevHubConfig(env = process.env, { required = true, allowLocalAlias = false } = {}) {
   if (!required) {
     return undefined;
   }
@@ -63,6 +63,16 @@ function resolveDevHubConfig(env = process.env, { required = true } = {}) {
   const selectedJwt = hasDevHubJwtConfig(env);
   const ci = /^(1|true)$/i.test(value('CI')) || value('GITHUB_ACTIONS') === 'true';
   if (!selectedJwt) {
+    // Local test runners may use a Dev Hub the developer already authenticated in the
+    // Salesforce CLI. CI, pool administration and the proxy lab stay JWT-only.
+    if (allowLocalAlias && !ci) {
+      if (value('SF_DEVHUB_ALIAS')) {
+        return { mode: 'alias', alias: value('SF_DEVHUB_ALIAS') };
+      }
+      throw new Error(
+        'Local real-org tests require SF_DEVHUB_ALIAS (a Dev Hub authenticated in the Salesforce CLI) or complete Dev Hub JWT configuration: SF_DEVHUB_CLIENT_ID, SF_DEVHUB_USERNAME, SF_DEVHUB_LOGIN_URL and SF_DEVHUB_PRIVATE_KEY or SF_DEVHUB_PRIVATE_KEY_FILE.'
+      );
+    }
     throw new Error(
       `${ci ? 'CI' : 'Local validation'} requires complete Dev Hub JWT configuration: SF_DEVHUB_CLIENT_ID, SF_DEVHUB_USERNAME, SF_DEVHUB_LOGIN_URL and SF_DEVHUB_PRIVATE_KEY or SF_DEVHUB_PRIVATE_KEY_FILE. No alias or authorization URL fallback is allowed.`
     );
@@ -145,7 +155,7 @@ async function authenticateDevHub(config, runJson, files = fs) {
   if (!config) {
     throw new Error('Missing required Dev Hub authentication configuration.');
   }
-  if (config.mode !== 'jwt') {
+  if (config.mode !== 'jwt' && config.mode !== 'alias') {
     throw new Error('Dev Hub authentication requires JWT. No alias or authorization URL fallback is allowed.');
   }
   const callerEnv = salesforceChildEnv();
@@ -157,6 +167,25 @@ async function authenticateDevHub(config, runJson, files = fs) {
       throw new Error(safeSfFailureMessage(error, 'Scratch deletion failed.'));
     }
   };
+  if (config.mode === 'alias') {
+    try {
+      const response = await runJson(['org', 'display', '--target-org', config.alias], { env: callerEnv });
+      if (response?.status !== 0) throw new Error();
+    } catch {
+      throw new Error(
+        `SF_DEVHUB_ALIAS '${config.alias}' is not authenticated in the Salesforce CLI. Run 'sf org login web --set-default-dev-hub --alias ${config.alias}' or configure complete Dev Hub JWT inputs.`
+      );
+    }
+    // The developer's own CLI state holds the Dev Hub, so scratches are created there
+    // directly and need no transfer or credential cleanup.
+    return {
+      targetOrg: config.alias,
+      env: callerEnv,
+      publishScratch: async () => {},
+      deleteScratch: alias => deleteWithEnv(alias, callerEnv),
+      cleanup: async () => {}
+    };
+  }
   validateDevHubJwt(config, files);
 
   const temporaryRoot = path.resolve(tmpdir());

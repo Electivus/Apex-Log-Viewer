@@ -1,11 +1,16 @@
-export type DevHubConfig = {
-  mode: 'jwt';
-  clientId: string;
-  username: string;
-  loginUrl: string;
-  privateKey?: string;
-  privateKeyFile?: string;
-};
+export type DevHubConfig =
+  | {
+      mode: 'jwt';
+      clientId: string;
+      username: string;
+      loginUrl: string;
+      privateKey?: string;
+      privateKeyFile?: string;
+    }
+  | {
+      mode: 'alias';
+      alias: string;
+    };
 
 export type DevHubSession = {
   targetOrg: string;
@@ -27,7 +32,7 @@ export function safeSfFailureMessage(error: unknown, fallback?: string): string;
 
 export function resolveDevHubConfig(
   env?: NodeJS.ProcessEnv,
-  options?: { required?: boolean }
+  options?: { required?: boolean; allowLocalAlias?: boolean }
 ): DevHubConfig | undefined;
 export function authenticateDevHub(
   config: DevHubConfig | undefined,

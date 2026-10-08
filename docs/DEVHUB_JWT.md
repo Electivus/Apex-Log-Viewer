@@ -18,7 +18,7 @@ The JavaScript runner (`scripts/run-tests.js`), TypeScript E2E runner (`ensureSc
 | `SF_DEVHUB_PRIVATE_KEY_FILE` | Path to a readable, unencrypted RSA PEM private key, at least 2048 bits |
 | `SF_DEVHUB_PRIVATE_KEY`      | Alternative inline PEM; supply exactly one of the two key inputs        |
 
-Local automated validation and CI both require complete JWT. Missing, partial, malformed or rejected JWT configuration fails before Dev Hub or pool access, even when an explicit alias, cached account or `SF_DEVHUB_AUTH_URL` exists. Neither `SF_DEVHUB_AUTH_URL` nor `SFDX_AUTH_URL` is an authentication fallback.
+CI, the proxy lab and pool commands require complete JWT. Local E2E and integration runs may instead set `SF_DEVHUB_ALIAS` to a Dev Hub already authenticated in the Salesforce CLI, but only when no JWT input is set; see [Run locally](TESTING.md#run-locally). Once any JWT input is set, missing, partial, malformed or rejected JWT configuration fails before Dev Hub or pool access, even when an explicit alias, cached account or `SF_DEVHUB_AUTH_URL` exists. Neither `SF_DEVHUB_AUTH_URL` nor `SFDX_AUTH_URL` is an authentication fallback.
 
 JWT uses the configured username as the target identifier. It does not change the global default Dev Hub or repoint a supplied alias. With either a key file or inline PEM, this username is resolved only in a new workflow-owned CLI home. The ECA must already allow certificate-backed login for that user. The approved permanent identity, GitHub repository Secret storage and 365-day certificate are recorded in [DEVHUB_IDENTITY.md](DEVHUB_IDENTITY.md).
 
@@ -26,7 +26,7 @@ JWT uses the configured username as the target identifier. It does not change th
 
 Use [Durable local JWT validation](DEVHUB_LOCAL.md) to keep the operator key, certificate, journal and input references in private per-user storage. The default is `%USERPROFILE%\.electivus\apex-log-viewer\devhub-jwt`, outside Git, temporary files, synchronization and application caches. `devhub-local.js verify` proves the recorded org/user through fresh JWT and API reads; `run -- <command>` performs that proof before scoping JWT input references to the requested test command. No machine-wide credential environment settings are needed.
 
-Existing callers may still supply the four JWT values directly, with exactly one key input. Use `SF_SETUP_SCRATCH=1` for the JavaScript integration runner and `SF_SCRATCH_STRATEGY=single` for the direct scratch path. Unit-only and VSIX smoke runs do not require Dev Hub credentials. Dev Hub alias authentication is unavailable locally and in CI. The separately authorized bootstrap administrator and PlatformCLI scratch authorization remain supported.
+Existing callers may still supply the four JWT values directly, with exactly one key input. Use `SF_SETUP_SCRATCH=1` for the JavaScript integration runner and `SF_SCRATCH_STRATEGY=single` for the direct scratch path. Unit-only and VSIX smoke runs do not require Dev Hub credentials. Dev Hub alias authentication is limited to local test runs without JWT inputs; CI rejects it. The separately authorized bootstrap administrator and PlatformCLI scratch authorization remain supported.
 
 ## CLI and child-process boundaries
 

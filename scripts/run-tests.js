@@ -146,7 +146,7 @@ function parseJsonOutput(stdout) {
 }
 
 function resolveRequiredDevHubConfig({ requireConfig }) {
-  return resolveDevHubConfig(process.env, { required: requireConfig });
+  return resolveDevHubConfig(process.env, { required: requireConfig, allowLocalAlias: true });
 }
 
 async function killLeakedVSCodeProcesses(markers) {
