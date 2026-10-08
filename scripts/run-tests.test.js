@@ -308,11 +308,11 @@ test('selected JWT authenticates the configured username and keeps its key until
   assert.equal(fs.existsSync(keyFile), false);
 });
 
-for (const ci of ['true', 'false']) test(`real-org setup rejects cached alias and legacy URL without JWT (CI=${ci})`, async t => {
+test('real-org CI rejects a cached alias and legacy URL before scratch mutations', async t => {
   process.env = {
     ...originalEnv,
-    CI: ci,
-    GITHUB_ACTIONS: ci,
+    CI: 'true',
+    GITHUB_ACTIONS: 'true',
     SF_SETUP_SCRATCH: '1',
     SF_DEVHUB_ALIAS: 'CachedDevHub',
     SF_DEVHUB_AUTH_URL: 'force://legacy-secret'
@@ -335,9 +335,58 @@ for (const ci of ['true', 'false']) test(`real-org setup rejects cached alias an
           }
         }
       ),
-    /requires complete Dev Hub JWT/
+    /CI requires complete Dev Hub JWT/
   );
   assert.equal(scratchMutated, false);
+});
+
+test('local real-org setup creates the scratch through an explicit SF_DEVHUB_ALIAS without JWT', async t => {
+  process.env = {
+    ...originalEnv,
+    CI: 'false',
+    GITHUB_ACTIONS: 'false',
+    SF_SETUP_SCRATCH: '1',
+    SF_DEVHUB_ALIAS: 'ConfiguredDevHub',
+    SF_SCRATCH_ALIAS: 'NewScratch'
+  };
+  for (const name of ['SF_DEVHUB_CLIENT_ID', 'SF_DEVHUB_USERNAME', 'SF_DEVHUB_LOGIN_URL', 'SF_DEVHUB_PRIVATE_KEY',
+    'SF_DEVHUB_PRIVATE_KEY_FILE', 'SF_DEVHUB_AUTH_URL', 'SF_TEST_KEEP_ORG']) {
+    delete process.env[name];
+  }
+  t.after(() => {
+    process.env = { ...originalEnv };
+  });
+  const commands = [];
+  const { cleanup } = await pretestSetup(
+    'integration',
+    {},
+    {
+      ensureSfCliInstalled: async () => 'sf',
+      execFileAsync: async (file, args, options) => {
+        commands.push(args.slice(0, 3).join(' '));
+        if (args.slice(0, 2).join(' ') === 'org display' && args.includes('ConfiguredDevHub')) {
+          return { stdout: '{"status":0,"result":{"username":"developer@example.com"}}' };
+        }
+        if (args.slice(0, 2).join(' ') === 'org display') {
+          throw new Error('Scratch alias does not exist');
+        }
+        if (args.slice(0, 3).join(' ') === 'org create scratch') {
+          assert.equal(args[args.indexOf('--target-dev-hub') + 1], 'ConfiguredDevHub');
+          assert.equal(options?.env?.SF_SCRATCH_SIGNUP_CONNECTED_APP, 'PlatformCLI');
+          return { stdout: '{"status":0,"result":{}}' };
+        }
+        if (args.slice(0, 3).join(' ') === 'org delete scratch') {
+          assert.equal(args[args.indexOf('--target-org') + 1], 'NewScratch');
+          return { stdout: '{"status":0,"result":{}}' };
+        }
+        throw new Error(`Unexpected command: ${args.join(' ')}`);
+      }
+    }
+  );
+  await cleanup();
+  assert.equal(commands.includes('org login jwt'), false);
+  assert.equal(commands.includes('org create scratch'), true);
+  assert.equal(commands.includes('org delete scratch'), true);
 });
 
 test('selected malformed JWT is rejected before CLI execution without exposing its contents', async t => {
@@ -791,7 +840,7 @@ test('resolveRequiredDevHubConfig ignores the legacy SFDX_AUTH_URL fallback', ()
   delete process.env.SF_DEVHUB_AUTH_URL;
   delete process.env.SF_DEVHUB_ALIAS;
 
-  assert.throws(() => resolveRequiredDevHubConfig({ requireConfig: true }), /requires complete Dev Hub JWT configuration/);
+  assert.throws(() => resolveRequiredDevHubConfig({ requireConfig: true }), /require SF_DEVHUB_ALIAS .* or complete Dev Hub JWT configuration/);
 
   process.env = { ...originalEnv };
 });
@@ -816,7 +865,7 @@ test('pretestSetup fails fast when scratch setup is enabled without explicit Dev
           ensureSfCliInstalled: async () => 'sf'
         }
       ),
-    /requires complete Dev Hub JWT configuration/
+    /require SF_DEVHUB_ALIAS .* or complete Dev Hub JWT configuration/
   );
 
   process.env = { ...originalEnv };
@@ -859,12 +908,55 @@ test('pretestSetup propagates Dev Hub auth failures instead of continuing', asyn
   process.env = { ...originalEnv };
 });
 
-for (const cli of ['sf', 'sfdx']) test(`Dev Hub ${cli} rejects explicit alias authentication before CLI access`, async () => {
-  let calls = 0;
-  await assert.rejects(() => ensureDevHub(cli, { mode: 'alias', alias: 'ConfiguredDevHub' }, {
-    execFileAsync: async () => { calls++; throw new Error('Must not access cached credentials'); }
-  }), /requires JWT/);
-  assert.equal(calls, 0);
+test('ensureDevHub validates an explicit alias without mutating global CLI config', async () => {
+  const calls = [];
+
+  const session = await ensureDevHub(
+    'sf',
+    { mode: 'alias', alias: 'ConfiguredDevHub' },
+    {
+      execFileAsync: async (file, args) => {
+        calls.push([file, args]);
+        return { stdout: '{"status":0,"result":{}}' };
+      }
+    }
+  );
+
+  assert.equal(session.targetOrg, 'ConfiguredDevHub');
+  assert.deepEqual(calls, [['sf', ['org', 'display', '--target-org', 'ConfiguredDevHub', '--json']]]);
+});
+
+test('local alias authorization rejects unsuccessful JSON before scratch setup', async () => {
+  await assert.rejects(
+    () =>
+      ensureDevHub(
+        'sf',
+        { mode: 'alias', alias: 'ConfiguredDevHub' },
+        {
+          execFileAsync: async () => ({ stdout: '{"status":1,"message":"sensitive-credential"}' })
+        }
+      ),
+    error => {
+      assert.match(error.message, /SF_DEVHUB_ALIAS 'ConfiguredDevHub' is not authenticated/);
+      assert.doesNotMatch(error.stack, /sensitive-credential/);
+      return true;
+    }
+  );
+});
+
+test('legacy sfdx adapter authenticates the explicit alias with its supported command', async () => {
+  const session = await ensureDevHub(
+    'sfdx',
+    { mode: 'alias', alias: 'ConfiguredDevHub' },
+    {
+      execFileAsync: async (file, args) => {
+        assert.equal(file, 'sfdx');
+        assert.deepEqual(args, ['force:org:display', '-u', 'ConfiguredDevHub', '--json']);
+        return { stdout: '{"status":0,"result":{}}' };
+      }
+    }
+  );
+  assert.equal(session.targetOrg, 'ConfiguredDevHub');
 });
 
 test('legacy sfdx adapter preserves JWT identity and key cleanup with legacy flags', async t => {

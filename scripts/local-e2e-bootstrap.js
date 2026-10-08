@@ -31,8 +31,9 @@ async function bootstrapLocalE2e(
 ) {
   const ci = /^(1|true)$/i.test(String(env.CI || '').trim()) || String(env.GITHUB_ACTIONS || '').trim() === 'true';
   // The private platform configuration is an explicit local opt-in. CI and callers
-  // supplying any credential input retain their existing validation contract,
-  // including rejection of partial JWT and legacy alias/auth-URL inputs.
+  // supplying any credential input retain their existing validation contract: an
+  // explicit SF_DEVHUB_ALIAS runs against that Dev Hub, while partial JWT and legacy
+  // auth-URL inputs are rejected.
   if (
     !['linux', 'darwin'].includes(platform) ||
     ci ||

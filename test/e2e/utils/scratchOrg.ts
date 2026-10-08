@@ -1184,7 +1184,7 @@ async function ensurePooledScratchOrg(devHub: DevHubSession): Promise<ScratchOrg
 
 export async function ensureScratchOrg(): Promise<ScratchOrgResult> {
   return await timeE2eStep('scratch.ensure', async () => {
-    const devHub = await authenticateDevHub(resolveDevHubConfig(), runSfJson);
+    const devHub = await authenticateDevHub(resolveDevHubConfig(process.env, { allowLocalAlias: true }), runSfJson);
     try {
       const result =
         resolveScratchStrategy() === 'pool'

@@ -29,7 +29,7 @@ pnpm run scratch-pool:bootstrap -- --target-org DevHubElectivus --pool-key alv-e
 Notes:
 
 - When invoking these scripts through `pnpm run`, keep the extra `--` before the script arguments so pnpm forwards flags like `--pool-key` to the script.
-- If your shell already exports `SF_DEVHUB_ALIAS`, you can omit `--target-org` and run `pnpm run scratch-pool:bootstrap -- --pool-key alv-e2e --target-size 30`.
+- Administrative commands authenticate only with the JWT identity; `SF_DEVHUB_ALIAS` applies to local test runs, not to these commands.
 
 Useful bootstrap overrides:
 
@@ -77,7 +77,7 @@ node scripts/devhub-local.js run -- corepack pnpm run scratch-pool:list -- --poo
 On the `codex/devhub-jwt` effort branch, administrative commands and consumers use the shared [Dev Hub JWT policy](DEVHUB_JWT.md). Production workflow/credential cutover remains #1078; the current Actions contract below is transitional.
 
 - Dev Hub operations use the ECA client ID, explicit username/login URL, and exactly one private-key input documented in `DEVHUB_JWT.md`. CI requires complete JWT.
-- Local use may explicitly select an already-authenticated `SF_DEVHUB_ALIAS` or administrative `--target-org` only when JWT inputs are absent. A failed selected JWT never falls back.
+- Local E2E consumers (not the administrative commands) may explicitly select an already-authenticated `SF_DEVHUB_ALIAS` only when JWT inputs are absent. A failed selected JWT never falls back.
 - Scratch-org reuse uses the slot's stored `sfdxAuthUrl`
 - The helper reauthenticates a pooled scratch org with `sf org login sfdx-url`
 

@@ -75,7 +75,7 @@
 
 ## Real Org E2E and Operations
 
-- Local and CI Dev Hub runtime authentication is JWT-only. Use `node scripts/devhub-local.js verify` or `run -- <command>` with durable private operator state described in `docs/DEVHUB_LOCAL.md`; never fall back to a host alias. Authorized administrator bootstrap and PlatformCLI scratch auth remain separate.
+- Local E2E and integration runs can use a Dev Hub already authenticated in the Salesforce CLI by setting `SF_DEVHUB_ALIAS`; Playwright E2E keeps and reuses its single scratch by default, while integration runs keep it only with `SF_TEST_KEEP_ORG=1`. See `docs/TESTING.md#run-locally`. CI, the proxy lab and pool administration are JWT-only: use `node scripts/devhub-local.js verify` or `run -- <command>` with durable private operator state described in `docs/DEVHUB_LOCAL.md`. Once any JWT input is set, never fall back to an alias. Authorized administrator bootstrap and PlatformCLI scratch auth remain separate.
 
 - Corporate proxy/MITM E2E lab: `pnpm run test:e2e:proxy-lab`; pass a child command after `--` such as `pnpm run test:e2e:proxy-lab -- pnpm run test:e2e:cli`. Real-org proxy-lab runs require complete Dev Hub JWT inputs from `docs/DEVHUB_JWT.md`; host aliases and `SF_DEVHUB_AUTH_URL` are not fallbacks.
 - GitHub real-org E2E is pool-only in `.github/workflows/e2e-playwright.yml`: configure repository variable `SF_SCRATCH_POOL_NAME` plus the four `SF_DEVHUB_*` JWT secrets documented in `docs/DEVHUB_JWT.md`; parallel workflow runs are bounded by the pool's atomic slot leases and wait for capacity instead of using a workflow-level concurrency lock.

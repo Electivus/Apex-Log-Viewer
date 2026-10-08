@@ -1,6 +1,6 @@
 # Real-org E2E on Arch Linux / WSL2
 
-Keep the checkout, dependencies, builds and IDE caches on the Linux filesystem. Use the existing dedicated Dev Hub JWT identity from [DEVHUB_LOCAL.md](DEVHUB_LOCAL.md); do not copy a Windows Salesforce home or substitute an authenticated host alias.
+Keep the checkout, dependencies, builds and IDE caches on the Linux filesystem. Use the existing dedicated Dev Hub JWT identity from [DEVHUB_LOCAL.md](DEVHUB_LOCAL.md); do not copy a Windows Salesforce home. For a quick run without that setup, authenticate a Dev Hub in this Linux Salesforce CLI and set `SF_DEVHUB_ALIAS` (see [Run locally](TESTING.md#run-locally)).
 
 ## Prepare the Linux runtime
 

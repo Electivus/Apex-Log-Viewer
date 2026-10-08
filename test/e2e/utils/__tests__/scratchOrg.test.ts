@@ -259,10 +259,64 @@ describe('ensureScratchOrg', () => {
     delete process.env.SF_DEVHUB_ALIAS;
     delete process.env.SF_DEVHUB_AUTH_URL;
 
-    await expect(ensureScratchOrg()).rejects.toThrow(
-      'requires complete Dev Hub JWT configuration'
-    );
+    await expect(ensureScratchOrg()).rejects.toThrow('Local real-org tests require SF_DEVHUB_ALIAS');
     expect(runSfJsonMock).not.toHaveBeenCalled();
+  });
+
+  test('local run creates and deletes the scratch through SF_DEVHUB_ALIAS without JWT', async () => {
+    for (const field of ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY']) delete process.env[`SF_DEVHUB_${field}`];
+    process.env.SF_TEST_KEEP_ORG = '0';
+    const homeField = process.platform === 'win32' ? 'USERPROFILE' : 'HOME';
+    let scratchExists = false;
+    let scratchDeleted = false;
+    runSfJsonMock.mockImplementation(async (args, options) => {
+      expect(options?.env?.[homeField] ?? process.env[homeField]).toBe(process.env[homeField]);
+      if (args.slice(0, 2).join(' ') === 'org display' && args.includes('CachedDevHub')) {
+        return { status: 0, result: { username: 'developer@example.com' } };
+      }
+      if (args.slice(0, 2).join(' ') === 'org display' && args.includes('ALV_E2E_Scratch')) {
+        if (!scratchExists) throw new Error('Scratch alias does not exist');
+        return { status: 0, result: { status: 'Active', expirationDate: '2099-03-07' } };
+      }
+      if (args.slice(0, 3).join(' ') === 'org create scratch') {
+        expect(args[args.indexOf('--target-dev-hub') + 1]).toBe('CachedDevHub');
+        expect(options?.env?.SF_SCRATCH_SIGNUP_CONNECTED_APP).toBe('PlatformCLI');
+        scratchExists = true;
+        return { status: 0, result: {} };
+      }
+      if (args.slice(0, 3).join(' ') === 'org delete scratch') {
+        expect(args[args.indexOf('--target-org') + 1]).toBe('ALV_E2E_Scratch');
+        scratchDeleted = true;
+        return { status: 0, result: {} };
+      }
+      throw new Error(`Unexpected sf command: ${args.join(' ')}`);
+    });
+
+    const scratch = await ensureScratchOrg();
+
+    expect(scratch).toMatchObject({
+      devHubAlias: 'CachedDevHub',
+      scratchAlias: 'ALV_E2E_Scratch',
+      created: true,
+      strategy: 'single'
+    });
+    const commands = runSfJsonMock.mock.calls.map(([args]) => args.slice(0, 3).join(' '));
+    expect(commands).not.toContain('org login jwt');
+    expect(commands).not.toContain('org auth show-sfdx-auth-url');
+    expect(commands).not.toContain('org login sfdx-url');
+    await scratch.cleanup();
+    expect(scratchDeleted).toBe(true);
+  });
+
+  test('rejects an unauthenticated SF_DEVHUB_ALIAS before any scratch lookup', async () => {
+    for (const field of ['CLIENT_ID', 'USERNAME', 'LOGIN_URL', 'PRIVATE_KEY']) delete process.env[`SF_DEVHUB_${field}`];
+    runSfJsonMock.mockRejectedValue(new Error('NamedOrgNotFoundError'));
+
+    await expect(ensureScratchOrg()).rejects.toThrow(
+      "SF_DEVHUB_ALIAS 'CachedDevHub' is not authenticated in the Salesforce CLI."
+    );
+    expect(runSfJsonMock).toHaveBeenCalledTimes(1);
+    expect(runSfJsonMock).toHaveBeenCalledWith(['org', 'display', '--target-org', 'CachedDevHub'], expect.any(Object));
   });
 
   test('recreates a scratch org using the configured JWT identity', async () => {
@@ -407,8 +461,10 @@ describe('ensureScratchOrg', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  // A local run with no JWT input at all uses SF_DEVHUB_ALIAS; see the alias tests above.
   test.each(['single', 'pool'].flatMap(strategy => ['true', 'false'].flatMap(ci =>
-    ['missing', 'partial', 'malformed'].map(input => ({strategy, ci, input})))))(
+    ['missing', 'partial', 'malformed'].filter(input => ci === 'true' || input !== 'missing')
+      .map(input => ({strategy, ci, input})))))(
     'fails before $strategy mutations with $input JWT (CI=$ci) despite cached alias and legacy URL',
     async ({strategy, ci, input}) => {
       process.env.CI = ci;
