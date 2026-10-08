@@ -20,7 +20,7 @@
 
 ### Tests
 
-- Local E2E: run the Playwright and integration suites against a Dev Hub already authenticated in the Salesforce CLI by setting `SF_DEVHUB_ALIAS`; the scratch org is created once and reused. JWT inputs, when set, still take precedence, and CI stays JWT-only.
+- Local E2E: run the Playwright and integration suites against a Dev Hub already authenticated in the Salesforce CLI by setting `SF_DEVHUB_ALIAS`; Playwright runs create the scratch org once and reuse it. JWT inputs, when set, still take precedence, and CI stays JWT-only.
 - macOS: load opted-in local runtime settings and verified durable Dev Hub JWT automatically for `npm run test:e2e` and `npm run test:e2e:cli`, preserving isolated Salesforce CLI execution and native VS Code stable; reject ordinary CLI executables in place of the generated Node wrapper before authentication.
 - Proxy lab: restore host ownership of every output the runner recreates (bundled sf plugin skills, copied extension metadata, compiled tests, coverage and the smoke VSIX) so host builds after a lab run no longer fail with `EACCES`, and keep the list aligned with the `clean` script.
 - Arch Linux/WSL: load opted-in local settings and the verified durable Dev Hub JWT automatically for Playwright UI/CLI commands; add native Electron/Xvfb dependencies and a launcher that preserves the shell's selected Node 24 runtime (including fnm) without changing CI authentication.
