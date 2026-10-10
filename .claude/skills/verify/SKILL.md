@@ -43,7 +43,7 @@ Org selection comes from the environment, the same as for `test:e2e`:
 ## Doctor
 
 ```bash
-node $V doctor     # read-only; exit 0 = worth driving
+node $V doctor     # read-only; exit 0 = session ready to drive, 1 = something failed, 2 = preflight ok but no session
 ```
 
 Run it first whenever anything looks off. **Preflight** checks Node against `.nvmrc`, `sf` on PATH, `xvfb-run` when there is no `DISPLAY`, installed dependencies, build artifacts, and the Dev Hub/pool configuration (parsed with `scripts/devhub-auth.js`, no network). **Session** checks the following: phase is `ready`; the host pid is alive and was started from this checkout's bundle; the VS Code window and workbench are alive; the pool lease heartbeat is healthy; the build on disk matches the build that was loaded; `session.ts` has not changed since start; `sf org display` still authenticates the org. If a session check says "stop and start again", do exactly that, because the window is running stale code.
@@ -65,7 +65,7 @@ export default async function ({ page, h, expect, session, args }) {
   const logs = await h.logsFrame();
   await logs.locator('input[type="search"]').first().fill(session.seeded.marker);
   await expect(logs.locator(`[data-log-id="${session.seeded.logId}"]`)).toBeVisible({ timeout: 180_000 });
-  return { shot: await h.shot('logs-match', logs) };   // returned JSON is printed and recorded
+  return { shot: await h.shot('logs-match', logs) }; // returned JSON is printed and recorded
 }
 ```
 
@@ -73,23 +73,30 @@ Steps run one at a time. A thrown error (including a failed `expect`) returns `"
 
 `h` (helpers):
 
-| Helper | What it does |
-| --- | --- |
-| `runCommandWhenAvailable(title)` / `runCommand(title)` | Command palette by visible title, e.g. `Electivus Apex Logs: Tail Logs` |
-| `executeCommandId(id)`, `openView(name)` | Palette by command id / `View: Open View...` |
-| `logsFrame()`, `tailFrame()`, `viewerFrame()`, `debugFlagsFrame()` | Wait for that webview's content frame (default 120 s) |
-| `frameWith(selector, timeoutMs)` | Any webview frame containing `selector` |
-| `openDebugFlagsFromLogs()`, `openDebugFlagsFromTail()` | Click the panel's Debug Flags button, retrying swallowed clicks; returns the frame |
-| `shot(name, frameOrLocator?)` | PNG into evidence: whole window, a frame's body, or one element |
-| `saveEvidence(name, data)`, `copyToEvidence(path)` | Persist JSON/text or copy a file (e.g. from `session.workspacePath`) |
-| `toasts()` | Visible VS Code notification texts |
-| `dismissNotifications()`, `closeQuickInput()`, `closeAuxiliaryBar()` | Clear UI that intercepts clicks |
-| `seedLog()`, `seedErrorLog()`, `clearOrgLogs('all'\|'mine')` | Create real ApexLogs (anonymous Apex) or delete them in the session org |
-| `orgAuth()`, `tooling.*` | Read org state behind the UI (`tooling.getUserDebugTraceFlag(auth, userId)`, ...) |
+| Helper                                                               | What it does                                                                       |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `runCommandWhenAvailable(title)` / `runCommand(title)`               | Command palette by visible title, e.g. `Electivus Apex Logs: Tail Logs`            |
+| `executeCommandId(id)`, `openView(name)`                             | Palette by command id / `View: Open View...`                                       |
+| `logsFrame()`, `tailFrame()`, `viewerFrame()`, `debugFlagsFrame()`   | Wait for that webview's content frame (default 120 s)                              |
+| `frameWith(selector, timeoutMs)`                                     | Any webview frame containing `selector`                                            |
+| `openDebugFlagsFromLogs()`, `openDebugFlagsFromTail()`               | Click the panel's Debug Flags button, retrying swallowed clicks; returns the frame |
+| `shot(name, frameOrLocator?)`                                        | PNG into evidence: whole window, a frame's body, or one element                    |
+| `saveEvidence(name, data)`, `copyToEvidence(path)`                   | Persist JSON/text or copy a file (e.g. from `session.workspacePath`)               |
+| `toasts()`                                                           | Visible VS Code notification texts                                                 |
+| `dismissNotifications()`, `closeQuickInput()`, `closeAuxiliaryBar()` | Clear UI that intercepts clicks                                                    |
+| `seedLog()`, `seedErrorLog()`, `clearOrgLogs('all'\|'mine')`         | Create real ApexLogs (anonymous Apex) or delete them in the session org            |
+| `orgAuth()`, `tooling.*`                                             | Read org state behind the UI (`tooling.getUserDebugTraceFlag(auth, userId)`, ...)  |
 
 `session` holds `{ org, workspacePath, evidenceDir, seeded, repoRoot }`, `page` is the VS Code window (Playwright `Page`) and `expect` is Playwright's `expect`.
 
-Stable handles (prefer these over text and position): `[data-testid="logs-open-debug-flags"]`, `logs-errors-only-switch`, `logs-error-badge`, `logs-reason-badge`, `[data-log-id="<07L…>"]`, `[role="row"][tabindex="0"]`, `mark.match-highlight`, `tail-open-debug-flags`, `tail-debug-level`, `debug-flags-user-search`, `debug-flags-user-row-<userId>`, `debug-flags-ttl`, `debug-flags-apply`, `debug-flags-remove`, `debug-flags-notice`, `debug-level-manager*`, `button[aria-label="Apex Replay"]`. The full list is in `packages/webview/src` (`grep -rho 'data-testid="[^"]*"'`).
+Stable handles (prefer these over text and position), grouped by webview:
+
+- **Logs panel:** `[data-testid="logs-open-debug-flags"]`, `logs-errors-only-switch`, `logs-error-badge`, `logs-reason-badge`, `[data-log-id="<07L…>"]`, rows `[role="row"][tabindex="0"]`, search hits `mark.match-highlight`, `button[aria-label="Apex Replay"]`.
+- **Log Viewer:** `input[placeholder="Search entries…"]`, `button[aria-label="Next match"]` / `"Previous match"`, the counter `getByText(/^\d+\/\d+$/)`, search hits as plain `mark` (not `.match-highlight`).
+- **Tail:** `tail-open-debug-flags`, `tail-debug-level`.
+- **Debug Flags:** `debug-flags-user-search`, `debug-flags-user-row-<userId>`, `debug-flags-ttl`, `debug-flags-apply`, `debug-flags-remove`, `debug-flags-notice`, `debug-level-manager*`.
+
+The full list is in `packages/webview/src` (`grep -rho 'data-testid="[^"]*"'`).
 
 Canned steps in `steps/` (each one asserts the end state and returns its proof paths):
 
@@ -104,9 +111,9 @@ Per-feature recipes, entry points and traps are in [features/README.md](features
 Everything goes to `output/verify/evidence/<YYYYMMDD-HHMMSS>/` (gitignored), and the directory survives `stop`:
 
 - `NNN-<name>.png`: screenshots in order, from `001-ready.png` (the window before any step) to `NNN-final-window.png` (taken at stop).
-- `steps.jsonl`: one record per `run` with the step path, args, `ok`, duration, returned result or error, and failure screenshot.
-- `cli-<time>-sf-<cmd>.json`: command, cwd, exit code, stdout and stderr of every `sf` call.
-- `vscode-logs/`: VS Code logs copied at stop. The extension's trace-level output channel is at `window1/exthost/electivus.apex-log-viewer/Electivus Apex Log Viewer.log`.
+- `steps.jsonl`: one record per `run` with the step path (repo-relative, or absolute for steps outside the repo), args, `ok`, duration, returned result or error, and failure screenshot.
+- `cli-<time>-sf-<cmd>.json`: the exact command (`node packages/sf-plugin/bin/run.js electivus …`), cwd, exit code, stdout and stderr of every `sf` call.
+- `vscode-logs/`: VS Code logs copied at stop. The extension's trace-level output channel is at `vscode-logs/<timestamp>/window1/exthost/electivus.apex-log-viewer/Electivus Apex Log Viewer.log`.
 - `workspace-files.json`: every file left in the session workspace at stop (`apexlogs/` store, `sync-state.json`), with sizes.
 - `host.out`: host progress and E2E timing lines. `session.json`: final session state (org, slot, phase).
 
@@ -125,6 +132,8 @@ node $V stop            # close VS Code, copy logs, delete workspace + VS Code p
 node $V stop --retire   # same, but mark the pool slot needs_recreate (you broke the org's state)
 node $V stop --keep     # keep the temp workspace and redacted VS Code profile for inspection
 ```
+
+`host.out` ends with `lease release sent for <slot>`. A `[e2e] scratch-org pool release failed` warning above that line means the Dev Hub refused it. To read the slot state back, run `node scripts/scratch-pool-admin.js list --pool-key "$SF_SCRATCH_POOL_NAME" --json` (read-only), which shows the slot `available`.
 
 `stop` asks the host to shut down gracefully. If the host does not exit within 3 minutes, `stop` kills only the host pid and VS Code pid recorded in `session.json`. Never use `pkill code`/`pkill node`: the user may have their own VS Code or Node processes. The host also stops itself after `--idle-minutes` (default 30) without requests, so a forgotten session does not hold a pool slot shared with CI. After `stop`, `ls output/verify/evidence/<stamp>` still lists the proof.
 

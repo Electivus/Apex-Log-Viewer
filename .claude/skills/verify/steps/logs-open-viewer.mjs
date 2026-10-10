@@ -19,8 +19,14 @@ export default async function ({ h, expect, session, args }) {
 
   const row = logs.locator(`[data-log-id="${logId}"]`);
   await expect(row).toBeVisible({ timeout: 180_000 });
-  await expect(row.locator('mark.match-highlight').filter({ hasText: query }).first()).toBeVisible({ timeout: 180_000 });
+  await expect(row.locator('mark.match-highlight').filter({ hasText: query }).first()).toBeVisible({
+    timeout: 180_000
+  });
+  // The panel is ~260 px tall; maximize it so the matching row is inside the shot, then restore the layout.
+  await h.runCommand('View: Toggle Maximized Panel');
   const panelShot = await h.shot('logs-search-match', logs);
+  await h.runCommand('View: Toggle Maximized Panel');
+  await h.closeQuickInput();
 
   await h.dismissNotifications();
   await row.click();

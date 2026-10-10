@@ -11,7 +11,12 @@ import { pathToFileURL } from 'node:url';
 import { expect } from '@playwright/test';
 import type { Frame, Locator, Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
-import { runCommand, runCommandWhenAvailable, executeCommandId, openView } from '../../../../test/e2e/utils/commandPalette';
+import {
+  runCommand,
+  runCommandWhenAvailable,
+  executeCommandId,
+  openView
+} from '../../../../test/e2e/utils/commandPalette';
 import { removePathBestEffort } from '../../../../test/e2e/utils/fsCleanup';
 import { closeQuickInputIfOpen, dismissAllNotifications } from '../../../../test/e2e/utils/notifications';
 import { applyE2eNetworkEnvironment } from '../../../../test/e2e/utils/proxy';
@@ -69,7 +74,8 @@ const state: SessionState = {
   startedAt: new Date().toISOString()
 };
 
-let scratch: Pick<ScratchOrgResult, 'scratchAlias' | 'cleanup' | 'assertLeaseHealthy' | 'strategy' | 'slotKey'> | undefined;
+let scratch:
+  Pick<ScratchOrgResult, 'scratchAlias' | 'cleanup' | 'assertLeaseHealthy' | 'strategy' | 'slotKey'> | undefined;
 let workspace: Awaited<ReturnType<typeof createTempWorkspace>> | undefined;
 let app: ElectronApplication | undefined;
 let page: Page | undefined;
@@ -98,12 +104,22 @@ async function writeState(): Promise<void> {
 }
 
 function slug(value: string): string {
-  return value.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'shot';
+  return (
+    value
+      .replace(/[^a-z0-9._-]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'shot'
+  );
 }
 
 function nextEvidencePath(name: string, extension: string): string {
   shotSeq += 1;
   return path.join(evidenceDir, `${String(shotSeq).padStart(3, '0')}-${slug(name)}.${extension}`);
+}
+
+function displayPath(file: string): string {
+  const relative = path.relative(repoRoot, file);
+  return relative.startsWith('..') ? file : relative;
 }
 
 function requirePage(): Page {
@@ -130,11 +146,9 @@ async function shot(name: string, target?: Frame | Locator): Promise<string> {
 }
 
 async function frameWith(selector: string, timeoutMs = 120_000): Promise<Frame> {
-  return await waitForWebviewFrame(
-    requirePage(),
-    async frame => await frame.locator(selector).first().isVisible(),
-    { timeoutMs }
-  );
+  return await waitForWebviewFrame(requirePage(), async frame => await frame.locator(selector).first().isVisible(), {
+    timeoutMs
+  });
 }
 
 function orgAlias(): string {
@@ -197,14 +211,17 @@ function publicSession() {
 }
 
 async function appendStepRecord(record: Record<string, unknown>): Promise<void> {
-  await writeFile(path.join(evidenceDir, 'steps.jsonl'), `${JSON.stringify(record)}\n`, { encoding: 'utf8', flag: 'a' });
+  await writeFile(path.join(evidenceDir, 'steps.jsonl'), `${JSON.stringify(record)}\n`, {
+    encoding: 'utf8',
+    flag: 'a'
+  });
 }
 
 async function runStep(file: string, args: unknown): Promise<Record<string, unknown>> {
   runSeq += 1;
   const seq = runSeq;
   const started = Date.now();
-  const step = path.relative(repoRoot, file);
+  const step = displayPath(file);
   log(`run #${seq} ${step}`);
   try {
     const mod = await import(`${pathToFileURL(file).href}?run=${seq}`);
@@ -255,7 +272,10 @@ async function status(): Promise<Record<string, unknown>> {
   let workbenchVisible = false;
   let webviewFrames = 0;
   if (page && vscodeAlive) {
-    workbenchVisible = await page.locator('.monaco-workbench').isVisible().catch(() => false);
+    workbenchVisible = await page
+      .locator('.monaco-workbench')
+      .isVisible()
+      .catch(() => false);
     webviewFrames = page.frames().filter(frame => /vscode-webview/i.test(frame.url())).length;
   }
   let leaseHealthy = true;
@@ -309,7 +329,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
   if (url === '/run') {
     const file = path.resolve(String(body.file || ''));
-    running = path.relative(repoRoot, file);
+    running = displayPath(file);
     try {
       reply(res, 200, await runStep(file, body.args ?? {}));
     } finally {
@@ -372,11 +392,25 @@ async function stop(options: { retire?: boolean; keep?: boolean; reason: string 
       await workspace.cleanup({ keep: options.keep });
     }
     if (scratch) {
+      // A start failure is recorded on the slot without retiring it; --retire is the explicit "the org is damaged".
+      const release = options.retire
+        ? { success: false, needsRecreate: true, lastRunResult: 'failed', errorMessage: 'Retired by verify session.' }
+        : state.error
+          ? {
+              success: true,
+              lastRunResult: 'failed',
+              errorMessage: `verify start failed: ${state.error.split('\n')[0]}`
+            }
+          : { success: true };
       await scratch
-        .cleanup(
-          options.retire
-            ? { success: false, needsRecreate: true, lastRunResult: 'failed', errorMessage: 'Retired by verify session.' }
-            : { success: true }
+        .cleanup(release)
+        .then(() =>
+          log(
+            state.org?.slotKey
+              ? `lease release sent for ${state.org.slotKey} (${options.retire ? 'needs_recreate' : 'healthy'}); ` +
+                  'a "[e2e] scratch-org pool release failed" line above means it was not accepted'
+              : 'no pool lease to release'
+          )
         )
         .catch(error => log(`org release failed: ${error instanceof Error ? error.message : String(error)}`));
     }

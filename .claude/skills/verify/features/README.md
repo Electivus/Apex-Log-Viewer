@@ -5,7 +5,7 @@ This directory is the maintained source for verifying the user-facing behavior o
 ## Baseline preconditions
 
 - A session started with `node .claude/skills/verify/scripts/verify.mjs start` printed `"ready": true`.
-- `node .claude/skills/verify/scripts/verify.mjs doctor` exits 0.
+- `node .claude/skills/verify/scripts/verify.mjs doctor` exits 0. Exit 2 means no session is running.
 - The org is a pool scratch org (`org.strategy` is `pool`), and `session.seeded` holds one Apex log (`marker`, `logId`) created at start.
 - VS Code shows the temporary workspace `alv-e2e-ws-*`, whose `.sf/config.json` sets `target-org` to the session org.
 - No step has run yet, so no Electivus webview is open.
@@ -27,10 +27,10 @@ This directory is the maintained source for verifying the user-facing behavior o
 
 ## Features
 
-| Feature | File | Canned step | Last driven |
-| --- | --- | --- | --- |
-| Logs panel: list, search, filters, cleanup | [logs-panel.md](./logs-panel.md) | — | 2026-10-10 (search, errors only) |
-| Log Viewer: open, search, filters, raw | [log-viewer.md](./log-viewer.md) | `logs-open-viewer` | 2026-10-10 |
-| Tail: live logs | [tail.md](./tail.md) | `tail-live` | 2026-10-10 |
-| Debug Flags: trace flags and debug levels | [debug-flags.md](./debug-flags.md) | `debug-flags-apply-remove` | 2026-10-10 |
-| `sf electivus` CLI plugin | [sf-cli.md](./sf-cli.md) | — | 2026-10-10 (log sync, log status) |
+| Feature                                    | File                               | Canned step                | Last driven                       |
+| ------------------------------------------ | ---------------------------------- | -------------------------- | --------------------------------- |
+| Logs panel: list, search, filters, cleanup | [logs-panel.md](./logs-panel.md)   | —                          | 2026-10-10 (search, errors only)  |
+| Log Viewer: open, search, filters, raw     | [log-viewer.md](./log-viewer.md)   | `logs-open-viewer`         | 2026-10-10                        |
+| Tail: live logs                            | [tail.md](./tail.md)               | `tail-live`                | 2026-10-10                        |
+| Debug Flags: trace flags and debug levels  | [debug-flags.md](./debug-flags.md) | `debug-flags-apply-remove` | 2026-10-10                        |
+| `sf electivus` CLI plugin                  | [sf-cli.md](./sf-cli.md)           | —                          | 2026-10-10 (log sync, log status) |

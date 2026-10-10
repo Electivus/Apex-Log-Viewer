@@ -172,10 +172,18 @@ function preflightChecks() {
     add(xvfb.status === 0, 'xvfb-run available (no DISPLAY)', xvfb.stdout.trim());
   }
 
-  add(existsSync(path.join(repoRoot, 'node_modules', '@playwright', 'test')), 'Dependencies installed', 'pnpm install --frozen-lockfile');
+  add(
+    existsSync(path.join(repoRoot, 'node_modules', '@playwright', 'test')),
+    'Dependencies installed',
+    'pnpm install --frozen-lockfile'
+  );
 
   const missing = BUILD_ARTIFACTS.filter(file => !existsSync(path.join(repoRoot, file)));
-  add(missing.length === 0, 'Build artifacts present', missing.length ? `missing ${missing.join(', ')} (start builds them)` : '');
+  add(
+    missing.length === 0,
+    'Build artifacts present',
+    missing.length ? `missing ${missing.join(', ')} (start builds them)` : ''
+  );
 
   try {
     const { resolveDevHubConfig } = repoRequire('./scripts/devhub-auth.js');
@@ -203,25 +211,45 @@ async function sessionChecks(state) {
 
   try {
     const { body } = await request('GET', '/status', undefined, 15_000);
-    add(Boolean(body.vscodeAlive && body.workbenchVisible), 'VS Code window alive with workbench rendered', `pid ${state.vscodePid}, ${body.webviewFrames} webview frame(s)`);
-    add(Boolean(body.leaseHealthy), 'Org lease healthy', body.leaseError || `${state.org?.strategy}${state.org?.slotKey ? ` ${state.org.slotKey}` : ''}`);
-    add(true, 'Host answering', `${body.running ? `running ${body.running}; ` : ''}auto-stop after ${body.idleMinutesLeft} idle min`);
+    add(
+      Boolean(body.vscodeAlive && body.workbenchVisible),
+      'VS Code window alive with workbench rendered',
+      `pid ${state.vscodePid}, ${body.webviewFrames} webview frame(s)`
+    );
+    add(
+      Boolean(body.leaseHealthy),
+      'Org lease healthy',
+      body.leaseError || `${state.org?.strategy}${state.org?.slotKey ? ` ${state.org.slotKey}` : ''}`
+    );
+    add(
+      true,
+      'Host answering',
+      `${body.running ? `running ${body.running}; ` : ''}auto-stop after ${body.idleMinutesLeft} idle min`
+    );
   } catch (error) {
     add(false, 'Host answering on its socket', error.message);
   }
 
   const now = buildMtimes();
   const changed = Object.keys(now).filter(file => state.build?.[file] !== now[file]);
-  add(changed.length === 0, 'Running build matches files on disk', changed.length ? `rebuilt since start: ${changed.join(', ')} → stop and start again` : '');
+  add(
+    changed.length === 0,
+    'Running build matches files on disk',
+    changed.length ? `rebuilt since start: ${changed.join(', ')} → stop and start again` : ''
+  );
   const hostSource = path.join(skillDir, 'scripts', 'session.ts');
   add(
     statSync(hostSource).mtimeMs < Date.parse(state.startedAt),
     'Host helpers match session.ts',
-    statSync(hostSource).mtimeMs < Date.parse(state.startedAt) ? '' : 'session.ts changed since start → stop and start again'
+    statSync(hostSource).mtimeMs < Date.parse(state.startedAt)
+      ? ''
+      : 'session.ts changed since start → stop and start again'
   );
 
   if (state.org?.alias) {
-    const display = spawnSync('sf', ['org', 'display', '--target-org', state.org.alias, '--json'], { encoding: 'utf8' });
+    const display = spawnSync('sf', ['org', 'display', '--target-org', state.org.alias, '--json'], {
+      encoding: 'utf8'
+    });
     let detail = `exit ${display.status}`;
     try {
       const result = JSON.parse(display.stdout).result || {};
@@ -245,9 +273,12 @@ async function doctor() {
   const state = readState();
   if (!state) {
     console.log('Session: none running (start one with verify.mjs start)');
-    process.exit(preflightOk ? 0 : 1);
+    process.exit(preflightOk ? 2 : 1);
   }
-  const sessionOk = printChecks(`Session (evidence: ${path.relative(repoRoot, state.evidenceDir)})`, await sessionChecks(state));
+  const sessionOk = printChecks(
+    `Session (evidence: ${path.relative(repoRoot, state.evidenceDir)})`,
+    await sessionChecks(state)
+  );
   if (state.org) {
     console.log(`  org ${state.org.alias} user ${state.org.username} workspace ${state.workspacePath}`);
   }
@@ -320,7 +351,12 @@ async function start(flags) {
     process.platform === 'linux' && !process.env.DISPLAY
       ? ['xvfb-run', '-a', '-s', '-screen 0 1920x1080x24', ...hostCommand]
       : hostCommand;
-  const child = spawn(command[0], command.slice(1), { cwd: repoRoot, env, detached: true, stdio: ['ignore', out, out] });
+  const child = spawn(command[0], command.slice(1), {
+    cwd: repoRoot,
+    env,
+    detached: true,
+    stdio: ['ignore', out, out]
+  });
   closeSync(out);
   let exited;
   child.on('exit', (code, signal) => (exited = { code, signal }));
@@ -332,7 +368,9 @@ async function start(flags) {
   while (Date.now() < deadline) {
     await new Promise(resolve => setTimeout(resolve, 1_000));
     try {
-      const lines = readFileSync(hostOut, 'utf8').split('\n').filter(line => line.startsWith('[verify]'));
+      const lines = readFileSync(hostOut, 'utf8')
+        .split('\n')
+        .filter(line => line.startsWith('[verify]'));
       for (const line of lines.slice(printed)) console.log(line);
       printed = lines.length;
     } catch {}
@@ -355,7 +393,9 @@ async function start(flags) {
     }
     if (exited) {
       printTail(hostOut);
-      fail(`host exited before becoming ready (${JSON.stringify(exited)}). Evidence and host output: ${path.relative(repoRoot, evidenceDir)}`);
+      fail(
+        `host exited before becoming ready (${JSON.stringify(exited)}). Evidence and host output: ${path.relative(repoRoot, evidenceDir)}`
+      );
     }
   }
   fail(`host was not ready after 15 minutes; inspect ${path.relative(repoRoot, hostOut)} and run stop.`);
@@ -365,7 +405,11 @@ async function start(flags) {
 
 function resolveStep(name) {
   if (!name) fail('usage: verify.mjs run <step-name|path/to/step.mjs> [json-args]');
-  const candidates = [path.resolve(name), path.join(skillDir, 'steps', name), path.join(skillDir, 'steps', `${name}.mjs`)];
+  const candidates = [
+    path.resolve(name),
+    path.join(skillDir, 'steps', name),
+    path.join(skillDir, 'steps', `${name}.mjs`)
+  ];
   const found = candidates.find(candidate => existsSync(candidate) && statSync(candidate).isFile());
   if (!found) fail(`step not found: ${name} (looked in ${path.relative(repoRoot, path.join(skillDir, 'steps'))})`);
   return found;
@@ -408,8 +452,19 @@ function sf(positional) {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024
   });
-  const name = `sf-${args.filter(arg => !arg.startsWith('-')).slice(0, 2).join('-') || 'command'}`;
-  const record = { command: `sf electivus ${args.join(' ')}`, cwd: state.workspacePath, exitCode: result.status, stdout: result.stdout, stderr: result.stderr };
+  const name = `sf-${
+    args
+      .filter(arg => !arg.startsWith('-'))
+      .slice(0, 2)
+      .join('-') || 'command'
+  }`;
+  const record = {
+    command: `node packages/sf-plugin/bin/run.js electivus ${args.join(' ')}`,
+    cwd: state.workspacePath,
+    exitCode: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr
+  };
   const file = path.join(state.evidenceDir, `cli-${stamp()}-${name}.json`);
   writeFileSync(file, JSON.stringify(record, null, 2), 'utf8');
   process.stdout.write(result.stdout);
