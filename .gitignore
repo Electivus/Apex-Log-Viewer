@@ -25,6 +25,7 @@ packages/sf-plugin/oclif.lock
 *.zip
 coverage/
 output/playwright/
+output/verify/
 __pycache__/
 *.py[cod]
 
