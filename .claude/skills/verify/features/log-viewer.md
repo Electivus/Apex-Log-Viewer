@@ -34,7 +34,6 @@ Preconditions:
 
 - The search counter renders only while the box has a query, and it reads `0/0` when nothing matches. With N=2 the second match is also the last one, so wrap-around needs a log with more hits (seed one with several `System.debug` lines).
 - Viewer search hits are plain `<mark>` elements. `mark.match-highlight` exists only in the Logs panel, so counting it in the viewer returns 0.
-- In the default 1440x900 window, the table's horizontal scrollbar covers half of the status bar (`Total Lines`, `Debug Statements`, …). Assert those counts from the DOM text rather than from a screenshot.
 - Opening a second log creates a second viewer frame, and `h.viewerFrame()` returns the first one it finds. Scope with `h.frameWith('text=<logId>.log')`.
 - `Debug Only` is on by default for some logs, so the entry count depends on the filter state. Read `Showing:` before and after you toggle.
 - The CodeLens and the palette command only accept documents recognized as Apex logs. A non-log file shows `The active document is not recognized as a Salesforce Apex log.`.

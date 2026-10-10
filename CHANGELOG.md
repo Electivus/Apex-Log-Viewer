@@ -18,6 +18,10 @@
 - Dev Hub: add explicit certificate rotation with private recovery copies, fresh JWT verification, ordered Actions and Dependabot Secret replacement, and resumable forward/rollback recovery across partial deliveries without changing runtime grants.
 - Agent Skill: publish the vendor-neutral source from `skills/apex-log-viewer-cli`, add runtime capability checks and standard update guidance, pin `skills@1.5.21`, and validate project installation for Claude Code, Codex, GitHub Copilot, and Devin.
 
+### Fixes
+
+- Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
+
 ### Tests
 
 - Local E2E: run the Playwright and integration suites against a Dev Hub already authenticated in the Salesforce CLI by setting `SF_DEVHUB_ALIAS`; Playwright runs create the scratch org once and reuse it. JWT inputs, when set, still take precedence, and CI stays JWT-only.
