@@ -1,6 +1,9 @@
 ---
 name: verify
 description: Drive the Electivus Apex Log Viewer the way a user does and capture proof. It opens the VS Code extension's Logs panel, Log Viewer, Tail and Debug Flags webviews in a real VS Code window, and runs the `sf electivus` CLI plugin, both against a real Salesforce scratch org leased from the Dev Hub pool. Use it to show that an extension, webview, core or CLI change works in the running product rather than only in unit tests, or to reproduce a reported UI bug.
+metadata:
+  # Repo-only tooling: keeps `npx skills add electivus/apex-log-viewer` from publishing it with the skills/ catalog.
+  internal: true
 ---
 
 # Verify the Apex Log Viewer against a real org
