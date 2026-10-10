@@ -27,10 +27,10 @@ This directory is the maintained source for verifying the user-facing behavior o
 
 ## Features
 
-| Feature                                    | File                               | Canned step                | Last driven                       |
-| ------------------------------------------ | ---------------------------------- | -------------------------- | --------------------------------- |
-| Logs panel: list, search, filters, cleanup | [logs-panel.md](./logs-panel.md)   | —                          | 2026-10-10 (search, errors only)  |
-| Log Viewer: open, search, filters, raw     | [log-viewer.md](./log-viewer.md)   | `logs-open-viewer`         | 2026-10-10                        |
-| Tail: live logs                            | [tail.md](./tail.md)               | `tail-live`                | 2026-10-10                        |
-| Debug Flags: trace flags and debug levels  | [debug-flags.md](./debug-flags.md) | `debug-flags-apply-remove` | 2026-10-10                        |
-| `sf electivus` CLI plugin                  | [sf-cli.md](./sf-cli.md)           | —                          | 2026-10-10 (log sync, log status) |
+| Feature                                    | File                               | Canned step                | Last driven                                 |
+| ------------------------------------------ | ---------------------------------- | -------------------------- | ------------------------------------------- |
+| Logs panel: list, search, filters, cleanup | [logs-panel.md](./logs-panel.md)   | —                          | 2026-10-10 (search, errors only)            |
+| Log Viewer: open, search, filters, raw     | [log-viewer.md](./log-viewer.md)   | `logs-open-viewer`         | 2026-10-10 (open, search navigation)        |
+| Tail: live logs                            | [tail.md](./tail.md)               | `tail-live`                | 2026-10-10                                  |
+| Debug Flags: trace flags and debug levels  | [debug-flags.md](./debug-flags.md) | `debug-flags-apply-remove` | 2026-10-10                                  |
+| `sf electivus` CLI plugin                  | [sf-cli.md](./sf-cli.md)           | —                          | 2026-10-10 (log sync, log status, log read) |
