@@ -633,5 +633,33 @@ describe('Log viewer components', () => {
         expect(scrollCalls).toEqual([1]);
       });
     });
+
+    it('sizes the virtual list to its container instead of the window height', () => {
+      const originalInnerHeight = window.innerHeight;
+      Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true });
+      const entries: ParsedLogEntry[] = [
+        { id: 0, timestamp: '00:00', type: 'USER_DEBUG', message: 'A', raw: 'raw', category: 'debug' },
+        { id: 1, timestamp: '00:01', type: 'SOQL', message: 'B', raw: 'raw', category: 'soql' }
+      ];
+      const captured: { style?: React.CSSProperties } = {};
+
+      const VirtualList = ({ rowCount, rowHeight, rowComponent, rowProps, style }: any) => {
+        captured.style = style;
+        return (
+          <div style={style}>
+            {Array.from({ length: rowCount }).map((_, index) => (
+              <React.Fragment key={index}>{rowComponent({ ...rowProps, index, style: { height: rowHeight(index) } })}</React.Fragment>
+            ))}
+          </div>
+        );
+      };
+
+      try {
+        render(<LogEntryList entries={entries} virtualListComponent={VirtualList} RowComponent={() => <div />} />);
+        expect(captured.style?.height).toBeUndefined();
+      } finally {
+        Object.defineProperty(window, 'innerHeight', { value: originalInnerHeight, configurable: true });
+      }
+    });
   });
 });
