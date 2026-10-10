@@ -387,8 +387,8 @@ export function LogViewerApp({
       />
       <LogViewerFilters active={filter} onChange={setFilter} counts={counts} locale={locale} />
       <main className="flex min-h-0 flex-1 flex-col bg-background/40">
-        <div className="grid min-h-0 flex-1 gap-3 px-4 pb-3 lg:grid-cols-[1fr_22rem]">
-          <section className="min-h-0">
+        <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-4 pb-3 lg:grid-cols-[1fr_22rem]">
+          <section className="flex min-h-0 flex-col">
             {error ? (
               <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                 {error}
