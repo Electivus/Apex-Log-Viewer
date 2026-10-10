@@ -32,5 +32,6 @@ Preconditions:
 
 - Use `h.openDebugFlagsFrom*()` rather than a raw click. In a verify run, a forced click on the Logs panel's `Debug Flags` button once did nothing.
 - The notice confirms only the UI request. Always read the TraceFlag back through Tooling, because the status pill can lag.
+- The authenticated user already has the `ALV_E2E` flag from session seeding. `debug-flags-apply-remove` with `'{"currentUser":true}'`, which also covers the no-license fallback, snapshots that flag and restores it afterwards. Ad-hoc steps that touch the current user must do the same.
 - Remove every trace flag and debug level the step created. Pool orgs are reused by CI, and `ALV_E2E` is the level the E2E suite expects.
 - User search queries the org. A newly created user can take seconds to appear, see `h.tooling.waitForDebugFlagsUserSearchAvailability`.

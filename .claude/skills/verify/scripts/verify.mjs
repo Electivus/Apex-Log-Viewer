@@ -83,15 +83,16 @@ function pidAlive(pid) {
   }
 }
 
-/** True only when pid is a session host started from this checkout's bundle. */
+/** The live command line of pid ('' when it is gone or cannot be read); `ps` works on Linux and macOS. */
+function commandOf(pid) {
+  if (!pidAlive(pid)) return '';
+  const result = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
+  return result.status === 0 ? result.stdout.trim() : '';
+}
+
+/** True only when pid is a session host started from this checkout's bundle, so a recycled pid is never signalled. */
 function isOurHost(pid) {
-  if (!pidAlive(pid)) return false;
-  try {
-    return readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').includes(bundlePath);
-  } catch {
-    // No /proc (macOS): fall back to the liveness check.
-    return true;
-  }
+  return commandOf(pid).includes(bundlePath);
 }
 
 function request(method, route, body, timeoutMs = 0) {
@@ -142,8 +143,9 @@ function buildMtimes() {
   return result;
 }
 
-function stamp() {
-  return new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
+function stamp({ milliseconds = false } = {}) {
+  const iso = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').replace('Z', '');
+  return milliseconds ? iso : iso.replace(/\..*$/, '');
 }
 
 function printTail(file, lines = 40) {
@@ -363,7 +365,8 @@ async function start(flags) {
   child.unref();
   console.log(`verify: host starting (launcher pid ${child.pid}); progress in ${path.relative(repoRoot, hostOut)}`);
 
-  const deadline = Date.now() + 15 * 60_000;
+  // The host abandons its own start after 15 minutes (and releases the lease); wait a little longer to report it.
+  const deadline = Date.now() + 16 * 60_000;
   let printed = 0;
   while (Date.now() < deadline) {
     await new Promise(resolve => setTimeout(resolve, 1_000));
@@ -465,7 +468,7 @@ function sf(positional) {
     stdout: result.stdout,
     stderr: result.stderr
   };
-  const file = path.join(state.evidenceDir, `cli-${stamp()}-${name}.json`);
+  const file = path.join(state.evidenceDir, `cli-${stamp({ milliseconds: true })}-${name}.json`);
   writeFileSync(file, JSON.stringify(record, null, 2), 'utf8');
   process.stdout.write(result.stdout);
   process.stderr.write(result.stderr);
@@ -492,9 +495,10 @@ async function stop(flags) {
     }
     if (pidAlive(state.hostPid)) {
       console.error('verify: host did not exit in 3 minutes; killing the processes this session started.');
-      for (const pid of [state.vscodePid, state.hostPid]) {
-        if (pidAlive(pid)) process.kill(pid, 'SIGKILL');
+      if (state.userDataDir && commandOf(state.vscodePid).includes(state.userDataDir)) {
+        process.kill(state.vscodePid, 'SIGKILL');
       }
+      if (isOurHost(state.hostPid)) process.kill(state.hostPid, 'SIGKILL');
     }
   } else {
     console.log('verify: host is not running; clearing stale state.');

@@ -64,6 +64,7 @@ const explicitTargetOrg = String(process.env.VERIFY_TARGET_ORG || '').trim();
 const seedOnStart = process.env.VERIFY_SEED === '1';
 const recordTrace = process.env.VERIFY_TRACE === '1';
 const idleMinutes = Math.max(1, Number(process.env.VERIFY_IDLE_MINUTES || 30) || 30);
+const startTimeoutMinutes = 15;
 
 const state: SessionState = {
   phase: 'starting',
@@ -442,6 +443,11 @@ async function buildFingerprint(): Promise<Record<string, string>> {
 }
 
 async function start(): Promise<void> {
+  // A start that hangs after the lease is acquired (seeding, VS Code launch) must still give the slot back.
+  const startWatchdog = setTimeout(() => {
+    state.error ??= `start did not reach ready within ${startTimeoutMinutes} minutes`;
+    void stop({ reason: 'start timed out' });
+  }, startTimeoutMinutes * 60_000);
   delete process.env.ELECTRON_RUN_AS_NODE;
   applyE2eNetworkEnvironment();
   await mkdir(evidenceDir, { recursive: true });
@@ -487,6 +493,8 @@ async function start(): Promise<void> {
   vscodeAlive = true;
   state.userDataDir = launch.userDataDir;
   state.vscodePid = app.process().pid;
+  // Outside the Playwright runner actions have no timeout; a hung step would hold the lease (idle stop skips running steps).
+  app.context().setDefaultTimeout(60_000);
   app.on('close', () => {
     vscodeAlive = false;
     log('VS Code window closed');
@@ -517,6 +525,7 @@ async function start(): Promise<void> {
     server!.listen(socketPath, () => resolve());
   });
 
+  clearTimeout(startWatchdog);
   state.phase = 'ready';
   state.readyAt = new Date().toISOString();
   await writeState();

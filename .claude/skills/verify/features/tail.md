@@ -32,7 +32,8 @@ Preconditions:
 
 ## Gotchas
 
-- Start stays disabled until a debug level is selected, and a fresh org may show `Select`. The canned step picks `ALV_E2E` or the first option.
+- Start stays disabled until a debug level is selected, and a fresh org may show `Select`. The canned step keeps the current level, or picks `ALV_E2E` or the first option. Pass `'{"debugLevel":"<name>"}'` to test a specific level.
+- With several orgs authenticated, Tail's `ORG` picker can default to a different org than the workspace `target-org`, while the Logs panel shows the right one. `tail-live` selects `session.org.alias` explicitly. Ad-hoc tail steps must do the same. In one verify run, after that switch, the `DEBUG LEVEL` picker kept the other org's level (`SFDC_DevConsole`) and `Start` did nothing. If `tail-live` fails with "Tail did not start on …" while several orgs are authenticated, that is the cause, not your change. Check with `sf org list`.
 - Tail polls the org, so new logs take several seconds to appear. Assert visibility with a long timeout and do not sleep.
 - Logs created before Start do not stream. Emit a new one (`h.seedLog()`) after Start.
 - Stop the tail before your step returns, because a running tail keeps polling the org and adds rows to later screenshots.

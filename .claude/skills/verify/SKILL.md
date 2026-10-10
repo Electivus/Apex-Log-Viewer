@@ -34,7 +34,7 @@ node $V start --trace          # also record a Playwright trace (evidence/trace.
 node $V start --idle-minutes 60
 ```
 
-The session is ready when `start` prints a JSON block containing `"ready": true`, along with the org alias, username, pool slot, workspace path, seeded `marker`/`logId` and `evidenceDir`. The same state is in `output/verify/session/session.json` (`"phase": "ready"`). A warm start takes about 1 minute: roughly 25 s to lease, 2 s to seed and 10 to 40 s to start VS Code. The first run in a fresh container also downloads VS Code into `.vscode-test/`, which adds about 25 s. `start` waits up to 15 minutes. If the host dies first, `start` prints the tail of `host.out` and exits 1.
+The session is ready when `start` prints a JSON block containing `"ready": true`, along with the org alias, username, pool slot, workspace path, seeded `marker`/`logId` and `evidenceDir`. The same state is in `output/verify/session/session.json` (`"phase": "ready"`). A warm start takes about 1 minute: roughly 25 s to lease, 2 s to seed and 10 to 40 s to start VS Code. The first run in a fresh container also downloads VS Code into `.vscode-test/`, which adds about 25 s. `start` waits up to 15 minutes. If the host dies first, `start` prints the tail of `host.out` and exits 1. A host that has not reached ready after 15 minutes stops itself and releases its lease.
 
 Org selection comes from the environment, the same as for `test:e2e`:
 
@@ -72,7 +72,7 @@ export default async function ({ page, h, expect, session, args }) {
 }
 ```
 
-Steps run one at a time. A thrown error (including a failed `expect`) returns `"ok": false` with the stack and an automatic `NNN-run-<seq>-failure.png`, and `run` exits 1. The host stays up, so you can fix the step and run it again. Step files are re-imported on every run. Changes to `session.ts` need a restart.
+Steps run one at a time. Playwright actions without an explicit `timeout` fail after 60 s, so a missing element cannot hang the session. A thrown error (including a failed `expect`) returns `"ok": false` with the stack and an automatic `NNN-run-<seq>-failure.png`, and `run` exits 1. The host stays up, so you can fix the step and run it again. Step files are re-imported on every run. Changes to `session.ts` need a restart.
 
 `h` (helpers):
 
@@ -104,8 +104,8 @@ The full list is in `packages/webview/src` (`grep -rho 'data-testid="[^"]*"'`).
 Canned steps in `steps/` (each one asserts the end state and returns its proof paths):
 
 - `logs-open-viewer`: search the seeded log body, then open it in the Log Viewer; asserts the cached `.log` file in `apexlogs/`.
-- `tail-live`: choose a debug level and Start, emit a new log, see it stream in, then Stop.
-- `debug-flags-apply-remove`: from the Logs panel, apply a USER_DEBUG trace flag to the E2E user, read it back through Tooling, remove it, and read it back again.
+- `tail-live`: choose a debug level and Start, emit a new log, see it stream in, then Stop. `'{"debugLevel":"<name>"}'` selects exactly that level and fails if it does not exist.
+- `debug-flags-apply-remove`: from the Logs panel, apply a USER_DEBUG trace flag to the E2E user, read it back through Tooling, remove it, and read it back again. `'{"currentUser":true}'` targets the authenticated user instead, and that user's prior flag is restored afterwards.
 
 Per-feature recipes, entry points and traps are in [features/README.md](features/README.md). Check every entry point the map lists for a feature, not only the convenient one.
 
