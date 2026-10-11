@@ -229,6 +229,9 @@ describe('DebugFlags webview App', () => {
 
     const presetSelect = screen.getByTestId('debug-level-preset-select') as HTMLSelectElement;
     expect(presetSelect.value).toBe('maximum-trace');
+    expect(screen.getByTestId('debug-level-preset-description').textContent).toBe(
+      'Every category at its highest documented level. Expect large logs.'
+    );
 
     fireEvent.click(screen.getByTestId('debug-level-apply-preset'));
 
@@ -265,6 +268,11 @@ describe('DebugFlags webview App', () => {
 
     fireEvent.change(presetSelect, { target: { value: 'developer-focus' } });
     expect(presetSelect.value).toBe('developer-focus');
+    expect(screen.getByTestId('debug-level-preset-description').textContent).toBe(
+      'Balanced defaults for Apex execution and general debugging.'
+    );
+    fireEvent.change(presetSelect, { target: { value: '' } });
+    expect(screen.queryByTestId('debug-level-preset-description')).toBeNull();
     fireEvent.click(screen.getByTestId('debug-level-manager-new'));
     expect(presetSelect.value).toBe('maximum-trace');
   });

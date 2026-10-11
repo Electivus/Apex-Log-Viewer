@@ -17,7 +17,7 @@
 
 - Dev Hub: add explicit certificate rotation with private recovery copies, fresh JWT verification, ordered Actions and Dependabot Secret replacement, and resumable forward/rollback recovery across partial deliveries without changing runtime grants.
 - Agent Skill: publish the vendor-neutral source from `skills/apex-log-viewer-cli`, add runtime capability checks and standard update guidance, pin `skills@1.5.21`, and validate project installation for Claude Code, Codex, GitHub Copilot, and Devin.
-- Debug Flags: add a `Maximum Trace` debug level preset that sets each category to the highest level Salesforce logs for it (Validation `INFO`; System and NBA `FINE`; Workflow, Callout, Visualforce and Data Access `FINER`; the rest `FINEST`), and preselect it in the Debug Level Manager.
+- Debug Flags: add a `Maximum Trace` debug level preset that sets each category to the highest level Salesforce logs for it (Validation `INFO`; System and NBA `FINE`; Workflow, Callout, Visualforce and Data Access `FINER`; the rest `FINEST`), and preselect it in the Debug Level Manager. The manager now shows the selected preset's description, including its large-log warning.
 
 ### Fixes
 

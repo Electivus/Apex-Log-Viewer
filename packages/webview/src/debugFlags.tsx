@@ -351,13 +351,14 @@ export function DebugFlagsApp({
     setError(undefined);
   };
 
+  const selectedPreset = managerPresets.find(item => item.id === selectedPresetId);
+
   const handleApplyPreset = () => {
-    const preset = managerPresets.find(item => item.id === selectedPresetId);
-    if (!preset) {
+    if (!selectedPreset) {
       return;
     }
     setManagerDraft(prev => ({
-      ...cloneDebugLevelRecord(preset.record),
+      ...cloneDebugLevelRecord(selectedPreset.record),
       id: prev.id
     }));
     setConfirmDeleteManager(false);
@@ -839,6 +840,14 @@ export function DebugFlagsApp({
               {t.debugFlags?.managerApplyPreset ?? 'Apply preset'}
             </Button>
           </div>
+          {selectedPreset ? (
+            <p
+              className="-mt-2 text-xs text-muted-foreground lg:col-span-2 lg:col-start-3"
+              data-testid="debug-level-preset-description"
+            >
+              {selectedPreset.description}
+            </p>
+          ) : null}
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
