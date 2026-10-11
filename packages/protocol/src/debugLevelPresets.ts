@@ -2,6 +2,8 @@ import type { DebugLevelPreset, DebugLevelRecord } from './debugFlagsTypes.js';
 
 export const DEBUG_LEVEL_LOG_LEVELS = ['NONE', 'ERROR', 'WARN', 'INFO', 'DEBUG', 'FINE', 'FINER', 'FINEST'] as const;
 
+export type DebugLevelLogLevel = (typeof DEBUG_LEVEL_LOG_LEVELS)[number];
+
 export type DebugLevelFieldKey =
   | 'workflow'
   | 'validation'
@@ -28,6 +30,25 @@ export const DEBUG_LEVEL_FIELDS: ReadonlyArray<{ key: DebugLevelFieldKey; label:
   { key: 'nba', label: 'Nba' },
   { key: 'dataAccess', label: 'Data Access' }
 ];
+
+// The highest level at which each category logs any event, per the Apex Developer Guide debug log event table.
+// The Tooling API accepts FINEST for every field, but higher levels log nothing more. Wave documents no events,
+// so it stays at FINEST.
+export const DEBUG_LEVEL_MAXIMUM_LEVELS: Readonly<Record<DebugLevelFieldKey, DebugLevelLogLevel>> = {
+  workflow: 'FINER',
+  validation: 'INFO',
+  callout: 'FINER',
+  apexCode: 'FINEST',
+  apexProfiling: 'FINEST',
+  visualforce: 'FINER',
+  system: 'FINE',
+  database: 'FINEST',
+  wave: 'FINEST',
+  nba: 'FINE',
+  dataAccess: 'FINER'
+};
+
+export const DEFAULT_DEBUG_LEVEL_PRESET_ID = 'maximum-trace';
 
 export function createEmptyDebugLevelRecord(): DebugLevelRecord {
   return {
@@ -104,6 +125,17 @@ export const DEBUG_LEVEL_PRESETS: DebugLevelPreset[] = [
       apexProfiling: 'DEBUG',
       apexCode: 'INFO',
       system: 'WARN'
+    }
+  },
+  {
+    id: DEFAULT_DEBUG_LEVEL_PRESET_ID,
+    label: 'Maximum Trace',
+    description: 'Every category at its highest documented level. Expect large logs.',
+    record: {
+      ...createEmptyDebugLevelRecord(),
+      developerName: 'ALV_MAXIMUM_TRACE',
+      masterLabel: 'ALV Maximum Trace',
+      ...DEBUG_LEVEL_MAXIMUM_LEVELS
     }
   }
 ];
