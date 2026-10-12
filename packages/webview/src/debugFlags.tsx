@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { DEBUG_LEVEL_FIELDS, DEBUG_LEVEL_LOG_LEVELS, createEmptyDebugLevelRecord } from '@alv/protocol/debugLevelPresets';
+import {
+  DEBUG_LEVEL_FIELDS,
+  DEBUG_LEVEL_LOG_LEVELS,
+  DEFAULT_DEBUG_LEVEL_PRESET_ID,
+  createEmptyDebugLevelRecord
+} from '@alv/protocol/debugLevelPresets';
 import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '@alv/protocol/debugFlagsMessages';
 import {
   getTraceFlagTargetKey,
@@ -89,7 +94,7 @@ export function DebugFlagsApp({
   const [managerRecords, setManagerRecords] = useState<DebugLevelRecord[]>([]);
   const [managerPresets, setManagerPresets] = useState<DebugLevelPreset[]>([]);
   const [selectedManagerId, setSelectedManagerId] = useState('');
-  const [selectedPresetId, setSelectedPresetId] = useState('');
+  const [selectedPresetId, setSelectedPresetId] = useState(DEFAULT_DEBUG_LEVEL_PRESET_ID);
   const [loadedManagerDraft, setLoadedManagerDraft] = useState<DebugLevelRecord>(() => createEmptyDebugLevelRecord());
   const [managerDraft, setManagerDraft] = useState<DebugLevelRecord>(() => createEmptyDebugLevelRecord());
   const [confirmDeleteManager, setConfirmDeleteManager] = useState(false);
@@ -183,7 +188,7 @@ export function DebugFlagsApp({
           setManagerRecords(records);
           setManagerPresets(presets);
           setSelectedManagerId(selectedRecord?.id || '');
-          setSelectedPresetId('');
+          setSelectedPresetId(DEFAULT_DEBUG_LEVEL_PRESET_ID);
           setLoadedManagerDraft(nextDraft);
           setManagerDraft(nextDraft);
           setConfirmDeleteManager(false);
@@ -325,7 +330,7 @@ export function DebugFlagsApp({
 
   const handleSelectManager = (nextId: string) => {
     setSelectedManagerId(nextId);
-    setSelectedPresetId('');
+    setSelectedPresetId(DEFAULT_DEBUG_LEVEL_PRESET_ID);
     const selectedRecord = managerRecords.find(record => record.id === nextId);
     const nextDraft = cloneDebugLevelRecord(selectedRecord);
     setLoadedManagerDraft(nextDraft);
@@ -338,7 +343,7 @@ export function DebugFlagsApp({
   const handleNewManager = () => {
     const nextDraft = createEmptyDebugLevelRecord();
     setSelectedManagerId('');
-    setSelectedPresetId('');
+    setSelectedPresetId(DEFAULT_DEBUG_LEVEL_PRESET_ID);
     setLoadedManagerDraft(nextDraft);
     setManagerDraft(nextDraft);
     setConfirmDeleteManager(false);
@@ -346,13 +351,14 @@ export function DebugFlagsApp({
     setError(undefined);
   };
 
+  const selectedPreset = managerPresets.find(item => item.id === selectedPresetId);
+
   const handleApplyPreset = () => {
-    const preset = managerPresets.find(item => item.id === selectedPresetId);
-    if (!preset) {
+    if (!selectedPreset) {
       return;
     }
     setManagerDraft(prev => ({
-      ...cloneDebugLevelRecord(preset.record),
+      ...cloneDebugLevelRecord(selectedPreset.record),
       id: prev.id
     }));
     setConfirmDeleteManager(false);
@@ -369,7 +375,7 @@ export function DebugFlagsApp({
   };
 
   const handleResetManager = () => {
-    setSelectedPresetId('');
+    setSelectedPresetId(DEFAULT_DEBUG_LEVEL_PRESET_ID);
     setManagerDraft(cloneDebugLevelRecord(loadedManagerDraft));
     setConfirmDeleteManager(false);
     setNotice(undefined);
@@ -834,6 +840,14 @@ export function DebugFlagsApp({
               {t.debugFlags?.managerApplyPreset ?? 'Apply preset'}
             </Button>
           </div>
+          {selectedPreset ? (
+            <p
+              className="-mt-2 text-xs text-muted-foreground lg:col-span-2 lg:col-start-3"
+              data-testid="debug-level-preset-description"
+            >
+              {selectedPreset.description}
+            </p>
+          ) : null}
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">

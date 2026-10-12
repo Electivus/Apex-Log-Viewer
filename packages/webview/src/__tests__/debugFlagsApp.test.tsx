@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { DebugFlagsFromWebviewMessage, DebugFlagsToWebviewMessage } from '@alv/protocol/debugFlagsMessages';
+import { DEBUG_LEVEL_PRESETS } from '@alv/protocol/debugLevelPresets';
 import type { VsCodeWebviewApi } from '../vscodeApi';
 import { DebugFlagsApp } from '../debugFlags';
 
@@ -206,6 +207,74 @@ describe('DebugFlags webview App', () => {
         )
       ).toBe(true);
     });
+  });
+
+  it('preselects the Maximum Trace preset and applies every category at its highest level', async () => {
+    const { vscode } = createVsCodeMock();
+    const bus = new EventTarget();
+    render(<DebugFlagsApp vscode={vscode} messageBus={bus} />);
+
+    sendMessage(bus, { type: 'debugFlagsInit', locale: 'en', defaultTtlMinutes: 30 });
+    sendMessage(bus, {
+      type: 'debugFlagsOrgs',
+      data: [{ username: 'user@example.com', alias: 'Main', isDefaultUsername: true }],
+      selected: 'user@example.com'
+    });
+    sendMessage(bus, {
+      type: 'debugFlagsManagerData',
+      records: [],
+      presets: DEBUG_LEVEL_PRESETS
+    });
+    await screen.findByTestId('debug-level-manager');
+
+    const presetSelect = screen.getByTestId('debug-level-preset-select') as HTMLSelectElement;
+    expect(presetSelect.value).toBe('maximum-trace');
+    expect(screen.getByTestId('debug-level-preset-description').textContent).toBe(
+      'Every category at its highest documented level. Expect large logs.'
+    );
+
+    fireEvent.click(screen.getByTestId('debug-level-apply-preset'));
+
+    expect((screen.getByTestId('debug-level-draft-developer-name') as HTMLInputElement).value).toBe(
+      'ALV_MAXIMUM_TRACE'
+    );
+    expect((screen.getByTestId('debug-level-draft-master-label') as HTMLInputElement).value).toBe('ALV Maximum Trace');
+    const fieldValue = (key: string) => (screen.getByTestId(`debug-level-field-${key}`) as HTMLSelectElement).value;
+    expect({
+      workflow: fieldValue('workflow'),
+      validation: fieldValue('validation'),
+      callout: fieldValue('callout'),
+      apexCode: fieldValue('apexCode'),
+      apexProfiling: fieldValue('apexProfiling'),
+      visualforce: fieldValue('visualforce'),
+      system: fieldValue('system'),
+      database: fieldValue('database'),
+      wave: fieldValue('wave'),
+      nba: fieldValue('nba'),
+      dataAccess: fieldValue('dataAccess')
+    }).toEqual({
+      workflow: 'FINER',
+      validation: 'INFO',
+      callout: 'FINER',
+      apexCode: 'FINEST',
+      apexProfiling: 'FINEST',
+      visualforce: 'FINER',
+      system: 'FINE',
+      database: 'FINEST',
+      wave: 'FINEST',
+      nba: 'FINE',
+      dataAccess: 'FINER'
+    });
+
+    fireEvent.change(presetSelect, { target: { value: 'developer-focus' } });
+    expect(presetSelect.value).toBe('developer-focus');
+    expect(screen.getByTestId('debug-level-preset-description').textContent).toBe(
+      'Balanced defaults for Apex execution and general debugging.'
+    );
+    fireEvent.change(presetSelect, { target: { value: '' } });
+    expect(screen.queryByTestId('debug-level-preset-description')).toBeNull();
+    fireEvent.click(screen.getByTestId('debug-level-manager-new'));
+    expect(presetSelect.value).toBe('maximum-trace');
   });
 
   it('supports aggregated special-target status and disables actions when a special target is unavailable', async () => {
