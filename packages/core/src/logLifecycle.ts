@@ -417,16 +417,16 @@ async function regularFileExists(filePath: string): Promise<boolean> {
   return true;
 }
 
-// Re-checked at use time because the snapshot's memoized verdicts may predate a swap by another process.
+// Walks the chain fresh before the file check so a hit and a miss both reject a directory another process
+// swapped for a link after the snapshot memoized it, and so the link target is never touched.
 async function verifiedLogFile(workspaceRoot: string, candidate: string): Promise<string | undefined> {
-  if (!(await regularFileExists(candidate))) return undefined;
-  const chainIsReal = await ensureRealDirectoryPath(workspaceRoot, path.dirname(candidate), false, true);
-  return chainIsReal ? candidate : undefined;
+  if (!(await ensureRealDirectoryPath(workspaceRoot, path.dirname(candidate), false, true))) return undefined;
+  return (await regularFileExists(candidate)) ? candidate : undefined;
 }
 
 // Lives for one lifecycle call. It memoizes directories found present and the day listings, never a
-// missing directory, so a log another call writes mid-call is still found. Every hit re-walks its
-// directory chain fresh before it is returned.
+// missing directory, so a log another call writes mid-call is still found. The memo only decides where
+// to look. Every probe and every day listing re-walks its directory chain fresh before touching the disk.
 type LocalStoreSnapshot = Readonly<{
   workspaceRoot: string;
   realDirectory(directoryPath: string): Promise<boolean>;
@@ -485,7 +485,7 @@ function createLocalStoreSnapshot(workspaceRoot: string): LocalStoreSnapshot {
       if (!/^(unknown-date|\d{4}-\d{2}-\d{2})$/.test(day.name)) continue;
       if (!day.isDirectory() && !day.isSymbolicLink()) continue;
       const dayRoot = path.join(logsRoot, day.name);
-      if (!(await realDirectory(dayRoot))) continue;
+      if (!(await ensureRealDirectoryPath(resolvedRoot, dayRoot, false, true))) continue;
       for (const file of await readDirectory(dayRoot)) {
         if (!file.name.endsWith('.log') || (!file.isFile() && !file.isSymbolicLink())) continue;
         const logId = file.name.slice(0, -'.log'.length);
@@ -514,11 +514,8 @@ async function findCanonicalLogPath(
 ): Promise<string | undefined> {
   const logsRoot = path.join(snapshot.workspaceRoot, 'apexlogs', 'orgs', safeUsername, 'logs');
   if (!(await snapshot.realDirectory(logsRoot))) return undefined;
-  const probe = async (day: string): Promise<string | undefined> => {
-    const dayRoot = path.join(logsRoot, day);
-    if (!(await snapshot.realDirectory(dayRoot))) return undefined;
-    return verifiedLogFile(snapshot.workspaceRoot, path.join(dayRoot, `${log.logId}.log`));
-  };
+  const probe = (day: string): Promise<string | undefined> =>
+    verifiedLogFile(snapshot.workspaceRoot, path.join(logsRoot, day, `${log.logId}.log`));
   const expectedDay = logDay(log.startTime);
   const expected = await probe(expectedDay);
   if (expected) return expected;
@@ -557,11 +554,11 @@ async function findLocalLogMatches(
 ): Promise<Array<{ username: string; localPath: string }>> {
   const matchesByUsername = new Map<string, { username: string; localPath: string }>();
   const orgsRoot = path.join(snapshot.workspaceRoot, 'apexlogs', 'orgs');
-  if (await snapshot.realDirectory(orgsRoot)) {
+  if (await ensureRealDirectoryPath(snapshot.workspaceRoot, orgsRoot, false, true)) {
     for (const org of await readDirectory(orgsRoot)) {
       if (!org.isDirectory() && !org.isSymbolicLink()) continue;
       const orgRoot = path.join(orgsRoot, org.name);
-      if (!(await snapshot.realDirectory(orgRoot))) continue;
+      if (!(await ensureRealDirectoryPath(snapshot.workspaceRoot, orgRoot, false, true))) continue;
       const localPath = await findCanonicalLogPath(snapshot, org.name, log);
       if (localPath) {
         const metadata = await readOrgMetadata(path.join(orgRoot, 'org.json'));
@@ -570,7 +567,7 @@ async function findLocalLogMatches(
     }
   }
   const apexlogsRoot = path.join(snapshot.workspaceRoot, 'apexlogs');
-  if (!(await snapshot.realDirectory(apexlogsRoot))) {
+  if (!(await ensureRealDirectoryPath(snapshot.workspaceRoot, apexlogsRoot, false, true))) {
     return Array.from(matchesByUsername.values());
   }
   const suffix = `_${log.logId}.log`;
@@ -632,16 +629,16 @@ async function readOrgMetadata(filePath: string): Promise<OrgMetadata | undefine
   }
 }
 
-async function findLocalOrgUsernames(snapshot: LocalStoreSnapshot, selector: string): Promise<string[]> {
+async function findLocalOrgUsernames(workspaceRoot: string, selector: string): Promise<string[]> {
   const normalized = selector.trim();
   if (!normalized) return [];
   const matches = new Set<string>();
-  const orgsRoot = path.join(snapshot.workspaceRoot, 'apexlogs', 'orgs');
-  if (!(await snapshot.realDirectory(orgsRoot))) return [];
+  const orgsRoot = path.join(workspaceRoot, 'apexlogs', 'orgs');
+  if (!(await ensureRealDirectoryPath(workspaceRoot, orgsRoot, false, true))) return [];
   for (const org of await readDirectory(orgsRoot)) {
     if (!org.isDirectory() && !org.isSymbolicLink()) continue;
     const orgRoot = path.join(orgsRoot, org.name);
-    if (!(await snapshot.realDirectory(orgRoot))) continue;
+    if (!(await ensureRealDirectoryPath(workspaceRoot, orgRoot, false, true))) continue;
     const metadata = await readOrgMetadata(path.join(orgRoot, 'org.json'));
     if (!metadata) continue;
     const username = metadata.username;
@@ -1108,14 +1105,14 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
   };
 
   const localUsernameForSelector = async (
-    snapshot: LocalStoreSnapshot,
     operation: ApexLogLifecycleOperation,
+    workspaceRoot: string,
     selector: string,
     logId?: string
   ): Promise<string | undefined> => {
     let matches: string[];
     try {
-      matches = await findLocalOrgUsernames(snapshot, selector);
+      matches = await findLocalOrgUsernames(workspaceRoot, selector);
     } catch (error) {
       throw new ApexLogLifecycleError(
         'local-persistence',
@@ -1244,7 +1241,7 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
     };
     const requestedOrg = String(request.targetOrg || '').trim();
     const localUsername = requestedOrg
-      ? await localUsernameForSelector(snapshot, 'require-local-path', requestedOrg, request.log.logId)
+      ? await localUsernameForSelector('require-local-path', request.workspaceRoot, requestedOrg, request.log.logId)
       : undefined;
     emit(callOptions, { operation: 'require-local-path', phase: 'checking-local', logId: request.log.logId });
     const requestedLocalPath = localUsername
@@ -1401,7 +1398,7 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
       const snapshot = createLocalStoreSnapshot(request.workspaceRoot);
       const requestedSelector = String(request.targetOrg || '').trim();
       const username = requestedSelector
-        ? await localUsernameForSelector(snapshot, 'available-local-paths', requestedSelector)
+        ? await localUsernameForSelector('available-local-paths', request.workspaceRoot, requestedSelector)
         : '';
       const available: ApexLogLocalFile[] = [];
       const missing: ApexLogRef[] = [];
@@ -1757,7 +1754,7 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
       const state = await readLifecycleState('status', request.workspaceRoot);
       const requested = String(request.targetOrg || '').trim();
       const username = requested
-        ? await localUsernameForSelector(createLocalStoreSnapshot(request.workspaceRoot), 'status', requested)
+        ? await localUsernameForSelector('status', request.workspaceRoot, requested)
         : Object.keys(state.orgs).sort()[0];
       const entry = username ? state.orgs[username] : undefined;
       let localLogCount: number;
@@ -1865,7 +1862,7 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
       let kept = 0;
       const requestedSelector = String(request.targetOrg || '').trim();
       let username = requestedSelector
-        ? await localUsernameForSelector(createLocalStoreSnapshot(request.workspaceRoot), 'purge', requestedSelector)
+        ? await localUsernameForSelector('purge', request.workspaceRoot, requestedSelector)
         : undefined;
       if (!username) {
         try {
