@@ -261,7 +261,7 @@ The lab launches VS Code with this extension and a second test extension, `test/
 | `ALV_LAB_LOCALE` | unset | `LC_ALL`/`LANG` for VS Code, for example `pt_BR.UTF-8`. |
 | `ALV_LAB_LABEL` | derived | Report file prefix. |
 
-The report records `neighborActivated`, read from the extension host log, so a run whose neighbor did not load is visible.
+The script rebuilds the extension and webviews first, so a run never measures a stale build. The report records `neighborRunning`, read from the neighbor's own Output channel, so a run whose neighbor did not apply its load is visible.
 
 ### Playwright E2E + dedicated App Insights validation
 

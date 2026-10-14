@@ -102,10 +102,10 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
       () => []
     );
     const summary: QueueWaitSummary = summarizeQueueWaits(await readAll(outputLogs));
-    const extensionHostLog = await readAll(
-      await findLogs(launch.userDataDir, entry => path.basename(entry) === 'exthost.log').catch(() => [])
+    const neighborLog = await readAll(
+      await findLogs(launch.userDataDir, entry => entry.includes('ALV lab noisy neighbor')).catch(() => [])
     );
-    const neighborActivated = /alv-lab-noisy-neighbor/.test(extensionHostLog);
+    const neighborRunning = /noisy neighbor running busy=\d+ period=\d+ pool=\d+/.exec(neighborLog)?.[0] ?? 'not running';
     const report = {
       label,
       neighbor: neighbor || 'none',
@@ -117,7 +117,7 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
       platform: `${process.platform}-${process.arch}`,
       generatedAt: new Date().toISOString(),
       outputLogFiles: outputLogs.length,
-      neighborActivated,
+      neighborRunning,
       clickToLoadingMs,
       queueWaits: summary
     };
@@ -127,7 +127,7 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
     await writeFile(reportPath, JSON.stringify(report, null, 2));
     console.log(`[lab] report: ${reportPath}`);
     console.table(summary.byType);
-    console.log(`[lab] neighborActivated: ${neighborActivated}; clickToLoadingMs: ${clickToLoadingMs.join(', ')}`);
+    console.log(`[lab] ${neighborRunning}; clickToLoadingMs: ${clickToLoadingMs.join(', ')}`);
     await launch.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
     await ws.cleanup();
   }

@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const vscode = require('vscode');
 
 // Simulates other extensions sharing the extension host: synchronous bursts on the
 // event loop and continuous jobs on the shared libuv threadpool.
@@ -14,6 +15,9 @@ function parseConfig(raw) {
 exports.activate = context => {
   const config = parseConfig(process.env.ALV_LAB_NEIGHBOR);
   if (!config) return;
+  const channel = vscode.window.createOutputChannel('ALV lab noisy neighbor', { log: true });
+  context.subscriptions.push(channel);
+  channel.info(`noisy neighbor running busy=${config.busyMs} period=${config.periodMs} pool=${config.poolJobs}`);
   let stopped = false;
   const timer =
     config.busyMs > 0
