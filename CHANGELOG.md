@@ -23,10 +23,12 @@
 
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
 - Logs: hide logs that matched only the previous search text as soon as you change the search, instead of listing them until the new full-log search finishes.
+- Logs, search, sync and triage: locate a saved Apex log by probing its canonical day directory first and index the local store at most once per request, instead of walking every day directory for every log and re-reading already-saved bodies.
 
 ### Performance
 
 - Logs: start the full-log search 300 ms after you stop typing instead of on every keystroke, so a typed word runs one search in the shared extension host instead of one per letter; clearing the search still applies immediately.
+- Logs: remove expired cached log files at most once per hour for each workspace and org, shared by the sidebar and the editor panel, instead of scanning the whole local log store on every refresh.
 
 ### Tests
 

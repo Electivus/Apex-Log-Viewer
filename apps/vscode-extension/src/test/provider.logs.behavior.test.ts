@@ -5,6 +5,7 @@ import * as fs from 'fs/promises';
 import * as os from 'node:os';
 import proxyquire from 'proxyquire';
 import { TestClock } from './testClock';
+import { LogCachePurgeThrottle } from '../provider/logCachePurgeThrottle';
 
 const proxyquireStrict = proxyquire.noCallThru().noPreserveCache();
 const makeUri = (filePath: string) => ({ fsPath: filePath, path: filePath, toString: () => filePath });
@@ -226,7 +227,9 @@ function createProviderHarness() {
     handleChange(): void {}
   }
 
+  let purgeClockMs = 0;
   const module = proxyquireStrict('../provider/SfLogsViewProvider', {
+    './logCachePurgeThrottle': { logCachePurgeThrottle: new LogCachePurgeThrottle(() => purgeClockMs) },
     vscode: vscodeMock,
     '../host/salesforce/http': httpStub,
     '../host/utils/logger': {
@@ -273,7 +276,10 @@ function createProviderHarness() {
     ripgrep: ripgrepStub,
     DebugFlagsPanel: debugFlagsPanelStub,
     telemetryEvents,
-    vscode: vscodeMock
+    vscode: vscodeMock,
+    advancePurgeClockBy: (ms: number) => {
+      purgeClockMs += ms;
+    }
   };
 }
 
@@ -461,6 +467,156 @@ suite('SfLogsViewProvider behavior', () => {
     const keepIds = purged[0]?.params?.keepLogIds ?? [];
     assert.deepEqual(keepIds.sort(), ['07L000000000001AA', '07L000000000002AA'], 'purge should keep current log ids');
     assert.equal(purged[0]?.params?.workspaceRoot, '/tmp/alv-workspace');
+  });
+
+  test('refresh purges the local log cache at most once per hour', async () => {
+    const { SfLogsViewProvider, cli, advancePurgeClockBy } = createProviderHarness();
+    cli.logsList = async () => [{ Id: '07L000000000001AA' }];
+    const purged: any[] = [];
+    cli.purgeLocalLogs = async (params: any) => {
+      purged.push(params);
+      return { inspected: 0, removed: 0, kept: 0, failures: [] };
+    };
+    const provider = new SfLogsViewProvider(makeContext());
+    await connectProvider(provider);
+    const refreshAndSettle = async () => {
+      await provider.refresh();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    };
+
+    for (let refresh = 0; refresh < 5; refresh += 1) {
+      await refreshAndSettle();
+    }
+    assert.equal(purged.length, 1);
+
+    advancePurgeClockBy(60 * 60 * 1000 - 1);
+    await refreshAndSettle();
+    assert.equal(purged.length, 1);
+
+    advancePurgeClockBy(1);
+    await refreshAndSettle();
+    assert.equal(purged.length, 2);
+  });
+
+  test('Logs providers share the purge throttle for the same resolved org', async () => {
+    const { SfLogsViewProvider, cli } = createProviderHarness();
+    cli.getOrgAuth = async ({ username }: { username?: string }) => ({
+      username: username === 'other' ? 'other@example.com' : 'default@example.com',
+      instanceUrl: 'i',
+      accessToken: 't'
+    });
+    cli.logsList = async () => [{ Id: '07L000000000001AA' }];
+    const purgedOrgs: Array<string | undefined> = [];
+    const finishPurges: Array<() => void> = [];
+    cli.purgeLocalLogs = (params: any) => {
+      purgedOrgs.push(params.targetOrg);
+      return new Promise(resolve => {
+        finishPurges.push(() => resolve({ inspected: 0, removed: 0, kept: 0, failures: [] }));
+      });
+    };
+    const sidebar = new SfLogsViewProvider(makeContext());
+    const panel = new SfLogsViewProvider(makeContext());
+    panel.setSelectedOrg('default-alias');
+    await connectProvider(sidebar);
+    await connectProvider(panel);
+    const refreshAndSettle = async (provider: InstanceType<typeof SfLogsViewProvider>) => {
+      await provider.refresh();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    };
+
+    await refreshAndSettle(sidebar);
+    await refreshAndSettle(panel);
+    assert.deepEqual(purgedOrgs, ['default@example.com']);
+
+    finishPurges[0]?.();
+    await refreshAndSettle(panel);
+    assert.deepEqual(purgedOrgs, ['default@example.com']);
+
+    panel.setSelectedOrg('other');
+    await refreshAndSettle(panel);
+    assert.deepEqual(purgedOrgs, ['default@example.com', 'other@example.com']);
+    finishPurges[1]?.();
+  });
+
+  test('a failed purge does not count as a run', async () => {
+    const { SfLogsViewProvider, cli } = createProviderHarness();
+    cli.logsList = async () => [{ Id: '07L000000000001AA' }];
+    let attempts = 0;
+    cli.purgeLocalLogs = async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new Error('purge failed');
+      }
+      return {
+        inspected: 2,
+        removed: 0,
+        kept: 1,
+        failures: [{ logId: '07L000000000002AA', error: new Error('file locked') }]
+      };
+    };
+    const provider = new SfLogsViewProvider(makeContext());
+    await connectProvider(provider);
+
+    for (let refresh = 0; refresh < 3; refresh += 1) {
+      await provider.refresh();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    assert.equal(attempts, 2);
+  });
+
+  test('refresh skips the purge while org auth fails', async () => {
+    const { SfLogsViewProvider, cli } = createProviderHarness();
+    let authError: Error | undefined = new Error('auth failed');
+    cli.getOrgAuth = async () => {
+      if (authError) {
+        throw authError;
+      }
+      return { username: 'u', instanceUrl: 'i', accessToken: 't' };
+    };
+    cli.logsList = async () => [{ Id: '07L000000000001AA' }];
+    const purgedOrgs: string[] = [];
+    cli.purgeLocalLogs = async (params: any) => {
+      purgedOrgs.push(params.targetOrg);
+      return { inspected: 0, removed: 0, kept: 0, failures: [] };
+    };
+    const provider = new SfLogsViewProvider(makeContext());
+    await connectProvider(provider);
+
+    await provider.refresh();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.deepEqual(purgedOrgs, []);
+
+    authError = undefined;
+    await provider.refresh();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.deepEqual(purgedOrgs, ['u']);
+  });
+
+  test('loadMore retries a failed purge and keeps every loaded page', async () => {
+    const { SfLogsViewProvider, cli } = createProviderHarness();
+    let listCalls = 0;
+    cli.logsList = async () => {
+      listCalls += 1;
+      return listCalls === 1 ? [{ Id: '07L000000000001AA' }] : [{ Id: '07L000000000002AA' }];
+    };
+    const keepLogIds: string[][] = [];
+    cli.purgeLocalLogs = async (params: any) => {
+      keepLogIds.push([...params.keepLogIds].sort());
+      if (keepLogIds.length === 1) {
+        throw new Error('purge failed');
+      }
+      return { inspected: 0, removed: 0, kept: 0, failures: [] };
+    };
+    const provider = new SfLogsViewProvider(makeContext());
+    await connectProvider(provider);
+
+    await provider.refresh();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await (provider as any).loadMore();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    assert.deepEqual(keepLogIds, [['07L000000000001AA'], ['07L000000000001AA', '07L000000000002AA']]);
   });
 
   test('refresh skips redundant background sync after a recent successful sync', async () => {
