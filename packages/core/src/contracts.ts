@@ -13,6 +13,7 @@ export type OrgListItem = {
 
 export type OrgAuthParams = {
   username?: string;
+  refresh?: boolean;
 };
 
 export type OrgAuth = {
