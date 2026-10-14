@@ -675,6 +675,51 @@
           "purpose": "PerformanceAndHealth"
         }
       }
+    },
+    "host.responsiveness": {
+      "description": "Five-minute window of how long webview messages waited in the local desktop extension host before a handler started, plus extension host event-loop lag. Sent only for windows with at least one measured message.",
+      "properties": {
+        "outcome": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth",
+          "required": true,
+          "values": ["ok"]
+        }
+      },
+      "measurements": {
+        "windowMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "messageCount": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "waitP50Ms": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "waitP90Ms": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "waitMaxMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "loopP50Ms": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "loopP99Ms": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        },
+        "loopMaxMs": {
+          "classification": "SystemMetaData",
+          "purpose": "PerformanceAndHealth"
+        }
+      }
     }
   }
 }

@@ -67,7 +67,15 @@ export interface WebviewSessionDiagnostic {
   readonly classification?: WebviewDeliveryClassification;
   readonly attempt?: number;
   readonly callback?:
-    'detach' | 'mount' | 'snapshot' | 'validateInbound' | 'message' | 'ready' | 'replay' | 'timeoutRecovery';
+    | 'detach'
+    | 'inboundReceived'
+    | 'mount'
+    | 'snapshot'
+    | 'validateInbound'
+    | 'message'
+    | 'ready'
+    | 'replay'
+    | 'timeoutRecovery';
 }
 
 export interface WebviewSessionOptions<
@@ -77,6 +85,7 @@ export interface WebviewSessionOptions<
 > {
   mount(host: THost, generation: number): void | Promise<void>;
   getReplaySnapshot(): readonly TOutbound[] | Promise<readonly TOutbound[]>;
+  onInboundReceived?(message: unknown): void;
   validateInbound(message: unknown): WebviewSessionInbound<TInbound> | undefined;
   onDetach?(reason: WebviewSessionDetachReason): void;
   onMessage(message: TInbound): void | Promise<void>;
