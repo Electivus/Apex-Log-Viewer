@@ -901,7 +901,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
                 signal
               )
             )
-          : undefined
+          : logTrace('Logs: skipped cached log purge because the org username did not resolve')
       )
       .catch(err => {
         if (!signal?.aborted) {
