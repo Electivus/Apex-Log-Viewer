@@ -107,7 +107,7 @@ async function writeReport(userDataDir: string): Promise<void> {
   console.table([report.refreshCycles]);
 }
 
-test('host congestion lab: click-to-start wait in the extension host queue', async ({ scratchAlias }, testInfo) => {
+test('host congestion lab: click-to-start wait in the extension host queue', async ({ scratchAlias }) => {
   for (let i = 0; i < seedLogs; i++) await seedApexLog(scratchAlias);
   const auth = await getOrgAuth(scratchAlias);
   const sfCli = await resolveSfCliInvocation();
@@ -124,6 +124,7 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
     additionalExtensionDevelopmentPaths: [path.join(__dirname, 'noisy-neighbor')],
     env: { ALV_LAB_NEIGHBOR: neighbor, ...(locale ? { LC_ALL: locale, LANG: locale } : {}) }
   });
+  let scenarioCompleted = false;
   try {
     const page = launch.page;
     await runCommandWhenAvailable(page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 180_000 });
@@ -143,17 +144,19 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
       await refresh.click();
       await page.waitForTimeout(8_000);
     }
+    await waitUntil('the last refresh to finish', async () => await refresh.isEnabled(), 180_000);
 
     const search = frame.locator('input[type="search"]').first();
     await search.pressSequentially('exception', { delay: 80 });
     await page.waitForTimeout(10_000);
     await search.fill('');
     await page.waitForTimeout(3_000);
+    scenarioCompleted = true;
   } finally {
     try {
       await writeReport(launch.userDataDir);
     } finally {
-      await launch.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
+      await launch.cleanup({ keep: !scenarioCompleted });
       await ws.cleanup();
     }
   }
