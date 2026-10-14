@@ -16,10 +16,23 @@ const noopApi: VsCodeWebviewApi<any> = {
   setState: () => {}
 };
 
+function withSentAt<T>(api: VsCodeWebviewApi<T>): VsCodeWebviewApi<T> {
+  return {
+    postMessage: message =>
+      api.postMessage(
+        typeof message === 'object' && message !== null && !Array.isArray(message)
+          ? { ...message, sentAt: Date.now() }
+          : message
+      ),
+    getState: () => api.getState(),
+    setState: state => api.setState(state)
+  };
+}
+
 export function getDefaultVsCodeApi<T>(): VsCodeWebviewApi<T> {
   if (typeof acquireVsCodeApi === 'function') {
     try {
-      return acquireVsCodeApi<T>();
+      return withSentAt(acquireVsCodeApi<T>());
     } catch (error) {
       console.warn('acquireVsCodeApi threw during initialization', error);
     }
