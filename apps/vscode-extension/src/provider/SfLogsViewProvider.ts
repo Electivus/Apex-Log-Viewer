@@ -18,6 +18,7 @@ import { getErrorMessage } from '../host/utils/error';
 import { LogService, type EnsureLogsSavedSummary } from '../host/services/logService';
 import { clearApexLogs } from '../host/services/apexLogCleanup';
 import { LogsMessageHandler } from './logsMessageHandler';
+import { logCachePurgeThrottle } from './logCachePurgeThrottle';
 import { runtimeClient } from '../runtime/runtimeClient';
 import { OrgManager } from '../utils/orgManager';
 import { ConfigManager } from '../host/utils/configManager';
@@ -324,11 +325,15 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
           this.post({ type: 'logs', data: logs, hasMore }, 'replayable');
           this.setCurrentLogs(logs);
           this.postKnownErrorStateForLogs(logs);
-          this.purgeLogCache(controller.signal);
           const authPromise = authHandle.handoff();
+          const resolvedUsername = authPromise.then(
+            auth => auth.username || undefined,
+            () => undefined
+          );
+          this.purgeLogCache(resolvedUsername, controller.signal);
           this.startAuthWarningHydration(authPromise, token, controller.signal);
           this.startBackgroundSync(selectedOrg, false, token, controller.signal, {
-            resolvedOrgForKey: authPromise.then(auth => auth.username || undefined)
+            resolvedOrgForKey: resolvedUsername
           });
           if (this.lastSearchQuery.trim()) {
             this.rerunActiveSearch();
@@ -400,11 +405,15 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
       this.post({ type: 'appendLogs', data: logs, hasMore }, 'replayable');
       this.setCurrentLogs([...this.currentLogs, ...logs]);
       this.postKnownErrorStateForLogs(logs);
-      this.purgeLogCache();
       const authPromise = authHandle.handoff();
+      const resolvedUsername = authPromise.then(
+        auth => auth.username || undefined,
+        () => undefined
+      );
+      this.purgeLogCache(resolvedUsername);
       this.startAuthWarningHydration(authPromise, token);
       this.startBackgroundSync(selectedOrg, false, token, undefined, {
-        resolvedOrgForKey: authPromise.then(auth => auth.username || undefined)
+        resolvedOrgForKey: resolvedUsername
       });
       this.rerunActiveSearch();
       try {
@@ -865,7 +874,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     this.post({ type: 'searchStatus', state }, 'replayable');
   }
 
-  private purgeLogCache(signal?: AbortSignal): void {
+  private purgeLogCache(resolvedUsername: Promise<string | undefined>, signal?: AbortSignal): void {
     if (signal?.aborted) {
       return;
     }
@@ -877,17 +886,23 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
     if (this.purgePromise) {
       return;
     }
-    const purgeTask = runtimeClient
-      .purgeLocalLogs(
-        {
-          targetOrg: this.orgManager.getSelectedOrg(),
-          workspaceRoot: getWorkspaceRoot(),
-          keepLogIds: Array.from(keepIds),
-          maxAgeMs: this.logCacheMaxAgeMs
-        },
-        signal
+    const workspaceRoot = getWorkspaceRoot();
+    const purgeTask = resolvedUsername
+      .then(username =>
+        username
+          ? logCachePurgeThrottle.run({ workspaceRoot, username }, () =>
+              runtimeClient.purgeLocalLogs(
+                {
+                  targetOrg: username,
+                  workspaceRoot,
+                  keepLogIds: Array.from(keepIds),
+                  maxAgeMs: this.logCacheMaxAgeMs
+                },
+                signal
+              )
+            )
+          : undefined
       )
-      .then(() => undefined)
       .catch(err => {
         if (!signal?.aborted) {
           logWarn('Logs: purge cached log files failed ->', getErrorMessage(err));

@@ -21,6 +21,7 @@
 ### Fixes
 
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
+- Logs: remove expired cached log files at most once per hour for each workspace and org, shared by the sidebar and the editor panel, instead of scanning the whole local log store on every refresh.
 
 ### Tests
 
