@@ -220,6 +220,14 @@ class DefaultWebviewSession<TOutbound, TInbound, THost extends WebviewSessionHos
   }
 
   private async handleInbound(host: THost, raw: unknown): Promise<void> {
+    try {
+      this.options.onInboundReceived?.(raw);
+    } catch {
+      this.diagnose({
+        event: 'callbackFailed',
+        callback: 'inboundReceived'
+      });
+    }
     const generation = this.generation;
     if (this.host !== host || this.disposed) {
       this.diagnose({ event: 'staleWorkIgnored' });

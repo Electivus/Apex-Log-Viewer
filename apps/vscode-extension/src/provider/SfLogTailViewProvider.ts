@@ -8,6 +8,7 @@ import {
   type WebviewToExtensionMessage
 } from '../shared/messages';
 import { logInfo, logWarn } from '../host/utils/logger';
+import { recordInboundMessage } from '../host/utils/responsiveness';
 import { safeSendEvent } from '../shared/telemetry';
 import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
 import { ensureReplayDebuggerAvailable } from '../host/utils/replayDebugger';
@@ -69,6 +70,7 @@ export class SfLogTailViewProvider implements vscode.WebviewViewProvider, vscode
         logInfo('Tail webview mounted.');
       },
       getReplaySnapshot: () => this.getReplaySnapshot(),
+      onInboundReceived: message => recordInboundMessage('tail', message),
       validateInbound: message => this.validateInbound(message),
       onDetach: reason => this.handleSessionDetach(reason),
       onMessage: message => this.handleMessage(message),

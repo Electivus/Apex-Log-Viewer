@@ -308,6 +308,53 @@ suite('Webview Session', () => {
     assert.deepEqual(harness.receivedActions, ['refresh']);
   });
 
+  test('reports each raw inbound message to the surface before validating it', async () => {
+    const harness = createHarness();
+    const order: string[] = [];
+    const validateInbound = harness.options.validateInbound;
+    harness.options.onInboundReceived = raw => {
+      order.push(`received ${JSON.stringify(raw)}`);
+    };
+    harness.options.validateInbound = raw => {
+      order.push('validated');
+      return validateInbound(raw);
+    };
+    const session = createWebviewSessionForTest(harness.options, harness.clock);
+
+    session.bind(harness.host);
+    harness.host.emitMessage({ type: 'action', action: 'refresh', sentAt: 1000 });
+    harness.host.emitMessage({ type: 'unknown', sentAt: 1001 });
+    await harness.clock.flushMicrotasks();
+
+    assert.deepEqual(order, [
+      'received {"type":"action","action":"refresh","sentAt":1000}',
+      'validated',
+      'received {"type":"unknown","sentAt":1001}',
+      'validated'
+    ]);
+    assert.deepEqual(harness.receivedActions, ['refresh']);
+  });
+
+  test('keeps routing inbound messages when the receipt observer fails', async () => {
+    const harness = createHarness();
+    harness.options.onInboundReceived = () => {
+      throw new Error('observer failed');
+    };
+    const session = createWebviewSessionForTest(harness.options, harness.clock);
+
+    session.bind(harness.host);
+    harness.host.emitMessage({ type: 'action', action: 'refresh' });
+    await harness.clock.flushMicrotasks();
+
+    assert.deepEqual(harness.receivedActions, ['refresh']);
+    assert.deepEqual(
+      harness.diagnostics
+        .filter(diagnostic => diagnostic.event === 'callbackFailed')
+        .map(diagnostic => diagnostic.callback),
+      ['inboundReceived']
+    );
+  });
+
   test('diagnoses surface callback failure without changing readiness', async () => {
     const harness = createHarness();
     harness.options.onMessage = async () => {
