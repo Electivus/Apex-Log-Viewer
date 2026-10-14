@@ -116,6 +116,11 @@ function parseNonNegativeInteger(value: unknown): number | undefined {
   return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : undefined;
 }
 
+export function parseMessageSentAt(raw: unknown): number | undefined {
+  const sentAt = asRecord(raw)?.sentAt;
+  return typeof sentAt === 'number' && Number.isSafeInteger(sentAt) && sentAt > 0 ? sentAt : undefined;
+}
+
 export function parseWebviewToExtensionMessage(raw: unknown): WebviewToExtensionMessage | undefined {
   const message = asRecord(raw);
   if (!message) {

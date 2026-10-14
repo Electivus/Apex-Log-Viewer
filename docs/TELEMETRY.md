@@ -51,6 +51,7 @@ Key runtime event families:
 - `logs.search`: outcome, latency, match count, pending count, and query-length bucket for the in-view search experience.
 - `cli.command`: coarse latency/outcome for `sf`/`sfdx` process execution.
 - `core.request`: coarse latency/outcome for calls into the shared core bundled in the extension host.
+- `host.responsiveness`: one event per five-minute window with webview messages, local desktop hosts only. `waitP50Ms`, `waitP90Ms`, and `waitMaxMs` are the time from the webview's `postMessage` to the start of our host handler; `loopP50Ms`, `loopP99Ms`, and `loopMaxMs` are how late a 20 ms extension host timer fired. The Output channel logs each measured wait as `<Surface>: <type> waited <N> ms in the extension host queue` (`Logs`, `Tail`, `LogViewer`, or `DebugFlags`), at info level from 250 ms and as a `[trace]` line otherwise.
 
 KQL quick queries
 

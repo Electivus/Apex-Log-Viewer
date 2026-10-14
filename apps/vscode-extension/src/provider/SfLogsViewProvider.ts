@@ -11,6 +11,7 @@ import {
   type WebviewToExtensionMessage
 } from '../shared/messages';
 import { logInfo, logWarn, logError, logTrace } from '../host/utils/logger';
+import { recordInboundMessage } from '../host/utils/responsiveness';
 import { safeSendEvent } from '../shared/telemetry';
 import { getTelemetryErrorCode } from '../shared/telemetryErrorCodes';
 import { buildWebviewHtml } from '../host/utils/webviewHtml';
@@ -144,6 +145,7 @@ export class SfLogsViewProvider implements vscode.WebviewViewProvider, vscode.Di
         logInfo('Logs webview mounted.');
       },
       getReplaySnapshot: () => this.getReplaySnapshot(),
+      onInboundReceived: message => recordInboundMessage('logs', message),
       validateInbound: message => this.validateInbound(message),
       onDetach: reason => this.handleSessionDetach(reason),
       onMessage: message => this.messageHandler.handleMessage(message),
