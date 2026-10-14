@@ -20,6 +20,8 @@ import type { LogHeadMap } from './components/LogsTable';
 
 type SortKey = Exclude<LogsColumnKey, 'match'>;
 
+const SEARCH_QUERY_DEBOUNCE_MS = 300;
+
 interface LogsUiState {
   query: string;
   filterUser: string;
@@ -97,6 +99,8 @@ export function LogsApp({
   const [fullLogSearchEnabled, setFullLogSearchEnabled] = useState(false);
   const [logsColumns, setLogsColumns] = useState<NormalizedLogsColumnsConfig>(DEFAULT_LOGS_COLUMNS_CONFIG);
   const queryRef = useRef('');
+  const searchPostTimerRef = useRef<number | undefined>(undefined);
+  const lastPostedSearchRef = useRef<string | undefined>(undefined);
   const [searchStatus, setSearchStatus] = useState<'idle' | 'loading'>('idle');
   const [pendingLogCount, setPendingLogCount] = useState(0);
   const lastTrackedSearchRef = useRef<string | undefined>(undefined);
@@ -221,6 +225,20 @@ export function LogsApp({
     return () => messageBus.removeEventListener('message', onMsg as EventListener);
   }, [messageBus, vscode]);
 
+  useEffect(() => () => window.clearTimeout(searchPostTimerRef.current), []);
+
+  const postSearchQuery = useCallback(
+    (value: string) => {
+      window.clearTimeout(searchPostTimerRef.current);
+      if (!messageBus || value === lastPostedSearchRef.current) {
+        return;
+      }
+      lastPostedSearchRef.current = value;
+      vscode.postMessage({ type: 'searchQuery', value });
+    },
+    [messageBus, vscode]
+  );
+
   const updateQuery = useCallback(
     (value: string) => {
       const next = value ?? '';
@@ -228,16 +246,21 @@ export function LogsApp({
       setMatchSnippets({});
       if (!next.trim()) {
         setMatchingIds(new Set());
-        setMatchSnippets({});
         setPendingLogCount(0);
+        postSearchQuery(next);
+      } else {
+        window.clearTimeout(searchPostTimerRef.current);
+        searchPostTimerRef.current = window.setTimeout(() => postSearchQuery(next), SEARCH_QUERY_DEBOUNCE_MS);
       }
       setQueryState(next);
-      if (messageBus) {
-        vscode.postMessage({ type: 'searchQuery', value: next });
-      }
     },
-    [messageBus, setMatchingIds, setQueryState, vscode]
+    [postSearchQuery]
   );
+
+  const rerunSearch = useCallback(() => {
+    lastPostedSearchRef.current = undefined;
+    postSearchQuery(queryRef.current);
+  }, [postSearchQuery]);
 
   useEffect(() => {
     queryRef.current = query;
@@ -526,6 +549,7 @@ export function LogsApp({
         onSelectOrg={onSelectOrg}
         query={query}
         onQueryChange={updateQuery}
+        onSearchRerun={rerunSearch}
         searchLoading={searchLoading}
         searchMessage={searchMessage}
         users={users}

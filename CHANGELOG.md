@@ -22,6 +22,10 @@
 
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
 
+### Performance
+
+- Logs: start the full-log search 300 ms after you stop typing instead of on every keystroke, so a typed word runs one search in the shared extension host instead of one per letter; clearing the search still applies immediately.
+
 ### Tests
 
 - Local E2E: run the Playwright and integration suites against a Dev Hub already authenticated in the Salesforce CLI by setting `SF_DEVHUB_ALIAS`; Playwright runs create the scratch org once and reuse it. JWT inputs, when set, still take precedence, and CI stays JWT-only.

@@ -337,6 +337,97 @@ describe('Logs webview App', () => {
     });
   });
 
+  describe('search query posting', () => {
+    function renderSearch() {
+      jest.useFakeTimers();
+      const { vscode, posted } = createVsCodeMock();
+      const view = render(<LogsApp vscode={vscode} messageBus={new EventTarget()} />);
+      const searchInput = screen.getByLabelText('Search logs…');
+      return {
+        view,
+        searchInput,
+        searchQueries: () => posted.filter(msg => msg.type === 'searchQuery'),
+        type: (value: string) => fireEvent.change(searchInput, { target: { value } }),
+        advance: (ms: number) =>
+          act(() => {
+            jest.advanceTimersByTime(ms);
+          })
+      };
+    }
+
+    it('posts one search after the user pauses typing', () => {
+      const { searchInput, searchQueries, type, advance } = renderSearch();
+      const word = 'exception';
+      for (let length = 1; length <= word.length; length++) {
+        type(word.slice(0, length));
+        advance(50);
+      }
+
+      expect((searchInput as HTMLInputElement).value).toBe('exception');
+      advance(249);
+      expect(searchQueries()).toEqual([]);
+      advance(1);
+      expect(searchQueries()).toEqual([{ type: 'searchQuery', value: 'exception' }]);
+    });
+
+    it('posts a cleared query immediately and drops the pending search', () => {
+      const { searchQueries, type, advance } = renderSearch();
+      type('abc');
+      advance(300);
+      type('abcd');
+      advance(100);
+      type('');
+
+      const expected = [
+        { type: 'searchQuery', value: 'abc' },
+        { type: 'searchQuery', value: '' }
+      ];
+      expect(searchQueries()).toEqual(expected);
+      advance(300);
+      expect(searchQueries()).toEqual(expected);
+    });
+
+    it('does not repost the query the extension already has', () => {
+      const { searchQueries, type, advance } = renderSearch();
+      type('abc');
+      advance(300);
+      type('abcd');
+      advance(100);
+      type('abc');
+      advance(300);
+      expect(searchQueries()).toEqual([{ type: 'searchQuery', value: 'abc' }]);
+
+      type('abcd');
+      advance(300);
+      expect(searchQueries()).toEqual([
+        { type: 'searchQuery', value: 'abc' },
+        { type: 'searchQuery', value: 'abcd' }
+      ]);
+    });
+
+    it('re-runs the current query when pasting the same text', () => {
+      const { searchInput, searchQueries, type, advance } = renderSearch();
+      type('error');
+      advance(300);
+      fireEvent.paste(searchInput);
+      advance(0);
+
+      expect(searchQueries()).toEqual([
+        { type: 'searchQuery', value: 'error' },
+        { type: 'searchQuery', value: 'error' }
+      ]);
+    });
+
+    it('drops the pending search on unmount', () => {
+      const { view, searchQueries, type, advance } = renderSearch();
+      type('abc');
+      view.unmount();
+      advance(300);
+
+      expect(searchQueries()).toEqual([]);
+    });
+  });
+
   it('applies errors-only filter with progressive scan status updates', async () => {
     const { vscode } = createVsCodeMock();
     const bus = new EventTarget();
