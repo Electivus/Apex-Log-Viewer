@@ -82,36 +82,82 @@ const debugLevel = {
 type SalesforceDouble = {
   instanceUrl: string;
   acceptedTokens: Set<string>;
+  requestCount: () => number;
   versionListRequests: () => number;
   tokenRefreshRequests: () => number;
   queryTokens: () => string[];
+  deleteTokens: () => string[];
   holdVersionList: () => () => void;
+  holdTokenRefresh: () => () => void;
+  holdQueries: () => () => void;
 };
 
-async function startSalesforceDouble(t: test.TestContext, acceptedTokens: string[]): Promise<SalesforceDouble> {
-  const requests: Array<{ path: string; token: string }> = [];
+type Route = 'versionList' | 'tokenRefresh' | 'query' | 'delete' | 'other';
+
+function routeOf(method: string | undefined, pathname: string): Route {
+  if (pathname === '/services/data') return 'versionList';
+  if (pathname === '/services/oauth2/token') return 'tokenRefresh';
+  if (method === 'DELETE') return 'delete';
+  return pathname.endsWith('/query') ? 'query' : 'other';
+}
+
+async function startSalesforceDouble(
+  t: test.TestContext,
+  acceptedTokens: string[],
+  renewedToken?: string
+): Promise<SalesforceDouble> {
+  const requests: Array<{ route: Route; token: string }> = [];
   const accepted = new Set(acceptedTokens);
-  let versionListGate: Promise<void> = Promise.resolve();
+  const gates = new Map<Route, Promise<void>>();
+  const hold = (route: Route) => (): (() => void) => {
+    let release!: () => void;
+    gates.set(
+      route,
+      new Promise(resolve => {
+        release = resolve;
+      })
+    );
+    return release;
+  };
   const server = http.createServer((request, response) => {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     const token = String(request.headers.authorization ?? '').replace(/^Bearer /, '');
-    requests.push({ path: url.pathname, token });
+    const route = routeOf(request.method, url.pathname);
+    requests.push({ route, token });
     const send = (status: number, body: unknown): void => {
-      response.writeHead(status, { 'content-type': 'application/json' });
-      response.end(JSON.stringify(body));
+      void (gates.get(route) ?? Promise.resolve()).then(() => {
+        response.writeHead(status, { 'content-type': 'application/json' });
+        response.end(JSON.stringify(body));
+      });
     };
-    if (url.pathname === '/services/data') {
-      void versionListGate.then(() =>
-        send(200, [{ label: "Spring '25", url: '/services/data/v63.0', version: '63.0' }])
-      );
+    if (route === 'versionList') {
+      send(200, [{ label: "Spring '25", url: '/services/data/v63.0', version: '63.0' }]);
       return;
     }
-    if (url.pathname === '/services/oauth2/token') {
+    if (route === 'tokenRefresh' && renewedToken) {
+      const instanceUrl = `http://${request.headers.host}`;
+      accepted.add(renewedToken);
+      send(200, {
+        access_token: renewedToken,
+        instance_url: instanceUrl,
+        id: `${instanceUrl}/id/00D000000000001AAA/005000000000001AAA`,
+        token_type: 'Bearer'
+      });
+      return;
+    }
+    if (route === 'tokenRefresh') {
       send(400, { error: 'invalid_grant', error_description: 'expired access/refresh token' });
       return;
     }
     if (!accepted.has(token)) {
       send(401, [{ message: 'Session expired or invalid', errorCode: 'INVALID_SESSION_ID' }]);
+      return;
+    }
+    if (route === 'delete') {
+      send(
+        200,
+        (url.searchParams.get('ids') ?? '').split(',').map(id => ({ id, success: true, errors: [] }))
+      );
       return;
     }
     const sobject = /\bFROM\s+(\w+)/i.exec(url.searchParams.get('q') ?? '')?.[1] ?? '';
@@ -128,17 +174,19 @@ async function startSalesforceDouble(t: test.TestContext, acceptedTokens: string
   return {
     instanceUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     acceptedTokens: accepted,
-    versionListRequests: () => requests.filter(request => request.path === '/services/data').length,
-    tokenRefreshRequests: () => requests.filter(request => request.path === '/services/oauth2/token').length,
-    queryTokens: () => requests.filter(request => request.path.endsWith('/query')).map(request => request.token),
-    holdVersionList: () => {
-      let release!: () => void;
-      versionListGate = new Promise(resolve => {
-        release = resolve;
-      });
-      return release;
-    }
+    requestCount: () => requests.length,
+    versionListRequests: () => requests.filter(request => request.route === 'versionList').length,
+    tokenRefreshRequests: () => requests.filter(request => request.route === 'tokenRefresh').length,
+    queryTokens: () => requests.filter(request => request.route === 'query').map(request => request.token),
+    deleteTokens: () => requests.filter(request => request.route === 'delete').map(request => request.token),
+    holdVersionList: hold('versionList'),
+    holdTokenRefresh: hold('tokenRefresh'),
+    holdQueries: hold('query')
   };
+}
+
+async function until(condition: () => boolean): Promise<void> {
+  while (!condition()) await new Promise(resolve => setImmediate(resolve));
 }
 
 async function saveOrgAuth(
@@ -256,6 +304,110 @@ test('a session whose refresh token was revoked is rebuilt from the saved auth',
 
   assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
   assert.deepEqual(salesforce.queryTokens(), ['token-expiring', 'token-expiring', 'token-relogin']);
+  assert.equal(salesforce.tokenRefreshRequests(), 1);
+});
+
+test('two callers waiting on one failed token refresh both rebuild from the saved auth', async t => {
+  const username = 'refresh-shared@example.com';
+  const salesforce = await startSalesforceDouble(t, ['token-expiring']);
+  await saveOrgAuth(username, salesforce.instanceUrl, {
+    accessToken: 'token-expiring',
+    refreshToken: 'refresh-revoked'
+  });
+  const core = createApexLogViewerCore();
+  t.after(() => core.dispose());
+
+  assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
+  salesforce.acceptedTokens.clear();
+  salesforce.acceptedTokens.add('token-relogin');
+  await saveOrgAuth(username, salesforce.instanceUrl, {
+    accessToken: 'token-relogin',
+    refreshToken: 'refresh-relogin'
+  });
+  const releaseQueries = salesforce.holdQueries();
+  const releaseTokenRefresh = salesforce.holdTokenRefresh();
+
+  const first = core.debugLevel.list({ targetOrg: username });
+  const second = core.debugLevel.list({ targetOrg: username });
+  await until(() => salesforce.queryTokens().length === 3);
+  releaseQueries();
+  await until(() => salesforce.tokenRefreshRequests() === 1);
+  releaseTokenRefresh();
+
+  assert.deepEqual(await Promise.all([first, second]), [[debugLevel], [debugLevel]]);
+  assert.deepEqual(salesforce.queryTokens(), [
+    'token-expiring',
+    'token-expiring',
+    'token-expiring',
+    'token-relogin',
+    'token-relogin'
+  ]);
+  assert.equal(salesforce.tokenRefreshRequests(), 1);
+  assert.equal(salesforce.versionListRequests(), 2);
+});
+
+test('a log delete whose session Salesforce rejects is retried on a rebuilt connection', async t => {
+  const username = 'delete-relogin@example.com';
+  const salesforce = await startSalesforceDouble(t, ['token-first']);
+  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-first' });
+  const core = createApexLogViewerCore();
+  t.after(() => core.dispose());
+
+  assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
+  salesforce.acceptedTokens.clear();
+  salesforce.acceptedTokens.add('token-relogin');
+  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-relogin' });
+
+  const result = await core.log.delete({
+    targetOrg: username,
+    ids: ['07L000000000001AAA', '07L000000000002AAA'],
+    confirmed: true
+  });
+
+  assert.deepEqual(result, {
+    status: 'success',
+    targetOrg: username,
+    scope: 'mine',
+    dryRun: false,
+    listed: 2,
+    total: 2,
+    deleted: 2,
+    failed: 0,
+    cancelled: 0,
+    failedLogIds: []
+  });
+  assert.deepEqual(salesforce.deleteTokens(), ['token-first', 'token-relogin']);
+});
+
+test('org auth renews an expired token only when asked to refresh', async t => {
+  const username = 'auth-refresh@example.com';
+  const salesforce = await startSalesforceDouble(t, [], 'token-renewed');
+  await saveOrgAuth(username, salesforce.instanceUrl, {
+    accessToken: 'token-expired',
+    refreshToken: 'refresh-valid'
+  });
+  const core = createApexLogViewerCore();
+  t.after(() => core.dispose());
+
+  assert.deepEqual(await core.org.getAuth({ username }), {
+    accessToken: 'token-expired',
+    instanceUrl: salesforce.instanceUrl,
+    username
+  });
+  assert.equal(salesforce.requestCount(), 0);
+
+  assert.deepEqual(await core.org.getAuth({ username, refresh: true }), {
+    accessToken: 'token-renewed',
+    instanceUrl: salesforce.instanceUrl,
+    username
+  });
+  assert.equal(salesforce.tokenRefreshRequests(), 1);
+
+  assert.deepEqual(await core.org.getAuth({ username }), {
+    accessToken: 'token-renewed',
+    instanceUrl: salesforce.instanceUrl,
+    username
+  });
   assert.equal(salesforce.tokenRefreshRequests(), 1);
 });
 

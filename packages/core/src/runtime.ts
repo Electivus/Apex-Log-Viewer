@@ -279,7 +279,11 @@ async function connectOrg(username: string): Promise<OrgConnection> {
 function isSessionRejected(error: unknown): boolean {
   return (
     (error as { errorCode?: unknown } | undefined)?.errorCode === 'INVALID_SESSION_ID' ||
-    (error instanceof Error && error.message.startsWith('Unable to refresh session due to:'))
+    (error instanceof Error &&
+      (error.message.startsWith('Unable to refresh session due to:') ||
+        // jsforce wraps a failed refresh only for the request that started it; requests awaiting it get the SDK error.
+        error.name === 'RefreshTokenAuthError' ||
+        error.name === 'JwtAuthError'))
   );
 }
 
@@ -323,20 +327,25 @@ function createOrgConnections(): OrgConnections {
   };
 }
 
+function toOrgAuth(token: unknown, url: unknown, username: string): OrgAuth {
+  const accessToken = asString(token);
+  const instanceUrl = asString(url);
+  if (!accessToken || !instanceUrl) {
+    throw new Error('Unable to retrieve Salesforce org authentication from @salesforce/core.');
+  }
+  return { accessToken, instanceUrl, username };
+}
+
 async function getOrgAuthFromCore(params: OrgAuthParams = {}): Promise<OrgAuth> {
   const resolved = await resolveUsername(params.username);
   const authInfo = await AuthInfo.create({ username: resolved.username });
   const fields = authInfo.getFields(true);
-  const accessToken = asString(fields.accessToken);
-  const instanceUrl = asString(fields.instanceUrl);
-  if (!accessToken || !instanceUrl) {
-    throw new Error('Unable to retrieve Salesforce org authentication from @salesforce/core.');
-  }
-  return {
-    accessToken,
-    instanceUrl,
-    username: asString(authInfo.getUsername()) ?? resolved.username
-  };
+  return toOrgAuth(fields.accessToken, fields.instanceUrl, asString(authInfo.getUsername()) ?? resolved.username);
+}
+
+async function refreshOrgAuth(ctx: ConnectionContext): Promise<OrgAuth> {
+  await ctx.connection.refreshAuth();
+  return toOrgAuth(ctx.connection.accessToken, ctx.connection.instanceUrl, ctx.username);
 }
 
 async function listOrgsNative(params: OrgListParams = {}): Promise<OrgListItem[]> {
@@ -661,6 +670,7 @@ export async function deleteApexLogIds(
         }
       } catch (error) {
         if (signal?.aborted || (error instanceof AlvError && error.code === 'ABORTED')) throw abortError();
+        if (deleted === 0 && isSessionRejected(error)) throw error;
         failed += chunk.length;
         failedLogIds.push(...chunk);
       }
@@ -1308,7 +1318,9 @@ export function createApexLogViewerCore(
       resolve: (params: OrgResolveParams = {}, callOptions?: CoreCallOptions) =>
         call('org.resolve', callOptions, signal => resolveOrgNative(connections, params, signal)),
       getAuth: (params: OrgAuthParams = {}, callOptions?: CoreCallOptions) =>
-        call('org.getAuth', callOptions, () => getOrgAuthFromCore(params))
+        params.refresh
+          ? orgCall('org.getAuth', params.username, callOptions, refreshOrgAuth)
+          : call('org.getAuth', callOptions, () => getOrgAuthFromCore(params))
     },
     log: {
       list: (params: LogsListParams = {}, callOptions?: CoreCallOptions) =>
