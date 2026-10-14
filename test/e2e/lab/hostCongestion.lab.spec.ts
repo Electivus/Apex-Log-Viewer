@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { Frame } from '@playwright/test';
+import { expect, type Frame } from '@playwright/test';
 import { test } from '../fixtures/alvPoolLease';
 import { runCommandWhenAvailable } from '../utils/commandPalette';
 import { closeQuickInputIfOpen, dismissAllNotifications } from '../utils/notifications';
@@ -36,24 +36,78 @@ async function createEmptyDayDirs(workspacePath: string, username: string, count
 
 async function findLogs(userDataDir: string, matches: (entry: string) => boolean): Promise<string[]> {
   const entries = await readdir(path.join(userDataDir, 'logs'), { recursive: true });
-  return entries.filter(entry => entry.endsWith('.log') && matches(entry)).map(entry => path.join(userDataDir, 'logs', entry));
+  return entries
+    .filter(entry => entry.endsWith('.log') && matches(entry))
+    .map(entry => path.join(userDataDir, 'logs', entry));
 }
 
 async function readAll(files: string[]): Promise<string> {
   return (await Promise.all(files.map(file => readFile(file, 'utf8')))).join('\n');
 }
 
-async function waitUntil(predicate: () => Promise<boolean>, timeoutMs: number, stepMs = 20): Promise<number> {
+async function waitUntil(description: string, predicate: () => Promise<boolean>, timeoutMs: number): Promise<void> {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    if (await predicate().catch(() => false)) return Date.now() - started;
-    await new Promise(resolve => setTimeout(resolve, stepMs));
+    if (await predicate().catch(() => false)) return;
+    await new Promise(resolve => setTimeout(resolve, 200));
   }
-  return Number.NaN;
+  throw new Error(`Timed out after ${timeoutMs} ms waiting for ${description}`);
+}
+
+function gitState(): { sha: string; dirty: boolean } {
+  const git = (args: string[]) => execFileSync('git', args, { cwd: repoRoot }).toString().trim();
+  return { sha: git(['rev-parse', '--short', 'HEAD']), dirty: git(['status', '--porcelain']).length > 0 };
+}
+
+function salesforceEnvNames(): string[] {
+  return Object.keys(process.env)
+    .filter(name => /^(SF|SFDX)_/.test(name) && !/(KEY|SECRET|TOKEN|PASSWORD|AUTH_URL)/.test(name))
+    .sort();
+}
+
+type LabReport = Record<string, unknown> & {
+  neighborRunning: string;
+  queueWaits: ReturnType<typeof summarizeQueueWaits>;
+};
+
+let lastReport: LabReport | undefined;
+
+async function writeReport(userDataDir: string): Promise<void> {
+  const outputLogs = await findLogs(userDataDir, entry => entry.includes('Electivus Apex Log Viewer')).catch(() => []);
+  const outputLog = await readAll(outputLogs);
+  const neighborLog = await readAll(
+    await findLogs(userDataDir, entry => entry.includes('ALV lab noisy neighbor')).catch(() => [])
+  );
+  const generatedAt = new Date().toISOString();
+  const report: LabReport = {
+    label,
+    neighbor: neighbor || 'none',
+    locale: locale || 'default',
+    seedLogs,
+    emptyDayDirs,
+    refreshes,
+    git: gitState(),
+    salesforceEnv: salesforceEnvNames(),
+    platform: `${process.platform}-${process.arch}`,
+    generatedAt,
+    outputLogFiles: outputLogs.length,
+    neighborRunning: /noisy neighbor running busy=\d+ period=\d+ pool=\d+/.exec(neighborLog)?.[0] ?? 'not running',
+    refreshCycles: summarizeRefreshCycles(outputLog),
+    queueWaits: summarizeQueueWaits(outputLog)
+  };
+  lastReport = report;
+  const reportDir = path.join(repoRoot, 'output', 'lab', 'host-congestion');
+  await mkdir(reportDir, { recursive: true });
+  const reportPath = path.join(reportDir, `${label}-${generatedAt.replace(/[:.]/g, '-')}.json`);
+  await writeFile(reportPath, JSON.stringify(report, null, 2));
+  await writeFile(reportPath.replace(/\.json$/, '.output.log'), outputLog);
+  console.log(`[lab] report: ${reportPath}`);
+  console.log(`[lab] ${report.neighborRunning}`);
+  console.table(report.queueWaits.byType);
+  console.table([report.refreshCycles]);
 }
 
 test('host congestion lab: click-to-start wait in the extension host queue', async ({ scratchAlias }, testInfo) => {
-  test.setTimeout(30 * 60_000);
   for (let i = 0; i < seedLogs; i++) await seedApexLog(scratchAlias);
   const auth = await getOrgAuth(scratchAlias);
   const sfCli = await resolveSfCliInvocation();
@@ -80,12 +134,12 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
       { timeoutMs: 300_000 }
     );
     const refresh = frame.getByRole('button', { name: /^(Refresh|Loading)/ }).first();
-    await waitUntil(async () => await refresh.isEnabled(), 300_000, 200);
+    await waitUntil('the initial Logs load', async () => await refresh.isEnabled(), 300_000);
     await page.waitForTimeout(15_000);
 
     for (let i = 0; i < refreshes; i++) {
       await dismissAllNotifications(page).catch(() => undefined);
-      await waitUntil(async () => await refresh.isEnabled(), 180_000, 50);
+      await waitUntil('Refresh to be enabled', async () => await refresh.isEnabled(), 180_000);
       await refresh.click();
       await page.waitForTimeout(8_000);
     }
@@ -96,39 +150,17 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
     await search.fill('');
     await page.waitForTimeout(3_000);
   } finally {
-    const outputLogs = await findLogs(launch.userDataDir, entry => entry.includes('Electivus Apex Log Viewer')).catch(
-      () => []
-    );
-    const outputLog = await readAll(outputLogs);
-    const neighborLog = await readAll(
-      await findLogs(launch.userDataDir, entry => entry.includes('ALV lab noisy neighbor')).catch(() => [])
-    );
-    const neighborRunning = /noisy neighbor running busy=\d+ period=\d+ pool=\d+/.exec(neighborLog)?.[0] ?? 'not running';
-    const report = {
-      label,
-      neighbor: neighbor || 'none',
-      locale: locale || 'default',
-      seedLogs,
-      emptyDayDirs,
-      refreshes,
-      gitSha: execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repoRoot }).toString().trim(),
-      platform: `${process.platform}-${process.arch}`,
-      generatedAt: new Date().toISOString(),
-      outputLogFiles: outputLogs.length,
-      neighborRunning,
-      refreshCycles: summarizeRefreshCycles(outputLog),
-      queueWaits: summarizeQueueWaits(outputLog)
-    };
-    const reportDir = path.join(repoRoot, 'output', 'lab', 'host-congestion');
-    await mkdir(reportDir, { recursive: true });
-    const reportPath = path.join(reportDir, `${label}-${report.generatedAt.replace(/[:.]/g, '-')}.json`);
-    await writeFile(reportPath, JSON.stringify(report, null, 2));
-    await writeFile(reportPath.replace(/\.json$/, '.output.log'), outputLog);
-    console.log(`[lab] report: ${reportPath}`);
-    console.log(`[lab] ${neighborRunning}`);
-    console.table(report.queueWaits.byType);
-    console.table([report.refreshCycles]);
-    await launch.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
-    await ws.cleanup();
+    try {
+      await writeReport(launch.userDataDir);
+    } finally {
+      await launch.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
+      await ws.cleanup();
+    }
   }
+  expect(lastReport?.neighborRunning, 'the noisy neighbor applied its load').toMatch(
+    neighbor ? /^noisy neighbor running/ : /^not running$/
+  );
+  expect(lastReport?.queueWaits.total, 'the extension logged queue waits (#1177 instrument present)').toBeGreaterThan(
+    0
+  );
 });

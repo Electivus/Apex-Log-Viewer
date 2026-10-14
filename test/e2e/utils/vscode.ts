@@ -663,8 +663,8 @@ export async function launchVsCode(options: {
         args,
         env: {
           ...process.env,
-          ...authLaunch.env,
           ...options.env,
+          ...authLaunch.env,
           LC_ALL: options.env?.LC_ALL || process.env.LC_ALL || 'C.UTF-8',
           DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null',
           NO_AT_BRIDGE: process.env.NO_AT_BRIDGE || '1'

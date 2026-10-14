@@ -72,7 +72,7 @@
     "pretest:e2e:telemetry": "pnpm run build",
     "test:e2e:telemetry": "node scripts/run-playwright-e2e-telemetry.js",
     "pretest:lab:host-congestion": "pnpm run build",
-    "test:lab:host-congestion": "node scripts/run-playwright-e2e.js --config=playwright.lab.config.ts",
+    "test:lab:host-congestion": "node scripts/run-playwright-e2e.js --config=playwright.lab.config.ts --retries=0",
     "scratch-pool:bootstrap": "node scripts/scratch-pool-admin.js bootstrap",
     "scratch-pool:list": "node scripts/scratch-pool-admin.js list",
     "scratch-pool:reconcile": "node scripts/scratch-pool-admin.js reconcile",

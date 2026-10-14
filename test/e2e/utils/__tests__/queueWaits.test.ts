@@ -40,10 +40,27 @@ describe('summarizeRefreshCycles', () => {
 
     expect(summarizeRefreshCycles(log)).toEqual({
       count: 2,
-      foregroundP50Ms: 1200,
+      foregroundP50Ms: 500,
       foregroundMaxMs: 1200,
-      clickToRowsP50Ms: 1500,
+      clickToRowsP50Ms: 502,
       clickToRowsMaxMs: 1500
+    });
+  });
+
+  it('pairs overlapping refreshes first in, first out', () => {
+    const log = [
+      '2026-10-14 10:00:00.000 [info] [trace] Logs: refresh waited 10 ms in the extension host queue',
+      '2026-10-14 10:00:00.100 [info] [trace] Logs: refresh waited 20 ms in the extension host queue',
+      '2026-10-14 10:00:00.700 [info] Logs: fetched 21 rows (pageSize = 100 )',
+      '2026-10-14 10:00:00.900 [info] Logs: fetched 21 rows (pageSize = 100 )'
+    ].join('\n');
+
+    expect(summarizeRefreshCycles(log)).toEqual({
+      count: 2,
+      foregroundP50Ms: 700,
+      foregroundMaxMs: 800,
+      clickToRowsP50Ms: 710,
+      clickToRowsMaxMs: 820
     });
   });
 });
