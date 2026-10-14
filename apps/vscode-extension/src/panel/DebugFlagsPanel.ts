@@ -28,6 +28,7 @@ import { pickSelectedOrg } from '../host/utils/orgs';
 import { localize } from '../host/utils/localize';
 import { getErrorMessage } from '../host/utils/error';
 import { logInfo, logWarn } from '../host/utils/logger';
+import { recordInboundMessage } from '../host/utils/responsiveness';
 import { buildWebviewHtml } from '../host/utils/webviewHtml';
 import { runtimeClient } from '../runtime/runtimeClient';
 
@@ -127,6 +128,7 @@ export class DebugFlagsPanel {
   }
 
   private async onMessage(rawMessage: unknown): Promise<void> {
+    recordInboundMessage('debugFlags', rawMessage);
     const message = parseDebugFlagsFromWebviewMessage(rawMessage);
     if (!message || this.disposed) {
       return;
