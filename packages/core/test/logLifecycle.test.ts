@@ -2104,3 +2104,211 @@ test('Apex Log Lifecycle translates local directory scan failures into a stable 
     lifecycle.dispose();
   }
 });
+
+test('Apex Log Lifecycle finds an unknown-date log and materializes its day once the start time is known', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-unknown-date-'));
+  const logId = '07L000000000061AAA';
+  const username = 'unknown-date@example.com';
+  const orgRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', username);
+  const unknownDatePath = path.join(orgRoot, 'logs', 'unknown-date', `${logId}.log`);
+  const dayPath = path.join(orgRoot, 'logs', '2026-07-20', `${logId}.log`);
+  const startTime = '2026-07-20T08:00:00.000Z';
+  const remoteCalls: string[] = [];
+  await fs.mkdir(path.dirname(unknownDatePath), { recursive: true });
+  await fs.writeFile(unknownDatePath, 'undated body', 'utf8');
+  await fs.writeFile(path.join(orgRoot, 'org.json'), `${JSON.stringify({ version: 1, username })}\n`, 'utf8');
+
+  const lifecycle = createApexLogLifecycle({ remote: unavailableRemote(remoteCalls) });
+  try {
+    const undated = await lifecycle.requireLocalPath({ workspaceRoot, targetOrg: username, log: { logId } });
+    assert.deepEqual(undated, {
+      logId,
+      resolvedUsername: username,
+      source: 'local',
+      persistence: 'existing',
+      localPath: unknownDatePath
+    });
+
+    const dated = await lifecycle.requireLocalPath({ workspaceRoot, targetOrg: username, log: { logId, startTime } });
+    assert.deepEqual(dated, {
+      logId,
+      startTime,
+      resolvedUsername: username,
+      source: 'local',
+      persistence: 'written',
+      localPath: dayPath
+    });
+    assert.equal(await fs.readFile(dayPath, 'utf8'), 'undated body');
+    assert.equal(await fs.readFile(unknownDatePath, 'utf8'), 'undated body');
+    assert.deepEqual(remoteCalls, []);
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle finds a log stored under another day and materializes its start-time day', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-other-day-'));
+  const logId = '07L000000000062AAA';
+  const username = 'other-day@example.com';
+  const orgRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', username);
+  const storedPath = path.join(orgRoot, 'logs', '2026-07-19', `${logId}.log`);
+  const dayPath = path.join(orgRoot, 'logs', '2026-07-20', `${logId}.log`);
+  const startTime = '2026-07-20T00:30:00.000Z';
+  const remoteCalls: string[] = [];
+  await fs.mkdir(path.dirname(storedPath), { recursive: true });
+  await fs.writeFile(storedPath, 'shifted body', 'utf8');
+  await fs.writeFile(path.join(orgRoot, 'org.json'), `${JSON.stringify({ version: 1, username })}\n`, 'utf8');
+
+  const lifecycle = createApexLogLifecycle({ remote: unavailableRemote(remoteCalls) });
+  try {
+    const result = await lifecycle.availableLocalPaths({
+      workspaceRoot,
+      targetOrg: username,
+      logs: [{ logId, startTime }]
+    });
+
+    assert.deepEqual(result, {
+      available: [
+        { logId, startTime, resolvedUsername: username, source: 'local', persistence: 'written', localPath: dayPath }
+      ],
+      missing: [],
+      failures: []
+    });
+    assert.equal(await fs.readFile(dayPath, 'utf8'), 'shifted body');
+    assert.equal(await fs.readFile(storedPath, 'utf8'), 'shifted body');
+    assert.deepEqual(remoteCalls, []);
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle rejects a linked day directory before local-first resolution', async t => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-linked-day-'));
+  const externalRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-linked-day-external-'));
+  const logId = '07L000000000063AAA';
+  const username = 'linked-day@example.com';
+  const orgRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', username);
+  const linkedDay = path.join(orgRoot, 'logs', '2026-07-20');
+  const externalDay = path.join(externalRoot, '2026-07-20');
+  const externalLog = path.join(externalDay, `${logId}.log`);
+  const remoteCalls: string[] = [];
+
+  await fs.mkdir(externalDay, { recursive: true });
+  await fs.writeFile(externalLog, 'must remain outside the lifecycle', 'utf8');
+  await fs.mkdir(path.dirname(linkedDay), { recursive: true });
+  await fs.writeFile(path.join(orgRoot, 'org.json'), `${JSON.stringify({ version: 1, username })}\n`, 'utf8');
+  try {
+    await fs.symlink(externalDay, linkedDay, process.platform === 'win32' ? 'junction' : 'dir');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+      t.skip('filesystem does not permit directory links');
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(externalRoot, { recursive: true, force: true });
+      return;
+    }
+    throw error;
+  }
+
+  const linkedDayRejected = (error: unknown): boolean =>
+    error instanceof ApexLogLifecycleError &&
+    error.code === 'local-persistence' &&
+    (error.cause as Error).message === `Apex log directory must be a real directory: ${linkedDay}`;
+  const lifecycle = createApexLogLifecycle({ remote: unavailableRemote(remoteCalls) });
+  try {
+    await assert.rejects(
+      lifecycle.requireLocalPath({
+        workspaceRoot,
+        targetOrg: username,
+        log: { logId, startTime: '2026-07-20T10:00:00.000Z' }
+      }),
+      linkedDayRejected
+    );
+    await assert.rejects(
+      lifecycle.requireLocalPath({ workspaceRoot, targetOrg: username, log: { logId } }),
+      linkedDayRejected
+    );
+    await assert.rejects(
+      lifecycle.availableLocalPaths({ workspaceRoot, targetOrg: username, logs: [{ logId }] }),
+      linkedDayRejected
+    );
+    assert.deepEqual(remoteCalls, []);
+    assert.equal(await fs.readFile(externalLog, 'utf8'), 'must remain outside the lifecycle');
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+    await fs.rm(externalRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle scoped local lookups ignore other orgs and report unsynced logs as missing', async t => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-scoped-lookup-'));
+  const externalRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-scoped-lookup-external-'));
+  const username = 'scoped@example.com';
+  const otherUsername = 'unsafe@example.com';
+  const logId = '07L000000000064AAA';
+  const missingId = '07L000000000065AAA';
+  const startTime = '2026-07-20T10:00:00.000Z';
+  const orgRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', username);
+  const canonicalPath = path.join(orgRoot, 'logs', '2026-07-20', `${logId}.log`);
+  const otherLogsRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', otherUsername, 'logs');
+  const remoteCalls: string[] = [];
+
+  await fs.mkdir(path.dirname(canonicalPath), { recursive: true });
+  await fs.writeFile(canonicalPath, 'scoped body', 'utf8');
+  await fs.writeFile(path.join(orgRoot, 'org.json'), `${JSON.stringify({ version: 1, username })}\n`, 'utf8');
+  await fs.mkdir(otherLogsRoot, { recursive: true });
+  await fs.writeFile(
+    path.join(otherLogsRoot, '..', 'org.json'),
+    `${JSON.stringify({ version: 1, username: otherUsername })}\n`,
+    'utf8'
+  );
+  try {
+    await fs.symlink(
+      externalRoot,
+      path.join(otherLogsRoot, '2026-07-20'),
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+      t.skip('filesystem does not permit directory links');
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(externalRoot, { recursive: true, force: true });
+      return;
+    }
+    throw error;
+  }
+
+  const lifecycle = createApexLogLifecycle({ remote: unavailableRemote(remoteCalls) });
+  try {
+    const result = await lifecycle.availableLocalPaths({
+      workspaceRoot,
+      targetOrg: username,
+      logs: [
+        { logId, startTime },
+        { logId: missingId, startTime }
+      ]
+    });
+
+    assert.deepEqual(result, {
+      available: [
+        {
+          logId,
+          startTime,
+          resolvedUsername: username,
+          source: 'local',
+          persistence: 'existing',
+          localPath: canonicalPath
+        }
+      ],
+      missing: [{ logId: missingId, startTime }],
+      failures: []
+    });
+    assert.deepEqual(remoteCalls, []);
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+    await fs.rm(externalRoot, { recursive: true, force: true });
+  }
+});

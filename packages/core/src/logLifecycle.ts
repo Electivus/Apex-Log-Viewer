@@ -403,24 +403,114 @@ async function ensureRegularFileOrAbsent(filePath: string): Promise<void> {
   }
 }
 
-async function findCanonicalLogPath(
-  workspaceRoot: string,
-  safeUsername: string,
-  logId: string
-): Promise<string | undefined> {
-  const logsRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', safeUsername, 'logs');
-  if (!(await ensureRealDirectoryPath(workspaceRoot, logsRoot, false, true))) return undefined;
-  const entries = await readDirectory(logsRoot);
-  for (const entry of entries) {
-    if (!/^(unknown-date|\d{4}-\d{2}-\d{2})$/.test(entry.name)) continue;
-    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-    const dayRoot = path.join(logsRoot, entry.name);
-    if (!(await ensureRealDirectoryPath(workspaceRoot, dayRoot, false, true))) continue;
-    const candidate = path.join(dayRoot, `${logId}.log`);
-    await ensureRegularFileOrAbsent(candidate);
-    if (await isRegularFile(candidate)) return candidate;
+async function regularFileExists(filePath: string): Promise<boolean> {
+  let stat: Awaited<ReturnType<typeof fs.lstat>>;
+  try {
+    stat = await fs.lstat(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
   }
-  return undefined;
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error(`Apex log state path must be a regular file: ${filePath}`);
+  }
+  return true;
+}
+
+// Lives for one lifecycle call, which bounds how stale its directory checks and day listings can get
+// while that call writes. Files are never cached, so every hit is confirmed on disk.
+type LocalStoreSnapshot = Readonly<{
+  workspaceRoot: string;
+  realDirectory(directoryPath: string): Promise<boolean>;
+  canonicalDays(logsRoot: string): Promise<ReadonlyMap<string, string>>;
+}>;
+
+function createLocalStoreSnapshot(workspaceRoot: string): LocalStoreSnapshot {
+  const resolvedRoot = path.resolve(workspaceRoot);
+  const directories = new Map<string, Promise<boolean>>();
+  const dayIndexes = new Map<string, Promise<ReadonlyMap<string, string>>>();
+
+  const inspectDirectory = (current: string): Promise<boolean> => {
+    let pending = directories.get(current);
+    if (!pending) {
+      pending = fs.lstat(current).then(
+        stat => {
+          if (stat.isSymbolicLink()) throw new Error(`Apex log directory must be a real directory: ${current}`);
+          return stat.isDirectory();
+        },
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return false;
+          throw error;
+        }
+      );
+      directories.set(current, pending);
+    }
+    return pending;
+  };
+
+  const realDirectory = async (directoryPath: string): Promise<boolean> => {
+    const resolvedDirectory = path.resolve(directoryPath);
+    const relative = path.relative(resolvedRoot, resolvedDirectory);
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error(`Apex log directory escapes the workspace root: ${resolvedDirectory}`);
+    }
+    if (!(await inspectDirectory(resolvedRoot))) {
+      throw new Error(`Apex log workspace root does not exist: ${resolvedRoot}`);
+    }
+    let current = resolvedRoot;
+    for (const segment of relative ? relative.split(path.sep).filter(Boolean) : []) {
+      current = path.join(current, segment);
+      if (!(await inspectDirectory(current))) return false;
+    }
+    return true;
+  };
+
+  const indexDays = async (logsRoot: string): Promise<ReadonlyMap<string, string>> => {
+    const days = new Map<string, string>();
+    for (const day of await readDirectory(logsRoot)) {
+      if (!/^(unknown-date|\d{4}-\d{2}-\d{2})$/.test(day.name)) continue;
+      if (!day.isDirectory() && !day.isSymbolicLink()) continue;
+      const dayRoot = path.join(logsRoot, day.name);
+      if (!(await realDirectory(dayRoot))) continue;
+      for (const file of await readDirectory(dayRoot)) {
+        if (!file.name.endsWith('.log') || (!file.isFile() && !file.isSymbolicLink())) continue;
+        const logId = file.name.slice(0, -'.log'.length);
+        if (!days.has(logId)) days.set(logId, day.name);
+      }
+    }
+    return days;
+  };
+
+  const canonicalDays = (logsRoot: string): Promise<ReadonlyMap<string, string>> => {
+    let pending = dayIndexes.get(logsRoot);
+    if (!pending) {
+      pending = indexDays(logsRoot);
+      dayIndexes.set(logsRoot, pending);
+    }
+    return pending;
+  };
+
+  return { workspaceRoot, realDirectory, canonicalDays };
+}
+
+async function findCanonicalLogPath(
+  snapshot: LocalStoreSnapshot,
+  safeUsername: string,
+  log: ApexLogRef
+): Promise<string | undefined> {
+  const logsRoot = path.join(snapshot.workspaceRoot, 'apexlogs', 'orgs', safeUsername, 'logs');
+  if (!(await snapshot.realDirectory(logsRoot))) return undefined;
+  const probe = async (day: string): Promise<string | undefined> => {
+    const dayRoot = path.join(logsRoot, day);
+    if (!(await snapshot.realDirectory(dayRoot))) return undefined;
+    const candidate = path.join(dayRoot, `${log.logId}.log`);
+    return (await regularFileExists(candidate)) ? candidate : undefined;
+  };
+  const expectedDay = logDay(log.startTime);
+  const expected = await probe(expectedDay);
+  if (expected) return expected;
+  const indexedDay = (await snapshot.canonicalDays(logsRoot)).get(log.logId);
+  return indexedDay && indexedDay !== expectedDay ? probe(indexedDay) : undefined;
 }
 
 function safeUsername(value: string | undefined): string {
@@ -435,40 +525,43 @@ function logDay(startTime: string | undefined): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : 'unknown-date';
 }
 
-async function findLocalLogPath(workspaceRoot: string, username: string, logId: string): Promise<string | undefined> {
+async function findLocalLogPath(
+  snapshot: LocalStoreSnapshot,
+  username: string,
+  log: ApexLogRef
+): Promise<string | undefined> {
   const safe = safeUsername(username);
-  const canonical = await findCanonicalLogPath(workspaceRoot, safe, logId);
+  const canonical = await findCanonicalLogPath(snapshot, safe, log);
   if (canonical) return canonical;
-  const apexlogsRoot = path.join(workspaceRoot, 'apexlogs');
-  if (!(await ensureRealDirectoryPath(workspaceRoot, apexlogsRoot, false, true))) return undefined;
-  const legacy = path.join(workspaceRoot, 'apexlogs', `${safe}_${logId}.log`);
-  await ensureRegularFileOrAbsent(legacy);
-  return (await isRegularFile(legacy)) ? legacy : undefined;
+  const apexlogsRoot = path.join(snapshot.workspaceRoot, 'apexlogs');
+  if (!(await snapshot.realDirectory(apexlogsRoot))) return undefined;
+  const legacy = path.join(apexlogsRoot, `${safe}_${log.logId}.log`);
+  return (await regularFileExists(legacy)) ? legacy : undefined;
 }
 
 async function findLocalLogMatches(
-  workspaceRoot: string,
-  logId: string
+  snapshot: LocalStoreSnapshot,
+  log: ApexLogRef
 ): Promise<Array<{ username: string; localPath: string }>> {
   const matchesByUsername = new Map<string, { username: string; localPath: string }>();
-  const orgsRoot = path.join(workspaceRoot, 'apexlogs', 'orgs');
-  if (await ensureRealDirectoryPath(workspaceRoot, orgsRoot, false, true)) {
+  const orgsRoot = path.join(snapshot.workspaceRoot, 'apexlogs', 'orgs');
+  if (await snapshot.realDirectory(orgsRoot)) {
     for (const org of await readDirectory(orgsRoot)) {
       if (!org.isDirectory() && !org.isSymbolicLink()) continue;
       const orgRoot = path.join(orgsRoot, org.name);
-      if (!(await ensureRealDirectoryPath(workspaceRoot, orgRoot, false, true))) continue;
-      const localPath = await findCanonicalLogPath(workspaceRoot, org.name, logId);
+      if (!(await snapshot.realDirectory(orgRoot))) continue;
+      const localPath = await findCanonicalLogPath(snapshot, org.name, log);
       if (localPath) {
         const metadata = await readOrgMetadata(path.join(orgRoot, 'org.json'));
         matchesByUsername.set(org.name, { username: metadata?.username ?? org.name, localPath });
       }
     }
   }
-  const apexlogsRoot = path.join(workspaceRoot, 'apexlogs');
-  if (!(await ensureRealDirectoryPath(workspaceRoot, apexlogsRoot, false, true))) {
+  const apexlogsRoot = path.join(snapshot.workspaceRoot, 'apexlogs');
+  if (!(await snapshot.realDirectory(apexlogsRoot))) {
     return Array.from(matchesByUsername.values());
   }
-  const suffix = `_${logId}.log`;
+  const suffix = `_${log.logId}.log`;
   for (const entry of await readDirectory(apexlogsRoot)) {
     if (!entry.name.endsWith(suffix) || (!entry.isFile() && !entry.isSymbolicLink())) continue;
     const localPath = path.join(apexlogsRoot, entry.name);
@@ -527,16 +620,16 @@ async function readOrgMetadata(filePath: string): Promise<OrgMetadata | undefine
   }
 }
 
-async function findLocalOrgUsernames(workspaceRoot: string, selector: string): Promise<string[]> {
+async function findLocalOrgUsernames(snapshot: LocalStoreSnapshot, selector: string): Promise<string[]> {
   const normalized = selector.trim();
   if (!normalized) return [];
   const matches = new Set<string>();
-  const orgsRoot = path.join(workspaceRoot, 'apexlogs', 'orgs');
-  if (!(await ensureRealDirectoryPath(workspaceRoot, orgsRoot, false, true))) return [];
+  const orgsRoot = path.join(snapshot.workspaceRoot, 'apexlogs', 'orgs');
+  if (!(await snapshot.realDirectory(orgsRoot))) return [];
   for (const org of await readDirectory(orgsRoot)) {
     if (!org.isDirectory() && !org.isSymbolicLink()) continue;
     const orgRoot = path.join(orgsRoot, org.name);
-    if (!(await ensureRealDirectoryPath(workspaceRoot, orgRoot, false, true))) continue;
+    if (!(await snapshot.realDirectory(orgRoot))) continue;
     const metadata = await readOrgMetadata(path.join(orgRoot, 'org.json'));
     if (!metadata) continue;
     const username = metadata.username;
@@ -570,13 +663,8 @@ async function writeOrgMetadata(workspaceRoot: string, org: ResolvedApexLogOrg):
   } satisfies OrgMetadata);
 }
 
-async function writeCanonicalLog(
-  workspaceRoot: string,
-  username: string,
-  log: ApexLogRef,
-  body: string
-): Promise<{ localPath: string; written: boolean }> {
-  const localPath = path.join(
+function canonicalLogPath(workspaceRoot: string, username: string, log: ApexLogRef): string {
+  return path.join(
     workspaceRoot,
     'apexlogs',
     'orgs',
@@ -585,6 +673,15 @@ async function writeCanonicalLog(
     logDay(log.startTime),
     `${log.logId}.log`
   );
+}
+
+async function writeCanonicalLog(
+  workspaceRoot: string,
+  username: string,
+  log: ApexLogRef,
+  body: string
+): Promise<{ localPath: string; written: boolean }> {
+  const localPath = canonicalLogPath(workspaceRoot, username, log);
   await ensureRealDirectoryPath(workspaceRoot, path.dirname(localPath), true);
   await ensureRegularFileOrAbsent(localPath);
   if (await isRegularFile(localPath)) return { localPath, written: false };
@@ -598,7 +695,8 @@ async function localFileResult(
   log: ApexLogRef,
   localPath: string
 ): Promise<ApexLogLocalFile> {
-  if (log.startTime && logDay(log.startTime) !== 'unknown-date') {
+  const canonicalPath = canonicalLogPath(workspaceRoot, username, log);
+  if (logDay(log.startTime) !== 'unknown-date' && path.resolve(canonicalPath) !== path.resolve(localPath)) {
     const body = await fs.readFile(localPath, 'utf8');
     let stored: Awaited<ReturnType<typeof writeCanonicalLog>>;
     try {
@@ -606,15 +704,13 @@ async function localFileResult(
     } catch (error) {
       throw new AcquiredButNotPersistedError(body, { username }, log.logId, error, 'local');
     }
-    if (path.resolve(stored.localPath) !== path.resolve(localPath)) {
-      return {
-        ...log,
-        resolvedUsername: username,
-        source: 'local',
-        persistence: stored.written ? 'written' : 'existing',
-        localPath: stored.localPath
-      };
-    }
+    return {
+      ...log,
+      resolvedUsername: username,
+      source: 'local',
+      persistence: stored.written ? 'written' : 'existing',
+      localPath: stored.localPath
+    };
   }
   return {
     ...log,
@@ -1000,14 +1096,14 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
   };
 
   const localUsernameForSelector = async (
+    snapshot: LocalStoreSnapshot,
     operation: ApexLogLifecycleOperation,
-    workspaceRoot: string,
     selector: string,
     logId?: string
   ): Promise<string | undefined> => {
     let matches: string[];
     try {
-      matches = await findLocalOrgUsernames(workspaceRoot, selector);
+      matches = await findLocalOrgUsernames(snapshot, selector);
     } catch (error) {
       throw new ApexLogLifecycleError(
         'local-persistence',
@@ -1121,170 +1217,179 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
     });
   };
 
-  const lifecycle: ApexLogLifecycleImplementation = {
-    async requireLocalPath(request, callOptions): Promise<ApexLogLocalFile> {
-      emit(callOptions, { operation: 'require-local-path', phase: 'started', logId: request.log.logId });
-      validateScope('require-local-path', request.workspaceRoot, request.log.logId);
-      validateLog('require-local-path', request.log);
-      throwIfUnavailable('require-local-path', callOptions?.signal, request.log.logId);
-      const complete = (file: ApexLogLocalFile): ApexLogLocalFile => {
-        emit(callOptions, { operation: 'require-local-path', phase: 'completed', logId: request.log.logId });
-        return file;
-      };
-      const requestedOrg = String(request.targetOrg || '').trim();
-      const localUsername = requestedOrg
-        ? await localUsernameForSelector('require-local-path', request.workspaceRoot, requestedOrg, request.log.logId)
-        : undefined;
-      emit(callOptions, { operation: 'require-local-path', phase: 'checking-local', logId: request.log.logId });
-      const requestedLocalPath = localUsername
-        ? await inspectLocal(
-            'require-local-path',
-            `Local storage for Apex log ${request.log.logId} could not be inspected.`,
-            () => findLocalLogPath(request.workspaceRoot, localUsername, request.log.logId),
-            request.log.logId,
-            localUsername
-          )
-        : undefined;
-      throwIfUnavailable('require-local-path', callOptions?.signal, request.log.logId);
-      if (requestedLocalPath) {
-        return complete(
-          await dependableLocalFile(request.workspaceRoot, localUsername!, request.log, requestedLocalPath)
-        );
-      }
-      if (!requestedOrg) {
-        const localMatches = await inspectLocal(
+  const requireLocalPathUsing = async (
+    snapshot: LocalStoreSnapshot,
+    request: RequireLocalPathRequest,
+    callOptions?: ApexLogCallOptions
+  ): Promise<ApexLogLocalFile> => {
+    emit(callOptions, { operation: 'require-local-path', phase: 'started', logId: request.log.logId });
+    validateScope('require-local-path', request.workspaceRoot, request.log.logId);
+    validateLog('require-local-path', request.log);
+    throwIfUnavailable('require-local-path', callOptions?.signal, request.log.logId);
+    const complete = (file: ApexLogLocalFile): ApexLogLocalFile => {
+      emit(callOptions, { operation: 'require-local-path', phase: 'completed', logId: request.log.logId });
+      return file;
+    };
+    const requestedOrg = String(request.targetOrg || '').trim();
+    const localUsername = requestedOrg
+      ? await localUsernameForSelector(snapshot, 'require-local-path', requestedOrg, request.log.logId)
+      : undefined;
+    emit(callOptions, { operation: 'require-local-path', phase: 'checking-local', logId: request.log.logId });
+    const requestedLocalPath = localUsername
+      ? await inspectLocal(
           'require-local-path',
           `Local storage for Apex log ${request.log.logId} could not be inspected.`,
-          () => findLocalLogMatches(request.workspaceRoot, request.log.logId),
-          request.log.logId
-        );
-        if (localMatches.length === 1 && localMatches[0]) {
-          return complete(
-            await dependableLocalFile(
-              request.workspaceRoot,
-              localMatches[0].username,
-              request.log,
-              localMatches[0].localPath
-            )
-          );
-        }
-        if (localMatches.length > 1) {
-          throw new ApexLogLifecycleError(
-            'org-resolution',
-            `Apex log ${request.log.logId} exists in more than one local org.`,
-            { operation: 'require-local-path', logId: request.log.logId }
-          );
-        }
-      }
-      emit(callOptions, { operation: 'require-local-path', phase: 'resolving-org', logId: request.log.logId });
-      let org: ResolvedApexLogOrg;
-      try {
-        org = await options.remote.resolveOrg(request.targetOrg, callOptions?.signal);
-      } catch (error) {
-        throwIfUnavailable('require-local-path', callOptions?.signal, request.log.logId);
-        const localMatches = await inspectLocal(
-          'require-local-path',
-          `Local storage for Apex log ${request.log.logId} could not be inspected.`,
-          () => findLocalLogMatches(request.workspaceRoot, request.log.logId),
-          request.log.logId
-        );
-        if (localMatches.length === 1 && localMatches[0]) {
-          return complete(
-            await dependableLocalFile(
-              request.workspaceRoot,
-              localMatches[0].username,
-              request.log,
-              localMatches[0].localPath
-            )
-          );
-        }
-        if (localMatches.length > 1) {
-          throw new ApexLogLifecycleError(
-            'org-resolution',
-            `Apex log ${request.log.logId} exists in more than one local org.`,
-            { operation: 'require-local-path', logId: request.log.logId },
-            { cause: error }
-          );
-        }
-        throw stableError(
-          'org-resolution',
-          'require-local-path',
-          `The org for Apex log ${request.log.logId} could not be resolved.`,
-          error,
-          request.log.logId
-        );
-      }
-      throwIfUnavailable('require-local-path', callOptions?.signal, request.log.logId);
-      // A dependable log path is the required outcome here. Sync treats org metadata
-      // as required state, while one-off acquisition keeps metadata best-effort.
-      await writeOrgMetadata(request.workspaceRoot, org).catch(() => undefined);
-      const resolvedLocalPath = await inspectLocal(
+          () => findLocalLogPath(snapshot, localUsername, request.log),
+          request.log.logId,
+          localUsername
+        )
+      : undefined;
+    throwIfUnavailable('require-local-path', callOptions?.signal, request.log.logId);
+    if (requestedLocalPath) {
+      return complete(
+        await dependableLocalFile(request.workspaceRoot, localUsername!, request.log, requestedLocalPath)
+      );
+    }
+    if (!requestedOrg) {
+      const localMatches = await inspectLocal(
         'require-local-path',
         `Local storage for Apex log ${request.log.logId} could not be inspected.`,
-        () => findLocalLogPath(request.workspaceRoot, org.username, request.log.logId),
-        request.log.logId,
-        org.username
+        () => findLocalLogMatches(snapshot, request.log),
+        request.log.logId
       );
+      if (localMatches.length === 1 && localMatches[0]) {
+        return complete(
+          await dependableLocalFile(
+            request.workspaceRoot,
+            localMatches[0].username,
+            request.log,
+            localMatches[0].localPath
+          )
+        );
+      }
+      if (localMatches.length > 1) {
+        throw new ApexLogLifecycleError(
+          'org-resolution',
+          `Apex log ${request.log.logId} exists in more than one local org.`,
+          { operation: 'require-local-path', logId: request.log.logId }
+        );
+      }
+    }
+    emit(callOptions, { operation: 'require-local-path', phase: 'resolving-org', logId: request.log.logId });
+    let org: ResolvedApexLogOrg;
+    try {
+      org = await options.remote.resolveOrg(request.targetOrg, callOptions?.signal);
+    } catch (error) {
       throwIfUnavailable('require-local-path', callOptions?.signal, request.log.logId);
-      if (resolvedLocalPath) {
-        return complete(await dependableLocalFile(request.workspaceRoot, org.username, request.log, resolvedLocalPath));
+      const localMatches = await inspectLocal(
+        'require-local-path',
+        `Local storage for Apex log ${request.log.logId} could not be inspected.`,
+        () => findLocalLogMatches(snapshot, request.log),
+        request.log.logId
+      );
+      if (localMatches.length === 1 && localMatches[0]) {
+        return complete(
+          await dependableLocalFile(
+            request.workspaceRoot,
+            localMatches[0].username,
+            request.log,
+            localMatches[0].localPath
+          )
+        );
       }
-      const key = `${path.resolve(request.workspaceRoot)}\0${org.username}\0${request.log.logId}`;
-      let pending = inFlight.get(key);
-      if (!pending) {
-        const controller = new AbortController();
-        pending = {
-          activeObservers: 0,
-          controller,
-          promise: Promise.resolve(undefined as unknown as ApexLogLocalFile),
-          settled: false
+      if (localMatches.length > 1) {
+        throw new ApexLogLifecycleError(
+          'org-resolution',
+          `Apex log ${request.log.logId} exists in more than one local org.`,
+          { operation: 'require-local-path', logId: request.log.logId },
+          { cause: error }
+        );
+      }
+      throw stableError(
+        'org-resolution',
+        'require-local-path',
+        `The org for Apex log ${request.log.logId} could not be resolved.`,
+        error,
+        request.log.logId
+      );
+    }
+    throwIfUnavailable('require-local-path', callOptions?.signal, request.log.logId);
+    // A dependable log path is the required outcome here. Sync treats org metadata
+    // as required state, while one-off acquisition keeps metadata best-effort.
+    await writeOrgMetadata(request.workspaceRoot, org).catch(() => undefined);
+    const resolvedLocalPath = await inspectLocal(
+      'require-local-path',
+      `Local storage for Apex log ${request.log.logId} could not be inspected.`,
+      () => findLocalLogPath(snapshot, org.username, request.log),
+      request.log.logId,
+      org.username
+    );
+    throwIfUnavailable('require-local-path', callOptions?.signal, request.log.logId);
+    if (resolvedLocalPath) {
+      return complete(await dependableLocalFile(request.workspaceRoot, org.username, request.log, resolvedLocalPath));
+    }
+    const key = `${path.resolve(request.workspaceRoot)}\0${org.username}\0${request.log.logId}`;
+    let pending = inFlight.get(key);
+    if (!pending) {
+      const controller = new AbortController();
+      pending = {
+        activeObservers: 0,
+        controller,
+        promise: Promise.resolve(undefined as unknown as ApexLogLocalFile),
+        settled: false
+      };
+      const entry = pending;
+      entry.promise = (async (): Promise<ApexLogLocalFile> => {
+        emit(callOptions, { operation: 'require-local-path', phase: 'acquiring-remote', logId: request.log.logId });
+        let body: string;
+        try {
+          body = await options.remote.readBody({ org, logId: request.log.logId }, controller.signal);
+        } catch (error) {
+          if (controller.signal.aborted) throw cancelledError('require-local-path', request.log.logId);
+          throw stableError(
+            'remote-acquisition',
+            'require-local-path',
+            `Apex log ${request.log.logId} could not be acquired from Salesforce.`,
+            error,
+            request.log.logId,
+            org.username
+          );
+        }
+        let stored: Awaited<ReturnType<typeof writeCanonicalLog>>;
+        try {
+          emit(callOptions, { operation: 'require-local-path', phase: 'materializing', logId: request.log.logId });
+          stored = await writeCanonicalLog(request.workspaceRoot, org.username, request.log, body);
+        } catch (error) {
+          throw new AcquiredButNotPersistedError(body, org, request.log.logId, error);
+        }
+        return {
+          ...request.log,
+          resolvedUsername: org.username,
+          source: 'remote',
+          persistence: stored.written ? 'written' : 'existing',
+          localPath: stored.localPath
         };
-        const entry = pending;
-        entry.promise = (async (): Promise<ApexLogLocalFile> => {
-          emit(callOptions, { operation: 'require-local-path', phase: 'acquiring-remote', logId: request.log.logId });
-          let body: string;
-          try {
-            body = await options.remote.readBody({ org, logId: request.log.logId }, controller.signal);
-          } catch (error) {
-            if (controller.signal.aborted) throw cancelledError('require-local-path', request.log.logId);
-            throw stableError(
-              'remote-acquisition',
-              'require-local-path',
-              `Apex log ${request.log.logId} could not be acquired from Salesforce.`,
-              error,
-              request.log.logId,
-              org.username
-            );
-          }
-          let stored: Awaited<ReturnType<typeof writeCanonicalLog>>;
-          try {
-            emit(callOptions, { operation: 'require-local-path', phase: 'materializing', logId: request.log.logId });
-            stored = await writeCanonicalLog(request.workspaceRoot, org.username, request.log, body);
-          } catch (error) {
-            throw new AcquiredButNotPersistedError(body, org, request.log.logId, error);
-          }
-          return {
-            ...request.log,
-            resolvedUsername: org.username,
-            source: 'remote',
-            persistence: stored.written ? 'written' : 'existing',
-            localPath: stored.localPath
-          };
-        })().finally(() => {
-          entry.settled = true;
-          if (inFlight.get(key) === entry) inFlight.delete(key);
-        });
-        inFlight.set(key, entry);
-      }
-      return complete(await observeAcquisition(pending, callOptions?.signal, request.log.logId));
+      })().finally(() => {
+        entry.settled = true;
+        if (inFlight.get(key) === entry) inFlight.delete(key);
+      });
+      inFlight.set(key, entry);
+    }
+    return complete(await observeAcquisition(pending, callOptions?.signal, request.log.logId));
+  };
+
+  const lifecycle: ApexLogLifecycleImplementation = {
+    async requireLocalPath(request, callOptions): Promise<ApexLogLocalFile> {
+      return requireLocalPathUsing(createLocalStoreSnapshot(request.workspaceRoot), request, callOptions);
     },
     async availableLocalPaths(request, callOptions): Promise<AvailableLocalPathsResult> {
       validateScope('available-local-paths', request.workspaceRoot);
       throwIfUnavailable('available-local-paths', callOptions?.signal);
       emit(callOptions, { operation: 'available-local-paths', phase: 'started', total: request.logs.length });
+      const snapshot = createLocalStoreSnapshot(request.workspaceRoot);
       const requestedSelector = String(request.targetOrg || '').trim();
       const username = requestedSelector
-        ? await localUsernameForSelector('available-local-paths', request.workspaceRoot, requestedSelector)
+        ? await localUsernameForSelector(snapshot, 'available-local-paths', requestedSelector)
         : '';
       const available: ApexLogLocalFile[] = [];
       const missing: ApexLogRef[] = [];
@@ -1302,20 +1407,18 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
           ? await inspectLocal(
               'available-local-paths',
               `Local storage for Apex log ${log.logId} could not be inspected.`,
-              () => findLocalLogPath(request.workspaceRoot, username, log.logId),
+              () => findLocalLogPath(snapshot, username, log),
               log.logId,
               username
             )
           : undefined;
-        if (!matchedPath) {
-          const allMatches = await inspectLocal(
+        if (!username) {
+          const matches = await inspectLocal(
             'available-local-paths',
             `Local storage for Apex log ${log.logId} could not be inspected.`,
-            () => findLocalLogMatches(request.workspaceRoot, log.logId),
-            log.logId,
-            username || undefined
+            () => findLocalLogMatches(snapshot, log),
+            log.logId
           );
-          const matches = username ? [] : allMatches;
           if (matches.length > 1) {
             failures.push({
               logId: log.logId,
@@ -1485,9 +1588,11 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
       const failures: ApexLogFailure[] = [];
       emit(callOptions, { operation: 'sync', phase: 'materializing', completed: 0, total: rows.length });
       let completed = 0;
+      const snapshot = createLocalStoreSnapshot(request.workspaceRoot);
       await runConcurrent(rows, Math.max(1, Math.min(8, Math.floor(request.concurrency ?? 6))), async row => {
         try {
-          const file = await lifecycle.requireLocalPath(
+          const file = await requireLocalPathUsing(
+            snapshot,
             {
               workspaceRoot: request.workspaceRoot,
               targetOrg: org.username,
@@ -1640,7 +1745,7 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
       const state = await readLifecycleState('status', request.workspaceRoot);
       const requested = String(request.targetOrg || '').trim();
       const username = requested
-        ? await localUsernameForSelector('status', request.workspaceRoot, requested)
+        ? await localUsernameForSelector(createLocalStoreSnapshot(request.workspaceRoot), 'status', requested)
         : Object.keys(state.orgs).sort()[0];
       const entry = username ? state.orgs[username] : undefined;
       let localLogCount: number;
@@ -1680,6 +1785,7 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
       throwIfUnavailable('triage', callOptions?.signal);
       emit(callOptions, { operation: 'triage', phase: 'started', total: request.logs.length });
       const entries: ApexLogTriageEntry[] = [];
+      const snapshot = createLocalStoreSnapshot(request.workspaceRoot);
       for (const log of request.logs) {
         try {
           emit(callOptions, {
@@ -1689,7 +1795,8 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
             completed: entries.length,
             total: request.logs.length
           });
-          const file = await lifecycle.requireLocalPath(
+          const file = await requireLocalPathUsing(
+            snapshot,
             {
               workspaceRoot: request.workspaceRoot,
               targetOrg: request.targetOrg,
@@ -1746,7 +1853,7 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
       let kept = 0;
       const requestedSelector = String(request.targetOrg || '').trim();
       let username = requestedSelector
-        ? await localUsernameForSelector('purge', request.workspaceRoot, requestedSelector)
+        ? await localUsernameForSelector(createLocalStoreSnapshot(request.workspaceRoot), 'purge', requestedSelector)
         : undefined;
       if (!username) {
         try {
