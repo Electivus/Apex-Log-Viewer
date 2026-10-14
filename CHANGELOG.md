@@ -23,6 +23,7 @@
 
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
 - Logs: hide logs that matched only the previous search text as soon as you change the search, instead of listing them until the new full-log search finishes.
+- Salesforce: reuse one connection per org instead of rebuilding it for every action, so Logs, Debug Flags and `sf electivus` commands stop repeating the API-version request and the auth-file rewrite on each call (every call paid both on pt-BR or de-DE systems); a session Salesforce rejects is rebuilt from the saved login and retried once.
 - Logs, search, sync and triage: locate a saved Apex log by probing its canonical day directory first and index the local store at most once per request, instead of walking every day directory for every log and re-reading already-saved bodies.
 
 ### Performance

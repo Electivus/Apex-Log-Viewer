@@ -1006,6 +1006,9 @@ test('Apex Log Lifecycle purge resolves the default org instead of traversing ev
     const localPath = path.join(orgRoot, 'logs', '2026-07-20', `${logId}.log`);
     await fs.mkdir(path.dirname(localPath), { recursive: true });
     await fs.writeFile(localPath, username, 'utf8');
+    // A file written in the same millisecond can report an mtime after Date.now(), which maxAgeMs: 0 would keep.
+    const anHourAgo = new Date(Date.now() - 3_600_000);
+    await fs.utimes(localPath, anHourAgo, anHourAgo);
     await fs.writeFile(path.join(orgRoot, 'org.json'), `${JSON.stringify({ version: 1, username })}\n`, 'utf8');
     return localPath;
   };
