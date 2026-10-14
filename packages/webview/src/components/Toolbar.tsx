@@ -31,6 +31,7 @@ type ToolbarProps = {
   onSelectOrg: (v: string) => void;
   query: string;
   onQueryChange: (v: string) => void;
+  onSearchRerun: () => void;
   searchLoading: boolean;
   searchMessage?: string;
   users: string[];
@@ -67,6 +68,7 @@ export function Toolbar({
   onSelectOrg,
   query,
   onQueryChange,
+  onSearchRerun,
   searchLoading,
   searchMessage,
   users,
@@ -208,7 +210,7 @@ export function Toolbar({
               setTimeout(() => {
                 // Re-run search when the pasted content keeps the same value.
                 if (input.value === query) {
-                  onQueryChange(input.value);
+                  onSearchRerun();
                 }
               }, 0);
             }}

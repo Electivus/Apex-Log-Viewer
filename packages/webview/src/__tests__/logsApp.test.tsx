@@ -337,6 +337,170 @@ describe('Logs webview App', () => {
     });
   });
 
+  describe('search query posting', () => {
+    function renderSearch() {
+      jest.useFakeTimers();
+      const { vscode, posted } = createVsCodeMock();
+      const bus = new EventTarget();
+      const view = render(<LogsApp vscode={vscode} messageBus={bus} />);
+      const searchInput = screen.getByLabelText('Search logs…');
+      return {
+        view,
+        bus,
+        searchInput,
+        visibleLogIds: () =>
+          screen
+            .queryAllByRole('row')
+            .map(row => row.getAttribute('data-log-id'))
+            .filter(Boolean),
+        searchQueries: () => posted.filter(msg => msg.type === 'searchQuery'),
+        type: (value: string) => fireEvent.change(searchInput, { target: { value } }),
+        advance: (ms: number) =>
+          act(() => {
+            jest.advanceTimersByTime(ms);
+          })
+      };
+    }
+
+    it('posts one search after the user pauses typing', () => {
+      const { searchInput, searchQueries, type, advance } = renderSearch();
+      const word = 'exception';
+      for (let length = 1; length <= word.length; length++) {
+        type(word.slice(0, length));
+        advance(50);
+      }
+
+      expect((searchInput as HTMLInputElement).value).toBe('exception');
+      advance(249);
+      expect(searchQueries()).toEqual([]);
+      advance(1);
+      expect(searchQueries()).toEqual([{ type: 'searchQuery', value: 'exception' }]);
+    });
+
+    it('posts a cleared query immediately and drops the pending search', () => {
+      const { searchQueries, type, advance } = renderSearch();
+      type('abc');
+      advance(300);
+      type('abcd');
+      advance(100);
+      type('');
+
+      const expected = [
+        { type: 'searchQuery', value: 'abc' },
+        { type: 'searchQuery', value: '' }
+      ];
+      expect(searchQueries()).toEqual(expected);
+      advance(300);
+      expect(searchQueries()).toEqual(expected);
+    });
+
+    it('does not repost the query the extension already has', () => {
+      const { searchQueries, type, advance } = renderSearch();
+      type('abc');
+      advance(300);
+      type('abcd');
+      advance(100);
+      type('abc');
+      advance(300);
+      expect(searchQueries()).toEqual([{ type: 'searchQuery', value: 'abc' }]);
+
+      type('abcd');
+      advance(300);
+      expect(searchQueries()).toEqual([
+        { type: 'searchQuery', value: 'abc' },
+        { type: 'searchQuery', value: 'abcd' }
+      ]);
+    });
+
+    it('re-runs the current query when pasting the same text', () => {
+      const { searchInput, searchQueries, type, advance } = renderSearch();
+      type('error');
+      advance(300);
+      fireEvent.paste(searchInput);
+      advance(0);
+
+      expect(searchQueries()).toEqual([
+        { type: 'searchQuery', value: 'error' },
+        { type: 'searchQuery', value: 'error' }
+      ]);
+    });
+
+    function renderSearchWithBodyMatch() {
+      const search = renderSearch();
+      const logs = [
+        {
+          Id: '07L00000000000AAA',
+          StartTime: '2025-09-21T18:40:00.000Z',
+          Operation: 'Alpha.run',
+          Application: 'Developer Console',
+          DurationMilliseconds: 10,
+          Status: 'Success',
+          Request: 'REQ',
+          LogLength: 100,
+          LogUser: { Name: 'Ann' }
+        },
+        {
+          Id: '07L00000000000BBB',
+          StartTime: '2025-09-21T18:45:00.000Z',
+          Operation: 'Beta.run',
+          Application: 'Developer Console',
+          DurationMilliseconds: 20,
+          Status: 'Success',
+          Request: 'REQ',
+          LogLength: 200,
+          LogUser: { Name: 'Ben' }
+        }
+      ];
+      sendMessage(search.bus, { type: 'init', locale: 'en', fullLogSearchEnabled: true });
+      sendMessage(search.bus, { type: 'logs', data: logs, hasMore: false });
+      search.type('foo');
+      search.advance(300);
+      sendMessage(search.bus, {
+        type: 'searchMatches',
+        query: 'foo',
+        logIds: ['07L00000000000BBB'],
+        snippets: {},
+        pendingLogIds: ['07L00000000000AAA']
+      });
+      expect(search.visibleLogIds()).toEqual(['07L00000000000BBB']);
+      expect(screen.queryByText('Waiting for 1 log to finish downloading…')).not.toBeNull();
+      return search;
+    }
+
+    it('hides rows matched by the previous query as soon as the query changes', () => {
+      const { bus, visibleLogIds, searchQueries, type } = renderSearchWithBodyMatch();
+      type('bar');
+
+      expect(searchQueries()).toEqual([{ type: 'searchQuery', value: 'foo' }]);
+      expect(visibleLogIds()).toEqual([]);
+      expect(screen.queryByText('Waiting for 1 log to finish downloading…')).toBeNull();
+
+      sendMessage(bus, { type: 'searchMatches', query: 'foo', logIds: ['07L00000000000BBB'], snippets: {} });
+      expect(visibleLogIds()).toEqual([]);
+    });
+
+    it('shows the matches again when the query returns to the posted one', () => {
+      const { visibleLogIds, searchQueries, type, advance } = renderSearchWithBodyMatch();
+      type('food');
+      expect(visibleLogIds()).toEqual([]);
+      advance(100);
+      type('foo');
+      advance(300);
+
+      expect(searchQueries()).toEqual([{ type: 'searchQuery', value: 'foo' }]);
+      expect(visibleLogIds()).toEqual(['07L00000000000BBB']);
+    });
+
+    it('drops the pending search on unmount', () => {
+      const { view, searchQueries, type, advance } = renderSearch();
+      type('abc');
+      view.unmount();
+      advance(300);
+
+      expect(searchQueries()).toEqual([]);
+    });
+  });
+
   it('applies errors-only filter with progressive scan status updates', async () => {
     const { vscode } = createVsCodeMock();
     const bus = new EventTarget();

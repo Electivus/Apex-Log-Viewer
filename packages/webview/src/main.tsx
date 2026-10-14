@@ -20,6 +20,21 @@ import type { LogHeadMap } from './components/LogsTable';
 
 type SortKey = Exclude<LogsColumnKey, 'match'>;
 
+const SEARCH_QUERY_DEBOUNCE_MS = 300;
+
+interface BodySearchResult {
+  query: string;
+  logIds: Set<string>;
+  snippets: Record<string, { text: string; ranges: [number, number][] }>;
+  pendingCount: number;
+}
+
+const NO_BODY_MATCHES: BodySearchResult = { query: '', logIds: new Set(), snippets: {}, pendingCount: 0 };
+
+function normalizeSearchQuery(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 interface LogsUiState {
   query: string;
   filterUser: string;
@@ -92,13 +107,13 @@ export function LogsApp({
     total: 0,
     errorsFound: 0
   });
-  const [matchingIds, setMatchingIds] = useState<Set<string>>(new Set());
-  const [matchSnippets, setMatchSnippets] = useState<Record<string, { text: string; ranges: [number, number][] }>>({});
+  const [bodySearch, setBodySearch] = useState<BodySearchResult>(NO_BODY_MATCHES);
   const [fullLogSearchEnabled, setFullLogSearchEnabled] = useState(false);
   const [logsColumns, setLogsColumns] = useState<NormalizedLogsColumnsConfig>(DEFAULT_LOGS_COLUMNS_CONFIG);
-  const queryRef = useRef('');
+  const queryRef = useRef(initialUiState.query);
+  const searchPostTimerRef = useRef<number | undefined>(undefined);
+  const lastPostedSearchRef = useRef<string | undefined>(undefined);
   const [searchStatus, setSearchStatus] = useState<'idle' | 'loading'>('idle');
-  const [pendingLogCount, setPendingLogCount] = useState(0);
   const lastTrackedSearchRef = useRef<string | undefined>(undefined);
   const lastTrackedFilterStateRef = useRef<string | undefined>(undefined);
 
@@ -192,19 +207,16 @@ export function LogsApp({
           });
           break;
         case 'searchMatches': {
-          const target = (msg.query ?? '').trim().toLowerCase();
-          if (target !== queryRef.current.trim().toLowerCase()) {
+          const target = normalizeSearchQuery(msg.query ?? '');
+          if (target !== normalizeSearchQuery(queryRef.current)) {
             break;
           }
-          const ids = Array.isArray(msg.logIds) ? msg.logIds.filter(Boolean) : [];
-          const pending = Array.isArray(msg.pendingLogIds) ? msg.pendingLogIds.filter(Boolean) : [];
-          setMatchingIds(new Set(ids));
-          setPendingLogCount(pending.length);
-          if (msg.snippets && typeof msg.snippets === 'object') {
-            setMatchSnippets(msg.snippets);
-          } else {
-            setMatchSnippets({});
-          }
+          setBodySearch({
+            query: target,
+            logIds: new Set(Array.isArray(msg.logIds) ? msg.logIds.filter(Boolean) : []),
+            snippets: msg.snippets && typeof msg.snippets === 'object' ? msg.snippets : {},
+            pendingCount: Array.isArray(msg.pendingLogIds) ? msg.pendingLogIds.filter(Boolean).length : 0
+          });
           break;
         }
         case 'searchStatus':
@@ -221,31 +233,39 @@ export function LogsApp({
     return () => messageBus.removeEventListener('message', onMsg as EventListener);
   }, [messageBus, vscode]);
 
+  useEffect(() => () => window.clearTimeout(searchPostTimerRef.current), []);
+
+  const postSearchQuery = useCallback(
+    (value: string) => {
+      window.clearTimeout(searchPostTimerRef.current);
+      if (!messageBus || value === lastPostedSearchRef.current) {
+        return;
+      }
+      lastPostedSearchRef.current = value;
+      vscode.postMessage({ type: 'searchQuery', value });
+    },
+    [messageBus, vscode]
+  );
+
   const updateQuery = useCallback(
     (value: string) => {
       const next = value ?? '';
       queryRef.current = next;
-      setMatchSnippets({});
       if (!next.trim()) {
-        setMatchingIds(new Set());
-        setMatchSnippets({});
-        setPendingLogCount(0);
+        postSearchQuery(next);
+      } else {
+        window.clearTimeout(searchPostTimerRef.current);
+        searchPostTimerRef.current = window.setTimeout(() => postSearchQuery(next), SEARCH_QUERY_DEBOUNCE_MS);
       }
       setQueryState(next);
-      if (messageBus) {
-        vscode.postMessage({ type: 'searchQuery', value: next });
-      }
     },
-    [messageBus, setMatchingIds, setQueryState, vscode]
+    [postSearchQuery]
   );
 
-  useEffect(() => {
-    queryRef.current = query;
-    if (!query.trim()) {
-      setMatchingIds(new Set());
-      setPendingLogCount(0);
-    }
-  }, [query]);
+  const rerunSearch = useCallback(() => {
+    lastPostedSearchRef.current = undefined;
+    postSearchQuery(queryRef.current);
+  }, [postSearchQuery]);
 
   useEffect(() => {
     vscode.setState({
@@ -374,9 +394,11 @@ export function LogsApp({
   const operations = useMemo(() => Array.from(new Set(rows.map(r => r.Operation || ''))).filter(Boolean), [rows]);
   const statuses = useMemo(() => Array.from(new Set(rows.map(r => r.Status || ''))).filter(Boolean), [rows]);
 
+  const normalizedQuery = normalizeSearchQuery(query);
+  const bodyMatches = bodySearch.query === normalizedQuery ? bodySearch : NO_BODY_MATCHES;
+
   // Apply search + filters + sorting
   const filteredRows = useMemo(() => {
-    const q = query.trim().toLowerCase();
     const items = rows.filter(r => {
       if (filterUser && (r.LogUser?.Name || '') !== filterUser) {
         return false;
@@ -390,7 +412,7 @@ export function LogsApp({
       if (errorsOnly && logHead[r.Id]?.hasErrors !== true) {
         return false;
       }
-      if (!q) {
+      if (!normalizedQuery) {
         return true;
       }
       const metadataHaystack = [
@@ -402,10 +424,10 @@ export function LogsApp({
       ]
         .join(' ')
         .toLowerCase();
-      if (metadataHaystack.includes(q)) {
+      if (metadataHaystack.includes(normalizedQuery)) {
         return true;
       }
-      if (matchingIds.has(r.Id)) {
+      if (bodyMatches.logIds.has(r.Id)) {
         return true;
       }
       return false;
@@ -440,9 +462,10 @@ export function LogsApp({
     };
 
     return items.slice().sort(compare);
-  }, [rows, query, filterUser, filterOperation, filterStatus, errorsOnly, sortBy, sortDir, logHead, matchingIds]);
+  }, [rows, normalizedQuery, filterUser, filterOperation, filterStatus, errorsOnly, sortBy, sortDir, logHead, bodyMatches]);
 
   const searchLoading = searchStatus === 'loading';
+  const pendingLogCount = bodyMatches.pendingCount;
   const searchMessage = useMemo(() => {
     if (searchLoading) {
       return t.searchPreparing ?? t.loading;
@@ -526,6 +549,7 @@ export function LogsApp({
         onSelectOrg={onSelectOrg}
         query={query}
         onQueryChange={updateQuery}
+        onSearchRerun={rerunSearch}
         searchLoading={searchLoading}
         searchMessage={searchMessage}
         users={users}
@@ -557,7 +581,7 @@ export function LogsApp({
           sortBy={sortBy}
           sortDir={sortDir}
           onSort={onSort}
-          matchSnippets={matchSnippets}
+          matchSnippets={bodyMatches.snippets}
           fullLogSearchEnabled={fullLogSearchEnabled}
           viewportBottomInsetPx={viewportBottomInsetPx}
           columnsConfig={logsColumns}
