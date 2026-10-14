@@ -417,8 +417,16 @@ async function regularFileExists(filePath: string): Promise<boolean> {
   return true;
 }
 
-// Lives for one lifecycle call, which bounds how stale its directory checks and day listings can get
-// while that call writes. Files are never cached, so every hit is confirmed on disk.
+// Re-checked at use time because the snapshot's memoized verdicts may predate a swap by another process.
+async function verifiedLogFile(workspaceRoot: string, candidate: string): Promise<string | undefined> {
+  if (!(await regularFileExists(candidate))) return undefined;
+  const chainIsReal = await ensureRealDirectoryPath(workspaceRoot, path.dirname(candidate), false, true);
+  return chainIsReal ? candidate : undefined;
+}
+
+// Lives for one lifecycle call. It memoizes directories found present and the day listings, never a
+// missing directory, so a log another call writes mid-call is still found. Every hit re-walks its
+// directory chain fresh before it is returned.
 type LocalStoreSnapshot = Readonly<{
   workspaceRoot: string;
   realDirectory(directoryPath: string): Promise<boolean>;
@@ -444,6 +452,12 @@ function createLocalStoreSnapshot(workspaceRoot: string): LocalStoreSnapshot {
         }
       );
       directories.set(current, pending);
+      pending.then(
+        present => {
+          if (!present) directories.delete(current);
+        },
+        () => undefined
+      );
     }
     return pending;
   };
@@ -503,8 +517,7 @@ async function findCanonicalLogPath(
   const probe = async (day: string): Promise<string | undefined> => {
     const dayRoot = path.join(logsRoot, day);
     if (!(await snapshot.realDirectory(dayRoot))) return undefined;
-    const candidate = path.join(dayRoot, `${log.logId}.log`);
-    return (await regularFileExists(candidate)) ? candidate : undefined;
+    return verifiedLogFile(snapshot.workspaceRoot, path.join(dayRoot, `${log.logId}.log`));
   };
   const expectedDay = logDay(log.startTime);
   const expected = await probe(expectedDay);
@@ -535,8 +548,7 @@ async function findLocalLogPath(
   if (canonical) return canonical;
   const apexlogsRoot = path.join(snapshot.workspaceRoot, 'apexlogs');
   if (!(await snapshot.realDirectory(apexlogsRoot))) return undefined;
-  const legacy = path.join(apexlogsRoot, `${safe}_${log.logId}.log`);
-  return (await regularFileExists(legacy)) ? legacy : undefined;
+  return verifiedLogFile(snapshot.workspaceRoot, path.join(apexlogsRoot, `${safe}_${log.logId}.log`));
 }
 
 async function findLocalLogMatches(
@@ -565,7 +577,7 @@ async function findLocalLogMatches(
   for (const entry of await readDirectory(apexlogsRoot)) {
     if (!entry.name.endsWith(suffix) || (!entry.isFile() && !entry.isSymbolicLink())) continue;
     const localPath = path.join(apexlogsRoot, entry.name);
-    await ensureRegularFileOrAbsent(localPath);
+    if (!(await verifiedLogFile(snapshot.workspaceRoot, localPath))) continue;
     const username = entry.name.slice(0, -suffix.length);
     const identityKey = safeUsername(username);
     if (!matchesByUsername.has(identityKey)) matchesByUsername.set(identityKey, { username, localPath });

@@ -2312,3 +2312,121 @@ test('Apex Log Lifecycle scoped local lookups ignore other orgs and report unsyn
     await fs.rm(externalRoot, { recursive: true, force: true });
   }
 });
+
+test('Apex Log Lifecycle rejects a day directory swapped for a link while a lookup is in flight', async t => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-swapped-day-'));
+  const externalRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-swapped-day-external-'));
+  const username = 'swapped-day@example.com';
+  const firstId = '07L000000000066AAA';
+  const secondId = '07L000000000067AAA';
+  const startTime = '2026-07-20T01:00:00.000Z';
+  const orgRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', username);
+  const day = path.join(orgRoot, 'logs', '2026-07-20');
+  const linkToExternal = `${day}.link`;
+  const externalLog = path.join(externalRoot, `${secondId}.log`);
+  const remoteCalls: string[] = [];
+
+  await fs.mkdir(day, { recursive: true });
+  await fs.writeFile(path.join(orgRoot, 'org.json'), `${JSON.stringify({ version: 1, username })}\n`, 'utf8');
+  await fs.writeFile(path.join(day, `${firstId}.log`), 'inside the workspace', 'utf8');
+  await fs.writeFile(externalLog, 'must remain outside the lifecycle', 'utf8');
+  try {
+    await fs.symlink(externalRoot, linkToExternal, process.platform === 'win32' ? 'junction' : 'dir');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+      t.skip('filesystem does not permit directory links');
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(externalRoot, { recursive: true, force: true });
+      return;
+    }
+    throw error;
+  }
+
+  // Another process swaps the verified day directory for the link right after the first log's file check.
+  const target = fs as unknown as Record<'lstat', (...args: unknown[]) => Promise<unknown>>;
+  const originalLstat = target.lstat;
+  let swapped = false;
+  target.lstat = async (...args: unknown[]) => {
+    const stat = await originalLstat.apply(fs, args);
+    if (!swapped && String(args[0]).endsWith(`${firstId}.log`)) {
+      swapped = true;
+      await fs.rename(day, `${day}.moved`);
+      await fs.rename(linkToExternal, day);
+    }
+    return stat;
+  };
+
+  const lifecycle = createApexLogLifecycle({ remote: unavailableRemote(remoteCalls) });
+  try {
+    await assert.rejects(
+      lifecycle.availableLocalPaths({
+        workspaceRoot,
+        targetOrg: username,
+        logs: [
+          { logId: firstId, startTime },
+          { logId: secondId, startTime }
+        ]
+      }),
+      (error: unknown) =>
+        error instanceof ApexLogLifecycleError &&
+        error.code === 'local-persistence' &&
+        (error.cause as Error).message === `Apex log directory must be a real directory: ${day}`
+    );
+    assert.deepEqual(remoteCalls, []);
+    assert.equal(await fs.readFile(externalLog, 'utf8'), 'must remain outside the lifecycle');
+  } finally {
+    target.lstat = originalLstat;
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+    await fs.rm(externalRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle finds a log another call wrote while this call resolved the org', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-concurrent-write-'));
+  const username = 'concurrent@example.com';
+  const logId = '07L000000000068AAA';
+  const startTime = '2026-07-20T10:00:00.000Z';
+  const orgRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', username);
+  const dayPath = path.join(orgRoot, 'logs', '2026-07-20', `${logId}.log`);
+  const remoteCalls: string[] = [];
+  await fs.mkdir(path.join(orgRoot, 'logs', '2026-07-19'), { recursive: true });
+  await fs.writeFile(path.join(orgRoot, 'org.json'), `${JSON.stringify({ version: 1, username })}\n`, 'utf8');
+
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg() {
+        remoteCalls.push('resolveOrg');
+        // Stands in for a concurrent sync that materializes the same log while this call waits on Salesforce.
+        await fs.mkdir(path.dirname(dayPath), { recursive: true });
+        await fs.writeFile(dayPath, 'written by a concurrent sync', 'utf8');
+        return { username };
+      },
+      async listLogs() {
+        remoteCalls.push('listLogs');
+        throw new Error('Salesforce must not be consulted');
+      },
+      async readBody() {
+        remoteCalls.push('readBody');
+        return 'downloaded again';
+      }
+    }
+  });
+  try {
+    const file = await lifecycle.requireLocalPath({ workspaceRoot, targetOrg: username, log: { logId, startTime } });
+
+    assert.deepEqual(file, {
+      logId,
+      startTime,
+      resolvedUsername: username,
+      source: 'local',
+      persistence: 'existing',
+      localPath: dayPath
+    });
+    assert.deepEqual(remoteCalls, ['resolveOrg']);
+    assert.equal(await fs.readFile(dayPath, 'utf8'), 'written by a concurrent sync');
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});

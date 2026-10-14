@@ -145,7 +145,7 @@ test('availableLocalPaths lookup cost over a 100-log page', async t => {
       assert.deepEqual(result.missing, []);
       assert.deepEqual(result.failures, []);
       assert.equal(counts.logBodyReads, 0);
-      assert.equal(counts.total, 168);
+      assert.equal(counts.total, 768);
     } finally {
       lifecycle.dispose();
       await fs.rm(store.workspaceRoot, { recursive: true, force: true });
@@ -180,7 +180,7 @@ test('availableLocalPaths lookup cost over a 100-log page', async t => {
         );
       }
       assert.equal(counts.logBodyReads, 20);
-      assert.equal(counts.total, 509);
+      assert.equal(counts.total, 1029);
     } finally {
       lifecycle.dispose();
       await fs.rm(store.workspaceRoot, { recursive: true, force: true });
@@ -208,7 +208,7 @@ test('availableLocalPaths lookup cost over a 100-log page', async t => {
       assert.deepEqual(result.missing, unsynced);
       assert.deepEqual(result.failures, []);
       assert.equal(counts.logBodyReads, 0);
-      assert.equal(counts.total, 249);
+      assert.equal(counts.total, 729);
     } finally {
       lifecycle.dispose();
       await fs.rm(store.workspaceRoot, { recursive: true, force: true });
