@@ -1383,8 +1383,11 @@ export function createApexLogLifecycle(options: { remote: ApexLogRemote }): Apex
         if (inFlight.get(key) === entry) inFlight.delete(key);
       });
       inFlight.set(key, entry);
+      return complete(await observeAcquisition(pending, callOptions?.signal, request.log.logId));
     }
-    return complete(await observeAcquisition(pending, callOptions?.signal, request.log.logId));
+    const shared = observeAcquisition(pending, callOptions?.signal, request.log.logId);
+    emit(callOptions, { operation: 'require-local-path', phase: 'acquiring-remote', logId: request.log.logId });
+    return complete(await shared);
   };
 
   const lifecycle: ApexLogLifecycleImplementation = {

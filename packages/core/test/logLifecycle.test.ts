@@ -427,13 +427,21 @@ test('Apex Log Lifecycle shares acquisition while cancelling callers independent
     async listLogs() {
       throw new Error('listLogs is not used by requireLocalPath');
     },
-    async readBody() {
+    async readBody(_request, signal) {
       readCalls += 1;
       notifyReadStarted();
-      await readGate;
+      await new Promise<void>((resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new Error('read aborted')), { once: true });
+        void readGate.then(resolve);
+      });
       return 'shared body';
     }
   };
+
+  let notifySecondJoined!: () => void;
+  const secondJoined = new Promise<void>(resolve => {
+    notifySecondJoined = resolve;
+  });
 
   const lifecycle = createApexLogLifecycle({ remote });
   try {
@@ -441,13 +449,17 @@ test('Apex Log Lifecycle shares acquisition while cancelling callers independent
       { workspaceRoot, targetOrg: 'shared', log: { logId } },
       { signal: cancelledCaller.signal }
     );
-    const second = lifecycle.requireLocalPath({
-      workspaceRoot,
-      targetOrg: 'shared',
-      log: { logId }
-    });
-
     await readStarted;
+    const second = lifecycle.requireLocalPath(
+      { workspaceRoot, targetOrg: 'shared', log: { logId } },
+      {
+        observe: event => {
+          if (event.phase === 'acquiring-remote') notifySecondJoined();
+        }
+      }
+    );
+
+    await secondJoined;
     cancelledCaller.abort();
     releaseRead();
 
