@@ -16,6 +16,7 @@ import {
 } from './host/utils/logger';
 import { localize } from './host/utils/localize';
 import { activateTelemetry, safeSendEvent, safeSendException, disposeTelemetry } from './shared/telemetry';
+import { startResponsivenessMonitor, stopResponsivenessMonitor } from './host/utils/responsiveness';
 import { CacheManager } from './host/utils/cacheManager';
 import { LogViewerPanel } from './panel/LogViewerPanel';
 import { DebugFlagsPanel } from './panel/DebugFlagsPanel';
@@ -126,6 +127,9 @@ export async function activate(context: vscode.ExtensionContext) {
   } catch {
     // ignore telemetry init errors
   }
+  try {
+    startResponsivenessMonitor();
+  } catch {}
   // Keep Salesforce SDKs and CLI helpers from attempting on-disk log files inside the VS Code host.
   try {
     if (!process.env.SF_DISABLE_LOG_FILE) process.env.SF_DISABLE_LOG_FILE = 'true';
@@ -380,6 +384,8 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+  // Flush the last window while the telemetry reporter is still open.
+  stopResponsivenessMonitor();
   disposeLogger();
   try {
     disposeTelemetry();
