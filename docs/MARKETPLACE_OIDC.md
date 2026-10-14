@@ -1,6 +1,6 @@
 # Marketplace authentication
 
-Release and nightly Marketplace jobs use GitHub OIDC to authenticate a dedicated Azure user-assigned managed identity, then call `vsce publish --azure-credential`. No client secret or long-lived Marketplace PAT is required. Open VSX retains its separate `OVSX_PAT` authentication.
+Release and pre-release Marketplace jobs use GitHub OIDC to authenticate a dedicated Azure user-assigned managed identity, then call `vsce publish --azure-credential`. No client secret or long-lived Marketplace PAT is required. Open VSX retains its separate `OVSX_PAT` authentication.
 
 ```text
 GitHub job + marketplace environment approval
@@ -63,7 +63,7 @@ The Reader assignment lets Azure login discover the subscription without grantin
 ## Bootstrap and verify publisher access
 
 1. Set the environment variables and create the federated credential.
-2. Dispatch **Pre-release (nightly)** with `verify_marketplace_only=true` and approve its `marketplace` deployment. This mode skips all build, packaging, release creation, and publishing jobs.
+2. Dispatch **Pre-release** with `verify_marketplace_only=true` and approve its `marketplace` deployment. This mode skips all build, packaging, release creation, and publishing jobs.
 3. Read the `id` from **Read Marketplace identity ID for publisher membership**. It comes from the Azure DevOps profile API as the managed identity. This is not its Azure resource path, Client ID, or Object ID. Initial access verification may fail until membership is added.
 4. In [publisher management](https://marketplace.visualstudio.com/manage/publishers/electivus), open **Members**, add that ID, and select **Contributor**.
 5. Rerun verification. `vsce verify-pat electivus --azure-credential` must succeed. Despite the command's historical name, it uses an Entra token. This checks publisher access without uploading a VSIX; confirm the Contributor role in Members because the command also accepts read-only membership.
