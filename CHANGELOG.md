@@ -22,6 +22,7 @@
 ### Fixes
 
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
+- Logs, search, sync and triage: locate a saved Apex log by probing its canonical day directory first and index the local store at most once per request, instead of walking every day directory for every log and re-reading already-saved bodies.
 
 ### Performance
 
