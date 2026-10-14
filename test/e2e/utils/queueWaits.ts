@@ -11,7 +11,7 @@ export type QueueWaitSummary = {
   byType: QueueWaitStats[];
 };
 
-const QUEUE_WAIT_LINE = /\] (.+?): (\S+) waited (\d+) ms in the extension host queue/;
+const QUEUE_WAIT_LINE = /\] (?:\[trace\] )?(\w+): (\S+) waited (\d+) ms in the extension host queue/;
 
 function percentile(sorted: number[], fraction: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))]!;

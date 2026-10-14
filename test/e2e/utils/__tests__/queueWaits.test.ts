@@ -4,9 +4,9 @@ describe('summarizeQueueWaits', () => {
   it('groups queue-wait lines by surface and message type', () => {
     const log = [
       '2026-10-14 10:00:00.000 [info] Logs: refresh waited 4302 ms in the extension host queue',
-      '2026-10-14 10:00:08.000 [trace] Logs: refresh waited 12 ms in the extension host queue',
-      '2026-10-14 10:00:16.000 [trace] Logs: refresh waited 30 ms in the extension host queue',
-      '2026-10-14 10:00:20.000 [trace] Logs: searchQuery waited 7 ms in the extension host queue',
+      '2026-10-14 10:00:08.000 [info] [trace] Logs: refresh waited 12 ms in the extension host queue',
+      '2026-10-14 10:00:16.000 [info] [trace] Logs: refresh waited 30 ms in the extension host queue',
+      '2026-10-14 10:00:20.000 [info] [trace] Logs: searchQuery waited 7 ms in the extension host queue',
       '2026-10-14 10:00:21.000 [info] Logs: message refresh'
     ].join('\n');
 
