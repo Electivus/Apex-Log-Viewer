@@ -305,6 +305,36 @@ test('log deletion rethrows a rejected session only until a chunk was deleted', 
   await assert.rejects(deleteApexLogIds({ connection } as never, logIds, 1), error => error === sessionRejected);
 });
 
+test('log deletion waits for a chunk still in flight when a concurrent chunk is rejected', async () => {
+  const logIds = Array.from({ length: 201 }, (_, index) => `07L${String(index).padStart(12, '0')}AAA`);
+  const sessionRejected = Object.assign(new Error('Session expired or invalid'), { errorCode: 'INVALID_SESSION_ID' });
+  let releaseFirstChunk!: () => void;
+  const firstChunkDeleted = new Promise<void>(resolve => {
+    releaseFirstChunk = resolve;
+  });
+  let requestCount = 0;
+  const connection = {
+    getApiVersion: () => '63.0',
+    request: async () => {
+      requestCount += 1;
+      if (requestCount === 2) throw sessionRejected;
+      await firstChunkDeleted;
+      return logIds.slice(0, 200).map(id => ({ id, success: true }));
+    }
+  };
+
+  const deletion = deleteApexLogIds({ connection } as never, logIds, 2);
+  await new Promise(resolve => setImmediate(resolve));
+  releaseFirstChunk();
+
+  assert.deepEqual(await deletion, {
+    deleted: 200,
+    failed: 1,
+    failedLogIds: ['07L000000000200AAA']
+  });
+  assert.equal(requestCount, 2, 'each chunk is sent once');
+});
+
 test('core log read uses the shared Apex Log Lifecycle seam', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-core-lifecycle-read-'));
   const logId = '07L000000000017AAA';

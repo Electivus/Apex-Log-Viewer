@@ -379,6 +379,36 @@ test('a log delete whose session Salesforce rejects is retried on a rebuilt conn
   assert.deepEqual(salesforce.deleteTokens(), ['token-first', 'token-relogin']);
 });
 
+test('a log delete whose every chunk Salesforce rejects is retried once on a rebuilt connection', async t => {
+  const username = 'delete-chunks-relogin@example.com';
+  const salesforce = await startSalesforceDouble(t, ['token-first']);
+  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-first' });
+  const core = createApexLogViewerCore();
+  t.after(() => core.dispose());
+  const logIds = Array.from({ length: 201 }, (_, index) => `07L${String(index).padStart(12, '0')}AAA`);
+
+  assert.deepEqual(await core.debugLevel.list({ targetOrg: username }), [debugLevel]);
+  salesforce.acceptedTokens.clear();
+  salesforce.acceptedTokens.add('token-relogin');
+  await saveOrgAuth(username, salesforce.instanceUrl, { accessToken: 'token-relogin' });
+
+  const result = await core.log.delete({ targetOrg: username, ids: logIds, confirmed: true });
+
+  assert.deepEqual(result, {
+    status: 'success',
+    targetOrg: username,
+    scope: 'mine',
+    dryRun: false,
+    listed: 201,
+    total: 201,
+    deleted: 201,
+    failed: 0,
+    cancelled: 0,
+    failedLogIds: []
+  });
+  assert.deepEqual(salesforce.deleteTokens(), ['token-first', 'token-first', 'token-relogin', 'token-relogin']);
+});
+
 test('org auth renews an expired token only when asked to refresh', async t => {
   const username = 'auth-refresh@example.com';
   const salesforce = await startSalesforceDouble(t, [], 'token-renewed');

@@ -639,6 +639,7 @@ export async function deleteApexLogIds(
   let deleted = 0;
   let failed = 0;
   const failedLogIds: string[] = [];
+  let rejectedSession: unknown;
   const chunks: string[][] = [];
   for (let index = 0; index < ids.length; index += 200) {
     chunks.push(ids.slice(index, index + 200));
@@ -670,7 +671,7 @@ export async function deleteApexLogIds(
         }
       } catch (error) {
         if (signal?.aborted || (error instanceof AlvError && error.code === 'ABORTED')) throw abortError();
-        if (deleted === 0 && isSessionRejected(error)) throw error;
+        if (isSessionRejected(error)) rejectedSession ??= error;
         failed += chunk.length;
         failedLogIds.push(...chunk);
       }
@@ -678,6 +679,7 @@ export async function deleteApexLogIds(
     signal
   );
   throwIfAborted(signal);
+  if (deleted === 0 && rejectedSession) throw rejectedSession;
   return { deleted, failed, failedLogIds };
 }
 
