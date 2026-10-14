@@ -998,9 +998,12 @@ test('release workflows default to read-only token permissions', () => {
 });
 
 test('Marketplace OIDC access stays confined to protected publishing and verification jobs', () => {
-  for (const [workflowPath, oidcJobs] of [
-    ['.github/workflows/release.yml', ['publish_marketplace']],
-    ['.github/workflows/prerelease.yml', ['verify_marketplace', 'publish_marketplace']]
+  for (const [workflowPath, oidcJobEnvironments] of [
+    ['.github/workflows/release.yml', { publish_marketplace: 'marketplace' }],
+    [
+      '.github/workflows/prerelease.yml',
+      { verify_marketplace: 'marketplace', publish_marketplace: 'marketplace-prerelease' }
+    ]
   ]) {
     const source = read(workflowPath);
     const workflow = yaml.parse(source);
@@ -1009,11 +1012,11 @@ test('Marketplace OIDC access stays confined to protected publishing and verific
       Object.entries(workflow.jobs)
         .filter(([, job]) => job.permissions?.['id-token'] === 'write')
         .map(([name]) => name),
-      oidcJobs
+      Object.keys(oidcJobEnvironments)
     );
-    for (const jobName of oidcJobs) {
+    for (const [jobName, environment] of Object.entries(oidcJobEnvironments)) {
       const job = workflow.jobs[jobName];
-      assert.equal(job.environment, 'marketplace');
+      assert.equal(job.environment, environment);
       assert.match(job.if, /github\.repository == 'Electivus\/Apex-Log-Viewer'/);
       const login = findRequiredStep(job.steps, `${jobName} Azure login`, step =>
         step.uses?.startsWith('azure/login@')

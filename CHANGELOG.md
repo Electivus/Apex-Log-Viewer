@@ -8,6 +8,7 @@
 - Refresh JSforce, oclif 4, YAML, CSS and TypeScript tooling; align the YAML override with its runtime update.
 - Refresh Salesforce, React, test, packaging, and CI dependencies; keep Playwright packages aligned and validate Agent Skill distribution against the exact installed CLI release.
 - Reduce Dependabot churn with coordinated dependency families, bounded weekly batches, and separate security updates; defer incompatible TypeScript 7 and oclif runtime 5 updates.
+- Release: publish nightly pre-releases through the new `marketplace-prerelease` environment, which needs no approval, so one unapproved nightly no longer blocks every later one; stable releases keep the `marketplace` approval.
 
 ### Breaking Changes
 

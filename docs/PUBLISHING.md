@@ -19,9 +19,9 @@ VS Code Marketplace does not use semver pre‑release identifiers in the manifes
 Prerequisites
 
 - Create a VS Code Marketplace publisher and authorize its dedicated managed identity as Contributor.
-- Configure the three `MARKETPLACE_AZURE_*` variables in the protected `marketplace` environment; see [Marketplace authentication](MARKETPLACE_OIDC.md).
+- Configure the three `MARKETPLACE_AZURE_*` variables in two GitHub environments: `marketplace`, which requires approval and publishes stable releases, and `marketplace-prerelease`, which publishes nightly pre-releases without approval. See [Marketplace authentication](MARKETPLACE_OIDC.md#environments).
 - Create a namespace + PAT on Open VSX.
-- Add the PAT as the repository secret `OVSX_PAT` (Settings → Secrets and variables → Actions).
+- Add the PAT as the `OVSX_PAT` secret in both environments (Settings → Environments).
 
 How it works
 
