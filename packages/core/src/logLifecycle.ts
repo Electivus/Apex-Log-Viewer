@@ -487,7 +487,7 @@ function createLocalStoreSnapshot(workspaceRoot: string): LocalStoreSnapshot {
       const dayRoot = path.join(logsRoot, day.name);
       if (!(await ensureRealDirectoryPath(resolvedRoot, dayRoot, false, true))) continue;
       for (const file of await readDirectory(dayRoot)) {
-        if (!file.name.endsWith('.log') || (!file.isFile() && !file.isSymbolicLink())) continue;
+        if (!file.name.endsWith('.log')) continue;
         const logId = file.name.slice(0, -'.log'.length);
         if (!days.has(logId)) days.set(logId, day.name);
       }

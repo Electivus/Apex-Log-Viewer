@@ -2184,6 +2184,33 @@ test('Apex Log Lifecycle finds a log stored under another day and materializes i
   }
 });
 
+test('Apex Log Lifecycle rejects a non-file entry named like a log in another day before local-first resolution', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-non-file-log-'));
+  const logId = '07L000000000064AAA';
+  const username = 'non-file-log@example.com';
+  const orgRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', username);
+  const notAFile = path.join(orgRoot, 'logs', '2026-07-21', `${logId}.log`);
+  const remoteCalls: string[] = [];
+
+  await fs.mkdir(notAFile, { recursive: true });
+  await fs.writeFile(path.join(orgRoot, 'org.json'), `${JSON.stringify({ version: 1, username })}\n`, 'utf8');
+
+  const lifecycle = createApexLogLifecycle({ remote: unavailableRemote(remoteCalls) });
+  try {
+    await assert.rejects(
+      lifecycle.requireLocalPath({ workspaceRoot, targetOrg: username, log: { logId } }),
+      error =>
+        error instanceof ApexLogLifecycleError &&
+        error.code === 'local-persistence' &&
+        (error.cause as Error).message === `Apex log state path must be a regular file: ${notAFile}`
+    );
+    assert.deepEqual(remoteCalls, []);
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test('Apex Log Lifecycle rejects a linked day directory before local-first resolution', async t => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-linked-day-'));
   const externalRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-linked-day-external-'));
