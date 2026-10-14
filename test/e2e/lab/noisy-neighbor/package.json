@@ -1,0 +1,14 @@
+{
+  "name": "alv-lab-noisy-neighbor",
+  "displayName": "ALV lab noisy neighbor",
+  "publisher": "electivus-lab",
+  "version": "0.0.1",
+  "private": true,
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ]
+}

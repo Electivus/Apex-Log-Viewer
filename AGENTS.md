@@ -67,6 +67,7 @@
 - Playwright scratch-org E2E: `pnpm run test:e2e`.
 - Standalone CLI Playwright E2E: `pnpm run test:e2e:cli`.
 - Telemetry-validated Playwright E2E: `pnpm run test:e2e:telemetry`.
+- Extension host congestion lab (real org, opt-in, not in CI): `pnpm run test:lab:host-congestion`; see `docs/TESTING.md#extension-host-congestion-lab`.
 - Docs screenshot capture: `pnpm run docs:screenshots`.
 - VSIX smoke test: `pnpm run test:smoke:vsix`.
 - Test cache cleanup: `pnpm run test:clean` or `pnpm run test:clean:all`.
