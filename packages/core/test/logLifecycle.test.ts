@@ -2382,6 +2382,143 @@ test('Apex Log Lifecycle rejects a day directory swapped for a link while a look
   }
 });
 
+test('Apex Log Lifecycle rejects a day directory swapped for a link instead of accepting a miss on that day', async t => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-swapped-day-miss-'));
+  const externalRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-swapped-day-miss-external-'));
+  const username = 'swapped-day-miss@example.com';
+  const storedId = '07L000000000069AAA';
+  const logId = '07L000000000070AAA';
+  const startTime = '2026-07-20T01:00:00.000Z';
+  const orgRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', username);
+  const day = path.join(orgRoot, 'logs', '2026-07-20');
+  const linkToExternal = `${day}.link`;
+  const remoteCalls: string[] = [];
+
+  await fs.mkdir(day, { recursive: true });
+  await fs.writeFile(path.join(orgRoot, 'org.json'), `${JSON.stringify({ version: 1, username })}\n`, 'utf8');
+  await fs.writeFile(path.join(day, `${storedId}.log`), 'inside the workspace', 'utf8');
+  try {
+    await fs.symlink(externalRoot, linkToExternal, process.platform === 'win32' ? 'junction' : 'dir');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+      t.skip('filesystem does not permit directory links');
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(externalRoot, { recursive: true, force: true });
+      return;
+    }
+    throw error;
+  }
+
+  const lifecycle = createApexLogLifecycle({
+    remote: {
+      async resolveOrg() {
+        remoteCalls.push('resolveOrg');
+        // Another process swaps the day directory this call already verified while the call waits on Salesforce.
+        await fs.rename(day, `${day}.moved`);
+        await fs.rename(linkToExternal, day);
+        return { username };
+      },
+      async listLogs() {
+        remoteCalls.push('listLogs');
+        throw new Error('Salesforce must not be consulted');
+      },
+      async readBody() {
+        remoteCalls.push('readBody');
+        return 'must not be acquired';
+      }
+    }
+  });
+  try {
+    await assert.rejects(
+      lifecycle.requireLocalPath({ workspaceRoot, targetOrg: username, log: { logId, startTime } }),
+      (error: unknown) =>
+        error instanceof ApexLogLifecycleError &&
+        error.code === 'local-persistence' &&
+        (error.cause as Error).message === `Apex log directory must be a real directory: ${day}`
+    );
+    assert.deepEqual(remoteCalls, ['resolveOrg']);
+    assert.deepEqual(await fs.readdir(externalRoot), []);
+  } finally {
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+    await fs.rm(externalRoot, { recursive: true, force: true });
+  }
+});
+
+test('Apex Log Lifecycle rejects a day directory swapped for a link instead of indexing it after a miss', async t => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-swapped-day-index-'));
+  const externalRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-swapped-day-index-external-'));
+  const username = 'swapped-day-index@example.com';
+  const firstId = '07L000000000071AAA';
+  const secondId = '07L000000000072AAA';
+  const externalId = '07L000000000073AAA';
+  const orgRoot = path.join(workspaceRoot, 'apexlogs', 'orgs', username);
+  const swappedDay = path.join(orgRoot, 'logs', '2026-07-20');
+  const otherDay = path.join(orgRoot, 'logs', '2026-07-19');
+  const linkToExternal = `${swappedDay}.link`;
+  const externalLog = path.join(externalRoot, `${externalId}.log`);
+  const remoteCalls: string[] = [];
+
+  await fs.mkdir(swappedDay, { recursive: true });
+  await fs.mkdir(otherDay, { recursive: true });
+  await fs.writeFile(path.join(orgRoot, 'org.json'), `${JSON.stringify({ version: 1, username })}\n`, 'utf8');
+  await fs.writeFile(path.join(swappedDay, `${firstId}.log`), 'inside the workspace', 'utf8');
+  await fs.writeFile(externalLog, 'must remain outside the lifecycle', 'utf8');
+  try {
+    await fs.symlink(externalRoot, linkToExternal, process.platform === 'win32' ? 'junction' : 'dir');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+      t.skip('filesystem does not permit directory links');
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(externalRoot, { recursive: true, force: true });
+      return;
+    }
+    throw error;
+  }
+
+  // Another process swaps the verified day directory for the link right after the second log misses on its own
+  // day, so the day index is the next thing to look at the swapped directory.
+  const target = fs as unknown as Record<'lstat', (...args: unknown[]) => Promise<unknown>>;
+  const originalLstat = target.lstat;
+  let swapped = false;
+  target.lstat = async (...args: unknown[]) => {
+    try {
+      return await originalLstat.apply(fs, args);
+    } finally {
+      if (!swapped && String(args[0]).endsWith(`${secondId}.log`)) {
+        swapped = true;
+        await fs.rename(swappedDay, `${swappedDay}.moved`);
+        await fs.rename(linkToExternal, swappedDay);
+      }
+    }
+  };
+
+  const lifecycle = createApexLogLifecycle({ remote: unavailableRemote(remoteCalls) });
+  try {
+    await assert.rejects(
+      lifecycle.availableLocalPaths({
+        workspaceRoot,
+        targetOrg: username,
+        logs: [
+          { logId: firstId, startTime: '2026-07-20T01:00:00.000Z' },
+          { logId: secondId, startTime: '2026-07-19T01:00:00.000Z' }
+        ]
+      }),
+      (error: unknown) =>
+        error instanceof ApexLogLifecycleError &&
+        error.code === 'local-persistence' &&
+        (error.cause as Error).message === `Apex log directory must be a real directory: ${swappedDay}`
+    );
+    assert.deepEqual(remoteCalls, []);
+    assert.equal(await fs.readFile(externalLog, 'utf8'), 'must remain outside the lifecycle');
+  } finally {
+    target.lstat = originalLstat;
+    lifecycle.dispose();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+    await fs.rm(externalRoot, { recursive: true, force: true });
+  }
+});
+
 test('Apex Log Lifecycle finds a log another call wrote while this call resolved the org', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'alv-lifecycle-concurrent-write-'));
   const username = 'concurrent@example.com';
