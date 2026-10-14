@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { AuthInfo, ConfigAggregator, Connection, Org, OrgConfigProperties, StateAggregator } from '@salesforce/core';
+import { AuthInfo, ConfigAggregator, Connection, OrgConfigProperties, StateAggregator } from '@salesforce/core';
 
 import type {
   DebugLevelDeleteParams,
@@ -107,12 +107,14 @@ type SalesforceLogRecord = {
   LogUser?: { Name?: string };
 };
 
-type ConnectionContext = {
-  org: Org;
+type OrgConnection = {
   connection: Connection;
   username: string;
-  alias?: string;
   instanceUrl?: string;
+};
+
+type ConnectionContext = OrgConnection & {
+  alias?: string;
 };
 
 function packageVersion(): string {
@@ -261,42 +263,79 @@ async function resolveUsername(
   };
 }
 
-async function getConnectionContext(targetOrg?: string, signal?: AbortSignal): Promise<ConnectionContext> {
-  throwIfAborted(signal);
-  const resolved = await awaitWithAbort(resolveUsername(targetOrg), signal);
-  const authInfo = await awaitWithAbort(AuthInfo.create({ username: resolved.username }), signal);
-  const connection = await awaitWithAbort(Connection.create({ authInfo }), signal);
-  await alignConnectionApiVersion(connection, signal);
-  const org = await awaitWithAbort(Org.create({ connection }), signal);
+async function connectOrg(username: string): Promise<OrgConnection> {
+  const authInfo = await AuthInfo.create({ username });
+  const connection = await Connection.create({ authInfo });
+  await alignConnectionApiVersion(connection);
   const fields = authInfo.getFields(true);
-  const username = asString(connection.getUsername()) ?? asString(fields.username) ?? resolved.username;
-  const instanceUrl =
-    asString(fields.instanceUrl) ?? asString((connection as unknown as { instanceUrl?: string }).instanceUrl);
   return {
-    org,
     connection,
-    username,
-    alias: resolved.alias,
-    instanceUrl
+    username: asString(connection.getUsername()) ?? asString(fields.username) ?? username,
+    instanceUrl:
+      asString(fields.instanceUrl) ?? asString((connection as unknown as { instanceUrl?: string }).instanceUrl)
+  };
+}
+
+function isSessionRejected(error: unknown): boolean {
+  return (
+    (error as { errorCode?: unknown } | undefined)?.errorCode === 'INVALID_SESSION_ID' ||
+    (error instanceof Error && error.message.startsWith('Unable to refresh session due to:'))
+  );
+}
+
+type OrgConnections = {
+  use<T>(
+    targetOrg: string | undefined,
+    signal: AbortSignal | undefined,
+    run: (ctx: ConnectionContext) => Promise<T>
+  ): Promise<T>;
+  clear(): void;
+};
+
+function createOrgConnections(): OrgConnections {
+  const byUsername = new Map<string, Promise<OrgConnection>>();
+  const evict = (username: string, pending: Promise<OrgConnection>): void => {
+    if (byUsername.get(username) === pending) byUsername.delete(username);
+  };
+  const connect = (username: string): Promise<OrgConnection> => {
+    const existing = byUsername.get(username);
+    if (existing) return existing;
+    const pending = connectOrg(username);
+    byUsername.set(username, pending);
+    pending.catch(() => evict(username, pending));
+    return pending;
+  };
+  return {
+    async use(targetOrg, signal, run) {
+      throwIfAborted(signal);
+      const resolved = await awaitWithAbort(resolveUsername(targetOrg), signal);
+      const cached = connect(resolved.username);
+      const ctx = { ...(await awaitWithAbort(cached, signal)), alias: resolved.alias };
+      try {
+        return await run(ctx);
+      } catch (error) {
+        if (!isSessionRejected(error)) throw error;
+        evict(resolved.username, cached);
+        return run({ ...(await awaitWithAbort(connect(resolved.username), signal)), alias: resolved.alias });
+      }
+    },
+    clear: () => byUsername.clear()
   };
 }
 
 async function getOrgAuthFromCore(params: OrgAuthParams = {}): Promise<OrgAuth> {
-  const ctx = await getConnectionContext(params.username);
-  const fields = ctx.connection.getAuthInfo().getFields(true);
-  const accessToken =
-    asString((ctx.connection as unknown as { accessToken?: string }).accessToken) ?? asString(fields.accessToken);
-  const instanceUrl =
-    asString(fields.instanceUrl) ??
-    asString((ctx.connection as unknown as { instanceUrl?: string }).instanceUrl) ??
-    ctx.instanceUrl;
+  const resolved = await resolveUsername(params.username);
+  const authInfo = await AuthInfo.create({ username: resolved.username });
+  const fields = authInfo.getFields(true);
+  const accessToken = asString(fields.accessToken);
+  const instanceUrl = asString(fields.instanceUrl);
   if (!accessToken || !instanceUrl) {
     throw new Error('Unable to retrieve Salesforce org authentication from @salesforce/core.');
   }
   return {
     accessToken,
     instanceUrl,
-    username: ctx.username
+    username: asString(authInfo.getUsername()) ?? resolved.username
   };
 }
 
@@ -334,16 +373,19 @@ async function listOrgsNative(params: OrgListParams = {}): Promise<OrgListItem[]
   });
 }
 
-async function resolveOrgNative(params: OrgResolveParams = {}): Promise<OrgResolveResult> {
+async function resolveOrgNative(
+  connections: OrgConnections,
+  params: OrgResolveParams = {},
+  signal?: AbortSignal
+): Promise<OrgResolveResult> {
   const resolved = await resolveUsername(params.targetOrg);
-  const ctx = await getConnectionContext(resolved.username);
-  return {
+  return connections.use(resolved.username, signal, async ctx => ({
     requested: resolved.requested,
     username: ctx.username,
     alias: resolved.alias,
     instanceUrl: ctx.instanceUrl,
     source: resolved.source
-  };
+  }));
 }
 
 export async function toolingQuery<TRecord = JsonObject>(
@@ -397,11 +439,10 @@ export function shouldUseOrgMaxApiVersion(
 }
 
 export async function alignConnectionApiVersion(
-  connection: Pick<Connection, 'getApiVersion' | 'setApiVersion' | 'retrieveMaxApiVersion'>,
-  signal?: AbortSignal
+  connection: Pick<Connection, 'getApiVersion' | 'setApiVersion' | 'retrieveMaxApiVersion'>
 ): Promise<string> {
   const configuredVersion = connection.getApiVersion?.() || DEFAULT_API_VERSION;
-  const orgMaxVersion = await awaitWithAbort(connection.retrieveMaxApiVersion(), signal);
+  const orgMaxVersion = await connection.retrieveMaxApiVersion();
   if (shouldUseOrgMaxApiVersion(configuredVersion, orgMaxVersion)) {
     connection.setApiVersion(orgMaxVersion);
     return orgMaxVersion;
@@ -447,8 +488,11 @@ export function resolveOrgRequestPath(ctx: Pick<ConnectionContext, 'instanceUrl'
   return `${requested.pathname}${requested.search}${requested.hash}`;
 }
 
-async function listLogsNative(params: LogsListParams = {}, signal?: AbortSignal): Promise<RuntimeLogRow[]> {
-  const ctx = await getConnectionContext(params.username, signal);
+async function listLogsNative(
+  ctx: ConnectionContext,
+  params: LogsListParams,
+  signal?: AbortSignal
+): Promise<RuntimeLogRow[]> {
   const limit = clampInt(params.limit, 50, 1, 200);
   const offset = clampInt(params.offset, 0, 0, 2000);
   const soql = buildApexLogListSoql({ limit, offset, cursor: params.cursor });
@@ -627,9 +671,11 @@ export async function deleteApexLogIds(
   return { deleted, failed, failedLogIds };
 }
 
-async function logsDeleteNative(params: LogsDeleteParams = {}, signal?: AbortSignal): Promise<LogsDeleteResult> {
-  throwIfAborted(signal);
-  const ctx = await getConnectionContext(params.targetOrg, signal);
+async function logsDeleteNative(
+  ctx: ConnectionContext,
+  params: LogsDeleteParams,
+  signal?: AbortSignal
+): Promise<LogsDeleteResult> {
   const scope = params.scope === 'all' ? 'all' : 'mine';
   const ids = Array.isArray(params.ids)
     ? params.ids.filter(isSalesforceId)
@@ -703,8 +749,7 @@ function debugLevelPayload(input: Partial<RuntimeDebugLevelRecord>): JsonObject 
   };
 }
 
-async function debugLevelsListNative(params: DebugLevelListParams = {}): Promise<RuntimeDebugLevelRecord[]> {
-  const ctx = await getConnectionContext(params.targetOrg);
+async function debugLevelsListNative(ctx: ConnectionContext): Promise<RuntimeDebugLevelRecord[]> {
   const result = await toolingQuery<JsonObject>(
     ctx.connection,
     `SELECT ${DEBUG_LEVEL_FIELDS} FROM DebugLevel ORDER BY DeveloperName`
@@ -712,8 +757,10 @@ async function debugLevelsListNative(params: DebugLevelListParams = {}): Promise
   return (result.records || []).map(mapDebugLevel);
 }
 
-async function debugLevelGetNative(params: DebugLevelGetParams = {}): Promise<RuntimeDebugLevelRecord | undefined> {
-  const ctx = await getConnectionContext(params.targetOrg);
+async function debugLevelGetNative(
+  ctx: ConnectionContext,
+  params: DebugLevelGetParams
+): Promise<RuntimeDebugLevelRecord | undefined> {
   let where = '';
   if (params.id) where = `Id = '${escapeSoqlLiteral(params.id)}'`;
   else if (params.developerName) where = `DeveloperName = '${escapeSoqlLiteral(params.developerName)}'`;
@@ -725,8 +772,10 @@ async function debugLevelGetNative(params: DebugLevelGetParams = {}): Promise<Ru
   return result.records?.[0] ? mapDebugLevel(result.records[0]) : undefined;
 }
 
-async function debugLevelCreateNative(params: DebugLevelWriteParams): Promise<DebugLevelWriteResult> {
-  const ctx = await getConnectionContext(params.targetOrg);
+async function debugLevelCreateNative(
+  ctx: ConnectionContext,
+  params: DebugLevelWriteParams
+): Promise<DebugLevelWriteResult> {
   const record = params.record;
   if (params.dryRun || !params.confirmed) return { status: 'success', dryRun: true, record };
   const result = await connectionRequest<{ id?: string }>(
@@ -743,13 +792,12 @@ async function debugLevelCreateNative(params: DebugLevelWriteParams): Promise<De
   };
 }
 
-async function debugLevelUpdateNative(params: DebugLevelWriteParams): Promise<DebugLevelWriteResult> {
-  const ctx = await getConnectionContext(params.targetOrg);
+async function debugLevelUpdateNative(
+  ctx: ConnectionContext,
+  params: DebugLevelWriteParams
+): Promise<DebugLevelWriteResult> {
   const record = params.record;
-  const id =
-    params.id ||
-    record.id ||
-    (await debugLevelGetNative({ targetOrg: params.targetOrg, developerName: record.developerName }))?.id;
+  const id = params.id || record.id || (await debugLevelGetNative(ctx, { developerName: record.developerName }))?.id;
   if (!id) throw new Error('Debug level was not found.');
   if (params.dryRun || !params.confirmed) return { status: 'success', id, dryRun: true, record: { ...record, id } };
   await connectionRequest(
@@ -761,8 +809,10 @@ async function debugLevelUpdateNative(params: DebugLevelWriteParams): Promise<De
   return { status: 'success', id, dryRun: false, record: { ...record, id } };
 }
 
-async function debugLevelDeleteNative(params: DebugLevelDeleteParams): Promise<DebugLevelWriteResult> {
-  const ctx = await getConnectionContext(params.targetOrg);
+async function debugLevelDeleteNative(
+  ctx: ConnectionContext,
+  params: DebugLevelDeleteParams
+): Promise<DebugLevelWriteResult> {
   if (params.dryRun || !params.confirmed) return { status: 'success', id: params.id, dryRun: true };
   await connectionRequest(
     ctx.connection,
@@ -772,8 +822,7 @@ async function debugLevelDeleteNative(params: DebugLevelDeleteParams): Promise<D
   return { status: 'success', id: params.id, dryRun: false };
 }
 
-async function usersSearchNative(params: UserSearchParams = {}): Promise<UserSearchResult> {
-  const ctx = await getConnectionContext(params.targetOrg);
+async function usersSearchNative(ctx: ConnectionContext, params: UserSearchParams): Promise<UserSearchResult> {
   const limit = clampInt(params.limit, 50, 1, 200);
   const query = asString(params.query);
   const clauses = ['IsActive = true'];
@@ -869,11 +918,10 @@ export function summarizeTraceFlagRecords(params: {
   };
 }
 
-async function traceFlagStatusNative(params: {
-  targetOrg?: string;
-  target: TraceFlagTarget;
-}): Promise<TraceFlagTargetStatus> {
-  const ctx = await getConnectionContext(params.targetOrg);
+async function traceFlagStatusNative(
+  ctx: ConnectionContext,
+  params: { target: TraceFlagTarget }
+): Promise<TraceFlagTargetStatus> {
   const ids = await resolveTraceTargets(ctx, params.target);
   const label = targetLabel(params.target);
   if (ids.length === 0) {
@@ -918,8 +966,10 @@ async function traceFlagIdsForTarget(ctx: ConnectionContext, tracedEntityId: str
   return (result.records || []).map(record => asString(record.Id)).filter((id): id is string => Boolean(id));
 }
 
-async function traceFlagApplyNative(params: TraceFlagApplyParams): Promise<TraceFlagApplyResult> {
-  const ctx = await getConnectionContext(params.targetOrg);
+async function traceFlagApplyNative(
+  ctx: ConnectionContext,
+  params: TraceFlagApplyParams
+): Promise<TraceFlagApplyResult> {
   const ids = await resolveTraceTargets(ctx, params.target);
   if (ids.length === 0) {
     throw new Error(`trace flag target '${targetLabel(params.target)}' was not found`);
@@ -986,8 +1036,10 @@ async function traceFlagApplyNative(params: TraceFlagApplyParams): Promise<Trace
   };
 }
 
-async function traceFlagRemoveNative(params: TraceFlagRemoveParams): Promise<TraceFlagRemoveResult> {
-  const ctx = await getConnectionContext(params.targetOrg);
+async function traceFlagRemoveNative(
+  ctx: ConnectionContext,
+  params: TraceFlagRemoveParams
+): Promise<TraceFlagRemoveResult> {
   const targetIds = await resolveTraceTargets(ctx, params.target);
   if (targetIds.length === 0) {
     throw new Error(`trace flag target '${targetLabel(params.target)}' was not found`);
@@ -1018,16 +1070,6 @@ async function traceFlagRemoveNative(params: TraceFlagRemoveParams): Promise<Tra
     traceFlagIds: ids,
     dryRun: false
   };
-}
-
-async function toolingQueryNative(params: ToolingQueryParams): Promise<ToolingQueryResult> {
-  const ctx = await getConnectionContext(params.targetOrg);
-  return toolingQuery(ctx.connection, params.soql);
-}
-
-async function toolingRequestGetNative(params: ToolingRequestGetParams): Promise<unknown> {
-  const ctx = await getConnectionContext(params.targetOrg);
-  return connectionRequest(ctx.connection, 'GET', resolveOrgRequestPath(ctx, params.path));
 }
 
 async function doctorNative(params: DoctorParams = {}): Promise<DoctorResult> {
@@ -1061,9 +1103,8 @@ async function doctorNative(params: DoctorParams = {}): Promise<DoctorResult> {
   return result;
 }
 
-async function normalizeCurrentUserTarget(target: TraceFlagTarget, targetOrgValue?: string): Promise<TraceFlagTarget> {
+async function normalizeCurrentUserTarget(ctx: ConnectionContext, target: TraceFlagTarget): Promise<TraceFlagTarget> {
   if (target.type !== 'user' || target.userId !== 'current') return target;
-  const ctx = await getConnectionContext(targetOrgValue);
   const userId = await getCurrentUserId(ctx);
   if (!userId) throw new Error('Unable to determine current user id.');
   return { type: 'user', userId };
@@ -1138,25 +1179,18 @@ async function instrumentedCall<T>(
 
 export type ApexLogViewerCore = ReturnType<typeof createApexLogViewerCore>;
 
-function createRuntimeApexLogRemote(): ApexLogRemote {
+function createRuntimeApexLogRemote(connections: OrgConnections): ApexLogRemote {
   return {
-    async resolveOrg(targetOrg, signal) {
-      const ctx = await getConnectionContext(targetOrg, signal);
-      return {
+    resolveOrg(targetOrg, signal) {
+      return connections.use(targetOrg, signal, async ctx => ({
         username: ctx.username,
         alias: ctx.alias,
         instanceUrl: ctx.instanceUrl
-      };
+      }));
     },
     async listLogs(request, signal) {
-      const rows = await listLogsNative(
-        {
-          username: request.org.username,
-          limit: request.limit,
-          cursor: request.cursor,
-          offset: 0
-        },
-        signal
+      const rows = await connections.use(request.org.username, signal, ctx =>
+        listLogsNative(ctx, { limit: request.limit, cursor: request.cursor, offset: 0 }, signal)
       );
       return rows.map(row => ({
         logId: row.id,
@@ -1167,9 +1201,8 @@ function createRuntimeApexLogRemote(): ApexLogRemote {
         logLength: row.logLength
       }));
     },
-    async readBody(request, signal) {
-      const ctx = await getConnectionContext(request.org.username, signal);
-      return fetchLogBody(ctx, request.logId, signal);
+    readBody(request, signal) {
+      return connections.use(request.org.username, signal, ctx => fetchLogBody(ctx, request.logId, signal));
     }
   };
 }
@@ -1182,7 +1215,14 @@ export function createApexLogViewerCore(
     callOptions: CoreCallOptions | undefined,
     run: (signal?: AbortSignal) => Promise<T>
   ) => instrumentedCall(options.instrumentation, method, callOptions, run);
-  const apexLogRemote = options.apexLogRemote ?? createRuntimeApexLogRemote();
+  const connections = createOrgConnections();
+  const orgCall = <T>(
+    method: string,
+    targetOrg: string | undefined,
+    callOptions: CoreCallOptions | undefined,
+    run: (ctx: ConnectionContext, signal?: AbortSignal) => Promise<T>
+  ) => call(method, callOptions, signal => connections.use(targetOrg, signal, ctx => run(ctx, signal)));
+  const apexLogRemote = options.apexLogRemote ?? createRuntimeApexLogRemote(connections);
   const rawLogLifecycle = createApexLogLifecycle({ remote: apexLogRemote });
   const lifecycleCall = <T>(
     method: string,
@@ -1261,16 +1301,21 @@ export function createApexLogViewerCore(
       call('doctor', callOptions, () => doctorNative(params)),
     org: {
       list: (params: OrgListParams = {}, callOptions?: CoreCallOptions) =>
-        call('org.list', callOptions, () => listOrgsNative(params)),
+        call('org.list', callOptions, () => {
+          if (params.forceRefresh) connections.clear();
+          return listOrgsNative(params);
+        }),
       resolve: (params: OrgResolveParams = {}, callOptions?: CoreCallOptions) =>
-        call('org.resolve', callOptions, () => resolveOrgNative(params)),
+        call('org.resolve', callOptions, signal => resolveOrgNative(connections, params, signal)),
       getAuth: (params: OrgAuthParams = {}, callOptions?: CoreCallOptions) =>
         call('org.getAuth', callOptions, () => getOrgAuthFromCore(params))
     },
     log: {
       list: (params: LogsListParams = {}, callOptions?: CoreCallOptions) =>
         call('log.list', callOptions, async signal => {
-          if (!options.apexLogRemote) return listLogsNative(params, signal);
+          if (!options.apexLogRemote) {
+            return connections.use(params.username, signal, ctx => listLogsNative(ctx, params, signal));
+          }
           const org = await apexLogRemote.resolveOrg(params.username, signal);
           const rows = await apexLogRemote.listLogs(
             {
@@ -1410,53 +1455,49 @@ export function createApexLogViewerCore(
           );
         }),
       delete: (params: LogsDeleteParams = {}, callOptions?: CoreCallOptions) =>
-        call('log.delete', callOptions, signal => logsDeleteNative(params, signal))
+        orgCall('log.delete', params.targetOrg, callOptions, (ctx, signal) => logsDeleteNative(ctx, params, signal))
     },
     user: {
       search: (params: UserSearchParams = {}, callOptions?: CoreCallOptions) =>
-        call('user.search', callOptions, () => usersSearchNative(params))
+        orgCall('user.search', params.targetOrg, callOptions, ctx => usersSearchNative(ctx, params))
     },
     traceFlag: {
       status: (params: { targetOrg?: string; target: TraceFlagTarget }, callOptions?: CoreCallOptions) =>
-        call('traceFlag.status', callOptions, async () =>
-          traceFlagStatusNative({
-            ...params,
-            target: await normalizeCurrentUserTarget(params.target, params.targetOrg)
-          })
+        orgCall('traceFlag.status', params.targetOrg, callOptions, async ctx =>
+          traceFlagStatusNative(ctx, { target: await normalizeCurrentUserTarget(ctx, params.target) })
         ),
       apply: (params: TraceFlagApplyParams, callOptions?: CoreCallOptions) =>
-        call('traceFlag.apply', callOptions, async () =>
-          traceFlagApplyNative({
-            ...params,
-            target: await normalizeCurrentUserTarget(params.target, params.targetOrg)
-          })
+        orgCall('traceFlag.apply', params.targetOrg, callOptions, async ctx =>
+          traceFlagApplyNative(ctx, { ...params, target: await normalizeCurrentUserTarget(ctx, params.target) })
         ),
       remove: (params: TraceFlagRemoveParams, callOptions?: CoreCallOptions) =>
-        call('traceFlag.remove', callOptions, async () =>
-          traceFlagRemoveNative({
-            ...params,
-            target: await normalizeCurrentUserTarget(params.target, params.targetOrg)
-          })
+        orgCall('traceFlag.remove', params.targetOrg, callOptions, async ctx =>
+          traceFlagRemoveNative(ctx, { ...params, target: await normalizeCurrentUserTarget(ctx, params.target) })
         )
     },
     debugLevel: {
       list: (params: DebugLevelListParams = {}, callOptions?: CoreCallOptions) =>
-        call('debugLevel.list', callOptions, () => debugLevelsListNative(params)),
+        orgCall('debugLevel.list', params.targetOrg, callOptions, ctx => debugLevelsListNative(ctx)),
       get: (params: DebugLevelGetParams = {}, callOptions?: CoreCallOptions) =>
-        call('debugLevel.get', callOptions, () => debugLevelGetNative(params)),
+        orgCall('debugLevel.get', params.targetOrg, callOptions, ctx => debugLevelGetNative(ctx, params)),
       create: (params: DebugLevelWriteParams, callOptions?: CoreCallOptions) =>
-        call('debugLevel.create', callOptions, () => debugLevelCreateNative(params)),
+        orgCall('debugLevel.create', params.targetOrg, callOptions, ctx => debugLevelCreateNative(ctx, params)),
       update: (params: DebugLevelWriteParams, callOptions?: CoreCallOptions) =>
-        call('debugLevel.update', callOptions, () => debugLevelUpdateNative(params)),
+        orgCall('debugLevel.update', params.targetOrg, callOptions, ctx => debugLevelUpdateNative(ctx, params)),
       delete: (params: DebugLevelDeleteParams, callOptions?: CoreCallOptions) =>
-        call('debugLevel.delete', callOptions, () => debugLevelDeleteNative(params))
+        orgCall('debugLevel.delete', params.targetOrg, callOptions, ctx => debugLevelDeleteNative(ctx, params))
     },
     tooling: {
-      query: (params: ToolingQueryParams, callOptions?: CoreCallOptions) =>
-        call('tooling.query', callOptions, () => toolingQueryNative(params)),
+      query: (params: ToolingQueryParams, callOptions?: CoreCallOptions): Promise<ToolingQueryResult> =>
+        orgCall('tooling.query', params.targetOrg, callOptions, ctx => toolingQuery(ctx.connection, params.soql)),
       get: (params: ToolingRequestGetParams, callOptions?: CoreCallOptions) =>
-        call('tooling.get', callOptions, () => toolingRequestGetNative(params))
+        orgCall('tooling.get', params.targetOrg, callOptions, ctx =>
+          connectionRequest(ctx.connection, 'GET', resolveOrgRequestPath(ctx, params.path))
+        )
     },
-    dispose: (): void => rawLogLifecycle.dispose()
+    dispose: (): void => {
+      connections.clear();
+      rawLogLifecycle.dispose();
+    }
   };
 }

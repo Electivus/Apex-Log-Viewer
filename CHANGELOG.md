@@ -21,6 +21,7 @@
 ### Fixes
 
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
+- Salesforce: reuse one connection per org instead of rebuilding it for every action, so Logs, Debug Flags and `sf electivus` commands stop repeating the API-version request and the auth-file rewrite on each call (every call paid both on pt-BR or de-DE systems); a session Salesforce rejects is rebuilt from the saved login and retried once.
 
 ### Tests
 
