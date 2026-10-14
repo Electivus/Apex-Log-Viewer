@@ -11,7 +11,7 @@ import { createTempWorkspace } from '../utils/tempWorkspace';
 import { getOrgAuth } from '../utils/tooling';
 import { launchVsCode, resolveExtensionDevelopmentPath } from '../utils/vscode';
 import { waitForWebviewFrame } from '../utils/webviews';
-import { summarizeQueueWaits, type QueueWaitSummary } from '../utils/queueWaits';
+import { summarizeQueueWaits, summarizeRefreshCycles } from '../utils/queueWaits';
 
 const repoRoot = path.join(__dirname, '..', '..', '..');
 const neighbor = process.env.ALV_LAB_NEIGHBOR?.trim() || '';
@@ -70,7 +70,6 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
     additionalExtensionDevelopmentPaths: [path.join(__dirname, 'noisy-neighbor')],
     env: { ALV_LAB_NEIGHBOR: neighbor, ...(locale ? { LC_ALL: locale, LANG: locale } : {}) }
   });
-  const clickToLoadingMs: number[] = [];
   try {
     const page = launch.page;
     await runCommandWhenAvailable(page, 'Electivus Apex Logs: Refresh Logs', { timeoutMs: 180_000 });
@@ -88,7 +87,6 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
       await dismissAllNotifications(page).catch(() => undefined);
       await waitUntil(async () => await refresh.isEnabled(), 180_000, 50);
       await refresh.click();
-      clickToLoadingMs.push(await waitUntil(async () => await refresh.isDisabled(), 120_000));
       await page.waitForTimeout(8_000);
     }
 
@@ -101,7 +99,7 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
     const outputLogs = await findLogs(launch.userDataDir, entry => entry.includes('Electivus Apex Log Viewer')).catch(
       () => []
     );
-    const summary: QueueWaitSummary = summarizeQueueWaits(await readAll(outputLogs));
+    const outputLog = await readAll(outputLogs);
     const neighborLog = await readAll(
       await findLogs(launch.userDataDir, entry => entry.includes('ALV lab noisy neighbor')).catch(() => [])
     );
@@ -118,16 +116,18 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
       generatedAt: new Date().toISOString(),
       outputLogFiles: outputLogs.length,
       neighborRunning,
-      clickToLoadingMs,
-      queueWaits: summary
+      refreshCycles: summarizeRefreshCycles(outputLog),
+      queueWaits: summarizeQueueWaits(outputLog)
     };
     const reportDir = path.join(repoRoot, 'output', 'lab', 'host-congestion');
     await mkdir(reportDir, { recursive: true });
     const reportPath = path.join(reportDir, `${label}-${report.generatedAt.replace(/[:.]/g, '-')}.json`);
     await writeFile(reportPath, JSON.stringify(report, null, 2));
+    await writeFile(reportPath.replace(/\.json$/, '.output.log'), outputLog);
     console.log(`[lab] report: ${reportPath}`);
-    console.table(summary.byType);
-    console.log(`[lab] ${neighborRunning}; clickToLoadingMs: ${clickToLoadingMs.join(', ')}`);
+    console.log(`[lab] ${neighborRunning}`);
+    console.table(report.queueWaits.byType);
+    console.table([report.refreshCycles]);
     await launch.cleanup({ keep: testInfo.status !== testInfo.expectedStatus });
     await ws.cleanup();
   }

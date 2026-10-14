@@ -250,7 +250,7 @@ Troubleshooting:
 
 `pnpm run test:lab:host-congestion` measures how long Logs actions wait in the shared VS Code extension host before the extension starts handling them. It uses the same org setup as `pnpm run test:e2e`, and it is not part of any default suite or CI lane.
 
-The lab launches VS Code with this extension and a second test extension, `test/e2e/lab/noisy-neighbor`, that stands in for other extensions sharing the host. It clicks Refresh several times, types a search, and reads the extension's Output log for lines of the form `<Surface>: <type> waited <N> ms in the extension host queue`. It also times each Refresh click until the button shows the loading state. A JSON report is written under `output/lab/host-congestion/`.
+The lab launches VS Code with this extension and a second test extension, `test/e2e/lab/noisy-neighbor`, that stands in for other extensions sharing the host. It clicks Refresh several times, types a search, and reads the extension's Output log for lines of the form `<Surface>: <type> waited <N> ms in the extension host queue`. It also pairs each Refresh's queue-wait line with the next `Logs: fetched` line to report the foreground refresh time from the host's own log timestamps. A JSON report and a copy of the Output log are written under `output/lab/host-congestion/`.
 
 | Variable | Default | Effect |
 |---|---|---|
