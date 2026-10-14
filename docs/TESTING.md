@@ -246,6 +246,23 @@ Troubleshooting:
 - CLI artifacts (screenshots/traces/videos and attached command/stdout/stderr files on failure) are written under `output/playwright-cli/`.
 - VS Code Playwright artifacts (screenshots/traces/videos on failure) are written under `output/playwright/`.
 
+### Extension host congestion lab
+
+`pnpm run test:lab:host-congestion` measures how long Logs actions wait in the shared VS Code extension host before the extension starts handling them. It uses the same org setup as `pnpm run test:e2e`, and it is not part of any default suite or CI lane.
+
+The lab launches VS Code with this extension and a second test extension, `test/e2e/lab/noisy-neighbor`, that stands in for other extensions sharing the host. It clicks Refresh several times, types a search, and reads the extension's Output log for lines of the form `<Surface>: <type> waited <N> ms in the extension host queue`. It also times each Refresh click until the button shows the loading state. A JSON report is written under `output/lab/host-congestion/`.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `ALV_LAB_NEIGHBOR` | unset (quiet host) | `<busyMs>:<periodMs>:<poolJobs>`, for example `400:500:8`: block the host event loop for `busyMs` every `periodMs` and keep `poolJobs` jobs on the libuv threadpool. |
+| `ALV_LAB_REFRESHES` | `6` | Refresh clicks. |
+| `ALV_LAB_SEED_LOGS` | `1` | Apex logs seeded in the org before the run. |
+| `ALV_LAB_EMPTY_DAY_DIRS` | `0` | Empty day directories created in the local log store, to emulate a workspace with long history. |
+| `ALV_LAB_LOCALE` | unset | `LC_ALL`/`LANG` for VS Code, for example `pt_BR.UTF-8`. |
+| `ALV_LAB_LABEL` | derived | Report file prefix. |
+
+The report records `neighborActivated`, read from the extension host log, so a run whose neighbor did not load is visible.
+
 ### Playwright E2E + dedicated App Insights validation
 
 `pnpm run test:e2e:telemetry` is the full telemetry-validation path. It:
