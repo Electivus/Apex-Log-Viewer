@@ -19,7 +19,6 @@ const label = process.env.ALV_LAB_LABEL?.trim() || (neighbor ? `neighbor-${neigh
 const refreshes = Number(process.env.ALV_LAB_REFRESHES || 6);
 const seedLogs = Number(process.env.ALV_LAB_SEED_LOGS || 1);
 const emptyDayDirs = Number(process.env.ALV_LAB_EMPTY_DAY_DIRS || 0);
-const locale = process.env.ALV_LAB_LOCALE?.trim();
 
 function safeUsername(value: string): string {
   return value.trim().replace(/[^a-zA-Z0-9_.@-]+/g, '_') || 'default';
@@ -67,6 +66,7 @@ function salesforceEnvNames(): string[] {
 
 type LabReport = Record<string, unknown> & {
   neighborRunning: string;
+  refreshCycles: ReturnType<typeof summarizeRefreshCycles>;
   queueWaits: ReturnType<typeof summarizeQueueWaits>;
 };
 
@@ -82,7 +82,6 @@ async function writeReport(userDataDir: string): Promise<void> {
   const report: LabReport = {
     label,
     neighbor: neighbor || 'none',
-    locale: locale || 'default',
     seedLogs,
     emptyDayDirs,
     refreshes,
@@ -122,7 +121,7 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
     workspacePath: ws.workspacePath,
     extensionDevelopmentPath: resolveExtensionDevelopmentPath(repoRoot),
     additionalExtensionDevelopmentPaths: [path.join(__dirname, 'noisy-neighbor')],
-    env: { ALV_LAB_NEIGHBOR: neighbor, ...(locale ? { LC_ALL: locale, LANG: locale } : {}) }
+    env: { ALV_LAB_NEIGHBOR: neighbor }
   });
   let scenarioCompleted = false;
   try {
@@ -162,6 +161,9 @@ test('host congestion lab: click-to-start wait in the extension host queue', asy
   }
   expect(lastReport?.neighborRunning, 'the noisy neighbor applied its load').toMatch(
     neighbor ? /^noisy neighbor running/ : /^not running$/
+  );
+  expect(lastReport?.refreshCycles.count, 'every requested refresh completed and logged its fetched rows').toBe(
+    refreshes
   );
   expect(lastReport?.queueWaits.total, 'the extension logged queue waits (#1177 instrument present)').toBeGreaterThan(
     0
