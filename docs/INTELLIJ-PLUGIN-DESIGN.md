@@ -8,8 +8,6 @@ The IntelliJ product initiative has been discontinued and its implementation and
 
 Add an Apex Log Viewer plugin for IntelliJ IDEA focused on Apex log discovery, acquisition, Unified Log Search, structured investigation, and Replay Handoff. The plugin is a first-class JetBrains surface with native UI and a Kotlin runtime, not a wrapper around the VS Code extension or the separately released `sf electivus` plugin.
 
-The architectural rationale and runtime boundary are recorded in [ADR 0003](adr/0003-use-a-conformant-kotlin-runtime-for-intellij.md).
-
 ## Product scope
 
 - IntelliJ IDEA Community and Ultimate 2026.1–2026.2.
