@@ -137,7 +137,7 @@ This repo follows the VS Code Marketplace pre-release convention:
 
 Salesforce CLI plugin releases are independent: update `packages/sf-plugin/package.json`, merge the release PR, then tag `sf-plugin-vX.Y.Z`. `.github/workflows/sf-plugin-release.yml` validates the tag against the manifest, runs `pnpm run test:sf-plugin`, `pnpm run build:sf-plugin`, and `pnpm run stage:sf-plugin-npm`, publishes the staged package to npm through Trusted Publishing/OIDC, and creates the GitHub release.
 
-Nightly pre-releases are managed by `.github/workflows/prerelease.yml`, which packages and publishes the odd-minor pre-release channel. Marketplace uses a dedicated federated managed identity; see `docs/MARKETPLACE_OIDC.md`. The manual `verify_marketplace_only` mode checks authentication and publisher access without publishing.
+Nightly pre-releases are managed by `.github/workflows/prerelease.yml`, which packages and publishes the odd-minor pre-release channel. Its publish jobs use the `marketplace-prerelease` environment, which needs no approval; stable releases keep the `marketplace` approval. Marketplace uses a dedicated federated managed identity; see `docs/MARKETPLACE_OIDC.md`. The manual `verify_marketplace_only` mode checks authentication and publisher access through the `marketplace` environment without publishing.
 
 See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 

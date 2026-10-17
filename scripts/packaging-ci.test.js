@@ -206,6 +206,23 @@ for (const [workflowPath, jobName] of [
   });
 }
 
+for (const [workflowPath, jobName, environment] of [
+  ['.github/workflows/prerelease.yml', 'publish_marketplace', 'marketplace-prerelease'],
+  ['.github/workflows/prerelease.yml', 'publish_open_vsx', 'marketplace-prerelease'],
+  ['.github/workflows/release.yml', 'publish_marketplace', 'marketplace'],
+  ['.github/workflows/release.yml', 'publish_open_vsx', 'marketplace']
+]) {
+  test(`${workflowPath} ${jobName} publishes from the ${environment} environment`, () => {
+    const publishJob = readWorkflowJob(workflowPath, jobName);
+
+    assert.equal(
+      publishJob.match(/^ {4}environment: (.+)$/m)?.[1],
+      environment,
+      'expected nightly publishes to skip the approval-gated marketplace environment and stable publishes to keep it'
+    );
+  });
+}
+
 for (const [workflowPath, jobName, description] of [
   ['.github/workflows/release.yml', 'publish_marketplace', 'Marketplace publish'],
   ['.github/workflows/release.yml', 'publish_open_vsx', 'Open VSX publish'],

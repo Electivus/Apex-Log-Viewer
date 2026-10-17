@@ -8,7 +8,7 @@ This repository uses GitHub Actions to build, test, package, and publish the ext
 - Workflow Warm Salesforce CLI cache (`.github/workflows/salesforce-cli-cache.yml`): saves the pinned Salesforce CLI cache for the Windows and macOS Real Org E2E Lanes in the default-branch scope, because caches saved from a pull request are invisible to other pull requests. It reproduces the lanes' Node runtime selection, cache-key resolver inputs and setup, and skips the install when the key already exists. It runs on pushes to `main` that change `.nvmrc`, `scripts/setup-salesforce-cli.mjs` or the workflow itself, every six days inside GitHub's 7-day cache eviction window, and on manual dispatch. It uses a read-only token and no secrets. When changing the pinned CLI version or the lanes' Salesforce CLI setup, change this workflow in the same pull request; `scripts/salesforce-cli-cache-workflow.test.js` fails until both match.
 - Workflow Slot Recovery (`.github/workflows/slot-recovery.yml`): replaces retired Scratch Org Pool environments outside any Real Org E2E run, so a Pool Lease almost never waits for scratch-org creation. It runs whenever the E2E workflow completes, whatever its conclusion (a flaky first attempt retires its environment even in a green run), hourly, and on manual dispatch. One concurrency group without cancel-in-progress lets a running recovery finish and collapses newer triggers into a single pending run. `workflow_run` and `schedule` always execute the default-branch version, so a pull request cannot change the recovery logic. On Ubuntu, it installs the repository dependencies and the Salesforce CLI pinned by the Real Org E2E Lanes, passes `node scripts/check-real-org-config.js` with the same four Dev Hub JWT secrets and `SF_SCRATCH_POOL_NAME` variable as the E2E workflow, and runs `scratch-pool-admin.js prewarm` for that pool with a read-only token. Prewarm takes a conditional maintenance lease per slot and skips slots that are leased or provisioning. The workflow never runs `reconcile`: replacing retired environments is prewarm's job. When prewarm cannot create a scratch org, for example at the Dev Hub's daily signup limit, the run fails. `scripts/slot-recovery-workflow.test.js` guards this contract.
 - Workflow Release (`.github/workflows/release.yml`): runs on tag push `v*`. Packages the VSIX and publishes to Marketplace through Microsoft Entra ID/GitHub OIDC and Open VSX (if `OVSX_PAT` is configured), subject to the `marketplace` environment approval. Channel is auto‑detected: odd minor → pre‑release; even minor → stable.
-- Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes to the Marketplace (OIDC) and Open VSX (`OVSX_PAT`) pre‑release channels after environment approval. The manual `verify_marketplace_only` input checks identity and publisher access without building or publishing.
+- Workflow Pre‑release (`.github/workflows/prerelease.yml`): runs nightly (03:00 UTC) and on manual dispatch. Builds and packages a pre‑release VSIX, creates/updates a GitHub pre‑release and attaches the asset, and publishes to the Marketplace (OIDC) and Open VSX (`OVSX_PAT`) pre‑release channels from the `marketplace-prerelease` environment, which needs no approval. The manual `verify_marketplace_only` input checks identity and publisher access without building or publishing.
 
 Build & Test basics:
 
@@ -142,24 +142,24 @@ Standard releases are driven by git tags `v*`.
 
 1. Merge PRs using Conventional Commits (e.g., `feat:`, `fix:`, `docs:`).
 2. Bump the version in `package.json` and push a tag `vX.Y.Z` for that commit.
-3. On tag push, the Release workflow packages and publishes to the Marketplace (OIDC) and Open VSX (`OVSX_PAT`) after environment approval.
+3. On tag push, the Release workflow packages and publishes to the Marketplace (OIDC) and Open VSX (`OVSX_PAT`) after `marketplace` environment approval.
 4. The changelog (`CHANGELOG.md`) is maintained manually. Update it as part of preparing the release commit.
 
-Pre‑releases: nightly builds run daily and publish to the Marketplace (OIDC) and Open VSX (`OVSX_PAT`) pre‑release channels after environment approval; the VSIX is also attached to a GitHub pre‑release.
+Pre‑releases: nightly builds run daily and publish to the Marketplace (OIDC) and Open VSX (`OVSX_PAT`) pre‑release channels from the `marketplace-prerelease` environment without approval; the VSIX is also attached to a GitHub pre‑release.
 
 See also: `docs/PUBLISHING.md` for the full Marketplace/Open VSX publishing flow and guidance.
 
 ## Setup Marketplace OIDC
 
-- Follow [Marketplace authentication](MARKETPLACE_OIDC.md) to configure the dedicated Azure managed identity, federated credential, publisher Contributor membership, and environment variables.
-- Only Marketplace publishing and verification jobs receive `id-token: write`. The existing `marketplace` environment review remains required.
+- Follow [Marketplace authentication](MARKETPLACE_OIDC.md) to configure the dedicated Azure managed identity, both federated credentials, publisher Contributor membership, and environment variables.
+- Only Marketplace publishing and verification jobs receive `id-token: write`. Stable releases and the `verify_marketplace_only` check keep the `marketplace` environment review. Nightly publish jobs use `marketplace-prerelease`, which has no reviewers; see [Environments](MARKETPLACE_OIDC.md#environments).
 - Marketplace workflows do not read `VSCE_PAT`; remove the obsolete secret after the migration has been integrated and verified.
 - Missing Marketplace identity configuration fails the publishing job. Packaging and GitHub artifacts remain independent jobs.
 
 ## Setup `OVSX_PAT`
 
 - Create a Personal Access Token with publish rights for your Open VSX namespace.
-- Add it as a GitHub secret named `OVSX_PAT` in the repository (Settings → Secrets and variables → Actions → New repository secret).
+- Add it as a secret named `OVSX_PAT` in both the `marketplace` and `marketplace-prerelease` environments (Settings → Environments).
 - Publishing is optional; without the secret, the workflow still builds, tests, and attaches the VSIX artifact to the run.
 
 ## Release Channels

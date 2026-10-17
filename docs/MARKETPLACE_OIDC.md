@@ -3,7 +3,7 @@
 Release and nightly Marketplace jobs use GitHub OIDC to authenticate a dedicated Azure user-assigned managed identity, then call `vsce publish --azure-credential`. No client secret or long-lived Marketplace PAT is required. Open VSX retains its separate `OVSX_PAT` authentication.
 
 ```text
-GitHub job + marketplace environment approval
+GitHub job in the marketplace or marketplace-prerelease environment
   -> GitHub OIDC assertion
   -> Microsoft Entra ID managed identity
   -> short-lived Azure DevOps access token
@@ -12,22 +12,36 @@ GitHub job + marketplace environment approval
 
 ## Configuration
 
-| Setting               | Value                                                    |
-| --------------------- | -------------------------------------------------------- |
-| Azure resource group  | `rg-apex-log-viewer-publishing`                          |
-| Managed identity      | `id-apex-log-viewer-marketplace`                         |
-| Azure region          | `eastus`                                                 |
-| Azure role            | Reader on the publishing resource group only             |
-| Federated credential  | `github-marketplace`                                     |
-| Issuer                | `https://token.actions.githubusercontent.com`            |
-| Subject               | `repo:Electivus/Apex-Log-Viewer:environment:marketplace` |
-| Audience              | `api://AzureADTokenExchange`                             |
-| Marketplace publisher | `electivus`                                              |
-| Marketplace role      | Contributor                                              |
+| Setting               | Value                                         |
+| --------------------- | --------------------------------------------- |
+| Azure resource group  | `rg-apex-log-viewer-publishing`               |
+| Managed identity      | `id-apex-log-viewer-marketplace`              |
+| Azure region          | `eastus`                                      |
+| Azure role            | Reader on the publishing resource group only  |
+| Issuer                | `https://token.actions.githubusercontent.com` |
+| Audience              | `api://AzureADTokenExchange`                  |
+| Marketplace publisher | `electivus`                                   |
+| Marketplace role      | Contributor                                   |
 
-The subject matches the repository's current default OIDC subject configuration (`use_immutable_subject: false`). In Azure's federated credential form, use **Other** and enter the exact subject above if the GitHub wizard generates a subject with immutable IDs. Changing the repository-wide subject format also affects existing telemetry and npm OIDC consumers and requires a separate coordinated migration.
+The managed identity has one federated credential per GitHub environment:
 
-Store these non-secret identifiers as **variables in the GitHub `marketplace` environment**:
+| Federated credential            | Subject                                                             |
+| ------------------------------- | ------------------------------------------------------------------- |
+| `github-marketplace`            | `repo:Electivus/Apex-Log-Viewer:environment:marketplace`            |
+| `github-marketplace-prerelease` | `repo:Electivus/Apex-Log-Viewer:environment:marketplace-prerelease` |
+
+The subjects match the repository's current default OIDC subject configuration (`use_immutable_subject: false`). In Azure's federated credential form, use **Other** and enter the exact subject above if the GitHub wizard generates a subject with immutable IDs. Changing the repository-wide subject format also affects existing telemetry and npm OIDC consumers and requires a separate coordinated migration.
+
+## Environments
+
+| Environment              | Deployment refs   | Reviewers     | Jobs                                                                                                        |
+| ------------------------ | ----------------- | ------------- | ----------------------------------------------------------------------------------------------------------- |
+| `marketplace`            | `main`, tags `v*` | `maintainers` | `publish_marketplace` and `publish_open_vsx` in `release.yml`, and `verify_marketplace` in `prerelease.yml` |
+| `marketplace-prerelease` | `main`            | None          | `publish_marketplace` and `publish_open_vsx` in `prerelease.yml`                                            |
+
+Stable releases keep the approval gate. Nightly pre-releases publish without approval because `prerelease.yml` runs in one concurrency group without `cancel-in-progress`. While one nightly waits for approval, each later nightly waits behind it until the next one cancels it. In September 2026, one nightly waited 23 days for approval, and nothing reached the pre-release channel for three weeks.
+
+Store these non-secret identifiers as **variables in both environments**, with the same values:
 
 | Variable                            | Source                               |
 | ----------------------------------- | ------------------------------------ |
@@ -35,7 +49,7 @@ Store these non-secret identifiers as **variables in the GitHub `marketplace` en
 | `MARKETPLACE_AZURE_TENANT_ID`       | Microsoft Entra tenant ID            |
 | `MARKETPLACE_AZURE_SUBSCRIPTION_ID` | Subscription containing the identity |
 
-Keep the existing environment reviewers. The environment name is part of the federated subject, so renaming it requires updating the Azure credential. These variables are separate from the telemetry identity's `AZURE_*` secrets.
+Both environments also hold the `OVSX_PAT` secret for Open VSX. The environment name is part of the federated subject, so renaming an environment requires updating its Azure credential. These variables are separate from the telemetry identity's `AZURE_*` secrets.
 
 ## Recreate the Azure configuration
 
@@ -51,6 +65,12 @@ az identity federated-credential create --name github-marketplace \
   --issuer https://token.actions.githubusercontent.com \
   --subject repo:Electivus/Apex-Log-Viewer:environment:marketplace \
   --audiences api://AzureADTokenExchange
+az identity federated-credential create --name github-marketplace-prerelease \
+  --identity-name id-apex-log-viewer-marketplace \
+  --resource-group rg-apex-log-viewer-publishing \
+  --issuer https://token.actions.githubusercontent.com \
+  --subject repo:Electivus/Apex-Log-Viewer:environment:marketplace-prerelease \
+  --audiences api://AzureADTokenExchange
 publishing_principal=$(az identity show --name id-apex-log-viewer-marketplace \
   --resource-group rg-apex-log-viewer-publishing --query principalId --output tsv)
 publishing_scope=$(az group show --name rg-apex-log-viewer-publishing --query id --output tsv)
@@ -62,8 +82,8 @@ The Reader assignment lets Azure login discover the subscription without grantin
 
 ## Bootstrap and verify publisher access
 
-1. Set the environment variables and create the federated credential.
-2. Dispatch **Pre-release (nightly)** with `verify_marketplace_only=true` and approve its `marketplace` deployment. This mode skips all build, packaging, release creation, and publishing jobs.
+1. Set the variables in both environments and create both federated credentials.
+2. Dispatch **Pre-release (nightly)** with `verify_marketplace_only=true` and approve its `marketplace` deployment. This mode skips all build, packaging, release creation, and publishing jobs. It checks only the `github-marketplace` credential. The next nightly publish checks `github-marketplace-prerelease`.
 3. Read the `id` from **Read Marketplace identity ID for publisher membership**. It comes from the Azure DevOps profile API as the managed identity. This is not its Azure resource path, Client ID, or Object ID. Initial access verification may fail until membership is added.
 4. In [publisher management](https://marketplace.visualstudio.com/manage/publishers/electivus), open **Members**, add that ID, and select **Contributor**.
 5. Rerun verification. `vsce verify-pat electivus --azure-credential` must succeed. Despite the command's historical name, it uses an Entra token. This checks publisher access without uploading a VSIX; confirm the Contributor role in Members because the command also accepts read-only membership.
@@ -78,6 +98,6 @@ The verification job prints only the profile ID and display name, never access t
 
 ## Reversal
 
-To disable this identity's publishing access, remove its Contributor membership from the publisher and its `github-marketplace` federated credential. Remove the three environment variables when no workflow uses them. If restoring the previous PAT workflows is necessary, provision an authorized PAT separately; deleting a GitHub secret cannot be undone. Remove the dedicated Azure identity, Reader assignment, and resource group only after checking that they have no remaining consumers.
+To disable this identity's publishing access, remove its Contributor membership from the publisher and both federated credentials. Remove the three variables from both environments when no workflow uses them. If restoring the previous PAT workflows is necessary, provision an authorized PAT separately; deleting a GitHub secret cannot be undone. Remove the dedicated Azure identity, Reader assignment, and resource group only after checking that they have no remaining consumers.
 
 References: [VS Code secure automated publishing](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#secure-automated-publishing-to-visual-studio-marketplace), [Azure login with OIDC](https://github.com/Azure/login#login-with-openid-connect-oidc-recommended).

@@ -380,7 +380,7 @@ jobs:
     if: github.repository == 'Electivus/Apex-Log-Viewer' && needs.check_changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: marketplace
+    environment: marketplace-prerelease
     permissions:
       contents: read
       id-token: write
@@ -447,7 +447,7 @@ jobs:
     if: github.repository == 'Electivus/Apex-Log-Viewer' && needs.check_changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: marketplace
+    environment: marketplace-prerelease
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
