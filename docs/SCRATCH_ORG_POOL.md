@@ -122,7 +122,7 @@ pnpm run test:e2e
 
 If `SF_SCRATCH_STRATEGY` is unset, the helper automatically switches to pool mode when `SF_SCRATCH_POOL_NAME` is present. The legacy single-scratch flow still works and remains the fallback when the pool is not configured.
 
-In pool mode, each Playwright worker holds one Pool Lease across its consecutive tests, from the first test that requests the org until the worker ends or the first failure ends it and marks the slot `needs_recreate` ([ADR 0006](adr/0006-hold-one-pool-lease-per-test-runner.md)). `PLAYWRIGHT_WORKERS` controls how many workers, each with its own Pool Lease, run at the same time. In legacy single-scratch mode, the Playwright configs force serial execution so parallel tests do not share the same scratch alias.
+In pool mode, each Playwright worker holds one Pool Lease across its consecutive tests, from the first test that requests the org until the worker ends or the first failure ends it and marks the slot `needs_recreate`. Consecutive tests in one worker share that environment, so each test must tolerate state left by earlier tests. `PLAYWRIGHT_WORKERS` controls how many workers, each with its own Pool Lease, run at the same time. In legacy single-scratch mode, the Playwright configs force serial execution so parallel tests do not share the same scratch alias.
 
 ## GitHub Actions
 
