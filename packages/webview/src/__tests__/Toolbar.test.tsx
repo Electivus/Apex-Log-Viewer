@@ -94,6 +94,7 @@ function renderToolbar(overrides: ToolbarRenderOptions = {}) {
         onQueryChange={value => {
           queryChanges.push(value);
         }}
+        onSearchRerun={() => {}}
         searchLoading={searchLoading}
         searchMessage={searchMessage}
         users={users}

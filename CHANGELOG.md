@@ -17,11 +17,20 @@
 
 - Dev Hub: add explicit certificate rotation with private recovery copies, fresh JWT verification, ordered Actions and Dependabot Secret replacement, and resumable forward/rollback recovery across partial deliveries without changing runtime grants.
 - Agent Skill: publish the vendor-neutral source from `skills/apex-log-viewer-cli`, add runtime capability checks and standard update guidance, pin `skills@1.5.21`, and validate project installation for Claude Code, Codex, GitHub Copilot, and Devin.
+- Diagnostics: measure how long Logs, Tail, Log Viewer, and Debug Flags actions wait in the VS Code extension host before they start; slow waits (250 ms or more) appear in the Output channel, and a five-minute `host.responsiveness` telemetry summary adds extension host event-loop lag.
 - Debug Flags: add a `Maximum Trace` debug level preset that sets each category to the highest level Salesforce logs for it (Validation `INFO`; System and NBA `FINE`; Workflow, Callout, Visualforce and Data Access `FINER`; the rest `FINEST`), and preselect it in the Debug Level Manager. The manager now shows the selected preset's description, including its large-log warning.
 
 ### Fixes
 
 - Log Viewer: keep the status bar fully visible; the entries table now ends above it at any editor size instead of overlapping it with its horizontal scrollbar.
+- Logs: hide logs that matched only the previous search text as soon as you change the search, instead of listing them until the new full-log search finishes.
+- Salesforce: reuse one connection per org instead of rebuilding it for every action, so Logs, Debug Flags and `sf electivus` commands stop repeating the API-version request and the auth-file rewrite on each call (every call paid both on pt-BR or de-DE systems); a session Salesforce rejects is rebuilt from the saved login and retried once.
+- Logs, search, sync and triage: locate a saved Apex log by probing its canonical day directory first and index the local store at most once per request, instead of walking every day directory for every log and re-reading already-saved bodies.
+
+### Performance
+
+- Logs: start the full-log search 300 ms after you stop typing instead of on every keystroke, so a typed word runs one search in the shared extension host instead of one per letter; clearing the search still applies immediately.
+- Logs: remove expired cached log files at most once per hour for each workspace and org, shared by the sidebar and the editor panel, instead of scanning the whole local log store on every refresh.
 
 ### Tests
 

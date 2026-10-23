@@ -586,6 +586,8 @@ export async function launchVsCode(options: {
   extensionDevelopmentPath: string;
   extensionIds?: string[];
   windowSize?: Partial<VscodeWindowSize>;
+  additionalExtensionDevelopmentPaths?: string[];
+  env?: Record<string, string>;
 }): Promise<VscodeLaunch> {
   const authLaunch = await resolveVsCodeAuthLaunch();
   applyE2eNetworkEnvironment();
@@ -636,6 +638,7 @@ export async function launchVsCode(options: {
   const args = [
     options.workspacePath,
     `--extensionDevelopmentPath=${options.extensionDevelopmentPath}`,
+    ...(options.additionalExtensionDevelopmentPaths ?? []).map(extraPath => `--extensionDevelopmentPath=${extraPath}`),
     `--user-data-dir=${userDataDir}`,
     `--extensions-dir=${extensionsDir}`,
     '--disable-workspace-trust',
@@ -660,8 +663,9 @@ export async function launchVsCode(options: {
         args,
         env: {
           ...process.env,
+          ...options.env,
           ...authLaunch.env,
-          LC_ALL: process.env.LC_ALL || 'C.UTF-8',
+          LC_ALL: options.env?.LC_ALL || process.env.LC_ALL || 'C.UTF-8',
           DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '/dev/null',
           NO_AT_BRIDGE: process.env.NO_AT_BRIDGE || '1'
         }

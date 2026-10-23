@@ -246,6 +246,22 @@ Troubleshooting:
 - CLI artifacts (screenshots/traces/videos and attached command/stdout/stderr files on failure) are written under `output/playwright-cli/`.
 - VS Code Playwright artifacts (screenshots/traces/videos on failure) are written under `output/playwright/`.
 
+### Extension host congestion lab
+
+`pnpm run test:lab:host-congestion` measures how long Logs actions wait in the shared VS Code extension host before the extension starts handling them. It leases the org through the same fixture as `pnpm run test:e2e`, but a `--config` run skips the private macOS bootstrap script, so set `SF_DEVHUB_ALIAS` or the Dev Hub JWT inputs explicitly. It runs once, without retries, and it is not part of any default suite or CI lane.
+
+The lab launches VS Code with this extension and a second test extension, `test/e2e/lab/noisy-neighbor`, that stands in for other extensions sharing the host. It clicks Refresh several times, types a search, and reads the extension's Output log for lines of the form `<Surface>: <type> waited <N> ms in the extension host queue`. It also pairs each Refresh's queue-wait line, first in first out, with the next `Logs: fetched` line to report the foreground refresh time. VS Code's main process stamps each Output line when it arrives, so both ends of a pair cross the same IPC hops. A JSON report and a copy of the Output log are written under `output/lab/host-congestion/`.
+
+| Variable                 | Default            | Effect                                                                                                                                                               |
+| ------------------------ | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ALV_LAB_NEIGHBOR`       | unset (quiet host) | `<busyMs>:<periodMs>:<poolJobs>`, for example `400:500:8`: block the host event loop for `busyMs` every `periodMs` and keep `poolJobs` jobs on the libuv threadpool. |
+| `ALV_LAB_REFRESHES`      | `6`                | Refresh clicks.                                                                                                                                                      |
+| `ALV_LAB_SEED_LOGS`      | `1`                | Apex logs seeded in the org before the run.                                                                                                                          |
+| `ALV_LAB_EMPTY_DAY_DIRS` | `0`                | Empty day directories created in the local log store, to emulate a workspace with long history.                                                                      |
+| `ALV_LAB_LABEL`          | derived            | Report file prefix.                                                                                                                                                  |
+
+The script rebuilds the extension and webviews first, so a run never measures a stale build. The report records `neighborRunning`, read from the neighbor's own Output channel, plus the git SHA, a dirty-tree flag and the names of `SF_*`/`SFDX_*` variables in the environment. A run fails after writing its report when the neighbor did not apply the requested load, when a requested refresh did not complete, or when the extension logged no queue waits. To reproduce the Salesforce SDK's API-version cache miss that pt-BR and de-DE users hit on every call, run with `SFDX_IGNORE_API_VERSION_CACHE=true` in the environment; changing the locale alone does not reproduce it, because the cached date only fails to parse when it was written under that locale. Percentiles use the same nearest-rank rule as the `host.responsiveness` telemetry.
+
 ### Playwright E2E + dedicated App Insights validation
 
 `pnpm run test:e2e:telemetry` is the full telemetry-validation path. It:

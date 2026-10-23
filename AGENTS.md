@@ -67,6 +67,7 @@
 - Playwright scratch-org E2E: `pnpm run test:e2e`.
 - Standalone CLI Playwright E2E: `pnpm run test:e2e:cli`.
 - Telemetry-validated Playwright E2E: `pnpm run test:e2e:telemetry`.
+- Extension host congestion lab (real org, opt-in, not in CI): `pnpm run test:lab:host-congestion`; see `docs/TESTING.md#extension-host-congestion-lab`.
 - Docs screenshot capture: `pnpm run docs:screenshots`.
 - VSIX smoke test: `pnpm run test:smoke:vsix`.
 - Test cache cleanup: `pnpm run test:clean` or `pnpm run test:clean:all`.
@@ -147,17 +148,3 @@ See also: `docs/PUBLISHING.md` and `docs/CI.md`.
 - Run dependency/provenance checks with `pnpm run security:dependency-sources` and `pnpm run security:pnpm-signatures`.
 - Keep logs under `apexlogs/`.
 - `*.log` and `*.txt` are forbidden in commits and rejected by `.github/workflows/forbid-sensitive-files.yml`.
-
-## Agent skills
-
-### Issue tracker
-
-Issues and PRDs are tracked in GitHub Issues using the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Triage uses the five default canonical labels. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-This repository uses a single-context layout. See `docs/agents/domain.md`.

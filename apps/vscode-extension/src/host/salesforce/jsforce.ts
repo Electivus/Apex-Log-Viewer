@@ -177,7 +177,7 @@ export async function createConnectionFromAuth(
     refreshFn: (conn, callback) => {
       void (async () => {
         try {
-          const next = await core.org.getAuth({ username: auth.username });
+          const next = await core.org.getAuth({ username: auth.username, refresh: true });
           auth.accessToken = next.accessToken;
           auth.instanceUrl = next.instanceUrl;
           auth.username = next.username;

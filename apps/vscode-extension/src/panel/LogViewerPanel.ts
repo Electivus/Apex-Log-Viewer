@@ -3,6 +3,7 @@ import { promises as fs, type Stats } from 'fs';
 import * as path from 'path';
 import { buildWebviewHtml } from '../host/utils/webviewHtml';
 import { logInfo, logWarn } from '../host/utils/logger';
+import { recordInboundMessage } from '../host/utils/responsiveness';
 import { getErrorMessage } from '../host/utils/error';
 import { summarizeLogFile } from '../host/services/logTriage';
 import { normalizeLogTriageSummary, type LogDiagnostic } from '../shared/logTriage';
@@ -137,6 +138,7 @@ export class LogViewerPanel {
   }
 
   private async onMessage(rawMessage: unknown): Promise<void> {
+    recordInboundMessage('logViewer', rawMessage);
     const message = parseLogViewerFromWebviewMessage(rawMessage);
     if (!message || this.disposed) {
       return;
