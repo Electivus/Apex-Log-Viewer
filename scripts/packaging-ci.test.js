@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const yaml = require('yaml');
 
 const repoRoot = path.join(__dirname, '..');
 
@@ -106,13 +107,23 @@ test('prerelease workflow computes the next publish version via the dedicated he
   );
 });
 
-test('prerelease workflow sets the nightly manifest version before installing package dependencies', () => {
+test('prerelease workflow sets the pre-release manifest version before installing package dependencies', () => {
   const packageJob = readWorkflowJob('.github/workflows/prerelease.yml', 'package_vsix');
 
   assert.match(
     packageJob,
-    /- name:\s+Set nightly version in apps\/vscode-extension\/package\.json[\s\S]*?- name:\s+Install dependencies[\s\S]*?- name:\s+Build extension packaging assets/,
-    'expected pnpm to install against the rewritten nightly manifest before verifyDepsBeforeRun checks it'
+    /- name:\s+Set pre-release version in apps\/vscode-extension\/package\.json[\s\S]*?- name:\s+Install dependencies[\s\S]*?- name:\s+Build extension packaging assets/,
+    'expected pnpm to install against the rewritten pre-release manifest before verifyDepsBeforeRun checks it'
+  );
+});
+
+test('prerelease workflow runs only on manual dispatch', () => {
+  const workflow = yaml.parse(readFile('.github/workflows/prerelease.yml'));
+
+  assert.deepEqual(
+    Object.keys(workflow.on),
+    ['workflow_dispatch'],
+    'expected no schedule trigger; scheduled runs wait on the marketplace approval and cancel each other'
   );
 });
 

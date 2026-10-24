@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
-import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import type { DebugFlagsFromWebviewMessage } from '../../shared/debugFlagsMessages';
 import type { LogViewerFromWebviewMessage } from '../../shared/logViewerMessages';
 import { parseMessageSentAt, type WebviewToExtensionMessage } from '../../shared/messages';
 import { safeSendEvent } from '../../shared/telemetry';
 import { logInfo, logTrace } from './logger';
+
+type LoopDelayHistogram = ReturnType<typeof monitorEventLoopDelay>;
 
 export type ResponsivenessSurface = 'logs' | 'tail' | 'logViewer' | 'debugFlags';
 
@@ -21,7 +23,7 @@ export type HostResponsivenessMeasurements = {
 
 export interface ResponsivenessEnvironment {
   now(): number;
-  loopDelay: Pick<IntervalHistogram, 'percentile' | 'max' | 'reset'>;
+  loopDelay: Pick<LoopDelayHistogram, 'percentile' | 'max' | 'reset'>;
   send(measurements: HostResponsivenessMeasurements): void;
 }
 
@@ -146,7 +148,7 @@ export function createResponsivenessMonitor(env: ResponsivenessEnvironment): Res
 }
 
 let active:
-  { monitor: ResponsivenessMonitor; loopDelay: IntervalHistogram; timer: ReturnType<typeof setInterval> } | undefined;
+  { monitor: ResponsivenessMonitor; loopDelay: LoopDelayHistogram; timer: ReturnType<typeof setInterval> } | undefined;
 
 export function startResponsivenessMonitor(): void {
   // Webview and host stamps are only comparable when both read the same machine's clock.
