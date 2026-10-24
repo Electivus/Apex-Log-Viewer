@@ -42,6 +42,49 @@ suite('DebugFlagsPanel', () => {
     assert.deepEqual(calls, ['details:start', 'details:end', 'active']);
   });
 
+  test('sendDebugLevelData sends the Maximum Trace preset and keeps Developer Focus first', async () => {
+    const { DebugFlagsPanel } = loadDebugFlagsPanel();
+    const posted: any[] = [];
+    const panelLike = {
+      disposed: false,
+      listDebugLevelDetailsWithRuntimeFallback: async () => [],
+      getActiveUserDebugLevelWithRuntimeFallback: async () => undefined,
+      post: (message: any) => {
+        posted.push(message);
+      }
+    };
+
+    await (DebugFlagsPanel as any).prototype.sendDebugLevelData.call(panelLike, {} as any);
+
+    const managerData = posted.find(message => message.type === 'debugFlagsManagerData');
+    assert.ok(managerData);
+    assert.equal(managerData.presets[0]?.id, 'developer-focus');
+    assert.deepEqual(
+      managerData.presets.find((preset: { id: string }) => preset.id === 'maximum-trace'),
+      {
+        id: 'maximum-trace',
+        label: 'Maximum Trace',
+        description: 'Every category at its highest documented level. Expect large logs.',
+        record: {
+          developerName: 'ALV_MAXIMUM_TRACE',
+          masterLabel: 'ALV Maximum Trace',
+          language: 'en_US',
+          workflow: 'FINER',
+          validation: 'INFO',
+          callout: 'FINER',
+          apexCode: 'FINEST',
+          apexProfiling: 'FINEST',
+          visualforce: 'FINER',
+          system: 'FINE',
+          database: 'FINEST',
+          wave: 'FINEST',
+          nba: 'FINE',
+          dataAccess: 'FINER'
+        }
+      }
+    );
+  });
+
   test('sendDebugLevelData ignores stale bootstrap results', async () => {
     let resolveDetails: ((value: ReturnType<typeof createEmptyDebugLevelRecord>[]) => void) | undefined;
     let resolveActive: ((value: string | undefined) => void) | undefined;
