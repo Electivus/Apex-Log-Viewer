@@ -4,10 +4,8 @@ import {
   CUSTOM_LOG_LEVELS,
   type CustomLogColumn,
   type CustomLogConfigIssueView,
-  type CustomLogPayloadColumnsView,
   type CustomLogPayloadField,
   type CustomLogRow,
-  type CustomLogScalar,
   type CustomLogSourceView,
   type CustomLogsFilterView
 } from '@alv/protocol/customLogsTypes';
@@ -17,19 +15,15 @@ import type { OrgItem } from '@alv/protocol/types';
 import { getMessages } from './i18n';
 import { CustomLogRowDetail } from './components/custom-logs/CustomLogRowDetail';
 import { CustomLogsEmptyState } from './components/custom-logs/CustomLogsEmptyState';
-import {
-  CustomLogsFilterBar,
-  type FilterBarPrefill,
-  type FilterChip
-} from './components/custom-logs/CustomLogsFilterBar';
+import { CustomLogsFilterBar, type FilterChip } from './components/custom-logs/CustomLogsFilterBar';
 import { CustomLogsStatusBar } from './components/custom-logs/CustomLogsStatusBar';
 import { CustomLogsTable } from './components/custom-logs/CustomLogsTable';
 import { CustomLogsToolbar } from './components/custom-logs/CustomLogsToolbar';
+import { usePayloadWorkbench } from './components/custom-logs/usePayloadWorkbench';
 import { LoadingOverlay } from './components/LoadingOverlay';
-import { buildTableColumns, columnSortValue, type SortState } from './utils/customLogs/columns';
+import { buildTableColumns, columnSortValue } from './utils/customLogs/columns';
 import { describeParseError, describeServerError, type FilterSubmitResult } from './utils/customLogs/filterMessages';
 import {
-  filterConditionsEqual,
   formatFilterCondition,
   formatFilterValue,
   parseFilterExpression,
@@ -42,6 +36,8 @@ import {
   clearServerFilter,
   guidedPayloadFields,
   isServerFilterField,
+  matchesPrefix,
+  payloadValueSuggestions,
   serverChips,
   valueCountsToItems,
   type GuidedField,
@@ -50,24 +46,14 @@ import {
 } from './utils/customLogs/guidedFilter';
 import {
   countPayloadStates,
-  discoverPayloadFields,
   filterLoadedRows,
-  payloadValues,
-  resolvePayloadColumns,
-  sortLoadedRows,
-  topValues
+  topValues,
+  type DiscoveredField,
+  type PayloadColumn
 } from './utils/customLogs/payloadRows';
+import { detailDock, readPayloadUiState, useElementHeight } from './utils/customLogs/uiState';
 import type { VsCodeWebviewApi, MessageBus } from './vscodeApi';
 import { getDefaultMessageBus, getDefaultVsCodeApi } from './vscodeApi';
-
-/** Below this panel height the row detail docks to the right; at or above it, under the table. */
-const DETAIL_BOTTOM_MIN_HEIGHT_PX = 640;
-
-type CustomLogsUiState = {
-  payloadFilters: FilterClause[];
-  sort?: SortState;
-  hiddenDefaults: string[];
-};
 
 const NO_ORGS: OrgItem[] = [];
 const NO_SOURCES: CustomLogSourceView[] = [];
@@ -84,55 +70,6 @@ function buildReadyMessage(): CustomLogsFromWebviewMessage {
     : { type: 'customLogsReady' };
 }
 
-function readInitialUiState(vscode: VsCodeWebviewApi<CustomLogsFromWebviewMessage>): CustomLogsUiState {
-  const raw = vscode.getState<Partial<CustomLogsUiState>>() ?? {};
-  const isClause = (value: unknown): value is FilterClause =>
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as FilterClause).field === 'string' &&
-    typeof (value as FilterClause).op === 'string';
-  const sort = raw.sort;
-  return {
-    payloadFilters: Array.isArray(raw.payloadFilters) ? raw.payloadFilters.filter(isClause) : [],
-    sort:
-      sort && typeof sort.columnId === 'string' && (sort.dir === 'asc' || sort.dir === 'desc')
-        ? { columnId: sort.columnId, dir: sort.dir }
-        : undefined,
-    hiddenDefaults: Array.isArray(raw.hiddenDefaults) ? raw.hiddenDefaults.filter(path => typeof path === 'string') : []
-  };
-}
-
-function useElementHeight<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
-  const ref = useRef<T | null>(null);
-  const [height, setHeight] = useState(0);
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) {
-      return;
-    }
-    const measure = () => setHeight(element.getBoundingClientRect().height);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => {
-      try {
-        observer.disconnect();
-      } catch (e) {
-        console.warn('CustomLogsApp: failed to disconnect ResizeObserver', e);
-      }
-    };
-  }, []);
-  return [ref, height];
-}
-
-function scalarToFilterValue(value: CustomLogScalar): string {
-  return value === null ? 'null' : String(value);
-}
-
-function matchesPrefix(value: string, prefix: string): boolean {
-  return value.toLowerCase().includes(prefix.toLowerCase());
-}
-
 export interface CustomLogsAppProps {
   vscode?: VsCodeWebviewApi<CustomLogsFromWebviewMessage>;
   messageBus?: MessageBus;
@@ -144,7 +81,7 @@ export function CustomLogsApp({
   messageBus = getDefaultMessageBus(),
   virtualListComponent
 }: CustomLogsAppProps = {}) {
-  const [initialUiState] = useState<CustomLogsUiState>(() => readInitialUiState(vscode));
+  const [initialUiState] = useState(() => readPayloadUiState(vscode.getState()));
   const [view, dispatch] = useReducer(reduceCustomLogsView, initialCustomLogsView);
   const { surface, loading, error, filter: serverFilter, payloadColumns: columnsView } = view;
   const locale = view.locale ?? 'en';
@@ -158,12 +95,7 @@ export function CustomLogsApp({
   const rows = view.page?.rows ?? NO_ROWS;
   const payloadFields = view.page?.payloadFields ?? NO_FIELDS;
   const hasMore = view.page?.hasMore ?? false;
-  const [payloadFilters, setPayloadFilters] = useState<FilterClause[]>(initialUiState.payloadFilters);
-  const [sort, setSort] = useState<SortState | undefined>(initialUiState.sort);
-  const [hiddenDefaults, setHiddenDefaults] = useState<string[]>(initialUiState.hiddenDefaults);
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
-  const [prefill, setPrefill] = useState<FilterBarPrefill | undefined>(undefined);
-  const prefillNonce = useRef(0);
   const [rootRef, rootHeight] = useElementHeight<HTMLDivElement>();
 
   const messages = getMessages(locale);
@@ -186,9 +118,53 @@ export function CustomLogsApp({
     return () => messageBus.removeEventListener('message', onMessage as EventListener);
   }, [messageBus, vscode]);
 
+  const post = useCallback((message: CustomLogsFromWebviewMessage) => vscode.postMessage(message), [vscode]);
+
+  const readySources = useMemo(() => sources.filter(source => source.state === 'ready'), [sources]);
+  const selectedSource = useMemo(
+    () => sources.find(source => source.id === selectedSourceId),
+    [sources, selectedSourceId]
+  );
+  const sourceReady = selectedSource?.state === 'ready';
+
+  const onAddedColumns = useCallback(
+    (added: string[]) => {
+      dispatch({ type: 'customLogsPayloadColumns', value: { ...columnsView, added } });
+      post({ type: 'customLogsSetPayloadColumns', added });
+    },
+    [columnsView, post]
+  );
+  const buildColumns = useCallback(
+    (payload: PayloadColumn[], discovered: DiscoveredField[]) =>
+      buildTableColumns({
+        labels: {
+          time: t.columns.time,
+          level: t.columns.level,
+          title: t.columns.title,
+          user: t.columns.user,
+          counts: t.columns.counts
+        },
+        extra: extraColumns,
+        payload,
+        discovered,
+        hasUser: rows.some(row => row.user !== undefined) || Boolean(selectedSource?.capabilities.userFilter),
+        hasCounts: rows.some(row => row.counts !== undefined)
+      }),
+    [extraColumns, rows, selectedSource?.capabilities.userFilter, t.columns]
+  );
+  const workbench = usePayloadWorkbench({
+    initial: initialUiState,
+    payloadFields,
+    itemCount: rows.length,
+    columnsView,
+    onAddedColumns,
+    buildColumns
+  });
+  const { discovered, activeColumns, lockedColumns, columns, payloadFilters, filtering } = workbench;
+
   useEffect(() => {
-    vscode.setState({ payloadFilters, sort, hiddenDefaults } satisfies CustomLogsUiState);
-  }, [hiddenDefaults, payloadFilters, sort, vscode]);
+    vscode.setState(workbench.uiState);
+  }, [vscode, workbench.uiState]);
 
   // What the loaded rows were read from: a different org or source starts with no JSON filters, sort or selection.
   // The first org and source the host reports are not a change, so a restored webview keeps its saved filters.
@@ -199,72 +175,22 @@ export function CustomLogsApp({
       return;
     }
     if (previousScopeKey.current !== undefined && previousScopeKey.current !== scopeKey) {
-      setPayloadFilters([]);
-      setSort(undefined);
+      workbench.reset();
       setSelectedId(undefined);
-      setHiddenDefaults([]);
     }
     previousScopeKey.current = scopeKey;
-  }, [scopeKey]);
+  }, [scopeKey, workbench.reset]);
 
-  const post = useCallback((message: CustomLogsFromWebviewMessage) => vscode.postMessage(message), [vscode]);
-
-  const readySources = useMemo(() => sources.filter(source => source.state === 'ready'), [sources]);
-  const selectedSource = useMemo(
-    () => sources.find(source => source.id === selectedSourceId),
-    [sources, selectedSourceId]
+  const visibleRows = useMemo(
+    () => workbench.sortItems(filterLoadedRows(rows, payloadFilters), columnSortValue),
+    [payloadFilters, rows, workbench.sortItems]
   );
-  const sourceReady = selectedSource?.state === 'ready';
-
-  const discovered = useMemo(() => discoverPayloadFields(payloadFields, rows.length), [payloadFields, rows.length]);
-  const payloadColumns = useMemo(
-    () => resolvePayloadColumns(columnsView, hiddenDefaults),
-    [columnsView, hiddenDefaults]
-  );
-  const activeColumns = useMemo(() => new Set(payloadColumns.map(column => column.path)), [payloadColumns]);
-  const lockedColumns = useMemo(
-    () => new Set(payloadColumns.filter(column => column.origin === 'default').map(column => column.path)),
-    [payloadColumns]
-  );
-
-  const columns = useMemo(
-    () =>
-      buildTableColumns({
-        labels: {
-          time: t.columns.time,
-          level: t.columns.level,
-          title: t.columns.title,
-          user: t.columns.user,
-          counts: t.columns.counts
-        },
-        extra: extraColumns,
-        payload: payloadColumns,
-        discovered,
-        hasUser: rows.some(row => row.user !== undefined) || Boolean(selectedSource?.capabilities.userFilter),
-        hasCounts: rows.some(row => row.counts !== undefined)
-      }),
-    [discovered, extraColumns, payloadColumns, rows, selectedSource?.capabilities.userFilter, t.columns]
-  );
-
-  useEffect(() => {
-    if (sort && !columns.some(column => column.id === sort.columnId)) {
-      setSort(undefined);
-    }
-  }, [columns, sort]);
-
-  const visibleRows = useMemo(() => {
-    const filtered = filterLoadedRows(rows, payloadFilters);
-    const sortColumn = sort ? columns.find(column => column.id === sort.columnId) : undefined;
-    return sort && sortColumn ? sortLoadedRows(filtered, row => columnSortValue(row, sortColumn), sort.dir) : filtered;
-  }, [columns, payloadFilters, rows, sort]);
 
   const selectedRow = useMemo(() => visibleRows.find(row => row.id === selectedId), [selectedId, visibleRows]);
   const payloadStates = useMemo(() => countPayloadStates(rows), [rows]);
 
   const capabilities = selectedSource?.capabilities ?? { levelFilter: false, userFilter: false, apexLogLink: false };
-  const filtering = payloadFilters.length > 0;
-  const payloadInUse = filtering || payloadColumns.length > 0 || sort !== undefined;
-  const dock = rootHeight >= DETAIL_BOTTOM_MIN_HEIGHT_PX ? 'bottom' : 'right';
+  const dock = detailDock(rootHeight);
 
   const setServerFilterAndPost = useCallback(
     (filter: CustomLogsFilterView) => {
@@ -273,18 +199,6 @@ export function CustomLogsApp({
     },
     [post]
   );
-
-  const addPayloadFilters = useCallback((clauses: readonly FilterClause[]) => {
-    setPayloadFilters(previous => {
-      const next = [...previous];
-      for (const clause of clauses) {
-        if (!next.some(existing => filterConditionsEqual(existing, clause))) {
-          next.push(clause);
-        }
-      }
-      return next.length === previous.length ? previous : next;
-    });
-  }, []);
 
   const onSubmitFilter = useCallback(
     (text: string): FilterSubmitResult => {
@@ -324,11 +238,11 @@ export function CustomLogsApp({
       if (nextSource !== undefined && nextSource !== selectedSourceId) {
         post({ type: 'customLogsSelectSource', sourceId: nextSource });
       }
-      addPayloadFilters(clauses);
+      workbench.addPayloadFilters(clauses);
       return { ok: true };
     },
     [
-      addPayloadFilters,
+      workbench.addPayloadFilters,
       capabilities,
       post,
       readySources,
@@ -338,11 +252,6 @@ export function CustomLogsApp({
       t.errors
     ]
   );
-
-  const requestFilterPrefill = useCallback((text: string) => {
-    prefillNonce.current += 1;
-    setPrefill({ text, nonce: prefillNonce.current });
-  }, []);
 
   const chips = useMemo<FilterChip[]>(() => {
     const result: FilterChip[] = [];
@@ -372,24 +281,9 @@ export function CustomLogsApp({
         }
       });
     }
-    payloadFilters.forEach((clause, index) => {
-      const remove = () => setPayloadFilters(previous => previous.filter((_, position) => position !== index));
-      result.push({
-        key: `loaded-${index}-${formatFilterCondition(clause)}`,
-        scope: 'loaded',
-        text: formatFilterCondition(clause),
-        field: clause.field,
-        op: clause.op,
-        ...(clause.value === undefined ? {} : { value: formatFilterValue(clause.value) }),
-        onRemove: remove,
-        onEdit: () => {
-          remove();
-          return formatFilterCondition(clause);
-        }
-      });
-    });
+    result.push(...workbench.loadedChips);
     return result;
-  }, [payloadFilters, readySources.length, selectedSource, serverFilter, setServerFilterAndPost]);
+  }, [readySources.length, selectedSource, serverFilter, setServerFilterAndPost, workbench.loadedChips]);
 
   const guidedFields = useMemo<GuidedField[]>(() => {
     const server: GuidedField[] = [];
@@ -417,50 +311,10 @@ export function CustomLogsApp({
         };
         return byField[field]().filter(item => matchesPrefix(item.value, prefix));
       }
-      return valueCountsToItems(topValues(visibleRows, row => payloadValues(row.payload, field), 30).values).filter(
-        item => matchesPrefix(item.value, prefix)
-      );
+      return payloadValueSuggestions(visibleRows, field, prefix);
     },
     [readySources, rows, visibleRows]
   );
-
-  const toggleColumn = useCallback(
-    (path: string) => {
-      if (columnsView.defaults.includes(path)) {
-        setHiddenDefaults(previous =>
-          previous.includes(path) ? previous.filter(hidden => hidden !== path) : [...previous, path]
-        );
-        return;
-      }
-      const added = columnsView.added.includes(path)
-        ? columnsView.added.filter(column => column !== path)
-        : [...columnsView.added, path];
-      dispatch({ type: 'customLogsPayloadColumns', value: { ...columnsView, added } });
-      post({ type: 'customLogsSetPayloadColumns', added });
-    },
-    [columnsView, post]
-  );
-
-  const removeColumn = useCallback(
-    (path: string) => {
-      if (activeColumns.has(path)) {
-        toggleColumn(path);
-      }
-    },
-    [activeColumns, toggleColumn]
-  );
-
-  const onSort = useCallback((columnId: string, dir?: 'asc' | 'desc') => {
-    setSort(previous => {
-      if (dir) {
-        return { columnId, dir };
-      }
-      if (previous?.columnId !== columnId) {
-        return { columnId, dir: 'asc' };
-      }
-      return previous.dir === 'asc' ? { columnId, dir: 'desc' } : undefined;
-    });
-  }, []);
 
   const onSelectOrg = (value: string) => {
     dispatch({ type: 'customLogsOrgs', data: orgs, selected: value });
@@ -529,8 +383,8 @@ export function CustomLogsApp({
             fields={guidedFields}
             valuesFor={valuesFor}
             onSubmit={onSubmitFilter}
-            onAddColumn={path => !activeColumns.has(path) && toggleColumn(path)}
-            prefill={prefill}
+            onAddColumn={path => !activeColumns.has(path) && workbench.toggleColumn(path)}
+            prefill={workbench.prefill}
           />
           <div className={dock === 'right' ? 'flex min-h-0 flex-1 flex-row' : 'flex min-h-0 flex-1 flex-col'}>
             <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
@@ -543,17 +397,17 @@ export function CustomLogsApp({
                 t={t}
                 rows={visibleRows}
                 columns={columns}
-                sort={sort}
+                sort={workbench.sort}
                 selectedId={selectedId}
                 discovered={discovered}
                 activeColumns={activeColumns}
                 lockedColumns={lockedColumns}
-                onSort={onSort}
+                onSort={workbench.onSort}
                 onSelect={row => setSelectedId(row.id)}
                 onOpen={row => post({ type: 'customLogsOpenLog', logId: row.id })}
-                onToggleColumn={toggleColumn}
-                onRemoveColumn={removeColumn}
-                onFilterBy={path => requestFilterPrefill(`${path} `)}
+                onToggleColumn={workbench.toggleColumn}
+                onRemoveColumn={workbench.removeColumn}
+                onFilterBy={path => workbench.requestFilterPrefill(`${path} `)}
                 virtualListComponent={virtualListComponent}
               />
               <LoadingOverlay show={loading && rows.length === 0} label={t.loading} />
@@ -568,10 +422,8 @@ export function CustomLogsApp({
                 onClose={() => setSelectedId(undefined)}
                 onOpenLog={row => post({ type: 'customLogsOpenLog', logId: row.id })}
                 onOpenPayload={row => post({ type: 'customLogsOpenPayload', logId: row.id })}
-                onToggleColumn={toggleColumn}
-                onFilterEqual={(path, value) =>
-                  addPayloadFilters([{ field: path, op: '=', value: scalarToFilterValue(value) }])
-                }
+                onToggleColumn={workbench.toggleColumn}
+                onFilterEqual={workbench.filterEqual}
               />
             ) : null}
           </div>
@@ -588,7 +440,7 @@ export function CustomLogsApp({
                   : fillTemplate(t.status.rowsLoaded, { count: formatCount(rows.length, locale) })
             }
             filtering={filtering}
-            payloadInUse={payloadInUse}
+            payloadInUse={workbench.payloadInUse}
             payloadStates={payloadStates}
             hasMore={hasMore}
             loading={loading}

@@ -1,7 +1,14 @@
 import { parseCustomLogLevel, parseSinceValue } from '@alv/protocol/customLogsRules';
 import type { CustomLogsFilterView } from '@alv/protocol/customLogsTypes';
 import { matchOperatorPrefix, type FilterCondition, type FilterOperator } from './filterGrammar';
-import type { DiscoveredField, PayloadFieldType, ValueCount } from './payloadRows';
+import {
+  payloadValues,
+  topValues,
+  type DiscoveredField,
+  type PayloadFieldType,
+  type PayloadRow,
+  type ValueCount
+} from './payloadRows';
 
 /** Fields that change the SOQL and reload from Salesforce, as opposed to payload paths that only narrow loaded rows. */
 export const SERVER_FILTER_FIELDS = ['level', 'user', 'since', 'source'] as const;
@@ -228,4 +235,15 @@ export function guidedPayloadFields(fields: readonly DiscoveredField[], columns:
 
 export function valueCountsToItems(values: readonly ValueCount[]): GuidedItem[] {
   return values.map(({ value, count }) => ({ value, count }));
+}
+
+export function matchesPrefix(value: string, prefix: string): boolean {
+  return value.toLowerCase().includes(prefix.toLowerCase());
+}
+
+/** The most common values of a payload path among the items on screen, narrowed by what the user typed. */
+export function payloadValueSuggestions(items: readonly PayloadRow[], path: string, prefix: string): GuidedItem[] {
+  return valueCountsToItems(topValues(items, item => payloadValues(item.payload, path), 30).values).filter(item =>
+    matchesPrefix(item.value, prefix)
+  );
 }
