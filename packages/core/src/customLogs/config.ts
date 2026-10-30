@@ -14,7 +14,6 @@
  * absent must mean "built-ins only".
  */
 
-import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
@@ -24,6 +23,7 @@ import {
   type CustomLogConfigIssue,
   type CustomLogLevel
 } from './contracts.js';
+import { shortHash } from './hash.js';
 
 // ---------------------------------------------------------------------------------------------
 // Roles: the single list of semantic fields. The parser's allowed keys, the resolver's
@@ -453,23 +453,6 @@ function readLevels(value: unknown, pointer: string, report: Report): Record<str
     }
   }
   return valid ? levels : undefined;
-}
-
-/** Deterministic JSON: object keys sorted, so equal definitions hash equally whatever the file's key order. */
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  if (isRecord(value)) {
-    return `{${Object.keys(value)
-      .sort()
-      .filter(key => value[key] !== undefined)
-      .map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value) ?? 'null';
-}
-
-function shortHash(value: unknown): string {
-  return createHash('sha1').update(stableStringify(value)).digest('hex').slice(0, 12);
 }
 
 /**
