@@ -68,6 +68,68 @@ export async function findSalesforceProjectInfo(
   return undefined;
 }
 
+const SFDX_PROJECT_FILE = 'sfdx-project.json';
+
+/**
+ * The directory Custom Logs hands core to find the project mapping: the first workspace folder that
+ * holds an `sfdx-project.json` (even a broken one, so core reports it), else the first folder, which
+ * core walks up from. `undefined` without a workspace means built-in sources only.
+ */
+export async function findCustomLogsProjectDir(
+  workspaceFolders: readonly Pick<vscode.WorkspaceFolder, 'uri'>[] | undefined = vscode.workspace.workspaceFolders
+): Promise<string | undefined> {
+  for (const folder of workspaceFolders ?? []) {
+    try {
+      await fs.access(path.join(folder.uri.fsPath, SFDX_PROJECT_FILE));
+      return folder.uri.fsPath;
+    } catch {
+      continue;
+    }
+  }
+  return workspaceFolders?.[0]?.uri.fsPath;
+}
+
+const PROJECT_FILE_CHANGE_DEBOUNCE_MS = 300;
+
+/**
+ * Calls `listener` once a burst of saves, creations or deletions of a workspace folder's
+ * `sfdx-project.json` settles. Watchers follow workspace folders as they come and go.
+ */
+export function onSfdxProjectFileChanged(listener: () => void): vscode.Disposable {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let watchers: vscode.Disposable[] = [];
+  const schedule = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      listener();
+    }, PROJECT_FILE_CHANGE_DEBOUNCE_MS);
+  };
+  const watchFolders = () => {
+    vscode.Disposable.from(...watchers).dispose();
+    watchers = (vscode.workspace.workspaceFolders ?? []).map(folder => {
+      const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, SFDX_PROJECT_FILE));
+      return vscode.Disposable.from(
+        watcher,
+        watcher.onDidChange(schedule),
+        watcher.onDidCreate(schedule),
+        watcher.onDidDelete(schedule)
+      );
+    });
+  };
+  watchFolders();
+  const foldersChanged = vscode.workspace.onDidChangeWorkspaceFolders(() => {
+    watchFolders();
+    schedule();
+  });
+  return new vscode.Disposable(() => {
+    if (timer) clearTimeout(timer);
+    foldersChanged.dispose();
+    vscode.Disposable.from(...watchers).dispose();
+    watchers = [];
+  });
+}
+
 const LOG_FILE_REGEX = /^([a-zA-Z0-9]{15,18})\.log$/;
 
 function extractLogIdFromFileName(fileName: string): string | undefined {
