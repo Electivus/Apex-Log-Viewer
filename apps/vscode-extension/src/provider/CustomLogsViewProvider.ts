@@ -54,14 +54,21 @@ function levelOf(source: CustomLogSourceView): CustomLogPayloadLevel {
   return source.shape === 'transactions' ? 'transaction' : 'entry';
 }
 
-/** The previous choice while it is still ready, else the only ready source core names, else the first ready one. */
+/**
+ * The user's choice while it is still ready, else the source on screen (so a mapping edit that adds one
+ * does not move the list), else the only ready source core names, else the first ready one.
+ */
 function pickSourceId(
   sources: readonly CustomLogSourceView[],
-  preferred: string | undefined,
+  wanted: ReadonlyArray<string | undefined>,
   defaultSourceId: string | undefined
 ): string | undefined {
   const ready = (id: string | undefined) => sources.find(source => source.id === id && source.state === 'ready')?.id;
-  return ready(preferred) ?? ready(defaultSourceId) ?? sources.find(source => source.state === 'ready')?.id;
+  return (
+    wanted.map(ready).find(id => id !== undefined) ??
+    ready(defaultSourceId) ??
+    sources.find(source => source.state === 'ready')?.id
+  );
 }
 
 /** Core refuses a filter the source cannot apply, so the provider keeps only what the selected source supports. */
@@ -504,7 +511,7 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
       this.applySources(
         result.sources,
         result.issues,
-        pickSourceId(result.sources, this.preferredSourceId, result.defaultSourceId)
+        pickSourceId(result.sources, [this.preferredSourceId, this.selectedSourceId], result.defaultSourceId)
       );
       safeSendEvent(
         'customLogs.sources',

@@ -378,6 +378,25 @@ suite('Custom Logs view provider', () => {
       assert.equal(host.last('customLogsSources')?.selected, 'app-log', 'the choice comes back with the source');
     });
 
+    test('a mapping edit that adds a source does not move the list off the one on screen', async () => {
+      const { fake, projectWatchers, mount } = load();
+      fake.handlers.customLogSources = async () => ({ sources: [NEBULA], issues: [] });
+      const host = new FakeHost();
+      await mount(host);
+      assert.equal(host.last('customLogsSources')?.selected, 'nebula');
+      host.clear();
+
+      fake.handlers.customLogSources = async () => ({ sources: [APP_LOG, NEBULA], issues: [] });
+      projectWatchers[0]!();
+      await settle();
+
+      assert.equal(host.last('customLogsSources')?.selected, 'nebula', 'the config source sorts first, but the user did not ask for it');
+      assert.equal(fake.calls.customLogList.at(-1)?.source, 'nebula');
+      const pages = host.ofType('customLogsPage') as never as Array<{ rows: unknown[] }>;
+      assert.equal(pages.length, 1, 'the rows stay until the new page arrives');
+      assert.equal(pages[0]?.rows.length, 2);
+    });
+
     test('refuses a source that is missing or not ready, and clears the old rows when a switch is accepted', async () => {
       const { fake, mount } = load();
       const host = new FakeHost();
