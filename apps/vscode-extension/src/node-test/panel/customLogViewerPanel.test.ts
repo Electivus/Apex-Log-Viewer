@@ -77,6 +77,7 @@ function load() {
           title: '',
           webview: host.webview,
           reveal: () => void (host.revealed += 1),
+          dispose: () => host.dispose(),
           onDidDispose: (listener: () => void) => host.onDidDispose(listener)
         };
         Object.defineProperty(panel, 'title', {
@@ -214,6 +215,21 @@ suite('Custom Logs viewer panel', () => {
 
     assert.equal(panels.length, 1);
     assert.equal(host.revealed, 1);
+  });
+
+  test('closing all viewers disposes every open panel and lets a log open again afterwards', async () => {
+    const { panels, open, fake, CustomLogViewerPanel } = load();
+    const first = await open();
+    const second = await open({ logId: 'a02000000000002AAA' });
+    fake.calls.customLogGet.length = 0;
+
+    CustomLogViewerPanel.closeAll();
+    await first.emit({ type: 'customLogViewerRefresh' });
+    await second.emit({ type: 'customLogViewerRefresh' });
+
+    assert.deepEqual(fake.calls.customLogGet, [], 'a closed viewer no longer reads from core');
+    await open();
+    assert.equal(panels.length, 3, 'the closed log opens in a new panel instead of revealing a dead one');
   });
 
   test('a failed load says so in the log scope and stops the spinners', async () => {

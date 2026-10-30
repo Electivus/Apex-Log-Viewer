@@ -64,6 +64,12 @@ export class CustomLogViewerPanel {
     this.panels.set(key, new CustomLogViewerPanel(context, payloadColumns, options, () => this.panels.delete(key)));
   }
 
+  static closeAll(): void {
+    for (const viewer of [...this.panels.values()]) {
+      viewer.panel.dispose();
+    }
+  }
+
   private readonly panel: vscode.WebviewPanel;
   private readonly logService = new LogService();
   private ready = false;

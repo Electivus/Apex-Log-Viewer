@@ -22,11 +22,7 @@ import { LogViewerPanel } from './panel/LogViewerPanel';
 import { DebugFlagsPanel } from './panel/DebugFlagsPanel';
 import { LogsEditorPanel } from './panel/LogsEditorPanel';
 import { TailEditorPanel } from './panel/TailEditorPanel';
-import { CustomLogsViewProvider } from './provider/CustomLogsViewProvider';
-import { CustomLogsEditorPanel } from './panel/CustomLogsEditorPanel';
-import { CustomLogViewerPanel } from './panel/CustomLogViewerPanel';
-import { registerCustomLogDocuments } from './host/utils/customLogDocuments';
-import { openCustomLogsConfig } from './host/utils/customLogsConfig';
+import { registerCustomLogsFeature } from './host/customLogsFeature';
 import { runtimeClient } from './runtime/runtimeClient';
 import { getBooleanConfig, affectsConfiguration } from './host/utils/config';
 import { getErrorMessage } from './host/utils/error';
@@ -44,7 +40,8 @@ function getExtensionVersion(context: vscode.ExtensionContext): string {
   return typeof packageJSON?.version === 'string' ? packageJSON.version : 'unknown';
 }
 
-type WebviewDiagnosticSource = () => WebviewProviderDiagnosticState | undefined;
+type WebviewDiagnosticSource = () =>
+  WebviewProviderDiagnosticState | readonly WebviewProviderDiagnosticState[] | undefined;
 
 function buildDiagnosticsPackage(
   context: vscode.ExtensionContext,
@@ -110,9 +107,6 @@ export async function activate(context: vscode.ExtensionContext) {
   DebugFlagsPanel.initialize(context);
   LogsEditorPanel.initialize(context);
   TailEditorPanel.initialize(context);
-  CustomLogsEditorPanel.initialize(context);
-  CustomLogViewerPanel.initialize(context);
-  registerCustomLogDocuments(context);
   const salesforceProject = await findSalesforceProjectInfo();
   const hasSalesforceProject = !!salesforceProject;
   // Init TTL cache (best-effort; no-op if unavailable)
@@ -179,14 +173,9 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Register Custom Logs view provider
-  const customLogsProvider = new CustomLogsViewProvider(context);
-  context.subscriptions.push(
-    customLogsProvider,
-    vscode.window.registerWebviewViewProvider(CustomLogsViewProvider.viewType, customLogsProvider, {
-      webviewOptions: { retainContextWhenHidden: true }
-    })
-  );
+  // Custom Logs is experimental: its view provider, watcher and commands exist only while its setting is on.
+  const customLogs = registerCustomLogsFeature(context, () => provider.getSelectedOrg());
+  context.subscriptions.push(customLogs);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('electivus.apexLogViewer.logs.refresh', async () => {
@@ -291,56 +280,6 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand('electivus.apexLogViewer.customLogs.refresh', async () => {
-      safeSendEvent('command.customLogs.refresh', { outcome: 'invoked' });
-      const viewAlreadyResolved = customLogsProvider.hasResolvedView();
-      try {
-        await vscode.commands.executeCommand('workbench.view.extension.electivus-apex-log-viewer-custom-logs');
-        try {
-          await vscode.commands.executeCommand('workbench.viewsService.openView', CustomLogsViewProvider.viewType);
-        } catch {
-          await vscode.commands.executeCommand('workbench.action.openView', CustomLogsViewProvider.viewType);
-        }
-        if (!customLogsProvider.getSelectedOrg()) {
-          await customLogsProvider.syncSelectedOrg(provider.getSelectedOrg());
-        }
-        // A freshly resolved view loads when its webview posts "ready"; only an open one needs the refresh.
-        if (viewAlreadyResolved) {
-          await customLogsProvider.refresh();
-        }
-      } catch (e) {
-        logWarn('Command electivus.apexLogViewer.customLogs.refresh failed ->', getErrorMessage(e));
-      }
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('electivus.apexLogViewer.customLogs.openEditor', async () => {
-      safeSendEvent('command.customLogs.openEditor', { outcome: 'invoked' });
-      try {
-        await CustomLogsEditorPanel.show({
-          selectedOrg: customLogsProvider.getSelectedOrg() ?? provider.getSelectedOrg()
-        });
-      } catch (e) {
-        logWarn('Command electivus.apexLogViewer.customLogs.openEditor failed ->', getErrorMessage(e));
-        safeSendEvent('command.customLogs.openEditor', { outcome: 'error' });
-      }
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('electivus.apexLogViewer.customLogs.configure', async () => {
-      safeSendEvent('command.customLogs.configure', { outcome: 'invoked' });
-      try {
-        await openCustomLogsConfig();
-      } catch (e) {
-        logWarn('Command electivus.apexLogViewer.customLogs.configure failed ->', getErrorMessage(e));
-        safeSendEvent('command.customLogs.configure', { outcome: 'error' });
-      }
-    })
-  );
-
   const codeLensProvider = new ApexLogCodeLensProvider();
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider({ scheme: 'file', language: 'apexlog' }, codeLensProvider),
@@ -408,8 +347,7 @@ export async function activate(context: vscode.ExtensionContext) {
             () => tailProvider.getWebviewDiagnosticState(),
             () => LogsEditorPanel.getDiagnosticState(),
             () => TailEditorPanel.getDiagnosticState(),
-            () => customLogsProvider.getWebviewDiagnosticState(),
-            () => CustomLogsEditorPanel.getDiagnosticState()
+            () => customLogs.getWebviewDiagnosticStates()
           ],
           salesforceProject
         );

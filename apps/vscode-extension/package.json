@@ -105,6 +105,14 @@
           "default": false,
           "markdownDescription": "%configuration.electivus.apexLogViewer.logging.trace.description%"
         },
+        "electivus.apexLogViewer.customLogs.enabled": {
+          "type": "boolean",
+          "default": false,
+          "tags": [
+            "experimental"
+          ],
+          "markdownDescription": "%configuration.electivus.apexLogViewer.customLogs.enabled.description%"
+        },
         "electivus.apexLogViewer.logs.columns": {
           "type": "object",
           "default": {
@@ -256,7 +264,8 @@
         {
           "id": "electivus.apexLogViewer.customLogsView",
           "name": "%customLogs.view.name%",
-          "type": "webview"
+          "type": "webview",
+          "when": "config.electivus.apexLogViewer.customLogs.enabled"
         }
       ]
     },
@@ -290,18 +299,21 @@
         "command": "electivus.apexLogViewer.customLogs.refresh",
         "title": "%command.customLogs.refresh.title%",
         "category": "Electivus Apex Logs",
-        "icon": "$(refresh)"
+        "icon": "$(refresh)",
+        "enablement": "config.electivus.apexLogViewer.customLogs.enabled"
       },
       {
         "command": "electivus.apexLogViewer.customLogs.openEditor",
         "title": "%command.customLogs.openEditor.title%",
         "category": "Electivus Apex Logs",
-        "icon": "$(open-preview)"
+        "icon": "$(open-preview)",
+        "enablement": "config.electivus.apexLogViewer.customLogs.enabled"
       },
       {
         "command": "electivus.apexLogViewer.customLogs.configure",
         "title": "%command.customLogs.configure.title%",
-        "category": "Electivus Apex Logs"
+        "category": "Electivus Apex Logs",
+        "enablement": "config.electivus.apexLogViewer.customLogs.enabled"
       },
       {
         "command": "electivus.apexLogViewer.log.openViewer",
@@ -336,6 +348,20 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "electivus.apexLogViewer.customLogs.refresh",
+          "when": "config.electivus.apexLogViewer.customLogs.enabled"
+        },
+        {
+          "command": "electivus.apexLogViewer.customLogs.openEditor",
+          "when": "config.electivus.apexLogViewer.customLogs.enabled"
+        },
+        {
+          "command": "electivus.apexLogViewer.customLogs.configure",
+          "when": "config.electivus.apexLogViewer.customLogs.enabled"
+        }
+      ],
       "view/title": [
         {
           "command": "electivus.apexLogViewer.logs.openEditor",

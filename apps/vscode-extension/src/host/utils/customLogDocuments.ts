@@ -66,10 +66,16 @@ class CustomLogDocuments implements vscode.TextDocumentContentProvider, vscode.D
 
 let registered: CustomLogDocuments | undefined;
 
-export function registerCustomLogDocuments(context: vscode.ExtensionContext): void {
+export function registerCustomLogDocuments(): vscode.Disposable {
   registered?.dispose();
-  registered = new CustomLogDocuments();
-  context.subscriptions.push(registered);
+  const documents = new CustomLogDocuments();
+  registered = documents;
+  return new vscode.Disposable(() => {
+    documents.dispose();
+    if (registered === documents) {
+      registered = undefined;
+    }
+  });
 }
 
 export async function openCustomLogDocument(document: CustomLogDocument): Promise<void> {

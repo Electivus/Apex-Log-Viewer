@@ -147,4 +147,18 @@ suite('Session editor panel', () => {
     assert.equal(controllers[0]?.disposeCount, 1);
     assert.equal(controllers[1]?.disposeCount, 0);
   });
+
+  test('closing from the host closes the tab, disposes the controller and allows a fresh tab', async () => {
+    const panels = [createPanel(), createPanel()];
+    const { editor, controllers } = load(panels);
+    editor.close();
+    await editor.show();
+
+    editor.close();
+
+    assert.equal(controllers[0]?.disposeCount, 1);
+    assert.equal(editor.getDiagnosticState(), undefined);
+    await editor.show();
+    assert.equal(controllers.length, 2);
+  });
 });

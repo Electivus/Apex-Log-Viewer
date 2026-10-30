@@ -57,6 +57,10 @@ export function createSessionEditorPanel(config: SessionEditorPanelConfig) {
       this.panel.reveal(undefined, false);
     }
 
+    close(): void {
+      this.panel.dispose();
+    }
+
     syncSelectedOrg(selectedOrg?: string): Promise<void> {
       return this.controller.syncSelectedOrg(selectedOrg);
     }
@@ -122,6 +126,11 @@ export function createSessionEditorPanel(config: SessionEditorPanelConfig) {
 
     getDiagnosticState(): WebviewProviderDiagnosticState | undefined {
       return instance?.diagnosticState;
+    },
+
+    /** Closes the open tab, if any, and disposes its controller. */
+    close(): void {
+      instance?.close();
     },
 
     async show(options?: SessionEditorShowOptions): Promise<void> {
