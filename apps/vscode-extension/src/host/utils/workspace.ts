@@ -29,19 +29,26 @@ const SFDX_PROJECT_FILE = 'sfdx-project.json';
 
 type WorkspaceFolders = readonly Pick<vscode.WorkspaceFolder, 'uri'>[] | undefined;
 
-/** The workspace folders that hold an `sfdx-project.json`, in VS Code's multi-root folder order. */
+/**
+ * The workspace folders that hold an `sfdx-project.json`, in VS Code's multi-root folder order. `text` is the
+ * file's content, or undefined when the file exists but cannot be read.
+ */
 async function* foldersWithProjectFile(
   workspaceFolders: WorkspaceFolders
-): AsyncGenerator<{ workspaceRoot: string; projectFilePath: string }> {
+): AsyncGenerator<{ workspaceRoot: string; projectFilePath: string; text: string | undefined }> {
   for (const folder of workspaceFolders ?? []) {
     const workspaceRoot = folder.uri.fsPath;
     const projectFilePath = path.join(workspaceRoot, SFDX_PROJECT_FILE);
+    let text: string | undefined;
     try {
-      await fs.access(projectFilePath);
-    } catch {
-      continue;
+      text = await fs.readFile(projectFilePath, 'utf8');
+    } catch (error) {
+      const code = String((error as NodeJS.ErrnoException | undefined)?.code ?? '');
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        continue;
+      }
     }
-    yield { workspaceRoot, projectFilePath };
+    yield { workspaceRoot, projectFilePath, text };
   }
 }
 
@@ -54,16 +61,13 @@ async function* foldersWithProjectFile(
 export async function findSalesforceProjectInfo(
   workspaceFolders: WorkspaceFolders = vscode.workspace.workspaceFolders
 ): Promise<SalesforceProjectInfo | undefined> {
-  for await (const { workspaceRoot, projectFilePath } of foldersWithProjectFile(workspaceFolders)) {
-    let rawProject: string;
-    try {
-      rawProject = await fs.readFile(projectFilePath, 'utf8');
-    } catch {
+  for await (const { workspaceRoot, projectFilePath, text } of foldersWithProjectFile(workspaceFolders)) {
+    if (text === undefined) {
       continue;
     }
 
     try {
-      const parsed = JSON.parse(rawProject);
+      const parsed = JSON.parse(text);
       const sourceApiVersion =
         typeof parsed?.sourceApiVersion === 'string' && parsed.sourceApiVersion.trim().length > 0
           ? parsed.sourceApiVersion.trim()
