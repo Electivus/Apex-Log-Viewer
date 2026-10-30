@@ -273,6 +273,28 @@ suite('Custom Logs view provider', () => {
       assert.equal(fake.calls.customLogList.at(-1)?.cursor, 'cursor-filtered');
     });
 
+    test('a filter that fails to load leaves no cursor to load more from', async () => {
+      const { fake, mount } = load();
+      pagedList(fake);
+      const host = new FakeHost();
+      await mount(host);
+      const list = fake.handlers.customLogList!;
+      fake.handlers.customLogList = async params => {
+        if (Object.keys((params.filter ?? {}) as object).length > 0) {
+          throw new Error('INVALID_FILTER');
+        }
+        return list(params);
+      };
+
+      await host.emit({ type: 'customLogsSetFilter', filter: { since: '24h' } });
+
+      assert.equal(host.last('customLogsError')?.message, 'INVALID_FILTER');
+      assert.equal((host.last('customLogsPage') as never as { hasMore: boolean }).hasMore, false);
+      const callsBefore = fake.calls.customLogList.length;
+      await host.emit({ type: 'customLogsLoadMore' });
+      assert.equal(fake.calls.customLogList.length, callsBefore, 'the old cursor does not belong to the new filter');
+    });
+
     test('an empty filter clears every server-side condition', async () => {
       const { fake, mount } = load();
       const host = new FakeHost();

@@ -549,11 +549,29 @@ export class CustomLogsViewProvider implements vscode.WebviewViewProvider, vscod
     this.post({ type: 'customLogsPayloadColumns', value: this.columnsFor(source) });
   }
 
+  /** A replace page starts a new query, so the cursor of the last one no longer belongs to the filter. */
+  private stopPaging(): void {
+    this.cursor = null;
+    if (this.hasMore) {
+      this.post({
+        type: 'customLogsPage',
+        mode: 'append',
+        columns: this.columns,
+        rows: [],
+        payloadFields: [],
+        hasMore: false
+      });
+    }
+  }
+
   private async fetchPage(mode: 'replace' | 'append', signal: AbortSignal, current: () => boolean): Promise<void> {
     const source = this.selectedSource();
     if (!source) {
       this.clearPage();
       return;
+    }
+    if (mode === 'replace') {
+      this.stopPaging();
     }
     const startedAt = Date.now();
     try {
