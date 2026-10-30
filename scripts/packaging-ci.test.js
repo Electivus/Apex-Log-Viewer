@@ -127,6 +127,31 @@ test('prerelease workflow runs only on manual dispatch', () => {
   );
 });
 
+test('prerelease workflow refuses to attach a build to a release tag that points at another commit', () => {
+  const assembleJob = readWorkflowJob('.github/workflows/prerelease.yml', 'assemble_release');
+
+  assert.match(
+    assembleJob,
+    /git ls-remote --tags origin "refs\/tags\/\$\{TAG\}"[\s\S]*?"\$TAG_SHA" != "\$GITHUB_SHA"[\s\S]*?exit 1[\s\S]*?gh release view "\$TAG"/,
+    'expected an existing tag on another commit to fail the job before the release is updated'
+  );
+  assert.match(
+    assembleJob,
+    /gh release create "\$TAG" --target "\$GITHUB_SHA"/,
+    'expected a new release to tag the built commit instead of the default branch head'
+  );
+});
+
+test('prerelease rollback leaves a release whose tag points at another commit in place', () => {
+  const rollbackJob = readWorkflowJob('.github/workflows/prerelease.yml', 'rollback_prerelease');
+
+  assert.match(
+    rollbackJob,
+    /gh api "repos\/\$\{GITHUB_REPOSITORY\}\/commits\/refs\/tags\/\$\{TAG\}" --jq \.sha[\s\S]*?"\$TAG_SHA" != "\$GITHUB_SHA"[\s\S]*?exit 0[\s\S]*?gh release delete "\$TAG"/,
+    'expected the rollback to compare the tag commit with GITHUB_SHA before it deletes the release'
+  );
+});
+
 test('tag release workflow keeps the checked-in manifest unchanged after installing dependencies', () => {
   const packageJob = readWorkflowJob('.github/workflows/release.yml', 'package');
 

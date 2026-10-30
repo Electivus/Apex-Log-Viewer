@@ -194,6 +194,37 @@ export async function fetchOpenVsxVersions(
   return versionsFromOpenVsxPayload(await response.json());
 }
 
+export function versionsFromGitTags(tagListing) {
+  const versions = [];
+  for (const line of tagListing.split('\n')) {
+    const match = /^v(\d+\.\d+\.\d+)$/.exec(line.trim());
+    if (match) {
+      versions.push({
+        version: match[1],
+        preRelease: parseSemver(match[1]).minor % 2 === 1,
+        source: 'git-tag'
+      });
+    }
+  }
+  return versions;
+}
+
+// The stores can lag a publish.
+export function fetchGitTagVersions({ spawnSyncImpl = spawnSync, cwd = process.cwd() } = {}) {
+  const result = spawnSyncImpl('git', ['tag', '--list', 'v*'], { cwd, encoding: 'utf8' });
+
+  if (result.error) {
+    throw result.error;
+  }
+  if ((result.status ?? 0) !== 0) {
+    throw new Error(
+      formatSpawnError(`git tag --list failed with exit code ${result.status ?? 'null'}`, result)
+    );
+  }
+
+  return versionsFromGitTags(result.stdout);
+}
+
 function parseArgs(argv) {
   const options = {
     manifestPath: 'apps/vscode-extension/package.json'
@@ -247,9 +278,10 @@ export async function main(
     const message = error instanceof Error ? error.message : String(error);
     stderr.write(`Warning: ${message}; continuing with VS Code Marketplace versions only.\n`);
   }
+  const gitTagVersions = fetchGitTagVersions({ spawnSyncImpl, cwd });
   const nextVersion = computeNextPrereleaseVersion({
     baseVersion,
-    publishedVersions: [...marketplaceVersions, ...openVsxVersions]
+    publishedVersions: [...marketplaceVersions, ...openVsxVersions, ...gitTagVersions]
   });
 
   stdout.write(nextVersion);
