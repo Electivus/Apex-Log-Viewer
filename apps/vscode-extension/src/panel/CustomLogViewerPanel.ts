@@ -192,6 +192,7 @@ export class CustomLogViewerPanel {
       this.title = detail.log.title ?? this.options.logId;
       this.panel.title = localize('customLogs.viewer.panelTitle', 'Custom log: {0}', this.title);
       this.deliveredEntryIds.clear();
+      this.heldEntries.clear();
       for (const entry of detail.entries) {
         this.deliveredEntryIds.add(entry.id);
       }

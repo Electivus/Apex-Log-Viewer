@@ -341,6 +341,22 @@ suite('Custom Logs viewer panel', () => {
       assert.equal(documents[0]?.text, 'AnonymousBlock: line 7');
     });
 
+    test('a refresh drops the entries it held, so a field opens with the text read after the refresh', async () => {
+      const { fake, documents, open } = load();
+      const host = await open();
+      await host.emit({ type: 'customLogViewerOpenEntry', entryId: ENTRY_A });
+      fake.handlers.customLogEntry = async () => entryResult({ entry: { sequence: 31, message: 'Divide by 1' } });
+
+      await host.emit({ type: 'customLogViewerRefresh' });
+      await host.emit({
+        type: 'customLogViewerOpenField',
+        target: { kind: 'entry', entryId: ENTRY_A, key: 'message' }
+      });
+
+      assert.equal(fake.calls.customLogEntry.length, 2);
+      assert.equal(documents.at(-1)?.text, 'Divide by 1');
+    });
+
     test('opens the header payload the panel holds, and nothing when the source maps none', async () => {
       const { fake, documents, open } = load();
       const host = await open();
