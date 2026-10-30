@@ -1,11 +1,24 @@
 export const FILTER_OPERATORS = ['=', '!=', '>', '>=', '<', '<=', 'contains', 'exists'] as const;
 export type FilterOperator = (typeof FILTER_OPERATORS)[number];
 
+/** Unquoted, these fields name the list's Salesforce filter; a payload key spelled the same is written quoted. */
+export const SERVER_FILTER_FIELDS = ['level', 'user', 'since', 'source'] as const;
+export type ServerFilterField = (typeof SERVER_FILTER_FIELDS)[number];
+
+export function isServerFilterField(field: string): field is ServerFilterField {
+  return (SERVER_FILTER_FIELDS as readonly string[]).includes(field);
+}
+
+/** Whether a field names a server filter field or a payload path, which decides how it is written. */
+export type FilterFieldKind = 'server' | 'payload';
+
 /** Character offsets into the parsed text, so a caller can point at the token it dislikes. */
 export type FilterConditionPositions = { field: number; operator: number; value?: number };
 
 export type FilterCondition = {
   field: string;
+  /** A quoted field names a payload path even when it spells a server filter field. */
+  quoted: boolean;
   op: FilterOperator;
   /** Absent for `exists`. */
   value?: string;
@@ -118,6 +131,7 @@ export function parseFilterExpression(source: string): FilterParseResult {
 
   for (;;) {
     skipSpace();
+    const quoted = source[i] === '"' || source[i] === "'";
     const fieldRead = readFilterField(source.slice(i));
     if (fieldRead && !fieldRead.closed) {
       return fail('unterminatedString', i);
@@ -162,6 +176,7 @@ export function parseFilterExpression(source: string): FilterParseResult {
 
     conditions.push({
       field,
+      quoted,
       op: matched.op,
       ...(value === undefined ? {} : { value }),
       at:
@@ -197,9 +212,17 @@ function quoteText(text: string): string {
   return `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-/** The text that parses back to `field`: bare when that is unambiguous, else quoted. */
-export function formatFilterField(field: string): string {
-  return BARE_SAFE_FIELD.test(field) ? field : quoteText(field);
+/** The server filter field a parsed condition names, or `undefined` when it names a payload path. */
+export function serverFieldOf(condition: Pick<FilterCondition, 'field' | 'quoted'>): ServerFilterField | undefined {
+  return !condition.quoted && isServerFilterField(condition.field) ? condition.field : undefined;
+}
+
+/**
+ * The text that parses back to `field` of this kind: a server field bare, a payload path bare when that is
+ * unambiguous, else quoted. A payload key spelled like a server filter field is quoted so it stays a payload path.
+ */
+export function formatFilterField(field: string, kind: FilterFieldKind): string {
+  return kind === 'server' || (BARE_SAFE_FIELD.test(field) && !isServerFilterField(field)) ? field : quoteText(field);
 }
 
 /** The text that parses back to `value`: bare when that is unambiguous, else quoted. */
@@ -207,8 +230,8 @@ export function formatFilterValue(value: string): string {
   return BARE_SAFE_VALUE.test(value) && !/^and$|^or$/i.test(value) ? value : quoteText(value);
 }
 
-export function formatFilterCondition(condition: FilterClause): string {
-  const field = formatFilterField(condition.field);
+export function formatFilterCondition(condition: FilterClause, kind: FilterFieldKind): string {
+  const field = formatFilterField(condition.field, kind);
   return condition.value === undefined
     ? `${field} ${condition.op}`
     : `${field} ${condition.op} ${formatFilterValue(condition.value)}`;

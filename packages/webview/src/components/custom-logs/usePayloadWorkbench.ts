@@ -97,16 +97,16 @@ export function usePayloadWorkbench<Column extends { id: string }>({
       payloadFilters.map((clause, index) => {
         const remove = () => setPayloadFilters(previous => previous.filter((_, position) => position !== index));
         return {
-          key: `loaded-${index}-${formatFilterCondition(clause)}`,
+          key: `loaded-${index}-${formatFilterCondition(clause, 'payload')}`,
           scope: 'loaded' as const,
-          text: formatFilterCondition(clause),
-          field: clause.field,
+          text: formatFilterCondition(clause, 'payload'),
+          field: formatFilterField(clause.field, 'payload'),
           op: clause.op,
           ...(clause.value === undefined ? {} : { value: formatFilterValue(clause.value) }),
           onRemove: remove,
           onEdit: () => {
             remove();
-            return formatFilterCondition(clause);
+            return formatFilterCondition(clause, 'payload');
           }
         };
       }),
@@ -160,7 +160,7 @@ export function usePayloadWorkbench<Column extends { id: string }>({
   /** Moves the filter bar to `path`, written as the grammar reads it back, ready for an operator. */
   const prefillFilterField = useCallback((path: string) => {
     prefillNonce.current += 1;
-    setPrefill({ text: `${formatFilterField(path)} `, nonce: prefillNonce.current });
+    setPrefill({ text: `${formatFilterField(path, 'payload')} `, nonce: prefillNonce.current });
   }, []);
 
   /** A different org or source: its rows have nothing to do with these filters, sort or hidden columns. */

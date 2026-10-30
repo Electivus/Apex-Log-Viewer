@@ -3,12 +3,13 @@ import { Cloud, ListFilter, Search, X } from 'lucide-react';
 import type { CustomLogsMessages } from '../../i18n';
 import { cn } from '../../lib/utils';
 import { fillTemplate } from '../../utils/customLogs/format';
+import { formatFilterField } from '../../utils/customLogs/filterGrammar';
 import type { FilterSubmitResult } from '../../utils/customLogs/filterMessages';
 import {
   acceptGuidedItem,
   computeGuidedStage,
+  type GuidedContext,
   type GuidedField,
-  type GuidedItem,
   type GuidedStage
 } from '../../utils/customLogs/guidedFilter';
 
@@ -33,7 +34,7 @@ type CustomLogsFilterBarProps = {
   t: CustomLogsMessages;
   chips: FilterChip[];
   fields: GuidedField[];
-  valuesFor: (field: string, prefix: string) => readonly GuidedItem[];
+  valuesFor: GuidedContext['valuesFor'];
   onSubmit: (text: string) => FilterSubmitResult;
   onAddColumn: (path: string) => void;
   /** Puts text in the input and focuses it, for example when a column menu asks to filter by its field. */
@@ -185,9 +186,9 @@ export function CustomLogsFilterBar({
       case 'field':
         return t.filter.stageField;
       case 'operator':
-        return fillTemplate(t.filter.stageOperator, { field: stage.field });
+        return fillTemplate(t.filter.stageOperator, { field: formatFilterField(stage.field, stage.kind) });
       case 'value':
-        return fillTemplate(t.filter.stageValue, { field: stage.field, op: stage.op });
+        return fillTemplate(t.filter.stageValue, { field: formatFilterField(stage.field, stage.kind), op: stage.op });
       case 'commit':
         return t.filter.stageCommit;
     }
@@ -258,7 +259,7 @@ export function CustomLogsFilterBar({
             {stage.stage === 'field'
               ? stage.items.map((item, index) => (
                   <li
-                    key={item.path}
+                    key={`${item.kind}:${item.path}`}
                     id={`${listId}-${index}`}
                     role="option"
                     aria-selected={index === highlight}

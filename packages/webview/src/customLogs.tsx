@@ -26,8 +26,12 @@ import { describeParseError, describeServerError, type FilterSubmitResult } from
 import {
   formatFilterCondition,
   formatFilterValue,
+  isServerFilterField,
   parseFilterExpression,
-  type FilterClause
+  serverFieldOf,
+  type FilterClause,
+  type FilterFieldKind,
+  type ServerFilterField
 } from './utils/customLogs/filterGrammar';
 import { fillTemplate, formatCount } from './utils/customLogs/format';
 import {
@@ -35,14 +39,12 @@ import {
   applyServerCondition,
   clearServerFilter,
   guidedPayloadFields,
-  isServerFilterField,
   matchesPrefix,
   payloadValueSuggestions,
   serverChips,
   valueCountsToItems,
   type GuidedField,
-  type GuidedItem,
-  type ServerFilterField
+  type GuidedItem
 } from './utils/customLogs/guidedFilter';
 import {
   countPayloadStates,
@@ -234,13 +236,13 @@ export function CustomLogsApp({
       }
       // A `source` clause decides which source the other clauses are checked against, so it goes first.
       const conditions = [...parsed.conditions].sort(
-        (a, b) => Number(b.field === 'source') - Number(a.field === 'source')
+        (a, b) => Number(serverFieldOf(b) === 'source') - Number(serverFieldOf(a) === 'source')
       );
       let destination = selectedSource;
       let workingFilter = serverFilter;
       const clauses: FilterClause[] = [];
       for (const condition of conditions) {
-        if (!isServerFilterField(condition.field)) {
+        if (!serverFieldOf(condition)) {
           clauses.push({
             field: condition.field,
             op: condition.op,
@@ -300,14 +302,14 @@ export function CustomLogsApp({
       result.push({
         key: `server-${chip.field}`,
         scope: 'server',
-        text: formatFilterCondition(clause),
+        text: formatFilterCondition(clause, 'server'),
         field: clause.field,
         op: clause.op,
         value: formatFilterValue(clause.value),
         onRemove: () => setServerFilterAndPost(clearServerFilter(serverFilter, chip.field)),
         onEdit: () => {
           setServerFilterAndPost(clearServerFilter(serverFilter, chip.field));
-          return formatFilterCondition(clause);
+          return formatFilterCondition(clause, 'server');
         }
       });
     }
@@ -331,8 +333,8 @@ export function CustomLogsApp({
   }, [activeColumns, capabilities.levelFilter, capabilities.userFilter, discovered, readySources.length]);
 
   const valuesFor = useCallback(
-    (field: string, prefix: string): GuidedItem[] => {
-      if (isServerFilterField(field)) {
+    (field: string, prefix: string, kind: FilterFieldKind): GuidedItem[] => {
+      if (kind === 'server' && isServerFilterField(field)) {
         const byField: Record<ServerFilterField, () => GuidedItem[]> = {
           level: () => [...CUSTOM_LOG_LEVELS].reverse().map(level => ({ value: level })),
           user: () => valueCountsToItems(topValues(rows, row => (row.user ? [row.user] : []), 30).values),

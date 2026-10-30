@@ -1,6 +1,7 @@
 import {
   formatFilterCondition,
   parseFilterExpression,
+  serverFieldOf,
   type FilterCondition,
   type FilterParseResult
 } from '../utils/customLogs/filterGrammar';
@@ -182,25 +183,66 @@ describe('filter grammar', () => {
       'tags[] = vip',
       '[].status >= 500',
       '"Account Name" contains acme',
-      '"say \\"hi\\".x" exists'
+      '"say \\"hi\\".x" exists',
+      '"user" = alice'
     ];
 
     it.each(roundTrips)('writes %s so that it parses back to the same condition', source => {
       const parsed = conditionsOf(parseFilterExpression(source));
-      const written = parsed.map(formatFilterCondition).join(' and ');
+      const written = parsed.map(condition => formatFilterCondition(condition, 'payload')).join(' and ');
       expect(conditionsOf(parseFilterExpression(written))).toEqual(parsed);
     });
 
     it('leaves plain values bare and quotes the ones that need it', () => {
-      expect(formatFilterCondition({ field: 'a', op: '=', value: '500' })).toBe('a = 500');
-      expect(formatFilterCondition({ field: 'a', op: '=', value: 'two words' })).toBe('a = "two words"');
-      expect(formatFilterCondition({ field: 'a', op: 'exists' })).toBe('a exists');
+      expect(formatFilterCondition({ field: 'a', op: '=', value: '500' }, 'payload')).toBe('a = 500');
+      expect(formatFilterCondition({ field: 'a', op: '=', value: 'two words' }, 'payload')).toBe('a = "two words"');
+      expect(formatFilterCondition({ field: 'a', op: 'exists' }, 'payload')).toBe('a exists');
     });
 
     it('leaves plain fields bare and quotes the ones that need it', () => {
-      expect(formatFilterCondition({ field: '[].status', op: '>=', value: '500' })).toBe('[].status >= 500');
-      expect(formatFilterCondition({ field: 'Account Name', op: 'exists' })).toBe('"Account Name" exists');
-      expect(formatFilterCondition({ field: 'a=b', op: 'exists' })).toBe('"a=b" exists');
+      expect(formatFilterCondition({ field: '[].status', op: '>=', value: '500' }, 'payload')).toBe('[].status >= 500');
+      expect(formatFilterCondition({ field: 'Account Name', op: 'exists' }, 'payload')).toBe('"Account Name" exists');
+      expect(formatFilterCondition({ field: 'a=b', op: 'exists' }, 'payload')).toBe('"a=b" exists');
+    });
+
+    it('quotes a payload key spelled like a server filter field, and writes the server field bare', () => {
+      expect(formatFilterCondition({ field: 'user', op: '=', value: 'alice' }, 'payload')).toBe('"user" = alice');
+      expect(formatFilterCondition({ field: 'level', op: 'exists' }, 'payload')).toBe('"level" exists');
+      expect(formatFilterCondition({ field: 'user', op: '=', value: 'alice' }, 'server')).toBe('user = alice');
+      expect(formatFilterCondition({ field: 'User', op: '=', value: 'alice' }, 'payload')).toBe('User = alice');
+    });
+  });
+
+  describe('server filter fields', () => {
+    const named = (source: string) => {
+      const result = parseFilterExpression(source);
+      if (!result.ok) {
+        throw new Error(source);
+      }
+      return result.conditions.map(condition => [condition.field, serverFieldOf(condition) ?? 'payload']);
+    };
+
+    it('reads an unquoted level, user, since or source as the server filter field, and a quoted one as a payload key', () => {
+      expect(named('level >= WARN and user = a and since = 1h and source = s')).toEqual([
+        ['level', 'level'],
+        ['user', 'user'],
+        ['since', 'since'],
+        ['source', 'source']
+      ]);
+      expect(named('"level" = x and \'user\' = a and "since" exists and "source" exists')).toEqual([
+        ['level', 'payload'],
+        ['user', 'payload'],
+        ['since', 'payload'],
+        ['source', 'payload']
+      ]);
+    });
+
+    it('matches server filter fields by their exact spelling', () => {
+      expect(named('User = a and LEVEL exists and user.name = b')).toEqual([
+        ['User', 'payload'],
+        ['LEVEL', 'payload'],
+        ['user.name', 'payload']
+      ]);
     });
   });
 });

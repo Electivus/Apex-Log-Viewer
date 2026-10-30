@@ -268,6 +268,25 @@ describe('Custom Logs JSON columns', () => {
       expect(filterInput()).toHaveValue('"Account Name" ');
       expect(screen.getAllByRole('option').map(option => option.textContent)).toContain('contains');
     });
+
+    it('quotes a payload key spelled like a server filter when the menu asks to filter by it', () => {
+      mountApp({
+        rows: [makeRow(ids.ok, 'Alice order', { payload: parsed({ user: 'alice' }) })],
+        fields: [{ path: 'user', types: ['string'], rows: 1 }],
+        added: ['user']
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Column menu for user' }));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Filter by this field…' }));
+
+      expect(filterInput()).toHaveValue('"user" ');
+      expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual([
+        '=',
+        '!=',
+        'contains',
+        'exists'
+      ]);
+    });
   });
 
   describe('payloads that are not JSON objects', () => {

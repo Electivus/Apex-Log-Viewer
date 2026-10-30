@@ -1,5 +1,5 @@
-import { fireEvent, screen } from '@testing-library/react';
-import type { CustomLogSourceView } from '@alv/protocol/customLogsTypes';
+import { fireEvent, screen, within } from '@testing-library/react';
+import type { CustomLogPayloadField, CustomLogSourceView } from '@alv/protocol/customLogsTypes';
 
 import {
   appLog,
@@ -16,6 +16,7 @@ import {
   parsed,
   posts,
   removeMountSequenceMeta,
+  rowOf,
   rows,
   send,
   submit
@@ -554,6 +555,101 @@ describe('Custom Logs app', () => {
         ['loaded', 'http.status>=500']
       ]);
       expect(listedTitles()).toEqual(['Order sync failed', 'Legacy status as text']);
+    });
+  });
+
+  describe('payload keys spelled like a server filter', () => {
+    const alice = makeRow(ids.failed, 'Alice order', { payload: parsed({ user: 'alice', level: 'x' }) });
+    const bob = makeRow(ids.ok, 'Bob order', { payload: parsed({ user: 'bob', level: 'y' }) });
+    const colliding = {
+      rows: [alice, bob],
+      fields: [
+        { path: 'user', types: ['string'], rows: 2 },
+        { path: 'level', types: ['string'], rows: 2 }
+      ] satisfies CustomLogPayloadField[]
+    };
+    const options = () => screen.getAllByRole('option').map(option => option.textContent);
+
+    it('filters the loaded rows on a quoted payload key and asks Salesforce for nothing', () => {
+      const { posted } = mountApp(colliding);
+
+      submit('"user" = alice and "level" = x');
+
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(posts(posted, 'customLogsSetFilter')).toEqual([]);
+      expect(chipSummary()).toEqual([
+        ['loaded', '"user"=alice'],
+        ['loaded', '"level"=x']
+      ]);
+      expect(listedTitles()).toEqual(['Alice order']);
+    });
+
+    it('still reads an unquoted user as the Salesforce user filter', () => {
+      const { posted } = mountApp(colliding);
+
+      submit('user = alice');
+
+      expect(posts(posted, 'customLogsSetFilter')).toEqual([
+        { type: 'customLogsSetFilter', filter: { user: 'alice' } }
+      ]);
+      expect(chipSummary()).toEqual([['server', 'user=alice']]);
+      expect(listedTitles()).toEqual(['Alice order', 'Bob order']);
+    });
+
+    it('completes the payload key in quotes, with its own operators and values', () => {
+      const { posted } = mountApp(colliding);
+
+      fireEvent.change(filterInput(), { target: { value: 'use' } });
+      expect(options()).toEqual(['userSalesforce', 'userstr100%']);
+      fireEvent.keyDown(filterInput(), { key: 'ArrowDown' });
+      fireEvent.keyDown(filterInput(), { key: 'Enter' });
+      expect(filterInput()).toHaveValue('"user" ');
+      expect(screen.getByText('Operator for "user"')).toBeInTheDocument();
+      expect(options()).toEqual(['=', '!=', 'contains', 'exists']);
+
+      fireEvent.keyDown(filterInput(), { key: 'Enter' });
+      expect(filterInput()).toHaveValue('"user" = ');
+      expect(options()).toEqual(['alice1 row', 'bob1 row']);
+      fireEvent.keyDown(filterInput(), { key: 'ArrowDown' });
+      fireEvent.keyDown(filterInput(), { key: 'Enter' });
+
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(posts(posted, 'customLogsSetFilter')).toEqual([]);
+      expect(chipSummary()).toEqual([['loaded', '"user"=alice']]);
+      expect(listedTitles()).toEqual(['Alice order']);
+    });
+
+    it('keeps a = value filter on the payload key when its chip is edited and committed again', () => {
+      const { posted } = mountApp(colliding);
+      fireEvent.click(rowOf(ids.failed));
+
+      const leaf = within(screen.getByTestId('custom-log-row-detail')).getByTestId('payload-leaf-user');
+      fireEvent.click(within(leaf).getByRole('button', { name: '= value' }));
+      expect(chipSummary()).toEqual([['loaded', '"user"=alice']]);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit filter "user" = alice' }));
+      expect(filterInput()).toHaveValue('"user" = alice');
+      fireEvent.keyDown(filterInput(), { key: 'Enter' });
+
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(posts(posted, 'customLogsSetFilter')).toEqual([]);
+      expect(chipSummary()).toEqual([['loaded', '"user"=alice']]);
+      expect(listedTitles()).toEqual(['Alice order']);
+    });
+
+    it('keeps a Salesforce user chip on the server when it is edited and committed again', () => {
+      const { posted, bus } = mountApp(colliding);
+      send(bus, { type: 'customLogsFilter', value: { user: 'alice' } });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit filter user = alice' }));
+      expect(filterInput()).toHaveValue('user = alice');
+      fireEvent.keyDown(filterInput(), { key: 'Enter' });
+
+      expect(lastPost(posted, 'customLogsSetFilter')).toEqual({
+        type: 'customLogsSetFilter',
+        filter: { user: 'alice' }
+      });
+      expect(chipSummary()).toEqual([['server', 'user=alice']]);
     });
   });
 

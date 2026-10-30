@@ -605,6 +605,32 @@ describe('Custom Log viewer app', () => {
       expect(shownIds()).toEqual([entryIds.payload]);
     });
 
+    it('writes a payload key spelled like a server filter in quotes, and its edited chip filters the same entries', () => {
+      const alice = makeEntry(entryIds.payload, 1, 'Alice order', { payload: parsed({ user: 'alice' }) });
+      const bob = makeEntry(entryIds.debug, 2, 'Bob order', { payload: parsed({ user: 'bob' }) });
+      mountViewer({ entries: [alice, bob], fields: [{ path: 'user', types: ['string'], rows: 2 }] });
+      const input = screen.getByRole('combobox', { name: 'Filter logs' });
+      const chipTexts = () => screen.getAllByTestId('filter-chip').map(chip => chip.textContent);
+      fireEvent.click(rowOf(entryIds.payload));
+
+      const leaf = within(screen.getByTestId('custom-log-entry-detail')).getByTestId('payload-leaf-user');
+      fireEvent.click(within(leaf).getByRole('button', { name: '= value' }));
+      expect(chipTexts()).toEqual(['"user"=alice']);
+      expect(shownIds()).toEqual([entryIds.payload]);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit filter "user" = alice' }));
+      expect(input).toHaveValue('"user" = alice');
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(chipTexts()).toEqual(['"user"=alice']);
+      expect(shownIds()).toEqual([entryIds.payload]);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Remove filter "user" = alice' }));
+      fireEvent.change(input, { target: { value: 'user = bob' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(shownIds()).toEqual([entryIds.debug]);
+    });
+
     it('adds a payload leaf as a column and posts the added paths', () => {
       const { posted } = mountViewer({ entries: payloadEntries, fields: payloadFields });
       fireEvent.click(rowOf(entryIds.payload));

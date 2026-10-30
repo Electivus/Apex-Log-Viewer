@@ -68,6 +68,7 @@ describe('guided filter input', () => {
     expect(computeGuidedStage('http.status ', context)).toEqual({
       stage: 'operator',
       field: 'http.status',
+      kind: 'payload',
       items: ['=', '!=', '>', '>=', '<', '<=', 'exists']
     });
     expect(computeGuidedStage('http.method ', context)).toMatchObject({ items: ['=', '!=', 'contains', 'exists'] });
@@ -89,6 +90,7 @@ describe('guided filter input', () => {
     expect(stage).toEqual({
       stage: 'value',
       field: 'http.status',
+      kind: 'payload',
       op: '>=',
       items: [
         { value: '500', count: 8 },
@@ -117,6 +119,7 @@ describe('guided filter input', () => {
     expect(computeGuidedStage('error.code exists ', context)).toEqual({
       stage: 'commit',
       field: 'error.code',
+      kind: 'payload',
       op: 'exists'
     });
   });
@@ -166,6 +169,7 @@ describe('guided filter input', () => {
       expect(computeGuidedStage('"Account Name" ', spaced)).toEqual({
         stage: 'operator',
         field: 'Account Name',
+        kind: 'payload',
         items: ['=', '!=', 'contains', 'exists']
       });
       expect(acceptGuidedItem(computeGuidedStage('"Account Name" ', spaced), 3)).toEqual({
@@ -175,6 +179,52 @@ describe('guided filter input', () => {
       expect(acceptGuidedItem(computeGuidedStage('"Account Name" = ', spaced), 0)).toEqual({
         text: '"Account Name" = "two words"',
         commit: true
+      });
+    });
+
+    it('tells a payload key from the server filter field it is spelled like, at every stage', () => {
+      const colliding: GuidedContext = {
+        fields: [...fields, { path: 'user', kind: 'payload', type: 'string', share: 100 }],
+        valuesFor: (field, prefix, kind) => [{ value: `${kind} ${field}` }].filter(item => item.value.includes(prefix))
+      };
+
+      const picked = computeGuidedStage('use', colliding);
+      expect(picked.stage === 'field' && picked.items.map(item => item.kind)).toEqual(['server', 'payload']);
+      expect(acceptGuidedItem(picked, 0)).toEqual({ text: 'user ', commit: false });
+      expect(acceptGuidedItem(picked, 1)).toEqual({ text: '"user" ', commit: false });
+
+      expect(computeGuidedStage('user ', colliding)).toMatchObject({ kind: 'server', items: ['='] });
+      expect(computeGuidedStage('"user" ', colliding)).toMatchObject({
+        kind: 'payload',
+        items: ['=', '!=', 'contains', 'exists']
+      });
+      expect(acceptGuidedItem(computeGuidedStage('"user" ', colliding), 3)).toEqual({
+        text: '"user" exists',
+        commit: true
+      });
+      expect(acceptGuidedItem(computeGuidedStage('user = ', colliding), 0)).toEqual({
+        text: 'user = "server user"',
+        commit: true
+      });
+      expect(acceptGuidedItem(computeGuidedStage('"user" = ', colliding), 0)).toEqual({
+        text: '"user" = "payload user"',
+        commit: true
+      });
+    });
+
+    it('reads an unquoted field as a payload path when the context offers no server field by that name', () => {
+      const payloadOnly: GuidedContext = {
+        ...context,
+        fields: [{ path: 'level', kind: 'payload', type: 'string', share: 100 }]
+      };
+
+      expect(computeGuidedStage('level ', payloadOnly)).toMatchObject({
+        kind: 'payload',
+        items: ['=', '!=', 'contains', 'exists']
+      });
+      expect(acceptGuidedItem(computeGuidedStage('level ', payloadOnly), 0)).toEqual({
+        text: '"level" = ',
+        commit: false
       });
     });
   });

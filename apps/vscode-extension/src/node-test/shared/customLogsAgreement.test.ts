@@ -12,8 +12,10 @@ import {
 } from '@alv/protocol/customLogsTypes';
 
 import {
+  SERVER_FILTER_FIELDS,
   formatFilterCondition,
-  parseFilterExpression
+  parseFilterExpression,
+  serverFieldOf
 } from '../../../../../packages/webview/src/utils/customLogs/filterGrammar';
 import { normalizePayloadPath, payloadMatches } from '../../../../../packages/webview/src/utils/customLogs/payloadRows';
 import { coreConfig, coreContracts, coreLevels, corePayload, coreSince, coreSoql } from '../coreInternals';
@@ -151,20 +153,30 @@ suite('Custom Logs rules agree between core and protocol', () => {
       '{"items":[{"id":"a"},{"id":"b"}],"tags":["vip"]}',
       '{"200":{"ok":true},"descrição":"x","@type":"t","a:b":1,"http://x/y":2,"$ref":"#"}',
       '{"Account Name":"Acme","a=b":1,"x>=y":2,"!flag":true,"say \\"hi\\"":1,"it\'s":2,"tab\\tkey":3}',
-      '{"and":1,"or":2,"exists":3,"contains":4,"a":{"":5}," padded ":6}'
+      '{"and":1,"or":2,"exists":3,"contains":4,"a":{"":5}," padded ":6}',
+      JSON.stringify(
+        Object.fromEntries(
+          SERVER_FILTER_FIELDS.flatMap(field => [
+            [field, 1],
+            [field.toUpperCase(), 2]
+          ])
+        )
+      )
     ];
 
     for (const payload of payloads) {
-      test(`writes every path core finds in ${payload} as a filter that reads back to it, indexed and grouped`, () => {
+      test(`writes every path core finds in ${payload} as a payload filter that reads back to it, indexed and grouped`, () => {
         const view = corePayload.decodePayload(payload);
         assert.equal(view.state, 'parsed');
         const paths = Object.keys(view.state === 'parsed' ? view.values : {});
         for (const path of new Set(paths.flatMap(raw => [raw, normalizePayloadPath(raw)]))) {
-          const written = formatFilterCondition({ field: path, op: '>=', value: '500' });
+          const written = formatFilterCondition({ field: path, op: '>=', value: '500' }, 'payload');
           const parsed = parseFilterExpression(written);
           assert.deepEqual(
-            parsed.ok ? parsed.conditions.map(condition => condition.field) : parsed.error,
-            [path],
+            parsed.ok
+              ? parsed.conditions.map(condition => [condition.field, serverFieldOf(condition) ?? 'payload'])
+              : parsed.error,
+            [[path, 'payload']],
             written
           );
         }

@@ -7,7 +7,9 @@ import {
   matchOperatorPrefix,
   readFilterField,
   type FilterCondition,
-  type FilterOperator
+  type FilterFieldKind,
+  type FilterOperator,
+  type ServerFilterField
 } from './filterGrammar';
 import {
   payloadValues,
@@ -18,19 +20,12 @@ import {
   type ValueCount
 } from './payloadRows';
 
-/** Fields that change the SOQL and reload from Salesforce, as opposed to payload paths that only narrow loaded rows. */
-export const SERVER_FILTER_FIELDS = ['level', 'user', 'since', 'source'] as const;
-export type ServerFilterField = (typeof SERVER_FILTER_FIELDS)[number];
-
 export const SINCE_QUICK_VALUES = ['1h', '24h', '7d'] as const;
-
-export function isServerFilterField(field: string): field is ServerFilterField {
-  return (SERVER_FILTER_FIELDS as readonly string[]).includes(field);
-}
 
 export type GuidedField = {
   path: string;
-  kind: 'server' | 'payload';
+  /** `server` fields change the SOQL and reload from Salesforce; payload paths only narrow loaded rows. */
+  kind: FilterFieldKind;
   type?: PayloadFieldType;
   share?: number;
   /** A payload path that is already a column. */
@@ -41,28 +36,27 @@ export type GuidedItem = { value: string; count?: number };
 
 export type GuidedStage =
   | { stage: 'field'; query: string; items: GuidedField[] }
-  | { stage: 'operator'; field: string; items: FilterOperator[] }
-  | { stage: 'value'; field: string; op: FilterOperator; items: GuidedItem[] }
-  | { stage: 'commit'; field: string; op: FilterOperator };
+  | { stage: 'operator'; field: string; kind: FilterFieldKind; items: FilterOperator[] }
+  | { stage: 'value'; field: string; kind: FilterFieldKind; op: FilterOperator; items: GuidedItem[] }
+  | { stage: 'commit'; field: string; kind: FilterFieldKind; op: FilterOperator };
 
 export type GuidedContext = {
   /** Server fields this source supports, then the discovered payload paths. */
   fields: readonly GuidedField[];
   /** Suggestions for one field's value, already ranked; the caller knows the loaded rows. */
-  valuesFor: (field: string, prefix: string) => readonly GuidedItem[];
+  valuesFor: (field: string, prefix: string, kind: FilterFieldKind) => readonly GuidedItem[];
 };
 
 const MAX_FIELD_ITEMS = 8;
 const MAX_VALUE_ITEMS = 8;
 
-export function operatorsFor(field: string, type: PayloadFieldType | undefined): FilterOperator[] {
-  switch (field) {
-    case 'level':
-      return ['>='];
-    case 'user':
-    case 'since':
-    case 'source':
-      return ['='];
+export function operatorsFor(
+  field: string,
+  kind: FilterFieldKind,
+  type: PayloadFieldType | undefined
+): FilterOperator[] {
+  if (kind === 'server') {
+    return field === 'level' ? ['>='] : ['='];
   }
   switch (type) {
     case 'number':
@@ -102,18 +96,24 @@ export function computeGuidedStage(text: string, context: GuidedContext): Guided
     return { stage: 'field', query: field, items };
   }
 
-  const known = context.fields.find(candidate => candidate.path === field);
+  // Unquoted, a field the context offers as a server filter is that filter; quoted, it is always a payload path.
+  const kind: FilterFieldKind =
+    !quoted && context.fields.some(candidate => candidate.kind === 'server' && candidate.path === field)
+      ? 'server'
+      : 'payload';
+  const known = context.fields.find(candidate => candidate.kind === kind && candidate.path === field);
   const matched = matchOperatorPrefix(rest);
   if (!matched || !matched.complete) {
     const prefix = rest.trim().toLowerCase();
-    const items = operatorsFor(field, known?.type).filter(op => op.startsWith(prefix));
-    return { stage: 'operator', field, items };
+    const items = operatorsFor(field, kind, known?.type).filter(op => op.startsWith(prefix));
+    return { stage: 'operator', field, kind, items };
   }
   if (matched.op === 'exists') {
-    return { stage: 'commit', field, op: matched.op };
+    return { stage: 'commit', field, kind, op: matched.op };
   }
   const prefix = rest.slice(matched.op.length).trim().replace(/^["']/, '').replace(/["']$/, '');
-  return { stage: 'value', field, op: matched.op, items: context.valuesFor(field, prefix).slice(0, MAX_VALUE_ITEMS) };
+  const items = context.valuesFor(field, prefix, kind).slice(0, MAX_VALUE_ITEMS);
+  return { stage: 'value', field, kind, op: matched.op, items };
 }
 
 /** What accepting a suggestion writes into the input. */
@@ -121,7 +121,7 @@ export function acceptGuidedItem(stage: GuidedStage, index: number): { text: str
   switch (stage.stage) {
     case 'field': {
       const item = stage.items[index];
-      return item ? { text: `${formatFilterField(item.path)} `, commit: false } : undefined;
+      return item ? { text: `${formatFilterField(item.path, item.kind)} `, commit: false } : undefined;
     }
     case 'operator': {
       const op = stage.items[index];
@@ -129,17 +129,20 @@ export function acceptGuidedItem(stage: GuidedStage, index: number): { text: str
         return undefined;
       }
       return op === 'exists'
-        ? { text: formatFilterCondition({ field: stage.field, op }), commit: true }
-        : { text: `${formatFilterField(stage.field)} ${op} `, commit: false };
+        ? { text: formatFilterCondition({ field: stage.field, op }, stage.kind), commit: true }
+        : { text: `${formatFilterField(stage.field, stage.kind)} ${op} `, commit: false };
     }
     case 'value': {
       const item = stage.items[index];
       return item
-        ? { text: formatFilterCondition({ field: stage.field, op: stage.op, value: item.value }), commit: true }
+        ? {
+            text: formatFilterCondition({ field: stage.field, op: stage.op, value: item.value }, stage.kind),
+            commit: true
+          }
         : undefined;
     }
     case 'commit':
-      return { text: formatFilterCondition({ field: stage.field, op: stage.op }), commit: true };
+      return { text: formatFilterCondition({ field: stage.field, op: stage.op }, stage.kind), commit: true };
   }
 }
 
@@ -166,7 +169,7 @@ export function applyServerCondition(
   context: ServerConditionContext
 ): ServerConditionResult {
   const field = condition.field as ServerFilterField;
-  const allowed = operatorsFor(field, undefined);
+  const allowed = operatorsFor(field, 'server', undefined);
   if (!allowed.includes(condition.op)) {
     return { ok: false, error: { code: 'serverOperator', field, allowed, at: condition.at.operator } };
   }
